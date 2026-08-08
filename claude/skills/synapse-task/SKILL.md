@@ -11,13 +11,19 @@ no conversion needed).
 
 ## When to invoke (proactive — do not wait to be asked)
 
+Applies to any task note, in any project — a task note is identified by having
+`task_id` and `status` frontmatter fields, not by which prefix `task_id` uses
+(`ecs-NNN`, `sb-NNN`, or any other project's prefix from
+`~/.claude/synapse-projects.conf`). Never gate this skill on a specific
+prefix.
+
 Invoke this skill **automatically** in two situations:
 
-1. **Starting work on an ecs-* task** — as soon as the user confirms work is
+1. **Starting work on a task** — as soon as the user confirms work is
    beginning, before writing any code. Set `status: IN-PROGRESS` and update
    `last_updated`. No notes needed at this point.
 
-2. **Finishing work on an ecs-* task** — after all phases are committed and
+2. **Finishing work on a task** — after all phases are committed and
    the task note's checklist has been updated. Set `status: REVIEW` (if all
    items checked) or `status: IN-PROGRESS` (if any remain), update
    `last_updated`, and append an implementation summary to the `## Notes`
@@ -47,8 +53,9 @@ into `status:` either — always go through this skill, which caps at
 ## Procedure
 
 1. Find the task note: `mcp__obsidian__search_query` with
-   `{"==": [{"var": "frontmatter.task_id"}, "ecs-NNN"]}`, then
-   `mcp__obsidian__vault_read` the matched file.
+   `{"==": [{"var": "frontmatter.task_id"}, "<task-id>"]}`, where `<task-id>`
+   is the specific task's ID (whatever prefix it uses — `ecs-035`, `sb-008`,
+   etc.), then `mcp__obsidian__vault_read` the matched file.
 2. Inspect its checklist items (`- [ ]` / `- [x]`).
 3. Determine the new `status:` value: `IN-PROGRESS` if any unchecked,
    `REVIEW` if all checked.
@@ -108,8 +115,8 @@ level. Append to the last existing notes section.
 
 ## Task file structure
 
-Each ecs-* task note has **exactly one top-level heading** (the task
-itself, `# {title}`). Implementation steps go as `- [ ]` checklist items
+Each task note, in any project, has **exactly one top-level heading** (the
+task itself, `# {title}`). Implementation steps go as `- [ ]` checklist items
 **under that heading**, not as additional headings. Do not create `##
 Step` sub-headings for implementation steps.
 
@@ -188,10 +195,11 @@ procedure above.
 When the user asks to create a GitHub issue from a task note:
 
 1. **Title** — `<TASK-ID> — <description>`, where `<TASK-ID>` is the
-   `task_id` frontmatter field (e.g. `ecs-030`) and `<description>` is the
-   heading with any leading task-id prefix stripped (`ecs-NNN`, `ecs-NNN —`,
-   or `ecs-NNN - `). Example: heading `# ecs-035 - Time resource
-   implementation` → title `ecs-035 — Time resource implementation`.
+   `task_id` frontmatter field (whatever project's prefix it uses — e.g.
+   `ecs-030`, `sb-008`) and `<description>` is the heading with any leading
+   task-id prefix stripped (`<TASK-ID>`, `<TASK-ID> —`, or `<TASK-ID> - `).
+   Example: heading `# ecs-035 - Time resource implementation` → title
+   `ecs-035 — Time resource implementation`.
 2. **Body** — the full content of the top-level heading section: the
    description paragraph and all checklist items (with any inline code
    blocks) — already GFM Markdown, so this goes straight into
