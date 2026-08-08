@@ -224,8 +224,8 @@ emit into tool calls than read into a window. Never hand-author those.
 
    ```json
    {
-     "eon_ecs/world.ml": ["World — entity_component_resource core.md"],
-     "eon_ecs/world.mli": ["World — entity_component_resource core.md"],
+     "acme_ecs/world.ml": ["World — entity_component_resource core.md"],
+     "acme_ecs/world.mli": ["World — entity_component_resource core.md"],
      "_unassigned": []
    }
    ```

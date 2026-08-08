@@ -103,8 +103,8 @@ and the scripts that build both. This is the complementary view: what a Claude C
   (`SessionStart`, the `Stop` nudge) rather than left to be remembered unprompted.
 - **A design → task workflow** — free-form discussion that only becomes a tracked checklist once it's
   actually ready to build, with status tracked separately from the discussion that produced it.
-- **A code graph** — efficient codebase search and, since sb-005, exact per-symbol lookup, both scoped
-  to stay cheap regardless of a node's size.
+- **A code graph** — efficient codebase search and exact per-symbol lookup, both scoped to stay cheap
+  regardless of a node's size.
 
 The three pillar boxes are drawn the same size on purpose. The code graph is the most mechanically
 elaborate of the three by a wide margin — two staleness tiers, tree-sitter acceleration, a tags cache

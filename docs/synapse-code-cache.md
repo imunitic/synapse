@@ -64,7 +64,7 @@ the Graph, but real, with no Obsidian install as its price of entry.
 ## Vault-freedom, measured
 
 Counting vault references (`OBSIDIAN_VAULT_DIR`, `$VAULT`, the Local REST API, its cert/key) across
-every script in `claude/bin/`: 10 of 15 are vault-free outright (`synapse-identity.sh`,
+every script in `claude/lib/synapse/`: 12 of 17 are vault-free outright (`synapse-identity.sh`,
 `synapse-tags.sh`, `synapse-tags-cache.sh`, `synapse-build-refs.sh`, `synapse-callers.sh`,
 `synapse-enumerate.sh`, `synapse-build-lists.sh`, `synapse-vocab.sh`, `synapse-gate.sh`,
 `synapse-rank.sh`, `synapse-tokenizer.sh`, `synapse-push-nodes.sh`). The remaining five

@@ -557,7 +557,7 @@ It's optional at every layer, never a hard dependency:
 - Grammars build as native libraries (`tree-sitter build`, not `--wasm`: consuming WASM grammars needs
   a non-default Rust build of the CLI, a worse dependency than the C compiler native grammars need).
 
-One subtlety in reading the output: a qualified-path reference (`Eon_ecs.Foo.bar`) must not also be
+One subtlety in reading the output: a qualified-path reference (`Acme_ecs.Foo.bar`) must not also be
 counted as a bare same-package reference to `bar`, or the tags imply edges the code does not contain.
 
 ## The Code Cache: exact-symbol lookup and repo-wide callers

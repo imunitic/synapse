@@ -142,11 +142,11 @@ to orient someone already inside. A node without one is an error, not a default.
 ---
 title: "World — entity/component/resource core"
 node_type: synapse-node
-project: eon
+project: acme
 sources:
-  - path: eon_ecs/world.ml
+  - path: acme_ecs/world.ml
     hash: <git hash-object output>
-  - path: eon_ecs/world.mli
+  - path: acme_ecs/world.mli
     hash: <git hash-object output>
   # ... every file the node covers, not a selection
 sources_digest: <sha256 over the sorted "path:hash" lines>
@@ -170,7 +170,7 @@ built_at: "<now>"
 - part_of [[Another Node Title]]
 
 ## Sources
-- `eon_ecs` (2)
+- `acme_ecs` (2)
 <!-- synapse:generated:end -->
 
 ## Notes
