@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Tests claude/bin/synapse-build-refs.sh -- the projection from a project's tags
+# Tests claude/lib/synapse/synapse-build-refs.sh -- the projection from a project's tags
 # cache to the flat, sorted reference index that `synapse-query.sh callers`
 # reads.
 #
@@ -11,7 +11,7 @@
 
 load 'test_helper'
 
-SCRIPT="$REPO_ROOT/claude/bin/synapse-build-refs.sh"
+SCRIPT="$REPO_ROOT/claude/lib/synapse/synapse-build-refs.sh"
 
 setup() {
   common_setup

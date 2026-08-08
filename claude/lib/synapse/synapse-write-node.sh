@@ -124,7 +124,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 
 # "{repo}@{branch}", not a bare repo name -- see synapse-identity.sh.
 # shellcheck source=/dev/null
-. "$HOME/.claude/bin/synapse-identity.sh" 2>/dev/null || {
+. "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh" 2>/dev/null || {
     echo "synapse-write-node: synapse-identity.sh not installed (run setup.sh)" >&2; exit 1; }
 REPO_NAME="$(synapse_namespace "$REPO_ROOT")" || exit 1
 
@@ -252,10 +252,10 @@ hashes_n="$(wc -l < "$work/hashes.txt" | tr -d ' ')"
 # docs/synapse-graph.md's "Exact-symbol lookup" section for the full design.
 #
 # It lands in the work dir, not the vault: derived, disposable, and ~942 MB at
-# syrius3 scale against _index.json's 26 MB, so keeping it in a version-
+# large-repo scale against _index.json's 26 MB, so keeping it in a version-
 # controlled vault would commit a fresh copy on every rebuild.
 if [[ -z "${SYNAPSE_DISABLE_SYMBOL_CACHE:-}" ]]; then
-    tags_cache_sh="$HOME/.claude/bin/synapse-tags-cache.sh"
+    tags_cache_sh="${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-tags-cache.sh"
     if [[ -x "$tags_cache_sh" ]]; then
         paste "$work/paths.txt" "$work/hashes.txt" > "$work/paths-hashes.tsv"
         "$tags_cache_sh" --repo-root "$REPO_ROOT" \

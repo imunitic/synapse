@@ -1,10 +1,10 @@
 #!/usr/bin/env bats
-# Tests claude/bin/synapse-push-nodes.sh -- the driver that pairs each authored
+# Tests claude/lib/synapse/synapse-push-nodes.sh -- the driver that pairs each authored
 # body with its path list and calls the writer once per node.
 
 load 'test_helper'
 
-PUSH="$REPO_ROOT/claude/bin/synapse-push-nodes.sh"
+PUSH="$REPO_ROOT/claude/lib/synapse/synapse-push-nodes.sh"
 
 setup() {
   common_setup

@@ -26,7 +26,11 @@
 set -euo pipefail
 
 readonly HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly BIN="$HERE/../claude/bin"
+# The plumbing, not claude/bin/ -- that now holds only the synapse.sh
+# porcelain, which documents itself via its own --help rather than through
+# this generated reference (a dispatcher's header isn't a script contract in
+# the same shape these are).
+readonly BIN="$HERE/../claude/lib/synapse"
 readonly OUT="$HERE/scripts.md"
 
 # Defined once and shared by both extraction passes. They must agree: when they

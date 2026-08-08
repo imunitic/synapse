@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Tests claude/bin/synapse-rank.sh -- the tiered ranking that decides what is
+# Tests claude/lib/synapse/synapse-rank.sh -- the tiered ranking that decides what is
 # worth READING when authoring a node's prose. Coverage is not at stake here:
 # `sources` stays exhaustive, and nothing this script does can remove a file
 # from the graph. Only reading order changes.
@@ -11,13 +11,13 @@
 
 load 'test_helper'
 
-SCRIPT="$REPO_ROOT/claude/bin/synapse-rank.sh"
+SCRIPT="$REPO_ROOT/claude/lib/synapse/synapse-rank.sh"
 
 setup() {
   common_setup
-  mkdir -p "$HOME/.claude/bin"
-  cp "$REPO_ROOT/claude/bin/synapse-tags.sh" "$HOME/.claude/bin/synapse-tags.sh"
-  chmod +x "$HOME/.claude/bin/synapse-tags.sh"
+  mkdir -p "$HOME/.claude/lib/synapse"
+  cp "$REPO_ROOT/claude/lib/synapse/synapse-tags.sh" "$HOME/.claude/lib/synapse/synapse-tags.sh"
+  chmod +x "$HOME/.claude/lib/synapse/synapse-tags.sh"
   printf '%s' '{"java": {"repo": "https://example.invalid/tree-sitter-java", "scope": "source.java"}}' \
     > "$HOME/.claude/synapse-grammars.conf"
   SRC="$TEST_HOME/sources.txt"

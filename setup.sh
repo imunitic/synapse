@@ -12,7 +12,7 @@ DEST="$HOME/.claude"
 
 command -v jq >/dev/null || { echo "jq is required. Install it first (e.g. brew install jq)." >&2; exit 1; }
 
-mkdir -p "$DEST/hooks" "$DEST/commands" "$DEST/bin"
+mkdir -p "$DEST/hooks" "$DEST/commands" "$DEST/bin" "$DEST/lib/synapse"
 
 echo "== CLAUDE.md =="
 if [ -f "$DEST/CLAUDE.md" ] && ! diff -q "$SRC/CLAUDE.md" "$DEST/CLAUDE.md" >/dev/null 2>&1; then
@@ -97,9 +97,30 @@ for skill_dir in "$SRC/skills/"*/; do
 done
 # Glob rather than naming each script, matching how hooks/ is copied above --
 # naming them individually meant a newly added script silently didn't install.
+# Only the porcelain (synapse.sh) lives in bin/ and goes on PATH; the plumbing
+# scripts it dispatches to live in lib/synapse/, found through SYNAPSE_LIB_DIR
+# rather than PATH -- see synapse.conf.template.
 cp "$SRC/bin/"*.sh "$DEST/bin/"
 chmod +x "$DEST/bin/"*.sh
+cp "$SRC/lib/synapse/"*.sh "$DEST/lib/synapse/"
+chmod +x "$DEST/lib/synapse/"*.sh
 echo "  installed."
+# This script copies in but never deletes, so scripts that moved out of bin/
+# and into lib/synapse/ during the porcelain rewrite linger in $DEST/bin/ on an
+# existing machine -- unreferenced but still executable and still on PATH,
+# which is worse than absent because a stray old copy can shadow the real one.
+stale_bin_scripts=()
+for f in "$DEST/bin/"synapse-*.sh; do
+  [ -e "$f" ] || continue
+  [ "$(basename "$f")" = "synapse.sh" ] && continue
+  stale_bin_scripts+=("$f")
+done
+if [ "${#stale_bin_scripts[@]}" -gt 0 ]; then
+  echo "  NOTE: found pre-relocation scripts in $DEST/bin/ -- these moved to"
+  echo "    $DEST/lib/synapse/ and are no longer installed here. Still on PATH,"
+  echo "    so remove them by hand to avoid shadowing the real copies:"
+  printf '    %s\n' "${stale_bin_scripts[@]}"
+fi
 if [ -d "$DEST/skills/obsidian-task" ] || [ -f "$DEST/bin/second-brain-switch" ] || ls "$DEST/commands/obsidian-"*.md >/dev/null 2>&1 || [ -d "$DEST/skills/org-task" ]; then
   echo "  NOTE: found stale files from before the sb- rename / org-roam removal --"
   echo "    $DEST/skills/obsidian-task/, $DEST/skills/org-task/, $DEST/bin/second-brain-switch,"

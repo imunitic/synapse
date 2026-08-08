@@ -30,8 +30,8 @@ Note for agent callers: needs the sandbox disabled (localhost REST API).
 
 ## `synapse-build-lists.sh`
 
-Enumerates a repo's tracked files and expands a node manifest into one path
-list per node, then reports coverage. Step 1 of a scripted /synapse-init.
+Expands a node manifest into one path list per node, then reports coverage.
+Step 1 of a scripted /synapse-init.
 
 ```
 Usage: synapse-build-lists.sh [--reenumerate]
@@ -39,24 +39,14 @@ Usage: synapse-build-lists.sh [--reenumerate]
   Never the script's own location, and never the repo -- see below.
 
 Reads   $SYNAPSE_WORK_DIR/manifest.tsv   title <TAB> include-ERE <TAB> exclude-ERE
-Writes  $SYNAPSE_WORK_DIR/all.txt        enumerated tracked files (kept if present)
-        $SYNAPSE_WORK_DIR/lists/NN.txt   one path list per manifest line
+Calls   claude/lib/synapse/synapse-enumerate.sh  for $SYNAPSE_WORK_DIR/all.txt -- see its
+        own header for the exclusion rules, the size cap and --reenumerate.
+Writes  $SYNAPSE_WORK_DIR/lists/NN.txt   one path list per manifest line
         $SYNAPSE_WORK_DIR/lists/NN.title the node title for that list
         $SYNAPSE_WORK_DIR/unassigned.txt files no node claimed
 
 Prints enumerated/covered/unassigned counts, so a bad pattern shows up as a
 number rather than a silent gap.
-
-Two ways to drop more than the built-in exclusions, both OR'd together:
-  ~/.claude/synapse-ignore-files.conf   one ERE per line, comments allowed
-  $SYNAPSE_EXTRA_EXCLUDE_RE             a single ERE, for one-off invocations
-Excluding a path removes it from the graph entirely -- no owning node, no
-vault search hit, no staleness flag when it changes. Right for build output
-and vendored code; wrong for anything whose edits still matter.
-
-Files over $SYNAPSE_MAX_FILE_BYTES (default 1048576, 1 MB) are skipped and
-reported, not dropped silently: no extension or name rule anticipates a
-generated monster, and a silent skip makes `enumerated` disagree with the repo.
 
 Exit codes: 0 ok, 1 could not run, 2 usage error
 ```
@@ -112,7 +102,7 @@ WHY A SEPARATE FILE RATHER THAN QUERYING THE CACHE. The constraint is format,
 not size. Disk is cheap and the cache already lives in the work dir rather
 than the version-controlled vault. What bites is querying JSON at scale: one
 `jq` pass over a 4.6 MB cache measured 0.064s, which extrapolates to ~13s per
-query at syrius3's 942 MB -- for something meant to feel interactive. The same
+query at a large repo's 942 MB -- for something meant to feel interactive. The same
 data as flat sorted lines is a different regime: measured against a 560 MB
 index, `grep` answered in 0.092s.
 
@@ -131,6 +121,80 @@ Exit codes:
   0 - index written; prints tags/files/unsupported counts on stderr
   1 - could not run (no cache, unreadable cache, missing dependency)
   2 - usage error
+```
+
+## `synapse-callers.sh`
+
+Repo-wide call sites of an exact name, over the flat reference index
+synapse-build-refs.sh projects from the tags cache.
+
+```
+Usage: synapse-callers.sh <name> [--all]   (operates on the repo containing $PWD)
+
+  <name>          exact symbol name (not a prefix, not a regex)
+  (default)        calls only, as path:line<TAB>calling expression
+  --all            every def and ref, not only calls, as
+                   def|ref<TAB>kind<TAB>path:line<TAB>expression
+
+Needs NO graph -- no nodes, no _index.json, no clustering, no vault. It reads
+$SYNAPSE_WORK_DIR/_refs.tsv and nothing else, which is why `synapse-query.sh
+callers` dispatches straight into this script ahead of that file's
+vault/namespace preamble: the property is structural, so it keeps answering
+in a repo where /synapse-init has never clustered anything. Build the index
+with:
+
+  synapse-tags-cache.sh --repo-root . --cache <cache> --paths <path:hash tsv>
+  synapse-build-refs.sh
+
+It is name-based like `symbol`, so hits are candidates with evidence rather
+than resolved callers -- the calling expression is on the line, which usually
+settles the receiver without opening the file. Out of reach, and not worked
+around: reflective invocation, and a call whose receiver sits on another line
+(a fluent chain split across lines). Interface dispatch appears as the
+interface method, which is normally the answer wanted rather than a loss.
+
+`symbol` and `callers` differ in scope, not technique. `symbol` is scoped to
+one node's sources and re-hashes them on every call, so it answers "within this
+subsystem" and costs O(node sources); `callers` is repo-wide over a precomputed
+index, so it answers "anywhere" and costs one pass over a text file.
+
+Exit codes:
+  0 - ran successfully. Empty output means "checked, never called" -- a real
+      answer, not an error.
+  1 - could not run (not a git repo, synapse-identity.sh missing, no
+      reference index built yet)
+  2 - usage error
+```
+
+## `synapse-enumerate.sh`
+
+Enumerates a repo's tracked files, dropping binaries, generated/lockfile
+noise, submodule gitlinks and oversized files. Standalone and vault-free --
+no manifest.tsv, no clustering, nothing beyond git and the repo itself.
+
+```
+Usage: synapse-enumerate.sh [--reenumerate]
+  Work dir: $SYNAPSE_WORK_DIR, default ~/.claude/synapse-work/{repo}@{branch}/.
+  Never the script's own location, and never the repo -- see below.
+
+Writes  $SYNAPSE_WORK_DIR/all.txt        enumerated tracked files (kept if present)
+        $SYNAPSE_WORK_DIR/oversize.txt   size<TAB>path for files over the cap
+
+An existing all.txt is reused as-is unless --reenumerate forces a rebuild --
+a caller that only needs the file list, not a fresh one, pays nothing extra.
+
+Two ways to drop more than the built-in exclusions, both OR'd together:
+  ~/.claude/synapse-ignore-files.conf   one ERE per line, comments allowed
+  $SYNAPSE_EXTRA_EXCLUDE_RE             a single ERE, for one-off invocations
+Excluding a path removes it from the graph entirely -- no owning node, no
+vault search hit, no staleness flag when it changes. Right for build output
+and vendored code; wrong for anything whose edits still matter.
+
+Files over $SYNAPSE_MAX_FILE_BYTES (default 1048576, 1 MB) are skipped and
+reported, not dropped silently: no extension or name rule anticipates a
+generated monster, and a silent skip makes `enumerated` disagree with the repo.
+
+Exit codes: 0 ok, 1 could not run, 2 usage error
 ```
 
 ## `synapse-gate.sh`
@@ -168,7 +232,7 @@ generic one is not how much distinctive vocabulary it has in total, it is
 whether it has any at all -- so the rule counts near-unique terms rather than
 weighing them.
 
-Measured against the four known-undifferentiated clusters in syrius3@master
+Measured against the four known-undifferentiated clusters in a large repo
 (46 nodes): tolerance 0 catches three with no false positives, tolerance 1
 catches all four with no false positives, tolerance 2 catches four but flags
 five good clusters as well. The `max(2, N/20)` form reduces to the constant
@@ -259,7 +323,7 @@ whole question reduces to which branch is checked out.
 
 ```
 Usage (sourced, never executed):
-  . "$HOME/.claude/bin/synapse-identity.sh"
+  . "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh"
   REMOTE="$(synapse_remote "$REPO_ROOT")"           # identity, unchanged chain
   NS="$(synapse_namespace "$REPO_ROOT")" || ...     # "{repo}@{branch}"
 
@@ -330,22 +394,9 @@ Usage: synapse-query.sh <subcommand> [args]   (operates on the repo containing $
 
 <node> may be given with or without the trailing `.md`.
 
-`callers` needs NO graph -- no nodes, no _index.json, no clustering, no vault.
-It reads $SYNAPSE_WORK_DIR/_refs.tsv, the flat index synapse-build-refs.sh
-projects from the tags cache, and nothing else. That is why it is dispatched
-ahead of this script's vault/namespace preamble rather than after it: the
-property is structural, so it keeps answering in a repo where /synapse-init has
-never clustered anything. Build the index with:
-
-  synapse-tags-cache.sh --repo-root . --cache <cache> --paths <path:hash tsv>
-  synapse-build-refs.sh
-
-It is name-based like `symbol`, so hits are candidates with evidence rather
-than resolved callers -- the calling expression is on the line, which usually
-settles the receiver without opening the file. Out of reach, and not worked
-around: reflective invocation, and a call whose receiver sits on another line
-(a fluent chain split across lines). Interface dispatch appears as the
-interface method, which is normally the answer wanted rather than a loss.
+`callers` is a one-line dispatch into claude/lib/synapse/synapse-callers.sh, ahead of
+this script's vault/namespace preamble -- see that file's header for why, and
+for the rest of its usage and rationale.
 
 `symbol` and `callers` differ in scope, not technique. `symbol` is scoped to
 one node's sources and re-hashes them on every call, so it answers "within this
@@ -360,7 +411,7 @@ spot. Set SYNAPSE_DISABLE_SYMBOL_CACHE (any value) to disable entirely --
 see docs/synapse-graph.md's "Exact-symbol lookup" section for the full design.
 
 That cache sits beside the work dir rather than in the vault because it is
-derived, disposable and large: at syrius3 scale ~942 MB against _index.json's
+derived, disposable and large: at large-repo scale ~942 MB against _index.json's
 26 MB, and the vault is version-controlled, so every rebuild would commit a
 fresh copy of it into the vault's history. Deleting it costs one re-tag.
 
@@ -606,7 +657,7 @@ orientation evidence -- it exists before anyone has decided what the nodes
 are, which is the whole point of it. Cluster grouping is what the quality gate
 scores, and a cluster is not generally a union of directories, so it cannot be
 derived from the directory-keyed table after the fact. The second run costs
-another tagging pass (~51s on syrius3) against a build that was measured in
+another tagging pass (~51s on a large repo) against a build that was measured in
 hours, so exactness was the cheaper side of that trade.
 
 Prints groups / files / code files / pairs on stderr, so a repo that yielded
@@ -615,13 +666,13 @@ no vocabulary is a number rather than an empty file nobody looked at.
 WHY THIS IS AFFORDABLE. Tagging goes through `synapse-tags.sh --paths`, one
 invocation per chunk, because CLI startup and grammar load are nearly all of
 the per-file cost: 200 files measured 0.076s batched against 2.543s as 200
-invocations across 12 workers. The whole of syrius3 (125,351 files, 98k of
+invocations across 12 workers. The whole of a large repo (125,351 files, 98k of
 them code) takes ~51s. Chunking exists only to use more than one core; it is
 not what makes this cheap.
 
 RAW TAGS ARE NEVER STORED. Each worker pipes `synapse-tags.sh` straight into
 the word reduction and keeps only `group <TAB> word`. The tags themselves are
-~942 MB on syrius3 against 6.9 MB of vocabulary, so writing them out first
+~942 MB on a large repo against 6.9 MB of vocabulary, so writing them out first
 would cost more disk than the entire graph.
 
 EVERY TRANSFORM IS awk, NOT sed. `sed` works on whole lines, so a character

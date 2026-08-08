@@ -27,7 +27,7 @@
 # not size. Disk is cheap and the cache already lives in the work dir rather
 # than the version-controlled vault. What bites is querying JSON at scale: one
 # `jq` pass over a 4.6 MB cache measured 0.064s, which extrapolates to ~13s per
-# query at syrius3's 942 MB -- for something meant to feel interactive. The same
+# query at a large repo's 942 MB -- for something meant to feel interactive. The same
 # data as flat sorted lines is a different regime: measured against a 560 MB
 # index, `grep` answered in 0.092s.
 #
@@ -77,7 +77,7 @@ if [ -z "$CACHE" ] || [ -z "$OUT" ]; then
   [ -n "$REPO" ] || REPO="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
   [ -n "$REPO" ] || { echo "synapse-build-refs: not inside a git repo and no --cache/--out given" >&2; exit 1; }
   # shellcheck source=/dev/null
-  . "$HOME/.claude/bin/synapse-identity.sh" 2>/dev/null || {
+  . "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh" 2>/dev/null || {
     echo "synapse-build-refs: synapse-identity.sh not installed (run setup.sh)" >&2; exit 1; }
   REPO_NAME="$(synapse_namespace "$REPO")" || exit 1
   WORK_DIR="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}"

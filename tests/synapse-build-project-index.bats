@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Tests claude/bin/synapse-build-project-index.sh -- the per-project Index.md.
+# Tests claude/lib/synapse/synapse-build-project-index.sh -- the per-project Index.md.
 #
 # Three properties carry real consequences. The `remote` field must resolve exactly
 # as the SessionStart hook, synapse-staleness.sh and synapse-query.sh do, or the
@@ -11,7 +11,7 @@
 
 load 'test_helper'
 
-BUILD_PINDEX="$REPO_ROOT/claude/bin/synapse-build-project-index.sh"
+BUILD_PINDEX="$REPO_ROOT/claude/lib/synapse/synapse-build-project-index.sh"
 
 setup() {
   common_setup

@@ -1,19 +1,17 @@
 #!/bin/bash
-# Enumerates a repo's tracked files and expands a node manifest into one path
-# list per node, then reports coverage. Step 1 of a scripted /synapse-init.
+# Enumerates a repo's tracked files, dropping binaries, generated/lockfile
+# noise, submodule gitlinks and oversized files. Standalone and vault-free --
+# no manifest.tsv, no clustering, nothing beyond git and the repo itself.
 #
-# Usage: synapse-build-lists.sh [--reenumerate]
+# Usage: synapse-enumerate.sh [--reenumerate]
 #   Work dir: $SYNAPSE_WORK_DIR, default ~/.claude/synapse-work/{repo}@{branch}/.
 #   Never the script's own location, and never the repo -- see below.
 #
-# Reads   $SYNAPSE_WORK_DIR/manifest.tsv   title <TAB> include-ERE <TAB> exclude-ERE
 # Writes  $SYNAPSE_WORK_DIR/all.txt        enumerated tracked files (kept if present)
-#         $SYNAPSE_WORK_DIR/lists/NN.txt   one path list per manifest line
-#         $SYNAPSE_WORK_DIR/lists/NN.title the node title for that list
-#         $SYNAPSE_WORK_DIR/unassigned.txt files no node claimed
+#         $SYNAPSE_WORK_DIR/oversize.txt   size<TAB>path for files over the cap
 #
-# Prints enumerated/covered/unassigned counts, so a bad pattern shows up as a
-# number rather than a silent gap.
+# An existing all.txt is reused as-is unless --reenumerate forces a rebuild --
+# a caller that only needs the file list, not a fresh one, pays nothing extra.
 #
 # Two ways to drop more than the built-in exclusions, both OR'd together:
 #   ~/.claude/synapse-ignore-files.conf   one ERE per line, comments allowed
@@ -43,26 +41,22 @@ case "${1:-}" in
     *) usage ;;
 esac
 
-command -v git >/dev/null || { echo "synapse-build-lists: git required" >&2; exit 1; }
+command -v git >/dev/null || { echo "synapse-enumerate: git required" >&2; exit 1; }
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-[[ -n "$REPO_ROOT" ]] || { echo "synapse-build-lists: not inside a git repo" >&2; exit 1; }
+[[ -n "$REPO_ROOT" ]] || { echo "synapse-enumerate: not inside a git repo" >&2; exit 1; }
 
 # "{repo}@{branch}", not a bare repo name -- see synapse-identity.sh.
 # shellcheck source=/dev/null
-. "$HOME/.claude/bin/synapse-identity.sh" 2>/dev/null || {
-    echo "synapse-build-lists: synapse-identity.sh not installed (run setup.sh)" >&2; exit 1; }
+. "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh" 2>/dev/null || {
+    echo "synapse-enumerate: synapse-identity.sh not installed (run setup.sh)" >&2; exit 1; }
 REPO_NAME="$(synapse_namespace "$REPO_ROOT")" || exit 1
 
 # Not $PWD: the repo is resolved from $PWD, so a $PWD default would write the
-# enumeration and lists into the user's checkout. Per repo, so a re-run finds the
-# previous manifest.
+# enumeration into the user's checkout. Per repo, so a re-run finds the
+# previous enumeration.
 readonly WORK_DIR="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}"
 mkdir -p "$WORK_DIR"
 readonly ALL="$WORK_DIR/all.txt"
-readonly MANIFEST="$WORK_DIR/manifest.tsv"
-readonly LISTS="$WORK_DIR/lists"
-
-[[ -f "$MANIFEST" ]] || { echo "synapse-build-lists: no manifest.tsv in $WORK_DIR" >&2; exit 1; }
 
 # Dropped at enumeration, so _unassigned means "text I could not place". Grouped
 # by what a file is rather than by ecosystem, so adding a language is a one-line
@@ -153,35 +147,9 @@ if [[ ! -s "$ALL" || "$reenumerate" == true ]]; then
     rm -f "$WORK_DIR/candidates.txt"
 fi
 
-rm -rf "$LISTS"
-mkdir -p "$LISTS"
-
-node_index=0
-while IFS=$'\t' read -r title include exclude; do
-    [[ -n "$title" ]] || continue
-    node_index=$((node_index + 1))
-    slug="$(printf '%02d' "$node_index")"
-    printf '%s\n' "$title" > "$LISTS/$slug.title"
-    # An empty exclude column means "exclude nothing"; `^$` never matches a path.
-    grep -E "$include" "$ALL" | grep -vE "${exclude:-^$}" > "$LISTS/$slug.txt" || true
-    printf '%s\t%s\t%s\n' "$slug" "$(wc -l < "$LISTS/$slug.txt" | tr -d ' ')" "$title"
-done < "$MANIFEST"
-
-echo "--- coverage"
-cat "$LISTS"/*.txt | LC_ALL=C sort -u > "$WORK_DIR/covered.txt"
-LC_ALL=C sort "$ALL" > "$WORK_DIR/all-sorted.txt"
-# LC_ALL=C on comm as well as on the sorts. comm verifies its inputs against the
-# *ambient* collation, and under a UTF-8 locale it silently reports every line as
-# unique once uppercase filenames are involved (README.md sorts before crates/ in C
-# but not in en_US.UTF-8) -- which would make the coverage report claim nothing is
-# covered, with no warning at all.
-LC_ALL=C comm -23 "$WORK_DIR/all-sorted.txt" "$WORK_DIR/covered.txt" > "$WORK_DIR/unassigned.txt"
 if [[ -s "$WORK_DIR/oversize.txt" ]]; then
     printf 'skipped %s file(s) over %s bytes (largest first):\n' \
         "$(wc -l < "$WORK_DIR/oversize.txt" | tr -d ' ')" "$MAX_FILE_BYTES"
     LC_ALL=C sort -rn "$WORK_DIR/oversize.txt" | head -5 | awk -F'\t' '{ printf "  %10s  %s\n", $1, $2 }'
 fi
-printf 'enumerated: %s\ncovered:    %s\nunassigned: %s\n' \
-    "$(wc -l < "$WORK_DIR/all-sorted.txt" | tr -d ' ')" \
-    "$(wc -l < "$WORK_DIR/covered.txt" | tr -d ' ')" \
-    "$(wc -l < "$WORK_DIR/unassigned.txt" | tr -d ' ')"
+printf 'enumerated: %s\n' "$(wc -l < "$ALL" | tr -d ' ')"

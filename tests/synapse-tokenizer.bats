@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Tests claude/bin/synapse-tokenizer.sh -- pure text processing, no network,
+# Tests claude/lib/synapse/synapse-tokenizer.sh -- pure text processing, no network,
 # no vault. Covers the two real bugs found while building it (see sb-004):
 # GNU-only sed \U/\L escapes breaking bracket-casing under BSD sed, and
 # grep -w wrongly dropping a whole hyphenated token when the character
@@ -7,7 +7,7 @@
 
 load 'test_helper'
 
-TOKENIZER="$REPO_ROOT/claude/bin/synapse-tokenizer.sh"
+TOKENIZER="$REPO_ROOT/claude/lib/synapse/synapse-tokenizer.sh"
 
 setup() {
   common_setup

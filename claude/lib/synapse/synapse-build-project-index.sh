@@ -33,7 +33,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 
 # "{repo}@{branch}", not a bare repo name -- see synapse-identity.sh.
 # shellcheck source=/dev/null
-. "$HOME/.claude/bin/synapse-identity.sh" 2>/dev/null || {
+. "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh" 2>/dev/null || {
     echo "synapse-build-project-index: synapse-identity.sh not installed (run setup.sh)" >&2; exit 1; }
 REPO_NAME="$(synapse_namespace "$REPO_ROOT")" || exit 1
 

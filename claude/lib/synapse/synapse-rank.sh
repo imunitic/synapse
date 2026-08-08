@@ -119,7 +119,7 @@ else
 fi
 [ -n "$REPO_ROOT" ] || { echo "synapse-rank: not inside a git repo" >&2; exit 1; }
 
-TAGS_SH="$HOME/.claude/bin/synapse-tags.sh"
+TAGS_SH="${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-tags.sh"
 [ -x "$TAGS_SH" ] || { echo "synapse-rank: synapse-tags.sh not installed (run setup.sh)" >&2; exit 1; }
 
 W="$(mktemp -d "${TMPDIR:-/tmp}/synapse-rank.XXXXXX")" || exit 1

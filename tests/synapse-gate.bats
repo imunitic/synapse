@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Tests claude/bin/synapse-gate.sh -- the cluster-quality gate that flags a
+# Tests claude/lib/synapse/synapse-gate.sh -- the cluster-quality gate that flags a
 # candidate cluster owning no vocabulary of its own before anyone pays to author
 # its prose.
 #
@@ -10,7 +10,7 @@
 
 load 'test_helper'
 
-SCRIPT="$REPO_ROOT/claude/bin/synapse-gate.sh"
+SCRIPT="$REPO_ROOT/claude/lib/synapse/synapse-gate.sh"
 
 setup() {
   common_setup

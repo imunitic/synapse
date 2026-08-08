@@ -57,8 +57,8 @@ hook_count() {
     [ -f "$HOME/.claude/skills/$(basename "$d")/SKILL.md" ]
   done
 
-  [ -f "$HOME/.claude/bin/synapse-tags.sh" ]
-  [ -x "$HOME/.claude/bin/synapse-tags.sh" ]
+  [ -f "$HOME/.claude/lib/synapse/synapse-tags.sh" ]
+  [ -x "$HOME/.claude/lib/synapse/synapse-tags.sh" ]
 
   [ -f "$HOME/.claude/CLAUDE.md" ]
 }
@@ -237,6 +237,26 @@ EOF
   run bash "$REPO_ROOT/setup.sh"
   [ "$status" -eq 0 ]
   [[ "$output" != *"pre-rename copies"* ]]
+}
+
+@test "stale: pre-relocation scripts left in bin/ from before the porcelain move are warned about" {
+  mkdir -p "$HOME/.claude/bin"
+  printf '#!/bin/bash\n' > "$HOME/.claude/bin/synapse-tags.sh"
+
+  run bash "$REPO_ROOT/setup.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"pre-relocation scripts in"* ]]
+  [[ "$output" == *"synapse-tags.sh"* ]]
+  # warned about, not deleted -- setup.sh only ever copies in
+  [ -f "$HOME/.claude/bin/synapse-tags.sh" ]
+  # and the real copy still lands in its new home regardless
+  [ -f "$HOME/.claude/lib/synapse/synapse-tags.sh" ]
+}
+
+@test "stale: the porcelain itself in bin/ is not flagged as a leftover" {
+  run bash "$REPO_ROOT/setup.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"pre-relocation scripts"* ]]
 }
 
 # --- hook rename: settings.json path migration ------------------------------

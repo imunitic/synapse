@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Tests claude/bin/synapse-query.sh. The `stale` subcommand is the Tier 2 batch
+# Tests claude/lib/synapse/synapse-query.sh. The `stale` subcommand is the Tier 2 batch
 # staleness verification that used to live in synapse-verify.sh.
 # The Obsidian Local REST API is stubbed by tests/fixtures/fake-bin/curl,
 # which serves and writes real files under $FAKE_CURL_VAULT_DIR -- so these
@@ -12,7 +12,7 @@
 
 load 'test_helper'
 
-QUERY="$REPO_ROOT/claude/bin/synapse-query.sh"
+QUERY="$REPO_ROOT/claude/lib/synapse/synapse-query.sh"
 
 setup() {
   common_setup
@@ -30,10 +30,10 @@ setup() {
   : > "$FAKE_GIT_LOG"
   printf '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}' \
     > "$HOME/.claude/synapse-grammars.conf"
-  mkdir -p "$HOME/.claude/bin"
-  cp "$REPO_ROOT/claude/bin/synapse-tags.sh" "$HOME/.claude/bin/synapse-tags.sh"
-  cp "$REPO_ROOT/claude/bin/synapse-tags-cache.sh" "$HOME/.claude/bin/synapse-tags-cache.sh"
-  chmod +x "$HOME/.claude/bin/synapse-tags.sh" "$HOME/.claude/bin/synapse-tags-cache.sh"
+  mkdir -p "$HOME/.claude/lib/synapse"
+  cp "$REPO_ROOT/claude/lib/synapse/synapse-tags.sh" "$HOME/.claude/lib/synapse/synapse-tags.sh"
+  cp "$REPO_ROOT/claude/lib/synapse/synapse-tags-cache.sh" "$HOME/.claude/lib/synapse/synapse-tags-cache.sh"
+  chmod +x "$HOME/.claude/lib/synapse/synapse-tags.sh" "$HOME/.claude/lib/synapse/synapse-tags-cache.sh"
 }
 
 teardown() {
@@ -442,10 +442,13 @@ write_fenced_node() {
   # call writes to the system temp dir whatever the caller asked for. Checked
   # statically because the resulting failure is environment-dependent: it passes
   # on Linux and on any macOS where the system temp dir happens to be writable.
-  # Hooks as well as bin: the first version of this check globbed only claude/bin
-  # and missed a bare mktemp in synapse-staleness.sh for exactly that reason.
+  # Hooks and lib/synapse as well as bin: the first version of this check
+  # globbed only claude/bin and missed a bare mktemp in synapse-staleness.sh
+  # for exactly that reason -- the plumbing scripts live in claude/lib/synapse/
+  # now, and claude/bin/ holds only the synapse.sh porcelain, so both need
+  # covering for the same reason the hooks did.
   run grep -nE 'mktemp( -d)?[[:space:]]*(\)|\||$)' \
-    "$REPO_ROOT"/claude/bin/*.sh "$REPO_ROOT"/claude/hooks/*.sh
+    "$REPO_ROOT"/claude/bin/*.sh "$REPO_ROOT"/claude/lib/synapse/*.sh "$REPO_ROOT"/claude/hooks/*.sh
   if [ "$status" -eq 0 ]; then
     echo "bare mktemp (no template) found:"
     echo "$output"

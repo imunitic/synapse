@@ -31,7 +31,7 @@
 # whether it has any at all -- so the rule counts near-unique terms rather than
 # weighing them.
 #
-# Measured against the four known-undifferentiated clusters in syrius3@master
+# Measured against the four known-undifferentiated clusters in a large repo
 # (46 nodes): tolerance 0 catches three with no false positives, tolerance 1
 # catches all four with no false positives, tolerance 2 catches four but flags
 # five good clusters as well. The `max(2, N/20)` form reduces to the constant

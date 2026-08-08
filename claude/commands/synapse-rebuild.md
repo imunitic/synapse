@@ -69,8 +69,8 @@ this command when it does. What no longer happens is arriving here merely becaus
 ### 1. Size the job before doing any of it
 
 ```sh
-~/.claude/bin/synapse-query.sh drift
-~/.claude/bin/synapse-query.sh grounding
+~/.claude/bin/synapse.sh query drift
+~/.claude/bin/synapse.sh query grounding
 ```
 
 Report what it says, in the human's terms, **before** touching anything: how far the baseline is from
@@ -90,7 +90,7 @@ Two answers change the plan:
 ### 2. Mechanical phase — always, and cheap
 
 ```sh
-~/.claude/bin/synapse-build-lists.sh --reenumerate
+~/.claude/bin/synapse.sh build-lists --reenumerate
 ```
 
 `--reenumerate` matters here: without it an existing `all.txt` is reused, so a branch switch would be
@@ -108,7 +108,7 @@ move a lot and some may reach zero.
 Then rebuild the reverse index so the hook and the read path agree with the new enumeration:
 
 ```sh
-~/.claude/bin/synapse-build-index.sh
+~/.claude/bin/synapse.sh build-index
 ```
 
 ### 3. Triage each flagged node — reseat, patch, or re-orient
@@ -154,8 +154,8 @@ straight back stores a quote of a file as it looked at the old baseline, present
 current. So rebuild the directive from the pointer the writer recorded:
 
 ```sh
-~/.claude/bin/synapse-query.sh field "{Node}" crux_path
-~/.claude/bin/synapse-query.sh field "{Node}" crux_lines
+~/.claude/bin/synapse.sh query field "{Node}" crux_path
+~/.claude/bin/synapse.sh query field "{Node}" crux_lines
 ```
 
 and replace the fenced block with `<!-- crux: <crux_path> <crux_lines> -->` so it is cut from the
@@ -169,7 +169,7 @@ its directives are stripped from the body, so a recovered body contains none —
 the node's provenance is gone with no error. Recover the pointers per node:
 
 ```sh
-~/.claude/bin/synapse-query.sh grounding "{Node}" --list   # path<TAB>lines
+~/.claude/bin/synapse.sh query grounding "{Node}" --list   # path<TAB>lines
 ```
 
 and re-emit a `<!-- grounded_in: <path> <lines> -->` for each. Run `synapse-query.sh grounding` before
@@ -217,7 +217,7 @@ selection. Never pipe an unbounded `git diff <commit>..HEAD` into a context wind
 ### 4. Write each rebuilt node
 
 ```sh
-~/.claude/bin/synapse-write-node.sh --title "{Node}" --summary "{one line}" \
+~/.claude/bin/synapse.sh write-node --title "{Node}" --summary "{one line}" \
    --paths "$W/lists/NN.txt" --body "$W/body.md"
 ```
 
@@ -228,12 +228,12 @@ not merely stale, if the subsystem's shape differs on this line.
 ### 5. Rebuild the projections and verify
 
 ```sh
-~/.claude/bin/synapse-build-index.sh
-~/.claude/bin/synapse-build-project-index.sh
-~/.claude/bin/synapse-query.sh drift     # expect silence
-~/.claude/bin/synapse-query.sh stale     # expect silence
-~/.claude/bin/synapse-query.sh grounding # expect silence: re-pointed, not dropped
-~/.claude/bin/synapse-query.sh links --check   # expect silence: no dangling targets
+~/.claude/bin/synapse.sh build-index
+~/.claude/bin/synapse.sh build-project-index
+~/.claude/bin/synapse.sh query drift     # expect silence
+~/.claude/bin/synapse.sh query stale     # expect silence
+~/.claude/bin/synapse.sh query grounding # expect silence: re-pointed, not dropped
+~/.claude/bin/synapse.sh query links --check   # expect silence: no dangling targets
 ```
 
 `links --check` covers what used to be a manual instruction here: a broken `[[wikilink]]` is a valid

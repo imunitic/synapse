@@ -190,5 +190,5 @@ digest = sha256( "\n".join(sorted( f"{path}:{hash}" for each entry in sources ))
 Sort the joined `path:hash` lines themselves (not the paths, then the hashes), `LC_ALL=C`,
 newline-separated, no trailing newline.
 
-`project` is the repo half of the namespace key — `synapse_repo_name` in `~/.claude/bin/synapse-identity.sh`, not the task-prefix scheme that `/synapse-note` uses. The writer fills it in; it is described here so the field's meaning is documented once.
+`project` is the repo half of the namespace key — `synapse_repo_name` in `~/.claude/lib/synapse/synapse-identity.sh`, not the task-prefix scheme that `/synapse-note` uses. The writer fills it in; it is described here so the field's meaning is documented once.
 

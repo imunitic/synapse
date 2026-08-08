@@ -64,7 +64,7 @@ nothing, forever.
 More precisely, a **repo and branch pair** has none until it is built there: a namespace is keyed
 `synapse/{repo}@{branch}/`. The repo half comes from the remote's basename rather than the directory,
 so a linked worktree and its parent checkout agree; the branch half from `git symbolic-ref --short
-HEAD`. Both are resolved in one place, `claude/bin/synapse-identity.sh`, because five components have
+HEAD`. Both are resolved in one place, `claude/lib/synapse/synapse-identity.sh`, because five components have
 to agree about which namespace a checkout belongs to and a second derivation is how they stop
 agreeing.
 
@@ -83,7 +83,7 @@ graph you built on the mainline keeps describing the mainline.
 ## Namespace end-of-life
 
 Branches are deleted, so their namespaces reach end-of-life routinely rather than exceptionally.
-`claude/bin/synapse-graph-clean.sh` removes the ones whose upstream is gone — what `git branch -vv`
+`claude/lib/synapse/synapse-graph-clean.sh` removes the ones whose upstream is gone — what `git branch -vv`
 reports as `[origin/x: gone]` — after a `git fetch --prune`, without which a deleted branch still has
 a local tracking ref and the command silently finds nothing to do.
 
@@ -393,7 +393,7 @@ Outside any git repo there is no pointer and nothing to exclude, so the catalogu
 
 This section previously recorded the known weakness — that OR-ing every term lets one domain-ubiquitous word match most of a namespace, confirmed at 22 of ~32 nodes in one repo — and deferred: *"Fix this only if real usage shows it's actually a problem, not preemptively."* It also left open whether the feature earned a permanent place at all, to be decided from real usage rather than from a fixed answer here.
 
-Real usage answered both. Against `fw-core@master` (52 nodes), the prompt *"can you explain how BatchRunner dispatches work items"* returned **50 of 52 nodes** for **~1057 tokens, on every turn**. The cause was not tunable: `[Ww]ork` matched 50 nodes because it matched the substring inside `framework`, which occurs 1392 times across the namespace's `sources` lists. Word boundaries took the union only from 50 to 25 — "work" is genuinely a word in this domain. The distinctive term `[Bb]atchRunner` matched a useful 11, and was drowned by the weak one it was OR'd with.
+Real usage answered both. Against a medium repo (52 nodes), the prompt *"can you explain how BatchRunner dispatches work items"* returned **50 of 52 nodes** for **~1057 tokens, on every turn**. The cause was not tunable: `[Ww]ork` matched 50 nodes because it matched the substring inside `framework`, which occurs 1392 times across the namespace's `sources` lists. Word boundaries took the union only from 50 to 25 — "work" is genuinely a word in this domain. The distinctive term `[Bb]atchRunner` matched a useful 11, and was drowned by the weak one it was OR'd with.
 
 **The verdict split the feature in two.** The search was solving a discovery problem that no longer exists: `_index.json` answers path → owning node for ~15 tokens with nothing entering context, the tags cache answers symbol questions without opening a file, and `synapse-query.sh` projects exactly the field asked for. Those are *pull*, precise, and paid only when the question is about the codebase. The search was *push*, imprecise, and paid always — including on "commit and push". Reading the entire node map costs ~2500 tokens once, so the search overtook that after 2.4 turns and kept charging.
 
@@ -432,7 +432,7 @@ rebuild can clear.
 
 **Tier 2 — read-time, the `synapse-node` skill.** Not a hook — a procedure Claude follows itself,
 proactively, whenever a node's body is about to actually be used (not a title-only skim). It runs
-`claude/bin/synapse-query.sh stale`, which verifies the **whole project in one pass** — one
+`claude/lib/synapse/synapse-query.sh stale`, which verifies the **whole project in one pass** — one
 `git hash-object` fork plus one GET per node, a second or two for a few dozen nodes — and prints one
 line per stale node
 with a reason (content changed, source files gone by name, no digest, node file missing), or nothing
@@ -538,7 +538,7 @@ the same "not an ancestor of HEAD" warning a branch switch used to.
 
 ## Optional tree-sitter acceleration
 
-`claude/bin/synapse-tags.sh` is a narrow, purely mechanical helper both `/synapse-init` and the
+`claude/lib/synapse/synapse-tags.sh` is a narrow, purely mechanical helper both `/synapse-init` and the
 `synapse-node` skill try before doing a full read: given a file, it prints `tree-sitter tags`
 output — real definitions and name-based call references, extracted by parsing, not text
 guessing — cutting straight to clustering/regeneration signal without reading the file's full body.
@@ -560,99 +560,10 @@ It's optional at every layer, never a hard dependency:
 One subtlety in reading the output: a qualified-path reference (`Eon_ecs.Foo.bar`) must not also be
 counted as a bare same-package reference to `bar`, or the tags imply edges the code does not contain.
 
-## Exact-symbol lookup: a tags cache, not a persisted call graph
+## The Code Cache: exact-symbol lookup and repo-wide callers
 
-A node's answer is concept-level — "this subsystem does X" — never an exact per-symbol resolution,
-by design (see "Known limitation: no exact call graph" in the design note). `synapse-query.sh symbol
-<name> "{Node}"` closes the specific last-mile gap that leaves: once a node has already named the
-file(s) to look in, turning "grep within this known file" into an exact `file:line` hit for a given
-name. Set `SYNAPSE_DISABLE_SYMBOL_CACHE` (any value) to turn it off entirely.
-
-This is deliberately not a `wiring.json`-equivalent — no whole-repo persisted call graph, no new
-staleness tier. It's a per-project cache, `$SYNAPSE_WORK_DIR/_tags_cache.json` (`path → {hash,
-tags}`, default `~/.claude/synapse-work/{repo}@{branch}/`), populated as a byproduct of work that
-already happens: `synapse-tags.sh` already runs over a
-node's `sources` at build/regeneration time for clustering signal, and this persists that output
-instead of discarding it. The cache's freshness rides entirely on the same per-file git-hash
-comparison a node regeneration already performs — a changed hash re-tags just that file; an unchanged
-one is skipped — so there's no separate invalidation logic to maintain, and the cache can never
-disagree with the node it belongs to.
-
-**It sits in the work dir, not the vault, and that is a correction rather than a detail.** It was
-originally written to `synapse/{repo}@{branch}/_tags_cache.json` alongside `_index.json`, which put a
-derived artifact in a store whose whole purpose is durable, human-browsable, version-controlled
-content. The description that was always attached to it — machine-only, never authoritative — is the
-description of a disposable cache. The cost showed up at scale: on syrius3 it is ~942 MB against
-`_index.json`'s 26 MB, and every rebuild would commit a fresh copy of it into the vault's git
-history. Deleting it costs exactly one re-tag, which is the definition of the wrong thing to version.
-`synapse-tags-cache.sh` already took `--cache <path>`, so only the two hardcoded call sites moved.
-
-**Query time is a pure cache read, and it is one parse of the cache rather than one per file.** That
-distinction is the whole cost model. `symbol` originally ran `jq` once per source path, making the
-cost `node_sources × cache_bytes`: a 159-file node against syrius3's 800 MB cache did not finish in
-600s, and even fw-core's 43 MB took 113s on a large node. It now takes a single `jq` pass into a
-marker-prefixed text stream and joins it with `awk` — the same shape `synapse-tags-cache.sh` already
-used, and for the same reason. Measured after: fw-core 113s → **3.2s**, syrius3 >600s → **50s**.
-
-The syrius3 figure is the residual floor, not a remaining bug: 50s is what parsing 800 MB of JSON
-costs once. `symbol` is inherently node-scoped and cache-backed, so that is its bound. When
-interactivity matters more than node scoping, `callers` over the flat index answers the same shape of
-question in 0.36s — see the section below.
-
-`symbol` resolves the node's `sources`, looks up each path in the cache, and filters for an exact
-match on the requested name — no tree-sitter invocation at all when everything's already cached. A cache miss (a file the cache hasn't reached yet — e.g. `/synapse-init`
-sampled rather than tagging every file in a large repo) triggers a lazy backfill, parallelized via
-`xargs -P` (capped at the machine's core count) rather than one file at a time: each worker tags one
-file into its own temp result, and a single sequential step afterward merges every result into the
-cache in one pass — never multiple processes writing the shared cache file directly. Measured against
-this repo's own `.ml`/`.mli` files: 261 files serially took 22.66s, `xargs -P 8` took 4.89s (~4.6x);
-1044 invocations (simulating a cold, 1000+-file hub node) took 89.98s serially versus 19.44s
-parallelized. That backfill cost is paid once, the first time a query touches an under-cached node —
-every query after that, for that node or any file a regeneration has already re-tagged, is free.
-
-A file `synapse-tags.sh` can't check (no grammar, no tree-sitter, no C compiler) is recorded as
-`unsupported: true` rather than retried every call, and reported by `symbol` as "not checked" —
-distinct from "checked, name not present," which stays silent on stdout like every other reporting
-subcommand here. Matching is name-based, not type-resolved: two files both defining a symbol with the
-same short name both come back as separate hits, left for the caller to disambiguate by file, exactly
-the judgment already required without this feature — now backed by exact ranges instead of another
-grep.
-
-### Repo-wide callers: a flat index projected from the same cache
-
-`symbol` answers *within a node*. The complementary question — "who calls this, anywhere in the
-repo?" — is `synapse-query.sh callers <name>`, reading `$SYNAPSE_WORK_DIR/_refs.tsv`, which
-`synapse-build-refs.sh` projects from the tags cache as
-`name ⇥ def|ref ⇥ kind ⇥ path:line ⇥ expression`.
-
-**Why a second artifact rather than querying the cache.** The constraint is format, not size. Disk is
-cheap and the cache already sits outside the version-controlled vault. What bites is querying JSON at
-scale: one `jq` pass over a 4.6 MB cache measured 0.064s, extrapolating to ~13s per query at
-syrius3's 942 MB — for something meant to feel interactive. The same data as flat sorted lines is a
-different regime. Measured on syrius3's 1.4 GB index (5,560,541 tags over 96,513 files, built in
-2m34s from the cache): **0.36s** for `validate`, which has 3,239 call sites.
-
-**The lookup is `look` plus an exact `awk` filter, and both halves are load-bearing.** `look`
-binary-searches the sorted file but *prefix*-matches — asking for `bet` returns `beta` — so alone it
-over-reports; `awk` alone is a full scan, measured at 26s against the same index. Together: 0.235s.
-It is deliberately not `grep`, and the reason is invisible to a benchmark run interactively: *which*
-grep is on `PATH` decides the answer. The same query measured 0.15s under ugrep and **8.3s under BSD
-`/usr/bin/grep`**, and a script cannot assume the interactive shell's grep.
-
-**This couples `callers` to `synapse-build-refs.sh`'s `LC_ALL=C sort`.** `look` compares raw bytes
-when given neither `-d` nor `-f`, which is what that sort produces; sorting under any other collation
-makes the search miss, and a miss returns nothing — indistinguishable from "this name is never
-called". `tests/synapse-callers.bats` asserts the fast path agrees with a full scan across mixed-case
-and punctuation-leading names, so the coupling is enforced rather than left to review.
-
-**`callers` needs no graph at all** — no nodes, no `_index.json`, no clustering, no vault. It is
-dispatched *before* `synapse-query.sh`'s vault/namespace preamble so that property is structural
-rather than merely intended, and it keeps answering in a repo where `/synapse-init` has never run.
-Filling the cache is therefore worth doing on its own, independently of building a graph.
-
-Defaulting to calls only matters for precision: a `ref` is not necessarily a call — an `implements
-Foo` clause is `ref | implementation` — so filtering on reftype alone over-reports. `--all` widens to
-every def and ref when that is what is wanted. As with `symbol`, hits are candidates with evidence
-rather than resolved callers; the calling expression is on the line, which usually settles the
-receiver without opening the file. Out of reach, and not worked around: reflective invocation, and a
-call whose receiver sits on another line. An exact call graph does not resolve reflection either.
+Node-scoped and repo-wide exact-name lookup (`synapse-query.sh symbol`, `synapse-callers.sh` via
+`synapse-query.sh callers`) are both built on a separate, vault-free acceleration layer — the tags
+cache and the flat reference index it projects. Neither needs a graph, a node, or the vault at all.
+See [synapse-code-cache.md](synapse-code-cache.md) for the build path, the query path, and what it
+buys measured against a plain `grep`.

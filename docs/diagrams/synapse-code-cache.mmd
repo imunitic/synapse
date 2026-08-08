@@ -1,0 +1,36 @@
+---
+title: Synapse Code Cache — build path and query path
+---
+flowchart TB
+    classDef script fill:#d0ebff,stroke:#1971c2,color:#1e1e1e
+    classDef artifact fill:#d3f9d8,stroke:#2f9e44,color:#1e1e1e
+    classDef query fill:#e5dbff,stroke:#6741d9,color:#1e1e1e
+
+    FILES["git ls-files<br/>a repo's tracked paths"]
+
+    subgraph BUILD["build path · vault-free"]
+        direction TB
+        TAGS["synapse-tags.sh<br/>tree-sitter tags, per file"]
+        CACHE_SCRIPT["synapse-tags-cache.sh<br/>per-file hash compare, xargs -P chunked"]
+        TAGSCACHE[("_tags_cache.json<br/>path → {hash, tags}")]
+        REFS_SCRIPT["synapse-build-refs.sh<br/>projects the cache into a flat index"]
+        REFS[("_refs.tsv<br/>name ⇥ def|ref ⇥ kind ⇥ path:line ⇥ expr<br/>LC_ALL=C sorted")]
+        TAGS --> CACHE_SCRIPT --> TAGSCACHE --> REFS_SCRIPT --> REFS
+    end
+
+    subgraph QUERY["query path"]
+        direction TB
+        SYMBOL["synapse-query.sh symbol<br/>node-scoped, exact name"]
+        CALLERS["synapse-callers.sh<br/>synapse-query.sh callers<br/>repo-wide, look + awk"]
+    end
+
+    FILES --> TAGS
+    TAGSCACHE -->|"a node's sources<br/>(cache miss: lazy parallel backfill)"| SYMBOL
+    REFS -->|"binary search, then<br/>exact awk filter"| CALLERS
+
+    class TAGS,CACHE_SCRIPT,REFS_SCRIPT script
+    class TAGSCACHE,REFS artifact
+    class SYMBOL,CALLERS query
+
+    style BUILD fill:#ffffff,stroke:#adb5bd,stroke-dasharray:4 4
+    style QUERY fill:#ffffff,stroke:#adb5bd,stroke-dasharray:4 4

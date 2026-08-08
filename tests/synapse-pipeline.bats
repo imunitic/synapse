@@ -16,7 +16,7 @@
 
 load 'test_helper'
 
-BIN="$REPO_ROOT/claude/bin"
+BIN="$REPO_ROOT/claude/lib/synapse"
 
 setup() {
   common_setup

@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Tests claude/bin/synapse-tags-cache.sh -- the mechanical helper that keeps
+# Tests claude/lib/synapse/synapse-tags-cache.sh -- the mechanical helper that keeps
 # a per-project tags cache current for a set of path:hash pairs, re-tagging
 # only what changed (in parallel) and never touching a file that's already
 # current. Real `tree-sitter` is stubbed by tests/fixtures/fake-bin/tree-sitter
@@ -9,7 +9,7 @@
 
 load 'test_helper'
 
-SCRIPT="$REPO_ROOT/claude/bin/synapse-tags-cache.sh"
+SCRIPT="$REPO_ROOT/claude/lib/synapse/synapse-tags-cache.sh"
 
 setup() {
   common_setup
@@ -23,9 +23,9 @@ setup() {
   # The helper shells out to the *installed* synapse-tags.sh, matching real
   # usage -- install the repo copy so the fake tree-sitter/git actually get
   # exercised by it.
-  mkdir -p "$HOME/.claude/bin"
-  cp "$REPO_ROOT/claude/bin/synapse-tags.sh" "$HOME/.claude/bin/synapse-tags.sh"
-  chmod +x "$HOME/.claude/bin/synapse-tags.sh"
+  mkdir -p "$HOME/.claude/lib/synapse"
+  cp "$REPO_ROOT/claude/lib/synapse/synapse-tags.sh" "$HOME/.claude/lib/synapse/synapse-tags.sh"
+  chmod +x "$HOME/.claude/lib/synapse/synapse-tags.sh"
 }
 
 teardown() {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Tests claude/bin/synapse-write-node.sh -- the writer that keeps a node's
+# Tests claude/lib/synapse/synapse-write-node.sh -- the writer that keeps a node's
 # exhaustive `sources` out of a context window in both directions.
 #
 # The Obsidian Local REST API is stubbed by tests/fixtures/fake-bin/curl, which
@@ -14,8 +14,8 @@
 
 load 'test_helper'
 
-WRITER="$REPO_ROOT/claude/bin/synapse-write-node.sh"
-QUERY="$REPO_ROOT/claude/bin/synapse-query.sh"
+WRITER="$REPO_ROOT/claude/lib/synapse/synapse-write-node.sh"
+QUERY="$REPO_ROOT/claude/lib/synapse/synapse-query.sh"
 
 setup() {
   common_setup
@@ -36,10 +36,10 @@ setup() {
   : > "$FAKE_GIT_LOG"
   printf '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}' \
     > "$HOME/.claude/synapse-grammars.conf"
-  mkdir -p "$HOME/.claude/bin"
-  cp "$REPO_ROOT/claude/bin/synapse-tags.sh" "$HOME/.claude/bin/synapse-tags.sh"
-  cp "$REPO_ROOT/claude/bin/synapse-tags-cache.sh" "$HOME/.claude/bin/synapse-tags-cache.sh"
-  chmod +x "$HOME/.claude/bin/synapse-tags.sh" "$HOME/.claude/bin/synapse-tags-cache.sh"
+  mkdir -p "$HOME/.claude/lib/synapse"
+  cp "$REPO_ROOT/claude/lib/synapse/synapse-tags.sh" "$HOME/.claude/lib/synapse/synapse-tags.sh"
+  cp "$REPO_ROOT/claude/lib/synapse/synapse-tags-cache.sh" "$HOME/.claude/lib/synapse/synapse-tags-cache.sh"
+  chmod +x "$HOME/.claude/lib/synapse/synapse-tags.sh" "$HOME/.claude/lib/synapse/synapse-tags-cache.sh"
 }
 
 teardown() {
@@ -823,7 +823,7 @@ slice_digest() { # slice_digest <path> <start> <end>
 @test "a missing synapse-tags-cache.sh does not block writing the node" {
   make_repo
   printf 'src/foo.ml\n' > "$PATHS"
-  rm -f "$HOME/.claude/bin/synapse-tags-cache.sh"
+  rm -f "$HOME/.claude/lib/synapse/synapse-tags-cache.sh"
 
   run run_write --title "Widget core" --paths "$PATHS" --body "$BODY"
   [ "$status" -eq 0 ]

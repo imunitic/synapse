@@ -60,7 +60,7 @@ done
 
 command -v jq >/dev/null || exit 1
 
-TAGS_SH="$HOME/.claude/bin/synapse-tags.sh"
+TAGS_SH="${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-tags.sh"
 [ -x "$TAGS_SH" ] || exit 1
 
 mkdir -p "$(dirname "$CACHE")" || exit 1

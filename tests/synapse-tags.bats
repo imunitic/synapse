@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Tests claude/bin/synapse-tags.sh -- the dumb/mechanical helper that looks
+# Tests claude/lib/synapse/synapse-tags.sh -- the dumb/mechanical helper that looks
 # up a file's extension in the Synapse grammar registry and, if usable,
 # ensures the grammar is cloned + registered with tree-sitter and prints
 # its `tags` output. Real `tree-sitter`/`git clone` are stubbed out by
@@ -10,7 +10,7 @@
 
 load 'test_helper'
 
-SCRIPT="$REPO_ROOT/claude/bin/synapse-tags.sh"
+SCRIPT="$REPO_ROOT/claude/lib/synapse/synapse-tags.sh"
 
 setup() {
   common_setup
@@ -242,6 +242,6 @@ run_synapse_tags() {
   # `ext_of` calls basename, so scanning extensions in a loop cost 4.4s for 200
   # files against 0.08s for the tagging. Asserted structurally -- a per-path
   # basename in the batch path is the regression.
-  run grep -c 'ext_of "$p"' "$REPO_ROOT/claude/bin/synapse-tags.sh"
+  run grep -c 'ext_of "$p"' "$REPO_ROOT/claude/lib/synapse/synapse-tags.sh"
   [ "$output" = "0" ]
 }

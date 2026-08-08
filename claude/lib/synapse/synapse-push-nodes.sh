@@ -48,7 +48,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 # passed, and reusing another branch's enumeration is exactly the drift that
 # rule exists to avoid.
 # shellcheck source=/dev/null
-. "$HOME/.claude/bin/synapse-identity.sh" 2>/dev/null || {
+. "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh" 2>/dev/null || {
     echo "synapse-push-nodes: synapse-identity.sh not installed (run setup.sh)" >&2; exit 1; }
 REPO_NAME="$(synapse_namespace "$REPO_ROOT")" || exit 1
 readonly WORK_DIR="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}"

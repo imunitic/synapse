@@ -18,7 +18,12 @@ matches what you're trying to understand.
 - **[design-task-workflow.md](design-task-workflow.md)** — the design-note → task-note pipeline that
   runs on top of the Vault: `/synapse-design-note`, `/synapse-task-note`, the `synapse-task` status-tracking skill,
   and the optional GitHub-issue mirror.
-- **[scripts.md](scripts.md)** — reference for every **Synapse Tools** script in `claude/bin/`:
+- **[synapse-code-cache.md](synapse-code-cache.md)** — **Synapse Code Cache**: the vault-free
+  acceleration layer underneath the Graph. Build path (`synapse-tags.sh` → `synapse-tags-cache.sh` →
+  `synapse-build-refs.sh`) and query path (`symbol`, `synapse-callers.sh`), what each costs measured,
+  and how much of the whole system turns out not to need Obsidian at all.
+- **[scripts.md](scripts.md)** — reference for every **Synapse Tools** plumbing script in
+  `claude/lib/synapse/` (the porcelain, `claude/bin/synapse.sh`, documents itself via `--help` instead):
   purpose, usage, arguments and exit codes. **Generated**, by `generate-scripts-reference.sh`, from the
   same header block each script prints for `--help` — so it cannot describe a script that has moved on.
   Run the generator after editing a header; `--check` is wired into the test suite. It carries no
@@ -35,6 +40,8 @@ up as raw source in Markview and other plain Markdown viewers, while a linked im
   component breakdown above it.
 - `diagrams/synapse-vault-overview.png` — the Vault and its hooks.
 - `diagrams/synapse-graph-tiers.png` — the Graph's two staleness tiers and the tree-sitter layer.
+- `diagrams/synapse-code-cache.png` — the Code Cache's build path (tags → tags-cache → build-refs)
+  and query path (`symbol`, `callers`) in one picture.
 - `diagrams/design-task-workflow.png` — the design-note → task-note pipeline.
 - `diagrams/synapse-pipeline.png` — every script that owns a build or repair step, in one picture: which step each one owns,
   what it writes, and where the model's two contributions enter. Laid out as three lanes (model

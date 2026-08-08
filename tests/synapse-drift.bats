@@ -12,7 +12,7 @@
 
 load 'test_helper'
 
-QUERY="$REPO_ROOT/claude/bin/synapse-query.sh"
+QUERY="$REPO_ROOT/claude/lib/synapse/synapse-query.sh"
 
 setup() {
   common_setup

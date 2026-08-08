@@ -45,7 +45,7 @@ REPO_ROOT="$(git -C "$(dirname "$FILE")" rev-parse --show-toplevel 2>/dev/null |
 # Sourced, not exec'd, and a missing library exits 0 rather than 1: a hook that
 # errors out is worse than one that quietly does nothing.
 # shellcheck source=/dev/null
-. "$HOME/.claude/bin/synapse-identity.sh" 2>/dev/null || exit 0
+. "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh" 2>/dev/null || exit 0
 REMOTE="$(synapse_remote "$REPO_ROOT")"
 # A detached HEAD has no branch and therefore no namespace -- nothing to flag.
 REPO_NAME="$(synapse_namespace "$REPO_ROOT" 2>/dev/null)" || exit 0

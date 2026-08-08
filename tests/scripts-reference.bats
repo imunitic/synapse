@@ -24,7 +24,7 @@ GEN="$REPO_ROOT/docs/generate-scripts-reference.sh"
   run bash "$scratch/docs/generate-scripts-reference.sh" --check
   [ "$status" -eq 0 ]
 
-  printf '# a newly documented flag\n' >> "$scratch/claude/bin/synapse-build-index.sh"
+  printf '# a newly documented flag\n' >> "$scratch/claude/lib/synapse/synapse-build-index.sh"
   # Appending at the end changes nothing: extraction stops at the first
   # non-comment line, so only the header block matters.
   run bash "$scratch/docs/generate-scripts-reference.sh" --check
@@ -32,7 +32,7 @@ GEN="$REPO_ROOT/docs/generate-scripts-reference.sh"
 
   # Editing inside the header block does change it.
   perl -0pi -e 's/^# Usage: synapse-build-index\.sh$/# Usage: synapse-build-index.sh [--force]/m' \
-    "$scratch/claude/bin/synapse-build-index.sh"
+    "$scratch/claude/lib/synapse/synapse-build-index.sh"
   run bash "$scratch/docs/generate-scripts-reference.sh" --check
   [ "$status" -eq 1 ]
   [[ "$output" == *"out of date"* ]]
@@ -46,7 +46,7 @@ GEN="$REPO_ROOT/docs/generate-scripts-reference.sh"
   [ "$status" -eq 0 ]
 
   local expected actual
-  expected="$(find "$REPO_ROOT/claude/bin" -name '*.sh' | wc -l | tr -d ' ')"
+  expected="$(find "$REPO_ROOT/claude/lib/synapse" -name '*.sh' | wc -l | tr -d ' ')"
   actual="$(grep -c '^## `synapse-' "$scratch/docs/scripts.md")"
   [ "$actual" -eq "$expected" ]
   # Paired fences: one open and one close per script.
@@ -94,7 +94,7 @@ GEN="$REPO_ROOT/docs/generate-scripts-reference.sh"
 
   # Strip the marker from one script's header.
   perl -0pi -e 's/^# Usage: synapse-build-index\.sh$/# Invocation: synapse-build-index.sh/m' \
-    "$scratch/claude/bin/synapse-build-index.sh"
+    "$scratch/claude/lib/synapse/synapse-build-index.sh"
 
   run bash "$scratch/docs/generate-scripts-reference.sh"
   [ "$status" -eq 1 ]
@@ -111,7 +111,7 @@ GEN="$REPO_ROOT/docs/generate-scripts-reference.sh"
   # The whole reason to generate rather than hand-write: --help and the reference
   # come from one block, so they cannot disagree.
   local from_script
-  from_script="$(bash "$REPO_ROOT/claude/bin/synapse-write-node.sh" --help 2>&1)"
+  from_script="$(bash "$REPO_ROOT/claude/lib/synapse/synapse-write-node.sh" --help 2>&1)"
   local first_line
   first_line="$(printf '%s\n' "$from_script" | head -1)"
   grep -qF "$first_line" "$REPO_ROOT/docs/scripts.md"

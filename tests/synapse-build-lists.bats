@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Tests claude/bin/synapse-build-lists.sh -- enumeration plus manifest expansion,
+# Tests claude/lib/synapse/synapse-build-lists.sh -- enumeration plus manifest expansion,
 # the step that makes coverage a printed number instead of an assumption.
 #
 # No Obsidian involvement at all here: this script only reads git and writes files
@@ -7,7 +7,7 @@
 
 load 'test_helper'
 
-BUILD_LISTS="$REPO_ROOT/claude/bin/synapse-build-lists.sh"
+BUILD_LISTS="$REPO_ROOT/claude/lib/synapse/synapse-build-lists.sh"
 
 setup() {
   common_setup
@@ -20,7 +20,7 @@ teardown() {
 }
 
 # Runs from inside $REPO (the repo is resolved from $PWD) with an explicit work
-# dir, which is the arrangement an installed copy in ~/.claude/bin always has.
+# dir, which is the arrangement an installed copy in ~/.claude/lib/synapse always has.
 run_build() {
   SYNAPSE_WORK_DIR="$WORK" \
     bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$BUILD_LISTS" "$@"
@@ -318,7 +318,7 @@ make_mixed_repo() {
 
   # The invariant: an installed script must never derive its work dir from
   # ${BASH_SOURCE[0]}. That only works while the script sits next to its data, and
-  # breaks silently once it lives in ~/.claude/bin.
+  # breaks silently once it lives in ~/.claude/lib/synapse.
   run run_build
   [ "$status" -eq 0 ]
   [ -f "$WORK/lists/01.txt" ]

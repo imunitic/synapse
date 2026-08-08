@@ -37,7 +37,7 @@ Every step below needs the same three facts, resolved once up front:
 
 1. **Repo root:** `git rev-parse --show-toplevel`.
 2. **Namespace key:** `{repo}@{branch}`, resolved by `synapse_namespace` in
-   `~/.claude/bin/synapse-identity.sh` — never derived by hand here, since every component reads it
+   `~/.claude/lib/synapse/synapse-identity.sh` — never derived by hand here, since every component reads it
    from that one place and a second derivation is how they start disagreeing. The repo half comes
    from the *remote's* basename, not the directory: a linked worktree's directory name differs from
    its parent's, and that difference is exactly what must not matter. The branch half is
@@ -131,7 +131,7 @@ emit into tool calls than read into a window. Never hand-author those.
 3. **Orientation pass — the evidence is mechanical, the reading of it is yours.** Run
    `synapse-vocab.sh`. It writes `groupwords.tsv` (`group ⇥ word ⇥ count`) and `counts.tsv`
    (`group ⇥ file count`) into the work directory, covering every file that has a grammar — the
-   whole of syrius3, 125,351 files, in ~51 seconds. Read those two tables instead of exploring the
+   whole of a large repo, 125,351 files, in ~51 seconds. Read those two tables instead of exploring the
    tree.
 
    What is *not* mechanical, and is the actual work: deciding which words are **distinctive**
@@ -280,7 +280,7 @@ existing nodes.
    unassigned, nothing to do" and stop.
 2. Read `synapse/{repo}@{branch}/Index.md` for the current node list (titles + summaries).
 3. Tag them **in one call, not one per file**: write the unassigned paths to a list and run
-   `~/.claude/bin/synapse-tags.sh --paths {list}`. Output is attributable — an unindented line is a
+   `~/.claude/bin/synapse.sh tags --paths {list}`. Output is attributable — an unindented line is a
    path, the tab-indented lines under it are that path's tags — so one invocation classifies the
    whole sweep. A per-file loop here costs ~33× more for the same answer, and `_unassigned` on a
    large repo is not a short list. Fall back to a full read only for genuinely ambiguous cases.

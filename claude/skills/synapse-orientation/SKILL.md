@@ -28,7 +28,7 @@ symbol names on CamelCase and snake_case, drops stopwords, and aggregates per di
 - `counts.tsv` — `group ⇥ file count`, biggest first. **This is question 1, already answered.**
 - `groupwords.tsv` — `group ⇥ word ⇥ count`. **This is question 4, for the whole repo, unsampled.**
 
-Measured: the whole of syrius3 (125,351 files, 98k of them code) takes ~51 seconds, and clusters
+Measured: the whole of a large repo (125,351 files, 98k of them code) takes ~51 seconds, and clusters
 derived from the result expanded to 99.91% coverage. Read these two files and cluster from them.
 Reading is free; only what you print costs, so collapse to a few dozen lines before reading any
 source at all.

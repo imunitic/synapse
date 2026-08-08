@@ -9,8 +9,8 @@
 
 load 'test_helper'
 
-QUERY="$REPO_ROOT/claude/bin/synapse-query.sh"
-BUILD="$REPO_ROOT/claude/bin/synapse-build-refs.sh"
+QUERY="$REPO_ROOT/claude/lib/synapse/synapse-query.sh"
+BUILD="$REPO_ROOT/claude/lib/synapse/synapse-build-refs.sh"
 
 setup() {
   common_setup

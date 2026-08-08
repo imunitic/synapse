@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Tests claude/bin/synapse-identity.sh -- the one place a Synapse namespace name
+# Tests claude/lib/synapse/synapse-identity.sh -- the one place a Synapse namespace name
 # is derived. Everything else in the suite depends on this agreeing with itself
 # across components, which is the whole reason the logic stopped being five
 # inline copies.
@@ -13,7 +13,7 @@ load 'test_helper'
 setup() {
   common_setup
   # shellcheck disable=SC1091
-  . "$HOME/.claude/bin/synapse-identity.sh"
+  . "$HOME/.claude/lib/synapse/synapse-identity.sh"
 }
 
 teardown() { common_teardown; }

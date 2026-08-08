@@ -43,7 +43,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 # namespace describes one branch. Every path below keeps its single-segment
 # shape, so what the key contains is the only thing that changed.
 # shellcheck source=/dev/null
-. "$HOME/.claude/bin/synapse-identity.sh" 2>/dev/null || {
+. "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh" 2>/dev/null || {
     echo "synapse-build-index: synapse-identity.sh not installed (run setup.sh)" >&2; exit 1; }
 REPO_NAME="$(synapse_namespace "$REPO_ROOT")" || exit 1
 

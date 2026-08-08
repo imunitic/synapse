@@ -67,7 +67,7 @@ REPO_ROOT="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$REPO_ROOT" ] || { echo "synapse-graph-clean: not inside a git repo" >&2; exit 1; }
 
 # shellcheck source=/dev/null
-. "$HOME/.claude/bin/synapse-identity.sh" 2>/dev/null || {
+. "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh" 2>/dev/null || {
     echo "synapse-graph-clean: synapse-identity.sh not installed (run setup.sh)" >&2; exit 1; }
 
 REPO="$(synapse_repo_name "$REPO_ROOT")"

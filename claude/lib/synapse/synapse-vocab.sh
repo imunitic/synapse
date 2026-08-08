@@ -26,7 +26,7 @@
 # are, which is the whole point of it. Cluster grouping is what the quality gate
 # scores, and a cluster is not generally a union of directories, so it cannot be
 # derived from the directory-keyed table after the fact. The second run costs
-# another tagging pass (~51s on syrius3) against a build that was measured in
+# another tagging pass (~51s on a large repo) against a build that was measured in
 # hours, so exactness was the cheaper side of that trade.
 #
 # Prints groups / files / code files / pairs on stderr, so a repo that yielded
@@ -35,13 +35,13 @@
 # WHY THIS IS AFFORDABLE. Tagging goes through `synapse-tags.sh --paths`, one
 # invocation per chunk, because CLI startup and grammar load are nearly all of
 # the per-file cost: 200 files measured 0.076s batched against 2.543s as 200
-# invocations across 12 workers. The whole of syrius3 (125,351 files, 98k of
+# invocations across 12 workers. The whole of a large repo (125,351 files, 98k of
 # them code) takes ~51s. Chunking exists only to use more than one core; it is
 # not what makes this cheap.
 #
 # RAW TAGS ARE NEVER STORED. Each worker pipes `synapse-tags.sh` straight into
 # the word reduction and keeps only `group <TAB> word`. The tags themselves are
-# ~942 MB on syrius3 against 6.9 MB of vocabulary, so writing them out first
+# ~942 MB on a large repo against 6.9 MB of vocabulary, so writing them out first
 # would cost more disk than the entire graph.
 #
 # EVERY TRANSFORM IS awk, NOT sed. `sed` works on whole lines, so a character
@@ -101,7 +101,7 @@ else
 fi
 [ -n "$REPO_ROOT" ] || { echo "synapse-vocab: not inside a git repo" >&2; exit 1; }
 
-TAGS_SH="$HOME/.claude/bin/synapse-tags.sh"
+TAGS_SH="${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-tags.sh"
 [ -x "$TAGS_SH" ] || {
     echo "synapse-vocab: synapse-tags.sh not installed (run setup.sh) -- use synapse-orientation instead" >&2
     exit 1; }
@@ -109,7 +109,7 @@ TAGS_SH="$HOME/.claude/bin/synapse-tags.sh"
 if [ -z "$OUT" ]; then
     # "{repo}@{branch}", not a bare repo name -- see synapse-identity.sh.
     # shellcheck source=/dev/null
-    . "$HOME/.claude/bin/synapse-identity.sh" 2>/dev/null || {
+    . "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh" 2>/dev/null || {
         echo "synapse-vocab: synapse-identity.sh not installed (run setup.sh)" >&2; exit 1; }
     REPO_NAME="$(synapse_namespace "$REPO_ROOT")" || exit 1
     OUT="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}"

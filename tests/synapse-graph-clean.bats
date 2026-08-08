@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Tests claude/bin/synapse-graph-clean.sh -- the only destructive tool in Synapse.
+# Tests claude/lib/synapse/synapse-graph-clean.sh -- the only destructive tool in Synapse.
 # The bias throughout is toward keeping notes: every test that asserts a removal
 # has a sibling asserting that a namespace which merely *looks* removable is left
 # alone, because a false positive here destroys authored prose.
@@ -9,7 +9,7 @@
 
 load 'test_helper'
 
-SCRIPT="$REPO_ROOT/claude/bin/synapse-graph-clean.sh"
+SCRIPT="$REPO_ROOT/claude/lib/synapse/synapse-graph-clean.sh"
 
 setup() {
   common_setup
@@ -53,7 +53,7 @@ EOF
 }
 
 synapse_repo_for_test() {
-  . "$HOME/.claude/bin/synapse-identity.sh"
+  . "$HOME/.claude/lib/synapse/synapse-identity.sh"
   synapse_repo_name "$REPO"
 }
 

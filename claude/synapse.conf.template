@@ -4,3 +4,9 @@ OBSIDIAN_VAULT_DIR="$HOME/Obsidian/YourVault"
 # Where Synapse clones/builds tree-sitter grammars (shared across every
 # project -- not per-repo). Safe to leave at the default.
 SYNAPSE_GRAMMARS_DIR="$HOME/.cache/synapse/grammars"
+
+# Where the synapse-*.sh plumbing scripts live once installed. Only
+# claude/bin/synapse.sh (the porcelain) goes on PATH; every script it
+# dispatches to is found through this variable instead. Safe to leave at the
+# default -- change it only if you're relocating an existing install.
+SYNAPSE_LIB_DIR="$HOME/.claude/lib/synapse"

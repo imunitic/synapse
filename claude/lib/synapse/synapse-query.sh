@@ -27,22 +27,9 @@
 #
 # <node> may be given with or without the trailing `.md`.
 #
-# `callers` needs NO graph -- no nodes, no _index.json, no clustering, no vault.
-# It reads $SYNAPSE_WORK_DIR/_refs.tsv, the flat index synapse-build-refs.sh
-# projects from the tags cache, and nothing else. That is why it is dispatched
-# ahead of this script's vault/namespace preamble rather than after it: the
-# property is structural, so it keeps answering in a repo where /synapse-init has
-# never clustered anything. Build the index with:
-#
-#   synapse-tags-cache.sh --repo-root . --cache <cache> --paths <path:hash tsv>
-#   synapse-build-refs.sh
-#
-# It is name-based like `symbol`, so hits are candidates with evidence rather
-# than resolved callers -- the calling expression is on the line, which usually
-# settles the receiver without opening the file. Out of reach, and not worked
-# around: reflective invocation, and a call whose receiver sits on another line
-# (a fluent chain split across lines). Interface dispatch appears as the
-# interface method, which is normally the answer wanted rather than a loss.
+# `callers` is a one-line dispatch into claude/lib/synapse/synapse-callers.sh, ahead of
+# this script's vault/namespace preamble -- see that file's header for why, and
+# for the rest of its usage and rationale.
 #
 # `symbol` and `callers` differ in scope, not technique. `symbol` is scoped to
 # one node's sources and re-hashes them on every call, so it answers "within this
@@ -57,7 +44,7 @@
 # see docs/synapse-graph.md's "Exact-symbol lookup" section for the full design.
 #
 # That cache sits beside the work dir rather than in the vault because it is
-# derived, disposable and large: at syrius3 scale ~942 MB against _index.json's
+# derived, disposable and large: at large-repo scale ~942 MB against _index.json's
 # 26 MB, and the vault is version-controlled, so every rebuild would commit a
 # fresh copy of it into the vault's history. Deleting it costs one re-tag.
 #
@@ -95,66 +82,12 @@ case "$SUB" in
   *) usage ;;
 esac
 
-# --- callers: answered before the preamble, because it needs no graph --------
-# Everything below this block resolves a vault, a REST API and a namespace.
-# `callers` requires none of them, and running it through that preamble would
-# make it fail in exactly the repos it is most useful in -- one with a filled
-# code cache but no clustering. Dispatching here is what keeps "reads the code
-# cache and nothing else" true rather than merely intended.
+# `callers` needs no graph -- see claude/lib/synapse/synapse-callers.sh's
+# header for why this dispatches ahead of the vault/namespace preamble below
+# rather than after it. A one-line exec, not a sourced call, so "needs no
+# graph" is a fact about the file rather than about dispatch order.
 if [ "$SUB" = "callers" ]; then
-  cname="${1:-}"; shift || true
-  cmode="calls"
-  case "${1:-}" in
-    "") ;;
-    --all) cmode="all"; shift ;;
-    *) usage ;;
-  esac
-  [ -n "$cname" ] && [ $# -eq 0 ] || usage
-
-  command -v git >/dev/null || exit 1
-  croot="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
-  [ -n "$croot" ] || { echo "synapse-query: not inside a git repo" >&2; exit 1; }
-  # shellcheck source=/dev/null
-  . "$HOME/.claude/bin/synapse-identity.sh" 2>/dev/null || {
-    echo "synapse-query: synapse-identity.sh not installed (run setup.sh)" >&2; exit 1; }
-  cns="$(synapse_namespace "$croot")" || exit 1
-  cindex="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$cns}/_refs.tsv"
-
-  # Exit 1, not 0: a missing index is "could not run". Zero rows from a built
-  # index means "checked, not called"; silence from a missing one would be
-  # indistinguishable from it, which is the confusion this whole file avoids.
-  [ -f "$cindex" ] || {
-    echo "synapse-query: no reference index at $cindex -- run synapse-build-refs.sh" >&2
-    exit 1
-  }
-
-  # `look` binary-searches the sorted index, then awk applies the exact field
-  # match. Both halves are load-bearing: `look` PREFIX-matches (asking for `bet`
-  # returns `beta`), so on its own it over-reports, and awk on its own is a full
-  # scan. Measured on syrius3's 1.4 GB index: look+awk 0.235s, awk alone 26s.
-  #
-  # Not grep, and the reason is not obvious: which `grep` is on PATH decides the
-  # answer. The same query measured 0.15s under ugrep and 8.3s under BSD
-  # /usr/bin/grep, and a script cannot assume the interactive shell's grep.
-  #
-  # THIS IS COUPLED TO synapse-build-refs.sh's `LC_ALL=C sort`. `look` compares
-  # raw bytes when given neither -d nor -f, which is what that sort produces; any
-  # change to either side must change both, because a disagreement returns
-  # nothing and is indistinguishable from "not called". tests/synapse-callers.bats
-  # asserts the two agree against a full scan rather than leaving it to review.
-  if command -v look >/dev/null; then
-    LC_ALL=C look -t "$(printf '\t')" "$cname" "$cindex" 2>/dev/null
-  else
-    # Correct but O(index). Only reached where `look` is absent; the answer is
-    # identical, so this degrades speed rather than accuracy.
-    LC_ALL=C cat "$cindex"
-  fi | LC_ALL=C awk -F'\t' -v n="$cname" -v mode="$cmode" '
-        $1 != n { next }
-        mode == "calls" && !($2 == "ref" && $3 == "call") { next }
-        mode == "calls" { print $4 "\t" $5; next }
-        { print $2 "\t" $3 "\t" $4 "\t" $5 }
-      '
-  exit 0
+  exec "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-callers.sh" "$@"
 fi
 
 # synapse.conf, falling back to the name this file had before the project was
@@ -212,7 +145,7 @@ REPO_ROOT="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
 # `origin`, or on a branch with no namespace, must compare the same way here as
 # it does there.
 # shellcheck source=/dev/null
-. "$HOME/.claude/bin/synapse-identity.sh" 2>/dev/null || {
+. "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh" 2>/dev/null || {
   echo "synapse-query: synapse-identity.sh not installed (run setup.sh)" >&2; exit 1; }
 REMOTE="$(synapse_remote "$REPO_ROOT")"
 # Exit 1, not 0: this is "could not run", never "clean". A detached HEAD has no
@@ -885,9 +818,9 @@ cmd_symbol() {
   paste "$WORK/symbol-paths.txt" "$WORK/symbol-hashes.txt" > "$WORK/symbol-paths-hashes.tsv"
 
   # Work dir, not the vault: this is a disposable derived cache, and at
-  # syrius3 scale it is ~942 MB against _index.json's 26 MB. See the header.
+  # large-repo scale it is ~942 MB against _index.json's 26 MB. See the header.
   CACHE_FILE="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}/_tags_cache.json"
-  TAGS_CACHE_SH="$HOME/.claude/bin/synapse-tags-cache.sh"
+  TAGS_CACHE_SH="${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-tags-cache.sh"
   if [ -x "$TAGS_CACHE_SH" ]; then
     "$TAGS_CACHE_SH" --repo-root "$REPO_ROOT" --cache "$CACHE_FILE" \
       --paths "$WORK/symbol-paths-hashes.tsv" \
@@ -902,8 +835,8 @@ cmd_symbol() {
   # ONE jq parse of the cache, however large -- then a plain text join, exactly
   # as synapse-tags-cache.sh does for the same reason. The previous shape ran
   # `jq` once per source path, so cost was node_sources x cache_bytes rather
-  # than cache_bytes: a 159-file node against syrius3's 800 MB cache did not
-  # finish in 600s, and even fw-core's 43 MB took 113s on a large node.
+  # than cache_bytes: a 159-file node against a large repo's 800 MB cache did not
+  # finish in 600s, and even a medium repo's 43 MB took 113s on a large node.
   #
   # Marker first, path second, so the tag line -- which contains tabs of its own
   # -- is unambiguously "everything after the second tab" rather than a field

@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Tests claude/bin/synapse-vocab.sh -- the pass that reduces a whole repo to
+# Tests claude/lib/synapse/synapse-vocab.sh -- the pass that reduces a whole repo to
 # `group <TAB> word <TAB> count` so the clustering step of /synapse-init can
 # decide what a subsystem is about from symbol names instead of source lines.
 #
@@ -11,13 +11,13 @@
 
 load 'test_helper'
 
-SCRIPT="$REPO_ROOT/claude/bin/synapse-vocab.sh"
+SCRIPT="$REPO_ROOT/claude/lib/synapse/synapse-vocab.sh"
 
 setup() {
   common_setup
-  mkdir -p "$HOME/.claude/bin"
-  cp "$REPO_ROOT/claude/bin/synapse-tags.sh" "$HOME/.claude/bin/synapse-tags.sh"
-  chmod +x "$HOME/.claude/bin/synapse-tags.sh"
+  mkdir -p "$HOME/.claude/lib/synapse"
+  cp "$REPO_ROOT/claude/lib/synapse/synapse-tags.sh" "$HOME/.claude/lib/synapse/synapse-tags.sh"
+  chmod +x "$HOME/.claude/lib/synapse/synapse-tags.sh"
   # Every extension the fake knows about, so the script's own registry gate is
   # not what a vocabulary assertion is really testing.
   printf '%s' '{"java": {"repo": "https://example.invalid/tree-sitter-java", "scope": "source.java"},
@@ -372,7 +372,7 @@ write_list() { # write_list <NN> <title> <path>...
 
 @test "defaults to the work dir when --out is omitted" {
   make_two_module_repo
-  cp "$REPO_ROOT/claude/bin/synapse-identity.sh" "$HOME/.claude/bin/synapse-identity.sh"
+  cp "$REPO_ROOT/claude/lib/synapse/synapse-identity.sh" "$HOME/.claude/lib/synapse/synapse-identity.sh"
 
   run env PATH="$FAKE_BIN:$PATH" "$SCRIPT" --repo "$REPO"
   [ "$status" -eq 0 ]

@@ -67,8 +67,27 @@ EOF
   # sources it to name a namespace -- a component that could not find it would
   # fall back to no identity at all, which is the failure this library exists to
   # remove. Copied rather than symlinked so a test cannot edit the repo's copy.
-  mkdir -p "$HOME/.claude/bin"
-  cp "$REPO_ROOT/claude/bin/synapse-identity.sh" "$HOME/.claude/bin/synapse-identity.sh"
+  #
+  # Lives at $HOME/.claude/lib/synapse/, the default SYNAPSE_LIB_DIR resolves to
+  # when unset -- matching what an installed machine gets from setup.sh, so a
+  # test never has to export SYNAPSE_LIB_DIR itself just to find its own fixtures.
+  mkdir -p "$HOME/.claude/lib/synapse"
+  cp "$REPO_ROOT/claude/lib/synapse/synapse-identity.sh" "$HOME/.claude/lib/synapse/synapse-identity.sh"
+
+  # Same reasoning, for the two scripts synapse-query.sh and
+  # synapse-build-lists.sh dispatch/call into by installed path rather than
+  # inlining: synapse-query.sh callers execs synapse-callers.sh, and
+  # synapse-build-lists.sh calls synapse-enumerate.sh as its first step. A test
+  # that only has the caller installed, not the callee, fails on a missing
+  # dispatcher rather than on anything the test itself is about.
+  #
+  # synapse-tags.sh and synapse-tags-cache.sh are deliberately NOT installed
+  # here -- several tests exercise the "not installed, fails soft" path for
+  # each, so a global install here would silently take that coverage away.
+  # Those two are installed per-file, only where a test actually needs them.
+  cp "$REPO_ROOT/claude/lib/synapse/synapse-callers.sh" "$HOME/.claude/lib/synapse/synapse-callers.sh"
+  cp "$REPO_ROOT/claude/lib/synapse/synapse-enumerate.sh" "$HOME/.claude/lib/synapse/synapse-enumerate.sh"
+  chmod +x "$HOME/.claude/lib/synapse/"*.sh
 }
 
 # In-place sed that works on both BSD and GNU. `sed -i ''` is BSD-only (GNU reads
@@ -131,7 +150,7 @@ make_repo() {
 # the helpers and recomputed in Python instead.
 repo_name() {
   # shellcheck source=/dev/null
-  . "$HOME/.claude/bin/synapse-identity.sh"
+  . "$HOME/.claude/lib/synapse/synapse-identity.sh"
   synapse_namespace "$REPO"
 }
 
@@ -181,7 +200,7 @@ EOF
 write_synapse_index() {
   local project="$1" remote="$2"
   # shellcheck source=/dev/null
-  . "$HOME/.claude/bin/synapse-identity.sh"
+  . "$HOME/.claude/lib/synapse/synapse-identity.sh"
   local branch; branch="$(synapse_branch "$REPO")"
   mkdir -p "$VAULT/synapse/$project"
   cat > "$VAULT/synapse/$project/Index.md" <<EOF

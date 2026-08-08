@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Tests claude/bin/synapse-build-index.sh -- the reverse index the PostToolUse
+# Tests claude/lib/synapse/synapse-build-index.sh -- the reverse index the PostToolUse
 # staleness hook reads. Its two load-bearing properties are that it covers every
 # enumerated path (an unlisted path silently flags nothing stale) and that its
 # values are usable as vault paths verbatim, i.e. carry the `.md` extension.
@@ -9,7 +9,7 @@
 
 load 'test_helper'
 
-BUILD_INDEX="$REPO_ROOT/claude/bin/synapse-build-index.sh"
+BUILD_INDEX="$REPO_ROOT/claude/lib/synapse/synapse-build-index.sh"
 
 setup() {
   common_setup

@@ -27,7 +27,7 @@ if [ -n "${OBSIDIAN_VAULT_DIR:-}" ]; then
 
   REPO_ROOT="$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null || true)"
   # shellcheck source=/dev/null
-  . "$HOME/.claude/bin/synapse-identity.sh" 2>/dev/null || REPO_ROOT=""
+  . "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh" 2>/dev/null || REPO_ROOT=""
   # A detached HEAD has no branch and so no namespace; blanking REPO_ROOT takes
   # the same path as "not in a git repo at all", which already says nothing
   # about a Graph and still injects the vault index below.

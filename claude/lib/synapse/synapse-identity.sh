@@ -14,7 +14,7 @@
 # whole question reduces to which branch is checked out.
 #
 # Usage (sourced, never executed):
-#   . "$HOME/.claude/bin/synapse-identity.sh"
+#   . "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh"
 #   REMOTE="$(synapse_remote "$REPO_ROOT")"           # identity, unchanged chain
 #   NS="$(synapse_namespace "$REPO_ROOT")" || ...     # "{repo}@{branch}"
 #

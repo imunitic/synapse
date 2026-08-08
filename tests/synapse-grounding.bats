@@ -8,8 +8,8 @@
 
 load 'test_helper'
 
-QUERY="$REPO_ROOT/claude/bin/synapse-query.sh"
-WRITER="$REPO_ROOT/claude/bin/synapse-write-node.sh"
+QUERY="$REPO_ROOT/claude/lib/synapse/synapse-query.sh"
+WRITER="$REPO_ROOT/claude/lib/synapse/synapse-write-node.sh"
 
 setup() {
   common_setup

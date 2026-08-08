@@ -68,7 +68,7 @@ REPO_ROOT="$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null || true)"
 # One shared resolution of repo, branch and remote, so this hook cannot drift
 # from synapse-staleness.sh / synapse-session-start.sh / synapse-query.sh.
 # shellcheck source=/dev/null
-. "$HOME/.claude/bin/synapse-identity.sh" 2>/dev/null || exit 0
+. "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh" 2>/dev/null || exit 0
 REMOTE="$(synapse_remote "$REPO_ROOT")"
 # Detached HEAD: no branch, so no namespace to point at.
 REPO_NAME="$(synapse_namespace "$REPO_ROOT" 2>/dev/null)" || exit 0
