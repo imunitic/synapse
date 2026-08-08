@@ -231,6 +231,16 @@ repos/<owner>/<repo>/issues/<n>/comments`).
 
 - **Never write `DONE`** — not in `status:`, not manually, not through any
   other path. The cap is always `REVIEW`.
+- **Never create a task note via a bare `vault_write`.** Always
+  `/synapse-note --task`, or `/synapse-task-note` when compiling one from a
+  `Ready` design note. A freeform write skips both the skeleton (checklist
+  items plus a single `## Notes` section) and every guardrail in this file —
+  there is no partial-credit version of following this skill.
+- **Never restructure an existing task note's shape via `vault_write`/
+  `vault_patch` outside this skill's own procedure.** Ad hoc edits that add
+  new headings, drop the checklist, or otherwise diverge from the skeleton
+  are what this guardrail exists to prevent — not just wrong `status:`
+  values.
 - Preserve `task_id` untouched — it is set manually (or resolved once by
   `/synapse-note --task`) and must not be auto-generated or overwritten.
 - If checklist content is ambiguous or missing, default to `IN-PROGRESS`.

@@ -133,9 +133,20 @@ applies.
   or a review UI that highlights intra-line changes), and very long lines are
   awkward in tools that don't soft-wrap (`less` without `-S`, narrow terminal
   diffs).
-- Create notes via the `/synapse-note` command; task-tracking notes are
-  additionally managed by the `synapse-task` skill (proactive status
-  transitions via the `status:` frontmatter field).
+- Create notes via the `/synapse-note` command. **Task notes are a hard
+  exception, not a style preference:** create them only with
+  `/synapse-note --task` (or compile one from a `Ready` design note with
+  `/synapse-task-note`), and make every status transition, checklist edit,
+  or `## Notes` append only through the `synapse-task` skill's own
+  procedure — never a bare `vault_write`/`vault_patch` on a task note, not
+  even mid-session, not even for a quick update. Bypassing the command/skill
+  doesn't just risk drifting from the checklist-items-plus-`## Notes`
+  skeleton every other task note shares — the skill is also where the
+  guardrails live, most importantly that `status:` never reaches `DONE`
+  through it, capped at `REVIEW` instead, and a freeform write has no such
+  cap. If the command or skill genuinely doesn't fit what a task note needs,
+  that's a signal to fix the command/skill, not a license to route around
+  it once.
 
 ## Searching notes
 
