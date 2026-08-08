@@ -29,7 +29,10 @@ common_setup() {
   TEST_HOME="$(mktemp -d "${TMPDIR:-/tmp}/synapse-test.XXXXXX")"
   VAULT="$TEST_HOME/vault"
   REPO="$TEST_HOME/repo"
-  mkdir -p "$TEST_HOME/.claude" "$VAULT"
+  # One mkdir -p for every directory this function needs, `lib/synapse`
+  # included -- `mkdir -p` creates missing parents on its own, so there is
+  # nothing gained by waiting to ask for that one until HOME is swapped below.
+  mkdir -p "$TEST_HOME/.claude/lib/synapse" "$VAULT"
 
   # Captured before the swap. Only for tests that must reach a real, machine-wide
   # cache they cannot reasonably fake -- currently just puppeteer's Chromium, which
@@ -54,9 +57,13 @@ common_setup() {
   # repo is unaffected either way.
   export GIT_CEILING_DIRECTORIES="$(dirname "$TEST_HOME")"
 
-  cat > "$HOME/.claude/synapse.conf" <<EOF
+  # Bash builtins (read, printf), not a `cat > file <<EOF` -- a heredoc piped
+  # into cat is one more fork this function does not need for two lines of
+  # static-shaped text.
+  read -r -d '' _synapse_conf <<EOF || true
 OBSIDIAN_VAULT_DIR="$VAULT"
 EOF
+  printf '%s\n' "$_synapse_conf" > "$HOME/.claude/synapse.conf"
 
   # Seeded from the shipped template so tests exercise the real default
   # boilerplate list, not a hand-copied duplicate that could drift from it.
@@ -71,9 +78,7 @@ EOF
   # Lives at $HOME/.claude/lib/synapse/, the default SYNAPSE_LIB_DIR resolves to
   # when unset -- matching what an installed machine gets from setup.sh, so a
   # test never has to export SYNAPSE_LIB_DIR itself just to find its own fixtures.
-  mkdir -p "$HOME/.claude/lib/synapse"
-  cp "$REPO_ROOT/claude/lib/synapse/synapse-identity.sh" "$HOME/.claude/lib/synapse/synapse-identity.sh"
-
+  #
   # Same reasoning, for the two scripts synapse-query.sh and
   # synapse-build-lists.sh dispatch/call into by installed path rather than
   # inlining: synapse-query.sh callers execs synapse-callers.sh, and
@@ -85,8 +90,13 @@ EOF
   # here -- several tests exercise the "not installed, fails soft" path for
   # each, so a global install here would silently take that coverage away.
   # Those two are installed per-file, only where a test actually needs them.
-  cp "$REPO_ROOT/claude/lib/synapse/synapse-callers.sh" "$HOME/.claude/lib/synapse/synapse-callers.sh"
-  cp "$REPO_ROOT/claude/lib/synapse/synapse-enumerate.sh" "$HOME/.claude/lib/synapse/synapse-enumerate.sh"
+  #
+  # One `cp` for all three -- same source dir, same dest dir, so one process
+  # does what three did before.
+  cp "$REPO_ROOT/claude/lib/synapse/synapse-identity.sh" \
+    "$REPO_ROOT/claude/lib/synapse/synapse-callers.sh" \
+    "$REPO_ROOT/claude/lib/synapse/synapse-enumerate.sh" \
+    "$HOME/.claude/lib/synapse/"
   chmod +x "$HOME/.claude/lib/synapse/"*.sh
 }
 
@@ -124,16 +134,45 @@ Test index content.
 EOF
 }
 
+# Builds the one-tracked-file template make_repo() copies from, if no other
+# test process has already published one. `git init`+`add`+`commit` measured
+# 2.4x the cost of copying a prebuilt template (54ms vs 22ms/call) -- most of
+# it fork overhead, not git's own work, so every caller of make_repo() pays it
+# once here instead of once per test.
+#
+# Built in a scratch dir and published with a plain `mv`, not written directly
+# at the template path: under `bats --jobs`, many test processes race to be
+# the first to want it, and `mv` between two dirs on the same filesystem is a
+# single rename -- either this process's build wins and lands whole, or it
+# loses to one that got there first and is discarded, but no reader ever sees
+# a half-built template.
+# The trailing -v1 is a manual cache-buster: bump it if this function's
+# tracked file, its content, or the commit message ever change, so a stale
+# /tmp survivor from a previous session can never silently diverge from what
+# make_repo()'s callers assert against.
+_repo_template_dir() { echo "${TMPDIR:-/tmp}/synapse-test-repo-template-v1"; }
+
+_ensure_repo_template() {
+  local tmpl; tmpl="$(_repo_template_dir)"
+  [ -d "$tmpl/.git" ] && return 0
+  local build; build="$(mktemp -d "${TMPDIR:-/tmp}/synapse-repo-template-build.XXXXXX")"
+  mkdir -p "$build/src"
+  git init -q "$build"
+  printf 'let x = 1\n' > "$build/src/foo.ml"
+  git -C "$build" add src/foo.ml
+  git -C "$build" -c user.email=test@test -c user.name=test commit -q -m init
+  mv -n "$build" "$tmpl" 2>/dev/null || rm -rf "$build"
+}
+
 # Creates a throwaway git repo at $REPO with one tracked file, and
 # optionally a remote (local git config only -- never actually fetched
-# from or pushed to).
+# from or pushed to). The tracked file, its content and the init commit
+# message must stay byte-identical to what this used to build inline --
+# some tests assert against them directly.
 make_repo() {
   local remote="${1:-}"
-  mkdir -p "$REPO/src"
-  git init -q "$REPO"
-  printf 'let x = 1\n' > "$REPO/src/foo.ml"
-  git -C "$REPO" add src/foo.ml
-  git -C "$REPO" -c user.email=test@test -c user.name=test commit -q -m init
+  _ensure_repo_template
+  cp -R "$(_repo_template_dir)" "$REPO"
   if [ -n "$remote" ]; then
     git -C "$REPO" remote add origin "$remote"
   fi

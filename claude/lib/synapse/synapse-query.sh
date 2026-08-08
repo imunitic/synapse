@@ -152,15 +152,11 @@ REMOTE="$(synapse_remote "$REPO_ROOT")"
 # namespace, and reporting silence would read as a graph that matches.
 REPO_NAME="$(synapse_namespace "$REPO_ROOT")" || exit 1
 
+# One jq call for the whole path rather than one per segment -- CLI startup
+# dominates jq's own cost, so N segments meant N forks for work jq can do in a
+# single pass just as well.
 urlencode_path() {
-  local path="$1" seg out=()
-  local IFS='/'
-  read -ra parts <<< "$path"
-  for seg in "${parts[@]}"; do
-    out+=("$(jq -rn --arg s "$seg" '$s|@uri')")
-  done
-  local IFS='/'
-  echo "${out[*]}"
+  jq -rn --arg p "$1" '$p | split("/") | map(@uri) | join("/")'
 }
 
 api_get_to() { # api_get_to <vault-path> <dest-file>

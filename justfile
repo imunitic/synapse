@@ -6,6 +6,8 @@
 #   just check      the full gate -- run this before committing
 #   just test       the suite, parallel
 #   just fix        regenerate whatever `check` verifies
+#   just test-linux the full suite under Linux/Podman -- the default full run
+#   just ci-local   what CI actually runs, locally, via act -- before pushing
 #
 # Note on comments below: `just --list` shows the comment line immediately above a
 # recipe, so each one gets a single short line there and any longer explanation
@@ -89,6 +91,63 @@ test-changed:
     echo "changed:"; printf '  %s\n' $changed
     just test-for $changed
 
+# The suite is fork/exec-bound, and macOS pays a real tax on every process
+# spawn (Gatekeeper/codesign checks, sandbox policy evaluation) that Linux does
+# not -- measured on this machine at 318s of user+sys CPU time running the
+# suite natively on macOS against 94s for the identical suite in this
+# container, same 8 cores. `test-linux` is the default way to run the full
+# suite from here on, not `just test` against the host directly.
+#
+# ci/Containerfile bakes in this repo's CI dependencies (see
+# .github/workflows/tests.yml) once; the worktree itself is bind-mounted, not
+# copied in, so code changes need no rebuild -- only a change to the
+# Containerfile does, and `podman build` no-ops when it sees none.
+
+# Build/refresh the Linux test image and make sure Podman is up.
+_podman-ready:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v podman >/dev/null || { echo "podman not on PATH -- brew install podman" >&2; exit 1; }
+    podman machine init --cpus 8 --memory 8192 >/dev/null 2>&1 || true
+    podman machine start >/dev/null 2>&1 || true
+    podman build -q -t synapse-test -f ci/Containerfile ci >/dev/null
+
+# Full suite under Linux/Podman -- the default full-suite run, not `just test`.
+test-linux: _podman-ready
+    podman run --rm -v "$(pwd):/repo:Z" -w /repo synapse-test \
+      bats --jobs "$(getconf _NPROCESSORS_ONLN)" tests/
+
+# Needs `brew install act` once -- podman-ready's Podman machine is reused.
+# Tests committed HEAD, same as a real push would -- see the recipe body for
+# why (a worktree's own .git is a pointer act cannot resolve on its own).
+
+# What CI actually runs, locally, via act -- the pre-push check.
+ci-local: _podman-ready
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v act >/dev/null || { echo "act not on PATH -- brew install act" >&2; exit 1; }
+    # A linked worktree's `.git` is a pointer file to the main checkout's
+    # `.git/worktrees/...`, a path outside the worktree itself -- act's
+    # checkout step (a plain copy of the working directory, not a real clone)
+    # carries that dangling pointer in, and every git command then fails with
+    # "not a git repository: (null)", even `git config --global`. Cloning
+    # into a scratch dir first sidesteps it with a real, standalone .git --
+    # and only tests committed HEAD while doing so, which is what a real push
+    # would test too.
+    clone="$(mktemp -d "${TMPDIR:-/tmp}/synapse-ci-local.XXXXXX")"
+    trap 'rm -rf "$clone"' EXIT
+    git clone --local --quiet . "$clone"
+    # act itself (a macOS binary) needs the host-forwarded socket to talk to
+    # Podman at all -- but that same path is not a real path inside the
+    # machine's own filesystem, so act bind-mounting it into every job
+    # container (its default, for actions that themselves shell out to
+    # Docker) fails outright. This workflow never touches Docker from inside
+    # a step, so the fix is disabling that bind-mount rather than chasing a
+    # path valid on both sides at once: `-` per act's own docs.
+    sock="$(podman machine inspect | jq -r '.[0].ConnectionInfo.PodmanSocket.Path')"
+    (cd "$clone" && DOCKER_HOST="unix://$sock" act -j bats --container-daemon-socket - \
+      -P ubuntu-latest=catthehacker/ubuntu:act-latest)
+
 # Catches the class of typo that only surfaces when a rarely-taken branch runs --
 # an unbalanced quote inside an awk program embedded in a heredoc, say.
 
@@ -97,7 +156,7 @@ syntax:
     #!/usr/bin/env bash
     set -euo pipefail
     n=0
-    for f in claude/bin/*.sh claude/hooks/*.sh docs/*.sh setup.sh setup-obsidian-mcp.sh; do
+    for f in claude/bin/*.sh claude/lib/synapse/*.sh claude/hooks/*.sh docs/*.sh setup.sh setup-obsidian-mcp.sh; do
         [ -f "$f" ] || continue
         bash -n "$f"
         n=$((n + 1))

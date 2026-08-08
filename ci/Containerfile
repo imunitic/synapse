@@ -1,0 +1,33 @@
+# Image for `just test-linux` / `just ci-local`: this repo's CI dependencies
+# (see .github/workflows/tests.yml) baked in once, so a run pays no apt-get or
+# npm install of its own. The repo itself is never copied in -- both recipes
+# bind-mount the worktree at /repo, so a rebuild is only needed when this file
+# changes, never when the code does.
+#
+# en_US.UTF-8 is installed and set explicitly: a bare ubuntu:24.04 has no
+# locale at all (LC_CTYPE=POSIX), unlike GitHub's own ubuntu-latest runners,
+# and three synapse-vocab.bats assertions about CamelCase-splitting fail
+# under plain C for exactly that reason.
+#
+# gcc is required, not incidental: synapse-tags.sh refuses to run at all
+# without a C compiler on PATH (`command -v cc || gcc || clang || exit 1`) --
+# real tree-sitter grammars build native parsers, and the check runs even
+# when tests fake tree-sitter itself. --no-install-recommends drops it
+# silently, because on a plain `apt-get install nodejs` it normally arrives
+# as an indirect dependency's recommendation, not a direct one -- which is
+# also why tests.yml itself never installs it: GitHub's ubuntu-latest ships a
+# full build toolchain already, so the gap only shows up on a bare image like
+# this one.
+FROM ubuntu:24.04
+
+RUN apt-get update -qq \
+    && apt-get install -y -qq --no-install-recommends \
+       ca-certificates curl gcc git jq locales nodejs npm parallel python3 \
+    && locale-gen en_US.UTF-8 \
+    && npm install -g --prefix /usr/local bats \
+    && git config --system user.email ci@example.com \
+    && git config --system user.name CI \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+WORKDIR /repo

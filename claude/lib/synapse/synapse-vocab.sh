@@ -187,13 +187,20 @@ LC_ALL=C grep -E "$CODE_RE" "$W/kept.txt" \
 # would make the flagged/not-flagged verdict depend on directory order. An
 # unmapped path returns "", which every caller skips.
 GROUP_FN='
-function load_map(   line, i, key, val) {
+function load_map(   line, i, key, val, seen) {
   if (MAP == "") return
   while ((getline line < MAP) > 0) {
     i = index(line, "\t")
     if (i < 1) continue
     key = substr(line, 1, i - 1); val = substr(line, i + 1)
-    m[key] = (key in m) ? m[key] "\034" val : val
+    # `seen` is checked before m[key] is touched on the right-hand side, on
+    # purpose: `m[key] = (key in m) ? m[key] ... : val` reads right but is not
+    # portable -- mawk auto-vivifies m[key] while resolving the assignment
+    # target itself, so `key in m` on the same key is already true by the time
+    # the right-hand side runs, even on a key that has never been assigned.
+    # Every first-seen path silently gained a leading separator and no group.
+    seen = (key in m)
+    m[key] = seen ? m[key] "\034" val : val
   }
 }
 function group_of(path,   n, seg, lim, k, i) {

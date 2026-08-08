@@ -139,15 +139,11 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/synapse-node.XXXXXX")"
 cleanup() { rm -rf "$work"; }
 trap cleanup EXIT
 
+# One jq call for the whole path rather than one per segment -- CLI startup
+# dominates jq's own cost, so N segments meant N forks for work jq can do in a
+# single pass just as well.
 urlencode_path() {
-    local seg out=() parts
-    local IFS='/'
-    read -ra parts <<< "$1"
-    for seg in "${parts[@]}"; do
-        out+=("$(jq -rn --arg s "$seg" '$s|@uri')")
-    done
-    local IFS='/'
-    echo "${out[*]}"
+    jq -rn --arg p "$1" '$p | split("/") | map(@uri) | join("/")'
 }
 
 # --- refuse to write into another repo's namespace ---------------------------
