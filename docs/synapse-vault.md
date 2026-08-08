@@ -82,8 +82,13 @@ remember to commit it themselves.
 
 ## The standing instruction
 
-The behavioral half of this system lives in `claude/CLAUDE.md`, installed to `~/.claude/CLAUDE.md`
-— not a hook, but a persistent instruction Claude Code loads every session. Its core claim: this is
+The behavioral half of this system lives in `claude/synapse-claude.md`, installed to
+`~/.claude/synapse-claude.md` and pulled into every session via one `@~/.claude/synapse-claude.md`
+import line in `~/.claude/CLAUDE.md` — not a hook, but a persistent instruction Claude Code loads
+every session. Split out from `CLAUDE.md` itself (rather than shipped inline) so `setup.sh` can
+refresh it unconditionally on every run, the same way it refreshes a skill: `CLAUDE.md` is the
+user's own file and is never overwritten, so content shipped inline there would silently stop
+receiving updates the moment it diverged even slightly. Its core claim: this is
 a *primary* memory system, not an optional nicety, and specific triggers (a non-trivial bug fixed,
 a stated preference or decision, a milestone, research worth not redoing, a note gone stale)
 obligate writing or updating a note without waiting to be asked. Linking to existing related notes

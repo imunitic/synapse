@@ -61,6 +61,7 @@ hook_count() {
   [ -x "$HOME/.claude/lib/synapse/synapse-tags.sh" ]
 
   [ -f "$HOME/.claude/CLAUDE.md" ]
+  [ -f "$HOME/.claude/synapse-claude.md" ]
 }
 
 @test "first run: no org-roam-era files installed (bin/, org-task, roam-note)" {
@@ -144,7 +145,16 @@ EOF
   grep -q "^OBSIDIAN_VAULT_DIR=" "$HOME/.claude/synapse.conf"
 }
 
-@test "CLAUDE.md: not overwritten if an existing one differs" {
+@test "synapse-claude.md: installed unconditionally, every run, like a skill" {
+  mkdir -p "$HOME/.claude"
+  echo "stale content from a previous version" > "$HOME/.claude/synapse-claude.md"
+  run bash "$SETUP_SH"
+  [ "$status" -eq 0 ]
+
+  diff -q "$REPO_ROOT/claude/synapse-claude.md" "$HOME/.claude/synapse-claude.md"
+}
+
+@test "CLAUDE.md: not overwritten if an existing one differs, import line appended" {
   mkdir -p "$HOME/.claude"
   cat > "$HOME/.claude/CLAUDE.md" <<'EOF'
 My own custom global instructions, unrelated to this repo's CLAUDE.md.
@@ -153,13 +163,22 @@ EOF
   [ "$status" -eq 0 ]
 
   grep -q "My own custom global instructions" "$HOME/.claude/CLAUDE.md"
+  grep -qF '@~/.claude/synapse-claude.md' "$HOME/.claude/CLAUDE.md"
 }
 
-@test "CLAUDE.md: installed fresh when none exists yet" {
+@test "CLAUDE.md: re-running does not duplicate the import line" {
+  bash "$SETUP_SH" >/dev/null
   run bash "$SETUP_SH"
   [ "$status" -eq 0 ]
 
-  diff -q "$REPO_ROOT/claude/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
+  [ "$(grep -cF '@~/.claude/synapse-claude.md' "$HOME/.claude/CLAUDE.md")" = "1" ]
+}
+
+@test "CLAUDE.md: created with just the import line when none exists yet" {
+  run bash "$SETUP_SH"
+  [ "$status" -eq 0 ]
+
+  [ "$(cat "$HOME/.claude/CLAUDE.md")" = "@~/.claude/synapse-claude.md" ]
 }
 
 # --- config rename migration ------------------------------------------------

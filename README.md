@@ -80,8 +80,10 @@ to run by hand; they're documented in [`docs/scripts.md`](docs/scripts.md) for w
 
 ## Synapse Vault — the notes
 
-- `claude/CLAUDE.md` — the global memory-system instructions: when to write a note, where it goes,
-  and the linking rules.
+- `claude/synapse-claude.md` — the global memory-system instructions: when to write a note, where it
+  goes, and the linking rules. Installed to `~/.claude/synapse-claude.md` and refreshed on every
+  `setup.sh` run; `~/.claude/CLAUDE.md` itself stays entirely yours, with one `@import` line pointing
+  at it.
 - `claude/synapse.conf.template` — path config; set `OBSIDIAN_VAULT_DIR` per machine.
 - `claude/hooks/synapse-session-start.sh` — `SessionStart`: injects the Vault's index and this repo's
   Graph namespace pointer, if one exists.

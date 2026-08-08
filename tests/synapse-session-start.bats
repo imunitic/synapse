@@ -211,10 +211,13 @@ catalogue_lines() {
   # Renaming the heading without the hook (or the reverse) leaves a pointer to a
   # section that is not there, and nothing about reading the nudge would reveal it
   # -- the whole failure is silent. This caught nothing when written; it exists so
-  # the next rename cannot break the pair.
+  # the next rename cannot break the pair. The heading itself lives in
+  # synapse-claude.md, imported into CLAUDE.md rather than shipped inline -- see
+  # setup.sh's "CLAUDE.md / synapse-claude.md" section -- but reads as "the global
+  # CLAUDE.md" from the hook's and the reader's point of view either way.
   local nudge="$REPO_ROOT/claude/hooks/synapse-stop-nudge.sh"
   local cited
   cited="$(grep -o 'CLAUDE.md \\"[^\\]*\\" section' "$nudge" | sed -e 's/.*\\"\(.*\)\\" section/\1/')"
   [ -n "$cited" ]
-  grep -qxF "# $cited" "$REPO_ROOT/claude/CLAUDE.md"
+  grep -qxF "# $cited" "$REPO_ROOT/claude/synapse-claude.md"
 }

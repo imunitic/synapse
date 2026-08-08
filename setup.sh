@@ -14,13 +14,30 @@ command -v jq >/dev/null || { echo "jq is required. Install it first (e.g. brew 
 
 mkdir -p "$DEST/hooks" "$DEST/commands" "$DEST/bin" "$DEST/lib/synapse"
 
-echo "== CLAUDE.md =="
-if [ -f "$DEST/CLAUDE.md" ] && ! diff -q "$SRC/CLAUDE.md" "$DEST/CLAUDE.md" >/dev/null 2>&1; then
-  echo "  ~/.claude/CLAUDE.md already exists and differs -- not overwriting."
-  echo "  Diff manually and merge: diff '$SRC/CLAUDE.md' '$DEST/CLAUDE.md'"
+echo "== CLAUDE.md / synapse-claude.md =="
+# Synapse-owned content lives in synapse-claude.md, installed unconditionally
+# every run -- same treatment as skills/hooks below. CLAUDE.md itself stays
+# entirely the user's own file and is never overwritten; the only thing this
+# does to it is make sure one @import line pointing at synapse-claude.md is
+# present, appending it if missing. That line is what makes an edit to this
+# content actually reach every machine on re-run, rather than the old
+# behavior: install once, then refuse forever the moment CLAUDE.md has
+# diverged at all, silently orphaning every future edit.
+cp "$SRC/synapse-claude.md" "$DEST/synapse-claude.md"
+echo "  synapse-claude.md installed."
+
+IMPORT_LINE='@~/.claude/synapse-claude.md'
+if [ ! -f "$DEST/CLAUDE.md" ]; then
+  printf '%s\n' "$IMPORT_LINE" > "$DEST/CLAUDE.md"
+  echo "  CLAUDE.md created with the import line."
+elif grep -qF "$IMPORT_LINE" "$DEST/CLAUDE.md"; then
+  echo "  CLAUDE.md already imports synapse-claude.md."
 else
-  cp "$SRC/CLAUDE.md" "$DEST/CLAUDE.md"
-  echo "  installed."
+  printf '\n%s\n' "$IMPORT_LINE" >> "$DEST/CLAUDE.md"
+  echo "  added the import line to the end of existing CLAUDE.md."
+  echo "  NOTE: if CLAUDE.md already has an old inline copy of this content"
+  echo "  (from before synapse-claude.md existed), it's now redundant --"
+  echo "  safe to delete by hand, the import above covers it."
 fi
 
 # Migrate the pre-rename filenames before the install checks below, or an existing
