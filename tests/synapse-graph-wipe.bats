@@ -1,0 +1,260 @@
+#!/usr/bin/env bats
+# Tests claude/lib/synapse/synapse-graph-wipe.sh -- the delete half of
+# /synapse-rebuild-full, and the second destructive tool in Synapse (after
+# synapse-graph-clean.sh). Bias throughout is the same as that suite's: every
+# test that asserts a removal has a sibling proving the one thing a wipe cannot
+# regenerate -- hand-written `## Notes` content -- survives it, because a false
+# negative here silently destroys authored prose.
+
+load 'test_helper'
+
+BIN="$REPO_ROOT/claude/lib/synapse"
+SCRIPT="$BIN/synapse-graph-wipe.sh"
+
+setup() {
+  common_setup
+  setup_fake_obsidian_plugin
+  CURL_LOG="$TEST_HOME/curl.log"
+  : > "$CURL_LOG"
+  WORK="$TEST_HOME/work"
+  mkdir -p "$WORK"
+}
+
+teardown() { common_teardown; }
+
+run_wipe() {
+  bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$SCRIPT" "$@"
+}
+
+in_repo() {
+  PATH="$FAKE_BIN:$PATH" \
+    FAKE_CURL_LOG="$CURL_LOG" \
+    FAKE_CURL_VAULT_DIR="$VAULT" \
+    FAKE_CURL_CAPTURE_DIR="$TEST_HOME/capture" \
+    SYNAPSE_WORK_DIR="$WORK" \
+    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$@"
+}
+
+ns_dir() { echo "$VAULT/synapse/$(repo_name)"; }
+staging_note() { echo "$VAULT/scratchpad/$(repo_name) — preserved notes before full rebuild.md"; }
+
+# A minimal two-node namespace: one node with hand-written ## Notes content
+# (at risk), one with the section present but empty (not at risk) -- the exact
+# shape synapse-write-node.sh produces, not a simplified stand-in, since the
+# extraction logic depends on the literal generated-fence markers.
+make_namespace() {
+  local dir; dir="$(ns_dir)"
+  mkdir -p "$dir"
+  cat > "$dir/Index.md" <<EOF
+---
+title: "$(repo_name) — Synapse index"
+node_type: synapse-index
+project: $(ns_repo)
+branch: $(ns_branch)
+remote: "$(repo_remote_or_path)"
+built_at: "test"
+---
+- [[Node A]]
+- [[Node B]]
+EOF
+  cat > "$dir/Node A.md" <<'EOF'
+---
+title: "Node A"
+summary: "Node A in one line."
+node_type: synapse-node
+---
+
+# Node A
+<!-- synapse:generated:start -->
+
+## Summary
+Generated stuff about Node A.
+
+## Sources
+- `src` (1)
+<!-- synapse:generated:end -->
+
+## Notes
+
+Hand-written finding worth keeping: the retry logic here is load-bearing for the batch job, do not simplify it away.
+EOF
+  cat > "$dir/Node B.md" <<'EOF'
+---
+title: "Node B"
+summary: "Node B in one line."
+node_type: synapse-node
+---
+
+# Node B
+<!-- synapse:generated:start -->
+
+## Summary
+Generated stuff about Node B.
+
+## Sources
+- `src` (1)
+<!-- synapse:generated:end -->
+
+## Notes
+
+EOF
+  : > "$dir/_index.json"
+  printf 'Node A\t^a\t\nNode B\t^b\t\n' > "$dir/_manifest.tsv"
+}
+
+@test "--dry-run reports node count and which nodes are at risk, deletes nothing" {
+  make_repo
+  make_namespace
+
+  run run_wipe --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"2 nodes"* ]]
+  [[ "$output" == *"1 with ## Notes content"* ]]
+  [[ "$output" == *"at-risk"*"Node A"* ]]
+  [[ "$output" != *"at-risk"*"Node B"* ]]
+  [[ "$output" == *"would-remove"* ]]
+
+  [ -d "$(ns_dir)" ]
+  [ ! -f "$(staging_note)" ]
+}
+
+@test "a real run preserves hand-written ## Notes verbatim to a scratchpad staging note, then deletes the namespace" {
+  make_repo
+  make_namespace
+
+  run run_wipe
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"preserved ->"* ]]
+  [[ "$output" == *"removed synapse/$(repo_name)"* ]]
+
+  [ ! -d "$(ns_dir)" ]
+  [ -f "$(staging_note)" ]
+  grep -q "retry logic here is load-bearing" "$(staging_note)"
+  grep -q '^## Node A$' "$(staging_note)"
+  # Node B had nothing worth keeping and must not clutter the staging note.
+  ! grep -q '^## Node B$' "$(staging_note)"
+}
+
+@test "a node with an empty ## Notes section is never flagged or preserved" {
+  make_repo
+  mkdir -p "$(ns_dir)"
+  cat > "$(ns_dir)/Index.md" <<EOF
+---
+branch: $(ns_branch)
+remote: "$(repo_remote_or_path)"
+---
+- [[Node B]]
+EOF
+  cat > "$(ns_dir)/Node B.md" <<'EOF'
+---
+title: "Node B"
+---
+
+# Node B
+<!-- synapse:generated:start -->
+
+## Summary
+Nothing notable.
+<!-- synapse:generated:end -->
+
+## Notes
+
+EOF
+
+  run run_wipe
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"0 with ## Notes content"* ]]
+  [ ! -f "$(staging_note)" ]
+  [ ! -d "$(ns_dir)" ]
+}
+
+@test "no namespace at all refuses cleanly rather than wiping nothing silently" {
+  make_repo
+
+  run run_wipe
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"nothing to wipe"* ]]
+}
+
+@test "--dry-run on a namespace with no ## Notes at risk still reports cleanly" {
+  make_repo
+  mkdir -p "$(ns_dir)"
+  cat > "$(ns_dir)/Index.md" <<EOF
+---
+branch: $(ns_branch)
+remote: "$(repo_remote_or_path)"
+---
+EOF
+
+  run run_wipe --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"0 nodes"* ]]
+  [[ "$output" == *"0 with ## Notes content"* ]]
+}
+
+@test "another namespace in the same vault is never touched" {
+  make_repo
+  make_namespace
+  mkdir -p "$VAULT/synapse/unrelated-project@main"
+  printf -- '---\nbranch: main\n---\n' > "$VAULT/synapse/unrelated-project@main/Index.md"
+
+  run run_wipe
+  [ "$status" -eq 0 ]
+  [ -d "$VAULT/synapse/unrelated-project@main" ]
+}
+
+@test "outside a git repo it exits 1, and an unknown flag exits 2" {
+  run bash -c 'cd "$1" && bash "$2"' _ "$TEST_HOME" "$SCRIPT"
+  [ "$status" -eq 1 ]
+
+  make_repo
+  run run_wipe --bogus
+  [ "$status" -eq 2 ]
+}
+
+@test "--help exits 0 and documents both flags" {
+  make_repo
+  run run_wipe --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--dry-run"* ]]
+}
+
+# --- Composes with a real /synapse-init-style rebuild -------------------------
+# The mechanical half of what /synapse-rebuild-full actually does end to end: a
+# namespace exists, gets wiped (with preservation), and a fresh build over the
+# same repo produces a working namespace again -- drift silent, notes-preserving
+# staging note still sitting in scratchpad for the (untestable, LLM-driven)
+# merge step to pick up later. What is not testable here is that merge step
+# itself, same boundary synapse-rebuild-diff-scenario.bats draws around prose.
+
+@test "wipe then rebuild: a fresh /synapse-init-style build over the wiped repo is drift-clean, and the preserved-notes staging note survives" {
+  make_repo
+  mkdir -p "$REPO/src"
+  printf 'let x = 1\n' > "$REPO/src/a.ml"
+  printf 'let y = 2\n' > "$REPO/src/b.ml"
+  git -C "$REPO" add -A
+  git -C "$REPO" -c user.email=t@t -c user.name=t commit -q -m more
+
+  make_namespace
+  run run_wipe
+  [ "$status" -eq 0 ]
+  [ ! -d "$(ns_dir)" ]
+  [ -f "$(staging_note)" ]
+
+  printf 'Src — the source module\t^src/\t\n' > "$WORK/manifest.tsv"
+  in_repo "$BIN/synapse-build-lists.sh" >/dev/null
+  printf -- '---\nsummary: Src in one line.\n---\n\n## Summary\nProse for src.\n' > "$WORK/b-01.md"
+  in_repo "$BIN/synapse-push-nodes.sh" >/dev/null
+  in_repo "$BIN/synapse-build-index.sh" >/dev/null
+  cp "$TEST_HOME/capture/index-put.json" "$(ns_dir)/_index.json"
+  in_repo "$BIN/synapse-build-project-index.sh" >/dev/null
+
+  run in_repo "$BIN/synapse-query.sh" drift
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+
+  # The rebuild does not touch scratchpad -- that staging note is the merge
+  # step's input, and only the merge step (not this mechanical rebuild) may
+  # consume or delete it.
+  [ -f "$(staging_note)" ]
+}

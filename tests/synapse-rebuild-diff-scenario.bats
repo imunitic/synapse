@@ -1,12 +1,13 @@
 #!/usr/bin/env bats
-# Exercises the mechanical half of /synapse-rebuild against a repo with real
+# Exercises the mechanical half of /synapse-rebuild-diff against a repo with real
 # history and real drift, using the same fake-curl vault the other suites use --
 # no Obsidian, no network.
 #
-# /synapse-rebuild itself is a natural-language procedure, so what is testable is
-# everything it delegates: the drift classification it triages on, the reseat path
-# for rename-only nodes, the mechanical re-enumeration, the refusal to write an
-# empty node after a branch switch, and whether the loop actually closes (drift
+# /synapse-rebuild-diff itself is a natural-language procedure, so what is
+# testable is everything it delegates: the drift classification it triages on,
+# the reseat path for rename-only nodes, the mechanical re-enumeration, the
+# refusal to write an empty node after a branch switch, the branch-identity
+# guardrail's own comparison logic, and whether the loop actually closes (drift
 # silent again afterwards). Whether a prose patch is *good* is not testable here.
 #
 # The repo is deliberately big enough for change ratios to mean something: a
@@ -272,4 +273,62 @@ drift() { in_repo "$BIN/synapse-query.sh" drift; }
   run in_repo "$BIN/synapse-query.sh" stale
   [ "$status" -eq 0 ]
   [ -z "$output" ]
+}
+
+# --- Branch-identity guardrail --------------------------------------------------
+# /synapse-rebuild-diff is prose, not a script -- its own Prerequisites section
+# documents the exact comparison as a shell snippet, quoted here verbatim so a
+# change to either the command doc or this test drifts the other rather than
+# passing silently. What is testable is the comparison itself: does the current
+# checkout's branch equal the namespace's own recorded `branch:` field.
+
+branch_identity_check() { # branch_identity_check <ns-dir>
+  local ns_dir="$1" current_branch ns_branch
+  current_branch="$(git -C "$REPO" symbolic-ref --short HEAD)"
+  ns_branch="$(grep -m1 '^branch:' "$ns_dir/Index.md" | sed -e 's/^branch: *//' -e 's/^"//' -e 's/"$//')"
+  [ "$current_branch" = "$ns_branch" ]
+}
+
+@test "branch-identity check passes when the namespace describes the current checkout's branch" {
+  make_repo
+  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
+
+  branch_identity_check "$VAULT/synapse/$(repo_name)"
+}
+
+@test "branch-identity check fails when the namespace describes a different branch -- the cross-branch case this refuses" {
+  make_repo
+  # A namespace that legitimately exists (built on another branch, or copied by
+  # hand) but does not describe the branch currently checked out. Two namespaces
+  # existing is exactly the case that invites the mistake -- the check must catch
+  # it regardless of whether the mismatched namespace is otherwise well-formed.
+  local ns; ns="$(ns_repo)@other-branch"
+  mkdir -p "$VAULT/synapse/$ns"
+  cat > "$VAULT/synapse/$ns/Index.md" <<EOF
+---
+title: "$ns — Synapse index"
+node_type: synapse-index
+project: $(ns_repo)
+branch: other-branch
+remote: "$(repo_remote_or_path)"
+built_at: "test"
+---
+# $ns
+EOF
+
+  ! branch_identity_check "$VAULT/synapse/$ns"
+}
+
+@test "branch-identity check fails after a rename -- the directory key alone is not enough" {
+  # Same trap synapse-graph-clean.bats documents for its own branch field: the
+  # directory name is sanitized and not reversible, so only the field can answer.
+  # Here the namespace's own field still says the old branch after HEAD moved.
+  make_repo
+  git -C "$REPO" checkout -q -b feature-a
+  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
+  local ns_dir="$VAULT/synapse/$(repo_name)"
+
+  git -C "$REPO" checkout -q -b feature-b
+
+  ! branch_identity_check "$ns_dir"
 }

@@ -306,6 +306,41 @@ Exit codes:
   2 - usage error
 ```
 
+## `synapse-graph-wipe.sh`
+
+Wipes the current checkout's Synapse namespace, preserving any hand-written
+`## Notes` content first, ahead of a full /synapse-rebuild-full rebuild. The
+second destructive tool in Synapse (after synapse-graph-clean.sh), so it follows
+the same discipline: --dry-run support, and rm -rf gated behind a belt-and-braces
+path check that only ever removes a directory whose name was just matched inside
+the vault's own synapse/ directory.
+
+```
+Usage: synapse-graph-wipe.sh [--dry-run]
+       synapse-graph-wipe.sh --help
+
+  --dry-run  report node count and which nodes have `## Notes` content at risk,
+             delete nothing, preserve nothing.
+
+Operates on {repo}@{branch} resolved from $PWD via synapse-identity.sh -- the
+same resolution /synapse-init and /synapse-rebuild-diff use. Never takes a
+namespace on the command line: this wipes the current checkout's own namespace,
+nothing else's.
+
+`## Notes` is the one thing in a node file that is human-authored and lives
+outside every generated fence -- no script regenerates it. Before deleting
+anything, every node's `## Notes` section is scanned; non-empty ones are dumped
+into a staging note at scratchpad/{repo}@{branch} -- preserved notes before full
+rebuild.md, so nothing is silently lost even though the namespace directory that
+held them is about to be removed. /synapse-rebuild-full reads that staging note
+back after rebuilding and merges what it can into the new nodes.
+
+Exit codes:
+  0 - ran (removed the namespace, or --dry-run reported cleanly)
+  1 - could not run (no vault, not in a git repo, missing dependency, namespace absent)
+  2 - usage error
+```
+
 ## `synapse-identity.sh`
 
 Sourced by every component that has to name a Synapse namespace. One copy on

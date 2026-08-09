@@ -14,6 +14,7 @@
 #   enumerate              -> synapse-enumerate.sh
 #   gate                   -> synapse-gate.sh
 #   graph-clean            -> synapse-graph-clean.sh
+#   graph-wipe             -> synapse-graph-wipe.sh
 #   push-nodes             -> synapse-push-nodes.sh
 #   query                  -> synapse-query.sh
 #   rank                   -> synapse-rank.sh
@@ -75,6 +76,7 @@ case "$SUB" in
   enumerate)            target=synapse-enumerate.sh ;;
   gate)                 target=synapse-gate.sh ;;
   graph-clean)          target=synapse-graph-clean.sh ;;
+  graph-wipe)           target=synapse-graph-wipe.sh ;;
   push-nodes)           target=synapse-push-nodes.sh ;;
   query)                target=synapse-query.sh ;;
   rank)                 target=synapse-rank.sh ;;

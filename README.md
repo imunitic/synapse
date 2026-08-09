@@ -72,9 +72,11 @@ prints the manual steps below.
 paths in `settings.json` rather than adding a second copy, and reports any file under `~/.claude/` that
 it no longer installs, so nothing is left running that the docs stop describing.
 
-**Using it:** the human-facing entry points are the `/synapse-init` and `/synapse-rebuild` Claude
-Code slash commands — `/synapse-init` builds a repo's first Graph namespace, `/synapse-rebuild`
-repairs one after major drift. Neither requires knowing anything below this point. The underlying
+**Using it:** the human-facing entry points are `/synapse-init`, `/synapse-rebuild-diff`, and
+`/synapse-rebuild-full` — `/synapse-init` builds a repo's first Graph namespace,
+`/synapse-rebuild-diff` repairs one after major same-branch drift (triage, nothing deleted),
+`/synapse-rebuild-full` wipes a namespace and rebuilds it from scratch when triage isn't the right
+tool. Neither of the two repair commands requires knowing anything below this point. The underlying
 `claude/bin/synapse.sh` porcelain and the plumbing it dispatches to aren't something you're expected
 to run by hand; they're documented in [`docs/scripts.md`](docs/scripts.md) for whoever goes looking.
 
@@ -109,8 +111,13 @@ plain-English summary, a quoted `crux`, typed links, and the exhaustive list of 
 - `claude/commands/synapse-init.md` — first-time build: orientation pass, clustering into a
   `manifest.tsv`, then node notes plus two derived projections. Also the manual `_unassigned`-sweep
   fallback for an already-initialized but dormant repo.
-- `claude/commands/synapse-rebuild.md` — manual repair for major drift (branch switch, long absence,
-  large merge): triages each flagged node into **reseat**, **patch from the diff**, or **re-orient**.
+- `claude/commands/synapse-rebuild-diff.md` — manual repair for major same-branch drift (a pull, a
+  rebase, a long absence): triages each flagged node into **reseat**, **patch from the diff**, or
+  **re-orient**. Refuses outright on a cross-branch mismatch.
+- `claude/commands/synapse-rebuild-full.md` — wipes the current namespace and rebuilds it from
+  scratch via `/synapse-init`, for when triage isn't the right tool. Preserves any hand-written
+  `## Notes` first (`claude/lib/synapse/synapse-graph-wipe.sh`) and auto-merges what it can back into
+  the new nodes afterward.
 - `claude/hooks/synapse-staleness.sh` — `PostToolUse` Tier 1: flags a just-edited file's nodes `stale`
   and re-verifies any evidence that file's nodes cite, via the Local REST API directly.
 - `claude/skills/synapse-node/` — Tier 2: the lazy staleness check, regeneration and unassigned sweep

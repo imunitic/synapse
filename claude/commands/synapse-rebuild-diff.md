@@ -1,22 +1,33 @@
 ---
-name: synapse-rebuild
-description: Manually bring a repo's Synapse namespace back in line after major drift — a branch switch, a long absence, or a large merge. Triages each drifted node into reseat / patch-from-diff / re-orient rather than rebuilding everything.
+name: synapse-rebuild-diff
+description: Manually bring a repo's Synapse namespace back in line after major same-branch drift — a pull, a rebase, or a long absence. Triages each drifted node into reseat / patch-from-diff / re-orient rather than rebuilding everything. Refuses outright on a cross-branch mismatch; for a full rebuild from scratch, use /synapse-rebuild-full instead.
 ---
 
-# Synapse Rebuild: Reconcile a Namespace After Major Drift
+# Synapse Rebuild Diff: Reconcile a Namespace After Same-Branch Drift
 
 `/synapse-init` builds a namespace. The two staleness tiers and `synapse-query.sh drift` *detect*
 that it has moved. This command is the deliberate, human-invoked repair for the case where enough has
 moved that lazy per-read regeneration is the wrong instrument.
 
+**Same-branch only.** Every scenario below happens on the branch the namespace already describes —
+a pull, a rebase, time passing, your own hand-written commits. None of them involve the current
+checkout being on a *different* branch than the namespace's own recorded `branch:` field. If it is,
+this command refuses outright rather than attempting a diff — see the branch-identity check under
+Prerequisites. Comparing one branch's tree against another isn't drift, it's just two unrelated
+states, and none of the triage classes below (reseat / patch / re-orient) were built for that.
+
 ## When to run it
 
 Manually, when you already expect major drift:
 
-- **A branch switch**, especially onto an older release line. The graph was built against a different
-  line, and a large fraction of nodes will be flagged at once.
-- **A long absence** — weeks or months of other people's commits landed while you were elsewhere.
-- **A large merge or rebase** landing in your checkout.
+- **A plain `pull`** that landed a meaningful number of commits — fast-forward, same branch throughout.
+- **A `pull --rebase`** — your local commits get new SHAs, so `synapse.sh query drift` will likely
+  report the baseline as "not an ancestor of HEAD". That's expected here, not a sign of anything
+  wrong: you were on the same branch the whole time, only its history got rewritten.
+- **A large merge landing in your current branch** — another branch's tip merged in via `git merge`.
+  Still same-branch throughout: `HEAD` gains a merge commit, it doesn't move to a different branch.
+- **A long absence** — weeks or months of other people's commits landed while you were elsewhere, on
+  the same branch.
 - **You wrote a lot of code by hand.** The plainest case and probably the most common: days of ordinary
   work in your own branch, in your own editor, with no model involved. Tier 1 only fires on
   `Write`/`Edit`/`MultiEdit` *in this session*, so none of it was flagged as it happened. `stale` will
@@ -57,6 +68,23 @@ this command when it does. What no longer happens is arriving here merely becaus
 
 - The namespace must exist. If `synapse/{repo}@{branch}/Index.md` is absent, this is a first build — use
   `/synapse-init`.
+- **Branch-identity check — hard stop, run this before anything else, including drift/grounding.**
+  Compare the current checkout's branch against the namespace's own recorded `branch:` frontmatter
+  field:
+  ```sh
+  current_branch="$(git symbolic-ref --short HEAD)"
+  ns_branch="$(grep -m1 '^branch:' "synapse/{repo}@{branch}/Index.md" \
+      | sed -e 's/^branch: *//' -e 's/^"//' -e 's/"$//')"
+  ```
+  If they don't match, **refuse immediately** — do not run `synapse.sh query drift`, do not read
+  anything else. Say plainly that this namespace describes a different branch than the current
+  checkout, and point at `/synapse-init` (if the current branch has no namespace of its own) or at
+  checking out the branch/worktree the namespace actually describes. This is a distinct, harder check
+  than the "baseline is not an ancestor of HEAD" ancestry signal below — that one is a *soft*,
+  informational finding (expected after a same-branch `pull --rebase`); this one is a hard refusal,
+  because it is not this checkout's namespace to diff at all. Never conflate the two: a non-ancestor
+  baseline on a branch-identity match still proceeds normally, per the "One mechanical fact about
+  branches" section above.
 - The work directory (`$SYNAPSE_WORK_DIR`, default `~/.claude/synapse-work/{repo}@{branch}/`) ideally
   holds the `manifest.tsv` from the original build. Without it, new paths cannot be classified as
   auto-claimable, and clustering decisions have to be re-derived — say so rather than proceeding as if

@@ -40,7 +40,9 @@ better than prose.
 | `synapse-query.sh stale` | Re-hashes what a node claims. Cannot see additions, and reads a rename as a deletion. |
 | `synapse-query.sh drift` | Diffs `commit..HEAD`. The only thing that sees added paths, deletions, renames and a divergent baseline. |
 | `synapse-query.sh grounding` | Re-slices cited evidence: moved → re-point, changed → re-check. |
-| `/synapse-rebuild` | Triage per node — reseat, patch from the diff, or re-orient. |
+| `/synapse-rebuild-diff` | Triage per node — reseat, patch from the diff, or re-orient. Same-branch only. |
+| `/synapse-rebuild-full` | Wipes the namespace and rebuilds it via `/synapse-init`, preserving and auto-merging back `## Notes`. |
+| `synapse-graph-wipe.sh` | Deletes the current namespace after preserving `## Notes` to a scratchpad staging note. The delete half of `/synapse-rebuild-full`. |
 | `synapse-graph-clean.sh` | Removes a namespace whose upstream branch is gone; reports anything it cannot confirm. Run deliberately, never fired by a hook. |
 
 The whole system in one picture, and the layout carries an argument. Three lanes — what the **model**
@@ -257,7 +259,7 @@ The pointer is authored and the text is stored, which buys both properties at on
 as a file changes, so a node holding only `412-419` would come to cite something else; resolving the
 pointer at write time and keeping the result is unfabricable when authored and immune to line drift
 afterwards. `crux_path`/`crux_lines` stay in frontmatter so a rebuild can re-slice deliberately instead
-of carrying an old quote forward — `/synapse-rebuild` reconstructs the directive from them.
+of carrying an old quote forward — `/synapse-rebuild-diff` reconstructs the directive from them.
 
 `none` is a first-class answer, for a trivial data holder, a one-line delegation, or logic spread evenly
 across a subsystem with no focal span. A required field with no honest answer is how an invented one
@@ -318,7 +320,7 @@ paths being worked in, while dormant subsystems stay as vague as they were — w
 because nothing is reading them either.
 
 The nudge carries its own guardrail: correct only what this edit contradicts, never re-read the node's
-other sources, never verify its remaining claims, never start a sweep. Sweeping is `/synapse-rebuild`'s
+other sources, never verify its remaining claims, never start a sweep. Sweeping is `/synapse-rebuild-diff`'s
 job, and a free habit that turns into an expensive one stops being worth having. A node already flagged
 `stale` is still checked — it has had the longest to go wrong, so skipping it would hide the case most
 worth catching.
@@ -363,7 +365,7 @@ this is the case where it does not.
 
 `--check` is the one that pays for itself. A broken `[[wikilink]]` is a valid link to a not-yet-existing
 note, so Obsidian renders it without complaint and no other check notices — it used to be a manual
-instruction in `/synapse-rebuild` and is now a command.
+instruction in `/synapse-rebuild-diff` and is now a command.
 
 The API can answer the single-hop question exactly, with `{"in": ["depends_on [[Target]]", {"var":
 "content"}]}` — substring rather than tokenised, so unlike `/search/simple/` it does not return a node
@@ -501,13 +503,16 @@ Because `git hash-object` fingerprints the worktree rather than the commit, a no
 dirty tree has an approximate baseline — the writer warns at the time, narrowly, on that node's own
 sources.
 
-### `/synapse-rebuild`: repair, and the diff-driven rule
+### `/synapse-rebuild-diff`: repair, and the diff-driven rule
 
-Detection is cheap; repair is not, so the two are separate commands. `/synapse-rebuild` is invoked by a
-human when major drift is already expected — a branch switch, a long absence, a large merge — and its
-central rule is that **new prose is computed from the diff, never by re-reading a node's sources.** A
-node covering 15,000 files where 12 changed already has prose encoding the other 14,988; re-reading
-them costs enormously and discards findings the diff has nothing to say about.
+Detection is cheap; repair is not, so the two are separate commands. `/synapse-rebuild-diff` is invoked
+by a human when major *same-branch* drift is already expected — a pull, a rebase, a long absence, a
+large merge landing in the current branch — and its central rule is that **new prose is computed from
+the diff, never by re-reading a node's sources.** It refuses outright if the current checkout is on a
+different branch than the namespace's own recorded `branch:` field; for a full rebuild from scratch,
+see "`/synapse-rebuild-full`: wipe and rebuild" below. A node covering 15,000 files where 12 changed
+already has prose encoding the other 14,988; re-reading them costs enormously and discards findings
+the diff has nothing to say about.
 
 That turns repair into a triage rather than a rebuild. Per flagged node:
 
@@ -535,6 +540,30 @@ mainline, and a branch with no namespace simply has none until someone runs `/sy
 What still reaches this command is history moving under a graph on the branch it describes — a rebase
 onto a moved trunk, or a reset — which leaves the recorded baseline off the current line and produces
 the same "not an ancestor of HEAD" warning a branch switch used to.
+
+### `/synapse-rebuild-full`: wipe and rebuild
+
+The other repair tool, for when triage genuinely isn't the right instrument — the graph has drifted
+past the point where most nodes would land in *re-orient* anyway, the namespace was built badly, or a
+clean rebuild is simply wanted directly. Where `/synapse-rebuild-diff` triages and never deletes a
+node, `/synapse-rebuild-full` deletes the whole namespace and rebuilds it from nothing via
+`/synapse-init`'s own First-time-build procedure. It doesn't care which branch is checked out beyond
+the ordinary sense — there's nothing to diff against, so it just resolves `{repo}@{branch}` for
+whatever's current and rebuilds that.
+
+The one thing a wipe can't regenerate is `## Notes` — human-authored, living outside every generated
+fence. `synapse-graph-wipe.sh` (the delete half, dispatched as `synapse.sh graph-wipe`) scans for it
+before touching anything, dumps any non-empty section verbatim to a scratchpad staging note, and only
+then deletes — mirroring the belt-and-braces path check `synapse-graph-clean.sh` already uses as the
+only other destructive tool in the system. The command layer adds one more gate on top: `--dry-run`
+first, reported to the human, explicit confirmation before the real delete runs.
+
+After the rebuild, preserved notes get one more pass: classified against the finished new node list
+(the same technique the `_unassigned` sweep uses for files) and merged into whichever new node fits,
+with a provenance breadcrumb since the note has lost its original context. Every placement is reported
+— success as loudly as failure — because a wrong auto-placement is most dangerous exactly when nobody
+mentions it happened. What doesn't find a confident home stays in the staging note for a human to
+place by hand, rather than being guessed into somewhere plausible-but-wrong.
 
 ## Optional tree-sitter acceleration
 
