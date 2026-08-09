@@ -187,10 +187,13 @@ count_of() { # count_of <group> <word>
   [ -z "$output" ]
 }
 
-@test "an extension with no grammar is warned once for the whole run, not once per chunk" {
-  # The chunking is invisible to a caller, so its granularity must not leak into
-  # the warnings: with --chunk 1 there is one invocation per file, and a
-  # per-invocation warning would print four times instead of once.
+@test "an extension with no registry entry is excluded before tagging, not warned about" {
+  # CODE_RE is built once, up front, from `synapse-tags.sh --list-extensions`
+  # -- the registry's own list of usable grammars -- rather than a hardcoded
+  # guess at "languages worth having". An extension the registry has never
+  # heard of therefore never reaches code.txt, so it never reaches
+  # synapse-tags.sh at all: no per-chunk warning to dedup, at any --chunk
+  # size, because there is nothing to warn about in the first place.
   git init -q "$REPO"
   src core/src/A.java Alpha
   src core/src/B.java Beta
@@ -199,8 +202,9 @@ count_of() { # count_of <group> <word>
   git -C "$REPO" add -A
   git -C "$REPO" -c user.email=test@test -c user.name=test commit -q -m init
 
-  # .zzz is not a code extension, so make it one the script will try: the point
-  # is the dedup, and any extension in CODE_RE with no registry entry shows it.
+  # .zzz is not a code extension; .rb looks like one but has no registry
+  # entry in this fixture -- exactly the case that used to slip through a
+  # hardcoded CODE_RE and produce a warning. It should now be silent.
   mv "$REPO/core/src/c.zzz" "$REPO/core/src/c.rb"
   mv "$REPO/core/src/d.zzz" "$REPO/core/src/d.rb"
   git -C "$REPO" add -A
@@ -208,8 +212,9 @@ count_of() { # count_of <group> <word>
 
   run run_vocab --chunk 1
   [ "$status" -eq 0 ]
-  [ "$(grep -c 'no grammar registered for .rb' <<< "$output")" -eq 1 ]
-  # And the files that did have one still produced vocabulary.
+  [ "$(grep -c 'no grammar registered for .rb' <<< "$output")" -eq 0 ]
+  [ "$(grep -c 'grammar for .rb is not usable' <<< "$output")" -eq 0 ]
+  # And the files that did have a registered grammar still produced vocabulary.
   [ -n "$(count_of core/src alpha)" ]
 }
 

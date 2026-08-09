@@ -6,7 +6,30 @@
 #
 # Usage: synapse-tags.sh <file-path>
 #        synapse-tags.sh --paths <file-list>
+#        synapse-tags.sh --list-extensions
 #   Grammar cache dir: $SYNAPSE_GRAMMARS_DIR, default ~/.cache/synapse/grammars/.
+#   First-clone lock wait: $SYNAPSE_GRAMMAR_LOCK_TRIES, default 300 (~60s at
+#   0.2s/try). A parallel caller (synapse-vocab.sh/-rank.sh chunk workers)
+#   racing another process's first-ever clone of the same grammar waits this
+#   long before giving up, rather than racing a second clone into it.
+#   Repo-scoped resolution cache: $SYNAPSE_REPO_GRAMMAR_CACHE, unset by
+#   default (no caching). A caller that already knows its own
+#   $SYNAPSE_WORK_DIR (synapse-vocab.sh, synapse-rank.sh) points this at
+#   "$SYNAPSE_WORK_DIR/_repo_grammar.json" so the many resolutions of the
+#   same repo's same handful of extensions, across a whole session, are
+#   read from a small repo-scoped file after the first, instead of
+#   re-querying the full registry every time.
+#
+# `--list-extensions` prints every extension the registry currently has a
+# *usable* grammar for (not marked `unsupported: true`, has both `repo` and
+# `scope`) -- one bare extension per line, no dot, LC_ALL=C sorted unique.
+# This is the registry, not a curated guess at "languages worth having": the
+# extension that comes back tomorrow is whatever got registered since, with
+# no second list anywhere to fall out of sync with it. Callers that need to
+# pre-filter a large file list before tagging (synapse-vocab.sh,
+# synapse-rank.sh) build their allowlist from this instead of hardcoding one.
+# An empty result is legitimate -- a fresh registry, or one where nothing
+# registered here happens to apply to this repo -- and is not an error.
 #
 # `--paths` tags every listed file in ONE tree-sitter invocation. That is not a
 # convenience: CLI startup and grammar load dominate the per-file cost, and 200
@@ -35,6 +58,7 @@
 #       the batch ran, even if some extensions had no grammar: a mixed repo
 #       nearly always has some, and failing the batch for them would throw away
 #       every language that did work.
+#       `--list-extensions` also exits 0 on an empty registry -- see above.
 #   1 - not usable right now (missing tree-sitter/jq/C compiler, no
 #       extension, a registry entry marked `unsupported: true`, or a clone/
 #       registration failure) -- nothing else to try
@@ -49,6 +73,7 @@ MODE="single"
 FILE=""
 PATHS_FILE=""
 case "${1:-}" in
+  --list-extensions) MODE="list" ;;
   --paths) MODE="batch"; PATHS_FILE="${2:-}"; [ -n "$PATHS_FILE" ] && [ -f "$PATHS_FILE" ] || exit 1 ;;
   "")      exit 1 ;;
   *)       FILE="$1"; [ -f "$FILE" ] || exit 1 ;;
@@ -68,6 +93,59 @@ GRAMMARS_DIR="${SYNAPSE_GRAMMARS_DIR:-$HOME/.cache/synapse/grammars}"
 REGISTRY="$HOME/.claude/synapse-grammars.conf"
 [ -f "$REGISTRY" ] || printf '{}' > "$REGISTRY"
 
+# Optional repo-scoped accelerant, set by a caller that already knows its
+# own $SYNAPSE_WORK_DIR (synapse-vocab.sh, synapse-rank.sh) -- never
+# resolved here, since this script stays deliberately repo-agnostic (single-
+# file mode does not even require being inside a git repo). Unset means
+# exactly today's behaviour: every call resolves straight from $REGISTRY.
+#
+# Purpose: within one /synapse-init-style session the SAME repo's SAME
+# handful of extensions get resolved over and over -- once per distinct
+# extension per chunk, across every parallel worker of every
+# synapse-vocab.sh/-rank.sh call (dozens, on a real node-authoring session).
+# Each resolution costs several `jq` process spawns against $REGISTRY; a
+# small cache scoped to just this repo's own extensions removes the repeat
+# spawns without touching $REGISTRY itself.
+GRAMMAR_CACHE="${SYNAPSE_REPO_GRAMMAR_CACHE:-}"
+if [ -n "$GRAMMAR_CACHE" ]; then
+  mkdir -p "$(dirname "$GRAMMAR_CACHE")" 2>/dev/null
+  [ -s "$GRAMMAR_CACHE" ] || printf '{}' > "$GRAMMAR_CACHE" 2>/dev/null
+fi
+
+# Merges one extension's already-resolved registry entry into the cache.
+# Best-effort and lossy under concurrency ON PURPOSE, not a bug to fix later:
+# mktemp+mv keeps the file atomically valid JSON at every instant (no
+# torn/interleaved writes from two parallel workers), but two workers
+# resolving the same never-cached extension at once can still race a
+# read-modify-write, and the loser's update is silently dropped. That is
+# fine for a pure performance cache -- the dropped extension just resolves
+# from $REGISTRY again next call, exactly like a cold cache, never wrong.
+cache_grammar_entry() { # cache_grammar_entry <ext> <entry-json>
+  local ext="$1" entry_json="$2" tmp
+  [ -n "$GRAMMAR_CACHE" ] || return 0
+  tmp="$(mktemp "${TMPDIR:-/tmp}/synapse-tags.XXXXXX")" || return 0
+  jq --arg ext "$ext" --argjson entry "$entry_json" \
+    '(if type == "object" then . else {} end) | .[$ext] = $entry' \
+    "$GRAMMAR_CACHE" 2>/dev/null > "$tmp" \
+    && mv "$tmp" "$GRAMMAR_CACHE" \
+    || rm -f "$tmp"
+}
+
+if [ "$MODE" = "list" ]; then
+  # Same "usable" test ensure_grammar applies per-extension (not unsupported,
+  # repo and scope both present) -- read here directly rather than shelling
+  # out to ensure_grammar per key, since that function also clones and
+  # registers the parser directory, which listing must never trigger as a
+  # side effect.
+  jq -r '
+    to_entries[]
+    | select((.value.unsupported // false) | not)
+    | select((.value.repo // "") != "" and (.value.scope // "") != "")
+    | .key
+  ' "$REGISTRY" 2>/dev/null | LC_ALL=C sort -u
+  exit 0
+fi
+
 TS_CONFIG="$HOME/.config/tree-sitter/config.json"
 REPOS_PARENT="$GRAMMARS_DIR/repos"
 
@@ -78,22 +156,81 @@ REPOS_PARENT="$GRAMMARS_DIR/repos"
 #   1 - unusable (marked unsupported, malformed entry, clone or config failure)
 #   2 - no registry entry for this extension
 ensure_grammar() { # ensure_grammar <ext>
-  local ext="$1" entry unsupported repo scope repo_name repo_dir already tmp
-  entry="$(jq -r --arg ext "$ext" '.[$ext] // empty' "$REGISTRY" 2>/dev/null)"
+  local ext="$1" entry unsupported repo scope repo_name repo_dir already tmp \
+        lock_dir got_lock tries max_tries cache_hit
+
+  # Repo-scoped cache first, $REGISTRY on a miss. A miss here means "not yet
+  # cached", NEVER "confirmed unsupported" -- trusting an absence as a
+  # negative would silently ignore a grammar registered later in the same
+  # session, exactly the bug class this whole registry-driven design exists
+  # to avoid. Only a $REGISTRY answer that is already definitive (usable, or
+  # explicitly unsupported) gets written back; "no entry anywhere" is never
+  # cached, so a later registration is picked up on the very next call.
+  cache_hit=false
+  entry=""
+  if [ -n "$GRAMMAR_CACHE" ]; then
+    entry="$(jq -r --arg ext "$ext" '.[$ext] // empty' "$GRAMMAR_CACHE" 2>/dev/null)"
+    [ -n "$entry" ] && cache_hit=true
+  fi
+  if [ "$cache_hit" = false ]; then
+    entry="$(jq -r --arg ext "$ext" '.[$ext] // empty' "$REGISTRY" 2>/dev/null)"
+  fi
   [ -n "$entry" ] || return 2
 
   unsupported="$(printf '%s' "$entry" | jq -r '.unsupported // false' 2>/dev/null)"
-  [ "$unsupported" != "true" ] || return 1
+  if [ "$unsupported" = "true" ]; then
+    [ "$cache_hit" = true ] || cache_grammar_entry "$ext" "$entry"
+    return 1
+  fi
 
   repo="$(printf '%s' "$entry" | jq -r '.repo // empty' 2>/dev/null)"
   scope="$(printf '%s' "$entry" | jq -r '.scope // empty' 2>/dev/null)"
   [ -n "$repo" ] && [ -n "$scope" ] || return 1
+  [ "$cache_hit" = true ] || cache_grammar_entry "$ext" "$entry"
 
   repo_name="$(basename "$repo" .git)"
   repo_dir="$REPOS_PARENT/$repo_name"
   mkdir -p "$REPOS_PARENT"
   if [ ! -d "$repo_dir" ]; then
-    git clone --depth 1 -q "$repo" "$repo_dir" >/dev/null 2>&1 || { rm -rf "$repo_dir"; return 1; }
+    # Batch mode runs one synapse-tags.sh invocation per chunk in parallel
+    # (synapse-vocab.sh/-rank.sh's own xargs -P), and each invocation runs
+    # this same extension-readiness check independently. Without a lock, two
+    # workers seeing the same missing $repo_dir both start `git clone` into
+    # it; git refuses the second clone (destination not empty), that worker
+    # takes the failure branch and `rm -rf`s the directory -- deleting the
+    # first worker's still-running clone out from under it. `mkdir` is
+    # atomic across processes on a POSIX filesystem, so exactly one worker
+    # wins it and clones; the rest poll for the winner to finish rather than
+    # racing a second clone.
+    lock_dir="$repo_dir.lock"
+    got_lock=false
+    tries=0
+    # ~60s ceiling by default: a --depth 1 clone of a grammar repo is
+    # seconds, not minutes -- this bounds a wedged lock (a crashed holder)
+    # rather than waiting forever, not the clone itself. Overridable so a
+    # test can shrink it instead of a real 60s wait to prove the timeout.
+    max_tries="${SYNAPSE_GRAMMAR_LOCK_TRIES:-300}"
+    while [ "$tries" -lt "$max_tries" ]; do
+      if mkdir "$lock_dir" 2>/dev/null; then
+        got_lock=true
+        break
+      fi
+      # Lock held by another worker -- but it may have already finished and
+      # released it between our directory check above and this attempt.
+      [ -d "$repo_dir" ] && break
+      sleep 0.2
+      tries=$((tries + 1))
+    done
+    if [ "$got_lock" = true ]; then
+      # Re-check under the lock: the repo may have been cloned by a worker
+      # that held the lock, finished, and released it before we acquired it.
+      if [ ! -d "$repo_dir" ]; then
+        git clone --depth 1 -q "$repo" "$repo_dir" >/dev/null 2>&1 || {
+          rm -rf "$repo_dir"; rmdir "$lock_dir" 2>/dev/null; return 1; }
+      fi
+      rmdir "$lock_dir" 2>/dev/null
+    fi
+    [ -d "$repo_dir" ] || return 1
   fi
 
   [ -f "$TS_CONFIG" ] || tree-sitter init-config >/dev/null 2>&1

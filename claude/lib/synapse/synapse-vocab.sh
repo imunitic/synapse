@@ -116,6 +116,12 @@ if [ -z "$OUT" ]; then
 fi
 mkdir -p "$OUT" || { echo "synapse-vocab: cannot write $OUT" >&2; exit 1; }
 
+# Repo-scoped grammar-resolution cache (see synapse-tags.sh's own header):
+# exported so every worker.sh-spawned synapse-tags.sh invocation below,
+# across every chunk, shares and builds up the same small file instead of
+# each re-querying the full registry.
+export SYNAPSE_REPO_GRAMMAR_CACHE="$OUT/_repo_grammar.json"
+
 W="$(mktemp -d "${TMPDIR:-/tmp}/synapse-vocab.XXXXXX")" || exit 1
 trap 'rm -rf "$W"' EXIT
 mkdir -p "$W/chunks" "$W/words"
@@ -123,7 +129,22 @@ mkdir -p "$W/chunks" "$W/words"
 # Languages with a tree-sitter grammar worth having. Not the same question as
 # "what belongs in the graph": a file with no grammar still gets covered by a
 # node and still flags staleness, it just contributes no vocabulary.
-CODE_RE='\.(java|kt|kts|scala|groovy|gradle|js|jsx|ts|tsx|py|go|rs|c|cc|cpp|h|hpp|cs|rb|php|swift|sh|bash)$'
+#
+# Read from the registry via `synapse-tags.sh --list-extensions` rather than
+# hardcoded here: a hardcoded list is a second copy of what the registry
+# already knows, and the two drifting is exactly how a real, already-working
+# grammar (e.g. OCaml, registered for one project) stayed invisible to this
+# script for every other project that never got its own copy of the list
+# edited. The registry is authoritative now, so registering a language once
+# is enough forever, everywhere. An empty result here means no vocabulary
+# this run -- the same legitimate "no usable grammar" outcome documented
+# above, not a special case to handle.
+CODE_EXTS="$("$TAGS_SH" --list-extensions 2>/dev/null)"
+if [ -n "$CODE_EXTS" ]; then
+    CODE_RE="\\.($(printf '%s\n' "$CODE_EXTS" | LC_ALL=C paste -sd'|' -))\$"
+else
+    CODE_RE=""
+fi
 
 # Machine output that happens to end in a code extension. The only part of
 # synapse-build-lists.sh's exclusions CODE_RE does not already subsume -- its
@@ -176,8 +197,15 @@ if [ -n "$LISTS" ]; then
     mv "$W/mapped.txt" "$W/kept.txt"
 fi
 
-LC_ALL=C grep -E "$CODE_RE" "$W/kept.txt" \
-    | LC_ALL=C grep -Ev "$GENERATED_RE" > "$W/code.txt" || : > "$W/code.txt"
+# Guarded rather than fed straight to grep -E: an empty pattern matches every
+# line, which would silently turn "no extensions registered yet" into "every
+# file is code."
+if [ -n "$CODE_RE" ]; then
+    LC_ALL=C grep -E "$CODE_RE" "$W/kept.txt" \
+        | LC_ALL=C grep -Ev "$GENERATED_RE" > "$W/code.txt" || : > "$W/code.txt"
+else
+    : > "$W/code.txt"
+fi
 
 # The grouping rule, written into every awk program that needs it rather than
 # retyped in each: counts.tsv and groupwords.tsv keyed differently is the failure

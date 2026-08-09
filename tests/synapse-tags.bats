@@ -15,6 +15,7 @@ SCRIPT="$REPO_ROOT/claude/lib/synapse/synapse-tags.sh"
 setup() {
   common_setup
   GRAMMARS_DIR="$TEST_HOME/grammars"
+  GRAMMAR_CACHE="$TEST_HOME/repo_grammar.json"
   REGISTRY="$HOME/.claude/synapse-grammars.conf"
   FAKE_TS_LOG="$TEST_HOME/ts.log"
   FAKE_GIT_LOG="$TEST_HOME/git.log"
@@ -37,6 +38,18 @@ write_registry() {
 run_synapse_tags() {
   PATH="$FAKE_BIN:$PATH" \
     SYNAPSE_GRAMMARS_DIR="$GRAMMARS_DIR" \
+    FAKE_TS_LOG="$FAKE_TS_LOG" \
+    FAKE_GIT_LOG="$FAKE_GIT_LOG" \
+    "$SCRIPT" "$@"
+}
+
+# Same as run_synapse_tags, with the repo-scoped resolution cache pointed at
+# $GRAMMAR_CACHE. A separate helper, not a flag on the base one, so every
+# other test in this file keeps exercising the no-cache default untouched.
+run_synapse_tags_cached() {
+  PATH="$FAKE_BIN:$PATH" \
+    SYNAPSE_GRAMMARS_DIR="$GRAMMARS_DIR" \
+    SYNAPSE_REPO_GRAMMAR_CACHE="$GRAMMAR_CACHE" \
     FAKE_TS_LOG="$FAKE_TS_LOG" \
     FAKE_GIT_LOG="$FAKE_GIT_LOG" \
     "$SCRIPT" "$@"
@@ -93,6 +106,133 @@ run_synapse_tags() {
   run jq -e '."parser-directories" | index("'"$GRAMMARS_DIR"'/repos")' "$HOME/.config/tree-sitter/config.json"
   [ "$status" -eq 0 ]
   [ "$output" != "null" ]
+}
+
+@test "concurrent first clone: a waiter picks up another worker's finished clone instead of racing it" {
+  # Simulates two parallel synapse-vocab.sh/-rank.sh chunk workers hitting the
+  # same never-before-cloned extension at once. The lock directory existing
+  # with no repo directory yet is exactly what a worker mid-clone leaves
+  # behind, whether that worker is real or (as here) simulated directly.
+  printf 'let x = 1\n' > "$TEST_HOME/sample.ml"
+  write_registry '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}'
+  mkdir -p "$GRAMMARS_DIR/repos/tree-sitter-ocaml.lock"
+
+  out="$TEST_HOME/waiter.out"
+  run_synapse_tags "$TEST_HOME/sample.ml" > "$out" 2>&1 &
+  waiter_pid=$!
+
+  # Long enough that a waiter which raced the lock instead of honouring it
+  # would already have finished (and logged a clone) by this point.
+  sleep 0.5
+  kill -0 "$waiter_pid" 2>/dev/null   # still running -- it is waiting, not racing
+  [ ! -s "$FAKE_GIT_LOG" ]            # and has made no clone attempt of its own
+
+  # The other worker finishes: repo appears, then its lock is released --
+  # the same order ensure_grammar's own clone-then-unlock path uses.
+  mkdir -p "$GRAMMARS_DIR/repos/tree-sitter-ocaml"
+  rmdir "$GRAMMARS_DIR/repos/tree-sitter-ocaml.lock"
+
+  wait "$waiter_pid"
+  status=$?
+  [ "$status" -eq 0 ]
+  [[ "$(cat "$out")" == *"FAKE_NAME"* ]]
+  [ ! -s "$FAKE_GIT_LOG" ]   # picked up the finished clone, never cloned itself
+}
+
+@test "concurrent first clone: a lock released with no repo means the holder failed -- the waiter clones instead" {
+  printf 'let x = 1\n' > "$TEST_HOME/sample.ml"
+  write_registry '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}'
+  mkdir -p "$GRAMMARS_DIR/repos/tree-sitter-ocaml.lock"
+
+  out="$TEST_HOME/waiter.out"
+  run_synapse_tags "$TEST_HOME/sample.ml" > "$out" 2>&1 &
+  waiter_pid=$!
+  sleep 0.5
+  kill -0 "$waiter_pid" 2>/dev/null
+
+  # The other worker's clone failed: lock released, repo never appeared --
+  # the waiter must not conclude "someone else has it" forever.
+  rmdir "$GRAMMARS_DIR/repos/tree-sitter-ocaml.lock"
+
+  wait "$waiter_pid"
+  status=$?
+  [ "$status" -eq 0 ]
+  [[ "$(cat "$out")" == *"FAKE_NAME"* ]]
+  grep -q "clone" "$FAKE_GIT_LOG"   # it had to become the new leader and clone
+  [ -d "$GRAMMARS_DIR/repos/tree-sitter-ocaml" ]
+}
+
+@test "a wedged lock times out rather than waiting forever, and is left for its actual owner" {
+  printf 'let x = 1\n' > "$TEST_HOME/sample.ml"
+  write_registry '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}'
+  mkdir -p "$GRAMMARS_DIR/repos/tree-sitter-ocaml.lock"
+
+  run env PATH="$FAKE_BIN:$PATH" SYNAPSE_GRAMMARS_DIR="$GRAMMARS_DIR" \
+    SYNAPSE_GRAMMAR_LOCK_TRIES=3 "$SCRIPT" "$TEST_HOME/sample.ml"
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+  # A timed-out waiter does not own the lock and must not delete it -- doing
+  # so could let a second waiter start cloning while the real (just slow)
+  # holder is still working.
+  [ -d "$GRAMMARS_DIR/repos/tree-sitter-ocaml.lock" ]
+  [ ! -d "$GRAMMARS_DIR/repos/tree-sitter-ocaml" ]
+}
+
+@test "repo-scoped cache: a usable resolution is written back after a registry hit" {
+  printf 'let x = 1\n' > "$TEST_HOME/sample.ml"
+  write_registry '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}'
+
+  run run_synapse_tags_cached "$TEST_HOME/sample.ml"
+  [ "$status" -eq 0 ]
+  run jq -r '.ml.scope' "$GRAMMAR_CACHE"
+  [ "$output" = "source.ocaml" ]
+}
+
+@test "repo-scoped cache: an unsupported resolution is written back too" {
+  printf 'fn main() {}\n' > "$TEST_HOME/sample.rs"
+  write_registry '{"rs": {"unsupported": true}}'
+
+  run run_synapse_tags_cached "$TEST_HOME/sample.rs"
+  [ "$status" -eq 1 ]
+  run jq -r '.rs.unsupported' "$GRAMMAR_CACHE"
+  [ "$output" = "true" ]
+}
+
+@test "repo-scoped cache: no registry entry at all is never cached" {
+  printf 'let x = 1\n' > "$TEST_HOME/sample.ml"
+  write_registry '{}'
+
+  run run_synapse_tags_cached "$TEST_HOME/sample.ml"
+  [ "$status" -eq 2 ]
+  # An empty cache file is created (so later merges have valid JSON to merge
+  # into) but must hold no verdict for an extension nobody has resolved yet.
+  run jq -r 'has("ml")' "$GRAMMAR_CACHE"
+  [ "$output" = "false" ]
+}
+
+@test "repo-scoped cache: a hit is used verbatim, without consulting the registry again" {
+  printf 'let x = 1\n' > "$TEST_HOME/sample.ml"
+  # Registry says one thing; cache already says another, real thing (a
+  # working scope) -- if the cache is actually short-circuiting the
+  # registry lookup, tagging succeeds using the CACHED scope, not the
+  # registry's now-nonsense one.
+  write_registry '{"ml": {"repo": "not-a-url", "scope": ""}}'
+  printf '%s' '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}' \
+    > "$GRAMMAR_CACHE"
+
+  run run_synapse_tags_cached "$TEST_HOME/sample.ml"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"FAKE_NAME"* ]]
+  grep -q "clone" "$FAKE_GIT_LOG"
+}
+
+@test "repo-scoped cache: unset means no caching, identical to today's behaviour" {
+  printf 'let x = 1\n' > "$TEST_HOME/sample.ml"
+  write_registry '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}'
+
+  run run_synapse_tags "$TEST_HOME/sample.ml"
+  [ "$status" -eq 0 ]
+  [ ! -e "$GRAMMAR_CACHE" ]
 }
 
 @test "grammar already cloned: does not clone again" {

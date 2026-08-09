@@ -122,14 +122,42 @@ fi
 TAGS_SH="${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-tags.sh"
 [ -x "$TAGS_SH" ] || { echo "synapse-rank: synapse-tags.sh not installed (run setup.sh)" >&2; exit 1; }
 
+# Repo-scoped grammar-resolution cache (see synapse-tags.sh's own header):
+# best-effort only -- ranking has never required a resolvable Synapse
+# namespace (a detached HEAD, or synapse-identity.sh simply not installed,
+# both fine here today), so a failure to resolve one now stays fine too: it
+# just means this run skips the cache and resolves every extension from the
+# registry directly, exactly like before this existed.
+GRAMMAR_WORK_DIR="${SYNAPSE_WORK_DIR:-}"
+if [ -z "$GRAMMAR_WORK_DIR" ]; then
+    GRAMMAR_REPO_NAME="$(
+        . "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh" 2>/dev/null \
+        && synapse_namespace "$REPO_ROOT" 2>/dev/null
+    )" || GRAMMAR_REPO_NAME=""
+    [ -z "$GRAMMAR_REPO_NAME" ] || GRAMMAR_WORK_DIR="$HOME/.claude/synapse-work/$GRAMMAR_REPO_NAME"
+fi
+if [ -n "$GRAMMAR_WORK_DIR" ] && mkdir -p "$GRAMMAR_WORK_DIR" 2>/dev/null; then
+    export SYNAPSE_REPO_GRAMMAR_CACHE="$GRAMMAR_WORK_DIR/_repo_grammar.json"
+fi
+
 W="$(mktemp -d "${TMPDIR:-/tmp}/synapse-rank.XXXXXX")" || exit 1
 trap 'rm -rf "$W"' EXIT
 mkdir -p "$W/chunks" "$W/out"
 
-# Same list synapse-vocab.sh uses, for the same reason: these are the languages
-# a grammar exists for, which is a different question from what belongs in the
-# graph.
-CODE_RE='\.(java|kt|kts|scala|groovy|gradle|js|jsx|ts|tsx|py|go|rs|c|cc|cpp|h|hpp|cs|rb|php|swift|sh|bash)$'
+# Same source synapse-vocab.sh reads, for the same reason: these are the
+# languages a grammar exists for, which is a different question from what
+# belongs in the graph. Read from the registry (`synapse-tags.sh
+# --list-extensions`) rather than hardcoded here, so this and synapse-vocab.sh
+# cannot silently disagree about which extensions count as code -- a
+# hardcoded list here previously excluded a language whose grammar was
+# already registered, which is exactly the drift a single shared source
+# removes. An empty result is legitimate (nothing registered yet).
+CODE_EXTS="$("$TAGS_SH" --list-extensions 2>/dev/null)"
+if [ -n "$CODE_EXTS" ]; then
+    CODE_RE="\\.($(printf '%s\n' "$CODE_EXTS" | LC_ALL=C paste -sd'|' -))\$"
+else
+    CODE_RE=""
+fi
 
 # Test files, by the conventions that actually recur across languages: a path
 # segment named test/spec, a `FooTest`/`FooSpec` basename, a `_test`/`.test.`
@@ -141,8 +169,17 @@ TEST_RE="${SYNAPSE_TEST_PATH_RE:-(^|/)(test|tests|spec|specs|__tests__|testing)/
 
 cd "$REPO_ROOT" || exit 1
 LC_ALL=C sort -u "$SOURCES" | LC_ALL=C awk 'NF' > "$W/all.txt"
-LC_ALL=C grep -E "$CODE_RE" "$W/all.txt" > "$W/code.txt" || : > "$W/code.txt"
-LC_ALL=C grep -vE "$CODE_RE" "$W/all.txt" > "$W/noncode.txt" || : > "$W/noncode.txt"
+# Guarded rather than fed straight to grep -E/-vE: an empty pattern matches
+# every line, which would put every source in the code tier (and, on the
+# inverted branch, none in the noncode tier) instead of correctly treating
+# "no extensions registered yet" as "nothing ranks as code."
+if [ -n "$CODE_RE" ]; then
+    LC_ALL=C grep -E "$CODE_RE" "$W/all.txt" > "$W/code.txt" || : > "$W/code.txt"
+    LC_ALL=C grep -vE "$CODE_RE" "$W/all.txt" > "$W/noncode.txt" || : > "$W/noncode.txt"
+else
+    : > "$W/code.txt"
+    cp "$W/all.txt" "$W/noncode.txt"
+fi
 
 tests_dropped=0
 if [ "$POOL" = "crux" ]; then
@@ -218,7 +255,7 @@ fi
 
 # --- dsl tier: hop from a declaration to the code that consumes it ----------
 : > "$W/dsl-ranked.tsv"
-if [ -s "$W/noncode.txt" ]; then
+if [ -s "$W/noncode.txt" ] && [ -n "$CODE_RE" ]; then
     git ls-files 2>/dev/null | LC_ALL=C grep -E "$CODE_RE" > "$W/repo-code.txt" || : > "$W/repo-code.txt"
     LC_ALL=C awk "$KEY_AWK" "$W/repo-code.txt" > "$W/code-keys.tsv"
     LC_ALL=C awk "$KEY_AWK" "$W/noncode.txt"   > "$W/dsl-keys.tsv"

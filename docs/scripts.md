@@ -600,7 +600,30 @@ tree-sitter acceleration" section and `synapse-grammars.conf`'s own header.
 ```
 Usage: synapse-tags.sh <file-path>
        synapse-tags.sh --paths <file-list>
+       synapse-tags.sh --list-extensions
   Grammar cache dir: $SYNAPSE_GRAMMARS_DIR, default ~/.cache/synapse/grammars/.
+  First-clone lock wait: $SYNAPSE_GRAMMAR_LOCK_TRIES, default 300 (~60s at
+  0.2s/try). A parallel caller (synapse-vocab.sh/-rank.sh chunk workers)
+  racing another process's first-ever clone of the same grammar waits this
+  long before giving up, rather than racing a second clone into it.
+  Repo-scoped resolution cache: $SYNAPSE_REPO_GRAMMAR_CACHE, unset by
+  default (no caching). A caller that already knows its own
+  $SYNAPSE_WORK_DIR (synapse-vocab.sh, synapse-rank.sh) points this at
+  "$SYNAPSE_WORK_DIR/_repo_grammar.json" so the many resolutions of the
+  same repo's same handful of extensions, across a whole session, are
+  read from a small repo-scoped file after the first, instead of
+  re-querying the full registry every time.
+
+`--list-extensions` prints every extension the registry currently has a
+*usable* grammar for (not marked `unsupported: true`, has both `repo` and
+`scope`) -- one bare extension per line, no dot, LC_ALL=C sorted unique.
+This is the registry, not a curated guess at "languages worth having": the
+extension that comes back tomorrow is whatever got registered since, with
+no second list anywhere to fall out of sync with it. Callers that need to
+pre-filter a large file list before tagging (synapse-vocab.sh,
+synapse-rank.sh) build their allowlist from this instead of hardcoding one.
+An empty result is legitimate -- a fresh registry, or one where nothing
+registered here happens to apply to this repo -- and is not an error.
 
 `--paths` tags every listed file in ONE tree-sitter invocation. That is not a
 convenience: CLI startup and grammar load dominate the per-file cost, and 200
@@ -629,6 +652,7 @@ reading the file directly -- this is never a hard dependency):
       the batch ran, even if some extensions had no grammar: a mixed repo
       nearly always has some, and failing the batch for them would throw away
       every language that did work.
+      `--list-extensions` also exits 0 on an empty registry -- see above.
   1 - not usable right now (missing tree-sitter/jq/C compiler, no
       extension, a registry entry marked `unsupported: true`, or a clone/
       registration failure) -- nothing else to try
