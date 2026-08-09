@@ -58,7 +58,12 @@ readonly LISTS="$WORK_DIR/lists"
 # vault-free script now (claude/lib/synapse/synapse-enumerate.sh), called here
 # as this build's first step with the same work dir this script already
 # resolved, so the two never disagree about where $ALL lives.
-SYNAPSE_WORK_DIR="$WORK_DIR" "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-enumerate.sh" "${reenumerate_flag[@]}"
+# `:-` guards an empty array's expansion, not just an unset one: bash 3.2
+# (macOS's /bin/bash, still the default there) treats "${arr[@]}" on a
+# genuinely empty array as an unbound-variable error under `set -u`, a bug
+# fixed in bash 4.4+. Without the guard, the common no-flag case fails on
+# any Mac running the system bash rather than a Homebrew one.
+SYNAPSE_WORK_DIR="$WORK_DIR" "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-enumerate.sh" "${reenumerate_flag[@]:-}"
 
 rm -rf "$LISTS"
 mkdir -p "$LISTS"
