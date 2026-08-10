@@ -5,6 +5,12 @@ OBSIDIAN_VAULT_DIR="$HOME/Obsidian/YourVault"
 # project -- not per-repo). Safe to leave at the default.
 SYNAPSE_GRAMMARS_DIR="$HOME/.cache/synapse/grammars"
 
+# How often the Stop hook pushes the vault's auto-commits to its remote,
+# counted in turns. Only acts when the vault actually has an upstream and is
+# genuinely ahead of it, so a remote-less vault (local versioned undo only) is
+# unaffected either way. Set to 0 to never push. Default 5 if unset.
+#SYNAPSE_VAULT_PUSH_EVERY=5
+
 # Where the synapse-*.sh plumbing scripts live once installed. Only
 # claude/bin/synapse.sh (the porcelain) goes on PATH; every script it
 # dispatches to is found through this variable instead. Safe to leave at the
