@@ -4,6 +4,15 @@
 # standing line -- no search, no node list, no network. Set
 # SYNAPSE_DISABLE_PROMPT_INJECTION (any value) to disable entirely.
 #
+# TWO TOOLS, NOT ONE. The line names the Graph (nodes, _index.json) and the Code
+# Cache (_refs.tsv) as separate things, because they are: the Code Cache is an
+# acceleration layer that stands alone, and `callers` answers in a repo where
+# clustering has never run. Collapsing both into "read the graph" is what the
+# earlier wording did, and it cost a real session -- the reader skimmed node
+# titles, saw nothing matching the subject, concluded Synapse did not cover the
+# area, and fell back to grep. Every file was indexed; the titles were simply
+# misleading about ownership. Hence naming _index.json as the coverage check.
+#
 # WHY A NUDGE AND NOT A SEARCH. This hook used to run the prompt through
 # synapse-tokenizer.sh, build a regexp OR-pattern, POST it to the vault's search
 # endpoint, and inject the matching node paths. Measured against a real
@@ -89,15 +98,39 @@ NS_REMOTE="$(grep -m1 '^remote:' "$NS_INDEX" 2>/dev/null \
 NODES="$(find "$NS_DIR" -maxdepth 1 -name '*.md' ! -name 'Index.md' 2>/dev/null | wc -l | tr -d ' ')"
 [ "$NODES" -gt 0 ] || exit 0
 
-jq -n --arg ns "$REPO_NAME" --arg n "$NODES" '
+# THE CODE CACHE IS A SEPARATE TOOL, NOT PART OF THE GRAPH. `callers` reads
+# _refs.tsv and needs no nodes, no _index.json and no vault, so listing it as a
+# graph reader (as this line used to) actively misleads: it implies the answer
+# depends on clustering that may not exist, and it hides the one Synapse tool
+# that works in an unclustered repo. `symbol` is the same Code Cache lookup
+# scoped by a node, which is why it takes two arguments -- a one-arg call prints
+# usage and reads as "unimplemented" to anyone who does not know the signature.
+#
+# Announced only when _refs.tsv is actually present, for the same reason the
+# node count is computed rather than asserted above: name what is there, never a
+# capability in the abstract. A missing index would otherwise send the reader to
+# a tool that exits with "no reference index".
+WORK="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}"
+CACHE=""
+[ -f "$WORK/_refs.tsv" ] && CACHE="$(printf '%s' \
+  ' Separately, and independent of the graph, a Code Cache indexes exact names:' \
+  ' `synapse.sh callers <name>` gives repo-wide call sites (no graph needed),' \
+  ' `synapse-query.sh symbol <name> <node>` scopes that lookup to one node.' \
+  ' Prefer either over grep for "where is X defined/used"; their line numbers' \
+  ' come from the index and can lag the working tree, so re-check a range before' \
+  ' relying on it.')"
+
+jq -n --arg ns "$REPO_NAME" --arg n "$NODES" --arg cache "$CACHE" '
   {
     hookSpecificOutput: {
       hookEventName: "UserPromptSubmit",
       additionalContext: (
         "Synapse: this repo has a code graph at synapse/" + $ns + "/ (" + $n + " nodes). " +
-        "If this turn needs to know how the codebase works, read the graph before grepping or " +
-        "opening files -- synapse-query.sh (body/sources/field/symbol/callers), _index.json " +
-        "for path -> owning node. The synapse-query and synapse-node skills have the procedure."
+        "If this turn needs to know how the codebase works, consult Synapse before grepping or " +
+        "opening files -- synapse-query.sh (body/sources/field/links), _index.json " +
+        "for path -> owning node (the authoritative coverage check: never infer from node titles)." +
+        $cache +
+        " The synapse-query and synapse-node skills have the procedure."
       )
     }
   }'
