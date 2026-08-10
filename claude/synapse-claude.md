@@ -5,7 +5,7 @@ as a memory system separate from and complementary to the `~/.claude`
 auto-memory system: use the Vault for durable, browsable
 knowledge-base notes, not for session bookkeeping. It's an Obsidian vault,
 running headless at login with the Local REST API plugin installed — see
-"Querying the vault" below for how to reach it. A SessionStart hook
+"Reading and writing the vault" below for how to reach it. A SessionStart hook
 already injects the vault's `Index.md` at the start of every session, so
 you shouldn't need to go read it yourself. Don't re-read it reflexively,
 but do treat its injected contents as live information, not background
@@ -58,18 +58,34 @@ a real yes/no answer, not a formality to wave past.
   it in `inbox/` rather than forcing a bad fit or inventing a folder for a
   one-off.
 
-## Querying the vault
+## Reading and writing the vault
 
 Obsidian runs headless at login (via a startup plugin) with the Claude
 vault already open, and the Local REST API plugin is installed there —
-this is the only valid way to query the vault, and it always targets
-whichever vault is currently open in the running Obsidian instance, not a
-hardcoded path. The `obsidian` MCP server wraps that REST API. Do not
-resolve or care about `$OBSIDIAN_VAULT_DIR` (see
-`~/.claude/synapse.conf`) unless the MCP tools are erroring or
-unavailable and you must fall back to grepping files on disk directly —
-that path variable matters only for that fallback case, since the vault
-is also reachable as plain files on disk at that location.
+this is the only valid way to reach the vault, for reads *and* for
+writes, and it always targets whichever vault is currently open in the
+running Obsidian instance, not a hardcoded path. The `obsidian` MCP
+server wraps that REST API. Do not resolve or care about
+`$OBSIDIAN_VAULT_DIR` (see `~/.claude/synapse.conf`) unless the MCP tools
+are erroring or unavailable and you must fall back to grepping files on
+disk directly — that path variable matters only for that fallback case,
+since the vault is also reachable as plain files on disk at that
+location.
+
+**Every write to a note goes through `mcp__obsidian__vault_write` or
+`vault_patch`. Never the `Write`/`Edit` tools on the on-disk path** — not
+for a one-line change, and least of all when those tools are already in
+hand from editing code earlier in the same turn, because that proximity
+is precisely what causes this to be violated. The vault being an ordinary
+directory means the wrong path *works*: Obsidian's file watcher
+converges, the auto-commit hook matches `Write|Edit` as well as the MCP
+tools, and nothing visibly breaks — which is why the habit never
+self-corrects on its own. The reason is not a failure mode to dodge; it
+is that an invariant upheld only when convenient is worth nothing.
+Nothing else in the system can rely on it, and every note then has to be
+re-checked by hand instead of trusted. Synapse's own tooling holds this
+line — `synapse-write-node.sh` curls the same REST API rather than
+writing files directly — so agent writes have no reason to differ.
 
 If a project's `.claude.json` `mcpServers.obsidian` entry ever diverges
 from the user-scoped one (e.g. points at the wrong vault path via a stdio
