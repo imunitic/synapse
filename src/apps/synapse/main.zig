@@ -21,11 +21,13 @@ const std = @import("std");
 const core = @import("core");
 const ports = @import("ports");
 const adapters = @import("adapters");
+const treesitter = @import("treesitter");
 
 comptime {
     _ = core;
     _ = ports;
     _ = adapters;
+    _ = treesitter;
 }
 
 const usage =

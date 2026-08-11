@@ -5,16 +5,18 @@
 //! Per-app dependency sets are what make a second product cheap: an executable
 //! imports only the adapters it wires, so a build that never lists the
 //! tree-sitter adapter links no libtree-sitter and needs no C compiler.
+//!
+//! Which is why the tree-sitter Extractor is deliberately *not* re-exported
+//! here despite living under `src/adapters/`. It is its own build module. This
+//! one is the dependency-free half, and bard imports it.
 
 const std = @import("std");
 
 pub const process = @import("process.zig");
 pub const fakes = @import("fakes/root.zig");
-pub const treesitter = @import("treesitter/root.zig");
 
 test {
     std.testing.refAllDecls(@This());
     _ = process;
     _ = fakes;
-    _ = treesitter;
 }

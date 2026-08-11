@@ -16,7 +16,12 @@
     // arrives in the middle of unrelated work.
     .minimum_zig_version = "0.16.0",
 
-    .dependencies = .{},
+    .dependencies = .{
+        .tree_sitter = .{
+            .url = "https://github.com/tree-sitter/tree-sitter/archive/42f33fe2f8ddef5617a8536723c5d2b8a19a615e.tar.gz",
+            .hash = "tree_sitter-0.27.0-Tw2sRwIoDAD8FSq1wnlCa5uycdbfYDFVSDfuyChQv94y",
+        },
+    },
 
     .paths = .{
         "build.zig",

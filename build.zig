@@ -63,6 +63,35 @@ pub fn build(b: *std.Build) void {
     adapters.addImport("core", core);
     adapters.addImport("ports", ports);
 
+    // libtree-sitter, pinned by commit hash in build.zig.zon. Upstream ships
+    // its own build.zig and we use its artifact rather than compiling the C
+    // ourselves -- but the pin is a master commit, not a release tag, and that
+    // is deliberate: every tagged release up to v0.26.12 has a build.zig
+    // written against the pre-0.16 API (`Compile.addCSourceFile`, which moved
+    // to `Module`), so `b.dependency` cannot even evaluate it under our pinned
+    // toolchain. Master has the fix. The hash makes the commit as reproducible
+    // as a tag would be; revisit when a release carries the fixed build.
+    const ts_dep = b.dependency("tree_sitter", .{ .target = target, .optimize = optimize });
+    const ts_lib = ts_dep.artifact("tree-sitter");
+
+    // The tree-sitter Extractor is its own module, not part of `adapters`, and
+    // that separation is the per-app dependency set made real: `synapse` lists
+    // it, a future `bard` does not, and so bard's build contains no
+    // libtree-sitter and needs no C toolchain. Folding it into `adapters`
+    // -- which bard does need, for the process helper -- would quietly hand
+    // bard the C dependency it was designed to avoid.
+    const treesitter = b.addModule("treesitter", .{
+        .root_source_file = b.path("src/adapters/treesitter/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    treesitter.addImport("model", model);
+    treesitter.addImport("ports", ports);
+    treesitter.addImport("core", core);
+    treesitter.linkLibrary(ts_lib);
+    treesitter.addIncludePath(ts_dep.path("lib/include"));
+
     const exe = b.addExecutable(.{
         .name = "synapse",
         .root_module = b.createModule(.{
@@ -73,6 +102,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "core", .module = core },
                 .{ .name = "ports", .module = ports },
                 .{ .name = "adapters", .module = adapters },
+                .{ .name = "treesitter", .module = treesitter },
             },
         }),
     });
@@ -90,7 +120,7 @@ pub fn build(b: *std.Build) void {
     // assertion can be written against stdout or an exit code, duplicating it
     // here would quietly retire bats as the specification.
     const test_step = b.step("test", "Run Zig unit tests (bats owns the CLI contract)");
-    for ([_]*std.Build.Module{ model, core, ports, adapters }) |mod| {
+    for ([_]*std.Build.Module{ model, core, ports, adapters, treesitter }) |mod| {
         const unit = b.addTest(.{ .root_module = mod });
         test_step.dependOn(&b.addRunArtifact(unit).step);
     }
