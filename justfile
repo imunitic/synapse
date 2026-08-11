@@ -225,6 +225,15 @@ test-zig:
     zig build test
     echo "zig tests ok"
 
+# The other half of the layering. `build.zig`'s module graph rejects a
+# wrong-direction import, but only once something references it -- Zig analyses
+# declarations lazily, so a dead one compiles. This catches those, and the rule
+# no build graph can express: that core reaches the system only through its Io.
+
+# Verify the module layering and core's purity.
+layering:
+    ./ci/check-layering.sh
+
 # Catches the class of typo that only surfaces when a rarely-taken branch runs --
 # an unbalanced quote inside an awk program embedded in a heredoc, say.
 
@@ -233,7 +242,7 @@ syntax:
     #!/usr/bin/env bash
     set -euo pipefail
     n=0
-    for f in claude/bin/*.sh claude/lib/synapse/*.sh claude/hooks/*.sh docs/*.sh setup.sh setup-obsidian-mcp.sh; do
+    for f in claude/bin/*.sh claude/lib/synapse/*.sh claude/hooks/*.sh ci/*.sh docs/*.sh setup.sh setup-obsidian-mcp.sh; do
         [ -f "$f" ] || continue
         bash -n "$f"
         n=$((n + 1))
@@ -264,7 +273,7 @@ fix:
 # it, which is the one direction of drift that is safe.
 
 # The full gate -- run before every commit.
-check: build test-zig syntax test docs-check
+check: build test-zig layering syntax test docs-check
     @echo "all green"
 
 # Several scripts shell out to the *installed* copy rather than the repo one, so
