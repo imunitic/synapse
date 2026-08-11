@@ -17,8 +17,16 @@ pub const ports = @import("ports");
 pub const model = @import("model");
 pub const tag_line = @import("tag_line.zig");
 
+/// A namespace rather than a `tags_cache.zig` that only re-exports one thing.
+/// The cache itself -- open, needsTagging, get, commit -- lands here next, at
+/// which point this becomes an import of that file.
+pub const tags_cache = struct {
+    pub const format = @import("tags_cache/format.zig");
+};
+
 test {
     std.testing.refAllDecls(@This());
     _ = model;
     _ = tag_line;
+    _ = tags_cache.format;
 }

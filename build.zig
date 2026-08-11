@@ -160,8 +160,19 @@ pub fn build(b: *std.Build) void {
     // assertion can be written against stdout or an exit code, duplicating it
     // here would quietly retire bats as the specification.
     const test_step = b.step("test", "Run Zig unit tests (bats owns the CLI contract)");
+
+    // Compile the same tests without running them, so a cross-target build can
+    // check code the executable does not reach. Zig analyses declarations
+    // lazily: `zig build -Dtarget=x86_64-linux` only compiles what the app
+    // actually references, so a module the app has not wired yet -- the tags
+    // cache format, today -- would sit unchecked on every target but this one,
+    // which is precisely where a byte-order or padding assumption hides. The
+    // test root references everything, so building it covers everything.
+    const test_build_step = b.step("test-build", "Compile the unit tests without running them");
+
     for ([_]*std.Build.Module{ model, core, ports, adapters, treesitter }) |mod| {
         const unit = b.addTest(.{ .root_module = mod });
         test_step.dependOn(&b.addRunArtifact(unit).step);
+        test_build_step.dependOn(&unit.step);
     }
 }

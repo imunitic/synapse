@@ -32,9 +32,16 @@ targets=(x86_64-linux aarch64-macos)
 
 command -v zig >/dev/null || { echo "zig not on PATH -- brew install zig" >&2; exit 1; }
 
+# Two builds per target, not one. `zig build` compiles only what the executable
+# references, and Zig analyses declarations lazily -- so a module nothing has
+# wired up yet compiles on this machine and nowhere else, which is exactly
+# where an assumption about byte order, padding or path separators would sit
+# unnoticed. `test-build` compiles the test roots, which reference everything,
+# and does not run them: these are other platforms' binaries.
 for t in "${targets[@]}"; do
     printf '  %-16s' "$t"
     zig build -Dtarget="$t"
+    zig build test-build -Dtarget="$t"
     echo ok
 done
 
