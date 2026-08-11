@@ -14,7 +14,11 @@
 const std = @import("std");
 
 pub const ports = @import("ports");
+pub const model = @import("model.zig");
+pub const tag_line = @import("tag_line.zig");
 
 test {
     std.testing.refAllDecls(@This());
+    _ = model;
+    _ = tag_line;
 }
