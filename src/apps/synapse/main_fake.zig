@@ -21,6 +21,7 @@
 
 const std = @import("std");
 const tags_cmd = @import("tags.zig");
+const tags_cache_cmd = @import("tags_cache_cmd.zig");
 const fake = @import("fake_grammar.zig");
 
 pub fn main(init: std.process.Init) !u8 {
@@ -28,17 +29,14 @@ pub fn main(init: std.process.Init) !u8 {
     _ = args.next(); // argv[0]
 
     const sub = args.next() orelse return 2;
-    if (!std.mem.eql(u8, sub, "tags")) {
-        std.debug.print("synapse-fake: unknown subcommand '{s}'\n", .{sub});
-        return 2;
-    }
+    const trace = init.environ_map.get("FAKE_TS_LOG");
 
-    return tags_cmd.run(
-        fake.FakeExtractor,
-        init.gpa,
-        init.io,
-        init.environ_map,
-        &args,
-        init.environ_map.get("FAKE_TS_LOG"),
-    );
+    if (std.mem.eql(u8, sub, "tags"))
+        return tags_cmd.run(fake.FakeExtractor, init.gpa, init.io, init.environ_map, &args, trace);
+
+    if (std.mem.eql(u8, sub, "tags-cache"))
+        return tags_cache_cmd.run(fake.FakeExtractor, init.gpa, init.io, init.environ_map, &args, trace);
+
+    std.debug.print("synapse-fake: unknown subcommand '{s}'\n", .{sub});
+    return 2;
 }

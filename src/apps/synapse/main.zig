@@ -21,6 +21,7 @@ const ports = @import("ports");
 const adapters = @import("adapters");
 const treesitter = @import("treesitter");
 const tags_cmd = @import("tags.zig");
+const tags_cache_cmd = @import("tags_cache_cmd.zig");
 
 comptime {
     // `treesitter` needs no line here: tags.zig uses it for real.
@@ -35,6 +36,9 @@ const usage =
     \\  tags <file>                tags for one file
     \\  tags --paths <list-file>   tags for every listed file, in one batch
     \\  tags --list-extensions     every extension with a usable grammar
+    \\  tags-cache --repo-root <dir> --cache <file> --paths <tsv>
+    \\  tags-cache --dump <file>   what the cache holds
+    \\  tags-cache --refs <file>   _refs.tsv rows from the cache
     \\
 ;
 
@@ -52,6 +56,16 @@ pub fn main(init: std.process.Init) !u8 {
     // able to write one however it is invoked.
     if (std.mem.eql(u8, sub, "tags"))
         return tags_cmd.run(
+            treesitter.extractor.TreeSitterExtractor,
+            init.gpa,
+            init.io,
+            init.environ_map,
+            &args,
+            null,
+        );
+
+    if (std.mem.eql(u8, sub, "tags-cache"))
+        return tags_cache_cmd.run(
             treesitter.extractor.TreeSitterExtractor,
             init.gpa,
             init.io,

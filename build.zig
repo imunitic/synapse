@@ -126,6 +126,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "treesitter", .module = treesitter },
+                .{ .name = "core", .module = core },
                 .{ .name = "model", .module = model },
             },
         }),
