@@ -19,4 +19,9 @@ test {
     std.testing.refAllDecls(@This());
     _ = process;
     _ = fakes;
+    // Referenced from the test block only, and deliberately not `pub`: Zig
+    // analyses lazily, so the frontmatter Extractor is compiled when the tests
+    // are and never reaches a release build. It is a conformance check on the
+    // port, not a second product's adapter -- see its own header.
+    _ = @import("frontmatter_conformance.zig");
 }
