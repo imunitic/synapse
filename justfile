@@ -197,6 +197,34 @@ ci-local:
     (cd "$clone" && DOCKER_HOST="unix://$sock" act -j bats --container-daemon-socket - \
       -P ubuntu-latest=catthehacker/ubuntu:act-latest)
 
+# `just` stays the task runner and calls `zig build`, never the other way round:
+# the gate also has to launch bats, podman, act and mermaid-cli, none of which
+# `std.Build.Step.Run` would express better than a recipe does.
+#
+# No version guard here beyond the `command -v`. `build.zig.zon` pins
+# `minimum_zig_version`, so an old toolchain is rejected by `zig build` itself
+# with a better message than this recipe could produce, and a second check
+# would be one more place to forget when the pin moves.
+
+# Compile the Zig binary.
+build:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v zig >/dev/null || { echo "zig not on PATH -- brew install zig" >&2; exit 1; }
+    # Not `ls zig-out/bin`: cross-target builds install alongside the native
+    # one, so the directory accumulates other platforms' artefacts and listing
+    # it would report them as though this build had produced them.
+    zig build
+    echo "zig build ok: zig-out/bin/synapse"
+
+# Zig unit tests -- internals only; `just test` owns the CLI contract.
+test-zig:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v zig >/dev/null || { echo "zig not on PATH -- brew install zig" >&2; exit 1; }
+    zig build test
+    echo "zig tests ok"
+
 # Catches the class of typo that only surfaces when a rarely-taken branch runs --
 # an unbalanced quote inside an awk program embedded in a heredoc, say.
 
@@ -226,11 +254,17 @@ fix:
     ./docs/generate-scripts-reference.sh
     ./docs/generate-diagrams.sh
 
-# The same three things CI runs, in the same order, plus a syntax pass CI gets for
-# free by executing the scripts.
+# What CI runs, in the same order, plus a syntax pass CI gets for free by
+# executing the scripts. `build` comes first because a compile error should not
+# cost a full bats run to discover, and because everything after it will
+# eventually be exercising the binary it produces.
+#
+# CI does not build the Zig yet -- that lands with the cross-target job. Until
+# it does, this gate is strictly ahead of the workflow rather than a mirror of
+# it, which is the one direction of drift that is safe.
 
 # The full gate -- run before every commit.
-check: syntax test docs-check
+check: build test-zig syntax test docs-check
     @echo "all green"
 
 # Several scripts shell out to the *installed* copy rather than the repo one, so
