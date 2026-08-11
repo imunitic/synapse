@@ -42,6 +42,7 @@ pub const abi_max = c.TREE_SITTER_LANGUAGE_VERSION;
 
 pub const grammar = @import("grammar.zig");
 pub const tagger = @import("tagger.zig");
+pub const extractor = @import("extractor.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -93,6 +94,22 @@ pub const Registry = struct {
         if (repo != .string or scope != .string) return .unusable;
         if (repo.string.len == 0 or scope.string.len == 0) return .unusable;
         return .{ .ready = scope.string };
+    }
+
+    /// The clone URL for a usable entry. Separate from `lookup` because the
+    /// readiness answer is about whether to proceed at all, and only the
+    /// proceeding path needs the URL.
+    pub fn repoFor(self: Registry, ext: []const u8) ?[]const u8 {
+        const obj = switch (self.parsed.value) {
+            .object => |o| o.get(ext) orelse return null,
+            else => return null,
+        };
+        const fields = switch (obj) {
+            .object => |o| o,
+            else => return null,
+        };
+        const repo = fields.get("repo") orelse return null;
+        return if (repo == .string) repo.string else null;
     }
 
     /// Every extension with a usable grammar, sorted, deduplicated -- what
@@ -191,6 +208,7 @@ const testing = std.testing;
 test {
     _ = grammar;
     _ = tagger;
+    _ = extractor;
 }
 
 test "libtree-sitter is linked, and its ABI range covers the grammars in use" {

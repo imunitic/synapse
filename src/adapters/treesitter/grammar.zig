@@ -146,6 +146,71 @@ fn upToDate(io: Io, out_path: []const u8, source: []const u8) !bool {
     return out.mtime.nanoseconds >= src.mtime.nanoseconds;
 }
 
+/// Clone a grammar repo on first use, into `repos_parent/<name>`, and return
+/// that directory. Already present means nothing to do.
+///
+/// The lock is not belt-and-braces. Callers tag in parallel chunks, and each
+/// worker runs this same readiness check independently: without it, two
+/// workers seeing the same missing directory both start a clone, git refuses
+/// the second because the destination is not empty, and that worker's failure
+/// path removes the directory out from under the first one's still-running
+/// clone. `createDir` is atomic across processes on a POSIX filesystem, so
+/// exactly one worker wins and the rest wait for it rather than racing a
+/// second clone in.
+pub fn ensureCloned(
+    io: Io,
+    gpa: Allocator,
+    repo_url: []const u8,
+    repos_parent: []const u8,
+    max_tries: usize,
+) ![]u8 {
+    const cwd = Io.Dir.cwd();
+    const repo_dir = try std.fs.path.join(gpa, &.{ repos_parent, repoNameOf(repo_url) });
+    errdefer gpa.free(repo_dir);
+
+    if (cwd.access(io, repo_dir, .{})) |_| return repo_dir else |_| {}
+
+    try cwd.createDirPath(io, repos_parent);
+
+    const lock_dir = try std.fmt.allocPrint(gpa, "{s}.lock", .{repo_dir});
+    defer gpa.free(lock_dir);
+
+    var got_lock = false;
+    var tries: usize = 0;
+    while (tries < max_tries) : (tries += 1) {
+        if (cwd.createDir(io, lock_dir, .default_dir)) |_| {
+            got_lock = true;
+            break;
+        } else |_| {}
+        // The holder may have finished and released between our check above
+        // and this attempt, in which case there is nothing left to wait for.
+        if (cwd.access(io, repo_dir, .{})) |_| break else |_| {}
+        std.Io.sleep(io, .fromMilliseconds(200), .awake) catch {};
+    }
+
+    if (got_lock) {
+        defer cwd.deleteDir(io, lock_dir) catch {};
+        // Re-check under the lock: a worker may have cloned, finished and
+        // released between our last look and our acquiring it.
+        if (cwd.access(io, repo_dir, .{})) |_| return repo_dir else |_| {}
+
+        const res = try process.run(io, gpa, &.{ "git", "clone", "--depth", "1", "-q", repo_url, repo_dir }, .{});
+        defer res.deinit(gpa);
+        if (!res.ok()) {
+            cwd.deleteTree(io, repo_dir) catch {};
+            return Error.CloneFailed;
+        }
+        return repo_dir;
+    }
+
+    // Never got the lock and the directory still is not there: the holder
+    // either died or is slower than the ceiling allows. Failing is right --
+    // racing a second clone into a half-cloned directory is how the first
+    // one gets destroyed.
+    cwd.access(io, repo_dir, .{}) catch return Error.CloneFailed;
+    return repo_dir;
+}
+
 /// Load a built grammar and hand back its language, refusing an ABI the pinned
 /// libtree-sitter cannot parse with rather than letting the failure surface
 /// later as an unexplained parse of nothing.
@@ -243,4 +308,76 @@ test "a source tree with no parser.c is refused, not compiled into nothing" {
     defer gpa.free(out);
 
     try testing.expectError(Error.ParserSourceMissing, build(t.io(), gpa, dir, out));
+}
+
+test "cloning is hermetic, idempotent, and leaves no lock behind" {
+    // A local source repo rather than the network: git clones a path just as
+    // happily as a URL, so the lock, the re-check and the failure path are all
+    // exercised without leaving the machine.
+    const gpa = testing.allocator;
+    var t: std.Io.Threaded = .init(gpa, .{});
+    defer t.deinit();
+    const io = t.io();
+    const cwd = Io.Dir.cwd();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const base = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    const src = try std.fmt.allocPrint(gpa, "{s}/tree-sitter-fake", .{base});
+    defer gpa.free(src);
+    try cwd.createDirPath(io, src);
+    const readme = try std.fmt.allocPrint(gpa, "{s}/README", .{src});
+    defer gpa.free(readme);
+    try cwd.writeFile(io, .{ .sub_path = readme, .data = "x" });
+    for ([_][]const []const u8{
+        &.{ "git", "init", "-q", src },
+        &.{ "git", "-C", src, "add", "-A" },
+        &.{ "git", "-C", src, "-c", "user.email=t@e", "-c", "user.name=t", "commit", "-qm", "x" },
+    }) |argv| {
+        const r = try process.run(io, gpa, argv, .{});
+        defer r.deinit(gpa);
+        if (!r.ok()) return error.SkipZigTest; // no usable git here
+    }
+
+    const parent = try std.fmt.allocPrint(gpa, "{s}/repos", .{base});
+    defer gpa.free(parent);
+
+    const first = try ensureCloned(io, gpa, src, parent, 5);
+    defer gpa.free(first);
+    try cwd.access(io, first, .{});
+    try testing.expect(std.mem.endsWith(u8, first, "tree-sitter-fake"));
+
+    // The lock is released, not left for the next process to time out on.
+    const lock = try std.fmt.allocPrint(gpa, "{s}.lock", .{first});
+    defer gpa.free(lock);
+    try testing.expectError(error.FileNotFound, cwd.access(io, lock, .{}));
+
+    // Second call is a no-op that returns the same directory.
+    const second = try ensureCloned(io, gpa, src, parent, 5);
+    defer gpa.free(second);
+    try testing.expectEqualStrings(first, second);
+}
+
+test "a clone that fails reports it rather than leaving a half-built directory" {
+    const gpa = testing.allocator;
+    var t: std.Io.Threaded = .init(gpa, .{});
+    defer t.deinit();
+    const io = t.io();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const base = buf[0..try tmp.dir.realPath(io, &buf)];
+    const parent = try std.fmt.allocPrint(gpa, "{s}/repos", .{base});
+    defer gpa.free(parent);
+
+    const missing = try std.fmt.allocPrint(gpa, "{s}/tree-sitter-absent", .{base});
+    defer gpa.free(missing);
+
+    try testing.expectError(Error.CloneFailed, ensureCloned(io, gpa, missing, parent, 5));
+    const left = try std.fmt.allocPrint(gpa, "{s}/tree-sitter-absent", .{parent});
+    defer gpa.free(left);
+    try testing.expectError(error.FileNotFound, Io.Dir.cwd().access(io, left, .{}));
 }
