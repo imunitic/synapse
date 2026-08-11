@@ -20,10 +20,12 @@ const std = @import("std");
 // long as dispatch is a stub.
 const core = @import("core");
 const ports = @import("ports");
+const adapters = @import("adapters");
 
 comptime {
     _ = core;
     _ = ports;
+    _ = adapters;
 }
 
 const usage =

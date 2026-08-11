@@ -39,6 +39,17 @@ pub fn build(b: *std.Build) void {
     });
     core.addImport("ports", ports);
 
+    // Adapters: the implementations behind the ports, and the only place a C
+    // library, a network or another process is reachable from. Imports core
+    // and ports; nothing imports it back.
+    const adapters = b.addModule("adapters", .{
+        .root_source_file = b.path("src/adapters/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    adapters.addImport("core", core);
+    adapters.addImport("ports", ports);
+
     const exe = b.addExecutable(.{
         .name = "synapse",
         .root_module = b.createModule(.{
@@ -48,6 +59,7 @@ pub fn build(b: *std.Build) void {
             .imports = &.{
                 .{ .name = "core", .module = core },
                 .{ .name = "ports", .module = ports },
+                .{ .name = "adapters", .module = adapters },
             },
         }),
     });
@@ -65,7 +77,7 @@ pub fn build(b: *std.Build) void {
     // assertion can be written against stdout or an exit code, duplicating it
     // here would quietly retire bats as the specification.
     const test_step = b.step("test", "Run Zig unit tests (bats owns the CLI contract)");
-    for ([_]*std.Build.Module{ core, ports }) |mod| {
+    for ([_]*std.Build.Module{ core, ports, adapters }) |mod| {
         const unit = b.addTest(.{ .root_module = mod });
         test_step.dependOn(&b.addRunArtifact(unit).step);
     }
