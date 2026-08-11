@@ -89,6 +89,10 @@ pub fn build(b: *std.Build) void {
     treesitter.addImport("model", model);
     treesitter.addImport("ports", ports);
     treesitter.addImport("core", core);
+    // treesitter -> adapters, never the reverse: this is how it reaches the
+    // shared process helper without adapters gaining the C dependency, so an
+    // app importing only `adapters` still links no libtree-sitter.
+    treesitter.addImport("adapters", adapters);
     treesitter.linkLibrary(ts_lib);
     treesitter.addIncludePath(ts_dep.path("lib/include"));
 

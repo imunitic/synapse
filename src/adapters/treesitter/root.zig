@@ -40,6 +40,8 @@ pub const c = @cImport({
 pub const abi_min = c.TREE_SITTER_MIN_COMPATIBLE_LANGUAGE_VERSION;
 pub const abi_max = c.TREE_SITTER_LANGUAGE_VERSION;
 
+pub const grammar = @import("grammar.zig");
+
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const Extractor = ports.Extractor;
@@ -184,6 +186,10 @@ pub fn attribute(
 }
 
 const testing = std.testing;
+
+test {
+    _ = grammar;
+}
 
 test "libtree-sitter is linked, and its ABI range covers the grammars in use" {
     // Not a tautology: it fails the day the pinned library stops accepting the

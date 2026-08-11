@@ -31,7 +31,9 @@ allowed_for() {
         src/model/*)    echo "" ;;
         src/ports/*)    echo "model" ;;
         src/core/*)     echo "model ports" ;;
-        src/adapters/treesitter/*) echo "model ports core" ;;
+        # treesitter reaches adapters for the process helper; adapters must
+        # never reach back, or it acquires libtree-sitter by the side door.
+        src/adapters/treesitter/*) echo "model ports core adapters" ;;
         src/adapters/*) echo "model ports core" ;;
         # Apps are the wiring layer: they may reach every adapter module,
         # including the ones that are separate modules precisely so that a
