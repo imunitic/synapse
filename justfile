@@ -230,6 +230,16 @@ test-zig:
 # declarations lazily, so a dead one compiles. This catches those, and the rule
 # no build graph can express: that core reaches the system only through its Io.
 
+# Compile for every release target. A POSIX path assumption, a /tmp default or
+# a shell-out in core is a portability bug that only surfaces on the platform
+# that lacks the thing -- which, for bard's author, means surfacing on her
+# Windows machine rather than on ours. Compiling all three here moves that to
+# the moment the line is written.
+
+# Compile for all three release targets.
+build-targets:
+    ./ci/build-targets.sh
+
 # Verify the module layering and core's purity.
 layering:
     ./ci/check-layering.sh
@@ -268,12 +278,12 @@ fix:
 # cost a full bats run to discover, and because everything after it will
 # eventually be exercising the binary it produces.
 #
-# CI does not build the Zig yet -- that lands with the cross-target job. Until
-# it does, this gate is strictly ahead of the workflow rather than a mirror of
-# it, which is the one direction of drift that is safe.
+# `build-targets` is in here rather than CI-only because it costs four seconds:
+# leaving it out would mean a green local gate can still fail the push, which is
+# the drift that actually wastes time.
 
 # The full gate -- run before every commit.
-check: build test-zig layering syntax test docs-check
+check: build build-targets test-zig layering syntax test docs-check
     @echo "all green"
 
 # Several scripts shell out to the *installed* copy rather than the repo one, so

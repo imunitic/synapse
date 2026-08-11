@@ -10,6 +10,45 @@ on:
   workflow_dispatch:
 
 jobs:
+  # A separate job rather than steps bolted onto `bats`: the two fail for
+  # unrelated reasons and neither orders the other, so running them in parallel
+  # costs nothing and keeps a red X pointing at the half that actually broke.
+  zig:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # No version pinned here on purpose. The action resolves it from
+      # `build.zig.zon`'s `minimum_zig_version`, so the pin lives in exactly one
+      # place and CI cannot quietly build with a different toolchain than a
+      # local `zig build` uses. Pinning it here too would be a second copy of a
+      # number, which is a second copy that goes stale.
+      - uses: mlugg/setup-zig@v2
+
+      - name: Show version
+        run: zig version
+
+      - name: Build
+        run: zig build
+
+      # Internals only -- format round-trips, parsing, the process helper. The
+      # CLI contract belongs to the bats job, and duplicating it here would
+      # retire that suite as the specification without anyone deciding to.
+      - name: Unit tests
+        run: zig build test --summary all
+
+      # The half of the layering the compiler cannot enforce: Zig analyses
+      # declarations lazily, so a wrong-direction import nothing references
+      # compiles silently.
+      - name: Layering and purity
+        run: ./ci/check-layering.sh
+
+      # Same script `just build-targets` runs, so the release matrix has one
+      # definition rather than one here and one in the justfile.
+      - name: Cross-compile every release target
+        run: ./ci/build-targets.sh
+
   bats:
     # Linux only, and the asymmetry is the point rather than an economy. The two
     # shells disagree in ways that pass silently on one of them -- BSD vs GNU
