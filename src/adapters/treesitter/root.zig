@@ -41,6 +41,7 @@ pub const abi_min = c.TREE_SITTER_MIN_COMPATIBLE_LANGUAGE_VERSION;
 pub const abi_max = c.TREE_SITTER_LANGUAGE_VERSION;
 
 pub const grammar = @import("grammar.zig");
+pub const tagger = @import("tagger.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -189,6 +190,7 @@ const testing = std.testing;
 
 test {
     _ = grammar;
+    _ = tagger;
 }
 
 test "libtree-sitter is linked, and its ABI range covers the grammars in use" {

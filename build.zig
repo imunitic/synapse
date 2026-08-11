@@ -112,6 +112,21 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(exe);
 
+    // The acceptance check for the tree-sitter port: not installed, not part
+    // of `check`, because it needs real grammars and real repositories. Built
+    // on demand with `zig build differential`.
+    const differential = b.addExecutable(.{
+        .name = "tags-differential",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/tools/tags_differential.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "treesitter", .module = treesitter }},
+        }),
+    });
+    b.step("differential", "Build the tags acceptance-check tool")
+        .dependOn(&b.addInstallArtifact(differential, .{}).step);
+
     // Deliberately no `run` step. A Run step treats a non-zero exit as a build
     // failure, and non-zero is a normal, contractual result for this binary --
     // `2` for a usage error, `1` for a refusal, all of them asserted by the

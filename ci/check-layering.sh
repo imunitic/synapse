@@ -40,6 +40,7 @@ allowed_for() {
         # different app can leave them out (treesitter carries libtree-sitter
         # and the C toolchain with it).
         src/apps/*)     echo "model ports core adapters treesitter" ;;
+        src/tools/*)    echo "model ports core adapters treesitter" ;;
         *)              echo "model ports core adapters treesitter" ;;
     esac
 }
