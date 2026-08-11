@@ -83,7 +83,13 @@ pub const TreeSitterExtractor = struct {
             // slice, never `.unsupported`: the two mean different things to
             // the cache, and conflating them re-attempts a readable file on
             // every call forever.
-            const tags = tagger.tagFile(gpa, src) catch continue;
+            const tagged = tagger.tagFile(gpa, src) catch continue;
+            // The port speaks in Tags; spans exist only for the transitional
+            // text renderer. Ownership of every string moves across here, so
+            // the Tagged slice is freed and its contents are not.
+            defer gpa.free(tagged);
+            const tags = try gpa.alloc(model.Tag, tagged.len);
+            for (tagged, 0..) |t, n| tags[n] = t.tag;
             out[i] = .{ .tags = tags };
         }
         return out;

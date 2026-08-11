@@ -39,6 +39,10 @@ pub fn main() !u8 {
 
     var out: std.Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
+    // The CLI's own batch bytes, for a comparison with no normalisation in it
+    // at all: path line, then tab-indented rendered tags.
+    var raw: std.Io.Writer.Allocating = .init(gpa);
+    defer raw.deinit();
 
     var files: usize = 0;
     var rows: usize = 0;
@@ -48,18 +52,23 @@ pub fn main() !u8 {
         const src = cwd.readFileAlloc(io, path, gpa, .unlimited) catch continue;
         defer gpa.free(src);
 
-        const tags = tagger.tagFile(gpa, src) catch continue;
-        defer treesitter.tagger.freeTags(gpa, tags);
+        const tagged = tagger.tagFile(gpa, src) catch continue;
+        defer treesitter.tagger.freeTagged(gpa, tagged);
 
-        for (tags) |t| {
+        try raw.writer.print("{s}\n", .{path});
+        for (tagged) |entry| {
+            const t = entry.tag;
             rows += 1;
             try out.writer.print("{s}\t{s}\t{s}\t{s}\t{d}\n", .{
                 path, t.name, t.role.text(), t.kind, t.line,
             });
+            try raw.writer.writeAll("\t");
+            try treesitter.tagger.renderCliLine(&raw.writer, t, entry.span);
         }
     }
 
     try cwd.writeFile(io, .{ .sub_path = "zig-tags.tsv", .data = out.written() });
+    try cwd.writeFile(io, .{ .sub_path = "zig-batch.txt", .data = raw.written() });
     std.debug.print("{d} files, {d} rows\n", .{ files, rows });
     return 0;
 }

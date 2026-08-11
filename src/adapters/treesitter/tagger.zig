@@ -68,11 +68,20 @@ pub const Tagger = struct {
         c.ts_parser_delete(self.parser);
     }
 
-    /// Tags for one file. Every string in the result is owned by the caller:
+    /// Tags for one file, each with the span the CLI reports.
+    ///
+    /// The span is here rather than on `model.Tag` because only one consumer
+    /// needs it -- the transitional text renderer -- while `Tag` is what the
+    /// cache and `_refs.tsv` are built from, and neither of those records a
+    /// column. Putting it on `Tag` would mean a field the tree-sitter path
+    /// fills and the `_refs.tsv` parser cannot, which is a worse trap than an
+    /// extra return field. It dies with the shim.
+    ///
+    /// Every string in the result is owned by the caller:
     /// the names and expressions point into `source` while the query runs, and
     /// `source` routinely outlives nothing at all -- it is read per file and
     /// dropped -- so they are copied rather than borrowed.
-    pub fn tagFile(self: *Tagger, gpa: Allocator, source: []const u8) ![]model.Tag {
+    pub fn tagFile(self: *Tagger, gpa: Allocator, source: []const u8) ![]Tagged {
         const tree = c.ts_parser_parse_string(self.parser, null, source.ptr, @intCast(source.len)) orelse
             return Error.ParseFailed;
         defer c.ts_tree_delete(tree);
@@ -81,9 +90,9 @@ pub const Tagger = struct {
         defer c.ts_query_cursor_delete(cursor);
         c.ts_query_cursor_exec(cursor, self.query, c.ts_tree_root_node(tree));
 
-        var out: std.ArrayListUnmanaged(model.Tag) = .empty;
+        var out: std.ArrayListUnmanaged(Tagged) = .empty;
         errdefer {
-            for (out.items) |t| freeTag(gpa, t);
+            for (out.items) |t| freeTag(gpa, t.tag);
             out.deinit(gpa);
         }
 
@@ -117,14 +126,23 @@ pub const Tagger = struct {
             const end_byte = c.ts_node_end_byte(node);
             if (start_byte > source.len or end_byte > source.len) continue;
 
-            const tag: model.Tag = .{
-                .name = try gpa.dupe(u8, source[start_byte..end_byte]),
-                .role = r,
-                .kind = try gpa.dupe(u8, kind),
-                .line = c.ts_node_start_point(node).row,
-                .expression = try gpa.dupe(u8, lineAt(source, start_byte)),
-            };
-            try out.append(gpa, tag);
+            const start = c.ts_node_start_point(node);
+            const end = c.ts_node_end_point(node);
+            try out.append(gpa, .{
+                .tag = .{
+                    .name = try gpa.dupe(u8, source[start_byte..end_byte]),
+                    .role = r,
+                    .kind = try gpa.dupe(u8, kind),
+                    .line = start.row,
+                    .expression = try gpa.dupe(u8, lineAt(source, start_byte)),
+                },
+                .span = .{
+                    .start_row = start.row,
+                    .start_col = start.column,
+                    .end_row = end.row,
+                    .end_col = end.column,
+                },
+            });
         }
 
         return out.toOwnedSlice(gpa);
@@ -155,12 +173,28 @@ fn lineAt(source: []const u8, offset: usize) []const u8 {
 /// Name is left-aligned to 10 columns, kind to 8, and neither is truncated
 /// when it is longer -- `IllegalArgumentException` runs straight into its tab.
 pub fn renderCliLine(w: *std.Io.Writer, t: model.Tag, span: Span) !void {
+    // The CLI caps the expression at 180 characters, which is not documented
+    // anywhere and was found by byte-comparing real output: 174 of 2,749 lines
+    // from a 60-file sample sat exactly at 180 and none went past it. Without
+    // the cap the rendered text diverges on every long declaration.
+    // Truncated *then* trimmed: a cut landing mid-gap otherwise leaves a
+    // trailing space the CLI does not print. Found by byte-comparison, one
+    // character wide, on 2 lines out of 2,749.
+    const capped = if (t.expression.len > expr_max) t.expression[0..expr_max] else t.expression;
+    const expr = std.mem.trimEnd(u8, capped, " \t");
     try w.print("{s: <10}\t | {s: <8}\t{s} ({d}, {d}) - ({d}, {d}) `{s}`\n", .{
         t.name,      t.kind,       t.role.text(),
         span.start_row, span.start_col, span.end_row,
-        span.end_col,   t.expression,
+        span.end_col,   expr,
     });
 }
+
+pub const expr_max = 180;
+
+pub const Tagged = struct {
+    tag: model.Tag,
+    span: Span,
+};
 
 /// The `@name` node's span, which is what the CLI reports -- not the enclosing
 /// declaration's, despite the output reading like it might be.
@@ -182,6 +216,11 @@ pub fn freeTags(gpa: Allocator, tags: []model.Tag) void {
     gpa.free(tags);
 }
 
+pub fn freeTagged(gpa: Allocator, tagged: []Tagged) void {
+    for (tagged) |t| freeTag(gpa, t.tag);
+    gpa.free(tagged);
+}
+
 const testing = std.testing;
 
 test "a rendered line is the CLI's bytes exactly" {
@@ -198,6 +237,28 @@ test "a rendered line is the CLI's bytes exactly" {
         "Token     \t | class   \tdef (15, 13) - (15, 18) `public class Token {`\n",
         out.written(),
     );
+}
+
+test "an expression longer than 180 characters is truncated, as the CLI does" {
+    const gpa = testing.allocator;
+    const long = try gpa.alloc(u8, 250);
+    defer gpa.free(long);
+    @memset(long, 'x');
+
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    try renderCliLine(&out.writer, .{
+        .name = "f",
+        .role = .def,
+        .kind = "method",
+        .line = 1,
+        .expression = long,
+    }, .{ .start_row = 1, .start_col = 0, .end_row = 1, .end_col = 1 });
+
+    const written = out.written();
+    const open_tick = std.mem.indexOfScalar(u8, written, '`').?;
+    const close_tick = std.mem.lastIndexOfScalar(u8, written, '`').?;
+    try testing.expectEqual(@as(usize, expr_max), close_tick - open_tick - 1);
 }
 
 test "a name longer than the pad width is not truncated" {
