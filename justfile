@@ -103,18 +103,65 @@ test-changed:
 # copied in, so code changes need no rebuild -- only a change to the
 # Containerfile does, and `podman build` no-ops when it sees none.
 
-# Build/refresh the Linux test image and make sure Podman is up.
-_podman-ready:
+# Every podman call below names its connection explicitly, and nothing here
+# changes which connection is default or reconfigures an existing machine --
+# both belong to whoever owns the box, not to this repo. The default
+# connection is not reliably a local machine: on a box that also talks to a
+# remote engine over SSH it points there, and an unqualified `podman
+# build`/`podman run` then builds the image on that host and bind-mounts a
+# /repo path that does not exist on it. `podman machine init` is reached for
+# the same reason only when there is no machine at all -- against an existing
+# one it would either fail outright or, under a fresh name, take the default
+# connection with it. Set CONTAINER_CONNECTION to override the choice.
+
+# Echo the Podman machine the Linux recipes use; init one only if none exists.
+_podman-machine:
     #!/usr/bin/env bash
     set -euo pipefail
     command -v podman >/dev/null || { echo "podman not on PATH -- brew install podman" >&2; exit 1; }
-    podman machine init --cpus 8 --memory 8192 >/dev/null 2>&1 || true
-    podman machine start >/dev/null 2>&1 || true
-    podman build -q -t synapse-test -f ci/Containerfile ci >/dev/null
+    if [ -n "${CONTAINER_CONNECTION:-}" ]; then echo "$CONTAINER_CONNECTION"; exit 0; fi
+    machines="$(podman machine list -q)"
+    if [ -z "$machines" ]; then
+        podman machine init --cpus 8 --memory 8192 >/dev/null
+        echo podman-machine-default
+    elif [ "$(printf '%s\n' "$machines" | wc -l)" -eq 1 ]; then
+        printf '%s\n' "$machines"
+    elif printf '%s\n' "$machines" | grep -qx podman-machine-default; then
+        echo podman-machine-default
+    else
+        echo "several Podman machines, none of them podman-machine-default --" >&2
+        echo "pick one with CONTAINER_CONNECTION=<name>:" >&2
+        printf '%s\n' "$machines" | sed 's/^/  /' >&2
+        exit 1
+    fi
+
+# The recipes below invoke `_podman-ready` from their own body, passing the
+# machine they already resolved, rather than declaring it as a `:` dependency:
+# a just dependency can only be given arguments that are just expressions, not
+# a value computed by the recipe's shell, so a dependency would have to resolve
+# the machine a second time -- a second `podman machine list`, and a second
+# chance to disagree with the name the recipe itself goes on to use.
+
+# Build/refresh the Linux test image and make sure that machine is up.
+_podman-ready MACHINE="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    machine="{{ MACHINE }}"
+    [ -n "$machine" ] || machine="$(just _podman-machine)"
+    podman machine start "$machine" >/dev/null 2>&1 || true
+    podman --connection "$machine" info >/dev/null 2>&1 || {
+        echo "podman connection '$machine' is not reachable -- 'podman machine start $machine'" >&2
+        exit 1
+    }
+    podman --connection "$machine" build -q -t synapse-test -f ci/Containerfile ci >/dev/null
 
 # Full suite under Linux/Podman -- the default full-suite run, not `just test`.
-test-linux: _podman-ready
-    podman run --rm -v "$(pwd):/repo:Z" -w /repo synapse-test \
+test-linux:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    machine="$(just _podman-machine)"
+    just _podman-ready "$machine"
+    podman --connection "$machine" run --rm -v "$(pwd):/repo:Z" -w /repo synapse-test \
       bats --jobs "$(getconf _NPROCESSORS_ONLN)" tests/
 
 # Needs `brew install act` once -- podman-ready's Podman machine is reused.
@@ -122,10 +169,12 @@ test-linux: _podman-ready
 # why (a worktree's own .git is a pointer act cannot resolve on its own).
 
 # What CI actually runs, locally, via act -- the pre-push check.
-ci-local: _podman-ready
+ci-local:
     #!/usr/bin/env bash
     set -euo pipefail
     command -v act >/dev/null || { echo "act not on PATH -- brew install act" >&2; exit 1; }
+    machine="$(just _podman-machine)"
+    just _podman-ready "$machine"
     # A linked worktree's `.git` is a pointer file to the main checkout's
     # `.git/worktrees/...`, a path outside the worktree itself -- act's
     # checkout step (a plain copy of the working directory, not a real clone)
@@ -144,7 +193,7 @@ ci-local: _podman-ready
     # Docker) fails outright. This workflow never touches Docker from inside
     # a step, so the fix is disabling that bind-mount rather than chasing a
     # path valid on both sides at once: `-` per act's own docs.
-    sock="$(podman machine inspect | jq -r '.[0].ConnectionInfo.PodmanSocket.Path')"
+    sock="$(podman machine inspect "$machine" | jq -r '.[0].ConnectionInfo.PodmanSocket.Path')"
     (cd "$clone" && DOCKER_HOST="unix://$sock" act -j bats --container-daemon-socket - \
       -P ubuntu-latest=catthehacker/ubuntu:act-latest)
 
