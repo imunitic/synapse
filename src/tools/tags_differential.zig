@@ -15,11 +15,14 @@
 const std = @import("std");
 const treesitter = @import("treesitter");
 
-pub fn main() !u8 {
-    const gpa = std.heap.page_allocator;
-    var threaded: std.Io.Threaded = .init(gpa, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
+/// Takes `std.process.Init` rather than building its own `Io`. A hand-rolled
+/// `Io.Threaded.init(gpa, .{})` gets an empty environment, and PATH lookup then
+/// silently falls back to `Threaded.default_PATH` -- so `zig cc` would never be
+/// found and this tool would compile grammars with whatever `/usr/bin/cc`
+/// happens to be, which is not the compiler the thing it is checking uses.
+pub fn main(init: std.process.Init) !u8 {
+    const gpa = init.gpa;
+    const io = init.io;
     const cwd = std.Io.Dir.cwd();
 
     const job = try cwd.readFileAlloc(io, "job.txt", gpa, .unlimited);

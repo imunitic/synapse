@@ -118,14 +118,16 @@ fn feedStdin(io: Io, child: *std.process.Child, data: []const u8) void {
 
 const testing = std.testing;
 
-fn testIo() std.Io.Threaded {
-    return .init(testing.allocator, .{});
-}
+// `std.testing.io` rather than an `Io.Threaded` built here. The test runner
+// initialises that one per test with the process's real environment, and a
+// hand-built `.init(gpa, .{})` gets `environ = .empty` instead -- which does
+// not fail, it silently falls back to `Threaded.default_PATH`
+// ("/usr/local/bin:/bin/:/usr/bin"). Every PATH-dependent spawn then resolves
+// against three fixed directories rather than the caller's PATH, and on a
+// developer machine that is nearly always indistinguishable from working.
 
 test "captures stdout and a zero exit" {
-    var t = testIo();
-    defer t.deinit();
-    const io = t.io();
+    const io = testing.io;
 
     const res = try run(io, testing.allocator, &.{ "/bin/echo", "hello" }, .{});
     defer res.deinit(testing.allocator);
@@ -137,9 +139,7 @@ test "captures stdout and a zero exit" {
 }
 
 test "a non-zero exit is reported, not raised as an error" {
-    var t = testIo();
-    defer t.deinit();
-    const io = t.io();
+    const io = testing.io;
 
     const res = try run(io, testing.allocator, &.{ "/bin/sh", "-c", "exit 3" }, .{});
     defer res.deinit(testing.allocator);
@@ -149,9 +149,7 @@ test "a non-zero exit is reported, not raised as an error" {
 }
 
 test "stdout and stderr are kept apart" {
-    var t = testIo();
-    defer t.deinit();
-    const io = t.io();
+    const io = testing.io;
 
     const res = try run(io, testing.allocator, &.{ "/bin/sh", "-c", "echo out; echo err >&2" }, .{});
     defer res.deinit(testing.allocator);
@@ -161,9 +159,7 @@ test "stdout and stderr are kept apart" {
 }
 
 test "stdin is fed and the child sees end-of-input" {
-    var t = testIo();
-    defer t.deinit();
-    const io = t.io();
+    const io = testing.io;
 
     const res = try run(io, testing.allocator, &.{ "/bin/cat", "-" }, .{ .stdin = "piped\n" });
     defer res.deinit(testing.allocator);
@@ -173,9 +169,7 @@ test "stdin is fed and the child sees end-of-input" {
 }
 
 test "large stdin against streaming stdout does not deadlock" {
-    var t = testIo();
-    defer t.deinit();
-    const io = t.io();
+    const io = testing.io;
 
     // Both directions well past a pipe buffer, which is the case that hangs if
     // the streams are serviced one after another instead of concurrently.
@@ -191,13 +185,44 @@ test "large stdin against streaming stdout does not deadlock" {
     try testing.expect(res.ok());
 }
 
-test "argv[0] resolves against PATH, which is what keeps fake-bin working" {
-    var t = testIo();
-    defer t.deinit();
-    const io = t.io();
+test "argv[0] resolves against the caller's PATH, which is what keeps fake-bin working" {
+    // The earlier version of this test ran `echo` and passed everywhere,
+    // including where PATH was not consulted at all -- `/bin` is inside
+    // `Threaded.default_PATH`, so a fallback search finds it just the same. It
+    // therefore proved that *a* search happens, not that the *process's* PATH
+    // drives it, which is the only version of the claim `tests/fixtures/
+    // fake-bin` depends on. This one puts an executable somewhere no fallback
+    // could reach and requires it to be found by bare name.
+    const gpa = testing.allocator;
+    const io = testing.io;
 
-    const res = try run(io, testing.allocator, &.{ "echo", "via path" }, .{});
-    defer res.deinit(testing.allocator);
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const dir = buf[0..try tmp.dir.realPath(io, &buf)];
 
-    try testing.expectEqualStrings("via path\n", res.stdout);
+    try tmp.dir.writeFile(io, .{
+        .sub_path = "synapse-path-probe",
+        .data = "#!/bin/sh\necho found via PATH\n",
+        .flags = .{ .permissions = .executable_file },
+    });
+
+    // An Io whose whole environment is one PATH entry, pointing at that
+    // directory and nothing else. Resolution is driven by the *Io's* environ,
+    // not by anything passed per-spawn -- `SpawnOptions.environ_map` says so in
+    // its own doc comment -- so this is the only way to vary it.
+    const entry = try std.fmt.allocPrintSentinel(gpa, "PATH={s}", .{dir}, 0);
+    defer gpa.free(entry);
+    const envp = try gpa.allocSentinel(?[*:0]u8, 1, null);
+    defer gpa.free(envp);
+    envp[0] = entry.ptr;
+
+    var scoped: std.Io.Threaded = .init(gpa, .{ .environ = .{ .block = .{ .slice = envp } } });
+    defer scoped.deinit();
+
+    const res = try run(scoped.io(), gpa, &.{"synapse-path-probe"}, .{});
+    defer res.deinit(gpa);
+
+    try testing.expectEqualStrings("found via PATH\n", res.stdout);
+    try testing.expect(res.ok());
 }

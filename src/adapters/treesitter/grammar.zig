@@ -10,8 +10,11 @@
 //! apologise for so much as a fact to state: a grammar cloned at runtime has
 //! to be compiled by something, and this binary is not a compiler. `zig cc` is
 //! preferred where Zig is installed, since it is the same toolchain the binary
-//! was built with; plain `cc` is the fallback, which is exactly what the shell
-//! script required too.
+//! was built with; `cc`, `gcc` and `clang` follow, which is the same set the
+//! shell script accepted. Each is tried for real, not asked whether it exists
+//! -- a driver that answers `--version` and then cannot compile is a live
+//! configuration, and the first candidate failing is not evidence that the
+//! grammar cannot be built here.
 
 const std = @import("std");
 const root = @import("root.zig");
@@ -68,15 +71,52 @@ pub fn repoNameOf(url: []const u8) []const u8 {
     return if (std.mem.endsWith(u8, base, ".git")) base[0 .. base.len - ".git".len] else base;
 }
 
-/// Which compiler to build grammars with. `zig cc` first: it is the same
-/// toolchain this binary was built with, it cross-compiles, and on a machine
-/// that installed synapse from source it is already present.
-pub fn findCompiler(io: Io, gpa: Allocator) !struct { argv0: []const u8, sub: ?[]const u8 } {
-    if (probe(io, gpa, &.{ "zig", "version" })) return .{ .argv0 = "zig", .sub = "cc" };
-    if (probe(io, gpa, &.{ "cc", "--version" })) return .{ .argv0 = "cc", .sub = null };
+pub const Compiler = struct {
+    argv0: []const u8,
+    /// `cc` for zig, nothing for a compiler that is one already.
+    sub: ?[]const u8,
+
+    /// What to call it in a message: `zig cc`, or just `clang`.
+    pub fn label(self: Compiler, gpa: Allocator) ![]u8 {
+        return if (self.sub) |s|
+            std.fmt.allocPrint(gpa, "{s} {s}", .{ self.argv0, s })
+        else
+            gpa.dupe(u8, self.argv0);
+    }
+};
+
+/// In preference order, and every one of them is tried for real before the
+/// build gives up.
+///
+/// `zig cc` first: it is the same toolchain this binary was built with, it
+/// cross-compiles, and on a machine that installed synapse from source it is
+/// already there. The other three are what `synapse-tags.sh` accepted, and
+/// dropping two of them when it was ported was a quiet narrowing -- one this
+/// list restores.
+pub const compilers = [_]Compiler{
+    .{ .argv0 = "zig", .sub = "cc" },
+    .{ .argv0 = "cc", .sub = null },
+    .{ .argv0 = "gcc", .sub = null },
+    .{ .argv0 = "clang", .sub = null },
+};
+
+/// The first candidate that is on PATH at all. A precondition check, not a
+/// promise that it works -- see `build`, which finds that out the only way it
+/// can be found out.
+pub fn findCompiler(io: Io, gpa: Allocator) !Compiler {
+    for (compilers) |candidate| {
+        const version_arg = if (candidate.sub != null) "version" else "--version";
+        if (probe(io, gpa, &.{ candidate.argv0, version_arg })) return candidate;
+    }
     return Error.NoCompiler;
 }
 
+/// Whether the command exists and exits 0. Deliberately not treated as
+/// evidence that it can compile: on a GitHub `ubuntu-latest` runner, `cc
+/// --version` succeeds and `cc` then dies with `cannot execute 'cc1'`,
+/// because the driver is installed and its backend is not. That is what a
+/// version probe cannot see, and why it decides only the *order* things are
+/// tried in, never which one is used.
 fn probe(io: Io, gpa: Allocator, argv: []const []const u8) bool {
     const res = process.run(io, gpa, argv, .{}) catch return false;
     defer res.deinit(gpa);
@@ -101,15 +141,11 @@ pub fn build(io: Io, gpa: Allocator, repo_dir: []const u8, out_path: []const u8)
     const include = try std.fmt.allocPrint(gpa, "-I{s}", .{src_dir});
     defer gpa.free(include);
 
-    const compiler = try findCompiler(io, gpa);
-
-    var argv: std.ArrayListUnmanaged([]const u8) = .empty;
-    defer argv.deinit(gpa);
-    try argv.append(gpa, compiler.argv0);
-    if (compiler.sub) |s| try argv.append(gpa, s);
     // -fPIC and -shared are what make it loadable; -O2 because a parser is
     // hot and this is paid once. No -march=native: the artefact is cached on
     // disk and may outlive the machine that built it.
+    var argv: std.ArrayListUnmanaged([]const u8) = .empty;
+    defer argv.deinit(gpa);
     try argv.appendSlice(gpa, &.{ "-shared", "-fPIC", "-O2", include, "-o", out_path, parser_c });
 
     // Some grammars carry an external scanner. C is common (python, kotlin);
@@ -131,12 +167,41 @@ pub fn build(io: Io, gpa: Allocator, repo_dir: []const u8, out_path: []const u8)
 
     if (std.fs.path.dirname(out_path)) |dir| cwd.createDirPath(io, dir) catch {};
 
-    const res = try process.run(io, gpa, argv.items, .{});
-    defer res.deinit(gpa);
-    if (!res.ok()) {
-        std.debug.print("synapse: compiling {s} failed:\n{s}\n", .{ repo_dir, res.stderr });
-        return Error.CompileFailed;
+    // Every candidate that is present gets a real attempt, and the failures
+    // are collected rather than the first one being reported as the answer.
+    // A driver that runs but cannot compile is a real configuration -- see
+    // `probe` -- so "the first compiler on PATH failed" is not the same
+    // statement as "this grammar cannot be built here", and only the second
+    // one is worth giving up on.
+    var report: std.Io.Writer.Allocating = .init(gpa);
+    defer report.deinit();
+    var tried: usize = 0;
+
+    for (compilers) |candidate| {
+        const version_arg = if (candidate.sub != null) "version" else "--version";
+        if (!probe(io, gpa, &.{ candidate.argv0, version_arg })) continue;
+        tried += 1;
+
+        var full: std.ArrayListUnmanaged([]const u8) = .empty;
+        defer full.deinit(gpa);
+        try full.append(gpa, candidate.argv0);
+        if (candidate.sub) |s| try full.append(gpa, s);
+        try full.appendSlice(gpa, argv.items);
+
+        const res = try process.run(io, gpa, full.items, .{});
+        defer res.deinit(gpa);
+        if (res.ok()) return;
+
+        const name = try candidate.label(gpa);
+        defer gpa.free(name);
+        try report.writer.print("  {s}: {s}\n", .{ name, std.mem.trimEnd(u8, res.stderr, "\n") });
     }
+
+    if (tried == 0) return Error.NoCompiler;
+    std.debug.print("synapse: compiling {s} failed with every compiler found:\n{s}", .{
+        repo_dir, report.written(),
+    });
+    return Error.CompileFailed;
 }
 
 fn upToDate(io: Io, out_path: []const u8, source: []const u8) !bool {
@@ -252,9 +317,7 @@ test "repo names come off a URL with or without .git" {
 }
 
 test "a compiler is found on this machine" {
-    var t: std.Io.Threaded = .init(testing.allocator, .{});
-    defer t.deinit();
-    const found = try findCompiler(t.io(), testing.allocator);
+    const found = try findCompiler(testing.io, testing.allocator);
     try testing.expect(found.argv0.len > 0);
 }
 
@@ -265,9 +328,7 @@ test "end to end: compile a source tree and load a symbol out of it" {
     // happens to be in the developer's grammar cache. The real grammars are
     // covered by the differential against the tree-sitter CLI.
     const gpa = testing.allocator;
-    var t: std.Io.Threaded = .init(gpa, .{});
-    defer t.deinit();
-    const io = t.io();
+    const io = testing.io;
 
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -297,17 +358,15 @@ test "end to end: compile a source tree and load a symbol out of it" {
 
 test "a source tree with no parser.c is refused, not compiled into nothing" {
     const gpa = testing.allocator;
-    var t: std.Io.Threaded = .init(gpa, .{});
-    defer t.deinit();
 
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
     var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const dir = buf[0..try tmp.dir.realPath(t.io(), &buf)];
+    const dir = buf[0..try tmp.dir.realPath(testing.io, &buf)];
     const out = try std.fmt.allocPrint(gpa, "{s}/none.{s}", .{ dir, sharedLibExt() });
     defer gpa.free(out);
 
-    try testing.expectError(Error.ParserSourceMissing, build(t.io(), gpa, dir, out));
+    try testing.expectError(Error.ParserSourceMissing, build(testing.io, gpa, dir, out));
 }
 
 test "cloning is hermetic, idempotent, and leaves no lock behind" {
@@ -315,9 +374,7 @@ test "cloning is hermetic, idempotent, and leaves no lock behind" {
     // happily as a URL, so the lock, the re-check and the failure path are all
     // exercised without leaving the machine.
     const gpa = testing.allocator;
-    var t: std.Io.Threaded = .init(gpa, .{});
-    defer t.deinit();
-    const io = t.io();
+    const io = testing.io;
     const cwd = Io.Dir.cwd();
 
     var tmp = testing.tmpDir(.{});
@@ -362,9 +419,7 @@ test "cloning is hermetic, idempotent, and leaves no lock behind" {
 
 test "a clone that fails reports it rather than leaving a half-built directory" {
     const gpa = testing.allocator;
-    var t: std.Io.Threaded = .init(gpa, .{});
-    defer t.deinit();
-    const io = t.io();
+    const io = testing.io;
 
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();

@@ -249,10 +249,8 @@ test "an extension with no registry entry is reported once, then skipped" {
     var ex: TreeSitterExtractor = .init(gpa, .{ .parsed = parsed }, "/nonexistent");
     defer ex.deinit();
 
-    var t: std.Io.Threaded = .init(gpa, .{});
-    defer t.deinit();
 
-    const out = try ex.port().extract(gpa, t.io(), ".", &.{ "a.zz", "b.zz" });
+    const out = try ex.port().extract(gpa, testing.io, ".", &.{ "a.zz", "b.zz" });
     defer gpa.free(out);
 
     try testing.expect(out[0] == .unsupported);
@@ -268,10 +266,8 @@ test "a file with no extension is unsupported without touching the registry" {
 
     var ex: TreeSitterExtractor = .init(gpa, .{ .parsed = parsed }, "/nonexistent");
     defer ex.deinit();
-    var t: std.Io.Threaded = .init(gpa, .{});
-    defer t.deinit();
 
-    const out = try ex.port().extract(gpa, t.io(), ".", &.{"Makefile"});
+    const out = try ex.port().extract(gpa, testing.io, ".", &.{"Makefile"});
     defer gpa.free(out);
     try testing.expect(out[0] == .unsupported);
     try testing.expectEqual(@as(usize, 0), ex.grammars.count());
