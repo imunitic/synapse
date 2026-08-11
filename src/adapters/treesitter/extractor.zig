@@ -54,6 +54,55 @@ pub const TreeSitterExtractor = struct {
         return .{ .ptr = self, .vtable = &.{ .extract = extractFn } };
     }
 
+    /// What a path yielded, spans included. The port's `Outcome` is this with
+    /// the spans dropped -- one code path, and the lossy view is the one
+    /// declared in the port, since spans are a transitional need of the text
+    /// renderer rather than something the graph is built from.
+    pub const Result = union(enum) {
+        unsupported,
+        tagged: []tagger_mod.Tagged,
+    };
+
+    /// The real extraction. `extract` is this minus spans.
+    pub fn tagWithSpans(
+        self: *TreeSitterExtractor,
+        gpa: Allocator,
+        io: Io,
+        repo_root: []const u8,
+        paths: []const []const u8,
+    ) ![]Result {
+        const out = try gpa.alloc(Result, paths.len);
+        errdefer gpa.free(out);
+
+        for (paths, 0..) |path, i| {
+            out[i] = .unsupported;
+
+            const ext = (try grammar_extensionOf(self.gpa, path)) orelse continue;
+            defer self.gpa.free(ext);
+
+            const t = (try self.taggerFor(io, ext)) orelse continue;
+
+            // An absolute path is used as given. Joining it onto the root
+            // produces "./Users/..." -- a path that does not exist -- and the
+            // read then fails into `.unsupported`, reporting a perfectly
+            // readable file as having no grammar.
+            const full = if (std.fs.path.isAbsolute(path))
+                try gpa.dupe(u8, path)
+            else
+                try std.fs.path.join(gpa, &.{ repo_root, path });
+            defer gpa.free(full);
+            const src = Io.Dir.cwd().readFileAlloc(io, full, gpa, .limited(64 << 20)) catch continue;
+            defer gpa.free(src);
+
+            // A file that parses to nothing still gets tags with an empty
+            // slice, never `.unsupported`: the two mean different things to
+            // the cache, and conflating them re-attempts a readable file on
+            // every call forever.
+            out[i] = .{ .tagged = t.tagFile(gpa, src) catch continue };
+        }
+        return out;
+    }
+
     fn extractFn(
         ptr: *anyopaque,
         gpa: Allocator,
@@ -63,34 +112,23 @@ pub const TreeSitterExtractor = struct {
     ) anyerror![]ports.Extractor.Outcome {
         const self: *TreeSitterExtractor = @ptrCast(@alignCast(ptr));
 
+        const results = try self.tagWithSpans(gpa, io, repo_root, paths);
+        defer gpa.free(results);
+
         const out = try gpa.alloc(ports.Extractor.Outcome, paths.len);
         errdefer gpa.free(out);
-
-        for (paths, 0..) |path, i| {
-            out[i] = .unsupported;
-
-            const ext = (try grammar_extensionOf(self.gpa, path)) orelse continue;
-            defer self.gpa.free(ext);
-
-            const tagger = (try self.taggerFor(io, ext)) orelse continue;
-
-            const full = try std.fs.path.join(gpa, &.{ repo_root, path });
-            defer gpa.free(full);
-            const src = Io.Dir.cwd().readFileAlloc(io, full, gpa, .limited(64 << 20)) catch continue;
-            defer gpa.free(src);
-
-            // A file that parses to nothing still gets `.tags` with an empty
-            // slice, never `.unsupported`: the two mean different things to
-            // the cache, and conflating them re-attempts a readable file on
-            // every call forever.
-            const tagged = tagger.tagFile(gpa, src) catch continue;
-            // The port speaks in Tags; spans exist only for the transitional
-            // text renderer. Ownership of every string moves across here, so
-            // the Tagged slice is freed and its contents are not.
-            defer gpa.free(tagged);
-            const tags = try gpa.alloc(model.Tag, tagged.len);
-            for (tagged, 0..) |t, n| tags[n] = t.tag;
-            out[i] = .{ .tags = tags };
+        for (results, 0..) |r, i| {
+            switch (r) {
+                .unsupported => out[i] = .unsupported,
+                .tagged => |tagged| {
+                    // Ownership of every string moves across; only the
+                    // Tagged slice itself is freed.
+                    defer gpa.free(tagged);
+                    const tags = try gpa.alloc(model.Tag, tagged.len);
+                    for (tagged, 0..) |t, n| tags[n] = t.tag;
+                    out[i] = .{ .tags = tags };
+                },
+            }
         }
         return out;
     }

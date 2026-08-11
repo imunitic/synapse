@@ -107,6 +107,7 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "ports", .module = ports },
                 .{ .name = "adapters", .module = adapters },
                 .{ .name = "treesitter", .module = treesitter },
+                .{ .name = "model", .module = model },
             },
         }),
     });
