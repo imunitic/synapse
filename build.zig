@@ -20,14 +20,25 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // Port definitions: vtables and their types, no implementations. Depends
-    // on nothing, which is what lets both core and every adapter import it
-    // without creating a cycle.
+    // The vocabulary every layer speaks: defs, refs, nodes. Imports nothing.
+    // It sits below `ports` rather than inside `core` because a port's
+    // signatures name these types, and `core` imports `ports` -- putting the
+    // model in `core` would close that loop into a cycle. The model being at
+    // the bottom is also just true: it is what the other layers agree on.
+    const model = b.addModule("model", .{
+        .root_source_file = b.path("src/model/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Port definitions: vtables and the types crossing them, no
+    // implementations. Imports only the model.
     const ports = b.addModule("ports", .{
         .root_source_file = b.path("src/ports/root.zig"),
         .target = target,
         .optimize = optimize,
     });
+    ports.addImport("model", model);
 
     // The graph itself: model, indexes, ranking, query, staleness, cache.
     // Pure. Reaches the system only through an injected `std.Io` and the
@@ -37,6 +48,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    core.addImport("model", model);
     core.addImport("ports", ports);
 
     // Adapters: the implementations behind the ports, and the only place a C
@@ -47,6 +59,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    adapters.addImport("model", model);
     adapters.addImport("core", core);
     adapters.addImport("ports", ports);
 
@@ -77,7 +90,7 @@ pub fn build(b: *std.Build) void {
     // assertion can be written against stdout or an exit code, duplicating it
     // here would quietly retire bats as the specification.
     const test_step = b.step("test", "Run Zig unit tests (bats owns the CLI contract)");
-    for ([_]*std.Build.Module{ core, ports, adapters }) |mod| {
+    for ([_]*std.Build.Module{ model, core, ports, adapters }) |mod| {
         const unit = b.addTest(.{ .root_module = mod });
         test_step.dependOn(&b.addRunArtifact(unit).step);
     }

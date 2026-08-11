@@ -17,7 +17,7 @@
 //! span, and ends with the source line between backticks.
 
 const std = @import("std");
-const model = @import("model.zig");
+const model = @import("model");
 
 const Tag = model.Tag;
 const Role = model.Role;

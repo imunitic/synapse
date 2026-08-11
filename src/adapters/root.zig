@@ -9,8 +9,10 @@
 const std = @import("std");
 
 pub const process = @import("process.zig");
+pub const fakes = @import("fakes/root.zig");
 
 test {
     std.testing.refAllDecls(@This());
     _ = process;
+    _ = fakes;
 }

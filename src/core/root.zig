@@ -14,7 +14,7 @@
 const std = @import("std");
 
 pub const ports = @import("ports");
-pub const model = @import("model.zig");
+pub const model = @import("model");
 pub const tag_line = @import("tag_line.zig");
 
 test {
