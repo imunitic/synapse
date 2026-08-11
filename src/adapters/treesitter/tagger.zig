@@ -141,6 +141,36 @@ fn lineAt(source: []const u8, offset: usize) []const u8 {
     return std.mem.trim(u8, source[start..end], " \t\r");
 }
 
+/// Re-render a tag in the exact bytes `tree-sitter tags` prints.
+///
+/// Needed only for the transition: `synapse-vocab.sh` and `synapse-rank.sh`
+/// still parse this text, and a shim that changed it by one byte would break
+/// them silently. It disappears when they are ported, since nothing else in
+/// the Zig path ever turns a `Tag` back into a line.
+///
+/// The shape, verified byte for byte against the CLI:
+///
+///     Token     \t | class   \tdef (15, 13) - (15, 18) `public class Token {`
+///
+/// Name is left-aligned to 10 columns, kind to 8, and neither is truncated
+/// when it is longer -- `IllegalArgumentException` runs straight into its tab.
+pub fn renderCliLine(w: *std.Io.Writer, t: model.Tag, span: Span) !void {
+    try w.print("{s: <10}\t | {s: <8}\t{s} ({d}, {d}) - ({d}, {d}) `{s}`\n", .{
+        t.name,      t.kind,       t.role.text(),
+        span.start_row, span.start_col, span.end_row,
+        span.end_col,   t.expression,
+    });
+}
+
+/// The `@name` node's span, which is what the CLI reports -- not the enclosing
+/// declaration's, despite the output reading like it might be.
+pub const Span = struct {
+    start_row: u32,
+    start_col: u32,
+    end_row: u32,
+    end_col: u32,
+};
+
 pub fn freeTag(gpa: Allocator, t: model.Tag) void {
     gpa.free(t.name);
     gpa.free(t.kind);
@@ -153,6 +183,38 @@ pub fn freeTags(gpa: Allocator, tags: []model.Tag) void {
 }
 
 const testing = std.testing;
+
+test "a rendered line is the CLI's bytes exactly" {
+    var out: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+    try renderCliLine(&out.writer, .{
+        .name = "Token",
+        .role = .def,
+        .kind = "class",
+        .line = 15,
+        .expression = "public class Token {",
+    }, .{ .start_row = 15, .start_col = 13, .end_row = 15, .end_col = 18 });
+    try testing.expectEqualStrings(
+        "Token     \t | class   \tdef (15, 13) - (15, 18) `public class Token {`\n",
+        out.written(),
+    );
+}
+
+test "a name longer than the pad width is not truncated" {
+    var out: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+    try renderCliLine(&out.writer, .{
+        .name = "IllegalArgumentException",
+        .role = .ref,
+        .kind = "class",
+        .line = 30,
+        .expression = "throw new IllegalArgumentException(x);",
+    }, .{ .start_row = 30, .start_col = 19, .end_row = 30, .end_col = 43 });
+    try testing.expectEqualStrings(
+        "IllegalArgumentException\t | class   \tref (30, 19) - (30, 43) `throw new IllegalArgumentException(x);`\n",
+        out.written(),
+    );
+}
 
 test "lineAt returns the trimmed line an offset sits on" {
     const src = "first\n    second line  \nthird\n";
