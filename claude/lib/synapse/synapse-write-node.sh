@@ -35,7 +35,7 @@
 # Writes to the vault over the Obsidian Local REST API on 127.0.0.1. Agent callers
 # need the network sandbox disabled, or curl fails with exit 7 and no message.
 #
-# As a byproduct it refreshes $SYNAPSE_WORK_DIR/_tags_cache.json (default
+# As a byproduct it refreshes $SYNAPSE_WORK_DIR/_tags_cache.bin (default
 # ~/.claude/synapse-work/{repo}@{branch}/) for the node's sources, so
 # `synapse-query.sh symbol` is a cache read. That file is derived and
 # disposable, which is why it lives beside the work dir rather than in the
@@ -240,7 +240,7 @@ hashes_n="$(wc -l < "$work/hashes.txt" | tr -d ' ')"
 }
 
 # --- keep the per-project tags cache current, as a byproduct ----------------
-# synapse-tags.sh already runs per source file elsewhere in the build pipeline
+# `synapse tags` already runs per source file elsewhere in the build pipeline
 # for clustering signal; this persists that work instead of discarding it, so
 # `synapse-query.sh symbol` is a pure cache read. Piggybacks on the hashes
 # just computed above rather than re-deriving its own staleness signal. Never
@@ -251,11 +251,11 @@ hashes_n="$(wc -l < "$work/hashes.txt" | tr -d ' ')"
 # large-repo scale against _index.json's 26 MB, so keeping it in a version-
 # controlled vault would commit a fresh copy on every rebuild.
 if [[ -z "${SYNAPSE_DISABLE_SYMBOL_CACHE:-}" ]]; then
-    tags_cache_sh="${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-tags-cache.sh"
-    if [[ -x "$tags_cache_sh" ]]; then
+    synapse_bin="${SYNAPSE_BIN:-$HOME/.claude/bin/synapse}"
+    if [[ -x "$synapse_bin" ]]; then
         paste "$work/paths.txt" "$work/hashes.txt" > "$work/paths-hashes.tsv"
-        "$tags_cache_sh" --repo-root "$REPO_ROOT" \
-            --cache "${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}/_tags_cache.json" \
+        "$synapse_bin" tags-cache --repo-root "$REPO_ROOT" \
+            --cache "${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}/_tags_cache.bin" \
             --paths "$work/paths-hashes.tsv" \
             || echo "synapse-write-node: tags cache refresh failed (non-fatal)" >&2
     fi

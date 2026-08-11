@@ -27,12 +27,12 @@ better than prose.
 | `synapse-write-node.sh` | Hashes every path, computes `sources_digest`, slices the crux out of the file from its pointer, digests each `grounded_in` range, builds the `## Sources` mirror, records `commit`. |
 | `synapse-build-index.sh` | Builds `_index.json`, the reverse index the Tier 1 hook reads. |
 | `synapse-build-project-index.sh` | Builds `Index.md`, reading each bullet's headline back off the node's own `summary`. |
-| `synapse-tags.sh` | Optional tree-sitter definitions and references, used as a clustering signal. Falls back to plain reading when unavailable. |
+| `synapse tags` | tree-sitter definitions and references, used as a clustering signal. Falls back to plain reading when a grammar is unavailable. |
 | `{Node Title}.md × N` | The nodes: `sources`, `sources_digest`, `commit`, `crux_path`, `grounded_in`, `stale`, fenced prose, and a human `## Notes` preserved across regeneration. |
 | `_index.json` | Source path → owning node filenames, plus `_unassigned`. Machine-only. |
 | `Index.md` | The node map, plus the `remote` and `branch` identity fields verified before any read or write. |
 | `_manifest.tsv` · `_profile.txt` | Kept for the next rebuild. |
-| `_tags_cache.json` | `path → {hash, tags, unsupported}`. Machine-only and never authoritative — so it lives in `$SYNAPSE_WORK_DIR`, not the vault. |
+| `_tags_cache.bin` | `path → {hash, tags, unsupported}`. Machine-only and never authoritative — so it lives in `$SYNAPSE_WORK_DIR`, not the vault. |
 | `synapse-query.sh` | Projected reads — `body`, `sources`, `field`. Reads the expensive parts internally and prints only what was asked for. |
 | `synapse-query.sh symbol` | Exact-name definition and reference lookup: a cache read, with a lazy parallel backfill on a miss. |
 | `synapse-node` skill | Tier 2 — verify at read time, then regenerate lazily. |
@@ -172,7 +172,7 @@ interpretation: a fixed script has to hardcode one ecosystem's conventions — J
 carries a checklist instead (where is the weight, what artifact dominates, what does the code call
 itself versus what its directories call it, what are the domain's verbs), plus the instruction to
 record the aggregations that earned their keep in `synapse/{repo}@{branch}/_profile.txt`. Same pattern as
-`synapse-tags.sh` with its `~/.claude/synapse-grammars.conf` registry: ship the language-agnostic
+`synapse tags` with its `~/.claude/synapse-grammars.conf` registry: ship the language-agnostic
 primitive, let the per-language or per-repo specifics be discovered and cached.
 
 ### Three per-repo artifacts, in two places
@@ -201,7 +201,7 @@ file in the explorer that nothing here is hand-edited. Dotfiles would hide these
 explorer too, but that hides them from *you* as well, and some sync tools skip them — a poor trade for
 a file whose whole purpose is surviving to another machine.
 
-**Sampling used to be required here, and no longer is.** `synapse-tags.sh` ran one file per
+**Sampling used to be required here, and no longer is.** `synapse tags` ran one file per
 invocation (~0.07s warm), which put a 15k-file cluster at ~18 minutes and a whole repo out of
 reach — so any use of it needed a sampling rule, and every fixed rule was biased in a way that had
 to be chosen and defended (alphabetical is an accident, largest-file favours generated code,
@@ -567,7 +567,7 @@ place by hand, rather than being guessed into somewhere plausible-but-wrong.
 
 ## Optional tree-sitter acceleration
 
-`claude/lib/synapse/synapse-tags.sh` is a narrow, purely mechanical helper both `/synapse-init` and the
+`synapse tags` is a narrow, purely mechanical helper both `/synapse-init` and the
 `synapse-node` skill try before doing a full read: given a file, it prints `tree-sitter tags`
 output — real definitions and name-based call references, extracted by parsing, not text
 guessing — cutting straight to clustering/regeneration signal without reading the file's full body.
@@ -581,9 +581,10 @@ It's optional at every layer, never a hard dependency:
   `{"unsupported": true}` — permanently, across every future project, not just the one that
   triggered it.
 - **Exit codes are the whole contract**: `0` → tags printed, use them; `1` → not usable right now
-  (missing `tree-sitter`, no C compiler, a confirmed-unsupported language) — fall back to reading
+  (no C compiler, a confirmed-unsupported language) — fall back to reading
   the file directly, silently; `2` → never-seen extension, run discovery once, then retry.
-- Grammars build as native libraries (`tree-sitter build`, not `--wasm`: consuming WASM grammars needs
+- Grammars build as native libraries, compiled with `zig cc` (or `cc`/`gcc`/`clang`) and loaded
+with `dlopen`. Not WASM: consuming WASM grammars needs
   a non-default Rust build of the CLI, a worse dependency than the C compiler native grammars need).
 
 One subtlety in reading the output: a qualified-path reference (`Acme_ecs.Foo.bar`) must not also be

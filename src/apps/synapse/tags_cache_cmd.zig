@@ -2,6 +2,7 @@
 //!
 //!   tags-cache --repo-root <dir> --cache <file> --paths <tsv>   bring up to date
 //!   tags-cache --dump <file>                                    what it holds
+//!   tags-cache --load <file>                                    the inverse of --dump
 //!   tags-cache --refs <file>                                    `_refs.tsv` rows
 //!
 //! The update form is the script's, and its exit codes are unchanged: 0 when
@@ -47,6 +48,7 @@ pub fn run(
     var cache_path: ?[]const u8 = null;
     var paths_file: ?[]const u8 = null;
     var dump: ?[]const u8 = null;
+    var load: ?[]const u8 = null;
     var refs: ?[]const u8 = null;
 
     while (args.next()) |arg| {
@@ -55,12 +57,14 @@ pub fn run(
             else if (std.mem.eql(u8, arg, "--cache")) &cache_path
             else if (std.mem.eql(u8, arg, "--paths")) &paths_file
             else if (std.mem.eql(u8, arg, "--dump")) &dump
+            else if (std.mem.eql(u8, arg, "--load")) &load
             else if (std.mem.eql(u8, arg, "--refs")) &refs
             else return usage();
         target.* = args.next() orelse return usage();
     }
 
     if (dump) |p| return dumpCache(io, p);
+    if (load) |p| return loadCache(gpa, io, p);
     if (refs) |p| return refsFrom(io, p);
 
     const root = repo_root orelse return usage();
@@ -73,6 +77,7 @@ fn usage() u8 {
     std.debug.print(
         \\usage: synapse tags-cache --repo-root <dir> --cache <file> --paths <tsv>
         \\       synapse tags-cache --dump <file>
+        \\       synapse tags-cache --load <file>   (reads --dump's format on stdin)
         \\       synapse tags-cache --refs <file>
         \\
     , .{});
@@ -221,6 +226,79 @@ fn dumpCache(io: Io, path: []const u8) !u8 {
         }
     }
     try out.interface.flush();
+    return 0;
+}
+
+/// Build a cache from `--dump`'s own output, read on stdin.
+///
+/// The inverse of `--dump`, and it exists for the tests: `synapse-build-refs`
+/// and `synapse-callers` are checked against caches holding deliberately
+/// awkward tag lines -- a padded name, a tab inside an expression, a malformed
+/// row -- which they used to author as JSON by hand and no longer can. Making
+/// the projection round-trip is a better answer than a bespoke fixture format,
+/// and a dump that cannot be loaded back is a projection nobody can check.
+fn loadCache(gpa: Allocator, io: Io, path: []const u8) !u8 {
+    var in_buf: [64 * 1024]u8 = undefined;
+    var in = Io.File.stdin().reader(io, &in_buf);
+    const text = in.interface.allocRemaining(gpa, .limited(64 << 20)) catch return 1;
+    defer gpa.free(text);
+
+    // Entries accumulate in input order; `commit` sorts them.
+    var order: std.ArrayListUnmanaged([]const u8) = .empty;
+    defer order.deinit(gpa);
+    var byPath: std.StringHashMapUnmanaged(core.tags_cache.Entry) = .empty;
+    defer byPath.deinit(gpa);
+    var tag_text: std.StringHashMapUnmanaged(std.Io.Writer.Allocating) = .empty;
+    defer {
+        var it = tag_text.valueIterator();
+        while (it.next()) |w| w.deinit();
+        tag_text.deinit(gpa);
+    }
+
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trimEnd(u8, raw, "\r");
+        if (line.len < 2 or line[1] != '\t') continue;
+        const rest = line[2..];
+        switch (line[0]) {
+            'H' => {
+                const tab = std.mem.indexOfScalar(u8, rest, '\t') orelse continue;
+                const p = rest[0..tab];
+                const hash = core.model.SourceRef.hashFromHex(rest[tab + 1 ..]) catch continue;
+                const gop = try byPath.getOrPut(gpa, p);
+                if (!gop.found_existing) {
+                    try order.append(gpa, p);
+                    gop.value_ptr.* = .{ .hash = hash, .tags = "" };
+                } else gop.value_ptr.hash = hash;
+            },
+            'U' => if (byPath.getPtr(rest)) |e| {
+                e.unsupported = true;
+            },
+            'P' => {},
+            'T' => {
+                const tab = std.mem.indexOfScalar(u8, rest, '\t') orelse continue;
+                const p = rest[0..tab];
+                if (!byPath.contains(p)) continue;
+                const gop = try tag_text.getOrPut(gpa, p);
+                if (!gop.found_existing) gop.value_ptr.* = .init(gpa);
+                if (gop.value_ptr.written().len != 0) try gop.value_ptr.writer.writeAll("\n");
+                try gop.value_ptr.writer.writeAll(rest[tab + 1 ..]);
+            },
+            else => {},
+        }
+    }
+
+    var updates = try gpa.alloc(Update, order.items.len);
+    defer gpa.free(updates);
+    for (order.items, 0..) |p, i| {
+        var e = byPath.get(p).?;
+        if (tag_text.getPtr(p)) |w| e.tags = w.written();
+        updates[i] = .{ .path = p, .entry = e };
+    }
+
+    var cache = try Cache.open(io, path);
+    defer cache.close(io);
+    _ = cache.commit(gpa, io, updates, &.{}) catch return 1;
     return 0;
 }
 

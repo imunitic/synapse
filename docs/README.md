@@ -19,7 +19,7 @@ matches what you're trying to understand.
   runs on top of the Vault: `/synapse-design-note`, `/synapse-task-note`, the `synapse-task` status-tracking skill,
   and the optional GitHub-issue mirror.
 - **[synapse-code-cache.md](synapse-code-cache.md)** — **Synapse Code Cache**: the vault-free
-  acceleration layer underneath the Graph. Build path (`synapse-tags.sh` → `synapse-tags-cache.sh` →
+  acceleration layer underneath the Graph. Build path (`synapse tags` → `synapse tags-cache` →
   `synapse-build-refs.sh`) and query path (`symbol`, `synapse-callers.sh`), what each costs measured,
   and how much of the whole system turns out not to need Obsidian at all.
 - **[scripts.md](scripts.md)** — reference for every **Synapse Tools** plumbing script in

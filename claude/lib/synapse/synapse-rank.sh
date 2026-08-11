@@ -77,7 +77,7 @@
 # Exit codes:
 #   0 - ran. Empty output means nothing scored above zero, which for a node made
 #       entirely of config is the correct answer, not a failure.
-#   1 - could not run (not a git repo, unreadable sources, no synapse-tags.sh)
+#   1 - could not run (not a git repo, unreadable sources, no synapse binary)
 #   2 - usage error
 set -uo pipefail
 
@@ -119,8 +119,10 @@ else
 fi
 [ -n "$REPO_ROOT" ] || { echo "synapse-rank: not inside a git repo" >&2; exit 1; }
 
-TAGS_SH="${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-tags.sh"
-[ -x "$TAGS_SH" ] || { echo "synapse-rank: synapse-tags.sh not installed (run setup.sh)" >&2; exit 1; }
+# The compiled binary. `$SYNAPSE_BIN` overrides it, which is how the test suite
+# points this at a build with the grammar step stubbed.
+SYNAPSE_BIN="${SYNAPSE_BIN:-$HOME/.claude/bin/synapse}"
+[ -x "$SYNAPSE_BIN" ] || { echo "synapse-rank: $SYNAPSE_BIN not installed (run setup.sh)" >&2; exit 1; }
 
 W="$(mktemp -d "${TMPDIR:-/tmp}/synapse-rank.XXXXXX")" || exit 1
 trap 'rm -rf "$W"' EXIT
@@ -128,13 +130,13 @@ mkdir -p "$W/chunks" "$W/out"
 
 # Same source synapse-vocab.sh reads, for the same reason: these are the
 # languages a grammar exists for, which is a different question from what
-# belongs in the graph. Read from the registry (`synapse-tags.sh
+# belongs in the graph. Read from the registry (`synapse tags
 # --list-extensions`) rather than hardcoded here, so this and synapse-vocab.sh
 # cannot silently disagree about which extensions count as code -- a
 # hardcoded list here previously excluded a language whose grammar was
 # already registered, which is exactly the drift a single shared source
 # removes. An empty result is legitimate (nothing registered yet).
-CODE_EXTS="$("$TAGS_SH" --list-extensions 2>/dev/null)"
+CODE_EXTS="$("$SYNAPSE_BIN" tags --list-extensions 2>/dev/null)"
 if [ -n "$CODE_EXTS" ]; then
     CODE_RE="\\.($(printf '%s\n' "$CODE_EXTS" | LC_ALL=C paste -sd'|' -))\$"
 else
@@ -198,14 +200,14 @@ if [ "$code_n" -gt 0 ]; then
 
     cat > "$W/worker.sh" <<'WORKER'
 #!/bin/bash
-# worker.sh <chunk> <out-dir> <repo-root> <tags-sh>
-chunk="$1"; outdir="$2"; repo="$3"; tags_sh="$4"
+# worker.sh <chunk> <out-dir> <repo-root> <synapse-bin>
+chunk="$1"; outdir="$2"; repo="$3"; bin="$4"
 cd "$repo" || exit 0
-"$tags_sh" --paths "$chunk" 2>/dev/null > "$outdir/$(basename "$chunk").tags"
+"$bin" tags --paths "$chunk" 2>/dev/null > "$outdir/$(basename "$chunk").tags"
 WORKER
     chmod +x "$W/worker.sh"
     find "$W/chunks" -type f -name 'c.*' -print0 \
-        | xargs -0 -P "$NP" -I {} "$W/worker.sh" {} "$W/out" "$REPO_ROOT" "$TAGS_SH"
+        | xargs -0 -P "$NP" -I {} "$W/worker.sh" {} "$W/out" "$REPO_ROOT" "$SYNAPSE_BIN"
     cat "$W"/out/*.tags > "$W/all.tags" 2>/dev/null || : > "$W/all.tags"
 
     # An unindented line is a path; under it, field 4 of a tag line is the

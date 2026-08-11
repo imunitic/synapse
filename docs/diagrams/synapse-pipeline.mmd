@@ -32,7 +32,7 @@ flowchart TB
 
     subgraph BUILD["BUILD · /synapse-init"]
         direction TB
-        TAGS["synapse-tags.sh<br/><i>optional</i>"]
+        TAGS["synapse tags"]
         VOCAB["synapse-vocab.sh<br/>symbol vocabulary"]
         ORIENT["<b>model</b><br/>orient and cluster"]
         MANIFEST["<b>manifest.tsv</b><br/>THE SEAM"]
@@ -69,7 +69,7 @@ flowchart TB
 
     subgraph WORK["WORK DIR · ~/.claude/synapse-work/{repo}@{branch}/"]
         direction LR
-        TAGSCACHE["_tags_cache.json"]
+        TAGSCACHE["_tags_cache.bin"]
         REFSIDX["_refs.tsv"]
         WORDS["groupwords.tsv · counts.tsv"]
     end

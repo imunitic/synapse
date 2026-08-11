@@ -18,8 +18,7 @@
 #   push-nodes             -> synapse-push-nodes.sh
 #   query                  -> synapse-query.sh
 #   rank                   -> synapse-rank.sh
-#   tags                   -> synapse-tags.sh
-#   tags-cache             -> synapse-tags-cache.sh
+#   tags, tags-cache       -> the compiled binary, not a script
 #   tokenizer               -> synapse-tokenizer.sh
 #   vocab                  -> synapse-vocab.sh
 #   write-node              -> synapse-write-node.sh
@@ -66,6 +65,20 @@ export SYNAPSE_LIB_DIR="${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}"
 # macOS's shipped /bin/bash (3.2) whenever a newer bash isn't first on PATH,
 # and 3.2 has no associative arrays. Nothing else in this codebase assumes
 # bash 4+, and this porcelain shouldn't be the first thing that does.
+# `tags` and `tags-cache` are not scripts any more -- they are subcommands of
+# the compiled binary, forwarded here so `synapse tags ...` keeps working from
+# the porcelain exactly as it did when a script sat behind it.
+case "$SUB" in
+  tags|tags-cache)
+    SYNAPSE_BIN="${SYNAPSE_BIN:-$HOME/.claude/bin/synapse}"
+    [ -x "$SYNAPSE_BIN" ] || {
+      echo "synapse: $SYNAPSE_BIN not found (run setup.sh)" >&2
+      exit 1
+    }
+    exec "$SYNAPSE_BIN" "$SUB" "$@"
+    ;;
+esac
+
 target=""
 case "$SUB" in
   build-index)          target=synapse-build-index.sh ;;
@@ -80,8 +93,6 @@ case "$SUB" in
   push-nodes)           target=synapse-push-nodes.sh ;;
   query)                target=synapse-query.sh ;;
   rank)                 target=synapse-rank.sh ;;
-  tags)                 target=synapse-tags.sh ;;
-  tags-cache)           target=synapse-tags-cache.sh ;;
   tokenizer)            target=synapse-tokenizer.sh ;;
   vocab)                target=synapse-vocab.sh ;;
   write-node)           target=synapse-write-node.sh ;;

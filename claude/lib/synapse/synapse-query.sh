@@ -37,7 +37,7 @@
 # index, so it answers "anywhere" and costs one pass over a text file.
 #
 # `symbol` is a name-based, not type-resolved, lookup backed by a per-project
-# tags cache ($SYNAPSE_WORK_DIR/_tags_cache.json, default
+# tags cache ($SYNAPSE_WORK_DIR/_tags_cache.bin, default
 # ~/.claude/synapse-work/{repo}@{branch}/) kept current as a byproduct of node
 # build/regeneration, with any file the cache is missing tagged lazily on the
 # spot. Set SYNAPSE_DISABLE_SYMBOL_CACHE (any value) to disable entirely --
@@ -815,10 +815,10 @@ cmd_symbol() {
 
   # Work dir, not the vault: this is a disposable derived cache, and at
   # large-repo scale it is ~942 MB against _index.json's 26 MB. See the header.
-  CACHE_FILE="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}/_tags_cache.json"
-  TAGS_CACHE_SH="${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-tags-cache.sh"
-  if [ -x "$TAGS_CACHE_SH" ]; then
-    "$TAGS_CACHE_SH" --repo-root "$REPO_ROOT" --cache "$CACHE_FILE" \
+  CACHE_FILE="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}/_tags_cache.bin"
+  SYNAPSE_BIN="${SYNAPSE_BIN:-$HOME/.claude/bin/synapse}"
+  if [ -x "$SYNAPSE_BIN" ]; then
+    "$SYNAPSE_BIN" tags-cache --repo-root "$REPO_ROOT" --cache "$CACHE_FILE" \
       --paths "$WORK/symbol-paths-hashes.tsv" \
       || echo "synapse-query: symbol cache backfill failed for '$node' -- continuing with what's already cached" >&2
   fi
@@ -828,27 +828,20 @@ cmd_symbol() {
     return 0
   fi
 
-  # ONE jq parse of the cache, however large -- then a plain text join, exactly
-  # as synapse-tags-cache.sh does for the same reason. The previous shape ran
-  # `jq` once per source path, so cost was node_sources x cache_bytes rather
-  # than cache_bytes: a 159-file node against a large repo's 800 MB cache did not
-  # finish in 600s, and even a medium repo's 43 MB took 113s on a large node.
+  # One pass over the cache, from `synapse tags-cache --dump`, which reads the
+  # record table and the payload once rather than parsing JSON per path. The
+  # previous shape ran `jq` once per source path, so cost was
+  # node_sources x cache_bytes rather than cache_bytes: a 159-file node against
+  # a large repo's 800 MB cache did not finish in 600s.
   #
-  # Marker first, path second, so the tag line -- which contains tabs of its own
-  # -- is unambiguously "everything after the second tab" rather than a field
-  # count that its own tabs would change.
+  # Marker first, path second, so the tag line -- which contains tabs of its
+  # own -- is unambiguously "everything after the second tab" rather than a
+  # field count that its own tabs would change. An `H` line carries the hash
+  # and is ignored here.
   #   U <TAB> path                  cached, but not checkable (no grammar)
   #   P <TAB> path                  cached and checked, tags follow (possibly none)
   #   T <TAB> path <TAB> tag line   one per tag
-  jq -r '
-    to_entries[]
-    | .key as $p
-    | .value as $v
-    | if $v.unsupported == true then "U\t\($p)"
-      else ("P\t\($p)"),
-           (($v.tags // "") | split("\n")[] | select(. != "") | "T\t\($p)\t\(.)")
-      end
-  ' "$CACHE_FILE" > "$WORK/symbol-cache.tsv" 2>/dev/null \
+  "$SYNAPSE_BIN" tags-cache --dump "$CACHE_FILE" > "$WORK/symbol-cache.tsv" 2>/dev/null \
     || { echo "synapse-query: unreadable tags cache: $CACHE_FILE" >&2; return 0; }
 
   # A cache miss and an unsupported file are reported distinctly on stderr --

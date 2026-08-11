@@ -15,11 +15,8 @@ SCRIPT="$REPO_ROOT/claude/lib/synapse/synapse-rank.sh"
 
 setup() {
   common_setup
-  mkdir -p "$HOME/.claude/lib/synapse"
-  cp "$REPO_ROOT/claude/lib/synapse/synapse-tags.sh" "$HOME/.claude/lib/synapse/synapse-tags.sh"
-  chmod +x "$HOME/.claude/lib/synapse/synapse-tags.sh"
   # java/py/ts: CODE_RE is now built from this registry (via
-  # `synapse-tags.sh --list-extensions`) rather than hardcoded, so any
+  # `synapse tags --list-extensions`) rather than hardcoded, so any
   # extension a test's fixture uses as "code" must be registered here or it
   # silently falls out of the code tier entirely.
   printf '%s' '{"java": {"repo": "https://example.invalid/tree-sitter-java", "scope": "source.java"},

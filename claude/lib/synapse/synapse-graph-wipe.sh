@@ -70,7 +70,7 @@ ns_dir="$VAULT/synapse/$NS"
 
 # --- scan every node for at-risk ## Notes content -----------------------------
 # A node file is any *.md directly under the namespace dir except Index.md;
-# _index.json/_manifest.tsv/_profile.txt/_refs.tsv/_tags_cache.json are internal
+# _index.json/_manifest.tsv/_profile.txt/_refs.tsv/_tags_cache.bin are internal
 # and machine-only, same distinction synapse-graph-clean.sh's neighbours draw.
 shopt -s nullglob
 node_count=0

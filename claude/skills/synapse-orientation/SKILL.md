@@ -69,8 +69,8 @@ a few dozen lines before you read anything. Then let `synapse-rank.sh` pick whic
 node are worth actually reading — see "Choosing what to read" below.
 
 **Do not sample, and do not invent a sampling rule.** An earlier version of this skill said
-`synapse-tags.sh` took one file per invocation and so could not be run over a whole cluster,
-and told you to pick a sampling rule and defend it. That is obsolete: `synapse-tags.sh --paths`
+`synapse tags` took one file per invocation and so could not be run over a whole cluster,
+and told you to pick a sampling rule and defend it. That is obsolete: `synapse tags --paths`
 tags a whole list in one invocation, which measured 33× on 200 files, and `synapse-vocab.sh`
 above uses it to cover an entire repository in under a minute. Sampling existed only to bound a
 cost that no longer exists, and every fixed rule was biased in a way that had to be chosen
@@ -115,7 +115,7 @@ test.
 **Read the top few, not the list.** The ranking exists so that reading 3 files out of 809 produces
 the same summary as reading all of them, which is the measured result this whole approach rests on.
 
-**Tree-sitter acceleration — handling `synapse-tags.sh`'s exit codes.** These are the *single-file*
+**Tree-sitter acceleration — handling `synapse tags`'s exit codes.** These are the *single-file*
 form's codes. In `--paths` batch form an extension with no grammar produces one warning line on
 stderr and the batch still succeeds, because a mixed repo nearly always has some language that
 works and failing the whole batch for one would throw away every language that did.
@@ -149,7 +149,7 @@ contribute to a node's prose. Do not build a tally out of those warnings.
      keyed by extension — every future project skips rediscovery for this language entirely.
 
      **The key is the bare extension with no leading dot** — `"rs"`, never `".rs"`, because
-     `synapse-tags.sh` derives it with `${BASENAME##*.}`. Getting this wrong fails *silently*
+     `synapse tags` derives it from the path suffix. Getting this wrong fails *silently*
      and expensively: the lookup misses, the script keeps returning exit 2, and discovery
      re-runs for that language on every file in every project forever, caching nothing. So the
      file should end up shaped like this:
@@ -162,5 +162,5 @@ contribute to a node's prose. Do not build a tally out of those warnings.
      ```
   5. Announce the outcome either way ("found/verified a grammar for `.rs`, cached" or "no usable
      tree-sitter grammar for `.rs`, falling back to full reads"), then retry
-     `synapse-tags.sh {path}` now that the registry has an entry (falls back to a full read for
+     `synapse tags {path}` now that the registry has an entry (falls back to a full read for
      this file per the Exit 1 case above if discovery came up empty).

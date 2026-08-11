@@ -57,13 +57,12 @@ hook_count() {
     [ -f "$HOME/.claude/skills/$(basename "$d")/SKILL.md" ]
   done
 
-  [ -f "$HOME/.claude/lib/synapse/synapse-tags.sh" ]
-  [ -x "$HOME/.claude/lib/synapse/synapse-tags.sh" ]
-
-  # synapse-tags.sh is a shim over the compiled binary, so an install without
-  # the binary is an install where tagging silently does nothing. Conditional
-  # on the checkout having been built, because setup.sh deliberately does not
-  # run a compiler -- but when it has been, the copy must happen.
+  # tags and tags-cache are subcommands of the binary now, not scripts, so an
+  # install without the binary is an install where tagging silently does
+  # nothing. Conditional on the checkout having been built, because setup.sh
+  # deliberately does not run a compiler -- but when it has been, it must copy.
+  [ ! -e "$HOME/.claude/lib/synapse/synapse-tags.sh" ]
+  [ ! -e "$HOME/.claude/lib/synapse/synapse-tags-cache.sh" ]
   if [ -x "$REPO_ROOT/zig-out/bin/synapse" ]; then
     [ -x "$HOME/.claude/bin/synapse" ]
   else
@@ -278,8 +277,6 @@ EOF
   [[ "$output" == *"synapse-tags.sh"* ]]
   # warned about, not deleted -- setup.sh only ever copies in
   [ -f "$HOME/.claude/bin/synapse-tags.sh" ]
-  # and the real copy still lands in its new home regardless
-  [ -f "$HOME/.claude/lib/synapse/synapse-tags.sh" ]
 }
 
 @test "stale: the porcelain itself in bin/ is not flagged as a leftover" {

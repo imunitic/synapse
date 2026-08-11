@@ -1,18 +1,16 @@
 #!/usr/bin/env bats
-# Tests claude/lib/synapse/synapse-tags.sh -- now a one-line shim over
-# `synapse tags` in the Zig binary. The contract it asserts is unchanged: an
-# extension is looked up in the Synapse grammar registry and, if usable, its
-# grammar is cloned on first use and the file's tags are printed.
+# Tests `synapse tags`. It replaced claude/lib/synapse/synapse-tags.sh, which is
+# deleted, and the contract is unchanged: an extension is looked up in the
+# Synapse grammar registry and, if usable, its grammar is cloned on first use
+# and the file's tags are printed.
 #
-# What changed underneath is what the fakes are. tree-sitter is linked rather
-# than spawned, so `tests/fixtures/fake-bin/tree-sitter` no longer intercepts
-# anything and is not on the path these tests take at all; the binary under
-# test is `synapse-fake`, which is the same app with only the grammar
+# The fakes are what changed. tree-sitter is linked rather than spawned, so
+# `tests/fixtures/fake-bin/tree-sitter` intercepts nothing here; the binary
+# under test is `synapse-fake`, the same app with only the grammar
 # compile-and-load step stubbed (see src/apps/synapse/main_fake.zig). Registry
-# resolution, the exit-code contract, warnings, negative caching, and the
-# clone with its lock are all real code here. `fake-bin/git` still intercepts
-# the clone, because a compiled binary spawns `git` exactly as the shell script
-# did.
+# resolution, the exit-code contract, warnings, negative caching, and the clone
+# with its lock are all real code. `fake-bin/git` still intercepts the clone,
+# because a compiled binary spawns `git` exactly as the script did.
 #
 # Not covered here, deliberately: compiling a cloned grammar and running its
 # `tags.scm`. That needs a C toolchain and a real grammar repository, which is
@@ -21,7 +19,6 @@
 
 load 'test_helper'
 
-SCRIPT="$REPO_ROOT/claude/lib/synapse/synapse-tags.sh"
 
 setup() {
   common_setup
@@ -50,7 +47,7 @@ run_synapse_tags() {
     SYNAPSE_GRAMMARS_DIR="$GRAMMARS_DIR" \
     FAKE_TS_LOG="$FAKE_TS_LOG" \
     FAKE_GIT_LOG="$FAKE_GIT_LOG" \
-    "$SCRIPT" "$@"
+    "$SYNAPSE_BIN" tags "$@"
 }
 
 # bats merges stderr into $output, and every per-extension warning this script
@@ -156,7 +153,7 @@ without_warnings() { grep -v '^synapse-tags:' <<< "$1" || true; }
   mkdir -p "$GRAMMARS_DIR/repos/tree-sitter-ocaml.lock"
 
   run env PATH="$FAKE_BIN:$PATH" SYNAPSE_GRAMMARS_DIR="$GRAMMARS_DIR" \
-    SYNAPSE_GRAMMAR_LOCK_TRIES=3 "$SCRIPT" "$TEST_HOME/sample.ml"
+    SYNAPSE_GRAMMAR_LOCK_TRIES=3 "$SYNAPSE_BIN" tags "$TEST_HOME/sample.ml"
   [ "$status" -eq 1 ]
   # A timeout now says so on stderr, where the shell script was silent. That is
   # the one behavioural difference in this file and it is an improvement: the

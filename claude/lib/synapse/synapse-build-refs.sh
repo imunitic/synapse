@@ -6,8 +6,8 @@
 # Usage: synapse-build-refs.sh [--cache <path>] [--out <path>] [--repo <path>]
 #        synapse-build-refs.sh --help
 #
-#   --cache  the tags cache to project. Default $SYNAPSE_WORK_DIR/_tags_cache.json,
-#            i.e. ~/.claude/synapse-work/{repo}@{branch}/_tags_cache.json.
+#   --cache  the tags cache to project. Default $SYNAPSE_WORK_DIR/_tags_cache.bin,
+#            i.e. ~/.claude/synapse-work/{repo}@{branch}/_tags_cache.bin.
 #   --out    where to write the index. Default $SYNAPSE_WORK_DIR/_refs.tsv.
 #   --repo   the repo whose work dir supplies those defaults. Default: the git
 #            toplevel containing $PWD. Only used to resolve defaults; nothing
@@ -67,7 +67,10 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-command -v jq >/dev/null || { echo "synapse-build-refs: jq required" >&2; exit 1; }
+# The compiled binary. `$SYNAPSE_BIN` overrides it, which is how the test suite
+# points this at a build with the grammar step stubbed.
+SYNAPSE_BIN="${SYNAPSE_BIN:-$HOME/.claude/bin/synapse}"
+[ -x "$SYNAPSE_BIN" ] || { echo "synapse-build-refs: $SYNAPSE_BIN not installed (run setup.sh)" >&2; exit 1; }
 
 # Only needed to resolve the work-dir defaults. An explicit --cache and --out
 # make this script usable against a cache for a repo that is not checked out
@@ -81,80 +84,25 @@ if [ -z "$CACHE" ] || [ -z "$OUT" ]; then
     echo "synapse-build-refs: synapse-identity.sh not installed (run setup.sh)" >&2; exit 1; }
   REPO_NAME="$(synapse_namespace "$REPO")" || exit 1
   WORK_DIR="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}"
-  [ -n "$CACHE" ] || CACHE="$WORK_DIR/_tags_cache.json"
+  [ -n "$CACHE" ] || CACHE="$WORK_DIR/_tags_cache.bin"
   [ -n "$OUT" ] || OUT="$WORK_DIR/_refs.tsv"
 fi
 
-[ -f "$CACHE" ] || { echo "synapse-build-refs: no tags cache at $CACHE -- run synapse-tags-cache.sh first" >&2; exit 1; }
+[ -f "$CACHE" ] || { echo "synapse-build-refs: no tags cache at $CACHE -- run 'synapse tags-cache' first" >&2; exit 1; }
 mkdir -p "$(dirname "$OUT")" || exit 1
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/synapse-build-refs.XXXXXX")" || exit 1
 trap 'rm -rf "$TMP"' EXIT
 
-# ONE jq pass over the cache, however large -- the whole point of this script is
-# to stop paying JSON-traversal cost per query, so paying it per file here would
-# just move the problem. Emits `path <TAB> <raw tag line>` and leaves the parsing
-# of the tag line itself to awk, which is far cheaper per row than jq is.
-jq -r '
-  to_entries[]
-  | select(.value.unsupported != true)
-  | select(.value.tags != null and .value.tags != "")
-  | .key as $p
-  | .value.tags
-  | split("\n")[]
-  | select(. != "")
-  | "\($p)\t\(.)"
-' "$CACHE" > "$TMP/raw.tsv" 2>/dev/null \
+# The projection is `synapse tags-cache --refs`, which walks the cache's record
+# table and re-parses each cached tag line into the columns below. That replaced
+# a jq pass plus ~50 lines of awk doing the same parse; the awk's exact
+# behaviour, quirks included, is what `src/core/tag_line.zig` was verified
+# against over 329,362 real rows.
+"$SYNAPSE_BIN" tags-cache --refs "$CACHE" > "$TMP/parsed.tsv" \
   || { echo "synapse-build-refs: unreadable cache: $CACHE" >&2; exit 1; }
 
-UNSUPPORTED="$(jq -r '[to_entries[] | select(.value.unsupported == true)] | length' "$CACHE" 2>/dev/null || echo 0)"
-
-# Tag line shape, tab-separated as tree-sitter emits it:
-#   name<TAB> | kind   <TAB>def (row, col) - (row, col) `source line`
-# Field 1 here is the path this script prefixed, so the tag's own fields are 2-4.
-LC_ALL=C awk -F'\t' '
-  function trim(s) { gsub(/^[ \t|]+|[ \t]+$/, "", s); return s }
-  NF < 4 { next }
-  {
-    path = $1
-    name = trim($2)
-    kind = trim($3)
-    rest = $4
-
-    # `def (21, 13) - (21, 39) `expr`` -- reftype is the leading word, the row is
-    # the first number in the first coordinate pair, and the expression is what
-    # sits between the outermost backticks.
-    reftype = rest
-    sub(/ .*$/, "", reftype)
-    if (reftype != "def" && reftype != "ref") next
-
-    # POSIX awk only: the gawk 3-argument match() is a parse error under BSD
-    # awk, so this is index/substr rather than a capture group. The row is the
-    # first number after the first open paren.
-    line = rest
-    p = index(line, "(")
-    if (p == 0) next
-    line = substr(line, p + 1)
-    q = index(line, ",")
-    if (q == 0) next
-    line = substr(line, 1, q - 1)
-    gsub(/[ \t]/, "", line)
-    if (line !~ /^[0-9]+$/) next
-
-    expr = ""
-    f = index(rest, "`")
-    if (f > 0) {
-      expr = substr(rest, f + 1)
-      l = 0
-      for (i = length(expr); i > 0; i--) { if (substr(expr, i, 1) == "`") { l = i; break } }
-      if (l > 0) expr = substr(expr, 1, l - 1)
-      gsub(/\t/, " ", expr)
-    }
-
-    if (name == "") next
-    printf "%s\t%s\t%s\t%s:%s\t%s\n", name, reftype, kind, path, line, expr
-  }
-' "$TMP/raw.tsv" > "$TMP/parsed.tsv"
+UNSUPPORTED="$("$SYNAPSE_BIN" tags-cache --dump "$CACHE" 2>/dev/null | LC_ALL=C grep -c '^U	' || true)"
 
 # LC_ALL=C, AND THAT IS A CONTRACT, NOT A PREFERENCE. `synapse-query.sh callers`
 # binary-searches this file with `look`, which compares raw bytes when given

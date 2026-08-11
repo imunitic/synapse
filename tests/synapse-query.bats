@@ -19,10 +19,8 @@ setup() {
   setup_fake_obsidian_plugin
   CURL_LOG="$TEST_HOME/curl.log"
   : > "$CURL_LOG"
-  # For `symbol`: real tree-sitter is stubbed by fake-bin/tree-sitter (always
-  # emits one deterministic FAKE_NAME tag line); synapse-tags-cache.sh and
-  # synapse-tags.sh are installed like a real setup.sh would, since `symbol`
-  # shells out to the *installed* copies, not the repo ones.
+  # For `symbol`: tagging and the cache are subcommands of the binary, and
+  # common_setup points $SYNAPSE_BIN at the stubbed-grammar build.
   GRAMMARS_DIR="$TEST_HOME/grammars"
   FAKE_TS_LOG="$TEST_HOME/ts.log"
   FAKE_GIT_LOG="$TEST_HOME/git.log"
@@ -30,10 +28,6 @@ setup() {
   : > "$FAKE_GIT_LOG"
   printf '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}' \
     > "$HOME/.claude/synapse-grammars.conf"
-  mkdir -p "$HOME/.claude/lib/synapse"
-  cp "$REPO_ROOT/claude/lib/synapse/synapse-tags.sh" "$HOME/.claude/lib/synapse/synapse-tags.sh"
-  cp "$REPO_ROOT/claude/lib/synapse/synapse-tags-cache.sh" "$HOME/.claude/lib/synapse/synapse-tags-cache.sh"
-  chmod +x "$HOME/.claude/lib/synapse/synapse-tags.sh" "$HOME/.claude/lib/synapse/synapse-tags-cache.sh"
 }
 
 teardown() {
@@ -560,7 +554,7 @@ write_fenced_node() {
 @test "symbol: unsupported file is reported distinctly, never conflated with no-match" {
   make_repo
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  # No registry entry for this extension at all -- synapse-tags.sh exits 2
+  # No registry entry for this extension at all -- `synapse tags` exits 2
   # (needs discovery), which the cache records as unsupported.
   printf 'no grammar for this\n' > "$REPO/src/foo.unknownext"
   git -C "$REPO" add src/foo.unknownext

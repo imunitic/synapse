@@ -162,16 +162,14 @@ execute there.
 
 ## Dependencies
 
-`jq`, `bats-core` (tests only), the `claude` CLI. Zig 0.16 to build the binary `synapse-tags.sh`
-execs — a build-time dependency, not a runtime one, and `setup.sh` copies the result rather than
-compiling anything itself. Optional: a C compiler for the Graph's tree-sitter acceleration (grammars
+`jq`, `bats-core` (tests only), the `claude` CLI. Zig 0.16 to build the `synapse` binary — a
+build-time dependency, not a runtime one, and `setup.sh` copies the result rather than compiling
+anything itself. Optional: a C compiler for the Graph's tree-sitter acceleration (grammars
 are still native libraries, built on first use), GNU `parallel` for `bats --jobs`, and Node (for
 `npx`) to re-render the diagrams — everything except Zig degrades gracefully if missing.
 
 The `tree-sitter` CLI is no longer among them: libtree-sitter is linked into the binary and the
-grammar's own `queries/tags.scm` is run in-process. `docs/synapse-graph.md` and
-`docs/synapse-code-cache.md` still describe it as a spawned CLI in places; they are rewritten when
-the shim itself goes.
+grammar's own `queries/tags.scm` is run in-process.
 
 ## License
 

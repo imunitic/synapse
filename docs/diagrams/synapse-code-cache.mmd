@@ -10,9 +10,9 @@ flowchart TB
 
     subgraph BUILD["build path · vault-free"]
         direction TB
-        TAGS["synapse-tags.sh<br/>tree-sitter tags, per file"]
-        CACHE_SCRIPT["synapse-tags-cache.sh<br/>per-file hash compare, xargs -P chunked"]
-        TAGSCACHE[("_tags_cache.json<br/>path → {hash, tags}")]
+        TAGS["synapse tags<br/>tree-sitter tags, per file"]
+        CACHE_SCRIPT["synapse tags-cache<br/>hash compare, one batched extraction"]
+        TAGSCACHE[("_tags_cache.bin<br/>path → {hash, tags}")]
         REFS_SCRIPT["synapse-build-refs.sh<br/>projects the cache into a flat index"]
         REFS[("_refs.tsv<br/>name ⇥ def|ref ⇥ kind ⇥ path:line ⇥ expr<br/>LC_ALL=C sorted")]
         TAGS --> CACHE_SCRIPT --> TAGSCACHE --> REFS_SCRIPT --> REFS

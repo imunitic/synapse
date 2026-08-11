@@ -81,8 +81,8 @@ is a text lookup rather than a JSON traversal.
 Usage: synapse-build-refs.sh [--cache <path>] [--out <path>] [--repo <path>]
        synapse-build-refs.sh --help
 
-  --cache  the tags cache to project. Default $SYNAPSE_WORK_DIR/_tags_cache.json,
-           i.e. ~/.claude/synapse-work/{repo}@{branch}/_tags_cache.json.
+  --cache  the tags cache to project. Default $SYNAPSE_WORK_DIR/_tags_cache.bin,
+           i.e. ~/.claude/synapse-work/{repo}@{branch}/_tags_cache.bin.
   --out    where to write the index. Default $SYNAPSE_WORK_DIR/_refs.tsv.
   --repo   the repo whose work dir supplies those defaults. Default: the git
            toplevel containing $PWD. Only used to resolve defaults; nothing
@@ -143,7 +143,7 @@ vault/namespace preamble: the property is structural, so it keeps answering
 in a repo where /synapse-init has never clustered anything. Build the index
 with:
 
-  synapse-tags-cache.sh --repo-root . --cache <cache> --paths <path:hash tsv>
+  synapse tags-cache --repo-root . --cache <cache> --paths <path:hash tsv>
   synapse-build-refs.sh
 
 It is name-based like `symbol`, so hits are candidates with evidence rather
@@ -439,7 +439,7 @@ subsystem" and costs O(node sources); `callers` is repo-wide over a precomputed
 index, so it answers "anywhere" and costs one pass over a text file.
 
 `symbol` is a name-based, not type-resolved, lookup backed by a per-project
-tags cache ($SYNAPSE_WORK_DIR/_tags_cache.json, default
+tags cache ($SYNAPSE_WORK_DIR/_tags_cache.bin, default
 ~/.claude/synapse-work/{repo}@{branch}/) kept current as a byproduct of node
 build/regeneration, with any file the cache is missing tagged lazily on the
 spot. Set SYNAPSE_DISABLE_SYMBOL_CACHE (any value) to disable entirely --
@@ -545,78 +545,8 @@ always a file the node itself owns.
 Exit codes:
   0 - ran. Empty output means nothing scored above zero, which for a node made
       entirely of config is the correct answer, not a failure.
-  1 - could not run (not a git repo, unreadable sources, no synapse-tags.sh)
+  1 - could not run (not a git repo, unreadable sources, no synapse binary)
   2 - usage error
-```
-
-## `synapse-tags-cache.sh`
-
-Keeps a project's synapse-tags.sh output cache current for a given set of
-files, re-tagging only what changed and doing so in parallel when several
-files need it. Shared by node build/regeneration (piggybacked on the same
-per-file hash comparison it already performs) and synapse-query.sh's
-`symbol` subcommand (lazy backfill on a cache miss). See docs/synapse-graph.md's
-"Exact-symbol lookup" section for the full design and the measured cost of
-a cold, fully-uncached run.
-
-```
-Usage: synapse-tags-cache.sh --repo-root <path> --cache <_tags_cache.json path> --paths <file>
-  --paths  file of repo-relative path<TAB>current-git-hash lines, one per
-           file the caller wants current in the cache (a node's `sources`,
-           typically -- the caller already has both path and hash).
-
-  Tagging is BATCHED, one `synapse-tags.sh --paths` invocation per chunk
-  rather than one per file: CLI startup and grammar load are nearly all of
-  the per-file cost, measured at 0.076s for 200 files in one invocation
-  against 2.543s for 200 invocations across 12 workers. A hub node's 800
-  sources are a handful of calls, not 800.
-
-  Parallelism: xargs -P over the chunks, capped at nproc/sysctl -n hw.ncpu
-  (falls back to 4). Each worker writes its own raw batch output to a private
-  temp file; a single sequential jq pass afterward attributes those to paths
-  and merges them into the cache. No worker ever writes the shared cache file
-  directly.
-
-  A file with no usable grammar is still recorded, as `unsupported: true`
-  with empty tags, so it isn't silently re-attempted on every call. That is
-  a distinct outcome from "checked, symbol not present" -- callers must
-  report it as such, never as a plain non-match. In batch output the two are
-  told apart by shape: an unparseable file is absent entirely, while one that
-  parsed to nothing still gets its path line.
-
-Exit codes:
-  0 - cache is current for every requested path (already-current paths need
-      no work; this is also the outcome when nothing needed tagging at all)
-  1 - usage error, missing dependency, or the cache could not be read/written
-```
-
-## `synapse-tags.sh`
-
-Transitional shim. The implementation is `synapse tags` in the Zig binary;
-this file exists so the four scripts that still invoke it by path --
-synapse-vocab.sh, synapse-rank.sh, synapse-tags-cache.sh,
-synapse-write-node.sh -- keep working unchanged while they are ported in
-turn. It goes away with the last of them.
-
-```
-Usage is unchanged, and so is every byte of the output:
-       synapse-tags.sh <file-path>
-       synapse-tags.sh --paths <file-list>
-       synapse-tags.sh --list-extensions
-  Grammar cache dir: $SYNAPSE_GRAMMARS_DIR, default ~/.cache/synapse/grammars/.
-  First-clone lock wait: $SYNAPSE_GRAMMAR_LOCK_TRIES, default 300 (~60s at
-  0.2s/try).
-
-$SYNAPSE_REPO_GRAMMAR_CACHE is gone, and callers that still set it are
-harmlessly ignored. It existed for exactly one reason, stated in the old
-script's own header: each registry resolution cost several `jq` spawns, and
-the cache removed the repeats. Resolution is in-process now and costs
-nothing, so the knob has nothing left to buy.
-
-`exec` rather than a call: no reason to keep a shell alive around the
-binary, and the exit code passes through untouched, which matters because
-callers distinguish 1 (unusable, nothing to try) from 2 (no registry entry,
-run grammar discovery and retry).
 ```
 
 ## `synapse-tokenizer.sh`
@@ -678,14 +608,14 @@ hours, so exactness was the cheaper side of that trade.
 Prints groups / files / code files / pairs on stderr, so a repo that yielded
 no vocabulary is a number rather than an empty file nobody looked at.
 
-WHY THIS IS AFFORDABLE. Tagging goes through `synapse-tags.sh --paths`, one
+WHY THIS IS AFFORDABLE. Tagging goes through `synapse tags --paths`, one
 invocation per chunk, because CLI startup and grammar load are nearly all of
 the per-file cost: 200 files measured 0.076s batched against 2.543s as 200
 invocations across 12 workers. The whole of a large repo (125,351 files, 98k of
 them code) takes ~51s. Chunking exists only to use more than one core; it is
 not what makes this cheap.
 
-RAW TAGS ARE NEVER STORED. Each worker pipes `synapse-tags.sh` straight into
+RAW TAGS ARE NEVER STORED. Each worker pipes `synapse tags` straight into
 the word reduction and keeps only `group <TAB> word`. The tags themselves are
 ~942 MB on a large repo against 6.9 MB of vocabulary, so writing them out first
 would cost more disk than the entire graph.
@@ -709,7 +639,7 @@ Exit codes:
   0 - ran. An EMPTY groupwords.tsv is a legitimate outcome (no file had a
       usable grammar) and the caller must test for it: that is the signal to
       fall back to `synapse-orientation`, not an error to report.
-  1 - could not run (not a git repo, no synapse-tags.sh, no work dir)
+  1 - could not run (not a git repo, no synapse binary, no work dir)
   2 - usage error
 ```
 
@@ -752,7 +682,7 @@ display. Same path and range checks as the crux, with a 40-line cap.
 Writes to the vault over the Obsidian Local REST API on 127.0.0.1. Agent callers
 need the network sandbox disabled, or curl fails with exit 7 and no message.
 
-As a byproduct it refreshes $SYNAPSE_WORK_DIR/_tags_cache.json (default
+As a byproduct it refreshes $SYNAPSE_WORK_DIR/_tags_cache.bin (default
 ~/.claude/synapse-work/{repo}@{branch}/) for the node's sources, so
 `synapse-query.sh symbol` is a cache read. That file is derived and
 disposable, which is why it lives beside the work dir rather than in the

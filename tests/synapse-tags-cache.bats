@@ -1,15 +1,19 @@
 #!/usr/bin/env bats
-# Tests claude/lib/synapse/synapse-tags-cache.sh -- the mechanical helper that keeps
-# a per-project tags cache current for a set of path:hash pairs, re-tagging
-# only what changed (in parallel) and never touching a file that's already
-# current. Real `tree-sitter` is stubbed by tests/fixtures/fake-bin/tree-sitter
-# (always emits one deterministic tag line) -- see that file's own comment
-# for what it simulates -- so these tests exercise the cache's own diff/join
-# logic, not tree-sitter itself.
+# Tests `synapse tags-cache` -- the mechanical helper that keeps a per-project
+# tags cache current for a set of path:hash pairs, re-tagging only what changed
+# and never touching a file that is already current. It replaced
+# claude/lib/synapse/synapse-tags-cache.sh, which is deleted.
+#
+# The binary under test is `synapse-fake`, the same app with only the grammar
+# compile-and-load step stubbed -- $SYNAPSE_BIN, set by common_setup. So the
+# diff, the attribution and the storage are all real code here; only the
+# tagging is scripted.
+#
+# The cache is a binary file now, so assertions read it through
+# `tags-cache --dump`, which is the same door synapse-query.sh uses.
 
 load 'test_helper'
 
-SCRIPT="$REPO_ROOT/claude/lib/synapse/synapse-tags-cache.sh"
 
 setup() {
   common_setup
@@ -20,12 +24,6 @@ setup() {
   : > "$FAKE_GIT_LOG"
   printf '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}' \
     > "$HOME/.claude/synapse-grammars.conf"
-  # The helper shells out to the *installed* synapse-tags.sh, matching real
-  # usage -- install the repo copy so the fake tree-sitter/git actually get
-  # exercised by it.
-  mkdir -p "$HOME/.claude/lib/synapse"
-  cp "$REPO_ROOT/claude/lib/synapse/synapse-tags.sh" "$HOME/.claude/lib/synapse/synapse-tags.sh"
-  chmod +x "$HOME/.claude/lib/synapse/synapse-tags.sh"
 }
 
 teardown() {
@@ -37,8 +35,22 @@ run_cache() {
     SYNAPSE_GRAMMARS_DIR="$GRAMMARS_DIR" \
     FAKE_TS_LOG="$FAKE_TS_LOG" \
     FAKE_GIT_LOG="$FAKE_GIT_LOG" \
-    "$SCRIPT" "$@"
+    "$SYNAPSE_BIN" tags-cache "$@"
 }
+
+# The cache is binary now, so the tests read it the way every other consumer
+# does -- `--dump`, one marker-prefixed line per fact. Asserting through the
+# same door the scripts use is the point: a projection that broke would fail
+# here rather than only in whatever reads it next.
+#
+#   H <TAB> path <TAB> hash   |   U <TAB> path   |   P <TAB> path   |   T <TAB> path <TAB> tag
+dump() { "$SYNAPSE_BIN" tags-cache --dump "$1"; }
+
+entry_count() { dump "$1" | grep -c '^H	' || true; }
+hash_of() { dump "$1" | awk -F'\t' -v p="$2" '$1 == "H" && $2 == p { print $3 }'; }
+is_unsupported() { dump "$1" | grep -qx "U	$2"; }
+is_parsed() { dump "$1" | grep -qx "P	$2"; }
+tags_of() { dump "$1" | awk -F'\t' -v p="$2" '$1 == "T" && $2 == p { print substr($0, length($1) + length($2) + 3) }'; }
 
 # Writes N real .ml files under $REPO and a path:hash TSV for them (using
 # real `git hash-object`, since the fake git only intercepts `clone`).
@@ -57,16 +69,15 @@ write_sample_files() { # write_sample_files <count>
   make_repo
   write_sample_files 3
 
-  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.json" --paths "$TEST_HOME/paths.tsv"
+  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.bin" --paths "$TEST_HOME/paths.tsv"
   [ "$status" -eq 0 ]
 
-  n="$(jq 'keys | length' "$TEST_HOME/_tags_cache.json")"
-  [ "$n" -eq 3 ]
-  [[ "$(jq -r '."sample_1.ml".tags' "$TEST_HOME/_tags_cache.json")" == *"FAKE_NAME"* ]]
-  [ "$(jq -r '."sample_1.ml".unsupported' "$TEST_HOME/_tags_cache.json")" = "false" ]
-  # Every requested file was tagged -- in ONE invocation, not three. Startup
-  # and grammar load are nearly all of the per-file cost, so a per-file loop
-  # here would undo the batching that exists upstream in synapse-tags.sh.
+  [ "$(entry_count "$TEST_HOME/_tags_cache.bin")" -eq 3 ]
+  [[ "$(tags_of "$TEST_HOME/_tags_cache.bin" sample_1.ml)" == *"FAKE_NAME"* ]]
+  is_parsed "$TEST_HOME/_tags_cache.bin" sample_1.ml
+  # Every requested file was tagged in ONE extraction, not three. Grammar load
+  # is nearly all of the per-file cost, so a per-file loop here would undo the
+  # batching the Extractor port is shaped around.
   [ "$(grep -c '^path ' "$FAKE_TS_LOG")" -eq 3 ]
   [ "$(grep -c '^tags ' "$FAKE_TS_LOG")" -eq 1 ]
 }
@@ -74,10 +85,10 @@ write_sample_files() { # write_sample_files <count>
 @test "unchanged hashes: no re-tagging on a second run" {
   make_repo
   write_sample_files 3
-  run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.json" --paths "$TEST_HOME/paths.tsv"
+  run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.bin" --paths "$TEST_HOME/paths.tsv"
   : > "$FAKE_TS_LOG"
 
-  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.json" --paths "$TEST_HOME/paths.tsv"
+  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.bin" --paths "$TEST_HOME/paths.tsv"
   [ "$status" -eq 0 ]
   [ ! -s "$FAKE_TS_LOG" ]
 }
@@ -85,25 +96,25 @@ write_sample_files() { # write_sample_files <count>
 @test "one file's hash changes: only that file is re-tagged, others untouched" {
   make_repo
   write_sample_files 3
-  run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.json" --paths "$TEST_HOME/paths.tsv"
-  before_2="$(jq -c '."sample_2.ml"' "$TEST_HOME/_tags_cache.json")"
-  before_3="$(jq -c '."sample_3.ml"' "$TEST_HOME/_tags_cache.json")"
+  run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.bin" --paths "$TEST_HOME/paths.tsv"
+  before_2="$(dump "$TEST_HOME/_tags_cache.bin" | grep '	sample_2.ml')"
+  before_3="$(dump "$TEST_HOME/_tags_cache.bin" | grep '	sample_3.ml')"
 
   printf 'let x_1 = 999 (* changed *)\n' > "$REPO/sample_1.ml"
   new_hash="$(git -C "$REPO" hash-object "$REPO/sample_1.ml")"
   sed -i.bak "s#^sample_1.ml\t.*#sample_1.ml\t$new_hash#" "$TEST_HOME/paths.tsv"
   : > "$FAKE_TS_LOG"
 
-  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.json" --paths "$TEST_HOME/paths.tsv"
+  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.bin" --paths "$TEST_HOME/paths.tsv"
   [ "$status" -eq 0 ]
   # Which file was tagged, not how many invocations happened: once tagging is
   # batched, an invocation count no longer distinguishes "re-tagged one file"
   # from "re-tagged all three in one call".
   [ "$(grep -c '^path ' "$FAKE_TS_LOG")" -eq 1 ]
   grep -qx 'path sample_1.ml' "$FAKE_TS_LOG"
-  [ "$(jq -r '."sample_1.ml".hash' "$TEST_HOME/_tags_cache.json")" = "$new_hash" ]
-  [ "$(jq -c '."sample_2.ml"' "$TEST_HOME/_tags_cache.json")" = "$before_2" ]
-  [ "$(jq -c '."sample_3.ml"' "$TEST_HOME/_tags_cache.json")" = "$before_3" ]
+  [ "$(hash_of "$TEST_HOME/_tags_cache.bin" sample_1.ml)" = "$new_hash" ]
+  [ "$(dump "$TEST_HOME/_tags_cache.bin" | grep '	sample_2.ml')" = "$before_2" ]
+  [ "$(dump "$TEST_HOME/_tags_cache.bin" | grep '	sample_3.ml')" = "$before_3" ]
 }
 
 @test "unsupported file: recorded as unsupported, never retried while unchanged" {
@@ -112,16 +123,16 @@ write_sample_files() { # write_sample_files <count>
   printf 'no grammar for this\n' > "$REPO/sample.unknownext"
   h="$(git -C "$REPO" hash-object "$REPO/sample.unknownext")"
   printf 'sample.unknownext\t%s\n' "$h" > "$TEST_HOME/paths.tsv"
-  # No registry entry for "unknownext" -- synapse-tags.sh exits 2 (needs
-  # discovery), which this cache treats the same as exit 1: unsupported.
+  # No registry entry for "unknownext", which the extractor reports as
+  # `.unsupported` -- the same outcome as a grammar that cannot be built.
 
-  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.json" --paths "$TEST_HOME/paths.tsv"
+  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.bin" --paths "$TEST_HOME/paths.tsv"
   [ "$status" -eq 0 ]
-  [ "$(jq -r '."sample.unknownext".unsupported' "$TEST_HOME/_tags_cache.json")" = "true" ]
-  [ "$(jq -r '."sample.unknownext".tags' "$TEST_HOME/_tags_cache.json")" = "" ]
+  is_unsupported "$TEST_HOME/_tags_cache.bin" sample.unknownext
+  [ -z "$(tags_of "$TEST_HOME/_tags_cache.bin" sample.unknownext)" ]
 
   : > "$FAKE_TS_LOG"
-  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.json" --paths "$TEST_HOME/paths.tsv"
+  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.bin" --paths "$TEST_HOME/paths.tsv"
   [ "$status" -eq 0 ]
   [ ! -s "$FAKE_TS_LOG" ]
 }
@@ -141,17 +152,17 @@ write_sample_files() { # write_sample_files <count>
     printf '%s\t%s\n' "$f" "$(git -C "$REPO" hash-object "$f")" >> "$TEST_HOME/paths.tsv"
   done
 
-  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.json" --paths "$TEST_HOME/paths.tsv"
+  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.bin" --paths "$TEST_HOME/paths.tsv"
   [ "$status" -eq 0 ]
 
-  [ "$(jq -r '."empty.ml".unsupported' "$TEST_HOME/_tags_cache.json")" = "false" ]
-  [ "$(jq -r '."empty.ml".tags' "$TEST_HOME/_tags_cache.json")" = "" ]
-  [[ "$(jq -r '."full.ml".tags' "$TEST_HOME/_tags_cache.json")" == *"FAKE_NAME"* ]]
-  [ "$(jq -r '."other.unknownext".unsupported' "$TEST_HOME/_tags_cache.json")" = "true" ]
+  is_parsed "$TEST_HOME/_tags_cache.bin" empty.ml
+  [ -z "$(tags_of "$TEST_HOME/_tags_cache.bin" empty.ml)" ]
+  [[ "$(tags_of "$TEST_HOME/_tags_cache.bin" full.ml)" == *"FAKE_NAME"* ]]
+  is_unsupported "$TEST_HOME/_tags_cache.bin" other.unknownext
 
   # And all three are current: none is re-attempted.
   : > "$FAKE_TS_LOG"
-  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.json" --paths "$TEST_HOME/paths.tsv"
+  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.bin" --paths "$TEST_HOME/paths.tsv"
   [ "$status" -eq 0 ]
   [ ! -s "$FAKE_TS_LOG" ]
 }
@@ -169,17 +180,17 @@ write_sample_files() { # write_sample_files <count>
     printf '%s\t%s\n' "$f" "$(git -C "$REPO" hash-object "$f")" >> "$TEST_HOME/paths.tsv"
   done
 
-  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.json" --paths "$TEST_HOME/paths.tsv"
+  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.bin" --paths "$TEST_HOME/paths.tsv"
   [ "$status" -eq 0 ]
   [ "$(grep -c '^tags ' "$FAKE_TS_LOG")" -eq 1 ]
 
-  [[ "$(jq -r '."a.ml".tags' "$TEST_HOME/_tags_cache.json")" == *"AlphaOnly"* ]]
-  [[ "$(jq -r '."a.ml".tags' "$TEST_HOME/_tags_cache.json")" != *"BetaOnly"* ]]
-  [[ "$(jq -r '."b.ml".tags' "$TEST_HOME/_tags_cache.json")" == *"BetaOnly"* ]]
-  [[ "$(jq -r '."b.ml".tags' "$TEST_HOME/_tags_cache.json")" != *"AlphaOnly"* ]]
-  [ "$(jq -r '."c.ml".tags' "$TEST_HOME/_tags_cache.json")" = "" ]
+  [[ "$(tags_of "$TEST_HOME/_tags_cache.bin" a.ml)" == *"AlphaOnly"* ]]
+  [[ "$(tags_of "$TEST_HOME/_tags_cache.bin" a.ml)" != *"BetaOnly"* ]]
+  [[ "$(tags_of "$TEST_HOME/_tags_cache.bin" b.ml)" == *"BetaOnly"* ]]
+  [[ "$(tags_of "$TEST_HOME/_tags_cache.bin" b.ml)" != *"AlphaOnly"* ]]
+  [ -z "$(tags_of "$TEST_HOME/_tags_cache.bin" c.ml)" ]
   # No trailing newline, matching what the per-file form recorded.
-  [ "$(jq -r '."a.ml".tags' "$TEST_HOME/_tags_cache.json" | wc -l | tr -d ' ')" -eq 2 ]
+  [ "$(tags_of "$TEST_HOME/_tags_cache.bin" a.ml | wc -l | tr -d ' ')" -eq 2 ]
 }
 
 @test "cached tag lines carry no batch indent, so field 1 is still the symbol" {
@@ -194,16 +205,23 @@ write_sample_files() { # write_sample_files <count>
   printf 'symbol:AlphaOnly\n' > "$REPO/a.ml"
   printf 'a.ml\t%s\n' "$(git -C "$REPO" hash-object a.ml)" > "$TEST_HOME/paths.tsv"
 
-  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.json" --paths "$TEST_HOME/paths.tsv"
+  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.bin" --paths "$TEST_HOME/paths.tsv"
   [ "$status" -eq 0 ]
 
-  run jq -r '.[].tags' "$TEST_HOME/_tags_cache.json"
-  [ "$(grep -c '^	' <<< "$output")" -eq 0 ]
-  # Trailing spaces stripped before comparing: tree-sitter space-pads the name
-  # column to ten characters, so field 1 is `AlphaOnly ` and never the bare
-  # name. That padding is the point of the trim in `model.Tag`'s own contract,
-  # and asserting exact equality here would be asserting the opposite.
-  [ "$(awk -F'\t' '{ sub(/[ \t]+$/, "", $1) } $1 == "AlphaOnly"' <<< "$output" | wc -l | tr -d ' ')" -eq 1 ]
+  run dump "$TEST_HOME/_tags_cache.bin"
+  # No tag line carries the batch indent: consumers split on tab and read
+  # field 1 as the symbol, so a leading tab would empty it. In the dump the
+  # tag is everything after `T<TAB>path<TAB>`, so an indent shows as a tab
+  # immediately after the second one.
+  [ "$(grep -c '^T	[^	]*		' <<< "$output")" -eq 0 ]
+  # And field 1 of the tag itself is the symbol. Trailing spaces are stripped
+  # before comparing: tree-sitter space-pads the name column to ten characters,
+  # so it is `AlphaOnly ` and never the bare name -- which is the point of the
+  # trim in `model.Tag`'s own contract, and why asserting exact equality on the
+  # raw field would be asserting the opposite.
+  [ "$(tags_of "$TEST_HOME/_tags_cache.bin" a.ml \
+       | awk -F'\t' '{ sub(/[ \t]+$/, "", $1) } $1 == "AlphaOnly"' \
+       | wc -l | tr -d ' ')" -eq 1 ]
 }
 
 @test "a single file needing tagging is cached with its tags, not as unsupported" {
@@ -215,20 +233,20 @@ write_sample_files() { # write_sample_files <count>
   # forever, since an unsupported entry that never gains tags never settles.
   make_repo
   write_sample_files 3
-  run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.json" --paths "$TEST_HOME/paths.tsv"
+  run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.bin" --paths "$TEST_HOME/paths.tsv"
 
   printf 'let x_1 = 999 (* changed *)\n' > "$REPO/sample_1.ml"
   new_hash="$(git -C "$REPO" hash-object "$REPO/sample_1.ml")"
   sed_i "s#^sample_1.ml	.*#sample_1.ml	$new_hash#" "$TEST_HOME/paths.tsv"
 
-  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.json" --paths "$TEST_HOME/paths.tsv"
+  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.bin" --paths "$TEST_HOME/paths.tsv"
   [ "$status" -eq 0 ]
-  [ "$(jq -r '."sample_1.ml".unsupported' "$TEST_HOME/_tags_cache.json")" = "false" ]
-  [[ "$(jq -r '."sample_1.ml".tags' "$TEST_HOME/_tags_cache.json")" == *"FAKE_NAME"* ]]
+  is_parsed "$TEST_HOME/_tags_cache.bin" sample_1.ml
+  [[ "$(tags_of "$TEST_HOME/_tags_cache.bin" sample_1.ml)" == *"FAKE_NAME"* ]]
 
   # And it has genuinely settled: a third run re-tags nothing.
   : > "$FAKE_TS_LOG"
-  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.json" --paths "$TEST_HOME/paths.tsv"
+  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.bin" --paths "$TEST_HOME/paths.tsv"
   [ "$status" -eq 0 ]
   [ ! -s "$FAKE_TS_LOG" ]
 }
@@ -237,12 +255,11 @@ write_sample_files() { # write_sample_files <count>
   make_repo
   write_sample_files 6
 
-  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.json" --paths "$TEST_HOME/paths.tsv"
+  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.bin" --paths "$TEST_HOME/paths.tsv"
   [ "$status" -eq 0 ]
-  n="$(jq 'keys | length' "$TEST_HOME/_tags_cache.json")"
-  [ "$n" -eq 6 ]
+  [ "$(entry_count "$TEST_HOME/_tags_cache.bin")" -eq 6 ]
   for i in 1 2 3 4 5 6; do
-    [[ "$(jq -r --arg k "sample_$i.ml" '.[$k].tags' "$TEST_HOME/_tags_cache.json")" == *"FAKE_NAME"* ]]
+    [[ "$(tags_of "$TEST_HOME/_tags_cache.bin" "sample_$i.ml")" == *"FAKE_NAME"* ]]
   done
 }
 
@@ -261,20 +278,20 @@ write_sample_files() { # write_sample_files <count>
   printf 'src/some dir/spaced.ml\t%s\nplain.ml\t%s\n' "$h_spaced" "$h_plain" > "$TEST_HOME/paths.tsv"
 
   cd "$TEST_HOME"
-  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.json" --paths "$TEST_HOME/paths.tsv"
+  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.bin" --paths "$TEST_HOME/paths.tsv"
   [ "$status" -eq 0 ]
 
-  [ "$(jq 'keys | length' "$TEST_HOME/_tags_cache.json")" -eq 2 ]
-  [[ "$(jq -r '."src/some dir/spaced.ml".tags' "$TEST_HOME/_tags_cache.json")" == *"FAKE_NAME"* ]]
-  [ "$(jq -r '."src/some dir/spaced.ml".hash' "$TEST_HOME/_tags_cache.json")" = "$h_spaced" ]
-  [ "$(jq -r '."src/some dir/spaced.ml".unsupported' "$TEST_HOME/_tags_cache.json")" = "false" ]
+  [ "$(entry_count "$TEST_HOME/_tags_cache.bin")" -eq 2 ]
+  [[ "$(tags_of "$TEST_HOME/_tags_cache.bin" "src/some dir/spaced.ml")" == *"FAKE_NAME"* ]]
+  [ "$(hash_of "$TEST_HOME/_tags_cache.bin" "src/some dir/spaced.ml")" = "$h_spaced" ]
+  is_parsed "$TEST_HOME/_tags_cache.bin" "src/some dir/spaced.ml"
   # The stray-file symptom: a result written to a name derived from a shifted
   # field lands in the caller's cwd instead of the work dir.
   [ ! -e "$TEST_HOME/$h_spaced" ]
 
   # And it is genuinely current -- not re-tagged on the next run.
   : > "$FAKE_TS_LOG"
-  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.json" --paths "$TEST_HOME/paths.tsv"
+  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.bin" --paths "$TEST_HOME/paths.tsv"
   [ "$status" -eq 0 ]
   [ ! -s "$FAKE_TS_LOG" ]
 }
@@ -286,13 +303,13 @@ write_sample_files() { # write_sample_files <count>
 
 @test "nonexistent paths file: exit 1" {
   make_repo
-  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.json" --paths "$TEST_HOME/does-not-exist.tsv"
+  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.bin" --paths "$TEST_HOME/does-not-exist.tsv"
   [ "$status" -eq 1 ]
 }
 
 @test "empty paths file: nothing to do, exit 0, cache created but empty" {
   make_repo
   : > "$TEST_HOME/paths.tsv"
-  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.json" --paths "$TEST_HOME/paths.tsv"
+  run run_cache --repo-root "$REPO" --cache "$TEST_HOME/_tags_cache.bin" --paths "$TEST_HOME/paths.tsv"
   [ "$status" -eq 0 ]
 }

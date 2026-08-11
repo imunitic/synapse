@@ -1,7 +1,7 @@
 # Synapse Code Cache: the vault-free acceleration layer
 
 A fourth named component, alongside the Vault, the Graph and the Tools. The work directory has always
-accumulated it quietly — `_tags_cache.json`, `_refs.tsv`, plus the vocabulary/list artifacts clustering
+accumulated it quietly — `_tags_cache.bin`, `_refs.tsv`, plus the vocabulary/list artifacts clustering
 uses — but it was previously documented only as a footnote inside [synapse-graph.md](synapse-graph.md).
 Naming it here makes the vault/graph/tools trilogy a quartet, and states plainly what was already true:
 nothing in this chain needs Obsidian, a vault, the REST API, a cert, or an API key.
@@ -10,15 +10,15 @@ nothing in this chain needs Obsidian, a vault, the REST API, a cert, or an API k
 
 ## Build path
 
-`git ls-files` (so `.gitignore` exclusion is free) feeds `synapse-tags.sh`, an optional tree-sitter
+`git ls-files` (so `.gitignore` exclusion is free) feeds `synapse tags`, a tree-sitter
 acceleration layer: given a file, it prints real definitions and name-based call references, extracted
-by parsing rather than text guessing. It fails soft — no tree-sitter, no C compiler, an unsupported
+by parsing rather than text guessing. It fails soft — no C compiler, an unsupported
 language — and every caller falls back to reading the file directly, exactly as if the script did not
 exist.
 
-`synapse-tags-cache.sh` keeps `_tags_cache.json` (`path → {hash, tags}`) current for a set of files,
+`synapse tags-cache` keeps `_tags_cache.bin` (`path → {hash, tags}`) current for a set of files,
 piggybacked on the same per-file hash comparison node regeneration already performs: unchanged paths
-are skipped, changed-or-missing ones are (re-)tagged one `synapse-tags.sh --paths` invocation per
+are skipped, changed-or-missing ones are (re-)tagged one `synapse tags --paths` invocation per
 *chunk* rather than per file, parallelized via `xargs -P` (capped at the machine's core count). Each
 worker writes its own result to a private temp file; one sequential merge afterward writes the shared
 cache — never a worker writing it directly. Measured: 400 real Java files went from 10.26s to 1.39s,
@@ -65,7 +65,8 @@ the Graph, but real, with no Obsidian install as its price of entry.
 
 Counting vault references (`OBSIDIAN_VAULT_DIR`, `$VAULT`, the Local REST API, its cert/key) across
 every script in `claude/lib/synapse/`: 12 of 17 are vault-free outright (`synapse-identity.sh`,
-`synapse-tags.sh`, `synapse-tags-cache.sh`, `synapse-build-refs.sh`, `synapse-callers.sh`,
+`synapse tags` and `synapse tags-cache` (subcommands of the compiled binary,
+not scripts), `synapse-build-refs.sh`, `synapse-callers.sh`,
 `synapse-enumerate.sh`, `synapse-build-lists.sh`, `synapse-vocab.sh`, `synapse-gate.sh`,
 `synapse-rank.sh`, `synapse-tokenizer.sh`, `synapse-push-nodes.sh`). The remaining five
 (`synapse-write-node.sh`, `synapse-query.sh`, `synapse-build-index.sh`,

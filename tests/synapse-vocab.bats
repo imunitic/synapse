@@ -15,9 +15,6 @@ SCRIPT="$REPO_ROOT/claude/lib/synapse/synapse-vocab.sh"
 
 setup() {
   common_setup
-  mkdir -p "$HOME/.claude/lib/synapse"
-  cp "$REPO_ROOT/claude/lib/synapse/synapse-tags.sh" "$HOME/.claude/lib/synapse/synapse-tags.sh"
-  chmod +x "$HOME/.claude/lib/synapse/synapse-tags.sh"
   # Every extension the fake knows about, so the script's own registry gate is
   # not what a vocabulary assertion is really testing.
   printf '%s' '{"java": {"repo": "https://example.invalid/tree-sitter-java", "scope": "source.java"},
@@ -188,11 +185,11 @@ count_of() { # count_of <group> <word>
 }
 
 @test "an extension with no registry entry is excluded before tagging, not warned about" {
-  # CODE_RE is built once, up front, from `synapse-tags.sh --list-extensions`
+  # CODE_RE is built once, up front, from `synapse tags --list-extensions`
   # -- the registry's own list of usable grammars -- rather than a hardcoded
   # guess at "languages worth having". An extension the registry has never
   # heard of therefore never reaches code.txt, so it never reaches
-  # synapse-tags.sh at all: no per-chunk warning to dedup, at any --chunk
+  # the binary at all: no per-chunk warning to dedup, at any --chunk
   # size, because there is nothing to warn about in the first place.
   git init -q "$REPO"
   src core/src/A.java Alpha
@@ -359,9 +356,9 @@ write_list() { # write_list <NN> <title> <path>...
 
 @test "raw tags are never written to disk, only the reduction" {
   # 98k code files produce ~942 MB of tags against 6.9 MB of vocabulary, so the
-  # worker must stream into the reduction. Asserted structurally: the tags-sh
+  # worker must stream into the reduction. Asserted structurally: the tagging
   # invocation has to be a pipe source, never a redirect into a file.
-  run grep -cE 'tags_sh" --paths "\$chunk" 2>"\$out.err" \\$' "$SCRIPT"
+  run grep -cE 'bin" tags --paths "\$chunk" 2>"\$out.err" \\$' "$SCRIPT"
   [ "$output" = "1" ]
   run grep -c 'awk -F' "$SCRIPT"
   [ "$status" -eq 0 ]

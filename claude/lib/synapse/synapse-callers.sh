@@ -16,7 +16,7 @@
 # in a repo where /synapse-init has never clustered anything. Build the index
 # with:
 #
-#   synapse-tags-cache.sh --repo-root . --cache <cache> --paths <path:hash tsv>
+#   synapse tags-cache --repo-root . --cache <cache> --paths <path:hash tsv>
 #   synapse-build-refs.sh
 #
 # It is name-based like `symbol`, so hits are candidates with evidence rather

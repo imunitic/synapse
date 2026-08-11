@@ -17,7 +17,7 @@ setup() {
   make_repo "ssh://git@example.invalid/x/repo.git"
   WORK_DIR="$TEST_HOME/work"
   mkdir -p "$WORK_DIR"
-  CACHE="$WORK_DIR/_tags_cache.json"
+  CACHE="$WORK_DIR/_tags_cache.bin"
   INDEX="$WORK_DIR/_refs.tsv"
 }
 
@@ -29,6 +29,28 @@ tagline() { # tagline <padded-name> <kind> <def|ref> <row> <expression>
   printf '%s\t | %s\t%s (%s, 13) - (%s, 39) `%s`' "$1" "$2" "$3" "$4" "$4" "$5"
 }
 
+# Builds a cache from `--dump`'s own format, which is the inverse operation and
+# how a test authors one now that the file is binary. Same expressive power the
+# hand-written JSON had: an arbitrary tag line per path, verbatim.
+write_cache() { # write_cache <dump-format lines on stdin>
+  "$SYNAPSE_BIN" tags-cache --load "$CACHE"
+}
+
+# One entry: a path, a hash, and its tag lines (newline separated, may be empty).
+cache_entry() { # cache_entry <path> <hash40> <tags>
+  printf 'H\t%s\t%s\n' "$1" "$2"
+  printf 'P\t%s\n' "$1"
+  [ -z "$3" ] || printf '%s\n' "$3" | while IFS= read -r l; do printf 'T\t%s\t%s\n' "$1" "$l"; done
+}
+
+cache_unsupported() { # cache_unsupported <path> <hash40>
+  printf 'H\t%s\t%s\n' "$1" "$2"
+  printf 'U\t%s\n' "$1"
+}
+
+H1="1111111111111111111111111111111111111111"
+H2="2222222222222222222222222222222222222222"
+
 # A cache with one definition, one call, and one non-call reference -- the three
 # cases the default filter has to tell apart.
 seed_index() {
@@ -36,9 +58,9 @@ seed_index() {
   d="$(tagline 'doThing   ' 'method ' 'def' 10 'public void doThing() {')"
   c="$(tagline 'doThing   ' 'call   ' 'ref' 20 'svc.doThing();')"
   i="$(tagline 'doThing   ' 'implementation' 'ref' 30 'class Impl implements doThing {')"
-  jq -n --arg t "$d
+  cache_entry "src/A.java" "$H1" "$d
 $c
-$i" '{"src/A.java": {hash: "a", unsupported: false, tags: $t}}' > "$CACHE"
+$i" | write_cache
   "$BUILD" --cache "$CACHE" --out "$INDEX" 2>/dev/null
 }
 
@@ -98,7 +120,7 @@ run_callers() {
 @test "callers: a name that is present but never called is silent, exit 0" {
   local d
   d="$(tagline 'lonely    ' 'method ' 'def' 3 'void lonely() {')"
-  jq -n --arg t "$d" '{"src/A.java": {hash: "a", unsupported: false, tags: $t}}' > "$CACHE"
+  cache_entry "src/A.java" "$H1" "$d" | write_cache
   "$BUILD" --cache "$CACHE" --out "$INDEX" 2>/dev/null
 
   run run_callers lonely
@@ -110,8 +132,8 @@ run_callers() {
   local a b
   a="$(tagline 'run       ' 'call   ' 'ref' 5 'a.run();')"
   b="$(tagline 'runFast   ' 'call   ' 'ref' 6 'a.runFast();')"
-  jq -n --arg t "$a
-$b" '{"src/A.java": {hash: "a", unsupported: false, tags: $t}}' > "$CACHE"
+  cache_entry "src/A.java" "$H1" "$a
+$b" | write_cache
   "$BUILD" --cache "$CACHE" --out "$INDEX" 2>/dev/null
 
   run run_callers run
@@ -130,7 +152,7 @@ $b" '{"src/A.java": {hash: "a", unsupported: false, tags: $t}}' > "$CACHE"
     t="$t$(tagline "$(printf '%-10s' "$n")" 'call   ' 'ref' 5 "x.$n();")
 "
   done
-  jq -n --arg t "$t" '{"src/A.java": {hash: "a", unsupported: false, tags: $t}}' > "$CACHE"
+  cache_entry "src/A.java" "$H1" "$t" | write_cache
   "$BUILD" --cache "$CACHE" --out "$INDEX" 2>/dev/null
 
   for n in alpha Beta gamma _under zz9 Aardvark run runFast; do
@@ -145,7 +167,7 @@ $b" '{"src/A.java": {hash: "a", unsupported: false, tags: $t}}' > "$CACHE"
 @test "callers: a name containing regex metacharacters is matched literally" {
   local a
   a="$(tagline 'a.b       ' 'call   ' 'ref' 5 'x.a.b();')"
-  jq -n --arg t "$a" '{"src/A.java": {hash: "a", unsupported: false, tags: $t}}' > "$CACHE"
+  cache_entry "src/A.java" "$H1" "$a" | write_cache
   "$BUILD" --cache "$CACHE" --out "$INDEX" 2>/dev/null
 
   run run_callers 'a.b'

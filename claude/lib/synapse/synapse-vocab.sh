@@ -32,14 +32,14 @@
 # Prints groups / files / code files / pairs on stderr, so a repo that yielded
 # no vocabulary is a number rather than an empty file nobody looked at.
 #
-# WHY THIS IS AFFORDABLE. Tagging goes through `synapse-tags.sh --paths`, one
+# WHY THIS IS AFFORDABLE. Tagging goes through `synapse tags --paths`, one
 # invocation per chunk, because CLI startup and grammar load are nearly all of
 # the per-file cost: 200 files measured 0.076s batched against 2.543s as 200
 # invocations across 12 workers. The whole of a large repo (125,351 files, 98k of
 # them code) takes ~51s. Chunking exists only to use more than one core; it is
 # not what makes this cheap.
 #
-# RAW TAGS ARE NEVER STORED. Each worker pipes `synapse-tags.sh` straight into
+# RAW TAGS ARE NEVER STORED. Each worker pipes `synapse tags` straight into
 # the word reduction and keeps only `group <TAB> word`. The tags themselves are
 # ~942 MB on a large repo against 6.9 MB of vocabulary, so writing them out first
 # would cost more disk than the entire graph.
@@ -63,7 +63,7 @@
 #   0 - ran. An EMPTY groupwords.tsv is a legitimate outcome (no file had a
 #       usable grammar) and the caller must test for it: that is the signal to
 #       fall back to `synapse-orientation`, not an error to report.
-#   1 - could not run (not a git repo, no synapse-tags.sh, no work dir)
+#   1 - could not run (not a git repo, no synapse binary, no work dir)
 #   2 - usage error
 set -uo pipefail
 
@@ -101,9 +101,11 @@ else
 fi
 [ -n "$REPO_ROOT" ] || { echo "synapse-vocab: not inside a git repo" >&2; exit 1; }
 
-TAGS_SH="${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-tags.sh"
-[ -x "$TAGS_SH" ] || {
-    echo "synapse-vocab: synapse-tags.sh not installed (run setup.sh) -- use synapse-orientation instead" >&2
+# The compiled binary. `$SYNAPSE_BIN` overrides it, which is how the test suite
+# points this at a build with the grammar step stubbed.
+SYNAPSE_BIN="${SYNAPSE_BIN:-$HOME/.claude/bin/synapse}"
+[ -x "$SYNAPSE_BIN" ] || {
+    echo "synapse-vocab: $SYNAPSE_BIN not installed (run setup.sh) -- use synapse-orientation instead" >&2
     exit 1; }
 
 if [ -z "$OUT" ]; then
@@ -124,7 +126,7 @@ mkdir -p "$W/chunks" "$W/words"
 # "what belongs in the graph": a file with no grammar still gets covered by a
 # node and still flags staleness, it just contributes no vocabulary.
 #
-# Read from the registry via `synapse-tags.sh --list-extensions` rather than
+# Read from the registry via `synapse tags --list-extensions` rather than
 # hardcoded here: a hardcoded list is a second copy of what the registry
 # already knows, and the two drifting is exactly how a real, already-working
 # grammar (e.g. OCaml, registered for one project) stayed invisible to this
@@ -133,7 +135,7 @@ mkdir -p "$W/chunks" "$W/words"
 # is enough forever, everywhere. An empty result here means no vocabulary
 # this run -- the same legitimate "no usable grammar" outcome documented
 # above, not a special case to handle.
-CODE_EXTS="$("$TAGS_SH" --list-extensions 2>/dev/null)"
+CODE_EXTS="$("$SYNAPSE_BIN" tags --list-extensions 2>/dev/null)"
 if [ -n "$CODE_EXTS" ]; then
     CODE_RE="\\.($(printf '%s\n' "$CODE_EXTS" | LC_ALL=C paste -sd'|' -))\$"
 else
@@ -304,20 +306,20 @@ split -l "$CHUNK" "$W/code.txt" "$W/chunks/c."
 # suspiciously fast run producing nothing rather than an error.
 cat > "$W/worker.sh" <<'WORKER'
 #!/bin/bash
-# worker.sh <chunk> <words-dir> <depth> <stopwords> <tags-sh> <reduce.awk> <map>
+# worker.sh <chunk> <words-dir> <depth> <stopwords> <synapse-bin> <reduce.awk> <map>
 # Derives its own output name so the caller can pass one fixed directory: with
 # `xargs -I {}` the placeholder is substituted into every argument, so building
 # the output path outside would splice the chunk's full path into it.
-chunk="$1"; words="$2"; depth="$3"; stop="$4"; tags_sh="$5"; prog="$6"; map="$7"
+chunk="$1"; words="$2"; depth="$3"; stop="$4"; bin="$5"; prog="$6"; map="$7"
 out="$words/$(basename "$chunk").tsv"
-"$tags_sh" --paths "$chunk" 2>"$out.err" \
+"$bin" tags --paths "$chunk" 2>"$out.err" \
   | LC_ALL=C awk -F'\t' -v DEPTH="$depth" -v STOP="$stop" -v MAP="$map" -f "$prog" > "$out"
 WORKER
 chmod +x "$W/worker.sh"
 
 find "$W/chunks" -type f -name 'c.*' -print0 \
     | xargs -0 -P "$NP" -I {} "$W/worker.sh" {} "$W/words" "$DEPTH" "$W/stop.txt" \
-          "$TAGS_SH" "$W/reduce.awk" "$MAP"
+          "$SYNAPSE_BIN" "$W/reduce.awk" "$MAP"
 
 # Counted in awk, not `sort | uniq -c`: uniq's count column is space-separated,
 # so a group key containing a space would shift every field downstream. The
