@@ -60,6 +60,16 @@ hook_count() {
   [ -f "$HOME/.claude/lib/synapse/synapse-tags.sh" ]
   [ -x "$HOME/.claude/lib/synapse/synapse-tags.sh" ]
 
+  # synapse-tags.sh is a shim over the compiled binary, so an install without
+  # the binary is an install where tagging silently does nothing. Conditional
+  # on the checkout having been built, because setup.sh deliberately does not
+  # run a compiler -- but when it has been, the copy must happen.
+  if [ -x "$REPO_ROOT/zig-out/bin/synapse" ]; then
+    [ -x "$HOME/.claude/bin/synapse" ]
+  else
+    [[ "$output" == *"no $REPO_ROOT/zig-out/bin/synapse to install"* ]]
+  fi
+
   [ -f "$HOME/.claude/CLAUDE.md" ]
   [ -f "$HOME/.claude/synapse-claude.md" ]
 }

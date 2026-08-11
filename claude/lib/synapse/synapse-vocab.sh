@@ -116,12 +116,6 @@ if [ -z "$OUT" ]; then
 fi
 mkdir -p "$OUT" || { echo "synapse-vocab: cannot write $OUT" >&2; exit 1; }
 
-# Repo-scoped grammar-resolution cache (see synapse-tags.sh's own header):
-# exported so every worker.sh-spawned synapse-tags.sh invocation below,
-# across every chunk, shares and builds up the same small file instead of
-# each re-querying the full registry.
-export SYNAPSE_REPO_GRAMMAR_CACHE="$OUT/_repo_grammar.json"
-
 W="$(mktemp -d "${TMPDIR:-/tmp}/synapse-vocab.XXXXXX")" || exit 1
 trap 'rm -rf "$W"' EXIT
 mkdir -p "$W/chunks" "$W/words"

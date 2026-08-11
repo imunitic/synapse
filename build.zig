@@ -113,6 +113,26 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(exe);
 
+    // The binary the bats suite runs: the same app with the grammar
+    // compile-and-load step stubbed. Its own step rather than part of the
+    // default install, because it must never reach `~/.claude/bin` -- but
+    // `just test` and the CI bats job both build it first, since without it
+    // the suite has no tagger at all. See `src/apps/synapse/main_fake.zig`.
+    const fake = b.addExecutable(.{
+        .name = "synapse-fake",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/apps/synapse/main_fake.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "treesitter", .module = treesitter },
+                .{ .name = "model", .module = model },
+            },
+        }),
+    });
+    b.step("fake", "Build the stubbed-grammar binary the bats suite runs")
+        .dependOn(&b.addInstallArtifact(fake, .{}).step);
+
     // The acceptance check for the tree-sitter port: not installed, not part
     // of `check`, because it needs real grammars and real repositories. Built
     // on demand with `zig build differential`.

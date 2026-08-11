@@ -27,8 +27,19 @@ _default:
 # silently runs serially and produces an identical-looking log. A silent 2x is
 # exactly what nobody notices, so here it is an error.
 
+# The binary the suite actually runs -- `synapse tags` with the grammar
+# compile-and-load step stubbed, standing in for the fake `tree-sitter` that
+# linking libtree-sitter retired. A dependency of every bats recipe rather than
+# a note in the README: `zig build` is a no-op when nothing changed, and the
+# failure mode it prevents is a suite silently testing yesterday's binary.
+_fake:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v zig >/dev/null || { echo "zig not on PATH -- brew install zig" >&2; exit 1; }
+    zig build fake
+
 # Run the suite in parallel; pass file paths to narrow it.
-test *FILES:
+test *FILES: _fake
     #!/usr/bin/env bash
     set -euo pipefail
     if ! command -v parallel >/dev/null; then
@@ -41,7 +52,7 @@ test *FILES:
     bats --jobs "$(getconf _NPROCESSORS_ONLN)" $targets
 
 # Run the suite serially, for unreadable parallel failures or a missing parallel.
-test-serial *FILES:
+test-serial *FILES: _fake
     bats {{ if FILES == "" { "tests/" } else { FILES } }}
 
 # THIS IS FOR THE INNER LOOP, NOT A SUBSTITUTE FOR `just check`. It runs the tests
@@ -161,7 +172,14 @@ test-linux:
     set -euo pipefail
     machine="$(just _podman-machine)"
     just _podman-ready "$machine"
-    podman --connection "$machine" run --rm -v "$(pwd):/repo:Z" -w /repo synapse-test \
+    # The container has no Zig in it, and the host's native `synapse-fake` is a
+    # macOS binary. Cross-compile a Linux one into its own prefix -- under
+    # zig-out/ so .gitignore already covers it, and separate so it never
+    # overwrites the native build a `just test` on the host would then run.
+    command -v zig >/dev/null || { echo "zig not on PATH -- brew install zig" >&2; exit 1; }
+    zig build fake -Dtarget=x86_64-linux --prefix zig-out/linux
+    podman --connection "$machine" run --rm -v "$(pwd):/repo:Z" -w /repo \
+      -e SYNAPSE_FAKE_BIN=/repo/zig-out/linux/bin/synapse-fake synapse-test \
       bats --jobs "$(getconf _NPROCESSORS_ONLN)" tests/
 
 # Needs `brew install act` once -- podman-ready's Podman machine is reused.

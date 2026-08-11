@@ -592,75 +592,31 @@ Exit codes:
 
 ## `synapse-tags.sh`
 
-Prints `tree-sitter tags` output (definitions + name-based call references),
-cloning/registering each language's grammar on first use. Deliberately
-dumb/mechanical -- no reasoning here. See docs/synapse-graph.md's "Optional
-tree-sitter acceleration" section and `synapse-grammars.conf`'s own header.
+Transitional shim. The implementation is `synapse tags` in the Zig binary;
+this file exists so the four scripts that still invoke it by path --
+synapse-vocab.sh, synapse-rank.sh, synapse-tags-cache.sh,
+synapse-write-node.sh -- keep working unchanged while they are ported in
+turn. It goes away with the last of them.
 
 ```
-Usage: synapse-tags.sh <file-path>
+Usage is unchanged, and so is every byte of the output:
+       synapse-tags.sh <file-path>
        synapse-tags.sh --paths <file-list>
        synapse-tags.sh --list-extensions
   Grammar cache dir: $SYNAPSE_GRAMMARS_DIR, default ~/.cache/synapse/grammars/.
   First-clone lock wait: $SYNAPSE_GRAMMAR_LOCK_TRIES, default 300 (~60s at
-  0.2s/try). A parallel caller (synapse-vocab.sh/-rank.sh chunk workers)
-  racing another process's first-ever clone of the same grammar waits this
-  long before giving up, rather than racing a second clone into it.
-  Repo-scoped resolution cache: $SYNAPSE_REPO_GRAMMAR_CACHE, unset by
-  default (no caching). A caller that already knows its own
-  $SYNAPSE_WORK_DIR (synapse-vocab.sh, synapse-rank.sh) points this at
-  "$SYNAPSE_WORK_DIR/_repo_grammar.json" so the many resolutions of the
-  same repo's same handful of extensions, across a whole session, are
-  read from a small repo-scoped file after the first, instead of
-  re-querying the full registry every time.
+  0.2s/try).
 
-`--list-extensions` prints every extension the registry currently has a
-*usable* grammar for (not marked `unsupported: true`, has both `repo` and
-`scope`) -- one bare extension per line, no dot, LC_ALL=C sorted unique.
-This is the registry, not a curated guess at "languages worth having": the
-extension that comes back tomorrow is whatever got registered since, with
-no second list anywhere to fall out of sync with it. Callers that need to
-pre-filter a large file list before tagging (synapse-vocab.sh,
-synapse-rank.sh) build their allowlist from this instead of hardcoding one.
-An empty result is legitimate -- a fresh registry, or one where nothing
-registered here happens to apply to this repo -- and is not an error.
+$SYNAPSE_REPO_GRAMMAR_CACHE is gone, and callers that still set it are
+harmlessly ignored. It existed for exactly one reason, stated in the old
+script's own header: each registry resolution cost several `jq` spawns, and
+the cache removed the repeats. Resolution is in-process now and costs
+nothing, so the knob has nothing left to buy.
 
-`--paths` tags every listed file in ONE tree-sitter invocation. That is not a
-convenience: CLI startup and grammar load dominate the per-file cost, and 200
-Java files measured 0.076s batched against 2.543s as 200 invocations across 12
-workers -- 33x, single-threaded against parallel. At 20,000 files a single
-invocation runs ~17.5s, so per-file work is real; startup simply swamped it at
-any size below a few thousand. Anything walking a whole repository should use
-this form.
-
-Output is attributable in both forms: an unindented line is a path, and the
-tab-indented lines under it are that path's tags.
-
-A mixed-extension list is fine and is why batch mode passes no `--scope`:
-tree-sitter infers the language per file from its extension, whereas forcing a
-scope makes it parse every file as that language (verified -- a `.gradle` file
-in a Java-scoped batch is parsed as Java). Single-file mode keeps `--scope`,
-which is exact and preserves its existing behaviour.
-
-Extensions with no usable grammar are reported once each on stderr and skipped;
-tree-sitter's own warning is eight lines per FILE, which is unreadable at repo
-scale. One line per extension is all a caller can act on.
-
-Exit codes (every caller must fail soft on any non-zero and fall back to
-reading the file directly -- this is never a hard dependency):
-  0 - tags printed to stdout. In `--paths` mode this is the outcome whenever
-      the batch ran, even if some extensions had no grammar: a mixed repo
-      nearly always has some, and failing the batch for them would throw away
-      every language that did work.
-      `--list-extensions` also exits 0 on an empty registry -- see above.
-  1 - not usable right now (missing tree-sitter/jq/C compiler, no
-      extension, a registry entry marked `unsupported: true`, or a clone/
-      registration failure) -- nothing else to try
-  2 - extension has no registry entry at all -- the caller (a Claude
-      procedure, e.g. /synapse-init) should run grammar discovery and
-      retry, not treat this the same as a hard failure.
-      Single-file mode only: a batch spanning many extensions has no single
-      answer, so it warns per extension and returns 0.
+`exec` rather than a call: no reason to keep a shell alive around the
+binary, and the exit code passes through untouched, which matters because
+callers distinguish 1 (unusable, nothing to try) from 2 (no registry entry,
+run grammar discovery and retry).
 ```
 
 ## `synapse-tokenizer.sh`

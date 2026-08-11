@@ -199,7 +199,11 @@ write_sample_files() { # write_sample_files <count>
 
   run jq -r '.[].tags' "$TEST_HOME/_tags_cache.json"
   [ "$(grep -c '^	' <<< "$output")" -eq 0 ]
-  [ "$(awk -F'\t' '$1 == "AlphaOnly"' <<< "$output" | wc -l | tr -d ' ')" -eq 1 ]
+  # Trailing spaces stripped before comparing: tree-sitter space-pads the name
+  # column to ten characters, so field 1 is `AlphaOnly ` and never the bare
+  # name. That padding is the point of the trim in `model.Tag`'s own contract,
+  # and asserting exact equality here would be asserting the opposite.
+  [ "$(awk -F'\t' '{ sub(/[ \t]+$/, "", $1) } $1 == "AlphaOnly"' <<< "$output" | wc -l | tr -d ' ')" -eq 1 ]
 }
 
 @test "a single file needing tagging is cached with its tags, not as unsupported" {

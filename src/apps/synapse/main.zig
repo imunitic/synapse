@@ -19,6 +19,7 @@ const std = @import("std");
 const core = @import("core");
 const ports = @import("ports");
 const adapters = @import("adapters");
+const treesitter = @import("treesitter");
 const tags_cmd = @import("tags.zig");
 
 comptime {
@@ -46,8 +47,18 @@ pub fn main(init: std.process.Init) !u8 {
         return 2;
     };
 
+    // `null` for the trace, not a value read from the environment: the trace
+    // is `synapse-fake`'s instrumentation, and the real binary should not be
+    // able to write one however it is invoked.
     if (std.mem.eql(u8, sub, "tags"))
-        return tags_cmd.run(init.gpa, init.io, init.environ_map, &args);
+        return tags_cmd.run(
+            treesitter.extractor.TreeSitterExtractor,
+            init.gpa,
+            init.io,
+            init.environ_map,
+            &args,
+            null,
+        );
 
     if (std.mem.eql(u8, sub, "--help") or std.mem.eql(u8, sub, "-h")) {
         std.debug.print("{s}", .{usage});

@@ -9,7 +9,26 @@
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FAKE_BIN="$REPO_ROOT/tests/fixtures/fake-bin"
 
+# The binary `claude/lib/synapse/synapse-tags.sh` execs. `synapse-fake` rather
+# than `synapse`: the suite has to run without a network, a C toolchain or a
+# real grammar repository, and `synapse-fake` is the same app with only the
+# grammar compile-and-load step stubbed -- see src/apps/synapse/main_fake.zig.
+#
+# Overridable because `just test-linux` runs the suite inside a container with
+# no Zig in it, so the binary is cross-compiled on the host into a separate
+# prefix and named through this variable rather than found by convention.
+SYNAPSE_FAKE_BIN="${SYNAPSE_FAKE_BIN:-$REPO_ROOT/zig-out/bin/synapse-fake}"
+
 common_setup() {
+  # Checked here rather than left to fail inside a test, because the failure
+  # otherwise arrives as an unexplained exit 127 from a shim, in whichever
+  # test happened to run first.
+  if [ ! -x "$SYNAPSE_FAKE_BIN" ]; then
+    echo "missing $SYNAPSE_FAKE_BIN -- run 'zig build fake' (or 'just test', which does)" >&2
+    return 1
+  fi
+  export SYNAPSE_BIN="$SYNAPSE_FAKE_BIN"
+
   # Neutralise an inherited TMPDIR before anything uses it. Whatever launched the
   # suite decides this, and an editor-hosted terminal routinely points it
   # somewhere surprising -- Emacs sets it to ~/.emacs.d/var/tmp, which is *inside

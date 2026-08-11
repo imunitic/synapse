@@ -85,6 +85,18 @@ jobs:
       - name: Install GNU parallel
         run: sudo apt-get update -qq && sudo apt-get install -y parallel
 
+      # The suite runs `synapse-fake`: `synapse tags` with the grammar
+      # compile-and-load step stubbed, which is what replaced the fake
+      # `tree-sitter` on PATH once libtree-sitter was linked instead of
+      # spawned. This job therefore needs a toolchain even though it is not the
+      # job that checks the Zig -- the alternative is a bats suite with no
+      # tagger in it at all. Same unpinned action as the `zig` job, for the
+      # same reason: `build.zig.zon` is the only place the version lives.
+      - uses: mlugg/setup-zig@v2
+
+      - name: Build the stubbed-grammar binary the suite runs
+        run: zig build fake
+
       - name: Show versions
         run: |
           bats --version

@@ -122,24 +122,6 @@ fi
 TAGS_SH="${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-tags.sh"
 [ -x "$TAGS_SH" ] || { echo "synapse-rank: synapse-tags.sh not installed (run setup.sh)" >&2; exit 1; }
 
-# Repo-scoped grammar-resolution cache (see synapse-tags.sh's own header):
-# best-effort only -- ranking has never required a resolvable Synapse
-# namespace (a detached HEAD, or synapse-identity.sh simply not installed,
-# both fine here today), so a failure to resolve one now stays fine too: it
-# just means this run skips the cache and resolves every extension from the
-# registry directly, exactly like before this existed.
-GRAMMAR_WORK_DIR="${SYNAPSE_WORK_DIR:-}"
-if [ -z "$GRAMMAR_WORK_DIR" ]; then
-    GRAMMAR_REPO_NAME="$(
-        . "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh" 2>/dev/null \
-        && synapse_namespace "$REPO_ROOT" 2>/dev/null
-    )" || GRAMMAR_REPO_NAME=""
-    [ -z "$GRAMMAR_REPO_NAME" ] || GRAMMAR_WORK_DIR="$HOME/.claude/synapse-work/$GRAMMAR_REPO_NAME"
-fi
-if [ -n "$GRAMMAR_WORK_DIR" ] && mkdir -p "$GRAMMAR_WORK_DIR" 2>/dev/null; then
-    export SYNAPSE_REPO_GRAMMAR_CACHE="$GRAMMAR_WORK_DIR/_repo_grammar.json"
-fi
-
 W="$(mktemp -d "${TMPDIR:-/tmp}/synapse-rank.XXXXXX")" || exit 1
 trap 'rm -rf "$W"' EXIT
 mkdir -p "$W/chunks" "$W/out"

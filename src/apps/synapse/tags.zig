@@ -15,6 +15,10 @@
 //!      grammar discovery and retry rather than treat it as a hard failure.
 //!      Single-file mode only: a batch spanning many extensions has no single
 //!      answer, so it warns per extension and returns 0.
+//!
+//! Generic over the extractor so the test binary is this same dispatch with a
+//! different innermost step. See `extractor.zig`'s header for why the split is
+//! there rather than in a second copy of this file.
 
 const std = @import("std");
 const model = @import("model");
@@ -24,11 +28,21 @@ const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const render = treesitter.tagger.renderCliLine;
 
+/// Where to append a record of what was tagged, or null for no record at all.
+///
+/// This exists for `synapse-fake`, which stands in for the `tree-sitter` CLI
+/// in the bats suite: several tests assert that N files cost ONE invocation,
+/// and with nothing spawned there is no process to count. The real binary
+/// passes null unconditionally, so it cannot be made to write one.
+pub const Trace = ?[]const u8;
+
 pub fn run(
+    comptime Ex: type,
     gpa: Allocator,
     io: Io,
     env: *std.process.Environ.Map,
     args: *std.process.Args.Iterator,
+    trace: Trace,
 ) !u8 {
     const home = env.get("HOME") orelse return 1;
 
@@ -55,24 +69,26 @@ pub fn run(
         try std.fmt.allocPrint(gpa, "{s}/.cache/synapse/grammars", .{home});
     defer gpa.free(grammars_dir);
 
-    var ex: treesitter.extractor.TreeSitterExtractor = .init(gpa, registry, grammars_dir);
+    var ex: Ex = .init(gpa, registry, grammars_dir);
     defer ex.deinit();
     if (env.get("SYNAPSE_GRAMMAR_LOCK_TRIES")) |t|
         ex.lock_tries = std.fmt.parseInt(usize, t, 10) catch 300;
 
     if (std.mem.eql(u8, first, "--paths")) {
         const list_file = args.next() orelse return 1;
-        return batch(gpa, io, &ex, list_file);
+        return batch(Ex, gpa, io, &ex, list_file, trace);
     }
-    return single(gpa, io, &ex, registry, first);
+    return single(Ex, gpa, io, &ex, registry, first, trace);
 }
 
 fn single(
+    comptime Ex: type,
     gpa: Allocator,
     io: Io,
-    ex: *treesitter.extractor.TreeSitterExtractor,
+    ex: *Ex,
     registry: treesitter.Registry,
     path: []const u8,
+    trace: Trace,
 ) !u8 {
     Io.Dir.cwd().access(io, path, .{}) catch return 1;
 
@@ -88,6 +104,8 @@ fn single(
         .no_entry => 2,
     };
     if (readiness != 0) return readiness;
+
+    try writeTrace(io, trace, &.{path});
 
     const results = try ex.tagWithSpans(gpa, io, ".", &.{path});
     defer gpa.free(results);
@@ -105,10 +123,12 @@ fn single(
 }
 
 fn batch(
+    comptime Ex: type,
     gpa: Allocator,
     io: Io,
-    ex: *treesitter.extractor.TreeSitterExtractor,
+    ex: *Ex,
     list_file: []const u8,
+    trace: Trace,
 ) !u8 {
     const listing = Io.Dir.cwd().readFileAlloc(io, list_file, gpa, .limited(64 << 20)) catch return 1;
     defer gpa.free(listing);
@@ -121,6 +141,8 @@ fn batch(
         if (p.len != 0) try paths.append(gpa, p);
     }
     if (paths.items.len == 0) return 1;
+
+    try writeTrace(io, trace, paths.items);
 
     const results = try ex.tagWithSpans(gpa, io, ".", paths.items);
     defer {
@@ -155,4 +177,27 @@ fn batch(
     }
     try out.interface.flush();
     return 0;
+}
+
+/// One `tags <paths...>` line for the invocation, then one `path <p>` line per
+/// requested path -- the format `tests/fixtures/fake-bin/tree-sitter` used to
+/// write, kept byte-compatible so the assertions built on it stay valid.
+///
+/// Appended rather than truncated: a single test may run the binary more than
+/// once and count across the runs.
+fn writeTrace(io: Io, trace: Trace, paths: []const []const u8) !void {
+    const path = trace orelse return;
+
+    var f = try Io.Dir.cwd().createFile(io, path, .{ .truncate = false });
+    defer f.close(io);
+
+    var buf: [16 * 1024]u8 = undefined;
+    var w = f.writer(io, &buf);
+    w.pos = (try f.stat(io)).size;
+
+    try w.interface.writeAll("tags");
+    for (paths) |p| try w.interface.print(" {s}", .{p});
+    try w.interface.writeAll("\n");
+    for (paths) |p| try w.interface.print("path {s}\n", .{p});
+    try w.interface.flush();
 }

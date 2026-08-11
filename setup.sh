@@ -122,6 +122,26 @@ chmod +x "$DEST/bin/"*.sh
 cp "$SRC/lib/synapse/"*.sh "$DEST/lib/synapse/"
 chmod +x "$DEST/lib/synapse/"*.sh
 echo "  installed."
+# The compiled binary. `synapse-tags.sh` is a shim that execs it, so without
+# this the tagging half of the graph does nothing -- and it fails at hook time,
+# quietly, rather than here.
+#
+# Copied rather than built: `zig build` belongs to the checkout (`just build`),
+# and running a compiler from an installer would make this step slow, network-
+# capable and dependent on a toolchain that a machine installing from a release
+# tarball will not have. Absent is therefore a warning and not an error, so an
+# install that only wants the commands and skills still completes.
+if [ -x "$HERE/zig-out/bin/synapse" ]; then
+  cp "$HERE/zig-out/bin/synapse" "$DEST/bin/synapse"
+  chmod +x "$DEST/bin/synapse"
+  echo "  installed binary: $DEST/bin/synapse"
+else
+  echo "  NOTE: no $HERE/zig-out/bin/synapse to install -- run 'zig build' (or"
+  echo "    'just build') and re-run this script. Until then synapse-tags.sh,"
+  echo "    and everything downstream of it, will fail: it is a shim over that"
+  echo "    binary. Override the location with \$SYNAPSE_BIN if it lives"
+  echo "    elsewhere."
+fi
 # This script copies in but never deletes, so scripts that moved out of bin/
 # and into lib/synapse/ during the porcelain rewrite linger in $DEST/bin/ on an
 # existing machine -- unreferenced but still executable and still on PATH,
