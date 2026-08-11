@@ -31,9 +31,14 @@ allowed_for() {
         src/model/*)    echo "" ;;
         src/ports/*)    echo "model" ;;
         src/core/*)     echo "model ports" ;;
+        src/adapters/treesitter/*) echo "model ports core" ;;
         src/adapters/*) echo "model ports core" ;;
-        src/apps/*)     echo "model ports core adapters" ;;
-        *)              echo "model ports core adapters" ;;
+        # Apps are the wiring layer: they may reach every adapter module,
+        # including the ones that are separate modules precisely so that a
+        # different app can leave them out (treesitter carries libtree-sitter
+        # and the C toolchain with it).
+        src/apps/*)     echo "model ports core adapters treesitter" ;;
+        *)              echo "model ports core adapters treesitter" ;;
     esac
 }
 
