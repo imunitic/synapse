@@ -39,6 +39,12 @@
 //! release target. Not held by execution on a big-endian machine -- no runner
 //! we have is one, and pretending otherwise would be the more dangerous claim.
 //!
+//! ## Opening is meant to be cheap, and the checksum nearly was not
+//!
+//! Reading this file must cost the record table, not the payload -- otherwise
+//! the layout buys nothing over the JSON it replaces. Everything `parse` does
+//! is bounded by `blob_off` for that reason, checksum included. See `crc32`.
+//!
 //! ## Versioning
 //!
 //! A header that does not match is discarded and rebuilt. It is a cache: there
@@ -64,9 +70,22 @@ pub const Header = struct {
     paths_off: u64,
     /// Absolute file offset of the payload region.
     blob_off: u64,
-    /// Over `bytes[wire_size..]` -- everything the header describes, and
-    /// nothing the header itself contains, so the checksum never has to be
-    /// computed over a field holding the checksum.
+    /// Over `bytes[wire_size..blob_off]` -- the record table and the path
+    /// region, and nothing else.
+    ///
+    /// Excluding the payload is the difference between opening this file in
+    /// milliseconds and opening it in seconds, measured: covering everything
+    /// made `open` read all 801 MB of syrius3's cache and take 8.0s, which is
+    /// worse than the 5.0s `jq` parse the format exists to replace. The
+    /// checksum's real job is protecting the part `parse` interprets --
+    /// counts, offsets and lengths, where a corrupt value is a bad read
+    /// rather than bad text -- and that part is 7 MB.
+    ///
+    /// What that gives up: a bit-flip inside a tag string is not detected. It
+    /// surfaces as one wrong character in one cached tag line, which is the
+    /// same damage class as the cache simply being stale, and a rebuild fixes
+    /// it. A bit-flip in an offset would have been an out-of-bounds read, and
+    /// that is still covered.
     crc32: u32,
 
     /// 40, not the 36 the fields add up to: four reserved bytes keep the
@@ -219,7 +238,7 @@ pub fn encode(gpa: Allocator, entries: []const Entry) EncodeError![]u8 {
         .entry_count = @intCast(entries.len),
         .paths_off = paths_off,
         .blob_off = blob_off,
-        .crc32 = std.hash.Crc32.hash(bytes[Header.wire_size..]),
+        .crc32 = std.hash.Crc32.hash(bytes[Header.wire_size..@intCast(blob_off)]),
     };
     header.write(bytes[0..Header.wire_size]);
     return bytes;
@@ -278,17 +297,20 @@ pub fn parse(bytes: []const u8) ParseError!View {
     const header: Header = .read(bytes[0..Header.wire_size]);
     if (header.version != version) return error.VersionMismatch;
 
-    if (std.hash.Crc32.hash(bytes[Header.wire_size..]) != header.crc32)
-        return error.ChecksumMismatch;
-
     const table_end: u64 = Header.wire_size + @as(u64, header.entry_count) * Record.wire_size;
     if (table_end > bytes.len) return error.Truncated;
+    // Before the checksum, because the checksum's range is taken from the
+    // header and a corrupt `blob_off` would otherwise slice out of bounds.
+    if (header.blob_off > bytes.len) return error.OffsetOutOfRange;
+    if (header.blob_off < Header.wire_size) return error.OffsetOutOfRange;
+
+    if (std.hash.Crc32.hash(bytes[Header.wire_size..@intCast(header.blob_off)]) != header.crc32)
+        return error.ChecksumMismatch;
     // `>=` rather than `==` on purpose: a writer is free to leave a gap, and
     // rejecting one would make the format harder to extend than the version
     // field already makes it easy.
     if (header.paths_off < table_end) return error.OffsetOutOfRange;
     if (header.blob_off < header.paths_off) return error.OffsetOutOfRange;
-    if (header.blob_off > bytes.len) return error.OffsetOutOfRange;
 
     const view: View = .{ .bytes = bytes, .header = header };
     var prev: ?[]const u8 = null;
@@ -353,9 +375,11 @@ test "one entry encodes to exactly the bytes this file documents" {
     try testing.expectEqualStrings("a.ml", bytes[83..87]);
     try testing.expectEqualStrings("T", bytes[87..88]);
 
-    // The checksum covers everything after the header and nothing inside it.
+    // The checksum covers the record table and the path region -- 40..87 here
+    // -- and stops before the payload.
     const crc = std.mem.readInt(u32, bytes[32..36], .little);
-    try testing.expectEqual(std.hash.Crc32.hash(bytes[40..]), crc);
+    try testing.expectEqual(std.hash.Crc32.hash(bytes[40..87]), crc);
+    try testing.expect(crc != std.hash.Crc32.hash(bytes[40..]));
 }
 
 test "many entries round-trip, payload and flags intact" {
@@ -468,9 +492,11 @@ test "a file that is not ours, or is corrupt, or is short, is refused" {
     try testing.expect(json.len > Header.wire_size);
     try testing.expectError(error.NotACache, parse(json));
 
-    // One flipped payload byte. Nothing about the structure changes, so only
-    // the checksum can catch it.
-    bytes[bytes.len - 1] ^= 0xff;
+    // A flipped byte in the path region. The structure is unchanged, so only
+    // the checksum can catch it -- and it is inside the covered range, unlike
+    // the payload, which is deliberately not.
+    const paths_off = std.mem.readInt(u64, bytes[16..24], .little);
+    bytes[@intCast(paths_off)] ^= 0xff;
     try testing.expectError(error.ChecksumMismatch, parse(bytes));
 }
 
@@ -482,7 +508,8 @@ test "a record pointing outside its region is refused, not followed" {
     // tags_len past the end of the file. Left unchecked this is an
     // out-of-bounds read on a mapping, from a file any process can write to.
     std.mem.writeInt(u32, bytes[40 + 38 ..][0..4], 9999, .little);
-    std.mem.writeInt(u32, bytes[32..36], std.hash.Crc32.hash(bytes[40..]), .little);
+    const blob_off = std.mem.readInt(u64, bytes[24..32], .little);
+    std.mem.writeInt(u32, bytes[32..36], std.hash.Crc32.hash(bytes[40..@intCast(blob_off)]), .little);
     try testing.expectError(error.OffsetOutOfRange, parse(bytes));
 }
 

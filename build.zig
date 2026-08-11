@@ -148,6 +148,20 @@ pub fn build(b: *std.Build) void {
     b.step("differential", "Build the tags acceptance-check tool")
         .dependOn(&b.addInstallArtifact(differential, .{}).step);
 
+    // Same reasoning as `differential`: it needs a real cache from a real
+    // repository, so it is a tool built on demand rather than a test.
+    const bench = b.addExecutable(.{
+        .name = "tags-cache-bench",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/tools/tags_cache_bench.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{.{ .name = "core", .module = core }},
+        }),
+    });
+    b.step("bench", "Build the tags-cache timing tool")
+        .dependOn(&b.addInstallArtifact(bench, .{}).step);
+
     // Deliberately no `run` step. A Run step treats a non-zero exit as a build
     // failure, and non-zero is a normal, contractual result for this binary --
     // `2` for a usage error, `1` for a refusal, all of them asserted by the
