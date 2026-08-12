@@ -49,7 +49,10 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     // nothing" rather than to a wrong injection.
     _ = payload.str("prompt") orelse return;
 
-    const ns = common.Namespace.fromEnv(env) orelse return;
+    // `cwd` comes from the payload -- a SessionStart or a prompt arrives with the
+    // session's directory, which is not necessarily this process's.
+    const ns = common.Namespace.resolve(gpa, io, env, payload.str("cwd") orelse ".") orelse return;
+    defer ns.deinit(gpa);
     const ns_dir = try std.fmt.allocPrint(gpa, "{s}/synapse/{s}", .{ vault, ns.key });
     defer gpa.free(ns_dir);
     const ns_index = try std.fmt.allocPrint(gpa, "{s}/Index.md", .{ns_dir});

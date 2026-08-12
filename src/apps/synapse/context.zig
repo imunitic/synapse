@@ -7,13 +7,15 @@
 //! which graph a checkout belongs to, and disagreeing there means one component
 //! refusing where another proceeds.
 //!
-//! ## Identity arrives in the environment, and is not re-derived
+//! ## Identity is resolved here, and the environment can still override it
 //!
-//! `synapse_namespace`, `synapse_branch` and `synapse_remote` are still bash, and
-//! stay bash until the last sourcer is ported (tranche D). So the wrapper resolves
-//! them once and exports them, exactly as `synapse-enumerate.sh` already exports
-//! `SYNAPSE_WORK_DIR`. Nothing here guesses a namespace from `$PWD`: a second
-//! resolution that disagreed with the first would be the bug this arrangement
+//! `adapters.git_identity` asks git the three questions and `core.identity` turns the
+//! answers into a key, so a command run from a checkout needs nothing exported. The
+//! environment still wins when set, and that is not vestigial: it is how a caller
+//! pins a namespace deliberately (the bats suite does, against fixture repos), and it
+//! is what let the shell wrappers hand identity down while `synapse-identity.sh` was
+//! still the only implementation. What matters either way is that there is exactly
+//! one resolution chain -- a second one that disagreed is the bug this arrangement
 //! exists to prevent.
 //!
 //! ## Reads come from disk; writes go through the API
@@ -31,6 +33,7 @@
 
 const std = @import("std");
 const core = @import("core");
+const adapters = @import("adapters");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -59,15 +62,21 @@ pub const Context = struct {
     abs_dir: []const u8,
 
     /// Owns `chains`, its backing text, `dir` and `abs_dir`. Every other field
-    /// borrows the environment, which outlives us.
+    /// borrows either the environment or `resolved`, both of which outlive us.
     chains_text: ?[]u8,
     chains_list: std.ArrayListUnmanaged([]const u8),
+    /// Present when identity came from git rather than the environment. Several
+    /// fields above point into it.
+    resolved: ?adapters.git_identity.Identity = null,
+    owned_work: ?[]u8 = null,
 
     pub fn deinit(self: *Context) void {
         self.chains_list.deinit(self.gpa);
         if (self.chains_text) |t| self.gpa.free(t);
         self.gpa.free(self.dir);
         self.gpa.free(self.abs_dir);
+        if (self.owned_work) |w| self.gpa.free(w);
+        if (self.resolved) |r| r.deinit(self.gpa);
     }
 };
 
@@ -86,27 +95,43 @@ pub fn resolve(
         std.debug.print("{s}: no vault\n", .{prog});
         return null;
     };
-    const namespace = nonEmpty(env, "SYNAPSE_NAMESPACE") orelse {
-        std.debug.print("{s}: no SYNAPSE_NAMESPACE (the wrapper resolves it)\n", .{prog});
-        return null;
+    // Resolved from the checkout unless every field is already exported. All four
+    // together, never a mixture: a namespace from the environment paired with a branch
+    // from git is exactly the disagreement one resolution chain exists to prevent.
+    var resolved: ?adapters.git_identity.Identity = null;
+    errdefer if (resolved) |r| r.deinit(gpa);
+    if (nonEmpty(env, "SYNAPSE_NAMESPACE") == null or
+        nonEmpty(env, "SYNAPSE_REPO_ROOT") == null or
+        nonEmpty(env, "SYNAPSE_BRANCH") == null)
+    {
+        resolved = adapters.git_identity.resolve(gpa, io, ".") catch |e| {
+            switch (e) {
+                // Exit 1 with a message, not silence: a caller that asked for a graph
+                // operation outside a repo has made a mistake worth naming.
+                error.NotAGitRepo => std.debug.print("{s}: not inside a git repo\n", .{prog}),
+                error.DetachedHead => std.debug.print("{s}\n", .{core.identity.detached_message}),
+                else => std.debug.print("{s}: could not resolve the namespace\n", .{prog}),
+            }
+            return null;
+        };
+    }
+
+    const namespace = nonEmpty(env, "SYNAPSE_NAMESPACE") orelse resolved.?.key;
+    const repo_root = nonEmpty(env, "SYNAPSE_REPO_ROOT") orelse resolved.?.repo_root;
+    const branch = nonEmpty(env, "SYNAPSE_BRANCH") orelse resolved.?.branch_key;
+    // The remote is compared against the namespace index's own field. Absent is not a
+    // skipped check: a comparison against the empty string would pass for any index
+    // missing the field, which is the exact case the check exists to catch.
+    const remote = nonEmpty(env, "SYNAPSE_REMOTE") orelse
+        if (resolved) |r| r.remote else "";
+    // The work dir is derived rather than required -- it is the one field with an
+    // obvious default, and every script spelled that default the same way.
+    var owned_work: ?[]u8 = null;
+    const work_dir = nonEmpty(env, "SYNAPSE_WORK_DIR") orelse blk: {
+        const home = env.get("HOME") orelse "";
+        owned_work = try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-work/{s}", .{ home, namespace });
+        break :blk owned_work.?;
     };
-    const repo_root = nonEmpty(env, "SYNAPSE_REPO_ROOT") orelse {
-        std.debug.print("{s}: no SYNAPSE_REPO_ROOT (the wrapper resolves it)\n", .{prog});
-        return null;
-    };
-    const work_dir = nonEmpty(env, "SYNAPSE_WORK_DIR") orelse {
-        std.debug.print("{s}: no SYNAPSE_WORK_DIR (the wrapper resolves it)\n", .{prog});
-        return null;
-    };
-    // Branch and remote are compared against the namespace index below. Absent is
-    // a hard failure rather than a skipped check: a comparison against the empty
-    // string would pass for any index missing the field, which is the exact case
-    // the check exists to catch.
-    const branch = nonEmpty(env, "SYNAPSE_BRANCH") orelse {
-        std.debug.print("{s}: no SYNAPSE_BRANCH (the wrapper resolves it)\n", .{prog});
-        return null;
-    };
-    const remote = nonEmpty(env, "SYNAPSE_REMOTE") orelse "";
 
     var ctx: Context = .{
         .gpa = gpa,
@@ -121,6 +146,8 @@ pub fn resolve(
         .abs_dir = try std.fmt.allocPrint(gpa, "{s}/synapse/{s}", .{ vault, namespace }),
         .chains_text = null,
         .chains_list = .empty,
+        .resolved = resolved,
+        .owned_work = owned_work,
     };
     try loadChains(&ctx, io, env);
     return ctx;

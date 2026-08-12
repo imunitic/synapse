@@ -13,6 +13,10 @@
 const std = @import("std");
 
 pub const process = @import("process.zig");
+
+/// Resolving a namespace by asking git. An adapter because it spawns; the rules it
+/// feeds are `core.identity`.
+pub const git_identity = @import("git_identity.zig");
 pub const fakes = @import("fakes/root.zig");
 
 /// The Obsidian Local REST API behind the Store port. Belongs to this half
@@ -23,6 +27,7 @@ pub const obsidian = @import("obsidian/store.zig");
 test {
     std.testing.refAllDecls(@This());
     _ = process;
+    _ = git_identity;
     _ = fakes;
     _ = obsidian;
     // Referenced from the test block only, and deliberately not `pub`: Zig

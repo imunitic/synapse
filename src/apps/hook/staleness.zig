@@ -49,12 +49,17 @@ const Allocator = std.mem.Allocator;
 
 pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     const vault = common.vault(io, env) orelse return;
-    const ns = common.Namespace.fromEnv(env) orelse return;
 
     var payload = common.Payload.read(gpa, io);
     defer payload.deinit();
     const raw_file = payload.nested("tool_input", "file_path") orelse
         payload.nested("tool_response", "filePath") orelse return;
+
+    // Identity from the *edited file's* directory, not from `$PWD`: a session's
+    // working directory and the file it just wrote are not always in the same repo.
+    const ns = common.Namespace.resolve(gpa, io, env, std.fs.path.dirname(raw_file) orelse ".") orelse
+        return;
+    defer ns.deinit(gpa);
 
     // The file has to still exist: an edit that deleted it has nothing to hash, and
     // the node's own `sources` will report it gone at read time anyway.

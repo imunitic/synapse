@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const core = @import("core");
+const adapters = @import("adapters");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -92,6 +93,8 @@ pub const Namespace = struct {
     repo_root: []const u8,
     branch: []const u8,
     remote: []const u8,
+    /// Set when the fields point into a git resolution this owns.
+    owned: ?adapters.git_identity.Identity = null,
 
     pub fn fromEnv(env: *std.process.Environ.Map) ?Namespace {
         const key = nonEmpty(env, "SYNAPSE_NAMESPACE") orelse return null;
@@ -105,7 +108,34 @@ pub const Namespace = struct {
             // check below treats "" == "" as a match only if the index also records
             // none.
             .remote = env.get("SYNAPSE_REMOTE") orelse "",
+            .owned = null,
         };
+    }
+
+    /// From the environment when it is set, else asked of git for the repository
+    /// containing `cwd`.
+    ///
+    /// `cwd` is not `$PWD` for every hook: `staleness` resolves from the *edited
+    /// file's* directory, because a session's working directory and the file it just
+    /// wrote are not always in the same repository. That is why this takes it as an
+    /// argument rather than assuming one.
+    ///
+    /// A detached HEAD or a non-repo returns null, which every caller treats as
+    /// "nothing to say" -- an ordinary state, not an error.
+    pub fn resolve(gpa: Allocator, io: Io, env: *std.process.Environ.Map, cwd: []const u8) ?Namespace {
+        if (fromEnv(env)) |ns| return ns;
+        const id = adapters.git_identity.resolve(gpa, io, cwd) catch return null;
+        return .{
+            .key = id.key,
+            .repo_root = id.repo_root,
+            .branch = id.branch_key,
+            .remote = id.remote,
+            .owned = id,
+        };
+    }
+
+    pub fn deinit(self: Namespace, gpa: Allocator) void {
+        if (self.owned) |id| id.deinit(gpa);
     }
 };
 

@@ -52,8 +52,16 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     var catalogue: ?[]u8 = null;
     defer if (catalogue) |s| gpa.free(s);
 
+    // Resolved once, and kept: the catalogue below needs the key to drop this repo's
+    // own namespace from it.
+    const maybe_ns = if (vault.len != 0)
+        common.Namespace.resolve(gpa, io, env, payload.str("cwd") orelse ".")
+    else
+        null;
+    defer if (maybe_ns) |ns| ns.deinit(gpa);
+
     if (vault.len != 0) {
-        if (common.Namespace.fromEnv(env)) |ns| {
+        if (maybe_ns) |ns| {
             const ns_index = try std.fmt.allocPrint(gpa, "{s}/synapse/{s}/Index.md", .{ vault, ns.key });
             defer gpa.free(ns_index);
             if (Io.Dir.cwd().readFileAlloc(io, ns_index, gpa, .limited(64 << 20))) |text| {
@@ -81,7 +89,7 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
                 absent = try std.fmt.allocPrint(gpa, "synapse/{s}/", .{ns.key});
             }
         }
-        catalogue = try buildCatalogue(gpa, io, vault, if (common.Namespace.fromEnv(env)) |n| n.key else null);
+        catalogue = try buildCatalogue(gpa, io, vault, if (maybe_ns) |ns| ns.key else null);
     }
 
     var base: ?[]u8 = null;

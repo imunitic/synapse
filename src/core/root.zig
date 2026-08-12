@@ -32,6 +32,7 @@ pub const refs = @import("refs.zig");
 pub const gate = @import("gate.zig");
 pub const project_index = @import("project_index.zig");
 pub const graph_clean = @import("graph_clean.zig");
+pub const identity = @import("identity.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -52,6 +53,7 @@ test {
     _ = gate;
     _ = project_index;
     _ = graph_clean;
+    _ = identity;
     _ = @import("tags_cache/format.zig");
     _ = @import("index_map/format.zig");
 }
