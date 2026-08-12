@@ -104,10 +104,12 @@ node_file() { echo "$VAULT/synapse/$(repo_name)/$1.md"; }
   [ -f "$(node_file "Mod A")" ]
 }
 
-@test "the writer is resolved as a sibling, not from PATH" {
+@test "no writer on PATH is consulted, because there is no writer to spawn" {
   stage_node 01 "Mod A" mod-a/a.txt
-  # A decoy earlier on PATH must be ignored: an installed copy has to find the
-  # writer it shipped with, not whatever happens to be callable.
+  # This used to assert that the script resolved synapse-write-node.sh as its own
+  # sibling rather than from PATH. The writer is in-process now, so a decoy cannot
+  # be reached at all -- but the test still earns its keep: it proves the node was
+  # written *and* that nothing on PATH contributed to writing it.
   mkdir -p "$TEST_HOME/decoy"
   printf '#!/bin/bash\necho DECOY RAN\nexit 0\n' > "$TEST_HOME/decoy/synapse-write-node.sh"
   chmod +x "$TEST_HOME/decoy/synapse-write-node.sh"

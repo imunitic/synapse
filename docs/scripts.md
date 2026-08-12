@@ -24,13 +24,16 @@ Writes $SYNAPSE_WORK_DIR/_index.bin
 Read by the PostToolUse staleness hook, so it must cover every enumerated file:
 an edit to an unlisted path flags nothing stale.
 
-This script authors the (path, node) pairs and `synapse index build` encodes
-them. Two things changed with that split, both deliberate. The index no longer
-lives in the vault: it is derived, gitignored there and never travelled, so
-PUT-ing 26 MB over the REST API bought nothing -- which is also why this script
-no longer needs the sandbox disabled, and no longer reads the plugin's API key
-or certificate. And `jq` is gone: authoring tens of megabytes of JSON was the
-only reason it was here.
+`synapse index build --lists` does the whole job: it authors the (path, node)
+pairs from lists/NN.txt and NN.title, encodes them, and reports what a reader
+will actually find by reopening what it just wrote. Two earlier changes stand:
+the index no longer lives in the vault -- it is derived, gitignored there and
+never travelled, so PUT-ing 26 MB over the REST API bought nothing, which is
+why this needs no sandbox exemption and reads no API key -- and `jq` is gone,
+since authoring tens of megabytes of JSON was the only reason it was here.
+
+What went with the pair authoring: one `basename` and one `tr` and one `awk`
+per node list, and the mktemp holding the pairs between the two halves.
 ```
 
 ## `synapse-build-lists.sh`
@@ -73,7 +76,20 @@ Run after the nodes exist: summaries are read back off the nodes, and a node tha
 is missing or has no `summary` is a hard error. Emits no repo-specific prose of
 its own -- see docs/synapse-graph.md for why.
 
-Note for agent callers: needs the sandbox disabled (localhost REST API).
+Note for agent callers: needs the sandbox disabled (localhost REST API) -- the
+PUT still goes through it, which is what keeps Obsidian's view and the vault's
+git history correct.
+
+WHAT IS LEFT HERE. Namespace resolution and dispatch. The build moved into
+`synapse build-project-index`, and the format itself into src/core/
+project_index.zig -- one writer, three readers (the SessionStart hook, query's
+preamble, write-node), which is exactly the shape that drifts when it lives in
+a heredoc.
+
+Gone with it: the JsonLogic search that fetched every node's summary and the
+`jq` filter that read it -- summaries come off the nodes on disk now, which
+also answers "missing node" versus "missing summary" without a follow-up stat.
+And `find`, `basename`, `cat`, `tr`, `wc`, `sort`, `awk` and the mktemp.
 ```
 
 ## `synapse-build-refs.sh`

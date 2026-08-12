@@ -63,8 +63,66 @@ pub fn field(text: []const u8, key: []const u8) ?[]const u8 {
         // `title:` matches and `built_at:` does not match a query for `at`.
         if (!std.mem.startsWith(u8, line, key)) continue;
         if (line.len <= key.len or line[key.len] != ':') continue;
+        return stripOneQuote(std.mem.trimStart(u8, line[key.len + 1 ..], " \t"));
+    }
+    return null;
+}
+
+/// One leading and one trailing `"`, no more.
+///
+/// `gsub(/^"|"$/, "")` strips at most one at each end, because `^"` can only match
+/// at position zero and `"$` only at the end. Trimming *all* quotes instead would
+/// eat the closing quote of a value ending in an escaped one -- `"ends with \""`
+/// would come back missing a character, and nothing downstream could tell.
+fn stripOneQuote(raw: []const u8) []const u8 {
+    var s = raw;
+    if (s.len != 0 and s[0] == '"') s = s[1..];
+    if (s.len != 0 and s[s.len - 1] == '"') s = s[0 .. s.len - 1];
+    return s;
+}
+
+/// One frontmatter scalar as a *YAML reader* would see it: escapes resolved.
+///
+/// `field` deliberately does not do this. Its output is `query field`'s stdout,
+/// which has to stay byte-identical to the `awk` that only ever stripped the outer
+/// quotes -- so a value containing `\"` printed with the backslash, and callers
+/// depend on that.
+///
+/// This is for the one caller that needs the value rather than the text:
+/// `build-project-index` reads each node's `summary` and writes it into the index's
+/// prose. It used to get it from the API's JsonLogic search, which parses the YAML,
+/// so the round trip was already lossless -- reading from disk instead means doing
+/// the unescaping here or silently regressing it. `tests/synapse-build-project-index.bats`
+/// pins the case: `Handles "quoted" input and a C:\path.`
+///
+/// Only what the writer produces is undone (`\\` and `\"`), because that is the
+/// only escaping any of these files contain -- `emit.writeYamlQuoted` is the sole
+/// writer of a quoted scalar here. A general YAML unescaper would be a second
+/// implementation of someone else's spec.
+pub fn scalar(gpa: std.mem.Allocator, text: []const u8, key: []const u8) !?[]u8 {
+    var it = FrontmatterIterator.init(text);
+    while (it.next()) |line| {
+        if (!std.mem.startsWith(u8, line, key)) continue;
+        if (line.len <= key.len or line[key.len] != ':') continue;
         const raw = std.mem.trimStart(u8, line[key.len + 1 ..], " \t");
-        return std.mem.trim(u8, raw, "\"");
+        // Unquoted scalars carry no escapes: a bare `project: fw-core` means what
+        // it says, and unescaping it would be inventing a rule.
+        if (raw.len < 2 or raw[0] != '"' or raw[raw.len - 1] != '"')
+            return try gpa.dupe(u8, raw);
+
+        const inner = raw[1 .. raw.len - 1];
+        var out: std.ArrayListUnmanaged(u8) = .empty;
+        errdefer out.deinit(gpa);
+        var i: usize = 0;
+        while (i < inner.len) : (i += 1) {
+            if (inner[i] == '\\' and i + 1 < inner.len and
+                (inner[i + 1] == '\\' or inner[i + 1] == '"'))
+            {
+                i += 1;
+            }
+            try out.append(gpa, inner[i]);
+        }
+        return try out.toOwnedSlice(gpa);
     }
     return null;
 }
@@ -396,4 +454,34 @@ test "a node with no Links section has no edges" {
     var got = try edges(gpa, "# T\n\n## Summary\nprose\n\n## Sources\n- `a` (1)\n");
     defer got.deinit(gpa);
     try testing.expectEqual(@as(usize, 0), got.items.len);
+}
+
+test "field strips one quote at each end, not every quote" {
+    const text = "---\ntitle: \"ends with a quote \\\"\"\nother: plain\n---\n";
+    // The escaped quote survives, because only the outer pair is structural. Trimming
+    // all quotes would return `ends with a quote \\` and lose a character silently.
+    try testing.expectEqualStrings("ends with a quote \\\"", field(text, "title").?);
+    try testing.expectEqualStrings("plain", field(text, "other").?);
+}
+
+test "scalar resolves the escaping field deliberately leaves alone" {
+    const gpa = testing.allocator;
+    // The case `tests/synapse-build-project-index.bats` pins: a summary with a
+    // quoted phrase and a Windows path, stored escaped by the writer.
+    const text = "---\nsummary: \"Handles \\\"quoted\\\" input and a C:\\\\path.\"\n---\n";
+    const got = (try scalar(gpa, text, "summary")).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("Handles \"quoted\" input and a C:\\path.", got);
+    // And `field` still returns the text, escapes and all -- that is `query field`'s
+    // frozen output.
+    try testing.expectEqualStrings("Handles \\\"quoted\\\" input and a C:\\\\path.", field(text, "summary").?);
+}
+
+test "an unquoted scalar is returned as written" {
+    const gpa = testing.allocator;
+    const text = "---\nproject: fw-core\ncommit: 0123abc\n---\n";
+    const p = (try scalar(gpa, text, "project")).?;
+    defer gpa.free(p);
+    try testing.expectEqualStrings("fw-core", p);
+    try testing.expectEqual(@as(?[]u8, null), try scalar(gpa, text, "absent"));
 }

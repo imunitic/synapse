@@ -12,13 +12,16 @@
 # Read by the PostToolUse staleness hook, so it must cover every enumerated file:
 # an edit to an unlisted path flags nothing stale.
 #
-# This script authors the (path, node) pairs and `synapse index build` encodes
-# them. Two things changed with that split, both deliberate. The index no longer
-# lives in the vault: it is derived, gitignored there and never travelled, so
-# PUT-ing 26 MB over the REST API bought nothing -- which is also why this script
-# no longer needs the sandbox disabled, and no longer reads the plugin's API key
-# or certificate. And `jq` is gone: authoring tens of megabytes of JSON was the
-# only reason it was here.
+# `synapse index build --lists` does the whole job: it authors the (path, node)
+# pairs from lists/NN.txt and NN.title, encodes them, and reports what a reader
+# will actually find by reopening what it just wrote. Two earlier changes stand:
+# the index no longer lives in the vault -- it is derived, gitignored there and
+# never travelled, so PUT-ing 26 MB over the REST API bought nothing, which is
+# why this needs no sandbox exemption and reads no API key -- and `jq` is gone,
+# since authoring tens of megabytes of JSON was the only reason it was here.
+#
+# What went with the pair authoring: one `basename` and one `tr` and one `awk`
+# per node list, and the mktemp holding the pairs between the two halves.
 set -euo pipefail
 
 # Extracted from the header block, so help and docs/scripts.md cannot disagree.
@@ -57,33 +60,12 @@ readonly SYNAPSE_BIN_PATH="${SYNAPSE_BIN:-$HOME/.claude/bin/synapse}"
 [[ -x "$SYNAPSE_BIN_PATH" ]] || {
     echo "synapse-build-index: no synapse binary at $SYNAPSE_BIN_PATH (run setup.sh)" >&2; exit 1; }
 
-work="$(mktemp -d "${TMPDIR:-/tmp}/synapse-index.XXXXXX")"
-trap 'rm -rf "$work"' EXIT
-
-# path<TAB>node.md for every (list, path) pair, in whatever order the lists are
-# walked. `synapse index build` groups and sorts them: the format needs paths
-# ascending with each path's nodes ascending, and getting that wrong encodes
-# fine while making every later lookup wrong, so it is not this loop's job.
-#
-# The `.md` extension is part of the value: the staleness hook and the read-time
-# procedure both use it directly as a vault path with no extension handling of
-# their own.
-for list in "$LISTS"/*.txt; do
-    nn="$(basename "$list" .txt)"
-    [[ -f "$LISTS/$nn.title" ]] || continue
-    node="$(tr '/:*?"<>|' '_' < "$LISTS/$nn.title").md"
-    awk -v n="$node" 'NF { printf "%s\t%s\n", $0, n }' "$list"
-done > "$work/pairs.tsv"
-
-[[ -s "$work/pairs.tsv" ]] || { echo "synapse-build-index: no (path, node) pairs" >&2; exit 1; }
-
 # The binary reports what a reader will actually find, by reopening what it just
 # wrote; this script owns the wording and takes the numbers.
 if ! stats="$("$SYNAPSE_BIN_PATH" index build \
+        --lists "$LISTS" \
         --unassigned "$WORK_DIR/unassigned.txt" \
-        --out "$INDEX_FILE" \
-        < "$work/pairs.tsv")"; then
-    echo "synapse-build-index: index build failed" >&2
+        --out "$INDEX_FILE")"; then
     exit 1
 fi
 

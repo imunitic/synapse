@@ -105,28 +105,39 @@ pub fn run(
     var ctx = (try context.resolve(gpa, io, env, prog)) orelse return 1;
     defer ctx.deinit();
 
-    return write(Extractor, gpa, io, env, &ctx, .{
+    var out_buf: [4096]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try write(Extractor, gpa, io, env, &ctx, .{
         .title = title,
         .summary = summary,
         .paths_text = paths_text,
         .body_text = body_text,
-    });
+    }, &out.interface);
+    try out.interface.flush();
+    return code;
 }
 
-const Input = struct {
+pub const Input = struct {
     title: []const u8,
     summary: []const u8,
     paths_text: []const u8,
     body_text: []const u8,
 };
 
-fn write(
+/// `result` receives the one success line, `<file>\t<n> files\t<digest>`.
+///
+/// Passed in rather than printed, because `push-nodes` prefixes it with the
+/// two-digit node number and does not want it on stdout twice. That is also the
+/// whole shape of the push-nodes port: the script spawned this writer once per
+/// node, and in one binary the loop is a function call.
+pub fn write(
     comptime Extractor: type,
     gpa: Allocator,
     io: Io,
     env: *std.process.Environ.Map,
     ctx: *const Context,
     in: Input,
+    result: *Io.Writer,
 ) !u8 {
     // --- refuse to write into another repo's namespace -----------------------
     // A namespace is keyed by repo and branch, so a collision needs two repos
@@ -360,10 +371,7 @@ fn write(
         return 1;
     }
 
-    var out_buf: [4096]u8 = undefined;
-    var out = Io.File.stdout().writer(io, &out_buf);
-    try out.interface.print("{s}\t{d} files\t{s}\n", .{ node_file, paths.items.len, &digest });
-    try out.interface.flush();
+    try result.print("{s}\t{d} files\t{s}\n", .{ node_file, paths.items.len, &digest });
     return 0;
 }
 

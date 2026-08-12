@@ -30,6 +30,7 @@ pub const symbol = @import("symbol.zig");
 pub const emit = @import("emit.zig");
 pub const refs = @import("refs.zig");
 pub const gate = @import("gate.zig");
+pub const project_index = @import("project_index.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -48,6 +49,7 @@ test {
     _ = emit;
     _ = refs;
     _ = gate;
+    _ = project_index;
     _ = @import("tags_cache/format.zig");
     _ = @import("index_map/format.zig");
 }

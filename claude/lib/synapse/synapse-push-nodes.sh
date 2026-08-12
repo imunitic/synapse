@@ -26,7 +26,15 @@
 # Note for agent callers: needs the sandbox disabled (localhost REST API).
 set -euo pipefail
 
-# Extracted from the header block, so help and docs/scripts.md cannot disagree.
+# WHAT IS LEFT HERE. Namespace resolution and dispatch. The loop moved into
+# `synapse push-nodes`, and with it the one spawn of synapse-write-node.sh per
+# node -- plus everything that writer spawned in turn. Only the PUT's `curl`
+# remains, once per node, because the PUT is the point.
+#
+# Gone with the loop: resolving the writer as a sibling so an installed copy
+# would not pick up whatever was on PATH, and the `mktemp -d` for the stripped
+# bodies. There is no second file to find and no intermediate to write.
+
 usage() { # usage [exit-code]
     awk '/^# Usage:/ { p = 1 } p && !/^#/ { exit } p { sub(/^# ?/, ""); print }' "$0" >&2
     exit "${1:-2}"
@@ -40,96 +48,30 @@ command -v git >/dev/null || { echo "synapse-push-nodes: git required" >&2; exit
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [[ -n "$REPO_ROOT" ]] || { echo "synapse-push-nodes: not inside a git repo" >&2; exit 1; }
 
-# Never $PWD: that is the repo, and working files do not belong in a user's checkout.
+CONF="$HOME/.claude/synapse.conf"
+[ -f "$CONF" ] || CONF="$HOME/.claude/second-brain.conf"
+# shellcheck source=/dev/null
+[ -f "$CONF" ] && . "$CONF"
+VAULT="${OBSIDIAN_VAULT_DIR:-}"
+[[ -n "$VAULT" && -d "$VAULT" ]] || { echo "synapse-push-nodes: no vault" >&2; exit 1; }
+
 # Keyed by the same "{repo}@{branch}" its siblings use -- build-lists.sh writes
-# this directory and push-nodes.sh reads it, so a different key here would have
-# them silently disagree about where a build's path lists live. Per-branch is
-# also what the contents want: `all.txt` is reused unless --reenumerate is
-# passed, and reusing another branch's enumeration is exactly the drift that
-# rule exists to avoid.
+# the lists directory and this reads it, so a different key here would have them
+# silently disagree about where a build's path lists live.
 # shellcheck source=/dev/null
 . "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh" 2>/dev/null || {
     echo "synapse-push-nodes: synapse-identity.sh not installed (run setup.sh)" >&2; exit 1; }
 REPO_NAME="$(synapse_namespace "$REPO_ROOT")" || exit 1
-readonly WORK_DIR="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}"
-readonly LISTS="$WORK_DIR/lists"
-# Resolve the writer next to this script, so an installed copy finds its sibling
-# rather than whatever happens to be on PATH.
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly WRITER="$SCRIPT_DIR/synapse-write-node.sh"
 
-[[ -x "$WRITER" ]] || { echo "synapse-push-nodes: missing $WRITER" >&2; exit 1; }
-[[ -d "$LISTS" ]] || { echo "synapse-push-nodes: no lists/ in $WORK_DIR -- run synapse-build-lists.sh first" >&2; exit 1; }
+SYNAPSE_BIN_PATH="${SYNAPSE_BIN:-$HOME/.claude/bin/synapse}"
+[[ -x "$SYNAPSE_BIN_PATH" ]] || {
+    echo "synapse-push-nodes: no synapse binary at $SYNAPSE_BIN_PATH (run setup.sh)" >&2; exit 1; }
 
-# bash 3.2 on macOS has no mapfile, hence the plain string. The default target set
-# is the union of staged lists and authored bodies, so an un-authored node reports
-# as a SKIP rather than vanishing.
-if [[ $# -gt 0 ]]; then
-    targets="$*"
-else
-    # `find`, not `ls`: a no-match glob makes ls exit non-zero, which under
-    # `set -e` + `pipefail` kills the script inside this substitution -- silently,
-    # since ls's stderr is suppressed.
-    targets="$( {
-        find "$LISTS" -maxdepth 1 -name '[0-9][0-9].title' | sed -E 's#.*/([0-9]{2})\.title$#\1#'
-        find "$WORK_DIR" -maxdepth 1 -name 'b-[0-9][0-9].md' | sed -E 's#.*/b-([0-9]{2})\.md$#\1#'
-    } | LC_ALL=C sort -u | tr '\n' ' ')"
-fi
-[[ -n "${targets// /}" ]] || {
-    echo "synapse-push-nodes: nothing to push (no lists/NN.title or b-NN.md in $WORK_DIR)" >&2
-    exit 1
-}
+export OBSIDIAN_VAULT_DIR="$VAULT"
+export SYNAPSE_NAMESPACE="$REPO_NAME"
+export SYNAPSE_REPO_ROOT="$REPO_ROOT"
+export SYNAPSE_WORK_DIR="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}"
+export SYNAPSE_BRANCH; SYNAPSE_BRANCH="$(synapse_branch "$REPO_ROOT")"
+export SYNAPSE_REMOTE; SYNAPSE_REMOTE="$(synapse_remote "$REPO_ROOT")"
 
-work="$(mktemp -d "${TMPDIR:-/tmp}/synapse-push.XXXXXX")"
-trap 'rm -rf "$work"' EXIT
-
-pushed=0
-failed=0
-for nn in $targets; do
-    body="$WORK_DIR/b-$nn.md"
-    list="$LISTS/$nn.txt"
-    title_file="$LISTS/$nn.title"
-    if [[ ! -f "$body" ]]; then
-        printf '%s\tSKIP (no body)\n' "$nn"
-        continue
-    fi
-    if [[ ! -s "$list" || ! -f "$title_file" ]]; then
-        printf '%s\tSKIP (no list/title)\n' "$nn"
-        continue
-    fi
-    summary="$(awk '
-        NR == 1 && $0 == "---" { fm = 1; next }
-        fm && $0 == "---" { exit }
-        fm && index($0, "summary:") == 1 {
-            sub(/^summary:[[:space:]]*/, "")
-            gsub(/^"|"$/, "")
-            print
-            exit
-        }' "$body")"
-    if [[ -z "$summary" ]]; then
-        printf '%s\tFAILED (no `summary:` frontmatter in b-%s.md)\n' "$nn" "$nn"
-        failed=$((failed + 1))
-        continue
-    fi
-
-    # Pass on only what follows the frontmatter, so the summary is not repeated
-    # inside the node's prose.
-    stripped="$work/b-$nn.md"
-    awk '
-        NR == 1 && $0 == "---" { fm = 1; next }
-        fm && $0 == "---" { fm = 0; body = 1; next }
-        body' "$body" > "$stripped"
-
-    if result="$("$WRITER" --title "$(cat "$title_file")" --summary "$summary" --paths "$list" --body "$stripped")"; then
-        printf '%s\t%s\n' "$nn" "$result"
-        pushed=$((pushed + 1))
-    else
-        printf '%s\tFAILED\n' "$nn"
-        failed=$((failed + 1))
-    fi
-done
-
-[[ "$failed" -eq 0 ]] || { echo "synapse-push-nodes: $failed node(s) failed" >&2; exit 1; }
-# All-skipped is a failure too: the caller asked for a push and got none, which
-# otherwise reads as success.
-[[ "$pushed" -gt 0 ]] || { echo "synapse-push-nodes: nothing to push (no node had both a list and a body)" >&2; exit 1; }
+exec "$SYNAPSE_BIN_PATH" push-nodes "$@"

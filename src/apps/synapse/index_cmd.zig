@@ -1,6 +1,7 @@
 //! `synapse index` -- the read and write surface for `_index.bin`.
 //!
 //!   index build --unassigned <file> [--out <file>]   pairs on stdin
+//!   index build --lists <dir> --unassigned <file>    pairs from lists/NN.txt
 //!   index unassigned [--file <file>]                 every unclaimed path
 //!   index lookup <path> [--file <file>]              the nodes claiming it
 //!   index nodes [--file <file>]                      every node that claims anything
@@ -43,6 +44,7 @@ pub fn run(
 
     var file: ?[]const u8 = null;
     var unassigned_file: ?[]const u8 = null;
+    var lists_dir: ?[]const u8 = null;
     var positional: ?[]const u8 = null;
 
     while (args.next()) |arg| {
@@ -50,6 +52,8 @@ pub fn run(
             file = args.next() orelse return usage();
         } else if (std.mem.eql(u8, arg, "--unassigned")) {
             unassigned_file = args.next() orelse return usage();
+        } else if (std.mem.eql(u8, arg, "--lists")) {
+            lists_dir = args.next() orelse return usage();
         } else if (std.mem.startsWith(u8, arg, "--")) {
             return usage();
         } else if (positional == null) {
@@ -60,7 +64,7 @@ pub fn run(
     const path = file orelse (defaultPath(gpa, env) catch return noWorkDir()) orelse return noWorkDir();
     defer if (file == null) gpa.free(@constCast(path));
 
-    if (std.mem.eql(u8, form, "build")) return buildIndex(gpa, io, path, unassigned_file);
+    if (std.mem.eql(u8, form, "build")) return buildIndex(gpa, io, path, unassigned_file, lists_dir);
     if (std.mem.eql(u8, form, "unassigned")) return listUnassigned(io, path);
     if (std.mem.eql(u8, form, "lookup")) return lookup(io, path, positional orelse return usage());
     if (std.mem.eql(u8, form, "nodes")) return listNodes(io, path);
@@ -72,7 +76,8 @@ pub fn run(
 
 fn usage() u8 {
     std.debug.print(
-        \\usage: synapse index build --unassigned <file> [--out <file>]   (path<TAB>node on stdin)
+        \\usage: synapse index build --unassigned <file> [--out <file>] [--lists <dir>]
+        \\       (pairs on stdin unless --lists names the lists directory)
         \\       synapse index unassigned [--file <file>]
         \\       synapse index lookup <path> [--file <file>]
         \\       synapse index nodes [--file <file>]
@@ -102,24 +107,44 @@ fn defaultPath(gpa: Allocator, env: *std.process.Environ.Map) !?[]const u8 {
 /// Prints one line of counts on success, which is what
 /// `synapse-build-index.sh` needs to keep printing its own stats line: the
 /// script owns the wording, this owns the numbers.
-fn buildIndex(gpa: Allocator, io: Io, path: []const u8, unassigned_file: ?[]const u8) !u8 {
-    var in_buf: [256 * 1024]u8 = undefined;
-    var in = Io.File.stdin().reader(io, &in_buf);
-    const text = in.interface.allocRemaining(gpa, .limited(512 << 20)) catch return 1;
-    defer gpa.free(text);
-
+fn buildIndex(
+    gpa: Allocator,
+    io: Io,
+    path: []const u8,
+    unassigned_file: ?[]const u8,
+    lists_dir: ?[]const u8,
+) !u8 {
     var pairs: std.ArrayListUnmanaged(core.index_map.Pair) = .empty;
     defer pairs.deinit(gpa);
+    // Owns whatever `--lists` read, since the pairs slice into it.
+    var owned: std.ArrayListUnmanaged([]u8) = .empty;
+    defer {
+        for (owned.items) |b| gpa.free(b);
+        owned.deinit(gpa);
+    }
 
-    var lines = std.mem.splitScalar(u8, text, '\n');
-    while (lines.next()) |raw| {
-        const line = std.mem.trimEnd(u8, raw, "\r");
-        // Split on the LAST tab, not the first: a repo-relative path may
-        // contain one, and a node filename is what follows the final field
-        // separator. Same rule `tags-cache` applies to its own pairs.
-        const tab = std.mem.lastIndexOfScalar(u8, line, '\t') orelse continue;
-        if (tab == 0 or tab + 1 == line.len) continue;
-        try pairs.append(gpa, .{ .path = line[0..tab], .node = line[tab + 1 ..] });
+    var text: []u8 = &.{};
+    defer gpa.free(text);
+    if (lists_dir) |dir| {
+        if (try pairsFromLists(gpa, io, dir, &pairs, &owned) == 0) {
+            std.debug.print("synapse-index: no (path, node) pairs\n", .{});
+            return 1;
+        }
+    } else {
+        var in_buf: [256 * 1024]u8 = undefined;
+        var in = Io.File.stdin().reader(io, &in_buf);
+        text = in.interface.allocRemaining(gpa, .limited(512 << 20)) catch return 1;
+
+        var lines = std.mem.splitScalar(u8, text, '\n');
+        while (lines.next()) |raw| {
+            const line = std.mem.trimEnd(u8, raw, "\r");
+            // Split on the LAST tab, not the first: a repo-relative path may
+            // contain one, and a node filename is what follows the final field
+            // separator. Same rule `tags-cache` applies to its own pairs.
+            const tab = std.mem.lastIndexOfScalar(u8, line, '\t') orelse continue;
+            if (tab == 0 or tab + 1 == line.len) continue;
+            try pairs.append(gpa, .{ .path = line[0..tab], .node = line[tab + 1 ..] });
+        }
     }
 
     // Absent is empty, not an error: a namespace where every file is claimed
@@ -246,6 +271,83 @@ fn listNodes(io: Io, path: []const u8) !u8 {
         try out.interface.print("{s}\n", .{map.view.nodeName(id)});
     try out.interface.flush();
     return 0;
+}
+
+/// `path<TAB>node.md` for every (list, path) pair, from `lists/NN.txt`.
+///
+/// A list with no `NN.title` is skipped: the title is the node's identity, and a
+/// list without one is a build that has not finished rather than a node claiming
+/// nothing. Returns the number of pairs authored.
+///
+/// The `.md` extension is part of the value, not decoration: the staleness hook and
+/// the read-time procedure both use it directly as a vault path with no extension
+/// handling of their own.
+///
+/// Order is not this function's problem, and that is deliberate -- `index_map.build`
+/// groups and sorts, because the format needs paths ascending with each path's nodes
+/// ascending, and getting that wrong encodes fine while making every later binary
+/// search wrong.
+fn pairsFromLists(
+    gpa: Allocator,
+    io: Io,
+    lists_dir: []const u8,
+    pairs: *std.ArrayListUnmanaged(core.index_map.Pair),
+    owned: *std.ArrayListUnmanaged([]u8),
+) !usize {
+    var dir = Io.Dir.cwd().openDir(io, lists_dir, .{ .iterate = true }) catch {
+        std.debug.print("synapse-index: cannot read --lists {s}\n", .{lists_dir});
+        return 0;
+    };
+    defer dir.close(io);
+
+    var names: std.ArrayListUnmanaged([]u8) = .empty;
+    defer {
+        for (names.items) |n| gpa.free(n);
+        names.deinit(gpa);
+    }
+    var it = dir.iterate();
+    while (try it.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".txt")) continue;
+        try names.append(gpa, try gpa.dupe(u8, entry.name[0 .. entry.name.len - 4]));
+    }
+    // Sorted so a rebuild of the same lists produces the same bytes, which is what
+    // makes "the index changed" a signal rather than noise.
+    std.mem.sort([]u8, names.items, {}, struct {
+        fn less(_: void, a: []u8, b: []u8) bool {
+            return std.mem.order(u8, a, b) == .lt;
+        }
+    }.less);
+
+    var count: usize = 0;
+    for (names.items) |nn| {
+        const title_path = try std.fmt.allocPrint(gpa, "{s}/{s}.title", .{ lists_dir, nn });
+        defer gpa.free(title_path);
+        const title = Io.Dir.cwd().readFileAlloc(io, title_path, gpa, .limited(1 << 20)) catch continue;
+        defer gpa.free(title);
+
+        // The same sanitisation the writer applies to a title before using it as a
+        // filename, so the index names the file the vault actually holds.
+        const sanitised = try core.emit.fileTitle(gpa, std.mem.trimEnd(u8, title, "\n"));
+        defer gpa.free(sanitised);
+        const node = try std.fmt.allocPrint(gpa, "{s}.md", .{sanitised});
+        try owned.append(gpa, node);
+
+        const list_path = try std.fmt.allocPrint(gpa, "{s}/{s}.txt", .{ lists_dir, nn });
+        defer gpa.free(list_path);
+        const list = Io.Dir.cwd().readFileAlloc(io, list_path, gpa, .limited(256 << 20)) catch continue;
+        try owned.append(gpa, list);
+
+        var lines = std.mem.splitScalar(u8, list, '\n');
+        while (lines.next()) |raw| {
+            // `awk 'NF'`: a blank line is not a path.
+            const line = std.mem.trim(u8, raw, " \t\r");
+            if (line.len == 0) continue;
+            try pairs.append(gpa, .{ .path = line, .node = node });
+            count += 1;
+        }
+    }
+    return count;
 }
 
 /// Every claimed path, one per line, in `LC_ALL=C` byte order.
