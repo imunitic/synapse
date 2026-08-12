@@ -39,14 +39,16 @@ usage: synapse <subcommand> [args]
                              tolerates silently
   build-index                _index.bin from the work dir's lists
   graph-clean [--dry-run]    drop namespaces whose branch is gone upstream
-  graph-wipe [--dry-run]     drop this namespace, preserving hand Notes```
+  graph-wipe [--dry-run]     drop this namespace, preserving hand Notes
+```
 
 ### synapse tags
 
 ```
 usage: synapse tags <file>
        synapse tags --paths <list-file>   every listed file, in one batch
-       synapse tags --list-extensions     every extension with a usable grammar```
+       synapse tags --list-extensions     every extension with a usable grammar
+```
 
 ### synapse tags-cache
 
@@ -54,7 +56,8 @@ usage: synapse tags <file>
 usage: synapse tags-cache --repo-root <dir> --cache <file> --paths <tsv>
        synapse tags-cache --dump <file>
        synapse tags-cache --load <file>   (reads --dump's format on stdin)
-       synapse tags-cache --refs <file>```
+       synapse tags-cache --refs <file>
+```
 
 ### synapse index
 
@@ -65,27 +68,32 @@ usage: synapse index build --unassigned <file> [--out <file>] [--lists <dir>]
        synapse index lookup <path> [--file <file>]
        synapse index nodes [--file <file>]
        synapse index paths [--file <file>]
-       synapse index add-unassigned <path> [--file <file>]```
+       synapse index add-unassigned <path> [--file <file>]
+```
 
 ### synapse enumerate
 
 ```
-usage: synapse enumerate [--reenumerate]```
+usage: synapse enumerate [--reenumerate]
+```
 
 ### synapse build-lists
 
 ```
-usage: synapse build-lists [--reenumerate]```
+usage: synapse build-lists [--reenumerate]
+```
 
 ### synapse vocab
 
 ```
-usage: synapse vocab [--repo <path>] [--depth N] [--chunk N] [--out <dir>] [--lists <dir>]```
+usage: synapse vocab [--repo <path>] [--depth N] [--chunk N] [--out <dir>] [--lists <dir>]
+```
 
 ### synapse rank
 
 ```
-usage: synapse rank --sources <file> [--repo <path>] [--top N] [--tier code|dsl] [--pool summary|crux]```
+usage: synapse rank --sources <file> [--repo <path>] [--top N] [--tier code|dsl] [--pool summary|crux]
+```
 
 ### synapse query
 
@@ -106,7 +114,8 @@ usage: synapse query <subcommand> [args]
   links   <node> --inbound           what points here, relation<TAB>source
   links   <node> --closure           reachable outbound, depth<TAB>node
   links   --check                    link targets that resolve to no node
-  symbol  <name> <node>              exact-name hits, path<TAB>tag-line```
+  symbol  <name> <node>              exact-name hits, path<TAB>tag-line
+```
 
 ### synapse write-node
 
@@ -116,7 +125,8 @@ usage: synapse write-node --title <t> --summary <s> --paths <file> --body <file>
   --title    node title. Used verbatim as the H1, and sanitized for the filename.
   --summary  one line for the index bullet, stored as the `summary` field.
   --paths    file of repo-relative paths, one per line: every file the node covers.
-  --body     file holding the authored prose (## Summary / ## Crux / ## Links).```
+  --body     file holding the authored prose (## Summary / ## Crux / ## Links).
+```
 
 ### synapse build-refs
 
@@ -124,7 +134,8 @@ usage: synapse write-node --title <t> --summary <s> --paths <file> --body <file>
 usage: synapse build-refs [--cache <path>] [--out <path>]
 
   --cache  the tags cache to project. Default $SYNAPSE_WORK_DIR/_tags_cache.bin.
-  --out    where to write the index. Default $SYNAPSE_WORK_DIR/_refs.tsv.```
+  --out    where to write the index. Default $SYNAPSE_WORK_DIR/_refs.tsv.
+```
 
 ### synapse callers
 
@@ -133,7 +144,8 @@ usage: synapse callers <name> [--all]
 
   <name>     exact symbol name (not a prefix, not a regex)
   (default)  calls only, as path:line<TAB>calling expression
-  --all      every def and ref, as def|ref<TAB>kind<TAB>path:line<TAB>expression```
+  --all      every def and ref, as def|ref<TAB>kind<TAB>path:line<TAB>expression
+```
 
 ### synapse gate
 
@@ -142,19 +154,22 @@ usage: synapse gate --vocab <groupwords.tsv> [--all] [--top N]
 
   --vocab  cluster-keyed vocabulary: `cluster <TAB> word <TAB> count`
   --all    print every cluster with its score, not only the flagged ones
-  --top    terms per cluster the rule looks at, default 8```
+  --top    terms per cluster the rule looks at, default 8
+```
 
 ### synapse push-nodes
 
 ```
 usage: synapse push-nodes [NN ...]
 
-  NN   two-digit node numbers to push. Default: every b-NN.md and lists/NN.title.```
+  NN   two-digit node numbers to push. Default: every b-NN.md and lists/NN.title.
+```
 
 ### synapse build-project-index
 
 ```
-usage: synapse build-project-index```
+usage: synapse build-project-index
+```
 
 ### synapse namespace
 
@@ -163,29 +178,34 @@ usage: synapse namespace [--repo <dir>] [--branch|--repo-name]
 
   --repo       the checkout to resolve. Default: the one containing $PWD.
   --branch     print only the branch half, sanitised for a directory name
-  --repo-name  print only the repo half```
+  --repo-name  print only the repo half
+```
 
 ### synapse doctor
 
 ```
 usage: synapse doctor [--repo <dir>]
 
-  --repo  the checkout to examine. Default: the one containing $PWD.```
+  --repo  the checkout to examine. Default: the one containing $PWD.
+```
 
 ### synapse build-index
 
 ```
-usage: synapse build-index```
+usage: synapse build-index
+```
 
 ### synapse graph-clean
 
 ```
-usage: synapse graph-clean [--dry-run]```
+usage: synapse graph-clean [--dry-run]
+```
 
 ### synapse graph-wipe
 
 ```
-usage: synapse graph-wipe [--dry-run]```
+usage: synapse graph-wipe [--dry-run]
+```
 
 ## synapse-hook
 
@@ -196,4 +216,5 @@ usage: synapse-hook <hook>
   prompt-context   UserPromptSubmit: the standing one-line pointer
   session-start    SessionStart: inject the vault index and the pointer
   stop-nudge       Stop: the periodic capture check-in, and the vault push
-  db-sync          PostToolUse: commit a vault edit to the vault's own git```
+  db-sync          PostToolUse: commit a vault edit to the vault's own git
+```

@@ -106,15 +106,20 @@ compiler.
 
 EOF
 
-  printf '## synapse\n\n```\n%s```\n\n' "$(help_for "$SYNAPSE")"
+  # The `\n` before each closing fence is load-bearing: `$(...)` strips trailing
+  # newlines, so without it the fence lands on the last line of the help text and
+  # closes nothing. Every block after the first then opens where it should close,
+  # and `write-node`'s `--summary <s>` reaches the renderer as an HTML <s> tag --
+  # striking through the rest of the document.
+  printf '## synapse\n\n```\n%s\n```\n\n' "$(help_for "$SYNAPSE")"
 
   local sub
   while read -r sub; do
     [ -n "$sub" ] || continue
-    printf '### synapse %s\n\n```\n%s```\n\n' "$sub" "$(help_for "$SYNAPSE" "$sub")"
+    printf '### synapse %s\n\n```\n%s\n```\n\n' "$sub" "$(help_for "$SYNAPSE" "$sub")"
   done < <(subcommands)
 
-  printf '## synapse-hook\n\n```\n%s```\n' "$(help_for "$HOOK")"
+  printf '## synapse-hook\n\n```\n%s\n```\n' "$(help_for "$HOOK")"
 }
 
 validate

@@ -73,6 +73,32 @@ teardown() {
   [ "$status" -eq 0 ]
 }
 
+@test "every fence stands on its own line, so no help text escapes its block" {
+  # THE FAILURE THIS EXISTS FOR, and the reason it is a separate property from
+  # `--check`. `$(...)` strips trailing newlines, so a closing fence printed
+  # directly after the help text landed on its last line and closed nothing. Every
+  # block from there on opened where it should have closed -- and `write-node`'s
+  # own usage line, `--summary <s>`, then reached the renderer as an HTML <s> tag
+  # with no `</s>` after it, striking through the rest of the page.
+  #
+  # `--check` passed throughout: the committed document matched the generator byte
+  # for byte. Both were wrong together, which is exactly what a test comparing them
+  # to each other cannot see. This one asserts a property of the document itself.
+  local doc="$REPO_ROOT/docs/cli.md"
+
+  run grep -nE '.```|```.' "$doc"
+  [ "$status" -eq 1 ]
+
+  local fences
+  fences="$(grep -c '^```$' "$doc")"
+  [ "$(( fences % 2 ))" -eq 0 ]
+
+  # Nothing that a renderer reads as a tag survives outside a block. The angle
+  # brackets in `<file>`, `<node>` and `<s>` are only safe while fenced.
+  run awk '/^```$/ { f = !f; next } !f && /<[a-zA-Z\/]/ { print NR ": " $0; bad = 1 } END { exit bad }' "$doc"
+  [ "$status" -eq 0 ]
+}
+
 @test "the generated help is what the binary actually prints" {
   # The guarantee, checked end to end rather than trusted: one subcommand's block in
   # the document, byte for byte against a live `--help`.
