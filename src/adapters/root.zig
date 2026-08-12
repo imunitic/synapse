@@ -15,10 +15,16 @@ const std = @import("std");
 pub const process = @import("process.zig");
 pub const fakes = @import("fakes/root.zig");
 
+/// The Obsidian Local REST API behind the Store port. Belongs to this half
+/// rather than to the tree-sitter module: it spawns `curl` and links nothing,
+/// so a product that wants a vault does not thereby want a C compiler.
+pub const obsidian = @import("obsidian/store.zig");
+
 test {
     std.testing.refAllDecls(@This());
     _ = process;
     _ = fakes;
+    _ = obsidian;
     // Referenced from the test block only, and deliberately not `pub`: Zig
     // analyses lazily, so the frontmatter Extractor is compiled when the tests
     // are and never reaches a release build. It is a conformance check on the
