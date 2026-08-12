@@ -18,7 +18,37 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+    // ReleaseSafe by default, not Debug, and the difference is not academic:
+    // `setup.sh` installs whatever `zig build` produced, and a Debug build of
+    // this tagger is 16x slower than an optimised one -- 23.9s against 1.5s
+    // over 1,000 Java files, measured. Shipping the default was shipping that.
+    //
+    // Safe rather than Fast, for 0.4s per 1,000 files: this code computes
+    // offsets into a memory-mapped cache that any process on the machine can
+    // write to, and `tags_cache/format.zig` validates every one of them on the
+    // strength of bounds checks staying on. Turning them off to save a third
+    // of a second would trade the format's safety argument for a number nobody
+    // is waiting on.
+    // Not `standardOptimizeOption`, which defaults to Debug: `setup.sh`
+    // installs whatever `zig build` produced, and a Debug build of this tagger
+    // is 16x slower than an optimised one -- 23.5s against 1.5s over 1,000
+    // Java files, measured. Shipping the default was shipping that.
+    //
+    // (`standardOptimizeOption(.{ .preferred_optimize_mode = ... })` does not
+    // do this. It honours the preference only when `--release` is passed, and
+    // it removes `-Doptimize=` from the build's options entirely.)
+    //
+    // Safe rather than Fast, for 0.4s per 1,000 files: this code computes
+    // offsets into a memory-mapped cache that any process on the machine can
+    // write to, and `tags_cache/format.zig` validates every one of them on the
+    // strength of bounds checks staying on. Trading the format's safety
+    // argument for a third of a second is not a trade worth making, and the
+    // tests keep those checks too.
+    const optimize = b.option(
+        std.builtin.OptimizeMode,
+        "optimize",
+        "Prioritize performance, safety, or binary size (default: ReleaseSafe)",
+    ) orelse .ReleaseSafe;
 
     // The vocabulary every layer speaks: defs, refs, nodes. Imports nothing.
     // It sits below `ports` rather than inside `core` because a port's
