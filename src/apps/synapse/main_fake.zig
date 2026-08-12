@@ -76,6 +76,9 @@ pub fn main(init: std.process.Init) !u8 {
     if (std.mem.eql(u8, sub, "write-node"))
         return write_node_cmd.run(fake.FakeExtractor, init.gpa, init.io, init.environ_map, &args);
 
+    if (std.mem.eql(u8, sub, "build-index"))
+        return index_cmd.runBuildIndex(init.gpa, init.io, init.environ_map, &args);
+
     if (std.mem.eql(u8, sub, "graph-clean"))
         return graph_cmd.runClean(init.gpa, init.io, init.environ_map, &args);
 

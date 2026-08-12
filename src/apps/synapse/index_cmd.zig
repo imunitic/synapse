@@ -2,6 +2,7 @@
 //!
 //!   index build --unassigned <file> [--out <file>]   pairs on stdin
 //!   index build --lists <dir> --unassigned <file>    pairs from lists/NN.txt
+//!   build-index                                      the whole step, work dir derived
 //!   index unassigned [--file <file>]                 every unclaimed path
 //!   index lookup <path> [--file <file>]              the nodes claiming it
 //!   index nodes [--file <file>]                      every node that claims anything
@@ -29,6 +30,7 @@
 
 const std = @import("std");
 const core = @import("core");
+const context = @import("context.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -399,4 +401,57 @@ fn lookup(io: Io, path: []const u8, wanted: []const u8) !u8 {
     for (nodes) |n| try out.interface.print("{s}\n", .{n});
     try out.interface.flush();
     return 0;
+}
+
+
+/// `synapse build-index` -- `index build --lists` with every path derived.
+///
+/// The step `synapse-build-index.sh` performed: the lists directory, the unassigned
+/// list and the output file all sit in the work dir, which the binary now resolves for
+/// itself, so the wrapper's only remaining job was spelling three paths and printing a
+/// prefix. It exists as its own subcommand rather than as flags a caller has to
+/// remember, because the caller is `/synapse-init`'s step 3 and that step has no
+/// choices to make.
+pub fn runBuildIndex(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    args: *std.process.Args.Iterator,
+) !u8 {
+    while (args.next()) |arg| {
+        if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
+            std.debug.print("usage: synapse build-index\n", .{});
+            return 0;
+        }
+        std.debug.print("usage: synapse build-index\n", .{});
+        return 2;
+    }
+
+    var ctx = (try context.resolve(gpa, io, env, "synapse-build-index")) orelse return 1;
+    defer ctx.deinit();
+
+    const lists = try std.fmt.allocPrint(gpa, "{s}/lists", .{ctx.work_dir});
+    defer gpa.free(lists);
+    const unassigned = try std.fmt.allocPrint(gpa, "{s}/unassigned.txt", .{ctx.work_dir});
+    defer gpa.free(unassigned);
+    const out_path = try std.fmt.allocPrint(gpa, "{s}/_index.bin", .{ctx.work_dir});
+    defer gpa.free(out_path);
+
+    const cwd = Io.Dir.cwd();
+    if (cwd.statFile(io, lists, .{})) |_| {} else |_| {
+        std.debug.print("synapse-build-index: no lists/ in {s}\n", .{ctx.work_dir});
+        return 1;
+    }
+    if (cwd.statFile(io, unassigned, .{})) |_| {} else |_| {
+        std.debug.print("synapse-build-index: no unassigned.txt in {s}\n", .{ctx.work_dir});
+        return 1;
+    }
+
+    // The wrapper owned this wording and took the numbers from the binary; with one
+    // process there is one place to say it.
+    var buf: [4096]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &buf);
+    try out.interface.writeAll("_index.bin written: ");
+    try out.interface.flush();
+    return buildIndex(gpa, io, out_path, unassigned, lists);
 }

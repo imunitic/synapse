@@ -53,6 +53,12 @@ pub fn run(
 ) !u8 {
     var reenumerate = false;
     while (args.next()) |arg| {
+        // `--help` exits 0, like every other subcommand: a request for help is not a
+        // usage error, and a caller piping `--help` into a pager should not see 2.
+        if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
+            _ = usage();
+            return 0;
+        }
         if (std.mem.eql(u8, arg, "--reenumerate")) {
             reenumerate = true;
         } else return usage();

@@ -65,6 +65,7 @@ const usage =
     \\  gate --vocab <file> [--all] [--top N]   clusters owning no vocabulary
     \\  push-nodes [NN ...]        write one node per authored body
     \\  build-project-index        the namespace's Index.md node map
+    \\  build-index                _index.bin from the work dir's lists
     \\  graph-clean [--dry-run]    drop namespaces whose branch is gone upstream
     \\  graph-wipe [--dry-run]     drop this namespace, preserving hand Notes
     \\
@@ -124,6 +125,9 @@ pub fn main(init: std.process.Init) !u8 {
 
     if (std.mem.eql(u8, sub, "write-node"))
         return write_node_cmd.run(treesitter.extractor.TreeSitterExtractor, init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "build-index"))
+        return index_cmd.runBuildIndex(init.gpa, init.io, init.environ_map, &args);
 
     if (std.mem.eql(u8, sub, "graph-clean"))
         return graph_cmd.runClean(init.gpa, init.io, init.environ_map, &args);

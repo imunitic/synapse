@@ -41,7 +41,10 @@ const Allocator = std.mem.Allocator;
 const label = "Synapse Vault index";
 
 pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
-    const vault = env.get("OBSIDIAN_VAULT_DIR") orelse "";
+    // Empty rather than an early return: with no vault there is still nothing to
+    // inject, but the code below reads more plainly as one guard than as two paths.
+    const vault = common.vault(gpa, io, env) orelse "";
+    defer if (vault.len != 0) gpa.free(vault);
     var payload = common.Payload.read(gpa, io);
     defer payload.deinit();
 

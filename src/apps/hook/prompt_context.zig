@@ -41,7 +41,8 @@ const Allocator = std.mem.Allocator;
 
 pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     if (env.get("SYNAPSE_DISABLE_PROMPT_INJECTION") != null) return;
-    const vault = common.vault(io, env) orelse return;
+    const vault = common.vault(gpa, io, env) orelse return;
+    defer gpa.free(vault);
 
     var payload = common.Payload.read(gpa, io);
     defer payload.deinit();

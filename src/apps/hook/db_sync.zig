@@ -21,7 +21,8 @@ const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
 pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
-    const vault = common.vault(io, env) orelse return;
+    const vault = common.vault(gpa, io, env) orelse return;
+    defer gpa.free(vault);
     const dot_git = try std.fmt.allocPrint(gpa, "{s}/.git", .{vault});
     defer gpa.free(dot_git);
     // A `.git` *directory*, as `[ -d ]` tested: a vault that is a linked worktree

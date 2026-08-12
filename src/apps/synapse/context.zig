@@ -69,8 +69,11 @@ pub const Context = struct {
     /// fields above point into it.
     resolved: ?core.identity.Resolved = null,
     owned_work: ?[]u8 = null,
+    /// The vault path, owned because it may have come out of the conf file.
+    owned_vault: []u8 = &.{},
 
     pub fn deinit(self: *Context) void {
+        if (self.owned_vault.len != 0) self.gpa.free(self.owned_vault);
         self.chains_list.deinit(self.gpa);
         if (self.chains_text) |t| self.gpa.free(t);
         self.gpa.free(self.dir);
@@ -91,7 +94,9 @@ pub fn resolve(
     env: *std.process.Environ.Map,
     prog: []const u8,
 ) !?Context {
-    const vault = nonEmpty(env, "OBSIDIAN_VAULT_DIR") orelse {
+    // The conf file is read here, not sourced by a wrapper: that was the last thing a
+    // wrapper did which this could not.
+    const vault = (try core.conf.vaultDir(gpa, io, env.get("HOME"), env.get("OBSIDIAN_VAULT_DIR"))) orelse {
         std.debug.print("{s}: no vault\n", .{prog});
         return null;
     };
@@ -148,6 +153,7 @@ pub fn resolve(
         .chains_list = .empty,
         .resolved = resolved,
         .owned_work = owned_work,
+        .owned_vault = vault,
     };
     try loadChains(&ctx, io, env);
     return ctx;

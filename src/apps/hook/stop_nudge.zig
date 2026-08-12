@@ -59,7 +59,11 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
         // `LOCATION` is the vault path when known, and the phrase when not: the
         // message names where to write, and "the Obsidian vault" is still an
         // instruction where a path would be a lie.
-        const location = env.get("OBSIDIAN_VAULT_DIR") orelse "the Obsidian vault";
+        // The vault path when known, the phrase when not: the message names where to
+        // write, and "the Obsidian vault" is still an instruction where a path is a lie.
+        const resolved_vault = common.vault(gpa, io, env);
+        defer if (resolved_vault) |v| gpa.free(v);
+        const location = resolved_vault orelse "the Obsidian vault";
         var text: Io.Writer.Allocating = .init(gpa);
         defer text.deinit();
         try text.writer.print(
@@ -99,9 +103,8 @@ fn writeCount(gpa: Allocator, io: Io, path: []const u8, value: usize) !void {
 /// A vault with no remote is a supported, ordinary configuration -- local versioned
 /// undo only -- so everything here is a silent no-op when anything is missing.
 fn maybePush(gpa: Allocator, io: Io, env: *std.process.Environ.Map, total: usize) !void {
-    // `gpa` is used by the path formatting below; the spawn needs none.
-    const vault = env.get("OBSIDIAN_VAULT_DIR") orelse return;
-    if (vault.len == 0) return;
+    const vault = common.vault(gpa, io, env) orelse return;
+    defer gpa.free(vault);
     const dot_git = try std.fmt.allocPrint(gpa, "{s}/.git", .{vault});
     defer gpa.free(dot_git);
     const st = Io.Dir.cwd().statFile(io, dot_git, .{}) catch return;
@@ -131,8 +134,8 @@ fn maybePush(gpa: Allocator, io: Io, env: *std.process.Environ.Map, total: usize
 
 /// `synapse-hook vault-push` -- the detached half of the Stop hook.
 pub fn push(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
-    const vault = env.get("OBSIDIAN_VAULT_DIR") orelse return;
-    if (vault.len == 0) return;
+    const vault = common.vault(gpa, io, env) orelse return;
+    defer gpa.free(vault);
     const cwd: std.process.Child.Cwd = .{ .path = vault };
 
     const upstream = blk: {

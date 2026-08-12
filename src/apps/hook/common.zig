@@ -65,17 +65,21 @@ pub const Payload = struct {
     }
 };
 
-/// The vault directory, from the environment the wrapper exported.
+/// The vault directory: the environment, else `~/.claude/synapse.conf`.
 ///
-/// The wrapper sources `synapse.conf` (falling back to the pre-rename
-/// `second-brain.conf`) and exports `OBSIDIAN_VAULT_DIR`, so no hook parses a conf
-/// file itself. Absent or not a directory is silence, like every other missing
-/// precondition.
-pub fn vault(io: Io, env: *std.process.Environ.Map) ?[]const u8 {
-    const dir = env.get("OBSIDIAN_VAULT_DIR") orelse return null;
-    if (dir.len == 0) return null;
-    const st = Io.Dir.cwd().statFile(io, dir, .{}) catch return null;
-    if (st.kind != .directory) return null;
+/// Read here rather than sourced by a wrapper, which is what lets a hook be registered
+/// as the binary itself. Absent, unreadable or not a directory is silence, like every
+/// other missing precondition. The caller owns the result.
+pub fn vault(gpa: Allocator, io: Io, env: *std.process.Environ.Map) ?[]u8 {
+    const dir = (core.conf.vaultDir(gpa, io, env.get("HOME"), env.get("OBSIDIAN_VAULT_DIR")) catch return null) orelse return null;
+    const st = Io.Dir.cwd().statFile(io, dir, .{}) catch {
+        gpa.free(dir);
+        return null;
+    };
+    if (st.kind != .directory) {
+        gpa.free(dir);
+        return null;
+    }
     return dir;
 }
 
