@@ -5,7 +5,7 @@ description: Manually bring a repo's Synapse namespace back in line after major 
 
 # Synapse Rebuild Diff: Reconcile a Namespace After Same-Branch Drift
 
-`/synapse-init` builds a namespace. The two staleness tiers and `synapse-query.sh drift` *detect*
+`/synapse-init` builds a namespace. The two staleness tiers and `synapse query drift` *detect*
 that it has moved. This command is the deliberate, human-invoked repair for the case where enough has
 moved that lazy per-read regeneration is the wrong instrument.
 
@@ -21,7 +21,7 @@ states, and none of the triage classes below (reseat / patch / re-orient) were b
 Manually, when you already expect major drift:
 
 - **A plain `pull`** that landed a meaningful number of commits — fast-forward, same branch throughout.
-- **A `pull --rebase`** — your local commits get new SHAs, so `synapse.sh query drift` will likely
+- **A `pull --rebase`** — your local commits get new SHAs, so `synapse query drift` will likely
   report the baseline as "not an ancestor of HEAD". That's expected here, not a sign of anything
   wrong: you were on the same branch the whole time, only its history got rewritten.
 - **A large merge landing in your current branch** — another branch's tip merged in via `git merge`.
@@ -39,7 +39,7 @@ Manually, when you already expect major drift:
   schema, a dependency bump, or a moved submodule pointer.
 
 Do **not** run it after an ordinary pull. Tier 1 flags what this session edited, the `synapse-node`
-skill regenerates a node lazily when its body is actually needed, and `synapse-query.sh drift` is the
+skill regenerates a node lazily when its body is actually needed, and `synapse query drift` is the
 cheap check that tells you whether anything more is warranted. This command exists for when the answer
 is clearly yes.
 
@@ -76,7 +76,7 @@ this command when it does. What no longer happens is arriving here merely becaus
   ns_branch="$(grep -m1 '^branch:' "synapse/{repo}@{branch}/Index.md" \
       | sed -e 's/^branch: *//' -e 's/^"//' -e 's/"$//')"
   ```
-  If they don't match, **refuse immediately** — do not run `synapse.sh query drift`, do not read
+  If they don't match, **refuse immediately** — do not run `synapse query drift`, do not read
   anything else. Say plainly that this namespace describes a different branch than the current
   checkout, and point at `/synapse-init` (if the current branch has no namespace of its own) or at
   checking out the branch/worktree the namespace actually describes. This is a distinct, harder check
@@ -97,8 +97,8 @@ this command when it does. What no longer happens is arriving here merely becaus
 ### 1. Size the job before doing any of it
 
 ```sh
-~/.claude/bin/synapse.sh query drift
-~/.claude/bin/synapse.sh query grounding
+~/.synapse query drift
+~/.synapse query grounding
 ```
 
 Report what it says, in the human's terms, **before** touching anything: how far the baseline is from
@@ -118,7 +118,7 @@ Two answers change the plan:
 ### 2. Mechanical phase — always, and cheap
 
 ```sh
-~/.claude/bin/synapse.sh build-lists --reenumerate
+~/.synapse build-lists --reenumerate
 ```
 
 `--reenumerate` matters here: without it an existing `all.txt` is reused, so a branch switch would be
@@ -126,17 +126,17 @@ invisible to enumeration. **Read the coverage report.** On a branch switch, per-
 move a lot and some may reach zero.
 
 - **A node whose list is now empty** means that subsystem does not exist on this branch. **Do not
-  write it** — `synapse-write-node.sh` refuses an empty path list, and that refusal is correct. Report
+  write it** — `synapse write-node` refuses an empty path list, and that refusal is correct. Report
   the node and leave it in place, untouched. **Never delete a node to tidy up a branch switch:**
   `## Notes` is human-authored, lives outside the generated fence, and is unrecoverable.
 - **Unclaimed added paths** are a judgment call: widen an existing manifest line where a path belongs
   to a cluster that already exists, and leave a genuinely new subsystem for a new manifest line and
-  its own node. Re-run `synapse-build-lists.sh` after editing the manifest, and check coverage again.
+  its own node. Re-run `synapse build-lists` after editing the manifest, and check coverage again.
 
 Then rebuild the reverse index so the hook and the read path agree with the new enumeration:
 
 ```sh
-~/.claude/bin/synapse.sh build-index
+~/.synapse build-index
 ```
 
 ### 3. Triage each flagged node — reseat, patch, or re-orient
@@ -172,18 +172,18 @@ git diff --numstat <commit>..HEAD -- $(tr '\n' ' ' < "$W/lists/NN.txt") \
   | awk '{a += $1; d += $2} END {print a + d}'
 ```
 
-against the node's own line count, and use `synapse-query.sh sources "{Node}" --count` for the file
+against the node's own line count, and use `synapse query sources "{Node}" --count` for the file
 count drift's numbers are relative to. Then pick one of three strategies and **say which one you
 picked and why**:
 
-**Restore the crux directive before writing any node back.** `synapse-query.sh body` returns the
+**Restore the crux directive before writing any node back.** `synapse query body` returns the
 *expanded* crux — the fenced code the writer sliced — not the directive that produced it. Writing that
 straight back stores a quote of a file as it looked at the old baseline, presented as if it were
 current. So rebuild the directive from the pointer the writer recorded:
 
 ```sh
-~/.claude/bin/synapse.sh query field "{Node}" crux_path
-~/.claude/bin/synapse.sh query field "{Node}" crux_lines
+~/.synapse query field "{Node}" crux_path
+~/.synapse query field "{Node}" crux_lines
 ```
 
 and replace the fenced block with `<!-- crux: <crux_path> <crux_lines> -->` so it is cut from the
@@ -197,17 +197,17 @@ its directives are stripped from the body, so a recovered body contains none —
 the node's provenance is gone with no error. Recover the pointers per node:
 
 ```sh
-~/.claude/bin/synapse.sh query grounding "{Node}" --list   # path<TAB>lines
+~/.synapse query grounding "{Node}" --list   # path<TAB>lines
 ```
 
-and re-emit a `<!-- grounded_in: <path> <lines> -->` for each. Run `synapse-query.sh grounding` before
+and re-emit a `<!-- grounded_in: <path> <lines> -->` for each. Run `synapse query grounding` before
 triaging: it is cheaper than the diff and sharper than a churn ratio. A **`moved`** line hands you the
 corrected range outright, no reading. A **`changed`** line points at evidence that no longer says what
 the summary claims — which is a better reason to re-read a node than any percentage, because it names
 the sentence at risk rather than the volume of change around it.
 
 **Reseat** — renames only, no content change. No reading at all. Recover the existing prose with
-`synapse-query.sh body "{Node}"`, drop its trailing `## Sources` block (the writer regenerates that),
+`synapse query body "{Node}"`, drop its trailing `## Sources` block (the writer regenerates that),
 re-enumerate so the list holds the new paths, and write it back. Repeating this is safe: the writer
 trims the body's leading and trailing blank lines, so a reseat is idempotent rather than accreting
 padding each time. The concept did not change; only paths moved. This also
@@ -217,7 +217,7 @@ than from a work-dir file.
 **Patch from the diff** — a small fraction of the node's *lines* changed (rule of thumb: under ~15%),
 and the file its `crux` quotes still exists. Read three things and nothing else:
 
-1. the current prose — `synapse-query.sh body "{Node}"`;
+1. the current prose — `synapse query body "{Node}"`;
 2. `git diff --name-status -M <commit>..HEAD` restricted to that node's paths, for *which* files moved;
 3. hunks for a **bounded** selection of those files — always including any file the `crux` quotes.
 
@@ -245,7 +245,7 @@ selection. Never pipe an unbounded `git diff <commit>..HEAD` into a context wind
 ### 4. Write each rebuilt node
 
 ```sh
-~/.claude/bin/synapse.sh write-node --title "{Node}" --summary "{one line}" \
+~/.synapse write-node --title "{Node}" --summary "{one line}" \
    --paths "$W/lists/NN.txt" --body "$W/body.md"
 ```
 
@@ -256,12 +256,12 @@ not merely stale, if the subsystem's shape differs on this line.
 ### 5. Rebuild the projections and verify
 
 ```sh
-~/.claude/bin/synapse.sh build-index
-~/.claude/bin/synapse.sh build-project-index
-~/.claude/bin/synapse.sh query drift     # expect silence
-~/.claude/bin/synapse.sh query stale     # expect silence
-~/.claude/bin/synapse.sh query grounding # expect silence: re-pointed, not dropped
-~/.claude/bin/synapse.sh query links --check   # expect silence: no dangling targets
+~/.synapse build-index
+~/.synapse build-project-index
+~/.synapse query drift     # expect silence
+~/.synapse query stale     # expect silence
+~/.synapse query grounding # expect silence: re-pointed, not dropped
+~/.synapse query links --check   # expect silence: no dangling targets
 ```
 
 `links --check` covers what used to be a manual instruction here: a broken `[[wikilink]]` is a valid
@@ -287,7 +287,7 @@ is indistinguishable, from the outside, from one that did nothing.
   that was wrong when the node was *built* survives every future patch untouched — the diff has
   nothing to say about a statement that was never true. Patching is therefore only as good as the
   baseline prose, and a node's most likely error is not drift but an explanation invented at build
-  time. The `crux` is no longer the exposure it was — `synapse-write-node.sh` slices it out of the
+  time. The `crux` is no longer the exposure it was — `synapse write-node` slices it out of the
   file from a `<!-- crux: path start-end -->` directive, so it is verbatim by construction rather than
   by instruction. What remains unguarded is the prose. A sentence asserting a *mechanism* ("X is
   behind a mutex, which is why Y")
@@ -295,7 +295,7 @@ is indistinguishable, from the outside, from one that did nothing.
   it rather than carrying it over.
 - **Never write a node with an empty path list**, and never delete a node whose sources vanished — its
   `## Notes` is human-authored and outside the generated fence.
-- **Never hand-write frontmatter or the `## Sources` mirror.** `synapse-write-node.sh` owns them; doing
+- **Never hand-write frontmatter or the `## Sources` mirror.** `synapse write-node` owns them; doing
   it by hand cannot scale to a hub node and silently drops `summary` and `commit`.
 - **Never rebuild a node drift did not flag.** Regeneration has real cost and it is not free of risk —
   each rewrite is a chance to lose a good sentence.

@@ -8,7 +8,7 @@ matches what you're trying to understand.
   layout, and the three hooks that keep it alive across sessions (`SessionStart` injection, the `Stop`
   nudge, and vault→git auto-commit).
 - **[synapse-graph.md](synapse-graph.md)** — **Synapse Graph**: the per-repo semantic code graph. The
-  two-tier staleness model, `/synapse-init`, the `synapse-node` Tier 2 skill, `synapse-query.sh` (projected
+  two-tier staleness model, `/synapse-init`, the `synapse-node` Tier 2 skill, `synapse query` (projected
   reads, so a node's exhaustive `sources` never enters a context window), the unfabricable `crux`,
   grounded summaries, opportunistic correction, the typed relation graph `links` derives, and the
   optional tree-sitter acceleration layer. Also
@@ -20,15 +20,19 @@ matches what you're trying to understand.
   and the optional GitHub-issue mirror.
 - **[synapse-code-cache.md](synapse-code-cache.md)** — **Synapse Code Cache**: the vault-free
   acceleration layer underneath the Graph. Build path (`synapse tags` → `synapse tags-cache` →
-  `synapse-build-refs.sh`) and query path (`symbol`, `synapse-callers.sh`), what each costs measured,
+  `synapse build-refs`) and query path (`symbol`, `synapse callers`), what each costs measured,
   and how much of the whole system turns out not to need Obsidian at all.
-- **[scripts.md](scripts.md)** — reference for every **Synapse Tools** plumbing script in
-  `claude/lib/synapse/` (the porcelain, `claude/bin/synapse.sh`, documents itself via `--help` instead):
-  purpose, usage, arguments and exit codes. **Generated**, by `generate-scripts-reference.sh`, from the
-  same header block each script prints for `--help` — so it cannot describe a script that has moved on.
-  Run the generator after editing a header; `--check` is wired into the test suite. It carries no
-  rationale on purpose: that belongs in the docs above, and duplicating it in two places is how the
-  copies start to differ.
+- **[cli.md](cli.md)** — reference for every subcommand of `synapse` and every hook of
+  `synapse-hook`: usage, arguments and exit codes. **Generated**, by
+  `generate-cli-reference.sh`, from what the binaries print for `--help` — so it cannot
+  describe a command that has moved on. Run the generator after changing a usage text;
+  `--check` is wired into the test suite. It carries no rationale on purpose: that belongs
+  in the docs above, and duplicating it in two places is how the copies start to differ.
+
+  It replaced `scripts.md`, which was generated the same way from the header comment of
+  every `claude/lib/synapse/*.sh`. Those scripts are gone; the guarantee got stronger in
+  the move, because the source is now the exact bytes a user sees rather than a comment
+  that had to match them.
 
 Diagrams live in [diagrams/](diagrams/). Each one is a Mermaid source file (`.mmd`) plus a rendered
 `.png`, and the docs embed the PNG rather than a ```mermaid fence — a fence renders on GitHub but shows

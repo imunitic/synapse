@@ -36,6 +36,18 @@ const render = treesitter.tagger.renderCliLine;
 /// passes null unconditionally, so it cannot be made to write one.
 pub const Trace = ?[]const u8;
 
+const usage_text =
+    \\usage: synapse tags <file>
+    \\       synapse tags --paths <list-file>   every listed file, in one batch
+    \\       synapse tags --list-extensions     every extension with a usable grammar
+    \\
+;
+
+fn usage() u8 {
+    std.debug.print("{s}", .{usage_text});
+    return 2;
+}
+
 pub fn run(
     comptime Ex: type,
     gpa: Allocator,
@@ -44,6 +56,14 @@ pub fn run(
     args: *std.process.Args.Iterator,
     trace: Trace,
 ) !u8 {
+    // Read before the registry: asking for help needs neither `$HOME` nor a grammar,
+    // and reaching the loader first is why `tags --help` used to exit 1 with no output.
+    const first = args.next() orelse return usage();
+    if (std.mem.eql(u8, first, "-h") or std.mem.eql(u8, first, "--help")) {
+        _ = usage();
+        return 0;
+    }
+
     const home = env.get("HOME") orelse return 1;
 
     const registry_path = try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-grammars.conf", .{home});
@@ -51,7 +71,6 @@ pub fn run(
     var registry = treesitter.Registry.load(gpa, io, registry_path) catch return 1;
     defer registry.deinit();
 
-    const first = args.next() orelse return 1;
 
     if (std.mem.eql(u8, first, "--list-extensions")) {
         const exts = try registry.usableExtensions(gpa);

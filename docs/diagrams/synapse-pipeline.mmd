@@ -33,17 +33,17 @@ flowchart TB
     subgraph BUILD["BUILD · /synapse-init"]
         direction TB
         TAGS["synapse tags"]
-        VOCAB["synapse-vocab.sh<br/>symbol vocabulary"]
+        VOCAB["synapse vocab<br/>symbol vocabulary"]
         ORIENT["<b>model</b><br/>orient and cluster"]
         MANIFEST["<b>manifest.tsv</b><br/>THE SEAM"]
-        LISTS["synapse-build-lists.sh<br/>enumerate and expand"]
-        GATE["synapse-gate.sh<br/>flag empty clusters"]
-        RANK["synapse-rank.sh<br/>what to read"]
+        LISTS["synapse build-lists<br/>enumerate and expand"]
+        GATE["synapse gate<br/>flag empty clusters"]
+        RANK["synapse rank<br/>what to read"]
         PROSE["<b>model</b><br/>author node prose"]
-        PUSH["synapse-push-nodes.sh"]
-        WRITE["synapse-write-node.sh<br/>hash, slice, write"]
-        IDX["synapse-build-index.sh"]
-        PIDX["synapse-build-project-index.sh"]
+        PUSH["synapse push-nodes"]
+        WRITE["synapse write-node<br/>hash, slice, write"]
+        IDX["synapse build-index"]
+        PIDX["synapse build-project-index"]
 
         TAGS -->|"batched"| VOCAB
         VOCAB -->|"evidence"| ORIENT
@@ -82,19 +82,19 @@ flowchart TB
 
     subgraph USE["READ · DETECT · REPAIR"]
         direction TB
-        QUERY["synapse-query.sh<br/>body · sources · field"]
-        SYMBOL["synapse-query.sh symbol"]
-        REFS["synapse-build-refs.sh"]
-        CALLERS["synapse-query.sh callers"]
+        QUERY["synapse query<br/>body · sources · field"]
+        SYMBOL["synapse query symbol"]
+        REFS["synapse build-refs"]
+        CALLERS["synapse query callers"]
         NODESKILL["synapse-node skill<br/>Tier 2"]
-        STALE1["synapse-staleness.sh<br/>Tier 1"]
-        STALE2["synapse-query.sh stale"]
-        DRIFT["synapse-query.sh drift"]
-        GROUND["synapse-query.sh grounding"]
+        STALE1["synapse-hook staleness<br/>Tier 1"]
+        STALE2["synapse query stale"]
+        DRIFT["synapse query drift"]
+        GROUND["synapse query grounding"]
         REBUILDDIFF["/synapse-rebuild-diff<br/><i>same branch only</i>"]
         REBUILDFULL["/synapse-rebuild-full"]
-        CLEAN["synapse-graph-clean.sh"]
-        WIPE["synapse-graph-wipe.sh<br/>preserves ## Notes"]
+        CLEAN["synapse graph-clean"]
+        WIPE["synapse graph-wipe<br/>preserves ## Notes"]
 
         DRIFT --> REBUILDDIFF
         GROUND --> REBUILDDIFF

@@ -12,7 +12,7 @@ DEST="$HOME/.claude"
 
 command -v jq >/dev/null || { echo "jq is required. Install it first (e.g. brew install jq)." >&2; exit 1; }
 
-mkdir -p "$DEST/hooks" "$DEST/commands" "$DEST/bin" "$DEST/lib/synapse"
+mkdir -p "$DEST/commands" "$DEST/bin"
 
 echo "== CLAUDE.md / synapse-claude.md =="
 # Synapse-owned content lives in synapse-claude.md, installed unconditionally
@@ -98,9 +98,7 @@ else
   echo "  installed from template -- edit to add another language's stopwords: $DEST/synapse-prompt-stopwords.conf"
 fi
 
-echo "== hooks/commands/skills =="
-cp "$SRC/hooks/"*.sh "$DEST/hooks/"
-chmod +x "$DEST/hooks/"*.sh
+echo "== commands/skills =="
 cp "$SRC/commands/"*.md "$DEST/commands/"
 # Every skill directory, discovered rather than listed. Naming each one meant a new
 # skill silently did not install until someone remembered to add a line here --
@@ -112,20 +110,10 @@ for skill_dir in "$SRC/skills/"*/; do
     mkdir -p "$DEST/skills/$skill_name"
     cp "$skill_dir/SKILL.md" "$DEST/skills/$skill_name/SKILL.md"
 done
-# Glob rather than naming each script, matching how hooks/ is copied above --
-# naming them individually meant a newly added script silently didn't install.
-# Only the porcelain (synapse.sh) lives in bin/ and goes on PATH; the plumbing
-# scripts it dispatches to live in lib/synapse/, found through SYNAPSE_LIB_DIR
-# rather than PATH -- see synapse.conf.template.
-cp "$SRC/bin/"*.sh "$DEST/bin/"
-chmod +x "$DEST/bin/"*.sh
-cp "$SRC/lib/synapse/"*.sh "$DEST/lib/synapse/"
-chmod +x "$DEST/lib/synapse/"*.sh
 echo "  installed."
-# The compiled binary. `tags` and `tags-cache` live in it rather than in
-# scripts, and five other scripts shell out to it, so without this the tagging
-# half of the graph does nothing -- and it fails at hook time, quietly, rather
-# than here.
+# The two binaries ARE the tooling now: there is no bin/*.sh porcelain, no
+# lib/synapse/ plumbing and no hooks/*.sh, so without these two nothing works at
+# all -- and previously it failed at hook time, quietly, rather than here.
 #
 # Copied rather than built: `zig build` belongs to the checkout (`just build`),
 # and running a compiler from an installer would make this step slow, network-
@@ -162,17 +150,21 @@ fi
 # and into lib/synapse/ during the porcelain rewrite linger in $DEST/bin/ on an
 # existing machine -- unreferenced but still executable and still on PATH,
 # which is worse than absent because a stray old copy can shadow the real one.
-stale_bin_scripts=()
-for f in "$DEST/bin/"synapse-*.sh; do
-  [ -e "$f" ] || continue
-  [ "$(basename "$f")" = "synapse.sh" ] && continue
-  stale_bin_scripts+=("$f")
+# The whole shell library is gone: `synapse` and `synapse-hook` are the tooling.
+# This script copies in but never deletes, so an existing machine keeps every
+# script it was ever given -- unreferenced but still executable, and in bin/ still
+# on PATH, which is worse than absent because a stray old copy can shadow nothing
+# and yet still be run by hand or by a hand-edited settings.json.
+stale=()
+for f in "$DEST/bin/"*.sh "$DEST/hooks/"*.sh "$DEST/lib/synapse/"*.sh; do
+  [ -e "$f" ] && stale+=("$f")
 done
-if [ "${#stale_bin_scripts[@]}" -gt 0 ]; then
-  echo "  NOTE: found pre-relocation scripts in $DEST/bin/ -- these moved to"
-  echo "    $DEST/lib/synapse/ and are no longer installed here. Still on PATH,"
-  echo "    so remove them by hand to avoid shadowing the real copies:"
-  printf '    %s\n' "${stale_bin_scripts[@]}"
+if [ "${#stale[@]}" -gt 0 ]; then
+  echo "  NOTE: ${#stale[@]} shell script(s) from before the Zig rewrite are still installed."
+  echo "    Nothing references them: the hooks are now 'synapse-hook <name>' and every"
+  echo "    command is a subcommand of 'synapse'. Safe to remove by hand:"
+  printf '    %s\n' "${stale[@]}"
+  echo "    (or: rm -rf $DEST/lib/synapse $DEST/hooks/synapse-*.sh $DEST/bin/synapse*.sh)"
 fi
 if [ -d "$DEST/skills/obsidian-task" ] || [ -f "$DEST/bin/second-brain-switch" ] || ls "$DEST/commands/obsidian-"*.md >/dev/null 2>&1 || [ -d "$DEST/skills/org-task" ]; then
   echo "  NOTE: found stale files from before the sb- rename / org-roam removal --"
@@ -192,28 +184,6 @@ if ls "$DEST/commands/sb-"*.md >/dev/null 2>&1 || [ -d "$DEST/skills/sb-task" ];
   echo "    They are no longer installed, but they still REGISTER -- you will see both"
   echo "    /sb-note and /synapse-note until you delete them. Remove them by hand."
 fi
-# The hook rename. Unlike the commands above these are now INERT -- the
-# settings.json pass below rewrites every reference to the new names, so nothing
-# invokes the old files. Still worth naming: an executable nobody calls is the
-# kind of thing that gets resurrected by a hand-edited settings.json months later.
-if ls "$DEST/hooks/second-brain-"*.sh >/dev/null 2>&1; then
-  echo "  NOTE: pre-rename hook files are no longer referenced by settings.json:"
-  ls "$DEST/hooks/second-brain-"*.sh 2>/dev/null | sed 's/^/    /'
-  echo "    Safe to remove by hand."
-fi
-# This script copies in but never deletes, so a file removed from the source
-# lingers in $DEST -- unreferenced but still executable, which is worse than
-# absent because it silently keeps working after the docs stop mentioning it.
-if [ -f "$DEST/lib/synapse/synapse-tokenizer.sh" ]; then
-  echo "  NOTE: $DEST/lib/synapse/synapse-tokenizer.sh is stale -- it was deleted"
-  echo "    rather than ported, having had no caller since the prompt hook stopped"
-  echo "    searching. Its stopword list is still installed and still used by"
-  echo "    'synapse vocab'. Safe to remove by hand."
-fi
-if [ -f "$DEST/bin/synapse-verify.sh" ]; then
-  echo "  NOTE: $DEST/bin/synapse-verify.sh is stale -- it folded into"
-  echo "    synapse-query.sh as the 'stale' subcommand. Safe to remove by hand."
-fi
 
 echo "== settings.json hook wiring =="
 SETTINGS="$DEST/settings.json"
@@ -221,23 +191,28 @@ SETTINGS="$DEST/settings.json"
 
 TMP="$(mktemp)"
 jq '
-  # Rewrite pre-rename hook paths BEFORE the add-if-missing logic below, which is
-  # the whole difficulty of renaming a hook. settings.json references hooks by
-  # path, and this script copies in without deleting -- so without this pass an
-  # existing machine ends up with the old entry AND the new one, both pointing at
-  # files that exist, and every hook fires twice: two index injections, two
-  # nudges, two vault commits per write.
+  # Rewrite existing hook commands BEFORE the add-if-missing logic below. That
+  # order is the whole difficulty of moving a hook: settings.json references hooks
+  # by command string, and this script copies in without deleting -- so without
+  # this pass an existing machine ends up with the old entry AND the new one, both
+  # runnable, and every hook fires twice. Two index injections, two nudges, two
+  # vault commits per write.
+  #
+  # Two generations to rewrite now: the pre-rename `second-brain-*.sh` names, and
+  # the shell wrappers that the Zig rewrite replaced. A wrapper still on disk
+  # would still work, which is exactly why the entry has to be rewritten rather
+  # than left for the user to notice.
   #
   # Scoped to the hook arrays rather than walk(), so an unrelated `command`
   # elsewhere in settings.json (a statusLine, for instance) is never touched.
   def fixcmd:
     if type == "string" then
-        gsub("second-brain-session-start\\.sh"; "synapse-session-start.sh")
-      | gsub("second-brain-stop-nudge\\.sh";    "synapse-stop-nudge.sh")
-      | gsub("second-brain-db-sync\\.sh";       "synapse-db-sync.sh")
+        gsub("second-brain-(?<n>session-start|stop-nudge|db-sync)\\.sh"; "synapse-\(.n).sh")
+      | gsub("bash +~/\\.claude/hooks/synapse-(?<n>[a-z-]+)\\.sh"; "~/.claude/bin/synapse-hook \(.n)")
+      | gsub("~/\\.claude/hooks/synapse-(?<n>[a-z-]+)\\.sh"; "~/.claude/bin/synapse-hook \(.n)")
     else . end;
-  # Order-preserving dedupe: if a machine somehow already had both spellings, the
-  # rewrite above makes them identical, and two identical entries fire twice.
+  # Order-preserving dedupe: if a machine had both spellings, the rewrite above
+  # makes them identical, and two identical entries fire twice.
   def dedupe: reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end);
   .hooks = ((.hooks // {}) | map_values(
       map(.hooks = ((.hooks // []) | map(.command |= fixcmd))) | dedupe)) |
@@ -247,16 +222,16 @@ jq '
   .hooks.PostToolUse = (.hooks.PostToolUse // []) |
   .hooks.Stop = (.hooks.Stop // []) |
   .hooks.UserPromptSubmit = (.hooks.UserPromptSubmit // []) |
-  (if any(.hooks.SessionStart[]?.hooks[]?; .command == "bash ~/.claude/hooks/synapse-session-start.sh")
-   then . else .hooks.SessionStart += [{"hooks":[{"type":"command","command":"bash ~/.claude/hooks/synapse-session-start.sh"}]}] end) |
-  (if any(.hooks.UserPromptSubmit[]?.hooks[]?; .command == "bash ~/.claude/hooks/synapse-prompt-context.sh")
-   then . else .hooks.UserPromptSubmit += [{"hooks":[{"type":"command","command":"bash ~/.claude/hooks/synapse-prompt-context.sh"}]}] end) |
-  (if any(.hooks.PostToolUse[]?.hooks[]?; .command == "bash ~/.claude/hooks/synapse-db-sync.sh")
-   then . else .hooks.PostToolUse += [{"matcher":"Write|Edit|mcp__obsidian__vault_(write|patch|append|delete|move)","hooks":[{"type":"command","command":"bash ~/.claude/hooks/synapse-db-sync.sh"}]}] end) |
-  (if any(.hooks.PostToolUse[]?.hooks[]?; .command == "bash ~/.claude/hooks/synapse-staleness.sh")
-   then . else .hooks.PostToolUse += [{"matcher":"Write|Edit|MultiEdit","hooks":[{"type":"command","command":"bash ~/.claude/hooks/synapse-staleness.sh"}]}] end) |
-  (if any(.hooks.Stop[]?.hooks[]?; .command == "bash ~/.claude/hooks/synapse-stop-nudge.sh")
-   then . else .hooks.Stop += [{"hooks":[{"type":"command","command":"bash ~/.claude/hooks/synapse-stop-nudge.sh"}]}] end)
+  (if any(.hooks.SessionStart[]?.hooks[]?; .command == "~/.claude/bin/synapse-hook session-start")
+   then . else .hooks.SessionStart += [{"hooks":[{"type":"command","command":"~/.claude/bin/synapse-hook session-start"}]}] end) |
+  (if any(.hooks.UserPromptSubmit[]?.hooks[]?; .command == "~/.claude/bin/synapse-hook prompt-context")
+   then . else .hooks.UserPromptSubmit += [{"hooks":[{"type":"command","command":"~/.claude/bin/synapse-hook prompt-context"}]}] end) |
+  (if any(.hooks.PostToolUse[]?.hooks[]?; .command == "~/.claude/bin/synapse-hook db-sync")
+   then . else .hooks.PostToolUse += [{"matcher":"Write|Edit|mcp__obsidian__vault_(write|patch|append|delete|move)","hooks":[{"type":"command","command":"~/.claude/bin/synapse-hook db-sync"}]}] end) |
+  (if any(.hooks.PostToolUse[]?.hooks[]?; .command == "~/.claude/bin/synapse-hook staleness")
+   then . else .hooks.PostToolUse += [{"matcher":"Write|Edit|MultiEdit","hooks":[{"type":"command","command":"~/.claude/bin/synapse-hook staleness"}]}] end) |
+  (if any(.hooks.Stop[]?.hooks[]?; .command == "~/.claude/bin/synapse-hook stop-nudge")
+   then . else .hooks.Stop += [{"hooks":[{"type":"command","command":"~/.claude/bin/synapse-hook stop-nudge"}]}] end)
 ' "$SETTINGS" > "$TMP" && mv "$TMP" "$SETTINGS"
 echo "  merged (idempotent -- safe to re-run)."
 

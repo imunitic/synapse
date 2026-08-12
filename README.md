@@ -76,9 +76,9 @@ it no longer installs, so nothing is left running that the docs stop describing.
 `/synapse-rebuild-full` — `/synapse-init` builds a repo's first Graph namespace,
 `/synapse-rebuild-diff` repairs one after major same-branch drift (triage, nothing deleted),
 `/synapse-rebuild-full` wipes a namespace and rebuilds it from scratch when triage isn't the right
-tool. Neither of the two repair commands requires knowing anything below this point. The underlying
-`claude/bin/synapse.sh` porcelain and the plumbing it dispatches to aren't something you're expected
-to run by hand; they're documented in [`docs/scripts.md`](docs/scripts.md) for whoever goes looking.
+tool. Neither of the two repair commands requires knowing anything below this point. The `synapse`
+binary underneath them isn't something you're expected to run by hand; its subcommands are
+documented in [`docs/cli.md`](docs/cli.md) for whoever goes looking.
 
 ## Synapse Vault — the notes
 
@@ -87,11 +87,11 @@ to run by hand; they're documented in [`docs/scripts.md`](docs/scripts.md) for w
   `setup.sh` run; `~/.claude/CLAUDE.md` itself stays entirely yours, with one `@import` line pointing
   at it.
 - `claude/synapse.conf.template` — path config; set `OBSIDIAN_VAULT_DIR` per machine.
-- `claude/hooks/synapse-session-start.sh` — `SessionStart`: injects the Vault's index and this repo's
+- `synapse-hook session-start` — `SessionStart`: injects the Vault's index and this repo's
   Graph namespace pointer, if one exists.
-- `claude/hooks/synapse-stop-nudge.sh` — a turn-count-based `Stop` hook that nudges a "worth
+- `synapse-hook stop-nudge` — a turn-count-based `Stop` hook that nudges a "worth
   capturing?" check-in every 25 turns.
-- `claude/hooks/synapse-db-sync.sh` — commits Vault changes to the Vault's own local git repo,
+- `synapse-hook db-sync` — commits Vault changes to the Vault's own local git repo,
   if one exists.
 - `claude/commands/synapse-note.md` — note creation (bare / `--task` / `--list` / `--search`).
 - `claude/commands/synapse-design-note.md`, `claude/commands/synapse-task-note.md` — a design-discussion →
@@ -116,9 +116,9 @@ plain-English summary, a quoted `crux`, typed links, and the exhaustive list of 
   **re-orient**. Refuses outright on a cross-branch mismatch.
 - `claude/commands/synapse-rebuild-full.md` — wipes the current namespace and rebuilds it from
   scratch via `/synapse-init`, for when triage isn't the right tool. Preserves any hand-written
-  `## Notes` first (`claude/lib/synapse/synapse-graph-wipe.sh`) and auto-merges what it can back into
+  `## Notes` first (`synapse graph-wipe`) and auto-merges what it can back into
   the new nodes afterward.
-- `claude/hooks/synapse-staleness.sh` — `PostToolUse` Tier 1: flags a just-edited file's nodes `stale`
+- `synapse-hook staleness` — `PostToolUse` Tier 1: flags a just-edited file's nodes `stale`
   and re-verifies any evidence that file's nodes cite, via the Local REST API directly.
 - `claude/skills/synapse-node/` — Tier 2: the lazy staleness check, regeneration and unassigned sweep
   Claude runs itself whenever a node's body is actually read.

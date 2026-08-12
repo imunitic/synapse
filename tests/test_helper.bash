@@ -9,7 +9,7 @@
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FAKE_BIN="$REPO_ROOT/tests/fixtures/fake-bin"
 
-# The binary `claude/lib/synapse/synapse-tags.sh` execs. `synapse-fake` rather
+# The binary every test invokes. `synapse-fake` rather
 # than `synapse`: the suite has to run without a network, a C toolchain or a
 # real grammar repository, and `synapse-fake` is the same app with only the
 # grammar compile-and-load step stubbed -- see src/apps/synapse/main_fake.zig.
@@ -58,10 +58,9 @@ common_setup() {
   TEST_HOME="$(mktemp -d "${TMPDIR:-/tmp}/synapse-test.XXXXXX")"
   VAULT="$TEST_HOME/vault"
   REPO="$TEST_HOME/repo"
-  # One mkdir -p for every directory this function needs, `lib/synapse`
-  # included -- `mkdir -p` creates missing parents on its own, so there is
-  # nothing gained by waiting to ask for that one until HOME is swapped below.
-  mkdir -p "$TEST_HOME/.claude/lib/synapse" "$VAULT"
+  # One mkdir -p for every directory this function needs -- `mkdir -p` creates
+  # missing parents on its own.
+  mkdir -p "$TEST_HOME/.claude" "$VAULT"
 
   # Captured before the swap. Only for tests that must reach a real, machine-wide
   # cache they cannot reasonably fake -- currently just puppeteer's Chromium, which
@@ -99,34 +98,11 @@ EOF
   cp "$REPO_ROOT/claude/synapse-module-boilerplate.conf.template" \
     "$HOME/.claude/synapse-module-boilerplate.conf"
 
-  # Installed for every test rather than per-file, because every component
-  # sources it to name a namespace -- a component that could not find it would
-  # fall back to no identity at all, which is the failure this library exists to
-  # remove. Copied rather than symlinked so a test cannot edit the repo's copy.
-  #
-  # Lives at $HOME/.claude/lib/synapse/, the default SYNAPSE_LIB_DIR resolves to
-  # when unset -- matching what an installed machine gets from setup.sh, so a
-  # test never has to export SYNAPSE_LIB_DIR itself just to find its own fixtures.
-  #
-  # Same reasoning, for the two scripts synapse-query.sh and
-  # synapse-build-lists.sh dispatch/call into by installed path rather than
-  # inlining: synapse-query.sh callers execs synapse-callers.sh, and
-  # synapse-build-lists.sh calls synapse-enumerate.sh as its first step. A test
-  # that only has the caller installed, not the callee, fails on a missing
-  # dispatcher rather than on anything the test itself is about.
-  #
-  # synapse-tags.sh and synapse-tags-cache.sh are deliberately NOT installed
-  # here -- several tests exercise the "not installed, fails soft" path for
-  # each, so a global install here would silently take that coverage away.
-  # Those two are installed per-file, only where a test actually needs them.
-  #
-  # One `cp` for all three -- same source dir, same dest dir, so one process
-  # does what three did before.
-  cp "$REPO_ROOT/claude/lib/synapse/synapse-identity.sh" \
-    "$REPO_ROOT/claude/lib/synapse/synapse-callers.sh" \
-    "$REPO_ROOT/claude/lib/synapse/synapse-enumerate.sh" \
-    "$HOME/.claude/lib/synapse/"
-  chmod +x "$HOME/.claude/lib/synapse/"*.sh
+  # Nothing to install here any more. Every test invokes `$SYNAPSE_BIN` or
+  # `$SYNAPSE_HOOK_BIN` directly, so there is no shell library to place at
+  # $HOME/.claude/lib/synapse/ and no dispatcher to find -- which also removes the
+  # class of failure this block existed to prevent, where a test failed on a
+  # missing callee rather than on anything it was about.
 }
 
 # In-place sed that works on both BSD and GNU. `sed -i ''` is BSD-only (GNU reads
@@ -215,11 +191,11 @@ make_repo() {
 # Deliberately delegates to the shipped resolver rather than reimplementing the
 # derivation. A test helper with its own copy of the rule could agree with a
 # wrong implementation -- the same reasoning that keeps `sources_digest` out of
-# the helpers and recomputed in Python instead.
+# the helpers and recomputed in Python instead. The resolver used to be a sourced
+# shell library; it is `synapse namespace` now, which exists for this and for a
+# person debugging an install.
 repo_name() {
-  # shellcheck source=/dev/null
-  . "$HOME/.claude/lib/synapse/synapse-identity.sh"
-  synapse_namespace "$REPO"
+  "$SYNAPSE_BIN" namespace --repo "$REPO"
 }
 
 # The two halves of the namespace key, for assertions against the `project:` and
@@ -298,9 +274,7 @@ default_work_dir() {
 # refuse and the test would pass or fail for the wrong reason.
 write_synapse_index() {
   local project="$1" remote="$2"
-  # shellcheck source=/dev/null
-  . "$HOME/.claude/lib/synapse/synapse-identity.sh"
-  local branch; branch="$(synapse_branch "$REPO")"
+  local branch; branch="$("$SYNAPSE_BIN" namespace --repo "$REPO" --branch)"
   mkdir -p "$VAULT/synapse/$project"
   cat > "$VAULT/synapse/$project/Index.md" <<EOF
 ---

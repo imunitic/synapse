@@ -1,7 +1,7 @@
 # Copy this to ~/.claude/synapse-prompt-stopwords.conf (setup.sh does this for
 # you). Never overwritten once installed -- edit or extend any time.
 #
-# Common English function words, filtered out by synapse-tokenizer.sh before
+# Common English function words, filtered out by `synapse vocab` before
 # building a search pattern from a raw prompt -- without this, an ordinary
 # sentence's "how"/"does"/"the"/"when" survive as tokens alongside the terms
 # that actually matter. Source: stopwords-json (MIT), English list, 570 words:

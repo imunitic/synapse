@@ -13,15 +13,15 @@ flowchart TB
         TAGS["synapse tags<br/>tree-sitter tags, per file"]
         CACHE_SCRIPT["synapse tags-cache<br/>hash compare, one batched extraction"]
         TAGSCACHE[("_tags_cache.bin<br/>path → {hash, tags}")]
-        REFS_SCRIPT["synapse-build-refs.sh<br/>projects the cache into a flat index"]
+        REFS_SCRIPT["synapse build-refs<br/>projects the cache into a flat index"]
         REFS[("_refs.tsv<br/>name ⇥ def|ref ⇥ kind ⇥ path:line ⇥ expr<br/>LC_ALL=C sorted")]
         TAGS --> CACHE_SCRIPT --> TAGSCACHE --> REFS_SCRIPT --> REFS
     end
 
     subgraph QUERY["query path"]
         direction TB
-        SYMBOL["synapse-query.sh symbol<br/>node-scoped, exact name"]
-        CALLERS["synapse-callers.sh<br/>synapse-query.sh callers<br/>repo-wide, look + awk"]
+        SYMBOL["synapse query symbol<br/>node-scoped, exact name"]
+        CALLERS["synapse callers<br/>synapse query callers<br/>repo-wide, look + awk"]
     end
 
     FILES --> TAGS

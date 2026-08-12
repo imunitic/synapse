@@ -1,7 +1,7 @@
 # Copy this to ~/.claude/synapse-ignore-files.conf (setup.sh does this for you).
 # Never overwritten once installed -- edit or extend any time.
 #
-# Extra path patterns dropped at enumeration by synapse-build-lists.sh, on top
+# Extra path patterns dropped at enumeration by synapse build-lists, on top
 # of the built-in exclusions (compiled objects, archives, media, model weights,
 # lockfiles, minified bundles, source maps). This is the repo-specific half:
 # whatever *this* machine's projects carry that is noise everywhere else too.

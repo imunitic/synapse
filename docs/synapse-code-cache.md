@@ -24,7 +24,7 @@ worker writes its own result to a private temp file; one sequential merge afterw
 cache — never a worker writing it directly. Measured: 400 real Java files went from 10.26s to 1.39s,
 byte-for-byte the same cache as the serial version.
 
-`synapse-build-refs.sh` projects that cache into `_refs.tsv`, a flat, `LC_ALL=C`-sorted index —
+`synapse build-refs` projects that cache into `_refs.tsv`, a flat, `LC_ALL=C`-sorted index —
 `name ⇥ def|ref ⇥ kind ⇥ path:line ⇥ expression`. A separate artifact because the constraint is
 *format*, not size: querying the JSON cache directly does not scale (one `jq` pass over a 4.6 MB cache
 measured 0.064s, extrapolating to ~13s per query at a 942 MB cache), while the same data as sorted
@@ -34,11 +34,11 @@ lines answers in 0.36s.
 
 Two commands read the cache, at different scopes:
 
-- **`synapse-query.sh symbol <name> "{Node}"`** — node-scoped: exact-name definition/reference lookup
+- **`synapse query symbol <name> "{Node}"`** — node-scoped: exact-name definition/reference lookup
   within a node's already-known `sources`, closing the last-mile gap from "a node named the file" to a
   real `file:line`. A cache miss triggers the same lazy, parallel backfill the build path uses. Set
   `SYNAPSE_DISABLE_SYMBOL_CACHE` to turn the whole cache off.
-- **`claude/lib/synapse/synapse-callers.sh`** (dispatched as `synapse-query.sh callers <name>`) — repo-wide:
+- **`synapse callers`** (dispatched as `synapse query callers <name>`) — repo-wide:
   every call site of an exact name, anywhere, as `path:line ⇥ calling expression`, reading `_refs.tsv`
   directly. The lookup is `look` (binary search) plus an exact `awk` filter — `look` alone
   prefix-matches (`bet` → `beta`), `awk` alone is a full scan (26s on a 1.4 GB index). Not `grep`,
@@ -47,7 +47,7 @@ Two commands read the cache, at different scopes:
   `--all` widens to every def and ref.
 
 **`callers` needs no graph at all** — no nodes, no reverse index, no vault — and is dispatched *ahead*
-of `synapse-query.sh`'s vault/namespace preamble, so that stays a structural fact rather than a merely
+of `synapse query`'s vault/namespace preamble, so that stays a structural fact rather than a merely
 intended one. Filling the cache is worth doing on its own, independently of ever building a graph.
 
 ## What this buys, priced against the alternative
@@ -63,20 +63,24 @@ the Graph, but real, with no Obsidian install as its price of entry.
 
 ## Vault-freedom, measured
 
-Counting vault references (`OBSIDIAN_VAULT_DIR`, `$VAULT`, the Local REST API, its cert/key) across
-every script in `claude/lib/synapse/`: 10 of 15 are vault-free outright (`synapse-identity.sh`,
-`synapse-build-index.sh`, `synapse-build-lists.sh`, `synapse-build-refs.sh`,
-`synapse-callers.sh`, `synapse-enumerate.sh`, `synapse-gate.sh`, `synapse-push-nodes.sh`,
-`synapse-rank.sh`, `synapse-vocab.sh`), as are `synapse tags`, `synapse tags-cache` and
-`synapse index` — subcommands of the compiled binary rather than scripts. The remaining five
-(`synapse-write-node.sh`, `synapse-query.sh`, `synapse-build-project-index.sh`,
-`synapse-graph-clean.sh`, `synapse-graph-wipe.sh`) are mostly *path*-bound rather than
-*API*-bound: every write is a `PUT` of a file, replaceable by writing to disk, and `links` parses a
-node's own `## Links` section directly rather than asking Obsidian.
+Counting vault references (`OBSIDIAN_VAULT_DIR`, the Local REST API, its cert/key) across the
+subcommands of `synapse`: 12 of 18 are vault-free outright — `namespace`, `build-index`,
+`build-lists`, `build-refs`, `callers`, `enumerate`, `gate`, `push-nodes`, `rank`, `vocab`, `tags`
+and `tags-cache`. The remaining six (`write-node`, `query`, `build-project-index`, `graph-clean`,
+`graph-wipe`, `index`) are mostly *path*-bound rather than *API*-bound: every write is a `PUT` of a
+file, replaceable by writing to disk, and `links` parses a node's own `## Links` section directly
+rather than asking Obsidian.
 
-`synapse-build-index.sh` moved from the second list to the first during the Zig port, which is what
-that distinction predicted: the index it writes was derived, gitignored in the vault and never
-travelled, so the vault reference was a `PUT` with nothing behind it.
+The counting is easier than it was, and that is the point of the port rather than a side effect:
+this was fifteen shell scripts plus a compiled binary, so "is this piece vault-free" meant reading
+each script's preamble. It is now one binary whose vault access is a single function
+(`core.conf.vaultDir`) with a countable set of callers.
+
+`build-index` moved from the second list to the first during the Zig port, which is what that
+distinction predicted: the index it writes was derived, gitignored in the vault and never travelled,
+so the vault reference was a `PUT` with nothing behind it. `query` moved most of the way for the same
+reason — every read is a disk read now, and only `write-node` and `build-project-index` still speak
+to the API at all.
 
 The genuine Obsidian dependency in the whole system is two things, not five scripts: full-text search
 (the "where does X live" entry point) and `api_search_frontmatter`'s JsonLogic evaluation over the

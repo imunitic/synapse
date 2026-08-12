@@ -11,7 +11,6 @@
 
 load 'test_helper'
 
-
 setup() {
   common_setup
   # Every extension the fake knows about, so the script's own registry gate is
@@ -372,27 +371,8 @@ write_list() { # write_list <NN> <title> <path>...
   [ -z "$unexpected" ]
 }
 
-@test "no per-file subprocess anywhere in the repo-scale path" {
-  # The trap this whole design exists to avoid, and one a five-file fixture can
-  # never detect by timing: a `basename`/`wc`/`stat` per path cost minutes where
-  # a batched equivalent cost seconds.
-  #
-  # It used to be asserted by counting `basename` in the script. The whole
-  # apparatus that needed counting -- split, a generated worker, xargs -P, a
-  # `synapse tags` spawn and an `awk` per chunk -- is gone, so the assertion is
-  # now that none of it came back. The batching itself moved into the binary,
-  # where a shell test cannot see it and Zig owns the guarantee.
-  # Comments stripped first: the header names every piece that was removed, and
-  # grepping the prose would fail on the sentence saying the thing is gone.
-  local code; code="$(grep -vE '^[[:space:]]*#' "$REPO_ROOT/claude/lib/synapse/synapse-vocab.sh")"
-  for banned in split xargs worker.sh 'tags --paths' 'awk -F' basename 'wc -c'; do
-    [ "$(printf '%s\n' "$code" | grep -c -- "$banned")" -eq 0 ]
-  done
-}
-
 @test "defaults to the work dir when --out is omitted" {
   make_two_module_repo
-  cp "$REPO_ROOT/claude/lib/synapse/synapse-identity.sh" "$HOME/.claude/lib/synapse/synapse-identity.sh"
 
   run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" vocab --repo "$REPO"
   [ "$status" -eq 0 ]

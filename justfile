@@ -72,7 +72,7 @@ test-serial *FILES: _fake
 #
 # Groups are derived rather than listed on purpose. A hand-maintained group list is
 # one more thing that silently stops matching reality, and the coupling here is dense
-# enough to guarantee it: synapse-tags.sh alone is exercised by seven files.
+# enough to guarantee it: synapse tags alone is exercised by seven files.
 
 # Run only the tests covering the given source files, plus the integration ones.
 test-for +PATHS:
@@ -275,7 +275,10 @@ syntax:
     #!/usr/bin/env bash
     set -euo pipefail
     n=0
-    for f in claude/bin/*.sh claude/lib/synapse/*.sh claude/hooks/*.sh ci/*.sh docs/*.sh setup.sh setup-obsidian-mcp.sh; do
+    # claude/bin, claude/lib/synapse and claude/hooks are gone -- the tooling is two
+    # binaries. What is left to parse-check is the installer, CI and the doc
+    # generators, and the `[ -f ]` guard below is what makes a removed glob harmless.
+    for f in ci/*.sh docs/*.sh setup.sh setup-obsidian-mcp.sh; do
         [ -f "$f" ] || continue
         bash -n "$f"
         n=$((n + 1))
@@ -286,14 +289,14 @@ syntax:
 # cannot fail, and the point is to catch a script edit committed without the
 # regeneration that follows from it.
 
-# Verify docs/scripts.md and the rendered diagrams match their sources.
+# Verify docs/cli.md and the rendered diagrams match their sources.
 docs-check:
-    ./docs/generate-scripts-reference.sh --check
+    ./docs/generate-cli-reference.sh --check
     ./docs/generate-diagrams.sh --check
 
 # Regenerate both generated artefacts; diagrams need mermaid-cli and its Chromium.
 fix:
-    ./docs/generate-scripts-reference.sh
+    ./docs/generate-cli-reference.sh
     ./docs/generate-diagrams.sh
 
 # What CI runs, in the same order, plus a syntax pass CI gets for free by

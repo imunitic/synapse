@@ -9,7 +9,7 @@
 # and three synapse-vocab.bats assertions about CamelCase-splitting fail
 # under plain C for exactly that reason.
 #
-# gcc is required, not incidental: synapse-tags.sh refuses to run at all
+# gcc is required, not incidental: synapse tags refuses to run at all
 # without a C compiler on PATH (`command -v cc || gcc || clang || exit 1`) --
 # real tree-sitter grammars build native parsers, and the check runs even
 # when tests fake tree-sitter itself. --no-install-recommends drops it

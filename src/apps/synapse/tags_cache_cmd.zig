@@ -52,6 +52,11 @@ pub fn run(
     var refs: ?[]const u8 = null;
 
     while (args.next()) |arg| {
+        // Asking for help is not a usage error, and must not need an environment.
+        if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
+            _ = usage();
+            return 0;
+        }
         const target: *?[]const u8 =
             if (std.mem.eql(u8, arg, "--repo-root")) &repo_root
             else if (std.mem.eql(u8, arg, "--cache")) &cache_path

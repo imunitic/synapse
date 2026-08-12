@@ -16,11 +16,11 @@ flowchart TB
     classDef store fill:#e5dbff,stroke:#6741d9,color:#1e1e1e
 
     BEGIN["session begins"]
-    H1["<b>SessionStart</b><br/>synapse-session-start.sh"]
+    H1["<b>SessionStart</b><br/>synapse-hook session-start"]
     WORK["<b>Claude Code session</b><br/>reading, editing, deciding"]
-    H2["<b>Stop</b><br/>synapse-stop-nudge.sh"]
-    H3["<b>PostToolUse</b><br/>synapse-db-sync.sh"]
-    H4["<b>UserPromptSubmit</b><br/>synapse-prompt-context.sh"]
+    H2["<b>Stop</b><br/>synapse-hook stop-nudge"]
+    H3["<b>PostToolUse</b><br/>synapse-hook db-sync"]
+    H4["<b>UserPromptSubmit</b><br/>synapse-hook prompt-context"]
 
     IDX["Index.md"]
     FOLDERS["projects/ · research/ · scratchpad/<br/>inbox/ · designs/"]

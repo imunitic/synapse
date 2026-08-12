@@ -26,14 +26,16 @@ hook_count() {
     "$HOME/.claude/settings.json"
 }
 
-@test "first run installs hooks, commands, and skills, all hooks executable" {
+@test "first run installs commands, skills and both binaries" {
   run bash "$SETUP_SH"
   [ "$status" -eq 0 ]
 
-  [ -f "$HOME/.claude/hooks/synapse-staleness.sh" ]
-  [ -x "$HOME/.claude/hooks/synapse-staleness.sh" ]
-  [ -f "$HOME/.claude/hooks/synapse-session-start.sh" ]
-  [ -x "$HOME/.claude/hooks/synapse-session-start.sh" ]
+  # No hook scripts: the hooks are `synapse-hook <name>`, and settings.json names
+  # the binary rather than a file in hooks/.
+  [ ! -d "$HOME/.claude/hooks" ] || [ -z "$(ls -A "$HOME/.claude/hooks" 2>/dev/null)" ]
+  if [ -x "$REPO_ROOT/zig-out/bin/synapse-hook" ]; then
+    [ -x "$HOME/.claude/bin/synapse-hook" ]
+  fi
 
   [ -f "$HOME/.claude/commands/synapse-init.md" ]
   [ -f "$HOME/.claude/commands/synapse-note.md" ]
@@ -97,17 +99,17 @@ hook_count() {
   run bash "$SETUP_SH"
   [ "$status" -eq 0 ]
 
-  [ "$(hook_count "bash ~/.claude/hooks/synapse-session-start.sh")" = "1" ]
-  [ "$(hook_count "bash ~/.claude/hooks/synapse-db-sync.sh")" = "1" ]
-  [ "$(hook_count "bash ~/.claude/hooks/synapse-staleness.sh")" = "1" ]
-  [ "$(hook_count "bash ~/.claude/hooks/synapse-stop-nudge.sh")" = "1" ]
+  [ "$(hook_count "~/.claude/bin/synapse-hook session-start")" = "1" ]
+  [ "$(hook_count "~/.claude/bin/synapse-hook db-sync")" = "1" ]
+  [ "$(hook_count "~/.claude/bin/synapse-hook staleness")" = "1" ]
+  [ "$(hook_count "~/.claude/bin/synapse-hook stop-nudge")" = "1" ]
 }
 
 @test "synapse-staleness.sh is wired with a Write|Edit|MultiEdit matcher" {
   run bash "$SETUP_SH"
   [ "$status" -eq 0 ]
 
-  matcher="$(jq -r '.hooks.PostToolUse[] | select(.hooks[].command == "bash ~/.claude/hooks/synapse-staleness.sh") | .matcher' "$HOME/.claude/settings.json")"
+  matcher="$(jq -r '.hooks.PostToolUse[] | select(.hooks[].command == "~/.claude/bin/synapse-hook staleness") | .matcher' "$HOME/.claude/settings.json")"
   [ "$matcher" = "Write|Edit|MultiEdit" ]
 }
 
@@ -116,10 +118,10 @@ hook_count() {
   run bash "$SETUP_SH"
   [ "$status" -eq 0 ]
 
-  [ "$(hook_count "bash ~/.claude/hooks/synapse-session-start.sh")" = "1" ]
-  [ "$(hook_count "bash ~/.claude/hooks/synapse-db-sync.sh")" = "1" ]
-  [ "$(hook_count "bash ~/.claude/hooks/synapse-staleness.sh")" = "1" ]
-  [ "$(hook_count "bash ~/.claude/hooks/synapse-stop-nudge.sh")" = "1" ]
+  [ "$(hook_count "~/.claude/bin/synapse-hook session-start")" = "1" ]
+  [ "$(hook_count "~/.claude/bin/synapse-hook db-sync")" = "1" ]
+  [ "$(hook_count "~/.claude/bin/synapse-hook staleness")" = "1" ]
+  [ "$(hook_count "~/.claude/bin/synapse-hook stop-nudge")" = "1" ]
 }
 
 @test "re-running preserves unrelated existing settings.json content" {
@@ -267,22 +269,28 @@ EOF
   [[ "$output" != *"pre-rename copies"* ]]
 }
 
-@test "stale: pre-relocation scripts left in bin/ from before the porcelain move are warned about" {
-  mkdir -p "$HOME/.claude/bin"
-  printf '#!/bin/bash\n' > "$HOME/.claude/bin/synapse-tags.sh"
+@test "stale: shell scripts left over from before the Zig rewrite are named" {
+  # Every one of them, wherever it sits: the whole library is gone, so a leftover is
+  # not a script that moved but a script that no longer exists upstream.
+  mkdir -p "$HOME/.claude/bin" "$HOME/.claude/hooks" "$HOME/.claude/lib/synapse"
+  printf '#!/bin/bash\n' > "$HOME/.claude/bin/synapse.sh"
+  printf '#!/bin/bash\n' > "$HOME/.claude/hooks/synapse-staleness.sh"
+  printf '#!/bin/bash\n' > "$HOME/.claude/lib/synapse/synapse-query.sh"
 
   run bash "$REPO_ROOT/setup.sh"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"pre-relocation scripts in"* ]]
-  [[ "$output" == *"synapse-tags.sh"* ]]
-  # warned about, not deleted -- setup.sh only ever copies in
-  [ -f "$HOME/.claude/bin/synapse-tags.sh" ]
+  [[ "$output" == *"before the Zig rewrite are still installed"* ]]
+  [[ "$output" == *"synapse.sh"* ]]
+  [[ "$output" == *"synapse-staleness.sh"* ]]
+  [[ "$output" == *"synapse-query.sh"* ]]
+  # Named, not deleted -- setup.sh only ever copies in.
+  [ -f "$HOME/.claude/bin/synapse.sh" ]
 }
 
-@test "stale: the porcelain itself in bin/ is not flagged as a leftover" {
+@test "stale: a clean install names no leftover scripts" {
   run bash "$REPO_ROOT/setup.sh"
   [ "$status" -eq 0 ]
-  [[ "$output" != *"pre-relocation scripts"* ]]
+  [[ "$output" != *"before the Zig rewrite are still installed"* ]]
 }
 
 # --- hook rename: settings.json path migration ------------------------------
@@ -308,9 +316,9 @@ EOF
   run bash "$REPO_ROOT/setup.sh"
   [ "$status" -eq 0 ]
 
-  [ "$(cmds SessionStart | grep -c 'synapse-session-start.sh')" -eq 1 ]
-  [ "$(cmds Stop | grep -c 'synapse-stop-nudge.sh')" -eq 1 ]
-  [ "$(cmds PostToolUse | grep -c 'synapse-db-sync.sh')" -eq 1 ]
+  [ "$(cmds SessionStart | grep -c 'synapse-hook session-start')" -eq 1 ]
+  [ "$(cmds Stop | grep -c 'synapse-hook stop-nudge')" -eq 1 ]
+  [ "$(cmds PostToolUse | grep -c 'synapse-hook db-sync')" -eq 1 ]
   # nothing anywhere still points at the old names
   ! grep -q 'second-brain-' "$HOME/.claude/settings.json"
 }
@@ -321,7 +329,7 @@ EOF
   "hooks": {
     "Stop": [
       {"hooks":[{"type":"command","command":"bash ~/.claude/hooks/second-brain-stop-nudge.sh"}]},
-      {"hooks":[{"type":"command","command":"bash ~/.claude/hooks/synapse-stop-nudge.sh"}]}
+      {"hooks":[{"type":"command","command":"~/.claude/bin/synapse-hook stop-nudge"}]}
     ]
   }
 }
@@ -329,7 +337,7 @@ EOF
   run bash "$REPO_ROOT/setup.sh"
   [ "$status" -eq 0 ]
   # two entries that become identical would otherwise fire the nudge twice
-  [ "$(cmds Stop | grep -c 'synapse-stop-nudge.sh')" -eq 1 ]
+  [ "$(cmds Stop | grep -c 'synapse-hook stop-nudge')" -eq 1 ]
 }
 
 @test "hook rename: unrelated settings with a 'command' field are untouched" {
@@ -358,17 +366,20 @@ EOF
 {"hooks":{"Stop":[{"hooks":[{"type":"command","command":"bash ~/.claude/hooks/second-brain-stop-nudge.sh"}]}]}}
 EOF
   bash "$REPO_ROOT/setup.sh" >/dev/null
-  local first; first="$(cmds Stop | grep -c 'synapse-stop-nudge.sh')"
+  local first; first="$(cmds Stop | grep -c 'synapse-hook stop-nudge')"
   bash "$REPO_ROOT/setup.sh" >/dev/null
-  [ "$(cmds Stop | grep -c 'synapse-stop-nudge.sh')" -eq "$first" ]
+  [ "$(cmds Stop | grep -c 'synapse-hook stop-nudge')" -eq "$first" ]
   [ "$first" -eq 1 ]
 }
 
-@test "hook rename: leftover hook files are named as inert, not as still-wired" {
+@test "hook rename: leftover hook files are named, and named as unreferenced" {
   mkdir -p "$HOME/.claude/hooks"
   printf '#!/bin/bash\n' > "$HOME/.claude/hooks/second-brain-db-sync.sh"
   run bash "$REPO_ROOT/setup.sh"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"no longer referenced by settings.json"* ]]
+  # One note now covers every leftover shell script rather than one per generation of
+  # rename: settings.json points at `synapse-hook`, so nothing in hooks/ is wired.
+  [[ "$output" == *"before the Zig rewrite are still installed"* ]]
   [[ "$output" == *"second-brain-db-sync.sh"* ]]
+  [[ "$output" == *"Nothing references them"* ]]
 }

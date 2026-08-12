@@ -15,7 +15,6 @@
 
 load 'test_helper'
 
-BIN="$REPO_ROOT/claude/lib/synapse"
 
 setup() {
   common_setup
@@ -69,19 +68,19 @@ make_project() {
 
 # Runs the full four-step build, as /synapse-init would.
 build_namespace() {
-  in_repo "$BIN/synapse-build-lists.sh" >/dev/null
+  in_repo "$SYNAPSE_BIN" build-lists >/dev/null
   local nn title
   for nn in 01 02 03 04; do
     title="$(cat "$WORK/lists/$nn.title")"
     printf -- '---\nsummary: %s in one line.\n---\n\n## Summary\nProse for %s.\n\n## Crux\n```java\nclass alpha1 { int v = 1; }\n```\n' \
       "$title" "$title" > "$WORK/b-$nn.md"
   done
-  in_repo "$BIN/synapse-push-nodes.sh" >/dev/null
-  in_repo "$BIN/synapse-build-index.sh" >/dev/null
-  in_repo "$BIN/synapse-build-project-index.sh" >/dev/null
+  in_repo "$SYNAPSE_BIN" push-nodes >/dev/null
+  in_repo "$SYNAPSE_BIN" build-index >/dev/null
+  in_repo "$SYNAPSE_BIN" build-project-index >/dev/null
 }
 
-drift() { in_repo "$BIN/synapse-query.sh" drift; }
+drift() { in_repo "$SYNAPSE_BIN" query drift; }
 
 @test "a freshly built namespace has no drift" {
   make_project
@@ -90,7 +89,7 @@ drift() { in_repo "$BIN/synapse-query.sh" drift; }
   run drift
   [ "$status" -eq 0 ]
   [ -z "$output" ]
-  run in_repo "$BIN/synapse-query.sh" stale
+  run in_repo "$SYNAPSE_BIN" query stale
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
@@ -129,7 +128,7 @@ drift() { in_repo "$BIN/synapse-query.sh" drift; }
 
   # The triage input: changed-over-total per node. Alpha is 2/20, which is the
   # boundary the command's "under ~10% -> patch" rule of thumb refers to.
-  run in_repo "$BIN/synapse-query.sh" sources "Alpha — the first module" --count
+  run in_repo "$SYNAPSE_BIN" query sources "Alpha — the first module" --count
   [ "$output" -eq 20 ]
 }
 
@@ -137,7 +136,7 @@ drift() { in_repo "$BIN/synapse-query.sh" drift; }
   make_project
   build_namespace
   local before
-  before="$(in_repo "$BIN/synapse-query.sh" body "Beta — the second module")"
+  before="$(in_repo "$SYNAPSE_BIN" query body "Beta — the second module")"
 
   git -C "$REPO" mv mod-beta/src/main/java mod-beta/src/main/kotlin
   commit_all rename-beta
@@ -149,24 +148,24 @@ drift() { in_repo "$BIN/synapse-query.sh" drift; }
   # trailing `## Sources` block (the writer regenerates it), re-enumerate, write
   # back. No source file is read, and the work dir's b-NN.md is not consulted --
   # which is what makes this work on a machine that never built the namespace.
-  in_repo "$BIN/synapse-build-lists.sh" --reenumerate >/dev/null
-  in_repo "$BIN/synapse-query.sh" body "Beta — the second module" \
+  in_repo "$SYNAPSE_BIN" build-lists --reenumerate >/dev/null
+  in_repo "$SYNAPSE_BIN" query body "Beta — the second module" \
     | awk '/^## Sources$/ { exit } { print }' > "$WORK/reseat.md"
   rm -f "$WORK/b-02.md"
 
-  run in_repo "$BIN/synapse-write-node.sh" --title "Beta — the second module" \
+  run in_repo "$SYNAPSE_BIN" write-node --title "Beta — the second module" \
     --summary "Beta — the second module in one line." \
     --paths "$WORK/lists/02.txt" --body "$WORK/reseat.md"
   [ "$status" -eq 0 ]
 
   # Prose survived byte-for-byte, minus the regenerated Sources mirror.
   local after
-  after="$(in_repo "$BIN/synapse-query.sh" body "Beta — the second module" \
+  after="$(in_repo "$SYNAPSE_BIN" query body "Beta — the second module" \
     | awk '/^## Sources$/ { exit } { print }')"
   [ "$after" = "$(awk '/^## Sources$/ { exit } { print }' <<< "$before")" ]
 
   # And the node no longer drifts: paths reseated, baseline re-recorded.
-  in_repo "$BIN/synapse-build-index.sh" >/dev/null
+  in_repo "$SYNAPSE_BIN" build-index >/dev/null
   run drift
   [[ "$output" != *"Beta — the second module"* ]]
 }
@@ -183,17 +182,17 @@ drift() { in_repo "$BIN/synapse-query.sh" drift; }
   run drift
   [[ "$output" == *"3 new paths already match a manifest pattern"* ]]
 
-  in_repo "$BIN/synapse-build-lists.sh" --reenumerate >/dev/null
+  in_repo "$SYNAPSE_BIN" build-lists --reenumerate >/dev/null
   [ "$(wc -l < "$WORK/lists/03.txt" | tr -d ' ')" -eq 23 ]
 
   # Rewriting the node with the wider list is mechanical; the prose is unchanged.
-  in_repo "$BIN/synapse-query.sh" body "Gamma — the third module" \
+  in_repo "$SYNAPSE_BIN" query body "Gamma — the third module" \
     | awk '/^## Sources$/ { exit } { print }' > "$WORK/g.md"
-  run in_repo "$BIN/synapse-write-node.sh" --title "Gamma — the third module" \
+  run in_repo "$SYNAPSE_BIN" write-node --title "Gamma — the third module" \
     --summary "Gamma — the third module in one line." \
     --paths "$WORK/lists/03.txt" --body "$WORK/g.md"
   [ "$status" -eq 0 ]
-  run in_repo "$BIN/synapse-query.sh" sources "Gamma — the third module" --count
+  run in_repo "$SYNAPSE_BIN" query sources "Gamma — the third module" --count
   [ "$output" -eq 23 ]
 }
 
@@ -220,13 +219,13 @@ drift() { in_repo "$BIN/synapse-query.sh" drift; }
   [[ "$output" == *"is not an ancestor of HEAD"* ]]
   [[ "$output" == *"Gamma — the third module	20 of its files are gone"* ]]
 
-  in_repo "$BIN/synapse-build-lists.sh" --reenumerate >/dev/null
+  in_repo "$SYNAPSE_BIN" build-lists --reenumerate >/dev/null
   # The subsystem does not exist on this line at all.
   [ ! -s "$WORK/lists/03.txt" ]
 
   # The writer must refuse rather than emit a node with no sources, and the node
   # already in the vault must be left intact -- its ## Notes is unrecoverable.
-  run in_repo "$BIN/synapse-write-node.sh" --title "Gamma — the third module" \
+  run in_repo "$SYNAPSE_BIN" write-node --title "Gamma — the third module" \
     --summary "x" --paths "$WORK/lists/03.txt" --body "$WORK/b-03.md"
   [ "$status" -eq 1 ]
   [[ "$output" == *"empty path list"* ]]
@@ -234,7 +233,7 @@ drift() { in_repo "$BIN/synapse-query.sh" drift; }
   grep -q '^## Notes$' "$(ns)/Gamma — the third module.md"
 
   # And the driver reports it rather than aborting the whole run.
-  run in_repo "$BIN/synapse-push-nodes.sh" 03
+  run in_repo "$SYNAPSE_BIN" push-nodes 03
   [ "$status" -eq 1 ]
   [[ "$output" == *"03	SKIP (no list/title)"* || "$output" == *"03	FAILED"* ]]
 }
@@ -252,22 +251,22 @@ drift() { in_repo "$BIN/synapse-query.sh" drift; }
   [ -n "$output" ]
 
   # The mechanical phase, then a rewrite of each flagged node from its own prose.
-  in_repo "$BIN/synapse-build-lists.sh" --reenumerate >/dev/null
+  in_repo "$SYNAPSE_BIN" build-lists --reenumerate >/dev/null
   local nn title
   for nn in 01 02 03; do
     title="$(cat "$WORK/lists/$nn.title")"
-    in_repo "$BIN/synapse-query.sh" body "$title" \
+    in_repo "$SYNAPSE_BIN" query body "$title" \
       | awk '/^## Sources$/ { exit } { print }' > "$WORK/r-$nn.md"
-    in_repo "$BIN/synapse-write-node.sh" --title "$title" --summary "$title in one line." \
+    in_repo "$SYNAPSE_BIN" write-node --title "$title" --summary "$title in one line." \
       --paths "$WORK/lists/$nn.txt" --body "$WORK/r-$nn.md" >/dev/null
   done
-  in_repo "$BIN/synapse-build-index.sh" >/dev/null
-  in_repo "$BIN/synapse-build-project-index.sh" >/dev/null
+  in_repo "$SYNAPSE_BIN" build-index >/dev/null
+  in_repo "$SYNAPSE_BIN" build-project-index >/dev/null
 
   run drift
   [ "$status" -eq 0 ]
   [ -z "$output" ]
-  run in_repo "$BIN/synapse-query.sh" stale
+  run in_repo "$SYNAPSE_BIN" query stale
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }

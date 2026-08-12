@@ -28,12 +28,14 @@ const build_lists_cmd = @import("build_lists_cmd.zig");
 const vocab_cmd = @import("vocab_cmd.zig");
 const rank_cmd = @import("rank_cmd.zig");
 const query_cmd = @import("query_cmd.zig");
+const usage = @import("usage.zig").text;
 const write_node_cmd = @import("write_node_cmd.zig");
 const refs_cmd = @import("refs_cmd.zig");
 const gate_cmd = @import("gate_cmd.zig");
 const push_nodes_cmd = @import("push_nodes_cmd.zig");
 const project_index_cmd = @import("project_index_cmd.zig");
 const graph_cmd = @import("graph_cmd.zig");
+const namespace_cmd = @import("namespace_cmd.zig");
 
 comptime {
     // `treesitter` needs no line here: tags.zig uses it for real.
@@ -42,34 +44,6 @@ comptime {
     _ = adapters;
 }
 
-const usage =
-    \\usage: synapse <subcommand> [args]
-    \\
-    \\  tags <file>                tags for one file
-    \\  tags --paths <list-file>   tags for every listed file, in one batch
-    \\  tags --list-extensions     every extension with a usable grammar
-    \\  tags-cache --repo-root <dir> --cache <file> --paths <tsv>
-    \\  tags-cache --dump <file>   what the cache holds
-    \\  tags-cache --refs <file>   _refs.tsv rows from the cache
-    \\  index build --unassigned <file>   _index.bin from path<TAB>node on stdin
-    \\  index unassigned           every path no node claims
-    \\  index lookup <path>        the nodes claiming one path
-    \\  enumerate [--reenumerate]  tracked files worth graphing, into the work dir
-    \\  build-lists [--reenumerate]  manifest.tsv into one path list per node
-    \\  vocab [--lists <dir>]      symbol vocabulary by group
-    \\  rank --sources <file>      a node's sources by reading value
-    \\  query <subcommand> [args]  read-only queries against the graph
-    \\  write-node --title <t> --summary <s> --paths <f> --body <f>
-    \\  build-refs [--cache <f>] [--out <f>]   _refs.tsv from the tags cache
-    \\  callers <name> [--all]     repo-wide sites of an exact name
-    \\  gate --vocab <file> [--all] [--top N]   clusters owning no vocabulary
-    \\  push-nodes [NN ...]        write one node per authored body
-    \\  build-project-index        the namespace's Index.md node map
-    \\  build-index                _index.bin from the work dir's lists
-    \\  graph-clean [--dry-run]    drop namespaces whose branch is gone upstream
-    \\  graph-wipe [--dry-run]     drop this namespace, preserving hand Notes
-    \\
-;
 
 pub fn main(init: std.process.Init) !u8 {
     var args = init.minimal.args.iterate();
@@ -125,6 +99,9 @@ pub fn main(init: std.process.Init) !u8 {
 
     if (std.mem.eql(u8, sub, "write-node"))
         return write_node_cmd.run(treesitter.extractor.TreeSitterExtractor, init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "namespace"))
+        return namespace_cmd.run(init.gpa, init.io, init.environ_map, &args);
 
     if (std.mem.eql(u8, sub, "build-index"))
         return index_cmd.runBuildIndex(init.gpa, init.io, init.environ_map, &args);

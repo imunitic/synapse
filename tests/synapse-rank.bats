@@ -11,7 +11,6 @@
 
 load 'test_helper'
 
-
 setup() {
   common_setup
   # java/py/ts: CODE_RE is now built from this registry (via
@@ -369,24 +368,6 @@ rank_of() { # rank_of <path> <output>
   run run_rank
   [ "$status" -eq 0 ]
   [ -z "$(data "$output")" ]
-}
-
-@test "no per-file subprocess anywhere in the ranking path" {
-  # A `wc -c` per path cost 15 minutes where a batched `stat` cost 3 seconds on
-  # a real repo, and a fixture of eight files can never surface the difference.
-  # The POC this replaces had TWO such loops -- a tags invocation and a size
-  # check, both per file.
-  # Comments stripped first: this script's own header explains the trap by
-  # name, and a structural check that trips on the explanation is worse than
-  # no check -- it would force the comment out to stay green.
-  # The batching moved into the binary, where a shell test cannot see it, so what
-  # is left to assert here is that none of the per-file apparatus came back. The
-  # `xargs -0 stat` this used to require is gone with it: sizes are one statFile
-  # per path in process, which is the same batching without the batch.
-  local code; code="$(grep -v '^[[:space:]]*#' "$REPO_ROOT/claude/lib/synapse/synapse-rank.sh")"
-  for banned in 'wc -c' basename split xargs worker.sh 'tags --paths' 'awk -F'; do
-    [ "$(grep -c -- "$banned" <<< "$code")" -eq 0 ]
-  done
 }
 
 @test "usage and environment errors" {

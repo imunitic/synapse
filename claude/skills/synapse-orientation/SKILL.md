@@ -19,7 +19,7 @@ tree* well enough to cluster it and then write about it.
 ## Start with the vocabulary — it is mechanical, and it is most of the answer
 
 ```
-synapse-vocab.sh                    # writes groupwords.tsv + counts.tsv into $SYNAPSE_WORK_DIR
+synapse vocab                    # writes groupwords.tsv + counts.tsv into $SYNAPSE_WORK_DIR
 ```
 
 One command derives what used to be an exploration. It tags every file that has a grammar, splits
@@ -38,7 +38,7 @@ that judgment is yours, and it is the actual work. A word appearing in every gro
 a word appearing in two is a concept. Scan across groups, not down one.
 
 **An empty `groupwords.tsv` is a legitimate answer**, not a failure: no file in this tree had a
-usable grammar. `synapse-vocab.sh` says so on stderr and exits 0. That is the case the four
+usable grammar. `synapse vocab` says so on stderr and exits 0. That is the case the four
 questions below exist for.
 
 ## When there is no usable grammar — and as a complement when there is
@@ -65,13 +65,13 @@ is about the gap between what the code calls itself and what the *directory* cal
 
 **Answer these with aggregate shell over the path lists, not by reading files.** Reading is
 internal and free; only what you print costs tokens, so a 15,000-file cluster should collapse to
-a few dozen lines before you read anything. Then let `synapse-rank.sh` pick which 2–4 files per
+a few dozen lines before you read anything. Then let `synapse rank` pick which 2–4 files per
 node are worth actually reading — see "Choosing what to read" below.
 
 **Do not sample, and do not invent a sampling rule.** An earlier version of this skill said
 `synapse tags` took one file per invocation and so could not be run over a whole cluster,
 and told you to pick a sampling rule and defend it. That is obsolete: `synapse tags --paths`
-tags a whole list in one invocation, which measured 33× on 200 files, and `synapse-vocab.sh`
+tags a whole list in one invocation, which measured 33× on 200 files, and `synapse vocab`
 above uses it to cover an entire repository in under a minute. Sampling existed only to bound a
 cost that no longer exists, and every fixed rule was biased in a way that had to be chosen
 deliberately — alphabetical is an accident, largest-file favours generated code and god-classes,
@@ -97,13 +97,13 @@ which is the main reason this is prose rather than an executable.
 
 ## Choosing what to read
 
-Once clusters exist, `synapse-rank.sh --sources lists/NN.txt` decides reading order — it does not
+Once clusters exist, `synapse rank --sources lists/NN.txt` decides reading order — it does not
 decide coverage, which stays exhaustive. Two pools, because the two halves of authoring want
 different files:
 
 ```
-synapse-rank.sh --sources lists/NN.txt --pool summary   # names: code, tests, DSL consumers
-synapse-rank.sh --sources lists/NN.txt --pool crux      # implementation only, tests excluded
+synapse rank --sources lists/NN.txt --pool summary   # names: code, tests, DSL consumers
+synapse rank --sources lists/NN.txt --pool crux      # implementation only, tests excluded
 ```
 
 A summary is made of *names*, so test class names and the names of the code consuming a DSL file

@@ -39,7 +39,7 @@ No arguments — always operates on the repo and branch containing the current w
 ### 1. Resolve the namespace
 
 Same resolution `/synapse-init` uses: repo root (`git rev-parse --show-toplevel`), namespace key
-(`{repo}@{branch}` via `synapse_namespace` in `synapse-identity.sh`), remote (for the `Index.md`
+(`{repo}@{branch}`, printed by `synapse namespace`), remote (for the `Index.md`
 verification field).
 
 Check whether `synapse/{repo}@{branch}/Index.md` exists.
@@ -54,7 +54,7 @@ Check whether `synapse/{repo}@{branch}/Index.md` exists.
 ### 2. Preview the wipe and get explicit confirmation
 
 ```sh
-~/.claude/bin/synapse.sh graph-wipe --dry-run
+~/.synapse graph-wipe --dry-run
 ```
 
 Report its output plainly: node count, and — the one thing this step exists to surface — how many
@@ -75,13 +75,13 @@ notes attached, which the human hasn't seen a number for yet.
 Once confirmed:
 
 ```sh
-~/.claude/bin/synapse.sh graph-wipe
+~/.synapse graph-wipe
 ```
 
 This deletes `synapse/{repo}@{branch}/` and, if any node had non-empty `## Notes`, first dumps that
 content verbatim to `scratchpad/{repo}@{branch} — preserved notes before full rebuild.md`. See
-`synapse-graph-wipe.sh`'s own header for the exact mechanics (belt-and-braces path check, same
-discipline `synapse-graph-clean.sh` uses for its own deletion).
+`synapse graph-wipe`'s own header for the exact mechanics (belt-and-braces path check, same
+discipline `synapse graph-clean` uses for its own deletion).
 
 ### 4. Rebuild from scratch
 
@@ -102,7 +102,7 @@ technique `/synapse-init`'s `_unassigned` sweep already uses for classifying fil
 node list: read the note against the new summaries, judge which node it best fits.
 
 - **Confident match** → append the note's content into that node's `## Notes` section (every node
-  written by `synapse-write-node.sh` already carries one, empty if nothing else was there — never a
+  written by `synapse write-node` already carries one, empty if nothing else was there — never a
   "create the section" case) with a one-line provenance breadcrumb: `(carried over from "{old node
   title}" during full rebuild on {date})`. The note is losing its original context by moving to a new
   home, and that breadcrumb is the only way a future reader recovers why it's there.
@@ -137,7 +137,7 @@ note live containing only the leftovers, trimmed of everything that did get merg
   to make the report look cleaner.
 - **Never merge into a node's generated region.** The merge target is always `## Notes`, appended, never
   touching anything inside the `<!-- synapse:generated:start -->`…`<!-- synapse:generated:end -->`
-  fence — that region belongs to `synapse-write-node.sh` alone.
+  fence — that region belongs to `synapse write-node` alone.
 - **Never treat this as the default repair path.** `/synapse-rebuild-diff` is cheaper, preserves every
   node rather than deleting them, and is the right tool for ordinary drift. Use this command when
   triage genuinely isn't worth it, not as a heavier habit that replaces the lighter one.
@@ -146,7 +146,7 @@ note live containing only the leftovers, trimmed of everything that did get merg
 
 - Delegates the actual rebuild to `/synapse-init`'s First-time-build procedure — this command owns
   only the wipe-with-preservation step before it and the note-merge step after it.
-- The wipe itself is `synapse-graph-wipe.sh` (via `synapse.sh graph-wipe`), mirroring
-  `synapse-graph-clean.sh` as the only other destructive tool in the system.
-- Reads the same `synapse-identity.sh` resolution chain as `/synapse-init` and `/synapse-rebuild-diff`
+- The wipe itself is `synapse graph-wipe` (via `synapse graph-wipe`), mirroring
+  `synapse graph-clean` as the only other destructive tool in the system.
+- Resolves the namespace the same way `/synapse-init` and `/synapse-rebuild-diff` do -- one chain, in `core/identity.zig`
   — never re-derives repo/branch/remote independently.

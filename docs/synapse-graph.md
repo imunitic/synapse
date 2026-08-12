@@ -16,34 +16,34 @@ better than prose.
 
 | Box | What it does |
 |---|---|
-| `synapse-vocab.sh` | Reduces the repo to `group ⇥ word ⇥ count` from symbol names alone. The orientation evidence, derived rather than explored. |
+| `synapse vocab` | Reduces the repo to `group ⇥ word ⇥ count` from symbol names alone. The orientation evidence, derived rather than explored. |
 | **model** — orient and cluster | Reads the vocabulary table and decides what the nodes should be. The one genuinely judgment-shaped step in a build. |
-| `synapse-gate.sh` | Flags a cluster whose top terms are all corpus-common — it owns no vocabulary, so it is not a concept. Runs before any prose is paid for. |
-| `synapse-rank.sh` | Which of a cluster's files are worth reading, in tiers. Reading order only; `sources` stays exhaustive. |
+| `synapse gate` | Flags a cluster whose top terms are all corpus-common — it owns no vocabulary, so it is not a concept. Runs before any prose is paid for. |
+| `synapse rank` | Which of a cluster's files are worth reading, in tiers. Reading order only; `sources` stays exhaustive. |
 | **manifest.tsv** — the seam | `title ⇥ include-ERE ⇥ exclude-ERE`, one line per node. The single artifact the model hands to the scripts, and the reason coverage comes out as a printed number rather than a claim. |
-| `synapse-build-lists.sh` | `git ls-files` → `all.txt`, then expands each manifest line into a path list. Prints enumerated / covered / unassigned. |
+| `synapse build-lists` | `git ls-files` → `all.txt`, then expands each manifest line into a path list. Prints enumerated / covered / unassigned. |
 | **model** — author node prose | Writes one body per node: summary, a crux *pointer* (never the code itself), links, and any `grounded_in` pointers. |
-| `synapse-push-nodes.sh` | Loops the writer over every node that has both a path list and a body. |
-| `synapse-write-node.sh` | Hashes every path, computes `sources_digest`, slices the crux out of the file from its pointer, digests each `grounded_in` range, builds the `## Sources` mirror, records `commit`. |
-| `synapse-build-index.sh` | Builds `_index.bin`, the reverse index the Tier 1 hook reads. |
-| `synapse-build-project-index.sh` | Builds `Index.md`, reading each bullet's headline back off the node's own `summary`. |
+| `synapse push-nodes` | Loops the writer over every node that has both a path list and a body. |
+| `synapse write-node` | Hashes every path, computes `sources_digest`, slices the crux out of the file from its pointer, digests each `grounded_in` range, builds the `## Sources` mirror, records `commit`. |
+| `synapse build-index` | Builds `_index.bin`, the reverse index the Tier 1 hook reads. |
+| `synapse build-project-index` | Builds `Index.md`, reading each bullet's headline back off the node's own `summary`. |
 | `synapse tags` | tree-sitter definitions and references, used as a clustering signal. Falls back to plain reading when a grammar is unavailable. |
 | `{Node Title}.md × N` | The nodes: `sources`, `sources_digest`, `commit`, `crux_path`, `grounded_in`, `stale`, fenced prose, and a human `## Notes` preserved across regeneration. |
 | `_index.bin` | Source path → owning node filenames, plus the unassigned list. Machine-only, in the work dir. |
 | `Index.md` | The node map, plus the `remote` and `branch` identity fields verified before any read or write. |
 | `_manifest.tsv` · `_profile.txt` | Kept for the next rebuild. |
 | `_tags_cache.bin` | `path → {hash, tags, unsupported}`. Machine-only and never authoritative — so it lives in `$SYNAPSE_WORK_DIR`, not the vault. |
-| `synapse-query.sh` | Projected reads — `body`, `sources`, `field`. Reads the expensive parts internally and prints only what was asked for. |
-| `synapse-query.sh symbol` | Exact-name definition and reference lookup: a cache read, with a lazy parallel backfill on a miss. |
+| `synapse query` | Projected reads — `body`, `sources`, `field`. Reads the expensive parts internally and prints only what was asked for. |
+| `synapse query symbol` | Exact-name definition and reference lookup: a cache read, with a lazy parallel backfill on a miss. |
 | `synapse-node` skill | Tier 2 — verify at read time, then regenerate lazily. |
-| `synapse-staleness.sh` | Tier 1 hook — sets `stale: true`, and asks for a correction when cited evidence stops matching. |
-| `synapse-query.sh stale` | Re-hashes what a node claims. Cannot see additions, and reads a rename as a deletion. |
-| `synapse-query.sh drift` | Diffs `commit..HEAD`. The only thing that sees added paths, deletions, renames and a divergent baseline. |
-| `synapse-query.sh grounding` | Re-slices cited evidence: moved → re-point, changed → re-check. |
+| `synapse-hook staleness` | Tier 1 hook — sets `stale: true`, and asks for a correction when cited evidence stops matching. |
+| `synapse query stale` | Re-hashes what a node claims. Cannot see additions, and reads a rename as a deletion. |
+| `synapse query drift` | Diffs `commit..HEAD`. The only thing that sees added paths, deletions, renames and a divergent baseline. |
+| `synapse query grounding` | Re-slices cited evidence: moved → re-point, changed → re-check. |
 | `/synapse-rebuild-diff` | Triage per node — reseat, patch from the diff, or re-orient. Same-branch only. |
 | `/synapse-rebuild-full` | Wipes the namespace and rebuilds it via `/synapse-init`, preserving and auto-merging back `## Notes`. |
-| `synapse-graph-wipe.sh` | Deletes the current namespace after preserving `## Notes` to a scratchpad staging note. The delete half of `/synapse-rebuild-full`. |
-| `synapse-graph-clean.sh` | Removes a namespace whose upstream branch is gone; reports anything it cannot confirm. Run deliberately, never fired by a hook. |
+| `synapse graph-wipe` | Deletes the current namespace after preserving `## Notes` to a scratchpad staging note. The delete half of `/synapse-rebuild-full`. |
+| `synapse graph-clean` | Removes a namespace whose upstream branch is gone; reports anything it cannot confirm. Run deliberately, never fired by a hook. |
 
 The whole system in one picture, and the layout carries an argument. Three lanes — what the **model**
 judges, what a **script** executes, what lands in the **vault** — because the division between the
@@ -52,8 +52,8 @@ than asserted: arrows cross from the model lane into the script lane in exactly 
 `manifest.tsv` and the authored `b-NN.md` prose bodies. Every other step of a build is mechanical and
 never leaves the script lane. The four phases read left to right and top to bottom — build, then read,
 then detect, then repair — and the repair arrow closes the loop by returning to
-`synapse-write-node.sh`, which re-records each node's `commit` and so sets the baseline the next
-`drift` measures against. Per-script usage and exit codes are in [scripts.md](scripts.md); the
+`synapse write-node`, which re-records each node's `commit` and so sets the baseline the next
+`drift` measures against. Per-subcommand usage and exit codes are in [cli.md](cli.md); the
 sections below are the reasoning.
 
 ## Dormant until opted in
@@ -66,7 +66,7 @@ nothing, forever.
 More precisely, a **repo and branch pair** has none until it is built there: a namespace is keyed
 `synapse/{repo}@{branch}/`. The repo half comes from the remote's basename rather than the directory,
 so a linked worktree and its parent checkout agree; the branch half from `git symbolic-ref --short
-HEAD`. Both are resolved in one place, `claude/lib/synapse/synapse-identity.sh`, because five components have
+HEAD`. Both are resolved in one place, `src/core/identity.zig`, because five components have
 to agree about which namespace a checkout belongs to and a second derivation is how they stop
 agreeing.
 
@@ -85,7 +85,7 @@ graph you built on the mainline keeps describing the mainline.
 ## Namespace end-of-life
 
 Branches are deleted, so their namespaces reach end-of-life routinely rather than exceptionally.
-`claude/lib/synapse/synapse-graph-clean.sh` removes the ones whose upstream is gone — what `git branch -vv`
+`synapse graph-clean` removes the ones whose upstream is gone — what `git branch -vv`
 reports as `[origin/x: gone]` — after a `git fetch --prune`, without which a deleted branch still has
 a local tracking ref and the command silently finds nothing to do.
 
@@ -143,10 +143,10 @@ regeneration event to piggyback the sweep onto.
 The division that keeps Synapse language-agnostic, and the test for where any future piece belongs:
 
 - **Mechanics — fixed, language-agnostic, tested.** Enumerating and proving coverage
-  (`synapse-build-lists.sh`), hashing + `sources_digest` + the `## Sources` mirror + the PUT
-  (`synapse-write-node.sh`, driven by `synapse-push-nodes.sh`), the reverse index
-  (`synapse-build-index.sh`), the project index (`synapse-build-project-index.sh`), and reading it
-  all back (`synapse-query.sh`). These have exact contracts — the digest definition must match
+  (`synapse build-lists`), hashing + `sources_digest` + the `## Sources` mirror + the PUT
+  (`synapse write-node`, driven by `synapse push-nodes`), the reverse index
+  (`synapse build-index`), the project index (`synapse build-project-index`), and reading it
+  all back (`synapse query`). These have exact contracts — the digest definition must match
   across the writer and the verifier or every node reports a false mismatch — and none of them can
   know or care what language the repo is in.
 - **Interpretation — the model, and only the model.** What the nodes *are*, and what their prose
@@ -207,7 +207,7 @@ reach — so any use of it needed a sampling rule, and every fixed rule was bias
 to be chosen and defended (alphabetical is an accident, largest-file favours generated code,
 "under `api/`" bakes in a naming convention the repo may not share, most-referenced needs the full
 scan being avoided). `--paths` removed the cost that forced the choice: one invocation for a whole
-list measured 33× on 200 files, and `synapse-vocab.sh` now covers 98k code files in ~51s. There is
+list measured 33× on 200 files, and `synapse vocab` now covers 98k code files in ~51s. There is
 no sampling rule anywhere in the pipeline, and reaching for one is a sign of running the wrong
 command.
 
@@ -224,8 +224,8 @@ Worth stating plainly, because conflating the two produces a real bug — trimmi
   the mirror is for.
 - **`## Sources` is aggregated, not enumerated**: one line per owning directory/module with a file
   count. A node covering 941 files would otherwise put 75 KB of paths in front of a reader who wants
-  to know which modules are involved. The aggregation key (`module_of()` in `synapse-query.sh`,
-  re-implemented identically in `synapse-write-node.sh` -- the two must never drift) is everything
+  to know which modules are involved. The aggregation key (`module_of()` in `synapse query`,
+  re-implemented identically in `synapse write-node` -- the two must never drift) is everything
   before a path's first `/src/`, *except* for a configured list of boilerplate chains
   (`~/.claude/synapse-module-boilerplate.conf`, seeded with Maven/Gradle's `src/main/java`,
   `src/test/java`, `src/main/resources`) which strip through to the segment before `src/` entirely.
@@ -243,7 +243,7 @@ Worth stating plainly, because conflating the two produces a real bug — trimmi
 ### The crux is sliced, not typed
 
 The body never contains crux code. It carries a directive — `<!-- crux: path/to/file.ext 412-419 -->`,
-or `<!-- crux: none -->` — and `synapse-write-node.sh` cuts those lines out of the file, fences them with
+or `<!-- crux: none -->` — and `synapse write-node` cuts those lines out of the file, fences them with
 a language guessed from the extension, appends a `path:start-end` provenance line, and records
 `crux_path`/`crux_lines` in frontmatter. The write is refused if the path is not one the node claims, if
 the range runs off the end of the file, or if the span reaches 20 lines.
@@ -285,7 +285,7 @@ keeps the field small, avoids escaping multi-line code into YAML, and makes veri
 The digest covers the *slice*, not the file, so a change elsewhere in that file leaves the grounding
 intact — a far sharper signal than what fraction of a node's lines moved.
 
-`synapse-query.sh grounding` re-slices every recorded range and compares:
+`synapse query grounding` re-slices every recorded range and compares:
 
 - **silence** — the evidence still says what it said, so nothing has undercut the prose;
 - **`grounding moved: path 1-2 -> 3-4`** — byte-identical text at a new offset, because something was
@@ -350,7 +350,7 @@ When both checks have something to say about the same edit, they're merged into 
 
 A node's `## Links` section records typed relations — `- depends_on [[Other Node]]`, `uses`, `part_of`.
 Obsidian's own link graph is untyped: it knows Alpha links to Beta, not *why*, because the relation word
-is prose on the line. So `synapse-query.sh links` derives the typed graph from the node files:
+is prose on the line. So `synapse query links` derives the typed graph from the node files:
 
     links <node>              outbound, relation<TAB>target
     links <node> --inbound    what points here, relation<TAB>source
@@ -381,7 +381,7 @@ The `SessionStart` hook injects two things, and neither is stored anywhere:
 - **A verified pointer to the cwd repo's own namespace**, emitted only when that namespace's `remote:` matches the repo's actual remote. On a mismatch it says so instead, rather than risk pointing at a different repo's graph.
 - **A catalogue of every *other* namespace in the vault** (`name | remote`), because one session routinely spans several repos — a change in one landing in another — and without it only the starting repo is ever announced. A session that moves into a listed repo can consult its graph, after verifying the listed remote against that repo's own.
 
-The catalogue is derived, never stored: the source of truth is the directory listing plus each namespace `Index.md`'s existing `remote:` field, so there is nothing to invalidate and it cannot drift from reality. A stored copy could be *wrong*; a derived one can only be absent. It also keeps this hook read-only against the vault — only `synapse-staleness.sh` writes.
+The catalogue is derived, never stored: the source of truth is the directory listing plus each namespace `Index.md`'s existing `remote:` field, so there is nothing to invalidate and it cannot drift from reality. A stored copy could be *wrong*; a derived one can only be absent. It also keeps this hook read-only against the vault — only `synapse-hook staleness` writes.
 
 Cost is one `grep` fork regardless of namespace count (`-m1` stops inside each file's frontmatter), then `LC_ALL=C sort` so the injected text is byte-identical across runs and machines — collation is locale-dependent and the glob's order isn't reliably sorted, and non-deterministic context defeats prompt caching. Deliberately `grep` rather than `rg`: this ships to machines that may not have ripgrep, and rg measured ~2.9x slower on this workload anyway, being pure process-startup cost.
 
@@ -389,7 +389,7 @@ Outside any git repo there is no pointer and nothing to exclude, so the catalogu
 
 ## What every prompt is told
 
-`SessionStart` injects a pointer once. `UserPromptSubmit` (`synapse-prompt-context.sh`) repeats one short line on every prompt: this repo has a code graph, it has N nodes, read it before grepping, and the skills have the procedure. That is the whole payload — no search, no node list, no network call. ~80 tokens. Set `SYNAPSE_DISABLE_PROMPT_INJECTION` (any value) to turn it off entirely; the check is the hook's literal first line, so a disabled run costs nothing beyond that one test.
+`SessionStart` injects a pointer once. `UserPromptSubmit` (`synapse-hook prompt-context`) repeats one short line on every prompt: this repo has a code graph, it has N nodes, read it before grepping, and the skills have the procedure. That is the whole payload — no search, no node list, no network call. ~80 tokens. Set `SYNAPSE_DISABLE_PROMPT_INJECTION` (any value) to turn it off entirely; the check is the hook's literal first line, so a disabled run costs nothing beyond that one test.
 
 **It used to search, and the measurement that ended that is worth keeping.** The hook ran the prompt through `synapse-tokenizer.sh`, OR'd the surviving terms into one `regexp` clause, POSTed it to the Local REST API's `/search/` endpoint alongside a `glob` on the repo's namespace, and injected the matching node paths.
 
@@ -397,22 +397,22 @@ This section previously recorded the known weakness — that OR-ing every term l
 
 Real usage answered both. Against a medium repo (52 nodes), the prompt *"can you explain how BatchRunner dispatches work items"* returned **50 of 52 nodes** for **~1057 tokens, on every turn**. The cause was not tunable: `[Ww]ork` matched 50 nodes because it matched the substring inside `framework`, which occurs 1392 times across the namespace's `sources` lists. Word boundaries took the union only from 50 to 25 — "work" is genuinely a word in this domain. The distinctive term `[Bb]atchRunner` matched a useful 11, and was drowned by the weak one it was OR'd with.
 
-**The verdict split the feature in two.** The search was solving a discovery problem that no longer exists: `synapse index lookup` answers path → owning node for ~15 tokens with nothing entering context, the tags cache answers symbol questions without opening a file, and `synapse-query.sh` projects exactly the field asked for. Those are *pull*, precise, and paid only when the question is about the codebase. The search was *push*, imprecise, and paid always — including on "commit and push". Reading the entire node map costs ~2500 tokens once, so the search overtook that after 2.4 turns and kept charging.
+**The verdict split the feature in two.** The search was solving a discovery problem that no longer exists: `synapse index lookup` answers path → owning node for ~15 tokens with nothing entering context, the tags cache answers symbol questions without opening a file, and `synapse query` projects exactly the field asked for. Those are *pull*, precise, and paid only when the question is about the codebase. The search was *push*, imprecise, and paid always — including on "commit and push". Reading the entire node map costs ~2500 tokens once, so the search overtook that after 2.4 turns and kept charging.
 
 What could not be replaced by pulling is the reminder itself. A `SessionStart` injection ages out of a long session once context is compacted; a per-turn line does not, and the habit it defends against — reaching for `grep` by reflex — is exactly what the graph exists to displace. So the nudge stayed and the search went. The cost went from ~1057 to ~80 tokens per turn, and the line is now constant: same text whatever the prompt says, because it is a standing reminder rather than a result.
 
 A consequence worth noting: the hook no longer touches the vault REST API, so it needs no cert, no API key and no plugin data. Filesystem and git only.
 
-`synapse-tokenizer.sh` is gone, deleted during the Zig port rather than ported: the search removal above left it with no caller but the porcelain's own dispatch table, and porting dead code is worse than deleting it. Its stopword list (`~/.claude/synapse-prompt-stopwords.conf`) very much is still used — `synapse-vocab.sh` reduces symbol vocabulary through the same list, deliberately, so two mechanisms cannot disagree about what a background word is. The list is the artefact worth keeping; the script that first read it is not.
+`synapse-tokenizer.sh` is gone, deleted during the Zig port rather than ported: the search removal above left it with no caller but the porcelain's own dispatch table, and porting dead code is worse than deleting it. Its stopword list (`~/.claude/synapse-prompt-stopwords.conf`) very much is still used — `synapse vocab` reduces symbol vocabulary through the same list, deliberately, so two mechanisms cannot disagree about what a background word is. The list is the artefact worth keeping; the script that first read it is not.
 
 ## Two-tier staleness
 
 ![The two staleness tiers and the tree-sitter acceleration layer](diagrams/synapse-graph-tiers.png)
 
 Both tiers answer "has content under a node changed". Neither can see a file that belongs to *no*
-node, which is what `synapse-query.sh drift` is for — see "Drift" below.
+node, which is what `synapse query drift` is for — see "Drift" below.
 
-**Tier 1 — `PostToolUse` → `synapse-staleness.sh`.** Fires on every `Write`/`Edit`/`MultiEdit`.
+**Tier 1 — `PostToolUse` → `synapse-hook staleness`.** Fires on every `Write`/`Edit`/`MultiEdit`.
 Resolves the repo root **from the edited file's own directory**, not the session's cwd, so a session
 spanning several repos flags the right namespace in each. Looks the edited path up in that repo's
 `_index.bin`: if it belongs to one or more nodes, rewrites each one's `stale:` line to `true`; if
@@ -423,7 +423,7 @@ nodes cite **in this file**, so an edit that invalidates cited evidence returns 
 "Opportunistic correction" above for why that slice and no wider. It also checks, once per file per
 session, whether any other node depends on the ones claiming this file — see "Blast radius" below.
 
-The hook also refuses to write when the namespace's `remote:` doesn't match the repo's, using the same origin → first-listed-remote → repo-root resolution the SessionStart hook and `synapse-query.sh` use. A namespace with no readable `remote:` counts as a mismatch, not a match on the empty string: absent provenance is not permission to write. All three components must resolve the remote identically, or one refuses where another proceeds.
+The hook also refuses to write when the namespace's `remote:` doesn't match the repo's, using the same origin → first-listed-remote → repo-root resolution the SessionStart hook and `synapse query` use. A namespace with no readable `remote:` counts as a mismatch, not a match on the empty string: absent provenance is not permission to write. All three components must resolve the remote identically, or one refuses where another proceeds.
 
 It sets that field by **read-modify-write** (`GET`, rewrite the one `stale:` line, `PUT`), never by
 `PATCH` with `Target-Type: frontmatter`. That call is not field-local despite reading that way: it
@@ -434,7 +434,7 @@ rebuild can clear.
 
 **Tier 2 — read-time, the `synapse-node` skill.** Not a hook — a procedure Claude follows itself,
 proactively, whenever a node's body is about to actually be used (not a title-only skim). It runs
-`claude/lib/synapse/synapse-query.sh stale`, which verifies the **whole project in one pass** — one
+`synapse query stale`, which verifies the **whole project in one pass** — one
 `git hash-object` fork plus one GET per node, a second or two for a few dozen nodes — and prints one
 line per stale node
 with a reason (content changed, source files gone by name, no digest, node file missing), or nothing
@@ -474,11 +474,11 @@ a schema or a resource definition — no human or model edited those files at al
 refactor is the sharpest case, because it produces precisely the two classes the tiers handle worst: a
 rename reported as a deletion, and new paths reported not at all.
 
-`synapse-query.sh drift` closes both. Each node records the `commit` it was built from, so drift asks
+`synapse query drift` closes both. Each node records the `commit` it was built from, so drift asks
 `git diff --name-status -M <commit>..HEAD` and classifies the result: content changed, renamed
 (*reseat sources, prose may still hold* — the one class fixable without re-authoring), gone, or added.
 Added paths are split by whether the clustering patterns in `_manifest.tsv` would already claim them
-on the next `synapse-build-lists.sh` run, because only the remainder needs a human-scale decision. On
+on the next `synapse build-lists` run, because only the remainder needs a human-scale decision. On
 a large repo that second bucket is usually empty: ordinary development adds files inside directories
 existing patterns already cover.
 
@@ -552,9 +552,9 @@ the ordinary sense — there's nothing to diff against, so it just resolves `{re
 whatever's current and rebuilds that.
 
 The one thing a wipe can't regenerate is `## Notes` — human-authored, living outside every generated
-fence. `synapse-graph-wipe.sh` (the delete half, dispatched as `synapse.sh graph-wipe`) scans for it
+fence. `synapse graph-wipe` (the delete half, dispatched as `synapse graph-wipe`) scans for it
 before touching anything, dumps any non-empty section verbatim to a scratchpad staging note, and only
-then deletes — mirroring the belt-and-braces path check `synapse-graph-clean.sh` already uses as the
+then deletes — mirroring the belt-and-braces path check `synapse graph-clean` already uses as the
 only other destructive tool in the system. The command layer adds one more gate on top: `--dry-run`
 first, reported to the human, explicit confirmation before the real delete runs.
 
@@ -592,8 +592,8 @@ counted as a bare same-package reference to `bar`, or the tags imply edges the c
 
 ## The Code Cache: exact-symbol lookup and repo-wide callers
 
-Node-scoped and repo-wide exact-name lookup (`synapse-query.sh symbol`, `synapse-callers.sh` via
-`synapse-query.sh callers`) are both built on a separate, vault-free acceleration layer — the tags
+Node-scoped and repo-wide exact-name lookup (`synapse query symbol`, `synapse callers` via
+`synapse query callers`) are both built on a separate, vault-free acceleration layer — the tags
 cache and the flat reference index it projects. Neither needs a graph, a node, or the vault at all.
 See [synapse-code-cache.md](synapse-code-cache.md) for the build path, the query path, and what it
 buys measured against a plain `grep`.

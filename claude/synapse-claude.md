@@ -84,7 +84,7 @@ self-corrects on its own. The reason is not a failure mode to dodge; it
 is that an invariant upheld only when convenient is worth nothing.
 Nothing else in the system can rely on it, and every note then has to be
 re-checked by hand instead of trusted. Synapse's own tooling holds this
-line — `synapse-write-node.sh` curls the same REST API rather than
+line — `synapse write-node` curls the same REST API rather than
 writing files directly — so agent writes have no reason to differ.
 
 If a project's `.claude.json` `mcpServers.obsidian` entry ever diverges

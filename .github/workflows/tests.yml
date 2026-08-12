@@ -127,7 +127,7 @@ jobs:
       # rather than arriving as one line inside a 238-test run.
       - name: Generated docs are in sync
         if: always()
-        run: ./docs/generate-scripts-reference.sh --check
+        run: ./docs/generate-cli-reference.sh --check
 
       - name: Rendered diagrams are in sync
         if: always()

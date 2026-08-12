@@ -6,7 +6,7 @@ description: Tier 2 staleness check and lazy regeneration for a Synapse code-gra
 # Synapse Node Read: Staleness Check, Regeneration, Unassigned Sweep
 
 Built by `/synapse-init`, kept flagged stale at edit time by the `PostToolUse`
-hook (`synapse-staleness.sh`, Tier 1). This skill is Tier 2 — the authoritative, lazy check that
+hook (`synapse-hook staleness`, Tier 1). This skill is Tier 2 — the authoritative, lazy check that
 fires only when a node's content is actually about to be consumed, never on a schedule and never
 speculatively.
 
@@ -21,7 +21,7 @@ needs one.
 
 ## Procedure
 
-1. **Verify the whole project once, with the script.** Run `~/.claude/bin/synapse.sh query stale` from
+1. **Verify the whole project once, with the script.** Run `~/.synapse query stale` from
    inside the repo. It prints one `{node title}\t{reason}` line per stale node and nothing at all
    when everything is current, so its output is the complete stale set for the project.
 
@@ -50,7 +50,7 @@ needs one.
    So skip the frontmatter entirely:
 
    ```sh
-   ~/.claude/bin/synapse.sh query body "{Node title}"
+   ~/.synapse query body "{Node title}"
    ```
 
    That prints only what is between the generated fences — so it excludes `## Notes` as well as the
@@ -65,8 +65,8 @@ needs one.
    when that name appears nowhere in any node's prose, and returns snippets rather than whole files.
 
    For the other questions about a node, use the same tool rather than reading frontmatter:
-   `synapse-query.sh sources "{Node}" --count|--modules|--filter <p>` for what it covers, and
-   `synapse-query.sh field "{Node}" <key>` for a single scalar such as `stale` or `built_at`.
+   `synapse query sources "{Node}" --count|--modules|--filter <p>` for what it covers, and
+   `synapse query field "{Node}" <key>` for a single scalar such as `stale` or `built_at`.
 
 4. **Regeneration (only if step 1 or 2 found the node stale).** You re-author the prose; a script
    writes the file. **The node contract itself — frontmatter fields, the crux pointer, `## Links`,
@@ -74,26 +74,26 @@ needs one.
    `/synapse-rebuild`. What follows here is only what differs when *re*-authoring an existing
    node rather than writing a new one. Everything mechanical — hashes, `sources_digest`, the `## Sources` mirror,
    `built_at`, `commit`, `stale: false`, and preserving `## Notes` — belongs to
-   `synapse-write-node.sh`, because a hub node's `sources` can no more be *emitted* into a tool call
+   `synapse write-node`, because a hub node's `sources` can no more be *emitted* into a tool call
    than read into a window. Let `$W` be the project's work directory,
    `~/.claude/synapse-work/{repo}@{branch}/`.
 
    - **Get the node's path list into a file, never into context:**
 
      ```sh
-     ~/.claude/bin/synapse.sh query sources "{Node title}" > "$W/paths.txt"
+     ~/.synapse query sources "{Node title}" > "$W/paths.txt"
      ```
 
      If `$W/manifest.tsv` exists (or the namespace has `_manifest.tsv`), prefer re-running
-     `~/.claude/bin/synapse.sh build-lists` instead and use the regenerated `lists/NN.txt`: it
+     `~/.synapse build-lists` instead and use the regenerated `lists/NN.txt`: it
      re-derives every list from the clustering patterns, so files *added* since the last build are
-     picked up automatically rather than sitting in `_unassigned`. `synapse-query.sh sources` can only
+     picked up automatically rather than sitting in `_unassigned`. `synapse query sources` can only
      return what the node already claims.
    - Consult `synapse/{project}/_profile.txt` if it exists — the aggregations that proved useful for
      this repo, and the negative results (searches that came back empty) worth not re-deriving.
    - **Prefer patching the prose from the diff over re-reading the node's sources.** If the node has a
      `commit` and only a small fraction of its files changed, read the current prose
-     (`synapse-query.sh body`), get `git diff --name-status -M <commit>..HEAD` for its paths, and read
+     (`synapse query body`), get `git diff --name-status -M <commit>..HEAD` for its paths, and read
      hunks only for a bounded selection — always including `crux_path`, the file the crux was cut from.
      Amend the sentences the diff contradicts and keep the rest verbatim. A node covering 15,000 files
      where 12
@@ -101,7 +101,7 @@ needs one.
      and discards findings the diff has nothing to say about. Project the diff as carefully as
      `sources`: names first, `--stat` to size it, hunks only for the selection.
    - Fall back to reading the files when patching cannot be justified — a large fraction changed, the
-     `crux` file is gone, or the baseline is unusable. Then try `~/.claude/bin/synapse.sh tags {path}`
+     `crux` file is gone, or the baseline is unusable. Then try `~/.synapse tags {path}`
      first (exit 0 use the tags, exit 1 fall back to reading the file, exit 2 run the discovery
      procedure `/synapse-init` documents, then retry), and read the load-bearing files in full — the
      tags signal informs regrouping, it never substitutes for reading a file before rewriting its prose.
@@ -109,25 +109,25 @@ needs one.
      the instrument for major drift, and it triages node by node rather than paying full cost for each.
    - Re-author `## Summary`, `## Crux` and `## Links` to match what the files contain now, into
      `$W/body.md`. Re-check the node's one-line `summary` as well; keep the existing one with
-     `synapse-query.sh field "{Node title}" summary` if it still fits.
-   - **`## Crux` goes back as a directive, never as the code you just read.** `synapse-query.sh body`
+     `synapse query field "{Node title}" summary` if it still fits.
+   - **`## Crux` goes back as a directive, never as the code you just read.** `synapse query body`
      returns the *expanded* crux — the fenced block the writer sliced last time — so copying it forward
      stores a quote of an older version of the file as though it were current. Emit
      `<!-- crux: <path> <start>-<end> -->` and let the writer cut it out again. Reuse the recorded
-     pointer (`synapse-query.sh field "{Node}" crux_path` and `crux_lines`) when that file did not
+     pointer (`synapse query field "{Node}" crux_path` and `crux_lines`) when that file did not
      change; pick a fresh span when it did, because the old line numbers may now land somewhere else.
      `<!-- crux: none -->` if nothing focal remains — and a node with no `crux_path` had none already.
    - **Re-emit the groundings, or they are lost.** `grounded_in` lives in frontmatter and the writer
      strips its directives from the body, so a recovered body carries none of them: writing it back
      without re-emitting drops the node's whole provenance silently. Recover the pointers with
-     `synapse-query.sh grounding "{Node}" --list` (prints `path<TAB>lines`) and put a
-     `<!-- grounded_in: <path> <lines> -->` back for each. Run `synapse-query.sh grounding` first: a
+     `synapse query grounding "{Node}" --list` (prints `path<TAB>lines`) and put a
+     `<!-- grounded_in: <path> <lines> -->` back for each. Run `synapse query grounding` first: a
      `moved` line gives you the corrected range to use, and a `changed` line marks evidence that no
      longer says what the summary claims — re-point that one, and fix the sentence resting on it.
    - **Write it back with the script:**
 
      ```sh
-     ~/.claude/bin/synapse.sh write-node --title "{Node title}" --summary "{one line}" \
+     ~/.synapse write-node --title "{Node title}" --summary "{one line}" \
         --paths "$W/paths.txt" --body "$W/body.md"
      ```
 
@@ -137,12 +137,12 @@ needs one.
      otherwise. Two reasons, both load-bearing: that patch re-serialises the whole YAML block and
      YAML-coerces values (verified: an all-digit `hash` became `1.1111111111111112e+39`), and
      enumerating fields by hand is how `summary` and `commit` get silently dropped — which then breaks
-     the next `synapse-build-project-index.sh` run, far from the cause.
+     the next `synapse build-project-index` run, far from the cause.
    - **`## Notes` is human-authored only.** Never write into it — not at regeneration, not to record
      what you just did. (Task notes in `projects/` are a different artifact: the `synapse-task` skill *does*
      append there. Do not carry that habit into a Synapse node.)
    - If the node's `summary` or title changed, rebuild the index so the map matches:
-     `~/.claude/bin/synapse.sh build-project-index`.
+     `~/.synapse build-project-index`.
    - **Say out loud that a regeneration happened** — e.g. "Node '{title}' was stale, regenerated
      before use." This has real latency and token cost, unlike Tier 1/2's detection; it must never
      be absorbed silently into the read.
@@ -156,18 +156,18 @@ needs one.
      Empty → nothing to do, skip silently (an empty sweep isn't worth announcing).
    - Otherwise read `synapse/{project}/Index.md` for the current node list (titles + summaries).
    - Tag the whole bucket in **one** call — write the paths to a list and run
-     `~/.claude/bin/synapse.sh tags --paths {list}`, whose output is attributable (an unindented
+     `~/.synapse tags --paths {list}`, whose output is attributable (an unindented
      line is a path, the tab-indented lines under it are its tags). A per-file loop costs ~33× more
      for the same answer. Fall back to a full read for ambiguous cases, then classify against that
      node list. **The judgment is which cluster a path belongs to; the bookkeeping is not yours to
      do:**
      - **Fits an existing node** → widen that node's line in `$W/manifest.tsv` so the pattern claims
-       it, then re-run `synapse-build-lists.sh`. Set that node's `stale: true` for its own next read
+       it, then re-run `synapse build-lists`. Set that node's `stale: true` for its own next read
        rather than regenerating it now — only the node that triggered step 4 is regenerated
        immediately. If there is no manifest, add the path to that node's list file instead.
      - **Fits nothing** → leave it unassigned. A genuinely new subsystem wants its own manifest line
        and its own node, which is `/synapse-init` work, not a sweep.
-     - Then rebuild the projection with `~/.claude/bin/synapse.sh build-index`. **Never hand-edit
+     - Then rebuild the projection with `~/.synapse build-index`. **Never hand-edit
        `_index.bin`** — it is derived, binary, and tens of megabytes; there is nothing to
        hand-edit.
    - **Announce every outcome**, same transparency rule as regeneration: which file, and which
@@ -180,17 +180,17 @@ needs one.
 ## Guardrails
 
 - `stale` is the right check for *this* procedure, but know what it cannot tell you: a file in no
-  node's `sources` is invisible to it, and a renamed file reads as "gone". `synapse-query.sh drift`
+  node's `sources` is invisible to it, and a renamed file reads as "gone". `synapse query drift`
   answers both, by diffing each node's recorded `commit` against HEAD. It is not on this hot path on
   purpose — reading one node's body should not pay for a repo-wide coverage audit — so reach for it
   when orienting after a `git pull` or a branch switch, and leave the systematic case to a deliberate
   refresh rather than a read.
-- Never skip `synapse-query.sh stale` just because `stale: false` looked plausible — Tier 1 only catches
+- Never skip `synapse query stale` just because `stale: false` looked plausible — Tier 1 only catches
   edits made through this Claude Code session; a `git pull`, branch switch, or externally-made
   edit is invisible to it and only the script catches those.
 - Never hand-roll the verification by reading `sources` or the index — that is the whole reason
   the script exists, and doing it manually costs tens to hundreds of thousands of tokens.
-- Never hand-write a node's frontmatter or `## Sources` mirror. `synapse-write-node.sh` owns them, and
+- Never hand-write a node's frontmatter or `## Sources` mirror. `synapse write-node` owns them, and
   writing them by hand both cannot scale to a hub node and silently drops `summary`/`commit`.
 - Never treat the script's exit 1 as a clean result. It means the check could not run.
 - Never regenerate a node that neither the script nor its `stale:` flag named — regeneration is real

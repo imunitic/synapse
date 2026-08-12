@@ -43,6 +43,12 @@ pub fn run(
     args: *std.process.Args.Iterator,
 ) !u8 {
     const form = args.next() orelse return usage();
+    // Answered before anything resolves: asking for help must work outside a repo,
+    // and `--help` reaching the work-dir derivation is how it came to exit 1 there.
+    if (std.mem.eql(u8, form, "-h") or std.mem.eql(u8, form, "--help")) {
+        _ = usage();
+        return 0;
+    }
 
     var file: ?[]const u8 = null;
     var unassigned_file: ?[]const u8 = null;

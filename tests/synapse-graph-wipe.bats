@@ -8,7 +8,6 @@
 
 load 'test_helper'
 
-BIN="$REPO_ROOT/claude/lib/synapse"
 
 setup() {
   common_setup
@@ -240,13 +239,13 @@ EOF
   [ -f "$(staging_note)" ]
 
   printf 'Src — the source module\t^src/\t\n' > "$WORK/manifest.tsv"
-  in_repo "$BIN/synapse-build-lists.sh" >/dev/null
+  in_repo "$SYNAPSE_BIN" build-lists >/dev/null
   printf -- '---\nsummary: Src in one line.\n---\n\n## Summary\nProse for src.\n' > "$WORK/b-01.md"
-  in_repo "$BIN/synapse-push-nodes.sh" >/dev/null
-  in_repo "$BIN/synapse-build-index.sh" >/dev/null
-  in_repo "$BIN/synapse-build-project-index.sh" >/dev/null
+  in_repo "$SYNAPSE_BIN" push-nodes >/dev/null
+  in_repo "$SYNAPSE_BIN" build-index >/dev/null
+  in_repo "$SYNAPSE_BIN" build-project-index >/dev/null
 
-  run in_repo "$BIN/synapse-query.sh" drift
+  run in_repo "$SYNAPSE_BIN" query drift
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 

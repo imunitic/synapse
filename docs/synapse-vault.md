@@ -15,10 +15,10 @@ The boxes name the four hooks; what each one does is here rather than crammed in
 
 | Hook | Fires | What it does |
 |---|---|---|
-| `synapse-session-start.sh` | `SessionStart` | Injects `Index.md`, this repo's Graph pointer if a namespace covers the current branch, and a catalogue of the other namespaces in the vault. A plain path lookup — never a model call, so a repo that never opted in pays nothing. |
-| `synapse-prompt-context.sh` | `UserPromptSubmit` | Extracts terms from the prompt and surfaces matching Graph nodes. Set `SYNAPSE_DISABLE_PROMPT_INJECTION` to skip it. |
-| `synapse-stop-nudge.sh` | `Stop`, every 25 turns | Forces a real "did anything here belong in the vault?" check-in rather than relying on the agent to remember unprompted. |
-| `synapse-db-sync.sh` | `PostToolUse` | Commits vault changes to the vault's own git history on any vault-modifying write. That history is what makes a destructive mistake recoverable. |
+| `synapse-hook session-start` | `SessionStart` | Injects `Index.md`, this repo's Graph pointer if a namespace covers the current branch, and a catalogue of the other namespaces in the vault. A plain path lookup — never a model call, so a repo that never opted in pays nothing. |
+| `synapse-hook prompt-context` | `UserPromptSubmit` | Extracts terms from the prompt and surfaces matching Graph nodes. Set `SYNAPSE_DISABLE_PROMPT_INJECTION` to skip it. |
+| `synapse-hook stop-nudge` | `Stop`, every 25 turns | Forces a real "did anything here belong in the vault?" check-in rather than relying on the agent to remember unprompted. |
+| `synapse-hook db-sync` | `PostToolUse` | Commits vault changes to the vault's own git history on any vault-modifying write. That history is what makes a destructive mistake recoverable. |
 
 ## The vault
 
@@ -59,7 +59,7 @@ sidebar and graph view show the filename directly. Frontmatter carries what the 
 
 Nothing here runs on a schedule; everything is triggered by an actual session event.
 
-**`SessionStart` → `synapse-session-start.sh`**
+**`SessionStart` → `synapse-hook session-start`**
 Injects the vault's top-level `Index.md` into context at the start of every session, so its
 contents are live information from turn one rather than something Claude has to remember to go
 read. Also does two extra cheap checks. It resolves the current repo (if any) and appends a pointer to a
@@ -68,13 +68,13 @@ lists every *other* namespace in the vault as a `name | remote` catalogue, becau
 routinely spans several repos and without it only the starting repo's graph is ever announced. Both
 are derived per session and stored nowhere — see [synapse-graph.md](synapse-graph.md) for the detail.
 
-**`Stop` → `synapse-stop-nudge.sh`**
+**`Stop` → `synapse-hook stop-nudge`**
 A turn-count-based nudge, firing every 25 turns, asking: *did anything in this stretch belong in
 the Vault and not get written down?* This exists because "remember to write notes" is
 exactly the shape of standing instruction that's easy to silently forget under task pressure — a
 periodic, mechanical prompt is more reliable than trusting recall alone.
 
-**`PostToolUse` → `synapse-db-sync.sh`**
+**`PostToolUse` → `synapse-hook db-sync`**
 Fires on every vault-modifying MCP call (`vault_write`/`patch`/`append`/`delete`/`move`) and, if
 the vault itself is a git repo, commits the change immediately. This is what makes the vault's own
 history a usable audit trail of every note ever written or edited, without anyone having to
