@@ -29,6 +29,8 @@ const vocab_cmd = @import("vocab_cmd.zig");
 const rank_cmd = @import("rank_cmd.zig");
 const query_cmd = @import("query_cmd.zig");
 const write_node_cmd = @import("write_node_cmd.zig");
+const refs_cmd = @import("refs_cmd.zig");
+const gate_cmd = @import("gate_cmd.zig");
 const fake = @import("fake_grammar.zig");
 
 pub fn main(init: std.process.Init) !u8 {
@@ -70,6 +72,15 @@ pub fn main(init: std.process.Init) !u8 {
 
     if (std.mem.eql(u8, sub, "write-node"))
         return write_node_cmd.run(fake.FakeExtractor, init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "gate"))
+        return gate_cmd.run(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "build-refs"))
+        return refs_cmd.runBuild(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "callers"))
+        return refs_cmd.runCallers(init.gpa, init.io, init.environ_map, &args);
 
     std.debug.print("synapse-fake: unknown subcommand '{s}'\n", .{sub});
     return 2;

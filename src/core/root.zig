@@ -28,6 +28,8 @@ pub const verify = @import("verify.zig");
 pub const drift = @import("drift.zig");
 pub const symbol = @import("symbol.zig");
 pub const emit = @import("emit.zig");
+pub const refs = @import("refs.zig");
+pub const gate = @import("gate.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -44,6 +46,8 @@ test {
     _ = drift;
     _ = symbol;
     _ = emit;
+    _ = refs;
+    _ = gate;
     _ = @import("tags_cache/format.zig");
     _ = @import("index_map/format.zig");
 }

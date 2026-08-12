@@ -48,6 +48,15 @@
 #   2 - usage error
 set -euo pipefail
 
+# WHAT IS LEFT HERE. Argument validation, work-dir defaults and dispatch. The
+# projection moved into `synapse build-refs`, and with it went: the second full
+# read of the cache that `--dump | grep -c '^U\t'` cost just to count
+# unsupported files (942 MB read twice, on a large repo, for one integer),
+# `sort -u`, `wc -l`, the `cut | sed | sort -u | wc -l` file count, and two awk
+# passes for the def and ref totals. The `LC_ALL=C` contract with
+# `synapse-callers.sh` is arithmetic now rather than an agreement -- see
+# src/core/refs.zig.
+
 # Extracted from the header block, so help and docs/scripts.md cannot disagree.
 usage() { # usage [exit-code]
   awk '/^# Usage:/ { p = 1 } p && !/^#/ { exit } p { sub(/^# ?/, ""); print }' "$0" >&2
@@ -83,39 +92,10 @@ if [ -z "$CACHE" ] || [ -z "$OUT" ]; then
   . "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh" 2>/dev/null || {
     echo "synapse-build-refs: synapse-identity.sh not installed (run setup.sh)" >&2; exit 1; }
   REPO_NAME="$(synapse_namespace "$REPO")" || exit 1
-  WORK_DIR="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}"
-  [ -n "$CACHE" ] || CACHE="$WORK_DIR/_tags_cache.bin"
-  [ -n "$OUT" ] || OUT="$WORK_DIR/_refs.tsv"
+  export SYNAPSE_WORK_DIR="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}"
 fi
 
-[ -f "$CACHE" ] || { echo "synapse-build-refs: no tags cache at $CACHE -- run 'synapse tags-cache' first" >&2; exit 1; }
-mkdir -p "$(dirname "$OUT")" || exit 1
-
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/synapse-build-refs.XXXXXX")" || exit 1
-trap 'rm -rf "$TMP"' EXIT
-
-# The projection is `synapse tags-cache --refs`, which walks the cache's record
-# table and re-parses each cached tag line into the columns below. That replaced
-# a jq pass plus ~50 lines of awk doing the same parse; the awk's exact
-# behaviour, quirks included, is what `src/core/tag_line.zig` was verified
-# against over 329,362 real rows.
-"$SYNAPSE_BIN" tags-cache --refs "$CACHE" > "$TMP/parsed.tsv" \
-  || { echo "synapse-build-refs: unreadable cache: $CACHE" >&2; exit 1; }
-
-UNSUPPORTED="$("$SYNAPSE_BIN" tags-cache --dump "$CACHE" 2>/dev/null | LC_ALL=C grep -c '^U	' || true)"
-
-# LC_ALL=C, AND THAT IS A CONTRACT, NOT A PREFERENCE. `synapse-query.sh callers`
-# binary-searches this file with `look`, which compares raw bytes when given
-# neither -d nor -f -- exactly what LC_ALL=C sort produces. Sorting under any
-# other collation makes that search miss, and a miss returns nothing, which is
-# indistinguishable from "this name is never called". Changing this line means
-# changing the lookup in synapse-query.sh too.
-LC_ALL=C sort -u "$TMP/parsed.tsv" > "$OUT"
-
-TAGS="$(LC_ALL=C wc -l < "$OUT" | tr -d ' ')"
-FILES="$(LC_ALL=C cut -f4 "$OUT" | sed 's/:[0-9]*$//' | LC_ALL=C sort -u | LC_ALL=C wc -l | tr -d ' ')"
-DEFS="$(LC_ALL=C awk -F'\t' '$2=="def"' "$OUT" | LC_ALL=C wc -l | tr -d ' ')"
-REFS="$(LC_ALL=C awk -F'\t' '$2=="ref"' "$OUT" | LC_ALL=C wc -l | tr -d ' ')"
-
-printf 'synapse-build-refs: %s tags (%s def, %s ref) over %s files, %s unsupported -> %s\n' \
-  "$TAGS" "$DEFS" "$REFS" "$FILES" "$UNSUPPORTED" "$OUT" >&2
+set --
+[ -z "$CACHE" ] || set -- --cache "$CACHE"
+[ -z "$OUT" ] || set -- "$@" --out "$OUT"
+exec "$SYNAPSE_BIN" build-refs "$@"

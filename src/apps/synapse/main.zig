@@ -29,6 +29,8 @@ const vocab_cmd = @import("vocab_cmd.zig");
 const rank_cmd = @import("rank_cmd.zig");
 const query_cmd = @import("query_cmd.zig");
 const write_node_cmd = @import("write_node_cmd.zig");
+const refs_cmd = @import("refs_cmd.zig");
+const gate_cmd = @import("gate_cmd.zig");
 
 comptime {
     // `treesitter` needs no line here: tags.zig uses it for real.
@@ -55,6 +57,9 @@ const usage =
     \\  rank --sources <file>      a node's sources by reading value
     \\  query <subcommand> [args]  read-only queries against the graph
     \\  write-node --title <t> --summary <s> --paths <f> --body <f>
+    \\  build-refs [--cache <f>] [--out <f>]   _refs.tsv from the tags cache
+    \\  callers <name> [--all]     repo-wide sites of an exact name
+    \\  gate --vocab <file> [--all] [--top N]   clusters owning no vocabulary
     \\
 ;
 
@@ -112,6 +117,15 @@ pub fn main(init: std.process.Init) !u8 {
 
     if (std.mem.eql(u8, sub, "write-node"))
         return write_node_cmd.run(treesitter.extractor.TreeSitterExtractor, init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "gate"))
+        return gate_cmd.run(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "build-refs"))
+        return refs_cmd.runBuild(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "callers"))
+        return refs_cmd.runCallers(init.gpa, init.io, init.environ_map, &args);
 
     if (std.mem.eql(u8, sub, "--help") or std.mem.eql(u8, sub, "-h")) {
         std.debug.print("{s}", .{usage});
