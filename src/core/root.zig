@@ -18,11 +18,14 @@ pub const model = @import("model");
 pub const tag_line = @import("tag_line.zig");
 
 pub const tags_cache = @import("tags_cache.zig");
+pub const index_map = @import("index_map.zig");
 
 test {
     std.testing.refAllDecls(@This());
     _ = model;
     _ = tag_line;
     _ = tags_cache;
+    _ = index_map;
     _ = @import("tags_cache/format.zig");
+    _ = @import("index_map/format.zig");
 }
