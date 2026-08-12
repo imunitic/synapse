@@ -43,7 +43,15 @@ if [ -n "${OBSIDIAN_VAULT_DIR:-}" ]; then
       if [ "$EXISTING_REMOTE" = "$REMOTE" ]; then
         SYNAPSE_LINE="Synapse namespace for this repo and branch: synapse/$REPO_NAME/Index.md -- consult it for existing code-graph nodes before re-exploring from scratch."
       else
-        SYNAPSE_LINE="Synapse namespace synapse/$REPO_NAME/ exists but its remote (\"$EXISTING_REMOTE\") doesn't match this repo's (\"$REMOTE\") -- likely a different repo sharing this name. Skipping the pointer rather than risk cross-project contamination."
+        # Two causes, and they are indistinguishable from here: a different repo
+        # sharing this basename, or this repo's remote having been changed
+        # deliberately (including by a `url.<base>.insteadOf` rule appearing in
+        # git config, which rewrites what `remote get-url` reports without the
+        # repo itself changing). Nothing here tries to tell them apart or to
+        # migrate the namespace: rewriting the recorded remote to match would
+        # erase the only provenance signal there is. Both remedies belong to the
+        # person who made the change, so both are named.
+        SYNAPSE_LINE="Synapse namespace synapse/$REPO_NAME/ exists but its remote (\"$EXISTING_REMOTE\") doesn't match this repo's (\"$REMOTE\") -- either a different repo sharing this name, or this repo's remote changed. Skipping the pointer rather than risk cross-project contamination. If the remote changed deliberately, rebuild the namespace with /synapse-rebuild-full."
       fi
     else
       # Said, not implied by silence. A namespace covers one branch, so being on

@@ -403,7 +403,7 @@ What could not be replaced by pulling is the reminder itself. A `SessionStart` i
 
 A consequence worth noting: the hook no longer touches the vault REST API, so it needs no cert, no API key and no plugin data. Filesystem and git only.
 
-`synapse-tokenizer.sh` still ships and is still tested, but nothing calls it any more. Its stopword list (`~/.claude/synapse-prompt-stopwords.conf`) very much is still used — `synapse-vocab.sh` reduces symbol vocabulary through the same list, deliberately, so two mechanisms cannot disagree about what a background word is.
+`synapse-tokenizer.sh` is gone, deleted during the Zig port rather than ported: the search removal above left it with no caller but the porcelain's own dispatch table, and porting dead code is worse than deleting it. Its stopword list (`~/.claude/synapse-prompt-stopwords.conf`) very much is still used — `synapse-vocab.sh` reduces symbol vocabulary through the same list, deliberately, so two mechanisms cannot disagree about what a background word is. The list is the artefact worth keeping; the script that first read it is not.
 
 ## Two-tier staleness
 

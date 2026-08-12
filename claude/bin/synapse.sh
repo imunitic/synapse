@@ -19,7 +19,6 @@
 #   query                  -> synapse-query.sh
 #   rank                   -> synapse-rank.sh
 #   tags, tags-cache       -> the compiled binary, not a script
-#   tokenizer               -> synapse-tokenizer.sh
 #   vocab                  -> synapse-vocab.sh
 #   write-node              -> synapse-write-node.sh
 #
@@ -93,7 +92,6 @@ case "$SUB" in
   push-nodes)           target=synapse-push-nodes.sh ;;
   query)                target=synapse-query.sh ;;
   rank)                 target=synapse-rank.sh ;;
-  tokenizer)            target=synapse-tokenizer.sh ;;
   vocab)                target=synapse-vocab.sh ;;
   write-node)           target=synapse-write-node.sh ;;
   *)

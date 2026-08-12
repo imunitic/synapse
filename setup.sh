@@ -188,6 +188,12 @@ fi
 # This script copies in but never deletes, so a file removed from the source
 # lingers in $DEST -- unreferenced but still executable, which is worse than
 # absent because it silently keeps working after the docs stop mentioning it.
+if [ -f "$DEST/lib/synapse/synapse-tokenizer.sh" ]; then
+  echo "  NOTE: $DEST/lib/synapse/synapse-tokenizer.sh is stale -- it was deleted"
+  echo "    rather than ported, having had no caller since the prompt hook stopped"
+  echo "    searching. Its stopword list is still installed and still used by"
+  echo "    'synapse vocab'. Safe to remove by hand."
+fi
 if [ -f "$DEST/bin/synapse-verify.sh" ]; then
   echo "  NOTE: $DEST/bin/synapse-verify.sh is stale -- it folded into"
   echo "    synapse-query.sh as the 'stale' subcommand. Safe to remove by hand."

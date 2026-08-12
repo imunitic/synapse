@@ -28,14 +28,6 @@ setup() {
   setup_fake_obsidian_plugin
   cp "$REPO_ROOT/claude/synapse-prompt-stopwords.conf.template" \
     "$HOME/.claude/synapse-prompt-stopwords.conf"
-  # Installed at the same path setup.sh actually puts it -- the repo copy at
-  # claude/lib/synapse/ is a different path and the hook has no reason to know
-  # about it. Vestigial as of the search removal below (nothing in the hook's
-  # current body calls the tokenizer any more), kept installed anyway so this
-  # setup doesn't silently drift from what a real machine has.
-  mkdir -p "$HOME/.claude/lib/synapse"
-  cp "$REPO_ROOT/claude/lib/synapse/synapse-tokenizer.sh" "$HOME/.claude/lib/synapse/synapse-tokenizer.sh"
-  chmod +x "$HOME/.claude/lib/synapse/synapse-tokenizer.sh"
   CURL_LOG="$TEST_HOME/curl.log"
   : > "$CURL_LOG"
 }

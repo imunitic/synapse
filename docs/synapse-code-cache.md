@@ -64,15 +64,19 @@ the Graph, but real, with no Obsidian install as its price of entry.
 ## Vault-freedom, measured
 
 Counting vault references (`OBSIDIAN_VAULT_DIR`, `$VAULT`, the Local REST API, its cert/key) across
-every script in `claude/lib/synapse/`: 12 of 17 are vault-free outright (`synapse-identity.sh`,
-`synapse tags` and `synapse tags-cache` (subcommands of the compiled binary,
-not scripts), `synapse-build-refs.sh`, `synapse-callers.sh`,
-`synapse-enumerate.sh`, `synapse-build-lists.sh`, `synapse-vocab.sh`, `synapse-gate.sh`,
-`synapse-rank.sh`, `synapse-tokenizer.sh`, `synapse-push-nodes.sh`). The remaining five
-(`synapse-write-node.sh`, `synapse-query.sh`, `synapse-build-index.sh`,
-`synapse-build-project-index.sh`, `synapse-graph-clean.sh`) are mostly *path*-bound rather than
+every script in `claude/lib/synapse/`: 10 of 15 are vault-free outright (`synapse-identity.sh`,
+`synapse-build-index.sh`, `synapse-build-lists.sh`, `synapse-build-refs.sh`,
+`synapse-callers.sh`, `synapse-enumerate.sh`, `synapse-gate.sh`, `synapse-push-nodes.sh`,
+`synapse-rank.sh`, `synapse-vocab.sh`), as are `synapse tags`, `synapse tags-cache` and
+`synapse index` — subcommands of the compiled binary rather than scripts. The remaining five
+(`synapse-write-node.sh`, `synapse-query.sh`, `synapse-build-project-index.sh`,
+`synapse-graph-clean.sh`, `synapse-graph-wipe.sh`) are mostly *path*-bound rather than
 *API*-bound: every write is a `PUT` of a file, replaceable by writing to disk, and `links` parses a
 node's own `## Links` section directly rather than asking Obsidian.
+
+`synapse-build-index.sh` moved from the second list to the first during the Zig port, which is what
+that distinction predicted: the index it writes was derived, gitignored in the vault and never
+travelled, so the vault reference was a `PUT` with nothing behind it.
 
 The genuine Obsidian dependency in the whole system is two things, not five scripts: full-text search
 (the "where does X live" entry point) and `api_search_frontmatter`'s JsonLogic evaluation over the

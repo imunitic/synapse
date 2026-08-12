@@ -554,29 +554,6 @@ Exit codes:
   2 - usage error
 ```
 
-## `synapse-tokenizer.sh`
-
-Turns a raw prompt into a handful of distinctive terms for a `regexp` OR-pattern,
-entirely mechanically -- no LLM call, cheap enough to run on every turn. Built for
-the per-prompt context injection hook; see docs/synapse-graph.md's "What every
-prompt is told" section for the full mechanism this feeds.
-
-```
-Usage: synapse-tokenizer.sh <prompt>
-  Character class: $SYNAPSE_TOKENIZER_EXTRA_CHARS, default empty -- appended onto
-    the base A-Za-z_ class. A Lisp/Clojure/Scheme repo (hyphenated identifiers
-    like `make-instance`) sets this to `-`; appending keeps it at the end of the
-    bracket expression, which is exactly where a literal `-` needs no escaping.
-  Stopwords file: ~/.claude/synapse-prompt-stopwords.conf (installed by setup.sh
-    from synapse-prompt-stopwords.conf.template; English by default, extensible
-    per that file's own header).
-
-Prints surviving terms, one per line, first-letter bracket-cased (e.g.
-`Cached_backend` -> `[Cc]ached_backend`) -- join with `|` for a regexp pattern.
-Exit codes: 0 always; empty output means nothing survived (a purely
-conversational prompt), which the caller should treat as "nothing to inject."
-```
-
 ## `synapse-vocab.sh`
 
 Reduces a whole repository to its symbol vocabulary, grouped by directory:

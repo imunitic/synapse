@@ -64,6 +64,11 @@ run_hook() {
   [[ "$ctx" == *"doesn't match"* ]]
   [[ "$ctx" == *"Skipping the pointer"* ]]
   [[ "$ctx" != *"Synapse namespace for this repo:"* ]]
+  # Both causes named, and a remedy. A changed remote is the likelier of the two
+  # and used to go unmentioned, so the message read as an accusation of a name
+  # collision with nothing to do about it.
+  [[ "$ctx" == *"this repo's remote changed"* ]]
+  [[ "$ctx" == *"/synapse-rebuild-full"* ]]
 }
 
 @test "synapse namespace keyed by path fallback when repo has no remote" {
