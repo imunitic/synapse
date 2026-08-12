@@ -96,7 +96,7 @@ pub fn resolve(
 ) !?Context {
     // The conf file is read here, not sourced by a wrapper: that was the last thing a
     // wrapper did which this could not.
-    const vault = (try core.conf.vaultDir(gpa, io, env.get("HOME"), env.get("OBSIDIAN_VAULT_DIR"))) orelse {
+    const vault = (try core.conf.vaultDir(gpa, io, envVars(env))) orelse {
         std.debug.print("{s}: no vault\n", .{prog});
         return null;
     };
@@ -157,6 +157,20 @@ pub fn resolve(
     };
     try loadChains(&ctx, io, env);
     return ctx;
+}
+
+/// A `core.conf.Vars` over this process's environment.
+///
+/// The indirection exists because `core` may not name `std.process` -- see
+/// `ci/check-layering.sh`. Two lines here buy a `conf` module whose expansion can be
+/// tested without setting a variable.
+fn envVars(env: *std.process.Environ.Map) core.conf.Vars {
+    return .{ .ctx = @ptrCast(env), .getFn = envLookup };
+}
+
+fn envLookup(ctx: *anyopaque, name: []const u8) ?[]const u8 {
+    const env: *std.process.Environ.Map = @ptrCast(@alignCast(ctx));
+    return env.get(name);
 }
 
 fn nonEmpty(env: *std.process.Environ.Map, key: []const u8) ?[]const u8 {

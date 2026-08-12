@@ -71,7 +71,7 @@ pub const Payload = struct {
 /// as the binary itself. Absent, unreadable or not a directory is silence, like every
 /// other missing precondition. The caller owns the result.
 pub fn vault(gpa: Allocator, io: Io, env: *std.process.Environ.Map) ?[]u8 {
-    const dir = (core.conf.vaultDir(gpa, io, env.get("HOME"), env.get("OBSIDIAN_VAULT_DIR")) catch return null) orelse return null;
+    const dir = (core.conf.vaultDir(gpa, io, envVars(env)) catch return null) orelse return null;
     const st = Io.Dir.cwd().statFile(io, dir, .{}) catch {
         gpa.free(dir);
         return null;
@@ -141,6 +141,20 @@ pub const Namespace = struct {
         if (self.owned) |id| id.deinit(gpa);
     }
 };
+
+/// A `core.conf.Vars` over this process's environment.
+///
+/// The indirection exists because `core` may not name `std.process` -- see
+/// `ci/check-layering.sh`. Two lines here buy a `conf` module whose expansion can be
+/// tested without setting a variable.
+fn envVars(env: *std.process.Environ.Map) core.conf.Vars {
+    return .{ .ctx = @ptrCast(env), .getFn = envLookup };
+}
+
+fn envLookup(ctx: *anyopaque, name: []const u8) ?[]const u8 {
+    const env: *std.process.Environ.Map = @ptrCast(@alignCast(ctx));
+    return env.get(name);
+}
 
 fn nonEmpty(env: *std.process.Environ.Map, key: []const u8) ?[]const u8 {
     const v = env.get(key) orelse return null;
