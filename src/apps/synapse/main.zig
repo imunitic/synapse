@@ -22,6 +22,7 @@ const adapters = @import("adapters");
 const treesitter = @import("treesitter");
 const tags_cmd = @import("tags.zig");
 const tags_cache_cmd = @import("tags_cache_cmd.zig");
+const index_cmd = @import("index_cmd.zig");
 
 comptime {
     // `treesitter` needs no line here: tags.zig uses it for real.
@@ -39,6 +40,9 @@ const usage =
     \\  tags-cache --repo-root <dir> --cache <file> --paths <tsv>
     \\  tags-cache --dump <file>   what the cache holds
     \\  tags-cache --refs <file>   _refs.tsv rows from the cache
+    \\  index build --unassigned <file>   _index.bin from path<TAB>node on stdin
+    \\  index unassigned           every path no node claims
+    \\  index lookup <path>        the nodes claiming one path
     \\
 ;
 
@@ -73,6 +77,11 @@ pub fn main(init: std.process.Init) !u8 {
             &args,
             null,
         );
+
+    // No extractor and no grammar: the index is a projection of lists the
+    // clustering already produced, so this form needs nothing tree-sitter.
+    if (std.mem.eql(u8, sub, "index"))
+        return index_cmd.run(init.gpa, init.io, init.environ_map, &args);
 
     if (std.mem.eql(u8, sub, "--help") or std.mem.eql(u8, sub, "-h")) {
         std.debug.print("{s}", .{usage});
