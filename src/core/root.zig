@@ -22,6 +22,7 @@ pub const index_map = @import("index_map.zig");
 pub const enumerate = @import("enumerate.zig");
 pub const vocab = @import("vocab.zig");
 pub const rank = @import("rank.zig");
+pub const node = @import("node.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -32,6 +33,7 @@ test {
     _ = enumerate;
     _ = vocab;
     _ = rank;
+    _ = node;
     _ = @import("tags_cache/format.zig");
     _ = @import("index_map/format.zig");
 }
