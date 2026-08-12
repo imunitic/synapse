@@ -158,6 +158,15 @@ pub fn build(b: *std.Build) void {
                 .{ .name = "treesitter", .module = treesitter },
                 .{ .name = "core", .module = core },
                 .{ .name = "model", .module = model },
+                // `adapters` for the process spawner, which subcommands like
+                // `enumerate` need to reach `git ls-files`. It arrives here
+                // transitively through `treesitter` either way; naming it adds
+                // no dependency, only the ability to import it. What this
+                // binary's narrower set is about is the *grammar* stub, not
+                // denying it the ability to run a subprocess -- the bats suite
+                // runs this binary, so anything a shipped script calls has to
+                // work here too.
+                .{ .name = "adapters", .module = adapters },
             },
         }),
     });

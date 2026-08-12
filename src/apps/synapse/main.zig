@@ -23,6 +23,7 @@ const treesitter = @import("treesitter");
 const tags_cmd = @import("tags.zig");
 const tags_cache_cmd = @import("tags_cache_cmd.zig");
 const index_cmd = @import("index_cmd.zig");
+const enumerate_cmd = @import("enumerate_cmd.zig");
 
 comptime {
     // `treesitter` needs no line here: tags.zig uses it for real.
@@ -43,6 +44,7 @@ const usage =
     \\  index build --unassigned <file>   _index.bin from path<TAB>node on stdin
     \\  index unassigned           every path no node claims
     \\  index lookup <path>        the nodes claiming one path
+    \\  enumerate [--reenumerate]  tracked files worth graphing, into the work dir
     \\
 ;
 
@@ -82,6 +84,9 @@ pub fn main(init: std.process.Init) !u8 {
     // clustering already produced, so this form needs nothing tree-sitter.
     if (std.mem.eql(u8, sub, "index"))
         return index_cmd.run(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "enumerate"))
+        return enumerate_cmd.run(init.gpa, init.io, init.environ_map, &args);
 
     if (std.mem.eql(u8, sub, "--help") or std.mem.eql(u8, sub, "-h")) {
         std.debug.print("{s}", .{usage});

@@ -23,6 +23,7 @@ const std = @import("std");
 const tags_cmd = @import("tags.zig");
 const tags_cache_cmd = @import("tags_cache_cmd.zig");
 const index_cmd = @import("index_cmd.zig");
+const enumerate_cmd = @import("enumerate_cmd.zig");
 const fake = @import("fake_grammar.zig");
 
 pub fn main(init: std.process.Init) !u8 {
@@ -43,6 +44,9 @@ pub fn main(init: std.process.Init) !u8 {
     // touches a grammar. This is the same code the real binary runs.
     if (std.mem.eql(u8, sub, "index"))
         return index_cmd.run(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "enumerate"))
+        return enumerate_cmd.run(init.gpa, init.io, init.environ_map, &args);
 
     std.debug.print("synapse-fake: unknown subcommand '{s}'\n", .{sub});
     return 2;

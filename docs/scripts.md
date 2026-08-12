@@ -200,6 +200,17 @@ reported, not dropped silently: no extension or name rule anticipates a
 generated monster, and a silent skip makes `enumerated` disagree with the repo.
 
 Exit codes: 0 ok, 1 could not run, 2 usage error
+
+WHAT IS LEFT HERE. The work moved into `synapse enumerate`; this resolves the
+namespace and dispatches. That split is not tidiness -- synapse-identity.sh is
+sourced, not executed, and stays bash until every one of its twelve sourcers is
+ported, so the namespace has exactly one implementation for as long as any of
+them remain. The binary is told the work dir and never derives it.
+
+Measured on syrius3 (125,351 tracked files, 124,817 enumerated): 15.9s and 65
+process spawns before, 0.59s and one spawn after -- byte-identical all.txt and
+oversize.txt. 45 of those 65 spawns were one `sed` per line of
+synapse-ignore-files.conf, comment lines included.
 ```
 
 ## `synapse-gate.sh`
