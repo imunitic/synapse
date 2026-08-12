@@ -80,7 +80,7 @@ sample, run the full pass instead.
 
 **When an aggregation is worth repeating, write it down rather than retyping it.** Once you have
 run the same one-liner for the third cluster, record it in `synapse/{repo}@{branch}/_profile.txt` — a
-machine-only sibling of `_index.json`, never a node — as a fenced command plus one line on what
+machine-only sibling of `_manifest.tsv`, never a node — as a fenced command plus one line on what
 it revealed about *this* repo. **Read it, don't execute it:** it is a record of the aggregations
 that earned their keep, so a later run applies the commands itself rather than shelling out to a
 script fetched from a notes vault. Begin any re-run by reading it, and improve it rather than
@@ -91,7 +91,7 @@ on the codebase — a distributed one would encode the wrong ecosystem's convent
 notes, so a `_profile.md` turns up in search, Quick Switcher and the graph, where it is pure noise
 to a human reading notes. A non-`.md` extension is invisible to all of those and still perfectly
 readable. Note the `_` prefix does *nothing* mechanically — it is only a hint to a human who sees
-the file, matching `_index.json`. Record **negative results** here too ("this abbreviation has no
+the file, matching `_manifest.tsv`. Record **negative results** here too ("this abbreviation has no
 expansion anywhere in the repo"); a saved shell script cannot hold a search that came back empty,
 which is the main reason this is prose rather than an executable.
 

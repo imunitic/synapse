@@ -43,7 +43,7 @@ Every note lands in one of these, chosen by what kind of thing it is, not what p
 | `scratchpad/` | Throwaway or in-progress notes, not yet worth filing anywhere else |
 | `inbox/` | Doesn't cleanly fit the others — reviewed periodically, meant to stay small |
 | `designs/` | Cross-project design discussions (see [design-task-workflow.md](design-task-workflow.md)) |
-| `synapse/` | Per-repo code-graph namespaces: node notes plus the machine-only `_index.json`, `_manifest.tsv` and `_profile.txt` (see [synapse-graph.md](synapse-graph.md)) |
+| `synapse/` | Per-repo code-graph namespaces: node notes plus the machine-only `_manifest.tsv` and `_profile.txt`. The reverse index and the caches are not here -- they are derived and live in the work dir (see [synapse-graph.md](synapse-graph.md)) |
 
 Folder depth is capped at two levels. A new top-level folder requires adding a matching section to
 the vault's own `Index.md` in the same action — the index is agent-maintained and must never fall

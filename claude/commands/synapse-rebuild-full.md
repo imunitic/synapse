@@ -87,7 +87,7 @@ discipline `synapse-graph-clean.sh` uses for its own deletion).
 
 Run `/synapse-init`'s **First-time build** procedure (its steps 1–8) against the now-empty namespace,
 by reference rather than repeating it here — enumerate, read hint files, orientation pass, cluster
-into `manifest.tsv`, gate, write each node, build `_index.json`, build `Index.md`. Same command, same
+into `manifest.tsv`, gate, write each node, build `_index.bin`, build `Index.md`. Same command, same
 judgment calls, nothing rebuild-specific about this phase: from the namespace's perspective this is
 identical to a first build, because as of step 3 it is one.
 

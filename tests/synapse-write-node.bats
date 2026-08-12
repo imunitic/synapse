@@ -769,7 +769,7 @@ slice_digest() { # slice_digest <path> <start> <end>
 
 @test "the tags cache lands in the work dir, never in the vault" {
   # It is derived, disposable, and ~942 MB at syrius3 scale against
-  # _index.json's 26 MB -- and the vault is version-controlled, so a copy per
+  # the reverse index's 26 MB -- and the vault is version-controlled, so a copy per
   # rebuild would end up in its history. Asserted as an absence in the vault
   # rather than only a presence in the work dir: the failure worth catching is
   # a second call site that keeps writing the old location.

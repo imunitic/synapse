@@ -248,7 +248,7 @@ hashes_n="$(wc -l < "$work/hashes.txt" | tr -d ' ')"
 # docs/synapse-graph.md's "Exact-symbol lookup" section for the full design.
 #
 # It lands in the work dir, not the vault: derived, disposable, and ~942 MB at
-# large-repo scale against _index.json's 26 MB, so keeping it in a version-
+# large-repo scale against the reverse index's 26 MB, so keeping it in a version-
 # controlled vault would commit a fresh copy on every rebuild.
 if [[ -z "${SYNAPSE_DISABLE_SYMBOL_CACHE:-}" ]]; then
     synapse_bin="${SYNAPSE_BIN:-$HOME/.claude/bin/synapse}"

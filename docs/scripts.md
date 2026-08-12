@@ -141,7 +141,7 @@ Usage: synapse-callers.sh <name> [--all]   (operates on the repo containing $PWD
   --all            every def and ref, not only calls, as
                    def|ref<TAB>kind<TAB>path:line<TAB>expression
 
-Needs NO graph -- no nodes, no _index.json, no clustering, no vault. It reads
+Needs NO graph -- no nodes, no reverse index, no clustering, no vault. It reads
 $SYNAPSE_WORK_DIR/_refs.tsv and nothing else, which is why `synapse-query.sh
 callers` dispatches straight into this script ahead of that file's
 vault/namespace preamble: the property is structural, so it keeps answering

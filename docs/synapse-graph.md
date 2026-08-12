@@ -25,11 +25,11 @@ better than prose.
 | **model** — author node prose | Writes one body per node: summary, a crux *pointer* (never the code itself), links, and any `grounded_in` pointers. |
 | `synapse-push-nodes.sh` | Loops the writer over every node that has both a path list and a body. |
 | `synapse-write-node.sh` | Hashes every path, computes `sources_digest`, slices the crux out of the file from its pointer, digests each `grounded_in` range, builds the `## Sources` mirror, records `commit`. |
-| `synapse-build-index.sh` | Builds `_index.json`, the reverse index the Tier 1 hook reads. |
+| `synapse-build-index.sh` | Builds `_index.bin`, the reverse index the Tier 1 hook reads. |
 | `synapse-build-project-index.sh` | Builds `Index.md`, reading each bullet's headline back off the node's own `summary`. |
 | `synapse tags` | tree-sitter definitions and references, used as a clustering signal. Falls back to plain reading when a grammar is unavailable. |
 | `{Node Title}.md × N` | The nodes: `sources`, `sources_digest`, `commit`, `crux_path`, `grounded_in`, `stale`, fenced prose, and a human `## Notes` preserved across regeneration. |
-| `_index.json` | Source path → owning node filenames, plus `_unassigned`. Machine-only. |
+| `_index.bin` | Source path → owning node filenames, plus the unassigned list. Machine-only, in the work dir. |
 | `Index.md` | The node map, plus the `remote` and `branch` identity fields verified before any read or write. |
 | `_manifest.tsv` · `_profile.txt` | Kept for the next rebuild. |
 | `_tags_cache.bin` | `path → {hash, tags, unsupported}`. Machine-only and never authoritative — so it lives in `$SYNAPSE_WORK_DIR`, not the vault. |
@@ -125,7 +125,7 @@ own, and writes:
   an aggregated
   `## Sources` mirror, and a `## Notes` section preserved verbatim across every future regeneration.
 
-- `_index.json` — a derived, machine-only reverse index (source path → owning node filenames, plus
+- `_index.bin` — a derived, machine-only reverse index (source path → owning node filenames, plus
   an `_unassigned` bucket for anything not yet claimed) that the cheap staleness hook can look up
   directly, without reasoning about anything.
 - `synapse/{repo}@{branch}/Index.md` — the human/Claude-facing map: node titles, one-line summaries
@@ -162,7 +162,7 @@ re-runnable — a human can read 48 titles and regexes, and a later extension st
 instead of re-deriving the clustering.
 
 A corollary: **the "never a context read" rule is symmetric.** On a large monorepo a namespace runs
-to megabytes of node frontmatter and an `_index.json` in the tens of megabytes — quantities a model
+to megabytes of node frontmatter and an `_index.bin` in the tens of megabytes — quantities a model
 can no more *emit* into tool calls than *read* into a window. That, not tidiness, is why the write
 path is scripted at all.
 
@@ -397,7 +397,7 @@ This section previously recorded the known weakness — that OR-ing every term l
 
 Real usage answered both. Against a medium repo (52 nodes), the prompt *"can you explain how BatchRunner dispatches work items"* returned **50 of 52 nodes** for **~1057 tokens, on every turn**. The cause was not tunable: `[Ww]ork` matched 50 nodes because it matched the substring inside `framework`, which occurs 1392 times across the namespace's `sources` lists. Word boundaries took the union only from 50 to 25 — "work" is genuinely a word in this domain. The distinctive term `[Bb]atchRunner` matched a useful 11, and was drowned by the weak one it was OR'd with.
 
-**The verdict split the feature in two.** The search was solving a discovery problem that no longer exists: `_index.json` answers path → owning node for ~15 tokens with nothing entering context, the tags cache answers symbol questions without opening a file, and `synapse-query.sh` projects exactly the field asked for. Those are *pull*, precise, and paid only when the question is about the codebase. The search was *push*, imprecise, and paid always — including on "commit and push". Reading the entire node map costs ~2500 tokens once, so the search overtook that after 2.4 turns and kept charging.
+**The verdict split the feature in two.** The search was solving a discovery problem that no longer exists: `synapse index lookup` answers path → owning node for ~15 tokens with nothing entering context, the tags cache answers symbol questions without opening a file, and `synapse-query.sh` projects exactly the field asked for. Those are *pull*, precise, and paid only when the question is about the codebase. The search was *push*, imprecise, and paid always — including on "commit and push". Reading the entire node map costs ~2500 tokens once, so the search overtook that after 2.4 turns and kept charging.
 
 What could not be replaced by pulling is the reminder itself. A `SessionStart` injection ages out of a long session once context is compacted; a per-turn line does not, and the habit it defends against — reaching for `grep` by reflex — is exactly what the graph exists to displace. So the nudge stayed and the search went. The cost went from ~1057 to ~80 tokens per turn, and the line is now constant: same text whatever the prompt says, because it is a standing reminder rather than a result.
 
@@ -415,7 +415,7 @@ node, which is what `synapse-query.sh drift` is for — see "Drift" below.
 **Tier 1 — `PostToolUse` → `synapse-staleness.sh`.** Fires on every `Write`/`Edit`/`MultiEdit`.
 Resolves the repo root **from the edited file's own directory**, not the session's cwd, so a session
 spanning several repos flags the right namespace in each. Looks the edited path up in that repo's
-`_index.json`: if it belongs to one or more nodes, rewrites each one's `stale:` line to `true`; if
+`_index.bin`: if it belongs to one or more nodes, rewrites each one's `stale:` line to `true`; if
 it's not in the index at all, appends it to `_unassigned` instead. No hashing of the node's `sources`
 here — the hook already knows with certainty which file just changed, so the flagging half is pure
 bookkeeping, not verification. It does hash one narrow thing: any `crux` or `grounded_in` range those
@@ -442,7 +442,7 @@ at all when everything is current. Its exit 1 means "could not verify", not "cle
 
 This is deliberately a script rather than something Claude does by hand: recomputing a digest needs
 the node's path list, and both places it lives are ruinous to read into context — a hub node's own
-`sources` runs to ~38k tokens and `_index.json` to ~350k. Done in a script, the only thing reaching a
+`sources` runs to ~38k tokens and the index is binary and tens of megabytes. Done in a script, the only thing reaching a
 context window is the list of stale titles. Tier 2 is what catches everything Tier 1 can't see by
 construction: edits made outside a Claude Code session, `git pull`, branch switches.
 

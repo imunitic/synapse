@@ -4,14 +4,14 @@
 # standing line -- no search, no node list, no network. Set
 # SYNAPSE_DISABLE_PROMPT_INJECTION (any value) to disable entirely.
 #
-# TWO TOOLS, NOT ONE. The line names the Graph (nodes, _index.json) and the Code
+# TWO TOOLS, NOT ONE. The line names the Graph (nodes, the reverse index) and the Code
 # Cache (_refs.tsv) as separate things, because they are: the Code Cache is an
 # acceleration layer that stands alone, and `callers` answers in a repo where
 # clustering has never run. Collapsing both into "read the graph" is what the
 # earlier wording did, and it cost a real session -- the reader skimmed node
 # titles, saw nothing matching the subject, concluded Synapse did not cover the
 # area, and fell back to grep. Every file was indexed; the titles were simply
-# misleading about ownership. Hence naming _index.json as the coverage check.
+# misleading about ownership. Hence naming the reverse index as the coverage check.
 #
 # WHY A NUDGE AND NOT A SEARCH. This hook used to run the prompt through
 # synapse-tokenizer.sh, build a regexp OR-pattern, POST it to the vault's search
@@ -26,7 +26,7 @@
 # nearly always contains one.
 #
 # It was also solving a problem that no longer exists. Discovery is now cheap and
-# precise on demand: `_index.json` answers path -> owning node for ~15 tokens
+# precise on demand: `synapse index lookup` answers path -> owning node for ~15 tokens
 # with nothing entering context, the tags cache answers symbol questions without
 # opening a file, and `synapse-query.sh` projects exactly the field asked for.
 # Those are pull, precise, and paid only when the question is about the codebase.
@@ -99,7 +99,7 @@ NODES="$(find "$NS_DIR" -maxdepth 1 -name '*.md' ! -name 'Index.md' 2>/dev/null 
 [ "$NODES" -gt 0 ] || exit 0
 
 # THE CODE CACHE IS A SEPARATE TOOL, NOT PART OF THE GRAPH. `callers` reads
-# _refs.tsv and needs no nodes, no _index.json and no vault, so listing it as a
+# _refs.tsv and needs no nodes, no reverse index and no vault, so listing it as a
 # graph reader (as this line used to) actively misleads: it implies the answer
 # depends on clustering that may not exist, and it hides the one Synapse tool
 # that works in an unclustered repo. `symbol` is the same Code Cache lookup
@@ -127,7 +127,7 @@ jq -n --arg ns "$REPO_NAME" --arg n "$NODES" --arg cache "$CACHE" '
       additionalContext: (
         "Synapse: this repo has a code graph at synapse/" + $ns + "/ (" + $n + " nodes). " +
         "If this turn needs to know how the codebase works, consult Synapse before grepping or " +
-        "opening files -- synapse-query.sh (body/sources/field/links), _index.json " +
+        "opening files -- synapse-query.sh (body/sources/field/links), synapse index " +
         "for path -> owning node (the authoritative coverage check: never infer from node titles)." +
         $cache +
         " The synapse-query and synapse-node skills have the procedure."

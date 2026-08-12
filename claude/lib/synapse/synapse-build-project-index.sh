@@ -152,10 +152,10 @@ built_at="$(date '+%Y-%m-%d %H:%M')"
     echo
     printf '# %s — Synapse index\n' "$REPO_NAME"
     echo
-    printf '%s tracked files, %s nodes. Nodes are subsystems and concepts, not modules — each one'"'"'s frontmatter `sources` lists every file it covers, and `_index.json` is the reverse index from any path back to its owning node.\n' \
+    printf '%s tracked files, %s nodes. Nodes are subsystems and concepts, not modules — each one'"'"'s frontmatter `sources` lists every file it covers, and `synapse index lookup <path>` is the reverse index from any path back to its owning node.\n' \
         "$total_files" "$node_count"
     echo
-    echo 'Reading a node: use `synapse-query.sh body <node>` rather than opening the file — `sources` runs to tens of thousands of tokens on the hub nodes and `_index.json` is far larger still. `synapse-query.sh sources <node> --modules` gives the module breakdown, `--count` just the number, and `synapse-query.sh stale` verifies the whole namespace against the working tree.'
+    echo 'Reading a node: use `synapse-query.sh body <node>` rather than opening the file — `sources` runs to tens of thousands of tokens on the hub nodes and the reverse index is far larger still. `synapse-query.sh sources <node> --modules` gives the module breakdown, `--count` just the number, and `synapse-query.sh stale` verifies the whole namespace against the working tree.'
     echo
     # Link by filename, since that is what Obsidian resolves -- a title needing
     # sanitizing would otherwise produce a link to nothing.

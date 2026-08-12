@@ -2,7 +2,7 @@
 
 Builds a repo's Synapse Graph namespace in Synapse Vault — a small set of LLM-authored node
 notes (summary + crux + typed links per subsystem/concept) plus the two derived projections that
-keep it cheap to consult and keep stale (`_index.json`, `synapse/{repo}@{branch}/Index.md`).
+keep it cheap to consult and keep stale (`_index.bin`, `synapse/{repo}@{branch}/Index.md`).
 
 This is the **only** way a project gets a Synapse namespace in the first place — nothing else in
 this system creates one unprompted, matching the "zero cost for projects that never opt in"
@@ -102,7 +102,7 @@ The seam is **`manifest.tsv`** — `title <TAB> include-ERE <TAB> exclude-ERE`, 
 Your judgment goes in as a few dozen regexes; everything downstream of that file is mechanical and
 verifiable. Note the practical consequence: a node's `sources` is exhaustive by construction
 because a script expands it, so the "never a context read" rule holds in **both** directions — a
-125k-file namespace is ~10 MB of frontmatter plus a ~29 MB `_index.json`, which you can no more
+125k-file namespace is ~10 MB of frontmatter plus a ~10 MB `_index.bin`, which you can no more
 emit into tool calls than read into a window. Never hand-author those.
 
 1. **Enumerate files** — mechanics, run `synapse-build-lists.sh` (it does this step and step 4's
@@ -158,14 +158,14 @@ emit into tool calls than read into a window. Never hand-author those.
 
    Then run `synapse-build-lists.sh` and **read the coverage report it prints.** `covered` +
    `unassigned` must account for `enumerated`; anything unclaimed lands in `unassigned.txt` and
-   flows into `_index.json`'s `_unassigned`. Iterate the manifest until the split is deliberate
+   flows into the index's unassigned list. Iterate the manifest until the split is deliberate
    rather than accidental — a regex slip like `config$` (which matches only a file literally named
    `config`, not the directory) shows up here as a count, which is the entire reason this step is a
    file plus a script instead of a judgement you make silently.
 
    Keep the manifest: it is the reviewable record of a judgment call, and re-running or extending
    the namespace later should start from it rather than re-deriving the clustering. Copying it to
-   `synapse/{repo}@{branch}/_manifest.tsv` alongside `_index.json` is worth doing for any repo you
+   `synapse/{repo}@{branch}/_manifest.tsv` is worth doing for any repo you
    expect to revisit.
 5. **Gate the clusters — before paying to author any prose.** Coverage was already provable in step
    4; cluster *quality* was not, and a bad cluster used to be discovered only when someone tried to
@@ -212,8 +212,8 @@ emit into tool calls than read into a window. Never hand-author those.
    the writer adds and what it refuses — shared with the `synapse-node` skill and `/synapse-rebuild`,
    which write the same artifact. Do not re-derive the format from an existing node: a node you are
    reading may predate a change to it.
-7. **Write `_index.json`** — mechanics, run `synapse-build-index.sh`. It emits
-   `synapse/{repo}@{branch}/_index.json`, mapping every source path used
+7. **Write `_index.bin`** — mechanics, run `synapse-build-index.sh`. It emits
+   `$SYNAPSE_WORK_DIR/_index.bin`, mapping every source path used
    above to the list of node **filenames, including the `.md` extension** (matching the design
    note's schema exactly, since the `PostToolUse` hook and the read-time procedure both use this
    value directly as a vault path with no extension-handling of their own) that claim it, plus an
@@ -276,7 +276,7 @@ regeneration (see the design note's Node Granularity & Grouping) — for a proje
 dormant and has no other regeneration event to piggyback on. It does **not** re-cluster or rebuild
 existing nodes.
 
-1. Read `synapse/{repo}@{branch}/_index.json`'s `_unassigned` array. Empty → report "Nothing
+1. Run `synapse index unassigned`. Empty → report "Nothing
    unassigned, nothing to do" and stop.
 2. Read `synapse/{repo}@{branch}/Index.md` for the current node list (titles + summaries).
 3. Tag them **in one call, not one per file**: write the unassigned paths to a list and run
@@ -289,11 +289,11 @@ existing nodes.
      `sources` in frontmatter, and set that node's `stale: true` (it now covers a file it hasn't
      summarized yet — its own next read regenerates it, this step does not regenerate it
      immediately). Remove the path from `_unassigned` and add it under that node's key in
-     `_index.json`.
+     the index.
    - **Fits nothing** → leave it in `_unassigned`.
    - Announce each outcome as it happens (which file, which node or "still unassigned").
 4. Do not touch `built_at` on `Index.md` itself for this pass — the sweep doesn't rebuild the
-   index projection, only the affected nodes' own frontmatter and `_index.json`.
+   index projection, only the affected nodes' own frontmatter and `_index.bin`.
 
 ## Confirm
 

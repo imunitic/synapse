@@ -31,7 +31,7 @@ needs one.
 
    Never do this by hand instead. Recomputing a digest needs the node's path list, and both places
    it lives are ruinous to read into context — a hub node's own `sources` runs to ~38k tokens and
-   `_index.json` to ~350k. The script exists so the only thing reaching a context window is the list
+   the index is binary and tens of megabytes. The script exists so the only thing reaching a context window is the list
    of stale titles.
 
    **Exit 1 means "no information", not "clean."** It signals a missing dependency, no vault, no
@@ -147,10 +147,10 @@ needs one.
      before use." This has real latency and token cost, unlike Tier 1/2's detection; it must never
      be absorbed silently into the read.
 5. **Unassigned sweep (rides along on step 4, whenever any regeneration fires for this project):**
-   - Read the bucket with a shell command, not into context — `_index.json` runs to tens of megabytes:
+   - Read the bucket with a shell command, not into context — the index runs to tens of megabytes:
 
      ```sh
-     jq -r '._unassigned[]' "$OBSIDIAN_VAULT_DIR/synapse/{project}/_index.json"
+     ~/.claude/bin/synapse index unassigned
      ```
 
      Empty → nothing to do, skip silently (an empty sweep isn't worth announcing).
@@ -168,8 +168,8 @@ needs one.
      - **Fits nothing** → leave it unassigned. A genuinely new subsystem wants its own manifest line
        and its own node, which is `/synapse-init` work, not a sweep.
      - Then rebuild the projection with `~/.claude/bin/synapse.sh build-index`. **Never hand-edit
-       `_index.json`** — it is derived, and at tens of megabytes it cannot be rewritten through a tool
-       call anyway.
+       `_index.bin`** — it is derived, binary, and tens of megabytes; there is nothing to
+       hand-edit.
    - **Announce every outcome**, same transparency rule as regeneration: which file, and which
      node it was attached to (or that it's still unassigned).
    - Sweep the **whole** bucket unconditionally, not just entries related to the node that
@@ -188,7 +188,7 @@ needs one.
 - Never skip `synapse-query.sh stale` just because `stale: false` looked plausible — Tier 1 only catches
   edits made through this Claude Code session; a `git pull`, branch switch, or externally-made
   edit is invisible to it and only the script catches those.
-- Never hand-roll the verification by reading `sources` or `_index.json` — that is the whole reason
+- Never hand-roll the verification by reading `sources` or the index — that is the whole reason
   the script exists, and doing it manually costs tens to hundreds of thousands of tokens.
 - Never hand-write a node's frontmatter or `## Sources` mirror. `synapse-write-node.sh` owns them, and
   writing them by hand both cannot scale to a hub node and silently drops `summary`/`commit`.

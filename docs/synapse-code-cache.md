@@ -46,7 +46,7 @@ Two commands read the cache, at different scopes:
   (5.56M tags, 96,513 files): 0.36s for a name with 3,239 call sites. Defaults to `ref | call` matches;
   `--all` widens to every def and ref.
 
-**`callers` needs no graph at all** — no nodes, no `_index.json`, no vault — and is dispatched *ahead*
+**`callers` needs no graph at all** — no nodes, no reverse index, no vault — and is dispatched *ahead*
 of `synapse-query.sh`'s vault/namespace preamble, so that stays a structural fact rather than a merely
 intended one. Filling the cache is worth doing on its own, independently of ever building a graph.
 

@@ -546,7 +546,7 @@ make_cited_repo() {
   printf '%s' "$output" | jq -e '.hookSpecificOutput.additionalContext | length > 0' >/dev/null
 }
 
-@test "index: a malformed _index.json is left alone, not overwritten with nothing" {
+@test "index: a malformed index is left alone, not overwritten with nothing" {
   # The upfront `jq -e .` validation was dropped when the index moved to a disk
   # read (file existence answers "no namespace" exactly, which is what that check
   # was standing in for). This is where a malformed index has to be caught

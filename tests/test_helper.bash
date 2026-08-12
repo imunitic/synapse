@@ -255,7 +255,7 @@ EOF
 # own encoder could agree with a wrong one. It also means every test that stages
 # an index exercises the same writer the pipeline uses.
 #
-# This replaced hand-authored `_index.json` fixtures in six test files. Those
+# This replaced hand-authored `_index.json` fixtures in eight test files. Those
 # could be written with printf because the format was text; a binary index cannot
 # be, and pretending otherwise by committing fixture bytes would pin the format
 # in places that are not about the format.
