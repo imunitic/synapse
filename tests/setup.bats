@@ -293,6 +293,25 @@ EOF
   [[ "$output" != *"before the Zig rewrite are still installed"* ]]
 }
 
+@test "stale: another tool's hook is left out of the list, and out of the count" {
+  # ~/.claude/hooks and ~/.claude/bin belong to whatever the user installs, not to
+  # Synapse. An extension glob claimed claude-code-setup's check-update.sh -- a hook
+  # settings.json actively references -- was one of the scripts "nothing references",
+  # which is the one sentence that must never be wrong about a file someone might
+  # then delete. Both of Synapse's own prefixes still count, hence the second file.
+  mkdir -p "$HOME/.claude/hooks" "$HOME/.claude/bin"
+  printf '#!/bin/bash\n' > "$HOME/.claude/hooks/check-update.sh"
+  printf '#!/bin/bash\n' > "$HOME/.claude/bin/some-other-tool.sh"
+  printf '#!/bin/bash\n' > "$HOME/.claude/hooks/second-brain-db-sync.sh"
+
+  run bash "$REPO_ROOT/setup.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"1 shell script(s) from before the Zig rewrite"* ]]
+  [[ "$output" == *"second-brain-db-sync.sh"* ]]
+  [[ "$output" != *"check-update.sh"* ]]
+  [[ "$output" != *"some-other-tool.sh"* ]]
+}
+
 # --- hook rename: settings.json path migration ------------------------------
 # The hardest part of renaming a hook: settings.json references it by path, and
 # this installer copies in without deleting. Add-if-missing alone would leave the

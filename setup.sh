@@ -155,11 +155,15 @@ fi
 # script it was ever given -- unreferenced but still executable, and in bin/ still
 # on PATH, which is worse than absent because a stray old copy can shadow nothing
 # and yet still be run by hand or by a hand-edited settings.json.
-# Globbed by prefix, not by extension: `hooks/` and `bin/` are shared with whatever
-# else the user installs there, and an unprefixed glob reported a foreign hook that
-# settings.json actively references as one "nothing references".
+# Globbed by prefix, not by extension: `hooks/` and `bin/` are shared with every
+# other tool the user installs into ~/.claude, and an unprefixed glob claimed one of
+# those -- claude-code-setup's check-update.sh, wired into SessionStart -- was
+# unreferenced. Both of Synapse's own prefixes count, since `second-brain-*` is what
+# the hooks were called before the rename and those linger on an old machine too.
 stale=()
-for f in "$DEST/bin/"synapse*.sh "$DEST/hooks/"synapse-*.sh "$DEST/lib/synapse/"*.sh; do
+for f in "$DEST/bin/"synapse*.sh "$DEST/bin/"second-brain*.sh \
+         "$DEST/hooks/"synapse-*.sh "$DEST/hooks/"second-brain-*.sh \
+         "$DEST/lib/synapse/"*.sh; do
   [ -e "$f" ] && stale+=("$f")
 done
 if [ "${#stale[@]}" -gt 0 ]; then
@@ -167,7 +171,7 @@ if [ "${#stale[@]}" -gt 0 ]; then
   echo "    Nothing references them: the hooks are now 'synapse-hook <name>' and every"
   echo "    command is a subcommand of 'synapse'. Safe to remove by hand:"
   printf '    %s\n' "${stale[@]}"
-  echo "    (or: rm -rf $DEST/lib/synapse $DEST/hooks/synapse-*.sh $DEST/bin/synapse*.sh)"
+  echo "    (or: rm -rf $DEST/lib/synapse $DEST/hooks/{synapse,second-brain}-*.sh $DEST/bin/{synapse,second-brain}*.sh)"
 fi
 if [ -d "$DEST/skills/obsidian-task" ] || [ -f "$DEST/bin/second-brain-switch" ] || ls "$DEST/commands/obsidian-"*.md >/dev/null 2>&1 || [ -d "$DEST/skills/org-task" ]; then
   echo "  NOTE: found stale files from before the sb- rename / org-roam removal --"
