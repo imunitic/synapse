@@ -3,7 +3,6 @@
 
 const std = @import("std");
 const core = @import("core");
-const adapters = @import("adapters");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -94,7 +93,7 @@ pub const Namespace = struct {
     branch: []const u8,
     remote: []const u8,
     /// Set when the fields point into a git resolution this owns.
-    owned: ?adapters.git_identity.Identity = null,
+    owned: ?core.identity.Resolved = null,
 
     pub fn fromEnv(env: *std.process.Environ.Map) ?Namespace {
         const key = nonEmpty(env, "SYNAPSE_NAMESPACE") orelse return null;
@@ -124,10 +123,10 @@ pub const Namespace = struct {
     /// "nothing to say" -- an ordinary state, not an error.
     pub fn resolve(gpa: Allocator, io: Io, env: *std.process.Environ.Map, cwd: []const u8) ?Namespace {
         if (fromEnv(env)) |ns| return ns;
-        const id = adapters.git_identity.resolve(gpa, io, cwd) catch return null;
+        const id = core.identity.resolve(gpa, io, cwd) catch return null;
         return .{
             .key = id.key,
-            .repo_root = id.repo_root,
+            .repo_root = id.layout.repo_root,
             .branch = id.branch_key,
             .remote = id.remote,
             .owned = id,

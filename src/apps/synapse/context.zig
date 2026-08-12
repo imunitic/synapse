@@ -9,8 +9,8 @@
 //!
 //! ## Identity is resolved here, and the environment can still override it
 //!
-//! `adapters.git_identity` asks git the three questions and `core.identity` turns the
-//! answers into a key, so a command run from a checkout needs nothing exported. The
+//! `core.identity.resolve` reads `.git`, `HEAD` and `config` -- no spawn -- so a command
+//! run from a checkout needs nothing exported. The
 //! environment still wins when set, and that is not vestigial: it is how a caller
 //! pins a namespace deliberately (the bats suite does, against fixture repos), and it
 //! is what let the shell wrappers hand identity down while `synapse-identity.sh` was
@@ -67,7 +67,7 @@ pub const Context = struct {
     chains_list: std.ArrayListUnmanaged([]const u8),
     /// Present when identity came from git rather than the environment. Several
     /// fields above point into it.
-    resolved: ?adapters.git_identity.Identity = null,
+    resolved: ?core.identity.Resolved = null,
     owned_work: ?[]u8 = null,
 
     pub fn deinit(self: *Context) void {
@@ -98,13 +98,13 @@ pub fn resolve(
     // Resolved from the checkout unless every field is already exported. All four
     // together, never a mixture: a namespace from the environment paired with a branch
     // from git is exactly the disagreement one resolution chain exists to prevent.
-    var resolved: ?adapters.git_identity.Identity = null;
+    var resolved: ?core.identity.Resolved = null;
     errdefer if (resolved) |r| r.deinit(gpa);
     if (nonEmpty(env, "SYNAPSE_NAMESPACE") == null or
         nonEmpty(env, "SYNAPSE_REPO_ROOT") == null or
         nonEmpty(env, "SYNAPSE_BRANCH") == null)
     {
-        resolved = adapters.git_identity.resolve(gpa, io, ".") catch |e| {
+        resolved = core.identity.resolve(gpa, io, ".") catch |e| {
             switch (e) {
                 // Exit 1 with a message, not silence: a caller that asked for a graph
                 // operation outside a repo has made a mistake worth naming.
@@ -117,7 +117,7 @@ pub fn resolve(
     }
 
     const namespace = nonEmpty(env, "SYNAPSE_NAMESPACE") orelse resolved.?.key;
-    const repo_root = nonEmpty(env, "SYNAPSE_REPO_ROOT") orelse resolved.?.repo_root;
+    const repo_root = nonEmpty(env, "SYNAPSE_REPO_ROOT") orelse resolved.?.layout.repo_root;
     const branch = nonEmpty(env, "SYNAPSE_BRANCH") orelse resolved.?.branch_key;
     // The remote is compared against the namespace index's own field. Absent is not a
     // skipped check: a comparison against the empty string would pass for any index
