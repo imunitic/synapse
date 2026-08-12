@@ -25,10 +25,8 @@ usage() { # usage [exit-code]
     exit "${1:-2}"
 }
 
-reenumerate_flag=()
 case "${1:-}" in
-    "") ;;
-    --reenumerate) reenumerate_flag=(--reenumerate) ;;
+    ""|--reenumerate) ;;
     -h|--help) usage 0 ;;
     *) usage ;;
 esac
@@ -48,46 +46,28 @@ REPO_NAME="$(synapse_namespace "$REPO_ROOT")" || exit 1
 # manifest.
 readonly WORK_DIR="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}"
 mkdir -p "$WORK_DIR"
-readonly ALL="$WORK_DIR/all.txt"
-readonly MANIFEST="$WORK_DIR/manifest.tsv"
-readonly LISTS="$WORK_DIR/lists"
 
-[[ -f "$MANIFEST" ]] || { echo "synapse-build-lists: no manifest.tsv in $WORK_DIR" >&2; exit 1; }
+# WHAT IS LEFT HERE. The work moved into `synapse build-lists`; this resolves the
+# namespace and dispatches, same split as synapse-enumerate.sh and for the same
+# reason -- synapse-identity.sh is sourced rather than executed and stays bash
+# until every one of its sourcers is ported, so the namespace keeps exactly one
+# implementation.
+#
+# Measured on syrius-querschnitt-basis (32 manifest lines, 4,892 files): 3166ms
+# before, 1147ms after, with stdout, all five output files and all 64 lists/
+# files byte-identical. The include/exclude EREs are still `grep -E`, spawned
+# per node exactly as they were -- of the original 3166ms those greps were only
+# 329ms, and the rest was the enumeration plus one `wc -l | tr -d ' '` pair per
+# node to count a file the script had just written.
 
-# Enumeration has no real dependency on the manifest -- it is its own
-# vault-free script now (claude/lib/synapse/synapse-enumerate.sh), called here
-# as this build's first step with the same work dir this script already
-# resolved, so the two never disagree about where $ALL lives.
-# `:-` guards an empty array's expansion, not just an unset one: bash 3.2
-# (macOS's /bin/bash, still the default there) treats "${arr[@]}" on a
-# genuinely empty array as an unbound-variable error under `set -u`, a bug
-# fixed in bash 4.4+. Without the guard, the common no-flag case fails on
-# any Mac running the system bash rather than a Homebrew one.
-SYNAPSE_WORK_DIR="$WORK_DIR" "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-enumerate.sh" "${reenumerate_flag[@]:-}"
+# Required, not optional: the binary is the only implementation of this now.
+readonly SYNAPSE_BIN_PATH="${SYNAPSE_BIN:-$HOME/.claude/bin/synapse}"
+[[ -x "$SYNAPSE_BIN_PATH" ]] || {
+    echo "synapse-build-lists: no synapse binary at $SYNAPSE_BIN_PATH (run setup.sh)" >&2; exit 1; }
 
-rm -rf "$LISTS"
-mkdir -p "$LISTS"
+# Rebuilt rather than forwarded as "$@" -- see synapse-enumerate.sh for the empty
+# argument this avoids handing the binary.
+args=()
+[[ "${1:-}" == "--reenumerate" ]] && args=(--reenumerate)
 
-node_index=0
-while IFS=$'\t' read -r title include exclude; do
-    [[ -n "$title" ]] || continue
-    node_index=$((node_index + 1))
-    slug="$(printf '%02d' "$node_index")"
-    printf '%s\n' "$title" > "$LISTS/$slug.title"
-    # An empty exclude column means "exclude nothing"; `^$` never matches a path.
-    grep -E "$include" "$ALL" | grep -vE "${exclude:-^$}" > "$LISTS/$slug.txt" || true
-    printf '%s\t%s\t%s\n' "$slug" "$(wc -l < "$LISTS/$slug.txt" | tr -d ' ')" "$title"
-done < "$MANIFEST"
-
-echo "--- coverage"
-cat "$LISTS"/*.txt | LC_ALL=C sort -u > "$WORK_DIR/covered.txt"
-LC_ALL=C sort "$ALL" > "$WORK_DIR/all-sorted.txt"
-# LC_ALL=C on comm as well as on the sorts. comm verifies its inputs against the
-# *ambient* collation, and under a UTF-8 locale it silently reports every line as
-# unique once uppercase filenames are involved (README.md sorts before crates/ in C
-# but not in en_US.UTF-8) -- which would make the coverage report claim nothing is
-# covered, with no warning at all.
-LC_ALL=C comm -23 "$WORK_DIR/all-sorted.txt" "$WORK_DIR/covered.txt" > "$WORK_DIR/unassigned.txt"
-printf 'covered:    %s\nunassigned: %s\n' \
-    "$(wc -l < "$WORK_DIR/covered.txt" | tr -d ' ')" \
-    "$(wc -l < "$WORK_DIR/unassigned.txt" | tr -d ' ')"
+SYNAPSE_WORK_DIR="$WORK_DIR" exec "$SYNAPSE_BIN_PATH" build-lists ${args[@]+"${args[@]}"}

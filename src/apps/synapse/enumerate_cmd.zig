@@ -67,6 +67,31 @@ pub fn run(
         return 1;
     }
 
+    var out_buf: [64 * 1024]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    try ensure(gpa, io, env, work_dir, reenumerate, &out.interface);
+    try out.interface.flush();
+    return 0;
+}
+
+/// Bring `all.txt` and `oversize.txt` up to date and report, writing the same
+/// three lines the script printed: the `--- enumerating tracked files` banner
+/// when a rebuild happens, the oversize report when anything was skipped, and
+/// `enumerated: N` always.
+///
+/// Shared with `build-lists` rather than spawned by it. The script called
+/// `synapse-enumerate.sh` as a subprocess and its stdout landed in the caller's
+/// output, which `tests/synapse-build-lists.bats` asserts on -- so the lines
+/// have to appear in exactly the same place, and the cheapest way to guarantee
+/// that is one implementation writing to the caller's own writer.
+pub fn ensure(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    work_dir: []const u8,
+    reenumerate: bool,
+    out: *Io.Writer,
+) !void {
     const all_path = try std.fmt.allocPrint(gpa, "{s}/all.txt", .{work_dir});
     defer gpa.free(all_path);
     const oversize_path = try std.fmt.allocPrint(gpa, "{s}/oversize.txt", .{work_dir});
@@ -75,25 +100,20 @@ pub fn run(
     const cwd = Io.Dir.cwd();
     cwd.createDirPath(io, work_dir) catch {};
 
-    var out_buf: [64 * 1024]u8 = undefined;
-    var out = Io.File.stdout().writer(io, &out_buf);
-
     // An existing non-empty all.txt is the answer unless a rebuild is asked
     // for. Checked by size rather than existence, matching `[[ ! -s ]]`: a
     // zero-byte all.txt from an interrupted run is not a usable enumeration.
     const existing: u64 = if (cwd.statFile(io, all_path, .{})) |st| st.size else |_| 0;
     if (existing == 0 or reenumerate) {
-        try out.interface.writeAll("--- enumerating tracked files\n");
-        try out.interface.flush();
+        try out.writeAll("--- enumerating tracked files\n");
+        try out.flush();
         try enumerateInto(gpa, io, env, all_path, oversize_path);
     }
 
-    try reportOversize(gpa, io, env, &out.interface, oversize_path);
+    try reportOversize(gpa, io, env, out, oversize_path);
 
     const kept = countLines(gpa, io, all_path) catch 0;
-    try out.interface.print("enumerated: {d}\n", .{kept});
-    try out.interface.flush();
-    return 0;
+    try out.print("enumerated: {d}\n", .{kept});
 }
 
 fn usage() u8 {

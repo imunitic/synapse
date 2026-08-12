@@ -24,6 +24,7 @@ const tags_cmd = @import("tags.zig");
 const tags_cache_cmd = @import("tags_cache_cmd.zig");
 const index_cmd = @import("index_cmd.zig");
 const enumerate_cmd = @import("enumerate_cmd.zig");
+const build_lists_cmd = @import("build_lists_cmd.zig");
 
 comptime {
     // `treesitter` needs no line here: tags.zig uses it for real.
@@ -45,6 +46,7 @@ const usage =
     \\  index unassigned           every path no node claims
     \\  index lookup <path>        the nodes claiming one path
     \\  enumerate [--reenumerate]  tracked files worth graphing, into the work dir
+    \\  build-lists [--reenumerate]  manifest.tsv into one path list per node
     \\
 ;
 
@@ -87,6 +89,9 @@ pub fn main(init: std.process.Init) !u8 {
 
     if (std.mem.eql(u8, sub, "enumerate"))
         return enumerate_cmd.run(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "build-lists"))
+        return build_lists_cmd.run(init.gpa, init.io, init.environ_map, &args);
 
     if (std.mem.eql(u8, sub, "--help") or std.mem.eql(u8, sub, "-h")) {
         std.debug.print("{s}", .{usage});

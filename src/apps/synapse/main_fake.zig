@@ -24,6 +24,7 @@ const tags_cmd = @import("tags.zig");
 const tags_cache_cmd = @import("tags_cache_cmd.zig");
 const index_cmd = @import("index_cmd.zig");
 const enumerate_cmd = @import("enumerate_cmd.zig");
+const build_lists_cmd = @import("build_lists_cmd.zig");
 const fake = @import("fake_grammar.zig");
 
 pub fn main(init: std.process.Init) !u8 {
@@ -47,6 +48,9 @@ pub fn main(init: std.process.Init) !u8 {
 
     if (std.mem.eql(u8, sub, "enumerate"))
         return enumerate_cmd.run(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "build-lists"))
+        return build_lists_cmd.run(init.gpa, init.io, init.environ_map, &args);
 
     std.debug.print("synapse-fake: unknown subcommand '{s}'\n", .{sub});
     return 2;
