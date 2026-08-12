@@ -356,20 +356,39 @@ write_list() { # write_list <NN> <title> <path>...
 
 @test "raw tags are never written to disk, only the reduction" {
   # 98k code files produce ~942 MB of tags against 6.9 MB of vocabulary, so the
-  # worker must stream into the reduction. Asserted structurally: the tagging
-  # invocation has to be a pipe source, never a redirect into a file.
-  run grep -cE 'bin" tags --paths "\$chunk" 2>"\$out.err" \\$' "$SCRIPT"
-  [ "$output" = "1" ]
-  run grep -c 'awk -F' "$SCRIPT"
+  # tags must never reach a file. This used to be asserted structurally, against
+  # the shell worker's pipe -- there is no worker now, and the tags never leave
+  # memory, so the property is asserted where it is observable: nothing but the
+  # two reductions appears in the output directory.
+  git init -q "$REPO"
+  src core/src/A.java getUserName premium_rate_table
+  git -C "$REPO" add -A
+  git -C "$REPO" -c user.email=test@test -c user.name=test commit -q -m init
+
+  run run_vocab
   [ "$status" -eq 0 ]
+
+  local unexpected
+  unexpected="$(ls -A "$OUT" | grep -vE '^(counts|groupwords)\.tsv$' || true)"
+  [ -z "$unexpected" ]
 }
 
 @test "no per-file subprocess anywhere in the repo-scale path" {
   # The trap this whole design exists to avoid, and one a five-file fixture can
   # never detect by timing: a `basename`/`wc`/`stat` per path cost minutes where
-  # a batched equivalent cost seconds. basename appears exactly once, per CHUNK.
-  [ "$(grep -c 'basename' "$SCRIPT")" -eq 1 ]
-  [ "$(grep -c 'wc -c' "$SCRIPT")" -eq 0 ]
+  # a batched equivalent cost seconds.
+  #
+  # It used to be asserted by counting `basename` in the script. The whole
+  # apparatus that needed counting -- split, a generated worker, xargs -P, a
+  # `synapse tags` spawn and an `awk` per chunk -- is gone, so the assertion is
+  # now that none of it came back. The batching itself moved into the binary,
+  # where a shell test cannot see it and Zig owns the guarantee.
+  # Comments stripped first: the header names every piece that was removed, and
+  # grepping the prose would fail on the sentence saying the thing is gone.
+  local code; code="$(grep -vE '^[[:space:]]*#' "$SCRIPT")"
+  for banned in split xargs worker.sh 'tags --paths' 'awk -F' basename 'wc -c'; do
+    [ "$(printf '%s\n' "$code" | grep -c -- "$banned")" -eq 0 ]
+  done
 }
 
 @test "defaults to the work dir when --out is omitted" {

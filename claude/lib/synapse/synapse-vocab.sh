@@ -32,12 +32,16 @@
 # Prints groups / files / code files / pairs on stderr, so a repo that yielded
 # no vocabulary is a number rather than an empty file nobody looked at.
 #
-# WHY THIS IS AFFORDABLE. Tagging goes through `synapse tags --paths`, one
-# invocation per chunk, because CLI startup and grammar load are nearly all of
-# the per-file cost: 200 files measured 0.076s batched against 2.543s as 200
-# invocations across 12 workers. The whole of a large repo (125,351 files, 98k of
-# them code) takes ~51s. Chunking exists only to use more than one core; it is
-# not what makes this cheap.
+# WHY THIS IS AFFORDABLE. Tagging is one in-process pass per worker thread, so
+# there is no CLI startup to amortise and a grammar loads once per extension per
+# thread. Chunking exists only to use more than one core; it is not what makes
+# this cheap.
+#
+# THE PARALLELISM IS LOAD-BEARING, unlike the equivalent apparatus stage 1 dropped
+# from the tags cache. Measured on syrius-querschnitt-basis (3,642 code files):
+# 1987ms for the twelve-process bash, 4453ms for a sequential in-process pass, and
+# 1142ms threaded -- byte-identical output in all three. Tree-sitter parsing
+# thousands of files is real CPU work, so cores win even against process overhead.
 #
 # RAW TAGS ARE NEVER STORED. Each worker pipes `synapse tags` straight into
 # the word reduction and keeps only `group <TAB> word`. The tags themselves are
@@ -101,253 +105,35 @@ else
 fi
 [ -n "$REPO_ROOT" ] || { echo "synapse-vocab: not inside a git repo" >&2; exit 1; }
 
-# The compiled binary. `$SYNAPSE_BIN` overrides it, which is how the test suite
-# points this at a build with the grammar step stubbed.
-SYNAPSE_BIN="${SYNAPSE_BIN:-$HOME/.claude/bin/synapse}"
-[ -x "$SYNAPSE_BIN" ] || {
-    echo "synapse-vocab: $SYNAPSE_BIN not installed (run setup.sh) -- use synapse-orientation instead" >&2
+
+# WHAT IS LEFT HERE. The work moved into `synapse vocab`; this resolves the
+# namespace and dispatches, same split as the other ported scripts -- and for the
+# same reason, that synapse-identity.sh is sourced rather than executed and stays
+# bash until every one of its sourcers is ported.
+#
+# Gone with it: `split`, the generated `worker.sh`, `xargs -P`, one `synapse tags`
+# spawn per chunk, one `awk` per chunk, the `words/*.tsv` intermediates, and both
+# awk programs. The reduction lives in src/core/vocab.zig, checked against the awk
+# over 5,007 real identifiers.
+
+# Required, not optional: the binary is the only implementation of this now.
+readonly SYNAPSE_BIN_PATH="${SYNAPSE_BIN:-$HOME/.claude/bin/synapse}"
+[ -x "$SYNAPSE_BIN_PATH" ] || {
+    echo "synapse-vocab: $SYNAPSE_BIN_PATH not installed (run setup.sh) -- use synapse-orientation instead" >&2
     exit 1; }
 
+# `--out` is resolved here when the caller did not give one, because that is the
+# branch that needs the namespace. With one, nothing here needs identity at all.
 if [ -z "$OUT" ]; then
-    # "{repo}@{branch}", not a bare repo name -- see synapse-identity.sh.
     # shellcheck source=/dev/null
     . "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh" 2>/dev/null || {
         echo "synapse-vocab: synapse-identity.sh not installed (run setup.sh)" >&2; exit 1; }
     REPO_NAME="$(synapse_namespace "$REPO_ROOT")" || exit 1
     OUT="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}"
 fi
-mkdir -p "$OUT" || { echo "synapse-vocab: cannot write $OUT" >&2; exit 1; }
 
-W="$(mktemp -d "${TMPDIR:-/tmp}/synapse-vocab.XXXXXX")" || exit 1
-trap 'rm -rf "$W"' EXIT
-mkdir -p "$W/chunks" "$W/words"
-
-# Languages with a tree-sitter grammar worth having. Not the same question as
-# "what belongs in the graph": a file with no grammar still gets covered by a
-# node and still flags staleness, it just contributes no vocabulary.
-#
-# Read from the registry via `synapse tags --list-extensions` rather than
-# hardcoded here: a hardcoded list is a second copy of what the registry
-# already knows, and the two drifting is exactly how a real, already-working
-# grammar (e.g. OCaml, registered for one project) stayed invisible to this
-# script for every other project that never got its own copy of the list
-# edited. The registry is authoritative now, so registering a language once
-# is enough forever, everywhere. An empty result here means no vocabulary
-# this run -- the same legitimate "no usable grammar" outcome documented
-# above, not a special case to handle.
-CODE_EXTS="$("$SYNAPSE_BIN" tags --list-extensions 2>/dev/null)"
-if [ -n "$CODE_EXTS" ]; then
-    CODE_RE="\\.($(printf '%s\n' "$CODE_EXTS" | LC_ALL=C paste -sd'|' -))\$"
-else
-    CODE_RE=""
-fi
-
-# Machine output that happens to end in a code extension. The only part of
-# synapse-build-lists.sh's exclusions CODE_RE does not already subsume -- its
-# binary and lockfile lists are all non-code extensions, so repeating them here
-# would be two copies of one rule with nothing to gain.
-GENERATED_RE='\.min\.(js|css)$|\.(js|css|ts)\.map$'
-
-# The user's own exclusions, honoured because vendored and generated trees
-# would otherwise dominate the vocabulary of whatever group they sit in. Same
-# two knobs synapse-build-lists.sh reads, so a path excluded from the graph is
-# also excluded from the evidence used to design the graph. `^$` when empty --
-# an empty alternative in an ERE matches every line.
-IGNORE_CONF="$HOME/.claude/synapse-ignore-files.conf"
-EXTRA_RE="${SYNAPSE_EXTRA_EXCLUDE_RE:-}"
-if [ -f "$IGNORE_CONF" ]; then
-    while IFS= read -r pat; do
-        pat="${pat%%#*}"
-        pat="$(printf '%s' "$pat" | awk '{ gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print }')"
-        [ -n "$pat" ] || continue
-        EXTRA_RE="${EXTRA_RE:+$EXTRA_RE|}$pat"
-    done < "$IGNORE_CONF"
-fi
-[ -n "$EXTRA_RE" ] || EXTRA_RE='^$'
-
-cd "$REPO_ROOT" || exit 1
-git ls-files > "$W/all.txt" 2>/dev/null || {
-    echo "synapse-vocab: git ls-files failed in $REPO_ROOT" >&2; exit 1; }
-LC_ALL=C grep -Ev "$EXTRA_RE" "$W/all.txt" > "$W/kept.txt" || : > "$W/kept.txt"
-
-# --lists: the map from path to cluster title, built once and used by both the
-# counts pass and every worker. A path in two lists is counted under both -- a
-# node manifest can legitimately overlap, and silently picking one would make
-# the flagged/not-flagged verdict depend on directory order.
-MAP=""
-if [ -n "$LISTS" ]; then
-    MAP="$W/pathgroup.tsv"
-    : > "$MAP"
-    for txt in "$LISTS"/[0-9][0-9].txt; do
-        [ -f "$txt" ] || continue
-        title_file="${txt%.txt}.title"
-        [ -f "$title_file" ] || continue
-        title="$(LC_ALL=C head -n 1 "$title_file")"
-        [ -n "$title" ] || continue
-        LC_ALL=C awk -v t="$title" 'NF { print $0 "\t" t }' "$txt" >> "$MAP"
-    done
-    [ -s "$MAP" ] || { echo "synapse-vocab: no NN.txt/NN.title pairs in $LISTS" >&2; exit 1; }
-    # Enumeration narrows to what some list claims: tagging a file no node owns
-    # produces vocabulary with nowhere to go.
-    LC_ALL=C awk -F'\t' 'NR == FNR { m[$1]; next } $0 in m' "$MAP" "$W/kept.txt" > "$W/mapped.txt"
-    mv "$W/mapped.txt" "$W/kept.txt"
-fi
-
-# Guarded rather than fed straight to grep -E: an empty pattern matches every
-# line, which would silently turn "no extensions registered yet" into "every
-# file is code."
-if [ -n "$CODE_RE" ]; then
-    LC_ALL=C grep -E "$CODE_RE" "$W/kept.txt" \
-        | LC_ALL=C grep -Ev "$GENERATED_RE" > "$W/code.txt" || : > "$W/code.txt"
-else
-    : > "$W/code.txt"
-fi
-
-# The grouping rule, written into every awk program that needs it rather than
-# retyped in each: counts.tsv and groupwords.tsv keyed differently is the failure
-# that makes a group look like it has vocabulary but no files, or the reverse,
-# and awk has no include. With a map it is a lookup returning every group the
-# path belongs to, joined by \034 -- node lists may overlap, and picking one
-# would make the flagged/not-flagged verdict depend on directory order. An
-# unmapped path returns "", which every caller skips.
-GROUP_FN='
-function load_map(   line, i, key, val, seen) {
-  if (MAP == "") return
-  while ((getline line < MAP) > 0) {
-    i = index(line, "\t")
-    if (i < 1) continue
-    key = substr(line, 1, i - 1); val = substr(line, i + 1)
-    # `seen` is checked before m[key] is touched on the right-hand side, on
-    # purpose: `m[key] = (key in m) ? m[key] ... : val` reads right but is not
-    # portable -- mawk auto-vivifies m[key] while resolving the assignment
-    # target itself, so `key in m` on the same key is already true by the time
-    # the right-hand side runs, even on a key that has never been assigned.
-    # Every first-seen path silently gained a leading separator and no group.
-    seen = (key in m)
-    m[key] = seen ? m[key] "\034" val : val
-  }
-}
-function group_of(path,   n, seg, lim, k, i) {
-  if (MAP != "") return (path in m) ? m[path] : ""
-  n = split(path, seg, "/")
-  lim = (n - 1 < DEPTH) ? n - 1 : DEPTH
-  if (lim < 1) return "(repo root)"
-  k = seg[1]
-  for (i = 2; i <= lim; i++) k = k "/" seg[i]
-  return k
-}'
-
-# Counted off the map itself when there is one, not off kept.txt: a path claimed
-# by two nodes has two map rows and must count once under each.
-if [ -n "$MAP" ]; then
-    LC_ALL=C awk -F'\t' '{ c[$2]++ } END { for (k in c) print k "\t" c[k] }' "$MAP" \
-        | LC_ALL=C sort -t"$(printf '\t')" -k2,2nr -k1,1 > "$OUT/counts.tsv"
-else
-    printf '%s\n%s\n' "$GROUP_FN" '
-      { c[group_of($0)]++ }
-      END { for (k in c) print k "\t" c[k] }
-    ' > "$W/count.awk"
-    LC_ALL=C awk -v DEPTH="$DEPTH" -v MAP="" -f "$W/count.awk" "$W/kept.txt" \
-        | LC_ALL=C sort -t"$(printf '\t')" -k2,2nr -k1,1 > "$OUT/counts.tsv"
-fi
-
-# The reduction, same shared grouping rule. `awk -f` rather than an inline
-# program inside the worker heredoc, which is the only way one definition can
-# serve both without the heredoc's quoting deciding what gets expanded.
-printf '%s\n%s\n' "$GROUP_FN" '
-  BEGIN {
-    while ((getline s < STOP) > 0) stopw[s]
-    load_map()
-  }
-  # Unindented line: a path. Every tab-indented line after it holds one tag for
-  # that path, and field 2 of such a line is the symbol name.
-  /^[^\t]/ { ng = split(group_of($0), gs, "\034"); if (gs[1] == "") ng = 0; next }
-  ng == 0 { next }
-  {
-    s = $2
-    while (match(s, /[A-Z]+[a-z0-9]*|[a-z0-9]+/)) {
-      w = tolower(substr(s, RSTART, RLENGTH))
-      s = substr(s, RSTART + RLENGTH)
-      if (length(w) < 4) continue
-      if (w ~ /^[0-9]+$/) continue
-      if (w in stopw) continue
-      for (j = 1; j <= ng; j++) print gs[j] "\t" w
-    }
-  }
-' > "$W/reduce.awk"
-
-# The tokenizer's own list, cleaned once here rather than per worker: comments
-# and blanks stripped, lowercased to match the lowercased words.
-STOP_CONF="$HOME/.claude/synapse-prompt-stopwords.conf"
-if [ -f "$STOP_CONF" ]; then
-    LC_ALL=C awk '{ sub(/^[[:space:]]+/, ""); if ($0 == "" || $0 ~ /^#/) next; print tolower($0) }' \
-        "$STOP_CONF" | LC_ALL=C sort -u > "$W/stop.txt"
-else
-    : > "$W/stop.txt"
-fi
-
-code_n="$(LC_ALL=C wc -l < "$W/code.txt" | tr -d ' ')"
-if [ "$code_n" -eq 0 ]; then
-    : > "$OUT/groupwords.tsv"
-    echo "synapse-vocab: no files with a supported grammar -- use synapse-orientation instead" >&2
-    exit 0
-fi
-
-NP="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
-if [ -z "$CHUNK" ]; then
-    CHUNK=$(( (code_n + NP - 1) / NP ))
-    [ "$CHUNK" -ge 500 ] || CHUNK=500
-fi
-split -l "$CHUNK" "$W/code.txt" "$W/chunks/c."
-
-# One worker per chunk, generated rather than an exported shell function: this
-# script's own shell is bash, but `export -f` is a bash builtin that silently
-# does nothing when the surrounding shell is zsh, and the symptom is a
-# suspiciously fast run producing nothing rather than an error.
-cat > "$W/worker.sh" <<'WORKER'
-#!/bin/bash
-# worker.sh <chunk> <words-dir> <depth> <stopwords> <synapse-bin> <reduce.awk> <map>
-# Derives its own output name so the caller can pass one fixed directory: with
-# `xargs -I {}` the placeholder is substituted into every argument, so building
-# the output path outside would splice the chunk's full path into it.
-chunk="$1"; words="$2"; depth="$3"; stop="$4"; bin="$5"; prog="$6"; map="$7"
-out="$words/$(basename "$chunk").tsv"
-"$bin" tags --paths "$chunk" 2>"$out.err" \
-  | LC_ALL=C awk -F'\t' -v DEPTH="$depth" -v STOP="$stop" -v MAP="$map" -f "$prog" > "$out"
-WORKER
-chmod +x "$W/worker.sh"
-
-find "$W/chunks" -type f -name 'c.*' -print0 \
-    | xargs -0 -P "$NP" -I {} "$W/worker.sh" {} "$W/words" "$DEPTH" "$W/stop.txt" \
-          "$SYNAPSE_BIN" "$W/reduce.awk" "$MAP"
-
-# Counted in awk, not `sort | uniq -c`: uniq's count column is space-separated,
-# so a group key containing a space would shift every field downstream. The
-# whole line is the key here, tabs included, so nothing needs re-splitting.
-: > "$OUT/groupwords.tsv"
-word_files=("$W"/words/*.tsv)
-if [ -e "${word_files[0]}" ]; then
-    LC_ALL=C awk '{ c[$0]++ } END { for (k in c) print k "\t" c[k] }' "${word_files[@]}" \
-        | LC_ALL=C sort -t"$(printf '\t')" -k1,1 -k3,3nr > "$OUT/groupwords.tsv"
-fi
-
-# One line per missing grammar for the whole run, not one per chunk: every
-# chunk containing a `.foo` file reports it, and a caller can act on the
-# extension exactly once.
-#
-# `>&2` alone, NOT `2>/dev/null >&2`: redirections apply left to right, so that
-# order points fd2 at /dev/null and then copies it into fd1, sending the
-# warnings themselves to /dev/null. The glob is guarded instead, which is what
-# the discarded stderr was covering for.
-err_files=("$W"/words/*.err)
-if [ -e "${err_files[0]}" ]; then
-    LC_ALL=C sort -u "${err_files[@]}" >&2
-fi
-
-printf 'synapse-vocab: groups %s, files %s, code %s, pairs %s -> %s\n' \
-    "$(LC_ALL=C wc -l < "$OUT/counts.tsv" | tr -d ' ')" \
-    "$(LC_ALL=C wc -l < "$W/kept.txt" | tr -d ' ')" \
-    "$code_n" \
-    "$(LC_ALL=C wc -l < "$OUT/groupwords.tsv" | tr -d ' ')" \
-    "$OUT" >&2
-exit 0
+set -- --depth "$DEPTH" --out "$OUT"
+[ -z "$CHUNK" ] || set -- "$@" --chunk "$CHUNK"
+[ -z "$LISTS" ] || set -- "$@" --lists "$LISTS"
+[ -z "$REPO" ] || set -- "$@" --repo "$REPO"
+exec "$SYNAPSE_BIN_PATH" vocab "$@"

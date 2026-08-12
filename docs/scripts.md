@@ -601,12 +601,16 @@ hours, so exactness was the cheaper side of that trade.
 Prints groups / files / code files / pairs on stderr, so a repo that yielded
 no vocabulary is a number rather than an empty file nobody looked at.
 
-WHY THIS IS AFFORDABLE. Tagging goes through `synapse tags --paths`, one
-invocation per chunk, because CLI startup and grammar load are nearly all of
-the per-file cost: 200 files measured 0.076s batched against 2.543s as 200
-invocations across 12 workers. The whole of a large repo (125,351 files, 98k of
-them code) takes ~51s. Chunking exists only to use more than one core; it is
-not what makes this cheap.
+WHY THIS IS AFFORDABLE. Tagging is one in-process pass per worker thread, so
+there is no CLI startup to amortise and a grammar loads once per extension per
+thread. Chunking exists only to use more than one core; it is not what makes
+this cheap.
+
+THE PARALLELISM IS LOAD-BEARING, unlike the equivalent apparatus stage 1 dropped
+from the tags cache. Measured on syrius-querschnitt-basis (3,642 code files):
+1987ms for the twelve-process bash, 4453ms for a sequential in-process pass, and
+1142ms threaded -- byte-identical output in all three. Tree-sitter parsing
+thousands of files is real CPU work, so cores win even against process overhead.
 
 RAW TAGS ARE NEVER STORED. Each worker pipes `synapse tags` straight into
 the word reduction and keeps only `group <TAB> word`. The tags themselves are

@@ -25,6 +25,7 @@ const tags_cache_cmd = @import("tags_cache_cmd.zig");
 const index_cmd = @import("index_cmd.zig");
 const enumerate_cmd = @import("enumerate_cmd.zig");
 const build_lists_cmd = @import("build_lists_cmd.zig");
+const vocab_cmd = @import("vocab_cmd.zig");
 
 comptime {
     // `treesitter` needs no line here: tags.zig uses it for real.
@@ -92,6 +93,9 @@ pub fn main(init: std.process.Init) !u8 {
 
     if (std.mem.eql(u8, sub, "build-lists"))
         return build_lists_cmd.run(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "vocab"))
+        return vocab_cmd.run(treesitter.extractor.TreeSitterExtractor, init.gpa, init.io, init.environ_map, &args);
 
     if (std.mem.eql(u8, sub, "--help") or std.mem.eql(u8, sub, "-h")) {
         std.debug.print("{s}", .{usage});

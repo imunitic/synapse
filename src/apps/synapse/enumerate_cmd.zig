@@ -198,7 +198,7 @@ fn enumerateInto(
 /// case -- the shipped conf is all comments. The script OR'd an empty pattern
 /// set into `^$` for the same reason this returns early: an empty ERE matches
 /// every line, so a missing guard would enumerate zero files.
-fn applyUserPatterns(
+pub fn applyUserPatterns(
     gpa: Allocator,
     io: Io,
     env: *std.process.Environ.Map,

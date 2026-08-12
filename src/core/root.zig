@@ -20,6 +20,7 @@ pub const tag_line = @import("tag_line.zig");
 pub const tags_cache = @import("tags_cache.zig");
 pub const index_map = @import("index_map.zig");
 pub const enumerate = @import("enumerate.zig");
+pub const vocab = @import("vocab.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -28,6 +29,7 @@ test {
     _ = tags_cache;
     _ = index_map;
     _ = enumerate;
+    _ = vocab;
     _ = @import("tags_cache/format.zig");
     _ = @import("index_map/format.zig");
 }
