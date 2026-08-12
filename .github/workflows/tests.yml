@@ -94,8 +94,15 @@ jobs:
       # same reason: `build.zig.zon` is the only place the version lives.
       - uses: mlugg/setup-zig@v2
 
-      - name: Build the stubbed-grammar binary the suite runs
-        run: zig build fake
+      # All three binaries, not just the fake. `zig build fake` installs only
+      # `synapse-fake`, and this job needs the other two as well: every test's
+      # common_setup requires `synapse-hook` (the hooks link no grammar, so a test
+      # exercises the real one), and the docs check below runs the real `synapse`
+      # for its `--help`. Both were absent when this said `zig build fake` alone.
+      - name: Build the binaries the suite runs
+        run: |
+          zig build
+          zig build fake
 
       - name: Show versions
         run: |
