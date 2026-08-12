@@ -220,7 +220,10 @@ catalogue_lines() {
   # synapse-claude.md, imported into CLAUDE.md rather than shipped inline -- see
   # setup.sh's "CLAUDE.md / synapse-claude.md" section -- but reads as "the global
   # CLAUDE.md" from the hook's and the reader's point of view either way.
-  local nudge="$REPO_ROOT/claude/hooks/synapse-stop-nudge.sh"
+  # The text lives in the hook binary now, not in the wrapper -- the check follows
+  # it rather than lapsing, because what it protects is the pair (nudge text,
+  # heading) and not the file either half happens to sit in.
+  local nudge="$REPO_ROOT/src/apps/hook/stop_nudge.zig"
   local cited
   cited="$(grep -o 'CLAUDE.md \\"[^\\]*\\" section' "$nudge" | sed -e 's/.*\\"\(.*\)\\" section/\1/')"
   [ -n "$cited" ]

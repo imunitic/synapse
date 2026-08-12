@@ -602,13 +602,9 @@ fn openStore(
         return null;
     }
 
-    return try adapters.obsidian.ObsidianStore.init(
-        gpa,
-        port,
-        try certPath(gpa, env),
-        try gpa.dupe(u8, api_key),
-        ctx.dir,
-    );
+    const cert = try certPath(gpa, env);
+    defer gpa.free(cert);
+    return try adapters.obsidian.ObsidianStore.init(gpa, port, cert, api_key, ctx.dir);
 }
 
 /// `~/.claude/obsidian-local-rest-api-ca.pem`, the plugin's own CA.

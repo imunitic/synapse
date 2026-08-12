@@ -142,6 +142,22 @@ else
   echo "    cache and everything downstream of them will fail. Override the"
   echo "    location with \$SYNAPSE_BIN if it lives elsewhere."
 fi
+
+# The hooks are a second binary, installed the same way and for the same reason.
+# Separate from `synapse` deliberately: a hook runs on every edit and every turn, so
+# its startup depends on nothing else the stage links -- it carries no tree-sitter and
+# no C library at all. Its absence is a warning too: every hook is then a silent
+# no-op, which is the behaviour they already have for any missing precondition.
+if [ -x "$HERE/zig-out/bin/synapse-hook" ]; then
+  cp "$HERE/zig-out/bin/synapse-hook" "$DEST/bin/synapse-hook"
+  chmod +x "$DEST/bin/synapse-hook"
+  echo "  installed binary: $DEST/bin/synapse-hook"
+else
+  echo "  NOTE: no $HERE/zig-out/bin/synapse-hook to install -- run 'zig build'."
+  echo "    Until then every Synapse hook exits 0 without doing anything: no"
+  echo "    staleness flagging, no session-start injection, no vault auto-commit."
+  echo "    Override the location with \$SYNAPSE_HOOK_BIN if it lives elsewhere."
+fi
 # This script copies in but never deletes, so scripts that moved out of bin/
 # and into lib/synapse/ during the porcelain rewrite linger in $DEST/bin/ on an
 # existing machine -- unreferenced but still executable and still on PATH,

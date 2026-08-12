@@ -830,3 +830,146 @@ test "a recovered body written back produces the same bytes" {
     try writeNote(&again.writer, m);
     try testing.expectEqualStrings(out.written(), again.written());
 }
+
+/// Rewrite the one `stale:` line in the frontmatter to `stale: true`.
+///
+/// Returns false when nothing changed -- already true, or no frontmatter to touch
+/// -- so a caller can skip the write and not churn a file's mtime on every edit.
+///
+/// **Not** `PATCH -H "Target-Type: frontmatter"`, and this is the sharpest edge in
+/// the whole system. That call is not field-local: it re-serialises the entire YAML
+/// block, stripping quotes from every value, folding long `title:` lines across two
+/// lines, and YAML-coercing anything that looks like another type. Verified
+/// 2026-08-03 on a node-shaped fixture: an all-digit `hash` became
+/// `1.1111111111111112e+39`, unrecoverably. A corrupted hash makes `sources_digest`
+/// disagree with its own `sources` forever, so that is a permanent false positive
+/// no rebuild can clear.
+///
+/// Rewriting one line leaves every other byte -- including the exhaustive `sources`
+/// list, megabytes of it on a hub node -- untouched.
+pub fn setStaleTrue(w: *std.Io.Writer, text: []const u8) !bool {
+    // No frontmatter at all: nothing to flag, and inventing a block would turn a
+    // hand-written file into something the readers would then trust.
+    if (!std.mem.startsWith(u8, text, "---\n")) return false;
+
+    var changed = false;
+    var done = false;
+    var in_fm = false;
+    var first = true;
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        if (first) {
+            first = false;
+            in_fm = true;
+            try w.print("{s}\n", .{line});
+            continue;
+        }
+        if (in_fm and std.mem.eql(u8, line, "---")) {
+            // Absent `stale:` is added just before the closing marker rather than
+            // skipped: a node built before the field existed still has to be
+            // flaggable.
+            if (!done) {
+                try w.writeAll("stale: true\n");
+                done = true;
+                changed = true;
+            }
+            in_fm = false;
+            try w.print("{s}\n", .{line});
+            continue;
+        }
+        if (in_fm and !done and std.mem.startsWith(u8, line, "stale:")) {
+            try w.writeAll("stale: true\n");
+            done = true;
+            if (!std.mem.eql(u8, std.mem.trim(u8, line["stale:".len..], " \t"), "true"))
+                changed = true;
+            continue;
+        }
+        // The final split piece after a trailing newline is empty and must not
+        // become an extra line.
+        if (lines.index == null and line.len == 0) break;
+        try w.print("{s}\n", .{line});
+    }
+    return changed;
+}
+
+/// The text inside ``` fences, concatenated -- the node's own copy of its crux.
+///
+/// `awk '/^```/ { f = !f; next } f { print }'`: a toggle, not a parser, so a node
+/// with several fenced blocks yields all of them. No digest is stored for a crux --
+/// the sliced text lives in the note -- so this is the stored side of the
+/// comparison against the file as it is now.
+pub fn fencedText(gpa: std.mem.Allocator, text: []const u8) ![]u8 {
+    var out: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer out.deinit(gpa);
+    var inside = false;
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        if (std.mem.startsWith(u8, line, "```")) {
+            inside = !inside;
+            continue;
+        }
+        if (!inside) continue;
+        if (lines.index == null and line.len == 0) break;
+        try out.appendSlice(gpa, line);
+        try out.append(gpa, '\n');
+    }
+    return out.toOwnedSlice(gpa);
+}
+
+test "setStaleTrue rewrites one line and leaves every other byte alone" {
+    const gpa = testing.allocator;
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const text =
+        "---\ntitle: \"T\"\nsources:\n  - path: a\n    hash: 1111111111\nstale: false\n---\n\n# T\nbody\n";
+    try testing.expect(try setStaleTrue(&out.writer, text));
+    try testing.expectEqualStrings(
+        "---\ntitle: \"T\"\nsources:\n  - path: a\n    hash: 1111111111\nstale: true\n---\n\n# T\nbody\n",
+        out.written(),
+    );
+}
+
+test "an already-stale node reports no change, so no write happens" {
+    const gpa = testing.allocator;
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const text = "---\ntitle: \"T\"\nstale: true\n---\n\nbody\n";
+    try testing.expect(!try setStaleTrue(&out.writer, text));
+    // The output is still the whole file, so a caller that writes anyway is correct
+    // -- it is just churning an mtime for nothing.
+    try testing.expectEqualStrings(text, out.written());
+}
+
+test "a node with no stale field gains one before the closing marker" {
+    const gpa = testing.allocator;
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    try testing.expect(try setStaleTrue(&out.writer, "---\ntitle: \"T\"\n---\nbody\n"));
+    try testing.expectEqualStrings("---\ntitle: \"T\"\nstale: true\n---\nbody\n", out.written());
+}
+
+test "a file with no frontmatter is left alone entirely" {
+    const gpa = testing.allocator;
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    try testing.expect(!try setStaleTrue(&out.writer, "# Just prose\nstale: false\n"));
+    // Nothing written: the caller compares and skips, and a `stale:` line in the
+    // body is not frontmatter.
+    try testing.expectEqualStrings("", out.written());
+}
+
+test "fencedText is the toggle the awk was, not a parser" {
+    const gpa = testing.allocator;
+    const with_crux =
+        "# T\n## Crux\n```java\nint x = 1;\nreturn x;\n```\n— `a.java`:4-5\n";
+    const got = try fencedText(gpa, with_crux);
+    defer gpa.free(got);
+    try testing.expectEqualStrings("int x = 1;\nreturn x;\n", got);
+}
+
+test "several fenced blocks all contribute, as the toggle implies" {
+    const gpa = testing.allocator;
+    const got = try fencedText(gpa, "```\na\n```\ntext\n```\nb\n```\n");
+    defer gpa.free(got);
+    try testing.expectEqualStrings("a\nb\n", got);
+}

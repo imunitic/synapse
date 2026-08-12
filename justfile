@@ -178,8 +178,13 @@ test-linux:
     # overwrites the native build a `just test` on the host would then run.
     command -v zig >/dev/null || { echo "zig not on PATH -- brew install zig" >&2; exit 1; }
     zig build fake -Dtarget=x86_64-linux --prefix zig-out/linux
+    # The hook binary needs no stub -- it links no grammar -- but it does need to
+    # be a Linux binary, so it is cross-compiled the same way. `install` rather
+    # than `fake`, since that step is what carries it.
+    zig build -Dtarget=x86_64-linux --prefix zig-out/linux
     podman --connection "$machine" run --rm -v "$(pwd):/repo:Z" -w /repo \
-      -e SYNAPSE_FAKE_BIN=/repo/zig-out/linux/bin/synapse-fake synapse-test \
+      -e SYNAPSE_FAKE_BIN=/repo/zig-out/linux/bin/synapse-fake \
+      -e SYNAPSE_HOOK_BIN=/repo/zig-out/linux/bin/synapse-hook synapse-test \
       bats --jobs "$(getconf _NPROCESSORS_ONLN)" tests/
 
 # Needs `brew install act` once -- podman-ready's Podman machine is reused.

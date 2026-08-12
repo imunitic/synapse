@@ -143,6 +143,26 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(exe);
 
+    // The hooks, in their own binary. Not subcommands of `synapse`: a hook runs on
+    // every edit and every turn, so its startup must depend on nothing else the
+    // stage links -- and this one imports no `treesitter`, so it links no
+    // libtree-sitter and needs no C compiler. That is what the per-app dependency
+    // sets above are for.
+    const hook = b.addExecutable(.{
+        .name = "synapse-hook",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/apps/hook/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "core", .module = core },
+                .{ .name = "adapters", .module = adapters },
+                .{ .name = "model", .module = model },
+            },
+        }),
+    });
+    b.installArtifact(hook);
+
     // The binary the bats suite runs: the same app with the grammar
     // compile-and-load step stubbed. Its own step rather than part of the
     // default install, because it must never reach `~/.claude/bin` -- but
@@ -224,7 +244,10 @@ pub fn build(b: *std.Build) void {
     // test root references everything, so building it covers everything.
     const test_build_step = b.step("test-build", "Compile the unit tests without running them");
 
-    for ([_]*std.Build.Module{ model, core, ports, adapters, treesitter }) |mod| {
+    // `hook.root_module` as well as the libraries: the hooks' shared helpers carry
+    // tests (the namespace agreement rule, the JSON string escaping) and an app root
+    // is the only way to reach them, since an app is not a module anything imports.
+    for ([_]*std.Build.Module{ model, core, ports, adapters, treesitter, hook.root_module }) |mod| {
         const unit = b.addTest(.{ .root_module = mod });
         test_step.dependOn(&b.addRunArtifact(unit).step);
         test_build_step.dependOn(&unit.step);

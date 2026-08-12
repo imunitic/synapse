@@ -275,5 +275,6 @@ fn openStore(
     const cert = try std.fmt.allocPrint(gpa, "{s}/.claude/obsidian-local-rest-api-ca.pem", .{
         env.get("HOME") orelse "",
     });
-    return try adapters.obsidian.ObsidianStore.init(gpa, port, cert, try gpa.dupe(u8, api_key), ctx.dir);
+    defer gpa.free(cert);
+    return try adapters.obsidian.ObsidianStore.init(gpa, port, cert, api_key, ctx.dir);
 }

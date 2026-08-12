@@ -29,6 +29,16 @@ common_setup() {
   fi
   export SYNAPSE_BIN="$SYNAPSE_FAKE_BIN"
 
+  # The hooks are a second binary, and it needs no stub: it links no grammar, so
+  # the real one is what a test should exercise. Defaults to the native build for
+  # `just test`; `just test-linux` passes a cross-compiled path in.
+  SYNAPSE_HOOK_BIN="${SYNAPSE_HOOK_BIN:-$REPO_ROOT/zig-out/bin/synapse-hook}"
+  if [ ! -x "$SYNAPSE_HOOK_BIN" ]; then
+    echo "missing $SYNAPSE_HOOK_BIN -- run 'zig build' (or 'just test', which does)" >&2
+    return 1
+  fi
+  export SYNAPSE_HOOK_BIN
+
   # Neutralise an inherited TMPDIR before anything uses it. Whatever launched the
   # suite decides this, and an editor-hosted terminal routinely points it
   # somewhere surprising -- Emacs sets it to ~/.emacs.d/var/tmp, which is *inside

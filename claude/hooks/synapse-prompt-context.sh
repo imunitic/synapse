@@ -45,92 +45,50 @@
 # for this repo, or a namespace belonging to a different remote.
 set -uo pipefail
 
-[ -n "${SYNAPSE_DISABLE_PROMPT_INJECTION:-}" ] && exit 0
+# WHAT IS LEFT HERE. Config, identity and dispatch. The hook itself is
+# `synapse-hook prompt-context` -- see src/apps/hook/prompt_context.zig. Identity stays here
+# because synapse-identity.sh is still bash and this was one of its sourcers; the
+# wrapper collapses when that lands.
+#
+# Every failure to resolve anything exits 0. A hook that errors is worse than one
+# that quietly does nothing: it interrupts a turn to report a condition the user
+# did not ask about and usually cannot act on.
 
-# synapse.conf, falling back to the name this file had before the project was
-# renamed, so scripts updated ahead of setup.sh still find an existing config
-# rather than reporting "no vault".
 CONF="$HOME/.claude/synapse.conf"
 [ -f "$CONF" ] || CONF="$HOME/.claude/second-brain.conf"
-[ -f "$CONF" ] && source "$CONF"
+# shellcheck source=/dev/null
+[ -f "$CONF" ] && . "$CONF"
+[ -n "${OBSIDIAN_VAULT_DIR:-}" ] && export OBSIDIAN_VAULT_DIR
 
-VAULT="${OBSIDIAN_VAULT_DIR:-}"
-[ -n "$VAULT" ] && [ -d "$VAULT" ] || exit 0
+HOOK_BIN="${SYNAPSE_HOOK_BIN:-$HOME/.claude/bin/synapse-hook}"
+[ -x "$HOOK_BIN" ] || exit 0
+export SYNAPSE_HOOK_BIN="$HOOK_BIN"
+
 command -v jq >/dev/null || exit 0
-
 INPUT="$(cat)"
-
-# `prompt` matches Claude Code's documented convention for this hook event, the
-# same way `session_id` (verified, see synapse-stop-nudge.sh) and
-# `tool_input`/`tool_response` (verified, see synapse-staleness.sh) are named for
-# theirs. Verified live: the hook fires with this field populated. An empty
-# PROMPT still exits silently, so a payload change degrades to "does nothing".
-PROMPT="$(printf '%s' "$INPUT" | jq -r '.prompt // empty')"
-[ -n "$PROMPT" ] || exit 0
-
 CWD="$(printf '%s' "$INPUT" | jq -r '.cwd // empty')"
 [ -n "$CWD" ] || CWD="$PWD"
 
-REPO_ROOT="$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null || true)"
-[ -n "$REPO_ROOT" ] || exit 0
+# The namespace, resolved once and exported -- the same arrangement every ported
+# script uses, so a hook cannot disagree with a command about which graph a
+# checkout belongs to.
+if command -v git >/dev/null; then
+  REPO_ROOT="$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null || true)"
+  if [ -n "$REPO_ROOT" ]; then
+    # shellcheck source=/dev/null
+    if . "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh" 2>/dev/null; then
+      # A detached HEAD has no branch and so no namespace. Not an error: the hook
+      # simply has nothing to say, and every consumer treats an absent
+      # SYNAPSE_NAMESPACE as exactly that.
+      if REPO_NAME="$(synapse_namespace "$REPO_ROOT" 2>/dev/null)"; then
+        export SYNAPSE_NAMESPACE="$REPO_NAME"
+        export SYNAPSE_REPO_ROOT="$REPO_ROOT"
+        export SYNAPSE_BRANCH; SYNAPSE_BRANCH="$(synapse_branch "$REPO_ROOT")"
+        export SYNAPSE_REMOTE; SYNAPSE_REMOTE="$(synapse_remote "$REPO_ROOT")"
+        export SYNAPSE_WORK_DIR="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}"
+      fi
+    fi
+  fi
+fi
 
-# One shared resolution of repo, branch and remote, so this hook cannot drift
-# from synapse-staleness.sh / synapse-session-start.sh / synapse-query.sh.
-# shellcheck source=/dev/null
-. "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh" 2>/dev/null || exit 0
-REMOTE="$(synapse_remote "$REPO_ROOT")"
-# Detached HEAD: no branch, so no namespace to point at.
-REPO_NAME="$(synapse_namespace "$REPO_ROOT" 2>/dev/null)" || exit 0
-
-NS_DIR="$VAULT/synapse/$REPO_NAME"
-NS_INDEX="$NS_DIR/Index.md"
-[ -f "$NS_INDEX" ] || exit 0
-
-# The same remote check every other component makes before trusting a namespace:
-# two repos can share a key, and pointing at another project's graph is worse
-# than saying nothing.
-NS_REMOTE="$(grep -m1 '^remote:' "$NS_INDEX" 2>/dev/null \
-  | sed -e 's/^remote: *//' -e 's/^"//' -e 's/"$//' || true)"
-[ -n "$NS_REMOTE" ] && [ "$NS_REMOTE" = "$REMOTE" ] || exit 0
-
-# Node count, so the line says how much is actually there rather than asserting
-# a graph exists in the abstract. Index.md is excluded: it is the map, not a node.
-NODES="$(find "$NS_DIR" -maxdepth 1 -name '*.md' ! -name 'Index.md' 2>/dev/null | wc -l | tr -d ' ')"
-[ "$NODES" -gt 0 ] || exit 0
-
-# THE CODE CACHE IS A SEPARATE TOOL, NOT PART OF THE GRAPH. `callers` reads
-# _refs.tsv and needs no nodes, no reverse index and no vault, so listing it as a
-# graph reader (as this line used to) actively misleads: it implies the answer
-# depends on clustering that may not exist, and it hides the one Synapse tool
-# that works in an unclustered repo. `symbol` is the same Code Cache lookup
-# scoped by a node, which is why it takes two arguments -- a one-arg call prints
-# usage and reads as "unimplemented" to anyone who does not know the signature.
-#
-# Announced only when _refs.tsv is actually present, for the same reason the
-# node count is computed rather than asserted above: name what is there, never a
-# capability in the abstract. A missing index would otherwise send the reader to
-# a tool that exits with "no reference index".
-WORK="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}"
-CACHE=""
-[ -f "$WORK/_refs.tsv" ] && CACHE="$(printf '%s' \
-  ' Separately, and independent of the graph, a Code Cache indexes exact names:' \
-  ' `synapse.sh callers <name>` gives repo-wide call sites (no graph needed),' \
-  ' `synapse-query.sh symbol <name> <node>` scopes that lookup to one node.' \
-  ' Prefer either over grep for "where is X defined/used"; their line numbers' \
-  ' come from the index and can lag the working tree, so re-check a range before' \
-  ' relying on it.')"
-
-jq -n --arg ns "$REPO_NAME" --arg n "$NODES" --arg cache "$CACHE" '
-  {
-    hookSpecificOutput: {
-      hookEventName: "UserPromptSubmit",
-      additionalContext: (
-        "Synapse: this repo has a code graph at synapse/" + $ns + "/ (" + $n + " nodes). " +
-        "If this turn needs to know how the codebase works, consult Synapse before grepping or " +
-        "opening files -- synapse-query.sh (body/sources/field/links), synapse index " +
-        "for path -> owning node (the authoritative coverage check: never infer from node titles)." +
-        $cache +
-        " The synapse-query and synapse-node skills have the procedure."
-      )
-    }
-  }'
+printf '%s' "$INPUT" | exec "$HOOK_BIN" prompt-context

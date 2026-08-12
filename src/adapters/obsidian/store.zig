@@ -57,6 +57,15 @@ pub const ObsidianStore = struct {
     /// where another proceeds.
     namespace: []const u8,
 
+    /// Copies all three strings, and `deinit` frees them.
+    ///
+    /// Owning them rather than borrowing is what the callers actually need: every one
+    /// of them builds the certificate path and the namespace directory with
+    /// `allocPrint` and reads the key out of a parsed JSON tree that it then frees.
+    /// Borrowing made each caller responsible for outliving the store, and all three
+    /// got it wrong the same way -- caught not on macOS but by the Linux container's
+    /// `DebugAllocator`, which reports a leak on exit where the native build stayed
+    /// silent.
     pub fn init(
         gpa: Allocator,
         port_number: u16,
@@ -64,17 +73,27 @@ pub const ObsidianStore = struct {
         api_key: []const u8,
         namespace: []const u8,
     ) !ObsidianStore {
+        const base = try std.fmt.allocPrint(gpa, "https://127.0.0.1:{d}", .{port_number});
+        errdefer gpa.free(base);
+        const cert = try gpa.dupe(u8, cert_path);
+        errdefer gpa.free(cert);
+        const key = try gpa.dupe(u8, api_key);
+        errdefer gpa.free(key);
+        const ns = try gpa.dupe(u8, namespace);
         return .{
             .gpa = gpa,
-            .base = try std.fmt.allocPrint(gpa, "https://127.0.0.1:{d}", .{port_number}),
-            .cert_path = cert_path,
-            .api_key = api_key,
-            .namespace = namespace,
+            .base = base,
+            .cert_path = cert,
+            .api_key = key,
+            .namespace = ns,
         };
     }
 
     pub fn deinit(self: *ObsidianStore) void {
         self.gpa.free(self.base);
+        self.gpa.free(self.cert_path);
+        self.gpa.free(self.api_key);
+        self.gpa.free(self.namespace);
     }
 
     pub fn store(self: *ObsidianStore) Store {
