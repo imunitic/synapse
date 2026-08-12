@@ -119,162 +119,23 @@ else
 fi
 [ -n "$REPO_ROOT" ] || { echo "synapse-rank: not inside a git repo" >&2; exit 1; }
 
-# The compiled binary. `$SYNAPSE_BIN` overrides it, which is how the test suite
-# points this at a build with the grammar step stubbed.
-SYNAPSE_BIN="${SYNAPSE_BIN:-$HOME/.claude/bin/synapse}"
-[ -x "$SYNAPSE_BIN" ] || { echo "synapse-rank: $SYNAPSE_BIN not installed (run setup.sh)" >&2; exit 1; }
 
-W="$(mktemp -d "${TMPDIR:-/tmp}/synapse-rank.XXXXXX")" || exit 1
-trap 'rm -rf "$W"' EXIT
-mkdir -p "$W/chunks" "$W/out"
+# WHAT IS LEFT HERE. Argument validation and dispatch. The ranking moved into
+# `synapse rank`, threaded on the strength of the measurement synapse-vocab.sh's
+# port produced: tagging is real per-file CPU work, so the `xargs -P` chunking was
+# buying parallelism rather than amortising startup.
+#
+# Gone with it: split, the generated worker.sh, xargs -P, one `synapse tags` spawn
+# per chunk, the .tags intermediates, the batched stat, and four awk programs. The
+# two tier rules, the test heuristic and the stem/module keying live in
+# src/core/rank.zig -- the heuristic checked against this script's own ERE over
+# 138,832 real paths, agreeing on all 24,911 it calls tests.
 
-# Same source synapse-vocab.sh reads, for the same reason: these are the
-# languages a grammar exists for, which is a different question from what
-# belongs in the graph. Read from the registry (`synapse tags
-# --list-extensions`) rather than hardcoded here, so this and synapse-vocab.sh
-# cannot silently disagree about which extensions count as code -- a
-# hardcoded list here previously excluded a language whose grammar was
-# already registered, which is exactly the drift a single shared source
-# removes. An empty result is legitimate (nothing registered yet).
-CODE_EXTS="$("$SYNAPSE_BIN" tags --list-extensions 2>/dev/null)"
-if [ -n "$CODE_EXTS" ]; then
-    CODE_RE="\\.($(printf '%s\n' "$CODE_EXTS" | LC_ALL=C paste -sd'|' -))\$"
-else
-    CODE_RE=""
-fi
+# Required, not optional: the binary is the only implementation of this now.
+readonly SYNAPSE_BIN_PATH="${SYNAPSE_BIN:-$HOME/.claude/bin/synapse}"
+[ -x "$SYNAPSE_BIN_PATH" ] || { echo "synapse-rank: $SYNAPSE_BIN_PATH not installed (run setup.sh)" >&2; exit 1; }
 
-# Test files, by the conventions that actually recur across languages: a path
-# segment named test/spec, a `FooTest`/`FooSpec` basename, a `_test`/`.test.`
-# suffix, a `test_` prefix. The capital in `[a-z0-9](Tests?|Spec)` is the whole
-# point of that branch -- without it `Latest.java` reads as a test, and silently
-# dropping a real implementation file from the crux pool is exactly the kind of
-# wrong answer that never announces itself.
-TEST_RE="${SYNAPSE_TEST_PATH_RE:-(^|/)(test|tests|spec|specs|__tests__|testing)/|[^/]*[a-z0-9](Tests?|Spec)\.[^/.]+$|[^/]*[._-](test|spec)\.[^/.]+$|(^|/)[Tt]est_[^/]*$}"
-
-cd "$REPO_ROOT" || exit 1
-LC_ALL=C sort -u "$SOURCES" | LC_ALL=C awk 'NF' > "$W/all.txt"
-# Guarded rather than fed straight to grep -E/-vE: an empty pattern matches
-# every line, which would put every source in the code tier (and, on the
-# inverted branch, none in the noncode tier) instead of correctly treating
-# "no extensions registered yet" as "nothing ranks as code."
-if [ -n "$CODE_RE" ]; then
-    LC_ALL=C grep -E "$CODE_RE" "$W/all.txt" > "$W/code.txt" || : > "$W/code.txt"
-    LC_ALL=C grep -vE "$CODE_RE" "$W/all.txt" > "$W/noncode.txt" || : > "$W/noncode.txt"
-else
-    : > "$W/code.txt"
-    cp "$W/all.txt" "$W/noncode.txt"
-fi
-
-tests_dropped=0
-if [ "$POOL" = "crux" ]; then
-    LC_ALL=C grep -vE "$TEST_RE" "$W/code.txt" > "$W/code-impl.txt" || : > "$W/code-impl.txt"
-    tests_dropped=$(( $(LC_ALL=C wc -l < "$W/code.txt" | tr -d ' ') \
-                    - $(LC_ALL=C wc -l < "$W/code-impl.txt" | tr -d ' ') ))
-    mv "$W/code-impl.txt" "$W/code.txt"
-fi
-
-# stem <TAB> module <TAB> path. The module is the first two path segments, or
-# whatever prefix a shallower path has; `(repo root)` for a file with none, so
-# root files only ever resolve against each other.
-KEY_AWK='
-BEGIN { FS = "/" }
-{
-  path = $0
-  n = NF
-  file = $n
-  sub(/\.[^.]*$/, "", file)
-  lim = (n - 1 < 2) ? n - 1 : 2
-  if (lim < 1) mod = "(repo root)"
-  else { mod = $1; for (i = 2; i <= lim; i++) mod = mod "/" $i }
-  print file "\t" mod "\t" path
-}'
-
-# --- code tier: definitions per KB -----------------------------------------
-code_n="$(LC_ALL=C wc -l < "$W/code.txt" | tr -d ' ')"
-: > "$W/code-ranked.tsv"
-if [ "$code_n" -gt 0 ]; then
-    NP="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
-    CHUNK=$(( (code_n + NP - 1) / NP ))
-    [ "$CHUNK" -ge 200 ] || CHUNK=200
-    split -l "$CHUNK" "$W/code.txt" "$W/chunks/c."
-
-    cat > "$W/worker.sh" <<'WORKER'
-#!/bin/bash
-# worker.sh <chunk> <out-dir> <repo-root> <synapse-bin>
-chunk="$1"; outdir="$2"; repo="$3"; bin="$4"
-cd "$repo" || exit 0
-"$bin" tags --paths "$chunk" 2>/dev/null > "$outdir/$(basename "$chunk").tags"
-WORKER
-    chmod +x "$W/worker.sh"
-    find "$W/chunks" -type f -name 'c.*' -print0 \
-        | xargs -0 -P "$NP" -I {} "$W/worker.sh" {} "$W/out" "$REPO_ROOT" "$SYNAPSE_BIN"
-    cat "$W"/out/*.tags > "$W/all.tags" 2>/dev/null || : > "$W/all.tags"
-
-    # An unindented line is a path; under it, field 4 of a tag line is the
-    # def/ref marker. Every path is seeded at zero so a parsed-but-empty file
-    # ranks last rather than vanishing from the tier it belongs to.
-    LC_ALL=C awk -F'\t' '
-      /^[^\t]/ { p = $0; if (!(p in n)) n[p] = 0; next }
-      p != "" && $4 ~ /^def / { n[p]++ }
-      END { for (k in n) print k "\t" n[k] }
-    ' "$W/all.tags" | LC_ALL=C sort > "$W/defs.tsv"
-
-    # ONE batched stat, never a `wc -c` per path: that shape cost 15 minutes
-    # against 3 seconds for the batched form on a repo of this size, and a
-    # five-file fixture can never surface the difference.
-    if stat -f '%z' . >/dev/null 2>&1; then stat_args=(-f '%z %N'); else stat_args=(-c '%s %n'); fi
-    tr '\n' '\0' < "$W/code.txt" \
-        | xargs -0 stat "${stat_args[@]}" 2>/dev/null \
-        | LC_ALL=C awk '{ size = $1; sub(/^[0-9]+ /, ""); print $0 "\t" size }' \
-        | LC_ALL=C sort > "$W/sizes.tsv"
-
-    # Definitions per kilobyte. A file whose size we could not read is dropped
-    # rather than scored as infinitely dense.
-    LC_ALL=C awk -F'\t' '
-      NR == FNR { size[$1] = $2 + 0; next }
-      ($1 in size) && size[$1] > 0 { printf "code\t%.3f\t%s\n", ($2 * 1000.0) / size[$1], $1 }
-    ' "$W/sizes.tsv" "$W/defs.tsv" \
-        | LC_ALL=C sort -t"$(printf '\t')" -k2,2gr -k3,3 > "$W/code-ranked.tsv"
-fi
-
-# --- dsl tier: hop from a declaration to the code that consumes it ----------
-: > "$W/dsl-ranked.tsv"
-if [ -s "$W/noncode.txt" ] && [ -n "$CODE_RE" ]; then
-    git ls-files 2>/dev/null | LC_ALL=C grep -E "$CODE_RE" > "$W/repo-code.txt" || : > "$W/repo-code.txt"
-    LC_ALL=C awk "$KEY_AWK" "$W/repo-code.txt" > "$W/code-keys.tsv"
-    LC_ALL=C awk "$KEY_AWK" "$W/noncode.txt"   > "$W/dsl-keys.tsv"
-
-    # Bucketed by module first, so the prefix comparison only ever runs against
-    # candidates that could match. Unbucketed this is every declaration against
-    # every code file in the repo -- 98k of them on a large one.
-    LC_ALL=C awk -F'\t' '
-      NR == FNR { m = $2; i = ++cnt[m]; stem[m, i] = $1; path[m, i] = $3; next }
-      # A stem under three characters prefixes half the repo and tells you
-      # nothing, so it is not a hop worth making.
-      length($1) < 3 { next }
-      {
-        m = $2; s = $1
-        for (i = 1; i <= cnt[m]; i++)
-          if (index(stem[m, i], s) == 1) served[path[m, i]]++
-      }
-      END { for (p in served) printf "dsl\t%d\t%s\n", served[p], p }
-    ' "$W/code-keys.tsv" "$W/dsl-keys.tsv" \
-        | LC_ALL=C sort -t"$(printf '\t')" -k2,2nr -k3,3 > "$W/dsl-ranked.tsv"
-fi
-
-emit() { # emit <file>
-    if [ "$TOP" -eq 0 ]; then cat "$1"; else head -n "$TOP" "$1"; fi
-}
-[ "$TIER" = "dsl" ] || emit "$W/code-ranked.tsv"
-[ "$TIER" = "code" ] || emit "$W/dsl-ranked.tsv"
-
-# Tests dropped is reported rather than merely done: a crux pool that silently
-# shrank would look identical to a node that simply has few code files.
-printf 'synapse-rank: pool %s, %s sources -> code %s, dsl-consumers %s, unranked %s, tests-excluded %s\n' \
-    "$POOL" \
-    "$(LC_ALL=C wc -l < "$W/all.txt" | tr -d ' ')" \
-    "$(LC_ALL=C wc -l < "$W/code-ranked.tsv" | tr -d ' ')" \
-    "$(LC_ALL=C wc -l < "$W/dsl-ranked.tsv" | tr -d ' ')" \
-    "$(LC_ALL=C wc -l < "$W/noncode.txt" | tr -d ' ')" \
-    "$tests_dropped" >&2
-exit 0
+set -- --sources "$SOURCES" --top "$TOP" --pool "$POOL"
+[ -z "$TIER" ] || set -- "$@" --tier "$TIER"
+[ -z "$REPO" ] || set -- "$@" --repo "$REPO"
+exec "$SYNAPSE_BIN_PATH" rank "$@"

@@ -380,10 +380,14 @@ rank_of() { # rank_of <path> <output>
   # Comments stripped first: this script's own header explains the trap by
   # name, and a structural check that trips on the explanation is worse than
   # no check -- it would force the comment out to stay green.
+  # The batching moved into the binary, where a shell test cannot see it, so what
+  # is left to assert here is that none of the per-file apparatus came back. The
+  # `xargs -0 stat` this used to require is gone with it: sizes are one statFile
+  # per path in process, which is the same batching without the batch.
   local code; code="$(grep -v '^[[:space:]]*#' "$SCRIPT")"
-  [ "$(grep -c 'wc -c' <<< "$code")" -eq 0 ]
-  [ "$(grep -c 'basename' <<< "$code")" -eq 1 ]
-  grep -q 'xargs -0 stat' <<< "$code"
+  for banned in 'wc -c' basename split xargs worker.sh 'tags --paths' 'awk -F'; do
+    [ "$(grep -c -- "$banned" <<< "$code")" -eq 0 ]
+  done
 }
 
 @test "usage and environment errors" {
