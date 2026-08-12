@@ -155,8 +155,11 @@ fi
 # script it was ever given -- unreferenced but still executable, and in bin/ still
 # on PATH, which is worse than absent because a stray old copy can shadow nothing
 # and yet still be run by hand or by a hand-edited settings.json.
+# Globbed by prefix, not by extension: `hooks/` and `bin/` are shared with whatever
+# else the user installs there, and an unprefixed glob reported a foreign hook that
+# settings.json actively references as one "nothing references".
 stale=()
-for f in "$DEST/bin/"*.sh "$DEST/hooks/"*.sh "$DEST/lib/synapse/"*.sh; do
+for f in "$DEST/bin/"synapse*.sh "$DEST/hooks/"synapse-*.sh "$DEST/lib/synapse/"*.sh; do
   [ -e "$f" ] && stale+=("$f")
 done
 if [ "${#stale[@]}" -gt 0 ]; then
