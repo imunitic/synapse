@@ -33,6 +33,7 @@ const refs_cmd = @import("refs_cmd.zig");
 const gate_cmd = @import("gate_cmd.zig");
 const push_nodes_cmd = @import("push_nodes_cmd.zig");
 const project_index_cmd = @import("project_index_cmd.zig");
+const graph_cmd = @import("graph_cmd.zig");
 const fake = @import("fake_grammar.zig");
 
 pub fn main(init: std.process.Init) !u8 {
@@ -74,6 +75,12 @@ pub fn main(init: std.process.Init) !u8 {
 
     if (std.mem.eql(u8, sub, "write-node"))
         return write_node_cmd.run(fake.FakeExtractor, init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "graph-clean"))
+        return graph_cmd.runClean(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "graph-wipe"))
+        return graph_cmd.runWipe(init.gpa, init.io, init.environ_map, &args);
 
     if (std.mem.eql(u8, sub, "build-project-index"))
         return project_index_cmd.run(init.gpa, init.io, init.environ_map, &args);

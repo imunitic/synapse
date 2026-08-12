@@ -973,3 +973,86 @@ test "several fenced blocks all contribute, as the toggle implies" {
     defer gpa.free(got);
     try testing.expectEqualStrings("a\nb\n", got);
 }
+
+/// The hand-written `## Notes` body: what follows the closing fence, minus its own
+/// heading line and the blank lines around it.
+///
+/// The same region `writeNote` preserves verbatim as the tail on every rewrite, read
+/// from the other side. `graph-wipe` uses it to answer the only question that makes a
+/// wipe safe: does this node carry anything a rebuild cannot regenerate?
+///
+/// Empty means nothing at risk -- a node whose Notes section is just the heading, or
+/// absent entirely, loses nothing.
+pub fn notesBody(text: []const u8) []const u8 {
+    const at = std.mem.indexOf(u8, text, node.generated_end) orelse return "";
+    var rest = text[at + node.generated_end.len ..];
+    // Past the end of the marker's own line.
+    if (std.mem.indexOfScalar(u8, rest, '\n')) |nl| rest = rest[nl + 1 ..] else return "";
+
+    rest = skipBlankLines(rest);
+    // The heading itself is not content. Compared exactly, as the awk's
+    // `a[i] == "## Notes"` did: a differently-worded heading is content, because
+    // something wrote it deliberately.
+    if (std.mem.startsWith(u8, rest, "## Notes")) {
+        const line_end = std.mem.indexOfScalar(u8, rest, '\n') orelse rest.len;
+        if (std.mem.trim(u8, rest[0..line_end], " \t\r").len == "## Notes".len)
+            rest = if (line_end == rest.len) rest[rest.len..] else rest[line_end + 1 ..];
+    }
+    rest = skipBlankLines(rest);
+
+    // Trailing blank lines off the end.
+    var end = rest.len;
+    while (end > 0) {
+        const line_start = if (std.mem.lastIndexOfScalar(u8, rest[0..end], '\n')) |nl|
+            nl + 1
+        else
+            0;
+        if (std.mem.trim(u8, rest[line_start..end], " \t\r").len != 0) break;
+        if (line_start == 0) return "";
+        end = line_start - 1;
+    }
+    return rest[0..end];
+}
+
+fn skipBlankLines(s: []const u8) []const u8 {
+    var rest = s;
+    while (rest.len != 0) {
+        const nl = std.mem.indexOfScalar(u8, rest, '\n') orelse rest.len;
+        if (std.mem.trim(u8, rest[0..nl], " \t\r").len != 0) break;
+        if (nl == rest.len) return rest[rest.len..];
+        rest = rest[nl + 1 ..];
+    }
+    return rest;
+}
+
+test "notesBody finds hand-written content and strips the scaffolding" {
+    const written =
+        "# T\n" ++ node.generated_start ++ "\nprose\n" ++ node.generated_end ++
+        "\n\n## Notes\n\nThe thing nobody else knows.\nSecond line.\n\n";
+    try testing.expectEqualStrings(
+        "The thing nobody else knows.\nSecond line.",
+        notesBody(written),
+    );
+}
+
+test "an empty Notes section risks nothing" {
+    try testing.expectEqualStrings("", notesBody(
+        "# T\n" ++ node.generated_end ++ "\n\n## Notes\n\n",
+    ));
+    // No Notes section at all, and no fence at all.
+    try testing.expectEqualStrings("", notesBody("# T\n" ++ node.generated_end ++ "\n"));
+    try testing.expectEqualStrings("", notesBody("# T\nno fence here\n"));
+}
+
+test "content before the heading, or a different heading, still counts" {
+    // Anything a human put there is at risk, whatever it looks like -- a wipe that
+    // only recognised the canonical shape would delete the rest.
+    try testing.expectEqualStrings(
+        "loose line",
+        notesBody("# T\n" ++ node.generated_end ++ "\nloose line\n"),
+    );
+    try testing.expectEqualStrings(
+        "## Other\nkept",
+        notesBody("# T\n" ++ node.generated_end ++ "\n\n## Other\nkept\n"),
+    );
+}

@@ -31,117 +31,47 @@
 #   2 - usage error
 set -uo pipefail
 
+# WHAT IS LEFT HERE. Config, identity and dispatch. The decision tree and the
+# deletion moved into `synapse graph-wipe` -- see src/apps/synapse/graph_cmd.zig, and
+# src/core/graph_clean.zig for the classification, which is now testable
+# exhaustively without a vault or a repo.
+
 usage() { # usage [exit-code]
     awk '/^# Usage:/ { p = 1 } p && !/^#/ { exit } p { sub(/^# ?/, ""); print }' "$0" >&2
     exit "${1:-2}"
 }
 
-DRY_RUN=false
 case "${1:-}" in
-    "")        ;;
-    --dry-run) DRY_RUN=true ;;
+    ""|--dry-run) ;;
     -h|--help) usage 0 ;;
-    *)         usage ;;
+    *) usage ;;
 esac
 
 CONF="$HOME/.claude/synapse.conf"
 [ -f "$CONF" ] || CONF="$HOME/.claude/second-brain.conf"
 # shellcheck source=/dev/null
-[ -f "$CONF" ] && source "$CONF"
+[ -f "$CONF" ] && . "$CONF"
 VAULT="${OBSIDIAN_VAULT_DIR:-}"
 [ -n "$VAULT" ] && [ -d "$VAULT" ] || { echo "synapse-graph-wipe: no vault" >&2; exit 1; }
 
 command -v git >/dev/null || { echo "synapse-graph-wipe: git required" >&2; exit 1; }
-
 REPO_ROOT="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$REPO_ROOT" ] || { echo "synapse-graph-wipe: not inside a git repo" >&2; exit 1; }
 
 # shellcheck source=/dev/null
 . "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh" 2>/dev/null || {
     echo "synapse-graph-wipe: synapse-identity.sh not installed (run setup.sh)" >&2; exit 1; }
+REPO_NAME="$(synapse_namespace "$REPO_ROOT")" || exit 1
 
-NS="$(synapse_namespace "$REPO_ROOT")" || exit 1
-ns_dir="$VAULT/synapse/$NS"
+SYNAPSE_BIN_PATH="${SYNAPSE_BIN:-$HOME/.claude/bin/synapse}"
+[ -x "$SYNAPSE_BIN_PATH" ] || {
+    echo "synapse-graph-wipe: no synapse binary at $SYNAPSE_BIN_PATH (run setup.sh)" >&2; exit 1; }
 
-[ -d "$ns_dir" ] || {
-    echo "synapse-graph-wipe: no namespace at synapse/$NS -- nothing to wipe (first build? use /synapse-init)" >&2
-    exit 1
-}
+export OBSIDIAN_VAULT_DIR="$VAULT"
+export SYNAPSE_NAMESPACE="$REPO_NAME"
+export SYNAPSE_REPO_ROOT="$REPO_ROOT"
+export SYNAPSE_WORK_DIR="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}"
+export SYNAPSE_BRANCH; SYNAPSE_BRANCH="$(synapse_branch "$REPO_ROOT")"
+export SYNAPSE_REMOTE; SYNAPSE_REMOTE="$(synapse_remote "$REPO_ROOT")"
 
-# --- scan every node for at-risk ## Notes content -----------------------------
-# A node file is any *.md directly under the namespace dir except Index.md;
-# _manifest.tsv/_profile.txt are internal and machine-only, same distinction
-# synapse-graph-clean.sh's neighbours draw. The reverse index and the tags cache
-# used to need naming here too -- they live in the work dir now, so a wipe of the
-# namespace does not have to reason about them at all.
-shopt -s nullglob
-node_count=0
-notes_at_risk=0
-preserved=""
-for node_file in "$ns_dir"/*.md; do
-    base="$(basename "$node_file")"
-    [ "$base" = "Index.md" ] && continue
-    node_count=$((node_count + 1))
-
-    # `## Notes` is whatever follows the generated-end marker, minus its own
-    # heading line and leading/trailing blank lines -- the same region
-    # synapse-write-node.sh preserves verbatim as `node_tail` on every rewrite.
-    # Single awk pass (no sed block syntax -- BSD sed on macOS rejects
-    # `1{/pat/d}` and GNU sed accepts it, one more place this codebase has
-    # already hit a portability gap between the two).
-    notes_body="$(awk '
-        /<!-- synapse:generated:end -->/ { f = 1; next }
-        f { a[++n] = $0 }
-        END {
-            i = 1
-            while (i <= n && a[i] ~ /^[[:space:]]*$/) i++
-            if (i <= n && a[i] == "## Notes") i++
-            while (i <= n && a[i] ~ /^[[:space:]]*$/) i++
-            last = n
-            while (last >= i && a[last] ~ /^[[:space:]]*$/) last--
-            for (k = i; k <= last; k++) print a[k]
-        }
-    ' "$node_file")"
-    if [ -n "$notes_body" ]; then
-        notes_at_risk=$((notes_at_risk + 1))
-        title="${base%.md}"
-        printf 'at-risk\t%s\thas hand-written ## Notes content\n' "$title"
-        preserved="${preserved}## ${title}
-
-${notes_body}
-
-"
-    fi
-done
-
-echo "namespace: synapse/$NS ($node_count nodes, $notes_at_risk with ## Notes content)"
-
-if [ "$DRY_RUN" = true ]; then
-    echo "would-remove synapse/$NS"
-    exit 0
-fi
-
-# --- preserve before deleting --------------------------------------------------
-if [ -n "$preserved" ]; then
-    staging_name="$NS — preserved notes before full rebuild.md"
-    staging_path="scratchpad/$staging_name"
-    mkdir -p "$VAULT/scratchpad"
-    {
-        printf -- '---\ntitle: "%s — preserved notes before full rebuild"\ncreated: "%s"\n---\n\n' \
-            "$NS" "$(date '+%Y-%m-%d %H:%M')"
-        printf '# %s — preserved notes before full rebuild\n\n' "$NS"
-        printf 'Hand-written `## Notes` content recovered from `synapse/%s` before it was wiped for a full rebuild. `/synapse-rebuild-full` merges what it can back into the new nodes once the rebuild completes; whatever is still here after that needs a manual look.\n\n' "$NS"
-        printf '%s' "$preserved"
-    } > "$VAULT/$staging_path"
-    echo "preserved -> $staging_path"
-fi
-
-# --- delete ---------------------------------------------------------------------
-# Belt and braces before an rm -rf: only ever inside the vault's synapse/
-# directory, and only a directory whose name we just matched.
-case "$ns_dir" in
-    "$VAULT/synapse/"*) rm -rf "$ns_dir" ;;
-    *) echo "synapse-graph-wipe: refusing to remove $ns_dir" >&2; exit 1 ;;
-esac
-
-echo "removed synapse/$NS"
+exec "$SYNAPSE_BIN_PATH" graph-wipe "$@"

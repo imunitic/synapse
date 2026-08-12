@@ -41,123 +41,47 @@
 #   2 - usage error
 set -uo pipefail
 
+# WHAT IS LEFT HERE. Config, identity and dispatch. The decision tree and the
+# deletion moved into `synapse graph-clean` -- see src/apps/synapse/graph_cmd.zig, and
+# src/core/graph_clean.zig for the classification, which is now testable
+# exhaustively without a vault or a repo.
+
 usage() { # usage [exit-code]
     awk '/^# Usage:/ { p = 1 } p && !/^#/ { exit } p { sub(/^# ?/, ""); print }' "$0" >&2
     exit "${1:-2}"
 }
 
-DRY_RUN=false
 case "${1:-}" in
-    "")        ;;
-    --dry-run) DRY_RUN=true ;;
+    ""|--dry-run) ;;
     -h|--help) usage 0 ;;
-    *)         usage ;;
+    *) usage ;;
 esac
 
 CONF="$HOME/.claude/synapse.conf"
 [ -f "$CONF" ] || CONF="$HOME/.claude/second-brain.conf"
 # shellcheck source=/dev/null
-[ -f "$CONF" ] && source "$CONF"
+[ -f "$CONF" ] && . "$CONF"
 VAULT="${OBSIDIAN_VAULT_DIR:-}"
 [ -n "$VAULT" ] && [ -d "$VAULT" ] || { echo "synapse-graph-clean: no vault" >&2; exit 1; }
 
 command -v git >/dev/null || { echo "synapse-graph-clean: git required" >&2; exit 1; }
-
 REPO_ROOT="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$REPO_ROOT" ] || { echo "synapse-graph-clean: not inside a git repo" >&2; exit 1; }
 
 # shellcheck source=/dev/null
 . "${SYNAPSE_LIB_DIR:-$HOME/.claude/lib/synapse}/synapse-identity.sh" 2>/dev/null || {
     echo "synapse-graph-clean: synapse-identity.sh not installed (run setup.sh)" >&2; exit 1; }
+REPO_NAME="$(synapse_namespace "$REPO_ROOT")" || exit 1
 
-REPO="$(synapse_repo_name "$REPO_ROOT")"
-[ -n "$REPO" ] || { echo "synapse-graph-clean: could not determine the repo name" >&2; exit 1; }
+SYNAPSE_BIN_PATH="${SYNAPSE_BIN:-$HOME/.claude/bin/synapse}"
+[ -x "$SYNAPSE_BIN_PATH" ] || {
+    echo "synapse-graph-clean: no synapse binary at $SYNAPSE_BIN_PATH (run setup.sh)" >&2; exit 1; }
 
-# Whether this repo has any remote at all decides which test applies below. Note
-# synapse_remote falls back to the repo root path, so it is never empty -- ask
-# git directly instead.
-HAS_REMOTE=false
-[ -n "$(git -C "$REPO_ROOT" remote 2>/dev/null | head -1 || true)" ] && HAS_REMOTE=true
+export OBSIDIAN_VAULT_DIR="$VAULT"
+export SYNAPSE_NAMESPACE="$REPO_NAME"
+export SYNAPSE_REPO_ROOT="$REPO_ROOT"
+export SYNAPSE_WORK_DIR="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}"
+export SYNAPSE_BRANCH; SYNAPSE_BRANCH="$(synapse_branch "$REPO_ROOT")"
+export SYNAPSE_REMOTE; SYNAPSE_REMOTE="$(synapse_remote "$REPO_ROOT")"
 
-if [ "$HAS_REMOTE" = true ] && [ "$DRY_RUN" = false ]; then
-    # Failure is not fatal: offline or behind a VPN, the prune simply does not
-    # happen, every namespace then looks alive, and nothing is removed. Erring
-    # toward keeping notes is the right direction for the one destructive tool.
-    git -C "$REPO_ROOT" fetch --prune --quiet 2>/dev/null \
-        || echo "synapse-graph-clean: fetch failed -- deciding from local refs, which may be stale" >&2
-fi
-
-removed=0
-reported=0
-shopt -s nullglob
-for ns_dir in "$VAULT/synapse/$REPO"@*; do
-    [ -d "$ns_dir" ] || continue
-    ns="$(basename "$ns_dir")"
-
-    # The branch comes from the namespace's own `branch:` field, never from the
-    # directory name: the name has `/` and other filename-hostile characters
-    # translated to `-`, and that is not reversible -- `feature-CORE-1` could be
-    # `feature/CORE-1` or a branch literally named `feature-CORE-1`. A namespace
-    # with no readable field cannot be judged, so it is reported, not removed.
-    branch=""
-    [ -f "$ns_dir/Index.md" ] && branch="$(grep -m1 '^branch:' "$ns_dir/Index.md" 2>/dev/null \
-        | sed -e 's/^branch: *//' -e 's/^"//' -e 's/"$//' || true)"
-    if [ -z "$branch" ]; then
-        printf 'report\t%s\tno branch field -- cannot tell which branch it describes\n' "$ns"
-        reported=$((reported + 1))
-        continue
-    fi
-
-    local_exists=false
-    git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$branch" && local_exists=true
-
-    if [ "$HAS_REMOTE" = false ]; then
-        # No upstream can exist, so local existence is the whole question.
-        if [ "$local_exists" = true ]; then
-            continue
-        fi
-        printf 'report\t%s\tbranch %s is gone and the repo has no remote\n' "$ns" "$branch"
-        reported=$((reported + 1))
-        continue
-    fi
-
-    # Was an upstream configured for this branch, and has it gone? Read from
-    # config plus the remote-tracking ref rather than `@{upstream}`, which stops
-    # resolving once the ref is pruned and so cannot distinguish "never had one".
-    upstream_remote="$(git -C "$REPO_ROOT" config --get "branch.$branch.remote" 2>/dev/null || true)"
-    upstream_merge="$(git -C "$REPO_ROOT" config --get "branch.$branch.merge" 2>/dev/null || true)"
-    if [ -n "$upstream_remote" ] && [ -n "$upstream_merge" ]; then
-        upstream_branch="${upstream_merge#refs/heads/}"
-        if git -C "$REPO_ROOT" show-ref --verify --quiet \
-                "refs/remotes/$upstream_remote/$upstream_branch"; then
-            continue   # still on the remote: alive
-        fi
-        # Configured and gone. This is the case the command exists for.
-        if [ "$DRY_RUN" = true ]; then
-            printf 'would-remove\t%s\tupstream %s/%s is gone\n' "$ns" "$upstream_remote" "$upstream_branch"
-        else
-            # Belt and braces before an rm -rf: only ever inside the vault's
-            # synapse/ directory, and only a directory whose name we just matched.
-            case "$ns_dir" in
-                "$VAULT/synapse/"*) rm -rf "$ns_dir" ;;
-                *) echo "synapse-graph-clean: refusing to remove $ns_dir" >&2; continue ;;
-            esac
-            printf 'removed\t%s\tupstream %s/%s is gone\n' "$ns" "$upstream_remote" "$upstream_branch"
-        fi
-        removed=$((removed + 1))
-        continue
-    fi
-
-    # No upstream configured. Either never pushed, or the config went with the
-    # branch -- indistinguishable now, so this is reported rather than removed.
-    if [ "$local_exists" = true ]; then
-        continue   # never pushed and still here: active work
-    fi
-    printf 'report\t%s\tbranch %s is absent locally and had no upstream configured\n' "$ns" "$branch"
-    reported=$((reported + 1))
-done
-
-if [ "$removed" -eq 0 ] && [ "$reported" -eq 0 ]; then
-    echo "nothing to clean"
-fi
-exit 0
+exec "$SYNAPSE_BIN_PATH" graph-clean "$@"
