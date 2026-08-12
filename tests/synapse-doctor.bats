@@ -1,0 +1,162 @@
+#!/usr/bin/env bats
+# Tests `synapse doctor` -- the one command that speaks where the rest of the system
+# deliberately stays silent.
+#
+# The tests below are shaped by that: each one breaks a precondition some other
+# component tolerates without a word, and asserts that this command names it. A test
+# here that did not correspond to a silent failure elsewhere would be testing a check
+# nobody needed.
+
+load 'test_helper'
+
+setup() {
+  common_setup
+  setup_fake_obsidian_plugin
+  CURL_LOG="$TEST_HOME/curl.log"
+  : > "$CURL_LOG"
+}
+
+teardown() {
+  common_teardown
+}
+
+run_doctor() {
+  # The fake curl stands in for Obsidian, so the reachability check has something to
+  # answer it. Without it the check is a genuine failure rather than a test artefact.
+  PATH="$FAKE_BIN:$PATH" FAKE_CURL_LOG="$CURL_LOG" FAKE_CURL_VAULT_DIR="$VAULT" \
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" doctor
+}
+
+@test "a configured machine reports the vault, the namespace and the API" {
+  make_repo
+  run run_doctor
+  [[ "$output" == *"ok"*"config"* ]]
+  [[ "$output" == *"$VAULT"* ]]
+  [[ "$output" == *"$(repo_name)"* ]]
+  [[ "$output" == *"127.0.0.1:"* ]]
+}
+
+@test "no vault configured is a failure, and says where to set it" {
+  make_repo
+  rm -f "$HOME/.claude/synapse.conf"
+  # The state every hook treats as silence and every command as a bare "no vault".
+  run env -u OBSIDIAN_VAULT_DIR bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" doctor
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL"*"config"* ]]
+  [[ "$output" == *"synapse.conf"* ]]
+}
+
+@test "a vault path that does not exist is named as such, not reported as absent" {
+  make_repo
+  printf 'OBSIDIAN_VAULT_DIR="%s/nope"\n' "$TEST_HOME" > "$HOME/.claude/synapse.conf"
+  run run_doctor
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"does not exist"* ]]
+}
+
+@test "an absent namespace is a warning, not a failure" {
+  # The distinction the whole three-level scheme exists for: a branch nobody has
+  # clustered is an ordinary state, so this must not fail a scripted check.
+  make_repo
+  run run_doctor
+  [[ "$output" == *"warn"*"graph"* ]]
+  [[ "$output" == *"/synapse-init"* ]]
+}
+
+@test "a namespace whose remote disagrees is a failure that names the remedy" {
+  make_repo
+  write_synapse_index "$(repo_name)" "ssh://git@elsewhere.invalid/other.git"
+  # The exact case the SessionStart hook skips a pointer for and the staleness hook
+  # refuses to write on -- both without a word.
+  run run_doctor
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"remote mismatch"* ]]
+  [[ "$output" == *"/synapse-rebuild-full"* ]]
+}
+
+@test "a namespace whose branch field disagrees is a failure" {
+  make_repo
+  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
+  sed_i 's/^branch: .*/branch: some-other-branch/' "$VAULT/synapse/$(repo_name)/Index.md"
+  run run_doctor
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"branch mismatch"* ]]
+}
+
+@test "an absent reverse index says what stops working without it" {
+  make_repo
+  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
+  run run_doctor
+  [[ "$output" == *"warn"*"reverse index"* ]]
+  [[ "$output" == *"staleness hook does nothing"* ]]
+}
+
+@test "a staged reverse index is reported with its counts" {
+  make_repo
+  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
+  printf 'src/foo.ml\tFoo.md\n' | write_index_bin "$(default_work_dir)"
+  run run_doctor
+  [[ "$output" == *"ok"*"reverse index"* ]]
+  [[ "$output" == *"1 paths"* ]]
+}
+
+@test "hooks wired to a wrapper are a failure, because the wrapper would still run" {
+  make_repo
+  mkdir -p "$HOME/.claude"
+  cat > "$HOME/.claude/settings.json" <<'EOF'
+{"hooks":{"PostToolUse":[{"hooks":[{"type":"command","command":"bash ~/.claude/hooks/synapse-staleness.sh"}]}]}}
+EOF
+  run run_doctor
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"still names a hooks/"* ]]
+}
+
+@test "a hook registered twice is a failure that says it fires twice" {
+  make_repo
+  mkdir -p "$HOME/.claude/bin"
+  touch "$HOME/.claude/bin/synapse-hook"
+  chmod +x "$HOME/.claude/bin/synapse-hook"
+  cat > "$HOME/.claude/settings.json" <<'EOF'
+{"hooks":{"PostToolUse":[
+  {"hooks":[{"type":"command","command":"~/.claude/bin/synapse-hook staleness"}]},
+  {"hooks":[{"type":"command","command":"~/.claude/bin/synapse-hook staleness"}]}],
+ "SessionStart":[{"hooks":[{"type":"command","command":"~/.claude/bin/synapse-hook session-start"}]}],
+ "UserPromptSubmit":[{"hooks":[{"type":"command","command":"~/.claude/bin/synapse-hook prompt-context"}]}],
+ "Stop":[{"hooks":[{"type":"command","command":"~/.claude/bin/synapse-hook stop-nudge"}]}]}}
+EOF
+  # db-sync is deliberately absent as well, but the duplicate is the louder problem and
+  # is what the message must name -- a hook firing twice produces duplicated context
+  # nobody attributes to settings.json.
+  run run_doctor
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"more than once"* ]]
+}
+
+@test "outside a git repo it warns rather than failing" {
+  # `doctor` is the one command someone runs when they do not know what is wrong, so it
+  # has to answer everywhere -- including from a directory that is not a checkout.
+  mkdir -p "$TEST_HOME/plain"
+  run bash -c 'cd "$1" && shift && exec "$@"' _ "$TEST_HOME/plain" "$SYNAPSE_BIN" doctor
+  [[ "$output" == *"warn"*"repository"* ]]
+  [[ "$output" == *"not inside a git repo"* ]]
+}
+
+@test "every line carries a status, and the tally matches the lines" {
+  make_repo
+  run run_doctor
+  local lines statuses
+  lines="$(printf '%s\n' "$output" | grep -cE '^(ok|warn|FAIL) ')"
+  statuses="$(printf '%s\n' "$output" | sed -n 's/^\([0-9]*\) ok, \([0-9]*\) warning(s), \([0-9]*\) failure(s)$/\1 \2 \3/p')"
+  [ -n "$statuses" ]
+  # shellcheck disable=SC2086
+  set -- $statuses
+  [ "$(( $1 + $2 + $3 ))" -eq "$lines" ]
+}
+
+@test "--help works outside a repo and with no environment at all" {
+  # Asserted here as well as in the generator, because this is the command a broken
+  # machine reaches for first.
+  run env -i PATH="$PATH" "$SYNAPSE_BIN" doctor --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"usage: synapse doctor"* ]]
+}

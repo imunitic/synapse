@@ -36,6 +36,7 @@ const push_nodes_cmd = @import("push_nodes_cmd.zig");
 const project_index_cmd = @import("project_index_cmd.zig");
 const graph_cmd = @import("graph_cmd.zig");
 const namespace_cmd = @import("namespace_cmd.zig");
+const doctor_cmd = @import("doctor_cmd.zig");
 
 comptime {
     // `treesitter` needs no line here: tags.zig uses it for real.
@@ -99,6 +100,9 @@ pub fn main(init: std.process.Init) !u8 {
 
     if (std.mem.eql(u8, sub, "write-node"))
         return write_node_cmd.run(treesitter.extractor.TreeSitterExtractor, init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "doctor"))
+        return doctor_cmd.run(init.gpa, init.io, init.environ_map, &args);
 
     if (std.mem.eql(u8, sub, "namespace"))
         return namespace_cmd.run(init.gpa, init.io, init.environ_map, &args);

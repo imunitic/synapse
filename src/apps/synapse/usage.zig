@@ -30,6 +30,8 @@ pub const text =
     \\  push-nodes [NN ...]        write one node per authored body
     \\  build-project-index        the namespace's Index.md node map
     \\  namespace [--repo <dir>]   the {repo}@{branch} key for a checkout
+    \\  doctor [--repo <dir>]      check every precondition the rest of the system
+    \\                             tolerates silently
     \\  build-index                _index.bin from the work dir's lists
     \\  graph-clean [--dry-run]    drop namespaces whose branch is gone upstream
     \\  graph-wipe [--dry-run]     drop this namespace, preserving hand Notes

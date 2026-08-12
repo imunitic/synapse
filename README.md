@@ -45,7 +45,17 @@ prints the manual steps below.
    `obsidian` MCP server at user scope (available from any project, any directory). Safe to re-run if
    you ever reinstall the plugin — new cert and key each time.
 4. Edit `~/.claude/synapse.conf`: set `OBSIDIAN_VAULT_DIR` to the Vault path.
-5. (Recommended) Set Obsidian to start automatically at login, so it is always running:
+5. Check the result:
+   ```sh
+   synapse doctor
+   ```
+   One line per precondition, and it exits non-zero if any of them is broken. Worth running
+   even when everything seems fine, because almost every guard in the system is *silent* by
+   design — a hook that errors is worse than one that quietly does nothing, so a half-installed
+   machine looks exactly like a working one with nothing to say. `doctor` is the one place that
+   speaks: a missing certificate, an Obsidian that is not running, a namespace whose recorded
+   remote no longer matches, a hook registered twice (which makes it fire twice).
+6. (Recommended) Set Obsidian to start automatically at login, so it is always running:
    - **macOS**:
      ```sh
      osascript -e 'tell application "System Events" to make login item at end with properties {path:"/Applications/Obsidian.app", hidden:false}'
@@ -66,7 +76,7 @@ prints the manual steps below.
      for a Flatpak install).
    - **Windows**: press **Win+R**, type `shell:startup`, hit Enter, then drop a shortcut to
      `Obsidian.exe` into the folder that opens.
-6. Restart Claude Code.
+7. Restart Claude Code.
 
 `setup.sh` is safe to re-run at any time. It migrates config filenames it recognises, rewrites hook
 paths in `settings.json` rather than adding a second copy, and reports any file under `~/.claude/` that
