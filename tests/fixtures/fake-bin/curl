@@ -16,8 +16,8 @@
 #   GET with -o FILE -> node fetch. Serves $FAKE_CURL_VAULT_DIR/<percent-decoded
 #            path> into FILE, or exits 22 (curl's -f "HTTP error" code) when the
 #            file doesn't exist, so the hook's `|| continue` path is exercised.
-#   PUT   -> writes the payload (inline, or read from a file for --data-binary
-#            @path) to $FAKE_CURL_VAULT_DIR/<decoded path> when that dir is set,
+#   PUT   -> writes the payload (inline, from a file for --data-binary @path, or
+#            from stdin for @-) to $FAKE_CURL_VAULT_DIR/<decoded path> when that dir is set,
 #            so tests can diff the resulting bytes, and node PUTs are logged to
 #            $FAKE_CURL_CAPTURE_DIR/node-puts.log. Payload files are copied,
 #            never round-tripped through a shell variable, so a trailing newline
@@ -77,6 +77,12 @@ write_payload_to() {
   local dest="$1"
   mkdir -p "$(dirname "$dest")"
   case "$data" in
+    # `@-` is the payload on stdin, which real curl accepts and the writer uses:
+    # a node runs to megabytes on a hub, and an argument list is bounded. `cat`,
+    # not a shell variable, for the same reason the file case is a `cp` -- a
+    # trailing newline has to survive for a byte-identity assertion to mean
+    # anything.
+    @-) cat > "$dest" ;;
     @*) cp "${data#@}" "$dest" ;;
     *) printf '%s' "$data" > "$dest" ;;
   esac

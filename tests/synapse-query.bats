@@ -420,19 +420,23 @@ write_fenced_node() {
 
 # --- temp-dir handling -----------------------------------------------------
 
-@test "an unusable TMPDIR is fatal rather than resolving every path against /" {
+@test "an unusable TMPDIR is not fatal, because nothing needs a temp dir" {
   make_repo
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
   write_fenced_node "Foo Node.md" "src/foo.ml"
+  printf 'src/foo.ml\tFoo Node.md\n' | write_index_bin "$(default_work_dir)"
 
-  # This script runs without `set -e` on purpose -- its exit codes are answers,
-  # not failures -- so a failed `mktemp -d` left $WORK empty and every path
-  # under it resolving against `/`. Found by running the script for real outside
-  # the suite, in a sandbox whose TMPDIR was not the system temp dir.
+  # This used to assert the opposite, and the inversion is the point. The script
+  # ran without `set -e` -- its exit codes are answers, not failures -- so a
+  # failed `mktemp -d` left $WORK empty and every path under it resolving against
+  # `/`; the guarantee then was that it died instead. `synapse query` writes no
+  # intermediate files at all, so there is no temp dir to fail and the whole class
+  # of failure is gone rather than handled.
   run env TMPDIR="$TEST_HOME/definitely-not-here" \
     PATH="$FAKE_BIN:$PATH" FAKE_CURL_LOG="$CURL_LOG" FAKE_CURL_VAULT_DIR="$VAULT" \
     bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$QUERY" stale
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
 }
 
 @test "every mktemp in the shipped scripts passes an explicit template" {

@@ -118,7 +118,28 @@ fn update(
     var cache = try Cache.open(io, cache_path);
     defer cache.close(io);
 
-    const need = try cache.needsTagging(gpa, requested.items);
+    backfill(Ex, gpa, io, env, repo_root, &cache, requested.items, trace) catch return 1;
+    return 0;
+}
+
+/// Tag whatever the cache is missing for `requested`, and commit it.
+///
+/// Split out of `update` because `synapse query symbol` needs exactly this and
+/// nothing else around it: the script spawned `synapse tags-cache` to do it, and
+/// in one binary that spawn is a function call. Every slice a later `cache.get`
+/// returns points into the mapping this may have replaced, so callers read the
+/// cache *after* this returns and never across it.
+pub fn backfill(
+    comptime Ex: type,
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    repo_root: []const u8,
+    cache: *Cache,
+    requested: []const PathHash,
+    trace: ?[]const u8,
+) !void {
+    const need = try cache.needsTagging(gpa, requested);
     defer gpa.free(need);
     // Nothing to do is a success, and it is the common case: the whole point
     // of the cache is that most calls end here.
@@ -127,7 +148,7 @@ fn update(
         // finds an empty cache rather than nothing at all -- the script
         // created one with `printf '{}'` for the same reason.
         if (cache.map == null) _ = try cache.commit(gpa, io, &.{}, &.{});
-        return 0;
+        return;
     }
 
     var paths = try gpa.alloc([]const u8, need.len);
@@ -185,8 +206,7 @@ fn update(
         }
     }
 
-    _ = cache.commit(gpa, io, updates, &.{}) catch return 1;
-    return 0;
+    _ = try cache.commit(gpa, io, updates, &.{});
 }
 
 /// One line per fact, marker first, so a consumer can read it with `awk`

@@ -1,0 +1,399 @@
+//! Reading a node: the parts that are a function of its text.
+//!
+//! `synapse-query.sh`'s nine subcommands split cleanly into what needs the world
+//! -- hashing files for `stale`, `git diff` for `drift`, the tags cache for
+//! `symbol` -- and what is a projection of the node itself. This file is the
+//! second half: frontmatter fields, the source list, the body between the
+//! generated fences, the `## Links` edges, and the module counts.
+//!
+//! Every rule here was an `awk` program, and several were subtle in ways worth
+//! keeping rather than paraphrasing. The comments say which, and the tests pin
+//! each one against the case that made it necessary.
+
+const std = @import("std");
+const node_mod = @import("node.zig");
+
+/// The prose a node is *for*, between the generated fences and excluding both
+/// marker lines.
+///
+/// Between the fences rather than after the closing `---`, and the script's
+/// comment says why it is strictly better: it excludes the frontmatter *and*
+/// `## Notes`. A node built before fencing existed has no markers, and there the
+/// caller falls back to everything after the frontmatter and says so on stderr,
+/// because `## Notes` will be included and that is worth announcing rather than
+/// hiding.
+pub fn body(text: []const u8) ?[]const u8 {
+    const start = std.mem.indexOf(u8, text, node_mod.generated_start) orelse return null;
+    const after = start + node_mod.generated_start.len;
+    const end = std.mem.indexOfPos(u8, text, after, node_mod.generated_end) orelse return null;
+    // `sed -n '/start/,/end/p' | sed -e '1d' -e '$d'` deletes the two marker
+    // *lines* and nothing more. So exactly one newline comes off each end -- the
+    // one that terminated the start marker, and the one that terminated the last
+    // content line before the end marker.
+    //
+    // Trimming *all* leading newlines instead ate the blank line that every real
+    // node has between the start marker and `## Summary`, which showed up as one
+    // differing line in each of 132 nodes. A body is quoted into prose elsewhere,
+    // so a missing leading blank is a rendering change, not a cosmetic one.
+    var inner = text[after..end];
+    if (inner.len != 0 and inner[0] == '\n') inner = inner[1..];
+    if (inner.len != 0 and inner[inner.len - 1] == '\n') inner = inner[0 .. inner.len - 1];
+    return inner;
+}
+
+/// Everything after the closing `---`, for a node with no fence.
+pub fn bodyAfterFrontmatter(text: []const u8) []const u8 {
+    var it = FrontmatterIterator.init(text);
+    while (it.next()) |_| {}
+    return it.after;
+}
+
+/// One top-level frontmatter scalar, quotes stripped, or null when absent.
+///
+/// First match inside the frontmatter only. An absent key is null rather than an
+/// error, so a caller can test emptiness without parsing a message -- the script
+/// printed nothing and exited 0 for exactly that reason.
+///
+/// `sources` is refused by the caller rather than here: it is a list of objects,
+/// and `sources()` is what asks for it.
+pub fn field(text: []const u8, key: []const u8) ?[]const u8 {
+    var it = FrontmatterIterator.init(text);
+    while (it.next()) |line| {
+        // `index($0, k ":") == 1` in awk -- a prefix match at position one, so
+        // `title:` matches and `built_at:` does not match a query for `at`.
+        if (!std.mem.startsWith(u8, line, key)) continue;
+        if (line.len <= key.len or line[key.len] != ':') continue;
+        const raw = std.mem.trimStart(u8, line[key.len + 1 ..], " \t");
+        return std.mem.trim(u8, raw, "\"");
+    }
+    return null;
+}
+
+/// The `sources:` block's `- path:` values, in file order.
+///
+/// Scoped to that block specifically, and the script's comment explains what
+/// goes wrong otherwise: `grounded_in:` entries are also `- path:` pairs in the
+/// same frontmatter, and a grounded_in path is required to already be one of the
+/// node's own sources -- so an unscoped match double-counts it. The same path
+/// hashed twice joins into a digest that never matches what the writer stored,
+/// and that false "content changed" fires for every node using grounded_in.
+pub fn sources(
+    gpa: std.mem.Allocator,
+    text: []const u8,
+) !std.ArrayListUnmanaged([]const u8) {
+    var out: std.ArrayListUnmanaged([]const u8) = .empty;
+    errdefer out.deinit(gpa);
+
+    var in_sources = false;
+    var it = FrontmatterIterator.init(text);
+    while (it.next()) |line| {
+        // A line starting with a letter or underscore at column zero is a new
+        // top-level key, which either opens the block or closes it.
+        if (line.len != 0 and (std.ascii.isAlphabetic(line[0]) or line[0] == '_')) {
+            in_sources = std.mem.eql(u8, line, "sources:");
+            continue;
+        }
+        if (!in_sources) continue;
+        if (parseDashPath(line)) |p| try out.append(gpa, p);
+    }
+    return out;
+}
+
+/// `  - path: X` with any leading whitespace, or null for any other line.
+fn parseDashPath(line: []const u8) ?[]const u8 {
+    var rest = std.mem.trimStart(u8, line, " \t");
+    if (!std.mem.startsWith(u8, rest, "-")) return null;
+    rest = std.mem.trimStart(u8, rest[1..], " \t");
+    if (!std.mem.startsWith(u8, rest, "path:")) return null;
+    return std.mem.trimStart(u8, rest["path:".len..], " \t");
+}
+
+/// A `module <TAB> count` row.
+pub const ModuleCount = struct {
+    module: []const u8,
+    count: usize,
+};
+
+/// Source paths grouped by module, byte-sorted by module name.
+///
+/// The script piped `module_of` per path into `sort | uniq -c`, which is why the
+/// order is the module name's and not the count's -- `sources --modules` is read
+/// as a table, not a ranking.
+pub fn moduleCounts(
+    gpa: std.mem.Allocator,
+    paths: []const []const u8,
+    chains: []const []const u8,
+) ![]ModuleCount {
+    var counts: std.StringHashMapUnmanaged(usize) = .empty;
+    defer counts.deinit(gpa);
+    for (paths) |p| {
+        if (p.len == 0) continue;
+        const gop = try counts.getOrPut(gpa, node_mod.moduleOf(p, chains));
+        if (!gop.found_existing) gop.value_ptr.* = 0;
+        gop.value_ptr.* += 1;
+    }
+
+    var out = try gpa.alloc(ModuleCount, counts.count());
+    var i: usize = 0;
+    var it = counts.iterator();
+    while (it.next()) |e| : (i += 1) out[i] = .{ .module = e.key_ptr.*, .count = e.value_ptr.* };
+    std.mem.sort(ModuleCount, out, {}, struct {
+        fn less(_: void, a: ModuleCount, b: ModuleCount) bool {
+            return std.mem.order(u8, a.module, b.module) == .lt;
+        }
+    }.less);
+    return out;
+}
+
+/// One `## Links` edge.
+pub const Edge = struct {
+    relation: []const u8,
+    target: []const u8,
+};
+
+/// The outbound edges of one node, in file order.
+///
+/// A line is an edge when it is `- <relation> [[<target>]]`. The relation is
+/// everything between the dash and the wikilink; the target is what the brackets
+/// hold, with any display text after a `|` left intact because the script left it
+/// intact -- a `[[Target|shown]]` link names `Target|shown` as far as this is
+/// concerned, and no real node uses one.
+pub fn edges(
+    gpa: std.mem.Allocator,
+    text: []const u8,
+) !std.ArrayListUnmanaged(Edge) {
+    var out: std.ArrayListUnmanaged(Edge) = .empty;
+    errdefer out.deinit(gpa);
+
+    var in_links = false;
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trimEnd(u8, raw, "\r");
+        if (std.mem.eql(u8, line, "## Links")) {
+            in_links = true;
+            continue;
+        }
+        // Any following `## ` heading ends the section -- `## Sources` in
+        // practice, and the awk `exit`ed there rather than reading on.
+        if (in_links and std.mem.startsWith(u8, line, "## ")) break;
+        if (!in_links) continue;
+        if (parseEdge(line)) |e| try out.append(gpa, e);
+    }
+    return out;
+}
+
+fn parseEdge(line: []const u8) ?Edge {
+    if (!std.mem.startsWith(u8, line, "-")) return null;
+    const after_dash = std.mem.trimStart(u8, line[1..], " \t");
+    const open = std.mem.indexOf(u8, after_dash, "[[") orelse return null;
+    const close = std.mem.indexOfPos(u8, after_dash, open + 2, "]]") orelse return null;
+    const relation = std.mem.trim(u8, after_dash[0..open], " \t");
+    // The awk's pattern required a non-space relation before the link, so a bare
+    // `- [[Target]]` with no relation is not an edge. Keeping that: a link with
+    // no relation says nothing about *how* two nodes relate, which is the only
+    // thing this table is for.
+    if (relation.len == 0) return null;
+    const target = after_dash[open + 2 .. close];
+    if (target.len == 0) return null;
+    return .{ .relation = relation, .target = target };
+}
+
+/// Walks the frontmatter, yielding its lines and leaving `after` pointing at the
+/// body.
+///
+/// A node whose first line is not `---` has no frontmatter at all, and then every
+/// field lookup is null rather than a scan of the prose -- which is what the
+/// awk's `NR == 1 && $0 == "---"` guard bought.
+pub const FrontmatterIterator = struct {
+    lines: std.mem.SplitIterator(u8, .scalar),
+    open: bool,
+    after: []const u8,
+
+    pub fn init(text: []const u8) FrontmatterIterator {
+        const has_fm = std.mem.startsWith(u8, text, "---\n");
+        return .{
+            .lines = std.mem.splitScalar(u8, if (has_fm) text[4..] else text, '\n'),
+            .open = has_fm,
+            .after = if (has_fm) text[4..] else text,
+        };
+    }
+
+    pub fn next(self: *FrontmatterIterator) ?[]const u8 {
+        if (!self.open) return null;
+        while (self.lines.next()) |raw| {
+            const line = std.mem.trimEnd(u8, raw, "\r");
+            if (std.mem.eql(u8, line, "---")) {
+                self.open = false;
+                self.after = self.lines.rest();
+                return null;
+            }
+            return line;
+        }
+        self.open = false;
+        self.after = "";
+        return null;
+    }
+};
+
+const testing = std.testing;
+
+const sample =
+    \\---
+    \\title: "State machine"
+    \\node_type: synapse-node
+    \\project: fw-core
+    \\sources:
+    \\  - path: statemachine/src/main/java/com/x/State.java
+    \\    hash: 1111111111111111111111111111111111111111
+    \\  - path: statemachine/src/main/java/com/x/Transition.java
+    \\    hash: 2222222222222222222222222222222222222222
+    \\grounded_in:
+    \\  - path: statemachine/src/main/java/com/x/State.java
+    \\    lines: 1-2
+    \\    hash: 3333333333333333333333333333333333333333
+    \\sources_digest: "df91a06710f61130522fcd990f82488c047cec570419a31a34ebb3c4c14a7526"
+    \\stale: false
+    \\built_at: "2026-08-03 16:50"
+    \\---
+    \\
+    \\# State machine
+    \\<!-- synapse:generated:start -->
+    \\
+    \\## Summary
+    \\Prose about it.
+    \\
+    \\## Links
+    \\- uses [[Service framework — ServiceContext]]
+    \\- part_of [[Framework]]
+    \\
+    \\## Sources
+    \\- `statemachine` (2)
+    \\<!-- synapse:generated:end -->
+    \\
+    \\## Notes
+    \\hand written
+    \\
+;
+
+test "body is what sits between the fences, minus the two marker lines" {
+    const b = body(sample).?;
+    // The blank line after the start marker survives, because `sed '1d'` deletes
+    // the marker *line* and nothing else. This test originally asserted the body
+    // starts at `## Summary`, which was my assumption rather than the script's
+    // behaviour -- the differential over 132 real nodes disagreed on exactly one
+    // line per node, and it was this one.
+    try testing.expect(std.mem.startsWith(u8, b, "\n## Summary"));
+    try testing.expect(std.mem.endsWith(u8, b, "- `statemachine` (2)"));
+    // The two things being between the fences buys, rather than reading after
+    // the frontmatter: no `title:` and no `## Notes`.
+    try testing.expect(std.mem.indexOf(u8, b, "title:") == null);
+    try testing.expect(std.mem.indexOf(u8, b, "hand written") == null);
+}
+
+test "an unfenced node has no body, so the caller can say so" {
+    try testing.expectEqual(@as(?[]const u8, null), body("---\ntitle: x\n---\n\n# T\n\nold style\n"));
+    // And the fallback reads everything after the frontmatter, `## Notes` and all
+    // -- which is why the script announced it on stderr.
+    const after = bodyAfterFrontmatter("---\ntitle: x\n---\n\n# T\n\nold style\n");
+    try testing.expectEqualStrings("\n# T\n\nold style\n", after);
+}
+
+test "field takes one scalar and strips its quotes" {
+    try testing.expectEqualStrings("State machine", field(sample, "title").?);
+    try testing.expectEqualStrings("synapse-node", field(sample, "node_type").?);
+    try testing.expectEqualStrings("false", field(sample, "stale").?);
+    try testing.expectEqualStrings("2026-08-03 16:50", field(sample, "built_at").?);
+}
+
+test "an absent field is null, not an error" {
+    try testing.expectEqual(@as(?[]const u8, null), field(sample, "crux_path"));
+    try testing.expectEqual(@as(?[]const u8, null), field(sample, "nonsense"));
+}
+
+test "a field lookup matches a whole key, not a suffix of one" {
+    // `index($0, k ":") == 1` was an anchored match. A query for `at` must not
+    // find `built_at:`, and one for `title` must not find `subtitle:`.
+    try testing.expectEqual(@as(?[]const u8, null), field(sample, "at"));
+    try testing.expectEqual(@as(?[]const u8, null), field(sample, "ources"));
+}
+
+test "a field is never read from the body" {
+    // The frontmatter ends at the closing `---`, so prose that happens to look
+    // like a key is not one. `stale: false` also appears as a decoy in the real
+    // fixture the bats suite uses.
+    const decoy = "---\ntitle: real\n---\n\n# T\ntitle: fake\n";
+    try testing.expectEqualStrings("real", field(decoy, "title").?);
+}
+
+test "a node with no frontmatter yields no fields at all" {
+    try testing.expectEqual(@as(?[]const u8, null), field("# Just prose\ntitle: nope\n", "title"));
+}
+
+test "sources takes only the sources block, never grounded_in's paths" {
+    // The failure this exists to prevent: a grounded_in path is required to
+    // already be one of the node's sources, so an unscoped `- path:` match
+    // returns it twice. The same path hashed twice makes a digest that can never
+    // equal what the writer stored, and every node using grounded_in reports a
+    // false "content changed" forever.
+    const gpa = testing.allocator;
+    var got = try sources(gpa, sample);
+    defer got.deinit(gpa);
+    try testing.expectEqual(@as(usize, 2), got.items.len);
+    try testing.expectEqualStrings("statemachine/src/main/java/com/x/State.java", got.items[0]);
+    try testing.expectEqualStrings("statemachine/src/main/java/com/x/Transition.java", got.items[1]);
+}
+
+test "sources is empty for a node that claims none" {
+    const gpa = testing.allocator;
+    var got = try sources(gpa, "---\ntitle: t\nsources:\n---\n\n# T\n");
+    defer got.deinit(gpa);
+    try testing.expectEqual(@as(usize, 0), got.items.len);
+}
+
+test "module counts are keyed by module and sorted by its name" {
+    const gpa = testing.allocator;
+    const chains = [_][]const u8{"src/main/java"};
+    const rows = try moduleCounts(gpa, &.{
+        "b/src/main/java/X.java",
+        "a/src/main/java/Y.java",
+        "a/src/main/java/Z.java",
+        "docs/readme.md",
+    }, &chains);
+    defer gpa.free(rows);
+
+    try testing.expectEqual(@as(usize, 3), rows.len);
+    try testing.expectEqualStrings("a", rows[0].module);
+    try testing.expectEqual(@as(usize, 2), rows[0].count);
+    try testing.expectEqualStrings("b", rows[1].module);
+    try testing.expectEqualStrings("docs", rows[2].module);
+}
+
+test "edges are the Links section only, and stop at the next heading" {
+    const gpa = testing.allocator;
+    var got = try edges(gpa, sample);
+    defer got.deinit(gpa);
+    try testing.expectEqual(@as(usize, 2), got.items.len);
+    try testing.expectEqualStrings("uses", got.items[0].relation);
+    try testing.expectEqualStrings("Service framework — ServiceContext", got.items[0].target);
+    try testing.expectEqualStrings("part_of", got.items[1].relation);
+    try testing.expectEqualStrings("Framework", got.items[1].target);
+}
+
+test "a link with no relation is not an edge" {
+    // The awk required a non-space relation before the wikilink. A bare link says
+    // nothing about *how* two nodes relate, which is the only thing the table is
+    // for -- and `## Sources` rows are `- \`module\` (n)`, which must not parse
+    // as edges either.
+    const gpa = testing.allocator;
+    var got = try edges(gpa, "## Links\n- [[Target]]\n- `mod` (3)\n- uses [[Real]]\n");
+    defer got.deinit(gpa);
+    try testing.expectEqual(@as(usize, 1), got.items.len);
+    try testing.expectEqualStrings("Real", got.items[0].target);
+}
+
+test "a node with no Links section has no edges" {
+    const gpa = testing.allocator;
+    var got = try edges(gpa, "# T\n\n## Summary\nprose\n\n## Sources\n- `a` (1)\n");
+    defer got.deinit(gpa);
+    try testing.expectEqual(@as(usize, 0), got.items.len);
+}

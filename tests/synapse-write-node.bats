@@ -815,13 +815,20 @@ slice_digest() { # slice_digest <path> <start> <end>
   [ ! -s "$FAKE_TS_LOG" ]
 }
 
-@test "a missing synapse binary does not block writing the node" {
+@test "a missing synapse binary is a hard failure that names the fix" {
   make_repo
   printf 'src/foo.ml\n' > "$PATHS"
   SYNAPSE_BIN="$TEST_HOME/no-such-binary"
   export SYNAPSE_BIN
 
+  # This used to assert that the write still succeeded, because the binary was
+  # only used for the tags-cache refresh -- a byproduct, and one that degrades to
+  # skipping. The binary is now the writer itself, so its absence cannot degrade
+  # into anything: it means no node was written, and saying so beats a node that
+  # silently did not appear.
   run run_write --title "Widget core" --paths "$PATHS" --body "$BODY"
-  [ "$status" -eq 0 ]
-  [ -f "$(node_file "Widget core")" ]
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no synapse binary at"* ]]
+  [[ "$output" == *"run setup.sh"* ]]
+  [ ! -f "$(node_file "Widget core")" ]
 }

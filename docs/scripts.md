@@ -437,7 +437,7 @@ Usage: synapse-query.sh <subcommand> [args]   (operates on the repo containing $
   links   <node> --closure           every node reachable outbound, depth<TAB>node
   links   --check                    link targets that resolve to no node
   symbol  <name> <node>              exact-name def/ref hits across the node's
-                                     sources, as path<TAB>tag-line (see below)
+                                     sources, as path<TAB>tag-line
   callers <name>                     repo-wide call sites of an exact name, as
                                      path:line<TAB>calling expression
   callers <name> --all               every def and ref, not only calls, as
@@ -446,8 +446,8 @@ Usage: synapse-query.sh <subcommand> [args]   (operates on the repo containing $
 <node> may be given with or without the trailing `.md`.
 
 `callers` is a one-line dispatch into claude/lib/synapse/synapse-callers.sh, ahead of
-this script's vault/namespace preamble -- see that file's header for why, and
-for the rest of its usage and rationale.
+this script's namespace preamble -- see that file's header for why, and for the
+rest of its usage and rationale.
 
 `symbol` and `callers` differ in scope, not technique. `symbol` is scoped to
 one node's sources and re-hashes them on every call, so it answers "within this
@@ -461,11 +461,6 @@ build/regeneration, with any file the cache is missing tagged lazily on the
 spot. Set SYNAPSE_DISABLE_SYMBOL_CACHE (any value) to disable entirely --
 see docs/synapse-graph.md's "Exact-symbol lookup" section for the full design.
 
-That cache sits beside the work dir rather than in the vault because it is
-derived, disposable and large: at large-repo scale ~942 MB against the reverse
-index's 26 MB. Both sit there now, for the same reason and with the same
-consequence -- deleting either costs one rebuild.
-
 `stale` re-hashes what a node claims; `drift` diffs its recorded `commit` against
 HEAD, so only `drift` sees added, deleted and renamed paths. Neither pulls.
 When to use which, and why any of this is a script: docs/synapse-graph.md.
@@ -478,6 +473,19 @@ Exit codes:
   1 - could not run (missing dependency, no vault, no namespace, remote
       mismatch, unknown node). Treat as "no information", never as "clean".
   2 - usage error (unknown subcommand, bad flag, unsupported field)
+
+WHAT IS LEFT HERE. Namespace resolution and dispatch, and nothing else. Every
+subcommand moved into `synapse query`, which is where the vault reads, the
+frontmatter parsing, the digest arithmetic, the link graph and the tags-cache
+lookup now live -- and where `jq`, `sed`, `awk`, `comm`, `paste`, `wc` and every
+`curl` on the read path went with them. What the binary still spawns is `git`
+and, for a user-authored ERE out of `_manifest.tsv`, `grep -E`.
+
+Identity stays here because `synapse-identity.sh` is still bash and is sourced
+by hooks this rewrite has not reached yet. It is resolved once and exported, so
+the binary cannot disagree with the hooks about which namespace a checkout
+belongs to -- the same arrangement synapse-enumerate.sh already uses for
+$SYNAPSE_WORK_DIR.
 ```
 
 ## `synapse-rank.sh`
@@ -655,14 +663,14 @@ Usage: synapse-write-node.sh --title <t> --summary <s> --paths <file> --body <fi
              field. Written for the index, not as the node's opening sentence.
   --paths    file of repo-relative paths, one per line: every file the node covers.
   --body     file holding the authored prose (## Summary / ## Crux / ## Links).
-             `## Sources` and the generated fences are added by this script.
+             `## Sources` and the generated fences are added by the writer.
 
 The body must not contain crux code. It points instead:
 
   <!-- crux: crates/matcher/src/lib.rs 412-419 -->     slice these lines
   <!-- crux: none -->                                  no single span carries it
 
-This script cuts the text out of the file, fences it with a language guessed
+The writer cuts the text out of the file, fences it with a language guessed
 from the extension, appends a `path:start-end` provenance line, and records
 `crux_path`/`crux_lines` in frontmatter. The path must be one the node claims
 and the range must be under 20 lines, or the write is refused.
@@ -691,5 +699,20 @@ Exit codes:
   2 - usage error
 
 Design rationale lives in docs/synapse-graph.md, not here.
+
+WHAT IS LEFT HERE. Namespace resolution and dispatch. The writer moved into
+`synapse write-node`: the path hashing (in process now -- a git blob hash is
+sha1 over an object header git has not changed since 2005, so `git hash-object
+--stdin-paths` is gone), the digest, the crux slicing, the grounding digests,
+the `## Sources` mirror, the frontmatter and the PUT. With them went `jq`, the
+four `awk` programs, `paste`, `sed`, `wc` and both API *reads* -- the namespace
+index and the existing node are read from disk, which is where they are. The PUT
+still goes through the API, because that is what keeps Obsidian's own view and
+the vault's git history correct.
+
+Identity stays here because `synapse-identity.sh` is still bash and is sourced
+by hooks this rewrite has not reached yet. It is resolved once and exported so
+the binary cannot disagree with the hooks about which namespace a checkout
+belongs to.
 ```
 

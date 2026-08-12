@@ -23,6 +23,11 @@ pub const enumerate = @import("enumerate.zig");
 pub const vocab = @import("vocab.zig");
 pub const rank = @import("rank.zig");
 pub const node = @import("node.zig");
+pub const query = @import("query.zig");
+pub const verify = @import("verify.zig");
+pub const drift = @import("drift.zig");
+pub const symbol = @import("symbol.zig");
+pub const emit = @import("emit.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -34,6 +39,11 @@ test {
     _ = vocab;
     _ = rank;
     _ = node;
+    _ = query;
+    _ = verify;
+    _ = drift;
+    _ = symbol;
+    _ = emit;
     _ = @import("tags_cache/format.zig");
     _ = @import("index_map/format.zig");
 }

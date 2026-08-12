@@ -170,7 +170,7 @@ fn usage() u8 {
 /// `^$` -- a pattern that never matches a path, where an empty pattern would
 /// match every line and empty the list. Reproduced rather than special-cased,
 /// because `^$` is also what a manifest may contain literally.
-fn selectPaths(
+pub fn selectPaths(
     gpa: Allocator,
     io: Io,
     all: []const u8,

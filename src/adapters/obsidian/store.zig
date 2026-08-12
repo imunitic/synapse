@@ -130,6 +130,32 @@ pub const ObsidianStore = struct {
 
     fn write(ptr: *anyopaque, io: Io, node: []const u8, body: []const u8) anyerror!void {
         const self: *ObsidianStore = @ptrCast(@alignCast(ptr));
+        const res = try self.put(io, node, body);
+        defer self.gpa.free(res.body);
+        if (!res.accepted()) return error.VaultWriteRejected;
+    }
+
+    /// What the server said about a PUT.
+    pub const PutResult = struct {
+        /// The HTTP status, or 0 when `curl` itself did not complete.
+        status: u16,
+        /// The response body, owned by the caller. The API's error bodies name
+        /// the problem, and the script printed them next to the status.
+        body: []u8,
+
+        pub fn accepted(self: PutResult) bool {
+            return self.status >= 200 and self.status < 300;
+        }
+    };
+
+    /// A PUT, reporting the status rather than collapsing it to an error.
+    ///
+    /// `write` is the port, and a port cannot carry an HTTP status without
+    /// leaking HTTP into every other implementation of it. `write-node` needs
+    /// one -- its failure line is `PUT failed (500): <body>` -- so it calls this
+    /// directly, which is the one thing an app may do with a concrete adapter it
+    /// already chose to construct.
+    pub fn put(self: *ObsidianStore, io: Io, node: []const u8, body: []const u8) !PutResult {
         const gpa = self.gpa;
         const url = try self.nodeUrl(gpa, node);
         defer gpa.free(url);
@@ -140,23 +166,32 @@ pub const ObsidianStore = struct {
         // inline: an argument list is bounded and a node runs to megabytes on a
         // hub. The scripts wrote a temp file and passed `@file` for the same
         // reason; stdin skips the file.
+        //
+        // `-w '\n%{http_code}'` with no `-o`, so stdout is the response body, a
+        // newline, and the status. The scripts sent the body to a temp file and
+        // read the status off stdout; one stream carrying both needs no file.
         const res = try process.run(io, gpa, &.{
-            "curl",     "-s",             "-o", "/dev/null",
-            "-w",       "%{http_code}",
-            "-X",       "PUT",
-            "--cacert", self.cert_path,
-            "-H",       auth,
-            "-H",       "Content-Type: text/markdown",
+            "curl",          "-s",
+            "-w",            "\n%{http_code}",
+            "-X",            "PUT",
+            "--cacert",      self.cert_path,
+            "-H",            auth,
+            "-H",            "Content-Type: text/markdown",
             "--data-binary", "@-",
             url,
         }, .{ .stdin = body });
-        defer res.deinit(gpa);
+        defer gpa.free(res.stderr);
+        defer gpa.free(res.stdout);
+        if (!res.ok()) return .{ .status = 0, .body = try gpa.dupe(u8, "") };
 
-        if (!res.ok()) return error.VaultUnreachable;
-        // `-o /dev/null -w '%{http_code}'`: stdout is the status and nothing
-        // else, which is what the scripts checked with `case "$http_code" in 20*)`.
-        const status = std.mem.trim(u8, res.stdout, " \t\r\n");
-        if (status.len < 3 or status[0] != '2') return error.VaultWriteRejected;
+        const trimmed = std.mem.trimEnd(u8, res.stdout, " \t\r\n");
+        const nl = std.mem.lastIndexOfScalar(u8, trimmed, '\n');
+        const status_text = if (nl) |at| trimmed[at + 1 ..] else trimmed;
+        const payload = if (nl) |at| trimmed[0..at] else "";
+        return .{
+            .status = std.fmt.parseInt(u16, status_text, 10) catch 0,
+            .body = try gpa.dupe(u8, payload),
+        };
     }
 
     /// Every node in the namespace, from the directory rather than the API.

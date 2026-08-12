@@ -27,6 +27,8 @@ const enumerate_cmd = @import("enumerate_cmd.zig");
 const build_lists_cmd = @import("build_lists_cmd.zig");
 const vocab_cmd = @import("vocab_cmd.zig");
 const rank_cmd = @import("rank_cmd.zig");
+const query_cmd = @import("query_cmd.zig");
+const write_node_cmd = @import("write_node_cmd.zig");
 const fake = @import("fake_grammar.zig");
 
 pub fn main(init: std.process.Init) !u8 {
@@ -59,6 +61,15 @@ pub fn main(init: std.process.Init) !u8 {
 
     if (std.mem.eql(u8, sub, "rank"))
         return rank_cmd.run(fake.FakeExtractor, init.gpa, init.io, init.environ_map, &args);
+
+    // The stubbed extractor, for the same reason `vocab` and `rank` take one:
+    // `query symbol` backfills the tags cache, and a test must not need a real
+    // grammar to exercise a lookup.
+    if (std.mem.eql(u8, sub, "query"))
+        return query_cmd.run(fake.FakeExtractor, init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "write-node"))
+        return write_node_cmd.run(fake.FakeExtractor, init.gpa, init.io, init.environ_map, &args);
 
     std.debug.print("synapse-fake: unknown subcommand '{s}'\n", .{sub});
     return 2;

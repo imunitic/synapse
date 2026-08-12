@@ -27,6 +27,8 @@ const enumerate_cmd = @import("enumerate_cmd.zig");
 const build_lists_cmd = @import("build_lists_cmd.zig");
 const vocab_cmd = @import("vocab_cmd.zig");
 const rank_cmd = @import("rank_cmd.zig");
+const query_cmd = @import("query_cmd.zig");
+const write_node_cmd = @import("write_node_cmd.zig");
 
 comptime {
     // `treesitter` needs no line here: tags.zig uses it for real.
@@ -51,6 +53,8 @@ const usage =
     \\  build-lists [--reenumerate]  manifest.tsv into one path list per node
     \\  vocab [--lists <dir>]      symbol vocabulary by group
     \\  rank --sources <file>      a node's sources by reading value
+    \\  query <subcommand> [args]  read-only queries against the graph
+    \\  write-node --title <t> --summary <s> --paths <f> --body <f>
     \\
 ;
 
@@ -102,6 +106,12 @@ pub fn main(init: std.process.Init) !u8 {
 
     if (std.mem.eql(u8, sub, "rank"))
         return rank_cmd.run(treesitter.extractor.TreeSitterExtractor, init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "query"))
+        return query_cmd.run(treesitter.extractor.TreeSitterExtractor, init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "write-node"))
+        return write_node_cmd.run(treesitter.extractor.TreeSitterExtractor, init.gpa, init.io, init.environ_map, &args);
 
     if (std.mem.eql(u8, sub, "--help") or std.mem.eql(u8, sub, "-h")) {
         std.debug.print("{s}", .{usage});
