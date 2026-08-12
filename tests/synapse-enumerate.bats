@@ -9,7 +9,6 @@
 
 load 'test_helper'
 
-ENUMERATE="$REPO_ROOT/claude/lib/synapse/synapse-enumerate.sh"
 
 setup() {
   common_setup
@@ -23,7 +22,7 @@ teardown() {
 
 run_enumerate() {
   SYNAPSE_WORK_DIR="$WORK" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$ENUMERATE" "$@"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" enumerate "$@"
 }
 
 make_mixed_repo() {
@@ -83,7 +82,7 @@ make_mixed_repo() {
   git -C "$REPO" -c user.email=t@t -c user.name=t commit -q -m files
 
   run env SYNAPSE_MAX_FILE_BYTES=1000 SYNAPSE_WORK_DIR="$WORK" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$ENUMERATE"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" enumerate
   [ "$status" -eq 0 ]
   grep -qx 'src/small.java' "$WORK/all.txt"
   ! grep -qx 'src/huge.java' "$WORK/all.txt"
@@ -94,7 +93,7 @@ make_mixed_repo() {
 @test "a non-repo directory exits 1" {
   mkdir -p "$TEST_HOME/notarepo"
   run env SYNAPSE_WORK_DIR="$WORK" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$TEST_HOME/notarepo" "$ENUMERATE"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$TEST_HOME/notarepo" "$SYNAPSE_BIN" enumerate
   [ "$status" -eq 1 ]
   [[ "$output" == *"not inside a git repo"* ]]
 }
@@ -103,7 +102,7 @@ make_mixed_repo() {
   make_mixed_repo
   run run_enumerate
   [ "$status" -eq 0 ]
-  [ ! -e "$(dirname "$ENUMERATE")/all.txt" ]
+  [ ! -e "$(dirname "$SYNAPSE_BIN")/all.txt" ]
 }
 
 @test "an unknown flag exits 2" {

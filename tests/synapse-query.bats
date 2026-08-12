@@ -12,17 +12,14 @@
 
 load 'test_helper'
 
-QUERY="$REPO_ROOT/claude/lib/synapse/synapse-query.sh"
 
 setup() {
   common_setup
   setup_fake_obsidian_plugin
   CURL_LOG="$TEST_HOME/curl.log"
   : > "$CURL_LOG"
-  # For `symbol`: real tree-sitter is stubbed by fake-bin/tree-sitter (always
-  # emits one deterministic FAKE_NAME tag line); synapse-tags-cache.sh and
-  # synapse-tags.sh are installed like a real setup.sh would, since `symbol`
-  # shells out to the *installed* copies, not the repo ones.
+  # For `symbol`: tagging and the cache are subcommands of the binary, and
+  # common_setup points $SYNAPSE_BIN at the stubbed-grammar build.
   GRAMMARS_DIR="$TEST_HOME/grammars"
   FAKE_TS_LOG="$TEST_HOME/ts.log"
   FAKE_GIT_LOG="$TEST_HOME/git.log"
@@ -30,10 +27,6 @@ setup() {
   : > "$FAKE_GIT_LOG"
   printf '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}' \
     > "$HOME/.claude/synapse-grammars.conf"
-  mkdir -p "$HOME/.claude/lib/synapse"
-  cp "$REPO_ROOT/claude/lib/synapse/synapse-tags.sh" "$HOME/.claude/lib/synapse/synapse-tags.sh"
-  cp "$REPO_ROOT/claude/lib/synapse/synapse-tags-cache.sh" "$HOME/.claude/lib/synapse/synapse-tags-cache.sh"
-  chmod +x "$HOME/.claude/lib/synapse/synapse-tags.sh" "$HOME/.claude/lib/synapse/synapse-tags-cache.sh"
 }
 
 teardown() {
@@ -48,7 +41,7 @@ run_query() {
     SYNAPSE_GRAMMARS_DIR="$GRAMMARS_DIR" \
     FAKE_TS_LOG="$FAKE_TS_LOG" \
     FAKE_GIT_LOG="$FAKE_GIT_LOG" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$QUERY" "$@"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" query "$@"
 }
 
 run_stale() { run_query stale; }
@@ -93,16 +86,20 @@ write_node() {
   } > "$VAULT/synapse/$(repo_name)/$node"
 }
 
-write_node_index() {
-  mkdir -p "$VAULT/synapse/$(repo_name)"
-  printf '%s' "$1" > "$VAULT/synapse/$(repo_name)/_index.json"
+# The index the query reads, built through the shipped writer. Every path here
+# maps to one node, which is what these tests need; a path with two claimants is
+# synapse-build-index.bats's case.
+write_node_index() { # write_node_index <node.md> <path>...
+  local node="$1" p; shift
+  for p in "$@"; do printf '%s\t%s\n' "$p" "$node"; done \
+    | write_index_bin "$(default_work_dir)"
 }
 
 @test "stale: node whose files are unchanged: reports nothing, exit 0" {
   make_repo
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
   write_node "Foo Node.md" "src/foo.ml"
-  write_node_index '{"src/foo.ml":["Foo Node.md"],"_unassigned":[]}'
+  write_node_index 'Foo Node.md' src/foo.ml
 
   run run_stale
   [ "$status" -eq 0 ]
@@ -113,7 +110,7 @@ write_node_index() {
   make_repo
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
   write_node "Foo Node.md" "src/foo.ml"
-  write_node_index '{"src/foo.ml":["Foo Node.md"],"_unassigned":[]}'
+  write_node_index 'Foo Node.md' src/foo.ml
 
   # The case Tier 1 cannot see: an edit that never went through a hook.
   printf 'let x = 2 (* changed *)\n' > "$REPO/src/foo.ml"
@@ -128,7 +125,7 @@ write_node_index() {
   make_repo
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
   write_node "Foo Node.md" "src/foo.ml"
-  write_node_index '{"src/foo.ml":["Foo Node.md"],"_unassigned":[]}'
+  write_node_index 'Foo Node.md' src/foo.ml
 
   rm "$REPO/src/foo.ml"
 
@@ -146,7 +143,7 @@ write_node_index() {
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
   # written in reverse order; the digest sorts, so it must still verify
   write_node "Foo Node.md" "src/foo.ml" "src/bar.ml"
-  write_node_index '{"src/foo.ml":["Foo Node.md"],"src/bar.ml":["Foo Node.md"],"_unassigned":[]}'
+  write_node_index 'Foo Node.md' src/foo.ml src/bar.ml
 
   run run_stale
   [ "$status" -eq 0 ]
@@ -158,7 +155,7 @@ write_node_index() {
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
   FORCE_DIGEST="0000000000000000000000000000000000000000000000000000000000000000" \
     write_node "Foo Node.md" "src/foo.ml"
-  write_node_index '{"src/foo.ml":["Foo Node.md"],"_unassigned":[]}'
+  write_node_index 'Foo Node.md' src/foo.ml
 
   run run_stale
   [ "$status" -eq 0 ]
@@ -172,17 +169,17 @@ write_node_index() {
   # strip the digest, simulating a namespace built under the old format
   grep -v '^sources_digest:' "$VAULT/synapse/$(repo_name)/Foo Node.md" > "$TEST_HOME/tmp" \
     && mv "$TEST_HOME/tmp" "$VAULT/synapse/$(repo_name)/Foo Node.md"
-  write_node_index '{"src/foo.ml":["Foo Node.md"],"_unassigned":[]}'
+  write_node_index 'Foo Node.md' src/foo.ml
 
   run run_stale
   [ "$status" -eq 0 ]
   [[ "$output" == *"no sources_digest"* ]]
 }
 
-@test "stale: node in _index.json but missing from the vault: reported" {
+@test "stale: node in the index but missing from the vault: reported" {
   make_repo
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_node_index '{"src/foo.ml":["Ghost Node.md"],"_unassigned":[]}'
+  write_node_index 'Ghost Node.md' src/foo.ml
 
   run run_stale
   [ "$status" -eq 0 ]
@@ -192,7 +189,7 @@ write_node_index() {
 @test "stale: namespace belongs to a different remote: exits 1, reports nothing" {
   make_repo "ssh://git@example.com/mine.git"
   write_synapse_index "$(repo_name)" "ssh://git@example.com/SOMEONE-ELSE.git"
-  write_node_index '{"src/foo.ml":["Foo Node.md"],"_unassigned":[]}'
+  write_node_index 'Foo Node.md' src/foo.ml
 
   run run_stale
   [ "$status" -eq 1 ]
@@ -210,8 +207,8 @@ write_node_index() {
 
 @test "stale: not inside a git repo: exits 1" {
   mkdir -p "$TEST_HOME/plain"
-  run bash -c 'cd "$1" && PATH="$2:$PATH" FAKE_CURL_LOG="$3" FAKE_CURL_VAULT_DIR="$4" bash "$5" stale' \
-    _ "$TEST_HOME/plain" "$FAKE_BIN" "$CURL_LOG" "$VAULT" "$QUERY"
+  run bash -c 'cd "$1" && PATH="$2:$PATH" FAKE_CURL_LOG="$3" FAKE_CURL_VAULT_DIR="$4" exec "$5" "$6" stale' \
+    _ "$TEST_HOME/plain" "$FAKE_BIN" "$CURL_LOG" "$VAULT" "$SYNAPSE_BIN" query
   [ "$status" -eq 1 ]
 }
 
@@ -422,19 +419,23 @@ write_fenced_node() {
 
 # --- temp-dir handling -----------------------------------------------------
 
-@test "an unusable TMPDIR is fatal rather than resolving every path against /" {
+@test "an unusable TMPDIR is not fatal, because nothing needs a temp dir" {
   make_repo
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
   write_fenced_node "Foo Node.md" "src/foo.ml"
+  printf 'src/foo.ml\tFoo Node.md\n' | write_index_bin "$(default_work_dir)"
 
-  # This script runs without `set -e` on purpose -- its exit codes are answers,
-  # not failures -- so a failed `mktemp -d` left $WORK empty and every path
-  # under it resolving against `/`. Found by running the script for real outside
-  # the suite, in a sandbox whose TMPDIR was not the system temp dir.
+  # This used to assert the opposite, and the inversion is the point. The script
+  # ran without `set -e` -- its exit codes are answers, not failures -- so a
+  # failed `mktemp -d` left $WORK empty and every path under it resolving against
+  # `/`; the guarantee then was that it died instead. `synapse query` writes no
+  # intermediate files at all, so there is no temp dir to fail and the whole class
+  # of failure is gone rather than handled.
   run env TMPDIR="$TEST_HOME/definitely-not-here" \
     PATH="$FAKE_BIN:$PATH" FAKE_CURL_LOG="$CURL_LOG" FAKE_CURL_VAULT_DIR="$VAULT" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$QUERY" stale
-  [ "$status" -ne 0 ]
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" query stale
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
 }
 
 @test "every mktemp in the shipped scripts passes an explicit template" {
@@ -534,7 +535,7 @@ write_fenced_node() {
   run env SYNAPSE_DISABLE_SYMBOL_CACHE=1 \
     PATH="$FAKE_BIN:$PATH" FAKE_CURL_LOG="$CURL_LOG" FAKE_CURL_VAULT_DIR="$VAULT" \
     SYNAPSE_GRAMMARS_DIR="$GRAMMARS_DIR" FAKE_TS_LOG="$FAKE_TS_LOG" FAKE_GIT_LOG="$FAKE_GIT_LOG" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$QUERY" symbol FAKE_NAME "Foo Node"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" query symbol FAKE_NAME "Foo Node"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
   [ ! -s "$FAKE_TS_LOG" ]
@@ -560,7 +561,7 @@ write_fenced_node() {
 @test "symbol: unsupported file is reported distinctly, never conflated with no-match" {
   make_repo
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  # No registry entry for this extension at all -- synapse-tags.sh exits 2
+  # No registry entry for this extension at all -- `synapse tags` exits 2
   # (needs discovery), which the cache records as unsupported.
   printf 'no grammar for this\n' > "$REPO/src/foo.unknownext"
   git -C "$REPO" add src/foo.unknownext

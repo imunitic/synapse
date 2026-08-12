@@ -6,20 +6,20 @@
 # Logs every invocation verbatim to $FAKE_CURL_LOG, and simulates just
 # enough of the Local REST API's /vault/{path} behavior for the hook:
 #
-#   GET without -o  -> body + "\n<code>" (matching the real curl -w '\n%{http_code}'
-#            the hook uses for _index.json): $FAKE_CURL_INDEX_BODY's contents + 200
-#            if set and present, else the real API's actual 404 JSON error body +
-#            404 -- NOT an empty body, since that 404 body is itself valid JSON and
-#            a bare `jq -e .` check can't tell it apart from a real index (exactly
-#            the bug the hook's HTTP-status check guards against).
+#   GET without -o  -> body + "\n<code>" (matching a real curl -w '\n%{http_code}'):
+#            $FAKE_CURL_INDEX_BODY's contents + 200 if set and present, else the
+#            real API's actual 404 JSON error body + 404 -- NOT an empty body,
+#            since that 404 body is itself valid JSON and a bare `jq -e .` check
+#            cannot tell it apart from a real note. No shipped caller GETs an
+#            index over the API any more; this shape is kept because the 404-body
+#            distinction applies to every /vault/{path} GET, not just that one.
 #   GET with -o FILE -> node fetch. Serves $FAKE_CURL_VAULT_DIR/<percent-decoded
 #            path> into FILE, or exits 22 (curl's -f "HTTP error" code) when the
 #            file doesn't exist, so the hook's `|| continue` path is exercised.
-#   PUT   -> writes the payload (inline, or read from a file for --data-binary
-#            @path) to $FAKE_CURL_VAULT_DIR/<decoded path> when that dir is set,
-#            so tests can diff the resulting bytes. _index.json PUTs are also
-#            captured to $FAKE_CURL_CAPTURE_DIR/index-put.json, node PUTs logged
-#            to $FAKE_CURL_CAPTURE_DIR/node-puts.log. Payload files are copied,
+#   PUT   -> writes the payload (inline, from a file for --data-binary @path, or
+#            from stdin for @-) to $FAKE_CURL_VAULT_DIR/<decoded path> when that dir is set,
+#            so tests can diff the resulting bytes, and node PUTs are logged to
+#            $FAKE_CURL_CAPTURE_DIR/node-puts.log. Payload files are copied,
 #            never round-tripped through a shell variable, so a trailing newline
 #            survives and byte-identity assertions mean something.
 #   PATCH -> appends the request URL to $FAKE_CURL_CAPTURE_DIR/patches.log. The
@@ -77,6 +77,12 @@ write_payload_to() {
   local dest="$1"
   mkdir -p "$(dirname "$dest")"
   case "$data" in
+    # `@-` is the payload on stdin, which real curl accepts and the writer uses:
+    # a node runs to megabytes on a hub, and an argument list is bounded. `cat`,
+    # not a shell variable, for the same reason the file case is a `cp` -- a
+    # trailing newline has to survive for a byte-identity assertion to mean
+    # anything.
+    @-) cat > "$dest" ;;
     @*) cp "${data#@}" "$dest" ;;
     *) printf '%s' "$data" > "$dest" ;;
   esac
@@ -188,11 +194,6 @@ PYEOF
     case "$put_status" in
       2*)
         case "$vault_path" in
-          *_index.json)
-            if [ -n "${FAKE_CURL_CAPTURE_DIR:-}" ]; then
-              write_payload_to "$FAKE_CURL_CAPTURE_DIR/index-put.json"
-            fi
-            ;;
           *)
             if [ -n "${FAKE_CURL_VAULT_DIR:-}" ]; then
               write_payload_to "$FAKE_CURL_VAULT_DIR/$vault_path"

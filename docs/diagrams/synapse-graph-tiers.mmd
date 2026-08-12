@@ -13,7 +13,7 @@ flowchart TB
 
     subgraph T1["Tier 1 · hook, on edit"]
         direction TB
-        H["synapse-staleness.sh<br/>PostToolUse: Write / Edit / MultiEdit"]
+        H["synapse-hook staleness<br/>PostToolUse: Write / Edit / MultiEdit"]
         FLAG["node → stale: true<br/>or the path → _unassigned"]
         CITED{"does this file hold<br/>a crux or grounded_in<br/>range the node cites?"}
         NUDGE["correction nudge:<br/>fix the one sentence<br/>this edit contradicts"]
@@ -35,7 +35,7 @@ flowchart TB
     subgraph T2["Tier 2 · procedure, at read time"]
         direction TB
         SK["synapse-node skill<br/>verify before use, then regenerate"]
-        VERIFY["synapse-query.sh stale<br/>re-hash sources vs sources_digest"]
+        VERIFY["synapse query stale<br/>re-hash sources vs sources_digest"]
         REGEN["regenerate inside the fence<br/>## Notes preserved verbatim"]
         SWEEP["_unassigned sweep<br/>rides along on any regeneration"]
         SK --> VERIFY --> REGEN
@@ -44,7 +44,7 @@ flowchart TB
 
     subgraph TS["tree-sitter · optional"]
         direction TB
-        TAGS["synapse-tags.sh<br/>tried first, never required"]
+        TAGS["synapse tags<br/>tried first, never required"]
         REG["~/.claude/synapse-grammars.conf<br/>self-populating registry"]
         TAGS <--> REG
     end

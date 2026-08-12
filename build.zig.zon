@@ -1,0 +1,32 @@
+.{
+    .name = .synapse,
+    .version = "0.1.0",
+
+    // Generated once by the toolchain and never changed: together with `name`
+    // it is this package's globally unique identity, so that a fork is
+    // distinguishable from an update. Changing it has security and trust
+    // implications.
+    .fingerprint = 0xa462c73995874901,
+
+    // Pinned deliberately. Zig is pre-1.0 and its standard library moves --
+    // 0.16 alone renamed the general-purpose allocator, removed
+    // `std.posix.getenv` and `std.process.args` in their old forms, and
+    // threaded an explicit `Io` through everything that touches the system.
+    // Upgrading is a scheduled act with its own diff, never something that
+    // arrives in the middle of unrelated work.
+    .minimum_zig_version = "0.16.0",
+
+    .dependencies = .{
+        .tree_sitter = .{
+            .url = "https://github.com/tree-sitter/tree-sitter/archive/42f33fe2f8ddef5617a8536723c5d2b8a19a615e.tar.gz",
+            .hash = "tree_sitter-0.27.0-Tw2sRwIoDAD8FSq1wnlCa5uycdbfYDFVSDfuyChQv94y",
+        },
+    },
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "LICENSE",
+    },
+}

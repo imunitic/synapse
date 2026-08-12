@@ -16,7 +16,6 @@
 
 load 'test_helper'
 
-BIN="$REPO_ROOT/claude/lib/synapse"
 
 setup() {
   common_setup
@@ -50,16 +49,14 @@ in_repo() {
     FAKE_CURL_VAULT_DIR="$VAULT" \
     FAKE_CURL_CAPTURE_DIR="$CAPTURE" \
     SYNAPSE_WORK_DIR="$WORK" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$@"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$@"
 }
 
-# Runs all four steps. The fake curl captures an _index.json PUT to the capture
-# dir rather than the vault tree, so it is copied into place afterwards -- the
-# real REST API stores it in the vault, and `synapse-query.sh stale` reads it back
-# from there.
+# Runs all four steps. The index needs no copying into place any more: it is
+# written straight to $SYNAPSE_WORK_DIR, which is where every reader now looks.
 run_pipeline() {
   printf 'Java — the application\t^src/\t\nDocs — the documentation\t^docs/\t\nOCaml — the library\t^lib/\t\n' > "$WORK/manifest.tsv"
-  in_repo "$BIN/synapse-build-lists.sh" || return 1
+  in_repo "$SYNAPSE_BIN" build-lists || return 1
 
   # Each authored body carries its own one-line summary in frontmatter; the driver
   # strips it and it becomes the node's `summary` field, which the index reads back.
@@ -67,12 +64,9 @@ run_pipeline() {
   printf -- '---\nsummary: The documentation.\n---\n\n## Summary\nThe documentation.\n' > "$WORK/b-02.md"
   printf -- '---\nsummary: The ocaml library.\n---\n\n## Summary\nThe ocaml library.\n' > "$WORK/b-03.md"
 
-  in_repo "$BIN/synapse-push-nodes.sh" || return 1
-  in_repo "$BIN/synapse-build-index.sh" || return 1
-  in_repo "$BIN/synapse-build-project-index.sh" || return 1
-
-  mkdir -p "$VAULT/synapse/$(repo_name)"
-  cp "$CAPTURE/index-put.json" "$VAULT/synapse/$(repo_name)/_index.json"
+  in_repo "$SYNAPSE_BIN" push-nodes || return 1
+  in_repo "$SYNAPSE_BIN" build-index || return 1
+  in_repo "$SYNAPSE_BIN" build-project-index || return 1
 }
 
 @test "the four steps produce a complete, self-consistent namespace" {
@@ -84,20 +78,20 @@ run_pipeline() {
   [ -f "$ns/Docs — the documentation.md" ]
   [ -f "$ns/OCaml — the library.md" ]
   [ -f "$ns/Index.md" ]
-  [ -f "$ns/_index.json" ]
+  [ -s "$WORK/_index.bin" ]
 
   # Coverage: the binary file was dropped at enumeration, and the one text file no
   # node claimed is in _unassigned rather than lost.
   ! grep -q 'logo.png' "$WORK/all.txt"
   grep -q '^leftover.txt$' "$WORK/unassigned.txt"
-  jq -e '._unassigned | index("leftover.txt")' "$ns/_index.json" > /dev/null
+  "$SYNAPSE_BIN" index unassigned --file "$WORK/_index.bin" | grep -qx 'leftover.txt'
 
   # Every node in the index points at a file that exists -- the check that the
   # per-script tests cannot make.
   local node
   while IFS= read -r node; do
     [ -f "$ns/$node" ]
-  done < <(jq -r 'to_entries | map(select(.key != "_unassigned")) | map(.value[]) | unique | .[]' "$ns/_index.json")
+  done < <("$SYNAPSE_BIN" index nodes --file "$WORK/_index.bin")
 }
 
 @test "every wikilink resolves, and every node is listed in Index.md" {
@@ -123,7 +117,7 @@ run_pipeline() {
   [ "$status" -eq 0 ]
 
   # body prints the prose only -- no frontmatter, no ## Notes.
-  run in_repo "$BIN/synapse-query.sh" body "Java — the application"
+  run in_repo "$SYNAPSE_BIN" query body "Java — the application"
   [ "$status" -eq 0 ]
   [[ "$output" == *"The java application."* ]]
   [[ "$output" != *"sources_digest"* ]]
@@ -131,16 +125,16 @@ run_pipeline() {
 
   # Asserted against the list the node was built from, so the two cannot drift:
   # the ^src/ pattern also picks up the helper's src/foo.ml.
-  run in_repo "$BIN/synapse-query.sh" sources "Java — the application" --count
+  run in_repo "$SYNAPSE_BIN" query sources "Java — the application" --count
   [ "$status" -eq 0 ]
   [ "$output" -eq "$(wc -l < "$WORK/lists/01.txt" | tr -d ' ')" ]
   [ "$output" -eq 3 ]
 
-  run in_repo "$BIN/synapse-query.sh" sources "Docs — the documentation" --modules
+  run in_repo "$SYNAPSE_BIN" query sources "Docs — the documentation" --modules
   [ "$status" -eq 0 ]
   [[ "$output" == *"docs"* ]]
 
-  run in_repo "$BIN/synapse-query.sh" field "OCaml — the library" project
+  run in_repo "$SYNAPSE_BIN" query field "OCaml — the library" project
   [ "$status" -eq 0 ]
   [ "$output" = "$(ns_repo)" ]
 }
@@ -151,12 +145,12 @@ run_pipeline() {
 
   # Silence means clean: the digests the writer computed must satisfy the
   # verifier's independent recomputation of the same definition.
-  run in_repo "$BIN/synapse-query.sh" stale
+  run in_repo "$SYNAPSE_BIN" query stale
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 
   printf 'class App { int x; }\n' > "$REPO/src/main/java/com/example/App.java"
-  run in_repo "$BIN/synapse-query.sh" stale
+  run in_repo "$SYNAPSE_BIN" query stale
   [ "$status" -eq 0 ]
   [[ "$output" == *"Java — the application	content changed"* ]]
   # Only the node covering that file may be flagged.
@@ -169,7 +163,7 @@ run_pipeline() {
   [ "$status" -eq 0 ]
 
   rm "$REPO/lib/core.ml"
-  run in_repo "$BIN/synapse-query.sh" stale
+  run in_repo "$SYNAPSE_BIN" query stale
   [ "$status" -eq 0 ]
   [[ "$output" == *"OCaml — the library	source files gone: lib/core.ml"* ]]
 }
@@ -186,7 +180,7 @@ run_pipeline() {
 
   # Node count must not drift, and the namespace must still verify.
   [ "$(find "$ns" -name '*.md' ! -name 'Index.md' | wc -l | tr -d ' ')" -eq 3 ]
-  run in_repo "$BIN/synapse-query.sh" stale
+  run in_repo "$SYNAPSE_BIN" query stale
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }

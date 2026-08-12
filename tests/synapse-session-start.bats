@@ -5,7 +5,6 @@
 
 load 'test_helper'
 
-HOOK="$REPO_ROOT/claude/hooks/synapse-session-start.sh"
 
 setup() {
   common_setup
@@ -17,7 +16,7 @@ teardown() {
 
 run_hook() {
   local cwd="$1"
-  printf '{"cwd":"%s"}' "$cwd" | bash "$HOOK"
+  printf '{"cwd":"%s"}' "$cwd" | "$SYNAPSE_HOOK_BIN" session-start
 }
 
 @test "no vault index and no synapse namespace: no output at all" {
@@ -64,6 +63,11 @@ run_hook() {
   [[ "$ctx" == *"doesn't match"* ]]
   [[ "$ctx" == *"Skipping the pointer"* ]]
   [[ "$ctx" != *"Synapse namespace for this repo:"* ]]
+  # Both causes named, and a remedy. A changed remote is the likelier of the two
+  # and used to go unmentioned, so the message read as an accusation of a name
+  # collision with nothing to do about it.
+  [[ "$ctx" == *"this repo's remote changed"* ]]
+  [[ "$ctx" == *"/synapse-rebuild-full"* ]]
 }
 
 @test "synapse namespace keyed by path fallback when repo has no remote" {
@@ -215,7 +219,10 @@ catalogue_lines() {
   # synapse-claude.md, imported into CLAUDE.md rather than shipped inline -- see
   # setup.sh's "CLAUDE.md / synapse-claude.md" section -- but reads as "the global
   # CLAUDE.md" from the hook's and the reader's point of view either way.
-  local nudge="$REPO_ROOT/claude/hooks/synapse-stop-nudge.sh"
+  # The text lives in the hook binary now, not in the wrapper -- the check follows
+  # it rather than lapsing, because what it protects is the pair (nudge text,
+  # heading) and not the file either half happens to sit in.
+  local nudge="$REPO_ROOT/src/apps/hook/stop_nudge.zig"
   local cited
   cited="$(grep -o 'CLAUDE.md \\"[^\\]*\\" section' "$nudge" | sed -e 's/.*\\"\(.*\)\\" section/\1/')"
   [ -n "$cited" ]

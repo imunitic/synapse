@@ -32,18 +32,18 @@ flowchart TB
 
     subgraph BUILD["BUILD · /synapse-init"]
         direction TB
-        TAGS["synapse-tags.sh<br/><i>optional</i>"]
-        VOCAB["synapse-vocab.sh<br/>symbol vocabulary"]
+        TAGS["synapse tags"]
+        VOCAB["synapse vocab<br/>symbol vocabulary"]
         ORIENT["<b>model</b><br/>orient and cluster"]
         MANIFEST["<b>manifest.tsv</b><br/>THE SEAM"]
-        LISTS["synapse-build-lists.sh<br/>enumerate and expand"]
-        GATE["synapse-gate.sh<br/>flag empty clusters"]
-        RANK["synapse-rank.sh<br/>what to read"]
+        LISTS["synapse build-lists<br/>enumerate and expand"]
+        GATE["synapse gate<br/>flag empty clusters"]
+        RANK["synapse rank<br/>what to read"]
         PROSE["<b>model</b><br/>author node prose"]
-        PUSH["synapse-push-nodes.sh"]
-        WRITE["synapse-write-node.sh<br/>hash, slice, write"]
-        IDX["synapse-build-index.sh"]
-        PIDX["synapse-build-project-index.sh"]
+        PUSH["synapse push-nodes"]
+        WRITE["synapse write-node<br/>hash, slice, write"]
+        IDX["synapse build-index"]
+        PIDX["synapse build-project-index"]
 
         TAGS -->|"batched"| VOCAB
         VOCAB -->|"evidence"| ORIENT
@@ -62,39 +62,39 @@ flowchart TB
     subgraph VAULT["VAULT · synapse/{repo}@{branch}/"]
         direction LR
         NODE["{Node Title}.md × N"]
-        JSON["_index.json"]
         INDEX["Index.md"]
         AUX["_manifest.tsv · _profile.txt"]
     end
 
     subgraph WORK["WORK DIR · ~/.claude/synapse-work/{repo}@{branch}/"]
         direction LR
-        TAGSCACHE["_tags_cache.json"]
+        IDXBIN["_index.bin"]
+        TAGSCACHE["_tags_cache.bin"]
         REFSIDX["_refs.tsv"]
         WORDS["groupwords.tsv · counts.tsv"]
     end
 
     WRITE ==>|"REST PUT"| NODE
-    IDX ==> JSON
+    IDX ==> IDXBIN
     PIDX ==> INDEX
     WRITE -.->|"byproduct"| TAGSCACHE
     VOCAB -.-> WORDS
 
     subgraph USE["READ · DETECT · REPAIR"]
         direction TB
-        QUERY["synapse-query.sh<br/>body · sources · field"]
-        SYMBOL["synapse-query.sh symbol"]
-        REFS["synapse-build-refs.sh"]
-        CALLERS["synapse-query.sh callers"]
+        QUERY["synapse query<br/>body · sources · field"]
+        SYMBOL["synapse query symbol"]
+        REFS["synapse build-refs"]
+        CALLERS["synapse query callers"]
         NODESKILL["synapse-node skill<br/>Tier 2"]
-        STALE1["synapse-staleness.sh<br/>Tier 1"]
-        STALE2["synapse-query.sh stale"]
-        DRIFT["synapse-query.sh drift"]
-        GROUND["synapse-query.sh grounding"]
+        STALE1["synapse-hook staleness<br/>Tier 1"]
+        STALE2["synapse query stale"]
+        DRIFT["synapse query drift"]
+        GROUND["synapse query grounding"]
         REBUILDDIFF["/synapse-rebuild-diff<br/><i>same branch only</i>"]
         REBUILDFULL["/synapse-rebuild-full"]
-        CLEAN["synapse-graph-clean.sh"]
-        WIPE["synapse-graph-wipe.sh<br/>preserves ## Notes"]
+        CLEAN["synapse graph-clean"]
+        WIPE["synapse graph-wipe<br/>preserves ## Notes"]
 
         DRIFT --> REBUILDDIFF
         GROUND --> REBUILDDIFF
@@ -103,7 +103,7 @@ flowchart TB
 
     NODE -.->|"read"| QUERY
     NODE -.-> NODESKILL
-    JSON -.-> STALE1
+    IDXBIN -.-> STALE1
     NODE -.-> STALE2
     NODE -.-> DRIFT
     NODE -.-> GROUND
@@ -121,8 +121,8 @@ flowchart TB
     class ORIENT,PROSE model
     class MANIFEST seam
     class LISTS,PUSH,WRITE,IDX,PIDX,TAGS,VOCAB,GATE,RANK,QUERY,SYMBOL,REFS,CALLERS,STALE2,DRIFT,GROUND,CLEAN,WIPE script
-    class NODE,JSON,INDEX,AUX vault
-    class TAGSCACHE,REFSIDX,WORDS work
+    class NODE,INDEX,AUX vault
+    class IDXBIN,TAGSCACHE,REFSIDX,WORDS work
     class STALE1 hook
     class REBUILDDIFF,REBUILDFULL,NODESKILL cmd
 

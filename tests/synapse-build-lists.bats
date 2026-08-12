@@ -7,7 +7,6 @@
 
 load 'test_helper'
 
-BUILD_LISTS="$REPO_ROOT/claude/lib/synapse/synapse-build-lists.sh"
 
 setup() {
   common_setup
@@ -23,7 +22,7 @@ teardown() {
 # dir, which is the arrangement an installed copy in ~/.claude/lib/synapse always has.
 run_build() {
   SYNAPSE_WORK_DIR="$WORK" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$BUILD_LISTS" "$@"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" build-lists "$@"
 }
 
 write_manifest() {
@@ -145,7 +144,7 @@ make_mixed_repo() {
   git -C "$REPO" -c user.email=t@t -c user.name=t commit -q -m gen
   write_manifest 'Everything\t.\t\n'
 
-  run env SYNAPSE_WORK_DIR="$WORK" SYNAPSE_EXTRA_EXCLUDE_RE='^generated/'     bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$BUILD_LISTS" --reenumerate
+  run env SYNAPSE_WORK_DIR="$WORK" SYNAPSE_EXTRA_EXCLUDE_RE='^generated/'     bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" build-lists --reenumerate
   [ "$status" -eq 0 ]
   ! grep -q 'generated/client.java' "$WORK/all.txt"
   # The built-in lists still apply.
@@ -255,7 +254,7 @@ make_mixed_repo() {
   write_manifest 'Crates\t^crates/\t\n'
 
   run env LANG=en_US.UTF-8 SYNAPSE_WORK_DIR="$WORK" \
-    bash -c 'cd "$1" && shift && unset LC_ALL && bash "$@"' _ "$REPO" "$BUILD_LISTS"
+    bash -c 'cd "$1" && shift && unset LC_ALL && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" build-lists
   [ "$status" -eq 0 ]
 
   local enumerated
@@ -322,8 +321,8 @@ make_mixed_repo() {
   run run_build
   [ "$status" -eq 0 ]
   [ -f "$WORK/lists/01.txt" ]
-  [ ! -e "$(dirname "$BUILD_LISTS")/lists" ]
-  [ ! -e "$(dirname "$BUILD_LISTS")/all.txt" ]
+  [ ! -e "$(dirname "$SYNAPSE_BIN")/lists" ]
+  [ ! -e "$(dirname "$SYNAPSE_BIN")/all.txt" ]
 }
 
 @test "with \$SYNAPSE_WORK_DIR unset it works out of ~/.claude and never writes into the repo" {
@@ -335,7 +334,7 @@ make_mixed_repo() {
   mkdir -p "$default_work"
   printf 'Java\t^mod-a/\n' > "$default_work/manifest.tsv"
 
-  run bash -c 'cd "$1" && shift && unset SYNAPSE_WORK_DIR && bash "$@"' _ "$REPO" "$BUILD_LISTS"
+  run bash -c 'cd "$1" && shift && unset SYNAPSE_WORK_DIR && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" build-lists
   [ "$status" -eq 0 ]
   [ -f "$default_work/lists/01.txt" ]
   [ -f "$default_work/all.txt" ]
@@ -356,7 +355,7 @@ make_mixed_repo() {
 
   # No manifest yet, so this fails -- but it must fail on the missing manifest,
   # having created the directory, rather than on the directory not existing.
-  run bash -c 'cd "$1" && shift && unset SYNAPSE_WORK_DIR && bash "$@"' _ "$REPO" "$BUILD_LISTS"
+  run bash -c 'cd "$1" && shift && unset SYNAPSE_WORK_DIR && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" build-lists
   [ "$status" -eq 1 ]
   [[ "$output" == *"no manifest.tsv"* ]]
   [ -d "$default_work" ]
@@ -372,7 +371,7 @@ make_mixed_repo() {
   write_manifest 'Java\t^mod-a/\t\n'
   mkdir -p "$TEST_HOME/notarepo"
   run env SYNAPSE_WORK_DIR="$WORK" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$TEST_HOME/notarepo" "$BUILD_LISTS"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$TEST_HOME/notarepo" "$SYNAPSE_BIN" build-lists
   [ "$status" -eq 1 ]
   [[ "$output" == *"not inside a git repo"* ]]
 }
@@ -388,7 +387,7 @@ make_mixed_repo() {
   write_manifest "All\t.\t\n"
 
   run env SYNAPSE_MAX_FILE_BYTES=1000 SYNAPSE_WORK_DIR="$WORK" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$BUILD_LISTS"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" build-lists
   [ "$status" -eq 0 ]
   grep -qx 'src/small.java' "$WORK/all.txt"
   ! grep -qx 'src/huge.java' "$WORK/all.txt"
@@ -426,7 +425,7 @@ make_mixed_repo() {
   printf '# a comment\n\n(^|/)vendor/\n' > "$HOME/.claude/synapse-ignore-files.conf"
 
   run env SYNAPSE_EXTRA_EXCLUDE_RE='(^|/)gen/' SYNAPSE_WORK_DIR="$WORK" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$BUILD_LISTS"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" build-lists
   [ "$status" -eq 0 ]
   grep -qx 'src/keep.java' "$WORK/all.txt"
   ! grep -q 'vendor/' "$WORK/all.txt"   # from the conf file

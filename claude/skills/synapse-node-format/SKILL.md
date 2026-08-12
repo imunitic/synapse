@@ -1,6 +1,6 @@
 ---
 name: synapse-node-format
-description: The contract for a Synapse code-graph node — frontmatter fields, the crux pointer, `## Links`, `grounded_in`, `## Sources`, and what `synapse-write-node.sh` adds or refuses. Load before authoring or regenerating any node, whether from /synapse-init's first build, /synapse-rebuild's triage, or the synapse-node skill's lazy regeneration. Not for reading the graph (that is synapse-query) or for task notes in the vault (that is synapse-task).
+description: The contract for a Synapse code-graph node — frontmatter fields, the crux pointer, `## Links`, `grounded_in`, `## Sources`, and what `synapse write-node` adds or refuses. Load before authoring or regenerating any node, whether from /synapse-init's first build, /synapse-rebuild's triage, or the synapse-node skill's lazy regeneration. Not for reading the graph (that is synapse-query) or for task notes in the vault (that is synapse-task).
 ---
 
 # What a node is, and how to author one
@@ -12,14 +12,14 @@ All three write the same artifact, so the format belongs in one place rather tha
 wherever it is used. What stays with each caller is what is genuinely specific to it — the skill's
 traps when *re*-authoring an existing node, rebuild's triage classes — not the contract itself.
 
-`synapse-write-node.sh` is the enforcement. Where this document states a rule the writer already
+`synapse write-node` is the enforcement. Where this document states a rule the writer already
 refuses to break, that is deliberate and the script is the authority; this describes the artifact so
 a reader knows what to produce, not so anyone hand-builds one.
 
 Author the prose only — put each node's content in
-`$SYNAPSE_WORK_DIR/b-NN.md` (matching its `lists/NN.txt`), then run `synapse-push-nodes.sh`,
-which calls `synapse-write-node.sh` per node. The contract below is what that writer implements
-and what `synapse-query.sh stale` verifies; it is specified here because the two must agree
+`$SYNAPSE_WORK_DIR/b-NN.md` (matching its `lists/NN.txt`), then run `synapse push-nodes`,
+which calls `synapse write-node` per node. The contract below is what that writer implements
+and what `synapse query stale` verifies; it is specified here because the two must agree
 exactly, not because you should hand-build the file. A node lands at
 `synapse/{repo}@{branch}/{Node Title}.md`:
 
@@ -36,7 +36,7 @@ summary: One line differentiating this node from its siblings.
 ```
 
 The driver strips that frontmatter and the line becomes the node's `summary` field, which
-`synapse-build-project-index.sh` reads back to build the index bullet. Write it *for the index* — it has to distinguish this node
+`synapse build-project-index` reads back to build the index bullet. Write it *for the index* — it has to distinguish this node
 from dozens of siblings, which is a different job from the node's opening sentence, whose job is
 to orient someone already inside. A node without one is an error, not a default.
 
@@ -76,7 +76,7 @@ to orient someone already inside. A node without one is an error, not a default.
   <!-- crux: crates/matcher/src/lib.rs 412-419 -->
   ```
 
-  `synapse-write-node.sh` slices those lines out of the file, fences them with a language guessed
+  `synapse write-node` slices those lines out of the file, fences them with a language guessed
   from the extension, appends a `path:start-end` provenance line, and records `crux_path` /
   `crux_lines` in frontmatter. It refuses the write if the path is not one the node claims, if the
   range runs past the end of the file, or if the span reaches 20 lines.
@@ -98,7 +98,7 @@ to orient someone already inside. A node without one is an error, not a default.
 
   The writer records each as path + lines + sha256 of the sliced text in the `grounded_in`
   frontmatter list, then strips the directives — this is provenance, not display, so nothing is
-  rendered and the prose stays readable. `synapse-query.sh grounding` later re-slices each range and
+  rendered and the prose stays readable. `synapse query grounding` later re-slices each range and
   compares, which turns "is this summary still true" from a judgement into a check.
 
   Why it matters more than it looks: a claim traced to a test or a doc comment is one the codebase
@@ -190,5 +190,5 @@ digest = sha256( "\n".join(sorted( f"{path}:{hash}" for each entry in sources ))
 Sort the joined `path:hash` lines themselves (not the paths, then the hashes), `LC_ALL=C`,
 newline-separated, no trailing newline.
 
-`project` is the repo half of the namespace key — `synapse_repo_name` in `~/.claude/lib/synapse/synapse-identity.sh`, not the task-prefix scheme that `/synapse-note` uses. The writer fills it in; it is described here so the field's meaning is documented once.
+`project` is the repo half of the namespace key — `synapse namespace --repo-name`, not the task-prefix scheme that `/synapse-note` uses. The writer fills it in; it is described here so the field's meaning is documented once.
 

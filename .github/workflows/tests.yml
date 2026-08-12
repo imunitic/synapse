@@ -10,6 +10,45 @@ on:
   workflow_dispatch:
 
 jobs:
+  # A separate job rather than steps bolted onto `bats`: the two fail for
+  # unrelated reasons and neither orders the other, so running them in parallel
+  # costs nothing and keeps a red X pointing at the half that actually broke.
+  zig:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # No version pinned here on purpose. The action resolves it from
+      # `build.zig.zon`'s `minimum_zig_version`, so the pin lives in exactly one
+      # place and CI cannot quietly build with a different toolchain than a
+      # local `zig build` uses. Pinning it here too would be a second copy of a
+      # number, which is a second copy that goes stale.
+      - uses: mlugg/setup-zig@v2
+
+      - name: Show version
+        run: zig version
+
+      - name: Build
+        run: zig build
+
+      # Internals only -- format round-trips, parsing, the process helper. The
+      # CLI contract belongs to the bats job, and duplicating it here would
+      # retire that suite as the specification without anyone deciding to.
+      - name: Unit tests
+        run: zig build test --summary all
+
+      # The half of the layering the compiler cannot enforce: Zig analyses
+      # declarations lazily, so a wrong-direction import nothing references
+      # compiles silently.
+      - name: Layering and purity
+        run: ./ci/check-layering.sh
+
+      # Same script `just build-targets` runs, so the release matrix has one
+      # definition rather than one here and one in the justfile.
+      - name: Cross-compile every release target
+        run: ./ci/build-targets.sh
+
   bats:
     # Linux only, and the asymmetry is the point rather than an economy. The two
     # shells disagree in ways that pass silently on one of them -- BSD vs GNU
@@ -46,6 +85,18 @@ jobs:
       - name: Install GNU parallel
         run: sudo apt-get update -qq && sudo apt-get install -y parallel
 
+      # The suite runs `synapse-fake`: `synapse tags` with the grammar
+      # compile-and-load step stubbed, which is what replaced the fake
+      # `tree-sitter` on PATH once libtree-sitter was linked instead of
+      # spawned. This job therefore needs a toolchain even though it is not the
+      # job that checks the Zig -- the alternative is a bats suite with no
+      # tagger in it at all. Same unpinned action as the `zig` job, for the
+      # same reason: `build.zig.zon` is the only place the version lives.
+      - uses: mlugg/setup-zig@v2
+
+      - name: Build the stubbed-grammar binary the suite runs
+        run: zig build fake
+
       - name: Show versions
         run: |
           bats --version
@@ -76,7 +127,7 @@ jobs:
       # rather than arriving as one line inside a 238-test run.
       - name: Generated docs are in sync
         if: always()
-        run: ./docs/generate-scripts-reference.sh --check
+        run: ./docs/generate-cli-reference.sh --check
 
       - name: Rendered diagrams are in sync
         if: always()

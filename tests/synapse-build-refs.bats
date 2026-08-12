@@ -11,11 +11,10 @@
 
 load 'test_helper'
 
-SCRIPT="$REPO_ROOT/claude/lib/synapse/synapse-build-refs.sh"
 
 setup() {
   common_setup
-  CACHE="$TEST_HOME/_tags_cache.json"
+  CACHE="$TEST_HOME/_tags_cache.bin"
   OUT="$TEST_HOME/_refs.tsv"
 }
 
@@ -28,16 +27,34 @@ tagline() { # tagline <padded-name> <kind> <def|ref> <row> <expression>
   printf '%s\t | %s\t%s (%s, 13) - (%s, 39) `%s`' "$1" "$2" "$3" "$4" "$4" "$5"
 }
 
-write_cache() { # write_cache <json>
-  printf '%s' "$1" > "$CACHE"
+# Builds a cache from `--dump`'s own format, which is the inverse operation and
+# how a test authors one now that the file is binary. Same expressive power the
+# hand-written JSON had: an arbitrary tag line per path, verbatim.
+write_cache() { # write_cache <dump-format lines on stdin>
+  "$SYNAPSE_BIN" tags-cache --load "$CACHE"
 }
+
+# One entry: a path, a hash, and its tag lines (newline separated, may be empty).
+cache_entry() { # cache_entry <path> <hash40> <tags>
+  printf 'H\t%s\t%s\n' "$1" "$2"
+  printf 'P\t%s\n' "$1"
+  [ -z "$3" ] || printf '%s\n' "$3" | while IFS= read -r l; do printf 'T\t%s\t%s\n' "$1" "$l"; done
+}
+
+cache_unsupported() { # cache_unsupported <path> <hash40>
+  printf 'H\t%s\t%s\n' "$1" "$2"
+  printf 'U\t%s\n' "$1"
+}
+
+H1="1111111111111111111111111111111111111111"
+H2="2222222222222222222222222222222222222222"
 
 @test "build-refs: emits name/reftype/kind/path:line/expression, tab separated" {
   local tags
   tags="$(tagline 'Token     ' 'class  ' 'def' 15 'public class Token {')"
-  jq -n --arg t "$tags" '{"src/Token.java": {hash: "abc", unsupported: false, tags: $t}}' > "$CACHE"
+  cache_entry "src/Token.java" "$H1" "$tags" | write_cache
 
-  run "$SCRIPT" --cache "$CACHE" --out "$OUT"
+  run "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$OUT"
   [ "$status" -eq 0 ]
 
   run cat "$OUT"
@@ -56,9 +73,9 @@ write_cache() { # write_cache <json>
 @test "build-refs: a short padded name is trimmed, so exact lookup finds it" {
   local tags
   tags="$(tagline 'execute   ' 'call   ' 'ref' 42 'foo.execute();')"
-  jq -n --arg t "$tags" '{"src/A.java": {hash: "abc", unsupported: false, tags: $t}}' > "$CACHE"
+  cache_entry "src/A.java" "$H1" "$tags" | write_cache
 
-  run "$SCRIPT" --cache "$CACHE" --out "$OUT"
+  run "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$OUT"
   [ "$status" -eq 0 ]
 
   run awk -F'\t' '$1=="execute"' "$OUT"
@@ -69,12 +86,11 @@ write_cache() { # write_cache <json>
 @test "build-refs: unsupported files contribute nothing and are counted separately" {
   local tags
   tags="$(tagline 'Kept      ' 'class  ' 'def' 1 'class Kept {}')"
-  jq -n --arg t "$tags" '{
-    "src/Kept.java": {hash: "a", unsupported: false, tags: $t},
-    "src/data.sql":  {hash: "b", unsupported: true,  tags: ""}
-  }' > "$CACHE"
+  { cache_entry "src/Kept.java" "$H1" "$tags"
+    cache_unsupported "src/data.sql" "$H2"
+  } | write_cache
 
-  run "$SCRIPT" --cache "$CACHE" --out "$OUT"
+  run "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$OUT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"1 unsupported"* ]]
 
@@ -86,10 +102,10 @@ write_cache() { # write_cache <json>
   local a b
   a="$(tagline 'A         ' 'class  ' 'def' 1 'class A {}')"
   b="$(tagline 'run       ' 'call   ' 'ref' 7 'a.run();')"
-  jq -n --arg t "$a
-$b" '{"src/A.java": {hash: "a", unsupported: false, tags: $t}}' > "$CACHE"
+  cache_entry "src/A.java" "$H1" "$a
+$b" | write_cache
 
-  run "$SCRIPT" --cache "$CACHE" --out "$OUT"
+  run "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$OUT"
   [ "$status" -eq 0 ]
   run wc -l < "$OUT"
   [ "$(printf '%s' "$output" | tr -d ' ')" = "2" ]
@@ -103,11 +119,11 @@ $b" '{"src/A.java": {hash: "a", unsupported: false, tags: $t}}' > "$CACHE"
   a="$(tagline 'Zebra     ' 'class  ' 'def' 1 'class Zebra {}')"
   b="$(tagline 'apple     ' 'call   ' 'ref' 2 'apple();')"
   c="$(tagline 'Apple     ' 'class  ' 'def' 3 'class Apple {}')"
-  jq -n --arg t "$a
+  cache_entry "src/A.java" "$H1" "$a
 $b
-$c" '{"src/A.java": {hash: "a", unsupported: false, tags: $t}}' > "$CACHE"
+$c" | write_cache
 
-  run "$SCRIPT" --cache "$CACHE" --out "$OUT"
+  run "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$OUT"
   [ "$status" -eq 0 ]
 
   run bash -c "LC_ALL=C sort -c '$OUT' && echo sorted"
@@ -118,9 +134,9 @@ $c" '{"src/A.java": {hash: "a", unsupported: false, tags: $t}}' > "$CACHE"
 @test "build-refs: a tab inside the expression cannot add a column" {
   local tags
   tags="$(printf 'weird     \t | call   \tref (5, 13) - (5, 39) `a\tb();`')"
-  jq -n --arg t "$tags" '{"src/A.java": {hash: "a", unsupported: false, tags: $t}}' > "$CACHE"
+  cache_entry "src/A.java" "$H1" "$tags" | write_cache
 
-  run "$SCRIPT" --cache "$CACHE" --out "$OUT"
+  run "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$OUT"
   [ "$status" -eq 0 ]
 
   run awk -F'\t' 'NF != 5 { print "bad:" NF }' "$OUT"
@@ -129,41 +145,41 @@ $c" '{"src/A.java": {hash: "a", unsupported: false, tags: $t}}' > "$CACHE"
 }
 
 @test "build-refs: a malformed tag line is skipped, not emitted half-parsed" {
-  jq -n '{"src/A.java": {hash: "a", unsupported: false, tags: "no tabs here at all"}}' > "$CACHE"
+  cache_entry "src/A.java" "$H1" "no tabs here at all" | write_cache
 
-  run "$SCRIPT" --cache "$CACHE" --out "$OUT"
+  run "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$OUT"
   [ "$status" -eq 0 ]
   run wc -l < "$OUT"
   [ "$(printf '%s' "$output" | tr -d ' ')" = "0" ]
 }
 
 @test "build-refs: missing cache is exit 1 with a pointer to the fix" {
-  run "$SCRIPT" --cache "$TEST_HOME/nope.json" --out "$OUT"
+  run "$SYNAPSE_BIN" build-refs --cache "$TEST_HOME/nope.json" --out "$OUT"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"synapse-tags-cache.sh"* ]]
+  [[ "$output" == *"synapse tags-cache"* ]]
 }
 
 @test "build-refs: unreadable cache is exit 1, not a silently empty index" {
   printf 'this is not json' > "$CACHE"
-  run "$SCRIPT" --cache "$CACHE" --out "$OUT"
+  run "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$OUT"
   [ "$status" -eq 1 ]
 }
 
 @test "build-refs: rebuilds rather than appending" {
   local tags
   tags="$(tagline 'Once      ' 'class  ' 'def' 1 'class Once {}')"
-  jq -n --arg t "$tags" '{"src/A.java": {hash: "a", unsupported: false, tags: $t}}' > "$CACHE"
+  cache_entry "src/A.java" "$H1" "$tags" | write_cache
 
-  "$SCRIPT" --cache "$CACHE" --out "$OUT"
-  "$SCRIPT" --cache "$CACHE" --out "$OUT"
+  "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$OUT"
+  "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$OUT"
 
   run wc -l < "$OUT"
   [ "$(printf '%s' "$output" | tr -d ' ')" = "1" ]
 }
 
 @test "build-refs: --help is exit 0, a bad flag is exit 2" {
-  run "$SCRIPT" --help
+  run "$SYNAPSE_BIN" build-refs --help
   [ "$status" -eq 0 ]
-  run "$SCRIPT" --nonsense
+  run "$SYNAPSE_BIN" build-refs --nonsense
   [ "$status" -eq 2 ]
 }

@@ -10,7 +10,6 @@
 
 load 'test_helper'
 
-SCRIPT="$REPO_ROOT/claude/lib/synapse/synapse-gate.sh"
 
 setup() {
   common_setup
@@ -44,7 +43,7 @@ write_four_clusters() {
 @test "a cluster whose top terms are all corpus-common is flagged" {
   write_four_clusters
 
-  run "$SCRIPT" --vocab "$VOCAB"
+  run "$SYNAPSE_BIN" gate --vocab "$VOCAB"
   [ "$status" -eq 0 ]
   [ "$(wc -l <<< "$output" | tr -d ' ')" -eq 1 ]
   [[ "$output" == Generic* ]]
@@ -54,7 +53,7 @@ write_four_clusters() {
 @test "the differentiated clusters are not flagged" {
   write_four_clusters
 
-  run "$SCRIPT" --vocab "$VOCAB"
+  run "$SYNAPSE_BIN" gate --vocab "$VOCAB"
   [ "$status" -eq 0 ]
   ! grep -q '^Billing' <<< "$output"
   ! grep -q '^Shipping' <<< "$output"
@@ -68,7 +67,7 @@ write_four_clusters() {
   cluster Shipping parcel carrier manifest
   cluster Pricing  tariff premium discount
 
-  run "$SCRIPT" --vocab "$VOCAB"
+  run "$SYNAPSE_BIN" gate --vocab "$VOCAB"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
@@ -76,7 +75,7 @@ write_four_clusters() {
 @test "--all reports every cluster in the same shape, with a verdict column" {
   write_four_clusters
 
-  run "$SCRIPT" --vocab "$VOCAB" --all
+  run "$SYNAPSE_BIN" gate --vocab "$VOCAB" --all
   [ "$status" -eq 0 ]
   [ "$(wc -l <<< "$output" | tr -d ' ')" -eq 4 ]
   [ "$(awk -F'\t' '$3 == "ok"' <<< "$output" | wc -l | tr -d ' ')" -eq 3 ]
@@ -98,7 +97,7 @@ write_four_clusters() {
   cluster OneRare  solitary description identifier
   cluster TwoRare  alpha beta description identifier
 
-  run "$SCRIPT" --vocab "$VOCAB"
+  run "$SYNAPSE_BIN" gate --vocab "$VOCAB"
   [ "$status" -eq 0 ]
   grep -q '^OneRare' <<< "$output"
   ! grep -q '^TwoRare' <<< "$output"
@@ -115,7 +114,7 @@ write_four_clusters() {
   printf 'Huge\tdescription\t99999\n' >> "$VOCAB"
   printf 'Huge\tidentifier\t88888\n' >> "$VOCAB"
 
-  run "$SCRIPT" --vocab "$VOCAB"
+  run "$SYNAPSE_BIN" gate --vocab "$VOCAB"
   [ "$status" -eq 0 ]
   grep -q '^Huge' <<< "$output"
 }
@@ -131,7 +130,7 @@ write_four_clusters() {
     cluster "C$i" "trio$(( (i - 1) / 3 ))" common alpha beta
   done
 
-  run "$SCRIPT" --vocab "$VOCAB" --all
+  run "$SYNAPSE_BIN" gate --vocab "$VOCAB" --all
   [ "$status" -eq 0 ]
   # df(trioK) == 3 <= 60/20, so each cluster has exactly one rare term and is
   # flagged at tolerance 1. With the floor-only rule (threshold 2) df 3 would
@@ -148,11 +147,11 @@ write_four_clusters() {
   cluster Shipping description identifier bundle resource parcel carrier
   cluster Pricing  description identifier bundle resource tariff premium
 
-  run "$SCRIPT" --vocab "$VOCAB" --top 4
+  run "$SYNAPSE_BIN" gate --vocab "$VOCAB" --top 4
   [ "$status" -eq 0 ]
   [ "$(wc -l <<< "$output" | tr -d ' ')" -eq 3 ]
 
-  run "$SCRIPT" --vocab "$VOCAB" --top 6
+  run "$SYNAPSE_BIN" gate --vocab "$VOCAB" --top 6
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
@@ -171,7 +170,7 @@ write_four_clusters() {
   printf 'Billing\tinvoice\t40\n' >> "$VOCAB"
   printf 'Billing\tinvoice\t40\n' >> "$VOCAB"
 
-  run "$SCRIPT" --vocab "$VOCAB" --all
+  run "$SYNAPSE_BIN" gate --vocab "$VOCAB" --all
   [ "$status" -eq 0 ]
   [ "$(awk -F'\t' '$1 == "Billing" { print $2 }' <<< "$output")" = "2" ]
   # And it appears once in the term list, not three times.
@@ -183,9 +182,9 @@ write_four_clusters() {
   cluster Shipping alpha bravo charlie delta
   printf 'Tied\tzulu\t5\nTied\tyankee\t5\nTied\txray\t5\n' >> "$VOCAB"
 
-  run "$SCRIPT" --vocab "$VOCAB" --all
+  run "$SYNAPSE_BIN" gate --vocab "$VOCAB" --all
   local first="$output"
-  run "$SCRIPT" --vocab "$VOCAB" --all
+  run "$SYNAPSE_BIN" gate --vocab "$VOCAB" --all
   [ "$output" = "$first" ]
   [ "$(awk -F'\t' '$1 == "Tied" { print $4 }' <<< "$output")" = "xray yankee zulu" ]
 }
@@ -194,19 +193,19 @@ write_four_clusters() {
   # The dangerous silent case: nothing was tagged, so no cluster has any
   # vocabulary, and a rule that just counted rare terms would flag every one of
   # them -- or, printing nothing, would read as a clean bill of health.
-  run "$SCRIPT" --vocab "$VOCAB"
+  run "$SYNAPSE_BIN" gate --vocab "$VOCAB"
   [ "$status" -eq 1 ]
   [[ "$output" == *"empty"* ]]
 
-  run "$SCRIPT" --vocab "$TEST_HOME/nope.tsv"
+  run "$SYNAPSE_BIN" gate --vocab "$TEST_HOME/nope.tsv"
   [ "$status" -eq 1 ]
 }
 
 @test "usage errors exit 2" {
-  run "$SCRIPT"
+  run "$SYNAPSE_BIN" gate
   [ "$status" -eq 2 ]
-  run "$SCRIPT" --vocab "$VOCAB" --top zero
+  run "$SYNAPSE_BIN" gate --vocab "$VOCAB" --top zero
   [ "$status" -eq 2 ]
-  run "$SCRIPT" --nope
+  run "$SYNAPSE_BIN" gate --nope
   [ "$status" -eq 2 ]
 }

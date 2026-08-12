@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Tests claude/lib/synapse/synapse-graph-clean.sh -- the only destructive tool in Synapse.
+# Tests `synapse graph-clean` -- the only destructive tool in Synapse.
 # The bias throughout is toward keeping notes: every test that asserts a removal
 # has a sibling asserting that a namespace which merely *looks* removable is left
 # alone, because a false positive here destroys authored prose.
@@ -9,7 +9,6 @@
 
 load 'test_helper'
 
-SCRIPT="$REPO_ROOT/claude/lib/synapse/synapse-graph-clean.sh"
 
 setup() {
   common_setup
@@ -19,7 +18,7 @@ setup() {
 teardown() { common_teardown; }
 
 run_clean() {
-  bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$SCRIPT" "$@"
+  bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" graph-clean "$@"
 }
 
 # A repo with a real (local, bare) remote it can actually fetch from.
@@ -53,8 +52,7 @@ EOF
 }
 
 synapse_repo_for_test() {
-  . "$HOME/.claude/lib/synapse/synapse-identity.sh"
-  synapse_repo_name "$REPO"
+  "$SYNAPSE_BIN" namespace --repo "$REPO" --repo-name
 }
 
 ns_exists() { [ -d "$VAULT/synapse/$1" ]; }
@@ -191,7 +189,7 @@ ns_exists() { [ -d "$VAULT/synapse/$1" ]; }
 }
 
 @test "outside a git repo it exits 1, and an unknown flag exits 2" {
-  run bash -c 'cd "$1" && bash "$2"' _ "$TEST_HOME" "$SCRIPT"
+  run bash -c 'cd "$1" && exec "$2" "$3"' _ "$TEST_HOME" "$SYNAPSE_BIN" graph-clean
   [ "$status" -eq 1 ]
 
   make_repo

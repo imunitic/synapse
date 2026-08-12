@@ -11,7 +11,6 @@
 
 load 'test_helper'
 
-QUERY="$REPO_ROOT/claude/lib/synapse/synapse-query.sh"
 
 setup() {
   common_setup
@@ -38,7 +37,7 @@ node() { # node <title> <links-block...>
 
 run_q() {
   PATH="$FAKE_BIN:$PATH" FAKE_CURL_LOG="$CURL_LOG" FAKE_CURL_VAULT_DIR="$VAULT" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$QUERY" "$@"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" query "$@"
 }
 
 @test "links: outbound relations come back with their type" {

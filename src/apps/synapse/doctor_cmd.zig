@@ -1,0 +1,424 @@
+//! `synapse doctor` -- every silent guard in the system, said out loud.
+//!
+//!   doctor [--repo <dir>]
+//!
+//! See `core/doctor.zig` for why this exists and what `warn` means. Every check below
+//! mirrors a specific guard elsewhere, and the comment on each says which -- a check
+//! with no corresponding silent failure would be a check nobody needed.
+//!
+//! Named `doctor`, not `verify`: `synapse-verify.sh` existed once and folded into
+//! `query stale`, so reusing that name would suggest the old thing was back.
+//!
+//! Ordered as an install is built: dependencies, then config, then the vault and its
+//! API, then this checkout's identity, then the namespace, then the derived artefacts,
+//! then the hooks. A failure early on explains most of what follows, so a reader who
+//! stops at the first `FAIL` has usually found the cause rather than a symptom.
+
+const std = @import("std");
+const core = @import("core");
+const adapters = @import("adapters");
+const context = @import("context.zig");
+
+const Io = std.Io;
+const Allocator = std.mem.Allocator;
+const Check = core.doctor.Check;
+
+const usage_text =
+    \\usage: synapse doctor [--repo <dir>]
+    \\
+    \\  --repo  the checkout to examine. Default: the one containing $PWD.
+    \\
+;
+
+pub fn run(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    args: *std.process.Args.Iterator,
+) !u8 {
+    var repo: []const u8 = ".";
+    while (args.next()) |arg| {
+        if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
+            std.debug.print("{s}", .{usage_text});
+            return 0;
+        } else if (std.mem.eql(u8, arg, "--repo")) {
+            repo = args.next() orelse {
+                std.debug.print("{s}", .{usage_text});
+                return 2;
+            };
+        } else {
+            std.debug.print("{s}", .{usage_text});
+            return 2;
+        }
+    }
+
+    var checks: std.ArrayListUnmanaged(Check) = .empty;
+    defer checks.deinit(gpa);
+    // Every detail string is built here and freed at the end, so a check can report a
+    // path or a count without each site having to own it.
+    var owned: std.ArrayListUnmanaged([]u8) = .empty;
+    defer {
+        for (owned.items) |o| gpa.free(o);
+        owned.deinit(gpa);
+    }
+    var ctx: Ctx = .{ .gpa = gpa, .io = io, .env = env, .checks = &checks, .owned = &owned };
+
+    try dependencies(&ctx);
+    const vault = try vaultChecks(&ctx);
+    try apiChecks(&ctx, vault);
+    const id = try identityChecks(&ctx, repo);
+    defer if (id) |i| i.deinit(gpa);
+    try namespaceChecks(&ctx, vault, id);
+    try workDirChecks(&ctx, id);
+    try hookChecks(&ctx);
+
+    var buf: [64 * 1024]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &buf);
+    try core.doctor.writeReport(&out.interface, checks.items);
+    try out.interface.flush();
+    return core.doctor.exitCode(checks.items);
+}
+
+const Ctx = struct {
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    checks: *std.ArrayListUnmanaged(Check),
+    owned: *std.ArrayListUnmanaged([]u8),
+
+    fn add(self: *Ctx, name: []const u8, status: core.doctor.Status, detail: []const u8) !void {
+        try self.checks.append(self.gpa, .{ .name = name, .status = status, .detail = detail });
+    }
+
+    /// A detail this owns, so callers can format freely.
+    fn fmt(self: *Ctx, comptime f: []const u8, a: anytype) ![]const u8 {
+        const s = try std.fmt.allocPrint(self.gpa, f, a);
+        try self.owned.append(self.gpa, s);
+        return s;
+    }
+
+    fn exists(self: *Ctx, path: []const u8) bool {
+        _ = Io.Dir.cwd().statFile(self.io, path, .{}) catch return false;
+        return true;
+    }
+
+    fn read(self: *Ctx, path: []const u8) ?[]u8 {
+        const text = Io.Dir.cwd().readFileAlloc(self.io, path, self.gpa, .limited(64 << 20)) catch
+            return null;
+        self.owned.append(self.gpa, text) catch return null;
+        return text;
+    }
+};
+
+/// `git` and `curl`. Mirrors: every subcommand that spawns one and treats a failure as
+/// "nothing found" rather than "the tool is missing".
+fn dependencies(ctx: *Ctx) !void {
+    for ([_][]const u8{ "git", "curl" }) |tool| {
+        const res = adapters.process.run(ctx.io, ctx.gpa, &.{ tool, "--version" }, .{}) catch {
+            try ctx.add(tool, .fail, "not on PATH");
+            continue;
+        };
+        defer res.deinit(ctx.gpa);
+        if (!res.ok()) {
+            try ctx.add(tool, .fail, "not on PATH");
+            continue;
+        }
+        const first = res.stdout[0 .. std.mem.indexOfScalar(u8, res.stdout, '\n') orelse res.stdout.len];
+        try ctx.add(tool, .ok, try ctx.fmt("{s}", .{std.mem.trim(u8, first, " \t\r")}));
+    }
+    // `jq` is no longer used by either binary. It is still what `setup.sh` merges
+    // settings.json with, so its absence breaks installing rather than running --
+    // reported as a warning for exactly that reason.
+    const res = adapters.process.run(ctx.io, ctx.gpa, &.{ "jq", "--version" }, .{}) catch null;
+    if (res) |r| {
+        defer r.deinit(ctx.gpa);
+        if (r.ok()) {
+            try ctx.add("jq", .ok, "used by setup.sh only");
+            return;
+        }
+    }
+    try ctx.add("jq", .warn, "absent: setup.sh needs it to merge settings.json");
+}
+
+/// The conf file and the vault directory. Mirrors: `core.conf.vaultDir` returning null,
+/// which every hook treats as silence and every command as "no vault".
+fn vaultChecks(ctx: *Ctx) !?[]const u8 {
+    const home = ctx.env.get("HOME") orelse "";
+    var found: ?[]const u8 = null;
+    if (home.len != 0) {
+        for (core.conf.file_names) |name| {
+            const path = try ctx.fmt("{s}/.claude/{s}", .{ home, name });
+            if (ctx.exists(path)) {
+                found = path;
+                break;
+            }
+        }
+    }
+    if (found) |path| {
+        try ctx.add("config", .ok, path);
+    } else if (ctx.env.get("OBSIDIAN_VAULT_DIR") != null) {
+        // The environment wins over the file, so a machine with no conf at all is
+        // still configured if something exported the variable.
+        try ctx.add("config", .warn, "no synapse.conf; using $OBSIDIAN_VAULT_DIR");
+    } else {
+        try ctx.add("config", .fail, "no ~/.claude/synapse.conf -- copy the template and set the vault");
+    }
+
+    const vault = core.conf.vaultDir(ctx.gpa, ctx.io, envVars(ctx.env)) catch null;
+    if (vault) |v| {
+        try ctx.owned.append(ctx.gpa, v);
+        const st = Io.Dir.cwd().statFile(ctx.io, v, .{}) catch {
+            try ctx.add("vault", .fail, try ctx.fmt("{s} does not exist", .{v}));
+            return null;
+        };
+        if (st.kind != .directory) {
+            try ctx.add("vault", .fail, try ctx.fmt("{s} is not a directory", .{v}));
+            return null;
+        }
+        try ctx.add("vault", .ok, v);
+        return v;
+    }
+    try ctx.add("vault", .fail, "OBSIDIAN_VAULT_DIR is not set anywhere");
+    return null;
+}
+
+/// The plugin's port and key, the certificate, and whether anything answers. Mirrors:
+/// every `curl` failure that a hook turns into silence, and `write-node`'s
+/// "REST API not configured".
+fn apiChecks(ctx: *Ctx, vault: ?[]const u8) !void {
+    const v = vault orelse {
+        try ctx.add("REST API", .fail, "skipped: no vault");
+        return;
+    };
+    const plugin = try ctx.fmt("{s}/.obsidian/plugins/obsidian-local-rest-api/data.json", .{v});
+    const text = ctx.read(plugin) orelse {
+        try ctx.add("REST API", .fail, "no plugin data.json -- install \"Local REST API\" in Obsidian");
+        return;
+    };
+    const parsed = std.json.parseFromSlice(std.json.Value, ctx.gpa, text, .{}) catch {
+        try ctx.add("REST API", .fail, "plugin data.json is not readable JSON");
+        return;
+    };
+    defer parsed.deinit();
+    const obj = switch (parsed.value) {
+        .object => |o| o,
+        else => {
+            try ctx.add("REST API", .fail, "plugin data.json is not an object");
+            return;
+        },
+    };
+    const key = switch (obj.get("apiKey") orelse .null) {
+        .string => |s| s,
+        else => "",
+    };
+    const port: u16 = switch (obj.get("port") orelse .null) {
+        .integer => |i| @intCast(i),
+        .string => |s| std.fmt.parseInt(u16, s, 10) catch 0,
+        else => 0,
+    };
+    if (key.len == 0 or port == 0) {
+        try ctx.add("REST API", .fail, "plugin has no apiKey/port yet -- open Obsidian once");
+        return;
+    }
+    try ctx.add("REST API", .ok, try ctx.fmt("127.0.0.1:{d}", .{port}));
+
+    const home = ctx.env.get("HOME") orelse "";
+    const cert = try ctx.fmt("{s}/.claude/obsidian-local-rest-api-ca.pem", .{home});
+    if (ctx.exists(cert)) {
+        try ctx.add("certificate", .ok, cert);
+    } else {
+        try ctx.add("certificate", .fail, "absent -- run ./setup-obsidian-mcp.sh <vault>");
+        return;
+    }
+
+    // The one check that is a round trip rather than a file test. Worth it: every
+    // other API failure this system has had was a *reachability* failure -- Obsidian
+    // not running, the sandbox blocking loopback -- and no file test can see that.
+    const url = try ctx.fmt("https://127.0.0.1:{d}/vault/", .{port});
+    const auth = try ctx.fmt("Authorization: Bearer {s}", .{key});
+    const res = adapters.process.run(ctx.io, ctx.gpa, &.{
+        "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+        "--max-time", "5", "--cacert", cert, "-H", auth, url,
+    }, .{}) catch {
+        try ctx.add("Obsidian", .fail, "curl did not run");
+        return;
+    };
+    defer res.deinit(ctx.gpa);
+    const status = std.mem.trim(u8, res.stdout, " \t\r\n");
+    if (res.ok() and status.len != 0 and status[0] == '2') {
+        try ctx.add("Obsidian", .ok, "answering on loopback");
+    } else if (res.ok() and std.mem.eql(u8, status, "401")) {
+        try ctx.add("Obsidian", .fail, "answered 401 -- the stored apiKey is stale");
+    } else {
+        try ctx.add("Obsidian", .fail, "not answering -- is it running with the plugin enabled?");
+    }
+}
+
+/// The namespace this checkout resolves to. Mirrors: every component's silent exit on a
+/// detached HEAD or a non-repo, and `core.identity`'s own fallback chain.
+fn identityChecks(ctx: *Ctx, repo: []const u8) !?core.identity.Resolved {
+    const id = core.identity.resolve(ctx.gpa, ctx.io, repo) catch |e| {
+        switch (e) {
+            error.NotAGitRepo => try ctx.add("repository", .warn, "not inside a git repo -- nothing to graph here"),
+            error.DetachedHead => try ctx.add("repository", .warn, "detached HEAD -- a namespace is keyed by branch, so there is none"),
+            else => try ctx.add("repository", .fail, "could not resolve"),
+        }
+        return null;
+    };
+    try ctx.add("repository", .ok, id.layout.repo_root);
+    // Named separately because a worktree is where the two-hop lookup can go wrong, and
+    // seeing the git dir is how someone would notice it had.
+    if (!std.mem.eql(u8, id.layout.git_dir, id.layout.common_dir))
+        try ctx.add("worktree", .ok, try ctx.fmt("{s} (shared: {s})", .{ id.layout.git_dir, id.layout.common_dir }));
+    try ctx.add("remote", .ok, id.remote);
+    try ctx.add("namespace", .ok, id.key);
+    return id;
+}
+
+/// Whether the namespace exists and agrees about which repo and branch it describes.
+/// Mirrors: `context.verifyNamespace` and the staleness hook's `indexAgrees`, both of
+/// which refuse silently -- the mismatch case being the one that looks like nothing
+/// happening.
+fn namespaceChecks(ctx: *Ctx, vault: ?[]const u8, id: ?core.identity.Resolved) !void {
+    const v = vault orelse return;
+    const i = id orelse return;
+    const index = try ctx.fmt("{s}/synapse/{s}/Index.md", .{ v, i.key });
+    const text = ctx.read(index) orelse {
+        try ctx.add("graph", .warn, try ctx.fmt("no namespace at synapse/{s}/ -- /synapse-init builds one", .{i.key}));
+        return;
+    };
+    const recorded_remote = core.query.field(text, "remote") orelse "";
+    const recorded_branch = core.query.field(text, "branch") orelse "";
+    if (recorded_remote.len == 0) {
+        try ctx.add("graph", .fail, "Index.md has no remote field -- every component reads that as a mismatch");
+        return;
+    }
+    if (!std.mem.eql(u8, recorded_remote, i.remote)) {
+        try ctx.add("graph", .fail, try ctx.fmt(
+            "remote mismatch: Index.md says {s} -- rebuild with /synapse-rebuild-full if the remote changed",
+            .{recorded_remote},
+        ));
+        return;
+    }
+    if (!std.mem.eql(u8, recorded_branch, i.branch_key)) {
+        try ctx.add("graph", .fail, try ctx.fmt(
+            "branch mismatch: Index.md says {s}, this is {s} -- the directory was renamed by hand",
+            .{ recorded_branch, i.branch_key },
+        ));
+        return;
+    }
+
+    var nodes: usize = 0;
+    const dir_path = try ctx.fmt("{s}/synapse/{s}", .{ v, i.key });
+    if (Io.Dir.cwd().openDir(ctx.io, dir_path, .{ .iterate = true })) |dir| {
+        var d = dir;
+        defer d.close(ctx.io);
+        var it = d.iterate();
+        while (it.next(ctx.io) catch null) |entry| {
+            if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".md")) continue;
+            if (std.mem.eql(u8, entry.name, "Index.md")) continue;
+            nodes += 1;
+        }
+    } else |_| {}
+    try ctx.add("graph", .ok, try ctx.fmt("synapse/{s}/ ({d} nodes)", .{ i.key, nodes }));
+}
+
+/// The derived artefacts. Mirrors: the staleness hook's `[ -f _index.bin ]`, `symbol`'s
+/// "no tags cache yet", and `callers`' "no reference index" -- the first of which is
+/// silence and the other two of which only speak when asked.
+fn workDirChecks(ctx: *Ctx, id: ?core.identity.Resolved) !void {
+    const i = id orelse return;
+    const resolved = (try context.workDirFor(ctx.gpa, ctx.io, ctx.env, i.layout.repo_root, "synapse-doctor")) orelse
+        return;
+    defer resolved.deinit(ctx.gpa);
+    // Copied into the report's own storage before that `defer` runs: a `Check` holds a
+    // slice, not a string, and the first version of this printed a *later* check's
+    // detail here because the freed bytes had been reused by the next `fmt`.
+    const work = try ctx.fmt("{s}", .{resolved.path});
+    try ctx.add("work dir", if (ctx.exists(work)) .ok else .warn, work);
+
+    const index_path = try ctx.fmt("{s}/_index.bin", .{work});
+    if (ctx.exists(index_path)) {
+        var map = core.index_map.Map.open(ctx.io, index_path) catch {
+            try ctx.add("reverse index", .fail, "unreadable -- rebuild with /synapse-init step 3");
+            return;
+        };
+        defer map.close(ctx.io);
+        if (map.discarded) |e| {
+            try ctx.add("reverse index", .fail, try ctx.fmt("discarded ({t}) -- rebuild it", .{e}));
+        } else {
+            try ctx.add("reverse index", .ok, try ctx.fmt(
+                "{d} paths, {d} nodes, {d} unassigned",
+                .{ map.count(), map.nodeCount(), map.unassignedCount() },
+            ));
+        }
+    } else {
+        // The staleness hook's own precondition: without this file it does nothing at
+        // all, which is exactly the silence this command exists to break.
+        try ctx.add("reverse index", .warn, "absent -- the staleness hook does nothing without it");
+    }
+
+    const cache = try ctx.fmt("{s}/_tags_cache.bin", .{work});
+    try ctx.add("tags cache", if (ctx.exists(cache)) .ok else .warn, if (ctx.exists(cache))
+        cache
+    else
+        "absent -- `query symbol` will tag on demand, slowly");
+    const refs = try ctx.fmt("{s}/_refs.tsv", .{work});
+    try ctx.add("code cache", if (ctx.exists(refs)) .ok else .warn, if (ctx.exists(refs))
+        refs
+    else
+        "absent -- `callers` exits 1 until `build-refs` runs");
+}
+
+/// Whether the five hooks are registered, once each, at the current command. Mirrors
+/// nothing silent -- it mirrors something *loud in the wrong direction*: a hook wired
+/// twice fires twice, and the only symptom is duplicated context nobody attributes to
+/// settings.json.
+fn hookChecks(ctx: *Ctx) !void {
+    const home = ctx.env.get("HOME") orelse return;
+    const hook_bin = try ctx.fmt("{s}/.claude/bin/synapse-hook", .{home});
+    try ctx.add("hook binary", if (ctx.exists(hook_bin)) .ok else .fail, if (ctx.exists(hook_bin))
+        hook_bin
+    else
+        "not installed -- run ./setup.sh");
+
+    const settings_path = try ctx.fmt("{s}/.claude/settings.json", .{home});
+    const text = ctx.read(settings_path) orelse {
+        try ctx.add("hooks", .fail, "no settings.json -- run ./setup.sh");
+        return;
+    };
+    const names = [_][]const u8{ "session-start", "prompt-context", "staleness", "db-sync", "stop-nudge" };
+    var missing: usize = 0;
+    var duplicated: usize = 0;
+    for (names) |name| {
+        const needle = try ctx.fmt("synapse-hook {s}", .{name});
+        const n = std.mem.count(u8, text, needle);
+        if (n == 0) missing += 1;
+        if (n > 1) duplicated += 1;
+    }
+    if (missing == 0 and duplicated == 0) {
+        try ctx.add("hooks", .ok, "all five registered once");
+    } else if (duplicated != 0) {
+        try ctx.add("hooks", .fail, try ctx.fmt(
+            "{d} registered more than once -- each fires that many times; re-run ./setup.sh",
+            .{duplicated},
+        ));
+    } else {
+        try ctx.add("hooks", .fail, try ctx.fmt("{d} of 5 not registered -- run ./setup.sh", .{missing}));
+    }
+
+    // A wrapper still referenced would silently take precedence over the binary for
+    // that hook, and it would keep working -- which is why this is a failure rather
+    // than a note.
+    if (std.mem.indexOf(u8, text, "hooks/synapse-") != null)
+        try ctx.add("hook wiring", .fail, "settings.json still names a hooks/*.sh wrapper -- re-run ./setup.sh");
+}
+
+fn envVars(env: *std.process.Environ.Map) core.conf.Vars {
+    return .{ .ctx = @ptrCast(env), .getFn = envLookup };
+}
+
+fn envLookup(c: *anyopaque, name: []const u8) ?[]const u8 {
+    const env: *std.process.Environ.Map = @ptrCast(@alignCast(c));
+    return env.get(name);
+}

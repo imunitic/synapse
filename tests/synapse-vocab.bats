@@ -11,13 +11,8 @@
 
 load 'test_helper'
 
-SCRIPT="$REPO_ROOT/claude/lib/synapse/synapse-vocab.sh"
-
 setup() {
   common_setup
-  mkdir -p "$HOME/.claude/lib/synapse"
-  cp "$REPO_ROOT/claude/lib/synapse/synapse-tags.sh" "$HOME/.claude/lib/synapse/synapse-tags.sh"
-  chmod +x "$HOME/.claude/lib/synapse/synapse-tags.sh"
   # Every extension the fake knows about, so the script's own registry gate is
   # not what a vocabulary assertion is really testing.
   printf '%s' '{"java": {"repo": "https://example.invalid/tree-sitter-java", "scope": "source.java"},
@@ -55,7 +50,7 @@ make_two_module_repo() {
 }
 
 run_vocab() {
-  PATH="$FAKE_BIN:$PATH" "$SCRIPT" --repo "$REPO" --out "$OUT" "$@"
+  PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" vocab --repo "$REPO" --out "$OUT" "$@"
 }
 
 # The count for one group/word pair, or empty when the pair is absent.
@@ -188,11 +183,11 @@ count_of() { # count_of <group> <word>
 }
 
 @test "an extension with no registry entry is excluded before tagging, not warned about" {
-  # CODE_RE is built once, up front, from `synapse-tags.sh --list-extensions`
+  # CODE_RE is built once, up front, from `synapse tags --list-extensions`
   # -- the registry's own list of usable grammars -- rather than a hardcoded
   # guess at "languages worth having". An extension the registry has never
   # heard of therefore never reaches code.txt, so it never reaches
-  # synapse-tags.sh at all: no per-chunk warning to dedup, at any --chunk
+  # the binary at all: no per-chunk warning to dedup, at any --chunk
   # size, because there is nothing to warn about in the first place.
   git init -q "$REPO"
   src core/src/A.java Alpha
@@ -359,44 +354,44 @@ write_list() { # write_list <NN> <title> <path>...
 
 @test "raw tags are never written to disk, only the reduction" {
   # 98k code files produce ~942 MB of tags against 6.9 MB of vocabulary, so the
-  # worker must stream into the reduction. Asserted structurally: the tags-sh
-  # invocation has to be a pipe source, never a redirect into a file.
-  run grep -cE 'tags_sh" --paths "\$chunk" 2>"\$out.err" \\$' "$SCRIPT"
-  [ "$output" = "1" ]
-  run grep -c 'awk -F' "$SCRIPT"
-  [ "$status" -eq 0 ]
-}
+  # tags must never reach a file. This used to be asserted structurally, against
+  # the shell worker's pipe -- there is no worker now, and the tags never leave
+  # memory, so the property is asserted where it is observable: nothing but the
+  # two reductions appears in the output directory.
+  git init -q "$REPO"
+  src core/src/A.java getUserName premium_rate_table
+  git -C "$REPO" add -A
+  git -C "$REPO" -c user.email=test@test -c user.name=test commit -q -m init
 
-@test "no per-file subprocess anywhere in the repo-scale path" {
-  # The trap this whole design exists to avoid, and one a five-file fixture can
-  # never detect by timing: a `basename`/`wc`/`stat` per path cost minutes where
-  # a batched equivalent cost seconds. basename appears exactly once, per CHUNK.
-  [ "$(grep -c 'basename' "$SCRIPT")" -eq 1 ]
-  [ "$(grep -c 'wc -c' "$SCRIPT")" -eq 0 ]
+  run run_vocab
+  [ "$status" -eq 0 ]
+
+  local unexpected
+  unexpected="$(ls -A "$OUT" | grep -vE '^(counts|groupwords)\.tsv$' || true)"
+  [ -z "$unexpected" ]
 }
 
 @test "defaults to the work dir when --out is omitted" {
   make_two_module_repo
-  cp "$REPO_ROOT/claude/lib/synapse/synapse-identity.sh" "$HOME/.claude/lib/synapse/synapse-identity.sh"
 
-  run env PATH="$FAKE_BIN:$PATH" "$SCRIPT" --repo "$REPO"
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" vocab --repo "$REPO"
   [ "$status" -eq 0 ]
   [ -s "$HOME/.claude/synapse-work/$(repo_name)/groupwords.tsv" ]
   [ -s "$HOME/.claude/synapse-work/$(repo_name)/counts.tsv" ]
 }
 
 @test "outside a git repo: exits 1 with a message, writes nothing" {
-  run env PATH="$FAKE_BIN:$PATH" "$SCRIPT" --repo "$TEST_HOME" --out "$OUT"
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" vocab --repo "$TEST_HOME" --out "$OUT"
   [ "$status" -eq 1 ]
   [[ "$output" == *"not inside a git repo"* ]]
   [ ! -f "$OUT/groupwords.tsv" ]
 }
 
 @test "a bad flag or a non-numeric depth is a usage error, exit 2" {
-  run env PATH="$FAKE_BIN:$PATH" "$SCRIPT" --nope
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" vocab --nope
   [ "$status" -eq 2 ]
-  run env PATH="$FAKE_BIN:$PATH" "$SCRIPT" --depth two
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" vocab --depth two
   [ "$status" -eq 2 ]
-  run env PATH="$FAKE_BIN:$PATH" "$SCRIPT" --depth 0
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" vocab --depth 0
   [ "$status" -eq 2 ]
 }

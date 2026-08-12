@@ -27,8 +27,19 @@ _default:
 # silently runs serially and produces an identical-looking log. A silent 2x is
 # exactly what nobody notices, so here it is an error.
 
+# The binary the suite actually runs -- `synapse tags` with the grammar
+# compile-and-load step stubbed, standing in for the fake `tree-sitter` that
+# linking libtree-sitter retired. A dependency of every bats recipe rather than
+# a note in the README: `zig build` is a no-op when nothing changed, and the
+# failure mode it prevents is a suite silently testing yesterday's binary.
+_fake:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v zig >/dev/null || { echo "zig not on PATH -- brew install zig" >&2; exit 1; }
+    zig build fake
+
 # Run the suite in parallel; pass file paths to narrow it.
-test *FILES:
+test *FILES: _fake
     #!/usr/bin/env bash
     set -euo pipefail
     if ! command -v parallel >/dev/null; then
@@ -41,7 +52,7 @@ test *FILES:
     bats --jobs "$(getconf _NPROCESSORS_ONLN)" $targets
 
 # Run the suite serially, for unreadable parallel failures or a missing parallel.
-test-serial *FILES:
+test-serial *FILES: _fake
     bats {{ if FILES == "" { "tests/" } else { FILES } }}
 
 # THIS IS FOR THE INNER LOOP, NOT A SUBSTITUTE FOR `just check`. It runs the tests
@@ -61,7 +72,7 @@ test-serial *FILES:
 #
 # Groups are derived rather than listed on purpose. A hand-maintained group list is
 # one more thing that silently stops matching reality, and the coupling here is dense
-# enough to guarantee it: synapse-tags.sh alone is exercised by seven files.
+# enough to guarantee it: synapse tags alone is exercised by seven files.
 
 # Run only the tests covering the given source files, plus the integration ones.
 test-for +PATHS:
@@ -161,7 +172,19 @@ test-linux:
     set -euo pipefail
     machine="$(just _podman-machine)"
     just _podman-ready "$machine"
-    podman --connection "$machine" run --rm -v "$(pwd):/repo:Z" -w /repo synapse-test \
+    # The container has no Zig in it, and the host's native `synapse-fake` is a
+    # macOS binary. Cross-compile a Linux one into its own prefix -- under
+    # zig-out/ so .gitignore already covers it, and separate so it never
+    # overwrites the native build a `just test` on the host would then run.
+    command -v zig >/dev/null || { echo "zig not on PATH -- brew install zig" >&2; exit 1; }
+    zig build fake -Dtarget=x86_64-linux --prefix zig-out/linux
+    # The hook binary needs no stub -- it links no grammar -- but it does need to
+    # be a Linux binary, so it is cross-compiled the same way. `install` rather
+    # than `fake`, since that step is what carries it.
+    zig build -Dtarget=x86_64-linux --prefix zig-out/linux
+    podman --connection "$machine" run --rm -v "$(pwd):/repo:Z" -w /repo \
+      -e SYNAPSE_FAKE_BIN=/repo/zig-out/linux/bin/synapse-fake \
+      -e SYNAPSE_HOOK_BIN=/repo/zig-out/linux/bin/synapse-hook synapse-test \
       bats --jobs "$(getconf _NPROCESSORS_ONLN)" tests/
 
 # Needs `brew install act` once -- podman-ready's Podman machine is reused.
@@ -197,6 +220,53 @@ ci-local:
     (cd "$clone" && DOCKER_HOST="unix://$sock" act -j bats --container-daemon-socket - \
       -P ubuntu-latest=catthehacker/ubuntu:act-latest)
 
+# `just` stays the task runner and calls `zig build`, never the other way round:
+# the gate also has to launch bats, podman, act and mermaid-cli, none of which
+# `std.Build.Step.Run` would express better than a recipe does.
+#
+# No version guard here beyond the `command -v`. `build.zig.zon` pins
+# `minimum_zig_version`, so an old toolchain is rejected by `zig build` itself
+# with a better message than this recipe could produce, and a second check
+# would be one more place to forget when the pin moves.
+
+# Compile the Zig binary.
+build:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v zig >/dev/null || { echo "zig not on PATH -- brew install zig" >&2; exit 1; }
+    # Not `ls zig-out/bin`: cross-target builds install alongside the native
+    # one, so the directory accumulates other platforms' artefacts and listing
+    # it would report them as though this build had produced them.
+    zig build
+    echo "zig build ok: zig-out/bin/synapse"
+
+# Zig unit tests -- internals only; `just test` owns the CLI contract.
+test-zig:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v zig >/dev/null || { echo "zig not on PATH -- brew install zig" >&2; exit 1; }
+    zig build test
+    echo "zig tests ok"
+
+# The other half of the layering. `build.zig`'s module graph rejects a
+# wrong-direction import, but only once something references it -- Zig analyses
+# declarations lazily, so a dead one compiles. This catches those, and the rule
+# no build graph can express: that core reaches the system only through its Io.
+
+# Compile for every release target. A POSIX path assumption, a /tmp default or
+# a shell-out in core is a portability bug that only surfaces on the platform
+# that lacks the thing -- which, for bard's author, means surfacing on her
+# Windows machine rather than on ours. Compiling all three here moves that to
+# the moment the line is written.
+
+# Compile for all three release targets.
+build-targets:
+    ./ci/build-targets.sh
+
+# Verify the module layering and core's purity.
+layering:
+    ./ci/check-layering.sh
+
 # Catches the class of typo that only surfaces when a rarely-taken branch runs --
 # an unbalanced quote inside an awk program embedded in a heredoc, say.
 
@@ -205,7 +275,10 @@ syntax:
     #!/usr/bin/env bash
     set -euo pipefail
     n=0
-    for f in claude/bin/*.sh claude/lib/synapse/*.sh claude/hooks/*.sh docs/*.sh setup.sh setup-obsidian-mcp.sh; do
+    # claude/bin, claude/lib/synapse and claude/hooks are gone -- the tooling is two
+    # binaries. What is left to parse-check is the installer, CI and the doc
+    # generators, and the `[ -f ]` guard below is what makes a removed glob harmless.
+    for f in ci/*.sh docs/*.sh setup.sh setup-obsidian-mcp.sh; do
         [ -f "$f" ] || continue
         bash -n "$f"
         n=$((n + 1))
@@ -216,22 +289,47 @@ syntax:
 # cannot fail, and the point is to catch a script edit committed without the
 # regeneration that follows from it.
 
-# Verify docs/scripts.md and the rendered diagrams match their sources.
+# Verify docs/cli.md and the rendered diagrams match their sources.
 docs-check:
-    ./docs/generate-scripts-reference.sh --check
+    ./docs/generate-cli-reference.sh --check
     ./docs/generate-diagrams.sh --check
 
 # Regenerate both generated artefacts; diagrams need mermaid-cli and its Chromium.
 fix:
-    ./docs/generate-scripts-reference.sh
+    ./docs/generate-cli-reference.sh
     ./docs/generate-diagrams.sh
 
-# The same three things CI runs, in the same order, plus a syntax pass CI gets for
-# free by executing the scripts.
+# What CI runs, in the same order, plus a syntax pass CI gets for free by
+# executing the scripts. `build` comes first because a compile error should not
+# cost a full bats run to discover, and because everything after it will
+# eventually be exercising the binary it produces.
+#
+# `build-targets` is in here rather than CI-only because it costs four seconds:
+# leaving it out would mean a green local gate can still fail the push, which is
+# the drift that actually wastes time.
 
+# The bats step is `test-linux`, not `test`, and the difference is not small:
+# measured on the same commit and the same 443 tests, the container is ~30s where
+# the host is six to seven minutes. Both parallelise, so the gap is macOS
+# fork/exec cost -- 6.5ms against 0.24ms per exec on the same M3, 27x.
+#
+# End to end that took this whole gate from ~8min to 2:20, of which the bats run is
+# now the small part -- the rest is the two release-target builds and the diagram
+# check's Chromium. A gate that takes eight minutes gets run less often than one
+# that takes two, and a gate nobody runs is worth nothing.
+#
 # The full gate -- run before every commit.
-check: syntax test docs-check
+check: build build-targets test-zig layering syntax test-linux docs-check
     @echo "all green"
+
+# For when podman is not available, and as the answer to "is this a container
+# artefact?" -- the container runs Linux with a DebugAllocator that reports leaks
+# the native build stays silent about, so a failure there and not here is a real
+# finding rather than a flake. It found two.
+#
+# The full gate with the bats suite on the host instead of in the container.
+check-local: build build-targets test-zig layering syntax test docs-check
+    @echo "all green (host bats)"
 
 # Several scripts shell out to the *installed* copy rather than the repo one, so
 # an unsynced ~/.claude means testing a mix of old and new.

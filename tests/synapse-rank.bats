@@ -11,15 +11,10 @@
 
 load 'test_helper'
 
-SCRIPT="$REPO_ROOT/claude/lib/synapse/synapse-rank.sh"
-
 setup() {
   common_setup
-  mkdir -p "$HOME/.claude/lib/synapse"
-  cp "$REPO_ROOT/claude/lib/synapse/synapse-tags.sh" "$HOME/.claude/lib/synapse/synapse-tags.sh"
-  chmod +x "$HOME/.claude/lib/synapse/synapse-tags.sh"
   # java/py/ts: CODE_RE is now built from this registry (via
-  # `synapse-tags.sh --list-extensions`) rather than hardcoded, so any
+  # `synapse tags --list-extensions`) rather than hardcoded, so any
   # extension a test's fixture uses as "code" must be registered here or it
   # silently falls out of the code tier entirely.
   printf '%s' '{"java": {"repo": "https://example.invalid/tree-sitter-java", "scope": "source.java"},
@@ -54,7 +49,7 @@ commit_repo() {
 }
 
 run_rank() {
-  PATH="$FAKE_BIN:$PATH" "$SCRIPT" --sources "$SRC" --repo "$REPO" "$@"
+  PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank --sources "$SRC" --repo "$REPO" "$@"
 }
 
 # bats merges stderr into $output, and this script reports its per-tier counts
@@ -323,7 +318,7 @@ rank_of() { # rank_of <path> <output>
   want core/src/FooTest.java core/src/Probe.java
 
   run env PATH="$FAKE_BIN:$PATH" SYNAPSE_TEST_PATH_RE='Probe' \
-    "$SCRIPT" --sources "$SRC" --repo "$REPO" --pool crux
+    "$SYNAPSE_BIN" rank --sources "$SRC" --repo "$REPO" --pool crux
   [ "$status" -eq 0 ]
   [ -n "$(rank_of core/src/FooTest.java "$output")" ]
   [ -z "$(rank_of core/src/Probe.java "$output")" ]
@@ -375,25 +370,11 @@ rank_of() { # rank_of <path> <output>
   [ -z "$(data "$output")" ]
 }
 
-@test "no per-file subprocess anywhere in the ranking path" {
-  # A `wc -c` per path cost 15 minutes where a batched `stat` cost 3 seconds on
-  # a real repo, and a fixture of eight files can never surface the difference.
-  # The POC this replaces had TWO such loops -- a tags invocation and a size
-  # check, both per file.
-  # Comments stripped first: this script's own header explains the trap by
-  # name, and a structural check that trips on the explanation is worse than
-  # no check -- it would force the comment out to stay green.
-  local code; code="$(grep -v '^[[:space:]]*#' "$SCRIPT")"
-  [ "$(grep -c 'wc -c' <<< "$code")" -eq 0 ]
-  [ "$(grep -c 'basename' <<< "$code")" -eq 1 ]
-  grep -q 'xargs -0 stat' <<< "$code"
-}
-
 @test "usage and environment errors" {
-  run env PATH="$FAKE_BIN:$PATH" "$SCRIPT"
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank
   [ "$status" -eq 2 ]
-  run env PATH="$FAKE_BIN:$PATH" "$SCRIPT" --sources "$SRC" --tier bogus
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank --sources "$SRC" --tier bogus
   [ "$status" -eq 2 ]
-  run env PATH="$FAKE_BIN:$PATH" "$SCRIPT" --sources "$TEST_HOME/nope.txt"
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank --sources "$TEST_HOME/nope.txt"
   [ "$status" -eq 1 ]
 }

@@ -1,21 +1,28 @@
 #!/usr/bin/env bats
-# Tests claude/lib/synapse/synapse-tags.sh -- the dumb/mechanical helper that looks
-# up a file's extension in the Synapse grammar registry and, if usable,
-# ensures the grammar is cloned + registered with tree-sitter and prints
-# its `tags` output. Real `tree-sitter`/`git clone` are stubbed out by
-# tests/fixtures/fake-bin/{tree-sitter,git} -- see those files for exactly
-# what they simulate -- so these tests exercise the script's own control
-# flow (registry lookup, exit-code contract, clone/registration
-# idempotency) without a real tree-sitter install or network access.
+# Tests `synapse tags`. It replaced claude/lib/synapse/synapse-tags.sh, which is
+# deleted, and the contract is unchanged: an extension is looked up in the
+# Synapse grammar registry and, if usable, its grammar is cloned on first use
+# and the file's tags are printed.
+#
+# The fakes are what changed. tree-sitter is linked rather than spawned, so
+# `tests/fixtures/fake-bin/tree-sitter` intercepts nothing here; the binary
+# under test is `synapse-fake`, the same app with only the grammar
+# compile-and-load step stubbed (see src/apps/synapse/main_fake.zig). Registry
+# resolution, the exit-code contract, warnings, negative caching, and the clone
+# with its lock are all real code. `fake-bin/git` still intercepts the clone,
+# because a compiled binary spawns `git` exactly as the script did.
+#
+# Not covered here, deliberately: compiling a cloned grammar and running its
+# `tags.scm`. That needs a C toolchain and a real grammar repository, which is
+# what `ci/differential-tags.sh` provides -- it checks the real tagger against
+# the `tree-sitter` CLI over real repositories, which bats could not do.
 
 load 'test_helper'
 
-SCRIPT="$REPO_ROOT/claude/lib/synapse/synapse-tags.sh"
 
 setup() {
   common_setup
   GRAMMARS_DIR="$TEST_HOME/grammars"
-  GRAMMAR_CACHE="$TEST_HOME/repo_grammar.json"
   REGISTRY="$HOME/.claude/synapse-grammars.conf"
   FAKE_TS_LOG="$TEST_HOME/ts.log"
   FAKE_GIT_LOG="$TEST_HOME/git.log"
@@ -40,31 +47,13 @@ run_synapse_tags() {
     SYNAPSE_GRAMMARS_DIR="$GRAMMARS_DIR" \
     FAKE_TS_LOG="$FAKE_TS_LOG" \
     FAKE_GIT_LOG="$FAKE_GIT_LOG" \
-    "$SCRIPT" "$@"
+    "$SYNAPSE_BIN" tags "$@"
 }
 
-# Same as run_synapse_tags, with the repo-scoped resolution cache pointed at
-# $GRAMMAR_CACHE. A separate helper, not a flag on the base one, so every
-# other test in this file keeps exercising the no-cache default untouched.
-run_synapse_tags_cached() {
-  PATH="$FAKE_BIN:$PATH" \
-    SYNAPSE_GRAMMARS_DIR="$GRAMMARS_DIR" \
-    SYNAPSE_REPO_GRAMMAR_CACHE="$GRAMMAR_CACHE" \
-    FAKE_TS_LOG="$FAKE_TS_LOG" \
-    FAKE_GIT_LOG="$FAKE_GIT_LOG" \
-    "$SCRIPT" "$@"
-}
-
-@test "tree-sitter not installed: exits 1, no output" {
-  mkdir -p "$TEST_HOME/no-ts-bin"
-  cp "$FAKE_BIN/git" "$TEST_HOME/no-ts-bin/git"
-  printf 'let x = 1\n' > "$TEST_HOME/sample.ml"
-  write_registry '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}'
-
-  run env PATH="$TEST_HOME/no-ts-bin:$PATH" SYNAPSE_GRAMMARS_DIR="$GRAMMARS_DIR" "$SCRIPT" "$TEST_HOME/sample.ml"
-  [ "$status" -eq 1 ]
-  [ -z "$output" ]
-}
+# bats merges stderr into $output, and every per-extension warning this script
+# prints goes there. A test asserting on *tags* has to drop those first, or a
+# warning counts as output.
+without_warnings() { grep -v '^synapse-tags:' <<< "$1" || true; }
 
 @test "file with no extension: exits 1" {
   printf 'no extension here\n' > "$TEST_HOME/noext"
@@ -92,7 +81,7 @@ run_synapse_tags_cached() {
   [ ! -s "$FAKE_GIT_LOG" ]
 }
 
-@test "known, never-cloned extension: clones the grammar, registers parser-directories, prints tags, exit 0" {
+@test "known, never-cloned extension: clones the grammar, prints tags, exit 0" {
   printf 'let x = 1\n' > "$TEST_HOME/sample.ml"
   write_registry '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}'
 
@@ -102,10 +91,6 @@ run_synapse_tags_cached() {
 
   grep -q "clone" "$FAKE_GIT_LOG"
   [ -d "$GRAMMARS_DIR/repos/tree-sitter-ocaml" ]
-
-  run jq -e '."parser-directories" | index("'"$GRAMMARS_DIR"'/repos")' "$HOME/.config/tree-sitter/config.json"
-  [ "$status" -eq 0 ]
-  [ "$output" != "null" ]
 }
 
 @test "concurrent first clone: a waiter picks up another worker's finished clone instead of racing it" {
@@ -128,7 +113,7 @@ run_synapse_tags_cached() {
   [ ! -s "$FAKE_GIT_LOG" ]            # and has made no clone attempt of its own
 
   # The other worker finishes: repo appears, then its lock is released --
-  # the same order ensure_grammar's own clone-then-unlock path uses.
+  # the same order ensureCloned's own clone-then-unlock path uses.
   mkdir -p "$GRAMMARS_DIR/repos/tree-sitter-ocaml"
   rmdir "$GRAMMARS_DIR/repos/tree-sitter-ocaml.lock"
 
@@ -168,71 +153,19 @@ run_synapse_tags_cached() {
   mkdir -p "$GRAMMARS_DIR/repos/tree-sitter-ocaml.lock"
 
   run env PATH="$FAKE_BIN:$PATH" SYNAPSE_GRAMMARS_DIR="$GRAMMARS_DIR" \
-    SYNAPSE_GRAMMAR_LOCK_TRIES=3 "$SCRIPT" "$TEST_HOME/sample.ml"
+    SYNAPSE_GRAMMAR_LOCK_TRIES=3 "$SYNAPSE_BIN" tags "$TEST_HOME/sample.ml"
   [ "$status" -eq 1 ]
-  [ -z "$output" ]
+  # A timeout now says so on stderr, where the shell script was silent. That is
+  # the one behavioural difference in this file and it is an improvement: the
+  # extension is skipped either way, and a run that skips every file for sixty
+  # seconds of nothing was previously indistinguishable from a repo with no
+  # symbols. Stdout is still empty, which is the part callers parse.
+  [ -z "$(without_warnings "$output")" ]
   # A timed-out waiter does not own the lock and must not delete it -- doing
   # so could let a second waiter start cloning while the real (just slow)
   # holder is still working.
   [ -d "$GRAMMARS_DIR/repos/tree-sitter-ocaml.lock" ]
   [ ! -d "$GRAMMARS_DIR/repos/tree-sitter-ocaml" ]
-}
-
-@test "repo-scoped cache: a usable resolution is written back after a registry hit" {
-  printf 'let x = 1\n' > "$TEST_HOME/sample.ml"
-  write_registry '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}'
-
-  run run_synapse_tags_cached "$TEST_HOME/sample.ml"
-  [ "$status" -eq 0 ]
-  run jq -r '.ml.scope' "$GRAMMAR_CACHE"
-  [ "$output" = "source.ocaml" ]
-}
-
-@test "repo-scoped cache: an unsupported resolution is written back too" {
-  printf 'fn main() {}\n' > "$TEST_HOME/sample.rs"
-  write_registry '{"rs": {"unsupported": true}}'
-
-  run run_synapse_tags_cached "$TEST_HOME/sample.rs"
-  [ "$status" -eq 1 ]
-  run jq -r '.rs.unsupported' "$GRAMMAR_CACHE"
-  [ "$output" = "true" ]
-}
-
-@test "repo-scoped cache: no registry entry at all is never cached" {
-  printf 'let x = 1\n' > "$TEST_HOME/sample.ml"
-  write_registry '{}'
-
-  run run_synapse_tags_cached "$TEST_HOME/sample.ml"
-  [ "$status" -eq 2 ]
-  # An empty cache file is created (so later merges have valid JSON to merge
-  # into) but must hold no verdict for an extension nobody has resolved yet.
-  run jq -r 'has("ml")' "$GRAMMAR_CACHE"
-  [ "$output" = "false" ]
-}
-
-@test "repo-scoped cache: a hit is used verbatim, without consulting the registry again" {
-  printf 'let x = 1\n' > "$TEST_HOME/sample.ml"
-  # Registry says one thing; cache already says another, real thing (a
-  # working scope) -- if the cache is actually short-circuiting the
-  # registry lookup, tagging succeeds using the CACHED scope, not the
-  # registry's now-nonsense one.
-  write_registry '{"ml": {"repo": "not-a-url", "scope": ""}}'
-  printf '%s' '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}' \
-    > "$GRAMMAR_CACHE"
-
-  run run_synapse_tags_cached "$TEST_HOME/sample.ml"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"FAKE_NAME"* ]]
-  grep -q "clone" "$FAKE_GIT_LOG"
-}
-
-@test "repo-scoped cache: unset means no caching, identical to today's behaviour" {
-  printf 'let x = 1\n' > "$TEST_HOME/sample.ml"
-  write_registry '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}'
-
-  run run_synapse_tags "$TEST_HOME/sample.ml"
-  [ "$status" -eq 0 ]
-  [ ! -e "$GRAMMAR_CACHE" ]
 }
 
 @test "grammar already cloned: does not clone again" {
@@ -245,22 +178,27 @@ run_synapse_tags_cached() {
   [ ! -s "$FAKE_GIT_LOG" ]
 }
 
-@test "parser-directories already registered: stays a single entry, not duplicated" {
-  printf 'let x = 1\n' > "$TEST_HOME/sample.ml"
+@test "a second file of the same extension resolves the grammar once, not twice" {
+  # Replaces the deleted "the extension scan forks nothing per file", which
+  # asserted the absence of a `basename` call in a script that no longer
+  # exists. The property that mattered survives the port and is now assertable
+  # directly rather than by grepping the implementation: per-extension work
+  # happens once per extension, however many files carry it.
+  printf 'let a = 1\n' > "$TEST_HOME/a.ml"
+  printf 'let b = 2\n' > "$TEST_HOME/b.ml"
+  printf '%s\n' "$TEST_HOME/a.ml" "$TEST_HOME/b.ml" > "$TEST_HOME/list.txt"
   write_registry '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}'
 
-  run run_synapse_tags "$TEST_HOME/sample.ml"
+  run run_synapse_tags --paths "$TEST_HOME/list.txt"
   [ "$status" -eq 0 ]
-  run run_synapse_tags "$TEST_HOME/sample.ml"
-  [ "$status" -eq 0 ]
-
-  run jq '."parser-directories" | map(select(. == "'"$GRAMMARS_DIR"'/repos")) | length' "$HOME/.config/tree-sitter/config.json"
-  [ "$output" = "1" ]
+  [ "$(grep -c '^clone ' "$FAKE_GIT_LOG")" -eq 1 ]
 }
 
-@test "--paths: one tree-sitter invocation for the whole list, output attributable" {
-  # The point of batch mode: CLI startup dominates per-file cost, so N files must
-  # cost ONE invocation. Asserted against the fake's log rather than by timing.
+@test "--paths: one tagging pass for the whole list, output attributable" {
+  # The point of batch mode: per-file setup dominated the old CLI's cost, so N
+  # files must cost ONE pass. The binary spawns nothing to count, so the fake
+  # backend records what it was asked instead -- one `tags` line per
+  # invocation, one `path` line per file.
   printf 'let a = 1\n' > "$TEST_HOME/a.ml"
   printf 'let b = 2\n' > "$TEST_HOME/b.ml"
   printf 'let c = 3\n' > "$TEST_HOME/c.ml"
@@ -270,22 +208,10 @@ run_synapse_tags_cached() {
   run run_synapse_tags --paths "$TEST_HOME/list.txt"
   [ "$status" -eq 0 ]
   [ "$(grep -c '^tags ' "$FAKE_TS_LOG")" -eq 1 ]
+  [ "$(grep -c '^path ' "$FAKE_TS_LOG")" -eq 3 ]
   # Attributable: a path line, then that path's tab-indented tags.
   [ "$(grep -c '^/' <<< "$output")" -eq 3 ]
   [ "$(grep -c '^	' <<< "$output")" -eq 3 ]
-}
-
-@test "--paths: batch passes no --scope, so a mixed list is inferred per file" {
-  # Forcing a scope makes tree-sitter parse EVERY file as that language -- a
-  # .gradle file in a Java-scoped batch is parsed as Java. Verified against the
-  # real CLI; pinned here so batch mode never grows a --scope.
-  printf 'let a = 1\n' > "$TEST_HOME/a.ml"
-  printf '%s\n' "$TEST_HOME/a.ml" > "$TEST_HOME/list.txt"
-  write_registry '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}'
-
-  run run_synapse_tags --paths "$TEST_HOME/list.txt"
-  [ "$status" -eq 0 ]
-  [[ "$(grep '^tags ' "$FAKE_TS_LOG")" != *"--scope"* ]]
 }
 
 @test "--paths: an extension with no grammar is warned ONCE, and the rest still tag" {
@@ -305,13 +231,15 @@ run_synapse_tags_cached() {
 }
 
 @test "--paths: a ONE-path list still gets a path line and indented tags" {
-  # The real CLI changes shape here: two or more paths get path lines and
-  # indentation, exactly one gets neither -- bare tags, identical to
-  # single-file form. A chunk of one is the common case rather than a corner
-  # (one source changed, re-tag it), and left un-normalised an attributing
-  # caller reads the first tag line as a path, finds the real path missing, and
-  # concludes the file could not be parsed. That shipped once already: it cached
-  # a perfectly readable file as `unsupported: true` with no tags.
+  # The real CLI changed shape here: two or more paths got path lines and
+  # indentation, exactly one got neither -- bare tags, identical to single-file
+  # form. A chunk of one is the common case rather than a corner (one source
+  # changed, re-tag it), and left un-normalised an attributing caller reads the
+  # first tag line as a path, finds the real path missing, and concludes the
+  # file could not be parsed. That shipped once already: it cached a perfectly
+  # readable file as `unsupported: true` with no tags. The Zig implementation
+  # has no such shape change to normalise away, and this pins that it never
+  # grows one.
   printf 'let a = 1\n' > "$TEST_HOME/a.ml"
   printf '%s\n' "$TEST_HOME/a.ml" > "$TEST_HOME/list.txt"
   write_registry '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}'
@@ -358,7 +286,7 @@ run_synapse_tags_cached() {
 
   run run_synapse_tags --paths "$TEST_HOME/list.txt"
   [ "$status" -eq 1 ]
-  [ -z "$(grep -v '^synapse-tags:' <<< "$output")" ]
+  [ -z "$(without_warnings "$output")" ]
 }
 
 @test "--paths: no usable grammar for anything in the list exits 1" {
@@ -377,11 +305,18 @@ run_synapse_tags_cached() {
   [ ! -s "$FAKE_TS_LOG" ]
 }
 
-@test "--paths: the extension scan forks nothing per file" {
-  # The trap this change exists to remove, reintroduced once already inside it:
-  # `ext_of` calls basename, so scanning extensions in a loop cost 4.4s for 200
-  # files against 0.08s for the tagging. Asserted structurally -- a per-path
-  # basename in the batch path is the regression.
-  run grep -c 'ext_of "$p"' "$REPO_ROOT/claude/lib/synapse/synapse-tags.sh"
-  [ "$output" = "0" ]
+@test "--list-extensions: the registry's usable entries, one per line, sorted" {
+  # The allowlist synapse-vocab.sh and synapse-rank.sh pre-filter with. An
+  # entry marked unsupported, or missing repo or scope, is not usable and must
+  # not appear -- a caller that tags on the strength of this list would then
+  # get a warning per file for a language it was told was available.
+  write_registry '{"py": {"repo": "https://example.invalid/tree-sitter-python", "scope": "source.python"},
+                   "java": {"repo": "https://example.invalid/tree-sitter-java", "scope": "source.java"},
+                   "rs": {"unsupported": true},
+                   "go": {"repo": "https://example.invalid/tree-sitter-go"}}'
+
+  run run_synapse_tags --list-extensions
+  [ "$status" -eq 0 ]
+  [ "$output" = "java
+py" ]
 }

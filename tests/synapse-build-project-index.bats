@@ -11,7 +11,6 @@
 
 load 'test_helper'
 
-BUILD_PINDEX="$REPO_ROOT/claude/lib/synapse/synapse-build-project-index.sh"
 
 setup() {
   common_setup
@@ -32,7 +31,7 @@ run_pindex() {
     FAKE_CURL_VAULT_DIR="$VAULT" \
     FAKE_CURL_PUT_STATUS="${PUT_STATUS:-200}" \
     SYNAPSE_WORK_DIR="$WORK" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$BUILD_PINDEX" "$@"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" build-project-index "$@"
 }
 
 stage_list() {

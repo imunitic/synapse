@@ -19,7 +19,7 @@ tree* well enough to cluster it and then write about it.
 ## Start with the vocabulary — it is mechanical, and it is most of the answer
 
 ```
-synapse-vocab.sh                    # writes groupwords.tsv + counts.tsv into $SYNAPSE_WORK_DIR
+synapse vocab                    # writes groupwords.tsv + counts.tsv into $SYNAPSE_WORK_DIR
 ```
 
 One command derives what used to be an exploration. It tags every file that has a grammar, splits
@@ -38,7 +38,7 @@ that judgment is yours, and it is the actual work. A word appearing in every gro
 a word appearing in two is a concept. Scan across groups, not down one.
 
 **An empty `groupwords.tsv` is a legitimate answer**, not a failure: no file in this tree had a
-usable grammar. `synapse-vocab.sh` says so on stderr and exits 0. That is the case the four
+usable grammar. `synapse vocab` says so on stderr and exits 0. That is the case the four
 questions below exist for.
 
 ## When there is no usable grammar — and as a complement when there is
@@ -65,13 +65,13 @@ is about the gap between what the code calls itself and what the *directory* cal
 
 **Answer these with aggregate shell over the path lists, not by reading files.** Reading is
 internal and free; only what you print costs tokens, so a 15,000-file cluster should collapse to
-a few dozen lines before you read anything. Then let `synapse-rank.sh` pick which 2–4 files per
+a few dozen lines before you read anything. Then let `synapse rank` pick which 2–4 files per
 node are worth actually reading — see "Choosing what to read" below.
 
 **Do not sample, and do not invent a sampling rule.** An earlier version of this skill said
-`synapse-tags.sh` took one file per invocation and so could not be run over a whole cluster,
-and told you to pick a sampling rule and defend it. That is obsolete: `synapse-tags.sh --paths`
-tags a whole list in one invocation, which measured 33× on 200 files, and `synapse-vocab.sh`
+`synapse tags` took one file per invocation and so could not be run over a whole cluster,
+and told you to pick a sampling rule and defend it. That is obsolete: `synapse tags --paths`
+tags a whole list in one invocation, which measured 33× on 200 files, and `synapse vocab`
 above uses it to cover an entire repository in under a minute. Sampling existed only to bound a
 cost that no longer exists, and every fixed rule was biased in a way that had to be chosen
 deliberately — alphabetical is an accident, largest-file favours generated code and god-classes,
@@ -80,7 +80,7 @@ sample, run the full pass instead.
 
 **When an aggregation is worth repeating, write it down rather than retyping it.** Once you have
 run the same one-liner for the third cluster, record it in `synapse/{repo}@{branch}/_profile.txt` — a
-machine-only sibling of `_index.json`, never a node — as a fenced command plus one line on what
+machine-only sibling of `_manifest.tsv`, never a node — as a fenced command plus one line on what
 it revealed about *this* repo. **Read it, don't execute it:** it is a record of the aggregations
 that earned their keep, so a later run applies the commands itself rather than shelling out to a
 script fetched from a notes vault. Begin any re-run by reading it, and improve it rather than
@@ -91,19 +91,19 @@ on the codebase — a distributed one would encode the wrong ecosystem's convent
 notes, so a `_profile.md` turns up in search, Quick Switcher and the graph, where it is pure noise
 to a human reading notes. A non-`.md` extension is invisible to all of those and still perfectly
 readable. Note the `_` prefix does *nothing* mechanically — it is only a hint to a human who sees
-the file, matching `_index.json`. Record **negative results** here too ("this abbreviation has no
+the file, matching `_manifest.tsv`. Record **negative results** here too ("this abbreviation has no
 expansion anywhere in the repo"); a saved shell script cannot hold a search that came back empty,
 which is the main reason this is prose rather than an executable.
 
 ## Choosing what to read
 
-Once clusters exist, `synapse-rank.sh --sources lists/NN.txt` decides reading order — it does not
+Once clusters exist, `synapse rank --sources lists/NN.txt` decides reading order — it does not
 decide coverage, which stays exhaustive. Two pools, because the two halves of authoring want
 different files:
 
 ```
-synapse-rank.sh --sources lists/NN.txt --pool summary   # names: code, tests, DSL consumers
-synapse-rank.sh --sources lists/NN.txt --pool crux      # implementation only, tests excluded
+synapse rank --sources lists/NN.txt --pool summary   # names: code, tests, DSL consumers
+synapse rank --sources lists/NN.txt --pool crux      # implementation only, tests excluded
 ```
 
 A summary is made of *names*, so test class names and the names of the code consuming a DSL file
@@ -115,7 +115,7 @@ test.
 **Read the top few, not the list.** The ranking exists so that reading 3 files out of 809 produces
 the same summary as reading all of them, which is the measured result this whole approach rests on.
 
-**Tree-sitter acceleration — handling `synapse-tags.sh`'s exit codes.** These are the *single-file*
+**Tree-sitter acceleration — handling `synapse tags`'s exit codes.** These are the *single-file*
 form's codes. In `--paths` batch form an extension with no grammar produces one warning line on
 stderr and the batch still succeeds, because a mixed repo nearly always has some language that
 works and failing the whole batch for one would throw away every language that did.
@@ -149,7 +149,7 @@ contribute to a node's prose. Do not build a tally out of those warnings.
      keyed by extension — every future project skips rediscovery for this language entirely.
 
      **The key is the bare extension with no leading dot** — `"rs"`, never `".rs"`, because
-     `synapse-tags.sh` derives it with `${BASENAME##*.}`. Getting this wrong fails *silently*
+     `synapse tags` derives it from the path suffix. Getting this wrong fails *silently*
      and expensively: the lookup misses, the script keeps returning exit 2, and discovery
      re-runs for that language on every file in every project forever, caching nothing. So the
      file should end up shaped like this:
@@ -162,5 +162,5 @@ contribute to a node's prose. Do not build a tally out of those warnings.
      ```
   5. Announce the outcome either way ("found/verified a grammar for `.rs`, cached" or "no usable
      tree-sitter grammar for `.rs`, falling back to full reads"), then retry
-     `synapse-tags.sh {path}` now that the registry has an entry (falls back to a full read for
+     `synapse tags {path}` now that the registry has an entry (falls back to a full read for
      this file per the Exit 1 case above if discovery came up empty).

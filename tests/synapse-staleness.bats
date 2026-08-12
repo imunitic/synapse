@@ -3,12 +3,11 @@
 # flagging). The Obsidian Local REST API is stubbed out by
 # tests/fixtures/fake-bin/curl -- see that file for exactly what it
 # simulates -- so these tests exercise the hook's own logic (repo/path
-# resolution, _index.json lookup, decision to PATCH vs. queue-unassigned)
+# resolution, index lookup, decision to PATCH vs. queue-unassigned)
 # without a real Obsidian instance.
 
 load 'test_helper'
 
-HOOK="$REPO_ROOT/claude/hooks/synapse-staleness.sh"
 
 # Writes a Synapse node whose frontmatter contains every shape the old
 # `PATCH -H "Target-Type: frontmatter"` call used to mangle: a title long
@@ -41,31 +40,51 @@ setup() {
   setup_fake_obsidian_plugin
   CURL_LOG="$TEST_HOME/curl.log"
   CURL_CAPTURE="$TEST_HOME/curl-capture"
+  WORK="$TEST_HOME/work"
   : > "$CURL_LOG"
-  mkdir -p "$CURL_CAPTURE"
+  mkdir -p "$CURL_CAPTURE" "$WORK"
 }
 
 teardown() {
   common_teardown
 }
 
-# Runs the hook against $1 (the edited file path) with the fake curl on
-# PATH and the fake API's canned _index.json response set to $2 (a file
-# path, or empty for "no namespace exists / 404").
+# Runs the hook against $1 (the edited file path) with the fake curl on PATH and
+# the index staged from $2 -- `<node.md> <path>...`, or nothing for "no namespace
+# exists".
+#
+# The index is binary and lives in the work dir now, so the fixture is built by
+# the shipped writer rather than copied from authored JSON. No arguments beyond
+# the file leaves no index at all, which is the case the hook exits on -- and it
+# is still exactly a file-existence question, not an HTTP status one.
 run_staleness_hook() {
-  local file="$1" index_body="${2:-}"
-  # The hook reads _index.json from disk rather than over the API, so the fixture
-  # has to exist there. An empty $index_body means "no namespace" and must leave
-  # no file behind -- that is the case the hook exits on.
-  local idx="$VAULT/synapse/$(repo_name)/_index.json"
-  if [ -n "$index_body" ]; then mkdir -p "$(dirname "$idx")"; cp "$index_body" "$idx"
-  else rm -f "$idx"; fi
+  local file="$1"; shift
+  if [ "${1:-}" = "--keep-index" ]; then
+    # Use whatever the test already staged, including something deliberately
+    # broken that must survive the run untouched.
+    shift
+  elif [ "$#" -eq 1 ] && [ -f "${1:-}" ]; then
+    # A `path<TAB>node` pairs file, for the fixtures that need more than one node
+    # or more than one path.
+    write_index_bin "$WORK" < "$1"
+  elif [ "$#" -gt 0 ]; then
+    # <node.md> <path>... -- the common single-node case, spelled inline.
+    local node="$1" p; shift
+    for p in "$@"; do printf '%s\t%s\n' "$p" "$node"; done | write_index_bin "$WORK"
+  else
+    rm -f "$WORK/_index.bin"
+  fi
   PATH="$FAKE_BIN:$PATH" \
     FAKE_CURL_LOG="$CURL_LOG" \
     FAKE_CURL_CAPTURE_DIR="$CURL_CAPTURE" \
-    FAKE_CURL_INDEX_BODY="$index_body" \
     FAKE_CURL_VAULT_DIR="$VAULT" \
-    bash -c "printf '%s' \"\$1\" | jq -Rn '{tool_input:{file_path: input}}' | bash \"\$0\"" "$HOOK" "$file"
+    SYNAPSE_WORK_DIR="$WORK" \
+    bash -c "printf '%s' \"\$2\" | jq -Rn '{tool_input:{file_path: input}}' | \"\$0\" \"\$1\"" "$SYNAPSE_HOOK_BIN" staleness "$file"
+}
+
+# The paths the index has queued for the _unassigned sweep.
+queued_unassigned() {
+  "$SYNAPSE_BIN" index unassigned --file "$WORK/_index.bin"
 }
 
 @test "file mapped to a node: rewrites that node's stale line, never PATCHes frontmatter" {
@@ -73,14 +92,7 @@ run_staleness_hook() {
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
   write_synapse_node "$(repo_name)" "Foo Node.md" false
 
-  cat > "$TEST_HOME/index-body.json" <<'EOF'
-{
-  "src/foo.ml": ["Foo Node.md"],
-  "_unassigned": []
-}
-EOF
-
-  run run_staleness_hook "$REPO/src/foo.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/src/foo.ml" 'Foo Node.md' src/foo.ml
   [ "$status" -eq 0 ]
 
   grep -q "synapse/$(repo_name)/Foo Node.md" "$CURL_CAPTURE/node-puts.log"
@@ -88,7 +100,7 @@ EOF
   # The frontmatter-patch call is the bug being fixed -- it must never reappear.
   [ ! -f "$CURL_CAPTURE/patches.log" ]
   ! grep -q "Target-Type: frontmatter" "$CURL_LOG"
-  [ ! -f "$CURL_CAPTURE/index-put.json" ]
+  [ -z "$(queued_unassigned)" ]
 }
 
 @test "file mapped to two nodes: flags both" {
@@ -97,14 +109,9 @@ EOF
   write_synapse_node "$(repo_name)" "Foo Node.md" false
   write_synapse_node "$(repo_name)" "Bar Node.md" false
 
-  cat > "$TEST_HOME/index-body.json" <<'EOF'
-{
-  "src/foo.ml": ["Foo Node.md", "Bar Node.md"],
-  "_unassigned": []
-}
-EOF
+  printf 'src/foo.ml\tFoo Node.md\nsrc/foo.ml\tBar Node.md\n' > "$TEST_HOME/index-pairs.tsv"
 
-  run run_staleness_hook "$REPO/src/foo.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/src/foo.ml" "$TEST_HOME/index-pairs.tsv"
   [ "$status" -eq 0 ]
 
   grep -q "stale: true" "$VAULT/synapse/$(repo_name)/Foo Node.md"
@@ -112,43 +119,57 @@ EOF
   [ "$(wc -l < "$CURL_CAPTURE/node-puts.log" | tr -d ' ')" = "2" ]
 }
 
-@test "new file not in any node's sources: queued into _unassigned via PUT, no PATCH" {
+@test "new file not in any node's sources: queued into the unassigned list, no PATCH" {
   make_repo
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
 
-  cat > "$TEST_HOME/index-body.json" <<'EOF'
-{
-  "src/other.ml": ["Other Node.md"],
-  "_unassigned": []
-}
-EOF
-
-  run run_staleness_hook "$REPO/src/foo.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/src/foo.ml" 'Other Node.md' src/other.ml
   [ "$status" -eq 0 ]
 
-  [ -f "$CURL_CAPTURE/index-put.json" ]
-  run jq -e '.["_unassigned"] | index("src/foo.ml")' "$CURL_CAPTURE/index-put.json"
-  [ "$status" -eq 0 ]
+  # An in-place re-encode of the index now, not a 27 MB PUT: the claim survives
+  # and the new path is appended.
+  queued_unassigned | grep -qx 'src/foo.ml'
+  [ "$("$SYNAPSE_BIN" index lookup src/other.ml --file "$WORK/_index.bin")" = "Other Node.md" ]
   [ ! -f "$CURL_CAPTURE/patches.log" ]
 }
 
-@test "no Synapse namespace for this repo (real 404 JSON body): no-op, no PUT or PATCH" {
-  # Regression test: the real Local REST API returns a 404 with a JSON body
-  # (`{"message":"Not Found","errorCode":40400}`), which is itself valid
-  # JSON -- a hook that only checked "is the response valid JSON" (rather
-  # than the actual HTTP status) would treat this as an existing index and
-  # PUT a stray `_unassigned` field onto it. Found in the wild: exactly this
-  # happened to two repos edited before ever running /synapse-init.
+@test "queueing the same new file twice does not grow the list" {
+  # The hook fires on every edit, so a non-idempotent append would grow the
+  # index without bound for any file that stays unclaimed.
+  make_repo
+  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
+
+  run run_staleness_hook "$REPO/src/foo.ml" 'Other Node.md' src/other.ml
+  [ "$status" -eq 0 ]
+  [ "$(queued_unassigned | wc -l | tr -d ' ')" = "1" ]
+
+  # Second edit, same file, and the index is left as it was rather than restaged.
+  run env PATH="$FAKE_BIN:$PATH" FAKE_CURL_LOG="$CURL_LOG" \
+    FAKE_CURL_CAPTURE_DIR="$CURL_CAPTURE" FAKE_CURL_VAULT_DIR="$VAULT" \
+    SYNAPSE_WORK_DIR="$WORK" \
+    bash -c "printf '%s' \"\$2\" | jq -Rn '{tool_input:{file_path: input}}' | \"\$0\" \"\$1\"" \
+    "$SYNAPSE_HOOK_BIN" staleness "$REPO/src/foo.ml"
+  [ "$status" -eq 0 ]
+  [ "$(queued_unassigned | wc -l | tr -d ' ')" = "1" ]
+}
+
+@test "no Synapse namespace for this repo: no-op, no write or PATCH" {
+  # Regression test, kept for what it now guards rather than what it did. The
+  # original bug was that the Local REST API answers a missing index with a 404
+  # whose body is itself valid JSON (`{"message":"Not Found","errorCode":40400}`),
+  # so a hook checking "is this valid JSON" treated it as a real index and PUT a
+  # stray `_unassigned` onto it -- which happened in the wild to two repos edited
+  # before /synapse-init had ever run. There is no GET to misread any more, so the
+  # case reduces to the thing it always should have been: no index file, no work.
   make_repo
   # The namespace Index.md must exist with a matching remote, or the hook's
   # remote guard exits before the GET and this test would pass vacuously --
   # covering the guard rather than the 404 handling it is named for.
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  # No --2nd-arg body -- fake curl's GET returns the real API's 404 JSON
-  # body + status 404 for _index.json.
-  run run_staleness_hook "$REPO/src/foo.ml" ""
+  # No index staged at all.
+  run run_staleness_hook "$REPO/src/foo.ml"
   [ "$status" -eq 0 ]
-  [ ! -f "$CURL_CAPTURE/index-put.json" ]
+  [ ! -f "$WORK/_index.bin" ]
   [ ! -f "$CURL_CAPTURE/patches.log" ]
 }
 
@@ -158,11 +179,7 @@ EOF
   make_repo
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
 
-  cat > "$TEST_HOME/index-body.json" <<'EOF'
-{"src/foo.ml": ["Foo Node.md"], "_unassigned": []}
-EOF
-
-  run run_staleness_hook "$REPO/src/foo.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/src/foo.ml" 'Foo Node.md' src/foo.ml
   [ "$status" -eq 0 ]
   [ ! -s "$CURL_LOG" ]
 }
@@ -172,7 +189,7 @@ EOF
   mkdir -p "$outside"
   printf 'stray\n' > "$outside/stray.txt"
 
-  run run_staleness_hook "$outside/stray.txt" ""
+  run run_staleness_hook "$outside/stray.txt"
   [ "$status" -eq 0 ]
   [ ! -s "$CURL_LOG" ]
 }
@@ -182,14 +199,7 @@ EOF
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
   write_synapse_node "$(repo_name)" "World — entity_component_resource core.md" false
 
-  cat > "$TEST_HOME/index-body.json" <<'EOF'
-{
-  "src/foo.ml": ["World — entity_component_resource core.md"],
-  "_unassigned": []
-}
-EOF
-
-  run run_staleness_hook "$REPO/src/foo.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/src/foo.ml" 'World — entity_component_resource core.md' src/foo.ml
   [ "$status" -eq 0 ]
   grep -q "World%20%E2%80%94%20entity_component_resource%20core.md" "$CURL_LOG"
   grep -q "stale: true" "$VAULT/synapse/$(repo_name)/World — entity_component_resource core.md"
@@ -211,11 +221,7 @@ EOF
   local node="$VAULT/synapse/$(repo_name)/Foo Node.md"
   cp "$node" "$TEST_HOME/before.md"
 
-  cat > "$TEST_HOME/index-body.json" <<'JSON'
-{"src/foo.ml": ["Foo Node.md"], "_unassigned": []}
-JSON
-
-  run run_staleness_hook "$REPO/src/foo.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/src/foo.ml" 'Foo Node.md' src/foo.ml
   [ "$status" -eq 0 ]
 
   # Exactly one line differs, and it is the stale line.
@@ -237,26 +243,18 @@ JSON
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
   write_synapse_node "$(repo_name)" "Foo Node.md" true
 
-  cat > "$TEST_HOME/index-body.json" <<'JSON'
-{"src/foo.ml": ["Foo Node.md"], "_unassigned": []}
-JSON
-
-  run run_staleness_hook "$REPO/src/foo.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/src/foo.ml" 'Foo Node.md' src/foo.ml
   [ "$status" -eq 0 ]
   # Already true -> the hook must skip the PUT rather than churn the file.
   [ ! -f "$CURL_CAPTURE/node-puts.log" ]
 }
 
-@test "node listed in _index.json but missing from the vault: no-op, no crash" {
+@test "node listed in the index but missing from the vault: no-op, no crash" {
   make_repo
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
   # deliberately no write_synapse_node -- fake curl's GET -o exits 22
 
-  cat > "$TEST_HOME/index-body.json" <<'JSON'
-{"src/foo.ml": ["Ghost Node.md"], "_unassigned": []}
-JSON
-
-  run run_staleness_hook "$REPO/src/foo.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/src/foo.ml" 'Ghost Node.md' src/foo.ml
   [ "$status" -eq 0 ]
   [ ! -f "$CURL_CAPTURE/node-puts.log" ]
 }
@@ -269,14 +267,10 @@ JSON
   write_synapse_index "$(repo_name)" "ssh://git@example.com/SOMEONE-ELSE.git"
   write_synapse_node "$(repo_name)" "Foo Node.md" false
 
-  cat > "$TEST_HOME/index-body.json" <<'JSON'
-{"src/foo.ml": ["Foo Node.md"], "_unassigned": []}
-JSON
-
-  run run_staleness_hook "$REPO/src/foo.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/src/foo.ml" 'Foo Node.md' src/foo.ml
   [ "$status" -eq 0 ]
   [ ! -f "$CURL_CAPTURE/node-puts.log" ]
-  [ ! -f "$CURL_CAPTURE/index-put.json" ]
+  [ -z "$(queued_unassigned)" ]
   # The guard is ahead of any HTTP, so nothing should have been dialed at all.
   [ ! -s "$CURL_LOG" ]
   grep -q '^stale: false$' "$VAULT/synapse/$(repo_name)/Foo Node.md"
@@ -293,11 +287,7 @@ title: "no remote here"
 EOF2
   write_synapse_node "$(repo_name)" "Foo Node.md" false
 
-  cat > "$TEST_HOME/index-body.json" <<'JSON'
-{"src/foo.ml": ["Foo Node.md"], "_unassigned": []}
-JSON
-
-  run run_staleness_hook "$REPO/src/foo.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/src/foo.ml" 'Foo Node.md' src/foo.ml
   [ "$status" -eq 0 ]
   [ ! -f "$CURL_CAPTURE/node-puts.log" ]
   [ ! -s "$CURL_LOG" ]
@@ -311,11 +301,7 @@ JSON
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
   write_synapse_node "$(repo_name)" "Foo Node.md" false
 
-  cat > "$TEST_HOME/index-body.json" <<'JSON'
-{"src/foo.ml": ["Foo Node.md"], "_unassigned": []}
-JSON
-
-  run run_staleness_hook "$REPO/src/foo.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/src/foo.ml" 'Foo Node.md' src/foo.ml
   [ "$status" -eq 0 ]
   grep -q "stale: true" "$VAULT/synapse/$(repo_name)/Foo Node.md"
 }
@@ -411,14 +397,14 @@ make_cited_repo() {
   git -C "$REPO" add lib/calc.ml
   git -C "$REPO" -c user.email=t@t -c user.name=t commit -q -m calc
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  printf '{"lib/calc.ml":["Cited.md"],"_unassigned":[]}' > "$TEST_HOME/index-body.json"
+  printf 'lib/calc.ml\tCited.md\n' > "$TEST_HOME/index-pairs.tsv"
   write_cited_node "$(repo_name)" "Cited.md" \
     "$(sed -n '1,2p' "$REPO/lib/calc.ml" | sha256_stdin)"
 }
 
 @test "correction: silent when the cited evidence still matches" {
   make_cited_repo
-  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-pairs.tsv"
   [ "$status" -eq 0 ]
   [[ "$output" != *"additionalContext"* ]]
   # the staleness flag is still written -- the nudge is additive, not a replacement
@@ -430,9 +416,9 @@ make_cited_repo() {
   printf 'let other = 1\n' > "$REPO/lib/elsewhere.ml"
   git -C "$REPO" add lib/elsewhere.ml
   git -C "$REPO" -c user.email=t@t -c user.name=t commit -q -m e
-  printf '{"lib/elsewhere.ml":["Cited.md"],"_unassigned":[]}' > "$TEST_HOME/index-body.json"
+  printf 'lib/elsewhere.ml\tCited.md\n' > "$TEST_HOME/index-pairs.tsv"
 
-  run run_staleness_hook "$REPO/lib/elsewhere.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/lib/elsewhere.ml" "$TEST_HOME/index-pairs.tsv"
   [ "$status" -eq 0 ]
   [[ "$output" != *"additionalContext"* ]]
 }
@@ -441,7 +427,7 @@ make_cited_repo() {
   make_cited_repo
   sed_i 's/   Rounds half-up. \*)/   Truncates toward zero. *)/' "$REPO/lib/calc.ml"
 
-  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-pairs.tsv"
   [ "$status" -eq 0 ]
   [[ "$output" == *"additionalContext"* ]]
   [[ "$output" == *"Cited"* ]]
@@ -452,7 +438,7 @@ make_cited_repo() {
   make_cited_repo
   sed_i 's/^let line05 = 5$/let line05 = 999/' "$REPO/lib/calc.ml"
 
-  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-pairs.tsv"
   [ "$status" -eq 0 ]
   [[ "$output" == *"crux (lib/calc.ml:5-6)"* ]]
 }
@@ -461,7 +447,7 @@ make_cited_repo() {
   make_cited_repo
   sed_i 's/   Rounds half-up. \*)/   Something else entirely. *)/' "$REPO/lib/calc.ml"
 
-  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-pairs.tsv"
   [ "$status" -eq 0 ]
   # the guardrail is the point: without it this becomes an unbounded sweep
   [[ "$output" == *"Keep it incidental"* ]]
@@ -476,7 +462,7 @@ make_cited_repo() {
   sed_i 's/^stale: false$/stale: true/' "$VAULT/synapse/$(repo_name)/Cited.md"
   sed_i 's/   Rounds half-up. \*)/   Truncates toward zero. *)/' "$REPO/lib/calc.ml"
 
-  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-pairs.tsv"
   [ "$status" -eq 0 ]
   [[ "$output" == *"grounding (lib/calc.ml:1-2)"* ]]
   # and no redundant PUT, since stale was already true
@@ -488,7 +474,7 @@ make_cited_repo() {
   make_cited_repo
   sed_i 's/   Rounds half-up. \*)/   Truncates toward zero. *)/' "$REPO/lib/calc.ml"
 
-  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-pairs.tsv"
   [ "$status" -eq 0 ]
   printf '%s' "$output" | jq -e '.hookSpecificOutput.hookEventName == "PostToolUse"' >/dev/null
   printf '%s' "$output" | jq -e '.hookSpecificOutput.additionalContext | length > 0' >/dev/null
@@ -498,7 +484,7 @@ make_cited_repo() {
   make_cited_repo
   # calc.ml is untouched -- no citation break either, so this isolates the
   # "no dependents" case rather than piggybacking on the correction check.
-  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-pairs.tsv"
   [ "$status" -eq 0 ]
   [[ "$output" != *"additionalContext"* ]]
 }
@@ -507,7 +493,7 @@ make_cited_repo() {
   make_cited_repo
   write_dependent_node "$(repo_name)" "Dependent.md" "Cited"
 
-  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-pairs.tsv"
   [ "$status" -eq 0 ]
   [[ "$output" == *"additionalContext"* ]]
   [[ "$output" == *"Dependent"* ]]
@@ -518,11 +504,11 @@ make_cited_repo() {
   make_cited_repo
   write_dependent_node "$(repo_name)" "Dependent.md" "Cited"
 
-  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-pairs.tsv"
   [ "$status" -eq 0 ]
   [[ "$output" == *"additionalContext"* ]]
 
-  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-pairs.tsv"
   [ "$status" -eq 0 ]
   [[ "$output" != *"additionalContext"* ]]
 }
@@ -533,14 +519,13 @@ make_cited_repo() {
   printf '(* second file *)\nlet x = 1\n' > "$REPO/lib/calc2.ml"
   git -C "$REPO" add lib/calc2.ml
   git -C "$REPO" -c user.email=t@t -c user.name=t commit -q -m calc2
-  printf '{"lib/calc.ml":["Cited.md"],"lib/calc2.ml":["Cited.md"],"_unassigned":[]}' \
-    > "$TEST_HOME/index-body.json"
+  printf 'lib/calc.ml\tCited.md\nlib/calc2.ml\tCited.md\n' > "$TEST_HOME/index-pairs.tsv"
 
-  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-pairs.tsv"
   [ "$status" -eq 0 ]
   [[ "$output" == *"additionalContext"* ]]
 
-  run run_staleness_hook "$REPO/lib/calc2.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/lib/calc2.ml" "$TEST_HOME/index-pairs.tsv"
   [ "$status" -eq 0 ]
   [[ "$output" == *"additionalContext"* ]]
 }
@@ -550,7 +535,7 @@ make_cited_repo() {
   write_dependent_node "$(repo_name)" "Dependent.md" "Cited"
   sed_i 's/   Rounds half-up. \*)/   Truncates toward zero. *)/' "$REPO/lib/calc.ml"
 
-  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-body.json"
+  run run_staleness_hook "$REPO/lib/calc.ml" "$TEST_HOME/index-pairs.tsv"
   [ "$status" -eq 0 ]
   [[ "$output" == *"grounding (lib/calc.ml:1-2)"* ]]
   [[ "$output" == *"Dependent"* ]]
@@ -560,27 +545,31 @@ make_cited_repo() {
   printf '%s' "$output" | jq -e '.hookSpecificOutput.additionalContext | length > 0' >/dev/null
 }
 
-@test "index: a malformed _index.json is left alone, not overwritten with nothing" {
+@test "index: a malformed index is left alone, not overwritten with nothing" {
   # The upfront `jq -e .` validation was dropped when the index moved to a disk
   # read (file existence answers "no namespace" exactly, which is what that check
   # was standing in for). This is where a malformed index has to be caught
   # instead: jq prints nothing, and PUTting nothing would replace a 27MB index
   # with an empty body.
   make_repo
-  printf '{"src/foo.ml": ["Foo Node.md"' > "$TEST_HOME/bad-index.json"   # truncated
-  local idx="$VAULT/synapse/$(repo_name)/_index.json"
-  local before; before="$(cat "$TEST_HOME/bad-index.json")"
+  # A real index, then truncated: the magic and version still read, so this is
+  # caught by the length and checksum checks rather than by "not ours".
+  printf 'src/foo.ml\tFoo Node.md\n' | write_index_bin "$WORK"
+  local idx="$WORK/_index.bin"
+  head -c 40 "$idx" > "$idx.trunc" && mv "$idx.trunc" "$idx"
+  local before; before="$(cksum < "$idx")"
 
-  run run_staleness_hook "$REPO/src/foo.ml" "$TEST_HOME/bad-index.json"
+  # No staging argument -- the truncated index is already in place and must be
+  # left exactly as it is.
+  run run_staleness_hook "$REPO/src/foo.ml" --keep-index
   [ "$status" -eq 0 ]
-  [ "$(cat "$idx")" = "$before" ]
-  # and nothing was sent to the API at all
-  [ ! -f "$CURL_CAPTURE/index-put.json" ]
+  [ "$(cksum < "$idx")" = "$before" ]
+  [ ! -s "$CURL_LOG" ]
 }
 
-@test "index: absent _index.json is the no-namespace case, and costs nothing" {
+@test "index: an absent index is the no-namespace case, and costs nothing" {
   make_repo
-  rm -f "$VAULT/synapse/$(repo_name)/_index.json"
+  rm -f "$WORK/_index.bin"
   run run_staleness_hook "$REPO/src/foo.ml"
   [ "$status" -eq 0 ]
   [ -z "$output" ]

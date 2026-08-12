@@ -8,8 +8,6 @@
 
 load 'test_helper'
 
-QUERY="$REPO_ROOT/claude/lib/synapse/synapse-query.sh"
-WRITER="$REPO_ROOT/claude/lib/synapse/synapse-write-node.sh"
 
 setup() {
   common_setup
@@ -24,7 +22,7 @@ teardown() { common_teardown; }
 
 in_repo() {
   PATH="$FAKE_BIN:$PATH" FAKE_CURL_LOG="$CURL_LOG" FAKE_CURL_VAULT_DIR="$VAULT" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$@"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$@"
 }
 
 ns() { echo "$VAULT/synapse/$(repo_name)"; }
@@ -41,11 +39,10 @@ build_grounded_node() {
   printf 'src/foo.ml\nlib/calc.ml\n' > "$PATHS"
   printf '## Summary\nRounds half-up at two decimals.\n<!-- grounded_in: lib/calc.ml 1-2 -->\n' > "$BODY"
 
-  in_repo "$WRITER" --title "Premium" --summary "Premium calc." \
+  in_repo "$SYNAPSE_BIN" write-node --title "Premium" --summary "Premium calc." \
     --paths "$PATHS" --body "$BODY" >/dev/null
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  printf '{"lib/calc.ml":["Premium.md"],"src/foo.ml":["Premium.md"],"_unassigned":[]}' \
-    > "$(ns)/_index.json"
+  printf 'lib/calc.ml\tPremium.md\nsrc/foo.ml\tPremium.md\n' | write_index_bin "$(default_work_dir)"
 }
 
 @test "grounding: silence when every recorded grounding still matches" {
@@ -54,23 +51,23 @@ build_grounded_node() {
   # the grounding is actually visible to the command, this test passes just as
   # happily when the lookup is broken and finds nothing at all -- which is exactly
   # how a misordered curl argument once made five of these pass for free.
-  run in_repo "$QUERY" grounding "Premium" --list
+  run in_repo "$SYNAPSE_BIN" query grounding "Premium" --list
   [ "$status" -eq 0 ]
   [ -n "$output" ]
 
-  run in_repo "$QUERY" grounding
+  run in_repo "$SYNAPSE_BIN" query grounding
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
 
 @test "grounding: an unrelated edit elsewhere in the file stays silent" {
   build_grounded_node
-  run in_repo "$QUERY" grounding "Premium" --list   # positive control, as above
+  run in_repo "$SYNAPSE_BIN" query grounding "Premium" --list   # positive control, as above
   [ -n "$output" ]
   # Appending below the grounded range must not disturb it -- this is what
   # digesting the slice rather than the file buys.
   printf 'let tail = 99\n' >> "$REPO/lib/calc.ml"
-  run in_repo "$QUERY" grounding
+  run in_repo "$SYNAPSE_BIN" query grounding
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
@@ -82,7 +79,7 @@ build_grounded_node() {
   cat "$REPO/lib/calc.ml" >> "$TEST_HOME/pre"
   mv "$TEST_HOME/pre" "$REPO/lib/calc.ml"
 
-  run in_repo "$QUERY" grounding
+  run in_repo "$SYNAPSE_BIN" query grounding
   [ "$status" -eq 0 ]
   [[ "$output" == *"grounding moved"* ]]
   [[ "$output" == *"1-2 -> 3-4"* ]]
@@ -94,7 +91,7 @@ build_grounded_node() {
   # The claim the summary rests on is now different prose.
   sed_i 's/Rounds half-up at two decimals/Truncates toward zero/' "$REPO/lib/calc.ml"
 
-  run in_repo "$QUERY" grounding
+  run in_repo "$SYNAPSE_BIN" query grounding
   [ "$status" -eq 0 ]
   [[ "$output" == *"grounding changed"* ]]
   [[ "$output" == *"lib/calc.ml 1-2"* ]]
@@ -105,7 +102,7 @@ build_grounded_node() {
 @test "grounding: a deleted grounding file is named" {
   build_grounded_node
   rm "$REPO/lib/calc.ml"
-  run in_repo "$QUERY" grounding
+  run in_repo "$SYNAPSE_BIN" query grounding
   [ "$status" -eq 0 ]
   [[ "$output" == *"grounding file gone: lib/calc.ml"* ]]
 }
@@ -114,11 +111,11 @@ build_grounded_node() {
   make_repo
   printf 'src/foo.ml\n' > "$PATHS"
   printf '## Summary\nUngrounded.\n' > "$BODY"
-  in_repo "$WRITER" --title "Plain" --summary "S." --paths "$PATHS" --body "$BODY" >/dev/null
+  in_repo "$SYNAPSE_BIN" write-node --title "Plain" --summary "S." --paths "$PATHS" --body "$BODY" >/dev/null
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  printf '{"src/foo.ml":["Plain.md"],"_unassigned":[]}' > "$(ns)/_index.json"
+  printf 'src/foo.ml\tPlain.md\n' | write_index_bin "$(default_work_dir)"
 
-  run in_repo "$QUERY" grounding
+  run in_repo "$SYNAPSE_BIN" query grounding
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
@@ -126,27 +123,27 @@ build_grounded_node() {
 @test "grounding: refuses on a remote mismatch rather than reporting clean" {
   build_grounded_node
   write_synapse_index "$(repo_name)" "ssh://git@example.com/SOMEONE-ELSE.git"
-  run in_repo "$QUERY" grounding
+  run in_repo "$SYNAPSE_BIN" query grounding
   [ "$status" -eq 1 ]
   [ -z "$output" ]
 }
 
 @test "grounding: takes no arguments" {
   build_grounded_node
-  run in_repo "$QUERY" grounding extra
+  run in_repo "$SYNAPSE_BIN" query grounding extra
   [ "$status" -eq 2 ]
 }
 
 @test "grounding --list: prints the recorded pointers, so a rebuild can re-emit them" {
   build_grounded_node
-  run in_repo "$QUERY" grounding "Premium" --list
+  run in_repo "$SYNAPSE_BIN" query grounding "Premium" --list
   [ "$status" -eq 0 ]
   [ "$output" = "$(printf 'lib/calc.ml\t1-2')" ]
 }
 
 @test "grounding --list: the digest is not printed, only what a directive needs" {
   build_grounded_node
-  run in_repo "$QUERY" grounding "Premium.md" --list
+  run in_repo "$SYNAPSE_BIN" query grounding "Premium.md" --list
   [ "$status" -eq 0 ]
   # a directive needs path and lines; the digest is the writer's to recompute
   [ "$(printf '%s' "$output" | awk -F'\t' '{print NF}')" -eq 2 ]
@@ -156,28 +153,28 @@ build_grounded_node() {
   make_repo
   printf 'src/foo.ml\n' > "$PATHS"
   printf '## Summary\nUngrounded.\n' > "$BODY"
-  in_repo "$WRITER" --title "Bare" --summary "S." --paths "$PATHS" --body "$BODY" >/dev/null
+  in_repo "$SYNAPSE_BIN" write-node --title "Bare" --summary "S." --paths "$PATHS" --body "$BODY" >/dev/null
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
 
-  run in_repo "$QUERY" grounding "Bare" --list
+  run in_repo "$SYNAPSE_BIN" query grounding "Bare" --list
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
 
 @test "grounding --list: an unknown node exits 1" {
   build_grounded_node
-  run in_repo "$QUERY" grounding "Nope" --list
+  run in_repo "$SYNAPSE_BIN" query grounding "Nope" --list
   [ "$status" -eq 1 ]
 }
 
 @test "round trip: --list plus re-emit preserves groundings; omitting them loses all" {
   build_grounded_node
   # What a regeneration actually has in hand: the prose, with no directives in it.
-  in_repo "$QUERY" body "Premium" | awk '/^## Sources$/ { exit } { print }' > "$TEST_HOME/recovered.md"
+  in_repo "$SYNAPSE_BIN" query body "Premium" | awk '/^## Sources$/ { exit } { print }' > "$TEST_HOME/recovered.md"
   ! grep -q 'grounded_in' "$TEST_HOME/recovered.md"
 
   # (a) writing the recovered body back as-is drops the provenance, silently
-  in_repo "$WRITER" --title "Premium" --summary "Premium calc." \
+  in_repo "$SYNAPSE_BIN" write-node --title "Premium" --summary "Premium calc." \
     --paths "$PATHS" --body "$TEST_HOME/recovered.md" >/dev/null
   ! grep -q '^grounded_in:' "$(ns)/Premium.md"
 
@@ -187,10 +184,10 @@ build_grounded_node() {
     printf '<!-- grounded_in: %s %s -->\n' "$p" "$l" >> "$TEST_HOME/reemit.md"
   done < <(printf 'lib/calc.ml\t1-2\n')
 
-  in_repo "$WRITER" --title "Premium" --summary "Premium calc." \
+  in_repo "$SYNAPSE_BIN" write-node --title "Premium" --summary "Premium calc." \
     --paths "$PATHS" --body "$TEST_HOME/reemit.md" >/dev/null
   grep -qxF '  - path: lib/calc.ml' "$(ns)/Premium.md"
   grep -qxF '    lines: "1-2"' "$(ns)/Premium.md"
-  run in_repo "$QUERY" grounding
+  run in_repo "$SYNAPSE_BIN" query grounding
   [ -z "$output" ]
 }

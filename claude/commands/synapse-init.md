@@ -2,7 +2,7 @@
 
 Builds a repo's Synapse Graph namespace in Synapse Vault — a small set of LLM-authored node
 notes (summary + crux + typed links per subsystem/concept) plus the two derived projections that
-keep it cheap to consult and keep stale (`_index.json`, `synapse/{repo}@{branch}/Index.md`).
+keep it cheap to consult and keep stale (`_index.bin`, `synapse/{repo}@{branch}/Index.md`).
 
 This is the **only** way a project gets a Synapse namespace in the first place — nothing else in
 this system creates one unprompted, matching the "zero cost for projects that never opt in"
@@ -37,7 +37,7 @@ Every step below needs the same three facts, resolved once up front:
 
 1. **Repo root:** `git rev-parse --show-toplevel`.
 2. **Namespace key:** `{repo}@{branch}`, resolved by `synapse_namespace` in
-   `~/.claude/lib/synapse/synapse-identity.sh` — never derived by hand here, since every component reads it
+   `synapse namespace` — never derived by hand here, since every component resolves it the same way
    from that one place and a second derivation is how they start disagreeing. The repo half comes
    from the *remote's* basename, not the directory: a linked worktree's directory name differs from
    its parent's, and that difference is exactly what must not matter. The branch half is
@@ -84,11 +84,11 @@ Check whether `synapse/{repo}@{branch}/Index.md` exists (`mcp__obsidian__vault_l
 language-agnostic, and already implemented as a tested script — or *interpretation*, which is
 yours and cannot be scripted because what counts as signal differs per codebase.
 
-- **Mechanics (do not reimplement inline):** `synapse-vocab.sh` (repo → per-group symbol
-  vocabulary), `synapse-build-lists.sh` (enumerate + expand a manifest + prove coverage),
-  `synapse-gate.sh` (flag clusters that own no vocabulary), `synapse-rank.sh` (which files are
-  worth reading), `synapse-write-node.sh` (hash, digest, `## Sources` mirror, PUT),
-  `synapse-push-nodes.sh`, `synapse-build-index.sh`, `synapse-build-project-index.sh`.
+- **Mechanics (do not reimplement inline):** `synapse vocab` (repo → per-group symbol
+  vocabulary), `synapse build-lists` (enumerate + expand a manifest + prove coverage),
+  `synapse gate` (flag clusters that own no vocabulary), `synapse rank` (which files are
+  worth reading), `synapse write-node` (hash, digest, `## Sources` mirror, PUT),
+  `synapse push-nodes`, `synapse build-index`, `synapse build-project-index`.
 
 **The work directory** defaults to `~/.claude/synapse-work/{repo}@{branch}/`, created on demand, and
 holds `manifest.tsv`, `all.txt`, `lists/`, the authored `b-NN.md` bodies and the coverage files. Override with `$SYNAPSE_WORK_DIR` if you need to. Two things never to do: point it
@@ -102,10 +102,10 @@ The seam is **`manifest.tsv`** — `title <TAB> include-ERE <TAB> exclude-ERE`, 
 Your judgment goes in as a few dozen regexes; everything downstream of that file is mechanical and
 verifiable. Note the practical consequence: a node's `sources` is exhaustive by construction
 because a script expands it, so the "never a context read" rule holds in **both** directions — a
-125k-file namespace is ~10 MB of frontmatter plus a ~29 MB `_index.json`, which you can no more
+125k-file namespace is ~10 MB of frontmatter plus a ~10 MB `_index.bin`, which you can no more
 emit into tool calls than read into a window. Never hand-author those.
 
-1. **Enumerate files** — mechanics, run `synapse-build-lists.sh` (it does this step and step 4's
+1. **Enumerate files** — mechanics, run `synapse build-lists` (it does this step and step 4's
    expansion together, and reports coverage). It enumerates `git ls-files` from the repo root —
    tracked files only, which gets
    `.gitignore` exclusion for free and matches what's actually worth summarizing (build output,
@@ -121,7 +121,7 @@ emit into tool calls than read into a window. Never hand-author those.
    to another repo, which can have its own namespace, so it never belongs in `sources`. The
    detection is a plain "is this a regular file" test rather than parsing `.gitmodules`, and a hash
    is never synthesised from `git ls-files -s`: that would leave the writer and
-   `synapse-query.sh stale` using different commands for one entry, which is exactly the kind of
+   `synapse query stale` using different commands for one entry, which is exactly the kind of
    asymmetry that produces a permanent false positive.
 2. **Read hint files, if present:** `CLAUDE.md` and `README.md` at the repo root. These bias the
    clustering pass in step 4 — they are never treated as authoritative structure, and the pass can
@@ -129,7 +129,7 @@ emit into tool calls than read into a window. Never hand-author those.
    convention (e.g. a `docs/design/` folder) gets this treatment — see the design note's
    Alternatives for why that was rejected.
 3. **Orientation pass — the evidence is mechanical, the reading of it is yours.** Run
-   `synapse-vocab.sh`. It writes `groupwords.tsv` (`group ⇥ word ⇥ count`) and `counts.tsv`
+   `synapse vocab`. It writes `groupwords.tsv` (`group ⇥ word ⇥ count`) and `counts.tsv`
    (`group ⇥ file count`) into the work directory, covering every file that has a grammar — the
    whole of a large repo, 125,351 files, in ~51 seconds. Read those two tables instead of exploring the
    tree.
@@ -156,27 +156,27 @@ emit into tool calls than read into a window. Never hand-author those.
    title <TAB> include-ERE <TAB> exclude-ERE
    ```
 
-   Then run `synapse-build-lists.sh` and **read the coverage report it prints.** `covered` +
+   Then run `synapse build-lists` and **read the coverage report it prints.** `covered` +
    `unassigned` must account for `enumerated`; anything unclaimed lands in `unassigned.txt` and
-   flows into `_index.json`'s `_unassigned`. Iterate the manifest until the split is deliberate
+   flows into the index's unassigned list. Iterate the manifest until the split is deliberate
    rather than accidental — a regex slip like `config$` (which matches only a file literally named
    `config`, not the directory) shows up here as a count, which is the entire reason this step is a
    file plus a script instead of a judgement you make silently.
 
    Keep the manifest: it is the reviewable record of a judgment call, and re-running or extending
    the namespace later should start from it rather than re-deriving the clustering. Copying it to
-   `synapse/{repo}@{branch}/_manifest.tsv` alongside `_index.json` is worth doing for any repo you
+   `synapse/{repo}@{branch}/_manifest.tsv` is worth doing for any repo you
    expect to revisit.
 5. **Gate the clusters — before paying to author any prose.** Coverage was already provable in step
    4; cluster *quality* was not, and a bad cluster used to be discovered only when someone tried to
    write its summary and found there was nothing to say.
 
    ```
-   synapse-vocab.sh --lists "$SYNAPSE_WORK_DIR/lists"   # re-key the vocabulary by CLUSTER
-   synapse-gate.sh  --vocab "$SYNAPSE_WORK_DIR/groupwords.tsv"
+   synapse vocab --lists "$SYNAPSE_WORK_DIR/lists"   # re-key the vocabulary by CLUSTER
+   synapse gate  --vocab "$SYNAPSE_WORK_DIR/groupwords.tsv"
    ```
 
-   The second run of `synapse-vocab.sh` is not redundant. A cluster is generally *not* a union of
+   The second run of `synapse vocab` is not redundant. A cluster is generally *not* a union of
    directories, so cluster vocabulary cannot be derived from the directory-keyed table of step 3;
    the extra tagging pass (~51s on a very large repo) buys exactness. Note it overwrites
    `groupwords.tsv`/`counts.tsv` — pass `--out` if you want to keep the directory-keyed pair.
@@ -185,21 +185,21 @@ emit into tool calls than read into a window. Never hand-author those.
    cluster whose top eight terms are nearly all corpus-common, i.e. it owns no vocabulary of its
    own. **Re-cluster or disperse those before authoring** — merge into a neighbour, split along a
    distinction the vocabulary actually shows, or drop the line and let its files land in a better
-   node. Then re-run `synapse-build-lists.sh` and the gate.
+   node. Then re-run `synapse build-lists` and the gate.
 
    A flag is advice, never a hard stop, and there is one case where the right answer is to override
    it: a cluster whose code is in a language with **no tree-sitter grammar** produces no vocabulary,
    which is indistinguishable from owning none. If that is why it was flagged, leave it alone and say
    so.
 6. **Write each node.** Author the prose only — put each node's content in
-   `$SYNAPSE_WORK_DIR/b-NN.md` (matching its `lists/NN.txt`), then run `synapse-push-nodes.sh`,
-   which calls `synapse-write-node.sh` per node.
+   `$SYNAPSE_WORK_DIR/b-NN.md` (matching its `lists/NN.txt`), then run `synapse push-nodes`,
+   which calls `synapse write-node` per node.
 
    **Do not choose which files to read by judgment.** Ask:
 
    ```
-   synapse-rank.sh --sources "$SYNAPSE_WORK_DIR/lists/NN.txt" --pool summary
-   synapse-rank.sh --sources "$SYNAPSE_WORK_DIR/lists/NN.txt" --pool crux
+   synapse rank --sources "$SYNAPSE_WORK_DIR/lists/NN.txt" --pool summary
+   synapse rank --sources "$SYNAPSE_WORK_DIR/lists/NN.txt" --pool crux
    ```
 
    Read the top few of each, not the list — on a real node a summary authored from 3 files out of
@@ -212,8 +212,8 @@ emit into tool calls than read into a window. Never hand-author those.
    the writer adds and what it refuses — shared with the `synapse-node` skill and `/synapse-rebuild`,
    which write the same artifact. Do not re-derive the format from an existing node: a node you are
    reading may predate a change to it.
-7. **Write `_index.json`** — mechanics, run `synapse-build-index.sh`. It emits
-   `synapse/{repo}@{branch}/_index.json`, mapping every source path used
+7. **Write `_index.bin`** — mechanics, run `synapse build-index`. It emits
+   `$SYNAPSE_WORK_DIR/_index.bin`, mapping every source path used
    above to the list of node **filenames, including the `.md` extension** (matching the design
    note's schema exactly, since the `PostToolUse` hook and the read-time procedure both use this
    value directly as a vault path with no extension-handling of their own) that claim it, plus an
@@ -230,7 +230,7 @@ emit into tool calls than read into a window. Never hand-author those.
    }
    ```
 
-8. **Write `synapse/{repo}@{branch}/Index.md`** — mechanics, run `synapse-build-project-index.sh`. It
+8. **Write `synapse/{repo}@{branch}/Index.md`** — mechanics, run `synapse build-project-index`. It
    takes no prose from you at all: each bullet's headline is read back from that node's `summary`
    frontmatter field, and the script computes the exact file count, the sanitized wikilink filename
    and the `remote` field. Bullets come out sorted by title. Run it only after the nodes exist — it
@@ -247,7 +247,7 @@ emit into tool calls than read into a window. Never hand-author those.
    let that node's `summary` carry the headline.
 
    **Then verify, before reporting success.** Three checks, all cheap:
-   - `synapse-query.sh stale` must print nothing. (40s for a 125k-file namespace.)
+   - `synapse query stale` must print nothing. (40s for a 125k-file namespace.)
    - Every `[[wikilink]]` in the namespace must resolve to a file that exists — extract them all and
      test `-f "$link.md"`. Nothing else catches a broken link, since Obsidian treats it as a link to
      a note not yet created.
@@ -276,11 +276,11 @@ regeneration (see the design note's Node Granularity & Grouping) — for a proje
 dormant and has no other regeneration event to piggyback on. It does **not** re-cluster or rebuild
 existing nodes.
 
-1. Read `synapse/{repo}@{branch}/_index.json`'s `_unassigned` array. Empty → report "Nothing
+1. Run `synapse index unassigned`. Empty → report "Nothing
    unassigned, nothing to do" and stop.
 2. Read `synapse/{repo}@{branch}/Index.md` for the current node list (titles + summaries).
 3. Tag them **in one call, not one per file**: write the unassigned paths to a list and run
-   `~/.claude/bin/synapse.sh tags --paths {list}`. Output is attributable — an unindented line is a
+   `~/.synapse tags --paths {list}`. Output is attributable — an unindented line is a
    path, the tab-indented lines under it are that path's tags — so one invocation classifies the
    whole sweep. A per-file loop here costs ~33× more for the same answer, and `_unassigned` on a
    large repo is not a short list. Fall back to a full read only for genuinely ambiguous cases.
@@ -289,11 +289,11 @@ existing nodes.
      `sources` in frontmatter, and set that node's `stale: true` (it now covers a file it hasn't
      summarized yet — its own next read regenerates it, this step does not regenerate it
      immediately). Remove the path from `_unassigned` and add it under that node's key in
-     `_index.json`.
+     the index.
    - **Fits nothing** → leave it in `_unassigned`.
    - Announce each outcome as it happens (which file, which node or "still unassigned").
 4. Do not touch `built_at` on `Index.md` itself for this pass — the sweep doesn't rebuild the
-   index projection, only the affected nodes' own frontmatter and `_index.json`.
+   index projection, only the affected nodes' own frontmatter and `_index.bin`.
 
 ## Confirm
 

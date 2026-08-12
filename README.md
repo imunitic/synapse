@@ -45,7 +45,17 @@ prints the manual steps below.
    `obsidian` MCP server at user scope (available from any project, any directory). Safe to re-run if
    you ever reinstall the plugin — new cert and key each time.
 4. Edit `~/.claude/synapse.conf`: set `OBSIDIAN_VAULT_DIR` to the Vault path.
-5. (Recommended) Set Obsidian to start automatically at login, so it is always running:
+5. Check the result:
+   ```sh
+   synapse doctor
+   ```
+   One line per precondition, and it exits non-zero if any of them is broken. Worth running
+   even when everything seems fine, because almost every guard in the system is *silent* by
+   design — a hook that errors is worse than one that quietly does nothing, so a half-installed
+   machine looks exactly like a working one with nothing to say. `doctor` is the one place that
+   speaks: a missing certificate, an Obsidian that is not running, a namespace whose recorded
+   remote no longer matches, a hook registered twice (which makes it fire twice).
+6. (Recommended) Set Obsidian to start automatically at login, so it is always running:
    - **macOS**:
      ```sh
      osascript -e 'tell application "System Events" to make login item at end with properties {path:"/Applications/Obsidian.app", hidden:false}'
@@ -66,7 +76,7 @@ prints the manual steps below.
      for a Flatpak install).
    - **Windows**: press **Win+R**, type `shell:startup`, hit Enter, then drop a shortcut to
      `Obsidian.exe` into the folder that opens.
-6. Restart Claude Code.
+7. Restart Claude Code.
 
 `setup.sh` is safe to re-run at any time. It migrates config filenames it recognises, rewrites hook
 paths in `settings.json` rather than adding a second copy, and reports any file under `~/.claude/` that
@@ -76,9 +86,9 @@ it no longer installs, so nothing is left running that the docs stop describing.
 `/synapse-rebuild-full` — `/synapse-init` builds a repo's first Graph namespace,
 `/synapse-rebuild-diff` repairs one after major same-branch drift (triage, nothing deleted),
 `/synapse-rebuild-full` wipes a namespace and rebuilds it from scratch when triage isn't the right
-tool. Neither of the two repair commands requires knowing anything below this point. The underlying
-`claude/bin/synapse.sh` porcelain and the plumbing it dispatches to aren't something you're expected
-to run by hand; they're documented in [`docs/scripts.md`](docs/scripts.md) for whoever goes looking.
+tool. Neither of the two repair commands requires knowing anything below this point. The `synapse`
+binary underneath them isn't something you're expected to run by hand; its subcommands are
+documented in [`docs/cli.md`](docs/cli.md) for whoever goes looking.
 
 ## Synapse Vault — the notes
 
@@ -87,11 +97,11 @@ to run by hand; they're documented in [`docs/scripts.md`](docs/scripts.md) for w
   `setup.sh` run; `~/.claude/CLAUDE.md` itself stays entirely yours, with one `@import` line pointing
   at it.
 - `claude/synapse.conf.template` — path config; set `OBSIDIAN_VAULT_DIR` per machine.
-- `claude/hooks/synapse-session-start.sh` — `SessionStart`: injects the Vault's index and this repo's
+- `synapse-hook session-start` — `SessionStart`: injects the Vault's index and this repo's
   Graph namespace pointer, if one exists.
-- `claude/hooks/synapse-stop-nudge.sh` — a turn-count-based `Stop` hook that nudges a "worth
+- `synapse-hook stop-nudge` — a turn-count-based `Stop` hook that nudges a "worth
   capturing?" check-in every 25 turns.
-- `claude/hooks/synapse-db-sync.sh` — commits Vault changes to the Vault's own local git repo,
+- `synapse-hook db-sync` — commits Vault changes to the Vault's own local git repo,
   if one exists.
 - `claude/commands/synapse-note.md` — note creation (bare / `--task` / `--list` / `--search`).
 - `claude/commands/synapse-design-note.md`, `claude/commands/synapse-task-note.md` — a design-discussion →
@@ -116,9 +126,9 @@ plain-English summary, a quoted `crux`, typed links, and the exhaustive list of 
   **re-orient**. Refuses outright on a cross-branch mismatch.
 - `claude/commands/synapse-rebuild-full.md` — wipes the current namespace and rebuilds it from
   scratch via `/synapse-init`, for when triage isn't the right tool. Preserves any hand-written
-  `## Notes` first (`claude/lib/synapse/synapse-graph-wipe.sh`) and auto-merges what it can back into
+  `## Notes` first (`synapse graph-wipe`) and auto-merges what it can back into
   the new nodes afterward.
-- `claude/hooks/synapse-staleness.sh` — `PostToolUse` Tier 1: flags a just-edited file's nodes `stale`
+- `synapse-hook staleness` — `PostToolUse` Tier 1: flags a just-edited file's nodes `stale`
   and re-verifies any evidence that file's nodes cite, via the Local REST API directly.
 - `claude/skills/synapse-node/` — Tier 2: the lazy staleness check, regeneration and unassigned sweep
   Claude runs itself whenever a node's body is actually read.
@@ -136,7 +146,8 @@ plain-English summary, a quoted `crux`, typed links, and the exhaustive list of 
 
 ```sh
 brew install bats-core parallel just     # if not already installed
-just check                               # syntax + suite + generated artefacts, what CI runs
+just check                               # the gate, ~2:20 -- suite runs in the container
+just check-local                         # same, bats on the host instead -- no podman needed
 just test-changed                        # inner loop: only the tests covering what you edited
 just test tests/synapse-query.bats       # one file
 bats --jobs "$(getconf _NPROCESSORS_ONLN)" tests/   # the suite directly, what `just test` wraps
@@ -146,6 +157,12 @@ bats --jobs "$(getconf _NPROCESSORS_ONLN)" tests/   # the suite directly, what `
 correct). `just test-changed` narrows to the tests that name the files you edited, derived by grep
 rather than a maintained list — a lower bound on coverage, so `just check` stays the gate before
 committing.
+
+`just check` runs the suite in the Linux container, which is not a preference: the same 443 tests take
+~30s there against six to seven minutes on the host, because macOS `fork`/`exec` costs 6.5ms where
+Linux costs 0.24ms — which took the whole gate from ~8min to 2:20. `just check-local` is the same gate with host bats, for a machine without podman —
+and it is also how you tell a container artefact from a real finding, since the container's
+`DebugAllocator` reports leaks the native build stays silent about.
 
 Every test runs against a throwaway `$HOME`, git repo and Vault created in `tests/test_helper.bash` —
 nothing touches your real `~/.claude` or Vault, and tests share no state, which is what makes
@@ -162,10 +179,14 @@ execute there.
 
 ## Dependencies
 
-`jq`, `bats-core` (tests only), the `claude` CLI. Optional: `tree-sitter` CLI plus a C compiler for
-the Graph's tree-sitter acceleration (`synapse-tags.sh`), GNU `parallel` for `bats --jobs`, and Node
-(for `npx`) to re-render the diagrams — everything degrades gracefully if any of them is missing, so
-none is a hard requirement.
+`jq`, `bats-core` (tests only), the `claude` CLI. Zig 0.16 to build the `synapse` binary — a
+build-time dependency, not a runtime one, and `setup.sh` copies the result rather than compiling
+anything itself. Optional: a C compiler for the Graph's tree-sitter acceleration (grammars
+are still native libraries, built on first use), GNU `parallel` for `bats --jobs`, and Node (for
+`npx`) to re-render the diagrams — everything except Zig degrades gracefully if missing.
+
+The `tree-sitter` CLI is no longer among them: libtree-sitter is linked into the binary and the
+grammar's own `queries/tags.scm` is run in-process.
 
 ## License
 

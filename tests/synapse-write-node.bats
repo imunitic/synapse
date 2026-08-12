@@ -14,9 +14,6 @@
 
 load 'test_helper'
 
-WRITER="$REPO_ROOT/claude/lib/synapse/synapse-write-node.sh"
-QUERY="$REPO_ROOT/claude/lib/synapse/synapse-query.sh"
-
 setup() {
   common_setup
   setup_fake_obsidian_plugin
@@ -25,10 +22,8 @@ setup() {
   BODY="$TEST_HOME/body.md"
   PATHS="$TEST_HOME/paths.txt"
   printf '## Summary\nA node.\n\n## Links\n- part_of [[Other]]\n' > "$BODY"
-  # For the tags-cache wiring: real tree-sitter is stubbed by
-  # fake-bin/tree-sitter (always emits one deterministic FAKE_NAME tag line).
-  # synapse-tags.sh and synapse-tags-cache.sh are installed like a real
-  # setup.sh would, since the writer shells out to the installed copies.
+  # For the tags-cache wiring: tagging is `synapse tags-cache` in the binary,
+  # and common_setup points $SYNAPSE_BIN at the stubbed-grammar build.
   GRAMMARS_DIR="$TEST_HOME/grammars"
   FAKE_TS_LOG="$TEST_HOME/ts.log"
   FAKE_GIT_LOG="$TEST_HOME/git.log"
@@ -36,10 +31,6 @@ setup() {
   : > "$FAKE_GIT_LOG"
   printf '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}' \
     > "$HOME/.claude/synapse-grammars.conf"
-  mkdir -p "$HOME/.claude/lib/synapse"
-  cp "$REPO_ROOT/claude/lib/synapse/synapse-tags.sh" "$HOME/.claude/lib/synapse/synapse-tags.sh"
-  cp "$REPO_ROOT/claude/lib/synapse/synapse-tags-cache.sh" "$HOME/.claude/lib/synapse/synapse-tags-cache.sh"
-  chmod +x "$HOME/.claude/lib/synapse/synapse-tags.sh" "$HOME/.claude/lib/synapse/synapse-tags-cache.sh"
 }
 
 teardown() {
@@ -63,14 +54,14 @@ run_writer_raw() {
     SYNAPSE_GRAMMARS_DIR="$GRAMMARS_DIR" \
     FAKE_TS_LOG="$FAKE_TS_LOG" \
     FAKE_GIT_LOG="$FAKE_GIT_LOG" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$WRITER" "$@"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" write-node "$@"
 }
 
 run_query() {
   PATH="$FAKE_BIN:$PATH" \
     FAKE_CURL_LOG="$CURL_LOG" \
     FAKE_CURL_VAULT_DIR="$VAULT" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$QUERY" "$@"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" query "$@"
 }
 
 node_file() { echo "$VAULT/synapse/$(repo_name)/$1.md"; }
@@ -497,8 +488,8 @@ make_layered_repo() {
   mkdir -p "$TEST_HOME/notarepo"
 
   run env PATH="$FAKE_BIN:$PATH" FAKE_CURL_LOG="$CURL_LOG" FAKE_CURL_VAULT_DIR="$VAULT" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$TEST_HOME/notarepo" \
-    "$WRITER" --title "Nope" --summary "S." --paths "$PATHS" --body "$BODY"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$TEST_HOME/notarepo" \
+    "$SYNAPSE_BIN" write-node --title "Nope" --summary "S." --paths "$PATHS" --body "$BODY"
   [ "$status" -eq 1 ]
   [[ "$output" == *"not inside a git repo"* ]]
 }
@@ -766,15 +757,16 @@ slice_digest() { # slice_digest <path> <start> <end>
   run run_write --title "Widget core" --paths "$PATHS" --body "$BODY"
   [ "$status" -eq 0 ]
 
-  cache="$HOME/.claude/synapse-work/$(repo_name)/_tags_cache.json"
+  cache="$HOME/.claude/synapse-work/$(repo_name)/_tags_cache.bin"
   [ -f "$cache" ]
-  [[ "$(jq -r '."src/foo.ml".tags' "$cache")" == *"FAKE_NAME"* ]]
-  [ "$(jq -r '."src/foo.ml".unsupported' "$cache")" = "false" ]
+  dump="$("$SYNAPSE_BIN" tags-cache --dump "$cache")"
+  [[ "$dump" == *"FAKE_NAME"* ]]
+  grep -qx "P	src/foo.ml" <<< "$dump"
 }
 
 @test "the tags cache lands in the work dir, never in the vault" {
   # It is derived, disposable, and ~942 MB at syrius3 scale against
-  # _index.json's 26 MB -- and the vault is version-controlled, so a copy per
+  # the reverse index's 26 MB -- and the vault is version-controlled, so a copy per
   # rebuild would end up in its history. Asserted as an absence in the vault
   # rather than only a presence in the work dir: the failure worth catching is
   # a second call site that keeps writing the old location.
@@ -783,8 +775,8 @@ slice_digest() { # slice_digest <path> <start> <end>
 
   run run_write --title "Widget core" --paths "$PATHS" --body "$BODY"
   [ "$status" -eq 0 ]
-  [ -f "$HOME/.claude/synapse-work/$(repo_name)/_tags_cache.json" ]
-  [ -z "$(find "$VAULT" -name '_tags_cache.json' -print -quit)" ]
+  [ -f "$HOME/.claude/synapse-work/$(repo_name)/_tags_cache.bin" ]
+  [ -z "$(find "$VAULT" -name '_tags_cache.bin' -print -quit)" ]
 }
 
 @test "the tags cache honours SYNAPSE_WORK_DIR" {
@@ -794,8 +786,8 @@ slice_digest() { # slice_digest <path> <start> <end>
   export SYNAPSE_WORK_DIR="$TEST_HOME/elsewhere"
   run run_write --title "Widget core" --paths "$PATHS" --body "$BODY"
   [ "$status" -eq 0 ]
-  [ -f "$SYNAPSE_WORK_DIR/_tags_cache.json" ]
-  [ ! -f "$HOME/.claude/synapse-work/$(repo_name)/_tags_cache.json" ]
+  [ -f "$SYNAPSE_WORK_DIR/_tags_cache.bin" ]
+  [ ! -f "$HOME/.claude/synapse-work/$(repo_name)/_tags_cache.bin" ]
 }
 
 @test "rewriting a node with an unchanged source re-tags nothing" {
@@ -816,16 +808,7 @@ slice_digest() { # slice_digest <path> <start> <end>
   export SYNAPSE_DISABLE_SYMBOL_CACHE=1
   run run_write --title "Widget core" --paths "$PATHS" --body "$BODY"
   [ "$status" -eq 0 ]
-  [ ! -f "$HOME/.claude/synapse-work/$(repo_name)/_tags_cache.json" ]
+  [ ! -f "$HOME/.claude/synapse-work/$(repo_name)/_tags_cache.bin" ]
   [ ! -s "$FAKE_TS_LOG" ]
 }
 
-@test "a missing synapse-tags-cache.sh does not block writing the node" {
-  make_repo
-  printf 'src/foo.ml\n' > "$PATHS"
-  rm -f "$HOME/.claude/lib/synapse/synapse-tags-cache.sh"
-
-  run run_write --title "Widget core" --paths "$PATHS" --body "$BODY"
-  [ "$status" -eq 0 ]
-  [ -f "$(node_file "Widget core")" ]
-}

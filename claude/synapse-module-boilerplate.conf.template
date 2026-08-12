@@ -2,8 +2,8 @@
 # for you). Never overwritten once installed -- add your own ecosystem's
 # conventions any time.
 #
-# Boilerplate path-segment chains that module_of() (synapse-query.sh,
-# synapse-write-node.sh's ## Sources mirror) strips through wholesale when
+# Boilerplate path-segment chains that module_of() (synapse query,
+# synapse write-node's ## Sources mirror) strips through wholesale when
 # aggregating a node's sources into module buckets. These chains carry no
 # subsystem information of their own -- the real module name is the segment
 # before the chain, e.g. lightweight-impl/src/main/java/... groups as

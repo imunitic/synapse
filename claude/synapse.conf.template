@@ -11,8 +11,3 @@ SYNAPSE_GRAMMARS_DIR="$HOME/.cache/synapse/grammars"
 # unaffected either way. Set to 0 to never push. Default 5 if unset.
 #SYNAPSE_VAULT_PUSH_EVERY=5
 
-# Where the synapse-*.sh plumbing scripts live once installed. Only
-# claude/bin/synapse.sh (the porcelain) goes on PATH; every script it
-# dispatches to is found through this variable instead. Safe to leave at the
-# default -- change it only if you're relocating an existing install.
-SYNAPSE_LIB_DIR="$HOME/.claude/lib/synapse"
