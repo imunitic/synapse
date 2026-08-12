@@ -11,7 +11,6 @@
 
 load 'test_helper'
 
-SCRIPT="$REPO_ROOT/claude/lib/synapse/synapse-rank.sh"
 
 setup() {
   common_setup
@@ -51,7 +50,7 @@ commit_repo() {
 }
 
 run_rank() {
-  PATH="$FAKE_BIN:$PATH" "$SCRIPT" --sources "$SRC" --repo "$REPO" "$@"
+  PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank --sources "$SRC" --repo "$REPO" "$@"
 }
 
 # bats merges stderr into $output, and this script reports its per-tier counts
@@ -320,7 +319,7 @@ rank_of() { # rank_of <path> <output>
   want core/src/FooTest.java core/src/Probe.java
 
   run env PATH="$FAKE_BIN:$PATH" SYNAPSE_TEST_PATH_RE='Probe' \
-    "$SCRIPT" --sources "$SRC" --repo "$REPO" --pool crux
+    "$SYNAPSE_BIN" rank --sources "$SRC" --repo "$REPO" --pool crux
   [ "$status" -eq 0 ]
   [ -n "$(rank_of core/src/FooTest.java "$output")" ]
   [ -z "$(rank_of core/src/Probe.java "$output")" ]
@@ -384,17 +383,17 @@ rank_of() { # rank_of <path> <output>
   # is left to assert here is that none of the per-file apparatus came back. The
   # `xargs -0 stat` this used to require is gone with it: sizes are one statFile
   # per path in process, which is the same batching without the batch.
-  local code; code="$(grep -v '^[[:space:]]*#' "$SCRIPT")"
+  local code; code="$(grep -v '^[[:space:]]*#' "$REPO_ROOT/claude/lib/synapse/synapse-rank.sh")"
   for banned in 'wc -c' basename split xargs worker.sh 'tags --paths' 'awk -F'; do
     [ "$(grep -c -- "$banned" <<< "$code")" -eq 0 ]
   done
 }
 
 @test "usage and environment errors" {
-  run env PATH="$FAKE_BIN:$PATH" "$SCRIPT"
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank
   [ "$status" -eq 2 ]
-  run env PATH="$FAKE_BIN:$PATH" "$SCRIPT" --sources "$SRC" --tier bogus
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank --sources "$SRC" --tier bogus
   [ "$status" -eq 2 ]
-  run env PATH="$FAKE_BIN:$PATH" "$SCRIPT" --sources "$TEST_HOME/nope.txt"
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank --sources "$TEST_HOME/nope.txt"
   [ "$status" -eq 1 ]
 }

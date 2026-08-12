@@ -12,7 +12,6 @@
 
 load 'test_helper'
 
-QUERY="$REPO_ROOT/claude/lib/synapse/synapse-query.sh"
 
 setup() {
   common_setup
@@ -42,7 +41,7 @@ run_query() {
     SYNAPSE_GRAMMARS_DIR="$GRAMMARS_DIR" \
     FAKE_TS_LOG="$FAKE_TS_LOG" \
     FAKE_GIT_LOG="$FAKE_GIT_LOG" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$QUERY" "$@"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" query "$@"
 }
 
 run_stale() { run_query stale; }
@@ -208,8 +207,8 @@ write_node_index() { # write_node_index <node.md> <path>...
 
 @test "stale: not inside a git repo: exits 1" {
   mkdir -p "$TEST_HOME/plain"
-  run bash -c 'cd "$1" && PATH="$2:$PATH" FAKE_CURL_LOG="$3" FAKE_CURL_VAULT_DIR="$4" bash "$5" stale' \
-    _ "$TEST_HOME/plain" "$FAKE_BIN" "$CURL_LOG" "$VAULT" "$QUERY"
+  run bash -c 'cd "$1" && PATH="$2:$PATH" FAKE_CURL_LOG="$3" FAKE_CURL_VAULT_DIR="$4" exec "$5" "$6" stale' \
+    _ "$TEST_HOME/plain" "$FAKE_BIN" "$CURL_LOG" "$VAULT" "$SYNAPSE_BIN" query
   [ "$status" -eq 1 ]
 }
 
@@ -434,7 +433,7 @@ write_fenced_node() {
   # of failure is gone rather than handled.
   run env TMPDIR="$TEST_HOME/definitely-not-here" \
     PATH="$FAKE_BIN:$PATH" FAKE_CURL_LOG="$CURL_LOG" FAKE_CURL_VAULT_DIR="$VAULT" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$QUERY" stale
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" query stale
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
@@ -536,7 +535,7 @@ write_fenced_node() {
   run env SYNAPSE_DISABLE_SYMBOL_CACHE=1 \
     PATH="$FAKE_BIN:$PATH" FAKE_CURL_LOG="$CURL_LOG" FAKE_CURL_VAULT_DIR="$VAULT" \
     SYNAPSE_GRAMMARS_DIR="$GRAMMARS_DIR" FAKE_TS_LOG="$FAKE_TS_LOG" FAKE_GIT_LOG="$FAKE_GIT_LOG" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$QUERY" symbol FAKE_NAME "Foo Node"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" query symbol FAKE_NAME "Foo Node"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
   [ ! -s "$FAKE_TS_LOG" ]

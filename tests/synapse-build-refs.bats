@@ -11,7 +11,6 @@
 
 load 'test_helper'
 
-SCRIPT="$REPO_ROOT/claude/lib/synapse/synapse-build-refs.sh"
 
 setup() {
   common_setup
@@ -55,7 +54,7 @@ H2="2222222222222222222222222222222222222222"
   tags="$(tagline 'Token     ' 'class  ' 'def' 15 'public class Token {')"
   cache_entry "src/Token.java" "$H1" "$tags" | write_cache
 
-  run "$SCRIPT" --cache "$CACHE" --out "$OUT"
+  run "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$OUT"
   [ "$status" -eq 0 ]
 
   run cat "$OUT"
@@ -76,7 +75,7 @@ H2="2222222222222222222222222222222222222222"
   tags="$(tagline 'execute   ' 'call   ' 'ref' 42 'foo.execute();')"
   cache_entry "src/A.java" "$H1" "$tags" | write_cache
 
-  run "$SCRIPT" --cache "$CACHE" --out "$OUT"
+  run "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$OUT"
   [ "$status" -eq 0 ]
 
   run awk -F'\t' '$1=="execute"' "$OUT"
@@ -91,7 +90,7 @@ H2="2222222222222222222222222222222222222222"
     cache_unsupported "src/data.sql" "$H2"
   } | write_cache
 
-  run "$SCRIPT" --cache "$CACHE" --out "$OUT"
+  run "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$OUT"
   [ "$status" -eq 0 ]
   [[ "$output" == *"1 unsupported"* ]]
 
@@ -106,7 +105,7 @@ H2="2222222222222222222222222222222222222222"
   cache_entry "src/A.java" "$H1" "$a
 $b" | write_cache
 
-  run "$SCRIPT" --cache "$CACHE" --out "$OUT"
+  run "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$OUT"
   [ "$status" -eq 0 ]
   run wc -l < "$OUT"
   [ "$(printf '%s' "$output" | tr -d ' ')" = "2" ]
@@ -124,7 +123,7 @@ $b" | write_cache
 $b
 $c" | write_cache
 
-  run "$SCRIPT" --cache "$CACHE" --out "$OUT"
+  run "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$OUT"
   [ "$status" -eq 0 ]
 
   run bash -c "LC_ALL=C sort -c '$OUT' && echo sorted"
@@ -137,7 +136,7 @@ $c" | write_cache
   tags="$(printf 'weird     \t | call   \tref (5, 13) - (5, 39) `a\tb();`')"
   cache_entry "src/A.java" "$H1" "$tags" | write_cache
 
-  run "$SCRIPT" --cache "$CACHE" --out "$OUT"
+  run "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$OUT"
   [ "$status" -eq 0 ]
 
   run awk -F'\t' 'NF != 5 { print "bad:" NF }' "$OUT"
@@ -148,21 +147,21 @@ $c" | write_cache
 @test "build-refs: a malformed tag line is skipped, not emitted half-parsed" {
   cache_entry "src/A.java" "$H1" "no tabs here at all" | write_cache
 
-  run "$SCRIPT" --cache "$CACHE" --out "$OUT"
+  run "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$OUT"
   [ "$status" -eq 0 ]
   run wc -l < "$OUT"
   [ "$(printf '%s' "$output" | tr -d ' ')" = "0" ]
 }
 
 @test "build-refs: missing cache is exit 1 with a pointer to the fix" {
-  run "$SCRIPT" --cache "$TEST_HOME/nope.json" --out "$OUT"
+  run "$SYNAPSE_BIN" build-refs --cache "$TEST_HOME/nope.json" --out "$OUT"
   [ "$status" -eq 1 ]
   [[ "$output" == *"synapse tags-cache"* ]]
 }
 
 @test "build-refs: unreadable cache is exit 1, not a silently empty index" {
   printf 'this is not json' > "$CACHE"
-  run "$SCRIPT" --cache "$CACHE" --out "$OUT"
+  run "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$OUT"
   [ "$status" -eq 1 ]
 }
 
@@ -171,16 +170,16 @@ $c" | write_cache
   tags="$(tagline 'Once      ' 'class  ' 'def' 1 'class Once {}')"
   cache_entry "src/A.java" "$H1" "$tags" | write_cache
 
-  "$SCRIPT" --cache "$CACHE" --out "$OUT"
-  "$SCRIPT" --cache "$CACHE" --out "$OUT"
+  "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$OUT"
+  "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$OUT"
 
   run wc -l < "$OUT"
   [ "$(printf '%s' "$output" | tr -d ' ')" = "1" ]
 }
 
 @test "build-refs: --help is exit 0, a bad flag is exit 2" {
-  run "$SCRIPT" --help
+  run "$SYNAPSE_BIN" build-refs --help
   [ "$status" -eq 0 ]
-  run "$SCRIPT" --nonsense
+  run "$SYNAPSE_BIN" build-refs --nonsense
   [ "$status" -eq 2 ]
 }

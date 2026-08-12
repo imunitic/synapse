@@ -36,7 +36,7 @@ in_repo() {
     FAKE_CURL_VAULT_DIR="$VAULT" \
     FAKE_CURL_CAPTURE_DIR="$TEST_HOME/capture" \
     SYNAPSE_WORK_DIR="$WORK" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$@"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$@"
 }
 
 commit_all() { # commit_all <message>

@@ -63,7 +63,7 @@ pub fn run(
         } else return usage();
     }
 
-    const path = file orelse (defaultPath(gpa, env) catch return noWorkDir()) orelse return noWorkDir();
+    const path = file orelse (defaultPath(gpa, io, env) catch return noWorkDir()) orelse return noWorkDir();
     defer if (file == null) gpa.free(@constCast(path));
 
     if (std.mem.eql(u8, form, "build")) return buildIndex(gpa, io, path, unassigned_file, lists_dir);
@@ -98,10 +98,13 @@ fn noWorkDir() u8 {
 /// `$SYNAPSE_WORK_DIR/_index.bin`, or null when the variable is unset. The
 /// namespace is already inside that variable -- the scripts put it there -- so
 /// nothing here joins a repo name to a branch.
-fn defaultPath(gpa: Allocator, env: *std.process.Environ.Map) !?[]const u8 {
-    const dir = env.get("SYNAPSE_WORK_DIR") orelse return null;
-    if (dir.len == 0) return null;
-    return try std.fmt.allocPrint(gpa, "{s}/_index.bin", .{dir});
+fn defaultPath(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !?[]const u8 {
+    // Derived from identity when the environment does not name it, which is what the
+    // wrapper did. Without this, `synapse index lookup <path>` run by hand in a
+    // checkout would refuse for want of a variable it can work out itself.
+    const work = (try context.workDir(gpa, io, env, "synapse-index")) orelse return null;
+    defer work.deinit(gpa);
+    return try std.fmt.allocPrint(gpa, "{s}/_index.bin", .{work.path});
 }
 
 /// Read `path<TAB>node` pairs on stdin, group them, and replace the index.

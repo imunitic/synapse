@@ -83,11 +83,9 @@ pub fn runBuild(
     var owned_out: ?[]u8 = null;
     defer if (owned_out) |p| gpa.free(p);
     if (cache_path == null or out_path == null) {
-        const work = env.get("SYNAPSE_WORK_DIR") orelse "";
-        if (work.len == 0) {
-            std.debug.print("{s}: no SYNAPSE_WORK_DIR and no --cache/--out given\n", .{build_prog});
-            return 1;
-        }
+        const resolved = (try context.workDir(gpa, io, env, build_prog)) orelse return 1;
+        defer resolved.deinit(gpa);
+        const work = resolved.path;
         if (cache_path == null) {
             owned_cache = try std.fmt.allocPrint(gpa, "{s}/_tags_cache.bin", .{work});
             cache_path = owned_cache.?;
@@ -195,12 +193,9 @@ pub fn runCallers(
     var owned: ?[]u8 = null;
     defer if (owned) |p| gpa.free(p);
     if (refs_path == null) {
-        const work = env.get("SYNAPSE_WORK_DIR") orelse "";
-        if (work.len == 0) {
-            std.debug.print("{s}: no SYNAPSE_WORK_DIR (the wrapper resolves it)\n", .{callers_prog});
-            return 1;
-        }
-        owned = try std.fmt.allocPrint(gpa, "{s}/_refs.tsv", .{work});
+        const resolved = (try context.workDir(gpa, io, env, callers_prog)) orelse return 1;
+        defer resolved.deinit(gpa);
+        owned = try std.fmt.allocPrint(gpa, "{s}/_refs.tsv", .{resolved.path});
         refs_path = owned.?;
     }
 

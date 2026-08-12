@@ -10,7 +10,6 @@
 
 load 'test_helper'
 
-HOOK="$REPO_ROOT/claude/hooks/synapse-prompt-context.sh"
 
 write_node() {
   local project="$1" name="$2" content="$3"
@@ -49,7 +48,7 @@ run_hook() {
   # Writing to a file first and redirecting it as stdin has no such race.
   local input="$BATS_TEST_TMPDIR/hook-input.json"
   jq -n --arg prompt "$prompt" --arg cwd "$cwd" '{prompt: $prompt, cwd: $cwd}' > "$input"
-  bash "$HOOK" < "$input"
+  "$SYNAPSE_HOOK_BIN" prompt-context < "$input"
 }
 
 @test "disabled via env var: no output, no API call at all" {

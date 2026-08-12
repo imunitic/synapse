@@ -48,6 +48,7 @@
 
 const std = @import("std");
 const core = @import("core");
+const context = @import("context.zig");
 const treesitter = @import("treesitter");
 const adapters = @import("adapters");
 const enumerate_cmd = @import("enumerate_cmd.zig");
@@ -98,7 +99,16 @@ pub fn run(
 
     const cwd = Io.Dir.cwd();
 
-    const out = out_dir orelse env.get("SYNAPSE_WORK_DIR") orelse {
+    // Derived from the namespace of `--repo` (or the cwd) when neither `--out` nor the
+    // environment names one -- the default the wrapper computed. Keyed on the *repo
+    // being read*, not on where the command was run from, which are not always the same.
+    var derived: ?context.WorkDir = null;
+    defer if (derived) |d| d.deinit(gpa);
+    if (out_dir == null and env.get("SYNAPSE_WORK_DIR") == null) {
+        derived = try context.workDirFor(gpa, io, env, repo orelse ".", "synapse-vocab");
+    }
+    const out = out_dir orelse env.get("SYNAPSE_WORK_DIR") orelse
+        if (derived) |d| d.path else {
         std.debug.print("synapse-vocab: no --out and no SYNAPSE_WORK_DIR\n", .{});
         return 1;
     };

@@ -41,6 +41,7 @@
 const std = @import("std");
 const core = @import("core");
 const adapters = @import("adapters");
+const context = @import("context.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -64,10 +65,19 @@ pub fn run(
         } else return usage();
     }
 
-    const work_dir = env.get("SYNAPSE_WORK_DIR") orelse {
-        std.debug.print("synapse-enumerate: no SYNAPSE_WORK_DIR\n", .{});
+    // Outside a repo there is nothing to enumerate, and saying so beats letting
+    // `git ls-files` fail with its own wording. The wrapper made this check; with no
+    // wrapper it belongs here.
+    if (core.identity.resolve(gpa, io, ".")) |id| {
+        id.deinit(gpa);
+    } else |_| {
+        std.debug.print("synapse-enumerate: not inside a git repo\n", .{});
         return 1;
-    };
+    }
+
+    const work = (try context.workDir(gpa, io, env, "synapse-enumerate")) orelse return 1;
+    defer work.deinit(gpa);
+    const work_dir = work.path;
     if (work_dir.len == 0) {
         std.debug.print("synapse-enumerate: empty SYNAPSE_WORK_DIR\n", .{});
         return 1;

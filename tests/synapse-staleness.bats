@@ -8,7 +8,6 @@
 
 load 'test_helper'
 
-HOOK="$REPO_ROOT/claude/hooks/synapse-staleness.sh"
 
 # Writes a Synapse node whose frontmatter contains every shape the old
 # `PATCH -H "Target-Type: frontmatter"` call used to mangle: a title long
@@ -80,7 +79,7 @@ run_staleness_hook() {
     FAKE_CURL_CAPTURE_DIR="$CURL_CAPTURE" \
     FAKE_CURL_VAULT_DIR="$VAULT" \
     SYNAPSE_WORK_DIR="$WORK" \
-    bash -c "printf '%s' \"\$1\" | jq -Rn '{tool_input:{file_path: input}}' | bash \"\$0\"" "$HOOK" "$file"
+    bash -c "printf '%s' \"\$2\" | jq -Rn '{tool_input:{file_path: input}}' | \"\$0\" \"\$1\"" "$SYNAPSE_HOOK_BIN" staleness "$file"
 }
 
 # The paths the index has queued for the _unassigned sweep.
@@ -148,8 +147,8 @@ queued_unassigned() {
   run env PATH="$FAKE_BIN:$PATH" FAKE_CURL_LOG="$CURL_LOG" \
     FAKE_CURL_CAPTURE_DIR="$CURL_CAPTURE" FAKE_CURL_VAULT_DIR="$VAULT" \
     SYNAPSE_WORK_DIR="$WORK" \
-    bash -c "printf '%s' \"\$1\" | jq -Rn '{tool_input:{file_path: input}}' | bash \"\$0\"" \
-    "$HOOK" "$REPO/src/foo.ml"
+    bash -c "printf '%s' \"\$2\" | jq -Rn '{tool_input:{file_path: input}}' | \"\$0\" \"\$1\"" \
+    "$SYNAPSE_HOOK_BIN" staleness "$REPO/src/foo.ml"
   [ "$status" -eq 0 ]
   [ "$(queued_unassigned | wc -l | tr -d ' ')" = "1" ]
 }

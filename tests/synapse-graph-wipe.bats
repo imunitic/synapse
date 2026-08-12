@@ -9,7 +9,6 @@
 load 'test_helper'
 
 BIN="$REPO_ROOT/claude/lib/synapse"
-SCRIPT="$BIN/synapse-graph-wipe.sh"
 
 setup() {
   common_setup
@@ -23,7 +22,7 @@ setup() {
 teardown() { common_teardown; }
 
 run_wipe() {
-  bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$SCRIPT" "$@"
+  bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" graph-wipe "$@"
 }
 
 in_repo() {
@@ -32,7 +31,7 @@ in_repo() {
     FAKE_CURL_VAULT_DIR="$VAULT" \
     FAKE_CURL_CAPTURE_DIR="$TEST_HOME/capture" \
     SYNAPSE_WORK_DIR="$WORK" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$@"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$@"
 }
 
 ns_dir() { echo "$VAULT/synapse/$(repo_name)"; }
@@ -203,7 +202,7 @@ EOF
 }
 
 @test "outside a git repo it exits 1, and an unknown flag exits 2" {
-  run bash -c 'cd "$1" && bash "$2"' _ "$TEST_HOME" "$SCRIPT"
+  run bash -c 'cd "$1" && exec "$2" "$3"' _ "$TEST_HOME" "$SYNAPSE_BIN" graph-wipe
   [ "$status" -eq 1 ]
 
   make_repo

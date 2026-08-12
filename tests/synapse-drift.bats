@@ -12,7 +12,6 @@
 
 load 'test_helper'
 
-QUERY="$REPO_ROOT/claude/lib/synapse/synapse-query.sh"
 
 setup() {
   common_setup
@@ -32,7 +31,7 @@ run_drift() {
     FAKE_CURL_LOG="$CURL_LOG" \
     FAKE_CURL_VAULT_DIR="$VAULT" \
     SYNAPSE_WORK_DIR="$WORK" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$QUERY" drift "$@"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" query drift "$@"
 }
 
 # A repo with two independent areas, so a change in one can be asserted not to

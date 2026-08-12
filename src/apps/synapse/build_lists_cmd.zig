@@ -34,7 +34,9 @@
 //! by remembering a prefix three times.
 
 const std = @import("std");
+const core = @import("core");
 const adapters = @import("adapters");
+const context = @import("context.zig");
 const enumerate_cmd = @import("enumerate_cmd.zig");
 
 const Io = std.Io;
@@ -59,10 +61,18 @@ pub fn run(
         } else return usage();
     }
 
-    const work_dir = env.get("SYNAPSE_WORK_DIR") orelse {
-        std.debug.print("synapse-build-lists: no SYNAPSE_WORK_DIR\n", .{});
+    // Outside a repo there are no files to claim, and saying so beats a later step
+    // failing with git's own wording. The wrapper made this check.
+    if (core.identity.resolve(gpa, io, ".")) |id| {
+        id.deinit(gpa);
+    } else |_| {
+        std.debug.print("synapse-build-lists: not inside a git repo\n", .{});
         return 1;
-    };
+    }
+
+    const work = (try context.workDir(gpa, io, env, "synapse-build-lists")) orelse return 1;
+    defer work.deinit(gpa);
+    const work_dir = work.path;
 
     const cwd = Io.Dir.cwd();
     cwd.createDirPath(io, work_dir) catch {};

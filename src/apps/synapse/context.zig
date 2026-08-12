@@ -294,3 +294,70 @@ pub fn listNodeFiles(ctx: *const Context, io: Io) !std.ArrayListUnmanaged([]u8) 
     }.less);
     return out;
 }
+
+/// The work dir, without requiring a vault.
+///
+/// `$SYNAPSE_WORK_DIR` when set, else `~/.claude/synapse-work/{namespace}` -- the
+/// default every script spelled out, and the reason it has to live here now: the
+/// wrappers computed it, and a subcommand that only errored on its absence would fail
+/// for anyone running `synapse enumerate` directly. Nothing here touches the vault,
+/// because `enumerate`, `build-lists`, `build-refs` and `callers` do not need one.
+///
+/// The caller owns the result when `owned` is true.
+pub const WorkDir = struct {
+    path: []const u8,
+    owned: bool,
+
+    pub fn deinit(self: WorkDir, gpa: Allocator) void {
+        if (self.owned) gpa.free(self.path);
+    }
+};
+
+pub fn workDir(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    prog: []const u8,
+) !?WorkDir {
+    return workDirFor(gpa, io, env, ".", prog);
+}
+
+/// The same, for a repository other than the one containing the cwd.
+///
+/// `vocab` and `rank` take `--repo`, and the work dir belongs to the repo being read
+/// rather than to wherever the command was invoked. Passing the path is what keeps
+/// those two from writing one repo's vocabulary into another's work dir.
+pub fn workDirFor(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    repo: []const u8,
+    prog: []const u8,
+) !?WorkDir {
+    if (nonEmpty(env, "SYNAPSE_WORK_DIR")) |w| return .{ .path = w, .owned = false };
+
+    const key = if (nonEmpty(env, "SYNAPSE_NAMESPACE")) |k|
+        try gpa.dupe(u8, k)
+    else blk: {
+        const id = core.identity.resolve(gpa, io, repo) catch |e| {
+            switch (e) {
+                error.NotAGitRepo => std.debug.print("{s}: not inside a git repo\n", .{prog}),
+                error.DetachedHead => std.debug.print("{s}\n", .{core.identity.detached_message}),
+                else => std.debug.print("{s}: could not resolve the namespace\n", .{prog}),
+            }
+            return null;
+        };
+        defer id.deinit(gpa);
+        break :blk try gpa.dupe(u8, id.key);
+    };
+    defer gpa.free(key);
+
+    const home = env.get("HOME") orelse {
+        std.debug.print("{s}: no HOME, so no default work dir\n", .{prog});
+        return null;
+    };
+    return .{
+        .path = try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-work/{s}", .{ home, key }),
+        .owned = true,
+    };
+}

@@ -4,7 +4,6 @@
 
 load 'test_helper'
 
-PUSH="$REPO_ROOT/claude/lib/synapse/synapse-push-nodes.sh"
 
 setup() {
   common_setup
@@ -31,7 +30,7 @@ run_push() {
     FAKE_CURL_VAULT_DIR="$VAULT" \
     FAKE_CURL_PUT_STATUS="${PUT_STATUS:-200}" \
     SYNAPSE_WORK_DIR="$WORK" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$PUSH" "$@"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" push-nodes "$@"
 }
 
 # Sets up node NN with a title, a one-path list and a body.
@@ -116,7 +115,7 @@ node_file() { echo "$VAULT/synapse/$(repo_name)/$1.md"; }
 
   run env PATH="$TEST_HOME/decoy:$FAKE_BIN:$PATH" \
     FAKE_CURL_LOG="$CURL_LOG" FAKE_CURL_VAULT_DIR="$VAULT" SYNAPSE_WORK_DIR="$WORK" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$PUSH"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" push-nodes
   [ "$status" -eq 0 ]
   [[ "$output" != *"DECOY RAN"* ]]
   [ -f "$(node_file "Mod A")" ]

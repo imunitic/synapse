@@ -9,8 +9,6 @@
 
 load 'test_helper'
 
-QUERY="$REPO_ROOT/claude/lib/synapse/synapse-query.sh"
-BUILD="$REPO_ROOT/claude/lib/synapse/synapse-build-refs.sh"
 
 setup() {
   common_setup
@@ -61,12 +59,12 @@ seed_index() {
   cache_entry "src/A.java" "$H1" "$d
 $c
 $i" | write_cache
-  "$BUILD" --cache "$CACHE" --out "$INDEX" 2>/dev/null
+  "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$INDEX" 2>/dev/null
 }
 
 run_callers() {
   cd "$REPO" || return 1
-  PATH="$FAKE_BIN:$PATH" SYNAPSE_WORK_DIR="$WORK_DIR" "$QUERY" callers "$@"
+  PATH="$FAKE_BIN:$PATH" SYNAPSE_WORK_DIR="$WORK_DIR" "$SYNAPSE_BIN" callers "$@"
 }
 
 @test "callers: default returns call sites only, as path:line<TAB>expression" {
@@ -121,7 +119,7 @@ run_callers() {
   local d
   d="$(tagline 'lonely    ' 'method ' 'def' 3 'void lonely() {')"
   cache_entry "src/A.java" "$H1" "$d" | write_cache
-  "$BUILD" --cache "$CACHE" --out "$INDEX" 2>/dev/null
+  "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$INDEX" 2>/dev/null
 
   run run_callers lonely
   [ "$status" -eq 0 ]
@@ -134,7 +132,7 @@ run_callers() {
   b="$(tagline 'runFast   ' 'call   ' 'ref' 6 'a.runFast();')"
   cache_entry "src/A.java" "$H1" "$a
 $b" | write_cache
-  "$BUILD" --cache "$CACHE" --out "$INDEX" 2>/dev/null
+  "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$INDEX" 2>/dev/null
 
   run run_callers run
   [ "$status" -eq 0 ]
@@ -153,7 +151,7 @@ $b" | write_cache
 "
   done
   cache_entry "src/A.java" "$H1" "$t" | write_cache
-  "$BUILD" --cache "$CACHE" --out "$INDEX" 2>/dev/null
+  "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$INDEX" 2>/dev/null
 
   for n in alpha Beta gamma _under zz9 Aardvark run runFast; do
     scan="$(LC_ALL=C awk -F'\t' -v n="$n" '$1==n && $2=="ref" && $3=="call" { print $4 "\t" $5 }' "$INDEX")"
@@ -168,7 +166,7 @@ $b" | write_cache
   local a
   a="$(tagline 'a.b       ' 'call   ' 'ref' 5 'x.a.b();')"
   cache_entry "src/A.java" "$H1" "$a" | write_cache
-  "$BUILD" --cache "$CACHE" --out "$INDEX" 2>/dev/null
+  "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$INDEX" 2>/dev/null
 
   run run_callers 'a.b'
   [ "$status" -eq 0 ]

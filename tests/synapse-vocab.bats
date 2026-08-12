@@ -11,7 +11,6 @@
 
 load 'test_helper'
 
-SCRIPT="$REPO_ROOT/claude/lib/synapse/synapse-vocab.sh"
 
 setup() {
   common_setup
@@ -52,7 +51,7 @@ make_two_module_repo() {
 }
 
 run_vocab() {
-  PATH="$FAKE_BIN:$PATH" "$SCRIPT" --repo "$REPO" --out "$OUT" "$@"
+  PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" vocab --repo "$REPO" --out "$OUT" "$@"
 }
 
 # The count for one group/word pair, or empty when the pair is absent.
@@ -385,7 +384,7 @@ write_list() { # write_list <NN> <title> <path>...
   # where a shell test cannot see it and Zig owns the guarantee.
   # Comments stripped first: the header names every piece that was removed, and
   # grepping the prose would fail on the sentence saying the thing is gone.
-  local code; code="$(grep -vE '^[[:space:]]*#' "$SCRIPT")"
+  local code; code="$(grep -vE '^[[:space:]]*#' "$REPO_ROOT/claude/lib/synapse/synapse-vocab.sh")"
   for banned in split xargs worker.sh 'tags --paths' 'awk -F' basename 'wc -c'; do
     [ "$(printf '%s\n' "$code" | grep -c -- "$banned")" -eq 0 ]
   done
@@ -395,24 +394,24 @@ write_list() { # write_list <NN> <title> <path>...
   make_two_module_repo
   cp "$REPO_ROOT/claude/lib/synapse/synapse-identity.sh" "$HOME/.claude/lib/synapse/synapse-identity.sh"
 
-  run env PATH="$FAKE_BIN:$PATH" "$SCRIPT" --repo "$REPO"
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" vocab --repo "$REPO"
   [ "$status" -eq 0 ]
   [ -s "$HOME/.claude/synapse-work/$(repo_name)/groupwords.tsv" ]
   [ -s "$HOME/.claude/synapse-work/$(repo_name)/counts.tsv" ]
 }
 
 @test "outside a git repo: exits 1 with a message, writes nothing" {
-  run env PATH="$FAKE_BIN:$PATH" "$SCRIPT" --repo "$TEST_HOME" --out "$OUT"
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" vocab --repo "$TEST_HOME" --out "$OUT"
   [ "$status" -eq 1 ]
   [[ "$output" == *"not inside a git repo"* ]]
   [ ! -f "$OUT/groupwords.tsv" ]
 }
 
 @test "a bad flag or a non-numeric depth is a usage error, exit 2" {
-  run env PATH="$FAKE_BIN:$PATH" "$SCRIPT" --nope
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" vocab --nope
   [ "$status" -eq 2 ]
-  run env PATH="$FAKE_BIN:$PATH" "$SCRIPT" --depth two
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" vocab --depth two
   [ "$status" -eq 2 ]
-  run env PATH="$FAKE_BIN:$PATH" "$SCRIPT" --depth 0
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" vocab --depth 0
   [ "$status" -eq 2 ]
 }

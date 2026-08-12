@@ -5,7 +5,6 @@
 
 load 'test_helper'
 
-HOOK="$REPO_ROOT/claude/hooks/synapse-session-start.sh"
 
 setup() {
   common_setup
@@ -17,7 +16,7 @@ teardown() {
 
 run_hook() {
   local cwd="$1"
-  printf '{"cwd":"%s"}' "$cwd" | bash "$HOOK"
+  printf '{"cwd":"%s"}' "$cwd" | "$SYNAPSE_HOOK_BIN" session-start
 }
 
 @test "no vault index and no synapse namespace: no output at all" {

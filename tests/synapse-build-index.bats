@@ -14,8 +14,6 @@
 
 load 'test_helper'
 
-BUILD_INDEX="$REPO_ROOT/claude/lib/synapse/synapse-build-index.sh"
-
 setup() {
   common_setup
   WORK="$TEST_HOME/work"
@@ -30,7 +28,7 @@ teardown() {
 
 run_build_index() {
   SYNAPSE_WORK_DIR="$WORK" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$BUILD_INDEX" "$@"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" build-index "$@"
 }
 
 stage_list() {
@@ -164,22 +162,9 @@ unassigned_paths() {
 
   run env -u OBSIDIAN_VAULT_DIR PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
     SYNAPSE_BIN="$SYNAPSE_BIN" SYNAPSE_WORK_DIR="$WORK" HOME="$TEST_HOME" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$BUILD_INDEX"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" build-index
   [ "$status" -eq 0 ]
   [ -s "$WORK/_index.bin" ]
-}
-
-@test "a missing synapse binary is exit 1, naming the fix" {
-  # Unlike the tags-cache refresh in synapse-write-node.sh, which is a byproduct
-  # and degrades to skipping, the binary is the only writer here.
-  stage_list 01 "Mod A" mod-a/a.txt
-
-  run env SYNAPSE_BIN="$TEST_HOME/nonexistent-synapse" SYNAPSE_WORK_DIR="$WORK" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$BUILD_INDEX"
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"no synapse binary"* ]]
-  [[ "$output" == *"run setup.sh"* ]]
-  [ ! -f "$WORK/_index.bin" ]
 }
 
 @test "missing lists, missing unassigned.txt and an empty lists dir each exit 1" {

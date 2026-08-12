@@ -14,9 +14,6 @@
 
 load 'test_helper'
 
-WRITER="$REPO_ROOT/claude/lib/synapse/synapse-write-node.sh"
-QUERY="$REPO_ROOT/claude/lib/synapse/synapse-query.sh"
-
 setup() {
   common_setup
   setup_fake_obsidian_plugin
@@ -57,14 +54,14 @@ run_writer_raw() {
     SYNAPSE_GRAMMARS_DIR="$GRAMMARS_DIR" \
     FAKE_TS_LOG="$FAKE_TS_LOG" \
     FAKE_GIT_LOG="$FAKE_GIT_LOG" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$WRITER" "$@"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" write-node "$@"
 }
 
 run_query() {
   PATH="$FAKE_BIN:$PATH" \
     FAKE_CURL_LOG="$CURL_LOG" \
     FAKE_CURL_VAULT_DIR="$VAULT" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$QUERY" "$@"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" query "$@"
 }
 
 node_file() { echo "$VAULT/synapse/$(repo_name)/$1.md"; }
@@ -491,8 +488,8 @@ make_layered_repo() {
   mkdir -p "$TEST_HOME/notarepo"
 
   run env PATH="$FAKE_BIN:$PATH" FAKE_CURL_LOG="$CURL_LOG" FAKE_CURL_VAULT_DIR="$VAULT" \
-    bash -c 'cd "$1" && shift && bash "$@"' _ "$TEST_HOME/notarepo" \
-    "$WRITER" --title "Nope" --summary "S." --paths "$PATHS" --body "$BODY"
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$TEST_HOME/notarepo" \
+    "$SYNAPSE_BIN" write-node --title "Nope" --summary "S." --paths "$PATHS" --body "$BODY"
   [ "$status" -eq 1 ]
   [[ "$output" == *"not inside a git repo"* ]]
 }
@@ -815,20 +812,3 @@ slice_digest() { # slice_digest <path> <start> <end>
   [ ! -s "$FAKE_TS_LOG" ]
 }
 
-@test "a missing synapse binary is a hard failure that names the fix" {
-  make_repo
-  printf 'src/foo.ml\n' > "$PATHS"
-  SYNAPSE_BIN="$TEST_HOME/no-such-binary"
-  export SYNAPSE_BIN
-
-  # This used to assert that the write still succeeded, because the binary was
-  # only used for the tags-cache refresh -- a byproduct, and one that degrades to
-  # skipping. The binary is now the writer itself, so its absence cannot degrade
-  # into anything: it means no node was written, and saying so beats a node that
-  # silently did not appear.
-  run run_write --title "Widget core" --paths "$PATHS" --body "$BODY"
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"no synapse binary at"* ]]
-  [[ "$output" == *"run setup.sh"* ]]
-  [ ! -f "$(node_file "Widget core")" ]
-}
