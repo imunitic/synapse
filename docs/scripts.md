@@ -10,22 +10,27 @@ the Vault that hosts it.
 
 ## `synapse-build-index.sh`
 
-Builds and uploads synapse/{repo}/_index.json -- the machine-only reverse index
-from every source path to the node filenames that claim it, plus _unassigned.
-Step 3 of a scripted /synapse-init.
+Builds $SYNAPSE_WORK_DIR/_index.bin -- the machine-only reverse index from
+every source path to the node filenames that claim it, plus the unassigned
+list. Step 3 of a scripted /synapse-init.
 
 ```
 Usage: synapse-build-index.sh
   Work dir: $SYNAPSE_WORK_DIR, default ~/.claude/synapse-work/{repo}@{branch}/.
 
 Reads  $SYNAPSE_WORK_DIR/lists/NN.txt + NN.title, unassigned.txt
-Writes synapse/{repo}/_index.json in the vault
+Writes $SYNAPSE_WORK_DIR/_index.bin
 
 Read by the PostToolUse staleness hook, so it must cover every enumerated file:
-an edit to an unlisted path flags nothing stale. Tens of megabytes on a large
-repo, hence jq rather than authoring it.
+an edit to an unlisted path flags nothing stale.
 
-Note for agent callers: needs the sandbox disabled (localhost REST API).
+This script authors the (path, node) pairs and `synapse index build` encodes
+them. Two things changed with that split, both deliberate. The index no longer
+lives in the vault: it is derived, gitignored there and never travelled, so
+PUT-ing 26 MB over the REST API bought nothing -- which is also why this script
+no longer needs the sandbox disabled, and no longer reads the plugin's API key
+or certificate. And `jq` is gone: authoring tens of megabytes of JSON was the
+only reason it was here.
 ```
 
 ## `synapse-build-lists.sh`
@@ -446,9 +451,9 @@ spot. Set SYNAPSE_DISABLE_SYMBOL_CACHE (any value) to disable entirely --
 see docs/synapse-graph.md's "Exact-symbol lookup" section for the full design.
 
 That cache sits beside the work dir rather than in the vault because it is
-derived, disposable and large: at large-repo scale ~942 MB against _index.json's
-26 MB, and the vault is version-controlled, so every rebuild would commit a
-fresh copy of it into the vault's history. Deleting it costs one re-tag.
+derived, disposable and large: at large-repo scale ~942 MB against the reverse
+index's 26 MB. Both sit there now, for the same reason and with the same
+consequence -- deleting either costs one rebuild.
 
 `stale` re-hashes what a node claims; `drift` diffs its recorded `commit` against
 HEAD, so only `drift` sees added, deleted and renamed paths. Neither pulls.

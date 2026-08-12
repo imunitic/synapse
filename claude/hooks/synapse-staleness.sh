@@ -88,8 +88,8 @@ fi
 FILE_DIR="$(cd "$(dirname "$FILE")" && pwd -P)"
 FILE="$FILE_DIR/$(basename "$FILE")"
 
-# Repo-relative path -- the form every node's `sources` list and
-# _index.json key are written in.
+# Repo-relative path -- the form every node's `sources` list and every index
+# record are written in.
 case "$FILE" in
   "$REPO_ROOT"/*) REL="${FILE#"$REPO_ROOT"/}" ;;
   *) exit 0 ;;
@@ -108,44 +108,43 @@ urlencode_path() {
   echo "${out[*]}"
 }
 
-INDEX_VAULT_PATH="synapse/$REPO_NAME/_index.json"
-INDEX_URL="$BASE/vault/$(urlencode_path "$INDEX_VAULT_PATH")"
-
-INDEX_FILE="$VAULT/$INDEX_VAULT_PATH"
-
-# Read the index from disk, not over the API. It is a derived, machine-only file
-# that nothing but these scripts writes, and every write below still goes through
-# the API, so Obsidian's view and the vault's git history stay correct.
+# The index lives in the work dir, not the vault, and is reached through
+# `synapse index` rather than jq. Two properties of it matter here and both
+# survive the move.
 #
-# The reason is cost, and it is the one cost in Synapse that scales with the repo
-# rather than the node count. On a 125k-file repo this file is 27 MB; fetching it
-# over HTTPS to answer a single key lookup dominated the hook at ~3.1s, paid on
-# every Write/Edit/MultiEdit. From disk the same read is ~0.03s.
+# It was already read from disk rather than over the API, and that is the one
+# cost in Synapse that scales with the repo rather than the node count: on a
+# 125k-file repo the JSON was 27 MB, and fetching it over HTTPS to answer a
+# single key lookup dominated the hook at ~3.1s, paid on every
+# Write/Edit/MultiEdit. What the binary format adds is that answering the lookup
+# no longer parses the file either -- it is a binary search over a record table.
 #
-# A missing file is the "no namespace" case: /synapse-init has not been run here.
-# That check replaces the old HTTP-status test, and is exact rather than
-# approximate -- the API returns a 404 whose *body is valid JSON*
-# (`{"message":"Not Found",...}`), so reading the status was the only way to tell
-# an absent index from a real one. On disk the question is just whether the file
-# is there.
+# And a missing file is still exactly the "no namespace" case: /synapse-init has
+# not been run here. That check replaced an HTTP-status test years ago, because
+# the API returns a 404 whose *body is valid JSON* (`{"message":"Not Found"}`),
+# so only the status could tell an absent index from a real one. On disk the
+# question is just whether the file is there.
+INDEX_FILE="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}/_index.bin"
 [ -f "$INDEX_FILE" ] || exit 0
 
-NODES="$(jq -r --arg rel "$REL" '.[$rel] // [] | .[]' "$INDEX_FILE" 2>/dev/null || true)"
+# Absent binary is silence, not an error: a hook that fails is worse than one
+# that quietly does nothing, and this is a precondition like any other.
+SYNAPSE_BIN_PATH="${SYNAPSE_BIN:-$HOME/.claude/bin/synapse}"
+[ -x "$SYNAPSE_BIN_PATH" ] || exit 0
+
+NODES="$("$SYNAPSE_BIN_PATH" index lookup "$REL" --file "$INDEX_FILE" 2>/dev/null || true)"
 
 if [ -z "$NODES" ]; then
   # Genuinely new file, not yet claimed by any node -- queue it for the
   # _unassigned sweep (see /synapse-init's "Re-running on an initialized
   # project" and the Tier 2 read-time procedure).
-  UPDATED="$(jq --arg rel "$REL" '
-    .["_unassigned"] = ((.["_unassigned"] // []) + [$rel] | unique)
-  ' "$INDEX_FILE" 2>/dev/null || true)"
-  # The upfront `jq -e .` validation is gone (it duplicated a status check that
-  # disk existence now answers exactly), so this is where a malformed index has to
-  # be caught: jq would print nothing, and PUTting that would replace a 27 MB
-  # index with an empty body. Refuse to write rather than destroy it.
-  [ -n "$UPDATED" ] || exit 0
-  curl -s -o /dev/null --cacert "$CERT" -H "Authorization: Bearer $API_KEY" \
-    -X PUT -H "Content-Type: application/json" --data-binary "$UPDATED" "$INDEX_URL"
+  #
+  # One idempotent call replaces a 27 MB jq read-modify-write and a 27 MB PUT.
+  # It is a whole re-encode, which is affordable because it is reached only for a
+  # path that is new *and* unlisted -- not once per edit. Already-listed is a
+  # no-op, and an unreadable index is silence rather than an empty file written
+  # over a real one.
+  "$SYNAPSE_BIN_PATH" index add-unassigned "$REL" --file "$INDEX_FILE" 2>/dev/null || true
   exit 0
 fi
 

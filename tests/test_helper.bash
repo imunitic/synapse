@@ -247,6 +247,37 @@ EOF
   : > "$HOME/.claude/obsidian-local-rest-api-ca.pem"
 }
 
+# Writes a work dir's `_index.bin` from `path<TAB>node` lines on stdin, with any
+# remaining arguments as the unassigned list.
+#
+# Delegates to the shipped `synapse index build` rather than authoring the bytes,
+# for the reason repo_name() delegates to the shipped resolver: a helper with its
+# own encoder could agree with a wrong one. It also means every test that stages
+# an index exercises the same writer the pipeline uses.
+#
+# This replaced hand-authored `_index.json` fixtures in six test files. Those
+# could be written with printf because the format was text; a binary index cannot
+# be, and pretending otherwise by committing fixture bytes would pin the format
+# in places that are not about the format.
+write_index_bin() { # write_index_bin <work-dir> [unassigned-path...] < pairs
+  local work="$1"; shift
+  mkdir -p "$work"
+  local un="$work/.unassigned-fixture"
+  if [ "$#" -gt 0 ]; then printf '%s\n' "$@" > "$un"; else : > "$un"; fi
+  # Stdout silenced: the writer reports keys/unassigned/bytes for
+  # synapse-build-index.sh to pass through, and a fixture helper that printed it
+  # would land those numbers inside any `run` capture around the caller -- in
+  # front of the output the test is actually asserting on.
+  "$SYNAPSE_BIN" index build --unassigned "$un" --out "$work/_index.bin" >/dev/null || return 1
+  rm -f "$un"
+}
+
+# The work dir every component defaults to for $REPO's namespace, so a test can
+# stage an index where the scripts will look for it without exporting anything.
+default_work_dir() {
+  printf '%s' "$HOME/.claude/synapse-work/$(repo_name)"
+}
+
 # Writes a Synapse per-project Index.md with the given `remote` frontmatter
 # value, matching the shape /synapse-init produces. The first argument is the
 # namespace directory name ("{repo}@{branch}"); `project` and `branch` inside are

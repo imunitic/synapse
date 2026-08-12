@@ -3,6 +3,9 @@
 //!   index build --unassigned <file> [--out <file>]   pairs on stdin
 //!   index unassigned [--file <file>]                 every unclaimed path
 //!   index lookup <path> [--file <file>]              the nodes claiming it
+//!   index nodes [--file <file>]                      every node that claims anything
+//!   index paths [--file <file>]                      every claimed path
+//!   index add-unassigned <path> [--file <file>]      queue one path for the sweep
 //!
 //! **This subcommand is new, and it exists because the storage changed.**
 //! `synapse-build-index.sh` authored `_index.json` with `jq` and PUT it to the
@@ -60,6 +63,10 @@ pub fn run(
     if (std.mem.eql(u8, form, "build")) return buildIndex(gpa, io, path, unassigned_file);
     if (std.mem.eql(u8, form, "unassigned")) return listUnassigned(io, path);
     if (std.mem.eql(u8, form, "lookup")) return lookup(io, path, positional orelse return usage());
+    if (std.mem.eql(u8, form, "nodes")) return listNodes(io, path);
+    if (std.mem.eql(u8, form, "paths")) return listPaths(io, path);
+    if (std.mem.eql(u8, form, "add-unassigned"))
+        return addUnassigned(gpa, io, path, positional orelse return usage());
     return usage();
 }
 
@@ -68,6 +75,9 @@ fn usage() u8 {
         \\usage: synapse index build --unassigned <file> [--out <file>]   (path<TAB>node on stdin)
         \\       synapse index unassigned [--file <file>]
         \\       synapse index lookup <path> [--file <file>]
+        \\       synapse index nodes [--file <file>]
+        \\       synapse index paths [--file <file>]
+        \\       synapse index add-unassigned <path> [--file <file>]
         \\
     , .{});
     return 1;
@@ -181,6 +191,86 @@ fn listUnassigned(io: Io, path: []const u8) !u8 {
     var out = Io.File.stdout().writer(io, &buf);
     var it = map.unassignedIter();
     while (it.next()) |p| try out.interface.print("{s}\n", .{p});
+    try out.interface.flush();
+    return 0;
+}
+
+/// Queue `newly` for the `_unassigned` sweep, if it is not already there.
+///
+/// Replaces the `jq`-then-PUT block at `synapse-staleness.sh:135-149`, which
+/// read 27 MB of JSON, rewrote it and pushed the whole thing back over HTTPS to
+/// add one string. Exit 0 whether or not anything changed -- the hook's contract
+/// is that a missing precondition is silence, and "already queued" is the
+/// common case rather than a fault.
+///
+/// An unreadable index is exit 0 too, not 1. The old code refused to PUT an
+/// empty body over a 27 MB index for exactly this reason; here the refusal is
+/// structural, because there is nothing to re-encode from.
+fn addUnassigned(gpa: Allocator, io: Io, path: []const u8, newly: []const u8) !u8 {
+    var map = try Map.open(io, path);
+    defer map.close(io);
+    if (map.discarded != null) return 0;
+    if (map.count() == 0 and map.unassignedCount() == 0 and map.map == null) return 0;
+
+    const grown = core.index_map.withUnassigned(gpa, map.view, newly) catch |e| {
+        std.debug.print("synapse-index: cannot re-encode index ({t})\n", .{e});
+        return 1;
+    } orelse return 0;
+    defer gpa.free(grown);
+
+    core.index_map.writeFile(gpa, io, path, grown) catch {
+        std.debug.print("synapse-index: cannot write {s}\n", .{path});
+        return 1;
+    };
+    return 0;
+}
+
+/// Every node that claims at least one path, one per line, ascending.
+///
+/// Replaces `jq -r 'to_entries | map(select(.key != "_unassigned")) |
+/// map(.value[]) | unique | .[]'` at `synapse-query.sh:392` and `:468`, where it
+/// is the authoritative list of which nodes exist. `unique` sorted its output;
+/// the node table is already sorted by name, so this is the same order for free.
+fn listNodes(io: Io, path: []const u8) !u8 {
+    var map = try Map.open(io, path);
+    defer map.close(io);
+    if (map.discarded) |e| {
+        std.debug.print("synapse-index: unreadable index ({t}): {s}\n", .{ e, path });
+        return 1;
+    }
+
+    var buf: [64 * 1024]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &buf);
+    var id: u32 = 0;
+    while (id < map.nodeCount()) : (id += 1)
+        try out.interface.print("{s}\n", .{map.view.nodeName(id)});
+    try out.interface.flush();
+    return 0;
+}
+
+/// Every claimed path, one per line, in `LC_ALL=C` byte order.
+///
+/// Replaces `jq -r 'keys[]'` at `synapse-query.sh:547`, whose output was piped
+/// through `LC_ALL=C sort` before a `comm`. The record table is already in that
+/// order, so the sort downstream is now redundant rather than load-bearing.
+///
+/// It also drops something: `keys[]` included `_unassigned` itself, so the
+/// literal string was treated as a claimed path by that `comm`. Harmless, since
+/// no real file is named that, but the separate region removes the case rather
+/// than relying on it staying harmless.
+fn listPaths(io: Io, path: []const u8) !u8 {
+    var map = try Map.open(io, path);
+    defer map.close(io);
+    if (map.discarded) |e| {
+        std.debug.print("synapse-index: unreadable index ({t}): {s}\n", .{ e, path });
+        return 1;
+    }
+
+    var buf: [256 * 1024]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &buf);
+    var i: u32 = 0;
+    while (i < map.count()) : (i += 1)
+        try out.interface.print("{s}\n", .{map.view.path(map.view.record(i))});
     try out.interface.flush();
     return 0;
 }

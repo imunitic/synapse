@@ -44,9 +44,9 @@
 # see docs/synapse-graph.md's "Exact-symbol lookup" section for the full design.
 #
 # That cache sits beside the work dir rather than in the vault because it is
-# derived, disposable and large: at large-repo scale ~942 MB against _index.json's
-# 26 MB, and the vault is version-controlled, so every rebuild would commit a
-# fresh copy of it into the vault's history. Deleting it costs one re-tag.
+# derived, disposable and large: at large-repo scale ~942 MB against the reverse
+# index's 26 MB. Both sit there now, for the same reason and with the same
+# consequence -- deleting either costs one rebuild.
 #
 # `stale` re-hashes what a node claims; `drift` diffs its recorded `commit` against
 # HEAD, so only `drift` sees added, deleted and renamed paths. Neither pulls.
@@ -193,18 +193,33 @@ EXISTING_BRANCH="$(grep -m1 '^branch:' "$WORK/Index.md" | sed -e 's/^branch: *//
 
 # --- shared helpers ---------------------------------------------------------
 
-# _index.json is read straight from disk, not over the API. It is derived and
-# machine-only -- nothing but these scripts writes it -- and on a 125k-file repo it
-# is 27 MB, so fetching it over HTTPS to answer a key lookup dominated every call
-# that needed it. Notes still go through the API, which is where that rule earns
-# its keep: Obsidian's own search beats grepping Markdown.
+# The index lives in the work dir and is read through `synapse index`, not with
+# jq. It was already read from disk rather than over the API -- it is derived and
+# machine-only, and at 27 MB on a 125k-file repo, fetching it over HTTPS to
+# answer one lookup dominated every call that needed it. What changed is that it
+# is no longer in the vault at all: gitignored there and never travelling, it had
+# nothing to gain from a REST round trip on the write side either. Notes still go
+# through the API, which is where that rule earns its keep: Obsidian's own search
+# beats grepping Markdown.
 #
 # Absence is "no namespace for this repo", which is exit 1 here -- "could not
-# verify", never "clean". No separate `jq -e .` validation: every extraction below
-# is already guarded, and a malformed index makes jq fail there, reaching the same
-# exit 1 without paying a full 27 MB parse first.
-INDEX_FILE="$VAULT/synapse/$REPO_NAME/_index.json"
+# verify", never "clean". No separate validation pass: every extraction below is
+# already guarded, and an unreadable index makes `synapse index` exit non-zero
+# there, reaching the same exit 1 without paying a full 27 MB parse first.
+INDEX_FILE="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}/_index.bin"
 require_index() { [ -f "$INDEX_FILE" ] || exit 1; }
+
+# The binary is the only reader of the index there is, so its absence is exit 1
+# rather than a degraded path -- same rule as synapse-build-index.sh, which is
+# the only writer.
+SYNAPSE_BIN_PATH="${SYNAPSE_BIN:-$HOME/.claude/bin/synapse}"
+index_read() { # index_read <form> [args...]
+    [ -x "$SYNAPSE_BIN_PATH" ] || {
+        echo "synapse-query: no synapse binary at $SYNAPSE_BIN_PATH (run setup.sh)" >&2
+        exit 1
+    }
+    "$SYNAPSE_BIN_PATH" index "$@" --file "$INDEX_FILE"
+}
 
 # Resolves a node to its path on disk in $NODE_FILE, copying nothing. Accepts the
 # title with or without `.md`; returns 1 when there is no such node.
@@ -386,12 +401,11 @@ cmd_stale() {
   [ $# -eq 0 ] || usage
   require_index
 
-  # Node list comes from _index.json's values -- authoritative for which nodes
+  # Node list comes from the index's node table -- authoritative for which nodes
   # exist, and already in hand, so no directory listing is needed.
-  jq -r 'to_entries | map(select(.key != "_unassigned")) | map(.value[]) | unique | .[]' \
-    "$INDEX_FILE" > "$WORK/nodes.txt" 2>/dev/null || exit 1
+  index_read nodes > "$WORK/nodes.txt" 2>/dev/null || exit 1
 
-  # The node's `sources` is the authority on what it covers, not _index.json --
+  # The node's `sources` is the authority on what it covers, not the index --
   # verifying against the index instead would mask node/index drift, and would
   # report a false mismatch whenever the two disagree for an unrelated reason.
   while IFS= read -r node; do
@@ -464,8 +478,7 @@ cmd_drift() {
   command -v comm >/dev/null || exit 1
 
   require_index
-  jq -r 'to_entries | map(select(.key != "_unassigned")) | map(.value[]) | unique | .[]' \
-    "$INDEX_FILE" > "$WORK/nodes.txt" 2>/dev/null || exit 1
+  index_read nodes > "$WORK/nodes.txt" 2>/dev/null || exit 1
 
   # Findings are buffered rather than printed as they are found, so that silence can
   # mean "the graph matches the worktree". Context -- how far behind upstream, how
@@ -544,7 +557,9 @@ cmd_drift() {
   # already claim them, so only the remainder needs a decision.
   cat "$WORK"/diff-*.add 2>/dev/null | LC_ALL=C sort -u > "$WORK/added.txt"
   if [ -s "$WORK/added.txt" ]; then
-    jq -r 'keys[]' "$INDEX_FILE" | LC_ALL=C sort > "$WORK/claimed.txt"
+    # Already in LC_ALL=C order -- the record table is byte-sorted -- so the
+    # sort is belt and braces for `comm`, not a correction.
+    index_read paths | LC_ALL=C sort > "$WORK/claimed.txt"
     LC_ALL=C comm -23 "$WORK/added.txt" "$WORK/claimed.txt" > "$WORK/unclaimed.txt"
     if [ -s "$WORK/unclaimed.txt" ]; then
       MANIFEST=""
@@ -814,7 +829,7 @@ cmd_symbol() {
   paste "$WORK/symbol-paths.txt" "$WORK/symbol-hashes.txt" > "$WORK/symbol-paths-hashes.tsv"
 
   # Work dir, not the vault: this is a disposable derived cache, and at
-  # large-repo scale it is ~942 MB against _index.json's 26 MB. See the header.
+  # large-repo scale it is ~942 MB against the reverse index's 26 MB. See the header.
   CACHE_FILE="${SYNAPSE_WORK_DIR:-$HOME/.claude/synapse-work/$REPO_NAME}/_tags_cache.bin"
   SYNAPSE_BIN="${SYNAPSE_BIN:-$HOME/.claude/bin/synapse}"
   if [ -x "$SYNAPSE_BIN" ]; then

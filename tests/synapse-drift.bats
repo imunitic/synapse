@@ -86,20 +86,13 @@ stage_node() { # stage_node <title> <commit> <path>...
   } > "$VAULT/synapse/$(repo_name)/$title.md"
 }
 
-# _index.json mapping each given path to one node, as synapse-build-index.sh would.
+# An index mapping each given path to one node, as synapse-build-index.sh would.
+# Built through the shipped writer rather than authored, so the fixture cannot
+# encode something the real builder never would.
 stage_index() { # stage_index <node.md> <path>...
-  local node="$1"; shift
-  mkdir -p "$VAULT/synapse/$(repo_name)"
-  {
-    printf '{'
-    local first=1 p
-    for p in "$@"; do
-      [ "$first" -eq 1 ] || printf ','
-      printf '"%s":["%s"]' "$p" "$node"
-      first=0
-    done
-    printf ',"_unassigned":[]}'
-  } > "$VAULT/synapse/$(repo_name)/_index.json"
+  local node="$1" p; shift
+  for p in "$@"; do printf '%s\t%s\n' "$p" "$node"; done \
+    | write_index_bin "$WORK"
 }
 
 @test "a namespace built at HEAD reports nothing" {

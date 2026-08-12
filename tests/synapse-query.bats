@@ -87,16 +87,20 @@ write_node() {
   } > "$VAULT/synapse/$(repo_name)/$node"
 }
 
-write_node_index() {
-  mkdir -p "$VAULT/synapse/$(repo_name)"
-  printf '%s' "$1" > "$VAULT/synapse/$(repo_name)/_index.json"
+# The index the query reads, built through the shipped writer. Every path here
+# maps to one node, which is what these tests need; a path with two claimants is
+# synapse-build-index.bats's case.
+write_node_index() { # write_node_index <node.md> <path>...
+  local node="$1" p; shift
+  for p in "$@"; do printf '%s\t%s\n' "$p" "$node"; done \
+    | write_index_bin "$(default_work_dir)"
 }
 
 @test "stale: node whose files are unchanged: reports nothing, exit 0" {
   make_repo
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
   write_node "Foo Node.md" "src/foo.ml"
-  write_node_index '{"src/foo.ml":["Foo Node.md"],"_unassigned":[]}'
+  write_node_index 'Foo Node.md' src/foo.ml
 
   run run_stale
   [ "$status" -eq 0 ]
@@ -107,7 +111,7 @@ write_node_index() {
   make_repo
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
   write_node "Foo Node.md" "src/foo.ml"
-  write_node_index '{"src/foo.ml":["Foo Node.md"],"_unassigned":[]}'
+  write_node_index 'Foo Node.md' src/foo.ml
 
   # The case Tier 1 cannot see: an edit that never went through a hook.
   printf 'let x = 2 (* changed *)\n' > "$REPO/src/foo.ml"
@@ -122,7 +126,7 @@ write_node_index() {
   make_repo
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
   write_node "Foo Node.md" "src/foo.ml"
-  write_node_index '{"src/foo.ml":["Foo Node.md"],"_unassigned":[]}'
+  write_node_index 'Foo Node.md' src/foo.ml
 
   rm "$REPO/src/foo.ml"
 
@@ -140,7 +144,7 @@ write_node_index() {
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
   # written in reverse order; the digest sorts, so it must still verify
   write_node "Foo Node.md" "src/foo.ml" "src/bar.ml"
-  write_node_index '{"src/foo.ml":["Foo Node.md"],"src/bar.ml":["Foo Node.md"],"_unassigned":[]}'
+  write_node_index 'Foo Node.md' src/foo.ml src/bar.ml
 
   run run_stale
   [ "$status" -eq 0 ]
@@ -152,7 +156,7 @@ write_node_index() {
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
   FORCE_DIGEST="0000000000000000000000000000000000000000000000000000000000000000" \
     write_node "Foo Node.md" "src/foo.ml"
-  write_node_index '{"src/foo.ml":["Foo Node.md"],"_unassigned":[]}'
+  write_node_index 'Foo Node.md' src/foo.ml
 
   run run_stale
   [ "$status" -eq 0 ]
@@ -166,17 +170,17 @@ write_node_index() {
   # strip the digest, simulating a namespace built under the old format
   grep -v '^sources_digest:' "$VAULT/synapse/$(repo_name)/Foo Node.md" > "$TEST_HOME/tmp" \
     && mv "$TEST_HOME/tmp" "$VAULT/synapse/$(repo_name)/Foo Node.md"
-  write_node_index '{"src/foo.ml":["Foo Node.md"],"_unassigned":[]}'
+  write_node_index 'Foo Node.md' src/foo.ml
 
   run run_stale
   [ "$status" -eq 0 ]
   [[ "$output" == *"no sources_digest"* ]]
 }
 
-@test "stale: node in _index.json but missing from the vault: reported" {
+@test "stale: node in the index but missing from the vault: reported" {
   make_repo
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_node_index '{"src/foo.ml":["Ghost Node.md"],"_unassigned":[]}'
+  write_node_index 'Ghost Node.md' src/foo.ml
 
   run run_stale
   [ "$status" -eq 0 ]
@@ -186,7 +190,7 @@ write_node_index() {
 @test "stale: namespace belongs to a different remote: exits 1, reports nothing" {
   make_repo "ssh://git@example.com/mine.git"
   write_synapse_index "$(repo_name)" "ssh://git@example.com/SOMEONE-ELSE.git"
-  write_node_index '{"src/foo.ml":["Foo Node.md"],"_unassigned":[]}'
+  write_node_index 'Foo Node.md' src/foo.ml
 
   run run_stale
   [ "$status" -eq 1 ]

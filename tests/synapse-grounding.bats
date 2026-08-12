@@ -44,8 +44,7 @@ build_grounded_node() {
   in_repo "$WRITER" --title "Premium" --summary "Premium calc." \
     --paths "$PATHS" --body "$BODY" >/dev/null
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  printf '{"lib/calc.ml":["Premium.md"],"src/foo.ml":["Premium.md"],"_unassigned":[]}' \
-    > "$(ns)/_index.json"
+  printf 'lib/calc.ml\tPremium.md\nsrc/foo.ml\tPremium.md\n' | write_index_bin "$(default_work_dir)"
 }
 
 @test "grounding: silence when every recorded grounding still matches" {
@@ -116,7 +115,7 @@ build_grounded_node() {
   printf '## Summary\nUngrounded.\n' > "$BODY"
   in_repo "$WRITER" --title "Plain" --summary "S." --paths "$PATHS" --body "$BODY" >/dev/null
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  printf '{"src/foo.ml":["Plain.md"],"_unassigned":[]}' > "$(ns)/_index.json"
+  printf 'src/foo.ml\tPlain.md\n' | write_index_bin "$(default_work_dir)"
 
   run in_repo "$QUERY" grounding
   [ "$status" -eq 0 ]

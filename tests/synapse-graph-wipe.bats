@@ -98,7 +98,6 @@ Generated stuff about Node B.
 ## Notes
 
 EOF
-  : > "$dir/_index.json"
   printf 'Node A\t^a\t\nNode B\t^b\t\n' > "$dir/_manifest.tsv"
 }
 
@@ -246,7 +245,6 @@ EOF
   printf -- '---\nsummary: Src in one line.\n---\n\n## Summary\nProse for src.\n' > "$WORK/b-01.md"
   in_repo "$BIN/synapse-push-nodes.sh" >/dev/null
   in_repo "$BIN/synapse-build-index.sh" >/dev/null
-  cp "$TEST_HOME/capture/index-put.json" "$(ns_dir)/_index.json"
   in_repo "$BIN/synapse-build-project-index.sh" >/dev/null
 
   run in_repo "$BIN/synapse-query.sh" drift

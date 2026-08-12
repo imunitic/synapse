@@ -4,8 +4,13 @@
 # enumerated path (an unlisted path silently flags nothing stale) and that its
 # values are usable as vault paths verbatim, i.e. carry the `.md` extension.
 #
-# The PUT payload is captured by tests/fixtures/fake-bin/curl into
-# $FAKE_CURL_CAPTURE_DIR/index-put.json, so assertions run against the real JSON.
+# The index is now $SYNAPSE_WORK_DIR/_index.bin, so these assertions read it back
+# through `synapse index lookup` and `synapse index unassigned` rather than with
+# `jq` over a captured PUT body. That is a round trip rather than an inspection,
+# which is the point: the only thing that has to hold is that what a reader finds
+# matches what the lists said, and a reader is exactly what these two forms are.
+# The previous curl capture is gone along with the PUT -- see the "no vault, no
+# curl" test for what replaced the failed-PUT case.
 
 load 'test_helper'
 
@@ -13,12 +18,8 @@ BUILD_INDEX="$REPO_ROOT/claude/lib/synapse/synapse-build-index.sh"
 
 setup() {
   common_setup
-  setup_fake_obsidian_plugin
-  CURL_LOG="$TEST_HOME/curl.log"
-  : > "$CURL_LOG"
   WORK="$TEST_HOME/work"
-  CAPTURE="$TEST_HOME/capture"
-  mkdir -p "$WORK/lists" "$CAPTURE"
+  mkdir -p "$WORK/lists"
   : > "$WORK/unassigned.txt"
   make_repo
 }
@@ -28,12 +29,7 @@ teardown() {
 }
 
 run_build_index() {
-  PATH="$FAKE_BIN:$PATH" \
-    FAKE_CURL_LOG="$CURL_LOG" \
-    FAKE_CURL_VAULT_DIR="$VAULT" \
-    FAKE_CURL_CAPTURE_DIR="$CAPTURE" \
-    FAKE_CURL_PUT_STATUS="${PUT_STATUS:-200}" \
-    SYNAPSE_WORK_DIR="$WORK" \
+  SYNAPSE_WORK_DIR="$WORK" \
     bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$BUILD_INDEX" "$@"
 }
 
@@ -43,7 +39,14 @@ stage_list() {
   printf '%s\n' "$@" > "$WORK/lists/$nn.txt"
 }
 
-index_json() { echo "$CAPTURE/index-put.json"; }
+# The nodes claiming one path, comma-joined, read back out of the written index.
+claimants() {
+  SYNAPSE_WORK_DIR="$WORK" "$SYNAPSE_BIN" index lookup "$1" | paste -sd, -
+}
+
+unassigned_paths() {
+  SYNAPSE_WORK_DIR="$WORK" "$SYNAPSE_BIN" index unassigned
+}
 
 @test "maps each path to its owning node, with the .md extension" {
   stage_list 01 "Mod A" mod-a/a.txt mod-a/b.txt
@@ -54,9 +57,9 @@ index_json() { echo "$CAPTURE/index-put.json"; }
 
   # The hook and the read-time procedure use this value directly as a vault path
   # with no extension handling of their own.
-  [ "$(jq -r '."mod-a/a.txt"[0]' "$(index_json)")" = "Mod A.md" ]
-  [ "$(jq -r '."mod-a/b.txt"[0]' "$(index_json)")" = "Mod A.md" ]
-  [ "$(jq -r '."docs/d.md"[0]' "$(index_json)")" = "Docs.md" ]
+  [ "$(claimants mod-a/a.txt)" = "Mod A.md" ]
+  [ "$(claimants mod-a/b.txt)" = "Mod A.md" ]
+  [ "$(claimants docs/d.md)" = "Docs.md" ]
 }
 
 @test "a file load-bearing for two concepts lists both nodes, sorted" {
@@ -66,30 +69,46 @@ index_json() { echo "$CAPTURE/index-put.json"; }
 
   run run_build_index
   [ "$status" -eq 0 ]
-  [ "$(jq -r '."shared/thing.java" | length' "$(index_json)")" -eq 2 ]
-  [ "$(jq -r '."shared/thing.java"[0]' "$(index_json)")" = "Alpha.md" ]
-  [ "$(jq -r '."shared/thing.java"[1]' "$(index_json)")" = "Zeta.md" ]
+  [ "$(claimants shared/thing.java)" = "Alpha.md,Zeta.md" ]
 }
 
-@test "_unassigned carries what no node claimed" {
+@test "the unassigned list carries what no node claimed, in the order given" {
   stage_list 01 "Mod A" mod-a/a.txt
   printf 'stray.txt\n.claude/settings.json\n' > "$WORK/unassigned.txt"
 
   run run_build_index
   [ "$status" -eq 0 ]
-  [ "$(jq -r '._unassigned | length' "$(index_json)")" -eq 2 ]
-  jq -e '._unassigned | index("stray.txt")' "$(index_json)" > /dev/null
   [[ "$output" == *"unassigned=2"* ]]
+  [ "$(unassigned_paths | paste -sd, -)" = "stray.txt,.claude/settings.json" ]
 }
 
-@test "an empty unassigned.txt yields an empty array, not a null or a blank entry" {
+@test "an unassigned path is not also a claimed one" {
+  # "Claimed by nobody" and "never enumerated" are different answers, and the
+  # index has to keep them apart: the first is in the unassigned list, the
+  # second is in neither place. `lookup` says nothing for both, by design.
+  stage_list 01 "Mod A" mod-a/a.txt
+  printf 'stray.txt\n' > "$WORK/unassigned.txt"
+
+  run run_build_index
+  [ "$status" -eq 0 ]
+
+  run bash -c "SYNAPSE_WORK_DIR='$WORK' '$SYNAPSE_BIN' index lookup stray.txt"
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+
+  run bash -c "SYNAPSE_WORK_DIR='$WORK' '$SYNAPSE_BIN' index lookup never/enumerated.txt"
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
+}
+
+@test "an empty unassigned.txt yields no entries, not one blank one" {
   stage_list 01 "Mod A" mod-a/a.txt
   : > "$WORK/unassigned.txt"
 
   run run_build_index
   [ "$status" -eq 0 ]
-  [ "$(jq -r '._unassigned | type' "$(index_json)")" = "array" ]
-  [ "$(jq -r '._unassigned | length' "$(index_json)")" -eq 0 ]
+  [[ "$output" == *"unassigned=0"* ]]
+  [ -z "$(unassigned_paths)" ]
 }
 
 @test "node values are sanitized to the filenames that actually exist on disk" {
@@ -99,7 +118,7 @@ index_json() { echo "$CAPTURE/index-put.json"; }
 
   run run_build_index
   [ "$status" -eq 0 ]
-  [ "$(jq -r '."mod-a/a.txt"[0]' "$(index_json)")" = "Bad — import_export.md" ]
+  [ "$(claimants mod-a/a.txt)" = "Bad — import_export.md" ]
 }
 
 @test "blank lines in a list do not become empty keys" {
@@ -108,8 +127,12 @@ index_json() { echo "$CAPTURE/index-put.json"; }
 
   run run_build_index
   [ "$status" -eq 0 ]
-  [ "$(jq -r 'keys | length' "$(index_json)")" -eq 3 ]  # 2 paths + _unassigned
-  run jq -e 'has("")' "$(index_json)"
+  # Two paths, and `keys` now counts only paths. The JSON index reported 3 here,
+  # because `_unassigned` was a sibling key of every path in the same object and
+  # `jq 'keys | length'` counted it. It is a separate region now, counted
+  # separately, so the honest number for two paths is 2.
+  [[ "$output" == *"keys=2"* ]]
+  run bash -c "SYNAPSE_WORK_DIR='$WORK' '$SYNAPSE_BIN' index lookup ''"
   [ "$status" -ne 0 ]
 }
 
@@ -119,25 +142,44 @@ index_json() { echo "$CAPTURE/index-put.json"; }
 
   run run_build_index
   [ "$status" -eq 0 ]
-  run jq -e 'has("orphan/path.txt")' "$(index_json)"
-  [ "$status" -ne 0 ]
+  run bash -c "SYNAPSE_WORK_DIR='$WORK' '$SYNAPSE_BIN' index lookup orphan/path.txt"
+  [ "$status" -eq 1 ]
 }
 
 @test "reports key count and byte size so a truncated index is visible" {
   stage_list 01 "Mod A" mod-a/a.txt mod-a/b.txt
   run run_build_index
   [ "$status" -eq 0 ]
-  [[ "$output" == *"keys=3"* ]]
+  [[ "$output" == *"keys=2"* ]]
   [[ "$output" == *"bytes="* ]]
+  [ -s "$WORK/_index.bin" ]
 }
 
-@test "a non-2xx PUT fails and stores nothing" {
+@test "no vault, no curl: the index is written with neither configured" {
+  # This replaces the old failed-PUT test, whose machinery stopped existing. The
+  # index is derived, gitignored in the vault and never travelled, so it is
+  # written locally now -- which means this script no longer reads the plugin's
+  # API key or certificate, and no longer needs the agent sandbox disabled.
   stage_list 01 "Mod A" mod-a/a.txt
 
-  PUT_STATUS=500 run run_build_index
+  run env -u OBSIDIAN_VAULT_DIR PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+    SYNAPSE_BIN="$SYNAPSE_BIN" SYNAPSE_WORK_DIR="$WORK" HOME="$TEST_HOME" \
+    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$BUILD_INDEX"
+  [ "$status" -eq 0 ]
+  [ -s "$WORK/_index.bin" ]
+}
+
+@test "a missing synapse binary is exit 1, naming the fix" {
+  # Unlike the tags-cache refresh in synapse-write-node.sh, which is a byproduct
+  # and degrades to skipping, the binary is the only writer here.
+  stage_list 01 "Mod A" mod-a/a.txt
+
+  run env SYNAPSE_BIN="$TEST_HOME/nonexistent-synapse" SYNAPSE_WORK_DIR="$WORK" \
+    bash -c 'cd "$1" && shift && bash "$@"' _ "$REPO" "$BUILD_INDEX"
   [ "$status" -eq 1 ]
-  [[ "$output" == *"PUT failed (500)"* ]]
-  [ ! -f "$(index_json)" ]
+  [[ "$output" == *"no synapse binary"* ]]
+  [[ "$output" == *"run setup.sh"* ]]
+  [ ! -f "$WORK/_index.bin" ]
 }
 
 @test "missing lists, missing unassigned.txt and an empty lists dir each exit 1" {

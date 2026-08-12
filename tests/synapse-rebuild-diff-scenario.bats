@@ -78,7 +78,6 @@ build_namespace() {
   done
   in_repo "$BIN/synapse-push-nodes.sh" >/dev/null
   in_repo "$BIN/synapse-build-index.sh" >/dev/null
-  cp "$TEST_HOME/capture/index-put.json" "$(ns)/_index.json"
   in_repo "$BIN/synapse-build-project-index.sh" >/dev/null
 }
 
@@ -168,7 +167,6 @@ drift() { in_repo "$BIN/synapse-query.sh" drift; }
 
   # And the node no longer drifts: paths reseated, baseline re-recorded.
   in_repo "$BIN/synapse-build-index.sh" >/dev/null
-  cp "$TEST_HOME/capture/index-put.json" "$(ns)/_index.json"
   run drift
   [[ "$output" != *"Beta — the second module"* ]]
 }
@@ -264,7 +262,6 @@ drift() { in_repo "$BIN/synapse-query.sh" drift; }
       --paths "$WORK/lists/$nn.txt" --body "$WORK/r-$nn.md" >/dev/null
   done
   in_repo "$BIN/synapse-build-index.sh" >/dev/null
-  cp "$TEST_HOME/capture/index-put.json" "$(ns)/_index.json"
   in_repo "$BIN/synapse-build-project-index.sh" >/dev/null
 
   run drift

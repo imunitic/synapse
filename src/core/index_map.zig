@@ -78,6 +78,65 @@ pub fn build(
     return format.encode(gpa, entries, unassigned);
 }
 
+/// The index's bytes again with `extra` added to the unassigned list, or null
+/// when it is already there.
+///
+/// A whole re-encode, because every region's offsets move when one grows. That
+/// is affordable precisely where it is used: the staleness hook reaches here
+/// only for a file no node claims and that is not already listed, which is a
+/// genuinely new path rather than something that happens per edit. What it
+/// replaces is a 27 MB `jq` read-modify-write followed by a 27 MB HTTPS PUT, so
+/// even the uncommon case gets cheaper.
+///
+/// Appends rather than inserting in order: the unassigned list has never been
+/// sorted, and its reader iterates the whole thing.
+pub fn withUnassigned(
+    gpa: Allocator,
+    view: format.View,
+    extra: []const u8,
+) BuildError!?[]u8 {
+    var unassigned: std.ArrayListUnmanaged([]const u8) = .empty;
+    defer unassigned.deinit(gpa);
+
+    var it = view.unassignedIter();
+    while (it.next()) |p| {
+        // Idempotent: the hook fires on every edit, and re-listing a path it
+        // already queued would grow the file without bound.
+        if (std.mem.eql(u8, p, extra)) return null;
+        try unassigned.append(gpa, p);
+    }
+    try unassigned.append(gpa, extra);
+
+    var entries = try gpa.alloc(format.Entry, view.count());
+    defer gpa.free(entries);
+    // One flat allocation for every node-name slice, indexed by the running
+    // offset each entry records -- a slice per entry would be `view.count()`
+    // small allocations for no gain.
+    var names: std.ArrayListUnmanaged([]const u8) = .empty;
+    defer names.deinit(gpa);
+
+    var i: u32 = 0;
+    while (i < view.count()) : (i += 1) {
+        const r = view.record(i);
+        const at = names.items.len;
+        var k: u8 = 0;
+        while (k < r.ids_len) : (k += 1)
+            try names.append(gpa, view.nodeName(view.nodeId(r, k)));
+        entries[i] = .{ .path = view.path(r), .nodes = names.items[at..][0..r.ids_len] };
+    }
+    // `names` may have reallocated while it grew, so the slices above are fixed
+    // up once it has stopped growing rather than trusted as they were taken.
+    var off: usize = 0;
+    i = 0;
+    while (i < view.count()) : (i += 1) {
+        const n = view.record(i).ids_len;
+        entries[i].nodes = names.items[off..][0..n];
+        off += n;
+    }
+
+    return try format.encode(gpa, entries, unassigned.items);
+}
+
 fn lessByBytes(_: void, a: []const u8, b: []const u8) bool {
     return std.mem.order(u8, a, b) == .lt;
 }
@@ -342,6 +401,43 @@ test "written and mapped back, a path resolves to its nodes" {
     var it = map.unassignedIter();
     try testing.expectEqualStrings("src/Orphan.java", it.next().?);
     try testing.expectEqual(@as(?[]const u8, null), it.next());
+}
+
+test "adding an unassigned path preserves every claim, and is idempotent" {
+    const gpa = testing.allocator;
+    const bytes = try build(gpa, &.{
+        .{ .path = "src/Alpha.java", .node = "Alpha.md" },
+        .{ .path = "src/Shared.java", .node = "Beta.md" },
+        .{ .path = "src/Shared.java", .node = "Alpha.md" },
+    }, &.{"old.java"});
+    defer gpa.free(bytes);
+
+    const grown = (try withUnassigned(gpa, try format.parse(bytes), "new.java")).?;
+    defer gpa.free(grown);
+
+    const view = try format.parse(grown);
+    try testing.expectEqual(@as(u32, 2), view.count());
+    try testing.expectEqual(@as(u32, 2), view.nodeCount());
+    try testing.expectEqual(@as(u32, 2), view.unassignedCount());
+
+    // The multi-claimant record is the one a careless re-encode would flatten.
+    var buf: [max_nodes_per_path][]const u8 = undefined;
+    const both = view.nodes(view.record(1), &buf);
+    try testing.expectEqualStrings("src/Shared.java", view.path(view.record(1)));
+    try testing.expectEqual(@as(usize, 2), both.len);
+    try testing.expectEqualStrings("Alpha.md", both[0]);
+    try testing.expectEqualStrings("Beta.md", both[1]);
+
+    var it = view.unassignedIter();
+    try testing.expectEqualStrings("old.java", it.next().?);
+    try testing.expectEqualStrings("new.java", it.next().?);
+    try testing.expectEqual(@as(?[]const u8, null), it.next());
+
+    // Already listed: null rather than a file that grows on every edit.
+    try testing.expectEqual(
+        @as(?[]u8, null),
+        try withUnassigned(gpa, view, "new.java"),
+    );
 }
 
 test "an _index.json left at the path is discarded, not misread" {
