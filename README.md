@@ -136,7 +136,8 @@ plain-English summary, a quoted `crux`, typed links, and the exhaustive list of 
 
 ```sh
 brew install bats-core parallel just     # if not already installed
-just check                               # syntax + suite + generated artefacts, what CI runs
+just check                               # the gate, ~2:20 -- suite runs in the container
+just check-local                         # same, bats on the host instead -- no podman needed
 just test-changed                        # inner loop: only the tests covering what you edited
 just test tests/synapse-query.bats       # one file
 bats --jobs "$(getconf _NPROCESSORS_ONLN)" tests/   # the suite directly, what `just test` wraps
@@ -146,6 +147,12 @@ bats --jobs "$(getconf _NPROCESSORS_ONLN)" tests/   # the suite directly, what `
 correct). `just test-changed` narrows to the tests that name the files you edited, derived by grep
 rather than a maintained list — a lower bound on coverage, so `just check` stays the gate before
 committing.
+
+`just check` runs the suite in the Linux container, which is not a preference: the same 443 tests take
+~30s there against six to seven minutes on the host, because macOS `fork`/`exec` costs 6.5ms where
+Linux costs 0.24ms — which took the whole gate from ~8min to 2:20. `just check-local` is the same gate with host bats, for a machine without podman —
+and it is also how you tell a container artefact from a real finding, since the container's
+`DebugAllocator` reports leaks the native build stays silent about.
 
 Every test runs against a throwaway `$HOME`, git repo and Vault created in `tests/test_helper.bash` —
 nothing touches your real `~/.claude` or Vault, and tests share no state, which is what makes

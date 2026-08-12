@@ -305,9 +305,28 @@ fix:
 # leaving it out would mean a green local gate can still fail the push, which is
 # the drift that actually wastes time.
 
+# The bats step is `test-linux`, not `test`, and the difference is not small:
+# measured on the same commit and the same 443 tests, the container is ~30s where
+# the host is six to seven minutes. Both parallelise, so the gap is macOS
+# fork/exec cost -- 6.5ms against 0.24ms per exec on the same M3, 27x.
+#
+# End to end that took this whole gate from ~8min to 2:20, of which the bats run is
+# now the small part -- the rest is the two release-target builds and the diagram
+# check's Chromium. A gate that takes eight minutes gets run less often than one
+# that takes two, and a gate nobody runs is worth nothing.
+#
 # The full gate -- run before every commit.
-check: build build-targets test-zig layering syntax test docs-check
+check: build build-targets test-zig layering syntax test-linux docs-check
     @echo "all green"
+
+# For when podman is not available, and as the answer to "is this a container
+# artefact?" -- the container runs Linux with a DebugAllocator that reports leaks
+# the native build stays silent about, so a failure there and not here is a real
+# finding rather than a flake. It found two.
+#
+# The full gate with the bats suite on the host instead of in the container.
+check-local: build build-targets test-zig layering syntax test docs-check
+    @echo "all green (host bats)"
 
 # Several scripts shell out to the *installed* copy rather than the repo one, so
 # an unsynced ~/.claude means testing a mix of old and new.
