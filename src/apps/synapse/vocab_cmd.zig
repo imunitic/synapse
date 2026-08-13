@@ -2,11 +2,30 @@
 //!
 //!   vocab [--repo <path>] [--depth N] [--chunk N] [--out <dir>] [--lists <dir>]
 //!
-//! Writes `<out>/groupwords.tsv` (`group <TAB> word <TAB> count`, group then
-//! count descending) and `<out>/counts.tsv` (`group <TAB> file count`, count
-//! descending). Prints groups / files / code files / pairs on stderr, so a repo
-//! that yielded no vocabulary is a number rather than an empty file nobody
-//! looked at.
+//! Writes three tables into `<out>`, all keyed by the same group:
+//!
+//!   counts.tsv      group <TAB> file count           count descending
+//!   groupwords.tsv  group <TAB> word <TAB> count      group, then count desc
+//!   groupexts.tsv   group <TAB> kind <TAB> count      group, then count desc
+//!
+//! Prints groups / files / code files / pairs on stderr, so a repo that yielded
+//! no vocabulary is a number rather than an empty file nobody looked at.
+//!
+//! ## Why the extension table is here and not in a command of its own
+//!
+//! It answers a different question from the vocabulary -- what an area is *made
+//! of*, rather than what it talks about -- and a group that is 60% JSON or
+//! `.bpmn` says something no module name will. It needs no tagging at all, so
+//! it could live anywhere.
+//!
+//! It lives here because it must be keyed by exactly the same rule. Two tables
+//! about the same groups, produced by two implementations of "which group is
+//! this path in", is how a group comes to look like it has vocabulary but no
+//! files. Sharing the map makes agreement structural instead of a thing to keep
+//! checking.
+//!
+//! Counted over every kept path rather than the code subset, which is the whole
+//! point: the interesting files are the ones no grammar can read.
 //!
 //! ## The chunking apparatus is gone, and `--chunk` is now inert
 //!
@@ -270,6 +289,29 @@ fn build(
 
     try writeCounts(gpa, io, opts.out, &counts);
 
+    // The artifact mix, off the same `groups` map so its keys agree with
+    // `counts.tsv` by construction rather than by two rules staying in step.
+    //
+    // Counted over every kept path, not over the `code` subset below. That is
+    // the whole point: a group that is 60% JSON, `.bpmn` or `.sql` is telling
+    // you something no module name will, and those are exactly the files a
+    // grammar-keyed view cannot see. It needs no tagging, so it costs one more
+    // pass over a list already in memory.
+    var mix: std.StringHashMapUnmanaged(usize) = .empty;
+    for (kept.items) |p| {
+        const in = groups.get(p) orelse continue;
+        const kind = try core.vocab.artifactOf(arena, p);
+        for (in.items) |g| {
+            const key = try std.fmt.allocPrint(arena, "{s}\t{s}", .{ g, kind });
+            const e = try mix.getOrPut(arena, key);
+            if (!e.found_existing) e.value_ptr.* = 0;
+            e.value_ptr.* += 1;
+        }
+    }
+    const groupexts_path = try std.fmt.allocPrint(gpa, "{s}/groupexts.tsv", .{opts.out});
+    defer gpa.free(groupexts_path);
+    try writeGroupTable(gpa, io, groupexts_path, &mix);
+
     // The code subset: a usable grammar, and not machine output that happens to
     // end in a code extension. `core.enumerate.isNoise` already knows the second
     // rule -- it is the same `.min.js`/`.map` set, and one definition beats two.
@@ -417,7 +459,7 @@ fn build(
         w.local.deinit(gpa);
     };
 
-    try writeGroupwords(gpa, io, groupwords_path, &pairs);
+    try writeGroupTable(gpa, io, groupwords_path, &pairs);
 
     std.debug.print("synapse-vocab: groups {d}, files {d}, code {d}, pairs {d} -> {s}\n", .{
         counts.count(),
@@ -542,10 +584,15 @@ fn writeCounts(
 
 const PairRow = struct { key: []const u8, count: usize };
 
-/// `group <TAB> word <TAB> count`, group ascending then count descending -- the
-/// script's `sort -k1,1 -k3,3nr`. The key already holds the tab, so the group
-/// comparison is a prefix comparison of the whole key up to it.
-fn writeGroupwords(
+/// `group <TAB> thing <TAB> count`, group ascending then count descending --
+/// the script's `sort -k1,1 -k3,3nr`. The key already holds the tab, so the
+/// group comparison is a prefix comparison of the whole key up to it.
+///
+/// Shared by `groupwords.tsv` and `groupexts.tsv`, which differ only in what
+/// the middle column holds. One ordering rule rather than two means the two
+/// tables can be read side by side without wondering whether a difference is
+/// real or an artefact of how each was sorted.
+fn writeGroupTable(
     gpa: Allocator,
     io: Io,
     path: []const u8,

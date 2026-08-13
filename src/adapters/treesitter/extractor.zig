@@ -42,16 +42,37 @@ pub const TsBackend = struct {
         repo_dir: []const u8,
         grammars_dir: []const u8,
         name: []const u8,
+        /// The sub-directory holding `src/parser.c`, or null for the repo root.
+        /// See `Registry.pathFor`.
+        sub_path: ?[]const u8,
+        /// An explicit `tree_sitter_*` name, or null to derive it from the repo
+        /// name. See `Registry.symbolFor`.
+        sub_symbol: ?[]const u8,
     ) !Grammar {
+        const symbol = if (sub_symbol) |s| try gpa.dupe(u8, s) else try grammar.symbolFor(gpa, name);
+        defer gpa.free(symbol);
+
+        // Keyed by symbol, not by repo name. One repo can ship several grammars,
+        // and they must not compile over each other: `tree_sitter_ocaml` and
+        // `tree_sitter_ocaml_interface` come out of the same clone. Two
+        // extensions resolving to the same language still share one library,
+        // which is what `kt` and `kts` want.
         const lib_path = try std.fmt.allocPrint(gpa, "{s}/lib/{s}.{s}", .{
-            grammars_dir, name, grammar.sharedLibExt(),
+            grammars_dir, symbol, grammar.sharedLibExt(),
         });
         defer gpa.free(lib_path);
 
-        try grammar.build(io, gpa, repo_dir, lib_path);
+        // The parser may live under a sub-directory. The tags query does not move
+        // with it -- it stays at the repo root, shared by every sub-grammar --
+        // which is why finding a query proves nothing about finding a parser.
+        const src_root = if (sub_path) |p|
+            try std.fs.path.join(gpa, &.{ repo_dir, p })
+        else
+            try gpa.dupe(u8, repo_dir);
+        defer gpa.free(src_root);
 
-        const symbol = try grammar.symbolFor(gpa, name);
-        defer gpa.free(symbol);
+        try grammar.build(io, gpa, src_root, lib_path);
+
         const lang = try grammar.load(gpa, lib_path, symbol);
 
         const scm_path = try std.fs.path.join(gpa, &.{ repo_dir, "queries", "tags.scm" });
@@ -234,7 +255,15 @@ pub fn Extractor(comptime Backend: type) type {
             const repo_dir = try grammar.ensureCloned(io, gpa, repo_url, repos_parent, self.lock_tries);
             defer gpa.free(repo_dir);
 
-            return try Backend.load(gpa, io, repo_dir, self.grammars_dir, grammar.repoNameOf(repo_url));
+            return try Backend.load(
+                gpa,
+                io,
+                repo_dir,
+                self.grammars_dir,
+                grammar.repoNameOf(repo_url),
+                self.registry.pathFor(ext),
+                self.registry.symbolFor(ext),
+            );
         }
     };
 }

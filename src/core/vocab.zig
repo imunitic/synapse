@@ -126,6 +126,39 @@ pub fn groupOf(path: []const u8, depth: usize) []const u8 {
 /// mismatch is what makes a group look like it has vocabulary but no files.
 pub const repo_root_group = "(repo root)";
 
+/// What kind of artifact a path is, for the per-group mix: the lowercased
+/// extension, or the lowercased filename when there is no extension.
+///
+/// The filename fallback is the point rather than a tidy-up. Files with no dot
+/// are not noise -- `dune`, `Makefile`, `Dockerfile`, `BUILD` -- and a group
+/// made largely of them is exactly the kind of answer this table exists to
+/// give. Folding them all into one "none" bucket would report that something
+/// unusual is there while hiding what it is.
+///
+/// A leading dot is an extension, not an empty name: `.gitignore` is
+/// `gitignore`. That matches how the tags layer reads extensions, and it is
+/// also the more useful answer, since a group full of dotfiles is described by
+/// which dotfiles they are.
+pub fn artifactOf(gpa: std.mem.Allocator, path: []const u8) ![]u8 {
+    // The basename by hand rather than through `std.fs.path`, for the reason
+    // core may not name that namespace at all: these paths come from
+    // `git ls-files` and always use `/`, while `std.fs.path` would also split on
+    // `\` when built for Windows and turn `a\b.java` into a different answer on
+    // one platform than on another.
+    const base = blk: {
+        const slash = std.mem.lastIndexOfScalar(u8, path, '/') orelse break :blk path;
+        break :blk path[slash + 1 ..];
+    };
+    const from = blk: {
+        const dot = std.mem.lastIndexOfScalar(u8, base, '.') orelse break :blk base;
+        const ext = base[dot + 1 ..];
+        break :blk if (ext.len == 0) base else ext;
+    };
+    const out = try gpa.alloc(u8, from.len);
+    for (from, 0..) |ch, i| out[i] = std.ascii.toLower(ch);
+    return out;
+}
+
 const testing = std.testing;
 
 fn wordsOf(gpa: std.mem.Allocator, symbol: []const u8) ![][]u8 {
@@ -212,6 +245,34 @@ test "a repository-root file is named, not dropped" {
     try testing.expectEqualStrings("(repo root)", groupOf("README.md", 2));
     try testing.expectEqualStrings("(repo root)", groupOf("Makefile", 1));
     try testing.expectEqualStrings(repo_root_group, groupOf("build.zig", 2));
+}
+
+test "the artifact kind is the extension, or the filename when there is none" {
+    const gpa = testing.allocator;
+
+    const cases = [_]struct { path: []const u8, want: []const u8 }{
+        .{ .path = "src/main/java/Foo.java", .want = "java" },
+        // Lowercased, so one group does not report .SQL and .sql separately.
+        .{ .path = "db/Schema.SQL", .want = "sql" },
+        // No dot is a filename, not a blank. A group full of `dune` files is a
+        // finding; a group full of "none" is not.
+        .{ .path = "eon_edn/src/dune", .want = "dune" },
+        .{ .path = "Makefile", .want = "makefile" },
+        // A leading dot names an extension rather than an empty one.
+        .{ .path = ".gitignore", .want = "gitignore" },
+        // A trailing dot leaves nothing after it, so the filename stands.
+        .{ .path = "weird.", .want = "weird." },
+        // Only the last dot counts.
+        .{ .path = "app/bundle.min.js", .want = "js" },
+        // The directory's dots are not the file's.
+        .{ .path = "a.b/c", .want = "c" },
+    };
+
+    for (cases) |case| {
+        const got = try artifactOf(gpa, case.path);
+        defer gpa.free(got);
+        try testing.expectEqualStrings(case.want, got);
+    }
 }
 
 test "a deeper depth than the path has does not run off the end" {

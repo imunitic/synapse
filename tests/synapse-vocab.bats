@@ -128,6 +128,52 @@ count_of() { # count_of <group> <word>
   [ -n "$(count_of core/src invoice)" ]
 }
 
+@test "groupexts.tsv names what an area is made of, grammar or not" {
+  # The orientation question a module name cannot answer. The files that carry
+  # the answer are usually the ones no grammar can read, so this counts every
+  # kept path rather than the code subset.
+  git init -q "$REPO"
+  src core/src/A.java Alpha
+  printf 'x\n' > "$REPO/core/src/b.xml"
+  printf 'y\n' > "$REPO/core/src/c.xml"
+  # No dot at all. Reported by filename, because a group full of `dune` files is
+  # a finding and a group full of "none" is not.
+  printf 'z\n' > "$REPO/core/src/dune"
+  git -C "$REPO" add -A
+  git -C "$REPO" -c user.email=test@test -c user.name=test commit -q -m init
+
+  run run_vocab
+  [ "$status" -eq 0 ]
+
+  [ "$(awk -F'\t' '$1=="core/src" && $2=="xml" { print $3 }' "$OUT/groupexts.tsv")" = "2" ]
+  [ "$(awk -F'\t' '$1=="core/src" && $2=="java" { print $3 }' "$OUT/groupexts.tsv")" = "1" ]
+  [ "$(awk -F'\t' '$1=="core/src" && $2=="dune" { print $3 }' "$OUT/groupexts.tsv")" = "1" ]
+
+  # Most common first within a group, matching groupwords.tsv, so the two tables
+  # can be read side by side.
+  [ "$(awk -F'\t' '$1=="core/src" { print $2; exit }' "$OUT/groupexts.tsv")" = "xml" ]
+}
+
+@test "groupexts.tsv and counts.tsv agree, group for group" {
+  # The invariant that makes the two tables readable together. They are keyed by
+  # one shared map rather than two rules, and this is what that buys: a group
+  # can never appear to hold more kinds of file than it holds files.
+  git init -q "$REPO"
+  src core/src/A.java Alpha
+  src other/src/B.java Beta
+  printf 'x\n' > "$REPO/core/src/b.xml"
+  printf 'y\n' > "$REPO/top.md"
+  git -C "$REPO" add -A
+  git -C "$REPO" -c user.email=test@test -c user.name=test commit -q -m init
+
+  run run_vocab
+  [ "$status" -eq 0 ]
+
+  awk -F'\t' '{s[$1]+=$3} END{for (g in s) print g"\t"s[g]}' "$OUT/groupexts.tsv" | sort > "$TEST_HOME/sums"
+  sort "$OUT/counts.tsv" > "$TEST_HOME/counts"
+  diff "$TEST_HOME/counts" "$TEST_HOME/sums"
+}
+
 @test "counts.tsv counts every tracked file, not only the ones with a grammar" {
   # Coverage and vocabulary are separate axes: a group's size is what the model
   # weighs when clustering, and a module that is mostly XML is still that big.
@@ -357,7 +403,11 @@ write_list() { # write_list <NN> <title> <path>...
   # tags must never reach a file. This used to be asserted structurally, against
   # the shell worker's pipe -- there is no worker now, and the tags never leave
   # memory, so the property is asserted where it is observable: nothing but the
-  # two reductions appears in the output directory.
+  # three reductions appears in the output directory.
+  #
+  # The allowlist is meant to be widened by hand. Adding an output should fail
+  # this test once and be added here on purpose, which is what stops a debug
+  # dump of raw tags from arriving unnoticed.
   git init -q "$REPO"
   src core/src/A.java getUserName premium_rate_table
   git -C "$REPO" add -A
@@ -367,7 +417,7 @@ write_list() { # write_list <NN> <title> <path>...
   [ "$status" -eq 0 ]
 
   local unexpected
-  unexpected="$(ls -A "$OUT" | grep -vE '^(counts|groupwords)\.tsv$' || true)"
+  unexpected="$(ls -A "$OUT" | grep -vE '^(counts|groupwords|groupexts)\.tsv$' || true)"
   [ -z "$unexpected" ]
 }
 

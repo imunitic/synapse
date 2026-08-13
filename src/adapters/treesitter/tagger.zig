@@ -1,17 +1,36 @@
 //! Runs a grammar's own `queries/tags.scm` and turns the captures into `Tag`s.
 //!
-//! This is the part the `tree-sitter` CLI used to do, and it is far smaller
-//! than the CLI's Rust implementation because the expensive half of that
-//! implementation is not reachable from these queries: predicate evaluation
-//! and `locals.scm` scope tracking. Verified against the registry's grammars
-//! -- java, python and kotlin all use pure structural patterns, no `#eq?`, no
-//! `#match?`, no `#is-not? local`, and none of them ships a `locals.scm`.
+//! This is the part the `tree-sitter` CLI used to do, and it is smaller than
+//! the CLI's Rust implementation because half of what that implementation
+//! carries is not reachable from these queries: `locals.scm` scope tracking,
+//! and regex matching.
 //!
-//! Since that is a property of the queries rather than a guarantee, a query
-//! that does use a predicate is refused outright. A silently wrong tag is
-//! worse than an absent grammar: absent is visible and recoverable, wrong
-//! quietly poisons the cache, `_refs.tsv`, and every `callers` answer taken
-//! from it.
+//! ## Predicates, and the one rule that governs them
+//!
+//! **A tag that the query did not sanction is worse than no tag at all.**
+//! Absent is visible and recoverable. Wrong quietly poisons the tags cache,
+//! `_refs.tsv`, and every `callers` answer taken from them. Everything below
+//! follows from that.
+//!
+//! Predicates decide which matches count, so ignoring one lets through every
+//! match it was written to exclude. Measured on a real OCaml repository:
+//! evaluating them yields 9,991 call references, ignoring them yields 10,114,
+//! and the extra 123 are things like `^` string concatenation and `@` list
+//! append reported as function calls.
+//!
+//! So the string-comparison family is evaluated -- `#eq?`, `#not-eq?`,
+//! `#any-of?`, `#not-any-of?` -- which is a byte comparison against a capture's
+//! text and nothing more. `#match?` needs a regex engine that the standard
+//! library does not have, so a pattern using it is *disabled* rather than
+//! ignored, and never matches. Unknown predicate names are treated the same
+//! way, because assuming something filters costs a missing tag while assuming
+//! it does not costs a false one.
+//!
+//! Directives are not predicates and are skipped: `#strip!` and `#set!` rewrite
+//! a capture without changing which nodes matched. The distinction is
+//! tree-sitter's own convention -- `?` asks, `!` orders -- and it matters,
+//! because an earlier version refused any query carrying either and so shut out
+//! every grammar that annotates doc comments.
 //!
 //! The convention the captures follow: `@name` marks the identifier, and a
 //! sibling `@definition.<kind>` or `@reference.<kind>` capture supplies the
@@ -29,8 +48,9 @@ const Allocator = std.mem.Allocator;
 
 pub const Error = error{
     QueryInvalid,
-    /// The query uses a predicate. See the header: refused rather than
-    /// silently evaluated as always-true.
+    /// Every pattern in the query was disabled for asking something that cannot
+    /// be evaluated, so the query matches nothing. Reported rather than
+    /// returning no tags, which would read as "this file has no symbols".
     PredicateUnsupported,
     ParseFailed,
 };
@@ -46,15 +66,21 @@ pub const Tagger = struct {
             return Error.QueryInvalid;
         errdefer c.ts_query_delete(query);
 
-        // Refuse before parsing anything, so an unsupported grammar fails at
+        // Decided before parsing anything, so an unsupported grammar fails at
         // load rather than producing a plausible-looking partial answer.
         const patterns = c.ts_query_pattern_count(query);
+        var disabled: u32 = 0;
         var i: u32 = 0;
         while (i < patterns) : (i += 1) {
-            var count: u32 = 0;
-            _ = c.ts_query_predicates_for_pattern(query, i, &count);
-            if (count != 0) return Error.PredicateUnsupported;
+            if (patternIsUnevaluable(query, i)) {
+                c.ts_query_disable_pattern(query, i);
+                disabled += 1;
+            }
         }
+        // Every pattern gone is the same outcome the blanket refusal used to
+        // give, and it has to stay an error: a query that matches nothing would
+        // otherwise report a file as having no symbols at all.
+        if (patterns != 0 and disabled == patterns) return Error.PredicateUnsupported;
 
         const parser = c.ts_parser_new() orelse return Error.ParseFailed;
         errdefer c.ts_parser_delete(parser);
@@ -66,6 +92,159 @@ pub const Tagger = struct {
     pub fn deinit(self: *Tagger) void {
         c.ts_query_delete(self.query);
         c.ts_parser_delete(self.parser);
+    }
+
+    /// What a query can ask of a match, and whether this code can answer it.
+    ///
+    /// tree-sitter hands back predicates and directives in one list. They do
+    /// different jobs, and the distinction is its own convention: a name ending
+    /// in `?` asks a question and filters on the answer; a name ending in `!`
+    /// gives an order that rewrites a capture and changes nothing about which
+    /// nodes matched.
+    pub const Predicate = enum {
+        /// `#strip!`, `#set!`. Rewrites a capture for the caller's benefit. The
+        /// only captures read here are `@name` and the role captures, and no
+        /// shipped directive touches those, so ignoring them is safe.
+        directive,
+        /// Compares a capture's text against literals or another capture, which
+        /// is a byte comparison and nothing more.
+        eq,
+        not_eq,
+        any_of,
+        not_any_of,
+        /// `#match?` and anything unrecognised. `#match?` needs a regex engine,
+        /// which the standard library does not have. Unknown names land here
+        /// deliberately: guessing that something filters costs a missing tag,
+        /// and guessing that it does not costs a false one.
+        unevaluable,
+
+        fn parse(name: []const u8) Predicate {
+            if (name.len == 0) return .unevaluable;
+            if (name[name.len - 1] == '!') return .directive;
+            if (std.mem.eql(u8, name, "eq?")) return .eq;
+            if (std.mem.eql(u8, name, "not-eq?")) return .not_eq;
+            if (std.mem.eql(u8, name, "any-of?")) return .any_of;
+            if (std.mem.eql(u8, name, "not-any-of?")) return .not_any_of;
+            return .unevaluable;
+        }
+    };
+
+    /// Whether the pattern asks something this code cannot answer, in which case
+    /// it is disabled and never matches.
+    ///
+    /// Disabling rather than ignoring is the whole safety property: an
+    /// unevaluated `#match?` would let through every match it was written to
+    /// exclude, and those go into the tags cache, `_refs.tsv` and every
+    /// `callers` answer taken from them. A missing tag is visible and
+    /// recoverable; a false one is neither.
+    fn patternIsUnevaluable(query: *c.TSQuery, pattern: u32) bool {
+        var count: u32 = 0;
+        const steps = c.ts_query_predicates_for_pattern(query, pattern, &count);
+        var s: u32 = 0;
+        while (s < count) : (s += 1) {
+            if (nameAt(query, steps, count, s)) |name| {
+                if (Predicate.parse(name) == .unevaluable) return true;
+            }
+        }
+        return false;
+    }
+
+    /// The predicate name at step `s`, or null if that step is an argument.
+    ///
+    /// Steps run `name, arg, arg, ..., Done` and repeat, so a name is the first
+    /// step of the list and the first after every `Done`.
+    fn nameAt(query: *c.TSQuery, steps: [*c]const c.TSQueryPredicateStep, count: u32, s: u32) ?[]const u8 {
+        if (s != 0 and steps[s - 1].type != c.TSQueryPredicateStepTypeDone) return null;
+        if (s >= count) return null;
+        if (steps[s].type != c.TSQueryPredicateStepTypeString) return null;
+        var len: u32 = 0;
+        const ptr = c.ts_query_string_value_for_id(query, steps[s].value_id, &len) orelse return null;
+        return ptr[0..len];
+    }
+
+    /// Whether every predicate on this match holds.
+    ///
+    /// Called per match rather than per pattern, because the answer depends on
+    /// the text the captures landed on. A pattern reaching here has already been
+    /// checked at load: everything it asks is answerable.
+    fn predicatesHold(self: *const Tagger, match: c.TSQueryMatch, source: []const u8) bool {
+        var count: u32 = 0;
+        const steps = c.ts_query_predicates_for_pattern(self.query, match.pattern_index, &count);
+        if (count == 0) return true;
+
+        var s: u32 = 0;
+        while (s < count) {
+            const name = nameAt(self.query, steps, count, s) orelse {
+                s += 1;
+                continue;
+            };
+            const kind = Predicate.parse(name);
+
+            // The arguments run until the sentinel.
+            var end = s + 1;
+            while (end < count and steps[end].type != c.TSQueryPredicateStepTypeDone) end += 1;
+            const args = steps[s + 1 .. end];
+            s = end + 1;
+
+            if (kind == .directive) continue;
+            if (!self.holds(kind, args, match, source)) return false;
+        }
+        return true;
+    }
+
+    fn holds(
+        self: *const Tagger,
+        kind: Predicate,
+        args: []const c.TSQueryPredicateStep,
+        match: c.TSQueryMatch,
+        source: []const u8,
+    ) bool {
+        if (args.len < 2) return true;
+        // The first argument is always the capture under test. A predicate whose
+        // first argument is a literal is malformed, and letting the match
+        // through is the wrong direction, so it fails.
+        if (args[0].type != c.TSQueryPredicateStepTypeCapture) return false;
+        const lhs = self.captureText(args[0].value_id, match, source) orelse return false;
+
+        switch (kind) {
+            .eq, .not_eq => {
+                const rhs = switch (args[1].type) {
+                    c.TSQueryPredicateStepTypeCapture => self.captureText(args[1].value_id, match, source) orelse return false,
+                    else => self.stringValue(args[1].value_id) orelse return false,
+                };
+                const same = std.mem.eql(u8, lhs, rhs);
+                return if (kind == .eq) same else !same;
+            },
+            .any_of, .not_any_of => {
+                var found = false;
+                for (args[1..]) |a| {
+                    const v = self.stringValue(a.value_id) orelse continue;
+                    if (std.mem.eql(u8, lhs, v)) found = true;
+                }
+                return if (kind == .any_of) found else !found;
+            },
+            else => return true,
+        }
+    }
+
+    /// The source text a capture landed on, or null when the capture is absent
+    /// from this match or its bytes fall outside the source.
+    fn captureText(self: *const Tagger, capture_id: u32, match: c.TSQueryMatch, source: []const u8) ?[]const u8 {
+        _ = self;
+        for (match.captures[0..match.capture_count]) |cap| {
+            if (cap.index != capture_id) continue;
+            const start = c.ts_node_start_byte(cap.node);
+            const end = c.ts_node_end_byte(cap.node);
+            if (start > end or end > source.len) return null;
+            return source[start..end];
+        }
+        return null;
+    }
+
+    fn stringValue(self: *const Tagger, value_id: u32) ?[]const u8 {
+        var len: u32 = 0;
+        const ptr = c.ts_query_string_value_for_id(self.query, value_id, &len) orelse return null;
+        return ptr[0..len];
     }
 
     /// Tags for one file, each with the span the CLI reports.
@@ -98,6 +277,8 @@ pub const Tagger = struct {
 
         var match: c.TSQueryMatch = undefined;
         while (c.ts_query_cursor_next_match(cursor, &match)) {
+            if (!self.predicatesHold(match, source)) continue;
+
             var name_node: ?c.TSNode = null;
             var role: ?model.Role = null;
             var kind: []const u8 = "";
@@ -222,6 +403,32 @@ pub fn freeTagged(gpa: Allocator, tagged: []Tagged) void {
 }
 
 const testing = std.testing;
+
+test "predicates are classified into skip, evaluate, and refuse" {
+    const P = Tagger.Predicate;
+
+    // Directives rewrite a capture and change nothing about which nodes
+    // matched, so they are skipped. Refusing these shut out every grammar that
+    // annotates doc comments, which is most of them.
+    try testing.expectEqual(P.directive, P.parse("strip!"));
+    try testing.expectEqual(P.directive, P.parse("set!"));
+
+    // Byte comparisons against a capture's text. Nothing else is needed.
+    try testing.expectEqual(P.eq, P.parse("eq?"));
+    try testing.expectEqual(P.not_eq, P.parse("not-eq?"));
+    try testing.expectEqual(P.any_of, P.parse("any-of?"));
+    try testing.expectEqual(P.not_any_of, P.parse("not-any-of?"));
+
+    // Needs a regex engine the standard library does not have.
+    try testing.expectEqual(P.unevaluable, P.parse("match?"));
+
+    // Unknown names refuse rather than pass. A pattern this code cannot
+    // evaluate is disabled, so the error is a missing tag; letting it through
+    // would put a tag the query never sanctioned into every `callers` answer.
+    try testing.expectEqual(P.unevaluable, P.parse("is-not?"));
+    try testing.expectEqual(P.unevaluable, P.parse("something-new"));
+    try testing.expectEqual(P.unevaluable, P.parse(""));
+}
 
 test "a rendered line is the CLI's bytes exactly" {
     var out: std.Io.Writer.Allocating = .init(testing.allocator);

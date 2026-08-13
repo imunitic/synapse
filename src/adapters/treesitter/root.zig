@@ -112,6 +112,48 @@ pub const Registry = struct {
         return if (repo == .string) repo.string else null;
     }
 
+    /// The directory inside the clone that holds `src/parser.c`, for a repo that
+    /// ships more than one grammar. Null means the repo root, which is the
+    /// ordinary case.
+    ///
+    /// `tree-sitter-ocaml` is the reason this exists: it has no `src/parser.c` at
+    /// all, only `grammars/ocaml`, `grammars/interface` and `grammars/type`. The
+    /// tags query stays at the root and is shared by all three, so finding a
+    /// query is not evidence that a parser can be found -- which is exactly how
+    /// this was missed until a registered OCaml entry failed to build.
+    ///
+    /// One entry per extension, never a list. The sub-grammars are different
+    /// languages serving different extensions (`.ml` against `grammars/ocaml`,
+    /// `.mli` against `grammars/interface`), so they are separate registry
+    /// entries that happen to name the same repo. The clone is keyed by repo
+    /// name, so they share one checkout.
+    pub fn pathFor(self: Registry, ext: []const u8) ?[]const u8 {
+        return self.stringField(ext, "path");
+    }
+
+    /// The `tree_sitter_*` function to look up in the built library, when it
+    /// cannot be derived from the repo name. Null means derive it.
+    ///
+    /// Needed by the same repos as `pathFor` and for the same reason: one repo
+    /// name cannot yield `tree_sitter_ocaml` and `tree_sitter_ocaml_interface`.
+    pub fn symbolFor(self: Registry, ext: []const u8) ?[]const u8 {
+        return self.stringField(ext, "symbol");
+    }
+
+    fn stringField(self: Registry, ext: []const u8, field: []const u8) ?[]const u8 {
+        const obj = switch (self.parsed.value) {
+            .object => |o| o.get(ext) orelse return null,
+            else => return null,
+        };
+        const fields = switch (obj) {
+            .object => |o| o,
+            else => return null,
+        };
+        const v = fields.get(field) orelse return null;
+        if (v != .string or v.string.len == 0) return null;
+        return v.string;
+    }
+
     /// Every extension with a usable grammar, sorted, deduplicated -- what
     /// `synapse-tags.sh --list-extensions` prints. The registry is the list;
     /// there is deliberately no curated second one to fall out of sync with it.
@@ -233,6 +275,41 @@ test "registry: ready, unsupported, and absent are three different answers" {
     try testing.expect(reg.lookup("sh") == .unusable);
     try testing.expect(reg.lookup("broken") == .unusable); // repo without scope
     try testing.expect(reg.lookup("rs") == .no_entry);
+}
+
+test "path and symbol are optional, and absent means derive them" {
+    // Two extensions served by one repo, which is what a multi-grammar grammar
+    // repo looks like: `tree-sitter-ocaml` has no `src/parser.c` of its own, and
+    // one repo name cannot yield two `tree_sitter_*` symbols.
+    const json =
+        \\{"java":{"repo":"https://x/tree-sitter-java","scope":"source.java"},
+        \\ "ml":{"repo":"https://x/tree-sitter-ocaml","scope":"source.ocaml",
+        \\       "path":"grammars/ocaml"},
+        \\ "mli":{"repo":"https://x/tree-sitter-ocaml","scope":"source.ocaml.interface",
+        \\        "path":"grammars/interface","symbol":"tree_sitter_ocaml_interface"},
+        \\ "empty":{"repo":"r","scope":"s","path":"","symbol":""}}
+    ;
+    var parsed = try std.json.parseFromSlice(std.json.Value, testing.allocator, json, .{});
+    defer parsed.deinit();
+    const reg: Registry = .{ .parsed = parsed };
+
+    // The ordinary case stays ordinary: both absent, both derived by the caller.
+    try testing.expect(reg.pathFor("java") == null);
+    try testing.expect(reg.symbolFor("java") == null);
+
+    try testing.expectEqualStrings("grammars/ocaml", reg.pathFor("ml").?);
+    // Derivable from the repo name, so it is not spelled out.
+    try testing.expect(reg.symbolFor("ml") == null);
+
+    try testing.expectEqualStrings("grammars/interface", reg.pathFor("mli").?);
+    try testing.expectEqualStrings("tree_sitter_ocaml_interface", reg.symbolFor("mli").?);
+
+    // An empty string is not a subpath and not a symbol. Treating it as one
+    // would build from the repo root and look up "", both silently wrong.
+    try testing.expect(reg.pathFor("empty") == null);
+    try testing.expect(reg.symbolFor("empty") == null);
+
+    try testing.expect(reg.pathFor("rs") == null);
 }
 
 test "list-extensions is the registry filtered to usable, sorted" {

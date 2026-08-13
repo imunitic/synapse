@@ -43,8 +43,10 @@ pub const FakeBackend = struct {
         repo_dir: []const u8,
         grammars_dir: []const u8,
         name: []const u8,
+        sub_path: ?[]const u8,
+        sub_symbol: ?[]const u8,
     ) !Grammar {
-        _ = .{ gpa, io, repo_dir, grammars_dir, name };
+        _ = .{ gpa, io, repo_dir, grammars_dir, name, sub_path, sub_symbol };
     }
 
     pub fn release(g: Grammar, gpa: Allocator) void {
