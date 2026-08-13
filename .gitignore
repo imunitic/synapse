@@ -1,5 +1,11 @@
 .DS_Store
 zig-out/
 .zig-cache/
+# Where zig 0.16 unpacks fetched dependencies -- the global cache under
+# ~/.cache/zig/p holds only the tarballs. Build output like the two above,
+# not vendored source: `zig build --fetch` refills it from the hash pinned in
+# build.zig.zon, and unpacks every version it is ever pointed at without
+# collecting the ones no longer named.
+zig-pkg/
 job.txt
 zig-tags.tsv
