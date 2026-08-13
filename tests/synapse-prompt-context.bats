@@ -89,7 +89,12 @@ run_hook() {
   ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext')"
   [[ "$ctx" == *"$(repo_name)"* ]]
   [[ "$ctx" == *"2 nodes"* ]]     # Index.md is the map, not a node
-  [[ "$ctx" == *"synapse-query.sh"* ]]
+  # The commands it names must be ones that exist: `synapse query`, not the
+  # `synapse-query.sh` wrapper the Zig rewrite deleted. This assertion used to pin
+  # the wrapper, so the suite protected the stale instruction rather than catching
+  # it. See tests/legacy-commands.bats for the guard over the whole class.
+  [[ "$ctx" == *"synapse query"* ]]
+  [[ "$ctx" != *".sh"* ]]
 }
 
 @test "the nudge never lists nodes, and stays small enough to pay every turn" {

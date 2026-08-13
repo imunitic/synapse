@@ -82,11 +82,11 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     var text: Io.Writer.Allocating = .init(gpa);
     defer text.deinit();
     try text.writer.print(
-        "Synapse: this repo has a code graph at synapse/{s}/ ({d} nodes). If this turn needs to know how the codebase works, consult Synapse before grepping or opening files -- synapse-query.sh (body/sources/field/links), synapse index for path -> owning node (the authoritative coverage check: never infer from node titles).",
+        "Synapse: this repo has a code graph at synapse/{s}/ ({d} nodes). If this turn needs to know how the codebase works, consult Synapse before grepping or opening files -- `synapse query` (body/sources/field/links), `synapse index lookup <path>` for the owning node (authoritative coverage: never infer from titles).",
         .{ ns.key, nodes },
     );
     if (have_cache) try text.writer.writeAll(
-        " Separately, and independent of the graph, a Code Cache indexes exact names: `synapse.sh callers <name>` gives repo-wide call sites (no graph needed), `synapse-query.sh symbol <name> <node>` scopes that lookup to one node. Prefer either over grep for \"where is X defined/used\"; their line numbers come from the index and can lag the working tree, so re-check a range before relying on it.",
+        " Separately, and independent of the graph, a Code Cache indexes exact names: `synapse callers <name>` gives repo-wide call sites (no graph needed), `synapse query symbol <name> <node>` scopes that lookup to one node. Prefer either over grep for \"where is X defined/used\"; their line numbers come from the index and can lag the working tree, so re-check a range before relying on it.",
     );
     try text.writer.writeAll(" The synapse-query and synapse-node skills have the procedure.");
 

@@ -166,7 +166,7 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
         );
         try text.writer.writeAll(findings.written());
         try text.writer.writeAll(
-            "\nYou have the code in front of you right now, so checking is nearly free — this is the one moment correcting a node costs nothing extra. If a sentence in the node is now wrong, fix that sentence and re-point the evidence, following the synapse-node skill: recover the prose with `synapse-query.sh body`, re-emit the crux and grounded_in directives, and write it back with synapse-write-node.sh.\n" ++
+            "\nYou have the code in front of you right now, so checking is nearly free — this is the one moment correcting a node costs nothing extra. If a sentence in the node is now wrong, fix that sentence and re-point the evidence, following the synapse-node skill: recover the prose with `synapse query body`, re-emit the crux and grounded_in directives, and write it back with `synapse write-node`.\n" ++
                 "\nKeep it incidental. Correct only what this edit actually contradicts. Do NOT re-read the node's other sources, do not verify its remaining claims, and do not start a sweep — that is /synapse-rebuild's job, and turning this into one is how a cheap habit becomes an expensive one. If the prose still holds despite the range moving, just re-point it and move on.",
         );
     }
