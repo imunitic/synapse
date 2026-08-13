@@ -33,9 +33,7 @@ hook_count() {
   # No hook scripts: the hooks are `synapse-hook <name>`, and settings.json names
   # the binary rather than a file in hooks/.
   [ ! -d "$HOME/.claude/hooks" ] || [ -z "$(ls -A "$HOME/.claude/hooks" 2>/dev/null)" ]
-  if [ -x "$REPO_ROOT/zig-out/bin/synapse-hook" ]; then
-    [ -x "$HOME/.claude/bin/synapse-hook" ]
-  fi
+  [ -x "$HOME/.claude/bin/synapse-hook" ]
 
   [ -f "$HOME/.claude/commands/synapse-init.md" ]
   [ -f "$HOME/.claude/commands/synapse-note.md" ]
@@ -59,20 +57,55 @@ hook_count() {
     [ -f "$HOME/.claude/skills/$(basename "$d")/SKILL.md" ]
   done
 
-  # tags and tags-cache are subcommands of the binary now, not scripts, so an
-  # install without the binary is an install where tagging silently does
-  # nothing. Conditional on the checkout having been built, because setup.sh
-  # deliberately does not run a compiler -- but when it has been, it must copy.
+  # tags and tags-cache are subcommands of the binary now, not scripts. Unconditional
+  # because an unbuilt checkout no longer reaches this point at all -- setup.sh stops
+  # before writing anything, which is the case the next two tests cover.
   [ ! -e "$HOME/.claude/lib/synapse/synapse-tags.sh" ]
   [ ! -e "$HOME/.claude/lib/synapse/synapse-tags-cache.sh" ]
-  if [ -x "$REPO_ROOT/zig-out/bin/synapse" ]; then
-    [ -x "$HOME/.claude/bin/synapse" ]
-  else
-    [[ "$output" == *"no $REPO_ROOT/zig-out/bin/synapse to install"* ]]
-  fi
+  [ -x "$HOME/.claude/bin/synapse" ]
 
   [ -f "$HOME/.claude/CLAUDE.md" ]
   [ -f "$HOME/.claude/synapse-claude.md" ]
+}
+
+@test "an unbuilt checkout is a hard stop that installs nothing" {
+  # The state this refuses to create: settings.json naming ~/.claude/bin/synapse-hook
+  # while no such file exists. The hooks are built to exit 0 on every missing
+  # precondition, but a hook whose executable is absent never runs to exit anything --
+  # so instead of silence, every turn and every edit fails to launch it.
+  rm -rf "$HOME/.claude"
+  run env SYNAPSE_BIN=/nonexistent/synapse bash "$SETUP_SH"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not built yet"* ]]
+  [[ "$output" == *"/nonexistent/synapse"* ]]
+  [[ "$output" == *"zig build"* ]]
+  [[ "$output" == *"Nothing was installed"* ]]
+
+  # And nothing was: the check runs before the first write, so a failed install
+  # leaves the machine exactly as it was rather than half-configured.
+  [ ! -e "$HOME/.claude/settings.json" ]
+  [ ! -e "$HOME/.claude/bin/synapse" ]
+  [ ! -e "$HOME/.claude/commands/synapse-init.md" ]
+}
+
+@test "the missing binary is named whichever of the two it is" {
+  run env SYNAPSE_HOOK_BIN=/nonexistent/synapse-hook bash "$SETUP_SH"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"/nonexistent/synapse-hook"* ]]
+}
+
+@test "prebuilt binaries elsewhere install via SYNAPSE_BIN, without a toolchain" {
+  # The tarball case, and the reason the paths are overridable rather than fixed at
+  # zig-out/bin: that install has binaries and no compiler.
+  local prebuilt="$TEST_HOME/prebuilt"
+  mkdir -p "$prebuilt"
+  cp "$SYNAPSE_BIN" "$prebuilt/synapse"
+  cp "$SYNAPSE_HOOK_BIN" "$prebuilt/synapse-hook"
+
+  run env SYNAPSE_BIN="$prebuilt/synapse" SYNAPSE_HOOK_BIN="$prebuilt/synapse-hook" bash "$SETUP_SH"
+  [ "$status" -eq 0 ]
+  [ -x "$HOME/.claude/bin/synapse" ]
+  [ -x "$HOME/.claude/bin/synapse-hook" ]
 }
 
 @test "first run: no org-roam-era files installed (bin/, org-task, roam-note)" {

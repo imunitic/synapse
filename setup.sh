@@ -12,6 +12,43 @@ DEST="$HOME/.claude"
 
 command -v jq >/dev/null || { echo "jq is required. Install it first (e.g. brew install jq)." >&2; exit 1; }
 
+# THE BINARIES ARE A PRECONDITION, and this check is deliberately here -- before
+# anything at all is written -- rather than beside the copy step.
+#
+# `synapse` and `synapse-hook` *are* the tooling: no shell library stands behind
+# them any more. Earlier this script noted their absence and carried on, then wired
+# settings.json to `~/.claude/bin/synapse-hook` regardless. That produced exactly the
+# state `synapse doctor` exists to shout about, and worse than the comment claimed:
+# the hooks are built to exit 0 on every missing precondition, but a hook whose
+# *executable* is missing never runs to exit anything, so every turn and every edit
+# surfaces a launch failure instead of silence.
+#
+# So: refuse the whole install, loudly, and leave the machine as it was. Both paths
+# are overridable because a release tarball ships built binaries and has no
+# toolchain to build them with -- the alternative to an override there is no
+# supported install at all.
+SYNAPSE_BIN="${SYNAPSE_BIN:-$HERE/zig-out/bin/synapse}"
+SYNAPSE_HOOK_BIN="${SYNAPSE_HOOK_BIN:-$HERE/zig-out/bin/synapse-hook}"
+missing=()
+[ -x "$SYNAPSE_BIN" ] || missing+=("$SYNAPSE_BIN")
+[ -x "$SYNAPSE_HOOK_BIN" ] || missing+=("$SYNAPSE_HOOK_BIN")
+if [ "${#missing[@]}" -gt 0 ]; then
+  {
+    echo "setup.sh: the binaries this installs are not built yet:"
+    printf '  %s\n' "${missing[@]}"
+    echo
+    echo "Build them first, from this checkout:"
+    echo "  zig build        (or: just build)"
+    echo
+    echo "Or point \$SYNAPSE_BIN and \$SYNAPSE_HOOK_BIN at prebuilt ones."
+    echo
+    echo "Nothing was installed. This is a hard stop rather than a warning because"
+    echo "the hook wiring below would otherwise name a program that does not exist,"
+    echo "and every turn would fail to launch it."
+  } >&2
+  exit 1
+fi
+
 mkdir -p "$DEST/commands" "$DEST/bin"
 
 echo "== CLAUDE.md / synapse-claude.md =="
@@ -111,41 +148,20 @@ for skill_dir in "$SRC/skills/"*/; do
     cp "$skill_dir/SKILL.md" "$DEST/skills/$skill_name/SKILL.md"
 done
 echo "  installed."
-# The two binaries ARE the tooling now: there is no bin/*.sh porcelain, no
-# lib/synapse/ plumbing and no hooks/*.sh, so without these two nothing works at
-# all -- and previously it failed at hook time, quietly, rather than here.
+# Copied rather than built: `zig build` belongs to the checkout (`just build`), and
+# running a compiler from an installer would make this step slow, network-capable and
+# dependent on a toolchain a tarball install does not have. Their existence was
+# settled at the top of this script, so there is no branch here.
 #
-# Copied rather than built: `zig build` belongs to the checkout (`just build`),
-# and running a compiler from an installer would make this step slow, network-
-# capable and dependent on a toolchain that a machine installing from a release
-# tarball will not have. Absent is therefore a warning and not an error, so an
-# install that only wants the commands and skills still completes.
-if [ -x "$HERE/zig-out/bin/synapse" ]; then
-  cp "$HERE/zig-out/bin/synapse" "$DEST/bin/synapse"
-  chmod +x "$DEST/bin/synapse"
-  echo "  installed binary: $DEST/bin/synapse"
-else
-  echo "  NOTE: no $HERE/zig-out/bin/synapse to install -- run 'zig build' (or"
-  echo "    'just build') and re-run this script. Until then tagging, the tags"
-  echo "    cache and everything downstream of them will fail. Override the"
-  echo "    location with \$SYNAPSE_BIN if it lives elsewhere."
-fi
+# Two binaries rather than one, deliberately: a hook runs on every edit and every
+# turn, so `synapse-hook` links no tree-sitter and no C library at all.
+cp "$SYNAPSE_BIN" "$DEST/bin/synapse"
+chmod +x "$DEST/bin/synapse"
+echo "  installed binary: $DEST/bin/synapse"
 
-# The hooks are a second binary, installed the same way and for the same reason.
-# Separate from `synapse` deliberately: a hook runs on every edit and every turn, so
-# its startup depends on nothing else the stage links -- it carries no tree-sitter and
-# no C library at all. Its absence is a warning too: every hook is then a silent
-# no-op, which is the behaviour they already have for any missing precondition.
-if [ -x "$HERE/zig-out/bin/synapse-hook" ]; then
-  cp "$HERE/zig-out/bin/synapse-hook" "$DEST/bin/synapse-hook"
-  chmod +x "$DEST/bin/synapse-hook"
-  echo "  installed binary: $DEST/bin/synapse-hook"
-else
-  echo "  NOTE: no $HERE/zig-out/bin/synapse-hook to install -- run 'zig build'."
-  echo "    Until then every Synapse hook exits 0 without doing anything: no"
-  echo "    staleness flagging, no session-start injection, no vault auto-commit."
-  echo "    Override the location with \$SYNAPSE_HOOK_BIN if it lives elsewhere."
-fi
+cp "$SYNAPSE_HOOK_BIN" "$DEST/bin/synapse-hook"
+chmod +x "$DEST/bin/synapse-hook"
+echo "  installed binary: $DEST/bin/synapse-hook"
 # This script copies in but never deletes, so scripts that moved out of bin/
 # and into lib/synapse/ during the porcelain rewrite linger in $DEST/bin/ on an
 # existing machine -- unreferenced but still executable and still on PATH,

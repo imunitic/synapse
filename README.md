@@ -24,12 +24,20 @@ your call).
 ```sh
 git clone <this repo> ~/synapse   # or copy the folder over
 cd ~/synapse
+zig build                          # or: just build
 ./setup.sh
 ```
 
 `setup.sh` installs the portable tooling into `~/.claude/`, merges hook entries into
 `~/.claude/settings.json` (idempotent — safe to re-run, does not clobber unrelated settings), and
 prints the manual steps below.
+
+**The build step is not optional, and `setup.sh` refuses to run without it.** `synapse` and
+`synapse-hook` are the tooling — nothing stands behind them — and the hook entries this writes name
+`~/.claude/bin/synapse-hook` by path. Wiring that up before the binary exists would give every turn
+and every edit a hook that cannot launch, so an unbuilt checkout is a hard stop that installs
+nothing rather than a warning. `setup.sh` does not run a compiler itself; if you have prebuilt
+binaries elsewhere, point `$SYNAPSE_BIN` and `$SYNAPSE_HOOK_BIN` at them instead of building.
 
 1. Install Obsidian, open (or create) your Vault.
 2. **Settings → Community plugins → Browse**, install + enable:
@@ -179,9 +187,9 @@ execute there.
 
 ## Dependencies
 
-`jq`, `bats-core` (tests only), the `claude` CLI. Zig 0.16 to build the `synapse` binary — a
-build-time dependency, not a runtime one, and `setup.sh` copies the result rather than compiling
-anything itself. Optional: a C compiler for the Graph's tree-sitter acceleration (grammars
+`jq`, `bats-core` (tests only), the `claude` CLI. Zig 0.16 to build the two binaries — a build-time
+dependency, not a runtime one: `setup.sh` copies the result rather than compiling anything itself,
+and refuses to install until it exists (see "New machine setup"). Optional: a C compiler for the Graph's tree-sitter acceleration (grammars
 are still native libraries, built on first use), GNU `parallel` for `bats --jobs`, and Node (for
 `npx`) to re-render the diagrams — everything except Zig degrades gracefully if missing.
 
