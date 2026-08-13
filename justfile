@@ -2,12 +2,29 @@
 # deliberately: the point is that "green locally" and "green in CI" cannot mean
 # different things. If you change the gate, change it in both places.
 #
-#   just            list the recipes
-#   just check      the full gate -- run this before committing
-#   just test       the suite, parallel
-#   just fix        regenerate whatever `check` verifies
-#   just test-linux the full suite under Linux/Podman -- the default full run
-#   just ci-local   what CI actually runs, locally, via act -- before pushing
+#   just              list the recipes
+#   just test-changed the tests covering what you changed -- the per-commit run
+#   just test-linux   the whole suite in the container, ~30s -- for a broad change
+#   just check        the full gate -- before PUSHING, not before every commit
+#   just fix          regenerate whatever `check` verifies
+#   just ci-local     what CI actually runs, locally, via act
+#
+# WHAT TO RUN WHEN. The gate is cheap now (26s measured, warm) but it is still not the
+# answer to every change, and reaching for it reflexively trains the habit of not
+# thinking about what a change can actually break:
+#
+#   changed a .zig file         just test-changed
+#   changed setup.sh or a hook  just test-for <the file>
+#   changed docs/ or README     nothing -- prose has no test to fail
+#   changed claude/**/*.md      just test tests/legacy-commands.bats tests/setup.bats
+#   changed a lot, or unsure    just test-linux
+#   about to push               just check
+#
+# Two of those deserve their reason stated. Shipped instructions under `claude/`
+# LOOK like documentation and are not: they install into ~/.claude and are covered
+# by tests, which is how a skill telling Claude to run a command that does not exist
+# got caught. And `docs/cli.md` plus the rendered diagrams are generated, so editing
+# what they are generated *from* means `just fix`, not `just docs-check`.
 #
 # Note on comments below: `just --list` shows the comment line immediately above a
 # recipe, so each one gets a single short line there and any longer explanation
@@ -55,11 +72,11 @@ test *FILES: _fake
 test-serial *FILES: _fake
     bats {{ if FILES == "" { "tests/" } else { FILES } }}
 
-# THIS IS FOR THE INNER LOOP, NOT A SUBSTITUTE FOR `just check`. It runs the tests
-# that name the files you give it, and coverage by grep is a lower bound: a test can
-# exercise a script without ever spelling its path, through an installed copy that
-# another script invokes. So this narrows, it does not verify. Commit behind
-# `just check`, always.
+# THE PER-COMMIT RUN. It runs the tests that name the files you give it, and coverage
+# by grep is a lower bound: a test can exercise a script without ever spelling its
+# path, through an installed copy that another script invokes. So this narrows, it
+# does not verify -- which is the right trade for a commit and the wrong one for a
+# push, where `just check` covers what this cannot see.
 #
 # `setup.bats` is the one always-run file: it is cheap and it catches the install
 # breaking, which nothing else would. `synapse-pipeline` and
@@ -304,21 +321,25 @@ fix:
 # cost a full bats run to discover, and because everything after it will
 # eventually be exercising the binary it produces.
 #
-# `build-targets` is in here rather than CI-only because it costs four seconds:
-# leaving it out would mean a green local gate can still fail the push, which is
-# the drift that actually wastes time.
-
 # The bats step is `test-linux`, not `test`, and the difference is not small:
 # measured on the same commit and the same 443 tests, the container is ~30s where
 # the host is six to seven minutes. Both parallelise, so the gap is macOS
 # fork/exec cost -- 6.5ms against 0.24ms per exec on the same M3, 27x.
 #
-# End to end that took this whole gate from ~8min to 2:20, of which the bats run is
-# now the small part -- the rest is the two release-target builds and the diagram
-# check's Chromium. A gate that takes eight minutes gets run less often than one
-# that takes two, and a gate nobody runs is worth nothing.
+# End to end that took this whole gate from ~8min to 2:20, and then to 26s: the
+# remaining 2:20 turned out to be almost entirely `layering`, which forked two greps
+# per source line and paid the same macOS fork/exec tax measured above -- 113s, in
+# the step that sounded like the cheapest in the gate. One awk pass, 0.06s. What is
+# left, measured: test-linux ~30s, build-targets 5s, test-zig 2s, docs-check 2s,
+# syntax and layering under a second between them.
 #
-# The full gate -- run before every commit.
+# A gate that takes eight minutes gets run less often than one that takes half a
+# minute, and a gate nobody runs is worth nothing. That is also the answer to why
+# `build-targets` is in here rather than CI-only: at 5s it cannot be the reason
+# anyone skips the gate, and leaving it out would mean a green local run can still
+# fail the push.
+#
+# The full gate -- run before pushing (see WHAT TO RUN WHEN at the top).
 check: build build-targets test-zig layering syntax test-linux docs-check
     @echo "all green"
 

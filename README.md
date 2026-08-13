@@ -154,36 +154,53 @@ plain-English summary, a quoted `crux`, typed links, and the exhaustive list of 
 
 ```sh
 brew install bats-core parallel just     # if not already installed
-just check                               # the gate, ~2:20 -- suite runs in the container
-just check-local                         # same, bats on the host instead -- no podman needed
-just test-changed                        # inner loop: only the tests covering what you edited
+just test-changed                        # per commit: only the tests covering what you edited
 just test tests/synapse-query.bats       # one file
+just test-linux                          # the whole suite in the container, ~30s
+just check                               # the full gate, ~26s -- before pushing
+just check-local                         # same, bats on the host instead -- no podman needed
 bats --jobs "$(getconf _NPROCESSORS_ONLN)" tests/   # the suite directly, what `just test` wraps
 ```
 
-`--jobs` needs GNU `parallel` on `PATH`; without it `bats` falls back to running serially (slower but
-correct). `just test-changed` narrows to the tests that name the files you edited, derived by grep
-rather than a maintained list — a lower bound on coverage, so `just check` stays the gate before
-committing.
+**What to run when.** `just check` is the pre-push gate, not a per-commit ritual — running it
+reflexively is a way of not thinking about what a change can break, and the thinking is the part that
+catches things. Per commit, run what the change touches; `just test-changed` picks that automatically
+from your diff, and `just test-linux` is the honest answer whenever a change is broad or you are
+unsure. A change to prose in `docs/` or this README has no test to fail and needs neither.
 
-`just check` runs the suite in the Linux container, which is not a preference: the same 443 tests take
+Two traps in that. Shipped instructions under `claude/` **look** like documentation and are not: they
+install into `~/.claude`, and `tests/legacy-commands.bats` plus `tests/setup.bats` cover them — that
+is how a skill telling Claude to run a nonexistent command got caught. And `docs/cli.md` and the
+diagrams are *generated*, so a change upstream of them needs `just fix`, not `just docs-check`.
+
+`--jobs` needs GNU `parallel` on `PATH`; without it `bats` falls back to running serially (slower but
+correct). `just test-changed` derives its selection by grep rather than from a maintained list — a
+lower bound on coverage, which is the right trade per commit and the wrong one before a push.
+
+`just check` runs the suite in the Linux container, which is not a preference: the same 438 tests take
 ~30s there against six to seven minutes on the host, because macOS `fork`/`exec` costs 6.5ms where
-Linux costs 0.24ms — which took the whole gate from ~8min to 2:20. `just check-local` is the same gate with host bats, for a machine without podman —
-and it is also how you tell a container artefact from a real finding, since the container's
-`DebugAllocator` reports leaks the native build stays silent about.
+Linux costs 0.24ms. That took the gate from ~8min to 2:20, and finding the same tax inside
+`ci/check-layering.sh` — two forked greps per source line, 113s — took it to ~40s. `just check-local`
+is the same gate with host bats, for a machine without podman — and it is also how you tell a
+container artefact from a real finding, since the container's `DebugAllocator` reports leaks the
+native build stays silent about.
 
 Every test runs against a throwaway `$HOME`, git repo and Vault created in `tests/test_helper.bash` —
 nothing touches your real `~/.claude` or Vault, and tests share no state, which is what makes
 `--jobs` safe. The same suite runs in CI on **Linux** (`.github/workflows/tests.yml`); macOS is
 covered by development itself.
 
-The two generated artefacts (`docs/scripts.md`, the Mermaid diagrams under `docs/diagrams/`) are each
+The two generated artefacts (`docs/cli.md`, the Mermaid diagrams under `docs/diagrams/`) are each
 verified by running their generator's `--check` mode, so an edit that was never regenerated fails a
 test instead of shipping something confidently wrong.
 
-Not covered by the suite: `claude/commands/*.md` and `claude/skills/synapse-node/SKILL.md` are
-natural-language procedures Claude follows, not code — there is nothing for a test framework to
-execute there.
+`claude/commands/*.md` and `claude/skills/*/SKILL.md` are natural-language procedures, so no test
+executes them — but `tests/legacy-commands.bats` does check the one thing about them that is
+mechanically true or false: **every command they tell Claude to run has to exist.** It cross-checks
+each `` `synapse <sub>` `` against the binary's own `--help`, and applies the same rule to the text
+the hooks inject and to the `Index.md` the builder writes. That guard exists because the Zig rewrite
+left three deleted wrappers in the per-turn nudge and a never-existing `synapse query callers` in a
+skill's table, with the whole suite green.
 
 ## Dependencies
 
