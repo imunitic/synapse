@@ -28,6 +28,7 @@ pub const text =
     \\  callers <name> [--all]     repo-wide sites of an exact name
     \\  gate --vocab <file> [--all] [--top N]   clusters owning no vocabulary
     \\  link-graph --refs <f> --lists <dir> [--top N]   candidate node links
+    \\  brief --lists <dir> [--rank <dir>] [--links <f>]   one data file per node
     \\  push-nodes [NN ...]        write one node per authored body
     \\  build-project-index        the namespace's Index.md node map
     \\  namespace [--repo <dir>]   the {repo}@{branch} key for a checkout

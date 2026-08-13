@@ -88,8 +88,9 @@ yours and cannot be scripted because what counts as signal differs per codebase.
   vocabulary), `synapse build-lists` (enumerate + expand a manifest + prove coverage),
   `synapse gate` (flag clusters that own no vocabulary), `synapse build-refs` (project the
   tags cache into a def/ref index), `synapse link-graph` (candidate `## Links` edges from that
-  index), `synapse rank` (which files are worth reading), `synapse write-node` (hash, digest,
-  `## Sources` mirror, PUT), `synapse push-nodes`, `synapse build-index`,
+  index), `synapse rank` (which files are worth reading), `synapse brief` (bundle a node's
+  ranked pools and edges into one data file, for pooled authoring), `synapse write-node`
+  (hash, digest, `## Sources` mirror, PUT), `synapse push-nodes`, `synapse build-index`,
   `synapse build-project-index`.
 
 **The work directory** defaults to `~/.claude/synapse-work/{repo}@{branch}/`, created on demand, and
@@ -230,30 +231,22 @@ emit into tool calls than read into a window. Never hand-author those.
    `$SYNAPSE_WORK_DIR/b-NN.md` (matching its `lists/NN.txt`), then run `synapse push-nodes`,
    which calls `synapse write-node` per node.
 
-   **Do not choose which files to read by judgment.** Ask:
+   **Do not choose which files to read by judgment, and do not decide how the writing itself
+   happens by habit.** Both are decided by the `synapse-node-authoring` skill — **load it
+   before writing the first node.** It resolves `SYNAPSE_AUTHOR_POOL` (env var, then
+   `~/.claude/synapse.conf`, default 0) and either walks you through authoring every node
+   yourself in one continuous pass (`rank --sources` per node, `## Links` candidates from
+   step 6's `links.tsv`, reading order only — `sources` stays exhaustive either way), or fans
+   out to a configurable pool of concurrent subagents, each handed a self-contained
+   `synapse brief` and verified on completion. Same outcome either way: on a real node a
+   summary authored from 3 files out of 809 matched the hand-written one.
 
-   ```
-   synapse rank --sources "$SYNAPSE_WORK_DIR/lists/NN.txt" --pool summary
-   synapse rank --sources "$SYNAPSE_WORK_DIR/lists/NN.txt" --pool crux
-   ```
-
-   Read the top few of each, not the list — on a real node a summary authored from 3 files out of
-   809 matched the hand-written one. The two pools differ deliberately: a summary is made of *names*
-   so it keeps test classes and DSL consumers, while a crux is concentrated logic so it excludes
-   tests. Both leave `sources` exhaustive; this is reading order only.
-
-   **For `## Links`, read this node's rows from step 6's `links.tsv`** —
-   `awk -F'\t' '$1 == "{Node Title}"' "$SYNAPSE_WORK_DIR/links.tsv"` — rather than guessing which
-   other nodes it relates to. Each row names a target node, a weight and the symbols behind it; pick
-   `depends_on` or `uses`, whichever reads right, and prune freely — the table is evidence for a
-   candidate list, not something to copy verbatim. A node absent from `links.tsv` entirely simply had
-   no rare cross-node symbol to report; that is not itself evidence of anything.
-
-   **Load the `synapse-node-format` skill before writing the first one.** It is the single
-   description of the node contract — summary, the crux *pointer*, `## Links`, `grounded_in`, what
-   the writer adds and what it refuses — shared with the `synapse-node` skill and `/synapse-rebuild`,
-   which write the same artifact. Do not re-derive the format from an existing node: a node you are
-   reading may predate a change to it.
+   **Load the `synapse-node-format` skill too, before writing the first one** — it is the
+   single description of the node contract itself (summary, the crux *pointer*, `## Links`,
+   `grounded_in`, what the writer adds and what it refuses), shared with the `synapse-node`
+   skill and `/synapse-rebuild`, which write the same artifact. `synapse-node-authoring`
+   covers *how* nodes get written; this covers *what* one is. Do not re-derive either from an
+   existing node: a node you are reading may predate a change to its format.
 8. **Write `_index.bin`** — mechanics, run `synapse build-index`. It emits
    `$SYNAPSE_WORK_DIR/_index.bin`, mapping every source path used
    above to the list of node **filenames, including the `.md` extension** (matching the design

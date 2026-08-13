@@ -33,6 +33,7 @@ usage: synapse <subcommand> [args]
   callers <name> [--all]     repo-wide sites of an exact name
   gate --vocab <file> [--all] [--top N]   clusters owning no vocabulary
   link-graph --refs <f> --lists <dir> [--top N]   candidate node links
+  brief --lists <dir> [--rank <dir>] [--links <f>]   one data file per node
   push-nodes [NN ...]        write one node per authored body
   build-project-index        the namespace's Index.md node map
   namespace [--repo <dir>]   the {repo}@{branch} key for a checkout
@@ -95,6 +96,7 @@ usage: synapse vocab [--repo <path>] [--depth N] [--chunk N] [--out <dir>] [--li
 
 ```
 usage: synapse rank --sources <file> [--repo <path>] [--out <dir>] [--top N] [--tier code|dsl] [--pool summary|crux]
+       synapse rank --lists <dir>    [--repo <path>] [--out <dir>] [--top N]
 ```
 
 ### synapse query
@@ -171,6 +173,19 @@ usage: synapse link-graph --refs <_refs.tsv> --lists <dir> [--top N] [--out <dir
   --lists  the NN.txt/NN.title path lists synapse build-lists wrote.
   --top    edges kept per node, strongest first, default 8. 0 means no cap.
   --out    where to write links.tsv. Default $SYNAPSE_WORK_DIR.
+```
+
+### synapse brief
+
+```
+usage: synapse brief --lists <dir> [--rank <dir>] [--links <file>] [--repo <path>] [--out <dir>]
+
+  --lists  the NN.txt/NN.title path lists synapse build-lists wrote.
+  --rank   where synapse rank --lists wrote NN.summary.tsv/NN.crux.tsv.
+           Default $SYNAPSE_WORK_DIR/rank.
+  --links  synapse link-graph's output. Default $SYNAPSE_WORK_DIR/links.tsv.
+           A missing file warns and leaves every node's edges empty.
+  --out    where to write brief/NN.md. Default $SYNAPSE_WORK_DIR.
 ```
 
 ### synapse push-nodes

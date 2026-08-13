@@ -32,6 +32,7 @@ const usage = @import("usage.zig").text;
 const write_node_cmd = @import("write_node_cmd.zig");
 const refs_cmd = @import("refs_cmd.zig");
 const links_cmd = @import("links_cmd.zig");
+const brief_cmd = @import("brief_cmd.zig");
 const gate_cmd = @import("gate_cmd.zig");
 const push_nodes_cmd = @import("push_nodes_cmd.zig");
 const project_index_cmd = @import("project_index_cmd.zig");
@@ -141,6 +142,9 @@ pub fn main(init: std.process.Init) !u8 {
 
     if (std.mem.eql(u8, sub, "link-graph"))
         return links_cmd.run(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "brief"))
+        return brief_cmd.run(init.gpa, init.io, init.environ_map, &args);
 
     if (std.mem.eql(u8, sub, "--help") or std.mem.eql(u8, sub, "-h")) {
         std.debug.print("{s}", .{usage});

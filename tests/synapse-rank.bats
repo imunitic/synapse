@@ -58,6 +58,20 @@ run_rank() {
   PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank --sources "$SRC" --repo "$REPO" --out "$OUT" "$@"
 }
 
+# sb-011, stage 1: writes `NN.txt` under `$OUT/lists` -- rank's --lists mode
+# needs nothing else, deliberately not even a `.title` (nothing in the
+# ranking path reads one).
+node_list() { # node_list <NN> <path>...
+  local nn="$1"; shift
+  mkdir -p "$OUT/lists"
+  printf '%s\n' "$@" > "$OUT/lists/$nn.txt"
+}
+
+run_rank_lists() {
+  PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" vocab --repo "$REPO" --out "$OUT" >/dev/null 2>&1
+  PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank --lists "$OUT/lists" --repo "$REPO" --out "$OUT" "$@"
+}
+
 # bats merges stderr into $output, and this script reports its per-tier counts
 # there. Every assertion about the RANKING therefore has to filter to the data
 # lines first, or the summary line counts as a result.
@@ -416,11 +430,113 @@ rank_of() { # rank_of <path> <output>
   [ "$(data "$output" | awk -F'\t' '$3 == "core/src/Known.java" { print $2 }')" != "0.000" ]
 }
 
+# --- --lists: both pools for every node, one repo pass (sb-011, stage 1) ---
+
+@test "--lists writes both pools per node, matching what --sources produces for the same list" {
+  git init -q "$REPO"
+  src core/src/Service.java 0 Alpha Beta
+  src core/src/ServiceTest.java 0 T1 T2 T3
+  commit_repo
+  node_list 01 core/src/Service.java core/src/ServiceTest.java
+
+  run run_rank_lists
+  [ "$status" -eq 0 ]
+  [ -f "$OUT/rank/01.summary.tsv" ]
+  [ -f "$OUT/rank/01.crux.tsv" ]
+
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank --sources "$OUT/lists/01.txt" --repo "$REPO" --out "$OUT" --pool summary
+  local want_summary; want_summary="$(data "$output" | sort)"
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank --sources "$OUT/lists/01.txt" --repo "$REPO" --out "$OUT" --pool crux
+  local want_crux; want_crux="$(data "$output" | sort)"
+
+  [ "$(sort "$OUT/rank/01.summary.tsv")" = "$want_summary" ]
+  [ "$(sort "$OUT/rank/01.crux.tsv")" = "$want_crux" ]
+  # And the actual behavioural claim, not just "matches itself": the test is
+  # in summary, excluded from crux.
+  [ -n "$(grep -F 'core/src/ServiceTest.java' "$OUT/rank/01.summary.tsv")" ]
+  [ -z "$(grep -F 'core/src/ServiceTest.java' "$OUT/rank/01.crux.tsv")" ]
+}
+
+@test "--lists: the DSL index is shared across nodes without cross-contaminating them" {
+  # Two unrelated module pairs, one node each. Each node's DSL rows must come
+  # only from its own node's declarations, even though both are matched
+  # against one repo-wide index built before either node is ranked.
+  git init -q "$REPO"
+  src billing/src/AdresseHandler.java 0 Alpha
+  printf 'declaration\n' > "$REPO/billing/src/Adresse.domvo"
+  src shipping/src/BestellungHandler.java 0 Beta
+  printf 'declaration\n' > "$REPO/shipping/src/Bestellung.domvo"
+  commit_repo
+  node_list 01 billing/src/Adresse.domvo billing/src/AdresseHandler.java
+  node_list 02 shipping/src/Bestellung.domvo shipping/src/BestellungHandler.java
+
+  run run_rank_lists
+  [ "$status" -eq 0 ]
+  [ -n "$(grep -F 'billing/src/AdresseHandler.java' "$OUT/rank/01.summary.tsv")" ]
+  [ -z "$(grep -F 'shipping/src/BestellungHandler.java' "$OUT/rank/01.summary.tsv")" ]
+  [ -n "$(grep -F 'shipping/src/BestellungHandler.java' "$OUT/rank/02.summary.tsv")" ]
+  [ -z "$(grep -F 'billing/src/AdresseHandler.java' "$OUT/rank/02.summary.tsv")" ]
+}
+
+@test "--lists writes an empty pool file for a node with nothing to rank, rather than skipping it" {
+  git init -q "$REPO"
+  printf 'x\n' > "$REPO/config.json"
+  commit_repo
+  node_list 01 config.json
+
+  run run_rank_lists
+  [ "$status" -eq 0 ]
+  [ -f "$OUT/rank/01.summary.tsv" ]
+  [ -f "$OUT/rank/01.crux.tsv" ]
+  [ ! -s "$OUT/rank/01.summary.tsv" ]
+  [ ! -s "$OUT/rank/01.crux.tsv" ]
+}
+
+@test "--lists honours --top per file" {
+  git init -q "$REPO"
+  src core/src/A.java 0 A1 A2 A3
+  src core/src/B.java 0 B1
+  commit_repo
+  node_list 01 core/src/A.java core/src/B.java
+
+  run run_rank_lists --top 1
+  [ "$status" -eq 0 ]
+  [ "$(grep -cE '^code	' "$OUT/rank/01.summary.tsv")" -eq 1 ]
+}
+
+@test "--lists needs no .title file -- nothing in the ranking path reads one" {
+  git init -q "$REPO"
+  src core/src/Service.java 0 Alpha
+  commit_repo
+  node_list 01 core/src/Service.java
+  [ ! -f "$OUT/lists/01.title" ]
+
+  run run_rank_lists
+  [ "$status" -eq 0 ]
+  [ -n "$(grep -F 'core/src/Service.java' "$OUT/rank/01.summary.tsv")" ]
+}
+
 @test "usage and environment errors" {
   run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank
   [ "$status" -eq 2 ]
   run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank --sources "$SRC" --tier bogus
   [ "$status" -eq 2 ]
   run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank --sources "$TEST_HOME/nope.txt"
+  [ "$status" -eq 1 ]
+  # --lists and --sources pick two different input modes; giving both is a
+  # usage error, not a silent pick of one.
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank --sources "$SRC" --lists "$OUT/lists" --repo "$REPO" --out "$OUT"
+  [ "$status" -eq 2 ]
+  # --pool and --tier select one pool/tier for a single stream; --lists always
+  # writes both pools per node, so combining them is a usage error too.
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank --lists "$OUT/lists" --repo "$REPO" --out "$OUT" --pool crux
+  [ "$status" -eq 2 ]
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank --lists "$OUT/lists" --repo "$REPO" --out "$OUT" --tier code
+  [ "$status" -eq 2 ]
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank --lists "$TEST_HOME/no-such-lists-dir" --repo "$REPO" --out "$OUT"
+  [ "$status" -eq 1 ]
+  git init -q "$REPO"
+  mkdir -p "$OUT/lists-empty"
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank --lists "$OUT/lists-empty" --repo "$REPO" --out "$OUT"
   [ "$status" -eq 1 ]
 }

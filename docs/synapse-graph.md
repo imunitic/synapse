@@ -22,9 +22,10 @@ better than prose.
 | `synapse rank` | Which of a cluster's files are worth reading, in tiers. Reading order only; `sources` stays exhaustive. |
 | `synapse build-refs` | Projects the tags cache into `_refs.tsv` (`name ⇥ def\|ref ⇥ kind ⇥ path:line ⇥ expression`). Runs both here, before any node exists, and lazily under `synapse callers` — same command, same output, either caller finds the cache already warm. |
 | `synapse link-graph` | Candidate `## Links` edges between nodes, from `_refs.tsv` joined against the path lists — before any node exists. Weighted by symbol rarity; which edges make it into prose stays judgement. |
+| `synapse brief` | Bundles one node's ranked pools and its own `link-graph` rows into a single data file, `brief/NN.md` — what a concurrent author reads instead of re-deriving the same facts. Only needed when `synapse-node-authoring`'s worker pool is in play; the sequential default never calls it. |
 | **manifest.tsv** — the seam | `title ⇥ include-ERE ⇥ exclude-ERE`, one line per node. The single artifact the model hands to the scripts, and the reason coverage comes out as a printed number rather than a claim. |
 | `synapse build-lists` | `git ls-files` → `all.txt`, then expands each manifest line into a path list. Prints enumerated / covered / unassigned. |
-| **model** — author node prose | Writes one body per node: summary, a crux *pointer* (never the code itself), links, and any `grounded_in` pointers. |
+| **model** — author node prose | Writes one body per node: summary, a crux *pointer* (never the code itself), links, and any `grounded_in` pointers. One continuous session by default, or a configurable pool of isolated subagents each reading its own `brief/NN.md` — `synapse-node-authoring` decides which, from `SYNAPSE_AUTHOR_POOL`. |
 | `synapse push-nodes` | Loops the writer over every node that has both a path list and a body. |
 | `synapse write-node` | Hashes every path, computes `sources_digest`, slices the crux out of the file from its pointer, digests each `grounded_in` range, builds the `## Sources` mirror, records `commit`. |
 | `synapse build-index` | Builds `_index.bin`, the reverse index the Tier 1 hook reads. |

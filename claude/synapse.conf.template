@@ -11,3 +11,13 @@ SYNAPSE_GRAMMARS_DIR="$HOME/.cache/synapse/grammars"
 # unaffected either way. Set to 0 to never push. Default 5 if unset.
 #SYNAPSE_VAULT_PUSH_EVERY=5
 
+# How many nodes /synapse-init authors concurrently in its final step, via the
+# synapse-node-authoring skill. 0 (the default if unset) means the original
+# inline procedure: one node at a time, no subagents, same session throughout
+# -- the safest choice and the only one that preserves cross-node authorial
+# memory. N>=1 fans out to a worker pool of that size instead, each node
+# written by an isolated subagent. Read directly by the orchestrating agent
+# when it runs /synapse-init, not by any Zig binary -- nothing compiled
+# dispatches subagents.
+#SYNAPSE_AUTHOR_POOL=0
+
