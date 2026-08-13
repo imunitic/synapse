@@ -17,73 +17,73 @@
 # this file's own callers do. A trailing comment on a code line is not skipped
 # and will be reported; that is deliberate, since the alternative is stripping
 # `//` mid-line and thereby missing a real violation hiding after a URL.
+#
+# ONE AWK PASS, AND THAT IS THE WHOLE POINT OF THE SHAPE. This ran a `grep -o`
+# and a `grep -qE` per *line* of every source file: ~20k lines, two forks each,
+# which on macOS is 113 seconds of almost pure fork/exec -- the same 6.5ms-per-exec
+# tax this project measured when it moved the bats suite into a Linux container,
+# paid here by the fastest-sounding step in the gate. In awk it is one process for
+# the whole tree and 0.1s, and a gate nobody minds running is the difference
+# between a check and a formality.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-fail=0
-report() { printf '%s\n' "$1" >&2; fail=1; }
-
 # Which module names each layer may @import, beyond `std` and `builtin`.
 # Relative imports (anything ending in .zig) are sibling files and always fine.
-allowed_for() {
-    case "$1" in
-        src/model/*)    echo "" ;;
-        src/ports/*)    echo "model" ;;
-        src/core/*)     echo "model ports" ;;
-        # treesitter reaches adapters for the process helper; adapters must
-        # never reach back, or it acquires libtree-sitter by the side door.
-        src/adapters/treesitter/*) echo "model ports core adapters" ;;
-        src/adapters/*) echo "model ports core" ;;
-        # Apps are the wiring layer: they may reach every adapter module,
-        # including the ones that are separate modules precisely so that a
-        # different app can leave them out (treesitter carries libtree-sitter
-        # and the C toolchain with it).
-        src/apps/*)     echo "model ports core adapters treesitter" ;;
-        src/tools/*)    echo "model ports core adapters treesitter" ;;
-        *)              echo "model ports core adapters treesitter" ;;
-    esac
+#
+# `treesitter` reaches `adapters` for the process helper; `adapters` must never
+# reach back, or it acquires libtree-sitter by the side door. Apps are the wiring
+# layer: they may reach every adapter module, including the ones that are separate
+# modules precisely so a different app can leave them out.
+find src -name '*.zig' | sort | xargs awk '
+function allowed_for(f) {
+    if (f ~ /^src\/model\//)                 return " ";
+    if (f ~ /^src\/ports\//)                 return " model ";
+    if (f ~ /^src\/core\//)                  return " model ports ";
+    if (f ~ /^src\/adapters\/treesitter\//)  return " model ports core adapters ";
+    if (f ~ /^src\/adapters\//)              return " model ports core ";
+    return " model ports core adapters treesitter ";
 }
 
-# Lines that are entirely a comment. Not a general Zig lexer: it skips `//`,
-# `///` and `//!` at the start of a line, and `\\` multiline-string lines.
-code_lines() {
-    grep -nv '^[[:space:]]*\(//\|\\\\\)' "$1" || true
+FNR == 1 {
+    allowed = allowed_for(FILENAME);
+    pure = (FILENAME ~ /^src\/(core|model)\//);
+    files++;
 }
 
-while IFS= read -r file; do
-    allowed="$(allowed_for "$file")"
+# Entirely a comment. Not a general Zig lexer: `//`, `///` and `//!` at the start
+# of a line, and `\\` multiline-string lines.
+/^[ \t]*(\/\/|\\\\)/ { next }
 
-    while IFS= read -r numbered; do
-        line="${numbered#*:}"
-        lineno="${numbered%%:*}"
+{
+    # Every @import("name") on the line. `@import("` is 9 characters and `")` is 2.
+    line = $0;
+    while (match(line, /@import\("[^"]*"\)/)) {
+        mod = substr(line, RSTART + 9, RLENGTH - 11);
+        line = substr(line, RSTART + RLENGTH);
+        if (mod == "std" || mod == "builtin" || mod ~ /\.zig$/) continue;
+        if (index(allowed, " " mod " ") == 0) {
+            printf "%s:%d: imports %c%s%c, which this layer may not reach\n",
+                FILENAME, FNR, 39, mod, 39 > "/dev/stderr";
+            bad = 1;
+        }
+    }
 
-        # Layering: every @import("name") that is not a sibling .zig file.
-        while read -r mod; do
-            [ -n "$mod" ] || continue
-            case "$mod" in
-                std | builtin | *.zig) continue ;;
-            esac
-            case " $allowed " in
-                *" $mod "*) ;;
-                *) report "$file:$lineno: imports '$mod', which this layer may not reach" ;;
-            esac
-        done < <(printf '%s\n' "$line" | grep -o '@import("[^"]*")' | sed 's/@import("//; s/")//')
+    # Purity: core and model reach the system only through an injected Io. The
+    # bracket expressions stand in for \b, which POSIX ERE does not have.
+    if (pure && $0 ~ /(^|[^A-Za-z0-9_])std\.(fs|process|time|http)([^A-Za-z0-9_]|$)/) {
+        printf "%s:%d: names a std namespace core must reach through its Io\n",
+            FILENAME, FNR > "/dev/stderr";
+        bad = 1;
+    }
+}
 
-        # Purity: core and model reach the system only through an injected Io.
-        case "$file" in
-            src/core/* | src/model/*)
-                if printf '%s\n' "$line" | grep -qE '\bstd\.(fs|process|time|http)\b'; then
-                    report "$file:$lineno: names a std namespace core must reach through its Io"
-                fi
-                ;;
-        esac
-    done < <(code_lines "$file")
-done < <(find src -name '*.zig' | sort)
-
-if [ "$fail" -ne 0 ]; then
-    echo "layering: violations above" >&2
-    exit 1
-fi
-
-echo "layering ok: $(find src -name '*.zig' | wc -l | tr -d ' ') files"
+END {
+    if (bad) {
+        print "layering: violations above" > "/dev/stderr";
+        exit 1;
+    }
+    printf "layering ok: %d files\n", files;
+}
+'
