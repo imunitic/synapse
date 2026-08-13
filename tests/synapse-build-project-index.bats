@@ -205,7 +205,7 @@ index_file() { echo "$VAULT/synapse/$(repo_name)/Index.md"; }
   [ "$output" -eq 0 ]
 
   # ...and the generic reading guidance must still be present.
-  grep -q 'synapse-query.sh body' "$(index_file)"
+  grep -q 'synapse query body' "$(index_file)"
 }
 
 @test "the file count comes from all.txt when present" {

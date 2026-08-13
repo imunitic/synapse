@@ -229,7 +229,7 @@ fn cmdField(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []const u
     if (rest.len != 2 or rest[0].len == 0 or rest[1].len == 0) return usage();
     if (std.mem.eql(u8, rest[1], "sources")) {
         std.debug.print(
-            "{s}: 'sources' is a list, not a scalar field -- use: synapse-query.sh sources <node>\n",
+            "{s}: 'sources' is a list, not a scalar field -- use: synapse query sources <node>\n",
             .{prog},
         );
         return 2;
@@ -642,7 +642,7 @@ fn reportAddedPaths(
 
     if (matched.count() > 0)
         try repo_findings.print(
-            "(repo)\t{d} new paths already match a manifest pattern -- re-run synapse-build-lists.sh to claim them\n",
+            "(repo)\t{d} new paths already match a manifest pattern -- re-run `synapse build-lists` to claim them\n",
             .{matched.count()},
         );
 

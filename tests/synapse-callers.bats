@@ -112,7 +112,7 @@ run_callers() {
 @test "callers: a missing index is exit 1 naming the fix, not silent success" {
   run run_callers doThing
   [ "$status" -eq 1 ]
-  [[ "$output" == *"synapse-build-refs.sh"* ]]
+  [[ "$output" == *"synapse build-refs"* ]]
 }
 
 @test "callers: a name that is present but never called is silent, exit 0" {

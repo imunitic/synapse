@@ -166,5 +166,7 @@ node_file() { echo "$VAULT/synapse/$(repo_name)/$1.md"; }
 
   run run_push
   [ "$status" -eq 1 ]
-  [[ "$output" == *"synapse-build-lists.sh first"* ]]
+  # Single-quoted: the message backticks the command, and a backtick inside a
+  # double-quoted pattern would open a command substitution.
+  [[ "$output" == *'synapse build-lists` first'* ]]
 }

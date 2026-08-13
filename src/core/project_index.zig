@@ -86,7 +86,7 @@ pub fn write(w: *std.Io.Writer, p: Params) !void {
         .{ p.total_files, p.bullets.len },
     );
     try w.writeAll(
-        "Reading a node: use `synapse-query.sh body <node>` rather than opening the file — `sources` runs to tens of thousands of tokens on the hub nodes and the reverse index is far larger still. `synapse-query.sh sources <node> --modules` gives the module breakdown, `--count` just the number, and `synapse-query.sh stale` verifies the whole namespace against the working tree.\n\n",
+        "Reading a node: use `synapse query body <node>` rather than opening the file — `sources` runs to tens of thousands of tokens on the hub nodes and the reverse index is far larger still. `synapse query sources <node> --modules` gives the module breakdown, `--count` just the number, and `synapse query stale` verifies the whole namespace against the working tree.\n\n",
     );
     for (p.bullets) |b| {
         try w.print("- [[{s}]] — {s} ({d} files)\n", .{ b.link, b.summary, b.files });

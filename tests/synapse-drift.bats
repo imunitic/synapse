@@ -171,7 +171,7 @@ stage_index() { # stage_index <node.md> <path>...
   # Ordinary development needs no judgment: the clustering patterns claim these on
   # the next build-lists run.
   [[ "$output" == *"2 new paths already match a manifest pattern"* ]]
-  [[ "$output" == *"synapse-build-lists.sh"* ]]
+  [[ "$output" == *"synapse build-lists"* ]]
   [[ "$output" != *"match no manifest pattern"* ]]
 }
 

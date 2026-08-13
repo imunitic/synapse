@@ -406,7 +406,7 @@ write_fenced_node() {
 
   run run_query field "Foo Node" sources
   [ "$status" -eq 2 ]
-  [[ "$output" == *"use: synapse-query.sh sources"* ]]
+  [[ "$output" == *"use: synapse query sources"* ]]
 }
 
 @test "unknown subcommand and no subcommand both exit 2" {

@@ -72,7 +72,7 @@ pub fn run(
     const cwd = Io.Dir.cwd();
     if (cwd.statFile(io, lists, .{})) |_| {} else |_| {
         std.debug.print(
-            "{s}: no lists/ in {s} -- run synapse-build-lists.sh first\n",
+            "{s}: no lists/ in {s} -- run `synapse build-lists` first\n",
             .{ prog, ctx.work_dir },
         );
         return 1;

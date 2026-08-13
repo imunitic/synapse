@@ -205,7 +205,7 @@ pub fn runCallers(
     // exists to avoid.
     const index = Io.Dir.cwd().readFileAlloc(io, refs_path.?, gpa, .limited(4 << 30)) catch {
         std.debug.print(
-            "{s}: no reference index at {s} -- run synapse-build-refs.sh\n",
+            "{s}: no reference index at {s} -- run `synapse build-refs`\n",
             .{ callers_prog, refs_path.? },
         );
         return 1;
