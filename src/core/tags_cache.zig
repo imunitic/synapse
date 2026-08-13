@@ -231,17 +231,22 @@ pub const Cache = struct {
         }
         std.mem.sort(format.Entry, entries, {}, lessByPath);
 
-        const bytes = try format.encode(gpa, entries);
-        defer gpa.free(bytes);
-
-        try self.replaceFile(gpa, io, bytes);
+        try self.replaceFile(gpa, io, entries);
         return removed;
     }
 
     /// Write and rename, then re-map. Renaming rather than writing in place is
     /// what keeps a concurrent reader from seeing a half-written cache: on a
     /// POSIX filesystem it either sees the old file whole or the new one.
-    fn replaceFile(self: *Cache, gpa: Allocator, io: Io, bytes: []const u8) !void {
+    /// Encode `entries` straight into the temp file, then rename.
+    ///
+    /// Streamed rather than handed a finished buffer, because at repository
+    /// scale that buffer is the whole cache -- several hundred megabytes whose
+    /// only purpose was to be copied to disk once. `format.encodeTo` holds the
+    /// record table and paths and passes the tag payloads through, so the extra
+    /// memory here is around 11 MB at 125k files rather than a second copy of
+    /// everything.
+    fn replaceFile(self: *Cache, gpa: Allocator, io: Io, entries: []const format.Entry) !void {
         const cwd = Io.Dir.cwd();
 
         // `Io.Dir.path` rather than `std.fs.path`, which the purity gate
@@ -253,7 +258,16 @@ pub const Cache = struct {
         const tmp = try std.fmt.allocPrint(gpa, "{s}.tmp", .{self.path});
         defer gpa.free(tmp);
 
-        try cwd.writeFile(io, .{ .sub_path = tmp, .data = bytes });
+        {
+            const file = try cwd.createFile(io, tmp, .{});
+            defer file.close(io);
+            errdefer cwd.deleteFile(io, tmp) catch {};
+
+            var buf: [64 * 1024]u8 = undefined;
+            var writer = file.writer(io, &buf);
+            try format.encodeTo(gpa, &writer.interface, entries);
+            try writer.interface.flush();
+        }
         errdefer cwd.deleteFile(io, tmp) catch {};
         try cwd.rename(tmp, cwd, self.path, io);
 

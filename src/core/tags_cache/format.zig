@@ -192,26 +192,51 @@ pub const ParseError = error{
 };
 
 /// The whole file, in one allocation, from entries already sorted by path.
+/// The whole file as one buffer. A convenience over `encodeTo` for tests and
+/// small caches; anything repository-sized should stream instead.
 pub fn encode(gpa: Allocator, entries: []const Entry) EncodeError![]u8 {
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    errdefer out.deinit();
+    encodeTo(gpa, &out.writer, entries) catch |e| switch (e) {
+        error.WriteFailed => return error.OutOfMemory,
+        else => |other| return other,
+    };
+    return out.toOwnedSlice();
+}
+
+/// Write the file to `w`.
+///
+/// Everything up to `blob_off` -- header, record table, path region -- is built
+/// in memory, because the records hold offsets that are only known once every
+/// path length is, and because the checksum covers exactly that span. The tag
+/// payloads are then streamed straight through.
+///
+/// That split is what makes writing a repository-sized cache affordable. The
+/// buffered prefix is 43 bytes per entry plus the path bytes -- around 11 MB at
+/// 125k files -- while the payload it never holds is the other several hundred.
+/// Building the whole file first, as this used to, meant a second copy of every
+/// tag in the process at the moment of writing.
+pub fn encodeTo(
+    gpa: Allocator,
+    w: *std.Io.Writer,
+    entries: []const Entry,
+) (EncodeError || std.Io.Writer.Error)!void {
     if (entries.len > std.math.maxInt(u32)) return error.TooManyEntries;
 
     var paths_len: u64 = 0;
-    var blob_len: u64 = 0;
     for (entries, 0..) |e, i| {
         if (e.path.len > std.math.maxInt(u16)) return error.PathTooLong;
         if (e.tags.len > std.math.maxInt(u32)) return error.TagsTooLong;
         if (i > 0 and std.mem.order(u8, entries[i - 1].path, e.path) != .lt) return error.Unsorted;
         paths_len += e.path.len;
-        blob_len += e.tags.len;
     }
 
     const table_len: u64 = @as(u64, entries.len) * Record.wire_size;
     const paths_off: u64 = Header.wire_size + table_len;
     const blob_off: u64 = paths_off + paths_len;
-    const total: u64 = blob_off + blob_len;
 
-    const bytes = try gpa.alloc(u8, @intCast(total));
-    errdefer gpa.free(bytes);
+    const prefix = try gpa.alloc(u8, @intCast(blob_off));
+    defer gpa.free(prefix);
 
     var path_at: u64 = 0;
     var tags_at: u64 = 0;
@@ -225,10 +250,9 @@ pub fn encode(gpa: Allocator, entries: []const Entry) EncodeError![]u8 {
             .flags = if (e.unsupported) Record.flag_unsupported else 0,
         };
         const at = Header.wire_size + i * Record.wire_size;
-        rec.write(bytes[at..][0..Record.wire_size]);
+        rec.write(prefix[at..][0..Record.wire_size]);
 
-        @memcpy(bytes[@intCast(paths_off + path_at)..][0..e.path.len], e.path);
-        @memcpy(bytes[@intCast(blob_off + tags_at)..][0..e.tags.len], e.tags);
+        @memcpy(prefix[@intCast(paths_off + path_at)..][0..e.path.len], e.path);
         path_at += e.path.len;
         tags_at += e.tags.len;
     }
@@ -238,10 +262,12 @@ pub fn encode(gpa: Allocator, entries: []const Entry) EncodeError![]u8 {
         .entry_count = @intCast(entries.len),
         .paths_off = paths_off,
         .blob_off = blob_off,
-        .crc32 = std.hash.Crc32.hash(bytes[Header.wire_size..@intCast(blob_off)]),
+        .crc32 = std.hash.Crc32.hash(prefix[Header.wire_size..]),
     };
-    header.write(bytes[0..Header.wire_size]);
-    return bytes;
+    header.write(prefix[0..Header.wire_size]);
+
+    try w.writeAll(prefix);
+    for (entries) |e| try w.writeAll(e.tags);
 }
 
 /// A validated file. Borrows the bytes -- they are expected to be a mapping,
