@@ -23,6 +23,7 @@ setup() {
     > "$HOME/.claude/synapse-grammars.conf"
   SRC="$TEST_HOME/sources.txt"
   : > "$SRC"
+  OUT="$TEST_HOME/out"
 }
 
 teardown() {
@@ -49,7 +50,12 @@ commit_repo() {
 }
 
 run_rank() {
-  PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank --sources "$SRC" --repo "$REPO" "$@"
+  # synapse-001, step 4: the code tier reads `_tags_cache.bin`, it no longer
+  # tags anything itself. Warming it via `vocab` first is not a test
+  # convenience -- it is the real precondition /synapse-init's own procedure
+  # establishes by running `vocab` before ever calling `rank`.
+  PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" vocab --repo "$REPO" --out "$OUT" >/dev/null 2>&1
+  PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank --sources "$SRC" --repo "$REPO" --out "$OUT" "$@"
 }
 
 # bats merges stderr into $output, and this script reports its per-tier counts
@@ -368,6 +374,46 @@ rank_of() { # rank_of <path> <output>
   run run_rank
   [ "$status" -eq 0 ]
   [ -z "$(data "$output")" ]
+}
+
+@test "an empty tags cache is not an error: it warns once, and every file scores zero" {
+  # synapse-001, step 4: rank is read-only against the cache. Without a prior
+  # `vocab` call there is nothing to read, and it must not tag anything to
+  # compensate -- the whole point is that authoring stays a reader.
+  git init -q "$REPO"
+  src core/src/Real.java 0 Alpha Beta Gamma
+  commit_repo
+  want core/src/Real.java
+
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank --sources "$SRC" --repo "$REPO" --out "$OUT"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"tags cache is empty"* ]]
+  # Present with a score of zero, not dropped from its tier -- the same
+  # outcome an unsupported or untagged file always got.
+  [ "$(data "$output" | awk -F'\t' '$3 == "core/src/Real.java" { print $2 }')" = "0.000" ]
+}
+
+@test "a file the cache never held scores zero without a warning once the cache itself is non-empty" {
+  # The narrower case within a warm cache: this specific source was added to
+  # --sources after the cache was built (or never claimed by anything vocab
+  # tagged), so it is an ordinary per-file miss rather than a cold cache.
+  git init -q "$REPO"
+  src core/src/Known.java   0 Alpha Beta
+  src core/src/Unknown.java 0 Gamma Delta
+  commit_repo
+  # Warm the cache for Known.java only, via a --lists dir naming just that one
+  # file -- vocab --lists tags exactly what the list claims.
+  mkdir -p "$TEST_HOME/lists"
+  printf 'Known\n' > "$TEST_HOME/lists/01.title"
+  printf 'core/src/Known.java\n' > "$TEST_HOME/lists/01.txt"
+  PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" vocab --repo "$REPO" --out "$OUT" --lists "$TEST_HOME/lists" >/dev/null 2>&1
+
+  want core/src/Known.java core/src/Unknown.java
+  run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" rank --sources "$SRC" --repo "$REPO" --out "$OUT"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"tags cache is empty"* ]]
+  [ "$(data "$output" | awk -F'\t' '$3 == "core/src/Unknown.java" { print $2 }')" = "0.000" ]
+  [ "$(data "$output" | awk -F'\t' '$3 == "core/src/Known.java" { print $2 }')" != "0.000" ]
 }
 
 @test "usage and environment errors" {

@@ -39,6 +39,7 @@ flowchart TB
         LISTS["synapse build-lists<br/>enumerate and expand"]
         GATE["synapse gate<br/>flag empty clusters"]
         RANK["synapse rank<br/>what to read"]
+        LINKGRAPH["synapse link-graph<br/>candidate node edges"]
         PROSE["<b>model</b><br/>author node prose"]
         PUSH["synapse push-nodes"]
         WRITE["synapse write-node<br/>hash, slice, write"]
@@ -53,6 +54,8 @@ flowchart TB
         GATE -.->|"re-cluster"| ORIENT
         LISTS --> RANK
         RANK -->|"top-N"| PROSE
+        LISTS --> LINKGRAPH
+        LINKGRAPH -->|"candidate ## Links"| PROSE
         LISTS -->|"path lists"| PUSH
         PROSE -->|"bodies"| PUSH
         PUSH -->|"per node"| WRITE
@@ -77,8 +80,10 @@ flowchart TB
     WRITE ==>|"REST PUT"| NODE
     IDX ==> IDXBIN
     PIDX ==> INDEX
-    WRITE -.->|"byproduct"| TAGSCACHE
+    VOCAB -.->|"byproduct, bulk"| TAGSCACHE
+    WRITE -.->|"byproduct, per node"| TAGSCACHE
     VOCAB -.-> WORDS
+    REFSIDX -->|"_refs.tsv"| LINKGRAPH
 
     subgraph USE["READ · DETECT · REPAIR"]
         direction TB
@@ -120,7 +125,7 @@ flowchart TB
 
     class ORIENT,PROSE model
     class MANIFEST seam
-    class LISTS,PUSH,WRITE,IDX,PIDX,TAGS,VOCAB,GATE,RANK,QUERY,SYMBOL,REFS,CALLERS,STALE2,DRIFT,GROUND,CLEAN,WIPE script
+    class LISTS,PUSH,WRITE,IDX,PIDX,TAGS,VOCAB,GATE,RANK,LINKGRAPH,QUERY,SYMBOL,REFS,CALLERS,STALE2,DRIFT,GROUND,CLEAN,WIPE script
     class NODE,INDEX,AUX vault
     class IDXBIN,TAGSCACHE,REFSIDX,WORDS work
     class STALE1 hook

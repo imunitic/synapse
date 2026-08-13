@@ -86,9 +86,11 @@ yours and cannot be scripted because what counts as signal differs per codebase.
 
 - **Mechanics (do not reimplement inline):** `synapse vocab` (repo → per-group symbol
   vocabulary), `synapse build-lists` (enumerate + expand a manifest + prove coverage),
-  `synapse gate` (flag clusters that own no vocabulary), `synapse rank` (which files are
-  worth reading), `synapse write-node` (hash, digest, `## Sources` mirror, PUT),
-  `synapse push-nodes`, `synapse build-index`, `synapse build-project-index`.
+  `synapse gate` (flag clusters that own no vocabulary), `synapse build-refs` (project the
+  tags cache into a def/ref index), `synapse link-graph` (candidate `## Links` edges from that
+  index), `synapse rank` (which files are worth reading), `synapse write-node` (hash, digest,
+  `## Sources` mirror, PUT), `synapse push-nodes`, `synapse build-index`,
+  `synapse build-project-index`.
 
 **The work directory** defaults to `~/.claude/synapse-work/{repo}@{branch}/`, created on demand, and
 holds `manifest.tsv`, `all.txt`, `lists/`, the authored `b-NN.md` bodies and the coverage files. Override with `$SYNAPSE_WORK_DIR` if you need to. Two things never to do: point it
@@ -129,13 +131,17 @@ emit into tool calls than read into a window. Never hand-author those.
    convention (e.g. a `docs/design/` folder) gets this treatment — see the design note's
    Alternatives for why that was rejected.
 3. **Orientation pass — the evidence is mechanical, the reading of it is yours.** Run
-   `synapse vocab`. It writes `groupwords.tsv` (`group ⇥ word ⇥ count`) and `counts.tsv`
-   (`group ⇥ file count`) into the work directory, covering every file that has a grammar — the
-   whole of a large repo, 125,351 files, in ~51 seconds. Read those two tables instead of exploring the
-   tree.
+   `synapse vocab`. It writes six tables into the work directory, covering every file that has a
+   grammar — the whole of a large repo, 125,351 files, in ~51 seconds: `groupwords.tsv`
+   (`group ⇥ word ⇥ count`), `counts.tsv` (`group ⇥ file count`), `groupexts.tsv`, `namespaces.tsv`,
+   `parseable.tsv` and `distinctive.tsv`. Read these instead of exploring the tree.
 
-   What is *not* mechanical, and is the actual work: deciding which words are **distinctive**
-   rather than merely frequent. A word in every group is background; a word in two is a concept.
+   What is *not fully* mechanical, and is still the actual work: deciding which words are
+   **distinctive** rather than merely frequent. `distinctive.tsv` (`group ⇥ distinctive ⇥
+   considered`) gives a first answer — how many of a group's top terms clear 0.5 on a saturation
+   curve, not the old "appears in every group" cliff — but it says how many, not which ones or why.
+   A word in every group is background; a word in two is a concept; seeing that by reading
+   `groupwords.tsv` across groups, not down one, is what turns the count into a cluster.
 
    An empty `groupwords.tsv` means no file here had a usable grammar. That is a supported state, not
    an error — fall back to the four questions in the skill below.
@@ -173,13 +179,16 @@ emit into tool calls than read into a window. Never hand-author those.
 
    ```
    synapse vocab --lists "$SYNAPSE_WORK_DIR/lists"   # re-key the vocabulary by CLUSTER
-   synapse gate  --vocab "$SYNAPSE_WORK_DIR/groupwords.tsv"
+   synapse gate  --vocab "$SYNAPSE_WORK_DIR/groupwords.tsv" \
+                 --parseable "$SYNAPSE_WORK_DIR/parseable.tsv"
    ```
 
    The second run of `synapse vocab` is not redundant. A cluster is generally *not* a union of
    directories, so cluster vocabulary cannot be derived from the directory-keyed table of step 3;
-   the extra tagging pass (~51s on a very large repo) buys exactness. Note it overwrites
-   `groupwords.tsv`/`counts.tsv` — pass `--out` if you want to keep the directory-keyed pair.
+   this re-keys it by cluster instead. It is not a second tagging pass — step 3 already left
+   `_tags_cache.bin` current for every file, so this run reads it rather than re-parsing anything.
+   Note it overwrites `groupwords.tsv`/`counts.tsv`/`namespaces.tsv`/`parseable.tsv` — pass `--out`
+   if you want to keep the directory-keyed set.
 
    Empty output means every cluster is differentiated; go on to step 6. Each line printed is a
    cluster whose top eight terms are nearly all corpus-common, i.e. it owns no vocabulary of its
@@ -187,11 +196,37 @@ emit into tool calls than read into a window. Never hand-author those.
    distinction the vocabulary actually shows, or drop the line and let its files land in a better
    node. Then re-run `synapse build-lists` and the gate.
 
-   A flag is advice, never a hard stop, and there is one case where the right answer is to override
-   it: a cluster whose code is in a language with **no tree-sitter grammar** produces no vocabulary,
-   which is indistinguishable from owning none. If that is why it was flagged, leave it alone and say
+   A flag is advice, never a hard stop. `--parseable` handles the fully-unparseable case
+   automatically now: a cluster whose code is in a language with **no tree-sitter grammar at all**
+   produces no vocabulary, which used to be indistinguishable from owning none — with
+   `parseable.tsv` passed, the gate reports it `unparseable` instead of `flagged` and leaves it out
+   of the default listing on its own. What is still a manual call is the partial case, a cluster
+   *mostly* but not entirely unparseable: the rare-term count still means something there, so the
+   gate still judges it, and if a flag on one of those turns out to be about the mixed language
+   rather than a real generic cluster, override it and say
    so.
-6. **Write each node.** Author the prose only — put each node's content in
+6. **Compute the link graph — before any node exists.** A node's `## Links` section is typed
+   relations, not prose, and node titles already exist in `manifest.tsv`/`lists/` at this point, so
+   this needs no summary to exist first.
+
+   ```
+   synapse build-refs
+   synapse link-graph --refs "$SYNAPSE_WORK_DIR/_refs.tsv" --lists "$SYNAPSE_WORK_DIR/lists"
+   ```
+
+   `build-refs` projects the tags cache into `$SYNAPSE_WORK_DIR/_refs.tsv` — cheap here, since step 3
+   already left the cache current for every file, so this reads it rather than re-parsing anything.
+   `link-graph` joins that against the path lists: a `ref` in one node's file to a name whose `def`
+   sits in another node's file is a candidate edge, weighted by how many distinct symbols support
+   it that are *rare* — referenced from few enough nodes to be informative, not a generic utility
+   name every node calls into. Writes `$SYNAPSE_WORK_DIR/links.tsv`
+   (`node ⇥ target ⇥ weight ⇥ symbols`), strongest edges first per node.
+
+   The edges are fact; `depends_on` and `uses` are both covered by what this computes, and which
+   word reads right for a given pair is judgement, made when a node's prose is written in step 7.
+   `part_of` is containment rather than reference and is never computed here — it stays entirely a
+   judgement call.
+7. **Write each node.** Author the prose only — put each node's content in
    `$SYNAPSE_WORK_DIR/b-NN.md` (matching its `lists/NN.txt`), then run `synapse push-nodes`,
    which calls `synapse write-node` per node.
 
@@ -207,12 +242,19 @@ emit into tool calls than read into a window. Never hand-author those.
    so it keeps test classes and DSL consumers, while a crux is concentrated logic so it excludes
    tests. Both leave `sources` exhaustive; this is reading order only.
 
+   **For `## Links`, read this node's rows from step 6's `links.tsv`** —
+   `awk -F'\t' '$1 == "{Node Title}"' "$SYNAPSE_WORK_DIR/links.tsv"` — rather than guessing which
+   other nodes it relates to. Each row names a target node, a weight and the symbols behind it; pick
+   `depends_on` or `uses`, whichever reads right, and prune freely — the table is evidence for a
+   candidate list, not something to copy verbatim. A node absent from `links.tsv` entirely simply had
+   no rare cross-node symbol to report; that is not itself evidence of anything.
+
    **Load the `synapse-node-format` skill before writing the first one.** It is the single
    description of the node contract — summary, the crux *pointer*, `## Links`, `grounded_in`, what
    the writer adds and what it refuses — shared with the `synapse-node` skill and `/synapse-rebuild`,
    which write the same artifact. Do not re-derive the format from an existing node: a node you are
    reading may predate a change to it.
-7. **Write `_index.bin`** — mechanics, run `synapse build-index`. It emits
+8. **Write `_index.bin`** — mechanics, run `synapse build-index`. It emits
    `$SYNAPSE_WORK_DIR/_index.bin`, mapping every source path used
    above to the list of node **filenames, including the `.md` extension** (matching the design
    note's schema exactly, since the `PostToolUse` hook and the read-time procedure both use this
@@ -230,7 +272,7 @@ emit into tool calls than read into a window. Never hand-author those.
    }
    ```
 
-8. **Write `synapse/{repo}@{branch}/Index.md`** — mechanics, run `synapse build-project-index`. It
+9. **Write `synapse/{repo}@{branch}/Index.md`** — mechanics, run `synapse build-project-index`. It
    takes no prose from you at all: each bullet's headline is read back from that node's `summary`
    frontmatter field, and the script computes the exact file count, the sanitized wikilink filename
    and the `remote` field. Bullets come out sorted by title. Run it only after the nodes exist — it

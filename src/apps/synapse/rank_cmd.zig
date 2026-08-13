@@ -1,26 +1,36 @@
 //! `synapse rank` -- the work half of `claude/lib/synapse/synapse-rank.sh`.
 //!
-//!   rank --sources <file> [--repo <path>] [--top N] [--tier code|dsl] [--pool summary|crux]
+//!   rank --sources <file> [--repo <path>] [--out <dir>] [--top N] [--tier code|dsl] [--pool summary|crux]
 //!
 //! Prints `tier <TAB> score <TAB> path`, ranked within each tier, code first.
 //! Counts per tier go to stderr, so a node whose files all scored zero is a
 //! number rather than an empty answer.
 //!
-//! ## Threaded, on the strength of the measurement `vocab` produced
+//! ## A lookup now, not a tagging pass -- synapse-001, step 4
 //!
-//! Same shape as `vocab` and for the same reason: the cost here is tagging, which
-//! is real per-file CPU work, so the script's `xargs -P` chunking was buying
-//! parallelism rather than amortising startup. `vocab` measured that directly --
-//! 1987ms twelve-process, 4453ms sequential in-process, 1142ms threaded -- so this
-//! one goes straight to threads instead of re-deriving the same answer. One thread
-//! per core, each with its own extractor, each counting definitions for its own
-//! slice; the merge is a sum.
+//! The code tier used to tag every one of its sources itself, threaded the
+//! same way `vocab` is, on the strength of the same measurement (tagging is
+//! real per-file CPU work, so parallelism paid for itself). That is gone: by
+//! the time `/synapse-init` calls `rank`, `vocab` has already tagged the whole
+//! repo into `_tags_cache.bin` -- see `vocab_cmd.zig`'s own two-pass split --
+//! so re-tagging a node's few dozen sources here was re-parsing files that
+//! were already parsed, once per node, for as many nodes as the namespace has.
 //!
-//! What disappears is the apparatus: `split`, the generated `worker.sh`, `xargs`,
-//! a `synapse tags` spawn per chunk, the `.tags` intermediates, the batched
-//! `stat`, and four `awk` programs. Definitions are counted as the tags arrive
-//! and never written down -- the script's own note about ~942 MB of tags applies
-//! here too.
+//! `rankCode` below is a single-threaded read of that cache: no extractor, no
+//! grammar registry load beyond the one `usable` already needed for the
+//! code/DSL split, no thread pool. **It is also read-only against the cache on
+//! purpose, not just incidentally** -- it never backfills a miss. A node whose
+//! source somehow was not tagged during orientation scores that file zero
+//! rather than tagging it here, the same way a file that parsed to nothing
+//! already scored zero. This is what a future parallel authoring step needs:
+//! several nodes ranking their sources at once must never become several
+//! writers to one cache file. See the design note this implements and
+//! [[sb — Parallel node authoring]], which depends on it.
+//!
+//! A cache that is missing or empty is not an error -- reported once, and
+//! every code-tier score comes out zero, same as any other miss. Run `vocab`
+//! first for a ranking that means anything; this command will not do it for
+//! you.
 //!
 //! ## The two tiers answer different questions
 //!
@@ -28,18 +38,20 @@
 //! tables first. `dsl` ranks the code that *consumes* a declaration, because a
 //! declarative file carries little meaning on its own. Both rules live in
 //! `core/rank.zig`; this file supplies the definitions, the sizes and the repo's
-//! own code list.
+//! own code list. `dsl` was never a tagging pass -- it matches declaration
+//! names against a module-bucketed file list -- and is unchanged here.
 
 const std = @import("std");
 const core = @import("core");
 const treesitter = @import("treesitter");
 const adapters = @import("adapters");
+const context = @import("context.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
+const Cache = core.tags_cache.Cache;
 
 pub fn run(
-    comptime Ex: type,
     gpa: Allocator,
     io: Io,
     env: *std.process.Environ.Map,
@@ -47,6 +59,7 @@ pub fn run(
 ) !u8 {
     var sources: ?[]const u8 = null;
     var repo: ?[]const u8 = null;
+    var out_dir: ?[]const u8 = null;
     var top: usize = 10;
     var tier: ?[]const u8 = null;
     var pool: []const u8 = "summary";
@@ -62,6 +75,8 @@ pub fn run(
             sources = args.next() orelse return usage();
         } else if (std.mem.eql(u8, arg, "--repo")) {
             repo = args.next() orelse return usage();
+        } else if (std.mem.eql(u8, arg, "--out")) {
+            out_dir = args.next() orelse return usage();
         } else if (std.mem.eql(u8, arg, "--top")) {
             top = std.fmt.parseInt(usize, args.next() orelse return usage(), 10) catch return usage();
         } else if (std.mem.eql(u8, arg, "--tier")) {
@@ -100,6 +115,23 @@ pub fn run(
         return 1;
     }
 
+    // Same default `context.workDirFor` computes for `vocab`: the namespace of
+    // `--repo` (or the cwd) when neither `--out` nor the environment names one.
+    // This is where `vocab` left `_tags_cache.bin`, and reading a node's sources
+    // from it is the entire point of this step.
+    var derived: ?context.WorkDir = null;
+    defer if (derived) |d| d.deinit(gpa);
+    if (out_dir == null and env.get("SYNAPSE_WORK_DIR") == null) {
+        derived = try context.workDirFor(gpa, io, env, repo orelse ".", "synapse-rank");
+    }
+    const work_dir = out_dir orelse env.get("SYNAPSE_WORK_DIR") orelse
+        if (derived) |d| d.path else {
+        std.debug.print("synapse-rank: no --out and no SYNAPSE_WORK_DIR\n", .{});
+        return 1;
+    };
+    const cache_path = try std.fmt.allocPrint(gpa, "{s}/_tags_cache.bin", .{work_dir});
+    defer gpa.free(cache_path);
+
     const home = env.get("HOME") orelse return 1;
     const registry_path = try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-grammars.conf", .{home});
     defer gpa.free(registry_path);
@@ -108,11 +140,6 @@ pub fn run(
         return 1;
     };
     defer registry.deinit();
-    const grammars_dir = if (env.get("SYNAPSE_GRAMMARS_DIR")) |d|
-        try gpa.dupe(u8, d)
-    else
-        try std.fmt.allocPrint(gpa, "{s}/.cache/synapse/grammars", .{home});
-    defer gpa.free(grammars_dir);
 
     const usable = try registry.usableExtensions(gpa);
     defer gpa.free(usable);
@@ -167,7 +194,7 @@ pub fn run(
     var out_buf: [256 * 1024]u8 = undefined;
     var out = Io.File.stdout().writer(io, &out_buf);
 
-    const code_rows = try rankCode(Ex, gpa, io, arena, env, registry, grammars_dir, root, code.items);
+    const code_rows = try rankCode(io, arena, cache_path, root, code.items);
     const dsl_rows = if (usable.len != 0 and noncode.items.len != 0)
         try rankDsl(gpa, io, arena, root, noncode.items, usable)
     else
@@ -188,7 +215,7 @@ pub fn run(
 
 fn usage() u8 {
     std.debug.print(
-        \\usage: synapse rank --sources <file> [--repo <path>] [--top N] [--tier code|dsl] [--pool summary|crux]
+        \\usage: synapse rank --sources <file> [--repo <path>] [--out <dir>] [--top N] [--tier code|dsl] [--pool summary|crux]
         \\
     , .{});
     return 2;
@@ -267,104 +294,51 @@ fn filterOutMatching(
 /// parsed-but-empty file ranks last rather than vanishing from its tier, and a
 /// file whose size cannot be read is dropped rather than scored as infinitely
 /// dense.
+/// Definitions per KB, read from the tags cache `vocab` already filled --
+/// never tagged here. `cache_path` may not exist yet; `Cache.open` opens that
+/// as an empty cache rather than an error, and every path then simply scores
+/// zero, same as a path the cache holds but marked unsupported.
 fn rankCode(
-    comptime Ex: type,
-    gpa: Allocator,
     io: Io,
     arena: Allocator,
-    env: *std.process.Environ.Map,
-    registry: treesitter.Registry,
-    grammars_dir: []const u8,
+    cache_path: []const u8,
     root: []const u8,
     paths: []const []const u8,
 ) ![]Row {
     if (paths.len == 0) return &[_]Row{};
 
-    const Worker = struct {
-        gpa: Allocator,
-        io: Io,
-        registry: treesitter.Registry,
-        grammars_dir: []const u8,
-        lock_tries: ?usize,
-        root: []const u8,
-        paths: []const []const u8,
-        /// One count per path in `paths`, same order. Seeded at zero, so an
-        /// untagged file is still present with a score of zero.
-        defs: []usize,
-        failed: bool = false,
-
-        fn work(self: *@This()) void {
-            self.run() catch {
-                self.failed = true;
-            };
-        }
-
-        fn run(self: *@This()) !void {
-            var ex: Ex = .init(self.gpa, self.registry, self.grammars_dir);
-            defer ex.deinit();
-            if (self.lock_tries) |n| ex.lock_tries = n;
-
-            const results = try ex.tagWithSpans(self.gpa, self.io, self.root, self.paths);
-            defer {
-                for (results) |r| if (r == .tagged) treesitter.tagger.freeTagged(self.gpa, r.tagged);
-                self.gpa.free(results);
-            }
-            for (results, 0..) |r, i| {
-                if (r != .tagged) continue;
-                // Definitions, not all tags: a reference says the file USES
-                // something, a definition says it DECLARES it, and a summary is
-                // made of what a subsystem declares.
-                for (r.tagged) |t| if (t.tag.role == .def) {
-                    self.defs[i] += 1;
-                };
-            }
-        }
-    };
-
-    const cores = std.Thread.getCpuCount() catch 4;
-    const chunk = @max(200, (paths.len + cores - 1) / cores);
-    const workers = @min(cores, (paths.len + chunk - 1) / chunk);
-
-    const defs = try arena.alloc(usize, paths.len);
-    @memset(defs, 0);
-
-    const lock_tries: ?usize = if (env.get("SYNAPSE_GRAMMAR_LOCK_TRIES")) |s|
-        std.fmt.parseInt(usize, s, 10) catch 300
-    else
-        null;
-
-    const slots = try gpa.alloc(Worker, workers);
-    defer gpa.free(slots);
-    const threads = try gpa.alloc(std.Thread, workers);
-    defer gpa.free(threads);
-
-    var assigned: usize = 0;
-    for (slots, 0..) |*w, i| {
-        const take = if (i + 1 == workers) paths.len - assigned else @min(chunk, paths.len - assigned);
-        w.* = .{
-            .gpa = gpa,
-            .io = io,
-            .registry = registry,
-            .grammars_dir = grammars_dir,
-            .lock_tries = lock_tries,
-            .root = root,
-            .paths = paths[assigned .. assigned + take],
-            .defs = defs[assigned .. assigned + take],
-        };
-        assigned += take;
+    var cache = try Cache.open(io, cache_path);
+    defer cache.close(io);
+    if (cache.count() == 0) {
+        std.debug.print(
+            "synapse-rank: tags cache is empty ({s}) -- every code-tier score will be zero; run synapse vocab first\n",
+            .{cache_path},
+        );
     }
-    for (threads, slots) |*th, *w| th.* = try std.Thread.spawn(.{}, Worker.work, .{w});
-    for (threads) |th| th.join();
-    for (slots) |*w| if (w.failed) {
-        std.debug.print("synapse-rank: a tagging worker failed\n", .{});
-        return error.TaggingFailed;
-    };
 
     var rows: std.ArrayListUnmanaged(Row) = .empty;
-    for (paths, defs) |p, n| {
+    for (paths) |p| {
         const full = try std.fmt.allocPrint(arena, "{s}/{s}", .{ root, p });
         const st = Io.Dir.cwd().statFile(io, full, .{}) catch continue;
         if (st.size == 0) continue;
+
+        // Zero for a cache miss or an unsupported file -- the same "present
+        // with a score of zero, not vanished from its tier" outcome an
+        // untagged file always got.
+        var defs: usize = 0;
+        if (cache.get(p)) |entry| {
+            if (!entry.unsupported) {
+                var lines = std.mem.splitScalar(u8, entry.tags, '\n');
+                while (lines.next()) |line| {
+                    const tag = core.tag_line.parse(line) orelse continue;
+                    // Definitions, not all tags: a reference says the file
+                    // USES something, a definition says it DECLARES it, and a
+                    // summary is made of what a subsystem declares.
+                    if (tag.role == .def) defs += 1;
+                }
+            }
+        }
+
         // Rounded to three decimals *before* sorting, not after. The script
         // printed `%.3f` with awk and then sorted that text, so two files whose
         // true densities are 2.5481 and 2.5484 are tied for it and fall through
@@ -374,7 +348,7 @@ fn rankCode(
         // scores. Formatted and parsed back rather than arithmetic, so this
         // rounds exactly the way the printed line will.
         var buf: [32]u8 = undefined;
-        const shown = std.fmt.bufPrint(&buf, "{d:.3}", .{core.rank.density(n, st.size)}) catch continue;
+        const shown = std.fmt.bufPrint(&buf, "{d:.3}", .{core.rank.density(defs, st.size)}) catch continue;
         const rounded = std.fmt.parseFloat(f64, shown) catch continue;
         try rows.append(arena, .{ .score = rounded, .path = p });
     }

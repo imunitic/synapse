@@ -19,7 +19,7 @@ tree* well enough to cluster it and then write about it.
 ## Start with the vocabulary — it is mechanical, and it is most of the answer
 
 ```
-synapse vocab                    # writes groupwords.tsv + counts.tsv into $SYNAPSE_WORK_DIR
+synapse vocab                    # writes six tables into $SYNAPSE_WORK_DIR
 ```
 
 One command derives what used to be an exploration. It tags every file that has a grammar, splits
@@ -27,15 +27,26 @@ symbol names on CamelCase and snake_case, drops stopwords, and aggregates per di
 
 - `counts.tsv` — `group ⇥ file count`, biggest first. **This is question 1, already answered.**
 - `groupwords.tsv` — `group ⇥ word ⇥ count`. **This is question 4, for the whole repo, unsampled.**
+- `groupexts.tsv` — `group ⇥ artifact kind ⇥ count`. What an area is *made of*, over every kept
+  path rather than the code subset — the interesting files here are usually the ones no grammar
+  can read.
+- `namespaces.tsv` — `group ⇥ namespace ⇥ agree ⇥ total`, where a rule is configured (question 3,
+  below, for whichever extensions `~/.claude/synapse-namespace-rules.conf` knows about).
+- `parseable.tsv` and `distinctive.tsv` feed `synapse gate` and this section's own distinctiveness
+  question respectively — see immediately below.
 
 Measured: the whole of a large repo (125,351 files, 98k of them code) takes ~51 seconds, and clusters
-derived from the result expanded to 99.91% coverage. Read these two files and cluster from them.
+derived from the result expanded to 99.91% coverage. Read these files and cluster from them.
 Reading is free; only what you print costs, so collapse to a few dozen lines before reading any
 source at all.
 
-**What the table cannot tell you** is which words are *distinctive* rather than merely frequent —
-that judgment is yours, and it is the actual work. A word appearing in every group is background;
-a word appearing in two is a concept. Scan across groups, not down one.
+**Which words are *distinctive* rather than merely frequent has a first answer in `distinctive.tsv`
+now** (`group ⇥ distinctive ⇥ considered`) — how many of a group's top terms score above 0.5 on the
+saturation curve `distinctiveness = D / (D + df)`, `D = max(2, N/K)`, rather than the binary "appears
+in every group" cliff. Read it alongside `groupwords.tsv`, not instead of it: the table says *how
+many* of a group's top terms are shared background versus real signal, not *which* ones or *why* —
+a word appearing in every group is background, a word appearing in two is a concept, and seeing that
+distinction by eye across groups, not down one, is still the part that turns a count into a cluster.
 
 **An empty `groupwords.tsv` is a legitimate answer**, not a failure: no file in this tree had a
 usable grammar. `synapse vocab` says so on stderr and exits 0. That is the case the four

@@ -201,6 +201,67 @@ write_four_clusters() {
   [ "$status" -eq 1 ]
 }
 
+# --- --parseable: distinguishing "no vocabulary" from "nothing to parse" ---
+#
+# synapse-001, step 7.
+
+@test "a would-be-flagged cluster with zero parseable files is unparseable, not flagged" {
+  write_four_clusters
+  printf 'Billing\t5\t5\nShipping\t5\t5\nPricing\t5\t5\nGeneric\t0\t5\n' \
+    > "$TEST_HOME/parseable.tsv"
+
+  run "$SYNAPSE_BIN" gate --vocab "$VOCAB" --parseable "$TEST_HOME/parseable.tsv"
+  [ "$status" -eq 0 ]
+  # Not in the default listing -- the whole point is the gate stops
+  # recommending dispersal for a cluster it has no real evidence about.
+  ! grep -q '^Generic' <<< "$output"
+
+  run "$SYNAPSE_BIN" gate --vocab "$VOCAB" --parseable "$TEST_HOME/parseable.tsv" --all
+  [ "$status" -eq 0 ]
+  [ "$(awk -F'\t' '$1 == "Generic" { print $3 }' <<< "$output")" = "unparseable" ]
+  # The other three are unaffected: real evidence, real verdict.
+  [ "$(awk -F'\t' '$1 == "Billing" { print $3 }' <<< "$output")" = "ok" ]
+}
+
+@test "a would-be-flagged cluster with even one parseable file stays flagged" {
+  write_four_clusters
+  printf 'Generic\t1\t5\n' > "$TEST_HOME/parseable.tsv"
+
+  run "$SYNAPSE_BIN" gate --vocab "$VOCAB" --parseable "$TEST_HOME/parseable.tsv"
+  [ "$status" -eq 0 ]
+  [[ "$output" == Generic* ]]
+  [[ "$output" == *"flagged"* ]]
+}
+
+@test "a cluster --parseable has no row for is judged as if --parseable were absent" {
+  # Absence of data is not the same claim as zero-parseable data -- a cluster
+  # this file never mentions gets the ordinary rare-term verdict, not a free
+  # pass and not a suppression.
+  write_four_clusters
+  printf 'Billing\t5\t5\n' > "$TEST_HOME/parseable.tsv"
+
+  run "$SYNAPSE_BIN" gate --vocab "$VOCAB" --parseable "$TEST_HOME/parseable.tsv"
+  [ "$status" -eq 0 ]
+  [[ "$output" == Generic* ]]
+  [[ "$output" == *"flagged"* ]]
+}
+
+@test "without --parseable, behaviour is exactly the old flagged/ok split" {
+  write_four_clusters
+
+  run "$SYNAPSE_BIN" gate --vocab "$VOCAB" --all
+  [ "$status" -eq 0 ]
+  [ "$(awk -F'\t' '$3 == "unparseable"' <<< "$output" | wc -l | tr -d ' ')" -eq 0 ]
+}
+
+@test "a missing --parseable file is an error, not a silently ignored flag" {
+  write_four_clusters
+
+  run "$SYNAPSE_BIN" gate --vocab "$VOCAB" --parseable "$TEST_HOME/nope.tsv"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"parseable"* ]]
+}
+
 @test "usage errors exit 2" {
   run "$SYNAPSE_BIN" gate
   [ "$status" -eq 2 ]

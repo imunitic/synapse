@@ -66,8 +66,10 @@ to orient someone already inside. A node without one is an error, not a default.
   as line numbers, stored as text**: you point, the writer slices, so composing is impossible at
   authoring time and nothing decays afterwards the way a stored line number would), `links` (typed
   Obsidian wikilinks to other nodes in this same namespace: `depends_on`, `part_of`, `uses`, or
-  another type that fits better if one doesn't), a `## Sources` section, and an empty `## Notes`
-  section.
+  another type that fits better if one doesn't — for `depends_on`/`uses` specifically, `/synapse-init`
+  computes candidates before any node exists via `synapse link-graph`; read that node's rows from
+  `links.tsv` rather than guessing which siblings it relates to, `part_of` stays a judgement call
+  with nothing mechanical behind it), a `## Sources` section, and an empty `## Notes` section.
 - **Never write crux code. Point at it and let the writer cut it out.** In the body, emit a
   directive instead of a code block:
 

@@ -30,6 +30,7 @@ const rank_cmd = @import("rank_cmd.zig");
 const query_cmd = @import("query_cmd.zig");
 const write_node_cmd = @import("write_node_cmd.zig");
 const refs_cmd = @import("refs_cmd.zig");
+const links_cmd = @import("links_cmd.zig");
 const gate_cmd = @import("gate_cmd.zig");
 const push_nodes_cmd = @import("push_nodes_cmd.zig");
 const project_index_cmd = @import("project_index_cmd.zig");
@@ -65,10 +66,10 @@ pub fn main(init: std.process.Init) !u8 {
         return build_lists_cmd.run(init.gpa, init.io, init.environ_map, &args);
 
     if (std.mem.eql(u8, sub, "vocab"))
-        return vocab_cmd.run(fake.FakeExtractor, init.gpa, init.io, init.environ_map, &args);
+        return vocab_cmd.run(fake.FakeExtractor, init.gpa, init.io, init.environ_map, &args, trace);
 
     if (std.mem.eql(u8, sub, "rank"))
-        return rank_cmd.run(fake.FakeExtractor, init.gpa, init.io, init.environ_map, &args);
+        return rank_cmd.run(init.gpa, init.io, init.environ_map, &args);
 
     // The stubbed extractor, for the same reason `vocab` and `rank` take one:
     // `query symbol` backfills the tags cache, and a test must not need a real
@@ -108,6 +109,9 @@ pub fn main(init: std.process.Init) !u8 {
 
     if (std.mem.eql(u8, sub, "callers"))
         return refs_cmd.runCallers(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "link-graph"))
+        return links_cmd.run(init.gpa, init.io, init.environ_map, &args);
 
     // The same listing the real binary prints, from the same text: the reference is
     // generated from `--help`, so a fake that could not answer it was a fake missing a

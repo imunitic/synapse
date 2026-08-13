@@ -20,6 +20,8 @@ better than prose.
 | **model** — orient and cluster | Reads the vocabulary table and decides what the nodes should be. The one genuinely judgment-shaped step in a build. |
 | `synapse gate` | Flags a cluster whose top terms are all corpus-common — it owns no vocabulary, so it is not a concept. Runs before any prose is paid for. |
 | `synapse rank` | Which of a cluster's files are worth reading, in tiers. Reading order only; `sources` stays exhaustive. |
+| `synapse build-refs` | Projects the tags cache into `_refs.tsv` (`name ⇥ def\|ref ⇥ kind ⇥ path:line ⇥ expression`). Runs both here, before any node exists, and lazily under `synapse callers` — same command, same output, either caller finds the cache already warm. |
+| `synapse link-graph` | Candidate `## Links` edges between nodes, from `_refs.tsv` joined against the path lists — before any node exists. Weighted by symbol rarity; which edges make it into prose stays judgement. |
 | **manifest.tsv** — the seam | `title ⇥ include-ERE ⇥ exclude-ERE`, one line per node. The single artifact the model hands to the scripts, and the reason coverage comes out as a printed number rather than a claim. |
 | `synapse build-lists` | `git ls-files` → `all.txt`, then expands each manifest line into a path list. Prints enumerated / covered / unassigned. |
 | **model** — author node prose | Writes one body per node: summary, a crux *pointer* (never the code itself), links, and any `grounded_in` pointers. |
@@ -166,14 +168,32 @@ to megabytes of node frontmatter and an `_index.bin` in the tens of megabytes �
 can no more *emit* into tool calls than *read* into a window. That, not tidiness, is why the write
 path is scripted at all.
 
-It is also why **no aggregation or profiling script ships.** "What is the signal in this tree?" is
-interpretation: a fixed script has to hardcode one ecosystem's conventions — JVM source roots and
-`*Service` suffixes, say, or Rust crate paths — and is then wrong everywhere else. `/synapse-init`
-carries a checklist instead (where is the weight, what artifact dominates, what does the code call
-itself versus what its directories call it, what are the domain's verbs), plus the instruction to
-record the aggregations that earned their keep in `synapse/{repo}@{branch}/_profile.txt`. Same pattern as
-`synapse tags` with its `~/.claude/synapse-grammars.conf` registry: ship the language-agnostic
-primitive, let the per-language or per-repo specifics be discovered and cached.
+It is also why **no aggregation or profiling script ships hardcoded to an ecosystem.** "What is the
+signal in this tree?" is interpretation: a fixed script has to hardcode one ecosystem's conventions —
+JVM source roots and `*Service` suffixes, say, or Rust crate paths — and is then wrong everywhere else.
+`/synapse-init` carries a checklist instead (where is the weight, what artifact dominates, what does
+the code call itself versus what its directories call it, what are the domain's verbs), plus the
+instruction to record the aggregations that earned their keep in
+`synapse/{repo}@{branch}/_profile.txt`. Same pattern as `synapse tags` with its
+`~/.claude/synapse-grammars.conf` registry: ship the language-agnostic primitive, let the
+per-language or per-repo specifics be discovered and cached.
+
+One of those four questions now has exactly that shape of primitive: `synapse vocab`'s
+`namespaces.tsv` answers "what does the code call itself versus what its directories call it" for
+whichever extensions `~/.claude/synapse-namespace-rules.conf` has a rule for — a Java `package`
+declaration, a Rust crate's `Cargo.toml` name — keyed by bare extension exactly like the grammar
+registry, and silently answering nothing for an extension with no rule yet rather than guessing.
+Weight and artifact dominance were already this mechanical before either — `counts.tsv` and
+`groupexts.tsv` are plain counts, no rule to discover at all.
+
+Domain verbs — question 4, the vocabulary itself — stay genuinely mixed. `groupwords.tsv` was
+always the mechanical half: every symbol name, unsampled. What was pure judgment is now partly
+aided by `distinctive.tsv`, a *statistic*, not a per-extension rule like the namespace table —
+`core.gate`'s saturation curve scores how many of a group's top terms are distinctive rather than
+merely frequent, using document frequency across groups the same way `synapse gate` already scores
+document frequency across clusters. It says *how many*, never *which ones or why* — reading the
+vocabulary and deciding what a subsystem is actually about is still the model's, the same way a
+gate flag is advice about a clustering rather than a verdict on one.
 
 ### Three per-repo artifacts, in two places
 

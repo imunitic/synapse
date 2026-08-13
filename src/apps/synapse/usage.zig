@@ -27,6 +27,7 @@ pub const text =
     \\  build-refs [--cache <f>] [--out <f>]   _refs.tsv from the tags cache
     \\  callers <name> [--all]     repo-wide sites of an exact name
     \\  gate --vocab <file> [--all] [--top N]   clusters owning no vocabulary
+    \\  link-graph --refs <f> --lists <dir> [--top N]   candidate node links
     \\  push-nodes [NN ...]        write one node per authored body
     \\  build-project-index        the namespace's Index.md node map
     \\  namespace [--repo <dir>]   the {repo}@{branch} key for a checkout

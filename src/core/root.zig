@@ -21,6 +21,8 @@ pub const tags_cache = @import("tags_cache.zig");
 pub const index_map = @import("index_map.zig");
 pub const enumerate = @import("enumerate.zig");
 pub const vocab = @import("vocab.zig");
+pub const namespace = @import("namespace.zig");
+pub const links = @import("links.zig");
 pub const rank = @import("rank.zig");
 pub const node = @import("node.zig");
 pub const query = @import("query.zig");
@@ -44,6 +46,8 @@ test {
     _ = index_map;
     _ = enumerate;
     _ = vocab;
+    _ = namespace;
+    _ = links;
     _ = rank;
     _ = node;
     _ = query;

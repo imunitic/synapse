@@ -20,11 +20,14 @@ const Allocator = std.mem.Allocator;
 const prog = "synapse-gate";
 
 const usage_text =
-    \\usage: synapse gate --vocab <groupwords.tsv> [--all] [--top N]
+    \\usage: synapse gate --vocab <groupwords.tsv> [--parseable <parseable.tsv>] [--all] [--top N]
     \\
-    \\  --vocab  cluster-keyed vocabulary: `cluster <TAB> word <TAB> count`
-    \\  --all    print every cluster with its score, not only the flagged ones
-    \\  --top    terms per cluster the rule looks at, default 8
+    \\  --vocab       cluster-keyed vocabulary: `cluster <TAB> word <TAB> count`
+    \\  --parseable   synapse vocab's `parseable.tsv`: `cluster <TAB> parseable <TAB> total`.
+    \\                A cluster with zero rare terms and zero parseable files is reported
+    \\                `unparseable` instead of `flagged` -- see core/gate.zig.
+    \\  --all         print every cluster with its score, not only the flagged ones
+    \\  --top         terms per cluster the rule looks at, default 8
     \\
 ;
 
@@ -41,6 +44,7 @@ pub fn run(
 ) !u8 {
     _ = env;
     var vocab: []const u8 = "";
+    var parseable_path: ?[]const u8 = null;
     var top: usize = 8;
     var all = false;
     while (args.next()) |arg| {
@@ -52,6 +56,8 @@ pub fn run(
             all = true;
         } else if (std.mem.eql(u8, arg, "--vocab")) {
             vocab = args.next() orelse return usage();
+        } else if (std.mem.eql(u8, arg, "--parseable")) {
+            parseable_path = args.next() orelse return usage();
         } else if (std.mem.eql(u8, arg, "--top")) {
             const text = args.next() orelse return usage();
             // Digits only and at least one, as `case "$TOP" in ''|*[!0-9]*)` plus
@@ -78,16 +84,52 @@ pub fn run(
         return 1;
     }
 
-    var verdicts = try core.gate.judge(gpa, table, .{ .top = top });
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var parseable: std.StringHashMapUnmanaged(f64) = .empty;
+    if (parseable_path) |p| {
+        const text = Io.Dir.cwd().readFileAlloc(io, p, arena, .limited(64 << 20)) catch {
+            std.debug.print("{s}: no such parseable-share file: {s}\n", .{ prog, p });
+            return 1;
+        };
+        try loadParseable(arena, text, &parseable);
+    }
+
+    var verdicts = try core.gate.judge(gpa, table, .{
+        .top = top,
+        .parseable = if (parseable_path != null) &parseable else null,
+    });
     defer core.gate.free(gpa, &verdicts);
 
     var buf: [64 * 1024]u8 = undefined;
     var out = Io.File.stdout().writer(io, &buf);
     for (verdicts.items) |v| {
-        if (!v.flagged and !all) continue;
+        if (v.status != .flagged and !all) continue;
         try core.gate.writeVerdict(&out.interface, v);
     }
     try out.interface.flush();
     // Always 0: a flag is advice to re-cluster or disperse, never a hard stop.
     return 0;
+}
+
+/// `cluster <TAB> parseable <TAB> total` -> `cluster -> parseable/total`. A
+/// zero-total row is skipped rather than divided: an empty cluster has no
+/// share to report, not a share of zero, and zero-parseable is exactly the
+/// value that changes a verdict, so it must never be produced by accident.
+fn loadParseable(arena: Allocator, text: []const u8, out: *std.StringHashMapUnmanaged(f64)) !void {
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trimEnd(u8, raw, "\r");
+        if (line.len == 0) continue;
+        var fields = std.mem.splitScalar(u8, line, '\t');
+        const name = fields.next() orelse continue;
+        const parseable_text = fields.next() orelse continue;
+        const total_text = fields.next() orelse continue;
+        const parseable_count = std.fmt.parseInt(usize, parseable_text, 10) catch continue;
+        const total = std.fmt.parseInt(usize, total_text, 10) catch continue;
+        if (total == 0) continue;
+        try out.put(arena, name, @as(f64, @floatFromInt(parseable_count)) / @as(f64, @floatFromInt(total)));
+    }
 }

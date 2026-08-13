@@ -32,6 +32,7 @@ usage: synapse <subcommand> [args]
   build-refs [--cache <f>] [--out <f>]   _refs.tsv from the tags cache
   callers <name> [--all]     repo-wide sites of an exact name
   gate --vocab <file> [--all] [--top N]   clusters owning no vocabulary
+  link-graph --refs <f> --lists <dir> [--top N]   candidate node links
   push-nodes [NN ...]        write one node per authored body
   build-project-index        the namespace's Index.md node map
   namespace [--repo <dir>]   the {repo}@{branch} key for a checkout
@@ -87,12 +88,13 @@ usage: synapse build-lists [--reenumerate]
 
 ```
 usage: synapse vocab [--repo <path>] [--depth N] [--chunk N] [--out <dir>] [--lists <dir>]
+                     [--distinctive-top N] [--distinctive-k N]
 ```
 
 ### synapse rank
 
 ```
-usage: synapse rank --sources <file> [--repo <path>] [--top N] [--tier code|dsl] [--pool summary|crux]
+usage: synapse rank --sources <file> [--repo <path>] [--out <dir>] [--top N] [--tier code|dsl] [--pool summary|crux]
 ```
 
 ### synapse query
@@ -150,11 +152,25 @@ usage: synapse callers <name> [--all]
 ### synapse gate
 
 ```
-usage: synapse gate --vocab <groupwords.tsv> [--all] [--top N]
+usage: synapse gate --vocab <groupwords.tsv> [--parseable <parseable.tsv>] [--all] [--top N]
 
-  --vocab  cluster-keyed vocabulary: `cluster <TAB> word <TAB> count`
-  --all    print every cluster with its score, not only the flagged ones
-  --top    terms per cluster the rule looks at, default 8
+  --vocab       cluster-keyed vocabulary: `cluster <TAB> word <TAB> count`
+  --parseable   synapse vocab's `parseable.tsv`: `cluster <TAB> parseable <TAB> total`.
+                A cluster with zero rare terms and zero parseable files is reported
+                `unparseable` instead of `flagged` -- see core/gate.zig.
+  --all         print every cluster with its score, not only the flagged ones
+  --top         terms per cluster the rule looks at, default 8
+```
+
+### synapse link-graph
+
+```
+usage: synapse link-graph --refs <_refs.tsv> --lists <dir> [--top N] [--out <dir>]
+
+  --refs   synapse build-refs's index. Default $SYNAPSE_WORK_DIR/_refs.tsv.
+  --lists  the NN.txt/NN.title path lists synapse build-lists wrote.
+  --top    edges kept per node, strongest first, default 8. 0 means no cap.
+  --out    where to write links.tsv. Default $SYNAPSE_WORK_DIR.
 ```
 
 ### synapse push-nodes
