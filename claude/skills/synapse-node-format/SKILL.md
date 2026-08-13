@@ -84,7 +84,7 @@ to orient someone already inside. A node without one is an error, not a default.
   This exists because a typed crux can be a paraphrase that merely *looks* like a quote — the
   invented `trait Matcher { /* no engine assumptions */ }` reads perfectly and is worth nothing. A
   rule saying "quote, don't compose" depends on compliance; pointing makes composing impossible,
-  which is the same mechanics-are-scripts move as the rest of the write path.
+  which is the same mechanics-belong-to-the-tooling move as the rest of the write path.
 
 - **Ground the summary in what the codebase asserts about itself.** Prefer, in this order: a test
   (its name and assertions state behaviour that CI checks on every commit — the strongest evidence

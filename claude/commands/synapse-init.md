@@ -92,7 +92,7 @@ yours and cannot be scripted because what counts as signal differs per codebase.
 
 **The work directory** defaults to `~/.claude/synapse-work/{repo}@{branch}/`, created on demand, and
 holds `manifest.tsv`, `all.txt`, `lists/`, the authored `b-NN.md` bodies and the coverage files. Override with `$SYNAPSE_WORK_DIR` if you need to. Two things never to do: point it
-at the repo (these scripts run from inside the repo, so its working files would land in the user's
+at the repo (`synapse` runs from inside the repo, so its working files would land in the user's
 checkout) or at the vault (Obsidian would index a file list that runs to six figures of lines).
 It is deliberately persistent rather than a temp dir, so a later run finds the previous manifest
 instead of re-deriving the clustering.

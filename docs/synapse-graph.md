@@ -592,8 +592,8 @@ counted as a bare same-package reference to `bar`, or the tags imply edges the c
 
 ## The Code Cache: exact-symbol lookup and repo-wide callers
 
-Node-scoped and repo-wide exact-name lookup (`synapse query symbol`, `synapse callers` via
-`synapse query callers`) are both built on a separate, vault-free acceleration layer — the tags
+Node-scoped and repo-wide exact-name lookup (`synapse query symbol` and the top-level
+`synapse callers`) are both built on a separate, vault-free acceleration layer — the tags
 cache and the flat reference index it projects. Neither needs a graph, a node, or the vault at all.
 See [synapse-code-cache.md](synapse-code-cache.md) for the build path, the query path, and what it
 buys measured against a plain `grep`.

@@ -38,7 +38,7 @@ Two commands read the cache, at different scopes:
   within a node's already-known `sources`, closing the last-mile gap from "a node named the file" to a
   real `file:line`. A cache miss triggers the same lazy, parallel backfill the build path uses. Set
   `SYNAPSE_DISABLE_SYMBOL_CACHE` to turn the whole cache off.
-- **`synapse callers`** (dispatched as `synapse query callers <name>`) — repo-wide:
+- **`synapse callers <name>`** (a top-level subcommand, not one of `query`'s) — repo-wide:
   every call site of an exact name, anywhere, as `path:line ⇥ calling expression`, reading `_refs.tsv`
   directly. The lookup is `look` (binary search) plus an exact `awk` filter — `look` alone
   prefix-matches (`bet` → `beta`), `awk` alone is a full scan (26s on a 1.4 GB index). Not `grep`,

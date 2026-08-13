@@ -15,7 +15,7 @@ speculatively.
 Whenever a `synapse/{project}/{Node}.md` file is about to be read **for its content to actually be
 used** (orienting on a subsystem, answering a question about it, deciding where to make a change)
 — not for a `vault_list`/title-only skim. Run this procedure *before* trusting what comes back from
-that read. This is the one Synapse mechanism that isn't a hook: a hook is a plain script with no
+that read. This is the one Synapse mechanism that isn't a hook: a hook is compiled code with no
 reasoning, and classifying whether a file "fits" a node is exactly the kind of judgment call that
 needs one.
 

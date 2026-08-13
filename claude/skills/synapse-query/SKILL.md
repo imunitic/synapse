@@ -20,8 +20,10 @@ The Synapse graph has two parts:
    other nodes (`depends_on`/`part_of`/`uses`/etc, as the node's own data), and an exhaustive
    `sources` list. A broad metadata layer for narrowing down *where* to look — not a replacement for
    reading code, a map to it.
-2. **`synapse query` and friends** — scripts that query and extract from part 1 cheaply. Nothing
-   here is a daemon or a server; every command is a plain script reading files on disk.
+2. **`synapse`** — one binary whose subcommands query and extract from part 1 cheaply. Nothing here
+   is a daemon or a server; every subcommand reads files on disk and exits. (`synapse-hook` is a
+   second binary carrying the Claude Code hooks; it is registered in `settings.json`, never run by
+   hand.)
 
 **The point of this graph is to make grep the last resort, not a peer option.** Consult Synapse
 first to learn *where* something lives; a node's `sources` (or `crux_path`, if it has one) then
@@ -49,7 +51,7 @@ required:
 | Every occurrence of a pattern | native `grep`/`rg`, **scoped to a file Synapse already named** | Not a repo-wide first move — the deterred, last-resort case. See "Why this exists" above. |
 | A file's API surface | `Read` the file directly | Claude already has direct, cheap filesystem access — no separate view needed. |
 | Who depends on a subsystem, or what it depends on | `synapse query links "{Node}" --inbound` / `--closure` | Real transitive-closure traversal over the typed relations, at node granularity. |
-| **Who calls this method/class, repo-wide** | `synapse query callers <name>` | Every call site as `path:line ⇥ calling expression`, off the flat index `synapse build-refs` projects from the tags cache. 0.36s against a 1.4 GB index. Needs **no node and no graph** — it works in a repo `/synapse-init` has never touched, as long as the cache is filled. Still name-based rather than type-resolved, so hits are candidates with evidence: the calling expression is on the line, which usually settles the receiver without opening the file. |
+| **Who calls this method/class, repo-wide** | `synapse callers <name>` | Every call site as `path:line ⇥ calling expression`, off the flat index `synapse build-refs` projects from the tags cache. 0.36s against a 1.4 GB index. Needs **no node and no graph** — it works in a repo `/synapse-init` has never touched, as long as the cache is filled. Still name-based rather than type-resolved, so hits are candidates with evidence: the calling expression is on the line, which usually settles the receiver without opening the file. |
 | One frontmatter scalar (`stale`, `built_at`, `commit`, ...) | `synapse query field "{Node}" <key>` | Cheap, targeted extraction — never reads the rest of the node. |
 | A node's prose, without its (possibly huge) `sources` list | `synapse query body "{Node}"` | Disk read, never the API; skips frontmatter and `## Notes`. See the cost note above. |
 | Every file a node covers | `synapse query sources "{Node}" [--count\|--modules\|--filter <p>]` | Filtered/counted/grouped, never the raw megabyte-scale list. |
