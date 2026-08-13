@@ -115,6 +115,19 @@ run_callers() {
   [[ "$output" == *"synapse build-refs"* ]]
 }
 
+# The other half of that distinction, and the one the mapping put at risk: an
+# empty file is a projection that ran and found nothing, so it must answer like
+# any name with no callers. It gets its own branch because a zero-length mapping
+# is refused by the OS, and a branch that turned that refusal into "no index"
+# would report the missing-index error for a built one.
+@test "callers: an empty index is 'checked, not called', not a missing index" {
+  : > "$INDEX"
+
+  run run_callers doThing
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
 @test "callers: a name that is present but never called is silent, exit 0" {
   local d
   d="$(tagline 'lonely    ' 'method ' 'def' 3 'void lonely() {')"

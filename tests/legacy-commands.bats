@@ -13,8 +13,16 @@
 # The lesson generalises past those instances: a rename is only finished when it is
 # checked mechanically, and the check has to look at the *class*, not the instances.
 # There are three places a command name can be wrong, so there are three tests:
-# shipped instruction files, the text the binaries emit, and whether the name exists
-# at all.
+# shipped instruction files, the text the hooks inject, and the documents the
+# binaries generate.
+#
+# Two rules, and both of them apply to all three places. The first is a text search
+# for a deleted shell entry point; the second is the half a text search cannot do --
+# resolving `synapse <sub>` against the binary's own `--help`, which is what catches
+# a name spelled entirely in current vocabulary that has never been a command. For a
+# while only the first rule reached the hook text and the generated index, while the
+# README claimed both did. `synapse query callers` in an injected nudge would have
+# shipped green.
 
 load 'test_helper'
 
@@ -71,6 +79,35 @@ shipped_instructions() {
 # name one.
 readonly LEGACY='(synapse|second-brain)[a-z-]*\.sh'
 
+# Every `synapse <sub>` and `synapse query <sub>` in the text on stdin that the
+# binary does not actually have, one per line. Empty output means clean.
+#
+# Only backticked mentions count. Prose runs the two words together often enough
+# ("consult synapse query before grepping") that matching bare text would flag
+# sentences rather than commands.
+unknown_commands() {
+  local text subs qsubs bad="" cmd
+  text="$(cat)"
+  subs="$("$SYNAPSE_BIN" --help 2>&1 | sed -n 's/^  \([a-z][a-z-]*\) .*/\1/p' | sort -u)"
+  qsubs="$("$SYNAPSE_BIN" query --help 2>&1 | sed -n 's/^  \([a-z][a-z-]*\) .*/\1/p' | sort -u)"
+  # A --help that parsed to nothing would make every check below vacuously pass,
+  # which is the one way this guard could fail silently.
+  [ -n "$subs" ] || { echo "  (synapse --help listed no subcommands)"; return; }
+  [ -n "$qsubs" ] || { echo "  (synapse query --help listed no subcommands)"; return; }
+
+  while read -r cmd; do
+    [ -n "$cmd" ] || continue
+    grep -qx "$cmd" <<< "$qsubs" || bad="$bad  synapse query $cmd"$'\n'
+  done <<< "$(grep -hoE '`synapse query [a-z][a-z-]+' <<< "$text" | sed 's/.*query //' | sort -u)"
+
+  while read -r cmd; do
+    [ -n "$cmd" ] || continue
+    grep -qx "$cmd" <<< "$subs" || bad="$bad  synapse $cmd"$'\n'
+  done <<< "$(grep -hoE '`synapse [a-z][a-z-]+' <<< "$text" | sed 's/.*`synapse //' | sort -u)"
+
+  printf '%s' "$bad"
+}
+
 @test "no shipped instruction names a deleted shell entry point" {
   local hits
   hits="$(shipped_instructions | xargs grep -nE "$LEGACY" || true)"
@@ -84,27 +121,8 @@ readonly LEGACY='(synapse|second-brain)[a-z-]*\.sh'
 @test "every 'synapse <sub>' a shipped instruction names is a real subcommand" {
   # The half a text search cannot do: `synapse query callers` is spelled entirely in
   # current vocabulary and is still not a command.
-  local subs qsubs
-  subs="$("$SYNAPSE_BIN" --help 2>&1 | sed -n 's/^  \([a-z][a-z-]*\) .*/\1/p' | sort -u)"
-  qsubs="$("$SYNAPSE_BIN" query --help 2>&1 | sed -n 's/^  \([a-z][a-z-]*\) .*/\1/p' | sort -u)"
-  [ -n "$subs" ]
-  [ -n "$qsubs" ]
-
-  # Only backticked mentions count. Prose runs the two words together often enough
-  # ("consult synapse query before grepping") that matching bare text would flag
-  # sentences rather than commands.
-  local bad=""
-  local cmd
-  while read -r cmd; do
-    [ -n "$cmd" ] || continue
-    grep -qx "$cmd" <<< "$qsubs" || bad="$bad  synapse query $cmd"$'\n'
-  done <<< "$(shipped_instructions | xargs grep -hoE '`synapse query [a-z][a-z-]+' | sed 's/.*query //' | sort -u)"
-
-  while read -r cmd; do
-    [ -n "$cmd" ] || continue
-    grep -qx "$cmd" <<< "$subs" || bad="$bad  synapse $cmd"$'\n'
-  done <<< "$(shipped_instructions | xargs grep -hoE '`synapse [a-z][a-z-]+' | sed 's/.*`synapse //' | sort -u)"
-
+  local bad
+  bad="$(shipped_instructions | xargs cat | unknown_commands)"
   [ -z "$bad" ] || {
     echo "shipped instructions naming a command the binary does not have:" >&2
     printf '%s' "$bad" >&2
@@ -112,7 +130,7 @@ readonly LEGACY='(synapse|second-brain)[a-z-]*\.sh'
   }
 }
 
-@test "no context a hook injects names a deleted shell entry point" {
+@test "no context a hook injects names a script or command that does not exist" {
   # The instance that shipped: this is the only one of the three checks that would
   # have caught it, because the string was in a Zig source and not in any document.
   make_repo "git@github.com:example/repo.git"
@@ -146,9 +164,21 @@ readonly LEGACY='(synapse|second-brain)[a-z-]*\.sh'
     grep -oE "[^ ]*$LEGACY" <<< "$emitted" | sort -u >&2
     false
   }
+
+  # And the rule a text search cannot express. The nudge names commands in
+  # backticks -- `synapse query symbol`, `synapse callers`, `synapse index lookup`
+  # -- so a renamed or never-existing one is exactly as reachable here as it is in
+  # a skill, and reaches the model on every turn rather than when a skill is read.
+  local bad
+  bad="$(unknown_commands <<< "$emitted")"
+  [ -z "$bad" ] || {
+    echo "a hook injected a command the binary does not have:" >&2
+    printf '%s' "$bad" >&2
+    false
+  }
 }
 
-@test "no generated document names a deleted shell entry point" {
+@test "no generated document names a script or command that does not exist" {
   # A real `Index.md`, built by the builder rather than staged as a fixture -- the
   # advice paragraph it emits told every reader to run `synapse-query.sh body <node>`,
   # and it is written into the vault and read back by an agent every session, so it is
@@ -170,6 +200,17 @@ readonly LEGACY='(synapse|second-brain)[a-z-]*\.sh'
   ! grep -qE "$LEGACY" <<< "$generated" || {
     echo "a generated document names a deleted script:" >&2
     grep -oE "[^ ]*$LEGACY" <<< "$generated" | sort -u >&2
+    false
+  }
+
+  # The advice paragraph names four commands in backticks and is read back by an
+  # agent every session, so it carries the same risk a skill does -- and unlike a
+  # skill, it is written from a Zig string that no documentation review would open.
+  local bad
+  bad="$(unknown_commands <<< "$generated")"
+  [ -z "$bad" ] || {
+    echo "a generated document names a command the binary does not have:" >&2
+    printf '%s' "$bad" >&2
     false
   }
 }

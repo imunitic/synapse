@@ -10,10 +10,11 @@ you can use one without the others:
   discussions. Cross-project by default and searchable as ordinary Markdown.
 - **Synapse Graph** — a per-repo semantic code graph, hosted *inside* the Vault under
   `synapse/{repo}@{branch}/`, so it is stored and searched like any other note. Dormant until
-  `/synapse-init` is run in a repo.
+  `/synapse-init` is run in a repo. Underneath it is the **Code Cache** — tags, refs and call
+  graph, no vault involved — which is a layer of the Graph rather than a fourth component, even
+  though the binary alone is enough to use it (`synapse callers` needs no graph, no vault and no
+  nodes). See [`docs/synapse-code-cache.md`](docs/synapse-code-cache.md).
 - **Synapse Tools** — the scripts, commands, skills and hooks that build and maintain both.
-- **Synapse Code Cache** — the vault-free acceleration layer underneath the Graph (tags, refs,
-  call-graph). See [`docs/synapse-code-cache.md`](docs/synapse-code-cache.md).
 
 This repository packages the **Tools**, plus the templates and config they need. It does not contain
 your notes: the Vault's content is a separate sync concern (git, Obsidian Sync, iCloud, manual copy —

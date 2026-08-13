@@ -203,18 +203,18 @@ pub fn runCallers(
     // index means "checked, not called"; silence from a missing one would be
     // indistinguishable from it, which is the confusion this whole subcommand
     // exists to avoid.
-    const index = Io.Dir.cwd().readFileAlloc(io, refs_path.?, gpa, .limited(4 << 30)) catch {
+    var index = openIndex(io, gpa, refs_path.?) catch {
         std.debug.print(
             "{s}: no reference index at {s} -- run `synapse build-refs`\n",
             .{ callers_prog, refs_path.? },
         );
         return 1;
     };
-    defer gpa.free(index);
+    defer index.deinit(io, gpa);
 
     var buf: [256 * 1024]u8 = undefined;
     var out = Io.File.stdout().writer(io, &buf);
-    var it = core.refs.find(index, name);
+    var it = core.refs.find(index.bytes, name);
     while (it.next()) |row| {
         if (all) {
             try out.interface.print("{s}\t{s}\t{s}\t{s}\n", .{ row.dir, row.kind, row.site, row.expr });
@@ -233,4 +233,61 @@ pub fn runCallers(
 fn callersUsage() u8 {
     std.debug.print("{s}", .{callers_usage});
     return 2;
+}
+
+/// The index, however it was obtained -- mapped when that works, read when it
+/// does not.
+const Index = struct {
+    bytes: []const u8,
+    map: ?Io.File.MemoryMap = null,
+    owned: ?[]u8 = null,
+
+    fn deinit(self: *Index, io: Io, gpa: Allocator) void {
+        if (self.map) |*m| {
+            m.file.close(io);
+            m.destroy(io);
+        }
+        if (self.owned) |b| gpa.free(b);
+        self.* = .{ .bytes = "" };
+    }
+};
+
+/// Map the index rather than read it.
+///
+/// `find` binary-searches, so answering a query reads a handful of lines --
+/// but `readFileAlloc` had to pay for the whole file first, in both I/O and
+/// resident memory, to look at them. On a large repo's 1.4 GB index that was
+/// 1.4 GB of read and allocation to reach roughly twenty pages, and it scaled
+/// with the repository rather than with the answer. The same mapping the tags
+/// cache and the index map already use makes the cost proportional to what is
+/// actually touched.
+fn openIndex(io: Io, gpa: Allocator, path: []const u8) !Index {
+    const file = try Io.Dir.cwd().openFile(io, path, .{ .mode = .read_only });
+    var close_file = true;
+    defer if (close_file) file.close(io);
+
+    // An empty index is not a missing one -- it is a projection that ran and
+    // found nothing, which must stay exit 0 with no rows. A zero-length
+    // mapping is refused by the OS, so that case never reaches one.
+    const size = (try file.stat(io)).size;
+    if (size == 0) return .{ .bytes = "" };
+
+    if (file.createMemoryMap(io, .{
+        .len = @intCast(size),
+        .protection = .{ .read = true, .write = false },
+        // A binary search faults in the pages it lands on, and prefaulting
+        // would reinstate exactly the cost this replaces.
+        .populate = false,
+    })) |map| {
+        // The mapping keeps its own reference to the file.
+        close_file = false;
+        return .{ .bytes = map.memory, .map = map };
+    } else |_| {}
+
+    // Mapping can fail where reading still works -- some filesystems, and a
+    // mapping this size is a real request that can be refused. Falling back
+    // keeps the query answerable, because the alternative is reporting a
+    // missing index, which is a different claim and an untrue one.
+    const bytes = try Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(4 << 30));
+    return .{ .bytes = bytes, .owned = bytes };
 }

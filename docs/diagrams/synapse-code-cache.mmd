@@ -21,12 +21,12 @@ flowchart TB
     subgraph QUERY["query path"]
         direction TB
         SYMBOL["synapse query symbol<br/>node-scoped, exact name"]
-        CALLERS["synapse callers<br/>repo-wide, look + awk"]
+        CALLERS["synapse callers<br/>repo-wide, exact name"]
     end
 
     FILES --> TAGS
     TAGSCACHE -->|"a node's sources<br/>(cache miss: lazy parallel backfill)"| SYMBOL
-    REFS -->|"binary search, then<br/>exact awk filter"| CALLERS
+    REFS -->|"binary search over<br/>the mapped index"| CALLERS
 
     class TAGS,CACHE_SCRIPT,REFS_SCRIPT script
     class TAGSCACHE,REFS artifact

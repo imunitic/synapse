@@ -17,6 +17,9 @@
 const std = @import("std");
 const core = @import("core");
 const adapters = @import("adapters");
+// For the staleness window alone, so the report and the code that acts on it cannot
+// disagree about what "abandoned" means.
+const treesitter = @import("treesitter");
 const context = @import("context.zig");
 
 const Io = std.Io;
@@ -70,6 +73,7 @@ pub fn run(
     defer if (id) |i| i.deinit(gpa);
     try namespaceChecks(&ctx, vault, id);
     try workDirChecks(&ctx, id);
+    try grammarLockChecks(&ctx);
     try hookChecks(&ctx);
 
     var buf: [64 * 1024]u8 = undefined;
@@ -368,6 +372,66 @@ fn workDirChecks(ctx: *Ctx, id: ?core.identity.Resolved) !void {
         refs
     else
         "absent -- `callers` exits 1 until `build-refs` runs");
+}
+
+/// Grammar clone locks left behind. Mirrors `grammar.ensureCloned`'s wait, which is
+/// silent in the way this command exists for: a lock nobody holds costs every later
+/// run its full ~60s ceiling and then skips that extension, and the only visible
+/// symptom is tagging that quietly stopped covering one language.
+///
+/// The interesting state is a lock *younger* than the staleness window, because that
+/// one is not yet self-healing. An older one is reported too, as `ok` with a note,
+/// since seeing it explains a slow run that has already fixed itself.
+fn grammarLockChecks(ctx: *Ctx) !void {
+    const repos = if (ctx.env.get("SYNAPSE_GRAMMARS_DIR")) |d|
+        try ctx.fmt("{s}/repos", .{d})
+    else if (ctx.env.get("HOME")) |home|
+        try ctx.fmt("{s}/.cache/synapse/grammars/repos", .{home})
+    else
+        return;
+
+    var dir = Io.Dir.cwd().openDir(ctx.io, repos, .{ .iterate = true }) catch {
+        // No grammars cloned yet is the normal state on a fresh machine, and it is
+        // already implied by every other tags-related check.
+        return;
+    };
+    defer dir.close(ctx.io);
+
+    const now = Io.Timestamp.now(ctx.io, .real).nanoseconds;
+    var held: usize = 0;
+    var abandoned: usize = 0;
+    // One example per category, not one overall: naming a lock from the other half
+    // would illustrate the sentence with a counter-example to it.
+    var first_held: []const u8 = "";
+    var first_abandoned: []const u8 = "";
+
+    var it = dir.iterate();
+    while (try it.next(ctx.io)) |entry| {
+        if (!std.mem.endsWith(u8, entry.name, ".lock")) continue;
+        const path = try ctx.fmt("{s}/{s}", .{ repos, entry.name });
+        const st = Io.Dir.cwd().statFile(ctx.io, path, .{}) catch continue;
+        if (now - st.mtime.nanoseconds > treesitter.grammar.lock_stale_after_ns) {
+            abandoned += 1;
+            if (first_abandoned.len == 0) first_abandoned = path;
+        } else {
+            held += 1;
+            if (first_held.len == 0) first_held = path;
+        }
+    }
+
+    if (held == 0 and abandoned == 0) return;
+    if (held > 0) {
+        try ctx.add("grammar locks", .warn, try ctx.fmt(
+            "{d} held ({s}){s} -- another synapse is cloning, or one was killed just now; " ++
+                "delete it if nothing is running",
+            .{ held, first_held, if (abandoned > 0) ", plus abandoned ones" else "" },
+        ));
+    } else {
+        try ctx.add("grammar locks", .ok, try ctx.fmt(
+            "{d} abandoned ({s}) -- older than the staleness window, so the next run takes it over",
+            .{ abandoned, first_abandoned },
+        ));
+    }
 }
 
 /// Whether the five hooks are registered, once each, at the current command. Mirrors

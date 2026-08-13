@@ -134,7 +134,31 @@ pub fn build(io: Io, gpa: Allocator, repo_dir: []const u8, out_path: []const u8)
     defer gpa.free(parser_c);
     cwd.access(io, parser_c, .{}) catch return Error.ParserSourceMissing;
 
-    if (try upToDate(io, out_path, parser_c)) return;
+    // Every source that goes into the link, collected before the up-to-date
+    // check rather than after it, because each one of them is a reason the
+    // artefact could be out of date.
+    var sources: std.ArrayListUnmanaged([]const u8) = .empty;
+    defer sources.deinit(gpa);
+    try sources.append(gpa, parser_c);
+
+    // Some grammars carry an external scanner. C is common (python, kotlin);
+    // C++ (`scanner.cc`) exists too and would need `zig c++` plus libc++, so
+    // it is refused loudly rather than compiled into a link error.
+    const scanner_c = try std.fs.path.join(gpa, &.{ repo_dir, "src", "scanner.c" });
+    defer gpa.free(scanner_c);
+    const scanner_cc = try std.fs.path.join(gpa, &.{ repo_dir, "src", "scanner.cc" });
+    defer gpa.free(scanner_cc);
+    if (cwd.access(io, scanner_c, .{})) |_| {
+        try sources.append(gpa, scanner_c);
+    } else |_| if (cwd.access(io, scanner_cc, .{})) |_| {
+        std.debug.print(
+            "synapse: {s} has a C++ scanner, which is not supported yet -- skipping that grammar\n",
+            .{repo_dir},
+        );
+        return Error.CompileFailed;
+    } else |_| {}
+
+    if (try upToDate(io, out_path, sources.items)) return;
 
     const src_dir = try std.fs.path.join(gpa, &.{ repo_dir, "src" });
     defer gpa.free(src_dir);
@@ -146,24 +170,8 @@ pub fn build(io: Io, gpa: Allocator, repo_dir: []const u8, out_path: []const u8)
     // disk and may outlive the machine that built it.
     var argv: std.ArrayListUnmanaged([]const u8) = .empty;
     defer argv.deinit(gpa);
-    try argv.appendSlice(gpa, &.{ "-shared", "-fPIC", "-O2", include, "-o", out_path, parser_c });
-
-    // Some grammars carry an external scanner. C is common (python, kotlin);
-    // C++ (`scanner.cc`) exists too and would need `zig c++` plus libc++, so
-    // it is refused loudly rather than compiled into a link error.
-    const scanner_c = try std.fs.path.join(gpa, &.{ repo_dir, "src", "scanner.c" });
-    defer gpa.free(scanner_c);
-    const scanner_cc = try std.fs.path.join(gpa, &.{ repo_dir, "src", "scanner.cc" });
-    defer gpa.free(scanner_cc);
-    if (cwd.access(io, scanner_c, .{})) |_| {
-        try argv.append(gpa, scanner_c);
-    } else |_| if (cwd.access(io, scanner_cc, .{})) |_| {
-        std.debug.print(
-            "synapse: {s} has a C++ scanner, which is not supported yet -- skipping that grammar\n",
-            .{repo_dir},
-        );
-        return Error.CompileFailed;
-    } else |_| {}
+    try argv.appendSlice(gpa, &.{ "-shared", "-fPIC", "-O2", include, "-o", out_path });
+    try argv.appendSlice(gpa, sources.items);
 
     if (std.fs.path.dirname(out_path)) |dir| cwd.createDirPath(io, dir) catch {};
 
@@ -204,11 +212,23 @@ pub fn build(io: Io, gpa: Allocator, repo_dir: []const u8, out_path: []const u8)
     return Error.CompileFailed;
 }
 
-fn upToDate(io: Io, out_path: []const u8, source: []const u8) !bool {
+/// Whether the artefact is newer than *every* source that goes into it.
+///
+/// Every source, not just `parser.c`. A grammar with an external scanner links
+/// `scanner.c` as well, and that file changes on its own -- a grammar repo is
+/// regenerated as a unit, but `git pull` sets mtimes per file, so a scanner fix
+/// with no parser change is an ordinary event rather than a contrived one.
+/// Checking the parser alone called that up to date and reused a shared object
+/// built from the previous scanner, which is the failure mode a build cache is
+/// supposed to be too boring to have: silent, and wrong only in the parse.
+fn upToDate(io: Io, out_path: []const u8, sources: []const []const u8) !bool {
     const cwd = Io.Dir.cwd();
     const out = cwd.statFile(io, out_path, .{}) catch return false;
-    const src = cwd.statFile(io, source, .{}) catch return false;
-    return out.mtime.nanoseconds >= src.mtime.nanoseconds;
+    for (sources) |source| {
+        const src = cwd.statFile(io, source, .{}) catch return false;
+        if (out.mtime.nanoseconds < src.mtime.nanoseconds) return false;
+    }
+    return true;
 }
 
 /// Clone a grammar repo on first use, into `repos_parent/<name>`, and return
@@ -222,6 +242,15 @@ fn upToDate(io: Io, out_path: []const u8, source: []const u8) !bool {
 /// clone. `createDir` is atomic across processes on a POSIX filesystem, so
 /// exactly one worker wins and the rest wait for it rather than racing a
 /// second clone in.
+///
+/// A lock is honoured while it could belong to a live holder, and taken over
+/// once it could not -- see `lock_stale_after_ns`. That distinction is the whole
+/// of the change from honouring any lock that exists: a process killed mid-clone
+/// left one behind with nothing to remove it, so every later run paid the full
+/// wait and then skipped that grammar, for good. Taking over an aged lock is
+/// safe rather than merely probably-safe, because `cloneInto` publishes by
+/// rename -- the worst case is two clones, one of them wasted, never a damaged
+/// one.
 pub fn ensureCloned(
     io: Io,
     gpa: Allocator,
@@ -250,6 +279,18 @@ pub fn ensureCloned(
         // The holder may have finished and released between our check above
         // and this attempt, in which case there is nothing left to wait for.
         if (cwd.access(io, repo_dir, .{})) |_| break else |_| {}
+
+        // An abandoned lock is not a held one. The policy below is unchanged --
+        // never take a lock that could belong to a live holder -- and this is
+        // only what "could" means: `exists` was the test, and a process killed
+        // mid-clone made that permanently true with nobody behind it.
+        if (lockAbandoned(io, lock_dir)) {
+            cwd.deleteDir(io, lock_dir) catch {};
+            if (cwd.createDir(io, lock_dir, .default_dir)) |_| {
+                got_lock = true;
+                break;
+            } else |_| {}
+        }
         std.Io.sleep(io, .fromMilliseconds(200), .awake) catch {};
     }
 
@@ -259,21 +300,100 @@ pub fn ensureCloned(
         // released between our last look and our acquiring it.
         if (cwd.access(io, repo_dir, .{})) |_| return repo_dir else |_| {}
 
-        const res = try process.run(io, gpa, &.{ "git", "clone", "--depth", "1", "-q", repo_url, repo_dir }, .{});
-        defer res.deinit(gpa);
-        if (!res.ok()) {
-            cwd.deleteTree(io, repo_dir) catch {};
-            return Error.CloneFailed;
-        }
+        try cloneInto(io, gpa, repo_url, repo_dir);
         return repo_dir;
     }
 
-    // Never got the lock and the directory still is not there: the holder
-    // either died or is slower than the ceiling allows. Failing is right --
-    // racing a second clone into a half-cloned directory is how the first
-    // one gets destroyed.
-    cwd.access(io, repo_dir, .{}) catch return Error.CloneFailed;
+    // Never got the lock, it was not old enough to be abandoned, and the
+    // directory still is not there. So something is holding it and has held it
+    // for less than `lock_stale_after`: either a live clone slower than this
+    // ceiling, or a crash too recent to have aged out yet. Refusing is right in
+    // both cases -- a waiter that timed out does not own the lock, and racing a
+    // clone against a merely slow holder wastes a full clone.
+    //
+    // Naming the lock is the point of the message. The failure the caller
+    // reports is `CloneFailed`, which reads as a network problem; without the
+    // path there is nothing here a person can act on, and the whole condition
+    // is a directory waiting to be removed.
+    cwd.access(io, repo_dir, .{}) catch {
+        std.debug.print(
+            "synapse: timed out waiting for the grammar lock {s} -- another synapse is cloning, " ++
+                "or one was killed within the last {d} minutes; a lock left by a crash is taken " ++
+                "over automatically once it is older than that\n",
+            .{ lock_dir, @divTrunc(lock_stale_after_ns, std.time.ns_per_min) },
+        );
+        return Error.CloneFailed;
+    };
     return repo_dir;
+}
+
+/// How long a lock must go untouched before it counts as abandoned rather than
+/// held.
+///
+/// A `--depth 1` clone of a grammar repo is a few megabytes -- tree-sitter-python
+/// is 4.5 MB -- so nothing legitimate is still inside one fifteen minutes later.
+/// It is also well clear of the ~60s a waiter spends before giving up, which
+/// matters: a lock this old has already outlived every waiter that honoured it,
+/// so honouring it further protects nobody.
+pub const lock_stale_after_ns: i96 = 15 * std.time.ns_per_min;
+
+/// Whether the lock has gone untouched long enough to be treated as abandoned.
+///
+/// Anything unreadable is "not abandoned": a lock that vanished between the
+/// failed acquire and this stat is not ours to reason about, and the next
+/// iteration will simply take it.
+///
+/// The wall clock rather than the monotonic one, because it is compared against
+/// an mtime. A clock stepped backwards makes this return false and costs a wait;
+/// stepped forwards, it takes a lock early -- which is bounded by the same thing
+/// every other duplicate clone is, one wasted clone, since publication is by
+/// rename.
+fn lockAbandoned(io: Io, lock_dir: []const u8) bool {
+    const st = Io.Dir.cwd().statFile(io, lock_dir, .{}) catch return false;
+    const now = Io.Timestamp.now(io, .real).nanoseconds;
+    return now - st.mtime.nanoseconds > lock_stale_after_ns;
+}
+
+/// Clone into a private staging directory and publish it with one rename.
+///
+/// `git clone <dst>` builds its destination in place, so an interrupted clone --
+/// a SIGKILL, a full disk, a laptop closing -- leaves a directory that exists
+/// and is not a repository. Existence was the readiness test, so the next run
+/// adopted that directory; `build` then refused it for having no `src/parser.c`
+/// and kept refusing it, because nothing removed it and nothing re-cloned. Loud,
+/// but permanent, and the error named the wrong problem.
+///
+/// Rename is atomic on POSIX, so publishing through one makes the destination's
+/// existence mean the clone finished -- which is the property the readiness test
+/// was assuming all along. It also makes a duplicate clone harmless, which is
+/// what lets the lock be an optimization rather than the thing correctness rests
+/// on: the staging path carries the clock, so two attempts never share one, and
+/// a rename onto a directory another clone already published fails rather than
+/// merging into it.
+fn cloneInto(io: Io, gpa: Allocator, repo_url: []const u8, repo_dir: []const u8) !void {
+    const cwd = Io.Dir.cwd();
+
+    const staged = try std.fmt.allocPrint(gpa, "{s}.partial.{d}", .{
+        repo_dir, Io.Timestamp.now(io, .awake).nanoseconds,
+    });
+    defer gpa.free(staged);
+
+    const res = try process.run(io, gpa, &.{ "git", "clone", "--depth", "1", "-q", repo_url, staged }, .{});
+    defer res.deinit(gpa);
+    if (!res.ok()) {
+        cwd.deleteTree(io, staged) catch {};
+        return Error.CloneFailed;
+    }
+
+    cwd.rename(staged, cwd, repo_dir, io) catch {
+        // Losing the rename is the ordinary way two clones of one grammar end.
+        // The winner's copy is as good as ours, so this is a success with a
+        // staging directory to sweep up -- unless nothing is there at all, in
+        // which case the rename failed for its own reasons and we have not
+        // produced the grammar we claimed to.
+        cwd.deleteTree(io, staged) catch {};
+        cwd.access(io, repo_dir, .{}) catch return Error.CloneFailed;
+    };
 }
 
 /// Load a built grammar and hand back its language, refusing an ABI the pinned
@@ -356,6 +476,58 @@ test "end to end: compile a source tree and load a symbol out of it" {
     try build(io, gpa, dir, out);
 }
 
+test "a scanner newer than the artefact rebuilds it, the way a newer parser does" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+    const cwd = Io.Dir.cwd();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const dir = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    try tmp.dir.createDirPath(io, "src");
+    try tmp.dir.writeFile(io, .{
+        .sub_path = "src/parser.c",
+        .data = "void *tree_sitter_fake(void) { return 0; }\n",
+    });
+    try tmp.dir.writeFile(io, .{
+        .sub_path = "src/scanner.c",
+        .data = "int fake_scan(void) { return 1; }\n",
+    });
+
+    const out = try std.fmt.allocPrint(gpa, "{s}/scan.{s}", .{ dir, sharedLibExt() });
+    defer gpa.free(out);
+
+    try build(io, gpa, dir, out);
+    const built_at = (try cwd.statFile(io, out, .{})).mtime.nanoseconds;
+
+    // Control: with a scanner present and nothing touched, the short-circuit
+    // still holds. Without this the test below would pass on a build that had
+    // simply stopped caching.
+    try build(io, gpa, dir, out);
+    try testing.expectEqual(built_at, (try cwd.statFile(io, out, .{})).mtime.nanoseconds);
+
+    // Only the scanner moves, and it moves to a second *after* the artefact --
+    // set rather than slept for, so the assertion does not rest on filesystem
+    // timestamp granularity. `parser.c` stays older than the artefact, which is
+    // what makes this isolate the scanner: checking the parser alone reported
+    // this grammar up to date and reused a shared object built from the
+    // previous scanner.
+    const scanner = try std.fs.path.join(gpa, &.{ dir, "src", "scanner.c" });
+    defer gpa.free(scanner);
+    {
+        const f = try cwd.openFile(io, scanner, .{ .mode = .read_write });
+        defer f.close(io);
+        try f.setTimestamps(io, .{
+            .modify_timestamp = .{ .new = .{ .nanoseconds = built_at + std.time.ns_per_s } },
+        });
+    }
+
+    try build(io, gpa, dir, out);
+    try testing.expect((try cwd.statFile(io, out, .{})).mtime.nanoseconds > built_at);
+}
+
 test "a source tree with no parser.c is refused, not compiled into nothing" {
     const gpa = testing.allocator;
 
@@ -369,10 +541,33 @@ test "a source tree with no parser.c is refused, not compiled into nothing" {
     try testing.expectError(Error.ParserSourceMissing, build(testing.io, gpa, dir, out));
 }
 
+/// A local git repository to clone from. `git clone` takes a path as happily as
+/// a URL, so the lock, the staging directory and the failure path are all
+/// exercised without leaving the machine. `error.SkipZigTest` where there is no
+/// usable git.
+fn stageSourceRepo(io: Io, gpa: Allocator, base: []const u8) ![]u8 {
+    const cwd = Io.Dir.cwd();
+    const src = try std.fmt.allocPrint(gpa, "{s}/tree-sitter-fake", .{base});
+    errdefer gpa.free(src);
+    try cwd.createDirPath(io, src);
+
+    const readme = try std.fmt.allocPrint(gpa, "{s}/README", .{src});
+    defer gpa.free(readme);
+    try cwd.writeFile(io, .{ .sub_path = readme, .data = "x" });
+
+    for ([_][]const []const u8{
+        &.{ "git", "init", "-q", src },
+        &.{ "git", "-C", src, "add", "-A" },
+        &.{ "git", "-C", src, "-c", "user.email=t@e", "-c", "user.name=t", "commit", "-qm", "x" },
+    }) |argv| {
+        const r = try process.run(io, gpa, argv, .{});
+        defer r.deinit(gpa);
+        if (!r.ok()) return error.SkipZigTest;
+    }
+    return src;
+}
+
 test "cloning is hermetic, idempotent, and leaves no lock behind" {
-    // A local source repo rather than the network: git clones a path just as
-    // happily as a URL, so the lock, the re-check and the failure path are all
-    // exercised without leaving the machine.
     const gpa = testing.allocator;
     const io = testing.io;
     const cwd = Io.Dir.cwd();
@@ -382,21 +577,8 @@ test "cloning is hermetic, idempotent, and leaves no lock behind" {
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     const base = buf[0..try tmp.dir.realPath(io, &buf)];
 
-    const src = try std.fmt.allocPrint(gpa, "{s}/tree-sitter-fake", .{base});
+    const src = try stageSourceRepo(io, gpa, base);
     defer gpa.free(src);
-    try cwd.createDirPath(io, src);
-    const readme = try std.fmt.allocPrint(gpa, "{s}/README", .{src});
-    defer gpa.free(readme);
-    try cwd.writeFile(io, .{ .sub_path = readme, .data = "x" });
-    for ([_][]const []const u8{
-        &.{ "git", "init", "-q", src },
-        &.{ "git", "-C", src, "add", "-A" },
-        &.{ "git", "-C", src, "-c", "user.email=t@e", "-c", "user.name=t", "commit", "-qm", "x" },
-    }) |argv| {
-        const r = try process.run(io, gpa, argv, .{});
-        defer r.deinit(gpa);
-        if (!r.ok()) return error.SkipZigTest; // no usable git here
-    }
 
     const parent = try std.fmt.allocPrint(gpa, "{s}/repos", .{base});
     defer gpa.free(parent);
@@ -415,6 +597,59 @@ test "cloning is hermetic, idempotent, and leaves no lock behind" {
     const second = try ensureCloned(io, gpa, src, parent, 5);
     defer gpa.free(second);
     try testing.expectEqualStrings(first, second);
+
+    // Nothing staged is left next to it. The clone lands in a private directory
+    // and is published by rename, so a leftover here would mean the rename did
+    // not happen and the destination is something else's.
+    var dir = try Io.Dir.cwd().openDir(io, parent, .{ .iterate = true });
+    defer dir.close(io);
+    var it = dir.iterate();
+    while (try it.next(io)) |entry| {
+        try testing.expect(std.mem.indexOf(u8, entry.name, ".partial") == null);
+    }
+}
+
+test "a lock older than the staleness window is taken over, a fresh one is not" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+    const cwd = Io.Dir.cwd();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const base = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    const src = try stageSourceRepo(io, gpa, base);
+    defer gpa.free(src);
+
+    const parent = try std.fmt.allocPrint(gpa, "{s}/repos", .{base});
+    defer gpa.free(parent);
+    try cwd.createDirPath(io, parent);
+    const lock = try std.fmt.allocPrint(gpa, "{s}/tree-sitter-fake.lock", .{parent});
+    defer gpa.free(lock);
+
+    // Fresh: it could belong to a live holder, so the wait times out and refuses.
+    // This is the case tests/synapse-tags.bats also pins, and the policy it pins
+    // is the one being kept.
+    try cwd.createDirPath(io, lock);
+    try testing.expectError(Error.CloneFailed, ensureCloned(io, gpa, src, parent, 2));
+    try cwd.access(io, lock, .{}); // and a waiter that timed out did not delete it
+
+    // Aged past the window: nobody is behind it, so it is taken over rather than
+    // waited on. Set rather than slept for -- fifteen minutes is not a test.
+    const long_ago = Io.Timestamp.now(io, .real).nanoseconds - lock_stale_after_ns - std.time.ns_per_min;
+    try cwd.setTimestamps(io, lock, .{ .modify_timestamp = .{ .new = .{ .nanoseconds = long_ago } } });
+
+    const dir = try ensureCloned(io, gpa, src, parent, 2);
+    defer gpa.free(dir);
+
+    // A real clone, not an empty directory that merely exists.
+    const readme = try std.fmt.allocPrint(gpa, "{s}/README", .{dir});
+    defer gpa.free(readme);
+    try cwd.access(io, readme, .{});
+
+    // And the taken-over lock is released like any other.
+    try testing.expectError(error.FileNotFound, cwd.access(io, lock, .{}));
 }
 
 test "a clone that fails reports it rather than leaving a half-built directory" {

@@ -112,7 +112,7 @@ flowchart TB
     SYMBOL -.->|"backfill"| TAGSCACHE
     TAGSCACHE -.->|"project"| REFS
     REFS -.-> REFSIDX
-    REFSIDX -.->|"look + awk"| CALLERS
+    REFSIDX -.->|"binary search"| CALLERS
     REBUILDDIFF ==>|"re-writes nodes"| WRITE
     REBUILDFULL ==>|"re-runs full build"| BUILD
     CLEAN -.->|"deletes namespace"| NODE

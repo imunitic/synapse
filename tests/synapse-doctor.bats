@@ -100,6 +100,45 @@ run_doctor() {
   [[ "$output" == *"1 paths"* ]]
 }
 
+# The silent failure these mirror: a grammar lock nobody holds costs every later run
+# the full ~60s wait before skipping that extension, and the only symptom is tagging
+# that quietly stopped covering one language.
+run_doctor_with_grammars() {
+  PATH="$FAKE_BIN:$PATH" FAKE_CURL_LOG="$CURL_LOG" FAKE_CURL_VAULT_DIR="$VAULT" \
+    SYNAPSE_GRAMMARS_DIR="$1" \
+    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" doctor
+}
+
+@test "a recent grammar lock warns and names the directory to delete" {
+  make_repo
+  mkdir -p "$TEST_HOME/grammars/repos/tree-sitter-ocaml.lock"
+
+  run run_doctor_with_grammars "$TEST_HOME/grammars"
+  [[ "$output" == *"warn"*"grammar locks"* ]]
+  [[ "$output" == *"tree-sitter-ocaml.lock"* ]]
+  # Naming the path is the whole point: the condition is a directory to remove, and
+  # the failure it causes elsewhere reads as a network problem.
+  [[ "$output" == *"delete it if nothing is running"* ]]
+}
+
+@test "a grammar lock past the staleness window is reported as self-healing" {
+  make_repo
+  mkdir -p "$TEST_HOME/grammars/repos/tree-sitter-ocaml.lock"
+  touch -t 202601010000 "$TEST_HOME/grammars/repos/tree-sitter-ocaml.lock"
+
+  run run_doctor_with_grammars "$TEST_HOME/grammars"
+  [[ "$output" == *"ok"*"grammar locks"* ]]
+  [[ "$output" == *"takes it over"* ]]
+}
+
+@test "no grammar lock says nothing at all" {
+  make_repo
+  mkdir -p "$TEST_HOME/grammars/repos/tree-sitter-ocaml"
+
+  run run_doctor_with_grammars "$TEST_HOME/grammars"
+  [[ "$output" != *"grammar locks"* ]]
+}
+
 @test "hooks wired to a wrapper are a failure, because the wrapper would still run" {
   make_repo
   mkdir -p "$HOME/.claude"

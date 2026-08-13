@@ -53,7 +53,11 @@ run_synapse_tags() {
 # bats merges stderr into $output, and every per-extension warning this script
 # prints goes there. A test asserting on *tags* has to drop those first, or a
 # warning counts as output.
-without_warnings() { grep -v '^synapse-tags:' <<< "$1" || true; }
+# Both prefixes: the extractor says `synapse-tags:`, the grammar layer underneath it
+# says `synapse:` (the C++ scanner refusal, the grammar-lock timeout). Either is a
+# warning on stderr, and what these assertions are about is that stdout carries no
+# tag lines.
+without_warnings() { grep -vE '^synapse(-tags)?:' <<< "$1" || true; }
 
 @test "file with no extension: exits 1" {
   printf 'no extension here\n' > "$TEST_HOME/noext"
@@ -166,6 +170,33 @@ without_warnings() { grep -v '^synapse-tags:' <<< "$1" || true; }
   # holder is still working.
   [ -d "$GRAMMARS_DIR/repos/tree-sitter-ocaml.lock" ]
   [ ! -d "$GRAMMARS_DIR/repos/tree-sitter-ocaml" ]
+}
+
+@test "the clone lands in a staging directory, never at the destination" {
+  # Why an interrupted clone cannot leave a zombie any more. `git clone <dst>`
+  # builds its destination in place, so a process killed mid-clone left a
+  # directory that existed and was not a repository -- and the readiness check
+  # is existence, so the next run adopted it, failed on the missing parser.c,
+  # and went on failing, because nothing removed it and nothing re-cloned.
+  #
+  # Asserting on git's own argv is what makes this a test of the invariant
+  # rather than of a tidy-up: there is no window in which a partial clone sits
+  # at the destination, because git is never pointed there. Publication is one
+  # rename, which is atomic.
+  printf 'let x = 1\n' > "$TEST_HOME/sample.ml"
+  write_registry '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}'
+
+  run run_synapse_tags "$TEST_HOME/sample.ml"
+  [ "$status" -eq 0 ]
+
+  local dest
+  dest="$(awk '{print $NF}' "$FAKE_GIT_LOG")"
+  [[ "$dest" == *".partial."* ]]
+  [[ "$dest" != "$GRAMMARS_DIR/repos/tree-sitter-ocaml" ]]
+
+  # And the rename happened: the destination is there, the staging path is not.
+  [ -d "$GRAMMARS_DIR/repos/tree-sitter-ocaml" ]
+  [ ! -e "$dest" ]
 }
 
 @test "grammar already cloned: does not clone again" {
