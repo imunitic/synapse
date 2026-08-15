@@ -109,7 +109,8 @@ documented in [`docs/cli.md`](docs/cli.md) for whoever goes looking.
 - `synapse-hook session-start` — `SessionStart`: injects the Vault's index and this repo's
   Graph namespace pointer, if one exists.
 - `synapse-hook stop-nudge` — a turn-count-based `Stop` hook that nudges a "worth
-  capturing?" check-in every 25 turns.
+  capturing?" check-in every 25 turns, and pushes the Vault to its git remote every
+  `SYNAPSE_VAULT_PUSH_EVERY` turns (default 5), detached so a turn never waits on the network.
 - `synapse-hook db-sync` — commits Vault changes to the Vault's own local git repo,
   if one exists.
 - `claude/commands/synapse-note.md` — note creation (bare / `--task` / `--list` / `--search`).

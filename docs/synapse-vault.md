@@ -17,7 +17,7 @@ The boxes name the four hooks; what each one does is here rather than crammed in
 |---|---|---|
 | `synapse-hook session-start` | `SessionStart` | Injects `Index.md`, this repo's Graph pointer if a namespace covers the current branch, and a catalogue of the other namespaces in the vault. A plain path lookup — never a model call, so a repo that never opted in pays nothing. |
 | `synapse-hook prompt-context` | `UserPromptSubmit` | Extracts terms from the prompt and surfaces matching Graph nodes. Set `SYNAPSE_DISABLE_PROMPT_INJECTION` to skip it. |
-| `synapse-hook stop-nudge` | `Stop`, every 25 turns | Forces a real "did anything here belong in the vault?" check-in rather than relying on the agent to remember unprompted. |
+| `synapse-hook stop-nudge` | `Stop`, every 25 turns | Forces a real "did anything here belong in the vault?" check-in rather than relying on the agent to remember unprompted. Also pushes the vault to its git remote every `SYNAPSE_VAULT_PUSH_EVERY` turns (default 5), detached so the turn never waits on the network. |
 | `synapse-hook db-sync` | `PostToolUse` | Commits vault changes to the vault's own git history on any vault-modifying write. That history is what makes a destructive mistake recoverable. |
 
 ## The vault
@@ -73,6 +73,14 @@ A turn-count-based nudge, firing every 25 turns, asking: *did anything in this s
 the Vault and not get written down?* This exists because "remember to write notes" is
 exactly the shape of standing instruction that's easy to silently forget under task pressure — a
 periodic, mechanical prompt is more reliable than trusting recall alone.
+
+The same hook also pushes the vault to its git remote every `SYNAPSE_VAULT_PUSH_EVERY` turns
+(default 5, only if the vault has a remote configured at all) — piggybacked here rather than on
+`db-sync` because `Stop` is the only one of the five events that fires once per turn rather than
+once per tool call, and because it already carries a turn counter to key the interval off. The
+push itself runs detached (`synapse-hook vault-push`, spawned and not waited on) so a turn never
+stalls on the network; a failure is logged to `.git/synapse-push.log` inside the vault rather than
+surfaced mid-turn.
 
 **`PostToolUse` → `synapse-hook db-sync`**
 Fires on every vault-modifying MCP call (`vault_write`/`patch`/`append`/`delete`/`move`) and, if
