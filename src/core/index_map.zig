@@ -1,20 +1,12 @@
-//! The reverse index: which nodes claim a source path, and which paths no node
-//! claims.
+//! The reverse index: which nodes claim a source path, and which paths no
+//! node claims.
 //!
-//! **The storage is `index_map/format.zig`, not JSON.** That file carries why;
-//! the short version is that `_index.json` was 26 MB for syrius3, every reader
-//! of it was a `jq` invocation, and it sat in the vault behind an HTTP PUT
-//! despite being derived, gitignored and never travelling anywhere. This layer
-//! is the part that touches a file: mapping one to read, and grouping unordered
-//! `(path, node)` pairs into one to write.
-//!
-//! The grouping is here rather than in the caller because it is the one piece
-//! of real logic in the pipeline. `synapse-build-index.sh` emits a pair per
-//! (list, path) in whatever order the lists happened to be walked, and the
-//! format demands paths strictly ascending with each path's nodes strictly
-//! ascending. Getting that wrong does not fail loudly -- it encodes fine and
-//! makes every later binary search wrong -- so it belongs somewhere with tests
-//! rather than in a shell pipeline's argument order.
+//! Storage is `index_map/format.zig`, not JSON -- `_index.json` was 26 MB
+//! for syrius3, read by `jq`, and sat in the vault behind an HTTP PUT
+//! despite being derived and gitignored. This layer maps the file to read,
+//! and groups unordered `(path, node)` pairs into one to write: the format
+//! demands strictly-ascending paths and node lists, which the emitting
+//! shell pipeline does not guarantee, so grouping belongs here, with tests.
 
 const std = @import("std");
 
@@ -26,8 +18,7 @@ const format = @import("index_map/format.zig");
 pub const max_nodes_per_path = format.max_nodes_per_path;
 pub const ParseError = format.ParseError;
 
-/// One claim, as `synapse-build-index.sh` emits them: unordered, and repeated
-/// per node for a path several nodes claim.
+/// One claim, unordered, repeated per node for a path several nodes claim.
 pub const Pair = struct {
     path: []const u8,
     node: []const u8,
@@ -35,17 +26,15 @@ pub const Pair = struct {
 
 pub const BuildError = format.EncodeError;
 
-/// Group unordered pairs into the file's bytes. Duplicate `(path, node)` pairs
-/// collapse; a path appearing under several nodes keeps all of them.
-///
-/// Owns nothing it is given and returns one allocation the caller frees.
+/// Group unordered pairs into the file's bytes. Duplicate `(path, node)`
+/// pairs collapse; a path under several nodes keeps all of them. Owns
+/// nothing it is given; returns one allocation the caller frees.
 pub fn build(
     gpa: Allocator,
     pairs: []const Pair,
     unassigned: []const []const u8,
 ) BuildError![]u8 {
-    // Insertion-ordered so the grouping is deterministic before the sort, which
-    // makes a failure reproducible rather than dependent on hash iteration.
+    // Insertion-ordered, so grouping is deterministic before the sort.
     var byPath: std.StringArrayHashMapUnmanaged(std.ArrayListUnmanaged([]const u8)) = .empty;
     defer {
         for (byPath.values()) |*v| v.deinit(gpa);
@@ -63,8 +52,7 @@ pub fn build(
 
     for (byPath.keys(), byPath.values(), 0..) |path, *nodes, i| {
         std.mem.sort([]const u8, nodes.items, {}, lessByBytes);
-        // Collapse duplicates in place: two identical pairs are one claim, and
-        // `format.encode` refuses a repeated name rather than storing it twice.
+        // Collapse duplicates in place: format.encode refuses a repeated name.
         var n: usize = 0;
         for (nodes.items, 0..) |name, k| {
             if (k > 0 and std.mem.eql(u8, nodes.items[k - 1], name)) continue;
@@ -78,18 +66,12 @@ pub fn build(
     return format.encode(gpa, entries, unassigned);
 }
 
-/// The index's bytes again with `extra` added to the unassigned list, or null
-/// when it is already there.
-///
-/// A whole re-encode, because every region's offsets move when one grows. That
-/// is affordable precisely where it is used: the staleness hook reaches here
-/// only for a file no node claims and that is not already listed, which is a
-/// genuinely new path rather than something that happens per edit. What it
-/// replaces is a 27 MB `jq` read-modify-write followed by a 27 MB HTTPS PUT, so
-/// even the uncommon case gets cheaper.
-///
-/// Appends rather than inserting in order: the unassigned list has never been
-/// sorted, and its reader iterates the whole thing.
+/// The index's bytes again with `extra` added to the unassigned list, or
+/// null when already there. A whole re-encode, since every region's offsets
+/// move when one grows -- affordable since this only fires for a genuinely
+/// new unclaimed path, not per edit, and replaces what was a 27 MB `jq`
+/// read-modify-write plus HTTPS PUT. Appended, not inserted in order: the
+/// unassigned list was never sorted and its reader iterates all of it.
 pub fn withUnassigned(
     gpa: Allocator,
     view: format.View,
@@ -100,9 +82,7 @@ pub fn withUnassigned(
 
     var it = view.unassignedIter();
     while (it.next()) |p| {
-        // Idempotent: the hook fires on every edit, and re-listing a path it
-        // already queued would grow the file without bound.
-        if (std.mem.eql(u8, p, extra)) return null;
+        if (std.mem.eql(u8, p, extra)) return null; // idempotent: don't grow unbounded
         try unassigned.append(gpa, p);
     }
     try unassigned.append(gpa, extra);
@@ -124,8 +104,7 @@ pub fn withUnassigned(
             try names.append(gpa, view.nodeName(view.nodeId(r, k)));
         entries[i] = .{ .path = view.path(r), .nodes = names.items[at..][0..r.ids_len] };
     }
-    // `names` may have reallocated while it grew, so the slices above are fixed
-    // up once it has stopped growing rather than trusted as they were taken.
+    // `names` may have reallocated while growing, so slices are fixed up now.
     var off: usize = 0;
     i = 0;
     while (i < view.count()) : (i += 1) {
@@ -145,16 +124,14 @@ fn lessEntryByPath(_: void, a: format.Entry, b: format.Entry) bool {
     return std.mem.order(u8, a.path, b.path) == .lt;
 }
 
-/// Write `bytes` to `path` via a temporary file and a rename, so a concurrent
-/// reader sees either the old index whole or the new one -- never half of
-/// either. The staleness hook reads this file on every edit, so that window is
-/// not theoretical.
+/// Write `bytes` to `path` via a temp file and a rename, so a concurrent
+/// reader (the staleness hook, on every edit) sees the old index whole or
+/// the new one, never half of either.
 pub fn writeFile(gpa: Allocator, io: Io, path: []const u8, bytes: []const u8) !void {
     const cwd = Io.Dir.cwd();
 
-    // `Io.Dir.path` rather than `std.fs.path`, which the purity gate forbids
-    // core from naming. The functions are the same -- std aliases them there --
-    // and they are pure string work with no system access.
+    // `Io.Dir.path`, not `std.fs.path` -- the purity gate forbids core
+    // naming the latter, though they're pure string work either way.
     if (Io.Dir.path.dirname(path)) |dir| cwd.createDirPath(io, dir) catch {};
 
     const tmp = try std.fmt.allocPrint(gpa, "{s}.tmp", .{path});
@@ -165,21 +142,19 @@ pub fn writeFile(gpa: Allocator, io: Io, path: []const u8, bytes: []const u8) !v
     try cwd.rename(tmp, cwd, path, io);
 }
 
-/// An index file, mapped. Every slice a lookup returns points into the mapping,
-/// so it is valid until `close`.
+/// An index file, mapped. Every slice a lookup returns points into the
+/// mapping, valid until `close`.
 pub const Map = struct {
-    /// Borrowed from the caller and outliving this struct is the caller's
-    /// problem, as with every other path in core.
+    /// Borrowed; outliving this struct is the caller's problem.
     path: []const u8,
     view: format.View,
     map: ?Io.File.MemoryMap = null,
-    /// Why the file on disk was not used, when it was not. Null means it was
-    /// read, or was simply absent. Nothing here prints; a caller that wants to
-    /// say something about a discarded index reads this.
+    /// Why the file on disk was not used. Null means it was read, or was
+    /// simply absent; nothing here prints, a caller reads this to say why.
     discarded: ?format.ParseError = null,
 
-    /// Never accessed for a zero-entry index -- every count is 0, so no record,
-    /// path or id offset is ever computed from it.
+    /// Every count is 0, so nothing is ever computed from this for a
+    /// zero-entry index.
     const no_entries: format.View = .{
         .bytes = &.{},
         .header = .{
@@ -195,18 +170,12 @@ pub const Map = struct {
         },
     };
 
-    /// Absent, unreadable, damaged, or written by another version: all of them
-    /// open as an empty index rather than an error, and `discarded` says which.
+    /// Absent, unreadable, damaged, or from another version: all open as an
+    /// empty index rather than an error, `discarded` says which. Recomputable
+    /// from the work dir's lists, so no migration path -- the next build just
+    /// replaces whatever was there, including a leftover `_index.json`.
     ///
-    /// The same "it is derived" argument the tags cache spends, for the same
-    /// reason: everything here is recomputable from the work dir's lists, so a
-    /// migration path would carry risk to save one rebuild. The cost is that a
-    /// file which is not an index at all is replaced by the next build --
-    /// including, on the first run after this change, an `_index.json` left at
-    /// this path. That is the intended migration, not an accident.
-    ///
-    /// No allocator: the mapping is the storage and `format.parse` allocates
-    /// nothing.
+    /// No allocator: the mapping is the storage, `format.parse` allocates nothing.
     pub fn open(io: Io, path: []const u8) !Map {
         var self: Map = .{ .path = path, .view = no_entries };
 
@@ -220,10 +189,7 @@ pub const Map = struct {
         var map = file.createMemoryMap(io, .{
             .len = @intCast(size),
             .protection = .{ .read = true, .write = false },
-            // A lookup should fault in the pages it reads, not the file. The
-            // staleness hook resolves one path per edit and has a budget
-            // measured against a person waiting.
-            .populate = false,
+            .populate = false, // fault in only the pages a lookup reads
         }) catch return self;
         errdefer map.destroy(io);
 
@@ -233,9 +199,7 @@ pub const Map = struct {
             return self;
         };
         self.map = map;
-        // The mapping keeps its own reference to the file, so the descriptor
-        // opened here is only needed until `createMemoryMap` succeeds.
-        close_file = false;
+        close_file = false; // the mapping keeps its own reference now
         return self;
     }
 
@@ -248,11 +212,9 @@ pub const Map = struct {
         self.view = no_entries;
     }
 
-    /// The nodes claiming `path`, ascending, written into `out` -- which must
-    /// hold `max_nodes_per_path`. Null means no node claims it, which is an
-    /// ordinary answer: the path may be unassigned, or not enumerated at all.
-    /// Those two are different, and `unassignedIter` is where the difference
-    /// lives.
+    /// Nodes claiming `path`, ascending, into `out` (must hold
+    /// `max_nodes_per_path`). Null is ordinary: unassigned, or not
+    /// enumerated -- `unassignedIter` is where that distinction lives.
     pub fn nodesFor(self: *const Map, path: []const u8, out: [][]const u8) ?[][]const u8 {
         const i = self.view.find(path) orelse return null;
         return self.view.nodes(self.view.record(i), out);
@@ -278,9 +240,6 @@ pub const Map = struct {
 const testing = std.testing;
 
 test "pairs in any order group into a valid index" {
-    // The input order is the one `synapse-build-index.sh` produces: a pair per
-    // (list, path), so one path's claimants arrive far apart and no path order
-    // is guaranteed at all.
     const gpa = testing.allocator;
     const bytes = try build(gpa, &.{
         .{ .path = "z.java", .node = "Zeta.md" },
@@ -307,10 +266,6 @@ test "pairs in any order group into a valid index" {
 }
 
 test "a repeated pair is one claim, not two" {
-    // Two identical pairs would reach `format.encode` as a duplicate name and
-    // be refused. Collapsing them here is the difference between a build that
-    // works and one that fails on a repo where two lists name the same file
-    // under the same node.
     const gpa = testing.allocator;
     const bytes = try build(gpa, &.{
         .{ .path = "a.java", .node = "N.md" },
@@ -344,8 +299,8 @@ test "an absent file opens as an empty index, not an error" {
     try testing.expectEqual(@as(?[][]const u8, null), map.nodesFor("anything", &buf));
 }
 
-/// An index under a temp directory, addressed by absolute path so the tests do
-/// not depend on the process's cwd.
+/// An index under a temp directory, addressed by absolute path so tests
+/// don't depend on the process's cwd.
 const Fixture = struct {
     tmp: testing.TmpDir,
     buf: [Io.Dir.max_path_bytes]u8 = undefined,
@@ -441,9 +396,6 @@ test "adding an unassigned path preserves every claim, and is idempotent" {
 }
 
 test "an _index.json left at the path is discarded, not misread" {
-    // The migration case: for one release, every installed machine has JSON
-    // sitting exactly here. It must open as an empty index with a reason, so
-    // the next build replaces it.
     const gpa = testing.allocator;
     const io = testing.io;
     var fx = try Fixture.init();

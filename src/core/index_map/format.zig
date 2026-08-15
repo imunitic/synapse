@@ -1,31 +1,14 @@
 //! The on-disk reverse index: bytes in, bytes out. No files, no paths, no `Io`.
 //!
-//! Replaces `_index.json`, the map from every enumerated source path to the
-//! node filenames that claim it, plus the `_unassigned` list. Two things are
-//! being fixed at once, and only one of them is the encoding.
+//! Replaces `_index.json` (26 MB for syrius3's 124,837 paths, read by `jq`
+//! on every `synapse-build-index.sh`/`synapse-query.sh`/staleness-hook call,
+//! and PUT over the Obsidian REST API despite being derived and gitignored).
+//! Moves beside the tags cache in `$SYNAPSE_WORK_DIR/{repo}@{branch}/`.
 //!
-//! The encoding: the JSON is 26 MB for syrius3's 124,837 paths, and every
-//! reader of it is a `jq` invocation -- `synapse-build-index.sh` to validate
-//! and count, `synapse-query.sh` to resolve a path, the staleness hook on
-//! every `Write`/`Edit`. `jq` was the last heavy runtime dependency once the
-//! `tree-sitter` CLI left, and this file is what retires it.
-//!
-//! The location: `_index.json` lived in the vault and was PUT over the
-//! Obsidian REST API at 26 MB, despite being derived, machine-only and
-//! gitignored (`.gitignore:5` in the vault, on the grounds that the graph's
-//! churn dominated the history while adding nothing a rebuild cannot
-//! restore -- zero commits have ever touched the path). Nothing that never
-//! travels needs an HTTP round trip, so this moves beside the tags cache in
-//! `$SYNAPSE_WORK_DIR/{repo}@{branch}/`, which is already keyed the same way.
-//!
-//! ## What a path maps to
-//!
-//! A list of nodes, not one node. `synapse-build-index.sh` groups pairs by
-//! path and keeps `[.[].node] | sort`, because a source file can legitimately
-//! be cited by more than one subsystem. A format that stored a single owner
-//! would encode fine and silently drop the second claimant, so the record
-//! holds a count and the node names are interned: ~100 nodes name themselves
-//! once each, and 124,837 records point at them by index.
+//! A path maps to a *list* of nodes, not one: `synapse-build-index.sh` keeps
+//! `[.[].node] | sort` per path, since a file can be cited by more than one
+//! subsystem. Node names are interned (~100 names, 124,837 records pointing
+//! at them by index) rather than repeated per record.
 //!
 //! ## Layout
 //!
@@ -39,82 +22,51 @@
 //! unassigned_off     unassigned region: every path, each '\n'-terminated
 //! ```
 //!
-//! Records are fixed-width and sorted by path bytes, which is what makes
-//! lookup a binary search over a region small enough to stay in cache. The
-//! node table is sorted by name for the same reason, and because sorting it
-//! makes the output a function of the input set rather than of the order the
-//! encoder happened to meet things in.
+//! Records are fixed-width and sorted by path bytes, so lookup is a binary
+//! search over a region small enough to stay in cache; the node table is
+//! sorted by name for the same reason.
 //!
-//! ## Explicit field reads, and what they are for
+//! ## Explicit field reads
 //!
-//! Every multi-byte field is read and written a field at a time with an
-//! explicit `.little`, and there is not a single `@bitCast`, `packed struct`
-//! or `@ptrCast` to a struct type here. The node-id region is the same
-//! restraint in the other direction: it is a run of u32 that would be tempting
-//! to hand out as `[]const u32`, so it is read one id at a time and never
-//! sliced as a typed array.
-//!
-//! **This is not for portability, and no claim of it is made.** This file and
-//! `_tags_cache.bin` live in `$SYNAPSE_WORK_DIR`, are gitignored, never
-//! travel, and are rebuilt from the work dir's lists on any mismatch. Carrying
-//! one to another architecture is not a case that occurs, so it is not a case
-//! this format spends anything on. `ci/build-targets.sh` covers the two
-//! release targets, both little-endian; nothing here is verified on a
-//! big-endian machine and nothing here needs to be.
-//!
-//! What the restraint does buy, on this machine:
-//!
-//! - **Layout stability across compiler versions.** A cast over a struct makes
-//!   the on-disk layout a function of whatever Zig decides `@sizeOf` and the
-//!   field offsets are. A toolchain upgrade could then shift the layout with
-//!   no version bump to notice it, and an existing file would be misread
-//!   rather than rejected. Written out a field at a time, the layout is the
-//!   doc comment above and nothing else.
-//! - **No alignment assumption on the mapping.** `parse` takes whatever bytes
-//!   it is handed, and a struct cast at an arbitrary offset into a mapping is
-//!   undefined behaviour that happens to work on x86 and does not everywhere
-//!   this is compiled. The 15-byte record keeps that honest: an odd width
-//!   leaves nothing in the table naturally aligned, so a cast shortcut is
-//!   visibly wrong rather than accidentally fine.
-//!
-//! Both of those are same-machine concerns, which is why the technique stays
-//! even though the portability goal is gone. What holds it: the byte-exact
-//! encoder test below, written against this comment rather than against the
-//! encoder's output, and a committed fixture that must keep decoding.
+//! Every multi-byte field is read/written one at a time with an explicit
+//! `.little` -- no `@bitCast`, `packed struct`, or `@ptrCast` to a struct
+//! type, and the node-id region is read one u32 at a time rather than sliced
+//! as `[]const u32`. Not for portability (this file never leaves the
+//! machine, and is rebuilt from the work dir's lists on any mismatch) but
+//! for layout stability across compiler versions (a struct cast makes the
+//! layout a function of whatever `@sizeOf` happens to be) and no alignment
+//! assumption on the mapping (the 15-byte record keeps nothing naturally
+//! aligned, so a cast shortcut would be visibly wrong, not accidentally
+//! fine). Held to by the byte-exact encoder test below and a committed
+//! fixture that must keep decoding.
 //!
 //! ## The checksum covers everything, unlike the tags cache
 //!
-//! `tags_cache/format.zig` deliberately stops its checksum before the payload,
-//! because covering syrius3's 828 MB of tag text made `open` take 8.0s and the
-//! format exists to beat a 5.0s `jq` parse. Nothing here is that big: the same
-//! namespace is ~1.9 MB of records, ~7.5 MB of paths and a few kilobytes of
-//! node names, so a full CRC costs single-digit milliseconds and there is no
-//! reason to leave a region unprotected. Same reasoning, opposite answer,
-//! because the measurement is different.
+//! `tags_cache/format.zig` stops its checksum before the payload because
+//! covering syrius3's 828 MB of tag text made `open` take 8.0s. Nothing
+//! here is that big (~1.9 MB records, ~7.5 MB paths), so a full CRC costs
+//! single-digit milliseconds and there's no reason to leave a region
+//! unprotected.
 //!
 //! ## Versioning
 //!
-//! A header that does not match is discarded and rebuilt. It is derived data:
-//! there is nothing in it that cannot be recomputed from the work dir's lists,
-//! so migration code would be carrying risk in exchange for saving one
-//! rebuild. `NotAnIndex` and `VersionMismatch` are separate errors only
-//! because the first says something else is sitting at that path -- most
-//! likely the `_index.json` this replaces -- which is worth seeing in a log.
+//! A header that doesn't match is discarded and rebuilt -- derived data, so
+//! migration code would carry risk to save one rebuild. `NotAnIndex` and
+//! `VersionMismatch` are separate errors because the former usually means
+//! the `_index.json` this replaces is still sitting at that path.
 
 const std = @import("std");
 
 const Allocator = std.mem.Allocator;
 
-/// The trailing NULs are part of it: eight bytes, so the header's first field
-/// is aligned and a `file` / `head -c 8` shows the name intact.
+/// Eight bytes including trailing NULs, so the header's first field aligns
+/// and `head -c 8` shows the name intact.
 pub const magic: [8]u8 = "SYNIDX\x00\x00".*;
 
 pub const version: u32 = 1;
 
-/// A path claimed by more nodes than this is refused rather than truncated.
-/// The cap exists so `ids_len` fits a byte and the record table stays an odd
-/// width; a path cited by 255 subsystems is a clustering that went wrong, not
-/// a case to support.
+/// Refused, not truncated, past this: keeps `ids_len` a byte. 255 claimants
+/// on one path is a clustering bug, not a case to support.
 pub const max_nodes_per_path = std.math.maxInt(u8);
 
 pub const Header = struct {
@@ -128,20 +80,14 @@ pub const Header = struct {
     paths_off: u64,
     /// Absolute file offset of the node-id region.
     ids_off: u64,
-    /// Absolute file offset of the node table. The name bytes follow it, at
-    /// `nodes_off + node_count * Node.wire_size`.
+    /// Node table offset; name bytes follow at `nodes_off + node_count * Node.wire_size`.
     nodes_off: u64,
-    /// Absolute file offset of the unassigned region.
     unassigned_off: u64,
-    /// Over `bytes[wire_size..]` -- everything after the header, including the
-    /// unassigned region. See the note at the top on why this differs from the
-    /// tags cache.
+    /// Over `bytes[wire_size..]` -- everything after the header.
     crc32: u32,
 
-    /// 64, not the 60 the fields add up to: four reserved bytes keep the
-    /// record table starting on an 8-byte boundary and the number round. They
-    /// are written as zero and not read, and using them for anything is a
-    /// version bump like any other field would be.
+    /// 64, not the 60 the fields add to: four reserved bytes, written zero
+    /// and unread, keep the record table 8-byte aligned.
     pub const wire_size = 64;
 
     fn write(self: Header, out: *[wire_size]u8) void {
@@ -179,10 +125,9 @@ pub const Record = struct {
     /// Into the path region, not the file.
     path_off: u64,
     path_len: u16,
-    /// Into the node-id region, counted in u32 slots rather than bytes.
+    /// Into the node-id region, in u32 slots, not bytes.
     ids_at: u32,
-    /// How many node ids belong to this path. Never zero: a path with no owner
-    /// is in the unassigned region instead, and the two are not the same claim.
+    /// Never zero: an unowned path is in the unassigned region instead.
     ids_len: u8,
 
     pub const wire_size = 8 + 2 + 4 + 1;
@@ -225,30 +170,22 @@ pub const Node = struct {
     }
 };
 
-/// What `encode` takes. `nodes` must be strictly ascending, matching the
-/// `sort` the bash writer applies to each path's claimants.
+/// What `encode` takes. `nodes` must be strictly ascending.
 pub const Entry = struct {
     path: []const u8,
     nodes: []const []const u8,
 };
 
 pub const EncodeError = error{
-    /// Paths must be strictly ascending by bytes. Unsorted input would encode
-    /// fine and then make every binary search wrong, which is the kind of bug
-    /// that shows up as "this file belongs to no node" months later.
+    /// Unsorted input would encode fine and make every binary search wrong.
     Unsorted,
-    /// A single path's node list must be strictly ascending too. The bash
-    /// writer sorts it, and callers of `nodes` are entitled to that order.
+    /// A path's node list must be strictly ascending too.
     UnsortedNodes,
-    /// A record with no owner. Say it in the unassigned list instead: the
-    /// distinction between "claimed by nobody" and "not enumerated at all" is
-    /// the one thing this index exists to keep straight.
+    /// A record with no owner -- say it in the unassigned list instead.
     NoNodes,
     PathTooLong,
     NodeNameTooLong,
-    /// An unassigned path containing a newline cannot be stored in the
-    /// '\n'-terminated region, and the bash `unassigned.txt` it comes from
-    /// could not represent one either. Refused rather than silently split.
+    /// A newline can't be stored in the '\n'-terminated region.
     PathContainsNewline,
     TooManyEntries,
     TooManyNodes,
@@ -256,24 +193,20 @@ pub const EncodeError = error{
 } || Allocator.Error;
 
 pub const ParseError = error{
-    /// The magic does not match. Something else is at this path -- most often
-    /// the `_index.json` this format replaces.
+    /// Magic doesn't match -- usually the `_index.json` this replaces.
     NotAnIndex,
-    /// Ours, but a version this build does not read. Discard and rebuild.
+    /// Ours, but a version this build doesn't read. Discard and rebuild.
     VersionMismatch,
     Truncated,
     ChecksumMismatch,
-    /// A header or record offset points outside its region, a node id names no
-    /// node, or the unassigned region does not hold the count it claims.
+    /// A header/record offset points outside its region, a node id names no
+    /// node, or the unassigned region doesn't hold the count it claims.
     OffsetOutOfRange,
 };
 
 /// The whole file, in one allocation, from entries already sorted by path.
-///
-/// `unassigned` is stored in the order given, deliberately: it is a list, not
-/// an index, its only reader iterates it whole, and the bash `unassigned.txt`
-/// it comes from is not sorted either. Imposing an order here would be this
-/// format inventing a contract its predecessor did not have.
+/// `unassigned` is stored in the order given -- it's a list, not an index,
+/// and its only reader iterates it whole.
 pub fn encode(
     gpa: Allocator,
     entries: []const Entry,
@@ -282,9 +215,7 @@ pub fn encode(
     if (entries.len > std.math.maxInt(u32)) return error.TooManyEntries;
     if (unassigned.len > std.math.maxInt(u32)) return error.TooManyEntries;
 
-    // Pass one: validate, and intern the node names. The set is small -- a
-    // namespace has tens of nodes against tens of thousands of paths -- so the
-    // map is over names and the sort at the end is over nothing much.
+    // Pass one: validate, and intern the node names (the set is small).
     var interned: std.StringArrayHashMapUnmanaged(void) = .empty;
     defer interned.deinit(gpa);
 
@@ -311,8 +242,7 @@ pub fn encode(
         unassigned_len += p.len + 1;
     }
 
-    // Sorted, so the bytes are a function of the input set and not of the
-    // order the loop above happened to meet the names in.
+    // Sorted, so bytes are a function of the input set, not iteration order.
     const names = interned.keys();
     std.mem.sort([]const u8, names, {}, lessByBytes);
 
@@ -355,9 +285,7 @@ pub fn encode(
         path_at += e.path.len;
 
         for (e.nodes) |n| {
-            // Ascending names against an ascending table give ascending ids,
-            // so `nodes` hands back what the caller passed in, in order.
-            const id = findName(names, n).?;
+            const id = findName(names, n).?; // ascending names -> ascending ids
             std.mem.writeInt(u32, bytes[@intCast(ids_off + ids_at * 4)..][0..4], id, .little);
             ids_at += 1;
         }
@@ -403,8 +331,8 @@ fn findName(names: []const []const u8, wanted: []const u8) ?u32 {
     return null;
 }
 
-/// A validated file. Borrows the bytes -- they are expected to be a mapping,
-/// so nothing here copies and nothing here owns.
+/// A validated file. Borrows the bytes (expected to be a mapping) --
+/// nothing here copies or owns.
 pub const View = struct {
     bytes: []const u8,
     header: Header,
@@ -431,8 +359,7 @@ pub const View = struct {
         return self.bytes[at..][0..r.path_len];
     }
 
-    /// The `k`th node id of `r`. One at a time rather than a `[]const u32`:
-    /// see the architecture-independence note at the top.
+    /// The `k`th node id of `r`, read one at a time, not sliced.
     pub fn nodeId(self: View, r: Record, k: u8) u32 {
         const at: usize = @intCast(self.header.ids_off + (@as(u64, r.ids_at) + k) * 4);
         return std.mem.readInt(u32, self.bytes[at..][0..4], .little);
@@ -445,19 +372,17 @@ pub const View = struct {
         return self.bytes[@intCast(names_off + n.name_off)..][0..n.name_len];
     }
 
-    /// `r`'s node names, in ascending order, written into `out` and returned as
-    /// the prefix that was filled. `out` must hold `r.ids_len`; a
-    /// `[max_nodes_per_path][]const u8` on the stack always does, which is why
-    /// this takes a buffer rather than an allocator.
+    /// `r`'s node names, ascending, written into `out` (must hold
+    /// `r.ids_len`; a `[max_nodes_per_path][]const u8` on the stack always
+    /// does, hence a buffer rather than an allocator).
     pub fn nodes(self: View, r: Record, out: [][]const u8) [][]const u8 {
         var k: u8 = 0;
         while (k < r.ids_len) : (k += 1) out[k] = self.nodeName(self.nodeId(r, k));
         return out[0..r.ids_len];
     }
 
-    /// The index of `wanted`, or null. Lives here rather than in the layer
-    /// above because the sort invariant this depends on is the format's
-    /// promise, and a search written anywhere else could outlive it.
+    /// Index of `wanted`, or null. Lives here since the sort invariant it
+    /// depends on is this format's own promise.
     pub fn find(self: View, wanted: []const u8) ?u32 {
         var lo: u32 = 0;
         var hi: u32 = self.count();
@@ -472,8 +397,7 @@ pub const View = struct {
         return null;
     }
 
-    /// The id of `name`, or null. The node table is sorted by name, so this is
-    /// the same binary search as `find` over a much smaller region.
+    /// Id of `name`, or null -- same binary search as `find`, smaller region.
     pub fn findNode(self: View, name: []const u8) ?u32 {
         var lo: u32 = 0;
         var hi: u32 = self.nodeCount();
@@ -488,8 +412,7 @@ pub const View = struct {
         return null;
     }
 
-    /// The unassigned region verbatim: every path, each '\n'-terminated, in
-    /// the order the writer was given. `unassignedIter` walks it.
+    /// Every path, '\n'-terminated, in the order given. `unassignedIter` walks it.
     pub fn unassignedBytes(self: View) []const u8 {
         return self.bytes[@intCast(self.header.unassigned_off)..];
     }
@@ -503,9 +426,7 @@ pub const View = struct {
 
         pub fn next(self: *Iterator) ?[]const u8 {
             if (self.rest.len == 0) return null;
-            // `parse` established that the region is '\n'-terminated, so the
-            // scan cannot run off the end and there is no trailing partial.
-            const at = std.mem.indexOfScalar(u8, self.rest, '\n').?;
+            const at = std.mem.indexOfScalar(u8, self.rest, '\n').?; // parse() guaranteed this
             const out = self.rest[0..at];
             self.rest = self.rest[at + 1 ..];
             return out;
@@ -513,9 +434,8 @@ pub const View = struct {
     };
 };
 
-/// Validate `bytes` and return a view over them. Every offset a `View`
-/// accessor will use is checked here, so the accessors themselves need no
-/// bounds checks and cannot read outside the file.
+/// Validates `bytes`. Every offset a `View` accessor uses is checked here,
+/// so accessors themselves need no bounds checks.
 pub fn parse(bytes: []const u8) ParseError!View {
     if (bytes.len < Header.wire_size) return error.Truncated;
     if (!std.mem.eql(u8, bytes[0..8], &magic)) return error.NotAnIndex;
@@ -529,18 +449,13 @@ pub fn parse(bytes: []const u8) ParseError!View {
     const table_end: u64 = Header.wire_size + @as(u64, header.entry_count) * Record.wire_size;
     if (table_end > bytes.len) return error.Truncated;
 
-    // The regions are in this order and each must fit. `>=` rather than `==`
-    // throughout: a writer is free to leave a gap, and rejecting one would
-    // make the format harder to extend than the version field makes it easy.
+    // `>=`, not `==`: a writer is free to leave a gap between regions.
     if (header.paths_off < table_end) return error.OffsetOutOfRange;
     if (header.ids_off < header.paths_off) return error.OffsetOutOfRange;
     if (header.nodes_off < header.ids_off) return error.OffsetOutOfRange;
     if (header.unassigned_off < header.nodes_off) return error.OffsetOutOfRange;
     if (header.unassigned_off > bytes.len) return error.OffsetOutOfRange;
 
-    // The id region has to hold every id the records will ask for, and the
-    // node table plus its names has to fit between `nodes_off` and the
-    // unassigned region.
     const ids_capacity: u64 = (header.nodes_off - header.ids_off) / 4;
     const names_off: u64 = header.nodes_off + @as(u64, header.node_count) * Node.wire_size;
     if (names_off > header.unassigned_off) return error.OffsetOutOfRange;
@@ -555,9 +470,7 @@ pub fn parse(bytes: []const u8) ParseError!View {
         const at: usize = @intCast(header.nodes_off + @as(u64, id) * Node.wire_size);
         const n: Node = .read(bytes[at..][0..Node.wire_size]);
         if (@as(u64, n.name_off) + n.name_len > names_len) return error.OffsetOutOfRange;
-        // `findNode` rests on this order, and a corrupt file that broke it
-        // would return wrong answers rather than fail.
-        const name = view.nodeName(id);
+        const name = view.nodeName(id); // findNode rests on this order
         if (prev_name) |q| if (std.mem.order(u8, q, name) != .lt) return error.OffsetOutOfRange;
         prev_name = name;
     }
@@ -574,15 +487,13 @@ pub fn parse(bytes: []const u8) ParseError!View {
         while (k < r.ids_len) : (k += 1) {
             if (view.nodeId(r, k) >= header.node_count) return error.OffsetOutOfRange;
         }
-        // Same argument as the node order above, for `find`.
-        const p = view.path(r);
+        const p = view.path(r); // find() rests on this order too
         if (prev_path) |q| if (std.mem.order(u8, q, p) != .lt) return error.OffsetOutOfRange;
         prev_path = p;
     }
 
-    // The unassigned region must hold exactly the count it claims, each entry
-    // '\n'-terminated. `Iterator.next` unwraps its scan on the strength of
-    // this, and a region ending mid-path would make it read past the end.
+    // Must hold exactly the count claimed, each entry '\n'-terminated --
+    // `Iterator.next` rests on this.
     const un = bytes[@intCast(header.unassigned_off)..];
     if (un.len != 0 and un[un.len - 1] != '\n') return error.OffsetOutOfRange;
     if (std.mem.count(u8, un, "\n") != header.unassigned_count) return error.OffsetOutOfRange;
@@ -593,11 +504,9 @@ pub fn parse(bytes: []const u8) ParseError!View {
 const testing = std.testing;
 
 test "one entry encodes to exactly the bytes this file documents" {
-    // Written against the layout comment at the top, field by field, rather
-    // than by printing what the encoder produced. That direction is the whole
-    // value: a test built from the output can only ever agree with it, and
-    // would keep passing through a switch to struct casts or a padding change
-    // -- the two ways the layout could stop being what the doc says it is.
+    // Written against the layout comment at the top, field by field --
+    // not by printing what the encoder produced, which could only ever
+    // agree with itself.
     const gpa = testing.allocator;
     const bytes = try encode(gpa, &.{.{ .path = "a.ml", .nodes = &.{"N.md"} }}, &.{"u.ml"});
     defer gpa.free(bytes);
@@ -629,10 +538,8 @@ test "one entry encodes to exactly the bytes this file documents" {
     try testing.expectEqualStrings("N.md", bytes[93..97]);
     try testing.expectEqualStrings("u.ml\n", bytes[97..102]);
 
-    // The checksum covers everything after the header, unassigned region
-    // included -- the opposite choice from the tags cache, for the reason in
-    // the header comment.
-    const crc = std.mem.readInt(u32, bytes[56..60], .little);
+    const crc = std.mem.readInt(u32, bytes[56..60], .little); // covers everything after the header
+
     try testing.expectEqual(std.hash.Crc32.hash(bytes[64..]), crc);
 }
 
@@ -649,8 +556,7 @@ test "many entries round-trip, multi-node paths and node order intact" {
 
     const view = try parse(bytes);
     try testing.expectEqual(@as(u32, 4), view.count());
-    // Three distinct names across nine claims: the interning is the point.
-    try testing.expectEqual(@as(u32, 3), view.nodeCount());
+    try testing.expectEqual(@as(u32, 3), view.nodeCount()); // 3 distinct names across 9 claims
     try testing.expectEqual(@as(u32, 0), view.unassignedCount());
 
     var buf: [max_nodes_per_path][]const u8 = undefined;
@@ -664,9 +570,6 @@ test "many entries round-trip, multi-node paths and node order intact" {
 }
 
 test "a path claimed by several nodes keeps every claimant" {
-    // The failure this guards: a format storing one owner per path encodes
-    // without complaint and silently drops the rest, which surfaces much later
-    // as a node that never goes stale when its own source changes.
     const gpa = testing.allocator;
     const bytes = try encode(gpa, &.{
         .{ .path = "shared.java", .nodes = &.{ "A.md", "B.md", "C.md" } },
@@ -683,9 +586,6 @@ test "a path claimed by several nodes keeps every claimant" {
 }
 
 test "unassigned is a separate list, iterated in the order given" {
-    // Not sorted, on purpose: the bash `unassigned.txt` is not, its only
-    // reader iterates the whole thing, and inventing an order here would be
-    // this format claiming a contract its predecessor did not have.
     const gpa = testing.allocator;
     const bytes = try encode(gpa, &.{.{ .path = "a", .nodes = &.{"N.md"} }}, &.{
         "z/last.java",
@@ -702,9 +602,8 @@ test "unassigned is a separate list, iterated in the order given" {
     try testing.expectEqualStrings("m/middle.java", it.next().?);
     try testing.expectEqual(@as(?[]const u8, null), it.next());
 
-    // An unassigned path is not in the record table, and must not be findable
-    // there: "claimed by nobody" and "not enumerated" are different answers.
-    try testing.expectEqual(@as(?u32, null), view.find("a/first.java"));
+    try testing.expectEqual(@as(?u32, null), view.find("a/first.java")); // not in the record table
+
 }
 
 test "lookup is a binary search, and a miss is a miss" {
@@ -725,8 +624,8 @@ test "lookup is a binary search, and a miss is a miss" {
     try testing.expectEqual(@as(?u32, null), view.find("p00500.j"));
     try testing.expectEqual(@as(?u32, null), view.find(""));
 
-    // One interned name for 500 paths.
-    try testing.expectEqual(@as(u32, 1), view.nodeCount());
+    try testing.expectEqual(@as(u32, 1), view.nodeCount()); // one interned name for 500 paths
+
     try testing.expectEqual(@as(?u32, 0), view.findNode("N.md"));
     try testing.expectEqual(@as(?u32, null), view.findNode("Missing.md"));
 }
@@ -746,8 +645,6 @@ test "an empty index is a valid index, not a special case" {
 }
 
 test "an index with only unassigned paths is valid too" {
-    // What a first `/synapse-init` produces before any node exists: every
-    // enumerated file is unassigned and the record table is empty.
     const gpa = testing.allocator;
     const bytes = try encode(gpa, &.{}, &.{ "a.java", "b.java" });
     defer gpa.free(bytes);
@@ -767,13 +664,10 @@ test "unsorted input is refused rather than encoded into a broken search" {
         .{ .path = "b", .nodes = &.{"N.md"} },
         .{ .path = "a", .nodes = &.{"N.md"} },
     }, &.{}));
-    // A duplicate is unsorted too: two records for one path make `find`'s
-    // answer depend on where the search happened to land.
-    try testing.expectError(error.Unsorted, encode(gpa, &.{
+    try testing.expectError(error.Unsorted, encode(gpa, &.{ // a duplicate path is unsorted too
         .{ .path = "a", .nodes = &.{"N.md"} },
         .{ .path = "a", .nodes = &.{"M.md"} },
     }, &.{}));
-    // Same argument one level down: callers of `nodes` are promised order.
     try testing.expectError(error.UnsortedNodes, encode(gpa, &.{
         .{ .path = "a", .nodes = &.{ "Z.md", "A.md" } },
     }, &.{}));
@@ -799,9 +693,6 @@ test "a bumped version rebuilds rather than misreads" {
     const bytes = try encode(gpa, &.{.{ .path = "a.ml", .nodes = &.{"N.md"} }}, &.{});
     defer gpa.free(bytes);
 
-    // A different version is the case that matters: the bytes are ours, they
-    // are intact, and reading them with this build's field offsets would
-    // produce plausible nonsense rather than an error.
     std.mem.writeInt(u32, bytes[8..12], version + 1, .little);
     try testing.expectError(error.VersionMismatch, parse(bytes));
 
@@ -816,18 +707,15 @@ test "the JSON this replaces is recognised as not ours, not misparsed" {
 
     try testing.expectError(error.Truncated, parse(bytes[0 .. Header.wire_size - 1]));
 
-    // Long enough to clear the header, so this exercises the magic check and
-    // not the length check -- `_index.json` is far bigger than 64 bytes, and
-    // finding one at this path is the case that has to be recognised, because
-    // for one release every installed machine will have one.
+    // Long enough to clear the header, exercising the magic check, not the
+    // length check -- `_index.json` is far bigger than 64 bytes.
     const json =
         \\{"src/A.java": ["Alpha.md"], "src/B.java": ["Beta.md"], "_unassigned": ["src/C.java"]}
     ;
     try testing.expect(json.len > Header.wire_size);
     try testing.expectError(error.NotAnIndex, parse(json));
 
-    // A flipped byte in the path region. The structure is unchanged, so only
-    // the checksum can catch it.
+    // A flipped byte in the path region -- only the checksum can catch it.
     const paths_off = std.mem.readInt(u64, bytes[24..32], .little);
     bytes[@intCast(paths_off)] ^= 0xff;
     try testing.expectError(error.ChecksumMismatch, parse(bytes));
@@ -838,8 +726,8 @@ test "a record pointing outside its region is refused, not followed" {
     const bytes = try encode(gpa, &.{.{ .path = "a.ml", .nodes = &.{"N.md"} }}, &.{});
     defer gpa.free(bytes);
 
-    // ids_at past the end of the id region. Left unchecked this is an
-    // out-of-bounds read on a mapping, from a file any process can write to.
+    // ids_at past the end of the id region -- unchecked, an out-of-bounds
+    // read on a mapping any process can write to.
     std.mem.writeInt(u32, bytes[64 + 10 ..][0..4], 9999, .little);
     std.mem.writeInt(u32, bytes[56..60], std.hash.Crc32.hash(bytes[64..]), .little);
     try testing.expectError(error.OffsetOutOfRange, parse(bytes));
@@ -850,8 +738,8 @@ test "a node id naming no node is refused" {
     const bytes = try encode(gpa, &.{.{ .path = "a.ml", .nodes = &.{"N.md"} }}, &.{});
     defer gpa.free(bytes);
 
-    // The id region holds one id, 0. Point it at a node that does not exist:
-    // unchecked, `nodeName` would read a Node struct out of the name bytes.
+    // Point the id at a node that doesn't exist -- unchecked, `nodeName`
+    // would read a Node struct out of the name bytes.
     const ids_off = std.mem.readInt(u64, bytes[32..40], .little);
     std.mem.writeInt(u32, bytes[@intCast(ids_off)..][0..4], 7, .little);
     std.mem.writeInt(u32, bytes[56..60], std.hash.Crc32.hash(bytes[64..]), .little);
@@ -863,16 +751,13 @@ test "an unassigned region that disagrees with its count is refused" {
     const bytes = try encode(gpa, &.{}, &.{ "a.java", "b.java" });
     defer gpa.free(bytes);
 
-    // Claim three where two are stored. `Iterator.next` unwraps its scan on
-    // the strength of the region being well-formed, so this has to fail at
-    // parse rather than at iteration.
-    std.mem.writeInt(u32, bytes[20..24], 3, .little);
+    std.mem.writeInt(u32, bytes[20..24], 3, .little); // claim 3 where 2 are stored
+
     try testing.expectError(error.OffsetOutOfRange, parse(bytes));
 }
 
-/// The entries `testdata/v1.bin` holds, in its order. Two nodes claim
-/// `src/Shared.java`, and `src/Orphan.java` is enumerated but claimed by
-/// nobody -- the three cases a reader has to tell apart.
+/// The entries `testdata/v1.bin` holds. Two nodes claim `src/Shared.java`;
+/// `src/Orphan.java` is enumerated but unclaimed.
 const fixture_entries = [_]Entry{
     .{ .path = "src/Alpha.java", .nodes = &.{"Alpha subsystem.md"} },
     .{ .path = "src/Beta.java", .nodes = &.{"Beta subsystem.md"} },
@@ -882,11 +767,8 @@ const fixture_entries = [_]Entry{
 const fixture_unassigned = [_][]const u8{ "src/Orphan.java", "docs/notes.md" };
 
 test "encode reproduces the committed fixture byte for byte" {
-    // `testdata/v1.bin` was generated from this file's layout comment by a
-    // separate implementation, not by `encode`. So this comparison is the doc
-    // checked against the code: if they ever disagree, one of them is wrong
-    // and this says so, which neither an encode-then-parse round-trip nor a
-    // fixture produced by the encoder itself could.
+    // `testdata/v1.bin` was generated from the layout comment by a separate
+    // implementation, not by `encode` -- checks the doc against the code.
     const gpa = testing.allocator;
     const bytes = try encode(gpa, &fixture_entries, &fixture_unassigned);
     defer gpa.free(bytes);
@@ -894,11 +776,9 @@ test "encode reproduces the committed fixture byte for byte" {
 }
 
 test "the committed v1 fixture still decodes" {
-    // Frozen bytes, not bytes this build produced. Every other test here
-    // encodes and then reads back, so all of them would keep passing through a
-    // change that altered the format in both directions at once. This one
-    // fails the moment a v1 file stops being readable -- which is the thing an
-    // installed machine's index actually is.
+    // Frozen bytes, not bytes this build produced -- every other test here
+    // encodes and reads back, so all would keep passing through a change
+    // that altered the format both ways at once.
     const view = try parse(@embedFile("testdata/v1.bin"));
     try testing.expectEqual(@as(u32, 3), view.count());
     try testing.expectEqual(@as(u32, 2), view.nodeCount());
@@ -911,9 +791,7 @@ test "the committed v1 fixture still decodes" {
     try testing.expectEqual(@as(usize, 1), one.len);
     try testing.expectEqualStrings("Alpha subsystem.md", one[0]);
 
-    // The multi-claimant case, which is the whole reason a record carries a
-    // count rather than a single node.
-    try testing.expectEqualStrings("src/Shared.java", view.path(view.record(2)));
+    try testing.expectEqualStrings("src/Shared.java", view.path(view.record(2))); // multi-claimant
     const both = view.nodes(view.record(2), &buf);
     try testing.expectEqual(@as(usize, 2), both.len);
     try testing.expectEqualStrings("Alpha subsystem.md", both[0]);
@@ -922,9 +800,8 @@ test "the committed v1 fixture still decodes" {
     try testing.expectEqual(@as(?u32, 1), view.find("src/Beta.java"));
     try testing.expectEqual(@as(?u32, null), view.find("src/Missing.java"));
 
-    // Enumerated but unowned: absent from the record table, present in the
-    // unassigned list, and the order it was given in preserved.
-    try testing.expectEqual(@as(?u32, null), view.find("src/Orphan.java"));
+    try testing.expectEqual(@as(?u32, null), view.find("src/Orphan.java")); // unowned, not in the table
+
     var it = view.unassignedIter();
     try testing.expectEqualStrings("src/Orphan.java", it.next().?);
     try testing.expectEqualStrings("docs/notes.md", it.next().?);
