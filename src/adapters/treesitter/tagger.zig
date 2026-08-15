@@ -44,6 +44,7 @@ const model = @import("model");
 const core = @import("core");
 const root = @import("root.zig");
 const node_types = @import("node_types.zig");
+const grammar = @import("grammar.zig");
 
 const c = root.c;
 const Allocator = std.mem.Allocator;
@@ -796,4 +797,100 @@ test "lineAt returns the trimmed line an offset sits on" {
 test "lineAt copes with a file that has no trailing newline" {
     const src = "only line";
     try testing.expectEqualStrings("only line", lineAt(src, 4));
+}
+
+/// A tiny real grammar (sb-013), checked in under `testdata/fake3_grammar` and
+/// generated once with `tree-sitter generate` -- not hand-written, since a
+/// real parser.c is a real state machine, and Tier 3's whole job is walking a
+/// real parse tree. `synapse-fake` cannot stand in here: it replaces
+/// `Extractor`'s `Grammar`/`load`/`tagFile` wholesale and never builds a
+/// `Tagger` or a `TSLanguage` at all, so it cannot reach `tagFileGenerated`,
+/// `tagFileWalk`, `walkNode`, or `findNameDescendant` -- only a real compiled
+/// grammar can.
+///
+/// The grammar has exactly one type of each shape `node_types.classify` cares
+/// about: `function_declaration` has a `name` field (query path, sb-012 tier
+/// 3's emitted-query half), `struct_item` does not (walk path, the bounded
+/// tree-walk half). Distinct kinds (`function` vs `struct`) make which path
+/// produced a given tag legible from the assertion alone.
+fn writeFake3Fixture(io: std.Io, tmp_dir: std.Io.Dir) !void {
+    try tmp_dir.createDirPath(io, "src/tree_sitter");
+    try tmp_dir.writeFile(io, .{ .sub_path = "src/parser.c", .data = @embedFile("testdata/fake3_grammar/src/parser.c") });
+    try tmp_dir.writeFile(io, .{ .sub_path = "src/node-types.json", .data = @embedFile("testdata/fake3_grammar/src/node-types.json") });
+    try tmp_dir.writeFile(io, .{ .sub_path = "src/tree_sitter/parser.h", .data = @embedFile("testdata/fake3_grammar/src/tree_sitter/parser.h") });
+    try tmp_dir.writeFile(io, .{ .sub_path = "src/tree_sitter/alloc.h", .data = @embedFile("testdata/fake3_grammar/src/tree_sitter/alloc.h") });
+    try tmp_dir.writeFile(io, .{ .sub_path = "src/tree_sitter/array.h", .data = @embedFile("testdata/fake3_grammar/src/tree_sitter/array.h") });
+}
+
+fn tagOne(tagged: []const Tagged, i: usize) struct { name: []const u8, kind: []const u8, role: model.Role } {
+    return .{ .name = tagged[i].tag.name, .kind = tagged[i].tag.kind, .role = tagged[i].tag.role };
+}
+
+test "tagFileGenerated combines the query path and the walk path, in every emptiness combination" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const dir = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    try writeFake3Fixture(io, tmp.dir);
+
+    const lib = try std.fmt.allocPrint(gpa, "{s}/fake3.{s}", .{ dir, grammar.sharedLibExt() });
+    defer gpa.free(lib);
+    try grammar.build(io, gpa, dir, lib, grammar.default_lock_tries);
+    const lang = try grammar.load(gpa, lib, "tree_sitter_fake3");
+
+    const node_types_path = try std.fs.path.join(gpa, &.{ dir, "src", "node-types.json" });
+    defer gpa.free(node_types_path);
+    const classification = try node_types.classify(gpa, io, node_types_path);
+
+    const query = try node_types.buildQuery(gpa, classification.guesses);
+    defer gpa.free(query);
+
+    var tagger = try Tagger.init(lang, query, .generated, null, "test", classification);
+    defer tagger.deinit(); // frees `classification` too -- see Tagger.deinit
+
+    // Both empty: no function_declaration, no struct_item.
+    {
+        const tagged = try tagger.tagFile(gpa, "");
+        defer freeTagged(gpa, tagged);
+        try testing.expectEqual(@as(usize, 0), tagged.len);
+    }
+
+    // Query path only: from_walk empty, from_query alone is returned.
+    {
+        const tagged = try tagger.tagFile(gpa, "fn foo()");
+        defer freeTagged(gpa, tagged);
+        try testing.expectEqual(@as(usize, 1), tagged.len);
+        const t = tagOne(tagged, 0);
+        try testing.expectEqualStrings("foo", t.name);
+        try testing.expectEqualStrings("function", t.kind);
+        try testing.expectEqual(model.Role.def, t.role);
+    }
+
+    // Walk path only: from_query empty, from_walk alone is returned.
+    {
+        const tagged = try tagger.tagFile(gpa, "struct Bar{}");
+        defer freeTagged(gpa, tagged);
+        try testing.expectEqual(@as(usize, 1), tagged.len);
+        const t = tagOne(tagged, 0);
+        try testing.expectEqualStrings("Bar", t.name);
+        try testing.expectEqualStrings("struct", t.kind);
+        try testing.expectEqual(model.Role.def, t.role);
+    }
+
+    // Both non-empty: combined into one slice, query results first.
+    {
+        const tagged = try tagger.tagFile(gpa, "fn foo()\nstruct Bar{}");
+        defer freeTagged(gpa, tagged);
+        try testing.expectEqual(@as(usize, 2), tagged.len);
+        const first = tagOne(tagged, 0);
+        const second = tagOne(tagged, 1);
+        try testing.expectEqualStrings("foo", first.name);
+        try testing.expectEqualStrings("function", first.kind);
+        try testing.expectEqualStrings("Bar", second.name);
+        try testing.expectEqualStrings("struct", second.kind);
+    }
 }
