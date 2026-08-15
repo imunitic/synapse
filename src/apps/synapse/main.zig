@@ -2,20 +2,15 @@
 //! to the code profile's adapters (tree-sitter extraction, the Obsidian REST
 //! store, inferred clustering, the full node lifecycle).
 //!
-//! The CLI contract is frozen. Every flag, every line of stdout and every exit
-//! code matches what the bash scripts in `claude/lib/synapse/` produce today,
-//! because `tests/*.bats` is the specification for this port and stays valid
-//! only as long as that holds. A CLI improvement is a separate change, before
-//! or after this rewrite, never inside it.
+//! CLI contract is frozen: every flag, stdout line and exit code matches the
+//! old `claude/lib/synapse/` bash scripts, since `tests/*.bats` is the spec
+//! for this port. CLI improvements are a separate change, never inside it.
 
 
 const std = @import("std");
 
-// Referenced, not merely imported. Zig analyses declarations lazily, so an
-// `@import` nothing touches is never compiled -- and a build that never
-// compiles `core` cannot be said to have checked anything about it, including
-// that its own imports point the right way. Keep a real reference here for as
-// long as dispatch is a stub.
+// Referenced, not merely imported: Zig analyses lazily, so an untouched
+// `@import` is never compiled or checked.
 const core = @import("core");
 const ports = @import("ports");
 const adapters = @import("adapters");
@@ -57,9 +52,7 @@ pub fn main(init: std.process.Init) !u8 {
         return 2;
     };
 
-    // `null` for the trace, not a value read from the environment: the trace
-    // is `synapse-fake`'s instrumentation, and the real binary should not be
-    // able to write one however it is invoked.
+    // `null` trace: that instrumentation is `synapse-fake`'s only.
     if (std.mem.eql(u8, sub, "tags"))
         return tags_cmd.run(
             treesitter.extractor.TreeSitterExtractor,
@@ -80,8 +73,7 @@ pub fn main(init: std.process.Init) !u8 {
             null,
         );
 
-    // No extractor and no grammar: the index is a projection of lists the
-    // clustering already produced, so this form needs nothing tree-sitter.
+    // No extractor: the index is a projection of lists clustering already produced.
     if (std.mem.eql(u8, sub, "index"))
         return index_cmd.run(init.gpa, init.io, init.environ_map, &args);
 

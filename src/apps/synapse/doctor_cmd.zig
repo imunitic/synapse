@@ -1,25 +1,17 @@
 //! `synapse doctor` -- every silent guard in the system, said out loud.
+//! See `core/doctor.zig` for what `warn` means. Each check below mirrors a
+//! specific silent guard elsewhere; the comment on each says which.
 //!
 //!   doctor [--repo <dir>]
 //!
-//! See `core/doctor.zig` for why this exists and what `warn` means. Every check below
-//! mirrors a specific guard elsewhere, and the comment on each says which -- a check
-//! with no corresponding silent failure would be a check nobody needed.
-//!
-//! Named `doctor`, not `verify`: `synapse-verify.sh` existed once and folded into
-//! `query stale`, so reusing that name would suggest the old thing was back.
-//!
-//! Ordered as an install is built: dependencies, then config, then the vault and its
-//! API, then this checkout's identity, then the namespace, then the derived artefacts,
-//! then the hooks. A failure early on explains most of what follows, so a reader who
-//! stops at the first `FAIL` has usually found the cause rather than a symptom.
+//! Ordered as an install is built: dependencies, config, vault + API,
+//! identity, namespace, derived artefacts, hooks -- so a reader stopping at
+//! the first `FAIL` has usually found the cause, not a symptom.
 
 const std = @import("std");
 const core = @import("core");
 const adapters = @import("adapters");
-// For the staleness window alone, so the report and the code that acts on it cannot
-// disagree about what "abandoned" means.
-const treesitter = @import("treesitter");
+const treesitter = @import("treesitter"); // for the staleness-window constant only
 const context = @import("context.zig");
 
 const Io = std.Io;
@@ -57,9 +49,7 @@ pub fn run(
 
     var checks: std.ArrayListUnmanaged(Check) = .empty;
     defer checks.deinit(gpa);
-    // Every detail string is built here and freed at the end, so a check can report a
-    // path or a count without each site having to own it.
-    var owned: std.ArrayListUnmanaged([]u8) = .empty;
+    var owned: std.ArrayListUnmanaged([]u8) = .empty; // every detail string, freed at the end
     defer {
         for (owned.items) |o| gpa.free(o);
         owned.deinit(gpa);
@@ -94,7 +84,7 @@ const Ctx = struct {
         try self.checks.append(self.gpa, .{ .name = name, .status = status, .detail = detail });
     }
 
-    /// A detail this owns, so callers can format freely.
+    /// An owned detail string, for free-form formatting.
     fn fmt(self: *Ctx, comptime f: []const u8, a: anytype) ![]const u8 {
         const s = try std.fmt.allocPrint(self.gpa, f, a);
         try self.owned.append(self.gpa, s);
@@ -114,8 +104,8 @@ const Ctx = struct {
     }
 };
 
-/// `git` and `curl`. Mirrors: every subcommand that spawns one and treats a failure as
-/// "nothing found" rather than "the tool is missing".
+/// `git`/`curl`. Mirrors: every subcommand that spawns one and treats a
+/// failure as "nothing found" rather than "the tool is missing".
 fn dependencies(ctx: *Ctx) !void {
     for ([_][]const u8{ "git", "curl" }) |tool| {
         const res = adapters.process.run(ctx.io, ctx.gpa, &.{ tool, "--version" }, .{}) catch {
@@ -130,9 +120,8 @@ fn dependencies(ctx: *Ctx) !void {
         const first = res.stdout[0 .. std.mem.indexOfScalar(u8, res.stdout, '\n') orelse res.stdout.len];
         try ctx.add(tool, .ok, try ctx.fmt("{s}", .{std.mem.trim(u8, first, " \t\r")}));
     }
-    // `jq` is no longer used by either binary. It is still what `setup.sh` merges
-    // settings.json with, so its absence breaks installing rather than running --
-    // reported as a warning for exactly that reason.
+    // jq is unused by either binary now, but setup.sh still needs it to merge
+    // settings.json -- absence breaks installing, not running.
     const res = adapters.process.run(ctx.io, ctx.gpa, &.{ "jq", "--version" }, .{}) catch null;
     if (res) |r| {
         defer r.deinit(ctx.gpa);
@@ -144,8 +133,8 @@ fn dependencies(ctx: *Ctx) !void {
     try ctx.add("jq", .warn, "absent: setup.sh needs it to merge settings.json");
 }
 
-/// The conf file and the vault directory. Mirrors: `core.conf.vaultDir` returning null,
-/// which every hook treats as silence and every command as "no vault".
+/// The conf file and the vault directory. Mirrors: `core.conf.vaultDir`
+/// returning null, which every hook/command treats as silent "no vault".
 fn vaultChecks(ctx: *Ctx) !?[]const u8 {
     const home = ctx.env.get("HOME") orelse "";
     var found: ?[]const u8 = null;
@@ -161,8 +150,6 @@ fn vaultChecks(ctx: *Ctx) !?[]const u8 {
     if (found) |path| {
         try ctx.add("config", .ok, path);
     } else if (ctx.env.get("OBSIDIAN_VAULT_DIR") != null) {
-        // The environment wins over the file, so a machine with no conf at all is
-        // still configured if something exported the variable.
         try ctx.add("config", .warn, "no synapse.conf; using $OBSIDIAN_VAULT_DIR");
     } else {
         try ctx.add("config", .fail, "no ~/.claude/synapse.conf -- copy the template and set the vault");
@@ -186,9 +173,9 @@ fn vaultChecks(ctx: *Ctx) !?[]const u8 {
     return null;
 }
 
-/// The plugin's port and key, the certificate, and whether anything answers. Mirrors:
-/// every `curl` failure that a hook turns into silence, and `write-node`'s
-/// "REST API not configured".
+/// Plugin port/key, the certificate, whether anything answers. Mirrors:
+/// every `curl` failure a hook turns into silence, and `write-node`'s "REST
+/// API not configured".
 fn apiChecks(ctx: *Ctx, vault: ?[]const u8) !void {
     const v = vault orelse {
         try ctx.add("REST API", .fail, "skipped: no vault");
@@ -235,9 +222,8 @@ fn apiChecks(ctx: *Ctx, vault: ?[]const u8) !void {
         return;
     }
 
-    // The one check that is a round trip rather than a file test. Worth it: every
-    // other API failure this system has had was a *reachability* failure -- Obsidian
-    // not running, the sandbox blocking loopback -- and no file test can see that.
+    // The one round-trip check, not a file test: most real API failures are
+    // reachability failures (Obsidian not running, sandbox blocking loopback).
     const url = try ctx.fmt("https://127.0.0.1:{d}/vault/", .{port});
     const auth = try ctx.fmt("Authorization: Bearer {s}", .{key});
     const res = adapters.process.run(ctx.io, ctx.gpa, &.{

@@ -3,35 +3,19 @@
 //!   build-lists [--reenumerate]   manifest.tsv into one path list per node
 //!
 //! Reads `$SYNAPSE_WORK_DIR/manifest.tsv` (`title <TAB> include-ERE <TAB>
-//! exclude-ERE`), enumerates as its first step, and writes `lists/NN.txt` plus
-//! `lists/NN.title` per manifest line, then `covered.txt`, `all-sorted.txt` and
-//! `unassigned.txt`. Prints a count per node and the coverage arithmetic, so a
-//! bad pattern shows up as a number rather than a silent gap.
+//! exclude-ERE`), enumerates first, writes `lists/NN.txt`/`NN.title` per
+//! line, then `covered.txt`/`all-sorted.txt`/`unassigned.txt` plus coverage counts.
 //!
-//! ## The greps stay, and the measurement says that is fine
+//! `include`/`exclude` stay real `grep -E` (one manifest here uses 233
+//! alternations, 60 groups across 32 lines -- reimplementing an ERE engine
+//! would silently change which files a node claims). Measured on
+//! `syrius-querschnitt-basis` (32 nodes, 4,892 files): of the script's
+//! 3166ms, the 64 greps were 329ms; the rest was enumeration and 69 `wc -l`
+//! spawns this port removes.
 //!
-//! `include` and `exclude` are user-authored EREs, one pair per node, and the
-//! one real manifest on this machine uses 233 alternations, 60 groups, `?`, `+`
-//! and character classes across 32 lines. There is no reading of those as
-//! prefixes, and reimplementing an ERE engine -- or borrowing a different one --
-//! would change which files a node claims, silently, on patterns nobody would
-//! think to re-test.
-//!
-//! So they are still `grep -E`, spawned exactly as the script spawned them. That
-//! sounds like it forfeits the port, and the measurement says otherwise: of the
-//! script's 3166ms on `syrius-querschnitt-basis` (32 nodes, 4,892 files), the 64
-//! greps were **329ms**. The other ~2.8s was the enumeration and 69 spawns of
-//! `wc -l | tr -d ' '` -- one pair per node, purely to count the lines of a file
-//! this process had just written. Those are what the port removes.
-//!
-//! ## Byte-order sorting is not a locale setting here
-//!
-//! The script had to write `LC_ALL=C` on both sorts *and* on `comm`, because
-//! `comm` validates its inputs against the ambient collation and under a UTF-8
-//! locale silently reports every line as unique once uppercase filenames appear
-//! -- claiming nothing is covered, with no warning. Sorting bytes is the only
-//! behaviour available here, so that hazard is gone by construction rather than
-//! by remembering a prefix three times.
+//! Sorting/comparing stays byte-order throughout -- the script needed
+//! `LC_ALL=C` on both sorts and `comm`, since `comm` under a UTF-8 locale
+//! silently reports every line unique once uppercase filenames appear.
 
 const std = @import("std");
 const core = @import("core");
@@ -50,8 +34,6 @@ pub fn run(
 ) !u8 {
     var reenumerate = false;
     while (args.next()) |arg| {
-        // `--help` exits 0, like every other subcommand: a request for help is not a
-        // usage error, and a caller piping `--help` into a pager should not see 2.
         if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
             _ = usage();
             return 0;
@@ -61,8 +43,6 @@ pub fn run(
         } else return usage();
     }
 
-    // Outside a repo there are no files to claim, and saying so beats a later step
-    // failing with git's own wording. The wrapper made this check.
     if (core.identity.resolve(gpa, io, ".")) |id| {
         id.deinit(gpa);
     } else |_| {
@@ -80,9 +60,8 @@ pub fn run(
     const manifest_path = try std.fmt.allocPrint(gpa, "{s}/manifest.tsv", .{work_dir});
     defer gpa.free(manifest_path);
 
-    // Checked before enumerating, as the script did. A missing manifest is
-    // "could not run", and enumerating first would do minutes of work on a
-    // 125k-file repo before reporting it.
+    // Checked before enumerating: a missing manifest shouldn't cost minutes
+    // of work on a 125k-file repo before reporting it.
     const manifest = cwd.readFileAlloc(io, manifest_path, gpa, .limited(16 << 20)) catch {
         std.debug.print("synapse-build-lists: no manifest.tsv in {s}\n", .{work_dir});
         return 1;
@@ -92,8 +71,6 @@ pub fn run(
     var out_buf: [256 * 1024]u8 = undefined;
     var out = Io.File.stdout().writer(io, &out_buf);
 
-    // Enumeration is this build's first step, sharing the work dir this command
-    // already resolved so the two can never disagree about where all.txt lives.
     try enumerate_cmd.ensure(gpa, io, env, work_dir, reenumerate, &out.interface);
     try out.interface.flush();
 
@@ -104,18 +81,14 @@ pub fn run(
 
     const lists_dir = try std.fmt.allocPrint(gpa, "{s}/lists", .{work_dir});
     defer gpa.free(lists_dir);
-    // Rebuilt from scratch, so a removed manifest line leaves no stale list
-    // behind for build-index to pick up as a node that no longer exists.
+    // Rebuilt from scratch so a removed manifest line leaves no stale list behind.
     cwd.deleteTree(io, lists_dir) catch {};
     try cwd.createDirPath(io, lists_dir);
 
-    // Every path any node claimed, for the coverage set difference below. These
-    // are slices *into* the per-node grep output, so those buffers have to
-    // outlive the loop -- freeing one at the end of its own iteration, which is
-    // what a `defer` inside the loop body does, leaves every path here dangling.
-    // ReleaseSafe caught that as an integer overflow inside `std.sort.block`
-    // comparing freed lengths, which is a better failure than a quietly wrong
-    // coverage report but still only luck.
+    // `covered`'s entries are slices into the per-node grep output, so those
+    // buffers must outlive the loop -- a per-iteration `defer` would free
+    // them while `covered` still points in (caught in ReleaseSafe as an
+    // overflow inside `std.sort.block`, not by design).
     var covered: std.ArrayListUnmanaged([]const u8) = .empty;
     defer covered.deinit(gpa);
     var matched_buffers: std.ArrayListUnmanaged([]u8) = .empty;
@@ -130,8 +103,7 @@ pub fn run(
         const line = std.mem.trimEnd(u8, raw, "\r");
         var cols = std.mem.splitScalar(u8, line, '\t');
         const title = cols.next() orelse continue;
-        // A blank title is a blank line, skipped as `[[ -n "$title" ]]` did.
-        if (title.len == 0) continue;
+        if (title.len == 0) continue; // blank title = blank line
         const include = cols.next() orelse "";
         const exclude = cols.next() orelse "";
 
@@ -159,8 +131,6 @@ pub fn run(
             count += 1;
             try covered.append(gpa, p);
         }
-        // The script paid `wc -l | tr -d ' '` here, per node, to count a file it
-        // had just written.
         try out.interface.print("{s}\t{d}\t{s}\n", .{ slug, count, title });
     }
 
@@ -178,14 +148,9 @@ fn usage() u8 {
     return 2;
 }
 
-/// `grep -E "$include" all.txt | grep -vE "${exclude:-^$}"`, spawned exactly as
-/// the script spawned it so the ERE dialect is the same engine and not merely a
-/// compatible one.
-///
-/// An empty exclude column means "exclude nothing", and the script spelled that
-/// `^$` -- a pattern that never matches a path, where an empty pattern would
-/// match every line and empty the list. Reproduced rather than special-cased,
-/// because `^$` is also what a manifest may contain literally.
+/// `grep -E "$include" all.txt | grep -vE "${exclude:-^$}"`. Empty exclude
+/// means "exclude nothing", spelled `^$` (a pattern matching no path) rather
+/// than special-cased, since `^$` is also valid manifest content.
 pub fn selectPaths(
     gpa: Allocator,
     io: Io,
@@ -198,8 +163,6 @@ pub fn selectPaths(
     });
     defer gpa.free(included.stderr);
     errdefer gpa.free(included.stdout);
-    // `grep` exits 1 for "no lines matched", which the script absorbed with
-    // `|| true`: a pattern that claims nothing is an empty list, not a failure.
     if (included.exitCode() == null or included.exitCode().? > 1) {
         gpa.free(included.stdout);
         return error.GrepFailed;
@@ -219,12 +182,8 @@ pub fn selectPaths(
     return kept.stdout;
 }
 
-/// `covered.txt`, `all-sorted.txt` and `unassigned.txt`, plus the two counts.
-///
-/// All three files are written because the script wrote all three and a caller
-/// may read any of them -- `unassigned.txt` is `synapse-build-index.sh`'s input,
-/// and the other two are the working set that made the arithmetic checkable by
-/// hand.
+/// `covered.txt`, `all-sorted.txt` and `unassigned.txt`, plus the two
+/// counts. `unassigned.txt` is `synapse-build-index.sh`'s input.
 fn writeCoverage(
     gpa: Allocator,
     io: Io,
@@ -249,8 +208,7 @@ fn writeCoverage(
     try writeLines(gpa, io, work_dir, "covered.txt", covered_unique);
     try writeLines(gpa, io, work_dir, "all-sorted.txt", all_sorted.items);
 
-    // `comm -23`: in all-sorted, not in covered. Both sides are byte-sorted, so
-    // this is one merge pass rather than a lookup per path.
+    // `comm -23`: in all-sorted, not in covered. One merge pass over byte-sorted sides.
     var unassigned: std.ArrayListUnmanaged([]const u8) = .empty;
     defer unassigned.deinit(gpa);
     var i: usize = 0;

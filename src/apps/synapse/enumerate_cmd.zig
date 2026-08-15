@@ -2,41 +2,20 @@
 //!
 //!   enumerate [--reenumerate]   tracked files worth graphing, into the work dir
 //!
-//! Writes `$SYNAPSE_WORK_DIR/all.txt` (one path per line, `git ls-files` order)
-//! and `$SYNAPSE_WORK_DIR/oversize.txt` (`size<TAB>path`, encounter order). An
-//! existing non-empty `all.txt` is reused unless `--reenumerate` forces a
-//! rebuild, so a caller that only needs the list pays nothing.
+//! Writes `$SYNAPSE_WORK_DIR/all.txt` (`git ls-files` order) and
+//! `oversize.txt` (`size<TAB>path`). An existing non-empty `all.txt` is
+//! reused unless `--reenumerate` forces a rebuild.
 //!
-//! The script stays in front of this, for the same reason
-//! `synapse-build-index.sh` does: it resolves the namespace through
-//! `synapse-identity.sh`, which is bash until the last sourcer is ported, and
-//! nothing here resolves it a second time. The work dir arrives already
-//! decided, via `SYNAPSE_WORK_DIR`, and its absence is an error rather than a
-//! guess.
+//! The script stays in front for identity resolution (`synapse-identity.sh`,
+//! still bash); the work dir arrives via `SYNAPSE_WORK_DIR`, and its absence
+//! is an error, not a guess.
 //!
-//! ## What this removes, measured
-//!
-//! The bash spent 15.9s on syrius3 (124,817 files enumerated of 125,351
-//! tracked) and 65 process spawns. 45 of those spawns were `sed`, one per line
-//! of `synapse-ignore-files.conf` -- including its comment lines, which is
-//! every line in the shipped default. The rest of the time went on a bash
-//! `while read` loop running `[[ -f ]]` over 125k paths and on `xargs` batches
-//! of `stat`. In process it is one `git ls-files`, one `statFile` per path, and
-//! nothing else.
-//!
-//! ## `git ls-files` is spawned, and the two other filters are not
-//!
-//! Reading git's index would mean parsing a binary format that git owns and
-//! versions, to answer a question git answers in one call. That is the trade
-//! `core/index_map` refused for the reverse index and accepts here, and the
-//! difference is who owns the format.
-//!
-//! The extension and lockfile filters moved into `core/enumerate.zig` as a
-//! suffix test and a basename test -- they were only EREs because `grep -vE`
-//! was the tool at hand. The user's own patterns stay with `grep -vE`, spawned
-//! once and only when there are any: an ERE means whatever `grep` says it
-//! means, and a reimplemented subset would be a second dialect that disagrees
-//! at the edges.
+//! Measured on syrius3: bash spent 15.9s / 65 spawns (45 of them `sed`, one
+//! per conf line) enumerating 124,817 of 125,351 tracked files; this is one
+//! `git ls-files` plus one `statFile` per path. `git ls-files` stays a real
+//! spawn (git owns that binary format); the extension/lockfile filters moved
+//! into `core/enumerate.zig`, but the user's own EREs stay on real `grep -vE`
+//! rather than a reimplemented dialect that would disagree at the edges.
 
 const std = @import("std");
 const core = @import("core");
@@ -54,8 +33,6 @@ pub fn run(
 ) !u8 {
     var reenumerate = false;
     while (args.next()) |arg| {
-        // `--help` exits 0, like every other subcommand: a request for help is not a
-        // usage error, and a caller piping `--help` into a pager should not see 2.
         if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
             _ = usage();
             return 0;
@@ -65,9 +42,7 @@ pub fn run(
         } else return usage();
     }
 
-    // Outside a repo there is nothing to enumerate, and saying so beats letting
-    // `git ls-files` fail with its own wording. The wrapper made this check; with no
-    // wrapper it belongs here.
+    // Outside a repo, say so rather than letting `git ls-files` fail with its own wording.
     if (core.identity.resolve(gpa, io, ".")) |id| {
         id.deinit(gpa);
     } else |_| {
@@ -90,16 +65,11 @@ pub fn run(
     return 0;
 }
 
-/// Bring `all.txt` and `oversize.txt` up to date and report, writing the same
-/// three lines the script printed: the `--- enumerating tracked files` banner
-/// when a rebuild happens, the oversize report when anything was skipped, and
-/// `enumerated: N` always.
-///
-/// Shared with `build-lists` rather than spawned by it. The script called
-/// `synapse-enumerate.sh` as a subprocess and its stdout landed in the caller's
-/// output, which `tests/synapse-build-lists.bats` asserts on -- so the lines
-/// have to appear in exactly the same place, and the cheapest way to guarantee
-/// that is one implementation writing to the caller's own writer.
+/// Brings `all.txt`/`oversize.txt` up to date and reports: the rebuild
+/// banner when a rebuild happens, the oversize report if anything was
+/// skipped, `enumerated: N` always. Shared with `build-lists` (writes to
+/// the caller's own writer) rather than spawned, since
+/// `tests/synapse-build-lists.bats` asserts on where these lines land.
 pub fn ensure(
     gpa: Allocator,
     io: Io,
@@ -116,9 +86,8 @@ pub fn ensure(
     const cwd = Io.Dir.cwd();
     cwd.createDirPath(io, work_dir) catch {};
 
-    // An existing non-empty all.txt is the answer unless a rebuild is asked
-    // for. Checked by size rather than existence, matching `[[ ! -s ]]`: a
-    // zero-byte all.txt from an interrupted run is not a usable enumeration.
+    // Checked by size, not existence: a zero-byte all.txt from an
+    // interrupted run is not a usable enumeration.
     const existing: u64 = if (cwd.statFile(io, all_path, .{})) |st| st.size else |_| 0;
     if (existing == 0 or reenumerate) {
         try out.writeAll("--- enumerating tracked files\n");
@@ -140,10 +109,8 @@ fn usage() u8 {
     return 2;
 }
 
-/// The shipped default, matching the script's `SYNAPSE_MAX_FILE_BYTES`. A cap
-/// rather than a pattern, because no extension or name rule anticipates a
-/// generated monster -- and reported rather than dropped silently, because a
-/// silent skip makes `enumerated` a number that quietly disagrees with the repo.
+/// Default cap (`SYNAPSE_MAX_FILE_BYTES`). Skips are reported, not silent --
+/// a silent skip would make `enumerated` disagree with the repo.
 const default_max_file_bytes: u64 = 1048576;
 
 fn maxFileBytes(env: *std.process.Environ.Map) u64 {
@@ -159,14 +126,10 @@ fn enumerateInto(
     oversize_path: []const u8,
 ) !void {
     const cwd = Io.Dir.cwd();
-    // Truncated up front, so a rebuild that finds nothing oversized leaves an
-    // empty file rather than the previous run's findings.
+    // Truncated up front so a clean rebuild doesn't keep the previous run's findings.
     try cwd.writeFile(io, .{ .sub_path = oversize_path, .data = "" });
 
-    // Run in the inherited cwd, exactly as the script does. `git ls-files` from
-    // a subdirectory lists that subdirectory relative to itself, and every
-    // caller invokes this from the repo root -- reproducing the behaviour
-    // rather than correcting it keeps the two implementations comparable.
+    // Inherited cwd, matching the script: every caller invokes from the repo root.
     const listed = try adapters.process.run(io, gpa, &.{ "git", "ls-files" }, .{});
     defer listed.deinit(gpa);
     if (!listed.ok()) return error.GitLsFilesFailed;
@@ -185,15 +148,9 @@ fn enumerateInto(
         if (path.len == 0) continue;
         if (core.enumerate.isExcluded(path)) continue;
 
-        // One `statFile` answers both questions the script asked separately: is
-        // this a regular file (a submodule gitlink is one ls-files entry but a
-        // directory on disk, and `git hash-object` fails the whole batch on
-        // one), and how big is it. The script needed `[[ -f ]]` plus a batched
-        // `stat` because a per-file `wc -c` measured 21s for 3,000 files.
-        // Symlinks followed, matching `[[ -f ]]`. One divergence, stated: for
-        // a tracked symlink the script's `stat` measured the link and this
-        // measures the target, which only shows up if the target crosses the
-        // cap. Neither fw-core nor syrius3 tracks a symlink at all.
+        // One statFile answers both is-it-a-regular-file (a submodule gitlink
+        // is an ls-files entry but a directory on disk) and how big. Symlinks
+        // followed: measures the target, not the link, unlike the script.
         const st = cwd.statFile(io, path, .{}) catch continue;
         if (st.kind != .file) continue;
         if (st.size > cap) {
@@ -208,12 +165,9 @@ fn enumerateInto(
 }
 
 /// `$SYNAPSE_EXTRA_EXCLUDE_RE` OR'd with every pattern line of
-/// `~/.claude/synapse-ignore-files.conf`, applied by one `grep -vE`.
-///
-/// Returns the input untouched when there are no patterns, which is the common
-/// case -- the shipped conf is all comments. The script OR'd an empty pattern
-/// set into `^$` for the same reason this returns early: an empty ERE matches
-/// every line, so a missing guard would enumerate zero files.
+/// `~/.claude/synapse-ignore-files.conf`, applied by one `grep -vE`. Returns
+/// the input untouched when there are no patterns (the common case) --
+/// an empty ERE matches every line, so a missing guard would enumerate zero files.
 pub fn applyUserPatterns(
     gpa: Allocator,
     io: Io,
@@ -234,9 +188,6 @@ pub fn applyUserPatterns(
             defer gpa.free(text);
             var lines = std.mem.splitScalar(u8, text, '\n');
             while (lines.next()) |raw| {
-                // Comment stripped at the first `#` and both ends trimmed, as
-                // the script's `${pat%%#*}` and `sed` did -- without the fork
-                // per line that cost 45 of its 65 spawns.
                 const uncommented = raw[0 .. std.mem.indexOfScalar(u8, raw, '#') orelse raw.len];
                 const pat = std.mem.trim(u8, uncommented, " \t\r");
                 if (pat.len == 0) continue;
@@ -252,9 +203,8 @@ pub fn applyUserPatterns(
         .stdin = listing,
     });
     defer gpa.free(res.stderr);
-    // `grep -v` exits 1 when every line matched, i.e. everything was excluded.
-    // That is a legitimate empty result, not a failure -- the same case the
-    // script's own pipeline had to survive.
+    // grep exits 1 when every line matched (everything excluded) -- a
+    // legitimate empty result, not a failure.
     if (res.exitCode()) |code| {
         if (code > 1) {
             gpa.free(res.stdout);
@@ -267,8 +217,7 @@ pub fn applyUserPatterns(
     return res.stdout;
 }
 
-/// `skipped N file(s) over CAP bytes (largest first):` and the five biggest,
-/// byte-identical to the script's `sort -rn | head -5 | awk` formatting.
+/// `skipped N file(s) over CAP bytes (largest first):` and the five biggest.
 fn reportOversize(
     gpa: Allocator,
     io: Io,

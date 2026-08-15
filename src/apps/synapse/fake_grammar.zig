@@ -1,26 +1,17 @@
 //! The grammar backend behind `synapse-fake`: scripted tags, no grammar.
+//! Reproduces `tests/fixtures/fake-bin/tree-sitter`'s old behaviour, which
+//! the bats fixtures are written against:
 //!
-//! This replaces `tests/fixtures/fake-bin/tree-sitter`, which stopped
-//! intercepting anything the moment libtree-sitter was linked instead of
-//! spawned. It reproduces that fake's behaviour exactly, because the bats
-//! suite's fixtures are written against it:
-//!
-//!   * `.ml`, `.java` and `.py` are the extensions it can tag. Anything else
-//!     yields no grammar -- silently, the way an extension the CLI could not
-//!     parse used to, and distinct from the registry saying no, which warns.
+//!   * `.ml`/`.java`/`.py` are taggable; anything else yields no grammar
+//!     silently (distinct from a registry "no", which warns).
 //!   * Every taggable file yields one `FAKE_NAME` definition, plus one per
-//!     `symbol:<Name>` line (a def) and `ref:<Name>` line (a ref) in the file
-//!     itself. That lets a test about *vocabulary* author the symbols it wants
-//!     as ordinary fixture content.
-//!   * A file containing a bare `notags` line parses fine and has nothing in
-//!     it -- the parsed-but-empty case, which must stay distinguishable from
-//!     no-grammar.
+//!     `symbol:<Name>` (def) / `ref:<Name>` (ref) line in the file itself.
+//!   * A bare `notags` line parses to nothing -- the parsed-but-empty case,
+//!     distinct from no-grammar.
 //!
-//! What it does NOT fake is everything around it. Registry resolution, the
-//! warnings, negative caching, the clone and its lock all come from the shared
-//! `Extractor` and run for real here, against `tests/fixtures/fake-bin/git`.
-//! Only the compile-and-load step is missing, which is the step that needs a C
-//! toolchain and a real grammar repository.
+//! Everything else -- registry resolution, warnings, negative caching, the
+//! clone and its lock -- runs for real through the shared `Extractor`. Only
+//! compile-and-load is stubbed.
 
 const std = @import("std");
 const model = @import("model");
@@ -32,8 +23,7 @@ const Io = std.Io;
 const Tagged = treesitter.tagger.Tagged;
 
 pub const FakeBackend = struct {
-    /// Nothing to hold: the registry entry and the clone are the shared
-    /// Extractor's business, and there is no library to keep open.
+    /// Nothing to hold: no library to keep open.
     pub const Grammar = void;
 
     const taggable = [_][]const u8{ "ml", "java", "py" };
@@ -66,10 +56,7 @@ pub const FakeBackend = struct {
         for (taggable) |e| {
             if (std.mem.eql(u8, e, ext)) known = true;
         }
-        // Not `.unsupported` via a warning: the registry had an entry, this
-        // stand-in simply cannot parse the language, which is what the CLI
-        // failing to tag a file looked like.
-        if (!known) return error.NoGrammar;
+        if (!known) return error.NoGrammar; // not a warned .unsupported: the registry had an entry
 
         var out: std.ArrayListUnmanaged(Tagged) = .empty;
         errdefer {
@@ -100,8 +87,8 @@ pub const FakeBackend = struct {
         return out.toOwnedSlice(gpa);
     }
 
-    /// The span and expression the old fake printed, unchanged: `(0, 0) - (0,
-    /// 1)` and `fake source line`. Several tests parse those columns.
+    /// Span/expression match the old fake's exactly: `(0, 0) - (0, 1)`,
+    /// `fake source line`. Several tests parse these columns.
     fn append(
         out: *std.ArrayListUnmanaged(Tagged),
         gpa: Allocator,

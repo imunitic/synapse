@@ -7,21 +7,11 @@
 //! *union* of staged lists and authored bodies, so an un-authored node reports as a
 //! SKIP rather than vanishing.
 //!
-//! ## The loop is a function call now
+//! One process per push now, not a chain of `jq`/`git hash-object`/`paste`/
+//! `sed`/`awk`/`curl` -- only the `curl` (the PUT) remains.
 //!
-//! The script spawned `synapse-write-node.sh` once per node, and that writer in turn
-//! spawned `jq`, `git hash-object`, `paste`, `sed`, four `awk`s and `curl`. Only the
-//! `curl` is left, once per node, because the PUT is the point. Nothing else about a
-//! push crosses a process boundary.
-//!
-//! That also removes the sibling-resolution step and its check: the script resolved
-//! the writer next to itself so an installed copy would not pick up whatever was on
-//! `PATH`, and there is no longer a second file to find.
-//!
-//! ## Exit codes carry the outcome, and all-skipped is a failure
-//!
-//! Any failed node is exit 1. So is a run where nothing was pushed at all: the
-//! caller asked for a push and got none, which would otherwise read as success.
+//! Any failed node is exit 1. So is a run that pushed nothing at all --
+//! otherwise a no-op would read as success.
 
 const std = @import("std");
 const core = @import("core");
@@ -121,9 +111,7 @@ pub fn run(
             continue;
         };
         defer gpa.free(title_text);
-        // An *empty* list is a skip, not just a missing one: a node claiming no
-        // files is not a node, and the writer would refuse it one step later with a
-        // less useful message.
+        // An empty list is a skip too -- a node claiming no files isn't one.
         if (list.len == 0) {
             try out.interface.print("{s}\tSKIP (no list/title)\n", .{nn});
             continue;
@@ -131,8 +119,8 @@ pub fn run(
 
         const summary = core.query.field(body, "summary") orelse "";
         if (summary.len == 0) {
-            // A failure, not a skip: the body exists and was authored, so a missing
-            // summary is a mistake in it rather than work not yet done.
+            // Failure, not skip: the body exists, so a missing summary is a
+            // mistake in it, not unfinished work.
             try out.interface.print(
                 "{s}\tFAILED (no `summary:` frontmatter in b-{s}.md)\n",
                 .{ nn, nn },
@@ -147,9 +135,7 @@ pub fn run(
             .title = std.mem.trimEnd(u8, title_text, "\n"),
             .summary = summary,
             .paths_text = list,
-            // Only what follows the frontmatter, so the summary is not repeated
-            // inside the node's prose.
-            .body_text = core.query.bodyAfterFrontmatter(body),
+            .body_text = core.query.bodyAfterFrontmatter(body), // frontmatter stripped
         }, &line.writer) catch 1;
 
         if (code == 0) {
@@ -176,11 +162,8 @@ pub fn run(
     return 0;
 }
 
-/// The union of `lists/NN.title` and `b-NN.md`, byte-sorted and deduplicated.
-///
-/// The union rather than either side: a staged list with no body has to report as a
-/// SKIP, and a body whose list was never built has to as well. Taking only the
-/// bodies would make the first case vanish silently.
+/// Union of `lists/NN.title` and `b-NN.md`, byte-sorted and deduplicated --
+/// either side alone would let a mismatched node vanish silently.
 fn discover(
     gpa: Allocator,
     io: Io,
@@ -207,10 +190,8 @@ fn discover(
     out.shrinkRetainingCapacity(n);
 }
 
-/// Entries matching `<prefix>NN<suffix>`, yielding the `NN`.
-///
-/// Two digits exactly, as the script's `[0-9][0-9]` glob and its `sed -E` capture
-/// required together -- a `b-1.md` or a `b-100.md` is not a node file.
+/// Entries matching `<prefix>NN<suffix>`, yielding the `NN`. Two digits
+/// exactly -- `b-1.md`/`b-100.md` aren't node files.
 fn collect(
     gpa: Allocator,
     io: Io,

@@ -1,15 +1,9 @@
-//! `synapse gate` -- `claude/lib/synapse/synapse-gate.sh`'s rule.
+//! `synapse gate` -- `claude/lib/synapse/synapse-gate.sh`'s rule, now
+//! testable (`core/gate.zig`) instead of embedded in an awk heredoc.
 //!
 //!   gate --vocab <groupwords.tsv> [--all] [--top N]
 //!
-//! The whole subcommand is one file in and a few lines out, and the rule itself is
-//! `core/gate.zig`. The script was already one `awk` pass with no subprocess per
-//! cluster and nothing re-reading the repo, so this port buys no measurable time --
-//! what it buys is that the rule is now testable against its own calibration
-//! instead of embedded in a 60-line awk program inside a heredoc.
-//!
-//! Needs no vault, no namespace and no git: the input is a table `synapse vocab`
-//! produced. That is why the wrapper has no identity preamble either.
+//! Needs no vault, namespace or git: input is a table `synapse vocab` produced.
 
 const std = @import("std");
 const core = @import("core");
@@ -60,8 +54,6 @@ pub fn run(
             parseable_path = args.next() orelse return usage();
         } else if (std.mem.eql(u8, arg, "--top")) {
             const text = args.next() orelse return usage();
-            // Digits only and at least one, as `case "$TOP" in ''|*[!0-9]*)` plus
-            // `[ "$TOP" -ge 1 ]` required.
             top = std.fmt.parseInt(usize, text, 10) catch return usage();
             if (top < 1) return usage();
         } else return usage();
@@ -73,10 +65,7 @@ pub fn run(
         return 1;
     };
     defer gpa.free(table);
-    if (table.len == 0) {
-        // Distinct from "no such file", and the distinction is the message: an
-        // empty table means nothing was tagged, so cluster quality is not
-        // judgeable rather than good.
+    if (table.len == 0) { // distinct from "no such file": nothing was tagged
         std.debug.print(
             "{s}: {s} is empty -- nothing was tagged, so cluster quality cannot be judged\n",
             .{ prog, vocab },
@@ -110,14 +99,12 @@ pub fn run(
         try core.gate.writeVerdict(&out.interface, v);
     }
     try out.interface.flush();
-    // Always 0: a flag is advice to re-cluster or disperse, never a hard stop.
-    return 0;
+    return 0; // always 0: a flag is advice, never a hard stop
 }
 
-/// `cluster <TAB> parseable <TAB> total` -> `cluster -> parseable/total`. A
-/// zero-total row is skipped rather than divided: an empty cluster has no
-/// share to report, not a share of zero, and zero-parseable is exactly the
-/// value that changes a verdict, so it must never be produced by accident.
+/// `cluster <TAB> parseable <TAB> total` -> `cluster -> parseable/total`.
+/// Zero-total rows are skipped, not divided: an empty cluster has no share
+/// to report, and zero-parseable must never be produced by accident.
 fn loadParseable(arena: Allocator, text: []const u8, out: *std.StringHashMapUnmanaged(f64)) !void {
     var lines = std.mem.splitScalar(u8, text, '\n');
     while (lines.next()) |raw| {

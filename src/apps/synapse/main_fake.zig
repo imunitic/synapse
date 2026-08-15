@@ -1,23 +1,11 @@
 //! `synapse-fake`: the `synapse` binary with the grammar backend stubbed out.
+//! Built by `zig build fake`; the binary `tests/*.bats` actually runs, since
+//! the suite must work with no network, C toolchain or real grammar repo.
 //!
-//! Built by `zig build fake`, never installed, and the binary
-//! `tests/*.bats` actually runs. It exists because the bats suite is the CLI
-//! specification and has to run without a network, a C toolchain or a real
-//! grammar repository -- which is what `tests/fixtures/fake-bin/tree-sitter`
-//! used to provide, until linking libtree-sitter left nothing on PATH to
-//! intercept.
-//!
-//! It is deliberately this thin. Argument parsing, registry resolution, exit
-//! codes, output shape, warnings, clone-on-first-use and its lock are all the
-//! same code the real binary runs; see `fake_grammar.zig` for the one step
-//! that differs and `extractor.zig` for why the seam sits there.
-//!
-//! What that leaves uncovered by bats, stated plainly rather than left to be
-//! discovered: compiling a cloned grammar, loading it, and running its
-//! `tags.scm`. Those are covered by the Zig unit tests and by
-//! `ci/differential-tags.sh`, which checks the real tagger against the
-//! `tree-sitter` CLI over real repositories -- a check bats could not perform
-//! anyway.
+//! Thin by design: everything but the one stubbed step (`fake_grammar.zig`)
+//! is the same code the real binary runs. Compiling/loading a grammar and
+//! running its `tags.scm` stay uncovered by bats -- see the Zig unit tests
+//! and `ci/differential-tags.sh` instead.
 
 const std = @import("std");
 const tags_cmd = @import("tags.zig");
@@ -54,9 +42,8 @@ pub fn main(init: std.process.Init) !u8 {
     if (std.mem.eql(u8, sub, "tags-cache"))
         return tags_cache_cmd.run(fake.FakeExtractor, init.gpa, init.io, init.environ_map, &args, trace);
 
-    // Not stubbed at all, and it needs no `fake` counterpart: the index is a
-    // projection of lists the clustering already produced, so nothing about it
-    // touches a grammar. This is the same code the real binary runs.
+    // No `fake` counterpart needed: the index is a projection of already-produced
+    // lists, so nothing here touches a grammar.
     if (std.mem.eql(u8, sub, "index"))
         return index_cmd.run(init.gpa, init.io, init.environ_map, &args);
 
@@ -72,9 +59,7 @@ pub fn main(init: std.process.Init) !u8 {
     if (std.mem.eql(u8, sub, "rank"))
         return rank_cmd.run(init.gpa, init.io, init.environ_map, &args);
 
-    // The stubbed extractor, for the same reason `vocab` and `rank` take one:
-    // `query symbol` backfills the tags cache, and a test must not need a real
-    // grammar to exercise a lookup.
+    // `query symbol` backfills the tags cache, so it needs the stubbed extractor too.
     if (std.mem.eql(u8, sub, "query"))
         return query_cmd.run(fake.FakeExtractor, init.gpa, init.io, init.environ_map, &args);
 
@@ -117,9 +102,7 @@ pub fn main(init: std.process.Init) !u8 {
     if (std.mem.eql(u8, sub, "brief"))
         return brief_cmd.run(init.gpa, init.io, init.environ_map, &args);
 
-    // The same listing the real binary prints, from the same text: the reference is
-    // generated from `--help`, so a fake that could not answer it was a fake missing a
-    // behaviour rather than a harmless omission.
+    // Same listing the real binary prints; docs are generated from this.
     if (std.mem.eql(u8, sub, "--help") or std.mem.eql(u8, sub, "-h")) {
         std.debug.print("{s}", .{usage});
         return 0;

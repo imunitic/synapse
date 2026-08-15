@@ -1,17 +1,13 @@
 //! `synapse link-graph` -- the node-to-node link graph, computed before any
-//! prose is written. synapse-001, step 9. The rule itself is `core/links.zig`;
-//! this is the file-in, file-out wrapper, the same split `gate_cmd.zig` uses
-//! for `core/gate.zig`.
+//! prose is written (synapse-001 step 9). Rule in `core/links.zig`; this is
+//! the file-in/file-out wrapper.
 //!
 //!   link-graph --refs <_refs.tsv> --lists <dir> [--top N] [--out <dir>]
 //!
-//! Named apart from `synapse query links "{Node}"`, which is a different
-//! thing at a different time: that traverses typed relations a node already
-//! has written into its own `## Links`. This computes candidates before any
-//! node exists, from `_refs.tsv` and the cluster path lists alone.
-//!
-//! Needs no vault and no git, the same as `synapse gate`: every input is a
-//! file `synapse build-refs` and `synapse build-lists` already produced.
+//! Distinct from `synapse query links "{Node}"`, which traverses a node's
+//! already-written `## Links`; this computes candidates before any node
+//! exists, from `_refs.tsv` and the cluster path lists alone. Needs no
+//! vault or git: every input is a file `build-refs`/`build-lists` produced.
 
 const std = @import("std");
 const core = @import("core");
@@ -75,13 +71,9 @@ pub fn run(
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    // The work dir supplies whichever of --refs/--out is missing, same as
-    // build-refs does for --cache/--out. Resolved once, and only if needed:
-    // a caller passing both explicitly (the bats suite does) needs no
-    // namespace at all. `derived` is kept alive for the rest of the
-    // function -- not just this block -- because `refs_path`/`out_dir` go on
-    // borrowing its `path` after this point; freeing it here the way a
-    // block-scoped `defer` would have is the bug this shape avoids.
+    // Work dir supplies whichever of --refs/--out is missing (as build-refs
+    // does for --cache/--out); resolved only if needed. Kept alive for the
+    // rest of the function since `refs_path`/`out_dir` borrow its `path`.
     var derived: ?context.WorkDir = null;
     defer if (derived) |d| d.deinit(gpa);
     if (refs_path == null or out_dir == null) {
@@ -131,11 +123,9 @@ pub fn run(
     return 0;
 }
 
-/// The same `NN.txt`/`NN.title` reading `vocab_cmd.zig`'s `mapFromLists` does,
-/// minus the file-count side table that only `counts.tsv` needs. Returns the
-/// number of node titles found -- 0 is the caller's cue that the dir was
-/// empty or malformed, the same "empty is an error" contract
-/// `synapse-vocab.sh --lists` already established.
+/// Same `NN.txt`/`NN.title` reading as `vocab_cmd.zig`'s `mapFromLists`,
+/// minus the `counts.tsv` side table. Returns 0 if the dir was empty or
+/// malformed -- the caller treats that as an error.
 fn readLists(
     arena: Allocator,
     io: Io,

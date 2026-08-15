@@ -1,31 +1,18 @@
-//! `synapse brief` -- one self-contained data file per node, bundling
-//! everything an author needs except the prose itself. sb-011, stage 3's
-//! precondition: [[sb — Parallel node authoring]] hands each concurrent
-//! author a brief rather than having it (or the orchestrator, once per node)
-//! re-read `rank`'s and `link-graph`'s output separately.
+//! `synapse brief` -- one self-contained data file per node (sb-011 stage 3's
+//! precondition), bundling everything a concurrent author needs except the
+//! prose itself: [[sb — Parallel node authoring]].
 //!
 //!   brief --lists <dir> [--rank <dir>] [--links <file>] [--repo <path>] [--out <dir>]
 //!
-//! Reads what stage 1 (`rank --lists`) and stage 2 (`build-refs` +
-//! `link-graph`) already computed and reshapes it, per node, into
-//! `{out}/brief/NN.md`: the sources list's path and count (not its content --
-//! `write-node` reads that list directly, a brief does not re-enumerate it),
-//! both ranked pools verbatim, this node's own rows from `links.tsv`, and
-//! every node's title in the namespace (for judging `part_of`, which stays a
-//! judgement call and is never computed here).
+//! Reshapes stage 1 (`rank --lists`) and stage 2 (`build-refs` +
+//! `link-graph`) output, per node, into `{out}/brief/NN.md`: sources list
+//! path/count (not content), both ranked pools verbatim, this node's
+//! `links.tsv` rows, and every node's title (for judging `part_of`, still a
+//! judgement call, never computed here). Data, not instructions -- what an
+//! author does with it lives in the `synapse-node-authoring` skill.
 //!
-//! A brief is data, not instructions. What an author does with one --
-//! loading `synapse-node-format`, the node-authoring contract, where to write
-//! its output -- lives in the `synapse-node-authoring` skill and the
-//! dispatching prompt, not in the file itself, so the same brief means the
-//! same thing whether it is handed to a sequential author or a concurrent
-//! one.
-//!
-//! Missing `--rank`/`--links` inputs are advice-level, not fatal: a node
-//! whose pools were never computed gets empty pool sections and a warning:
-//! the least-wrong analogue of `rank`'s own "empty cache" tolerance. A
-//! missing `--lists` dir, or one with no `NN.txt`/`NN.title` pairs, is fatal
-//! -- without it there is no node to brief at all.
+//! Missing `--rank`/`--links` is advice-level: empty pool sections plus a
+//! warning. A missing/empty `--lists` dir is fatal.
 
 const std = @import("std");
 const adapters = @import("adapters");
@@ -94,10 +81,8 @@ pub fn run(
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    // Same derivation every other command in this app uses: explicit flags
-    // win, otherwise the namespace of --repo (or the cwd). Kept alive for the
-    // rest of the function, not just this block -- out_dir/rank_dir/links_path
-    // borrow it after this point.
+    // Explicit flags win, otherwise the namespace of --repo (or cwd). Kept
+    // alive for the rest of the function -- out_dir/rank_dir/links_path borrow it.
     var derived: ?context.WorkDir = null;
     defer if (derived) |d| d.deinit(gpa);
     if (out_dir == null or rank_dir == null or links_path == null) {
@@ -189,9 +174,8 @@ fn writeTsvBlock(w: *Io.Writer, text: []const u8) !void {
     try w.writeAll("\n```\n");
 }
 
-/// Rows of `links.tsv` (`from <TAB> to <TAB> weight <TAB> symbols`) whose
-/// `from` is this node -- link-graph already sorts strongest-first per node,
-/// so the filtered order is preserved rather than re-sorted here.
+/// Rows of `links.tsv` whose `from` is this node -- already strongest-first
+/// per node, so filtered order is preserved, not re-sorted.
 fn writeLinksFor(w: *Io.Writer, links_text: []const u8, title: []const u8) !void {
     var any = false;
     var lines = std.mem.splitScalar(u8, links_text, '\n');
@@ -227,10 +211,8 @@ fn repoRoot(gpa: Allocator, io: Io, repo: ?[]const u8) ![]u8 {
     return gpa.dupe(u8, std.mem.trim(u8, res.stdout, " \t\r\n"));
 }
 
-/// Every `NN.txt`/`NN.title` pair in `dir`, in ascending `NN` order -- the
-/// same convention `build-lists` writes and `rank --lists`/`link-graph`
-/// already read. A node missing either half of the pair is skipped, the same
-/// tolerance those two give it.
+/// Every `NN.txt`/`NN.title` pair in `dir`, ascending. A node missing either
+/// half is skipped.
 fn readLists(arena: Allocator, io: Io, dir: []const u8) ![]NodeInfo {
     const cwd = Io.Dir.cwd();
     var out: std.ArrayListUnmanaged(NodeInfo) = .empty;

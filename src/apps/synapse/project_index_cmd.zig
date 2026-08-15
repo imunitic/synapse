@@ -4,21 +4,10 @@
 //! carrying the `remote` field the SessionStart hook verifies before injecting a
 //! pointer. Step 4, and last, of a scripted `/synapse-init`.
 //!
-//! ## Summaries come off the nodes, and now from disk
-//!
-//! The index is built *from* the nodes rather than from anything the build kept, so
-//! a node that is missing or has no `summary` is a hard error with different advice
-//! in each case -- write the nodes first, versus fix that node's frontmatter. The
-//! script got them from the API's JsonLogic search and then had to `stat` the file
-//! to tell the two apart, because the search returns only notes whose field is set
-//! and "absent row" therefore meant either.
-//!
-//! Reading the node from disk answers both at once: the open either fails or the
-//! field either parses. It also removes the last `curl` *read* outside the hooks,
-//! and with it a `jq` filter whose own comment explained that `@tsv` had to be
-//! avoided because it doubles a backslash in a summary mentioning `C:\dir`.
-//!
-//! The PUT stays on the API, for the reason every write does.
+//! Built *from* the nodes on disk, not from anything the build kept: a
+//! missing node or a missing `summary` field is a hard error with different
+//! advice for each. Reading from disk also removes the last `curl` read
+//! outside the hooks; the PUT stays on the API like every other write.
 
 const std = @import("std");
 const core = @import("core");
@@ -83,9 +72,7 @@ pub fn run(
         defer gpa.free(list_path);
         const list = cwd.readFileAlloc(io, list_path, gpa, .limited(256 << 20)) catch "";
         defer if (list.len != 0) gpa.free(list);
-        // `wc -l`: newlines, which is what the script counted and what the lists
-        // carry one per path.
-        const files = std.mem.count(u8, list, "\n");
+        const files = std.mem.count(u8, list, "\n"); // `wc -l`: one path per line
 
         const node_text = try context.readNode(&ctx, io, link);
         defer if (node_text) |t| gpa.free(t);
@@ -94,10 +81,7 @@ pub fn run(
             std.debug.print("  the index is built from the nodes, so write them first\n", .{});
             return 1;
         }
-        // `scalar`, not `field`: the value as a YAML reader sees it, because the
-        // script got it from the API's JsonLogic search and the search parses. The
-        // summary is written into prose, so `Handles \"quoted\" input` has to arrive
-        // unescaped or the index shows the backslashes.
+        // `scalar`, not `field`: unescaped, since the summary goes into prose.
         const clean = (try core.query.scalar(gpa, node_text.?, "summary")) orelse
             try gpa.dupe(u8, "");
         if (clean.len == 0) {
@@ -105,10 +89,7 @@ pub fn run(
             std.debug.print("{s}: no summary field on {s}.md\n", .{ prog, link });
             return 1;
         }
-        // Tabs squashed to spaces, as the `jq` did: a summary is a single-line
-        // scalar so newlines cannot occur, but a tab was the field separator of the
-        // intermediate the script wrote.
-        for (clean) |*c| if (c.* == '\t') {
+        for (clean) |*c| if (c.* == '\t') { // tabs squashed to spaces
             c.* = ' ';
         };
         try owned.append(gpa, clean);
@@ -185,11 +166,9 @@ fn listTitles(gpa: Allocator, io: Io, lists: []const u8) !std.ArrayListUnmanaged
     return out;
 }
 
-/// `all.txt`'s line count, or the distinct union of the lists when it is absent.
-///
-/// The fallback matters: `all.txt` is the enumeration and counts every tracked file
-/// worth graphing, while the lists only cover what a node claimed. Falling back to
-/// the union reports the smaller, honest number rather than zero.
+/// `all.txt`'s line count, or the distinct union of the lists when absent --
+/// the lists only cover what a node claimed, so the union is the honest
+/// fallback rather than zero.
 fn totalFiles(gpa: Allocator, io: Io, ctx: *const Context, lists: []const u8) !usize {
     const all_path = try std.fmt.allocPrint(gpa, "{s}/all.txt", .{ctx.work_dir});
     defer gpa.free(all_path);
@@ -223,8 +202,7 @@ fn totalFiles(gpa: Allocator, io: Io, ctx: *const Context, lists: []const u8) !u
     return seen.count();
 }
 
-/// `date '+%Y-%m-%d %H:%M'`, spawned -- see `write_node_cmd.nowStamp` for why the
-/// timezone comes from `date` and not from arithmetic here.
+/// `date '+%Y-%m-%d %H:%M'`, spawned -- see `write_node_cmd.nowStamp`.
 fn nowStamp(gpa: Allocator, io: Io) ![]u8 {
     const res = try adapters.process.run(io, gpa, &.{ "date", "+%Y-%m-%d %H:%M" }, .{});
     defer res.deinit(gpa);

@@ -3,62 +3,25 @@
 //!   rank --sources <file> [--repo <path>] [--out <dir>] [--top N] [--tier code|dsl] [--pool summary|crux]
 //!   rank --lists <dir>    [--repo <path>] [--out <dir>] [--top N]
 //!
-//! The `--sources` form prints `tier <TAB> score <TAB> path`, ranked within each
-//! tier, code first. Counts per tier go to stderr, so a node whose files all
-//! scored zero is a number rather than an empty answer.
+//! `--sources` prints `tier<TAB>score<TAB>path`, ranked within each tier,
+//! code first; per-tier counts go to stderr.
 //!
-//! ## A lookup now, not a tagging pass -- synapse-001, step 4
+//! `code` ranks the tags cache `vocab` already filled (definitions per KB;
+//! never re-tags here), read-only and never backfilled -- several nodes
+//! ranking at once must never become several writers to one cache file
+//! ([[sb — Parallel node authoring]]). A missing/empty cache scores every
+//! code file zero rather than erroring; run `vocab` first for a real answer.
 //!
-//! The code tier used to tag every one of its sources itself, threaded the
-//! same way `vocab` is, on the strength of the same measurement (tagging is
-//! real per-file CPU work, so parallelism paid for itself). That is gone: by
-//! the time `/synapse-init` calls `rank`, `vocab` has already tagged the whole
-//! repo into `_tags_cache.bin` -- see `vocab_cmd.zig`'s own two-pass split --
-//! so re-tagging a node's few dozen sources here was re-parsing files that
-//! were already parsed, once per node, for as many nodes as the namespace has.
+//! `dsl` ranks the code that *consumes* a declaration (a declarative file
+//! carries little meaning alone), matching names against a module-bucketed
+//! file list -- unrelated to the tags cache.
 //!
-//! `rankCode` below is a single-threaded read of that cache: no extractor, no
-//! grammar registry load beyond the one `usable` already needed for the
-//! code/DSL split, no thread pool. **It is also read-only against the cache on
-//! purpose, not just incidentally** -- it never backfills a miss. A node whose
-//! source somehow was not tagged during orientation scores that file zero
-//! rather than tagging it here, the same way a file that parsed to nothing
-//! already scored zero. This is what a future parallel authoring step needs:
-//! several nodes ranking their sources at once must never become several
-//! writers to one cache file. See the design note this implements and
-//! [[sb — Parallel node authoring]], which depends on it.
-//!
-//! A cache that is missing or empty is not an error -- reported once, and
-//! every code-tier score comes out zero, same as any other miss. Run `vocab`
-//! first for a ranking that means anything; this command will not do it for
-//! you.
-//!
-//! ## The two tiers answer different questions
-//!
-//! `code` is definitions per KB: not raw counts, which rank generated constant
-//! tables first. `dsl` ranks the code that *consumes* a declaration, because a
-//! declarative file carries little meaning on its own. Both rules live in
-//! `core/rank.zig`; this file supplies the definitions, the sizes and the repo's
-//! own code list. `dsl` was never a tagging pass -- it matches declaration
-//! names against a module-bucketed file list -- and is unchanged here.
-//!
-//! ## `--lists`: every node's both pools, one repo pass -- sb-011, stage 1
-//!
-//! `--sources` ranks one node per invocation, and every invocation pays for a
-//! fresh registry load, a fresh cache open, and -- for the DSL tier -- a fresh
-//! `git ls-files` over the whole repository, bucketed by module. That
-//! bucketing does not depend on which node is being ranked, so a namespace of
-//! N nodes computing both pools the way `/synapse-init` does today pays for it
-//! 2N times over. `--lists` computes it once (`buildDslIndex`) and reuses it
-//! for every node found in the given directory, writing `{out}/rank/NN.summary.tsv`
-//! and `{out}/rank/NN.crux.tsv` per node rather than printing to stdout, since
-//! there is no single stream that could hold every node's answer. This is
-//! [[sb — Parallel node authoring]]'s stage 1: everything about a node except
-//! its prose, computed once rather than once per node.
-//!
-//! `--pool` and `--tier` are meaningless here -- every node gets both pools
-//! unconditionally -- so they are rejected alongside `--lists` rather than
-//! silently ignored.
+//! `--lists` (sb-011 stage 1) computes both pools for every `NN.txt` node in
+//! a directory in one repo pass, writing `{out}/rank/NN.{summary,crux}.tsv`
+//! instead of stdout -- the module bucketing `dsl` needs doesn't depend on
+//! which node is ranked, so `--sources` invoked once per node pays for it N
+//! times over; this computes it once. `--pool`/`--tier` are meaningless here
+//! (every node gets both) and are rejected, not silently ignored.
 
 const std = @import("std");
 const core = @import("core");
@@ -85,8 +48,6 @@ pub fn run(
     var pool: ?[]const u8 = null;
 
     while (args.next()) |arg| {
-        // `--help` exits 0, like every other subcommand: a request for help is not a
-        // usage error, and a caller piping `--help` into a pager should not see 2.
         if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
             _ = usage();
             return 0;
@@ -108,9 +69,8 @@ pub fn run(
         } else return usage();
     }
 
-    // Exactly one input mode. `--lists` computes both pools for every node it
-    // finds, so `--pool`/`--tier` -- which pick one pool or one tier for a
-    // single stream -- have no meaning alongside it.
+    // Exactly one input mode; `--lists` computes both pools, so `--pool`/`--tier`
+    // (pick one for a single stream) have no meaning alongside it.
     if (sources == null and lists == null) return usage();
     if (sources != null and lists != null) return usage();
     if (lists != null and (tier != null or pool != null)) return usage();
@@ -126,10 +86,8 @@ pub fn run(
         return 1;
     }
 
-    // Same default `context.workDirFor` computes for `vocab`: the namespace of
-    // `--repo` (or the cwd) when neither `--out` nor the environment names one.
-    // This is where `vocab` left `_tags_cache.bin`, and reading a node's sources
-    // from it is the entire point of this step.
+    // Same default `context.workDirFor` uses for `vocab` -- where it left
+    // `_tags_cache.bin`.
     var derived: ?context.WorkDir = null;
     defer if (derived) |d| d.deinit(gpa);
     if (out_dir == null and env.get("SYNAPSE_WORK_DIR") == null) {
@@ -137,9 +95,9 @@ pub fn run(
     }
     const work_dir = out_dir orelse env.get("SYNAPSE_WORK_DIR") orelse
         if (derived) |d| d.path else {
-        std.debug.print("synapse-rank: no --out and no SYNAPSE_WORK_DIR\n", .{});
-        return 1;
-    };
+            std.debug.print("synapse-rank: no --out and no SYNAPSE_WORK_DIR\n", .{});
+            return 1;
+        };
     const cache_path = try std.fmt.allocPrint(gpa, "{s}/_tags_cache.bin", .{work_dir});
     defer gpa.free(cache_path);
 
@@ -189,9 +147,7 @@ pub fn run(
         true
     else
         return usage();
-    // A crux is code, so the DSL tier has nothing to contribute to it. Forced
-    // here rather than checked at every use, so the two selectors cannot
-    // disagree.
+    // A crux is code -- forced here rather than checked at every use.
     const want = if (crux) "code" else tier;
 
     const all = try dedupeSorted(arena, listing);
@@ -199,9 +155,7 @@ pub fn run(
     var code = split.code;
     const noncode = split.noncode;
 
-    // Tests leave the crux pool. The built-in rule is `core.rank.isTest`; an
-    // override is one ERE the user wrote, so it keeps `grep -E`, the engine it
-    // was written against.
+    // Tests leave the crux pool: `core.rank.isTest`, or a user ERE via `grep -E`.
     var tests_dropped: usize = 0;
     if (crux) {
         const dropped = try dropTests(gpa, io, env, arena, code.items);
@@ -213,11 +167,8 @@ pub fn run(
     var out = Io.File.stdout().writer(io, &out_buf);
 
     const code_rows = try rankCode(io, arena, &cache, root, code.items);
-    // Computed only when it could be emitted: a crux pool forces `want` to
-    // "code", so `dsl_only` is always false for it and these rows would never
-    // print. Building the module index and matching against it just to throw
-    // the result away is the exact per-node waste `--lists` exists to remove;
-    // this path gets the same fix for free rather than staying asymmetric.
+    // dsl_rows computed only when it could be emitted, not wastefully for a
+    // crux pool (which forces `want` to "code" and never prints them).
     const dsl_only = want != null and std.mem.eql(u8, want.?, "dsl");
     const code_only = want != null and std.mem.eql(u8, want.?, "code");
     const dsl_rows = if (!code_only and usable.len != 0 and noncode.items.len != 0) blk: {
@@ -247,9 +198,8 @@ fn usage() u8 {
 
 const Tier = enum { code, dsl };
 
-/// One ranked file. `score` is a float for the code tier and a whole count for
-/// dsl; the tier decides which format the line uses, matching the script's
-/// `%.3f` against `%d`.
+/// One ranked file. `score` is a float for `code`, a whole count for `dsl`
+/// (`%.3f` vs `%d`).
 const Row = struct {
     score: f64,
     path: []const u8,
@@ -290,8 +240,7 @@ fn repoRoot(gpa: Allocator, io: Io, repo: ?[]const u8) ![]u8 {
     return gpa.dupe(u8, std.mem.trim(u8, res.stdout, " \t\r\n"));
 }
 
-/// `sort -u` then drop blanks -- the order matters only in that duplicates
-/// must not double-count a file.
+/// `sort -u` then drop blanks; duplicates must not double-count a file.
 fn dedupeSorted(arena: Allocator, listing: []const u8) !std.ArrayListUnmanaged([]const u8) {
     var all: std.ArrayListUnmanaged([]const u8) = .empty;
     var seen: std.StringHashMapUnmanaged(void) = .empty;
@@ -367,10 +316,8 @@ fn filterOutMatching(
 }
 
 /// Definitions per KB, read from the tags cache `vocab` already filled --
-/// never tagged here. `cache` may be empty; every path then simply scores
-/// zero, same as a path the cache holds but marked unsupported. Takes an
-/// already-open cache rather than a path so `--lists` can open it once and
-/// rank every node against the same handle.
+/// never tagged here. An empty `cache` just scores every path zero. Takes
+/// an already-open cache so `--lists` can rank every node against one handle.
 fn rankCode(
     io: Io,
     arena: Allocator,
@@ -386,31 +333,22 @@ fn rankCode(
         const st = Io.Dir.cwd().statFile(io, full, .{}) catch continue;
         if (st.size == 0) continue;
 
-        // Zero for a cache miss or an unsupported file -- the same "present
-        // with a score of zero, not vanished from its tier" outcome an
-        // untagged file always got.
+        // Cache miss or unsupported file: scores zero, stays in its tier.
         var defs: usize = 0;
         if (cache.get(p)) |entry| {
             if (!entry.unsupported) {
                 var lines = std.mem.splitScalar(u8, entry.tags, '\n');
                 while (lines.next()) |line| {
                     const tag = core.tag_line.parse(line) orelse continue;
-                    // Definitions, not all tags: a reference says the file
-                    // USES something, a definition says it DECLARES it, and a
-                    // summary is made of what a subsystem declares.
-                    if (tag.role == .def) defs += 1;
+                    if (tag.role == .def) defs += 1; // definitions, not references
                 }
             }
         }
 
-        // Rounded to three decimals *before* sorting, not after. The script
-        // printed `%.3f` with awk and then sorted that text, so two files whose
-        // true densities are 2.5481 and 2.5484 are tied for it and fall through
-        // to path order. Sorting the unrounded value instead ordered them by a
-        // difference the output does not show -- 78 adjacent swaps out of 1,278
-        // rows on a real node, every one of them a pair with identical printed
-        // scores. Formatted and parsed back rather than arithmetic, so this
-        // rounds exactly the way the printed line will.
+        // Rounded to 3 decimals *before* sorting, matching the script's
+        // print-then-sort: sorting unrounded values ordered ties by a
+        // difference the output never shows (78 misordered pairs out of
+        // 1,278 rows on a real node, all identical when printed).
         var buf: [32]u8 = undefined;
         const shown = std.fmt.bufPrint(&buf, "{d:.3}", .{core.rank.density(defs, st.size)}) catch continue;
         const rounded = std.fmt.parseFloat(f64, shown) catch continue;
@@ -422,7 +360,7 @@ fn rankCode(
 
 /// Every usable-grammar path in the repo, bucketed by module -- one
 /// `git ls-files`, shared across every node's DSL ranking rather than redone
-/// per node. See the module doc comment's `--lists` section.
+/// per node.
 const DslIndex = struct {
     by_module: std.StringHashMapUnmanaged(std.ArrayListUnmanaged(core.rank.Key)) = .empty,
 };
@@ -455,17 +393,11 @@ fn buildDslIndex(
     return idx;
 }
 
-/// Which code file consumes each declaration, and how many it serves,
-/// matched against an index built once by `buildDslIndex` and shared across
-/// every node.
-///
-/// Bucketed by module first, so a prefix comparison only ever runs against
-/// candidates that could match. Unbucketed this is every declaration against
-/// every code file in the repository -- 98k of them on a large one.
-///
-/// Consumers are searched repo-wide rather than within `sources`: the code that
-/// uses a node's declarations is frequently the reason to read it, and is not
-/// always a file the node itself owns.
+/// Which code file consumes each declaration, and how many, against an index
+/// built once by `buildDslIndex` and shared across every node. Bucketed by
+/// module first -- unbucketed this is every declaration against every code
+/// file in the repo (98k pairs on a large one). Searched repo-wide, not
+/// within `sources`: a declaration's consumer is often outside the node.
 fn rankDsl(
     arena: Allocator,
     idx: DslIndex,
@@ -496,12 +428,9 @@ fn rankDsl(
     return rows.items;
 }
 
-/// `--lists`: both pools for every node found in `dir`, one repo pass.
-///
-/// A node is any `NN.txt` (01 through 99, matching `build-lists`' own
-/// numbering) found in `dir`; a title is not required, because nothing here
-/// reads one. `dsl_idx` is built once, before the loop, and reused for every
-/// node -- the whole point of this mode.
+/// `--lists`: both pools for every node found in `dir`, one repo pass. A node
+/// is any `NN.txt` (01-99); no title required, since nothing here reads one.
+/// `dsl_idx` is built once and reused for every node.
 fn runLists(
     gpa: Allocator,
     io: Io,
@@ -515,12 +444,10 @@ fn runLists(
 ) !u8 {
     const cwd = Io.Dir.cwd();
 
-    // Two arenas, deliberately not one. `dsl_idx` below is built once and
-    // read by every node for the rest of this call, so it needs an arena that
-    // outlives the loop; `node_arena` is reset after every node so a
-    // namespace with many nodes does not accumulate one arena's worth of
-    // garbage per node. Resetting the shared arena instead would free the
-    // index's own backing memory out from under every node after the first.
+    // Two arenas: `dsl_idx` outlives the loop, so it needs its own arena;
+    // `node_arena` resets after every node so a large namespace doesn't
+    // accumulate garbage. Resetting the shared one would free the index out
+    // from under every node after the first.
     var shared_state: std.heap.ArenaAllocator = .init(gpa);
     defer shared_state.deinit();
     const shared = shared_state.allocator();

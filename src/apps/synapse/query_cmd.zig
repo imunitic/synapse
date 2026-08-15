@@ -9,43 +9,22 @@
 //!   links    <node> [--inbound|--closure] / links --check
 //!   symbol   <name> <node>             exact-name def/ref hits in the node's sources
 //!
-//! `callers` is not here: it needs no graph, so the script execs
-//! `synapse-callers.sh` ahead of the whole preamble. Tranche C ports it.
+//! `callers` is not here -- it needs no graph, so the script execs
+//! `synapse-callers.sh` directly. Tranche C ports it.
 //!
-//! ## The surface is frozen; the interior is not
+//! stdout/exit codes/stderr are frozen to match the script exactly (73 tests
+//! across `tests/synapse-query.bats` plus drift/links/grounding pin it).
+//! Behind that surface: no `jq` (`_index.bin`/tags cache read directly
+//! through `core.index_map`/`core.tags_cache`), no `curl` on the read path
+//! (disk reads; see `context.zig`), no `sed`/`awk`/`comm`/`paste`/`wc`
+//! (moved into `core/query.zig`, `core/verify.zig`, `core/drift.zig`,
+//! `core/symbol.zig`). `git` and `grep -E` still spawn -- both own a
+//! format/dialect worth not reimplementing. `git hash-object`'s blob hash
+//! is computed in-process instead (`core.verify.blobHash`), since it's a
+//! documented, stable format.
 //!
-//! Every byte of stdout, every exit code and every stderr line is what the script
-//! produced -- 34 tests in `tests/synapse-query.bats` plus 39 across the drift,
-//! links and grounding files say so, and they are the specification. Behind that:
-//!
-//! - **No `jq`.** The reverse index is `_index.bin`, read through `core.index_map`
-//!   rather than by spawning `synapse index`; the tags cache is read through
-//!   `core.tags_cache` rather than through `tags-cache --dump`. Both were text
-//!   projections whose only consumer was this script.
-//! - **No `curl` on the read path.** `Index.md`, node files and `_manifest.tsv` are
-//!   read from disk, and `grounding` walks node frontmatter instead of asking the
-//!   API's JsonLogic endpoint. See `context.zig` for why that is the right way
-//!   round rather than a shortcut.
-//! - **No `sed`, `awk`, `comm`, `paste` or `wc`.** The rules they carried live in
-//!   `core/query.zig`, `core/verify.zig`, `core/drift.zig` and `core/symbol.zig`,
-//!   each pinned by tests against the case that made it necessary.
-//!
-//! What still spawns is `git` -- `cat-file`, `diff`, `merge-base`, `rev-list` --
-//! and `grep -E` for a user-authored ERE out of `_manifest.tsv`. Both for the same
-//! reason: the answer belongs to a tool that owns the format or the dialect, and
-//! reimplementing either would be a second dialect that disagrees at the edges.
-//!
-//! Blob hashing is the exception that went the other way: `git hash-object` is
-//! `sha1("blob {len}\0" + content)`, a format git documents and does not change,
-//! so `core.verify.blobHash` computes it in process. That removes one spawn per
-//! `stale` run over a node's whole source list.
-//!
-//! ## Silence is the protocol
-//!
-//! `stale`, `drift`, `grounding` and `links --check` print nothing when they find
-//! nothing, and exit 1 means "could not run" -- never "clean". Every early return
-//! below is one or the other on purpose: a subcommand that gave up quietly would
-//! be read as a graph that matches.
+//! `stale`/`drift`/`grounding`/`links --check` print nothing when they find
+//! nothing; exit 1 means "could not run", never "clean".
 
 const std = @import("std");
 const core = @import("core");
@@ -72,10 +51,8 @@ pub fn run(
         std.debug.print("{s}", .{usage_text});
         return 0;
     }
-    // Validated *before* the environment, exactly as the script did: a usage error
-    // is a property of the arguments, and reporting "could not run" for a typo'd
-    // subcommand just because a vault is missing sends the caller looking in the
-    // wrong place entirely.
+    // Validated before the environment: a typo'd subcommand shouldn't read as
+    // a missing vault.
     const known = [_][]const u8{ "body", "sources", "field", "stale", "drift", "grounding", "links", "symbol" };
     var ok = false;
     for (known) |k| if (std.mem.eql(u8, sub, k)) {
@@ -83,17 +60,13 @@ pub fn run(
     };
     if (!ok) return usage();
 
-    // Collected up front so each subcommand can index them rather than thread an
-    // iterator through every helper.
+    // Collected up front so subcommands can index rather than thread an iterator.
     var rest: std.ArrayListUnmanaged([]const u8) = .empty;
     defer rest.deinit(gpa);
     while (args.next()) |a| try rest.append(gpa, a);
 
-    // `field --file <path> <key>` names its own file rather than a vault node by
-    // title, so it needs no namespace and is handled before ctx.resolve --
-    // otherwise this would refuse to run for the one caller it exists for: a
-    // pre-push draft (sb-011's `b-NN.md`) that is not a node yet and has no
-    // title the vault would resolve.
+    // `field --file` names its own file, not a vault node, so it's handled
+    // before ctx.resolve -- for pre-push drafts (b-NN.md) with no title yet.
     if (std.mem.eql(u8, sub, "field") and rest.items.len != 0 and std.mem.eql(u8, rest.items[0], "--file")) {
         if (rest.items.len != 3 or rest.items[1].len == 0 or rest.items[2].len == 0) return usage();
         var out_buf: [256 * 1024]u8 = undefined;
@@ -163,8 +136,7 @@ fn usage() u8 {
     return 2;
 }
 
-/// The node, or a message and null. Exit 1 for an unknown node -- "no
-/// information", never "clean".
+/// The node, or null. Exit 1 for unknown -- "no information", never "clean".
 fn need(ctx: *const Context, io: Io, name: []const u8) !?[]u8 {
     return context.readNode(ctx, io, name);
 }
@@ -183,8 +155,7 @@ fn cmdBody(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []const u8
         }
         return 0;
     }
-    // A node built before fencing existed. Announced rather than hidden, because
-    // `## Notes` will be included in what follows.
+    // Pre-fencing node: announced, since `## Notes` is included in what follows.
     std.debug.print(
         "{s}: no generated fence in '{s}'; printing everything after the frontmatter\n",
         .{ prog, rest[0] },
@@ -222,11 +193,8 @@ fn cmdSources(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []const
 
     switch (mode) {
         .all => for (paths.items) |p| try w.print("{s}\n", .{p}),
-        // `wc -l` over the same list the other forms print.
-        .count => try w.print("{d}\n", .{paths.items.len}),
-        // `grep -F`: a substring, not a pattern. A path list is not a place for a
-        // regex dialect, and the script's `-F` said so.
-        .filter => for (paths.items) |p| {
+        .count => try w.print("{d}\n", .{paths.items.len}), // `wc -l`
+        .filter => for (paths.items) |p| { // `grep -F`: substring, not regex
             if (std.mem.indexOf(u8, p, pattern) != null) try w.print("{s}\n", .{p});
         },
         .modules => {
@@ -247,12 +215,9 @@ fn cmdField(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []const u
     return writeField(text, rest[1], w);
 }
 
-/// `field --file <path> <key>`'s own body: same field logic, a plain file read
-/// in place of a vault-node lookup. For a file with no node identity yet -- a
-/// pre-push `b-NN.md` draft, most concretely -- so a caller checking one gets
-/// the exact quote-stripping and prefix-match rules `push-nodes` itself trusts
-/// (`core.query.field`), rather than a hand-rolled `grep`/`sed` re-deriving
-/// them and risking disagreement with the tool that decides the real outcome.
+/// `field --file`'s own body: same field logic (`core.query.field`) against a
+/// plain file read, for callers with no node identity yet (a pre-push
+/// `b-NN.md` draft).
 fn cmdFieldFile(gpa: Allocator, io: Io, path: []const u8, key: []const u8, w: *Io.Writer) !u8 {
     const text = Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(256 << 20)) catch {
         std.debug.print("{s}: no such file: {s}\n", .{ prog, path });
@@ -270,20 +235,16 @@ fn writeField(text: []const u8, key: []const u8, w: *Io.Writer) !u8 {
         );
         return 2;
     }
-    // An absent key prints nothing and exits 0, so a caller can test emptiness
-    // without parsing a message.
+    // Absent key: prints nothing, exits 0 -- testable without parsing a message.
     if (core.query.field(text, key)) |v| try w.print("{s}\n", .{v});
     return 0;
 }
 
 // --- the node list, from the index ------------------------------------------
 
-/// The nodes the index says exist, in its own (name-sorted) order.
-///
-/// The index is authoritative for *which nodes exist*; each node's own `sources`
-/// stays authoritative for what it covers. Verifying against the index instead
-/// would mask node/index drift and report a false mismatch whenever the two
-/// disagree for an unrelated reason.
+/// Nodes the index says exist, name-sorted. The index is authoritative for
+/// which nodes exist; each node's own `sources` stays authoritative for what
+/// it covers.
 const NodeList = struct {
     map: core.index_map.Map,
     names: std.ArrayListUnmanaged([]const u8),
@@ -362,11 +323,8 @@ fn cmdStale(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []const u
     return 0;
 }
 
-/// A repo-relative file's content, or null when it is not a regular file.
-///
-/// Null covers deleted paths and submodule gitlinks -- one `ls-files` entry, but a
-/// directory on disk -- which is the case `git hash-object --stdin-paths` failed
-/// the whole batch on, leaving the caller exit 128 and no offending path.
+/// A repo-relative file's content, or null if not a regular file (deleted
+/// path, or a submodule gitlink).
 fn readRepoFile(gpa: Allocator, io: Io, ctx: *const Context, rel: []const u8) !?[]u8 {
     const full = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ ctx.repo_root, rel });
     defer gpa.free(full);
@@ -377,10 +335,8 @@ fn readRepoFile(gpa: Allocator, io: Io, ctx: *const Context, rel: []const u8) !?
 
 // --- drift ------------------------------------------------------------------
 
-/// One baseline commit and everything derived from it once.
-///
-/// Keyed per distinct baseline rather than per node, because nodes built in the
-/// same run share a commit and the diff is the expensive part.
+/// One baseline commit and what's derived from it, keyed per distinct
+/// commit -- nodes sharing a baseline share the (expensive) diff.
 const Baseline = struct {
     commit: []const u8,
     diff: core.drift.Diff,
@@ -397,10 +353,8 @@ fn cmdDrift(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []const u
     var list = (try NodeList.open(gpa, io, ctx)) orelse return 1;
     defer list.close(gpa, io);
 
-    // Findings are buffered rather than printed as they are found, so that silence
-    // can mean "the graph matches the worktree". Context -- how far behind
-    // upstream, how many commits since a baseline -- is only worth printing next to
-    // a finding; on its own it is a git fact, not graph drift.
+    // Buffered, not printed live, so silence can mean "the graph matches".
+    // Context is only worth printing next to a real finding.
     var repo_findings: Io.Writer.Allocating = .init(gpa);
     defer repo_findings.deinit();
     var node_findings: Io.Writer.Allocating = .init(gpa);
@@ -458,8 +412,7 @@ fn cmdDrift(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []const u
 
     try reportAddedPaths(gpa, io, ctx, &list, baselines.items, &repo_findings.writer);
 
-    // Nothing to report: stay silent, so silence is a usable signal.
-    if (repo_findings.written().len == 0 and node_findings.written().len == 0) return 0;
+    if (repo_findings.written().len == 0 and node_findings.written().len == 0) return 0; // silence is the signal
 
     // Context, printed only now that there is a finding to attach it to.
     if (try upstreamName(gpa, io, ctx)) |upstream| {
@@ -471,8 +424,8 @@ fn cmdDrift(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []const u
     }
     for (baselines.items) |b| {
         if (!b.dirty) continue;
-        // Skipped for a divergent baseline: `--count base..HEAD` is the
-        // one-directional number, and the divergence line already reports both.
+        // Skipped when divergent -- the divergence line above already
+        // reports both directions.
         if (b.divergent) continue;
         const spec = try std.fmt.allocPrint(gpa, "{s}..HEAD", .{b.commit});
         const n = try revCount(gpa, io, ctx, spec, true);
@@ -487,11 +440,9 @@ fn lessByBytes(_: void, a: []const u8, b: []const u8) bool {
     return std.mem.order(u8, a, b) == .lt;
 }
 
-/// `git cat-file -e <commit>^{commit}`: is this baseline in local history at all?
-///
-/// A shallow clone, or a baseline from a branch that was never fetched, answers no
-/// -- and that is a finding rather than an error, because `stale` can still verify
-/// the node by re-hashing.
+/// `git cat-file -e <commit>^{commit}`: is this baseline in local history?
+/// A shallow clone answers no -- a finding, not an error, since `stale` can
+/// still re-hash.
 fn commitExists(gpa: Allocator, io: Io, ctx: *const Context, commit: []const u8) !bool {
     const spec = try std.fmt.allocPrint(gpa, "{s}^{{commit}}", .{commit});
     defer gpa.free(spec);
@@ -518,19 +469,16 @@ fn baselineFor(
         .cwd = .{ .path = ctx.repo_root },
     });
     defer res.deinit(gpa);
-    // A failed diff is an empty one, as `|| : > "$d.raw"` made it: the divergence
-    // check below is what reports a baseline this checkout cannot reach.
+    // A failed diff counts as empty; divergence is reported separately below.
     const raw = if (res.ok()) res.stdout else "";
     const diff = try core.drift.parseNameStatus(gpa, raw);
-    // `parseNameStatus` returns slices into `raw`, which `res.deinit` frees -- so
-    // the paths are copied into the diff's own memory here.
+    // `parseNameStatus` slices into `raw`, which `res.deinit` frees -- copy first.
     const owned = try ownDiff(gpa, diff);
     diff.deinit(gpa);
 
     const divergent = !try isAncestor(gpa, io, ctx, commit);
     if (divergent) {
-        // Divergence is a finding in its own right: the graph was built against a
-        // line this checkout is not on, whatever the file-level diff says.
+        // Its own finding: the graph was built off a line this checkout isn't on.
         const lr = try leftRight(gpa, io, ctx, commit);
         try repo_findings.print(
             "(repo)\tbaseline {s} is not an ancestor of HEAD: {d} commits only on the baseline, {d} only here -- the graph describes a different line\n",
@@ -606,8 +554,8 @@ fn upstreamName(gpa: Allocator, io: Io, ctx: *const Context) !?[]u8 {
     return try gpa.dupe(u8, name);
 }
 
-/// Added paths that no node claims, split by whether a manifest pattern would
-/// already claim them -- so only the remainder needs a human decision.
+/// Added paths no node claims, split by whether a manifest pattern would
+/// already cover them.
 fn reportAddedPaths(
     gpa: Allocator,
     io: Io,
@@ -622,8 +570,7 @@ fn reportAddedPaths(
     if (added.items.len == 0) return;
     std.mem.sort([]const u8, added.items, {}, lessByBytes);
 
-    // `comm -23 added claimed`: added paths the index does not already cover. The
-    // record table is byte-sorted, so `find` is a binary search rather than a scan.
+    // `comm -23 added claimed`: table is byte-sorted, so `find` binary-searches.
     var unclaimed: Io.Writer.Allocating = .init(gpa);
     defer unclaimed.deinit();
     var count: usize = 0;
@@ -647,14 +594,11 @@ fn reportAddedPaths(
         return;
     }
 
-    // One `grep -E` pair per manifest row over the whole unclaimed list, rather
-    // than per path per row: the pattern is a user-authored ERE and keeps `grep`'s
-    // engine, but nothing says it has to be spawned N times.
+    // One grep -E per manifest row over the whole list, not per path per row.
     var matched: std.StringHashMapUnmanaged(void) = .empty;
     defer matched.deinit(gpa);
-    // The keys are slices into each `grep` result, so those buffers have to
-    // outlive the map -- a `defer gpa.free` inside the loop below runs on every
-    // iteration and would leave every key but the last one dangling.
+    // Keys slice into each grep result; those buffers must outlive the map,
+    // so they're freed only after the loop, not per iteration.
     var hits: std.ArrayListUnmanaged([]u8) = .empty;
     defer {
         for (hits.items) |h| gpa.free(h);
@@ -691,8 +635,7 @@ fn reportAddedPaths(
     if (needs.items.len == 0) return;
 
     try repo_findings.print("(repo)\t{d} new paths match no manifest pattern: ", .{needs.items.len});
-    // `head -5 | tr '\n' ' '`: five names and a trailing space, which is what the
-    // script's own pipeline left behind.
+    // `head -5 | tr '\n' ' '`: five names, space-joined.
     for (needs.items[0..@min(5, needs.items.len)]) |p| try repo_findings.print("{s} ", .{p});
     try repo_findings.writeAll("\n");
 }
@@ -711,8 +654,7 @@ fn readManifest(gpa: Allocator, io: Io, ctx: *const Context) !?[]u8 {
 
 fn cmdGrounding(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []const u8, w: *Io.Writer) !u8 {
     if (rest.len == 2 and std.mem.eql(u8, rest[1], "--list")) {
-        // Verifies the node exists before reporting "no groundings", so a typo'd
-        // title cannot read as "this node has none".
+        // Node existence checked first, so a typo doesn't read as "no groundings".
         const text = (try need(ctx, io, rest[0])) orelse return 1;
         defer gpa.free(text);
         var gs = try core.verify.groundings(gpa, text);
@@ -722,9 +664,8 @@ fn cmdGrounding(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []con
     }
     if (rest.len != 0) return usage();
 
-    // Every node that records a grounding, which is precisely the set worth
-    // checking. Walked from disk rather than fetched through the API's JsonLogic
-    // search: same set, no HTTP, and the same reads `stale` and `links` already do.
+    // Every node with a grounding -- walked from disk, same reads `stale`/`links`
+    // already use, no HTTP.
     var files = try context.listNodeFiles(ctx, io);
     defer {
         for (files.items) |f| gpa.free(f);
@@ -749,9 +690,8 @@ fn cmdGrounding(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []con
             if (core.verify.slice(content.?, range.start, range.end)) |cut| {
                 if (std.mem.eql(u8, &core.verify.sha256Hex(cut), g.digest)) continue;
             }
-            // A pure line shift -- something inserted above the range -- would
-            // otherwise report every grounding in the file as broken, which is the
-            // fastest way to make a check worth ignoring.
+            // A pure line shift (insertion above the range) is re-pointed,
+            // not flagged broken.
             const span = range.end - range.start + 1;
             if (core.verify.findMoved(content.?, span, g.digest)) |to| {
                 try w.print(
@@ -784,8 +724,7 @@ fn cmdLinks(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []const u
     defer gpa.free(text);
 
     if (rest.len == 1) {
-        // One file read: a node's own links live in its own file, and deriving all
-        // of them to filter for one is 48 reads to answer with 1.
+        // One read: deriving the whole graph to filter one node is 48 reads to answer 1.
         var es = try core.query.edges(gpa, text);
         defer es.deinit(gpa);
         var rows = try gpa.alloc([2][]const u8, es.items.len);
@@ -830,8 +769,7 @@ const Graph = struct {
         for (files.items) |file| {
             const text = try context.readNode(ctx, io, file) orelse continue;
             try g.texts.append(gpa, text);
-            // The name is the filename minus `.md`, which is what `FILENAME` gave
-            // the awk -- and what a wikilink resolves against.
+            // Filename minus `.md` -- what a wikilink resolves against.
             const name = try gpa.dupe(u8, context.stripMd(file));
             try g.names.append(gpa, name);
             var es = try core.query.edges(gpa, text);
@@ -859,8 +797,7 @@ const Graph = struct {
 fn linksCheck(gpa: Allocator, io: Io, ctx: *const Context, w: *Io.Writer) !u8 {
     var g = try Graph.build(gpa, io, ctx);
     defer g.deinit(gpa);
-    // A broken wikilink is a valid link to a not-yet-existing note, so Obsidian
-    // renders it without complaint and nothing else in the system notices.
+    // A broken wikilink renders fine in Obsidian; nothing else notices.
     for (g.edges.items) |e| {
         if (g.has(e.tgt)) continue;
         try w.print("{s}\t{s} -> {s} (no such node)\n", .{ e.src, e.rel, e.tgt });
@@ -882,8 +819,7 @@ fn linksInbound(gpa: Allocator, io: Io, ctx: *const Context, node: []const u8, w
     return 0;
 }
 
-/// Breadth-first, so the depth printed is the shortest hop count and a cycle
-/// terminates instead of looping.
+/// BFS, so depth is the shortest hop count and a cycle terminates.
 fn linksClosure(gpa: Allocator, io: Io, ctx: *const Context, start: []const u8, w: *Io.Writer) !u8 {
     var g = try Graph.build(gpa, io, ctx);
     defer g.deinit(gpa);
@@ -933,9 +869,7 @@ fn cmdSymbol(
     rest: []const []const u8,
     w: *Io.Writer,
 ) !u8 {
-    // Literal first line of this subcommand's logic: a disabled run does no cache
-    // I/O and no tagging at all, matching the per-prompt injection hook's own
-    // disable-knob convention.
+    // Disabled: no cache I/O, no tagging -- matches the prompt-injection hook's own knob.
     if (env.get("SYNAPSE_DISABLE_SYMBOL_CACHE") != null) return 0;
     if (rest.len != 2 or rest[0].len == 0 or rest[1].len == 0) return usage();
     const name = rest[0];
@@ -946,9 +880,8 @@ fn cmdSymbol(
     defer paths.deinit(gpa);
     if (paths.items.len == 0) return 0;
 
-    // Hash every source, then backfill whatever the cache is missing. Piggybacks
-    // on hashes this pass needs anyway rather than deriving a second staleness
-    // signal.
+    // Hash every source, then backfill the cache -- reuses hashes this pass
+    // needs anyway.
     var pairs = try gpa.alloc(core.tags_cache.PathHash, paths.items.len);
     defer gpa.free(pairs);
     var n: usize = 0;
@@ -974,8 +907,7 @@ fn cmdSymbol(
         std.debug.print("{s}: unreadable tags cache: {s}\n", .{ prog, cache_path });
         return 0;
     }
-    // Non-fatal, exactly as the script's `|| echo ... -- continuing` was: a node
-    // is still worth answering from whatever is already cached.
+    // Non-fatal: still worth answering from whatever's already cached.
     tags_cache_cmd.backfill(Extractor, gpa, io, env, ctx.repo_root, &cache, pairs[0..n], null) catch
         std.debug.print(
             "{s}: symbol cache backfill failed for '{s}' -- continuing with what's already cached\n",
