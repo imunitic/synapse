@@ -1,10 +1,7 @@
-//! `synapse/{repo}@{branch}/Index.md` -- the per-namespace node map.
-//!
-//! In core rather than in the command for the reason `node.zig` is: this file is
-//! written in one place and read in three. The SessionStart hook checks `remote`
-//! before injecting a pointer, `query`'s preamble checks `remote` *and* `branch`
-//! before answering anything, and `write-node` checks both before overwriting. A
-//! format with one writer and three readers is exactly the shape that drifts.
+//! `synapse/{repo}@{branch}/Index.md` -- the per-namespace node map. In
+//! core, not the command, since it's written once and read three places:
+//! the SessionStart hook checks `remote`, `query`'s preamble checks
+//! `remote` and `branch`, and `write-node` checks both.
 //!
 //! ```
 //! ---
@@ -23,27 +20,21 @@
 //! - [[State machine]] — How states advance (19 files)
 //! ```
 //!
-//! ## `project` is the repo half alone, and `branch` is its own field
+//! `project` is the repo half alone (the key is already the title/folder
+//! name); a bare repo name groups every branch's namespace in a vault
+//! query, and `branch` stays a separate field so identity is checkable
+//! without parsing a directory name.
 //!
-//! Not the `{repo}@{branch}` key: the key is already the title and the folder name.
-//! A bare repo name is what groups every branch's namespace together in a vault
-//! query, and a separate `branch` makes identity checkable without parsing a
-//! directory name.
-//!
-//! ## The bullets link by filename, not by title
-//!
-//! Obsidian resolves a wikilink by filename, so a title that needed sanitising would
-//! otherwise produce a link to nothing. The writer sanitises the same way
-//! `emit.fileTitle` does, because it has to name the file the vault actually holds.
+//! Bullets link by filename, not title -- Obsidian resolves a wikilink by
+//! filename, so the writer sanitises the same way `emit.fileTitle` does.
 
 const std = @import("std");
 
 /// One node's line in the map.
 pub const Bullet = struct {
-    /// The node's *filename* stem, already sanitised -- this is what the wikilink
+    /// The node's filename stem, already sanitised -- what the wikilink
     /// resolves against.
     link: []const u8,
-    /// How many files the node covers.
     files: usize,
     /// The node's own `summary` frontmatter, read back off the node.
     summary: []const u8,
@@ -58,15 +49,12 @@ pub const Params = struct {
     remote: []const u8,
     built_at: []const u8,
     total_files: usize,
-    /// Sorted by `link`, which is alphabetical because an index of several dozen
-    /// entries is something a reader scans for a name -- any other order would need
-    /// a rule nobody could guess.
+    /// Sorted by `link`, alphabetical, since a reader scans an index for a name.
     bullets: []const Bullet,
 };
 
-/// The node count is the number of bullets, and that is deliberate: the script
-/// counted `lists/*.txt` separately, which could disagree with the bullets it
-/// printed if a list had no title. It cannot disagree here.
+/// The node count is the bullet count, deliberately -- can't disagree with
+/// what's printed, unlike the script's separate `lists/*.txt` count.
 pub fn write(w: *std.Io.Writer, p: Params) !void {
     try w.writeAll("---\n");
     try w.print("title: \"{s} — Synapse index\"\n", .{p.namespace});
@@ -78,9 +66,8 @@ pub fn write(w: *std.Io.Writer, p: Params) !void {
     try w.writeAll("---\n\n");
 
     try w.print("# {s} — Synapse index\n\n", .{p.namespace});
-    // Emits no repo-specific prose of its own -- see docs/synapse-graph.md for why.
-    // What it does say is how to read the namespace without paying for it, because
-    // that advice is what stops an agent opening a 4.5 MB node file.
+    // No repo-specific prose (see docs/synapse-graph.md) -- just how to
+    // read the namespace without opening a multi-MB node file.
     try w.print(
         "{d} tracked files, {d} nodes. Nodes are subsystems and concepts, not modules — each one's frontmatter `sources` lists every file it covers, and `synapse index lookup <path>` is the reverse index from any path back to its owning node.\n\n",
         .{ p.total_files, p.bullets.len },
@@ -111,14 +98,12 @@ test "the index carries every field its three readers check" {
         },
     });
     const text = out.written();
-    // The three fields, each quoted or bare exactly as the readers expect: `remote`
-    // is quoted and `branch` is not, and a reader strips quotes either way.
     try testing.expect(std.mem.indexOf(u8, text, "\nproject: fw-core\n") != null);
     try testing.expect(std.mem.indexOf(u8, text, "\nbranch: master\n") != null);
     try testing.expect(std.mem.indexOf(u8, text, "\nremote: \"ssh://git@example.invalid/fw/fw-core.git\"\n") != null);
     try testing.expect(std.mem.indexOf(u8, text, "node_type: synapse-index\n") != null);
-    // The count comes from the bullets, so the header and the list cannot disagree.
-    try testing.expect(std.mem.indexOf(u8, text, "124817 tracked files, 2 nodes.") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "124817 tracked files, 2 nodes.") != null); // from the bullet count
+
     try testing.expect(std.mem.endsWith(
         u8,
         text,
@@ -128,9 +113,6 @@ test "the index carries every field its three readers check" {
 }
 
 test "a namespace with no nodes yet still produces a readable index" {
-    // /synapse-init writes this before any node exists in one ordering, and the
-    // hook has to find `remote` there -- an empty bullet list must not make the
-    // frontmatter conditional.
     var out: std.Io.Writer.Allocating = .init(testing.allocator);
     defer out.deinit();
     try write(&out.writer, .{

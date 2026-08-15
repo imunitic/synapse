@@ -1,46 +1,28 @@
 //! Per-file declared namespace, and the directory-level divergence table it
 //! feeds -- synapse-001 (precompute before inference), step 6.
 //!
-//! A file's declared namespace is what its own ecosystem says it belongs to: a
-//! Java `package`, a Rust crate `name`, a Go `module`. The directory holding it
+//! A file's declared namespace is what its own ecosystem says (a Java
+//! `package`, a Rust crate `name`, a Go `module`); the directory holding it
 //! is what the filesystem says. When the two disagree across most of a
-//! directory, "the highest-value findings in the whole build" per the
-//! orientation skill: every later search for the directory's own name comes
-//! back empty, because the code calls itself something else.
+//! directory, searching for the directory's own name later comes back
+//! empty, because the code calls itself something else.
 //!
-//! ## Why this is a rule, not a grammar query
+//! A rule, not a grammar query: existing tags queries never capture
+//! `package` (Java/Kotlin), Python has no module node at all, and OCaml's
+//! `@definition.module` captures a nested `module Foo = struct end`, not
+//! the library a file belongs to (that's in a sibling `dune`). Every rule
+//! is either in the file itself (Java/Kotlin's `package` line) or in the
+//! nearest ancestor build file (OCaml's `dune`, Rust's `Cargo.toml`, Go's
+//! `go.mod`).
 //!
-//! Checked against the tags queries already in use: Java captures class,
-//! interface and method, never `package`. Kotlin the same shape. Python has
-//! nothing to capture -- a module is a file. OCaml's `@definition.module`
-//! captures nested `module Foo = struct ... end`, not the library a file
-//! belongs to, which lives in a sibling `dune` instead. So a per-extension rule
-//! is required, and it has exactly two shapes:
+//! A prefix and a terminator, not a regex: every case above is "find the
+//! line starting with X, take everything up to Y." A prefix/terminator
+//! scan is a handful of `indexOf` calls and needs no subprocess.
 //!
-//!   - **In the file itself.** Java and Kotlin declare `package` on one line.
-//!   - **In the nearest ancestor build file.** OCaml's library name lives in
-//!     the nearest `dune`; Rust and Go have the same shape with `Cargo.toml`
-//!     and `go.mod`.
-//!
-//! ## Why a rule is a prefix and a terminator, not a regular expression
-//!
-//! Every example above is "find the line starting with X, take everything up
-//! to Y" -- `package ` up to `;`, `(name ` up to `)`, `name = "` up to the next
-//! `"`, `module ` up to end of line. A regular-expression engine would answer a
-//! more general question than this one ever asks, and the two engines this
-//! codebase already reaches for elsewhere -- `grep -E` for a user's override
-//! pattern, `git grep` for a batched search -- are a subprocess, which the
-//! plan's own constraint rules out for a per-file loop over a whole repository.
-//! A prefix/terminator scan is a handful of `indexOf` calls, needs neither, and
-//! says everything the ecosystems above actually need said.
-//!
-//! ## No per-language curation ships
-//!
-//! Nothing in this file knows what Java or OCaml is. `Registry` reads
-//! `~/.claude/synapse-namespace-rules.conf`, keyed by bare extension, the same
-//! shape and the same discovery contract as the tree-sitter grammar registry:
-//! absent means "not discovered yet," not "unsupported forever," and a rule
-//! for a new ecosystem is a config edit, never a code change.
+//! No per-language curation ships. `Registry` reads
+//! `~/.claude/synapse-namespace-rules.conf`, keyed by extension, same
+//! discovery contract as the grammar registry: absent means not discovered
+//! yet, and a new ecosystem is a config edit, never a code change.
 
 const std = @import("std");
 
@@ -50,9 +32,8 @@ const Io = std.Io;
 pub const Kind = enum { in_file, build_file };
 
 /// One extension's rule. `file` is set only for `.build_file` -- the name to
-/// search ancestor directories for. `terminator` null means "to end of line,"
-/// trimmed -- `module` in `go.mod` and `package` in Kotlin both have no closing
-/// character, unlike `;` in Java or the closing `"`/`)` the other two use.
+/// search ancestor directories for. `terminator` null means to end of line
+/// (trimmed).
 pub const Rule = struct {
     kind: Kind,
     file: ?[]const u8 = null,
@@ -60,11 +41,8 @@ pub const Rule = struct {
     terminator: ?[]const u8 = null,
 };
 
-/// `~/.claude/synapse-namespace-rules.conf`, one JSON object keyed by bare
-/// extension -- `{"java": {"kind": "in-file", "prefix": "package ", "terminator": ";"}}`.
-/// Absent or unreadable opens as `{}` rather than an error, matching the
-/// grammar registry: a repo with no rules configured yet is a supported state,
-/// not a broken one.
+/// `~/.claude/synapse-namespace-rules.conf`, keyed by bare extension.
+/// Absent or unreadable opens as `{}`, a supported state, not an error.
 pub const Registry = struct {
     parsed: std.json.Parsed(std.json.Value),
 
@@ -81,9 +59,8 @@ pub const Registry = struct {
         self.parsed.deinit();
     }
 
-    /// Whether the registry has any rule at all -- the "nothing configured
-    /// yet" signal a caller uses to skip the whole pass rather than walk every
-    /// file to learn it has no rule.
+    /// Whether the registry has any rule -- lets a caller skip the whole
+    /// pass rather than walk every file to learn it has no rule.
     pub fn isEmpty(self: Registry) bool {
         return switch (self.parsed.value) {
             .object => |o| o.count() == 0,
@@ -127,21 +104,13 @@ pub const Registry = struct {
     }
 };
 
-/// The first `prefix`-led line in `content`, from `prefix` to `terminator` (or
-/// end of line when `terminator` is null), trimmed. Null when no line starts
-/// with `prefix` after leading whitespace, or the extracted value is blank.
-///
-/// Line by line rather than a whole-content search: a real declaration is
-/// alone on its line at the top of the file, and searching the raw bytes would
-/// risk matching the prefix text sitting inside a comment or string literal
-/// later on. That alone does not catch a `/* */` block comment, though --
-/// commented-out example code with an unprefixed `package foo;` line reads as
-/// a real declaration otherwise, and it is exactly the shape a stale example
-/// or a disabled alternative leaves behind. Every ecosystem `Rule.kind ==
-/// .in_file` currently targets (Java, Kotlin) uses C-style block comments, so
-/// tracking one bit of "currently inside `/* */`" across lines -- not a real
-/// comment parser, just enough to skip what it hides -- closes that gap
-/// without a per-language lexer.
+/// The first `prefix`-led line in `content`, from `prefix` to `terminator`
+/// (or end of line), trimmed. Null when no line matches or the value is
+/// blank. Line by line, not a whole-content search, to avoid matching a
+/// prefix inside a comment or string. Tracks one bit of "inside `/* */`"
+/// across lines -- not a real comment parser, just enough to skip a
+/// commented-out declaration (both `Rule.kind == .in_file` ecosystems here,
+/// Java/Kotlin, use C-style block comments).
 pub fn extractField(content: []const u8, prefix: []const u8, terminator: ?[]const u8) ?[]const u8 {
     var lines = std.mem.splitScalar(u8, content, '\n');
     var in_block_comment = false;
@@ -152,10 +121,8 @@ pub fn extractField(content: []const u8, prefix: []const u8, terminator: ?[]cons
             continue;
         }
         if (std.mem.indexOf(u8, line, "/*")) |start| {
-            // Whether or not this line also closes the comment (`/* x */`),
-            // a declaration sharing a line with a block-comment delimiter is
-            // not the "alone on its line" shape a real one has -- skip the
-            // whole line rather than trying to read what is left of it.
+            // Skip the whole line even if it also closes the comment --
+            // sharing a line with `/*` isn't the "alone on its line" shape.
             in_block_comment = std.mem.indexOf(u8, line[start..], "*/") == null;
             continue;
         }
@@ -172,30 +139,24 @@ pub fn extractField(content: []const u8, prefix: []const u8, terminator: ?[]cons
     return null;
 }
 
-/// The path's containing directory, repo-relative -- everything before the
-/// last `/`, or `""` for a repository-root file. Hand-rolled rather than
-/// `std.fs.path`, for the reason `core.vocab.artifactOf` already gives: these
-/// paths come from `git ls-files` and always use `/`, while `std.fs.path`
-/// would also split on `\` when built for Windows and disagree with itself
-/// across platforms on the same repository.
+/// Containing directory, repo-relative -- everything before the last `/`,
+/// or `""` at the root. Hand-rolled, not `std.fs.path`: these paths come
+/// from `git ls-files` and always use `/`, while `std.fs.path` would also
+/// split on `\` on Windows.
 pub fn dirOf(path: []const u8) []const u8 {
     const slash = std.mem.lastIndexOfScalar(u8, path, '/') orelse return "";
     return path[0..slash];
 }
 
-/// The path's filename, repo-relative input or not -- everything after the
-/// last `/`, or the whole path when there is none. Same hand-rolled reasoning
-/// as `dirOf`.
+/// Filename -- everything after the last `/`, or the whole path if none.
 pub fn baseOf(path: []const u8) []const u8 {
     const slash = std.mem.lastIndexOfScalar(u8, path, '/') orelse return path;
     return path[slash + 1 ..];
 }
 
-/// The namespace recorded for `dir` itself, or the nearest ancestor's --
-/// walking up one path segment at a time until a match is found or the
-/// repository root (`""`) is exhausted. `by_dir` maps a build file's own
-/// directory to the namespace it declared, built once from every build file
-/// in the repository before this is called for any source file.
+/// The namespace recorded for `dir`, or the nearest ancestor's -- walking
+/// up one segment at a time to the repo root. `by_dir` maps a build file's
+/// directory to its declared namespace, built once up front.
 pub fn nearestNamespace(by_dir: *const std.StringHashMapUnmanaged([]const u8), dir: []const u8) ?[]const u8 {
     var at = dir;
     while (true) {
@@ -237,9 +198,6 @@ test "extractField: a prefix that never appears is null" {
 }
 
 test "extractField: an unterminated prefix line is skipped, not truncated" {
-    // `package com.example` with no `;` anywhere on the line is not a
-    // definition to trust half of -- the awk-style prefix/terminator contract
-    // has no "close enough" reading of a malformed declaration.
     try testing.expectEqualStrings(
         "real",
         extractField("package com.example\npackage real;\n", "package ", ";").?,

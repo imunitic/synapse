@@ -1,61 +1,32 @@
 //! The node-to-node link graph, computed before any prose exists --
 //! synapse-001 (precompute before inference), step 9.
 //!
-//! A node's `## Links` section is typed relations, not prose:
+//! A node's `## Links` section is typed relations, not prose. Two of the
+//! three types are reference relations the Code Cache already holds, and
+//! node titles exist before any prose is written, so the join needs no
+//! summary first: `_refs.tsv` gives `name -> def|ref -> path:line`, a
+//! path-to-node map gives `path -> node`, and a `ref` in one node's file
+//! naming a `def` in another is an edge. `part_of` stays a human judgement
+//! -- containment isn't in `_refs.tsv` at all.
 //!
-//! ```
-//! ## Links
-//! - depends_on [[Other Node Title]]
-//! - part_of [[Another Node Title]]
-//! ```
+//! ## Rarity, counted not summed
 //!
-//! Two of those three types are reference relations the Code Cache already
-//! holds, and node titles exist in `manifest.tsv`/`lists/` before a single
-//! word of prose is written. So the join needs no summary to exist first:
-//! `_refs.tsv` gives `name -> def|ref -> path:line`, a path-to-node map gives
-//! `path -> node`, and a `ref` in one node's file naming something whose `def`
-//! sits in another node's file is an edge between them. `part_of` stays a
-//! judgement -- containment, not reference, is not in `_refs.tsv` at all.
-//!
-//! ## Rarity, and why it is counted rather than summed
-//!
-//! A ranking prototype tried this once and failed outright, returning
-//! `build`, `codes`, `context`, `page` -- generic utility names every node
-//! calls into. Two causes were identified: stems matched as substrings with
-//! no word boundaries, and no rarity weighting, so the score measured
-//! commonness rather than significance.
-//!
-//! The first cause cannot recur here: `_refs.tsv` holds exact names with their
-//! kind, so there is no stem-matching step to reintroduce the collision. The
-//! second is fixed the way `core/gate.zig` already fixes the same problem for
-//! words: a symbol referenced from few nodes is informative, one referenced
-//! from thirty says nothing about either end of the edge. `rare_max =
-//! max(2, N/20)`, same formula, `N` the number of nodes instead of clusters.
-//!
-//! And the aggregation is **count-like, not a weighted sum**, for the exact
-//! reason `core/gate.zig`'s own docstring gives: "ranking by tf-idf sum is the
-//! obvious thing and it fails... what separates a real concept from a generic
-//! one is not how much distinctive vocabulary it has in total, it is whether
-//! it has any at all." An edge's weight is how many *distinct rare symbols*
-//! support it, not a sum of inverse document frequencies -- summing across
-//! many things to grade one thing is the failure mode being avoided here a
-//! second time, not a different problem.
-//!
-//! The edges are fact; which ones make it into a node's prose is advice, and
-//! stays the author's call.
+//! A symbol referenced from few nodes is informative; one referenced from
+//! thirty says nothing about either end of the edge. `rare_max = max(2,
+//! N/20)` -- same formula `core/gate.zig` uses for words, `N` = node count.
+//! An edge's weight is how many *distinct rare symbols* support it, not a
+//! sum of inverse document frequencies -- what separates a real concept
+//! from a generic one is whether it has distinctive vocabulary at all, not
+//! how much (same reasoning as `core/gate.zig`'s own tf-idf-sum failure).
 //!
 //! ## A symbol defined in more than one node is not rare, it is ambiguous
 //!
-//! Rarity alone is not enough: `run`/`open`/`close` clear the rarity bar in a
-//! repo with a handful of unrelated types that each define one, and joining
-//! by bare name (`_refs.tsv` carries no receiver or type) would fan an edge
-//! out from every node that *reads* the name to *every* node that defines
-//! it -- most of those edges pointing at the wrong definition. A name with
-//! exactly one definer is unambiguous by construction: whatever reads it can
-//! only mean that one. A name defined more than once is treated the same as
-//! "too common" and contributes no edges at all, even though some of its
-//! individual def/ref pairs might be genuine -- the false edges a wrong guess
-//! would add cost more than the true edges a right guess would have kept.
+//! Joining by bare name (`_refs.tsv` carries no receiver or type) would fan
+//! an edge from every reader of a common name (`run`, `open`, `close`) to
+//! every node that defines it, most pointing at the wrong one. A name with
+//! exactly one definer is unambiguous by construction; a name defined more
+//! than once contributes no edges at all -- the false edges a wrong guess
+//! would add cost more than the true edges a right guess would keep.
 
 const std = @import("std");
 const refs = @import("refs.zig");
@@ -64,15 +35,13 @@ const Allocator = std.mem.Allocator;
 
 /// One candidate edge: `from` references something `to` defines, by way of
 /// `symbols`, all of which cleared the rarity bar. `weight` is
-/// `symbols.len` before any `--top` truncation of the *symbol list shown* --
-/// the two can differ because the list is capped for readability and the
-/// weight is not.
+/// `symbols.len` before `symbols_shown` truncates the *list shown* --
+/// capped for readability, the weight isn't.
 pub const Edge = struct {
-    /// `from` and `to` are node titles borrowed from the `path_to_nodes` map
-    /// passed to `compute` -- valid only as long as the caller keeps that
-    /// map (and whatever owns its title strings) alive. `symbols` entries
-    /// borrow `refs_table` the same way; the `symbols` array itself is
-    /// owned by this result and freed by `free`.
+    /// `from`/`to` are node titles borrowed from `path_to_nodes`, valid as
+    /// long as the caller keeps it alive. `symbols` entries borrow
+    /// `refs_table` the same way; the `symbols` array itself is owned by
+    /// this result, freed by `free`.
     from: []const u8,
     to: []const u8,
     weight: usize,
@@ -88,16 +57,13 @@ pub const Options = struct {
     symbols_shown: usize = 5,
 };
 
-/// Join `refs_table` (`_refs.tsv`'s own text) against `path_to_nodes`
-/// (path -> every node title that claims it, multi-valued) and return every
-/// node's strongest outgoing edges, `from` ascending, `weight` descending,
-/// `to` ascending as the final tiebreak -- a total order, so two runs over an
-/// unchanged repo are byte-identical.
+/// Joins `refs_table` against `path_to_nodes` (path -> claiming node
+/// titles, multi-valued) and returns every node's strongest outgoing
+/// edges: `from` ascending, `weight` descending, `to` ascending -- a total
+/// order, so two runs over an unchanged repo are byte-identical.
 ///
-/// `node_count` is `N` in the rarity formula: the number of distinct nodes in
-/// the manifest, not the number that happen to appear in `path_to_nodes` --
-/// a node with no tagged references is still one of the `N` a symbol can be
-/// rare against.
+/// `node_count` is `N` in the rarity formula: every node in the manifest,
+/// not just ones appearing in `path_to_nodes`.
 pub fn compute(
     gpa: Allocator,
     refs_table: []const u8,
@@ -141,22 +107,12 @@ pub fn compute(
         for (owners.items) |node| try set.put(gpa, node, {});
     }
 
-    // "same document-frequency rule... N/20": here N is the node count and a
-    // document is a node, not a cluster, but the floor and the ratio are
-    // exactly core/gate.zig's.
-    const rare_max = @max(@as(usize, 2), node_count / 20);
+    const rare_max = @max(@as(usize, 2), node_count / 20); // same floor/ratio as core/gate.zig
 
-    // from -> to -> the rare symbol names supporting that edge, accumulated
-    // before any sorting or per-node capping happens. Nested rather than a
-    // single map keyed by a joined "from\x00to" string on purpose: a joined
-    // key needs its own allocation with its own lifetime, and every `Edge`
-    // this function returns borrows its `from`/`to` text -- from `pairs`, if
-    // `pairs` owned that text, or (as below) straight from `path_to_nodes`,
-    // which the caller already keeps alive for as long as it needs the
-    // result. The nested map's own keys are never duplicated: they are the
-    // exact same node-title slices `sets.ref`/`sets.def` already hold, which
-    // are themselves `path_to_nodes`' strings, so there is nothing here for
-    // `compute` to free and nothing for the caller to dangle.
+    // from -> to -> the rare symbols supporting that edge. Nested rather
+    // than a joined "from\x00to" key: a joined key would need its own
+    // allocation, while these keys are the exact node-title slices
+    // `path_to_nodes` already owns -- nothing here to free or dangle.
     var pairs: std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(std.ArrayListUnmanaged([]const u8))) = .empty;
     defer {
         var outer = pairs.valueIterator();
@@ -171,14 +127,9 @@ pub fn compute(
     var name_it = by_name.iterator();
     while (name_it.next()) |entry| {
         const sets = entry.value_ptr;
-        // Rare is about who *reads* the symbol, not who declares it -- a
-        // name defined in five places but read from nowhere contributes no
-        // edges at all, and correctly so: nothing points at it.
+        // Rarity is about who reads it, not who declares it.
         if (sets.ref.count() == 0 or sets.ref.count() > rare_max) continue;
-        // Exactly one definer, not merely at least one: a name two or more
-        // nodes define is ambiguous no matter how rare its references are --
-        // see the module docstring's "not rare, it is ambiguous" note.
-        if (sets.def.count() != 1) continue;
+        if (sets.def.count() != 1) continue; // exactly one definer -- see module docstring
 
         var ref_it = sets.ref.keyIterator();
         while (ref_it.next()) |from_node| {
@@ -220,9 +171,8 @@ pub fn compute(
     return edges;
 }
 
-/// Frees what `compute` returned. Only `symbols` is this function's own
-/// allocation per edge -- `from` and `to` borrow `path_to_nodes`, which the
-/// caller owns and must keep alive at least as long as `edges` is read.
+/// Frees what `compute` returned. Only `symbols` is owned per edge --
+/// `from`/`to` borrow `path_to_nodes`.
 pub fn free(gpa: Allocator, edges: *std.ArrayListUnmanaged(Edge)) void {
     for (edges.items) |e| gpa.free(e.symbols);
     edges.deinit(gpa);
@@ -242,8 +192,8 @@ fn lessByRank(_: void, a: Edge, b: Edge) bool {
     return std.mem.order(u8, a.to, b.to) == .lt;
 }
 
-/// `edges` is already sorted by `from` then descending weight; drop every
-/// entry past the first `top` for each `from` run, in place.
+/// `edges` is sorted by `from` then descending weight; drops every entry
+/// past the first `top` per `from` run, in place.
 fn capPerNode(gpa: Allocator, edges: *std.ArrayListUnmanaged(Edge), top: usize) void {
     var write: usize = 0;
     var read: usize = 0;
@@ -256,10 +206,7 @@ fn capPerNode(gpa: Allocator, edges: *std.ArrayListUnmanaged(Edge), top: usize) 
                 write += 1;
                 run += 1;
             } else {
-                // Dropped by the cap: its `symbols` was this function's own
-                // allocation (via `compute`'s `gpa.dupe`) and nothing else
-                // will ever reach it once the array shrinks below `read`.
-                gpa.free(edges.items[read].symbols);
+                gpa.free(edges.items[read].symbols); // dropped by the cap, otherwise unreachable
             }
             read += 1;
         }
@@ -338,7 +285,7 @@ test "a ref and a def in the same node produce no self-edge" {
 
 test "a symbol referenced from too many nodes is not rare, and produces no edge" {
     const gpa = testing.allocator;
-    // rare_max = max(2, 10/20) = 2. Three referencing nodes exceeds it.
+    // rare_max = max(2, 10/20) = 2; three referencing nodes exceeds it.
     var pm = try pathMap(gpa, &.{
         .{ .path = "d/Def.java", .nodes = &.{"D"} },
         .{ .path = "a/A.java", .nodes = &.{"A"} },
@@ -360,9 +307,8 @@ test "a symbol referenced from too many nodes is not rare, and produces no edge"
 
 test "a symbol defined in two unrelated nodes produces no edge to either" {
     const gpa = testing.allocator;
-    // A and B each define `run`; C reads it. Without the def.count()==1
-    // guard this would fan out C -> A and C -> B, both false: nothing in
-    // `_refs.tsv` says which `run` C actually meant.
+    // A and B each define `run`; C reads it -- without the def.count()==1
+    // guard this would fan out C -> A and C -> B, both false.
     var pm = try pathMap(gpa, &.{
         .{ .path = "a/A.java", .nodes = &.{"A"} },
         .{ .path = "b/B.java", .nodes = &.{"B"} },
@@ -388,8 +334,7 @@ test "weight counts distinct rare symbols, not raw reference occurrences" {
     });
     defer freePathMap(gpa, &pm);
 
-    // Two calls to the same symbol from the same file: one edge-supporting
-    // symbol, not two.
+    // Two calls to the same symbol: one edge-supporting symbol, not two.
     const refs_table =
         "Widget\tdef\tclass\tb/B.java:1\tclass Widget {\n" ++
         "Widget\tref\tcall\ta/A.java:3\tWidget.run();\n" ++
