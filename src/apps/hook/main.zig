@@ -52,7 +52,7 @@ const usage =
 
 pub fn main(init: std.process.Init) !u8 {
     var args = init.minimal.args.iterate();
-    _ = args.next(); // argv[0]
+    const argv0 = args.next() orelse ""; // stop-nudge's own path, to re-invoke for vault-push
 
     const which = args.next() orelse {
         std.debug.print("{s}", .{usage});
@@ -77,7 +77,7 @@ pub fn main(init: std.process.Init) !u8 {
     } else if (std.mem.eql(u8, which, "session-start")) {
         session_start.run(gpa, io, env) catch {};
     } else if (std.mem.eql(u8, which, "stop-nudge")) {
-        stop_nudge.run(gpa, io, env) catch {};
+        stop_nudge.run(gpa, io, env, argv0) catch {};
     } else if (std.mem.eql(u8, which, "db-sync")) {
         db_sync.run(gpa, io, env) catch {};
     } else if (std.mem.eql(u8, which, "vault-push")) {

@@ -35,7 +35,7 @@ const Allocator = std.mem.Allocator;
 /// Turns between check-ins.
 const n = 25;
 
-pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
+pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map, self_path: []const u8) !void {
     const home = env.get("HOME") orelse return;
     const state_dir = try std.fmt.allocPrint(gpa, "{s}/.claude/state", .{home});
     defer gpa.free(state_dir);
@@ -75,7 +75,7 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
         try writeCount(gpa, io, since_path, since);
     }
 
-    try maybePush(gpa, io, env, total);
+    try maybePush(gpa, io, env, total, self_path);
 }
 
 fn readCount(gpa: Allocator, io: Io, path: []const u8) usize {
@@ -102,7 +102,7 @@ fn writeCount(gpa: Allocator, io: Io, path: []const u8, value: usize) !void {
 ///
 /// A vault with no remote is a supported, ordinary configuration -- local versioned
 /// undo only -- so everything here is a silent no-op when anything is missing.
-fn maybePush(gpa: Allocator, io: Io, env: *std.process.Environ.Map, total: usize) !void {
+fn maybePush(gpa: Allocator, io: Io, env: *std.process.Environ.Map, total: usize, self_path: []const u8) !void {
     const vault = common.vault(gpa, io, env) orelse return;
     defer gpa.free(vault);
     const dot_git = try std.fmt.allocPrint(gpa, "{s}/.git", .{vault});
@@ -116,9 +116,17 @@ fn maybePush(gpa: Allocator, io: Io, env: *std.process.Environ.Map, total: usize
     };
     if (every == 0 or total % every != 0) return;
 
-    // The wrapper exports our own path, because a process cannot portably ask where
-    // its executable is and guessing `~/.claude/bin` would break every test run.
-    const self = env.get("SYNAPSE_HOOK_BIN") orelse return;
+    // `argv[0]`, threaded down from `main`, not `$SYNAPSE_HOOK_BIN` (sb-013): the
+    // settings.json hook entry `setup.sh` writes is a bare command string with no env
+    // block, so that variable is never actually set in the hook's runtime environment
+    // -- this used to read it anyway, making the vault-push silently a no-op on every
+    // real install. `argv[0]` is the one thing guaranteed to already be *this process's
+    // own invoked path*: the literal absolute path from settings.json in production,
+    // and whatever path a test invoked the binary at in `tests/`, with no wrapper, no
+    // env var, and no guessing `~/.claude/bin` (which would be wrong under a test's own
+    // build-output binary) required.
+    if (self_path.len == 0) return;
+    const self = self_path;
 
     // Spawned and never waited on: this process exits immediately after, and the
     // child is reparented. That is the whole point -- `wait` here would put the
