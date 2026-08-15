@@ -132,13 +132,24 @@ here, every time, rather than assuming it travels for free.
 
 ### 3d. Verify on completion, retry once, then fall back
 
-When a completion notification arrives: check that `b-NN.md` exists and has `## Summary`,
-`## Crux`, and `## Links` sections. Pass → dispatch the next queued node (§3b) and move on.
-Fail (missing file, missing section, obviously truncated) → **one retry**, same brief, fresh
-subagent. A second failure → **write that one node yourself**, inline, the §2 procedure,
-rather than blocking the rest of the pool on it. Report which nodes needed a retry or a
-fallback in the final summary — a silent recovery hides a brief that might be systematically
-wrong for a whole class of node.
+When a completion notification arrives, read `b-NN.md` yourself — this is a check you read the
+file for, same as the section check next to it, not a shell one-liner (this codebase's own
+frontmatter reader deliberately avoids `grep`/`sed`/`awk` for exactly this field, per
+`core/query.zig`'s docstring — a hand-rolled pattern here would drift from it the same way the
+gap this section exists to close first happened). Confirm the file exists, opens with
+frontmatter carrying a non-empty `summary:` field (`synapse-node-format`'s own contract — see
+its "Each `b-NN.md` opens with its own one-line summary in frontmatter" line), and has
+`## Summary`, `## Crux`, and `## Links` sections. Pass → dispatch the next queued node (§3b) and
+move on.
+Fail (missing file, missing frontmatter summary, missing section, obviously truncated) → **one
+retry**, same brief, fresh subagent. A second failure → **write that one node yourself**,
+inline, the §2 procedure, rather than blocking the rest of the pool on it. Report which nodes
+needed a retry or a fallback in the final summary — a silent recovery hides a brief that might
+be systematically wrong for a whole class of node.
+
+Check the frontmatter here, at authoring time, rather than leaving it to `push-nodes` — a body
+that has all three sections but no `summary:` field passes every check above and then fails at
+push, node by node, after the whole pool has already finished and moved on.
 
 **Also check for hard-wrapping** — a prose paragraph (not a list) whose lines break before
 reaching a natural sentence boundary. A quick heuristic: within `## Summary`, a run of two or

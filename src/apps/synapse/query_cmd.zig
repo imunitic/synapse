@@ -89,6 +89,20 @@ pub fn run(
     defer rest.deinit(gpa);
     while (args.next()) |a| try rest.append(gpa, a);
 
+    // `field --file <path> <key>` names its own file rather than a vault node by
+    // title, so it needs no namespace and is handled before ctx.resolve --
+    // otherwise this would refuse to run for the one caller it exists for: a
+    // pre-push draft (sb-011's `b-NN.md`) that is not a node yet and has no
+    // title the vault would resolve.
+    if (std.mem.eql(u8, sub, "field") and rest.items.len != 0 and std.mem.eql(u8, rest.items[0], "--file")) {
+        if (rest.items.len != 3 or rest.items[1].len == 0 or rest.items[2].len == 0) return usage();
+        var out_buf: [256 * 1024]u8 = undefined;
+        var out = Io.File.stdout().writer(io, &out_buf);
+        const code = try cmdFieldFile(gpa, io, rest.items[1], rest.items[2], &out.interface);
+        try out.interface.flush();
+        return code;
+    }
+
     var ctx = (try context.resolve(gpa, io, env, prog)) orelse return 1;
     defer ctx.deinit();
     if (!try context.verifyNamespace(&ctx, io, prog)) return 1;
@@ -131,6 +145,7 @@ const usage_text =
     \\  sources <node> --modules           module<TAB>count, byte sorted
     \\  sources <node> --filter <pattern>  matching paths only (substring)
     \\  field   <node> <key>               one top-level frontmatter scalar
+    \\  field   --file <path> <key>        same, from a file directly -- no vault node needed
     \\  stale                              nodes whose files no longer match
     \\  drift                              what changed since each node's commit
     \\  grounding                          nodes whose evidence no longer matches
@@ -227,18 +242,37 @@ fn cmdSources(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []const
 
 fn cmdField(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []const u8, w: *Io.Writer) !u8 {
     if (rest.len != 2 or rest[0].len == 0 or rest[1].len == 0) return usage();
-    if (std.mem.eql(u8, rest[1], "sources")) {
+    const text = (try need(ctx, io, rest[0])) orelse return 1;
+    defer gpa.free(text);
+    return writeField(text, rest[1], w);
+}
+
+/// `field --file <path> <key>`'s own body: same field logic, a plain file read
+/// in place of a vault-node lookup. For a file with no node identity yet -- a
+/// pre-push `b-NN.md` draft, most concretely -- so a caller checking one gets
+/// the exact quote-stripping and prefix-match rules `push-nodes` itself trusts
+/// (`core.query.field`), rather than a hand-rolled `grep`/`sed` re-deriving
+/// them and risking disagreement with the tool that decides the real outcome.
+fn cmdFieldFile(gpa: Allocator, io: Io, path: []const u8, key: []const u8, w: *Io.Writer) !u8 {
+    const text = Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(256 << 20)) catch {
+        std.debug.print("{s}: no such file: {s}\n", .{ prog, path });
+        return 1;
+    };
+    defer gpa.free(text);
+    return writeField(text, key, w);
+}
+
+fn writeField(text: []const u8, key: []const u8, w: *Io.Writer) !u8 {
+    if (std.mem.eql(u8, key, "sources")) {
         std.debug.print(
             "{s}: 'sources' is a list, not a scalar field -- use: synapse query sources <node>\n",
             .{prog},
         );
         return 2;
     }
-    const text = (try need(ctx, io, rest[0])) orelse return 1;
-    defer gpa.free(text);
     // An absent key prints nothing and exits 0, so a caller can test emptiness
     // without parsing a message.
-    if (core.query.field(text, rest[1])) |v| try w.print("{s}\n", .{v});
+    if (core.query.field(text, key)) |v| try w.print("{s}\n", .{v});
     return 0;
 }
 

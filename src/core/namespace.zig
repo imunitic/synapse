@@ -134,11 +134,31 @@ pub const Registry = struct {
 /// Line by line rather than a whole-content search: a real declaration is
 /// alone on its line at the top of the file, and searching the raw bytes would
 /// risk matching the prefix text sitting inside a comment or string literal
-/// later on.
+/// later on. That alone does not catch a `/* */` block comment, though --
+/// commented-out example code with an unprefixed `package foo;` line reads as
+/// a real declaration otherwise, and it is exactly the shape a stale example
+/// or a disabled alternative leaves behind. Every ecosystem `Rule.kind ==
+/// .in_file` currently targets (Java, Kotlin) uses C-style block comments, so
+/// tracking one bit of "currently inside `/* */`" across lines -- not a real
+/// comment parser, just enough to skip what it hides -- closes that gap
+/// without a per-language lexer.
 pub fn extractField(content: []const u8, prefix: []const u8, terminator: ?[]const u8) ?[]const u8 {
     var lines = std.mem.splitScalar(u8, content, '\n');
+    var in_block_comment = false;
     while (lines.next()) |raw| {
         const line = std.mem.trimStart(u8, raw, " \t");
+        if (in_block_comment) {
+            if (std.mem.indexOf(u8, line, "*/") != null) in_block_comment = false;
+            continue;
+        }
+        if (std.mem.indexOf(u8, line, "/*")) |start| {
+            // Whether or not this line also closes the comment (`/* x */`),
+            // a declaration sharing a line with a block-comment delimiter is
+            // not the "alone on its line" shape a real one has -- skip the
+            // whole line rather than trying to read what is left of it.
+            in_block_comment = std.mem.indexOf(u8, line[start..], "*/") == null;
+            continue;
+        }
         if (!std.mem.startsWith(u8, line, prefix)) continue;
         const rest = line[prefix.len..];
         const value = if (terminator) |t|
@@ -228,6 +248,31 @@ test "extractField: an unterminated prefix line is skipped, not truncated" {
 
 test "extractField: a blank extracted value is null, not empty" {
     try testing.expectEqual(@as(?[]const u8, null), extractField("package ;\n", "package ", ";"));
+}
+
+test "extractField: a multi-line block comment does not smuggle in a fake declaration" {
+    try testing.expectEqualStrings(
+        "real",
+        extractField(
+            "/*\npackage com.example.old;\n*/\npackage real;\n",
+            "package ",
+            ";",
+        ).?,
+    );
+}
+
+test "extractField: a single-line block comment is skipped too" {
+    try testing.expectEqualStrings(
+        "real",
+        extractField("/* package com.example.old; */\npackage real;\n", "package ", ";").?,
+    );
+}
+
+test "extractField: no real declaration after a block comment is still null" {
+    try testing.expectEqual(
+        @as(?[]const u8, null),
+        extractField("/*\npackage com.example.old;\n*/\nclass Foo {}\n", "package ", ";"),
+    );
 }
 
 test "dirOf and baseOf split on the last slash" {

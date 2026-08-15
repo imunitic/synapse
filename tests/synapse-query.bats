@@ -409,6 +409,51 @@ write_fenced_node() {
   [[ "$output" == *"use: synapse query sources"* ]]
 }
 
+@test "field --file: reads a plain file directly, no vault node or namespace needed" {
+  mkdir -p "$REPO"
+  printf -- '---\nsummary: "A one-line draft summary."\n---\n\n## Summary\n' > "$REPO/b-01.md"
+
+  run run_query field --file b-01.md summary
+  [ "$status" -eq 0 ]
+  [ "$output" = "A one-line draft summary." ]
+}
+
+@test "field --file: an absent key prints nothing and exits 0" {
+  mkdir -p "$REPO"
+  printf -- '---\nsummary: "x"\n---\n' > "$REPO/b-01.md"
+
+  run run_query field --file b-01.md nonexistent_key
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "field --file: a missing file exits 1 with a clear message" {
+  mkdir -p "$REPO"
+
+  run run_query field --file nope.md summary
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"no such file"* ]]
+}
+
+@test "field --file: still refuses 'sources' with exit 2" {
+  mkdir -p "$REPO"
+  printf -- '---\nsummary: "x"\n---\n' > "$REPO/b-01.md"
+
+  run run_query field --file b-01.md sources
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"use: synapse query sources"* ]]
+}
+
+@test "field --file: a missing path or key is a usage error" {
+  mkdir -p "$REPO"
+  printf -- '---\nsummary: "x"\n---\n' > "$REPO/b-01.md"
+
+  run run_query field --file
+  [ "$status" -eq 2 ]
+  run run_query field --file b-01.md
+  [ "$status" -eq 2 ]
+}
+
 @test "unknown subcommand and no subcommand both exit 2" {
   make_repo
   run run_query bogus

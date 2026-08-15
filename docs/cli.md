@@ -110,6 +110,7 @@ usage: synapse query <subcommand> [args]
   sources <node> --modules           module<TAB>count, byte sorted
   sources <node> --filter <pattern>  matching paths only (substring)
   field   <node> <key>               one top-level frontmatter scalar
+  field   --file <path> <key>        same, from a file directly -- no vault node needed
   stale                              nodes whose files no longer match
   drift                              what changed since each node's commit
   grounding                          nodes whose evidence no longer matches

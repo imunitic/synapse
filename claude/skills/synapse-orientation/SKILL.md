@@ -74,6 +74,27 @@ is about the gap between what the code calls itself and what the *directory* cal
    vocabulary of the domain, and clusters of related names (a state machine, a configuration
    family) are what a node's prose should be about.
 
+**Namespace rules are self-populating too, the same way grammar discovery below is — write one
+back when question 3 turns up a well-known ecosystem.** `~/.claude/synapse-namespace-rules.conf`
+starts empty and nothing seeds it, so `namespaces.tsv` stays empty forever unless something
+writes a rule into it. If you just hand-derived a namespace root for an ecosystem this repo uses
+and `synapse-namespace-rules.conf` has no entry for its extension yet, the derivation you just
+did *is* the rule — write it back (create the file as `{}` first if it doesn't exist) so the next
+repo in this ecosystem gets `namespaces.tsv` for free instead of a repeat of this same
+by-hand analysis. Known shapes, verified against one real file in *this* repo before writing --
+a wrong guess caches a bad rule for every future project in the ecosystem, not just this one:
+
+| ecosystem | kind | file | prefix | terminator |
+|---|---|---|---|---|
+| Java | in-file | — | `package ` | `;` |
+| Kotlin | in-file | — | `package ` | (none — end of line) |
+| Go | build-file | `go.mod` | `module ` | (none — end of line) |
+| Rust | build-file | `Cargo.toml` | `name = "` | `"` |
+| OCaml (dune) | build-file | `dune` | `(name ` | `)` |
+
+An ecosystem not on this list is real research, not a lookup — same as an unrecognised grammar
+below: find the declaration convention, verify it against a real file, then write the rule.
+
 **Answer these with aggregate shell over the path lists, not by reading files.** Reading is
 internal and free; only what you print costs tokens, so a 15,000-file cluster should collapse to
 a few dozen lines before you read anything. Then let `synapse rank` pick which 2–4 files per

@@ -43,6 +43,19 @@
 //!
 //! The edges are fact; which ones make it into a node's prose is advice, and
 //! stays the author's call.
+//!
+//! ## A symbol defined in more than one node is not rare, it is ambiguous
+//!
+//! Rarity alone is not enough: `run`/`open`/`close` clear the rarity bar in a
+//! repo with a handful of unrelated types that each define one, and joining
+//! by bare name (`_refs.tsv` carries no receiver or type) would fan an edge
+//! out from every node that *reads* the name to *every* node that defines
+//! it -- most of those edges pointing at the wrong definition. A name with
+//! exactly one definer is unambiguous by construction: whatever reads it can
+//! only mean that one. A name defined more than once is treated the same as
+//! "too common" and contributes no edges at all, even though some of its
+//! individual def/ref pairs might be genuine -- the false edges a wrong guess
+//! would add cost more than the true edges a right guess would have kept.
 
 const std = @import("std");
 const refs = @import("refs.zig");
@@ -162,7 +175,10 @@ pub fn compute(
         // name defined in five places but read from nowhere contributes no
         // edges at all, and correctly so: nothing points at it.
         if (sets.ref.count() == 0 or sets.ref.count() > rare_max) continue;
-        if (sets.def.count() == 0) continue;
+        // Exactly one definer, not merely at least one: a name two or more
+        // nodes define is ambiguous no matter how rare its references are --
+        // see the module docstring's "not rare, it is ambiguous" note.
+        if (sets.def.count() != 1) continue;
 
         var ref_it = sets.ref.keyIterator();
         while (ref_it.next()) |from_node| {
@@ -336,6 +352,28 @@ test "a symbol referenced from too many nodes is not rare, and produces no edge"
         "Common\tref\tcall\ta/A.java:1\tCommon.run();\n" ++
         "Common\tref\tcall\tb/B.java:1\tCommon.run();\n" ++
         "Common\tref\tcall\tc/C.java:1\tCommon.run();\n";
+
+    var edges = try compute(gpa, refs_table, &pm, 10, .{});
+    defer free(gpa, &edges);
+    try testing.expectEqual(@as(usize, 0), edges.items.len);
+}
+
+test "a symbol defined in two unrelated nodes produces no edge to either" {
+    const gpa = testing.allocator;
+    // A and B each define `run`; C reads it. Without the def.count()==1
+    // guard this would fan out C -> A and C -> B, both false: nothing in
+    // `_refs.tsv` says which `run` C actually meant.
+    var pm = try pathMap(gpa, &.{
+        .{ .path = "a/A.java", .nodes = &.{"A"} },
+        .{ .path = "b/B.java", .nodes = &.{"B"} },
+        .{ .path = "c/C.java", .nodes = &.{"C"} },
+    });
+    defer freePathMap(gpa, &pm);
+
+    const refs_table =
+        "run\tdef\tmethod\ta/A.java:1\tvoid run() {\n" ++
+        "run\tdef\tmethod\tb/B.java:1\tvoid run() {\n" ++
+        "run\tref\tcall\tc/C.java:1\trun();\n";
 
     var edges = try compute(gpa, refs_table, &pm, 10, .{});
     defer free(gpa, &edges);

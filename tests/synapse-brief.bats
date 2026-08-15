@@ -132,6 +132,15 @@ run_brief() {
   [[ "$output" == *"NN.txt/NN.title"* ]]
 }
 
+@test "a --repo that is not a git repo is an error, not an empty root in a plausible-looking brief" {
+  write_list 01 A a/One.java
+  mkdir -p "$TEST_HOME/not-a-repo"
+  run "$SYNAPSE_BIN" brief --lists "$LISTS" --rank "$RANK" --links "$LINKS" --repo "$TEST_HOME/not-a-repo" --out "$OUT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not inside a git repo"* ]]
+  [ ! -f "$OUT/brief/01.md" ]
+}
+
 @test "defaults to \$SYNAPSE_WORK_DIR for --rank/--links/--out when omitted" {
   write_list 01 A a/One.java
   local work="$TEST_HOME/work"

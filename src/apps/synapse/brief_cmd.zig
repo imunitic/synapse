@@ -109,6 +109,10 @@ pub fn run(
     if (links_path == null) links_path = try std.fmt.allocPrint(arena, "{s}/links.tsv", .{derived.?.path});
 
     const root = try repoRoot(arena, io, repo);
+    if (root.len == 0) {
+        std.debug.print("{s}: not inside a git repo: {s}\n", .{ prog, repo orelse "." });
+        return 1;
+    }
 
     const nodes = try readLists(arena, io, lists);
     if (nodes.len == 0) {
