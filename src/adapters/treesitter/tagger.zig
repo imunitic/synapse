@@ -1,43 +1,21 @@
-//! Runs a grammar's own `queries/tags.scm` and turns the captures into `Tag`s.
+//! Runs a grammar's own `queries/tags.scm` and turns the captures into `Tag`s
+//! -- the part the `tree-sitter` CLI used to do, minus `locals.scm` scope
+//! tracking and regex matching.
 //!
-//! This is the part the `tree-sitter` CLI used to do, and it is smaller than
-//! the CLI's Rust implementation because half of what that implementation
-//! carries is not reachable from these queries: `locals.scm` scope tracking,
-//! and regex matching.
+//! **A tag the query didn't sanction is worse than no tag at all** -- it
+//! poisons the tags cache and every `callers` answer built from it. So
+//! predicates are evaluated, not ignored: on a real OCaml repo, ignoring
+//! them added 123 false call references out of ~10k. The string-comparison
+//! family (`#eq?`, `#not-eq?`, `#any-of?`, `#not-any-of?`) is evaluated;
+//! `#match?` and anything unrecognised is *disabled* rather than ignored,
+//! since assuming a filter passes costs a false tag, assuming it fails only
+//! costs a missing one. Directives (`#strip!`, `#set!`) are skipped, not
+//! refused -- they rewrite a capture, not which nodes matched.
 //!
-//! ## Predicates, and the one rule that governs them
-//!
-//! **A tag that the query did not sanction is worse than no tag at all.**
-//! Absent is visible and recoverable. Wrong quietly poisons the tags cache,
-//! `_refs.tsv`, and every `callers` answer taken from them. Everything below
-//! follows from that.
-//!
-//! Predicates decide which matches count, so ignoring one lets through every
-//! match it was written to exclude. Measured on a real OCaml repository:
-//! evaluating them yields 9,991 call references, ignoring them yields 10,114,
-//! and the extra 123 are things like `^` string concatenation and `@` list
-//! append reported as function calls.
-//!
-//! So the string-comparison family is evaluated -- `#eq?`, `#not-eq?`,
-//! `#any-of?`, `#not-any-of?` -- which is a byte comparison against a capture's
-//! text and nothing more. `#match?` needs a regex engine that the standard
-//! library does not have, so a pattern using it is *disabled* rather than
-//! ignored, and never matches. Unknown predicate names are treated the same
-//! way, because assuming something filters costs a missing tag while assuming
-//! it does not costs a false one.
-//!
-//! Directives are not predicates and are skipped: `#strip!` and `#set!` rewrite
-//! a capture without changing which nodes matched. The distinction is
-//! tree-sitter's own convention -- `?` asks, `!` orders -- and it matters,
-//! because an earlier version refused any query carrying either and so shut out
-//! every grammar that annotates doc comments.
-//!
-//! The convention the captures follow: `@name` marks the identifier, and a
-//! sibling `@definition.<kind>` or `@reference.<kind>` capture supplies the
-//! role and the kind. `definition.class` is `def`/`class`, `reference.call` is
-//! `ref`/`call`. The reported position is the `@name` node's row -- not the
-//! enclosing declaration's -- and the expression is the whole source line that
-//! row sits on.
+//! Captures follow tags.scm's own convention: `@name` marks the identifier,
+//! a sibling `@definition.<kind>`/`@reference.<kind>` supplies role and
+//! kind. Reported position is the `@name` node's row, not the enclosing
+//! declaration's.
 
 const std = @import("std");
 const model = @import("model");
@@ -51,9 +29,8 @@ const Allocator = std.mem.Allocator;
 
 pub const Error = error{
     QueryInvalid,
-    /// Every pattern in the query was disabled for asking something that cannot
-    /// be evaluated, so the query matches nothing. Reported rather than
-    /// returning no tags, which would read as "this file has no symbols".
+    /// Every pattern disabled: the query matches nothing, and that has to
+    /// stay an error rather than read as "this file has no symbols".
     PredicateUnsupported,
     ParseFailed,
 };
@@ -61,25 +38,20 @@ pub const Error = error{
 pub const Tagger = struct {
     query: *c.TSQuery,
     parser: *c.TSParser,
-    /// Which convention `scm` follows -- sb-012. Decides whether `tagFile`
-    /// reads it the `tags.scm` way (`@name` + a sibling `@definition.<kind>`
-    /// / `@reference.<kind>`) or the `locals.scm` way (one
-    /// `@local.definition.<kind>` capture is both the name and the role).
+    /// Which convention `scm` follows (sb-012): tags.scm's `@name` + sibling
+    /// `@definition`/`@reference`, or locals.scm's single
+    /// `@local.definition.<kind>` capture as both name and role.
     query_source: root.QuerySource,
-    /// Only consulted by the `locals.scm` reading, for normalizing a raw
-    /// `@local.definition.<kind>` suffix onto `Tag.kind`'s own vocabulary.
-    /// Unused, and fine to leave null, for every other `query_source`.
+    /// Normalizes a locals.scm kind suffix onto `Tag.kind`'s vocabulary.
+    /// Unused (fine null) for every other `query_source`.
     kind_rules: ?core.kind_synonyms.RuleList,
-    /// This grammar's own tree-sitter scope (e.g. `source.ocaml`), for a
-    /// scoped kind-synonym rule. Unused outside the `locals.scm` reading.
+    /// This grammar's tree-sitter scope (e.g. `source.ocaml`), for a scoped
+    /// kind-synonym rule. Unused outside the locals.scm reading.
     grammar_scope: []const u8,
-    /// Tier 3's own guesses from `node-types.json`, owned by this `Tagger`
-    /// (unlike `kind_rules`, which is global and caller-owned) since a
-    /// classification is specific to the one grammar this `Tagger` was
-    /// built for. `query` above already covers every `has_name_field`
-    /// guess (`node_types.buildQuery` put them there); this is what
-    /// `tagFileWalk` reads for the rest. Null for every `query_source`
-    /// but `.generated`.
+    /// Tier 3's node-types.json guesses, owned by this `Tagger` (unlike
+    /// `kind_rules`, which is global). `query` already covers every
+    /// `has_name_field` guess; `tagFileWalk` reads the rest. Null except
+    /// for `.generated`.
     classification: ?node_types.Classification,
 
     pub fn init(
@@ -96,8 +68,6 @@ pub const Tagger = struct {
             return Error.QueryInvalid;
         errdefer c.ts_query_delete(query);
 
-        // Decided before parsing anything, so an unsupported grammar fails at
-        // load rather than producing a plausible-looking partial answer.
         const patterns = c.ts_query_pattern_count(query);
         var disabled: u32 = 0;
         var i: u32 = 0;
@@ -107,9 +77,6 @@ pub const Tagger = struct {
                 disabled += 1;
             }
         }
-        // Every pattern gone is the same outcome the blanket refusal used to
-        // give, and it has to stay an error: a query that matches nothing would
-        // otherwise report a file as having no symbols at all.
         if (patterns != 0 and disabled == patterns) return Error.PredicateUnsupported;
 
         const parser = c.ts_parser_new() orelse return Error.ParseFailed;
@@ -132,28 +99,17 @@ pub const Tagger = struct {
         if (self.classification) |*cl| cl.deinit();
     }
 
-    /// What a query can ask of a match, and whether this code can answer it.
-    ///
-    /// tree-sitter hands back predicates and directives in one list. They do
-    /// different jobs, and the distinction is its own convention: a name ending
-    /// in `?` asks a question and filters on the answer; a name ending in `!`
-    /// gives an order that rewrites a capture and changes nothing about which
-    /// nodes matched.
+    /// Whether tree-sitter's predicates/directives can be answered here.
+    /// `?` asks and filters; `!` orders and rewrites without filtering.
     pub const Predicate = enum {
-        /// `#strip!`, `#set!`. Rewrites a capture for the caller's benefit. The
-        /// only captures read here are `@name` and the role captures, and no
-        /// shipped directive touches those, so ignoring them is safe.
+        /// `#strip!`, `#set!` -- rewrites a capture, doesn't filter.
         directive,
-        /// Compares a capture's text against literals or another capture, which
-        /// is a byte comparison and nothing more.
+        /// Byte comparisons against a capture's text.
         eq,
         not_eq,
         any_of,
         not_any_of,
-        /// `#match?` and anything unrecognised. `#match?` needs a regex engine,
-        /// which the standard library does not have. Unknown names land here
-        /// deliberately: guessing that something filters costs a missing tag,
-        /// and guessing that it does not costs a false one.
+        /// `#match?` (no regex engine available) and anything unrecognised.
         unevaluable,
 
         fn parse(name: []const u8) Predicate {
@@ -167,14 +123,7 @@ pub const Tagger = struct {
         }
     };
 
-    /// Whether the pattern asks something this code cannot answer, in which case
-    /// it is disabled and never matches.
-    ///
-    /// Disabling rather than ignoring is the whole safety property: an
-    /// unevaluated `#match?` would let through every match it was written to
-    /// exclude, and those go into the tags cache, `_refs.tsv` and every
-    /// `callers` answer taken from them. A missing tag is visible and
-    /// recoverable; a false one is neither.
+    /// Disabled rather than ignored: a false tag is worse than a missing one.
     fn patternIsUnevaluable(query: *c.TSQuery, pattern: u32) bool {
         var count: u32 = 0;
         const steps = c.ts_query_predicates_for_pattern(query, pattern, &count);
@@ -187,10 +136,8 @@ pub const Tagger = struct {
         return false;
     }
 
-    /// The predicate name at step `s`, or null if that step is an argument.
-    ///
-    /// Steps run `name, arg, arg, ..., Done` and repeat, so a name is the first
-    /// step of the list and the first after every `Done`.
+    /// Predicate name at step `s`, or null if `s` is an argument. Steps run
+    /// name,arg,arg,...,Done and repeat.
     fn nameAt(query: *c.TSQuery, steps: [*c]const c.TSQueryPredicateStep, count: u32, s: u32) ?[]const u8 {
         if (s != 0 and steps[s - 1].type != c.TSQueryPredicateStepTypeDone) return null;
         if (s >= count) return null;
@@ -200,11 +147,8 @@ pub const Tagger = struct {
         return ptr[0..len];
     }
 
-    /// Whether every predicate on this match holds.
-    ///
-    /// Called per match rather than per pattern, because the answer depends on
-    /// the text the captures landed on. A pattern reaching here has already been
-    /// checked at load: everything it asks is answerable.
+    /// Per match, not per pattern: the answer depends on the text the
+    /// captures landed on. A pattern reaching here already passed at load.
     fn predicatesHold(self: *const Tagger, match: c.TSQueryMatch, source: []const u8) bool {
         var count: u32 = 0;
         const steps = c.ts_query_predicates_for_pattern(self.query, match.pattern_index, &count);
@@ -218,7 +162,6 @@ pub const Tagger = struct {
             };
             const kind = Predicate.parse(name);
 
-            // The arguments run until the sentinel.
             var end = s + 1;
             while (end < count and steps[end].type != c.TSQueryPredicateStepTypeDone) end += 1;
             const args = steps[s + 1 .. end];
@@ -238,9 +181,8 @@ pub const Tagger = struct {
         source: []const u8,
     ) bool {
         if (args.len < 2) return true;
-        // The first argument is always the capture under test. A predicate whose
-        // first argument is a literal is malformed, and letting the match
-        // through is the wrong direction, so it fails.
+        // First arg is always the capture under test; a literal there is
+        // malformed, so it fails rather than lets the match through.
         if (args[0].type != c.TSQueryPredicateStepTypeCapture) return false;
         const lhs = self.captureText(args[0].value_id, match, source) orelse return false;
 
@@ -265,8 +207,8 @@ pub const Tagger = struct {
         }
     }
 
-    /// The source text a capture landed on, or null when the capture is absent
-    /// from this match or its bytes fall outside the source.
+    /// Source text a capture landed on, or null if absent from this match
+    /// or its bytes fall outside `source`.
     fn captureText(self: *const Tagger, capture_id: u32, match: c.TSQueryMatch, source: []const u8) ?[]const u8 {
         _ = self;
         for (match.captures[0..match.capture_count]) |cap| {
@@ -285,43 +227,24 @@ pub const Tagger = struct {
         return ptr[0..len];
     }
 
-    /// Tags for one file, each with the span the CLI reports.
-    ///
-    /// The span is here rather than on `model.Tag` because only one consumer
-    /// needs it -- the transitional text renderer -- while `Tag` is what the
-    /// cache and `_refs.tsv` are built from, and neither of those records a
-    /// column. Putting it on `Tag` would mean a field the tree-sitter path
-    /// fills and the `_refs.tsv` parser cannot, which is a worse trap than an
-    /// extra return field. It dies with the shim.
-    ///
-    /// Every string in the result is owned by the caller:
-    /// the names and expressions point into `source` while the query runs, and
-    /// `source` routinely outlives nothing at all -- it is read per file and
-    /// dropped -- so they are copied rather than borrowed.
-    /// Dispatches on `query_source` -- see `Tagger`'s own doc comment on that
-    /// field. Every `query_source` produces the identical `Tagged` shape;
-    /// only how a match is read into one differs.
+    /// Tags for one file, with the span the CLI reports (only the
+    /// transitional text renderer needs columns; `Tag`/the cache don't).
+    /// Every string is copied, not borrowed -- `source` doesn't outlive the
+    /// call. Dispatches on `query_source`; every source yields the same
+    /// `Tagged` shape.
     pub fn tagFile(self: *Tagger, gpa: Allocator, source: []const u8) ![]Tagged {
         return switch (self.query_source) {
-            // `.override` is a human-authored file with no convention of
-            // its own mandated, and `tags.scm`'s is the sensible default --
-            // see `$SYNAPSE_GRAMMARS_QUERY_PATH`'s own doc comment.
+            // `.override` is human-authored with no convention of its own;
+            // tags.scm's is the default.
             .tags, .override => self.tagFileTags(gpa, source),
             .locals => self.tagFileLocals(gpa, source),
-            // Tier 3 is two sources at once, not a single reading: `query`
-            // already covers every `has_name_field` guess in the
-            // `tags.scm` shape (`node_types.buildQuery` built it that way),
-            // and `classification`'s walk-only guesses need the bounded
-            // tree-walk `tagFileTags` cannot do. `tagFileGenerated` runs
-            // both and combines them.
+            // Two sources at once: `query` covers every has_name_field
+            // guess, the bounded walk covers the rest.
             .generated => self.tagFileGenerated(gpa, source),
         };
     }
 
-    /// The `tags.scm` convention: `@name` marks the identifier, and a
-    /// sibling `@definition.<kind>`/`@reference.<kind>` supplies the role
-    /// and the kind. Named for its convention now that a second reading
-    /// exists; unchanged in every other respect.
+    /// tags.scm convention: `@name` + sibling `@definition.<kind>`/`@reference.<kind>`.
     fn tagFileTags(self: *Tagger, gpa: Allocator, source: []const u8) ![]Tagged {
         const tree = c.ts_parser_parse_string(self.parser, null, source.ptr, @intCast(source.len)) orelse
             return Error.ParseFailed;
@@ -360,8 +283,7 @@ pub const Tagger = struct {
                 }
             }
 
-            // A pattern with no @name, or none of the role captures, is not a
-            // tag. tags.scm files legitimately contain such patterns.
+            // No @name or no role capture: not a tag (legitimate in tags.scm).
             const node = name_node orelse continue;
             const r = role orelse continue;
 
@@ -391,17 +313,10 @@ pub const Tagger = struct {
         return out.toOwnedSlice(gpa);
     }
 
-    /// The `locals.scm` convention: one `@local.definition.<kind>` capture
-    /// is both the identifier and the role signal -- there is no separate
-    /// `@name` sibling the way `tags.scm` has one. Definitions only, per
-    /// the design's own constraint: `@local.reference` (and anything else,
-    /// `@local.scope` included) is read and ignored, never turned into a
-    /// tag, so it can never reach `_refs.tsv`'s reference rows.
-    ///
-    /// A raw kind suffix is normalized through `kind_rules` before it
-    /// becomes a tag; an unmapped one is dropped, not guessed -- see
-    /// `core.kind_synonyms.RuleList.kindFor`'s own doc comment for why a
-    /// missing mapping and "no rule list at all" are the same outcome here.
+    /// locals.scm convention: one `@local.definition.<kind>` capture is both
+    /// name and role -- no separate `@name`. Definitions only;
+    /// `@local.reference`/`@local.scope` are read and ignored. A raw kind
+    /// suffix is normalized through `kind_rules`; unmapped drops silently.
     fn tagFileLocals(self: *Tagger, gpa: Allocator, source: []const u8) ![]Tagged {
         const tree = c.ts_parser_parse_string(self.parser, null, source.ptr, @intCast(source.len)) orelse
             return Error.ParseFailed;
@@ -429,11 +344,8 @@ pub const Tagger = struct {
                 const cname = raw[0..len];
                 if (!std.mem.startsWith(u8, cname, definition_prefix)) continue;
                 const rest = cname[definition_prefix.len..];
-                // `@local.definition` bare (no kind at all -- real grammars
-                // do this, `tree-sitter-ocaml`'s own `locals.scm` among
-                // them) and `@local.definition.<kind>` are both this
-                // convention; `@local.definitions_list` or similar is not,
-                // and must not be swept in by a prefix match alone.
+                // Bare `@local.definition` and `.definition.<kind>` both
+                // count; `.definitions_list` must not.
                 const raw_kind = if (rest.len == 0)
                     rest
                 else if (rest[0] == '.')
@@ -441,12 +353,8 @@ pub const Tagger = struct {
                 else
                     continue;
 
-                // An empty spelling is still a real spelling, not a reason
-                // to skip matching -- a human can map "no kind at all" onto
-                // a `Tag.kind` the same way as any other, via a rule whose
-                // `match` is `""`. Absence of such a rule drops it, same as
-                // any other unmapped spelling; nothing here treats blank
-                // specially.
+                // Empty is a real spelling too, mappable via a `match: ""`
+                // rule; dropped like any other unmapped one otherwise.
                 const rules = self.kind_rules orelse continue;
                 const kind = rules.kindFor(raw_kind, self.grammar_scope) orelse continue;
 
@@ -478,11 +386,8 @@ pub const Tagger = struct {
         return out.toOwnedSlice(gpa);
     }
 
-    /// Tier 3 (sb-012): the emitted-query pass (`tagFileTags`, reused
-    /// unchanged) plus the bounded tree-walk for whatever `node_types`
-    /// judged declaration-shaped but with no `name` field to query for --
-    /// combined into one result, since nothing downstream needs to know
-    /// which of the two produced a given tag.
+    /// Tier 3: `tagFileTags` (query path) plus the bounded walk
+    /// (declaration-shaped types with no name field), combined.
     fn tagFileGenerated(self: *Tagger, gpa: Allocator, source: []const u8) ![]Tagged {
         const from_query = try self.tagFileTags(gpa, source);
         errdefer freeTagged(gpa, from_query);
@@ -499,11 +404,8 @@ pub const Tagger = struct {
             return from_walk;
         }
 
-        // Both non-empty: combine into one slice. Each `Tagged`'s owned
-        // strings move by value (a `[]const u8` field is a pointer+len
-        // pair, and copying the struct copies that pair, not the bytes it
-        // points to), so only the two now-empty backing arrays are freed
-        // here, never their contents.
+        // Both non-empty: concatenate. Struct fields copy by value, so only
+        // the two backing arrays are freed here, never their contents.
         const combined = try gpa.alloc(Tagged, from_query.len + from_walk.len);
         @memcpy(combined[0..from_query.len], from_query);
         @memcpy(combined[from_query.len..], from_walk);
@@ -512,12 +414,10 @@ pub const Tagger = struct {
         return combined;
     }
 
-    /// The bounded tree-walk: every node in the tree whose type matches one
-    /// of `guesses`' `has_name_field == false` entries becomes a tag, named
-    /// by the nearest single-line `identifier`/`name` descendant within
-    /// depth 3 -- Graft's own fallback shape, see `node_types.zig`'s own
-    /// docstring. A `has_name_field == true` guess is skipped here; `query`
-    /// already covers it.
+    /// Bounded walk: every node matching a `has_name_field == false` guess
+    /// becomes a tag, named by the nearest identifier/name within depth 3
+    /// (Graft's fallback shape). `has_name_field == true` is skipped --
+    /// `query` already covers it.
     fn tagFileWalk(self: *Tagger, gpa: Allocator, source: []const u8, guesses: []const node_types.Guess) ![]Tagged {
         var any_walkable = false;
         for (guesses) |g| {
@@ -543,13 +443,9 @@ pub const Tagger = struct {
     }
 };
 
-/// Depth-first over the whole tree (unbounded -- this walks every
-/// declaration in the file, not just the first), matching `guesses`'
-/// `type_name` at each node and, on a match, running the bounded
-/// name-search below on that node's own children. Recurses into a
-/// matched node's children too: a declaration can nest inside another (a
-/// method inside a class, a function inside a module), and one match must
-/// not hide the ones below it.
+/// Depth-first, unbounded, over the whole tree. Recurses into a matched
+/// node's children too -- a declaration can nest inside another (a method
+/// inside a class), and one match must not hide the ones below it.
 fn walkNode(
     gpa: Allocator,
     node: c.TSNode,
@@ -583,7 +479,7 @@ fn walkNode(
                 .end_col = end.column,
             },
         });
-        break; // one guess per node is enough; a type matches at most one entry
+        break; // one guess per node; a type matches at most one entry
     }
 
     const count = c.ts_node_named_child_count(node);
@@ -593,12 +489,9 @@ fn walkNode(
     }
 }
 
-/// Breadth-first, depth capped at 3, for the nearest `identifier`/`name`
-/// descendant whose text is a single line -- Graft's own bounded fallback,
-/// not a value-type heuristic: a queue rather than plain recursion, so
-/// every depth-1 descendant is checked before any depth-2 one, which is
-/// what "nearest" actually means. `node` itself is never a candidate, only
-/// its descendants.
+/// BFS, depth capped at 3, for the nearest single-line identifier/name
+/// descendant -- a queue so depth-1 is checked before depth-2. `node`
+/// itself is never a candidate.
 fn findNameDescendant(gpa: Allocator, node: c.TSNode, source: []const u8) !?c.TSNode {
     const Item = struct { node: c.TSNode, depth: u32 };
     var queue: std.ArrayListUnmanaged(Item) = .empty;
@@ -632,8 +525,8 @@ fn isSingleLine(text: []const u8) bool {
     return std.mem.indexOfScalar(u8, text, '\n') == null;
 }
 
-/// The whole source line containing `offset`, trimmed of leading and trailing
-/// whitespace -- which is what the CLI prints between its backticks.
+/// The whole source line containing `offset`, trimmed -- what the CLI
+/// prints between its backticks.
 fn lineAt(source: []const u8, offset: usize) []const u8 {
     var start = offset;
     while (start > 0 and source[start - 1] != '\n') start -= 1;
@@ -642,27 +535,17 @@ fn lineAt(source: []const u8, offset: usize) []const u8 {
     return std.mem.trim(u8, source[start..end], " \t\r");
 }
 
-/// Re-render a tag in the exact bytes `tree-sitter tags` prints.
-///
-/// Needed only for the transition: `synapse-vocab.sh` and `synapse-rank.sh`
-/// still parse this text, and a shim that changed it by one byte would break
-/// them silently. It disappears when they are ported, since nothing else in
-/// the Zig path ever turns a `Tag` back into a line.
-///
-/// The shape, verified byte for byte against the CLI:
+/// Re-renders a tag as `tree-sitter tags` prints it -- needed only until
+/// `synapse-vocab.sh`/`synapse-rank.sh` (which still parse this text) are
+/// ported.
 ///
 ///     Token     \t | class   \tdef (15, 13) - (15, 18) `public class Token {`
 ///
-/// Name is left-aligned to 10 columns, kind to 8, and neither is truncated
-/// when it is longer -- `IllegalArgumentException` runs straight into its tab.
+/// Name padded to 10 columns, kind to 8, neither truncated when longer.
 pub fn renderCliLine(w: *std.Io.Writer, t: model.Tag, span: Span) !void {
-    // The CLI caps the expression at 180 characters, which is not documented
-    // anywhere and was found by byte-comparing real output: 174 of 2,749 lines
-    // from a 60-file sample sat exactly at 180 and none went past it. Without
-    // the cap the rendered text diverges on every long declaration.
-    // Truncated *then* trimmed: a cut landing mid-gap otherwise leaves a
-    // trailing space the CLI does not print. Found by byte-comparison, one
-    // character wide, on 2 lines out of 2,749.
+    // 180-char cap, undocumented by the CLI -- found by byte-comparison
+    // (174/2,749 sample lines sat exactly at it). Trimmed after truncating,
+    // not before, or a cut mid-gap leaves a trailing space the CLI omits.
     const capped = if (t.expression.len > expr_max) t.expression[0..expr_max] else t.expression;
     const expr = std.mem.trimEnd(u8, capped, " \t");
     try w.print("{s: <10}\t | {s: <8}\t{s} ({d}, {d}) - ({d}, {d}) `{s}`\n", .{
@@ -679,8 +562,7 @@ pub const Tagged = struct {
     span: Span,
 };
 
-/// The `@name` node's span, which is what the CLI reports -- not the enclosing
-/// declaration's, despite the output reading like it might be.
+/// The `@name` node's span -- not the enclosing declaration's.
 pub const Span = struct {
     start_row: u32,
     start_col: u32,
@@ -709,24 +591,17 @@ const testing = std.testing;
 test "predicates are classified into skip, evaluate, and refuse" {
     const P = Tagger.Predicate;
 
-    // Directives rewrite a capture and change nothing about which nodes
-    // matched, so they are skipped. Refusing these shut out every grammar that
-    // annotates doc comments, which is most of them.
     try testing.expectEqual(P.directive, P.parse("strip!"));
     try testing.expectEqual(P.directive, P.parse("set!"));
 
-    // Byte comparisons against a capture's text. Nothing else is needed.
     try testing.expectEqual(P.eq, P.parse("eq?"));
     try testing.expectEqual(P.not_eq, P.parse("not-eq?"));
     try testing.expectEqual(P.any_of, P.parse("any-of?"));
     try testing.expectEqual(P.not_any_of, P.parse("not-any-of?"));
 
-    // Needs a regex engine the standard library does not have.
-    try testing.expectEqual(P.unevaluable, P.parse("match?"));
+    try testing.expectEqual(P.unevaluable, P.parse("match?")); // no regex engine
 
-    // Unknown names refuse rather than pass. A pattern this code cannot
-    // evaluate is disabled, so the error is a missing tag; letting it through
-    // would put a tag the query never sanctioned into every `callers` answer.
+    // Unknown names refuse rather than pass.
     try testing.expectEqual(P.unevaluable, P.parse("is-not?"));
     try testing.expectEqual(P.unevaluable, P.parse("something-new"));
     try testing.expectEqual(P.unevaluable, P.parse(""));
@@ -799,20 +674,11 @@ test "lineAt copes with a file that has no trailing newline" {
     try testing.expectEqualStrings("only line", lineAt(src, 4));
 }
 
-/// A tiny real grammar (sb-013), checked in under `testdata/fake3_grammar` and
-/// generated once with `tree-sitter generate` -- not hand-written, since a
-/// real parser.c is a real state machine, and Tier 3's whole job is walking a
-/// real parse tree. `synapse-fake` cannot stand in here: it replaces
-/// `Extractor`'s `Grammar`/`load`/`tagFile` wholesale and never builds a
-/// `Tagger` or a `TSLanguage` at all, so it cannot reach `tagFileGenerated`,
-/// `tagFileWalk`, `walkNode`, or `findNameDescendant` -- only a real compiled
-/// grammar can.
-///
-/// The grammar has exactly one type of each shape `node_types.classify` cares
-/// about: `function_declaration` has a `name` field (query path, sb-012 tier
-/// 3's emitted-query half), `struct_item` does not (walk path, the bounded
-/// tree-walk half). Distinct kinds (`function` vs `struct`) make which path
-/// produced a given tag legible from the assertion alone.
+/// A tiny real grammar (sb-013, generated once with `tree-sitter generate`,
+/// checked in under `testdata/fake3_grammar`) -- `synapse-fake` can't stand
+/// in here since it never builds a real `Tagger`/`TSLanguage`.
+/// `function_declaration` has a `name` field (query path); `struct_item`
+/// doesn't (walk path) -- distinct kinds make which path fired legible.
 fn writeFake3Fixture(io: std.Io, tmp_dir: std.Io.Dir) !void {
     try tmp_dir.createDirPath(io, "src/tree_sitter");
     try tmp_dir.writeFile(io, .{ .sub_path = "src/parser.c", .data = @embedFile("testdata/fake3_grammar/src/parser.c") });
@@ -850,7 +716,7 @@ test "tagFileGenerated combines the query path and the walk path, in every empti
     defer gpa.free(query);
 
     var tagger = try Tagger.init(lang, query, .generated, null, "test", classification);
-    defer tagger.deinit(); // frees `classification` too -- see Tagger.deinit
+    defer tagger.deinit(); // frees `classification` too
 
     // Both empty: no function_declaration, no struct_item.
     {
@@ -859,7 +725,7 @@ test "tagFileGenerated combines the query path and the walk path, in every empti
         try testing.expectEqual(@as(usize, 0), tagged.len);
     }
 
-    // Query path only: from_walk empty, from_query alone is returned.
+    // Query path only.
     {
         const tagged = try tagger.tagFile(gpa, "fn foo()");
         defer freeTagged(gpa, tagged);
@@ -870,7 +736,7 @@ test "tagFileGenerated combines the query path and the walk path, in every empti
         try testing.expectEqual(model.Role.def, t.role);
     }
 
-    // Walk path only: from_query empty, from_walk alone is returned.
+    // Walk path only.
     {
         const tagged = try tagger.tagFile(gpa, "struct Bar{}");
         defer freeTagged(gpa, tagged);
@@ -881,7 +747,7 @@ test "tagFileGenerated combines the query path and the walk path, in every empti
         try testing.expectEqual(model.Role.def, t.role);
     }
 
-    // Both non-empty: combined into one slice, query results first.
+    // Both non-empty: combined, query results first.
     {
         const tagged = try tagger.tagFile(gpa, "fn foo()\nstruct Bar{}");
         defer freeTagged(gpa, tagged);
