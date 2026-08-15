@@ -33,6 +33,9 @@ matches what you're trying to understand.
   every `claude/lib/synapse/*.sh`. Those scripts are gone; the guarantee got stronger in
   the move, because the source is now the exact bytes a user sees rather than a comment
   that had to match them.
+- **[synapse-config.md](synapse-config.md)** — every conf file under `~/.claude/` and every
+  `SYNAPSE_*`/`OBSIDIAN_*` environment variable, in one place. Hand-maintained, unlike `cli.md` —
+  env vars have no single declaration site to generate a reference from.
 
 Diagrams live in [diagrams/](diagrams/). Each one is a Mermaid source file (`.mmd`) plus a rendered
 `.png`, and the docs embed the PNG rather than a ```mermaid fence — a fence renders on GitHub but shows
