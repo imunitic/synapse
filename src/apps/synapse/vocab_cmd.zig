@@ -259,10 +259,19 @@ pub fn run(
         try std.fmt.allocPrint(gpa, "{s}/.cache/synapse/grammars", .{home});
     defer gpa.free(grammars_dir);
 
-    var ex: Ex = .init(gpa, registry, grammars_dir);
+    const kind_rules_path = if (env.get("SYNAPSE_KIND_SYNONYMS_CONF")) |p|
+        try gpa.dupe(u8, p)
+    else
+        try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-kind-synonyms.conf", .{home});
+    defer gpa.free(kind_rules_path);
+    var kind_rules = try core.kind_synonyms.RuleList.load(gpa, io, kind_rules_path);
+    defer kind_rules.deinit();
+
+    var ex: Ex = .init(gpa, registry, grammars_dir, kind_rules);
     defer ex.deinit();
     if (env.get("SYNAPSE_GRAMMAR_LOCK_TRIES")) |t|
         ex.lock_tries = std.fmt.parseInt(usize, t, 10) catch 300;
+    ex.query_override_dir = env.get("SYNAPSE_GRAMMARS_QUERY_PATH");
 
     // Which extensions have a usable grammar, from the registry rather than a
     // second hardcoded list. A hardcoded copy is how a real, already-registered
@@ -287,7 +296,7 @@ pub fn run(
     };
     defer ns_registry.deinit();
 
-    return build(Ex, gpa, io, env, registry, grammars_dir, ns_registry, trace, .{
+    return build(Ex, gpa, io, env, registry, grammars_dir, kind_rules, ns_registry, trace, .{
         .root = root,
         .out = out,
         .depth = depth,
@@ -343,6 +352,7 @@ fn build(
     env: *std.process.Environ.Map,
     registry: treesitter.Registry,
     grammars_dir: []const u8,
+    kind_rules: core.kind_synonyms.RuleList,
     ns_registry: core.namespace.Registry,
     trace: ?[]const u8,
     opts: Options,
@@ -528,7 +538,9 @@ fn build(
             io: Io,
             registry: treesitter.Registry,
             grammars_dir: []const u8,
+            kind_rules: core.kind_synonyms.RuleList,
             lock_tries: ?usize,
+            query_override_dir: ?[]const u8,
             root: []const u8,
             items: []const PathHash,
             /// One `Update` per file this worker tagged (or attempted to),
@@ -553,9 +565,10 @@ fn build(
             }
 
             fn run(self: *@This()) !void {
-                var ex: Ex = .init(self.gpa, self.registry, self.grammars_dir);
+                var ex: Ex = .init(self.gpa, self.registry, self.grammars_dir, self.kind_rules);
                 defer ex.deinit();
                 if (self.lock_tries) |n| ex.lock_tries = n;
+                ex.query_override_dir = self.query_override_dir;
 
                 var paths = try self.gpa.alloc([]const u8, self.items.len);
                 defer self.gpa.free(paths);
@@ -592,6 +605,7 @@ fn build(
             std.fmt.parseInt(usize, s, 10) catch 300
         else
             null;
+        const query_override_dir = env.get("SYNAPSE_GRAMMARS_QUERY_PATH");
 
         const slots = try gpa.alloc(Worker, workers);
         defer gpa.free(slots);
@@ -608,7 +622,9 @@ fn build(
                 .io = io,
                 .registry = registry,
                 .grammars_dir = grammars_dir,
+                .kind_rules = kind_rules,
                 .lock_tries = lock_tries,
+                .query_override_dir = query_override_dir,
                 .root = opts.root,
                 .items = need[assigned .. assigned + take],
             };

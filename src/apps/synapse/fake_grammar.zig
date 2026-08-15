@@ -24,6 +24,7 @@
 
 const std = @import("std");
 const model = @import("model");
+const core = @import("core");
 const treesitter = @import("treesitter");
 
 const Allocator = std.mem.Allocator;
@@ -45,8 +46,13 @@ pub const FakeBackend = struct {
         name: []const u8,
         sub_path: ?[]const u8,
         sub_symbol: ?[]const u8,
+        source: treesitter.QuerySource,
+        ext: []const u8,
+        query_override_dir: ?[]const u8,
+        kind_rules: core.kind_synonyms.RuleList,
+        scope: []const u8,
     ) !Grammar {
-        _ = .{ gpa, io, repo_dir, grammars_dir, name, sub_path, sub_symbol };
+        _ = .{ gpa, io, repo_dir, grammars_dir, name, sub_path, sub_symbol, source, ext, query_override_dir, kind_rules, scope };
     }
 
     pub fn release(g: Grammar, gpa: Allocator) void {

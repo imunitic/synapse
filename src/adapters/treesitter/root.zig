@@ -43,17 +43,32 @@ pub const abi_max = c.TREE_SITTER_LANGUAGE_VERSION;
 pub const grammar = @import("grammar.zig");
 pub const tagger = @import("tagger.zig");
 pub const extractor = @import("extractor.zig");
+pub const node_types = @import("node_types.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const Extractor = ports.Extractor;
 
+/// Which file backs an extension's tags. `tags`/`locals`/`generated` are
+/// recorded in the registry's own `"queries"` field (sb-012); `override`
+/// is never recorded there -- it is resolved fresh from
+/// `$SYNAPSE_GRAMMARS_QUERY_PATH` on every call and always wins over
+/// whatever the registry says, so a caller checks for it before consulting
+/// `Readiness` at all rather than finding it as a fourth registry value.
+pub const QuerySource = enum { tags, locals, generated, override };
+
+/// `Readiness.ready`'s payload, named rather than inline: a caller that
+/// needs to hold onto it past the `switch` that unwraps it (`extractor.zig`
+/// does, to reach `Backend.load`) needs a type it can spell, and Zig treats
+/// two structurally-identical anonymous struct literals as distinct types.
+pub const Ready = struct { scope: []const u8, source: QuerySource };
+
 /// What the registry can say about one extension. The three cases are the
 /// script's three exit codes, and callers act differently on each: `no_entry`
 /// is a prompt to run grammar discovery and retry, `unusable` is final.
 pub const Readiness = union(enum) {
-    /// tree-sitter scope, e.g. `source.java`.
-    ready: []const u8,
+    /// tree-sitter scope, e.g. `source.java`, and which file backs its tags.
+    ready: Ready,
     /// Registered, but marked `unsupported: true`, or missing repo/scope.
     unusable,
     /// No registry entry at all.
@@ -93,7 +108,24 @@ pub const Registry = struct {
         const scope = obj.get("scope") orelse return .unusable;
         if (repo != .string or scope != .string) return .unusable;
         if (repo.string.len == 0 or scope.string.len == 0) return .unusable;
-        return .{ .ready = scope.string };
+        return .{ .ready = .{ .scope = scope.string, .source = queriesFieldFor(obj) } };
+    }
+
+    /// The registry's own `"queries"` field, parsed -- `"tags"` (the
+    /// default when absent, so every entry written before sb-012 stays
+    /// valid with no migration), `"locals"`, or `"generated"`. A present
+    /// but unrecognised value (wrong type, typo'd string) is treated the
+    /// same as absent rather than refused: this field is advisory routing
+    /// for an entry whose `repo`/`scope` already passed validation above,
+    /// not a second gate on top of it, so a malformed `"queries"` value
+    /// falls back to the safest known-working answer instead of turning an
+    /// otherwise-fine entry `.unusable`.
+    fn queriesFieldFor(obj: std.json.ObjectMap) QuerySource {
+        const v = obj.get("queries") orelse return .tags;
+        if (v != .string) return .tags;
+        if (std.mem.eql(u8, v.string, "locals")) return .locals;
+        if (std.mem.eql(u8, v.string, "generated")) return .generated;
+        return .tags;
     }
 
     /// The clone URL for a usable entry. Separate from `lookup` because the
@@ -251,6 +283,7 @@ test {
     _ = grammar;
     _ = tagger;
     _ = extractor;
+    _ = node_types;
 }
 
 test "libtree-sitter is linked, and its ABI range covers the grammars in use" {
@@ -271,10 +304,31 @@ test "registry: ready, unsupported, and absent are three different answers" {
     defer parsed.deinit();
     const reg: Registry = .{ .parsed = parsed };
 
-    try testing.expectEqualStrings("source.java", reg.lookup("java").ready);
+    try testing.expectEqualStrings("source.java", reg.lookup("java").ready.scope);
     try testing.expect(reg.lookup("sh") == .unusable);
     try testing.expect(reg.lookup("broken") == .unusable); // repo without scope
     try testing.expect(reg.lookup("rs") == .no_entry);
+}
+
+test "queries field: absent means tags, and the recognised values parse" {
+    const json =
+        \\{"java":{"repo":"r","scope":"s"},
+        \\ "ml":{"repo":"r","scope":"s","queries":"locals"},
+        \\ "zig":{"repo":"r","scope":"s","queries":"generated"},
+        \\ "go":{"repo":"r","scope":"s","queries":"typo"},
+        \\ "rs":{"repo":"r","scope":"s","queries":42}}
+    ;
+    var parsed = try std.json.parseFromSlice(std.json.Value, testing.allocator, json, .{});
+    defer parsed.deinit();
+    const reg: Registry = .{ .parsed = parsed };
+
+    try testing.expectEqual(QuerySource.tags, reg.lookup("java").ready.source);
+    try testing.expectEqual(QuerySource.locals, reg.lookup("ml").ready.source);
+    try testing.expectEqual(QuerySource.generated, reg.lookup("zig").ready.source);
+    // Unrecognised or wrong-typed: falls back to the default rather than
+    // refusing an entry whose repo/scope are otherwise valid.
+    try testing.expectEqual(QuerySource.tags, reg.lookup("go").ready.source);
+    try testing.expectEqual(QuerySource.tags, reg.lookup("rs").ready.source);
 }
 
 test "path and symbol are optional, and absent means derive them" {

@@ -164,11 +164,16 @@ pub fn backfill(
     defer registry.deinit();
     const grammars_dir = try grammarsDir(gpa, env);
     defer gpa.free(grammars_dir);
+    const kind_rules_path = try kindRulesPath(gpa, env);
+    defer gpa.free(kind_rules_path);
+    var kind_rules = try core.kind_synonyms.RuleList.load(gpa, io, kind_rules_path);
+    defer kind_rules.deinit();
 
-    var ex: Ex = .init(gpa, registry, grammars_dir);
+    var ex: Ex = .init(gpa, registry, grammars_dir, kind_rules);
     defer ex.deinit();
     if (env.get("SYNAPSE_GRAMMAR_LOCK_TRIES")) |t|
         ex.lock_tries = std.fmt.parseInt(usize, t, 10) catch 300;
+    ex.query_override_dir = env.get("SYNAPSE_GRAMMARS_QUERY_PATH");
 
     try writeTrace(io, trace, paths);
 
@@ -356,6 +361,15 @@ fn grammarsDir(gpa: Allocator, env: *std.process.Environ.Map) ![]u8 {
     if (env.get("SYNAPSE_GRAMMARS_DIR")) |d| return gpa.dupe(u8, d);
     const home = env.get("HOME") orelse return error.NoHome;
     return std.fmt.allocPrint(gpa, "{s}/.cache/synapse/grammars", .{home});
+}
+
+/// `~/.claude/synapse-kind-synonyms.conf` (`SYNAPSE_KIND_SYNONYMS_CONF`
+/// overrides it), same discovery contract as `loadRegistry` above -- absent
+/// is a supported state, per `core.kind_synonyms.RuleList.load`.
+fn kindRulesPath(gpa: Allocator, env: *std.process.Environ.Map) ![]u8 {
+    if (env.get("SYNAPSE_KIND_SYNONYMS_CONF")) |p| return gpa.dupe(u8, p);
+    const home = env.get("HOME") orelse return error.NoHome;
+    return std.fmt.allocPrint(gpa, "{s}/.claude/synapse-kind-synonyms.conf", .{home});
 }
 
 /// Shared with `tags`: the record `synapse-fake` writes so a test can assert

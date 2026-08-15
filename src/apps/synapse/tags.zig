@@ -22,6 +22,7 @@
 
 const std = @import("std");
 const model = @import("model");
+const core = @import("core");
 const treesitter = @import("treesitter");
 
 const Io = std.Io;
@@ -88,10 +89,19 @@ pub fn run(
         try std.fmt.allocPrint(gpa, "{s}/.cache/synapse/grammars", .{home});
     defer gpa.free(grammars_dir);
 
-    var ex: Ex = .init(gpa, registry, grammars_dir);
+    const kind_rules_path = if (env.get("SYNAPSE_KIND_SYNONYMS_CONF")) |p|
+        try gpa.dupe(u8, p)
+    else
+        try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-kind-synonyms.conf", .{home});
+    defer gpa.free(kind_rules_path);
+    var kind_rules = try core.kind_synonyms.RuleList.load(gpa, io, kind_rules_path);
+    defer kind_rules.deinit();
+
+    var ex: Ex = .init(gpa, registry, grammars_dir, kind_rules);
     defer ex.deinit();
     if (env.get("SYNAPSE_GRAMMAR_LOCK_TRIES")) |t|
         ex.lock_tries = std.fmt.parseInt(usize, t, 10) catch 300;
+    ex.query_override_dir = env.get("SYNAPSE_GRAMMARS_QUERY_PATH");
 
     if (std.mem.eql(u8, first, "--paths")) {
         const list_file = args.next() orelse return 1;

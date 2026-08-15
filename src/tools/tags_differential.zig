@@ -37,7 +37,10 @@ pub fn main(init: std.process.Init) !u8 {
     const scm_path = try std.fs.path.join(gpa, &.{ repo_dir, "queries", "tags.scm" });
     const scm = try cwd.readFileAlloc(io, scm_path, gpa, .unlimited);
 
-    var tagger = try treesitter.tagger.Tagger.init(lang, scm);
+    // Always tags.scm (line 37 above), so `query_source` is fixed and
+    // `kind_rules`/`grammar_scope` are unused -- see `Tagger`'s own doc
+    // comments on those fields.
+    var tagger = try treesitter.tagger.Tagger.init(lang, scm, .tags, null, "", null);
     defer tagger.deinit();
 
     var out: std.Io.Writer.Allocating = .init(gpa);

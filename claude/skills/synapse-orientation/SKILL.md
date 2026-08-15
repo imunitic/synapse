@@ -167,18 +167,64 @@ contribute to a node's prose. Do not build a tally out of those warnings.
      just resolves.
   2. If that doesn't resolve, fall back to a web search for a community-maintained grammar for
      the language.
-  3. Verify before trusting: whatever's found must actually ship a tags query — a repo existing
-     isn't sufficient on its own, and plenty of grammars ship only `queries/highlights.scm`
-     (`tree-sitter-bash` is the notable one: no tags query anywhere in its tree, so `sh` is a
-     genuine `unsupported`). Check **both** the repo root and any sub-grammar subpath, in that
-     order — multi-grammar repos split either way and neither is the rule:
+  3. **Verify before trusting — three tiers, tried in order, and a repo existing is never
+     sufficient on its own for any of them** (sb-012). Stop at the first one that verifies; the
+     registry records which tier actually won, per step 4 below.
+
+     **Tier 1 — `queries/tags.scm`.** Check **both** the repo root and any sub-grammar subpath,
+     in that order — multi-grammar repos split either way and neither is the rule:
      `tree-sitter-ocaml` puts a query under each of its three sub-grammars in `grammars/`, while
      `tree-sitter-typescript` keeps a single shared `queries/tags.scm` at the root serving both
-     its `typescript/` and `tsx/` sub-grammars.
+     its `typescript/` and `tsx/` sub-grammars. Plenty of grammars ship only
+     `queries/highlights.scm` and no tags query at all — a repo existing there proves nothing by
+     itself, only reading the file does.
+
+     **Tier 2 — `queries/locals.scm`, when tier 1 is absent.** Read it and judge whether its
+     `@local.definition.*` captures are well-formed or noise, the same "verify before trusting"
+     standard as tier 1, not a weaker one just because there is less to work with:
+     `tree-sitter-grammars/tree-sitter-zig`'s locals.scm is well-formed, per-kind captures
+     (`function`, `method`, `type`, `field`, `var`, `parameter`); `GrayJack/tree-sitter-zig`'s
+     captures a bare `@reference` on *every identifier in the file*, which would flood `_refs.tsv`
+     with noise rather than add signal — reject that one, even though the file exists and parses.
+     A capture with **no** kind suffix at all — bare `@local.definition`, not
+     `@local.definition.<kind>` — is not a defect to reject on sight: it is a real, common
+     nvim-treesitter shape (`tree-sitter-ocaml`'s own `locals.scm` does exactly this,
+     `(value_pattern) @local.definition`, confirmed directly), and it maps through the
+     kind-synonym rule list the same as any suffixed one, keyed by the empty string.
+
+     Then **run it**, against a real sample file from the repo being oriented in, not just read the
+     `.scm` text — a query whose every pattern leans on a predicate the evaluator can't answer
+     (`#match?`, or any unrecognised predicate name) fails to *load* at all rather than matching
+     zero, a distinct outcome (`Error.PredicateUnsupported`) that is an outright reject exactly
+     like a candidate that matched nothing, not a puzzle to work around.
+
+     **Tier 3 — a query/walk generated from `node-types.json`, when neither tier above is
+     usable.** `node-types.json` is a build artifact `tree-sitter generate` always produces, so
+     this tier is available for nearly every grammar — which makes verification about *quality*,
+     not presence: run it against a real sample file the same way as tier 2, and judge whether
+     what it caught is useful signal. The zero-cost floor (a candidate matching literally nothing
+     is auto-rejected, no judgement needed) is the only mechanical check; everything else is read
+     and decided by eye. Expect this tier to be genuinely weak, not merely cautious about it — two
+     concrete, confirmed failure shapes, so as not to mistake either for a bug: a grammar using
+     unconventional node names (`maxxnino/tree-sitter-zig`'s `Decl`/`FnProto`, not
+     `*_declaration`) can leave the classifier finding nothing at all; a grammar whose identifier
+     leaf type isn't literally named `identifier` or `name` (`tree-sitter-ocaml` calls its own
+     `value_name`/`value_pattern`, confirmed directly) silently starves the depth-3 name search
+     even when the declaration-shaped node itself was found correctly. Neither is a reason to
+     patch the tier's own logic per language — that is precisely what it is designed not to do.
+
+     **When none of the three verify, or tier 3 verifies but is too weak to be worth keeping:**
+     `$SYNAPSE_GRAMMARS_QUERY_PATH/{ext}.scm` is the sanctioned escape hatch — a human-authored
+     query file that preempts the whole cascade, not a fourth tier to discover automatically. Name
+     it as an option when reporting the outcome (step 5) rather than silently accepting a weak
+     tier 3 or a bare `unsupported`.
   4. Write the result back to `~/.claude/synapse-grammars.conf` (create it as `{}` first if it
-     doesn't exist) — a positive entry (`{"repo": "...", "scope": "..."}`) if verified,
-     `{"unsupported": true}` if nothing checks out. This is a permanent, cross-project cache
-     keyed by extension — every future project skips rediscovery for this language entirely.
+     doesn't exist) — a positive entry (`{"repo": "...", "scope": "..."}`) for whichever tier
+     verified, `{"unsupported": true}` only when all three came up empty or unusable. Record which
+     tier with `"queries"`: omit it (or write `"tags"`) for tier 1, `"locals"` or `"generated"` for
+     the other two — omitted defaults to `"tags"`, so every entry written before this addition
+     stays valid with no migration. This is a permanent, cross-project cache keyed by extension —
+     every future project skips rediscovery for this language entirely, tier decision included.
 
      **The key is the bare extension with no leading dot** — `"rs"`, never `".rs"`, because
      `synapse tags` derives it from the path suffix. Getting this wrong fails *silently*
@@ -189,10 +235,13 @@ contribute to a node's prose. Do not build a tally out of those warnings.
      ```json
      {
        "rs": { "repo": "https://github.com/tree-sitter/tree-sitter-rust", "scope": "source.rust" },
+       "ml": { "repo": "https://github.com/tree-sitter/tree-sitter-ocaml", "scope": "source.ocaml",
+                "path": "grammars/ocaml", "queries": "locals" },
        "sh": { "unsupported": true }
      }
      ```
-  5. Announce the outcome either way ("found/verified a grammar for `.rs`, cached" or "no usable
-     tree-sitter grammar for `.rs`, falling back to full reads"), then retry
-     `synapse tags {path}` now that the registry has an entry (falls back to a full read for
-     this file per the Exit 1 case above if discovery came up empty).
+  5. Announce the outcome either way — name which tier, when one verified ("found/verified a
+     `locals.scm`-based fallback for `.rs`, cached" or "no usable tree-sitter grammar for `.rs`,
+     falling back to full reads") — then retry `synapse tags {path}` now that the registry has an
+     entry (falls back to a full read for this file per the Exit 1 case above if discovery came up
+     empty).

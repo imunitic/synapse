@@ -23,9 +23,11 @@
 const std = @import("std");
 const model = @import("model");
 const ports = @import("ports");
+const core = @import("core");
 const root = @import("root.zig");
 const grammar = @import("grammar.zig");
 const tagger_mod = @import("tagger.zig");
+const node_types = @import("node_types.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -48,6 +50,23 @@ pub const TsBackend = struct {
         /// An explicit `tree_sitter_*` name, or null to derive it from the repo
         /// name. See `Registry.symbolFor`.
         sub_symbol: ?[]const u8,
+        /// What the registry says backs this extension's tags. Overridden by
+        /// `query_override_dir` below when that override actually applies --
+        /// see there for why `source` alone is not the final word.
+        source: root.QuerySource,
+        /// This extension, bare, no leading dot -- for building the override
+        /// path below. Not used for anything else here; `name`/`sub_path` are
+        /// already what locates the grammar itself.
+        ext: []const u8,
+        /// `$SYNAPSE_GRAMMARS_QUERY_PATH` (sb-012), or null for "no override
+        /// configured." `{this}/{ext}.scm`, when it exists, wins over `source`
+        /// entirely -- checked first, below, before `source` is ever read.
+        query_override_dir: ?[]const u8,
+        /// Passed straight to `Tagger.init` -- see its own doc comment.
+        kind_rules: core.kind_synonyms.RuleList,
+        /// This extension's tree-sitter scope (`Readiness.ready.scope`),
+        /// passed straight to `Tagger.init` for the same reason.
+        scope: []const u8,
     ) !Grammar {
         const symbol = if (sub_symbol) |s| try gpa.dupe(u8, s) else try grammar.symbolFor(gpa, name);
         defer gpa.free(symbol);
@@ -75,14 +94,77 @@ pub const TsBackend = struct {
 
         const lang = try grammar.load(gpa, lib_path, symbol);
 
-        const scm_path = try std.fs.path.join(gpa, &.{ repo_dir, "queries", "tags.scm" });
+        // Override (sb-012): checked first, wins over every tier including
+        // `tags.scm` -- a human placing this file has already done the
+        // judgment call the tier cascade below exists to approximate.
+        // `error.FileNotFound` is "no override for this extension," the
+        // ordinary case; anything else (permission denied, a read failure)
+        // propagates rather than silently falling through to the cascade,
+        // the same shape `core.namespace.Registry.load` already uses for an
+        // absent-vs-broken config file.
+        if (query_override_dir) |dir| {
+            const override_name = try std.fmt.allocPrint(gpa, "{s}.scm", .{ext});
+            defer gpa.free(override_name);
+            const override_path = try std.fs.path.join(gpa, &.{ dir, override_name });
+            defer gpa.free(override_path);
+            const overridden = Io.Dir.cwd().readFileAlloc(io, override_path, gpa, .limited(1 << 20)) catch |e| switch (e) {
+                error.FileNotFound => null,
+                else => return e,
+            };
+            if (overridden) |scm| {
+                defer gpa.free(scm);
+                const t = try gpa.create(Tagger);
+                errdefer gpa.destroy(t);
+                // `.override`, not `source`: an override always reads the
+                // tags.scm convention regardless of what the registry says
+                // backs this extension normally -- see `Tagger.tagFile`'s
+                // own dispatch comment.
+                t.* = try Tagger.init(lang, scm, .override, kind_rules, scope, null);
+                return t;
+            }
+        }
+
+        // Tier 3 (sb-012): no static file to read at all -- the query is
+        // synthesized from `node-types.json`, which lives beside
+        // `src/parser.c` (i.e. under `src_root`, not `repo_dir`), so a
+        // sub-grammar gets its own schema the same way it gets its own
+        // parser. `Tagger` owns `classification` from here on (see its own
+        // doc comment on that field); this function does not free it.
+        if (source == .generated) {
+            const node_types_path = try std.fs.path.join(gpa, &.{ src_root, "src", "node-types.json" });
+            defer gpa.free(node_types_path);
+            var classification = try node_types.classify(gpa, io, node_types_path);
+            errdefer classification.deinit();
+
+            const generated_query = try node_types.buildQuery(gpa, classification.guesses);
+            defer gpa.free(generated_query);
+
+            const t = try gpa.create(Tagger);
+            errdefer gpa.destroy(t);
+            t.* = try Tagger.init(lang, generated_query, .generated, kind_rules, scope, classification);
+            return t;
+        }
+
+        // Tier 1/2 (sb-012): a static file in the clone, same directory
+        // either way -- the tags query never moves with a sub-grammar's
+        // `sub_path`, and neither does `locals.scm`.
+        const scm_filename = switch (source) {
+            .tags => "tags.scm",
+            .locals => "locals.scm",
+            .generated => unreachable, // handled above, already returned
+            // Not reachable via the registry (`QuerySource`'s own doc
+            // comment) -- the block above is what actually implements
+            // `.override`'s effect, ahead of this switch entirely.
+            .override => unreachable,
+        };
+        const scm_path = try std.fs.path.join(gpa, &.{ repo_dir, "queries", scm_filename });
         defer gpa.free(scm_path);
         const scm = try Io.Dir.cwd().readFileAlloc(io, scm_path, gpa, .limited(1 << 20));
         defer gpa.free(scm);
 
         const t = try gpa.create(Tagger);
         errdefer gpa.destroy(t);
-        t.* = try Tagger.init(lang, scm);
+        t.* = try Tagger.init(lang, scm, source, kind_rules, scope, null);
         return t;
     }
 
@@ -108,16 +190,33 @@ pub fn Extractor(comptime Backend: type) type {
         /// `$SYNAPSE_GRAMMARS_DIR`, default `~/.cache/synapse/grammars`. Repos are
         /// cloned under `repos/`, built libraries cached under `lib/`.
         grammars_dir: []const u8,
+        /// The kind-synonym rule list (sb-012), required like `registry` --
+        /// loaded once by the caller (`core.kind_synonyms.RuleList.load`
+        /// tolerates an absent file, so this is never a reason to fail to
+        /// construct an `Extractor`) and borrowed for as long as any
+        /// `Tagger` built from a `locals.scm` reading might consult it.
+        kind_rules: core.kind_synonyms.RuleList,
         /// ~60s at 200ms a try, matching the shell script's default. Bounds a
         /// wedged lock from a crashed holder, not the clone itself.
         lock_tries: usize = 300,
+        /// `$SYNAPSE_GRAMMARS_QUERY_PATH` (sb-012), resolved by the caller the
+        /// same way `grammars_dir` already is. `null` is the common case --
+        /// no override for anything -- and preserves today's behavior exactly.
+        /// When set, `{this}/{ext}.scm` is tried before every tier, for every
+        /// extension, not just ones a caller singles out.
+        query_override_dir: ?[]const u8 = null,
 
         /// null means "known unusable" -- resolved once, reported once, then
         /// skipped without re-resolving.
         grammars: std.StringHashMapUnmanaged(?Backend.Grammar) = .empty,
 
-        pub fn init(gpa: Allocator, registry: root.Registry, grammars_dir: []const u8) Self {
-            return .{ .gpa = gpa, .registry = registry, .grammars_dir = grammars_dir };
+        pub fn init(
+            gpa: Allocator,
+            registry: root.Registry,
+            grammars_dir: []const u8,
+            kind_rules: core.kind_synonyms.RuleList,
+        ) Self {
+            return .{ .gpa = gpa, .registry = registry, .grammars_dir = grammars_dir, .kind_rules = kind_rules };
         }
 
         pub fn deinit(self: *Self) void {
@@ -233,13 +332,15 @@ pub fn Extractor(comptime Backend: type) type {
         fn prepare(self: *Self, io: Io, ext: []const u8) !?Backend.Grammar {
             const gpa = self.gpa;
 
-            // `scope` is still required for an entry to count as usable, matching
-            // the shell script's rule so a registry written for it stays valid --
-            // but nothing here consumes it. It existed to pass `--scope` to the
-            // CLI, and there is no CLI any more.
+            // `scope` was required for an entry to count as usable, matching
+            // the shell script's rule so a registry written for it stays valid,
+            // but went unconsumed until sb-012: `Tagger` now needs it to resolve
+            // a scoped kind-synonym rule for the `locals.scm` reading. `source`
+            // says which file backs this extension's tags, and `Backend.load`
+            // needs it to find the right one.
             const readiness = self.registry.lookup(ext);
-            const repo_url = switch (readiness) {
-                .ready => self.registry.repoFor(ext) orelse return null,
+            const ready: root.Ready = switch (readiness) {
+                .ready => |r| r,
                 .unusable => {
                     std.debug.print("synapse-tags: grammar for .{s} is marked unsupported -- those files are skipped\n", .{ext});
                     return null;
@@ -249,6 +350,7 @@ pub fn Extractor(comptime Backend: type) type {
                     return null;
                 },
             };
+            const repo_url = self.registry.repoFor(ext) orelse return null;
 
             const repos_parent = try std.fs.path.join(gpa, &.{ self.grammars_dir, "repos" });
             defer gpa.free(repos_parent);
@@ -263,6 +365,11 @@ pub fn Extractor(comptime Backend: type) type {
                 grammar.repoNameOf(repo_url),
                 self.registry.pathFor(ext),
                 self.registry.symbolFor(ext),
+                ready.source,
+                ext,
+                self.query_override_dir,
+                self.kind_rules,
+                ready.scope,
             );
         }
     };
@@ -274,8 +381,10 @@ test "an extension with no registry entry is reported once, then skipped" {
     const gpa = testing.allocator;
     var parsed = try std.json.parseFromSlice(std.json.Value, gpa, "{}", .{});
     defer parsed.deinit();
+    var kind_rules = try core.kind_synonyms.RuleList.load(gpa, testing.io, "/nonexistent");
+    defer kind_rules.deinit();
 
-    var ex: TreeSitterExtractor = .init(gpa, .{ .parsed = parsed }, "/nonexistent");
+    var ex: TreeSitterExtractor = .init(gpa, .{ .parsed = parsed }, "/nonexistent", kind_rules);
     defer ex.deinit();
 
 
@@ -292,8 +401,10 @@ test "a file with no extension is unsupported without touching the registry" {
     const gpa = testing.allocator;
     var parsed = try std.json.parseFromSlice(std.json.Value, gpa, "{}", .{});
     defer parsed.deinit();
+    var kind_rules = try core.kind_synonyms.RuleList.load(gpa, testing.io, "/nonexistent");
+    defer kind_rules.deinit();
 
-    var ex: TreeSitterExtractor = .init(gpa, .{ .parsed = parsed }, "/nonexistent");
+    var ex: TreeSitterExtractor = .init(gpa, .{ .parsed = parsed }, "/nonexistent", kind_rules);
     defer ex.deinit();
 
     const out = try ex.port().extract(gpa, testing.io, ".", &.{"Makefile"});

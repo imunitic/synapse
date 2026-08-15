@@ -41,7 +41,9 @@
 
 const std = @import("std");
 const model = @import("model");
+const core = @import("core");
 const root = @import("root.zig");
+const node_types = @import("node_types.zig");
 
 const c = root.c;
 const Allocator = std.mem.Allocator;
@@ -58,8 +60,35 @@ pub const Error = error{
 pub const Tagger = struct {
     query: *c.TSQuery,
     parser: *c.TSParser,
+    /// Which convention `scm` follows -- sb-012. Decides whether `tagFile`
+    /// reads it the `tags.scm` way (`@name` + a sibling `@definition.<kind>`
+    /// / `@reference.<kind>`) or the `locals.scm` way (one
+    /// `@local.definition.<kind>` capture is both the name and the role).
+    query_source: root.QuerySource,
+    /// Only consulted by the `locals.scm` reading, for normalizing a raw
+    /// `@local.definition.<kind>` suffix onto `Tag.kind`'s own vocabulary.
+    /// Unused, and fine to leave null, for every other `query_source`.
+    kind_rules: ?core.kind_synonyms.RuleList,
+    /// This grammar's own tree-sitter scope (e.g. `source.ocaml`), for a
+    /// scoped kind-synonym rule. Unused outside the `locals.scm` reading.
+    grammar_scope: []const u8,
+    /// Tier 3's own guesses from `node-types.json`, owned by this `Tagger`
+    /// (unlike `kind_rules`, which is global and caller-owned) since a
+    /// classification is specific to the one grammar this `Tagger` was
+    /// built for. `query` above already covers every `has_name_field`
+    /// guess (`node_types.buildQuery` put them there); this is what
+    /// `tagFileWalk` reads for the rest. Null for every `query_source`
+    /// but `.generated`.
+    classification: ?node_types.Classification,
 
-    pub fn init(lang: *const c.TSLanguage, scm: []const u8) !Tagger {
+    pub fn init(
+        lang: *const c.TSLanguage,
+        scm: []const u8,
+        query_source: root.QuerySource,
+        kind_rules: ?core.kind_synonyms.RuleList,
+        grammar_scope: []const u8,
+        classification: ?node_types.Classification,
+    ) !Tagger {
         var err_off: u32 = 0;
         var err_type: c.TSQueryError = 0;
         const query = c.ts_query_new(lang, scm.ptr, @intCast(scm.len), &err_off, &err_type) orelse
@@ -86,12 +115,20 @@ pub const Tagger = struct {
         errdefer c.ts_parser_delete(parser);
         if (!c.ts_parser_set_language(parser, lang)) return Error.ParseFailed;
 
-        return .{ .query = query, .parser = parser };
+        return .{
+            .query = query,
+            .parser = parser,
+            .query_source = query_source,
+            .kind_rules = kind_rules,
+            .grammar_scope = grammar_scope,
+            .classification = classification,
+        };
     }
 
     pub fn deinit(self: *Tagger) void {
         c.ts_query_delete(self.query);
         c.ts_parser_delete(self.parser);
+        if (self.classification) |*cl| cl.deinit();
     }
 
     /// What a query can ask of a match, and whether this code can answer it.
@@ -260,7 +297,31 @@ pub const Tagger = struct {
     /// the names and expressions point into `source` while the query runs, and
     /// `source` routinely outlives nothing at all -- it is read per file and
     /// dropped -- so they are copied rather than borrowed.
+    /// Dispatches on `query_source` -- see `Tagger`'s own doc comment on that
+    /// field. Every `query_source` produces the identical `Tagged` shape;
+    /// only how a match is read into one differs.
     pub fn tagFile(self: *Tagger, gpa: Allocator, source: []const u8) ![]Tagged {
+        return switch (self.query_source) {
+            // `.override` is a human-authored file with no convention of
+            // its own mandated, and `tags.scm`'s is the sensible default --
+            // see `$SYNAPSE_GRAMMARS_QUERY_PATH`'s own doc comment.
+            .tags, .override => self.tagFileTags(gpa, source),
+            .locals => self.tagFileLocals(gpa, source),
+            // Tier 3 is two sources at once, not a single reading: `query`
+            // already covers every `has_name_field` guess in the
+            // `tags.scm` shape (`node_types.buildQuery` built it that way),
+            // and `classification`'s walk-only guesses need the bounded
+            // tree-walk `tagFileTags` cannot do. `tagFileGenerated` runs
+            // both and combines them.
+            .generated => self.tagFileGenerated(gpa, source),
+        };
+    }
+
+    /// The `tags.scm` convention: `@name` marks the identifier, and a
+    /// sibling `@definition.<kind>`/`@reference.<kind>` supplies the role
+    /// and the kind. Named for its convention now that a second reading
+    /// exists; unchanged in every other respect.
+    fn tagFileTags(self: *Tagger, gpa: Allocator, source: []const u8) ![]Tagged {
         const tree = c.ts_parser_parse_string(self.parser, null, source.ptr, @intCast(source.len)) orelse
             return Error.ParseFailed;
         defer c.ts_tree_delete(tree);
@@ -328,7 +389,247 @@ pub const Tagger = struct {
 
         return out.toOwnedSlice(gpa);
     }
+
+    /// The `locals.scm` convention: one `@local.definition.<kind>` capture
+    /// is both the identifier and the role signal -- there is no separate
+    /// `@name` sibling the way `tags.scm` has one. Definitions only, per
+    /// the design's own constraint: `@local.reference` (and anything else,
+    /// `@local.scope` included) is read and ignored, never turned into a
+    /// tag, so it can never reach `_refs.tsv`'s reference rows.
+    ///
+    /// A raw kind suffix is normalized through `kind_rules` before it
+    /// becomes a tag; an unmapped one is dropped, not guessed -- see
+    /// `core.kind_synonyms.RuleList.kindFor`'s own doc comment for why a
+    /// missing mapping and "no rule list at all" are the same outcome here.
+    fn tagFileLocals(self: *Tagger, gpa: Allocator, source: []const u8) ![]Tagged {
+        const tree = c.ts_parser_parse_string(self.parser, null, source.ptr, @intCast(source.len)) orelse
+            return Error.ParseFailed;
+        defer c.ts_tree_delete(tree);
+
+        const cursor = c.ts_query_cursor_new() orelse return Error.ParseFailed;
+        defer c.ts_query_cursor_delete(cursor);
+        c.ts_query_cursor_exec(cursor, self.query, c.ts_tree_root_node(tree));
+
+        var out: std.ArrayListUnmanaged(Tagged) = .empty;
+        errdefer {
+            for (out.items) |t| freeTag(gpa, t.tag);
+            out.deinit(gpa);
+        }
+
+        const definition_prefix = "local.definition";
+
+        var match: c.TSQueryMatch = undefined;
+        while (c.ts_query_cursor_next_match(cursor, &match)) {
+            if (!self.predicatesHold(match, source)) continue;
+
+            for (match.captures[0..match.capture_count]) |cap| {
+                var len: u32 = 0;
+                const raw = c.ts_query_capture_name_for_id(self.query, cap.index, &len);
+                const cname = raw[0..len];
+                if (!std.mem.startsWith(u8, cname, definition_prefix)) continue;
+                const rest = cname[definition_prefix.len..];
+                // `@local.definition` bare (no kind at all -- real grammars
+                // do this, `tree-sitter-ocaml`'s own `locals.scm` among
+                // them) and `@local.definition.<kind>` are both this
+                // convention; `@local.definitions_list` or similar is not,
+                // and must not be swept in by a prefix match alone.
+                const raw_kind = if (rest.len == 0)
+                    rest
+                else if (rest[0] == '.')
+                    rest[1..]
+                else
+                    continue;
+
+                // An empty spelling is still a real spelling, not a reason
+                // to skip matching -- a human can map "no kind at all" onto
+                // a `Tag.kind` the same way as any other, via a rule whose
+                // `match` is `""`. Absence of such a rule drops it, same as
+                // any other unmapped spelling; nothing here treats blank
+                // specially.
+                const rules = self.kind_rules orelse continue;
+                const kind = rules.kindFor(raw_kind, self.grammar_scope) orelse continue;
+
+                const node = cap.node;
+                const start_byte = c.ts_node_start_byte(node);
+                const end_byte = c.ts_node_end_byte(node);
+                if (start_byte > source.len or end_byte > source.len) continue;
+
+                const start = c.ts_node_start_point(node);
+                const end = c.ts_node_end_point(node);
+                try out.append(gpa, .{
+                    .tag = .{
+                        .name = try gpa.dupe(u8, source[start_byte..end_byte]),
+                        .role = .def,
+                        .kind = try gpa.dupe(u8, kind),
+                        .line = start.row,
+                        .expression = try gpa.dupe(u8, lineAt(source, start_byte)),
+                    },
+                    .span = .{
+                        .start_row = start.row,
+                        .start_col = start.column,
+                        .end_row = end.row,
+                        .end_col = end.column,
+                    },
+                });
+            }
+        }
+
+        return out.toOwnedSlice(gpa);
+    }
+
+    /// Tier 3 (sb-012): the emitted-query pass (`tagFileTags`, reused
+    /// unchanged) plus the bounded tree-walk for whatever `node_types`
+    /// judged declaration-shaped but with no `name` field to query for --
+    /// combined into one result, since nothing downstream needs to know
+    /// which of the two produced a given tag.
+    fn tagFileGenerated(self: *Tagger, gpa: Allocator, source: []const u8) ![]Tagged {
+        const from_query = try self.tagFileTags(gpa, source);
+        errdefer freeTagged(gpa, from_query);
+
+        const cl = self.classification orelse return from_query;
+        const from_walk = try self.tagFileWalk(gpa, source, cl.guesses);
+        errdefer freeTagged(gpa, from_walk);
+        if (from_walk.len == 0) {
+            gpa.free(from_walk);
+            return from_query;
+        }
+        if (from_query.len == 0) {
+            gpa.free(from_query);
+            return from_walk;
+        }
+
+        // Both non-empty: combine into one slice. Each `Tagged`'s owned
+        // strings move by value (a `[]const u8` field is a pointer+len
+        // pair, and copying the struct copies that pair, not the bytes it
+        // points to), so only the two now-empty backing arrays are freed
+        // here, never their contents.
+        const combined = try gpa.alloc(Tagged, from_query.len + from_walk.len);
+        @memcpy(combined[0..from_query.len], from_query);
+        @memcpy(combined[from_query.len..], from_walk);
+        gpa.free(from_query);
+        gpa.free(from_walk);
+        return combined;
+    }
+
+    /// The bounded tree-walk: every node in the tree whose type matches one
+    /// of `guesses`' `has_name_field == false` entries becomes a tag, named
+    /// by the nearest single-line `identifier`/`name` descendant within
+    /// depth 3 -- Graft's own fallback shape, see `node_types.zig`'s own
+    /// docstring. A `has_name_field == true` guess is skipped here; `query`
+    /// already covers it.
+    fn tagFileWalk(self: *Tagger, gpa: Allocator, source: []const u8, guesses: []const node_types.Guess) ![]Tagged {
+        var any_walkable = false;
+        for (guesses) |g| {
+            if (!g.has_name_field) {
+                any_walkable = true;
+                break;
+            }
+        }
+        if (!any_walkable) return &.{};
+
+        const tree = c.ts_parser_parse_string(self.parser, null, source.ptr, @intCast(source.len)) orelse
+            return Error.ParseFailed;
+        defer c.ts_tree_delete(tree);
+
+        var out: std.ArrayListUnmanaged(Tagged) = .empty;
+        errdefer {
+            for (out.items) |t| freeTag(gpa, t.tag);
+            out.deinit(gpa);
+        }
+
+        try walkNode(gpa, c.ts_tree_root_node(tree), source, guesses, &out);
+        return out.toOwnedSlice(gpa);
+    }
 };
+
+/// Depth-first over the whole tree (unbounded -- this walks every
+/// declaration in the file, not just the first), matching `guesses`'
+/// `type_name` at each node and, on a match, running the bounded
+/// name-search below on that node's own children. Recurses into a
+/// matched node's children too: a declaration can nest inside another (a
+/// method inside a class, a function inside a module), and one match must
+/// not hide the ones below it.
+fn walkNode(
+    gpa: Allocator,
+    node: c.TSNode,
+    source: []const u8,
+    guesses: []const node_types.Guess,
+    out: *std.ArrayListUnmanaged(Tagged),
+) !void {
+    const type_name = std.mem.span(c.ts_node_type(node));
+    for (guesses) |g| {
+        if (g.has_name_field) continue;
+        if (!std.mem.eql(u8, g.type_name, type_name)) continue;
+        const found = (try findNameDescendant(gpa, node, source)) orelse break;
+
+        const start_byte = c.ts_node_start_byte(found);
+        const end_byte = c.ts_node_end_byte(found);
+        if (start_byte > source.len or end_byte > source.len) break;
+        const start = c.ts_node_start_point(found);
+        const end = c.ts_node_end_point(found);
+        try out.append(gpa, .{
+            .tag = .{
+                .name = try gpa.dupe(u8, source[start_byte..end_byte]),
+                .role = .def,
+                .kind = try gpa.dupe(u8, g.kind),
+                .line = start.row,
+                .expression = try gpa.dupe(u8, lineAt(source, start_byte)),
+            },
+            .span = .{
+                .start_row = start.row,
+                .start_col = start.column,
+                .end_row = end.row,
+                .end_col = end.column,
+            },
+        });
+        break; // one guess per node is enough; a type matches at most one entry
+    }
+
+    const count = c.ts_node_named_child_count(node);
+    var i: u32 = 0;
+    while (i < count) : (i += 1) {
+        try walkNode(gpa, c.ts_node_named_child(node, i), source, guesses, out);
+    }
+}
+
+/// Breadth-first, depth capped at 3, for the nearest `identifier`/`name`
+/// descendant whose text is a single line -- Graft's own bounded fallback,
+/// not a value-type heuristic: a queue rather than plain recursion, so
+/// every depth-1 descendant is checked before any depth-2 one, which is
+/// what "nearest" actually means. `node` itself is never a candidate, only
+/// its descendants.
+fn findNameDescendant(gpa: Allocator, node: c.TSNode, source: []const u8) !?c.TSNode {
+    const Item = struct { node: c.TSNode, depth: u32 };
+    var queue: std.ArrayListUnmanaged(Item) = .empty;
+    defer queue.deinit(gpa);
+
+    try queue.append(gpa, .{ .node = node, .depth = 0 });
+    var head: usize = 0;
+    while (head < queue.items.len) : (head += 1) {
+        const item = queue.items[head];
+        if (item.depth > 0) {
+            const type_name = std.mem.span(c.ts_node_type(item.node));
+            if (std.mem.eql(u8, type_name, "identifier") or std.mem.eql(u8, type_name, "name")) {
+                const start = c.ts_node_start_byte(item.node);
+                const end = c.ts_node_end_byte(item.node);
+                if (start <= end and end <= source.len and isSingleLine(source[start..end])) {
+                    return item.node;
+                }
+            }
+        }
+        if (item.depth >= 3) continue;
+        const count = c.ts_node_named_child_count(item.node);
+        var i: u32 = 0;
+        while (i < count) : (i += 1) {
+            try queue.append(gpa, .{ .node = c.ts_node_named_child(item.node, i), .depth = item.depth + 1 });
+        }
+    }
+    return null;
+}
+
+fn isSingleLine(text: []const u8) bool {
+    return std.mem.indexOfScalar(u8, text, '\n') == null;
+}
 
 /// The whole source line containing `offset`, trimmed of leading and trailing
 /// whitespace -- which is what the CLI prints between its backticks.
