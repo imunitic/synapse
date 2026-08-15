@@ -190,7 +190,10 @@ contribute to a node's prose. Do not build a tally out of those warnings.
      `@local.definition.<kind>` — is not a defect to reject on sight: it is a real, common
      nvim-treesitter shape (`tree-sitter-ocaml`'s own `locals.scm` does exactly this,
      `(value_pattern) @local.definition`, confirmed directly), and it maps through the
-     kind-synonym rule list the same as any suffixed one, keyed by the empty string.
+     kind-synonym rule list the same as any suffixed one, keyed by the empty string. That rule
+     list is `~/.claude/synapse-kind-synonyms.conf` (`SYNAPSE_KIND_SYNONYMS_CONF` overrides the
+     path), the same shape and precedence as `synapse-grammars.conf`/`synapse-namespace-rules.conf`
+     — ordered rules, first match wins, absent means no mapping rather than a guessed one.
 
      Then **run it**, against a real sample file from the repo being oriented in, not just read the
      `.scm` text — a query whose every pattern leans on a predicate the evaluator can't answer

@@ -607,6 +607,11 @@ It's optional at every layer, never a hard dependency:
 - Grammars build as native libraries, compiled with `zig cc` (or `cc`/`gcc`/`clang`) and loaded
 with `dlopen`. Not WASM: consuming WASM grammars needs
   a non-default Rust build of the CLI, a worse dependency than the C compiler native grammars need).
+- **Kind-synonym rules** (`~/.claude/synapse-kind-synonyms.conf`, `SYNAPSE_KIND_SYNONYMS_CONF`
+  overrides the path) normalize a grammar's own capture-kind spellings onto `Tag.kind`'s shared
+  vocabulary, for grammars discovered via `locals.scm` (no `tags.scm` of their own) — same shape as
+  the grammar and namespace-rule registries: ordered rules, first match wins, absent means no
+  mapping rather than a guessed one.
 
 One subtlety in reading the output: a qualified-path reference (`Acme_ecs.Foo.bar`) must not also be
 counted as a bare same-package reference to `bar`, or the tags imply edges the code does not contain.
