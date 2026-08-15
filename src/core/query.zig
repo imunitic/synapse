@@ -1,14 +1,8 @@
-//! Reading a node: the parts that are a function of its text.
-//!
-//! `synapse-query.sh`'s nine subcommands split cleanly into what needs the world
-//! -- hashing files for `stale`, `git diff` for `drift`, the tags cache for
-//! `symbol` -- and what is a projection of the node itself. This file is the
-//! second half: frontmatter fields, the source list, the body between the
-//! generated fences, the `## Links` edges, and the module counts.
-//!
-//! Every rule here was an `awk` program, and several were subtle in ways worth
-//! keeping rather than paraphrasing. The comments say which, and the tests pin
-//! each one against the case that made it necessary.
+//! Reading a node: the parts that are a pure function of its text (not
+//! `stale`/`drift`/`symbol`, which need the world). Frontmatter fields, the
+//! source list, the body between generated fences, `## Links` edges, module
+//! counts. Ported from `synapse-query.sh`'s awk; subtle rules are commented
+//! and pinned by a test.
 
 const std = @import("std");
 const node_mod = @import("node.zig");

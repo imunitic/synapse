@@ -1,85 +1,56 @@
 //! Naming a namespace: `synapse/{repo}@{branch}/`.
 //!
-//! One implementation on purpose. `synapse-staleness.sh` carried a comment warning
-//! that a divergent resolution chain makes one component refuse where another
-//! proceeds, and that warning applied to five inline copies of the same logic; the
-//! shell library that replaced them was that chain once, and this is the same chain
-//! again with the git calls lifted out.
+//! One implementation on purpose -- five inline copies of this logic used to
+//! risk one refusing where another proceeds.
 //!
-//! A namespace is keyed by repo **and** branch, so the graph describes one tree rather
-//! than every branch at once. Worktrees need no *disambiguation* of their own: git
-//! refuses to check out one branch in two worktrees of a repository (the main checkout
-//! included), so a branch already names at most one checkout, and there is no
-//! worktree-versus-submodule discrimination anywhere below -- the whole question
-//! reduces to which branch is checked out.
+//! A namespace is keyed by repo **and** branch, so the graph describes one
+//! tree, not every branch at once. Worktrees need no disambiguation of their
+//! own: git refuses to check out one branch in two worktrees, so a branch
+//! already names at most one checkout. What they need is knowing where to
+//! *look*, which is what the `.git`-file/`commondir` handling below is for.
 //!
-//! What they do need is knowing where to *look*, which is what the `.git`-file and
-//! `commondir` handling further down is for. The shell library got that for free by
-//! asking git; reading the files means following the same two hops it follows.
+//! Nothing here spawns git -- four files (`.git`, `HEAD`, `commondir`,
+//! `config`) answer the whole question, and reading them is exact where a
+//! spawn is merely convenient, at zero cost against the hook budget.
 //!
-//! ## Nothing here spawns git, and that is a decision rather than an omission
+//! Not reproduced: `url.<base>.insteadOf` rewriting, which `git remote
+//! get-url` applies and a config read does not. None are configured here
+//! (checked); matching it would mean reimplementing git's whole config
+//! resolution (repo + global + system, `include`/`includeIf`). If one ever
+//! appears, the recorded remote stops matching and every component reports
+//! the mismatch instead of writing -- a namespace is never silently migrated.
 //!
-//! Four files answer the whole question -- `.git`, `HEAD`, `commondir`, `config` -- and
-//! reading them is exact where a spawn is merely convenient. Three spawns per process
-//! is also three spawns inside the hook budget, which is the one place this system is
-//! measured against a person waiting.
-//!
-//! The one behaviour a config read does not reproduce is `url.<base>.insteadOf`
-//! rewriting: `git remote get-url` applies it and reading the file does not. That
-//! matters only for a checkout that has such a rule, there are none configured here
-//! (global, system or local, checked), and such a rule normally lives in
-//! `~/.gitconfig` -- so matching git would mean resolving repo *plus* global *plus*
-//! system config with `include` and `includeIf` directives, which is reimplementing
-//! git's config resolution rather than reading a file.
-//!
-//! If one ever appears, the system already has the right answer for it and does not
-//! need this file to be cleverer: the recorded remote stops matching, every component
-//! reports the mismatch instead of writing, and the remedy is `/synapse-rebuild-full`.
-//! A namespace is never silently migrated.
-//!
-//! ## The linked-worktree shape is handled, because this repo is one
-//!
-//! `.git` may be a *file* holding `gitdir: <path>`. Then `HEAD` lives in that
-//! directory -- per worktree, which is the point -- while `config` lives in the
-//! *common* directory named by `commondir` beside it. Getting that wrong resolves a
-//! worktree to its parent's branch, which is exactly one namespace answering for
-//! another.
+//! Linked worktrees are handled, since this repo is one: `.git` may be a
+//! *file* holding `gitdir: <path>`. Then `HEAD` lives in that per-worktree
+//! directory while `config` lives in the *common* directory `commondir`
+//! names beside it -- getting that backwards resolves a worktree to its
+//! parent's branch.
 
 const std = @import("std");
 
-/// `std.Io.Dir`, which is how `core` reaches both the filesystem *and* the path
-/// helpers -- `ci/check-layering.sh` refuses a bare `std.fs` here, and rightly: a
-/// module that may only touch the system through an injected `Io` should not be able
-/// to name the namespace that does it directly.
+/// `std.Io.Dir`: `core` may only reach the system through an injected `Io`,
+/// so it may not name `std.fs` directly either.
 const Dir = std.Io.Dir;
 
-/// The repo half of the key, taken from the **remote** rather than the directory.
-///
-/// A linked worktree's directory basename differs from its parent's, and that
-/// difference is exactly what must stop mattering -- deriving from the directory would
-/// put one repo's branches under two different names. When there is no remote at all
-/// the caller passes the repo root path, which is what the shell's fallback chain
-/// produced, and the basename of that is a stable name for a local-only project.
+/// The repo half of the key, taken from the **remote**, not the directory --
+/// a linked worktree's directory basename differs from its parent's, and
+/// deriving from it would put one repo's branches under two names. With no
+/// remote, the caller passes the repo root path, whose basename is a stable
+/// name for a local-only project.
 pub fn repoName(remote: []const u8) []const u8 {
     var name = remote;
-    // A trailing slash would otherwise make the basename empty.
-    while (name.len > 1 and name[name.len - 1] == '/') name = name[0 .. name.len - 1];
+    if (name.len > 1 and name[name.len - 1] == '/') name = name[0 .. name.len - 1];
     if (std.mem.lastIndexOfScalar(u8, name, '/')) |at| name = name[at + 1 ..];
-    // `:` for the scp-like form, `git@host:org/repo.git`, whose last segment after a
-    // slash is already the repo -- but a remote with no slash at all (`host:repo.git`)
-    // needs the colon cut too.
+    // `:` for the scp-like form (`git@host:org/repo.git`) -- also needed for
+    // a remote with no slash at all (`host:repo.git`).
     if (std.mem.lastIndexOfScalar(u8, name, ':')) |at| name = name[at + 1 ..];
     if (std.mem.endsWith(u8, name, ".git")) name = name[0 .. name.len - ".git".len];
     return name;
 }
 
-/// The characters a branch name may legally contain that a namespace directory may
-/// not.
-///
-/// Branch names legally contain `/` (`feature/CORE-101490-…`), which would silently
-/// create nesting, and git permits a few characters that are illegal in filenames
-/// elsewhere -- so the vault's own illegal set is translated too rather than trusting
-/// git's ref rules to be a filename whitelist.
+/// Characters a branch name may legally contain that a namespace directory
+/// may not -- git permits `/` and a few others that are illegal filenames
+/// elsewhere, so this is the vault's own illegal set, not git's ref rules.
 pub const illegal_in_branch = "/:*?\"<>|";
 
 /// The branch half, sanitised for use as one directory name.
@@ -91,25 +62,17 @@ pub fn sanitizeBranch(gpa: std.mem.Allocator, branch: []const u8) ![]u8 {
     return out;
 }
 
-/// `{repo}@{branch}`.
-///
-/// `@` rather than `:` because `:` is illegal in a vault filename and renders as `/`
-/// in macOS Finder. Flat rather than nested, so every caller keeps building
-/// `synapse/{ns}/…` with a single variable segment.
+/// `{repo}@{branch}`. `@` rather than `:`, which is illegal in a vault
+/// filename and renders as `/` in macOS Finder.
 pub fn namespace(gpa: std.mem.Allocator, repo: []const u8, sanitised_branch: []const u8) ![]u8 {
     return std.fmt.allocPrint(gpa, "{s}@{s}", .{ repo, sanitised_branch });
 }
 
-/// What a detached HEAD gets: nothing.
-///
-/// `git symbolic-ref --short HEAD` fails there, and that failure is the correct
-/// answer. `rev-parse --abbrev-ref HEAD` returns the literal string `HEAD` instead --
-/// a plausible-looking value identical across every detached checkout everywhere, so
-/// it would silently become a *shared* key. The other reason for `symbolic-ref` is the
-/// opposite case: before the first commit the branch exists but points at nothing,
-/// where `rev-parse` fails with "ambiguous argument 'HEAD'" and `symbolic-ref` reports
-/// the unborn branch correctly -- and a repo mid-`/synapse-init` on a fresh branch is a
-/// real case that should resolve.
+/// What a detached HEAD gets: nothing. `rev-parse --abbrev-ref HEAD` would
+/// return the literal string `HEAD`, identical across every detached
+/// checkout -- a silently *shared* key. `symbolic-ref` also correctly
+/// resolves an unborn branch (before the first commit), where `rev-parse`
+/// fails with "ambiguous argument."
 pub const detached_message =
     "synapse: detached HEAD -- a namespace is keyed by branch, so there is none here";
 
@@ -120,9 +83,7 @@ test "the repo name comes off the remote, in every form a remote takes" {
     try testing.expectEqualStrings("fw-core", repoName("git@github.com:org/fw-core.git"));
     try testing.expectEqualStrings("fw-core", repoName("https://github.com/org/fw-core"));
     try testing.expectEqualStrings("fw-core", repoName("/Users/x/Development/fw-core"));
-    // The scp-like form with no path at all still has to cut the colon.
     try testing.expectEqualStrings("repo", repoName("host:repo.git"));
-    // A trailing slash would otherwise produce an empty name.
     try testing.expectEqualStrings("fw-core", repoName("https://github.com/org/fw-core/"));
 }
 
@@ -135,8 +96,6 @@ test "a branch is sanitised to one directory name" {
     const gpa = testing.allocator;
     const b = try sanitizeBranch(gpa, "feature/CORE-101490-deployment-mode");
     defer gpa.free(b);
-    // The slash is the case that matters: left alone it would silently create
-    // nesting, and every caller builds `synapse/{ns}/…` with one variable segment.
     try testing.expectEqualStrings("feature-CORE-101490-deployment-mode", b);
 
     const nasty = try sanitizeBranch(gpa, "a:b*c?d\"e<f>g|h");
@@ -153,9 +112,7 @@ test "the namespace key is repo@branch" {
 
 test "the shipped namespaces resolve to the names the vault already holds" {
     const gpa = testing.allocator;
-    // The three real remotes, against the three directory names in the vault. This is
-    // the whole contract: a change here renames a namespace, which orphans every node
-    // in it.
+    // A change here renames a namespace, which orphans every node in it.
     const cases = [_]struct { remote: []const u8, branch: []const u8, key: []const u8 }{
         .{
             .remote = "ssh://git@git.devres.internal.adcubum.com:7999/fw/fw-core.git",
@@ -221,15 +178,13 @@ pub const Resolved = struct {
 
 pub const Error = error{
     NotAGitRepo,
-    /// A detached HEAD has no branch and therefore no namespace. The correct answer
-    /// for that checkout rather than a failure to resolve it.
+    /// A detached HEAD has no branch and therefore no namespace.
     DetachedHead,
 };
 
 /// The path a `.git` *file* points at, made absolute against the repo root.
-///
-/// `gitdir: <path>`, and the path may be relative -- git writes an absolute one, but
-/// a repository moved with `git worktree repair`, or one set up by hand, may not.
+/// The path may be relative -- git normally writes an absolute one, but a
+/// repository moved with `git worktree repair`, or set up by hand, may not.
 pub fn parseGitDirFile(content: []const u8) ?[]const u8 {
     var lines = std.mem.splitScalar(u8, content, '\n');
     while (lines.next()) |line| {
@@ -242,13 +197,9 @@ pub fn parseGitDirFile(content: []const u8) ?[]const u8 {
     return null;
 }
 
-/// The branch `HEAD` names, or null for a detached one.
-///
-/// `ref: refs/heads/<branch>` is a symbolic ref; a bare object id is a detached HEAD.
-/// This is `symbolic-ref --short HEAD` and deliberately not `rev-parse --abbrev-ref`:
-/// see `detached_message`. Note it resolves an *unborn* branch too -- before the first
-/// commit `HEAD` already names the branch, which is why the file is the better source
-/// than any command that has to look the ref up.
+/// The branch `HEAD` names, or null for a detached one. `symbolic-ref
+/// --short HEAD`, deliberately not `rev-parse --abbrev-ref` -- see
+/// `detached_message`. Also resolves an *unborn* branch correctly.
 pub fn parseHead(content: []const u8) ?[]const u8 {
     const line = std.mem.trim(u8, content, " \t\r\n");
     if (!std.mem.startsWith(u8, line, "ref:")) return null;
@@ -257,17 +208,13 @@ pub fn parseHead(content: []const u8) ?[]const u8 {
         const branch = ref["refs/heads/".len..];
         return if (branch.len == 0) null else branch;
     }
-    // A symbolic HEAD pointing outside refs/heads is not a branch this can name.
-    return null;
+    return null; // symbolic HEAD outside refs/heads is not a branch this can name
 }
 
 /// `remote.origin.url` from a git config file, else the first remote's url.
-///
-/// A hand-rolled reader for one key, not a config parser: sections, the quoted
-/// subsection form `[remote "origin"]`, `#`/`;` comments, and a quoted value. That is
-/// the whole surface a remote's url occupies in a repository config, and every wider
-/// feature -- includes, conditional includes, multi-valued keys -- belongs to a
-/// resolution chain this deliberately does not reimplement (see the header).
+/// A hand-rolled reader for one key, not a config parser -- includes,
+/// conditional includes and multi-valued keys belong to the resolution
+/// chain this deliberately doesn't reimplement (see the module docstring).
 pub fn remoteUrlFromConfig(config: []const u8, preferred: []const u8) ?[]const u8 {
     var first: ?[]const u8 = null;
     var in_remote = false;
@@ -304,8 +251,7 @@ pub fn remoteUrlFromConfig(config: []const u8, preferred: []const u8) ?[]const u
 
         const eq = std.mem.indexOfScalar(u8, line, '=') orelse continue;
         const key = std.mem.trim(u8, line[0..eq], " \t");
-        // Key names are case-insensitive in git config.
-        if (!std.ascii.eqlIgnoreCase(key, "url")) continue;
+        if (!std.ascii.eqlIgnoreCase(key, "url")) continue; // case-insensitive in git config
         const value = parseConfigValue(std.mem.trim(u8, line[eq + 1 ..], " \t"));
         if (value.len == 0) continue;
         if (is_preferred) return value;
@@ -367,8 +313,7 @@ fn findLayout(gpa: std.mem.Allocator, io: std.Io, cwd: []const u8) !Layout {
         const dot_git = try std.fmt.allocPrint(gpa, "{s}/.git", .{dir});
         const st = Dir.cwd().statFile(io, dot_git, .{}) catch {
             gpa.free(dot_git);
-            // `dirname` of "/" is null, which ends the walk.
-            const parent = Dir.path.dirname(dir) orelse return Error.NotAGitRepo;
+            const parent = Dir.path.dirname(dir) orelse return Error.NotAGitRepo; // dirname("/") is null
             if (parent.len == dir.len) return Error.NotAGitRepo;
             dir = parent;
             continue;
@@ -398,8 +343,8 @@ fn findLayout(gpa: std.mem.Allocator, io: std.Io, cwd: []const u8) !Layout {
             try Dir.path.join(gpa, &.{ repo_root, named });
         errdefer gpa.free(git_dir);
 
-        // `commondir` names where the shared metadata is, relative to the git dir.
-        // `config` is there, never in the per-worktree directory.
+        // `commondir` names where the shared metadata is, relative to the
+        // git dir -- `config` is there, never in the per-worktree directory.
         const common_path = try std.fmt.allocPrint(gpa, "{s}/commondir", .{git_dir});
         defer gpa.free(common_path);
         const common_dir = blk: {
@@ -413,19 +358,14 @@ fn findLayout(gpa: std.mem.Allocator, io: std.Io, cwd: []const u8) !Layout {
             else
                 try Dir.path.join(gpa, &.{ git_dir, trimmed });
             defer gpa.free(joined);
-            // Resolved, because `../..` is the ordinary value and every path built
-            // from it would otherwise carry the dots.
-            break :blk realPath(gpa, io, joined) catch try gpa.dupe(u8, joined);
+            break :blk realPath(gpa, io, joined) catch try gpa.dupe(u8, joined); // resolve ../.. away
         };
         return .{ .repo_root = repo_root, .git_dir = git_dir, .common_dir = common_dir };
     }
 }
 
-/// `origin`, else the first remote in the config, else the repo root path.
-///
-/// The fallback chain is what every component already did. A repo with no remote at
-/// all still gets a stable value, and refusing those outright would turn a working
-/// local-only project into an error.
+/// `origin`, else the first remote in the config, else the repo root path --
+/// a repo with no remote at all still gets a stable value.
 fn resolveRemote(gpa: std.mem.Allocator, io: std.Io, layout: Layout) ![]u8 {
     const config_path = try std.fmt.allocPrint(gpa, "{s}/config", .{layout.common_dir});
     defer gpa.free(config_path);
@@ -437,12 +377,9 @@ fn resolveRemote(gpa: std.mem.Allocator, io: std.Io, layout: Layout) ![]u8 {
     return gpa.dupe(u8, url);
 }
 
-/// The symlink-free form of `path`.
-///
-/// Load-bearing rather than tidy: the staleness hook strips the repo root as a string
-/// prefix off an edited file's path, and macOS routinely reaches a project through a
-/// symlink (`/tmp` -> `/private/tmp`). `git rev-parse --show-toplevel` resolved this,
-/// so the replacement has to as well or every edit under such a path stops matching.
+/// The symlink-free form of `path`. Load-bearing: the staleness hook strips
+/// the repo root as a string prefix off an edited file's path, and macOS
+/// routinely reaches a project through a symlink (`/tmp` -> `/private/tmp`).
 fn realPath(gpa: std.mem.Allocator, io: std.Io, path: []const u8) ![]u8 {
     var dir = try Dir.cwd().openDir(io, path, .{});
     defer dir.close(io);
@@ -456,7 +393,6 @@ test "a .git file names the per-worktree git dir" {
         "/Users/x/Development/synapse/.git/worktrees/zig-rewrite",
         parseGitDirFile("gitdir: /Users/x/Development/synapse/.git/worktrees/zig-rewrite\n").?,
     );
-    // A relative one is legal and the caller joins it against the repo root.
     try testing.expectEqualStrings("../.git/worktrees/wt", parseGitDirFile("gitdir: ../.git/worktrees/wt").?);
     try testing.expectEqual(@as(?[]const u8, null), parseGitDirFile("gitdir:\n"));
     try testing.expectEqual(@as(?[]const u8, null), parseGitDirFile("something else\n"));
@@ -464,14 +400,11 @@ test "a .git file names the per-worktree git dir" {
 
 test "HEAD names a branch, and a detached one names none" {
     try testing.expectEqualStrings("master", parseHead("ref: refs/heads/master\n").?);
-    // A slash in the branch survives here and is sanitised later, not before.
     try testing.expectEqualStrings("feature/CORE-1", parseHead("ref: refs/heads/feature/CORE-1\n").?);
-    // A bare object id is a detached HEAD: no branch, so no namespace.
     try testing.expectEqual(
         @as(?[]const u8, null),
         parseHead("9f1c2b3d4e5f60718293a4b5c6d7e8f901234567\n"),
     );
-    // A symbolic HEAD pointing outside refs/heads cannot be named either.
     try testing.expectEqual(@as(?[]const u8, null), parseHead("ref: refs/remotes/origin/master\n"));
     try testing.expectEqual(@as(?[]const u8, null), parseHead(""));
 }
@@ -482,8 +415,6 @@ test "the remote url comes out of a real config's shape" {
         "[remote \"upstream\"]\n\turl = ssh://git@host/other.git\n\tfetch = +refs/heads/*:refs/remotes/upstream/*\n" ++
         "[remote \"origin\"]\n\turl = ssh://git@host:7999/fw/fw-core.git\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n" ++
         "[branch \"master\"]\n\tremote = origin\n\tmerge = refs/heads/master\n";
-    // `origin` wins wherever it sits in the file, which is the whole point of asking
-    // for it by name rather than taking the first section.
     try testing.expectEqualStrings(
         "ssh://git@host:7999/fw/fw-core.git",
         remoteUrlFromConfig(config, "origin").?,
@@ -498,8 +429,6 @@ test "no origin falls back to the first remote, in file order" {
 }
 
 test "a config with no remote at all yields nothing" {
-    // The caller then falls back to the repo root path, which is what makes a
-    // local-only project work rather than error.
     try testing.expectEqual(
         @as(?[]const u8, null),
         remoteUrlFromConfig("[core]\n\tbare = false\n", "origin"),
@@ -516,12 +445,10 @@ test "comments, quotes and the deprecated subsection form" {
         "[remote \"origin\"]\n\turl = \"ssh://h/r.git\"\n",
         "origin",
     ).?);
-    // `[remote.origin]` is legal, if rare.
     try testing.expectEqualStrings("ssh://h/r.git", remoteUrlFromConfig(
         "[remote.origin]\n\tURL = ssh://h/r.git\n",
         "origin",
     ).?);
-    // A url inside another section is not a remote's.
     try testing.expectEqual(@as(?[]const u8, null), remoteUrlFromConfig(
         "[gui]\n\turl = ssh://h/wrong.git\n",
         "origin",

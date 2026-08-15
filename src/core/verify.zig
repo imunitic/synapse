@@ -1,28 +1,20 @@
 //! Tier-2 verification: whether a node still describes the tree it claims.
 //!
-//! Two questions, two answers, and the difference between them is the whole
-//! design. `stale` asks whether a node's *sources* still hash to what it
-//! recorded -- a yes/no about the file set. `grounding` asks whether the specific
-//! *lines* a sentence rests on are still those lines, and it can distinguish a
-//! range that moved from a range that changed, which is the difference between
-//! "re-point this" and "re-read this".
+//! Two questions: `stale` asks whether a node's *sources* still hash to what
+//! was recorded (yes/no about the file set); `grounding` asks whether the
+//! specific *lines* a sentence rests on are still those lines, distinguishing
+//! a moved range ("re-point this") from a changed one ("re-read this").
 //!
-//! Everything here is a function of bytes. The caller reads files and runs `git`;
-//! this decides what the answer is, so the decisions are testable without a
-//! repository and identical between the two callers that need them.
+//! Everything here is a pure function of bytes -- the caller reads files and
+//! runs `git`, so these decisions are testable without a repository.
 
 const std = @import("std");
 const node_mod = @import("node.zig");
 
 /// A git blob hash: `sha1("blob " ++ decimal-length ++ "\0" ++ content)`.
-///
-/// The script shelled out to `git hash-object --stdin-paths`, one pipe for a
-/// whole node's sources. Computing it directly removes that spawn and is exactly
-/// reproducible -- the format is git's object header, unchanged since 2005, and
-/// the tests check it against `git hash-object` over real files rather than
-/// against this comment.
-///
-/// Returned as 40 lowercase hex characters, the form a node stores.
+/// Computed directly rather than shelling out to `git hash-object`; tests
+/// check it against real `git hash-object` output. 40 lowercase hex chars,
+/// the form a node stores.
 pub fn blobHash(content: []const u8) [40]u8 {
     const raw = blobHashRaw(content);
     var hex: [40]u8 = undefined;
@@ -30,11 +22,8 @@ pub fn blobHash(content: []const u8) [40]u8 {
     return hex;
 }
 
-/// The same hash as 20 raw bytes, which is how the tags cache stores it.
-///
-/// Two forms of one value rather than a hex round trip at the call site: the node
-/// format stores hex and the cache stores bytes, and a caller needing both should
-/// not have to parse its way from one to the other.
+/// The same hash as 20 raw bytes, how the tags cache stores it -- avoids a
+/// hex round trip at call sites needing both forms.
 pub fn blobHashRaw(content: []const u8) [20]u8 {
     var sha: std.crypto.hash.Sha1 = .init(.{});
     var header: [32]u8 = undefined;
@@ -46,28 +35,23 @@ pub fn blobHashRaw(content: []const u8) [20]u8 {
     return raw;
 }
 
-/// Why a node is stale, or that it is not.
-///
-/// Every variant is a distinct answer the script printed, and the distinctions
-/// are load-bearing: "no sources_digest" is a node built before the field
-/// existed and needs a rebuild, while "content changed" is a node whose files
-/// moved on and needs a regeneration. Collapsing them would make the first look
-/// like the second forever.
+/// Why a node is stale, or that it is not. Distinctions are load-bearing:
+/// "no sources_digest" needs a rebuild (pre-dates the field), "content
+/// changed" needs a regeneration (files moved on) -- collapsing them would
+/// make the first look like the second forever.
 pub const Staleness = union(enum) {
-    /// Nothing to report. Silence is the script's "clean", and every reporting
-    /// subcommand relies on empty output meaning exactly that.
+    /// Every reporting subcommand relies on empty output meaning exactly this.
     clean,
     node_file_missing,
     no_digest,
     no_sources,
-    /// Recorded files that are no longer on disk. `git hash-object` would fail
-    /// the whole batch on one, so they are found first and named.
+    /// Recorded files no longer on disk -- `git hash-object` would fail the
+    /// whole batch on one, so these are found and named first.
     sources_gone: []const []const u8,
     hashing_failed,
     content_changed,
 
-    /// The reason text, byte-identical to what the script printed. `sources_gone`
-    /// needs the allocator; every other variant is static.
+    /// `sources_gone` needs the allocator; every other variant is static.
     pub fn reason(self: Staleness, gpa: std.mem.Allocator) ![]const u8 {
         return switch (self) {
             .clean => "",
@@ -80,8 +64,6 @@ pub const Staleness = union(enum) {
                 var out: std.Io.Writer.Allocating = .init(gpa);
                 errdefer out.deinit();
                 try out.writer.writeAll("source files gone: ");
-                // Space-separated, and the script's `${MISSING% }` trimmed the
-                // trailing one it had accumulated.
                 for (paths, 0..) |p, i| {
                     if (i > 0) try out.writer.writeAll(" ");
                     try out.writer.writeAll(p);
@@ -93,10 +75,7 @@ pub const Staleness = union(enum) {
 };
 
 /// What a node's recorded state and its files' current hashes add up to.
-///
-/// `stored_digest` is null when the field is absent; `present` is false when the
-/// node file itself is gone. `hashes` must be parallel to `paths` and hold the
-/// current blob hash of each, with `missing` naming the paths that had none.
+/// `hashes` is parallel to `paths`; `missing` names paths that had none.
 pub fn staleness(
     gpa: std.mem.Allocator,
     present: bool,
@@ -105,10 +84,7 @@ pub fn staleness(
     missing: []const []const u8,
     hashes: []const []const u8,
 ) !Staleness {
-    // Order matters and is the script's: each check answers a question the next
-    // one would answer wrongly. A missing node file has no digest to read; a node
-    // with no digest cannot be compared; a node with no sources has nothing to
-    // hash; a gone source makes the hash batch fail.
+    // Order matters: each check would answer the next question wrongly.
     if (!present) return .node_file_missing;
     const stored = stored_digest orelse return .no_digest;
     if (stored.len == 0) return .no_digest;
@@ -124,10 +100,8 @@ pub fn staleness(
     return if (std.mem.eql(u8, &current, stored)) .clean else .content_changed;
 }
 
-/// A 1-based inclusive line range. Named rather than anonymous because two
-/// functions return it and an anonymous struct is a distinct type per
-/// declaration -- `@TypeOf` will not unify them, which shows up as an
-/// "incompatible types" error at the first test that compares them.
+/// A 1-based inclusive line range. Named, not anonymous -- two functions
+/// return it and `@TypeOf` won't unify distinct anonymous struct types.
 pub const Range = struct { start: usize, end: usize };
 
 /// One `grounded_in` entry: the lines a claim rests on, and their digest.
@@ -135,13 +109,9 @@ pub const Grounding = struct {
     path: []const u8,
     /// As recorded, `start-end`, 1-based and inclusive.
     lines: []const u8,
-    /// sha256 over those lines exactly as `sed -n 'start,endp'` emits them.
-    ///
-    /// The frontmatter key is `digest:`, not `hash:`. Worth stating because
-    /// `sources:` entries next to these use `hash:`, and an earlier version of
-    /// this file read `hash:` here -- it passed a unit test written against
-    /// invented frontmatter and found nothing in 28 real nodes. `grounded_rows()`
-    /// in the script asks the API for `.digest` too.
+    /// sha256 over those lines as `sed -n 'start,endp'` emits them. Key is
+    /// `digest:`, not `hash:` -- `sources:` entries use `hash:`, so don't
+    /// confuse the two.
     digest: []const u8,
 
     pub fn range(self: Grounding) ?Range {
@@ -153,11 +123,10 @@ pub const Grounding = struct {
     }
 };
 
-/// The `grounded_in:` block of a node's frontmatter.
-///
-/// Separate from `sources()` deliberately: both are `- path:` lists in the same
-/// frontmatter, and conflating them is the bug that makes every grounded node
-/// report a false "content changed" forever.
+/// The `grounded_in:` block of a node's frontmatter. Separate from
+/// `sources()` deliberately -- both are `- path:` lists in the same
+/// frontmatter, and conflating them false-positives "content changed"
+/// on every grounded node.
 pub fn groundings(
     gpa: std.mem.Allocator,
     text: []const u8,
@@ -201,9 +170,9 @@ fn fieldValue(line: []const u8, key: []const u8) ?[]const u8 {
     return std.mem.trim(u8, std.mem.trimStart(u8, line[key.len + 1 ..], " \t"), "\"");
 }
 
-/// Lines `start..end` of `content`, 1-based and inclusive, exactly as
-/// `sed -n 'start,endp'` emits them: each line keeps its terminating newline, and
-/// a final line with no newline in the file gets none added.
+/// Lines `start..end` of `content`, 1-based and inclusive, as
+/// `sed -n 'start,endp'` emits them: each line keeps its terminating
+/// newline; a final line with none gets none added.
 pub fn slice(content: []const u8, start: usize, end: usize) ?[]const u8 {
     if (start == 0 or end < start) return null;
     var line: usize = 1;
@@ -221,10 +190,8 @@ pub fn slice(content: []const u8, start: usize, end: usize) ?[]const u8 {
         at = line_end + 1;
         line += 1;
     }
-    // The range ran past the end of the file. `sed` prints what it has; a
-    // grounding whose range no longer fits is a changed grounding, and the caller
-    // needs to know that rather than receive a short slice that hashes wrong for
-    // an unrelated reason.
+    // Ran past the end of the file -- null, not a short slice that would
+    // hash wrong for an unrelated reason.
     return null;
 }
 
@@ -236,19 +203,15 @@ pub fn sha256Hex(content: []const u8) [64]u8 {
     return hex;
 }
 
-/// Where a recorded range's content is now, if anywhere.
-///
-/// A same-length window slid through the file, hashing each candidate span until
-/// one matches. O(lines) hashes in the worst case and only for a grounding that
-/// already failed the direct check -- which is what makes "moved" cheap enough to
-/// report at all, and the distinction worth having: a moved range is re-pointed
-/// without reading anything, a changed one means re-checking the claim.
+/// Where a recorded range's content is now, if anywhere -- a same-length
+/// window slid through the file until a candidate span's hash matches.
+/// O(lines), and only run after the direct check already failed.
 pub fn findMoved(content: []const u8, span: usize, digest: []const u8) ?Range {
     if (span == 0) return null;
     var total: usize = 0;
     var it = std.mem.splitScalar(u8, content, '\n');
     while (it.next()) |_| total += 1;
-    // `wc -l` counts newlines, so a trailing newline does not add a line.
+    // A trailing newline doesn't add a line (matches `wc -l`).
     if (content.len != 0 and content[content.len - 1] == '\n') total -= 1;
 
     var start: usize = 1;
@@ -263,8 +226,7 @@ pub fn findMoved(content: []const u8, span: usize, digest: []const u8) ?Range {
 const testing = std.testing;
 
 test "blobHash is git's object hash, header included" {
-    // sha1("blob 0\0") -- git's hash of an empty blob, a value anyone can check
-    // against `git hash-object /dev/null`.
+    // sha1("blob 0\0") -- git's hash of an empty blob.
     try testing.expectEqualStrings(
         "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
         &blobHash(""),
@@ -278,12 +240,9 @@ test "blobHash is git's object hash, header included" {
 
 test "staleness checks in the order that makes each answer meaningful" {
     const gpa = testing.allocator;
-    // A missing node file has no digest to read.
     try testing.expectEqual(Staleness.node_file_missing, try staleness(gpa, false, null, &.{}, &.{}, &.{}));
-    // An absent digest cannot be compared, and is a rebuild rather than a change.
     try testing.expectEqual(Staleness.no_digest, try staleness(gpa, true, null, &.{"a"}, &.{}, &.{}));
     try testing.expectEqual(Staleness.no_digest, try staleness(gpa, true, "", &.{"a"}, &.{}, &.{}));
-    // A node claiming nothing has nothing to hash.
     try testing.expectEqual(Staleness.no_sources, try staleness(gpa, true, "d", &.{}, &.{}, &.{}));
 }
 
@@ -388,8 +347,6 @@ test "slice copes with a file whose last line has no newline" {
 }
 
 test "a range past the end of the file is null, not a short slice" {
-    // A short slice would hash wrong for a reason that has nothing to do with the
-    // claim, and the caller would report "changed" without knowing why.
     try testing.expectEqual(@as(?[]const u8, null), slice("one\ntwo\n", 2, 9));
     try testing.expectEqual(@as(?[]const u8, null), slice("one\n", 0, 1));
     try testing.expectEqual(@as(?[]const u8, null), slice("one\n", 3, 2));
@@ -405,8 +362,7 @@ test "findMoved locates a range that shifted, and gives up when it changed" {
     try testing.expectEqual(@as(usize, 3), found.start);
     try testing.expectEqual(@as(usize, 4), found.end);
 
-    // Edited rather than moved: no window matches, which is the distinction
-    // between "re-point this" and "re-read the claim resting on it".
+    // Edited rather than moved: no window matches.
     const edited = "new\nlines\nalpha\nBETA\ntail\n";
     try testing.expectEqual(@as(?Range, null), findMoved(edited, 2, &digest));
 }

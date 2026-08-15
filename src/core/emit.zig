@@ -1,38 +1,32 @@
 //! Emitting a node: the directives a body carries, and the bytes that come out.
 //!
-//! `synapse-write-node.sh`'s shape, and its central rule: **the body points, the
-//! writer slices**. A body carries
+//! Central rule: **the body points, the writer slices**. A body carries
 //!
 //! ```
 //! <!-- crux: crates/matcher/src/lib.rs 412-419 -->
 //! <!-- grounded_in: src/main/java/Foo.java 10-14 -->
 //! ```
 //!
-//! and never the code itself, so a crux cannot be a paraphrase of the source that
-//! merely looks like a quote. An HTML comment because an unexpanded directive then
-//! renders as nothing rather than as a broken code block.
+//! never the code itself, so a crux can't be a paraphrase that merely looks
+//! like a quote. HTML comments so an unexpanded directive renders as nothing
+//! rather than a broken code block.
 //!
-//! The two directives diverge after slicing, and deliberately. A crux is *display*:
-//! the slice is fenced into the body with a provenance line under it. A grounding is
-//! *provenance*: only `path`, `lines` and the slice's sha256 reach frontmatter, and
-//! the directive is stripped from the body -- six groundings rendered as six code
-//! blocks would bury the prose a human came for.
+//! The two diverge after slicing: a crux is *display* (fenced into the body
+//! with a provenance line under it); a grounding is *provenance* (only
+//! `path`/`lines`/sha256 reach frontmatter, directive stripped from the body
+//! -- six groundings as six code blocks would bury the prose).
 //!
-//! ## What lives here and what cannot
+//! Everything here is a function of text: finding/parsing directives,
+//! validating a range, guessing a fence language, trimming the body,
+//! escaping YAML, assembling the note. Reading files, hashing with git,
+//! resolving the namespace and PUTting the result are the command's job --
+//! they need the world.
 //!
-//! Everything that is a function of text: finding directives, parsing them,
-//! validating a range against a claimed path list and a line count, guessing a
-//! fence language, trimming the body, escaping a YAML scalar, and assembling the
-//! note. Reading files, hashing blobs with git, resolving the namespace and PUTting
-//! the result are the command's, because they need the world.
-//!
-//! ## Why the range checks are refusals rather than warnings
-//!
-//! A crux path must be one the node claims, the range must be inside the file, and
-//! it must be short. All three refuse the write instead of degrading it, because
-//! each one silently produces a plausible node: code the node does not cover,
-//! a slice of a file that has since shrunk, or a whole function where a decision
-//! was asked for. A node nobody can distrust is worse than a write that failed.
+//! Range checks (claimed path, in-file, short) refuse the write rather than
+//! degrade it: each would otherwise produce a plausible node that's wrong --
+//! code the node doesn't cover, a slice of a shrunk file, a whole function
+//! where a decision was asked for. A node nobody can distrust is worse than
+//! a write that failed.
 
 const std = @import("std");
 const node = @import("node.zig");
@@ -41,13 +35,10 @@ const verify = @import("verify.zig");
 
 const Range = verify.Range;
 
-/// A filename Obsidian can store, and the reason a caller must compare it to the
-/// title it came from.
-///
-/// Obsidian resolves a wikilink by filename, so a sanitised title silently breaks
-/// every inbound `[[link]]`. That is why this returns the sanitised form for the
-/// caller to *compare* rather than quietly renaming: the script warns, and the
-/// warning is the whole value of the step.
+/// A filename Obsidian can store. Obsidian resolves wikilinks by filename,
+/// so a sanitised title silently breaks every inbound `[[link]]` -- this
+/// returns the sanitised form for the caller to *compare* and warn on,
+/// rather than quietly renaming.
 pub fn fileTitle(gpa: std.mem.Allocator, title: []const u8) ![]u8 {
     const out = try gpa.dupe(u8, title);
     for (out) |*c| {
@@ -71,9 +62,9 @@ pub const Span = struct {
     }
 };
 
-/// What a `crux:` directive said. `none` is a real answer, not a missing one: a
-/// node whose logic is spread across files says so, and gets a rendered line
-/// saying so, rather than being refused.
+/// What a `crux:` directive said. `none` is a real answer: a node whose
+/// logic is spread across files says so and gets a rendered line, rather
+/// than being refused.
 pub const Crux = union(enum) {
     none,
     span: Span,
@@ -82,11 +73,8 @@ pub const Crux = union(enum) {
 pub const kind_crux = "crux";
 pub const kind_grounded = "grounded_in";
 
-/// The first `<!-- <keyword>: … -->` in `body`, returned whole.
-///
-/// The whole comment, because substitution is by *line containing this text* --
-/// the awk matched `index($0, marker)` -- and the caller needs the same bytes back
-/// to find that line again.
+/// The first `<!-- <keyword>: … -->` in `body`, returned whole -- the caller
+/// needs the same bytes back to find its line again.
 pub fn findDirective(body: []const u8, keyword: []const u8) ?[]const u8 {
     var at: usize = 0;
     while (std.mem.indexOfPos(u8, body, at, "<!--")) |open| {
@@ -120,13 +108,9 @@ pub const DirectiveIterator = struct {
     }
 };
 
-/// The part after `<keyword>:`, trimmed, or null if this comment is a different
-/// directive (or not one at all).
-///
-/// `inner` is the comment's contents, without `<!--` and `-->`. Note that a
-/// grounding's keyword contains the crux's nowhere, so no keyword can shadow
-/// another -- but the `:` is required, so a comment reading `cruxes are nice`
-/// is prose and not a malformed directive.
+/// The part after `<keyword>:`, trimmed, or null if this comment is a
+/// different directive (or not one at all). `:` is required, so `cruxes are
+/// nice` is prose, not a malformed directive.
 pub fn directiveArg(inner: []const u8, keyword: []const u8) ?[]const u8 {
     const s = std.mem.trimStart(u8, inner, " \t");
     if (!std.mem.startsWith(u8, s, keyword)) return null;
@@ -135,21 +119,12 @@ pub fn directiveArg(inner: []const u8, keyword: []const u8) ?[]const u8 {
     return std.mem.trim(u8, rest[1..], " \t");
 }
 
-/// Parse a directive argument into a span.
-///
-/// `L` prefixes are tolerated on either bound, because that is how a line range
-/// is written everywhere a human copies one from (GitHub, an editor's gutter).
-/// They are stripped from the whole range rather than from each bound, which is
-/// what `${range//L/}` did.
-///
-/// A range like `10-20-30` reads as `10`..`30`: the first bound ends at the first
-/// dash and the last begins after the last one, matching `%%-*` and `##*-`. Not a
-/// case worth an error, and inventing one would make this stricter than the script
-/// it replaces.
+/// Parse a directive argument into a span. `L` prefixes are tolerated on
+/// either bound (how a range is copied from GitHub or an editor gutter). A
+/// range like `10-20-30` reads as `10`..`30` -- not worth an error.
 pub fn parseSpan(arg: []const u8) ?Span {
-    // The path ends at the first whitespace and the range begins after the last,
-    // so an argument with no whitespace at all has no range and is malformed --
-    // which is exactly what `[[ "$crux_path" != "$crux_arg" ]]` tested.
+    // Path ends at the first whitespace, range begins after the last -- no
+    // whitespace at all means no range, and is malformed.
     const first_ws = std.mem.indexOfAny(u8, arg, " \t") orelse return null;
     const path = arg[0..first_ws];
     if (path.len == 0) return null;
@@ -173,8 +148,8 @@ pub fn parseSpan(arg: []const u8) ?Span {
     return .{ .path = path, .start = start, .end = end };
 }
 
-/// `=~ ^[0-9]+$`: digits only, no sign and no leading `+`, which `parseInt` would
-/// otherwise accept and turn a typo into a valid range.
+/// Digits only -- no sign, no leading `+` (which `parseInt` would accept and
+/// turn a typo into a valid range).
 fn parseDigits(s: []const u8) ?usize {
     if (s.len == 0) return null;
     for (s) |c| if (c < '0' or c > '9') return null;
@@ -186,10 +161,9 @@ pub const Kind = enum {
     crux,
     grounded,
 
-    /// The most lines a span of this kind may carry.
-    ///
-    /// A grounding is roomier than a crux on purpose: a doc comment or a test body
-    /// is legitimately longer than the few lines that carry a decision.
+    /// Most lines a span of this kind may carry. A grounding is roomier on
+    /// purpose -- a doc comment or test body is legitimately longer than the
+    /// few lines that carry a decision.
     pub fn cap(self: Kind) usize {
         return switch (self) {
             .crux => 20,
@@ -214,12 +188,9 @@ pub const SpanProblem = union(enum) {
     too_long: usize,
 };
 
-/// `paths` must be byte-sorted and deduplicated, as `LC_ALL=C sort -u` left it.
-///
-/// `total_lines` is `wc -l`, which is a newline count -- see `wcLines`. Using the
-/// same definition as the script matters at exactly one boundary: a final line with
-/// no trailing newline is not countable, so a range ending on it is refused here
-/// as it was there.
+/// `paths` must be byte-sorted and deduplicated. `total_lines` is a newline
+/// count (see `wcLines`): a final line with no trailing newline isn't
+/// countable, so a range ending on it is refused.
 pub fn checkSpan(
     span: Span,
     kind: Kind,
@@ -234,8 +205,7 @@ pub fn checkSpan(
 }
 
 fn claims(paths: []const []const u8, path: []const u8) bool {
-    // `grep -qxF` over a sorted list; binary search because a hub node claims
-    // hundreds of paths and this runs once per directive.
+    // Binary search: a hub node claims hundreds of paths, once per directive.
     var lo: usize = 0;
     var hi: usize = paths.len;
     while (lo < hi) {
@@ -249,18 +219,15 @@ fn claims(paths: []const []const u8, path: []const u8) bool {
     return false;
 }
 
-/// `wc -l`: the number of newlines, not the number of lines a reader would count.
-///
-/// A file whose last line has no terminator reports one fewer than it displays.
-/// Reproduced rather than corrected: the range checks and this count have to agree
-/// with each other, and the script's pairing of `wc -l` with `sed -n 'a,bp'` is
-/// already what every existing node was validated against.
+/// Newline count, not the number of lines a reader would count -- a file
+/// whose last line has no terminator reports one fewer than it displays.
+/// Matches how the range checks count, so the two agree.
 pub fn wcLines(content: []const u8) usize {
     return std.mem.count(u8, content, "\n");
 }
 
-/// The fence language for a crux block, by extension. Empty when unknown, which
-/// produces a bare ``` fence rather than a guess.
+/// The fence language for a crux block, by extension. Empty when unknown,
+/// for a bare ``` fence rather than a guess.
 pub fn languageFor(path: []const u8) []const u8 {
     const table = [_]struct { ext: []const u8, lang: []const u8 }{
         .{ .ext = ".java", .lang = "java" },
@@ -289,29 +256,23 @@ pub fn languageFor(path: []const u8) []const u8 {
     return "";
 }
 
-/// What replaces a `crux:` directive line: a fenced slice and a provenance line.
-///
-/// `sliced` is `verify.slice`'s output, so it ends with a newline unless the file
-/// did not. The closing fence is printed on its own line either way, which is what
-/// `printf` after `sed` produced.
+/// What replaces a `crux:` directive line: a fenced slice and a provenance
+/// line. `sliced` ends with a newline unless the file didn't; the closing
+/// fence always gets its own line either way.
 pub fn writeCruxBlock(w: *std.Io.Writer, span: Span, sliced: []const u8) !void {
     try w.print("```{s}\n", .{languageFor(span.path)});
     try w.writeAll(sliced);
     if (sliced.len > 0 and sliced[sliced.len - 1] != '\n') try w.writeAll("\n");
     try w.writeAll("```\n");
-    // An em dash, and the path in backticks: the line is provenance under the
-    // block, not prose, and it is what a later reader re-slices from.
-    try w.print("— `{s}`:{d}-{d}\n", .{ span.path, span.start, span.end });
+    try w.print("— `{s}`:{d}-{d}\n", .{ span.path, span.start, span.end }); // provenance, not prose
 }
 
 /// The line a `<!-- crux: none -->` expands to.
 pub const crux_none_text = "_No single span carries this node's logic._";
 
-/// Replace the whole line containing `marker` with `replacement`.
-///
-/// The line, not the marker: a directive shares its line with nothing, and
-/// replacing only the comment would leave a stray blank line where an author had
-/// indented it.
+/// Replace the whole line containing `marker` with `replacement` -- the
+/// whole line, not just the directive, so an indented comment doesn't leave
+/// a stray blank line behind.
 pub fn substituteLine(
     gpa: std.mem.Allocator,
     body: []const u8,
@@ -327,8 +288,6 @@ pub fn substituteLine(
         if (!first) try out.append(gpa, '\n');
         first = false;
         if (!done and std.mem.indexOf(u8, line, marker) != null) {
-            // The replacement carries its own trailing newline; the separator
-            // logic above adds the one after it.
             try out.appendSlice(gpa, std.mem.trimEnd(u8, replacement, "\n"));
             done = true;
             continue;
@@ -338,12 +297,9 @@ pub fn substituteLine(
     return out.toOwnedSlice(gpa);
 }
 
-/// Drop every `grounded_in` directive from the body.
-///
-/// Two passes, as in the script: a line that is *only* a directive disappears
-/// entirely, and a directive embedded in a line of prose is cut out of it. The
-/// distinction matters -- deleting the whole line in the second case would delete
-/// the sentence around it.
+/// Drop every `grounded_in` directive from the body. Two passes: a line
+/// that's *only* a directive disappears entirely, one embedded in prose is
+/// cut out of it without deleting the sentence around it.
 pub fn stripGrounded(gpa: std.mem.Allocator, body: []const u8) ![]u8 {
     var out: std.ArrayListUnmanaged(u8) = .empty;
     errdefer out.deinit(gpa);
@@ -375,27 +331,23 @@ fn onlyDirective(trimmed_line: []const u8, keyword: []const u8) bool {
     if (!std.mem.startsWith(u8, trimmed_line, "<!--")) return false;
     if (!std.mem.endsWith(u8, trimmed_line, "-->")) return false;
     const inner = trimmed_line[4 .. trimmed_line.len - 3];
-    // A single directive and nothing else: `-->` may not appear inside, or the
-    // line holds two comments and the tail of it is not a directive at all.
+    // No `-->` inside: otherwise the line holds two comments and the tail
+    // isn't a directive at all.
     if (std.mem.indexOf(u8, inner, "-->") != null) return false;
     return directiveArg(inner, keyword) != null;
 }
 
-/// The body with leading and trailing blank lines removed.
-///
-/// Idempotence, not tidiness: a body is recovered from a node and written back on
-/// every reseat, and the writer puts a blank line on each side of it. Without this
-/// a node accretes one more blank line per rebuild, forever.
+/// The body with leading and trailing blank lines removed. For idempotence:
+/// a body is recovered from a node and written back on every reseat, and
+/// without this it accretes a blank line per rebuild, forever.
 pub fn trimBlankEdges(body: []const u8) []const u8 {
     var start: usize = 0;
     var end: usize = body.len;
-    // Leading: skip whole lines that are whitespace only.
     while (start < end) {
         const nl = std.mem.indexOfScalarPos(u8, body, start, '\n') orelse break;
         if (std.mem.trim(u8, body[start..nl], " \t\r").len != 0) break;
         start = nl + 1;
     }
-    // Trailing: the same from the other side, tolerating a missing final newline.
     while (end > start) {
         const line_start = if (std.mem.lastIndexOfScalar(u8, body[start..end], '\n')) |nl|
             start + nl + 1
@@ -408,10 +360,8 @@ pub fn trimBlankEdges(body: []const u8) []const u8 {
     return body[start..end];
 }
 
-/// A YAML double-quoted scalar's contents.
-///
-/// Backslash before quote, or the escaping escapes itself. A summary is prose and
-/// will eventually contain both.
+/// A YAML double-quoted scalar's contents. Backslash before quote, or the
+/// escaping escapes itself.
 pub fn writeYamlQuoted(w: *std.Io.Writer, s: []const u8) !void {
     for (s) |c| switch (c) {
         '\\' => try w.writeAll("\\\\"),
@@ -420,11 +370,8 @@ pub fn writeYamlQuoted(w: *std.Io.Writer, s: []const u8) !void {
     };
 }
 
-/// The crux's own pointer, recorded alongside the sliced text.
-///
-/// Named rather than anonymous for the reason `verify.Range` is: an anonymous
-/// struct is a distinct type per declaration, so a caller building one cannot
-/// assign it to a field declared with the same shape.
+/// The crux's own pointer, recorded alongside the sliced text. Named (not
+/// anonymous) so a caller building one can assign it to a same-shaped field.
 pub const CruxPointer = struct {
     path: []const u8,
     /// `start-end`, as `crux_lines` stores it.
@@ -436,8 +383,8 @@ pub const Grounded = struct {
     path: []const u8,
     /// `start-end`, unquoted here and quoted by the writer.
     lines: []const u8,
-    /// sha256 of the slice. `digest:`, never `hash:` -- the `sources:` entries
-    /// above it use `hash:`, and a reader that confuses the two finds nothing.
+    /// sha256 of the slice. `digest:`, never `hash:` -- `sources:` above it
+    /// uses `hash:`, and confusing the two finds nothing.
     digest: []const u8,
 };
 
@@ -452,8 +399,8 @@ pub const Note = struct {
     /// 64 hex characters from `node.sourcesDigest`.
     digest: []const u8,
     built_at: []const u8,
-    /// Omitted, not empty, when HEAD does not resolve -- nothing is committed yet,
-    /// and a `commit:` field that is present but blank would be read as a baseline.
+    /// Omitted, not empty, when HEAD doesn't resolve -- a present-but-blank
+    /// `commit:` would be read as a baseline.
     commit: ?[]const u8,
     crux: ?CruxPointer,
     grounded: []const Grounded,
@@ -461,11 +408,9 @@ pub const Note = struct {
     modules: []const query.ModuleCount,
     /// Expanded, stripped, and about to be trimmed.
     body: []const u8,
-    /// Everything after the closing fence of the *existing* node, with trailing
-    /// newlines already dropped. Null (or empty) starts a fresh `## Notes`.
-    ///
-    /// This is the whole reason a rebuild is safe: the generated region is
-    /// replaced and this is re-emitted verbatim, so hand-written notes survive a
+    /// Everything after the closing fence of the *existing* node, trailing
+    /// newlines dropped. Null (or empty) starts a fresh `## Notes`. Re-
+    /// emitted verbatim on every rewrite -- why hand-written notes survive a
     /// regeneration nobody reviews.
     tail: ?[]const u8,
 };
@@ -477,9 +422,8 @@ pub fn writeNote(w: *std.Io.Writer, n: Note) !void {
     try writeYamlQuoted(w, n.summary);
     try w.writeAll("\"\n");
     try w.writeAll("node_type: synapse-node\n");
-    // Repo and branch as separate fields, matching the namespace's own Index.md:
-    // the combined key is already the folder these live in, and splitting them is
-    // what lets a query ask for every branch's copy of one node.
+    // Repo and branch separate, matching the namespace's Index.md, so a
+    // query can ask for every branch's copy of one node.
     try w.print("project: {s}\n", .{n.project});
     try w.print("branch: {s}\n", .{n.branch});
     try w.writeAll("sources:\n");
@@ -489,8 +433,6 @@ pub fn writeNote(w: *std.Io.Writer, n: Note) !void {
     try w.print("built_at: \"{s}\"\n", .{n.built_at});
     if (n.commit) |c| try w.print("commit: {s}\n", .{c});
     if (n.crux) |c| {
-        // The pointer as well as the sliced text: this is what lets a later check
-        // re-slice the same range and compare, rather than trust the stored quote.
         try w.print("crux_path: {s}\n", .{c.path});
         try w.print("crux_lines: \"{s}\"\n", .{c.lines});
     }
@@ -525,9 +467,7 @@ test "a title is sanitised for the filename, and only where it must be" {
     const gpa = testing.allocator;
     const clean = try fileTitle(gpa, "World — entity core");
     defer gpa.free(clean);
-    // An em dash is legal in a filename and is left alone: sanitising it would
-    // break the wikilink for nothing.
-    try testing.expectEqualStrings("World — entity core", clean);
+    try testing.expectEqualStrings("World — entity core", clean); // em dash is legal, left alone
 
     const dirty = try fileTitle(gpa, "a/b:c*d?e\"f<g>h|i");
     defer gpa.free(dirty);
@@ -544,7 +484,6 @@ test "a directive is found whole, so the caller can match its line again" {
 }
 
 test "a comment that is not a directive is prose" {
-    // The `:` is required, so a comment merely mentioning the word is left alone.
     try testing.expectEqual(@as(?[]const u8, null), findDirective("<!-- cruxes are nice -->", kind_crux));
     try testing.expectEqual(@as(?[]const u8, null), findDirective("<!-- TODO -->", kind_crux));
 }
@@ -562,13 +501,10 @@ test "a span parses, with L prefixes tolerated on either bound" {
 }
 
 test "a malformed span is rejected rather than guessed at" {
-    // No whitespace at all: no range, which is the `$crux_path != $crux_arg` test.
     try testing.expectEqual(@as(?Span, null), parseSpan("src/a.java"));
     try testing.expectEqual(@as(?Span, null), parseSpan("src/a.java 412"));
     try testing.expectEqual(@as(?Span, null), parseSpan("src/a.java abc-def"));
-    // A sign is not a digit run: `+5` would otherwise parse and turn a typo into
-    // a valid range.
-    try testing.expectEqual(@as(?Span, null), parseSpan("src/a.java +5-9"));
+    try testing.expectEqual(@as(?Span, null), parseSpan("src/a.java +5-9")); // sign is not a digit run
 }
 
 test "a three-bound range reads as first to last, like the shell expansions" {
@@ -579,7 +515,6 @@ test "a three-bound range reads as first to last, like the shell expansions" {
 
 test "the caps differ by kind, and the count reported is inclusive" {
     const paths = [_][]const u8{"a.java"};
-    // 20 lines exactly is allowed; 21 is not.
     try testing.expectEqual(
         @as(?SpanProblem, null),
         checkSpan(.{ .path = "a.java", .start = 1, .end = 20 }, .crux, &paths, 100),
@@ -587,8 +522,6 @@ test "the caps differ by kind, and the count reported is inclusive" {
     const too = checkSpan(.{ .path = "a.java", .start = 1, .end = 21 }, .crux, &paths, 100).?;
     try testing.expectEqual(@as(usize, 21), too.too_long);
 
-    // A grounding of the same length is fine -- a doc comment is longer than a
-    // decision.
     try testing.expectEqual(
         @as(?SpanProblem, null),
         checkSpan(.{ .path = "a.java", .start = 1, .end = 40 }, .grounded, &paths, 100),
@@ -617,7 +550,6 @@ test "the fence language comes from the extension, or is absent" {
     try testing.expectEqualStrings("kotlin", languageFor("build.gradle.kts"));
     try testing.expectEqualStrings("bash", languageFor("bin/run.sh"));
     try testing.expectEqualStrings("ocaml", languageFor("lib/x.mli"));
-    // Unknown stays empty: a bare fence is honest, a guessed language is not.
     try testing.expectEqualStrings("", languageFor("Makefile"));
     try testing.expectEqualStrings("", languageFor("notes.paramvo"));
 }
@@ -644,8 +576,6 @@ test "substitution replaces the whole line the directive sat on" {
     const body = "## Crux\n  <!-- crux: a.java 1-2 -->\nafter\n";
     const got = try substituteLine(gpa, body, "<!-- crux: a.java 1-2 -->", "```\nx\n```\n");
     defer gpa.free(got);
-    // The indentation goes with the line: leaving it would put a stray two spaces
-    // where the author had indented the comment.
     try testing.expectEqualStrings("## Crux\n```\nx\n```\nafter\n", got);
 }
 
@@ -688,9 +618,7 @@ test "blank edges are trimmed so a reseat is idempotent" {
 test "a summary is escaped for a double-quoted YAML scalar" {
     var out: std.Io.Writer.Allocating = .init(testing.allocator);
     defer out.deinit();
-    // Backslash first, then quote: escaping the quote first would then escape its
-    // own escape.
-    try writeYamlQuoted(&out.writer, "a \"quoted\" path C:\\x");
+    try writeYamlQuoted(&out.writer, "a \"quoted\" path C:\\x"); // backslash first, or escaping escapes itself
     try testing.expectEqualStrings("a \\\"quoted\\\" path C:\\\\x", out.written());
 }
 
@@ -779,8 +707,6 @@ test "an absent commit omits the field rather than writing an empty one" {
     var n = baseNote();
     n.commit = null;
     try writeNote(&out.writer, n);
-    // A present-but-blank `commit:` would read as a baseline and `drift` would
-    // try to diff against it.
     try testing.expect(std.mem.indexOf(u8, out.written(), "commit:") == null);
 }
 
@@ -804,15 +730,9 @@ test "crux and grounded_in fields appear only when there are any" {
 }
 
 test "a recovered body written back produces the same bytes" {
-    // The property the blank-line trim exists for: a reseat recovers a body from a
-    // node and writes it back, and the second write must be byte-identical to the
-    // first. Without the trim the body gains a blank line on each side per rebuild,
-    // forever, and nobody reviews a regeneration.
-    //
-    // What `query.body` returns is everything *between the fences*, which includes
-    // the generated `## Sources` mirror -- so a caller reseating a body drops that
-    // section first, exactly as done here. The mirror is computed from the path
-    // list on every write and is not authored content.
+    // `query.body` returns everything between the fences, including the
+    // generated `## Sources` mirror -- a reseat drops that section first,
+    // as done here, before writing the body back.
     const gpa = testing.allocator;
     var out: std.Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
@@ -832,25 +752,17 @@ test "a recovered body written back produces the same bytes" {
 }
 
 /// Rewrite the one `stale:` line in the frontmatter to `stale: true`.
+/// Returns false when nothing changed (already true, or no frontmatter),
+/// so a caller can skip the write.
 ///
-/// Returns false when nothing changed -- already true, or no frontmatter to touch
-/// -- so a caller can skip the write and not churn a file's mtime on every edit.
-///
-/// **Not** `PATCH -H "Target-Type: frontmatter"`, and this is the sharpest edge in
-/// the whole system. That call is not field-local: it re-serialises the entire YAML
-/// block, stripping quotes from every value, folding long `title:` lines across two
-/// lines, and YAML-coercing anything that looks like another type. Verified
-/// 2026-08-03 on a node-shaped fixture: an all-digit `hash` became
-/// `1.1111111111111112e+39`, unrecoverably. A corrupted hash makes `sources_digest`
-/// disagree with its own `sources` forever, so that is a permanent false positive
-/// no rebuild can clear.
-///
-/// Rewriting one line leaves every other byte -- including the exhaustive `sources`
-/// list, megabytes of it on a hub node -- untouched.
+/// **Not** `PATCH -H "Target-Type: frontmatter"` -- that re-serialises the
+/// entire YAML block, stripping quotes, folding long lines, coercing values
+/// to other types. Verified 2026-08-03: an all-digit `hash` became
+/// `1.1111111111111112e+39`, unrecoverably, permanently desyncing
+/// `sources_digest`. Rewriting one line leaves every other byte -- including
+/// a megabyte `sources` list on a hub node -- untouched.
 pub fn setStaleTrue(w: *std.Io.Writer, text: []const u8) !bool {
-    // No frontmatter at all: nothing to flag, and inventing a block would turn a
-    // hand-written file into something the readers would then trust.
-    if (!std.mem.startsWith(u8, text, "---\n")) return false;
+    if (!std.mem.startsWith(u8, text, "---\n")) return false; // no frontmatter, nothing to flag
 
     var changed = false;
     var done = false;
@@ -865,9 +777,8 @@ pub fn setStaleTrue(w: *std.Io.Writer, text: []const u8) !bool {
             continue;
         }
         if (in_fm and std.mem.eql(u8, line, "---")) {
-            // Absent `stale:` is added just before the closing marker rather than
-            // skipped: a node built before the field existed still has to be
-            // flaggable.
+            // Absent `stale:` is added just before the closing marker, so a
+            // node built before the field existed is still flaggable.
             if (!done) {
                 try w.writeAll("stale: true\n");
                 done = true;
@@ -884,20 +795,14 @@ pub fn setStaleTrue(w: *std.Io.Writer, text: []const u8) !bool {
                 changed = true;
             continue;
         }
-        // The final split piece after a trailing newline is empty and must not
-        // become an extra line.
-        if (lines.index == null and line.len == 0) break;
+        if (lines.index == null and line.len == 0) break; // trailing split piece, not an extra line
         try w.print("{s}\n", .{line});
     }
     return changed;
 }
 
-/// The text inside ``` fences, concatenated -- the node's own copy of its crux.
-///
-/// `awk '/^```/ { f = !f; next } f { print }'`: a toggle, not a parser, so a node
-/// with several fenced blocks yields all of them. No digest is stored for a crux --
-/// the sliced text lives in the note -- so this is the stored side of the
-/// comparison against the file as it is now.
+/// The text inside ``` fences, concatenated -- the node's own copy of its
+/// crux. A toggle, not a parser, so several fenced blocks all contribute.
 pub fn fencedText(gpa: std.mem.Allocator, text: []const u8) ![]u8 {
     var out: std.ArrayListUnmanaged(u8) = .empty;
     errdefer out.deinit(gpa);
@@ -935,8 +840,6 @@ test "an already-stale node reports no change, so no write happens" {
     defer out.deinit();
     const text = "---\ntitle: \"T\"\nstale: true\n---\n\nbody\n";
     try testing.expect(!try setStaleTrue(&out.writer, text));
-    // The output is still the whole file, so a caller that writes anyway is correct
-    // -- it is just churning an mtime for nothing.
     try testing.expectEqualStrings(text, out.written());
 }
 
@@ -953,8 +856,6 @@ test "a file with no frontmatter is left alone entirely" {
     var out: std.Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
     try testing.expect(!try setStaleTrue(&out.writer, "# Just prose\nstale: false\n"));
-    // Nothing written: the caller compares and skips, and a `stale:` line in the
-    // body is not frontmatter.
     try testing.expectEqualStrings("", out.written());
 }
 
@@ -974,25 +875,18 @@ test "several fenced blocks all contribute, as the toggle implies" {
     try testing.expectEqualStrings("a\nb\n", got);
 }
 
-/// The hand-written `## Notes` body: what follows the closing fence, minus its own
-/// heading line and the blank lines around it.
-///
-/// The same region `writeNote` preserves verbatim as the tail on every rewrite, read
-/// from the other side. `graph-wipe` uses it to answer the only question that makes a
-/// wipe safe: does this node carry anything a rebuild cannot regenerate?
-///
-/// Empty means nothing at risk -- a node whose Notes section is just the heading, or
-/// absent entirely, loses nothing.
+/// The hand-written `## Notes` body: what follows the closing fence, minus
+/// its own heading and surrounding blank lines. `graph-wipe` uses it to ask
+/// whether a node carries anything a rebuild can't regenerate. Empty means
+/// nothing at risk.
 pub fn notesBody(text: []const u8) []const u8 {
     const at = std.mem.indexOf(u8, text, node.generated_end) orelse return "";
     var rest = text[at + node.generated_end.len ..];
-    // Past the end of the marker's own line.
     if (std.mem.indexOfScalar(u8, rest, '\n')) |nl| rest = rest[nl + 1 ..] else return "";
 
     rest = skipBlankLines(rest);
-    // The heading itself is not content. Compared exactly, as the awk's
-    // `a[i] == "## Notes"` did: a differently-worded heading is content, because
-    // something wrote it deliberately.
+    // The heading itself isn't content -- but a differently-worded heading
+    // is, since something wrote it deliberately.
     if (std.mem.startsWith(u8, rest, "## Notes")) {
         const line_end = std.mem.indexOfScalar(u8, rest, '\n') orelse rest.len;
         if (std.mem.trim(u8, rest[0..line_end], " \t\r").len == "## Notes".len)
@@ -1000,7 +894,6 @@ pub fn notesBody(text: []const u8) []const u8 {
     }
     rest = skipBlankLines(rest);
 
-    // Trailing blank lines off the end.
     var end = rest.len;
     while (end > 0) {
         const line_start = if (std.mem.lastIndexOfScalar(u8, rest[0..end], '\n')) |nl|
@@ -1039,14 +932,11 @@ test "an empty Notes section risks nothing" {
     try testing.expectEqualStrings("", notesBody(
         "# T\n" ++ node.generated_end ++ "\n\n## Notes\n\n",
     ));
-    // No Notes section at all, and no fence at all.
     try testing.expectEqualStrings("", notesBody("# T\n" ++ node.generated_end ++ "\n"));
     try testing.expectEqualStrings("", notesBody("# T\nno fence here\n"));
 }
 
 test "content before the heading, or a different heading, still counts" {
-    // Anything a human put there is at risk, whatever it looks like -- a wipe that
-    // only recognised the canonical shape would delete the rest.
     try testing.expectEqualStrings(
         "loose line",
         notesBody("# T\n" ++ node.generated_end ++ "\nloose line\n"),

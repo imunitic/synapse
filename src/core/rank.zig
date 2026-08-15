@@ -1,32 +1,18 @@
 //! Which of a node's sources are worth READING when authoring its prose.
+//! Reading order only -- `sources` stays exhaustive, so coverage/staleness/
+//! vault search are unaffected. Three pure decisions live here: is a path a
+//! test, what stem/module does it key under, which code file consumes a
+//! declaration. Tagging, sizing and output belong to the command.
 //!
-//! Reading order only: `sources` stays exhaustive, so coverage, staleness and
-//! vault search are unaffected by anything here. This file holds the three
-//! decisions that are pure -- is a path a test, what stem and module does it
-//! key under, and which code file consumes a declaration. Tagging, sizing and
-//! the output belong to the command.
+//! `$SYNAPSE_TEST_PATH_RE` overrides the built-in test heuristic with one
+//! ERE for projects that name tests differently. The default is a scan, not
+//! a regex, so its boundary cases are pinned by tests. The capital-letter
+//! check in `[a-z0-9](Tests?|Spec)` matters: without it `Latest.java` reads
+//! as a test and silently drops a real file from the crux pool.
 //!
-//! ## The test heuristic is ours, so it is written out; an override is not
-//!
-//! `$SYNAPSE_TEST_PATH_RE` replaces the whole rule with one ERE, for a project
-//! that names tests some other way. That override keeps `grep -E` in the
-//! caller, on the same principle as the manifest patterns: a user's regex keeps
-//! the engine it was written against. The *default* is ours -- four alternatives
-//! that recur across languages -- so it is a scan here rather than a regex, and
-//! its boundary cases are pinned by tests instead of by a reading of the ERE.
-//!
-//! The capital letter in `[a-z0-9](Tests?|Spec)` is the whole point of that
-//! branch: without it `Latest.java` reads as a test, and silently dropping a
-//! real implementation file from the crux pool is exactly the kind of wrong
-//! answer that never announces itself.
-//!
-//! ## The module prefix is load-bearing, not a tie-breaker
-//!
-//! A declaration resolves to its consumer by stem prefix -- `Adresse.domvo` to
-//! `AdresseHandler.java` -- and only within its own module. Generic stems, the
-//! measured examples being `Adresse` and `NatPerson`, match dozens of unrelated
-//! classes across a large repo, so a stem-only hop resolves to whichever one
-//! sorts first and is worse than no answer.
+//! A declaration resolves to its consumer by stem prefix (`Adresse.domvo` ->
+//! `AdresseHandler.java`), scoped to its own module -- a generic stem like
+//! `Adresse` matches dozens of unrelated classes repo-wide otherwise.
 
 const std = @import("std");
 
@@ -35,9 +21,7 @@ const test_dirs = [_][]const u8{
     "test", "tests", "spec", "specs", "__tests__", "testing",
 };
 
-/// The built-in test heuristic: a path/filename judgement, never a parse.
-///
-/// Four alternatives, matching the ERE this replaces:
+/// Built-in test heuristic, path/filename only, four alternatives:
 ///
 ///   1. a path segment named test/tests/spec/specs/__tests__/testing
 ///   2. a basename ending `<lower-or-digit>Test`, `Tests` or `Spec`, then `.ext`
@@ -46,8 +30,7 @@ const test_dirs = [_][]const u8{
 pub fn isTest(path: []const u8) bool {
     if (hasTestSegment(path)) return true;
     const name = basename(path);
-    // Every remaining branch is anchored on a single trailing extension, so a
-    // basename with no dot cannot match any of them.
+    // Remaining branches all need a trailing extension.
     const dot = std.mem.lastIndexOfScalar(u8, name, '.') orelse return false;
     const stem = name[0..dot];
     if (endsWithCapitalisedTest(stem)) return true;
@@ -59,22 +42,19 @@ pub fn isTest(path: []const u8) bool {
 fn hasTestSegment(path: []const u8) bool {
     var it = std.mem.splitScalar(u8, path, '/');
     while (it.next()) |seg| {
-        // The last component is a filename, not a directory. The ERE's
-        // `(^|/)(test|...)/` required a trailing slash for the same reason.
+        // Last component is a filename, not a directory.
         if (it.rest().len == 0 and !std.mem.endsWith(u8, path, "/")) break;
         for (test_dirs) |d| if (std.mem.eql(u8, seg, d)) return true;
     }
     return false;
 }
 
-/// `FooTest`, `FooTests`, `FooSpec` -- but only when the character before the
-/// capital is a lowercase letter or a digit, which is what keeps `Latest` out.
+/// `FooTest`, `FooTests`, `FooSpec` -- only when preceded by a lowercase
+/// letter or digit, which keeps `Latest` out.
 fn endsWithCapitalisedTest(stem: []const u8) bool {
     for ([_][]const u8{ "Tests", "Test", "Spec" }) |suffix| {
         if (!std.mem.endsWith(u8, stem, suffix)) continue;
         const at = stem.len - suffix.len;
-        // `[^/]*[a-z0-9]` before the suffix: something has to precede it, and
-        // that something has to be lowercase or a digit.
         if (at == 0) continue;
         const prev = stem[at - 1];
         if ((prev >= 'a' and prev <= 'z') or (prev >= '0' and prev <= '9')) return true;
@@ -107,10 +87,10 @@ fn basename(path: []const u8) []const u8 {
 
 /// How a path is keyed for the declaration-to-consumer hop.
 pub const Key = struct {
-    /// The basename with its final extension removed.
+    /// Basename with its final extension removed.
     stem: []const u8,
-    /// The first two path segments, or whatever prefix a shallower path has.
-    /// `(repo root)` for a file with none, so root files only ever resolve
+    /// First two path segments, or a shallower path's whole prefix.
+    /// `(repo root)` for a file with none -- root files resolve only
     /// against each other.
     module: []const u8,
     path: []const u8,
@@ -139,30 +119,23 @@ pub fn keyOf(path: []const u8) Key {
     return .{ .stem = stem, .module = module, .path = path };
 }
 
-/// A stem shorter than this prefixes half the repo and tells you nothing, so it
-/// is not a hop worth making.
+/// Below this, a stem prefixes half the repo and isn't a hop worth making.
 pub const min_stem = 3;
 
 /// Whether `declaration`'s stem prefixes `code`'s stem, within one module.
-///
-/// A prefix rather than equality: `Kunde.gui` resolves to `KundeController.java`,
-/// and `Adresse.domvo` to `AdresseHandler.java`. Direction matters -- the
-/// declaration's stem is the prefix, never the other way round.
+/// Prefix, not equality (`Kunde.gui` -> `KundeController.java`); direction
+/// matters -- the declaration's stem is always the prefix.
 pub fn consumes(declaration: Key, code: Key) bool {
     if (declaration.stem.len < min_stem) return false;
     if (!std.mem.eql(u8, declaration.module, code.module)) return false;
     return std.mem.startsWith(u8, code.stem, declaration.stem);
 }
 
-/// Definitions per kilobyte. The code tier's score.
-///
-/// NOT raw definition counts: those rank generated constant tables first, which
-/// is the opposite of useful. Normalising by size moved a known crux from rank
-/// 17 to rank 7 of 574 on a real node.
+/// Definitions per kilobyte, the code tier's score. Not raw counts, which
+/// rank generated constant tables first -- normalising by size moved a
+/// known crux from rank 17 to rank 7 of 574 on a real node.
 pub fn density(definitions: usize, size_bytes: u64) f64 {
-    // A caller must not ask about a zero-size file: the script dropped those
-    // rather than scoring them as infinitely dense, and so does the command.
-    std.debug.assert(size_bytes > 0);
+    std.debug.assert(size_bytes > 0); // callers must not ask about a zero-size file
     return (@as(f64, @floatFromInt(definitions)) * 1000.0) / @as(f64, @floatFromInt(size_bytes));
 }
 
@@ -175,8 +148,7 @@ test "a test directory segment is matched whole, not as a substring" {
         "lib/testing/helper.go",   "a/specs/b.py",
     }) |p| try testing.expect(isTest(p));
 
-    // `testdata` and `latest` are not `test`, and the ERE's trailing slash is
-    // why: a segment has to be the whole word.
+    // `testdata`/`latest` aren't `test` -- a segment must be the whole word.
     for ([_][]const u8{
         "testdata/fixture.bin",    "src/testutil/Helper.java",
         "contest/Entry.java",      "src/main/java/Foo.java",
@@ -189,11 +161,9 @@ test "a capitalised Test suffix needs a lowercase or digit before it" {
     try testing.expect(isTest("src/FooSpec.scala"));
     try testing.expect(isTest("src/Foo2Test.java"));
 
-    // The case this branch exists for. `Latest.java` has no capital T after a
-    // lowercase letter, and dropping it from the crux pool would be silent.
     try testing.expect(!isTest("src/Latest.java"));
     try testing.expect(!isTest("src/Greatest.java"));
-    // A bare `Test.java` has nothing before the capital.
+    // Bare `Test.java` has nothing before the capital.
     try testing.expect(!isTest("src/Test.java"));
 }
 
@@ -203,8 +173,7 @@ test "a separated test or spec suffix is matched on any of . _ -" {
     try testing.expect(isTest("src/foo-spec.ts"));
     try testing.expect(isTest("src/foo.spec.ts"));
 
-    // No separator, so not this branch -- and no capital, so not the previous
-    // one either.
+    // No separator and no capital -- neither branch applies.
     try testing.expect(!isTest("src/footest.go"));
     try testing.expect(!isTest("src/protest.py"));
 }
@@ -217,10 +186,9 @@ test "a test_ prefix counts, in either case" {
 }
 
 test "a basename with no extension matches no filename branch" {
-    // Every branch but the directory one is anchored on a trailing extension.
     try testing.expect(!isTest("bin/footest"));
     try testing.expect(!isTest("Makefile"));
-    // The directory branch still applies.
+    // The directory branch still applies (no extension needed there).
     try testing.expect(isTest("test/runner"));
 }
 
@@ -237,7 +205,7 @@ test "keyOf takes the stem and the first two segments" {
     try testing.expectEqualStrings("Kunde", root.stem);
     try testing.expectEqualStrings(repo_root_module, root.module);
 
-    // Only the final extension goes.
+    // Only the final extension is stripped.
     try testing.expectEqualStrings("Adresse.domvo", keyOf("a/b/Adresse.domvo.bak").stem);
     try testing.expectEqualStrings("Makefile", keyOf("a/b/Makefile").stem);
 }
@@ -247,23 +215,22 @@ test "a declaration consumes a code file by stem prefix within one module" {
     try testing.expect(consumes(decl, keyOf("core/src/KundeController.java")));
     try testing.expect(consumes(decl, keyOf("core/src/Kunde.java")));
 
-    // Wrong direction: the declaration's stem is the prefix, not the code's.
+    // Wrong direction.
     try testing.expect(!consumes(keyOf("core/src/KundeController.gui"), keyOf("core/src/Kunde.java")));
-    // Different module, however well the stem matches.
+    // Different module.
     try testing.expect(!consumes(decl, keyOf("other/src/KundeController.java")));
     // Unrelated stem.
     try testing.expect(!consumes(decl, keyOf("core/src/Adresse.java")));
 }
 
 test "a stem under three characters makes no hop" {
-    // `Id.gui` would prefix IdGenerator, Identity, Idle -- half the repo.
+    // `Id.gui` would prefix IdGenerator/Identity/Idle -- half the repo.
     try testing.expect(!consumes(keyOf("core/src/Id.gui"), keyOf("core/src/IdGenerator.java")));
     try testing.expect(consumes(keyOf("core/src/Kdn.gui"), keyOf("core/src/KdnHandler.java")));
 }
 
 test "density normalises by size, which is the whole point of the tier" {
-    // The measured failure it prevents: raw counts rank a generated constant
-    // table above a dense implementation file.
+    // Raw counts would rank the generated table above the dense impl file.
     const table = density(40, 40_000);
     const impl = density(10, 2_000);
     try testing.expect(impl > table);

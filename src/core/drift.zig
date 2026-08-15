@@ -1,32 +1,28 @@
 //! What changed in the tree since a node was built, and what that means.
 //!
 //! `stale` re-hashes what a node claims; `drift` diffs its recorded `commit`
-//! against HEAD. Only `drift` sees added, deleted and renamed paths, because a
-//! hash comparison over a path list cannot notice a file that is no longer in the
+//! against HEAD. Only `drift` sees added, deleted and renamed paths, since a
+//! hash comparison over a path list can't notice a file no longer in the
 //! list. Neither pulls.
 //!
-//! This file is the part that is a function of git's output rather than of git:
-//! parsing `--name-status -M`, intersecting a node's paths with what moved, and
-//! deciding which finding that is. The command runs git and the manifest match.
+//! This file is the part that's a function of git's output rather than of
+//! git: parsing `--name-status -M`, intersecting a node's paths with what
+//! moved, deciding which finding that is.
 //!
-//! ## Why renames are their own class
-//!
-//! Modified, deleted and renamed are three findings rather than one, and the
-//! renames line says so explicitly: *"reseat sources, prose may still hold"*. It
-//! is the only class fixable without re-authoring -- the concept did not change,
-//! the paths did -- and collapsing it into "content changed" would send someone
-//! to rewrite prose that is still correct.
+//! Modified/deleted/renamed are three findings, not one, because renames are
+//! the only class fixable without re-authoring -- the concept didn't change,
+//! the paths did. Collapsing renames into "content changed" would send
+//! someone to rewrite prose that's still correct.
 
 const std = @import("std");
 
-/// The four classes of change a node can care about, each already byte-sorted so
-/// the intersections below are one merge pass.
+/// The four classes of change a node can care about, each already
+/// byte-sorted so the intersections below are one merge pass.
 pub const Diff = struct {
     modified: [][]const u8,
     deleted: [][]const u8,
-    /// The *old* path of each rename. That is what a node still lists, so it is
-    /// the side to intersect against -- `R100<TAB>old<TAB>new` and the node knows
-    /// `old`.
+    /// The *old* path of each rename -- what a node still lists, so it's the
+    /// side to intersect against (`R100<TAB>old<TAB>new`).
     renamed_from: [][]const u8,
     added: [][]const u8,
 
@@ -40,10 +36,9 @@ pub const Diff = struct {
 
 /// Parse `git diff --name-status -M <base>..HEAD`.
 ///
-/// Status letters can carry a similarity score (`R100`, `M`), so each class is a
-/// prefix test rather than an equality -- which is what the awk's `$1 ~ /^R/`
-/// meant. A rename line has three fields and every other class has two; taking
-/// field 2 for a rename is deliberate and is the old path.
+/// Status letters can carry a similarity score (`R100`, `M`), so each class
+/// is a prefix test, not an equality. A rename line has three fields, every
+/// other class has two; field 2 of a rename is the old path.
 pub fn parseNameStatus(gpa: std.mem.Allocator, raw: []const u8) !Diff {
     var modified: std.ArrayListUnmanaged([]const u8) = .empty;
     var deleted: std.ArrayListUnmanaged([]const u8) = .empty;
@@ -58,10 +53,9 @@ pub fn parseNameStatus(gpa: std.mem.Allocator, raw: []const u8) !Diff {
         const status = line[0..first_tab];
         if (status.len == 0) continue;
         const rest = line[first_tab + 1 ..];
-        // For a rename the path we want is the first of the two remaining
-        // fields; for everything else `rest` is the whole path, tabs and all --
-        // a path may legally contain one, and git quotes such paths, so cutting
-        // at the next tab unconditionally would truncate them.
+        // A rename/copy has two more tab-separated fields; take the first.
+        // Everything else's `rest` is the whole path, tabs and all -- a path
+        // may legally contain one, so cutting unconditionally would truncate.
         const path = switch (status[0]) {
             'R', 'C' => rest[0 .. std.mem.indexOfScalar(u8, rest, '\t') orelse rest.len],
             else => rest,
@@ -71,10 +65,7 @@ pub fn parseNameStatus(gpa: std.mem.Allocator, raw: []const u8) !Diff {
             'D' => try deleted.append(gpa, path),
             'R' => try renamed.append(gpa, path),
             'A' => try added.append(gpa, path),
-            // T (type change), C (copy), U (unmerged) and X are not classes the
-            // script reported, and inventing a finding for them here would be a
-            // behaviour change dressed as completeness.
-            else => {},
+            else => {}, // T/C/U/X: not classes this reports on
         }
     }
 
@@ -84,8 +75,8 @@ pub fn parseNameStatus(gpa: std.mem.Allocator, raw: []const u8) !Diff {
         .renamed_from = try renamed.toOwnedSlice(gpa),
         .added = try added.toOwnedSlice(gpa),
     };
-    // Sorted here rather than by the caller, because every use is an
-    // intersection and an unsorted side makes `comm` silently find nothing.
+    // Sorted here, not by the caller: every use is an intersection, and an
+    // unsorted side finds nothing.
     for ([_][][]const u8{ out.modified, out.deleted, out.renamed_from, out.added }) |set|
         std.mem.sort([]const u8, set, {}, lessByBytes);
     return out;
@@ -95,12 +86,8 @@ fn lessByBytes(_: void, a: []const u8, b: []const u8) bool {
     return std.mem.order(u8, a, b) == .lt;
 }
 
-/// `comm -12 | grep -c .` over two byte-sorted lists.
-///
-/// The script needed `LC_ALL=C` on `comm` as well as on the sorts that fed it,
-/// because `comm` validates order in the ambient collation and silently reports
-/// nothing in common when a UTF-8 locale disagrees with C about case. In process
-/// byte order is the only order there is, so that hazard cannot recur.
+/// `comm -12 | grep -c .` over two byte-sorted lists, in-process (so no
+/// locale can disagree with the sort that fed it, unlike the old `comm`).
 pub fn countIntersect(a: []const []const u8, b: []const []const u8) usize {
     var n: usize = 0;
     var i: usize = 0;
@@ -139,17 +126,13 @@ pub fn nodeDrift(paths: []const []const u8, diff: Diff) NodeDrift {
     };
 }
 
-/// A `node <TAB> reason` row. `(repo)` is used as the node name for findings
-/// about the repository rather than about one node, which is how the script
-/// distinguished them in one stream.
+/// A `node <TAB> reason` row. `(repo)` names a finding about the repository
+/// rather than one node.
 pub const repo_scope = "(repo)";
 
-/// The per-node lines a drift produces, in the script's order: modified, then
-/// renamed, then deleted.
-///
-/// Order is not cosmetic. A node can report all three, and renames carry the one
-/// remedy that does not involve re-reading anything, so they come before the
-/// deletions that might otherwise be the only line someone reads.
+/// Per-node lines, modified then renamed then deleted -- renames carry the
+/// one remedy that needs no re-reading, so they come before deletions that
+/// might otherwise be the only line someone reads.
 pub fn writeNodeFindings(
     w: *std.Io.Writer,
     node_without_md: []const u8,
@@ -166,16 +149,13 @@ pub fn writeNodeFindings(
         try w.print("{s}\t{d} of its files are gone\n", .{ node_without_md, d.deleted });
 }
 
-/// Why a node could not be diffed at all, as opposed to having drifted.
-///
-/// Each one points at `stale` instead, because a node with no usable baseline can
-/// still be verified by re-hashing -- the two subcommands answer different
-/// questions and one being unavailable does not make the other useless.
+/// Why a node couldn't be diffed at all, as opposed to having drifted. Each
+/// points at `stale` instead, since re-hashing works with no baseline.
 pub const Undiffable = union(enum) {
     node_file_missing,
     no_commit_recorded,
-    /// The recorded commit is not in this clone's history: a shallow clone, or a
-    /// baseline from a branch that was never fetched.
+    /// The recorded commit isn't in this clone's history: a shallow clone,
+    /// or a baseline from a branch never fetched.
     baseline_absent: []const u8,
 
     pub fn write(self: Undiffable, w: *std.Io.Writer, node_without_md: []const u8) !void {
@@ -196,8 +176,7 @@ pub const Undiffable = union(enum) {
     }
 };
 
-/// The first twelve characters, matching the script's `cut -c1-12`. Shorter input
-/// is returned whole rather than padded.
+/// The first twelve characters. Shorter input is returned whole, not padded.
 pub fn shortCommit(commit: []const u8) []const u8 {
     return commit[0..@min(12, commit.len)];
 }
@@ -216,15 +195,12 @@ test "name-status parsing splits the four classes and sorts each" {
     defer d.deinit(gpa);
 
     try testing.expectEqual(@as(usize, 2), d.modified.len);
-    // Sorted, because every consumer intersects and an unsorted side finds
-    // nothing.
     try testing.expectEqualStrings("src/a.java", d.modified[0]);
     try testing.expectEqualStrings("src/b.java", d.modified[1]);
     try testing.expectEqualStrings("src/gone.java", d.deleted[0]);
     try testing.expectEqualStrings("src/new.java", d.added[0]);
-    // The OLD path of the rename -- what the node still lists.
     try testing.expectEqual(@as(usize, 1), d.renamed_from.len);
-    try testing.expectEqualStrings("src/old.java", d.renamed_from[0]);
+    try testing.expectEqualStrings("src/old.java", d.renamed_from[0]); // old path, what the node still lists
 }
 
 test "a status letter with a similarity score is still its class" {
@@ -236,8 +212,6 @@ test "a status letter with a similarity score is still its class" {
 }
 
 test "classes the script never reported are ignored, not invented" {
-    // A type change or an unmerged path would need a finding nobody wrote, and
-    // guessing one is a behaviour change wearing completeness as a disguise.
     const gpa = testing.allocator;
     const d = try parseNameStatus(gpa, "T\tsrc/link\nU\tsrc/conflict\n");
     defer d.deinit(gpa);
@@ -264,7 +238,6 @@ test "a node's drift counts each class separately" {
     );
     defer d.deinit(gpa);
 
-    // Byte-sorted, as `extract_source_paths | LC_ALL=C sort` leaves them.
     const paths = [_][]const u8{ "src/a.java", "src/b.java", "src/c.java" };
     const nd = nodeDrift(&paths, d);
     try testing.expectEqual(@as(usize, 1), nd.modified);
@@ -272,8 +245,7 @@ test "a node's drift counts each class separately" {
     try testing.expectEqual(@as(usize, 1), nd.renamed);
     try testing.expect(nd.any());
 
-    // A node claiming none of the changed files has not drifted, and an added
-    // path is never a node's drift -- it is the repository's.
+    // An added path is never a node's drift -- it's the repository's.
     const untouched = [_][]const u8{"src/other.java"};
     try testing.expect(!nodeDrift(&untouched, d).any());
 }
@@ -296,7 +268,6 @@ test "a clean node produces no lines at all" {
     var out: std.Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
     try writeNodeFindings(&out.writer, "Foo", .{ .modified = 0, .renamed = 0, .deleted = 0 });
-    // Silence is the signal every reporting subcommand here relies on.
     try testing.expectEqualStrings("", out.written());
 }
 
@@ -318,11 +289,9 @@ test "shortCommit is twelve characters, and shorter input survives" {
     try testing.expectEqualStrings("abc", shortCommit("abc"));
 }
 
-/// The bash's four `awk`+`LC_ALL=C sort` passes, re-emitted so one digest can
-/// stand for every path in every class.
-///
-/// Counting per class would pass while two paths were swapped between them; a
-/// digest over the whole labelled listing cannot.
+/// The bash's four `awk`+`LC_ALL=C sort` passes, re-emitted so one digest
+/// stands for every path in every class -- catches two paths swapped between
+/// classes, which a per-class count wouldn't.
 fn digestOfClasses(gpa: std.mem.Allocator, raw: []const u8) ![32]u8 {
     const d = try parseNameStatus(gpa, raw);
     defer d.deinit(gpa);
@@ -346,19 +315,14 @@ test "differential: 492 real name-status rows, against the awk they replace" {
     const d = try parseNameStatus(gpa, raw);
     defer d.deinit(gpa);
 
-    // The fixture is the shape of three real repositories' `HEAD~400..HEAD`
-    // diffs -- every distinct status letter and field count they produced, plus
-    // a sample of the ordinary rows -- with each path segment replaced by a
-    // stable pseudonym. Structure is what this parser reads (status letters, the
-    // similarity scores from `R054` to `R100`, the three-field rename rows, the
-    // directory depth), and structure is what survived; the paths themselves are
-    // a closed-source employer's and do not belong in this repository.
-    //
-    // The differential over the *unanonymised* diffs was run once, on
-    // 2026-08-12: fw-core (1,739 rows), syrius-querschnitt-basis (1,019) and
-    // syrius3 (18,814, of which 6,160 renames), all three digest-identical to
-    // the bash. That is the run that proved the parser; this is the part of it a
-    // public repository can keep.
+    // Fixture: the shape of three real repos' `HEAD~400..HEAD` diffs (every
+    // status letter, similarity-score range, field count, directory depth
+    // they produced), with paths replaced by stable pseudonyms -- the real
+    // ones belong to a closed-source employer. The differential ran once
+    // (2026-08-12) against the unanonymised diffs: fw-core (1,739 rows),
+    // syrius-querschnitt-basis (1,019), syrius3 (18,814, 6,160 renames), all
+    // three digest-identical to the bash. This fixture is what a public repo
+    // can keep of that run.
     try testing.expectEqual(@as(usize, 261), d.modified.len);
     try testing.expectEqual(@as(usize, 15), d.deleted.len);
     try testing.expectEqual(@as(usize, 162), d.renamed_from.len);

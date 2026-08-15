@@ -1,38 +1,26 @@
 //! `query symbol <name> <node>`: is this symbol still in the node's sources?
+//! Answered from the tags cache (`tags_cache.Cache.get`), never a fresh
+//! parse -- a per-path `jq` shelled out for this used to cost
+//! `node_sources x cache_bytes` and could exceed 600s on a large repo.
 //!
-//! The answer comes from the tags cache, never from a fresh parse -- and reading
-//! that cache is the whole performance story. The version before it ran `jq` once
-//! per source path, so cost was `node_sources x cache_bytes` rather than
-//! `cache_bytes`, and a 159-file node against a large repo's 800 MB cache did not
-//! finish in 600 seconds. The bash then fixed that with one `synapse tags-cache
-//! --dump` and an `awk` join over the projection.
-//!
-//! In process there is no projection to join: `tags_cache.Cache.get` is the lookup
-//! the dump was standing in for. So what lives here is the part that was never
-//! about transport -- which tag lines match a name, what the three possible answers
-//! about a path are, and whose order the output follows.
-//!
-//! ## Three answers, and only one of them is silence
-//!
-//! A path can be absent from the cache, present but unparseable, or checked. Only
-//! the third produces stdout, and only when the name actually matched -- "checked,
-//! symbol not present" is silence, like every other reporting subcommand. The first
-//! two are diagnostics, and they are reported *distinctly*: conflating "I did not
-//! look" with "I looked and it is gone" is how a caller comes to trust an empty
-//! answer it should have distrusted.
+//! Three answers about a path: absent, unsupported (no grammar/compiler,
+//! backfilling won't help), or checked. Only "checked and the name matched"
+//! prints; "checked, not present" is silence like every other reporting
+//! subcommand. The other two are reported as distinct diagnostics --
+//! conflating "didn't look" with "looked and it's gone" is how a caller
+//! comes to trust an empty answer it shouldn't.
 
 const std = @import("std");
 const tags_cache = @import("tags_cache.zig");
 
 /// What the cache knows about one requested path.
 pub const Outcome = union(enum) {
-    /// No entry at all. The cache has not seen this file, which a backfill fixes.
+    /// Not seen at all; a backfill fixes this.
     not_cached,
-    /// Cached, but no grammar, no tree-sitter, or no C compiler, so it was never
-    /// parsed. Distinct from `not_cached` because backfilling will not help.
+    /// Seen but never parsed (no grammar/compiler); backfilling won't help.
     unsupported,
-    /// Parsed. Carries the entry's whole tag text, for `matches` to walk. Empty is
-    /// a real value: a file with no tags at all was still checked.
+    /// Parsed. Whole tag text, for `matches` to walk. Empty is real: a file
+    /// with no tags was still checked.
     checked: []const u8,
 };
 
@@ -42,12 +30,9 @@ pub fn outcomeFor(entry: ?tags_cache.Entry) Outcome {
     return .{ .checked = e.tags };
 }
 
-/// The tag lines in `tags` whose name is exactly `name`.
-///
-/// The name is the line's own first tab-separated field, space-padded by
-/// tree-sitter's table output, so it is compared trimmed. Exactly, not by prefix:
-/// a prefix match would answer a query about `Token` with every `Tokenizer` in
-/// the file, and the whole point of this lookup is that it is exact.
+/// Tag lines in `tags` whose name is exactly `name` (trimmed first field --
+/// space-padded by tree-sitter's table output). Exact, not prefix: a prefix
+/// match would answer a `Token` query with every `Tokenizer` too.
 pub fn matches(tags: []const u8, name: []const u8) MatchIterator {
     return .{ .lines = std.mem.splitScalar(u8, tags, '\n'), .name = name };
 }
@@ -56,9 +41,8 @@ pub const MatchIterator = struct {
     lines: std.mem.SplitIterator(u8, .scalar),
     name: []const u8,
 
-    /// Yields the matching line verbatim -- padding, kind and span included. The
-    /// caller prints what tree-sitter wrote rather than a re-rendered version of
-    /// it, because a re-rendered tag line is a second format to keep in step.
+    /// Yields the matching line verbatim (padding, kind, span included) --
+    /// prints what tree-sitter wrote, not a re-rendered copy.
     pub fn next(self: *MatchIterator) ?[]const u8 {
         while (self.lines.next()) |line| {
             if (line.len == 0) continue;
@@ -70,12 +54,8 @@ pub const MatchIterator = struct {
     }
 };
 
-/// The requested paths, in the order the node listed them.
-///
-/// Output order comes from the node's own source list and never from the cache,
-/// which is sorted by path -- a report that silently reorders is a report a human
-/// cannot diff against the node. Empty lines are skipped rather than reported as
-/// uncached paths.
+/// Requested paths, in the node's own listed order (not the cache's path
+/// sort) -- so the report stays diffable against the node. Blank lines skipped.
 pub fn requestedPaths(text: []const u8) PathIterator {
     return .{ .lines = std.mem.splitScalar(u8, text, '\n') };
 }
@@ -95,8 +75,8 @@ pub const PathIterator = struct {
 
 const testing = std.testing;
 
-/// Tag text as the cache stores it: newline-joined lines, each one tree-sitter's
-/// own, with the padding and internal tabs it really emits.
+/// Tag text as the cache stores it: newline-joined tree-sitter lines, real
+/// padding and tabs included.
 const sample_tags =
     "Token     \t | class   \tdef (15, 13) - (15, 18) `public class Token {`\n" ++
     "Tokenizer \t | class   \tdef (20, 13) - (20, 22) `class Tokenizer {`\n" ++
@@ -108,7 +88,7 @@ test "a match keeps the tag line verbatim, padding and all" {
         "Token     \t | class   \tdef (15, 13) - (15, 18) `public class Token {`",
         it.next().?,
     );
-    // Both hits, in cache order: a def and a ref are two answers, not one.
+    // Both hits, in cache order: def and ref are two answers, not one.
     try testing.expect(std.mem.indexOf(u8, it.next().?, "ref (31, 4)") != null);
     try testing.expectEqual(@as(?[]const u8, null), it.next());
 }
@@ -118,15 +98,13 @@ test "the name matches exactly, so a longer symbol is not a hit" {
     while (it.next()) |line| {
         try testing.expect(std.mem.indexOf(u8, line, "Tokenizer") == null);
     }
-    // And the converse: a prefix of a real name matches nothing.
+    // A prefix of a real name matches nothing.
     var none = matches(sample_tags, "Tokeniz");
     try testing.expectEqual(@as(?[]const u8, null), none.next());
 }
 
 test "a tag line with no tab is still matchable by its whole text" {
-    // Not a shape tree-sitter emits, but a cache holds whatever was written to it,
-    // and a reader that indexed field 2 unconditionally would fail here rather
-    // than simply not matching.
+    // Not a shape tree-sitter emits, but the cache holds whatever was written.
     var it = matches("bare\n", "bare");
     try testing.expectEqualStrings("bare", it.next().?);
 }
@@ -137,8 +115,7 @@ test "the three answers stay distinct" {
         Outcome.unsupported,
         outcomeFor(.{ .hash = @splat(0), .tags = "", .unsupported = true }),
     );
-    // Checked with no tags is not the same as not checked: the file was parsed and
-    // has nothing, which is silence rather than a diagnostic.
+    // Checked-with-no-tags is not the same as not-checked.
     const checked = outcomeFor(.{ .hash = @splat(0), .tags = "", .unsupported = false });
     try testing.expectEqualStrings("", checked.checked);
 }

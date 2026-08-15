@@ -1,12 +1,9 @@
 //! The tag-line codec: tree-sitter's batch output in, `Tag` out, `_refs.tsv`
 //! rows back out again.
 //!
-//! This is a reimplementation of the awk program in
-//! `claude/lib/synapse/synapse-build-refs.sh`, and its job is to be
-//! byte-identical to it rather than to be a better parser. Where that awk has
-//! a quirk, the quirk is reproduced here on purpose and labelled -- `_refs.tsv`
-//! is binary-searched with `look`, so a row that differs by one byte is a row
-//! that cannot be found.
+//! Reimplements the awk in `claude/lib/synapse/synapse-build-refs.sh`
+//! byte-identically, quirks included and labelled -- `_refs.tsv` is
+//! binary-searched with `look`, so a row that differs by one byte is unfindable.
 //!
 //! The line tree-sitter emits, tab-separated:
 //!
@@ -22,26 +19,22 @@ const model = @import("model");
 const Tag = model.Tag;
 const Role = model.Role;
 
-/// Leading spaces, tabs and pipes; trailing spaces and tabs. Matches the awk
-/// `gsub(/^[ \t|]+|[ \t]+$/, "")`, which is why the ` | ` in front of the kind
-/// disappears without a separate step.
+/// Leading spaces/tabs/pipes, trailing spaces/tabs -- matches the awk
+/// `gsub(/^[ \t|]+|[ \t]+$/, "")`.
 fn trim(s: []const u8) []const u8 {
     return std.mem.trimEnd(u8, std.mem.trimStart(u8, s, " \t|"), " \t");
 }
 
-/// Parse one line of tree-sitter batch output. Returns null for every line the
-/// awk would have skipped with `next`: too few fields, a role that is neither
-/// def nor ref, a span whose row is missing or non-numeric, or an empty name.
-/// A skipped line is not an error -- batch output legitimately contains lines
-/// that are not tags.
+/// Parses one line of tree-sitter batch output. Null for whatever the awk
+/// skipped: too few fields, a bad role, a missing/non-numeric row, an empty
+/// name -- not an error, batch output legitimately has non-tag lines.
 pub fn parse(line: []const u8) ?Tag {
     var it = std.mem.splitScalar(u8, line, '\t');
     const raw_name = it.next() orelse return null;
     const raw_kind = it.next() orelse return null;
-    // `rest = $4` under `-F'\t'` stops at the next tab, so a source line
-    // containing a tab is truncated here and loses its closing backtick. That
-    // is what the bash does today and what `_refs.tsv` already contains;
-    // widening it would rewrite rows that `look` is currently finding.
+    // Stops at the next tab, same as the awk's `-F'\t'` -- a source line
+    // with a tab truncates and loses its closing backtick, matching what
+    // `_refs.tsv` already contains.
     const rest = it.next() orelse return null;
 
     const role_text = rest[0 .. std.mem.indexOfScalar(u8, rest, ' ') orelse rest.len];
@@ -66,9 +59,8 @@ pub fn parse(line: []const u8) ?Tag {
     };
 }
 
-/// Everything between the first backtick and the last one. With a single
-/// backtick the awk's backward scan finds nothing to close against and leaves
-/// the whole remainder in place, so that is what happens here too.
+/// Everything between the first backtick and the last. A single backtick
+/// leaves the whole remainder in place, matching the awk's backward scan.
 fn expression(rest: []const u8) []const u8 {
     const first = std.mem.indexOfScalar(u8, rest, '`') orelse return "";
     const tail = rest[first + 1 ..];
@@ -76,12 +68,9 @@ fn expression(rest: []const u8) []const u8 {
     return tail[0..last];
 }
 
-/// One `_refs.tsv` row: name, role, kind, path:line, expression.
-///
-/// The file this feeds is `LC_ALL=C sort`ed and binary-searched by
-/// `synapse-callers` with `look`, which compares raw bytes. The column order
-/// and the single-tab separators are a contract with that search, not a
-/// formatting choice.
+/// One `_refs.tsv` row: name, role, kind, path:line, expression. Column
+/// order and single-tab separators are a contract with `look`'s raw-byte
+/// binary search over the `LC_ALL=C sort`ed file, not just formatting.
 pub fn writeRefsRow(w: *std.Io.Writer, path: []const u8, tag: Tag) !void {
     try w.print("{s}\t{s}\t{s}\t{s}:{d}\t{s}\n", .{
         tag.name,

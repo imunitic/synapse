@@ -1,30 +1,16 @@
 //! The report `synapse doctor` prints, and the rule for what it exits with.
 //!
-//! ## Why this command exists at all
+//! Every silent guard elsewhere is individually correct (a hook that errors
+//! is worse than one that quietly does nothing), but collectively they mean a
+//! broken install is indistinguishable from a working one with nothing to
+//! say. This is the one place every guard has a counterpart that speaks --
+//! a check with no corresponding silent failure elsewhere doesn't belong here.
 //!
-//! Every silent guard in the system is individually correct. A hook that errors is
-//! worse than one that quietly does nothing: it interrupts a turn to report a
-//! condition the person did not ask about and usually cannot act on. The staleness
-//! hook alone exits 0 on a missing vault, a missing certificate, an absent namespace,
-//! a remote mismatch and a branch mismatch.
-//!
-//! Collectively, though, those guards mean **a broken install is indistinguishable
-//! from a working one with nothing to say**. Silence is the success signal everywhere,
-//! so silence cannot also be the failure signal. This is the one place every guard has
-//! a counterpart that speaks.
-//!
-//! That is the whole design rule for adding a check here: it must mirror a specific
-//! guard somewhere else. A check with no corresponding silent failure is a check
-//! nobody needed.
-//!
-//! ## Three levels, and `warn` is the interesting one
-//!
-//! `fail` is a broken install: something the tooling needs is absent or contradicts
-//! itself. `ok` needs no explanation. `warn` is for a state that is **ordinary but
-//! worth seeing** -- no namespace for this branch, no tags cache yet -- because the
-//! same absence that is normal on a fresh checkout is a symptom on one where
-//! `/synapse-init` was supposed to have run. Only `fail` affects the exit code, so a
-//! warning never turns a working machine into a failing command.
+//! Three levels: `fail` is a broken install; `ok` needs no explanation;
+//! `warn` is ordinary-but-worth-seeing (no namespace for this branch, no tags
+//! cache yet) -- the same absence is normal on a fresh checkout and a symptom
+//! on one where `/synapse-init` should have run. Only `fail` affects the exit
+//! code.
 
 const std = @import("std");
 
@@ -46,16 +32,14 @@ pub const Check = struct {
     /// A short noun phrase, aligned in the report.
     name: []const u8,
     status: Status,
-    /// What was found, or what is missing and what to do. Empty is allowed for an
-    /// `ok` whose name says everything.
+    /// What was found, or what's missing and what to do. Empty is fine for
+    /// an `ok` whose name says everything.
     detail: []const u8,
 };
 
-/// 1 when anything failed, else 0.
-///
-/// Warnings deliberately do not count: an absent namespace is the normal state for a
-/// branch nobody has clustered, and a doctor that exited non-zero for it could not be
-/// used in a script.
+/// 1 when anything failed, else 0. Warnings don't count -- an absent
+/// namespace is normal for an unclustered branch, and a doctor that failed
+/// on it couldn't be used in a script.
 pub fn exitCode(checks: []const Check) u8 {
     for (checks) |c| if (c.status == .fail) return 1;
     return 0;
@@ -73,10 +57,8 @@ pub fn counts(checks: []const Check) Counts {
     return n;
 }
 
-/// One line per check, the status first so a reader scans the left edge.
-///
-/// `FAIL` is upper-case for the same reason: a report where every line starts with a
-/// lower-case word is a report whose one important line does not stand out.
+/// One line per check, status first so a reader scans the left edge. `FAIL`
+/// is upper-case so the one important line stands out.
 pub fn writeReport(w: *std.Io.Writer, checks: []const Check) !void {
     var width: usize = 0;
     for (checks) |c| width = @max(width, c.name.len);
@@ -104,9 +86,7 @@ test "a warning never fails the command, and a failure always does" {
         .{ .name = "a", .status = .ok, .detail = "" },
         .{ .name = "b", .status = .fail, .detail = "" },
     }));
-    // Nothing checked is not a failure -- it is a doctor that found nothing to say,
-    // which cannot happen in practice but must not invent a verdict.
-    try testing.expectEqual(@as(u8, 0), exitCode(&.{}));
+    try testing.expectEqual(@as(u8, 0), exitCode(&.{})); // nothing checked is not a failure
 }
 
 test "the report puts the status first and aligns the details" {
