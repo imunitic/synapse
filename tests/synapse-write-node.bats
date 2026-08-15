@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Tests claude/lib/synapse/synapse-write-node.sh -- the writer that keeps a node's
+# Tests `synapse write-node` -- the writer that keeps a node's
 # exhaustive `sources` out of a context window in both directions.
 #
 # The Obsidian Local REST API is stubbed by tests/fixtures/fake-bin/curl, which

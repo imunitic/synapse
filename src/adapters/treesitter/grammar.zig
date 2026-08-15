@@ -24,6 +24,12 @@ const c = root.c;
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
+/// `ensureCloned`'s own hardcoded default (`Extractor.lock_tries`'s default,
+/// ~60s at 200ms a try) -- both of `build`'s callers pass this for `max_tries`
+/// today. Named so a caller wiring up its own configurable value later has a
+/// documented default to match, rather than inventing a new number.
+pub const default_lock_tries: usize = 300;
+
 pub const Error = error{
     NoCompiler,
     CloneFailed,
@@ -127,7 +133,14 @@ fn probe(io: Io, gpa: Allocator, argv: []const []const u8) bool {
 /// `out_path`. Returns silently if `out_path` is already newer than the
 /// sources -- a grammar is compiled once and reused, exactly as the CLI's own
 /// build cache behaved.
-pub fn build(io: Io, gpa: Allocator, repo_dir: []const u8, out_path: []const u8) !void {
+///
+/// `max_tries` (sb-013) bounds the compile lock's wait the same way
+/// `ensureCloned`'s own parameter bounds its clone lock -- both callers pass
+/// `default_lock_tries` today (unlike the clone lock, this one is not yet
+/// wired to `SYNAPSE_GRAMMAR_LOCK_TRIES`; a real improvement, kept separate
+/// from the race this parameter exists to close). Threaded through mainly so
+/// a test can pass a small value and observe a timeout without a real wait.
+pub fn build(io: Io, gpa: Allocator, repo_dir: []const u8, out_path: []const u8, max_tries: usize) !void {
     const cwd = Io.Dir.cwd();
 
     const parser_c = try std.fs.path.join(gpa, &.{ repo_dir, "src", "parser.c" });
@@ -158,6 +171,61 @@ pub fn build(io: Io, gpa: Allocator, repo_dir: []const u8, out_path: []const u8)
         return Error.CompileFailed;
     } else |_| {}
 
+    if (try upToDate(io, out_path, sources.items)) return;
+
+    // Locked from here on (sb-013): two threads needing the same
+    // not-yet-built extension for the first time in one run can both reach
+    // this point for the identical `out_path` -- `vocab_cmd.zig`'s parallel
+    // `Worker`s each carry their own `Extractor`/grammar cache, so nothing
+    // upstream of this function already serializes them, and without a
+    // lock both would invoke the compiler concurrently against the same
+    // output file, with `dlopen` racing a possibly-truncated result. Same
+    // discipline as `ensureCloned`'s own clone lock -- see its docstring
+    // for the reasoning this mirrors: a directory at `{out_path}.lock`,
+    // staleness takeover after the same window, a bounded wait. A separate
+    // lock from the clone one on purpose: compiling and cloning are
+    // different resources with different callers, and serializing a fast
+    // in-process compile behind a network-clone-sized wait would be its
+    // own bug. `max_tries` is this function's own parameter, not yet wired
+    // to `SYNAPSE_GRAMMAR_LOCK_TRIES` the way the clone lock's is -- both
+    // current callers pass `default_lock_tries`; a real user-facing
+    // improvement, kept separate from the race this closes.
+    const compile_lock_dir = try std.fmt.allocPrint(gpa, "{s}.lock", .{out_path});
+    defer gpa.free(compile_lock_dir);
+
+    var got_compile_lock = false;
+    var compile_tries: usize = 0;
+    while (compile_tries < max_tries) : (compile_tries += 1) {
+        if (cwd.createDir(io, compile_lock_dir, .default_dir)) |_| {
+            got_compile_lock = true;
+            break;
+        } else |_| {}
+        // Another thread may have finished and released between our check
+        // above and this attempt.
+        if (try upToDate(io, out_path, sources.items)) return;
+        if (lockAbandoned(io, compile_lock_dir)) {
+            cwd.deleteDir(io, compile_lock_dir) catch {};
+            if (cwd.createDir(io, compile_lock_dir, .default_dir)) |_| {
+                got_compile_lock = true;
+                break;
+            } else |_| {}
+        }
+        std.Io.sleep(io, .fromMilliseconds(200), .awake) catch {};
+    }
+
+    if (!got_compile_lock) {
+        std.debug.print(
+            "synapse: timed out waiting for the compile lock {s} -- another synapse is compiling " ++
+                "this grammar, or one was killed within the last {d} minutes; a lock left by a " ++
+                "crash is taken over automatically once it is older than that\n",
+            .{ compile_lock_dir, @divTrunc(lock_stale_after_ns, std.time.ns_per_min) },
+        );
+        return Error.CompileFailed;
+    }
+    defer cwd.deleteDir(io, compile_lock_dir) catch {};
+
+    // Re-check under the lock: another thread may have compiled, finished
+    // and released between our last look and our acquiring it.
     if (try upToDate(io, out_path, sources.items)) return;
 
     const src_dir = try std.fs.path.join(gpa, &.{ repo_dir, "src" });
@@ -464,7 +532,7 @@ test "end to end: compile a source tree and load a symbol out of it" {
     const out = try std.fmt.allocPrint(gpa, "{s}/fake.{s}", .{ dir, sharedLibExt() });
     defer gpa.free(out);
 
-    try build(io, gpa, dir, out);
+    try build(io, gpa, dir, out, default_lock_tries);
     try Io.Dir.cwd().access(io, out, .{});
 
     // Present but returning null: the load path must report that as a missing
@@ -473,7 +541,7 @@ test "end to end: compile a source tree and load a symbol out of it" {
     try testing.expectError(Error.SymbolNotFound, load(gpa, out, "tree_sitter_absent"));
 
     // Second build is a no-op: the artefact is newer than the source.
-    try build(io, gpa, dir, out);
+    try build(io, gpa, dir, out, default_lock_tries);
 }
 
 test "a scanner newer than the artefact rebuilds it, the way a newer parser does" {
@@ -499,13 +567,13 @@ test "a scanner newer than the artefact rebuilds it, the way a newer parser does
     const out = try std.fmt.allocPrint(gpa, "{s}/scan.{s}", .{ dir, sharedLibExt() });
     defer gpa.free(out);
 
-    try build(io, gpa, dir, out);
+    try build(io, gpa, dir, out, default_lock_tries);
     const built_at = (try cwd.statFile(io, out, .{})).mtime.nanoseconds;
 
     // Control: with a scanner present and nothing touched, the short-circuit
     // still holds. Without this the test below would pass on a build that had
     // simply stopped caching.
-    try build(io, gpa, dir, out);
+    try build(io, gpa, dir, out, default_lock_tries);
     try testing.expectEqual(built_at, (try cwd.statFile(io, out, .{})).mtime.nanoseconds);
 
     // Only the scanner moves, and it moves to a second *after* the artefact --
@@ -524,7 +592,7 @@ test "a scanner newer than the artefact rebuilds it, the way a newer parser does
         });
     }
 
-    try build(io, gpa, dir, out);
+    try build(io, gpa, dir, out, default_lock_tries);
     try testing.expect((try cwd.statFile(io, out, .{})).mtime.nanoseconds > built_at);
 }
 
@@ -538,7 +606,7 @@ test "a source tree with no parser.c is refused, not compiled into nothing" {
     const out = try std.fmt.allocPrint(gpa, "{s}/none.{s}", .{ dir, sharedLibExt() });
     defer gpa.free(out);
 
-    try testing.expectError(Error.ParserSourceMissing, build(testing.io, gpa, dir, out));
+    try testing.expectError(Error.ParserSourceMissing, build(testing.io, gpa, dir, out, default_lock_tries));
 }
 
 /// A local git repository to clone from. `git clone` takes a path as happily as
@@ -647,6 +715,47 @@ test "a lock older than the staleness window is taken over, a fresh one is not" 
     const readme = try std.fmt.allocPrint(gpa, "{s}/README", .{dir});
     defer gpa.free(readme);
     try cwd.access(io, readme, .{});
+
+    // And the taken-over lock is released like any other.
+    try testing.expectError(error.FileNotFound, cwd.access(io, lock, .{}));
+}
+
+test "compiling is locked the same way cloning is: a fresh lock refuses, a stale one is taken over" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+    const cwd = Io.Dir.cwd();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const dir = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    try tmp.dir.createDirPath(io, "src");
+    try tmp.dir.writeFile(io, .{
+        .sub_path = "src/parser.c",
+        .data = "void *tree_sitter_fake(void) { return 0; }\n",
+    });
+
+    const out = try std.fmt.allocPrint(gpa, "{s}/locked.{s}", .{ dir, sharedLibExt() });
+    defer gpa.free(out);
+    const lock = try std.fmt.allocPrint(gpa, "{s}.lock", .{out});
+    defer gpa.free(lock);
+
+    // Fresh: it could belong to a live compile, so the wait times out and
+    // refuses rather than compiling out from under the holder.
+    try cwd.createDirPath(io, lock);
+    try testing.expectError(Error.CompileFailed, build(io, gpa, dir, out, 2));
+    try cwd.access(io, lock, .{}); // a waiter that timed out did not delete it
+    try testing.expectError(error.FileNotFound, cwd.access(io, out, .{}));
+
+    // Aged past the window: nobody is behind it, so it is taken over and the
+    // compile proceeds. Set rather than slept for -- fifteen minutes is not a
+    // test.
+    const long_ago = Io.Timestamp.now(io, .real).nanoseconds - lock_stale_after_ns - std.time.ns_per_min;
+    try cwd.setTimestamps(io, lock, .{ .modify_timestamp = .{ .new = .{ .nanoseconds = long_ago } } });
+
+    try build(io, gpa, dir, out, 2);
+    try cwd.access(io, out, .{});
 
     // And the taken-over lock is released like any other.
     try testing.expectError(error.FileNotFound, cwd.access(io, lock, .{}));

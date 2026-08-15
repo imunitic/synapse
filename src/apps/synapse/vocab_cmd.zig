@@ -264,14 +264,11 @@ pub fn run(
     else
         try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-kind-synonyms.conf", .{home});
     defer gpa.free(kind_rules_path);
-    var kind_rules = try core.kind_synonyms.RuleList.load(gpa, io, kind_rules_path);
+    var kind_rules = core.kind_synonyms.RuleList.load(gpa, io, kind_rules_path) catch {
+        std.debug.print("synapse-vocab: cannot read the kind-synonyms registry\n", .{});
+        return 1;
+    };
     defer kind_rules.deinit();
-
-    var ex: Ex = .init(gpa, registry, grammars_dir, kind_rules);
-    defer ex.deinit();
-    if (env.get("SYNAPSE_GRAMMAR_LOCK_TRIES")) |t|
-        ex.lock_tries = std.fmt.parseInt(usize, t, 10) catch 300;
-    ex.query_override_dir = env.get("SYNAPSE_GRAMMARS_QUERY_PATH");
 
     // Which extensions have a usable grammar, from the registry rather than a
     // second hardcoded list. A hardcoded copy is how a real, already-registered

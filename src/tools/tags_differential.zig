@@ -31,7 +31,7 @@ pub fn main(init: std.process.Init) !u8 {
     const lib_path = lines.next() orelse return 2;
     const symbol = lines.next() orelse return 2;
 
-    try treesitter.grammar.build(io, gpa, repo_dir, lib_path);
+    try treesitter.grammar.build(io, gpa, repo_dir, lib_path, treesitter.grammar.default_lock_tries);
     const lang = try treesitter.grammar.load(gpa, lib_path, symbol);
 
     const scm_path = try std.fs.path.join(gpa, &.{ repo_dir, "queries", "tags.scm" });

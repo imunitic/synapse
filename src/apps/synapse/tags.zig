@@ -94,7 +94,7 @@ pub fn run(
     else
         try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-kind-synonyms.conf", .{home});
     defer gpa.free(kind_rules_path);
-    var kind_rules = try core.kind_synonyms.RuleList.load(gpa, io, kind_rules_path);
+    var kind_rules = core.kind_synonyms.RuleList.load(gpa, io, kind_rules_path) catch return 1;
     defer kind_rules.deinit();
 
     var ex: Ex = .init(gpa, registry, grammars_dir, kind_rules);

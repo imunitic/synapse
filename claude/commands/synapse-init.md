@@ -315,7 +315,7 @@ existing nodes.
    unassigned, nothing to do" and stop.
 2. Read `synapse/{repo}@{branch}/Index.md` for the current node list (titles + summaries).
 3. Tag them **in one call, not one per file**: write the unassigned paths to a list and run
-   `~/.synapse tags --paths {list}`. Output is attributable — an unindented line is a
+   `synapse tags --paths {list}`. Output is attributable — an unindented line is a
    path, the tab-indented lines under it are that path's tags — so one invocation classifies the
    whole sweep. A per-file loop here costs ~33× more for the same answer, and `_unassigned` on a
    large repo is not a short list. Fall back to a full read only for genuinely ambiguous cases.

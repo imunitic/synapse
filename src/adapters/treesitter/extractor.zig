@@ -90,7 +90,7 @@ pub const TsBackend = struct {
             try gpa.dupe(u8, repo_dir);
         defer gpa.free(src_root);
 
-        try grammar.build(io, gpa, src_root, lib_path);
+        try grammar.build(io, gpa, src_root, lib_path, grammar.default_lock_tries);
 
         const lang = try grammar.load(gpa, lib_path, symbol);
 
@@ -134,6 +134,15 @@ pub const TsBackend = struct {
             const node_types_path = try std.fs.path.join(gpa, &.{ src_root, "src", "node-types.json" });
             defer gpa.free(node_types_path);
             var classification = try node_types.classify(gpa, io, node_types_path);
+            // Freed here on any error up to the point ownership actually
+            // transfers into `t.classification` below (`Tagger.init`
+            // succeeding), and never after: nothing fallible may sit
+            // between that call and the `return t` two lines down, or this
+            // `errdefer` would still be armed after the transfer already
+            // happened and `Tagger.deinit()` would later free it a second
+            // time. If a future edit needs to insert something fallible in
+            // between, move this `errdefer` to cover only up to the
+            // transfer, not past it.
             errdefer classification.deinit();
 
             const generated_query = try node_types.buildQuery(gpa, classification.guesses);

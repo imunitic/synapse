@@ -123,7 +123,15 @@ fn update(
     var cache = try Cache.open(io, cache_path);
     defer cache.close(io);
 
-    backfill(Ex, gpa, io, env, repo_root, &cache, requested.items, trace) catch return 1;
+    backfill(Ex, gpa, io, env, repo_root, &cache, requested.items, trace) catch {
+        // `backfill` stays silent on purpose -- it also backs `write-node`'s and
+        // `query symbol`'s non-fatal cache refresh, where a message here would be
+        // misleading (those callers already report their own "non-fatal" outcome).
+        // This is the one caller where a failure is fatal, so it gets the message
+        // the shared helper deliberately doesn't print itself.
+        std.debug.print("synapse-tags-cache: could not bring the cache up to date\n", .{});
+        return 1;
+    };
     return 0;
 }
 
