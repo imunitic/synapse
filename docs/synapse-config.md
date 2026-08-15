@@ -53,11 +53,19 @@ edit directly if a cached decision needs correcting.
 
 ## Plain per-line conf files
 
-- **`synapse-ignore-files.conf`** — no environment-variable override. One extended regular
-  expression per line (blank lines and `#`-comments ignored), matched against the repo-relative
-  path with `grep -vE`, OR'd together — deliberately not gitignore syntax (no anchoring rules, no
-  `**` globs, no negation). `$SYNAPSE_EXTRA_EXCLUDE_RE` layers one more pattern on top, OR'd with
-  whatever the file holds, for a one-off invocation that doesn't want a persistent rule.
+- **`synapse-ignore-files.conf`** — extra paths to drop from the graph entirely, on top of the
+  built-in exclusions (compiled objects, archives, media, model weights, lockfiles, minified
+  bundles, source maps): a machine-wide list of whatever *this machine's* projects carry that's
+  noise everywhere (vendored dependencies, tracked-but-generated sources, fixture corpora, IDE
+  metadata). An excluded path gets no owning node at all — it's invisible to search and to
+  staleness tracking, not merely deprioritized — which is the right call for build output and
+  vendored code, and the wrong one for a file that's just *uninteresting to read* (a generated
+  config whose edits still change behavior still wants its own node, flagged stale when it
+  changes). No environment-variable override. One extended regular expression per line (blank
+  lines and `#`-comments ignored), matched against the repo-relative path with `grep -vE`, OR'd
+  together — deliberately not gitignore syntax (no anchoring rules, no `**` globs, no negation).
+  `$SYNAPSE_EXTRA_EXCLUDE_RE` layers one more pattern on top, OR'd with whatever the file holds,
+  for a one-off invocation that doesn't want a persistent rule.
 - **`synapse-prompt-stopwords.conf`** — no environment-variable override. One English function word
   per line (570 words, from [stopwords-json](https://github.com/6/stopwords-json), MIT), matched
   whole-line with `grep -vxFf`. Filtered out of a raw prompt before `synapse vocab` builds a search
