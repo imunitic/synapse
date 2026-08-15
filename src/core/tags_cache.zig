@@ -1,28 +1,19 @@
 //! The tags cache: which files have been tagged, at what content hash, with
-//! what result. The port of `claude/lib/synapse/synapse-tags-cache.sh`, minus
-//! the part that actually tags -- deciding *what* needs tagging, holding the
-//! answers, and projecting them into `_refs.tsv` all live here; running the
-//! extractor over the shortfall is an app's job, because core spawns nothing.
+//! what result. Port of `synapse-tags-cache.sh` minus the actual tagging --
+//! deciding what needs tagging, holding answers, projecting into
+//! `_refs.tsv` live here; running the extractor is an app's job.
 //!
-//! The behaviour is the script's, deliberately. A path is current when the
-//! cache holds it at exactly the requested hash. A commit merges onto what is
-//! already there rather than replacing it, so two callers covering different
-//! subsets of a repo do not erase each other's work. A file with no usable
-//! grammar is recorded as `unsupported` with no tags rather than left out, or
-//! it would be re-attempted on every call forever.
+//! A path is current when the cache holds it at exactly the requested hash.
+//! `commit` merges onto what's already there, so two callers covering
+//! different subsets of a repo don't erase each other. A file with no
+//! usable grammar is recorded `unsupported` rather than omitted, or it'd be
+//! re-attempted forever.
 //!
-//! Two things are new.
-//!
-//! **Eviction.** Nothing in the shell version ever removed a row, which is why
-//! `_refs.tsv` can name a caller in a file that was deleted months ago: the
-//! projection faithfully reproduces whatever the cache still holds. `commit`
-//! takes removals, and they are the only way a row leaves.
-//!
-//! **The storage is `tags_cache/format.zig`, not JSON.** That is what makes
-//! `needsTagging` cheap: it compares hashes in the record table and never
-//! touches the payload region, so answering "which of these 4,000 files
-//! changed?" reads a few megabytes rather than parsing every tag line of every
-//! entry -- 5.0s of `jq` over syrius3's 828 MB cache, measured.
+//! Two things new versus the shell version: **eviction** (`commit` takes
+//! removals -- the shell version never removed a row, so `_refs.tsv` could
+//! name a deleted file's caller), and **storage in `tags_cache/format.zig`,
+//! not JSON** -- `needsTagging` compares hashes in the record table without
+//! touching the payload, versus 5.0s of `jq` over syrius3's 828 MB cache.
 
 const std = @import("std");
 const format = @import("tags_cache/format.zig");
@@ -34,10 +25,8 @@ const Allocator = std.mem.Allocator;
 /// What the cache knows about one path. No `path` field: you found it by one.
 pub const Entry = struct {
     hash: [20]u8,
-    /// The extractor's output for this file, newline-separated, unindented.
-    /// Empty for a file that parsed and declared nothing -- which is not the
-    /// same as `unsupported`, and the cache is the place that has to keep them
-    /// apart.
+    /// Extractor output, newline-separated. Empty means parsed and declared
+    /// nothing -- not the same as `unsupported`.
     tags: []const u8,
     unsupported: bool = false,
 };
@@ -53,21 +42,18 @@ pub const Update = struct {
     entry: Entry,
 };
 
-/// A cache file, mapped. Every slice a lookup returns points into the mapping,
-/// so it is valid until `close` or the next `commit`.
+/// A cache file, mapped. Every slice a lookup returns points into the
+/// mapping, valid until `close` or the next `commit`.
 pub const Cache = struct {
-    /// Borrowed from the caller and outliving this struct is the caller's
-    /// problem, as with every other path in core.
+    /// Borrowed; outliving this struct is the caller's problem.
     path: []const u8,
     view: format.View,
     map: ?Io.File.MemoryMap = null,
-    /// Why the file on disk was not used, when it was not. Null means it was
-    /// read, or was simply absent. A caller that wants to say something about
-    /// a discarded cache reads this; nothing here prints.
+    /// Why the file on disk wasn't used. Null means it was read or absent;
+    /// nothing here prints, a caller reads this to say why.
     discarded: ?format.ParseError = null,
 
-    /// Never accessed for a zero-entry cache -- `count` is 0, so no record,
-    /// path or payload offset is ever computed from it.
+    /// Never accessed for a zero-entry cache.
     const no_entries: format.View = .{
         .bytes = &.{},
         .header = .{
@@ -79,20 +65,12 @@ pub const Cache = struct {
         },
     };
 
-    /// Absent, unreadable, damaged, or written by another version: all of them
-    /// open as an empty cache rather than an error.
+    /// Absent, unreadable, damaged, or from another version: all open as an
+    /// empty cache rather than an error. Recomputable by re-tagging, so no
+    /// migration path -- a non-cache file (including the shell version's
+    /// leftover JSON) is just overwritten by the next commit.
     ///
-    /// This is the one place the "it is a cache" argument gets spent, so it is
-    /// worth being explicit about what it buys and costs. Everything in here
-    /// can be recomputed by re-tagging, so a migration path would carry risk
-    /// to save one rebuild. The cost is that a file which is not a cache at
-    /// all gets overwritten by the next commit -- including, on the first run
-    /// after this change, the JSON cache the shell version left behind. That
-    /// is the intended migration and not an accident: the JSON is obsolete the
-    /// moment this code runs.
-    ///
-    /// No allocator: the mapping is the storage and `format.parse` allocates
-    /// nothing, so the plan's `open(gpa, io, path)` had one it never used.
+    /// No allocator: the mapping is the storage, `format.parse` allocates nothing.
     pub fn open(io: Io, path: []const u8) !Cache {
         var self: Cache = .{ .path = path, .view = no_entries };
 
@@ -106,12 +84,7 @@ pub const Cache = struct {
         var map = file.createMemoryMap(io, .{
             .len = @intCast(size),
             .protection = .{ .read = true, .write = false },
-            // Prefaulting an 800 MB mapping is the exact cost this format
-            // exists to avoid; a reader that wants one file's tags should
-            // fault in one file's pages. Ignored outside Linux, so it changes
-            // nothing measured here -- it is set so it does not start costing
-            // something the day the hooks run there.
-            .populate = false,
+            .populate = false, // avoid prefaulting an 800 MB mapping
         }) catch return self;
         errdefer map.destroy(io);
 
@@ -121,9 +94,7 @@ pub const Cache = struct {
             return self;
         };
         self.map = map;
-        // The mapping keeps its own reference to the file, so the descriptor
-        // opened here is only needed until `createMemoryMap` succeeds.
-        close_file = false;
+        close_file = false; // the mapping keeps its own reference now
         return self;
     }
 
@@ -150,16 +121,10 @@ pub const Cache = struct {
         return self.view.count();
     }
 
-    /// The requested pairs this cache does not already hold at that hash, in
-    /// the order given, deduplicated by path.
-    ///
-    /// Touches the record table only. The payload region -- which is all but a
-    /// few megabytes of the file -- is never read, and that is the whole
-    /// reason for the format.
-    ///
-    /// Deduplication matters because the answer feeds an extractor: a path
-    /// listed twice would otherwise be tagged twice, which the shell version
-    /// avoided by `sort -u`ing its input. First occurrence wins.
+    /// Requested pairs not already held at that hash, in order,
+    /// deduplicated by path (first occurrence wins) -- the answer feeds an
+    /// extractor, so a duplicate would otherwise be tagged twice. Touches
+    /// the record table only; the payload region is never read.
     pub fn needsTagging(
         self: *const Cache,
         gpa: Allocator,
@@ -181,12 +146,10 @@ pub const Cache = struct {
         return out.toOwnedSlice(gpa);
     }
 
-    /// Apply `updates`, drop `removals`, write the result and rename it over
-    /// the original. Returns the number of rows actually removed -- a removal
-    /// naming a path the cache never held is not an error, and not counted.
-    ///
-    /// The mapping is replaced by one over the new file, so the cache stays
-    /// usable and every previously returned slice is invalidated.
+    /// Apply `updates`, drop `removals`, write and rename over the original.
+    /// Returns rows actually removed -- a removal naming a path the cache
+    /// never held is not an error, and not counted. Every previously
+    /// returned slice is invalidated once the mapping is replaced.
     pub fn commit(
         self: *Cache,
         gpa: Allocator,
@@ -207,9 +170,7 @@ pub const Cache = struct {
             });
         }
 
-        // Updates before removals, so removing a path that is also being
-        // updated removes it. The alternative ordering makes the outcome
-        // depend on argument order, which is worse than either answer.
+        // Updates before removals, so removing a path also being updated wins.
         for (updates) |u| try merged.put(gpa, u.path, u.entry);
 
         var removed: usize = 0;
@@ -235,24 +196,16 @@ pub const Cache = struct {
         return removed;
     }
 
-    /// Write and rename, then re-map. Renaming rather than writing in place is
-    /// what keeps a concurrent reader from seeing a half-written cache: on a
-    /// POSIX filesystem it either sees the old file whole or the new one.
-    /// Encode `entries` straight into the temp file, then rename.
-    ///
-    /// Streamed rather than handed a finished buffer, because at repository
-    /// scale that buffer is the whole cache -- several hundred megabytes whose
-    /// only purpose was to be copied to disk once. `format.encodeTo` holds the
-    /// record table and paths and passes the tag payloads through, so the extra
-    /// memory here is around 11 MB at 125k files rather than a second copy of
-    /// everything.
+    /// Write to a temp file and rename over the original, then re-map --
+    /// renaming keeps a concurrent reader from seeing a half-written cache.
+    /// Streamed rather than buffered whole: at repo scale the cache is
+    /// hundreds of MB, and `format.encodeTo` holds only the record table and
+    /// paths (~11 MB at 125k files), passing tag payloads straight through.
     fn replaceFile(self: *Cache, gpa: Allocator, io: Io, entries: []const format.Entry) !void {
         const cwd = Io.Dir.cwd();
 
-        // `Io.Dir.path` rather than `std.fs.path`, which the purity gate
-        // forbids core from naming. The functions are the same -- std aliases
-        // them there -- and they are pure string work with no system access,
-        // which is what the gate is actually about.
+        // `Io.Dir.path`, not `std.fs.path` -- the purity gate forbids core
+        // naming the latter, though they're pure string work either way.
         if (Io.Dir.path.dirname(self.path)) |dir| cwd.createDirPath(io, dir) catch {};
 
         const tmp = try std.fmt.allocPrint(gpa, "{s}.tmp", .{self.path});
@@ -275,21 +228,11 @@ pub const Cache = struct {
         self.* = try open(io, self.path);
     }
 
-    /// Every cached tag as an `_refs.tsv` row, in path order.
-    ///
-    /// Streams the payload region once and holds one line at a time, because
-    /// this runs over a whole repository's tags -- 828 MB on syrius3 -- and
-    /// materialising that would defeat the point of keeping it out of line.
-    ///
-    /// An `unsupported` entry contributes nothing, having no tags. So does an
-    /// evicted one, which is the point: the projection can only report what
-    /// the cache still holds, which is why eviction had to exist before a
-    /// deleted file could stop appearing here.
-    ///
-    /// Path order is not the order `_refs.tsv` is stored in. That file is
-    /// `LC_ALL=C sort`ed by name and binary-searched with `look`, so whoever
-    /// writes it sorts these rows first -- this emits them, it does not order
-    /// them for the search.
+    /// Every cached tag as an `_refs.tsv` row, in path order. Streams the
+    /// payload one line at a time -- 828 MB on syrius3, too big to
+    /// materialise. An `unsupported` or evicted entry contributes nothing.
+    /// Path order, not `_refs.tsv`'s own sort order: the writer sorts these
+    /// rows, this just emits them.
     pub fn writeRefs(self: *const Cache, w: *std.Io.Writer) !usize {
         var rows: usize = 0;
         var i: u32 = 0;
@@ -319,8 +262,8 @@ fn h(comptime hex: *const [40]u8) [20]u8 {
     return out;
 }
 
-/// A cache under a temp directory, addressed by absolute path so the tests do
-/// not depend on the process's cwd.
+/// A cache under a temp directory, addressed by absolute path so tests
+/// don't depend on the process's cwd.
 const Fixture = struct {
     tmp: testing.TmpDir,
     buf: [Io.Dir.max_path_bytes]u8 = undefined,
@@ -437,9 +380,6 @@ test "needsTagging deduplicates, so nothing is tagged twice" {
 }
 
 test "a file that parsed to nothing is current, and is not unsupported" {
-    // The distinction the whole Outcome union exists for, asserted where it
-    // finally matters: both entries hold zero bytes of tags, and only one of
-    // them means "do not bother trying again".
     const gpa = testing.allocator;
     const io = testing.io;
     var fx = try Fixture.init();
@@ -457,8 +397,7 @@ test "a file that parsed to nothing is current, and is not unsupported" {
     try testing.expect(!cache.get("empty.java").?.unsupported);
     try testing.expect(cache.get("nogrammar.bin").?.unsupported);
 
-    // Neither is re-tagged at the same hash. An unsupported file being
-    // re-attempted on every call is the bug this recording prevents.
+    // Neither is re-tagged at the same hash.
     const need = try cache.needsTagging(gpa, &.{
         .{ .path = "empty.java", .hash = h("11" ** 20) },
         .{ .path = "nogrammar.bin", .hash = h("22" ** 20) },
@@ -468,8 +407,6 @@ test "a file that parsed to nothing is current, and is not unsupported" {
 }
 
 test "commit merges onto what is there rather than replacing it" {
-    // Two callers covering different subsets of a repo -- a node write and a
-    // query backfill -- must not erase each other.
     const gpa = testing.allocator;
     const io = testing.io;
     var fx = try Fixture.init();
@@ -514,9 +451,6 @@ test "a re-commit of the same path replaces its entry, not adds one" {
 }
 
 test "eviction: a removed path leaves the cache and the refs projection" {
-    // The gap the shell version left. Nothing there ever removed a row, so
-    // _refs.tsv kept naming callers in files that had been deleted -- the
-    // projection was faithful, the cache was not.
     const gpa = testing.allocator;
     const io = testing.io;
     var fx = try Fixture.init();
@@ -551,9 +485,7 @@ test "eviction: a removed path leaves the cache and the refs projection" {
     try testing.expect(std.mem.indexOf(u8, after.written(), "src/Gone.java") == null);
     try testing.expect(std.mem.indexOf(u8, after.written(), "src/Alpha.java") != null);
 
-    // It stays gone across a reopen -- the removal is in the file, not just in
-    // this process's view of it.
-    var reopened = try Cache.open(io, path);
+    var reopened = try Cache.open(io, path); // stays gone across a reopen
     defer reopened.close(io);
     try testing.expectEqual(@as(u32, 1), reopened.count());
 }
@@ -660,8 +592,6 @@ test "a cache written by another version is discarded, not misread" {
 }
 
 test "the JSON cache the shell version left behind is discarded the same way" {
-    // Named as its own case because it is the actual migration path, not a
-    // hypothetical: every machine running the old code has one of these.
     const gpa = testing.allocator;
     const io = testing.io;
     var fx = try Fixture.init();
@@ -684,9 +614,7 @@ test "the JSON cache the shell version left behind is discarded the same way" {
 }
 
 test "a commit is atomic: no partial file is ever visible at the cache path" {
-    // Asserted structurally rather than by racing: the write goes to a
-    // sibling and is renamed, so a reader sees the old file whole or the new
-    // one whole. What is checkable here is that the sibling does not survive.
+    // Checked structurally: the sibling temp file must not survive.
     const gpa = testing.allocator;
     const io = testing.io;
     var fx = try Fixture.init();

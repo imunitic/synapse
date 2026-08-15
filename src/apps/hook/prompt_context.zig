@@ -1,37 +1,21 @@
 //! `synapse-hook prompt-context` -- UserPromptSubmit.
 //!
-//! One standing line per turn, in a repo that has a namespace: the graph exists, and
-//! here are the tools that read it. No search, no node list, no network.
-//! `SYNAPSE_DISABLE_PROMPT_INJECTION` (any value) disables it entirely.
+//! One standing line per turn, in a repo with a namespace: the graph
+//! exists, here are the tools that read it. No search, no node list, no
+//! network. `SYNAPSE_DISABLE_PROMPT_INJECTION` (any value) disables it.
 //!
-//! ## Why a nudge and not a search
+//! Used to tokenize the prompt into a regexp OR-pattern and search the
+//! vault instead: on a real 52-node namespace, "can you explain how
+//! BatchRunner dispatches work items" returned 50 of 52 nodes for ~1057
+//! tokens, every turn -- `[Ww]ork` matched the substring inside
+//! `framework` (1392 occurrences), and one weak term OR'd in destroys the
+//! query. A per-turn nudge also survives context compaction, unlike a
+//! SessionStart injection.
 //!
-//! This hook used to tokenise the prompt, build a regexp OR-pattern, POST it to the
-//! vault's search endpoint and inject the matching nodes. Measured against a real
-//! 52-node namespace, "can you explain how BatchRunner dispatches work items"
-//! returned **50 of 52 nodes for ~1057 tokens, on every turn**.
-//!
-//! The cause was not a tunable: `[Ww]ork` matched 50 nodes because it matched the
-//! substring inside `framework`, which appears 1392 times across the namespace's
-//! `sources`. Word boundaries only brought the union from 50 to 25. One weak term
-//! OR'd into a pattern destroys the query, and an ordinary sentence nearly always
-//! contains one.
-//!
-//! What could not be replaced by pulling is the reminder itself: a SessionStart
-//! injection ages out once context is compacted, a per-turn line does not.
-//!
-//! ## Two tools, not one
-//!
-//! The line names the Graph and the Code Cache separately because they are separate:
-//! `callers` reads `_refs.tsv` and answers in a repo where clustering never ran.
-//! Collapsing both into "read the graph" cost a real session -- the reader skimmed
-//! node titles, saw nothing matching the subject, concluded Synapse did not cover the
-//! area, and fell back to grep. Every file was indexed; the titles were simply
-//! misleading about ownership. Hence naming the reverse index as the coverage check.
-//!
-//! Both halves are announced only when actually present -- the node count is counted
-//! and the Code Cache line appears only if `_refs.tsv` exists. Naming a capability in
-//! the abstract sends the reader to a tool that answers "no reference index".
+//! Names the Graph and the Code Cache separately, not "read the graph":
+//! collapsing them once cost a real session where the reader skimmed node
+//! titles, saw nothing matching, and fell back to grep even though every
+//! file was indexed. Each half is announced only when actually present.
 
 const std = @import("std");
 const common = @import("common.zig");
@@ -46,12 +30,8 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
 
     var payload = common.Payload.read(gpa, io);
     defer payload.deinit();
-    // An empty prompt exits silently, so a payload field rename degrades to "does
-    // nothing" rather than to a wrong injection.
-    _ = payload.str("prompt") orelse return;
+    _ = payload.str("prompt") orelse return; // an empty prompt exits silently
 
-    // `cwd` comes from the payload -- a SessionStart or a prompt arrives with the
-    // session's directory, which is not necessarily this process's.
     const ns = common.Namespace.resolve(gpa, io, env, payload.str("cwd") orelse ".") orelse return;
     defer ns.deinit(gpa);
     const ns_dir = try std.fmt.allocPrint(gpa, "{s}/synapse/{s}", .{ vault, ns.key });
@@ -61,10 +41,8 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
 
     const index_text = Io.Dir.cwd().readFileAlloc(io, ns_index, gpa, .limited(64 << 20)) catch return;
     defer gpa.free(index_text);
-    // The remote check every component makes before trusting a namespace: two repos
-    // can share a key, and pointing at another project's graph is worse than saying
-    // nothing. Branch is not checked here, unlike on the write paths -- this is the
-    // check the script made, and widening it would change which repos get a pointer.
+    // Remote check, not branch (unlike the write paths): two repos can
+    // share a key, and pointing at another project's graph is worse than silence.
     const remote = @import("core").query.field(index_text, "remote") orelse return;
     if (remote.len == 0 or !std.mem.eql(u8, remote, ns.remote)) return;
 
@@ -93,8 +71,7 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     try common.emitContext(gpa, io, "UserPromptSubmit", text.written());
 }
 
-/// Every `*.md` directly under the namespace except `Index.md` -- the map is not a
-/// node.
+/// Every `*.md` directly under the namespace except `Index.md`.
 fn countNodes(io: Io, ns_dir: []const u8) !usize {
     var dir = Io.Dir.cwd().openDir(io, ns_dir, .{ .iterate = true }) catch return 0;
     defer dir.close(io);

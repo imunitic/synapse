@@ -1,29 +1,19 @@
 //! `synapse-hook stop-nudge` -- Stop.
 //!
-//! Two jobs, both keyed off the fact that Stop is the only per-turn event:
+//! Two jobs, keyed off Stop being the only per-turn event: every `N` turns,
+//! force a "worth capturing in Synapse Vault" check-in; every
+//! `PUSH_EVERY` turns, push the vault's auto-commits to its remote.
 //!
-//! 1. every `N` turns, force a genuine "is anything worth capturing in Synapse Vault"
-//!    check-in;
-//! 2. every `PUSH_EVERY` turns, push the vault's auto-commits to its remote.
+//! The push lives here, not in db-sync, because db-sync is PostToolUse
+//! (fires per tool call, several times a turn, and can't count turns) --
+//! this reuses the hook's own turn counter instead of adding a second one.
+//! Piggybacking is safe since every path here falls through to the push
+//! block, but the push must stay silent on stdout: the nudge above may
+//! already have written this hook's JSON.
 //!
-//! ## Why the push lives here and not in db-sync
-//!
-//! `db-sync` is PostToolUse, so it fires once per vault-mutating tool call -- several
-//! times in a single turn -- and a network round trip there would be paid on every
-//! Write/Edit. It also has no way to count turns. So committing stays there and
-//! pushing happens here, reusing this hook's per-session turn counter rather than
-//! adding a second one.
-//!
-//! **Piggybacking is safe because this hook has no early exits**: every path falls
-//! through to the push block. It must stay silent on stdout though -- the nudge above
-//! may already have written this hook's JSON, and a second write would corrupt it.
-//!
-//! ## The nudge uses additionalContext, not decision:block
-//!
-//! A predecessor hook used this same shape and reliably produced immediate, visible
-//! action, with the CLI labelling it "Stop hook feedback" instead of the
-//! alarming-looking "Stop hook error" that `decision: block` renders as. Switched back
-//! to this shape 2026-07-23 specifically for the better label.
+//! The nudge uses `additionalContext`, not `decision: block`, since the CLI
+//! labels the former "Stop hook feedback" rather than the alarming "Stop
+//! hook error".
 
 const std = @import("std");
 const adapters = @import("adapters");
@@ -56,11 +46,7 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map, self_path: []c
 
     if (since >= n) {
         try writeCount(gpa, io, since_path, 0);
-        // `LOCATION` is the vault path when known, and the phrase when not: the
-        // message names where to write, and "the Obsidian vault" is still an
-        // instruction where a path would be a lie.
-        // The vault path when known, the phrase when not: the message names where to
-        // write, and "the Obsidian vault" is still an instruction where a path is a lie.
+        // Vault path when known, the phrase when not -- a path would be a lie otherwise.
         const resolved_vault = common.vault(gpa, io, env);
         defer if (resolved_vault) |v| gpa.free(v);
         const location = resolved_vault orelse "the Obsidian vault";
@@ -91,17 +77,13 @@ fn writeCount(gpa: Allocator, io: Io, path: []const u8, value: usize) !void {
     Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = text }) catch {};
 }
 
-/// Hand the push to a detached copy of this binary, at most every `PUSH_EVERY` turns.
-///
-/// **Detached, so the turn never waits on the network.** That was the script's reason
-/// for backgrounding a subshell and it is unchanged: a Stop hook that stalls delays
-/// the visible end of every turn, and an unreachable remote (VPN off) is the ordinary
-/// case, not the exception. The work moved into `synapse-hook vault-push` rather than
-/// staying inline because a child that outlives us has to own the lock and the log
-/// too -- a parent that spawned and exited could not clean up either.
-///
-/// A vault with no remote is a supported, ordinary configuration -- local versioned
-/// undo only -- so everything here is a silent no-op when anything is missing.
+/// Hands the push to a detached copy of this binary, at most every
+/// `PUSH_EVERY` turns. Detached so the turn never waits on the network --
+/// an unreachable remote (VPN off) is the ordinary case, not the exception
+/// -- and run via `synapse-hook vault-push` rather than inline, since a
+/// child that outlives us has to own the lock and log itself. A vault with
+/// no remote is ordinary (local versioned undo only), so everything here
+/// is a silent no-op when anything is missing.
 fn maybePush(gpa: Allocator, io: Io, env: *std.process.Environ.Map, total: usize, self_path: []const u8) !void {
     const vault = common.vault(gpa, io, env) orelse return;
     defer gpa.free(vault);
@@ -116,22 +98,16 @@ fn maybePush(gpa: Allocator, io: Io, env: *std.process.Environ.Map, total: usize
     };
     if (every == 0 or total % every != 0) return;
 
-    // `argv[0]`, threaded down from `main`, not `$SYNAPSE_HOOK_BIN` (sb-013): the
-    // settings.json hook entry `setup.sh` writes is a bare command string with no env
-    // block, so that variable is never actually set in the hook's runtime environment
-    // -- this used to read it anyway, making the vault-push silently a no-op on every
-    // real install. `argv[0]` is the one thing guaranteed to already be *this process's
-    // own invoked path*: the literal absolute path from settings.json in production,
-    // and whatever path a test invoked the binary at in `tests/`, with no wrapper, no
-    // env var, and no guessing `~/.claude/bin` (which would be wrong under a test's own
-    // build-output binary) required.
+    // `argv[0]`, threaded from `main`, not `$SYNAPSE_HOOK_BIN` (sb-013):
+    // settings.json's hook entry never sets that variable, so reading it
+    // made the push silently a no-op on every real install. `argv[0]` is
+    // guaranteed to already be this process's own invoked path.
     if (self_path.len == 0) return;
     const self = self_path;
 
-    // Spawned and never waited on: this process exits immediately after, and the
-    // child is reparented. That is the whole point -- `wait` here would put the
-    // network back on the turn's critical path. Every stream is detached so the
-    // child cannot hold the turn's stdout open either.
+    // Never waited on: this process exits immediately, the child is
+    // reparented -- `wait` here would put the network on the turn's
+    // critical path.
     _ = std.process.spawn(io, .{
         .argv = &.{ self, "vault-push" },
         .stdin = .ignore,
@@ -166,23 +142,19 @@ pub fn push(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
         if (!res.ok()) return;
         break :blk std.fmt.parseInt(usize, std.mem.trim(u8, res.stdout, " \t\r\n"), 10) catch 0;
     };
-    // Only when there is genuinely something to send: "push if needed".
-    if (ahead == 0) return;
+    if (ahead == 0) return; // push only if needed
 
     const lock = try std.fmt.allocPrint(gpa, "{s}/.git/synapse-push.lock", .{vault});
     defer gpa.free(lock);
-    // `mkdir` is the atomic test-and-set. A lock is left behind only by a crashed
-    // run, so one that exists is honoured -- and this process owns it for its whole
-    // life, which is why it can be removed on the way out rather than aged out.
+    // `mkdir` is the atomic test-and-set. Left behind only by a crash, so
+    // an existing lock is honoured, and removed on the way out since this
+    // process owns it for its whole life.
     Io.Dir.cwd().createDir(io, lock, .default_dir) catch return;
     defer Io.Dir.cwd().deleteDir(io, lock) catch {};
 
-    // The bound is set at the SSH layer, not with `timeout`: macOS ships neither
-    // `timeout` nor `gtimeout`. `ConnectTimeout` caps an unreachable remote, and
-    // `BatchMode=yes` is load-bearing -- without it a key whose passphrase is not in
-    // the agent makes ssh wait forever on a prompt nobody can see. Passed as
-    // `-c core.sshCommand` rather than through the environment, which is the same
-    // setting by a route that does not need a mutable env map.
+    // Bound set at the SSH layer, since macOS ships neither `timeout` nor
+    // `gtimeout`. `BatchMode=yes` is load-bearing -- without it a
+    // passphrase-locked key makes ssh wait forever on a prompt nobody sees.
     const res = adapters.process.run(io, gpa, &.{
         "git",
         "-c",
@@ -193,8 +165,8 @@ pub fn push(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     defer res.deinit(gpa);
     if (res.ok()) return;
 
-    // A failure is recorded where the script recorded it and nowhere else: the turn
-    // says nothing, and someone debugging a vault that stopped syncing finds the log.
+    // Failure is logged, not surfaced -- the turn says nothing, but someone
+    // debugging a vault that stopped syncing finds it here.
     const log_path = try std.fmt.allocPrint(gpa, "{s}/.git/synapse-push.log", .{vault});
     defer gpa.free(log_path);
     appendPushFailure(gpa, io, log_path, ahead) catch {};

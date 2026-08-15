@@ -7,14 +7,11 @@ const core = @import("core");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
-/// The hook payload, as much of it as any hook reads.
-///
-/// Field names are Claude Code's, each verified live rather than assumed:
-/// `session_id` (stop-nudge), `cwd` (session-start, prompt-context), `prompt`
-/// (prompt-context), `tool_input.file_path` with `tool_response.filePath` as the
-/// fallback (staleness). A payload change degrades to "the hook does nothing",
-/// because every field is optional here and every absent field is an early exit
-/// there.
+/// The hook payload, as much of it as any hook reads. Field names are Claude
+/// Code's: `session_id` (stop-nudge), `cwd` (session-start, prompt-context),
+/// `prompt` (prompt-context), `tool_input.file_path`/`tool_response.filePath`
+/// (staleness). A payload change degrades to "the hook does nothing" -- every
+/// field here is optional and every absent field is an early exit downstream.
 pub const Payload = struct {
     parsed: ?std.json.Parsed(std.json.Value),
 
@@ -66,10 +63,8 @@ pub const Payload = struct {
 };
 
 /// The vault directory: the environment, else `~/.claude/synapse.conf`.
-///
-/// Read here rather than sourced by a wrapper, which is what lets a hook be registered
-/// as the binary itself. Absent, unreadable or not a directory is silence, like every
-/// other missing precondition. The caller owns the result.
+/// Absent, unreadable or not a directory is silence, like every other
+/// missing precondition. The caller owns the result.
 pub fn vault(gpa: Allocator, io: Io, env: *std.process.Environ.Map) ?[]u8 {
     const dir = (core.conf.vaultDir(gpa, io, envVars(env)) catch return null) orelse return null;
     const st = Io.Dir.cwd().statFile(io, dir, .{}) catch {
@@ -83,14 +78,11 @@ pub fn vault(gpa: Allocator, io: Io, env: *std.process.Environ.Map) ?[]u8 {
     return dir;
 }
 
-/// The namespace the wrapper resolved: `{repo}@{branch}`, plus its repo root,
-/// branch and remote.
-///
-/// All four come from the environment for the reason `context.zig` gives for the
-/// commands: a second resolution that disagreed with the first is precisely the bug
-/// this arrangement prevents. A hook with no namespace exported is a hook in a
-/// checkout with no namespace -- a detached HEAD, or not a git repo -- and that is
-/// an ordinary state, so it is null rather than an error.
+/// The namespace the wrapper resolved: `{repo}@{branch}`, plus its repo
+/// root, branch and remote. All four come from the environment, same as
+/// `context.zig`'s commands, so a second resolution can't disagree with the
+/// first. No namespace exported means a checkout with none (detached HEAD,
+/// not a git repo) -- ordinary, so null rather than an error.
 pub const Namespace = struct {
     key: []const u8,
     repo_root: []const u8,
@@ -107,24 +99,15 @@ pub const Namespace = struct {
             .key = key,
             .repo_root = root,
             .branch = branch,
-            // An empty remote is a real configuration (a repo with none), and the
-            // check below treats "" == "" as a match only if the index also records
-            // none.
-            .remote = env.get("SYNAPSE_REMOTE") orelse "",
+            .remote = env.get("SYNAPSE_REMOTE") orelse "", // empty is a real config, not absence
             .owned = null,
         };
     }
 
-    /// From the environment when it is set, else asked of git for the repository
-    /// containing `cwd`.
-    ///
-    /// `cwd` is not `$PWD` for every hook: `staleness` resolves from the *edited
-    /// file's* directory, because a session's working directory and the file it just
-    /// wrote are not always in the same repository. That is why this takes it as an
-    /// argument rather than assuming one.
-    ///
-    /// A detached HEAD or a non-repo returns null, which every caller treats as
-    /// "nothing to say" -- an ordinary state, not an error.
+    /// From the environment when set, else asked of git for the repository
+    /// containing `cwd` -- taken as an argument since `staleness` resolves
+    /// from the *edited file's* directory, not necessarily `$PWD`. A
+    /// detached HEAD or non-repo returns null, an ordinary state.
     pub fn resolve(gpa: Allocator, io: Io, env: *std.process.Environ.Map, cwd: []const u8) ?Namespace {
         if (fromEnv(env)) |ns| return ns;
         const id = core.identity.resolve(gpa, io, cwd) catch return null;
@@ -142,11 +125,8 @@ pub const Namespace = struct {
     }
 };
 
-/// A `core.conf.Vars` over this process's environment.
-///
-/// The indirection exists because `core` may not name `std.process` -- see
-/// `ci/check-layering.sh`. Two lines here buy a `conf` module whose expansion can be
-/// tested without setting a variable.
+/// A `core.conf.Vars` over this process's environment. `core` may not name
+/// `std.process` (`ci/check-layering.sh`), hence the indirection.
 fn envVars(env: *std.process.Environ.Map) core.conf.Vars {
     return .{ .ctx = @ptrCast(env), .getFn = envLookup };
 }
@@ -166,14 +146,10 @@ pub fn workDir(env: *std.process.Environ.Map) ?[]const u8 {
     return nonEmpty(env, "SYNAPSE_WORK_DIR");
 }
 
-/// Whether the namespace's own `Index.md` agrees that it belongs to this repo *and*
-/// this branch.
-///
-/// The write side of the check `query` makes before answering and the SessionStart
-/// hook makes before pointing. **An absent field is a mismatch**, not a match against
-/// the empty string: absent provenance is not permission to write. The directory name
-/// already encodes the branch, so a disagreement means it was renamed by hand, and
-/// writing into it would flag one branch's nodes for another branch's edit.
+/// Whether the namespace's own `Index.md` agrees it belongs to this repo
+/// *and* branch -- the write side of the check `query` and SessionStart
+/// already make before reading. An absent field is a mismatch, not a match
+/// against the empty string: absent provenance is not permission to write.
 pub fn namespaceMatches(
     gpa: Allocator,
     io: Io,
@@ -197,11 +173,9 @@ pub fn indexAgrees(index_text: []const u8, ns: Namespace) bool {
 }
 
 /// `{hookSpecificOutput: {hookEventName: …, additionalContext: …}}` on stdout.
-///
-/// `additionalContext` rather than `decision: block` everywhere: this is information
-/// for the next turn, not a reason to stop. The Stop hook's own note records why --
-/// the CLI labels this shape "Stop hook feedback" instead of the alarming "Stop hook
-/// error" that `decision: block` renders as.
+/// `additionalContext`, not `decision: block`, everywhere: information for
+/// the next turn, not a reason to stop -- the CLI labels this "Stop hook
+/// feedback" rather than the alarming "Stop hook error".
 pub fn emitContext(gpa: Allocator, io: Io, event: []const u8, context_text: []const u8) !void {
     if (context_text.len == 0) return;
     var buf: [64 * 1024]u8 = undefined;
@@ -215,12 +189,9 @@ pub fn emitContext(gpa: Allocator, io: Io, event: []const u8, context_text: []co
     _ = gpa;
 }
 
-/// A JSON string literal.
-///
-/// Written out rather than reached for through a serialiser because the *only*
-/// structure here is two fixed keys, and the escaping is the part that has to be
-/// right: an injected node title carries em dashes and quotes, and a vault path can
-/// carry a backslash.
+/// A JSON string literal, written out rather than through a serialiser --
+/// only two fixed keys ever need this, and the escaping is what has to be
+/// right (a node title carries em dashes/quotes, a vault path a backslash).
 pub fn writeJsonString(w: *Io.Writer, s: []const u8) !void {
     try w.writeByte('"');
     for (s) |c| switch (c) {
@@ -230,9 +201,7 @@ pub fn writeJsonString(w: *Io.Writer, s: []const u8) !void {
         '\r' => try w.writeAll("\\r"),
         '\t' => try w.writeAll("\\t"),
         else => {
-            // Control bytes must be escaped or the payload is not valid JSON. Above
-            // 0x1F everything passes through as-is, including UTF-8, which `jq`
-            // also emitted raw.
+            // Control bytes must be escaped; above 0x1F passes through raw.
             if (c < 0x20) {
                 try w.print("\\u{x:0>4}", .{c});
             } else try w.writeByte(c);
@@ -266,8 +235,6 @@ test "an index that names another repo, or another branch, does not agree" {
 
 test "an absent field is a mismatch, not a match against the empty string" {
     const ns: Namespace = .{ .key = "r@main", .repo_root = "/r", .branch = "main", .remote = "" };
-    // Absent provenance is not permission to write, so even a namespace whose repo
-    // genuinely has no remote does not match an index that records none.
     try testing.expect(!indexAgrees("---\nbranch: main\n---\n", ns));
     try testing.expect(!indexAgrees("---\nremote: \"\"\nbranch: main\n---\n", ns));
     try testing.expect(!indexAgrees("---\nremote: \"x\"\n---\n", ns));

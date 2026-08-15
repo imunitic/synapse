@@ -1,43 +1,25 @@
 //! `synapse-hook staleness` -- PostToolUse on Write|Edit|MultiEdit.
 //!
-//! Three jobs on one edit, in order: flag every node that covers the file, report any
-//! cited evidence in it that stopped matching, and once per session per file name the
-//! nodes that depend on its owners.
+//! Three jobs per edit: flag every node covering the file, report any cited
+//! evidence that stopped matching, and once per session per file name the
+//! nodes that depend on its owners. A hook already knows with certainty
+//! which file just changed, so flagging is pure bookkeeping -- no git-hash
+//! verification here, that's `query stale` at read time.
 //!
-//! A hook is not an agent turn -- it already knows with certainty which file just
-//! changed -- so the flagging is pure bookkeeping. No git-hash verification here;
-//! that is `query stale` at read time.
+//! Opportunistic correction is deliberately narrow: only when the edit
+//! landed on evidence a node explicitly cites (its `crux` source, or a
+//! `grounded_in` range). Nudging on any edit to any of a node's files would
+//! fire constantly and get tuned out; this fires rarely and means something
+//! every time. It's also free -- the model just read the code, so no
+//! re-reading is asked for.
 //!
-//! ## Opportunistic correction, and why it is narrow on purpose
+//! The blast radius (inbound typed relations to the owning nodes) fires at
+//! most once per session per file, since editing the same file repeatedly
+//! would otherwise repeat the same information every time.
 //!
-//! Flagging `stale: true` says "something under this node changed"; it never says the
-//! prose is now wrong, and nothing ever goes back to check. This does, but **only
-//! where the edit landed on evidence the node explicitly cites**: the file its `crux`
-//! was sliced from, or a range it records in `grounded_in`.
-//!
-//! That narrowness is the whole design. Nudging on any edit to any of a node's files
-//! would fire constantly and be tuned out within a day; nudging only when cited
-//! evidence actually stopped matching fires rarely and means something every time.
-//!
-//! It is also free: this is the one moment the model has certainly just read the code,
-//! so no re-reading is asked for. Correctness accrues along the paths that get worked
-//! in, and dormant subsystems stay as vague as they were -- which is the right trade,
-//! since nobody is touching them.
-//!
-//! ## The blast radius fires at most once per session per file
-//!
-//! Ownership is not impact: the actual "what might this edit affect" signal is who
-//! *depends on* the owning nodes, i.e. their inbound typed relations. Editing the same
-//! file repeatedly in one session would otherwise repeat the same information on every
-//! edit -- exactly the "fires constantly, gets tuned out" failure the citation nudge
-//! was designed to avoid. A fresh session re-learns it once, like a human re-reading a
-//! map after a while away.
-//!
-//! ## What this hook writes, and how
-//!
-//! One `stale:` line per owning node, by read-modify-write through the API. Never
-//! `PATCH -H "Target-Type: frontmatter"` -- see `core.emit.setStaleTrue` for the
-//! verified reason, which is a permanent false positive no rebuild can clear.
+//! Writes one `stale:` line per owning node, by read-modify-write. Never
+//! `PATCH -H "Target-Type: frontmatter"` -- see `core.emit.setStaleTrue`
+//! for why: a permanent false positive no rebuild can clear.
 
 const std = @import("std");
 const core = @import("core");
@@ -56,28 +38,21 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     const raw_file = payload.nested("tool_input", "file_path") orelse
         payload.nested("tool_response", "filePath") orelse return;
 
-    // Identity from the *edited file's* directory, not from `$PWD`: a session's
-    // working directory and the file it just wrote are not always in the same repo.
+    // From the edited file's directory, not $PWD -- not always the same repo.
     const ns = common.Namespace.resolve(gpa, io, env, std.fs.path.dirname(raw_file) orelse ".") orelse
         return;
     defer ns.deinit(gpa);
 
-    // The file has to still exist: an edit that deleted it has nothing to hash, and
-    // the node's own `sources` will report it gone at read time anyway.
-    const st = Io.Dir.cwd().statFile(io, raw_file, .{}) catch return;
+    const st = Io.Dir.cwd().statFile(io, raw_file, .{}) catch return; // a delete has nothing to hash
     if (st.kind != .file) return;
 
-    // Resolve the *physical* path before the prefix strip: `git rev-parse
-    // --show-toplevel` already resolves symlinks in the repo root (macOS /tmp ->
-    // /private/tmp), but `tool_input.file_path` may not be, and a raw string-prefix
-    // match would silently miss every edit in a project reached through a symlinked
-    // path.
+    // Resolved before the prefix strip: repo_root is already symlink-resolved
+    // (macOS /tmp -> /private/tmp) but tool_input.file_path may not be.
     const file = try realPath(gpa, io, raw_file);
     defer gpa.free(file);
 
-    // Repo-relative -- the form every node's `sources` list and every index record is
-    // written in.
-    const prefix = try std.fmt.allocPrint(gpa, "{s}/", .{ns.repo_root});
+    const prefix = try std.fmt.allocPrint(gpa, "{s}/", .{ns.repo_root}); // repo-relative, like sources
+
     defer gpa.free(prefix);
     if (!std.mem.startsWith(u8, file, prefix)) return;
     const rel = file[prefix.len..];
@@ -88,30 +63,24 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     const index_path = try std.fmt.allocPrint(gpa, "{s}/_index.bin", .{work});
     defer gpa.free(index_path);
 
-    // The file has to *exist*, checked before opening. `Map.open` answers a missing
-    // file with an empty map rather than an error -- deliberate there, so a reader
-    // can treat "no index" as "nothing claimed" -- but here that would queue the
-    // edited path into an index nobody built and write it out, creating the file the
-    // script's `[ -f ]` guard existed to avoid.
+    // Checked before opening -- Map.open answers a missing file with an empty
+    // map (deliberate elsewhere), but here that would write out an index
+    // nobody built.
     _ = Io.Dir.cwd().statFile(io, index_path, .{}) catch return;
 
     var map = core.index_map.Map.open(io, index_path) catch return;
     defer map.close(io);
-    // An unreadable index is the same silence: a hook that fails is worse than one
-    // that quietly does nothing, and this is a precondition like any other.
-    if (map.discarded != null) return;
+    if (map.discarded != null) return; // an unreadable index is silence too
 
     var names: [core.index_map.max_nodes_per_path][]const u8 = undefined;
     const owners = map.nodesFor(rel, &names) orelse {
-        // Genuinely new file, not yet claimed -- queue it for the `_unassigned`
-        // sweep. One idempotent call replaces a 27 MB read-modify-write and a 27 MB
-        // PUT; it is a whole re-encode, affordable because it is reached only for a
-        // path that is new *and* unlisted, not once per edit.
+        // New, unclaimed file -- queue for the _unassigned sweep. One
+        // idempotent re-encode replaces a 27 MB read-modify-write + PUT.
         try addUnassigned(gpa, io, &map, index_path, rel);
         return;
     };
-    // Copied out: the writes below reopen nothing, but the blast-radius pass and the
-    // per-node loop both outlive assumptions about the mapping staying put.
+    // Copied out: the blast-radius pass and per-node loop outlive assumptions
+    // about the mapping staying put.
     var owned: std.ArrayListUnmanaged([]u8) = .empty;
     defer {
         for (owned.items) |o| gpa.free(o);
@@ -134,30 +103,24 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
         const node_text = Io.Dir.cwd().readFileAlloc(io, node_path, gpa, .limited(256 << 20)) catch continue;
         defer gpa.free(node_text);
 
-        // Before the staleness write, and regardless of whether it happens: a node
-        // already flagged stale can still be citing evidence this edit just
-        // invalidated, and skipping the check there would hide exactly the case where
-        // the prose has had the longest to go wrong.
+        // Before the staleness write regardless of outcome: an already-stale
+        // node can still cite evidence this edit just invalidated.
         try checkCitedEvidence(gpa, node_text, node_file, rel, content, &findings.writer);
 
         var next: Io.Writer.Allocating = .init(gpa);
         defer next.deinit();
         const changed = try core.emit.setStaleTrue(&next.writer, node_text);
-        // Already stale, or no frontmatter to touch: skip the write rather than churn
-        // the file's mtime on every edit.
-        if (!changed) continue;
+        if (!changed) continue; // already stale, or no frontmatter -- don't churn mtime
+
         _ = store.put(io, node_file, next.written()) catch continue;
     }
 
-    // The session id comes from this hook's own payload, the same field stop-nudge
-    // reads -- not from the environment, which has no notion of a session.
-    const sid = payload.str("session_id") orelse "default";
+    const sid = payload.str("session_id") orelse "default"; // same field stop-nudge reads
     const blast = try blastRadius(gpa, io, env, vault, ns, owned.items, rel, sid);
     defer if (blast) |b| gpa.free(b);
 
-    // Nothing to say unless one of the two checks found something. Silence is the
-    // common case by design: an edit to a file a node merely covers, with no
-    // dependents and no broken citation, produces no output at all.
+    // Silence by design: an edit with no dependents and no broken citation
+    // produces no output.
     var text: Io.Writer.Allocating = .init(gpa);
     defer text.deinit();
     if (findings.written().len != 0) {
@@ -196,21 +159,17 @@ fn addUnassigned(
     index_path: []const u8,
     rel: []const u8,
 ) !void {
-    // Already listed is a no-op, and an unreadable index is silence rather than an
-    // empty file written over a real one.
     var it = map.unassignedIter();
-    while (it.next()) |p| if (std.mem.eql(u8, p, rel)) return;
-    // Null is "already listed" -- the encoder answers that question itself, so this
-    // is idempotent twice over rather than by the check above alone.
-    const bytes = (core.index_map.withUnassigned(gpa, map.view, rel) catch return) orelse return;
+    while (it.next()) |p| if (std.mem.eql(u8, p, rel)) return; // already listed
+    const bytes = (core.index_map.withUnassigned(gpa, map.view, rel) catch return) orelse return; // null: already listed
+
     defer gpa.free(bytes);
     core.index_map.writeFile(gpa, io, index_path, bytes) catch return;
 }
 
-/// Cited evidence in the edited file that no longer matches what was recorded.
-///
-/// Silent when it still matches, and silent for a node that cites nothing from this
-/// file at all.
+/// Cited evidence in the edited file that no longer matches what was
+/// recorded. Silent when it still matches, or when the node cites nothing
+/// from this file.
 fn checkCitedEvidence(
     gpa: Allocator,
     node_text: []const u8,
@@ -228,8 +187,8 @@ fn checkCitedEvidence(
         if (std.mem.eql(u8, cpath, rel)) {
             if (core.query.field(node_text, "crux_lines")) |clines| {
                 if (parseRange(clines)) |r| {
-                    // No digest is stored for the crux -- the sliced text lives in the
-                    // note -- so the note's own fenced copy is the stored side.
+                    // No digest stored for the crux -- the note's own fenced
+                    // copy is the stored side.
                     const stored = try core.emit.fencedText(gpa, node_text);
                     defer gpa.free(stored);
                     const actual = core.verify.slice(content, r.start, r.end) orelse "";
@@ -263,7 +222,7 @@ fn parseRange(text: []const u8) ?core.verify.Range {
     return .{ .start = start, .end = end };
 }
 
-/// The nodes that depend on this file's owners, at most once per session per file.
+/// Nodes that depend on this file's owners, at most once per session per file.
 fn blastRadius(
     gpa: Allocator,
     io: Io,
@@ -293,9 +252,8 @@ fn blastRadius(
         while (lines.next()) |l| if (std.mem.eql(u8, l, key)) return null;
     } else |_| {}
 
-    // Inbound typed relations, the same derivation `query links --inbound` makes: one
-    // pass over every node file in the namespace, no per-file forks. Cheap even on a
-    // hub node -- ~0.04s at 4.5 MB.
+    // Inbound typed relations, one pass over every node file, no per-file
+    // forks -- cheap even on a hub node, ~0.04s at 4.5 MB.
     const dir_path = try std.fmt.allocPrint(gpa, "{s}/synapse/{s}", .{ vault, ns.key });
     defer gpa.free(dir_path);
     var dir = Io.Dir.cwd().openDir(io, dir_path, .{ .iterate = true }) catch return null;
@@ -320,8 +278,8 @@ fn blastRadius(
         for (edges.items) |e| {
             for (owners) |o| {
                 const target = if (std.mem.endsWith(u8, o, ".md")) o[0 .. o.len - 3] else o;
-                // `src != tgt`: a node that links to itself is not its own dependent.
-                if (std.mem.eql(u8, e.target, target) and !std.mem.eql(u8, src, target)) {
+                if (std.mem.eql(u8, e.target, target) and !std.mem.eql(u8, src, target)) { // self-link is not a dependent
+
                     try dependents.append(gpa, try gpa.dupe(u8, src));
                     break;
                 }
@@ -342,9 +300,8 @@ fn blastRadius(
         unique += 1;
     }
 
-    // Recorded only once something was found, so a file whose owners have no
-    // dependents is re-checked on a later edit rather than being marked seen for
-    // nothing.
+    // Recorded only once something was found, so a no-dependents file is
+    // re-checked on a later edit rather than marked seen for nothing.
     try appendSeen(gpa, io, seen_path, key);
 
     var out: Io.Writer.Allocating = .init(gpa);
@@ -405,8 +362,8 @@ fn openStore(
         env.get("HOME") orelse "",
     });
     defer gpa.free(cert);
-    // The certificate has to exist, or every call fails with an unhelpful curl error.
-    _ = Io.Dir.cwd().statFile(io, cert, .{}) catch return null;
+    _ = Io.Dir.cwd().statFile(io, cert, .{}) catch return null; // else every call fails with an unhelpful curl error
+
     const dir = try std.fmt.allocPrint(gpa, "synapse/{s}", .{ns.key});
     defer gpa.free(dir);
     return try adapters.obsidian.ObsidianStore.init(gpa, port, cert, api_key, dir);

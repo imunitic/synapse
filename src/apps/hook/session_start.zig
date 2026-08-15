@@ -1,35 +1,24 @@
 //! `synapse-hook session-start` -- SessionStart.
 //!
-//! Injects the vault's own `Index.md` so a session starts with the map already in
-//! context instead of relying on the agent to think to go read it, and does the
-//! Synapse pointer check.
+//! Injects the vault's `Index.md` so a session starts with the map already
+//! in context, plus the Synapse pointer check. Everything here is a path
+//! lookup, never a model call or HTTP round trip, which keeps it zero-cost
+//! for a repo that never ran `/synapse-init`. Three pieces: the vault
+//! index; this repo's namespace pointer (verified against the recorded
+//! remote, or an explicit "no namespace" line); and a catalogue of the
+//! *other* namespaces, so a session that later `cd`s elsewhere knows that
+//! repo's graph exists too.
 //!
-//! ## Everything here is a path lookup, never a model call or an HTTP round trip
+//! The catalogue is built here and stored nowhere -- the directory listing
+//! plus each index's `remote:` field is the source of truth, so nothing to
+//! invalidate, and this hook stays read-only against the vault (only
+//! `staleness` writes).
 //!
-//! That is what keeps it zero-cost for every repo that never ran `/synapse-init`.
-//! Three pieces, in the order they are assembled:
-//!
-//! 1. **the vault index**, read whole and injected;
-//! 2. **the pointer** for this repo's namespace -- verified against the recorded
-//!    remote, or an explicit "no namespace covers this" line;
-//! 3. **the catalogue** of the *other* namespaces, so a session that later `cd`s into
-//!    a different repo knows that repo's graph exists at all. Without it only the
-//!    starting repo is ever announced, and one session routinely spans several.
-//!
-//! The catalogue is built here and stored nowhere: the source of truth is the
-//! directory listing plus each namespace index's `remote:` field, so there is nothing
-//! to invalidate and it cannot drift. That also keeps this hook read-only against the
-//! vault -- only `staleness` writes.
-//!
-//! ## A mismatched remote is reported, never repaired
-//!
-//! Two causes, indistinguishable from here: a different repo sharing this basename, or
-//! this repo's remote having been changed deliberately -- including by a
-//! `url.<base>.insteadOf` rule appearing in git config, which rewrites what `remote
-//! get-url` reports without the repo itself changing. Nothing tries to tell them apart
-//! or to migrate the namespace: rewriting the recorded remote to match would erase the
-//! only provenance signal there is. Both remedies belong to the person who made the
-//! change, so both are named.
+//! A mismatched remote is reported, never repaired: it could mean a
+//! different repo sharing this basename, or this repo's remote changed
+//! deliberately (including via a `url.<base>.insteadOf` git config rule).
+//! Nothing here tries to tell those apart or auto-migrate -- both remedies
+//! belong to the person who made the change.
 
 const std = @import("std");
 const core = @import("core");
@@ -41,9 +30,7 @@ const Allocator = std.mem.Allocator;
 const label = "Synapse Vault index";
 
 pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
-    // Empty rather than an early return: with no vault there is still nothing to
-    // inject, but the code below reads more plainly as one guard than as two paths.
-    const vault = common.vault(gpa, io, env) orelse "";
+    const vault = common.vault(gpa, io, env) orelse ""; // one guard below, not two paths
     defer if (vault.len != 0) gpa.free(vault);
     var payload = common.Payload.read(gpa, io);
     defer payload.deinit();
@@ -55,8 +42,7 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     var catalogue: ?[]u8 = null;
     defer if (catalogue) |s| gpa.free(s);
 
-    // Resolved once, and kept: the catalogue below needs the key to drop this repo's
-    // own namespace from it.
+    // The catalogue below needs the key to drop this repo's own namespace.
     const maybe_ns = if (vault.len != 0)
         common.Namespace.resolve(gpa, io, env, payload.str("cwd") orelse ".")
     else
@@ -84,11 +70,9 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
                     );
                 }
             } else |_| {
-                // Said, not implied by silence. A namespace covers one branch, so
-                // being on a branch without one is ordinary and expected -- but "no
-                // namespace" and "a namespace that found nothing" used to be
-                // indistinguishable, which is the conflation per-branch keying exists
-                // to remove.
+                // Said, not implied by silence -- a branch with no namespace
+                // is ordinary, but must stay distinguishable from "a
+                // namespace that found nothing".
                 absent = try std.fmt.allocPrint(gpa, "synapse/{s}/", .{ns.key});
             }
         }
@@ -110,8 +94,8 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
         } else |_| {}
     }
 
-    // The absent-namespace line is only worth saying alongside something else: on its
-    // own it is a hook announcing that it has nothing to announce.
+    // Only worth saying alongside something else -- alone it's a hook
+    // announcing it has nothing to announce.
     if (absent) |a| {
         if (base != null or catalogue != null) {
             synapse_line = try std.fmt.allocPrint(
@@ -136,12 +120,10 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     try common.emitContext(gpa, io, "SessionStart", text.written());
 }
 
-/// `name|remote` for every *other* namespace in the vault, byte-sorted.
-///
-/// This repo's own namespace is dropped: it already got the verified pointer above,
-/// which carries a stronger guarantee than a catalogue line can. Byte-sorted so the
-/// injected text is identical across runs and machines -- collation is
-/// locale-dependent and a directory's order is not reliably sorted.
+/// `name|remote` for every *other* namespace in the vault, byte-sorted (this
+/// repo's own is dropped -- it already got the stronger verified pointer
+/// above). Byte-sorted, not locale-collated, so the text is identical
+/// across machines.
 fn buildCatalogue(gpa: Allocator, io: Io, vault: []const u8, own: ?[]const u8) !?[]u8 {
     const root = try std.fmt.allocPrint(gpa, "{s}/synapse", .{vault});
     defer gpa.free(root);
