@@ -9,24 +9,16 @@
 //!   index paths [--file <file>]                      every claimed path
 //!   index add-unassigned <path> [--file <file>]      queue one path for the sweep
 //!
-//! **This subcommand is new, and it exists because the storage changed.**
-//! `synapse-build-index.sh` authored `_index.json` with `jq` and PUT it to the
-//! vault; `synapse-query.sh` and the staleness hook read it back with `jq`.
-//! A binary index is unreadable to all three until they have another way in,
-//! and these three forms are that way -- each replaces one `jq` block in one
-//! script, which is a far smaller change than porting any of them whole, and
-//! none of their own CLI contracts move.
+//! New because the storage changed: `synapse-build-index.sh` authored
+//! `_index.json` with `jq` and PUT it to the vault; these forms replace
+//! each `jq` block that read it back, one at a time, with no CLI contract
+//! moving.
 //!
-//! Bash calling this binary is the allowed direction of the port's ordering
-//! rule: a Zig caller is never written against a bash callee, but a bash caller
-//! against a Zig callee is how a leaf lands before the scripts around it.
-//!
-//! **The default path comes from `SYNAPSE_WORK_DIR` and nowhere else.** The
-//! scripts already resolve the namespace -- `synapse-identity.sh` is still
-//! bash, and will be until every sourcer of it is ported -- and they export the
-//! work dir with the namespace already in it. Guessing it a second time here
-//! would be a second implementation of the one thing that must not disagree
-//! between components. With the variable unset, `--out`/`--file` is required.
+//! The default path comes from `SYNAPSE_WORK_DIR` and nowhere else -- the
+//! (still-bash) scripts already resolve the namespace and export the work
+//! dir with it baked in; guessing it here again would be a second
+//! implementation of the one thing that must not disagree. Unset, `--out`/
+//! `--file` is required.
 
 const std = @import("std");
 const core = @import("core");
@@ -43,8 +35,7 @@ pub fn run(
     args: *std.process.Args.Iterator,
 ) !u8 {
     const form = args.next() orelse return usage();
-    // Answered before anything resolves: asking for help must work outside a repo,
-    // and `--help` reaching the work-dir derivation is how it came to exit 1 there.
+    // Answered before anything resolves -- help must work outside a repo.
     if (std.mem.eql(u8, form, "-h") or std.mem.eql(u8, form, "--help")) {
         _ = usage();
         return 0;
@@ -101,23 +92,17 @@ fn noWorkDir() u8 {
     return 1;
 }
 
-/// `$SYNAPSE_WORK_DIR/_index.bin`, or null when the variable is unset. The
-/// namespace is already inside that variable -- the scripts put it there -- so
-/// nothing here joins a repo name to a branch.
+/// `$SYNAPSE_WORK_DIR/_index.bin`, or null when unset. The namespace is
+/// already baked into that variable, so nothing here joins repo to branch.
 fn defaultPath(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !?[]const u8 {
-    // Derived from identity when the environment does not name it, which is what the
-    // wrapper did. Without this, `synapse index lookup <path>` run by hand in a
-    // checkout would refuse for want of a variable it can work out itself.
     const work = (try context.workDir(gpa, io, env, "synapse-index")) orelse return null;
     defer work.deinit(gpa);
     return try std.fmt.allocPrint(gpa, "{s}/_index.bin", .{work.path});
 }
 
-/// Read `path<TAB>node` pairs on stdin, group them, and replace the index.
-///
-/// Prints one line of counts on success, which is what
-/// `synapse-build-index.sh` needs to keep printing its own stats line: the
-/// script owns the wording, this owns the numbers.
+/// Reads `path<TAB>node` pairs on stdin, groups them, replaces the index.
+/// Prints one line of counts on success -- the script owns the wording,
+/// this owns the numbers.
 fn buildIndex(
     gpa: Allocator,
     io: Io,
@@ -127,8 +112,7 @@ fn buildIndex(
 ) !u8 {
     var pairs: std.ArrayListUnmanaged(core.index_map.Pair) = .empty;
     defer pairs.deinit(gpa);
-    // Owns whatever `--lists` read, since the pairs slice into it.
-    var owned: std.ArrayListUnmanaged([]u8) = .empty;
+    var owned: std.ArrayListUnmanaged([]u8) = .empty; // owns what --lists read; pairs slice into it
     defer {
         for (owned.items) |b| gpa.free(b);
         owned.deinit(gpa);
@@ -149,18 +133,15 @@ fn buildIndex(
         var lines = std.mem.splitScalar(u8, text, '\n');
         while (lines.next()) |raw| {
             const line = std.mem.trimEnd(u8, raw, "\r");
-            // Split on the LAST tab, not the first: a repo-relative path may
-            // contain one, and a node filename is what follows the final field
-            // separator. Same rule `tags-cache` applies to its own pairs.
+            // Last tab, not first: a path may contain one, node filename follows it.
             const tab = std.mem.lastIndexOfScalar(u8, line, '\t') orelse continue;
             if (tab == 0 or tab + 1 == line.len) continue;
             try pairs.append(gpa, .{ .path = line[0..tab], .node = line[tab + 1 ..] });
         }
     }
 
-    // Absent is empty, not an error: a namespace where every file is claimed
-    // has no unassigned list, and `synapse-build-index.sh` requires the file
-    // to exist for its own reasons rather than this one's.
+    // Absent is empty, not an error -- a namespace with every file claimed
+    // has no unassigned list.
     var unassigned_text: []u8 = &.{};
     defer gpa.free(unassigned_text);
     if (unassigned_file) |uf| {
@@ -190,9 +171,7 @@ fn buildIndex(
         return 1;
     };
 
-    // Reopen rather than counting what went in: this reports what a reader
-    // will actually find, which is the only number worth printing.
-    var map = try Map.open(io, path);
+    var map = try Map.open(io, path); // reopen to report what a reader will actually find
     defer map.close(io);
     if (map.discarded) |e| {
         std.debug.print("synapse-index: wrote an index that will not read back ({t})\n", .{e});
@@ -211,10 +190,8 @@ fn buildIndex(
 }
 
 /// Every unclaimed path, one per line, in the order the index holds them.
-///
-/// Replaces `jq -r '._unassigned[]'` in `skills/synapse-node/SKILL.md`, and
-/// serves that skill's stated reason for shelling out rather than reading the
-/// file: tens of megabytes must not reach a context window.
+/// Replaces `jq -r '._unassigned[]'` -- tens of megabytes must not reach a
+/// context window.
 fn listUnassigned(io: Io, path: []const u8) !u8 {
     var map = try Map.open(io, path);
     defer map.close(io);
@@ -231,17 +208,10 @@ fn listUnassigned(io: Io, path: []const u8) !u8 {
     return 0;
 }
 
-/// Queue `newly` for the `_unassigned` sweep, if it is not already there.
-///
-/// Replaces the `jq`-then-PUT block at `synapse-staleness.sh:135-149`, which
-/// read 27 MB of JSON, rewrote it and pushed the whole thing back over HTTPS to
-/// add one string. Exit 0 whether or not anything changed -- the hook's contract
-/// is that a missing precondition is silence, and "already queued" is the
-/// common case rather than a fault.
-///
-/// An unreadable index is exit 0 too, not 1. The old code refused to PUT an
-/// empty body over a 27 MB index for exactly this reason; here the refusal is
-/// structural, because there is nothing to re-encode from.
+/// Queue `newly` for the `_unassigned` sweep, if not already there. Exit 0
+/// either way -- a hook's missing precondition is silence, and "already
+/// queued" is the common case, not a fault. An unreadable index is exit 0
+/// too: nothing to re-encode from.
 fn addUnassigned(gpa: Allocator, io: Io, path: []const u8, newly: []const u8) !u8 {
     var map = try Map.open(io, path);
     defer map.close(io);
@@ -261,12 +231,8 @@ fn addUnassigned(gpa: Allocator, io: Io, path: []const u8, newly: []const u8) !u
     return 0;
 }
 
-/// Every node that claims at least one path, one per line, ascending.
-///
-/// Replaces `jq -r 'to_entries | map(select(.key != "_unassigned")) |
-/// map(.value[]) | unique | .[]'` at `synapse-query.sh:392` and `:468`, where it
-/// is the authoritative list of which nodes exist. `unique` sorted its output;
-/// the node table is already sorted by name, so this is the same order for free.
+/// Every node that claims at least one path, one per line, ascending -- the
+/// node table is already sorted by name.
 fn listNodes(io: Io, path: []const u8) !u8 {
     var map = try Map.open(io, path);
     defer map.close(io);
@@ -285,19 +251,10 @@ fn listNodes(io: Io, path: []const u8) !u8 {
 }
 
 /// `path<TAB>node.md` for every (list, path) pair, from `lists/NN.txt`.
-///
-/// A list with no `NN.title` is skipped: the title is the node's identity, and a
-/// list without one is a build that has not finished rather than a node claiming
-/// nothing. Returns the number of pairs authored.
-///
-/// The `.md` extension is part of the value, not decoration: the staleness hook and
-/// the read-time procedure both use it directly as a vault path with no extension
-/// handling of their own.
-///
-/// Order is not this function's problem, and that is deliberate -- `index_map.build`
-/// groups and sorts, because the format needs paths ascending with each path's nodes
-/// ascending, and getting that wrong encodes fine while making every later binary
-/// search wrong.
+/// Skips a list with no `NN.title` -- an unfinished build, not a node
+/// claiming nothing. The `.md` extension is part of the value: the
+/// staleness hook uses it directly as a vault path. Returns the pair count.
+/// Ordering isn't this function's problem -- `index_map.build` groups and sorts.
 fn pairsFromLists(
     gpa: Allocator,
     io: Io,
@@ -322,8 +279,7 @@ fn pairsFromLists(
         if (!std.mem.endsWith(u8, entry.name, ".txt")) continue;
         try names.append(gpa, try gpa.dupe(u8, entry.name[0 .. entry.name.len - 4]));
     }
-    // Sorted so a rebuild of the same lists produces the same bytes, which is what
-    // makes "the index changed" a signal rather than noise.
+    // Sorted so a rebuild of the same lists produces the same bytes.
     std.mem.sort([]u8, names.items, {}, struct {
         fn less(_: void, a: []u8, b: []u8) bool {
             return std.mem.order(u8, a, b) == .lt;
@@ -337,8 +293,7 @@ fn pairsFromLists(
         const title = Io.Dir.cwd().readFileAlloc(io, title_path, gpa, .limited(1 << 20)) catch continue;
         defer gpa.free(title);
 
-        // The same sanitisation the writer applies to a title before using it as a
-        // filename, so the index names the file the vault actually holds.
+        // Same sanitisation the writer applies before using a title as a filename.
         const sanitised = try core.emit.fileTitle(gpa, std.mem.trimEnd(u8, title, "\n"));
         defer gpa.free(sanitised);
         const node = try std.fmt.allocPrint(gpa, "{s}.md", .{sanitised});
@@ -351,8 +306,7 @@ fn pairsFromLists(
 
         var lines = std.mem.splitScalar(u8, list, '\n');
         while (lines.next()) |raw| {
-            // `awk 'NF'`: a blank line is not a path.
-            const line = std.mem.trim(u8, raw, " \t\r");
+            const line = std.mem.trim(u8, raw, " \t\r"); // a blank line is not a path
             if (line.len == 0) continue;
             try pairs.append(gpa, .{ .path = line, .node = node });
             count += 1;
@@ -361,16 +315,9 @@ fn pairsFromLists(
     return count;
 }
 
-/// Every claimed path, one per line, in `LC_ALL=C` byte order.
-///
-/// Replaces `jq -r 'keys[]'` at `synapse-query.sh:547`, whose output was piped
-/// through `LC_ALL=C sort` before a `comm`. The record table is already in that
-/// order, so the sort downstream is now redundant rather than load-bearing.
-///
-/// It also drops something: `keys[]` included `_unassigned` itself, so the
-/// literal string was treated as a claimed path by that `comm`. Harmless, since
-/// no real file is named that, but the separate region removes the case rather
-/// than relying on it staying harmless.
+/// Every claimed path, one per line, in `LC_ALL=C` byte order -- the record
+/// table is already in that order. Unlike the old `jq -r 'keys[]'`, this
+/// never includes the literal `_unassigned` string as a claimed path.
 fn listPaths(io: Io, path: []const u8) !u8 {
     var map = try Map.open(io, path);
     defer map.close(io);
@@ -388,12 +335,8 @@ fn listPaths(io: Io, path: []const u8) !u8 {
     return 0;
 }
 
-/// The nodes claiming `wanted`, one per line, ascending.
-///
-/// Exit 1 with no output when no node claims it -- which covers both "the path
-/// is unassigned" and "the path was never enumerated". A caller that needs to
-/// tell those apart asks `unassigned`; the staleness hook does not, because
-/// either way there is nothing to flag.
+/// The nodes claiming `wanted`, one per line, ascending. Exit 1 with no
+/// output when no node claims it -- covers both unassigned and never-enumerated.
 fn lookup(io: Io, path: []const u8, wanted: []const u8) !u8 {
     var map = try Map.open(io, path);
     defer map.close(io);
@@ -413,14 +356,9 @@ fn lookup(io: Io, path: []const u8, wanted: []const u8) !u8 {
 }
 
 
-/// `synapse build-index` -- `index build --lists` with every path derived.
-///
-/// The step `synapse-build-index.sh` performed: the lists directory, the unassigned
-/// list and the output file all sit in the work dir, which the binary now resolves for
-/// itself, so the wrapper's only remaining job was spelling three paths and printing a
-/// prefix. It exists as its own subcommand rather than as flags a caller has to
-/// remember, because the caller is `/synapse-init`'s step 3 and that step has no
-/// choices to make.
+/// `synapse build-index` -- `index build --lists` with every path derived
+/// from the work dir. Its own subcommand rather than flags a caller
+/// remembers, since the only caller (`/synapse-init` step 3) has no choices.
 pub fn runBuildIndex(
     gpa: Allocator,
     io: Io,
@@ -456,8 +394,6 @@ pub fn runBuildIndex(
         return 1;
     }
 
-    // The wrapper owned this wording and took the numbers from the binary; with one
-    // process there is one place to say it.
     var buf: [4096]u8 = undefined;
     var out = Io.File.stdout().writer(io, &buf);
     try out.interface.writeAll("_index.bin written: ");

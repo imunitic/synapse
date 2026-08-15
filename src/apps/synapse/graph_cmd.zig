@@ -3,26 +3,19 @@
 //!   graph-clean [--dry-run]   remove namespaces whose branch was deleted upstream
 //!   graph-wipe  [--dry-run]   remove this namespace, preserving hand-written Notes
 //!
-//! One file, because they are the same hazard: both `rm -rf` a directory inside a
-//! permanent vault. Everything either one deletes is recoverable from the vault's own
-//! git history -- see `synapse-hook db-sync`, which commits every vault edit for
-//! exactly this reason -- but "recoverable" is not "harmless", so both keep the belt
-//! and braces the scripts had: a path is removed only when it is inside
-//! `{vault}/synapse/` and only when its name was just matched.
+//! One file: both `rm -rf` a directory inside a permanent vault, recoverable
+//! from the vault's own git history (`synapse-hook db-sync` commits every
+//! edit) but not harmless, so both only remove a path inside
+//! `{vault}/synapse/` whose name was just matched.
 //!
-//! ## What each one refuses to infer
+//! `graph-clean` never deletes on an ambiguous signal -- the decision tree
+//! is `core/graph_clean.zig`, and anything it can't confirm is *reported*
+//! instead. It fetches `--prune` first, or a deleted branch's stale
+//! remote-tracking ref makes every namespace look alive.
 //!
-//! `graph-clean` never deletes on an ambiguous signal. The decision tree is
-//! `core/graph_clean.zig`; the case it exists for is a merged-and-deleted branch, and
-//! everything it cannot confirm is *reported* for a human instead. It also fetches
-//! `--prune` first, because without that a deleted branch still has a local
-//! remote-tracking ref, every namespace looks alive, and the command silently does
-//! nothing.
-//!
-//! `graph-wipe` deletes one namespace deliberately, so its care is elsewhere: it
-//! finds every node carrying hand-written `## Notes` content and stages it in
-//! `scratchpad/` before removing anything. That content is the only thing in a
-//! namespace a rebuild cannot regenerate.
+//! `graph-wipe` deletes one namespace deliberately, so it stages every
+//! node's hand-written `## Notes` content into `scratchpad/` first -- the
+//! one thing a rebuild can't regenerate.
 
 const std = @import("std");
 const core = @import("core");
@@ -58,23 +51,21 @@ pub fn runClean(
 
     var ctx = (try context.resolve(gpa, io, env, clean_prog)) orelse return 1;
     defer ctx.deinit();
-    // The *repo* half of the key, because this walks every branch's namespace for
-    // this repo and not just the one checked out now.
+    // The repo half of the key: walks every branch's namespace, not just this one.
     const repo = ctx.namespace[0 .. std.mem.indexOfScalar(u8, ctx.namespace, '@') orelse ctx.namespace.len];
     const cwd: std.process.Child.Cwd = .{ .path = ctx.repo_root };
 
     const has_remote = blk: {
-        // Asked of `git remote` directly: `synapse_remote` falls back to the repo
-        // root path, so it is never empty and cannot answer this.
+        // Asked of `git remote` directly: `synapse_remote` falls back to the
+        // repo root path, so it can't answer this.
         const res = try adapters.process.run(io, gpa, &.{ "git", "remote" }, .{ .cwd = cwd });
         defer res.deinit(gpa);
         break :blk res.ok() and std.mem.trim(u8, res.stdout, " \t\r\n").len != 0;
     };
 
     if (has_remote and !dry_run) {
-        // Failure is not fatal: offline or behind a VPN the prune simply does not
-        // happen, every namespace then looks alive, and nothing is removed. Erring
-        // toward keeping notes is the right direction for the one destructive tool.
+        // Not fatal: offline, the prune just doesn't happen and nothing is
+        // removed -- erring toward keeping notes.
         const res = try adapters.process.run(io, gpa, &.{
             "git", "fetch", "--prune", "--quiet",
         }, .{ .cwd = cwd });
@@ -162,7 +153,7 @@ fn gatherFacts(
     facts.local_exists = try refExists(gpa, io, cwd, "refs/heads/", b);
     facts.upstream_remote = try gitConfig(gpa, io, cwd, "branch.", b, ".remote");
     if (try gitConfig(gpa, io, cwd, "branch.", b, ".merge")) |merge| {
-        // `refs/heads/` stripped, which is the form the remote-tracking ref uses.
+        // Strip `refs/heads/` -- the form the remote-tracking ref uses.
         const short = if (std.mem.startsWith(u8, merge, "refs/heads/"))
             try gpa.dupe(u8, merge["refs/heads/".len..])
         else
@@ -249,11 +240,8 @@ fn namespacesFor(
     return out;
 }
 
-/// `rm -rf`, but only ever inside `{vault}/synapse/`.
-///
-/// The guard is the script's and it stays: a recursive delete driven by a resolved
-/// path is one substitution away from a much larger one, and the vault's git history
-/// is an undo for content, not for a directory nobody meant to name.
+/// `rm -rf`, but only ever inside `{vault}/synapse/` -- a recursive delete
+/// on a resolved path is one substitution away from a much larger one.
 fn removeNamespace(
     gpa: Allocator,
     io: Io,
@@ -357,12 +345,9 @@ pub fn runWipe(
     return 0;
 }
 
-/// Write the recovered Notes into `scratchpad/`, and return the vault-relative path.
-///
-/// Written directly rather than through the API: the vault directory is already known
-/// and the file is a plain note in a folder Obsidian will pick up on its own. It is
-/// also the one write in the system that has to succeed *before* a delete, so keeping
-/// it on the same filesystem call as the delete keeps the ordering obvious.
+/// Writes recovered Notes into `scratchpad/`, returns the vault-relative
+/// path. Direct filesystem write, not the API -- must succeed before the
+/// delete that follows it.
 fn stagePreserved(gpa: Allocator, io: Io, ctx: *const Context, body: []const u8) ![]u8 {
     const dir = try std.fmt.allocPrint(gpa, "{s}/scratchpad", .{ctx.vault});
     defer gpa.free(dir);

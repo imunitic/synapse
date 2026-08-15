@@ -5,26 +5,18 @@
 //!   tags-cache --load <file>                                    the inverse of --dump
 //!   tags-cache --refs <file>                                    `_refs.tsv` rows
 //!
-//! The update form is the script's, and its exit codes are unchanged: 0 when
-//! the cache is current for every requested path -- including when nothing
-//! needed doing -- and 1 for a usage error or a cache that could not be
-//! written.
+//! Update form's exit codes are the script's, unchanged: 0 when the cache
+//! is current for every requested path (including when nothing needed
+//! doing), 1 for a usage error or a write failure.
 //!
-//! **The two read forms are new, and they exist because the storage changed.**
-//! `synapse-build-refs.sh` and `synapse-query.sh symbol` both read the cache
-//! with `jq`, so a binary cache is unreadable to them until they have another
-//! way in. `--dump` and `--refs` are that way: each replaces one `jq` block in
-//! one script, which is a far smaller change than porting either script whole,
-//! and neither script's own CLI contract moves.
+//! `--dump`/`--refs` are new: the storage changed to binary, so
+//! `synapse-build-refs.sh`/`synapse-query.sh symbol` (both `jq` readers)
+//! needed another way in, each replacing one `jq` block.
 //!
-//! **What the parallel chunking became: nothing.** The script split the work
-//! across `xargs -P` workers because CLI startup and grammar load dominated
-//! per-file cost, and chunking was how it stopped paying that per file. In
-//! process there is no startup to amortise -- a grammar is loaded once per
-//! extension, for the life of the run -- so one extraction over every path
-//! that needs one replaces the whole apparatus. Whether the lost CPU
-//! parallelism costs anything on a cold repository is a real question and an
-//! open one; see the task note's measurement item.
+//! The script's `xargs -P` chunking is gone: it existed to amortise CLI
+//! startup and grammar load per file, and in-process there's no startup to
+//! amortise (a grammar loads once per extension for the run's life), so one
+//! extraction over every path replaces it.
 
 const std = @import("std");
 const core = @import("core");
@@ -52,7 +44,7 @@ pub fn run(
     var refs: ?[]const u8 = null;
 
     while (args.next()) |arg| {
-        // Asking for help is not a usage error, and must not need an environment.
+        // Help must not need an environment.
         if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
             _ = usage();
             return 0;
@@ -110,9 +102,7 @@ fn update(
     var lines = std.mem.splitScalar(u8, listing, '\n');
     while (lines.next()) |raw| {
         const line = std.mem.trimEnd(u8, raw, "\r");
-        // Split on the LAST tab, not the first: a repo-relative path may
-        // contain one, and the hash never does.
-        const tab = std.mem.lastIndexOfScalar(u8, line, '\t') orelse continue;
+        const tab = std.mem.lastIndexOfScalar(u8, line, '\t') orelse continue; // last tab: a path may contain one
         const p = line[0..tab];
         const hex = line[tab + 1 ..];
         if (p.len == 0) continue;
@@ -124,24 +114,18 @@ fn update(
     defer cache.close(io);
 
     backfill(Ex, gpa, io, env, repo_root, &cache, requested.items, trace) catch {
-        // `backfill` stays silent on purpose -- it also backs `write-node`'s and
-        // `query symbol`'s non-fatal cache refresh, where a message here would be
-        // misleading (those callers already report their own "non-fatal" outcome).
-        // This is the one caller where a failure is fatal, so it gets the message
-        // the shared helper deliberately doesn't print itself.
+        // `backfill` stays silent -- it also backs write-node's/query symbol's
+        // non-fatal refresh. This is the one fatal caller, so it prints here.
         std.debug.print("synapse-tags-cache: could not bring the cache up to date\n", .{});
         return 1;
     };
     return 0;
 }
 
-/// Tag whatever the cache is missing for `requested`, and commit it.
-///
-/// Split out of `update` because `synapse query symbol` needs exactly this and
-/// nothing else around it: the script spawned `synapse tags-cache` to do it, and
-/// in one binary that spawn is a function call. Every slice a later `cache.get`
-/// returns points into the mapping this may have replaced, so callers read the
-/// cache *after* this returns and never across it.
+/// Tags whatever the cache is missing for `requested`, and commits it. Split
+/// out of `update` since `synapse query symbol` needs exactly this. A later
+/// `cache.get`'s slices point into the mapping this may have replaced, so
+/// callers read the cache after this returns, never across it.
 pub fn backfill(
     comptime Ex: type,
     gpa: Allocator,
@@ -154,13 +138,9 @@ pub fn backfill(
 ) !void {
     const need = try cache.needsTagging(gpa, requested);
     defer gpa.free(need);
-    // Nothing to do is a success, and it is the common case: the whole point
-    // of the cache is that most calls end here.
-    if (need.len == 0) {
-        // An absent cache still has to exist afterwards, so a later reader
-        // finds an empty cache rather than nothing at all -- the script
-        // created one with `printf '{}'` for the same reason.
-        if (cache.map == null) _ = try cache.commit(gpa, io, &.{}, &.{});
+    if (need.len == 0) { // the common case: most calls end here
+        if (cache.map == null) _ = try cache.commit(gpa, io, &.{}, &.{}); // absent must still exist afterward
+
         return;
     }
 
@@ -206,11 +186,8 @@ pub fn backfill(
                 .entry = .{ .hash = n.hash, .tags = "", .unsupported = true },
             },
             .tagged => |tagged| {
-                // The cache holds the extractor's *text*, not its structs.
-                // That is transitional: `synapse-query.sh symbol` still reads
-                // these lines and matches on their first field, so the payload
-                // stays the bytes it has always been until that script is
-                // ported. Re-parsing them in `writeRefs` is the price.
+                // Text, not structs -- transitional, since synapse-query.sh
+                // symbol still reads these lines by field until it's ported.
                 var buf: std.Io.Writer.Allocating = .init(gpa);
                 errdefer buf.deinit();
                 for (tagged) |t| try treesitter.tagger.renderCliLine(&buf.writer, t.tag, t.span);
@@ -227,16 +204,12 @@ pub fn backfill(
     _ = try cache.commit(gpa, io, updates, &.{});
 }
 
-/// One line per fact, marker first, so a consumer can read it with `awk`
-/// without counting fields -- a tag line contains tabs of its own.
+/// One line per fact, marker first, since a tag line contains tabs of its own:
 ///
 ///   H <TAB> path <TAB> hash      every entry
 ///   U <TAB> path                 cached, but unparseable (no grammar)
 ///   P <TAB> path                 cached and parsed; tags follow, possibly none
 ///   T <TAB> path <TAB> tag line  one per tag
-///
-/// `H` is additional to what `synapse-query.sh`'s `jq` emitted, and its `awk`
-/// ignores markers it does not know, so that script's join is unchanged.
 fn dumpCache(io: Io, path: []const u8) !u8 {
     var cache = try Cache.open(io, path);
     defer cache.close(io);
@@ -267,14 +240,9 @@ fn dumpCache(io: Io, path: []const u8) !u8 {
     return 0;
 }
 
-/// Build a cache from `--dump`'s own output, read on stdin.
-///
-/// The inverse of `--dump`, and it exists for the tests: `synapse-build-refs`
-/// and `synapse-callers` are checked against caches holding deliberately
-/// awkward tag lines -- a padded name, a tab inside an expression, a malformed
-/// row -- which they used to author as JSON by hand and no longer can. Making
-/// the projection round-trip is a better answer than a bespoke fixture format,
-/// and a dump that cannot be loaded back is a projection nobody can check.
+/// Builds a cache from `--dump`'s own output, read on stdin -- the inverse,
+/// so tests can construct caches with awkward tag lines without a bespoke
+/// fixture format.
 fn loadCache(gpa: Allocator, io: Io, path: []const u8) !u8 {
     var in_buf: [64 * 1024]u8 = undefined;
     var in = Io.File.stdin().reader(io, &in_buf);
@@ -340,9 +308,8 @@ fn loadCache(gpa: Allocator, io: Io, path: []const u8) !u8 {
     return 0;
 }
 
-/// `_refs.tsv` rows, unsorted. The caller sorts: that file is binary-searched
-/// with `look`, which compares raw bytes, so its order is `LC_ALL=C sort`'s
-/// and not this one's.
+/// `_refs.tsv` rows, unsorted -- the caller sorts, since that file is
+/// binary-searched in `LC_ALL=C sort` order, not this one's.
 fn refsFrom(io: Io, path: []const u8) !u8 {
     var cache = try Cache.open(io, path);
     defer cache.close(io);
@@ -372,16 +339,15 @@ fn grammarsDir(gpa: Allocator, env: *std.process.Environ.Map) ![]u8 {
 }
 
 /// `~/.claude/synapse-kind-synonyms.conf` (`SYNAPSE_KIND_SYNONYMS_CONF`
-/// overrides it), same discovery contract as `loadRegistry` above -- absent
-/// is a supported state, per `core.kind_synonyms.RuleList.load`.
+/// overrides it); absent is a supported state.
 fn kindRulesPath(gpa: Allocator, env: *std.process.Environ.Map) ![]u8 {
     if (env.get("SYNAPSE_KIND_SYNONYMS_CONF")) |p| return gpa.dupe(u8, p);
     const home = env.get("HOME") orelse return error.NoHome;
     return std.fmt.allocPrint(gpa, "{s}/.claude/synapse-kind-synonyms.conf", .{home});
 }
 
-/// Shared with `tags`: the record `synapse-fake` writes so a test can assert
-/// that N files cost one extraction. See `tags.zig`'s own `Trace`.
+/// Shared with `tags`: the record `synapse-fake` writes so a test can
+/// assert N files cost one extraction. See `tags.zig`'s `Trace`.
 fn writeTrace(io: Io, trace: ?[]const u8, paths: []const []const u8) !void {
     const path = trace orelse return;
     var f = try Io.Dir.cwd().createFile(io, path, .{ .truncate = false });

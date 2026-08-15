@@ -12,135 +12,54 @@
 //!   parseable.tsv     group <TAB> parseable <TAB> total               group ascending
 //!   distinctive.tsv   group <TAB> distinctive <TAB> considered        group first-appearance
 //!
-//! Prints groups / files / code files / pairs on stderr, so a repo that yielded
-//! no vocabulary is a number rather than an empty file nobody looked at.
+//! Prints groups / files / code files / pairs on stderr, so a repo that
+//! yielded no vocabulary is a number, not an unnoticed empty file.
 //!
-//! ## distinctive.tsv: which words are distinctive, not just frequent -- synapse-001, step 8
+//! `distinctive.tsv` (synapse-001 step 8) scores each group's top terms via
+//! `core.gate.judgeDistinctiveness`'s saturation curve
+//! (`distinctiveness = D / (D + df)`, `D = max(2, N/K)`) -- deliberately a
+//! different function from `synapse gate`'s own calibrated cliff, so this
+//! pre-clustering evidence path can never perturb that verdict.
+//! `--distinctive-top`/`--distinctive-k` default to 8/20, matching `judge`'s
+//! own `--top`.
 //!
-//! The orientation skill's actual work, stated plainly: "which words are
-//! distinctive rather than merely frequent." `distinctive.tsv` answers it per
-//! group, before any clustering exists, by reading back `groupwords.tsv`'s
-//! own bytes (already in memory -- `writeGroupTable` returns what it wrote,
-//! no disk round-trip) through `core.gate.judgeDistinctiveness`: the design's
-//! saturation curve, `distinctiveness = D / (D + df)` with `D = max(2, N/K)`,
-//! not `synapse gate`'s own cliff -- a *different* function in the same file,
-//! kept apart deliberately so this evidence-at-orientation-time path can
-//! never perturb `judge`'s already-calibrated, already-tested cluster verdict.
-//! `--distinctive-top`/`--distinctive-k` default to 8/20, the same defaults
-//! `judge` uses for `--top` and the value its own cliff already reproduces at
-//! the curve's 0.5 point.
+//! `parseable.tsv` (synapse-001 step 7) is `code.items`' membership per
+//! group, so `synapse gate --parseable` can tell "owns no vocabulary" apart
+//! from "nothing in the cluster has a grammar" -- both are zero rare terms
+//! otherwise. See `core/gate.zig`.
 //!
-//! ## parseable.tsv feeds synapse gate, not a human -- synapse-001, step 7
+//! The extension (`groupexts.tsv`) and namespace (`namespaces.tsv`) tables
+//! live here, not in their own command, because they must share this file's
+//! grouping map exactly -- two implementations of "which group is this path
+//! in" is how a group ends up looking like it has vocabulary but no files.
+//! Both are counted over every kept path, not the code subset: the
+//! interesting files for `groupexts.tsv` are the ones no grammar reads, and
+//! a Rust crate's namespace lives in `Cargo.toml`, untagged either way.
+//! `namespaces.tsv` reads `core.namespace.Registry`
+//! (`~/.claude/synapse-namespace-rules.conf`, `SYNAPSE_NAMESPACE_RULES_CONF`
+//! overrides it) the same way the grammar registry works: an unconfigured
+//! extension contributes nothing, and an empty registry still writes an
+//! empty table rather than being skipped.
 //!
-//! The gate's rare-term rule cannot tell "owns no vocabulary" apart from
-//! "produced none because nothing in the cluster has a grammar" -- both are
-//! zero rare terms. `parseable.tsv` is `code.items`' membership, counted the
-//! same list-row way `counts.tsv` already counts a group's total, so
-//! `synapse gate --parseable parseable.tsv` can divide one by the other and
-//! stop recommending dispersal for a cluster it never had real evidence
-//! about. See `core/gate.zig` for what it does with the number.
+//! `--chunk` is now just a files-per-batch knob: the script's `xargs -P`
+//! apparatus (`split`, generated `worker.sh`, a `synapse tags`/`awk` spawn
+//! per chunk) existed only to amortise process startup, which doesn't exist
+//! in-process. The parallelism itself is kept -- measured, not assumed:
+//! sequential in-process tagging of 3,642 files took 4453ms against the
+//! bash twelve-way version's 1987ms, so twelve cores still beat one even
+//! paying for twelve threads. One thread per core, each with its own
+//! extractor (a `tree_sitter` parser can't be shared), tagging its own
+//! slice.
 //!
-//! ## Why the extension and namespace tables are here and not in a command of their own
-//!
-//! Both answer a different question from the vocabulary -- what an area is
-//! *made of*, and what it *calls itself* -- rather than what it talks about,
-//! and neither needs tagging at all, so either could live anywhere.
-//!
-//! They live here because they must be keyed by exactly the same rule. Two
-//! tables about the same groups, produced by two implementations of "which
-//! group is this path in", is how a group comes to look like it has
-//! vocabulary but no files. Sharing the map makes agreement structural
-//! instead of a thing to keep checking.
-//!
-//! Counted over every kept path rather than the code subset, which is the
-//! whole point: the interesting files for `groupexts.tsv` are the ones no
-//! grammar can read, and a Rust crate's declared namespace lives in
-//! `Cargo.toml`, a file no grammar tags either.
-//!
-//! ## Declared namespace is a rule, not a grammar query -- see `core/namespace.zig`
-//!
-//! `namespaces.tsv` answers the other hand-written orientation question: does
-//! the name an ecosystem gives its own code match the directory holding it.
-//! Nothing here knows what Java or OCaml is; `core.namespace.Registry` reads
-//! `~/.claude/synapse-namespace-rules.conf` (`SYNAPSE_NAMESPACE_RULES_CONF`
-//! overrides it), keyed by bare extension exactly like the grammar registry,
-//! and an extension with no rule yet simply contributes nothing -- a config
-//! edit away, never a code change. An empty or absent registry still writes
-//! an empty `namespaces.tsv`, the same "supported state, not an error"
-//! contract `groupwords.tsv` gives an ungrammared repo.
-//!
-//! ## The chunking apparatus is gone, and `--chunk` is now inert
-//!
-//! The script split the file list into one chunk per core and ran a generated
-//! `worker.sh` under `xargs -P`, each worker spawning `synapse tags --paths` and
-//! piping it through `awk`. Every part of that existed to amortise process
-//! startup: `--chunk`'s own header said "Only a parallelism knob -- it is not
-//! what makes this cheap."
-//!
-//! What disappears is the process apparatus, not the parallelism: no `split`, no
-//! generated `worker.sh`, no `xargs`, no `synapse tags` spawn per chunk, no `awk`
-//! per chunk, and no intermediate `words/*.tsv`. A grammar loads once per
-//! extension per thread for the life of the run, and the reduction happens on the
-//! tags as they arrive. `--chunk` still sets files-per-batch, which is still only
-//! a parallelism knob.
-//!
-//! ## The parallelism is kept, and the measurement is why
-//!
-//! Stage 1 dropped the equivalent `xargs -P` apparatus from `tags-cache` because
-//! it was amortising a CLI startup that no longer existed. That reasoning does
-//! not transfer here, and the design said so in advance; measuring settled it.
-//! On `syrius-querschnitt-basis` (3,642 code files) the bash's twelve-way version
-//! took 1987ms and a sequential in-process pass took **4453ms** -- 2.2x slower,
-//! with byte-identical output. Tree-sitter parsing thousands of files is real CPU
-//! work, so twelve cores beat one even paying for twelve processes.
-//!
-//! So the chunking survives in shape while every process it needed disappears:
-//! one thread per core, each with its own extractor, tagging its own slice of
-//! files. Per-thread state rather than a shared map is not caution about
-//! locking -- a `tree_sitter` parser is not safe to share, and neither is a
-//! grammar handle mid-load, so the only sharing here is the immutable path list.
-//!
-//! ## Tagging fills the cache; the reduction reads it back
-//!
-//! These used to be the same loop: tag a file, split its tags into words,
-//! discard the tags, keep the counts. They are two passes now, in service of
-//! the same "raw tags never pile up" property the first version had.
-//!
-//! **Pass one tags only what the cache does not already hold at its current
-//! hash**, via `Cache.needsTagging` -- so a repeat run against an unchanged repo
-//! tags nothing and loads no grammar at all. What it *does* tag, it renders and
-//! commits into `_tags_cache.bin` in the same loop that produced it, exactly as
-//! before; see "Raw tags are held once, not twice" below.
-//!
-//! **Pass two reduces every code file's vocabulary from the cache**, which pass
-//! one has just made complete and current for all of them, hit or miss alike.
-//! It is single-threaded and reads a memory-mapped file rather than a symbol
-//! table already in hand, but "splitting and counting is cheap; the parse was
-//! the cost, and pass one already paid it" -- there is nothing here worth a
-//! thread pool for.
-//!
-//! The split exists for iteration, not for a single cold-cache run: a first
-//! build tags everything either way, so pass one costs what it always did, plus
-//! one cheap hash-and-lookup per file to find that out. What changes is every
-//! run after it -- a re-cluster, a re-run after `synapse-ignore-files.conf`
-//! changes, the `--lists` call `/synapse-init` makes second against the same
-//! files -- which now costs a scan of already-warm cache entries instead of a
-//! second grammar parse of the whole repository.
-//!
-//! ## Raw tags are held once, not twice -- in the cache, never in this process
-//!
-//! ~942 MB of tags on a large repo against 6.9 MB of vocabulary, so this process
-//! still never holds a whole repo's tags in memory at once. Pass one reduces
-//! nothing and holds nothing but the rendered text of the file it is on, until
-//! that is committed. Pass two holds one file's cached tag lines and one tag's
-//! split words at a time, freed before the next.
-//!
-//! A cache-write failure from pass one is reported and does not fail the
-//! command: the three tables below are the contract `/synapse-init` depends on.
-//! Pass two still runs against whatever the cache holds afterward -- current
-//! for everything on a successful commit, stale for this run's shortfall on a
-//! failed one -- so a cache-layer failure degrades the vocabulary for the files
-//! that needed tagging rather than failing the whole command.
+//! Tagging and reduction are two passes, not one, so raw tags never pile
+//! up: pass one tags only what `Cache.needsTagging` says is missing,
+//! committing into `_tags_cache.bin` as it goes; pass two reduces every
+//! code file's vocabulary back out of the now-current cache, single
+//! threaded (splitting and counting is cheap; the parse already paid the
+//! real cost). This process never holds a whole repo's tags at once --
+//! ~942 MB cached against 6.9 MB of vocabulary on a large repo. A pass-one
+//! cache-write failure is reported but non-fatal; pass two still runs
+//! against whatever the cache holds.
 
 const std = @import("std");
 const core = @import("core");
@@ -172,8 +91,6 @@ pub fn run(
     var distinctive_k: usize = 20;
 
     while (args.next()) |arg| {
-        // `--help` exits 0, like every other subcommand: a request for help is not a
-        // usage error, and a caller piping `--help` into a pager should not see 2.
         if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
             _ = usage();
             return 0;
@@ -209,9 +126,7 @@ pub fn run(
 
     const cwd = Io.Dir.cwd();
 
-    // Derived from the namespace of `--repo` (or the cwd) when neither `--out` nor the
-    // environment names one -- the default the wrapper computed. Keyed on the *repo
-    // being read*, not on where the command was run from, which are not always the same.
+    // Keyed on the repo being read, not where the command was run from.
     var derived: ?context.WorkDir = null;
     defer if (derived) |d| d.deinit(gpa);
     if (out_dir == null and env.get("SYNAPSE_WORK_DIR") == null) {
@@ -234,9 +149,8 @@ pub fn run(
         };
     }
 
-    // The repo root, and the cwd every relative path below is resolved against.
-    // `--repo` is a directory to work in, not a prefix to join: the script did
-    // `cd "$REPO_ROOT"` and every path in the lists is repo-relative.
+    // `--repo` is a directory to work in, not a prefix to join -- every list
+    // path is repo-relative.
     const root = try repoRoot(gpa, io, repo);
     defer gpa.free(root);
     if (root.len == 0) {
@@ -270,18 +184,11 @@ pub fn run(
     };
     defer kind_rules.deinit();
 
-    // Which extensions have a usable grammar, from the registry rather than a
-    // second hardcoded list. A hardcoded copy is how a real, already-registered
-    // grammar stayed invisible to this script for every project that never got
-    // its own copy of the list edited.
     const usable = try registry.usableExtensions(gpa);
     defer gpa.free(usable);
 
-    // The declared-namespace rules, same discovery contract as the grammar
-    // registry above: absent means "nothing configured yet," not an error.
-    // `SYNAPSE_NAMESPACE_RULES_CONF` overrides for the same reason
-    // `SYNAPSE_MODULE_BOILERPLATE_CONF` does -- so a test fixture never has to
-    // touch the real `~/.claude`.
+    // Same discovery contract as the grammar registry: absent means
+    // "nothing configured yet," not an error.
     const ns_rules_path = if (env.get("SYNAPSE_NAMESPACE_RULES_CONF")) |p|
         try gpa.dupe(u8, p)
     else
@@ -321,8 +228,8 @@ const Options = struct {
     lists: ?[]const u8,
     usable: []const []const u8,
     chunk: ?usize,
-    /// Terms per group `distinctive.tsv` looks at, and the saturation
-    /// curve's scaling constant -- see `core.gate.DistinctivenessOptions`.
+    /// Terms per group and the saturation curve's scaling constant -- see
+    /// `core.gate.DistinctivenessOptions`.
     distinctive_top: usize,
     distinctive_k: usize,
 };
@@ -336,12 +243,9 @@ fn repoRoot(gpa: Allocator, io: Io, repo: ?[]const u8) ![]u8 {
     return gpa.dupe(u8, std.mem.trim(u8, res.stdout, " \t\r\n"));
 }
 
-/// `group <TAB> word` counted, and the file counts alongside it.
-///
-/// One pass: tag every code path, split each symbol, and increment the count for
-/// every group the path belongs to. A path claimed by two node lists counts under
-/// both -- a manifest may legitimately overlap, and silently picking one would
-/// make the gate's verdict depend on directory order.
+/// `group <TAB> word` counted, and the file counts alongside it. A path
+/// claimed by two node lists counts under both -- a manifest may
+/// legitimately overlap.
 fn build(
     comptime Ex: type,
     gpa: Allocator,
@@ -359,9 +263,8 @@ fn build(
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    // Every tracked path, minus the user's own exclusions -- the same two knobs
-    // the graph itself honours, so a path excluded from the graph is also
-    // excluded from the evidence used to design the graph.
+    // Every tracked path, minus the user's own exclusions -- the same knobs
+    // the graph itself honours.
     const listed = try adapters.process.run(io, gpa, &.{ "git", "ls-files" }, .{
         .cwd = .{ .path = opts.root },
     });
@@ -379,7 +282,7 @@ fn build(
         if (p.len != 0) try kept.append(arena, p);
     }
 
-    // path -> the groups it belongs to. With `--lists` that is every node title
+    // path -> groups it belongs to. With `--lists`, every node title
     // claiming it; otherwise the one directory prefix.
     var groups: std.StringHashMapUnmanaged(std.ArrayListUnmanaged([]const u8)) = .empty;
     var counts: std.StringHashMapUnmanaged(usize) = .empty;
@@ -391,8 +294,8 @@ fn build(
             return 1;
         }
         try mapFromLists(arena, io, dir, &groups, &counts);
-        // Narrowed to what some list claims: tagging a file no node owns
-        // produces vocabulary with nowhere to go.
+        // Narrowed to what some list claims -- an unowned file's vocabulary
+        // has nowhere to go.
         var narrowed: std.ArrayListUnmanaged([]const u8) = .empty;
         for (kept.items) |p| {
             if (groups.contains(p)) try narrowed.append(arena, p);
@@ -412,14 +315,10 @@ fn build(
 
     try writeCounts(gpa, io, opts.out, &counts);
 
-    // The artifact mix, off the same `groups` map so its keys agree with
-    // `counts.tsv` by construction rather than by two rules staying in step.
-    //
-    // Counted over every kept path, not over the `code` subset below. That is
-    // the whole point: a group that is 60% JSON, `.bpmn` or `.sql` is telling
-    // you something no module name will, and those are exactly the files a
-    // grammar-keyed view cannot see. It needs no tagging, so it costs one more
-    // pass over a list already in memory.
+    // Off the same `groups` map, so keys agree with counts.tsv by
+    // construction. Over every kept path, not just `code` below -- a group
+    // that's 60% JSON/.bpmn/.sql is telling you something a module name
+    // can't, and needs no tagging either way.
     var mix: std.StringHashMapUnmanaged(usize) = .empty;
     for (kept.items) |p| {
         const in = groups.get(p) orelse continue;
@@ -435,24 +334,15 @@ fn build(
     defer gpa.free(groupexts_path);
     gpa.free(try writeGroupTable(gpa, io, groupexts_path, &mix));
 
-    // Declared-namespace divergence: does the name an ecosystem gives a file
-    // (a Java `package`, a Rust crate `name`) match the group its path is in.
-    // Also over every kept path, also needing no tagging -- an empty registry
-    // (nothing configured for this repo yet) still writes an empty table
-    // rather than being skipped, so a caller can rely on the file existing.
+    // Does a Java `package`/Rust crate `name` match the group its path is
+    // in. An empty registry still writes an empty table, never skipped.
     const namespaces_path = try std.fmt.allocPrint(gpa, "{s}/namespaces.tsv", .{opts.out});
     defer gpa.free(namespaces_path);
     try writeNamespaceDivergence(gpa, arena, io, opts.root, kept.items, &groups, ns_registry, namespaces_path);
 
-    // The code subset: a usable grammar, and not machine output that happens to
-    // end in a code extension. `core.enumerate.isNoise` already knows the second
-    // rule -- it is the same `.min.js`/`.map` set, and one definition beats two.
-    //
-    // `parseable` is counted in the same pass, off the same membership: how many
-    // of a group's files (per `counts.tsv`'s own total, list-row-counted the same
-    // way for `--lists`) made it into `code`. synapse-001, step 7 -- this is what
-    // lets `synapse gate` tell "owns no vocabulary" apart from "produced none
-    // because the language has no grammar", which today it cannot.
+    // The code subset: a usable grammar, and not machine output that happens
+    // to end in a code extension (`core.enumerate.isNoise`). `parseable` is
+    // counted in the same pass, off the same membership.
     var code: std.ArrayListUnmanaged([]const u8) = .empty;
     var parseable_counts: std.StringHashMapUnmanaged(usize) = .empty;
     for (kept.items) |p| {
@@ -490,10 +380,9 @@ fn build(
     var cache = try Cache.open(io, cache_path);
     defer cache.close(io);
 
-    // Pass one: tag only what the cache does not already hold at its current
-    // hash. Every code path is hashed once, in parallel, and that hash is
-    // reused both for the freshness check below and, for whatever needs
-    // tagging, as the resulting cache entry's own hash -- never recomputed.
+    // Pass one: tag only what the cache doesn't already hold at its current
+    // hash. Each path is hashed once, in parallel; the hash is reused for
+    // the freshness check and, if needed, as the cache entry's own hash.
     const hashes = try parallelHash(gpa, io, opts.root, code.items);
     defer gpa.free(hashes);
 
@@ -501,11 +390,7 @@ fn build(
     defer gpa.free(requested);
     var requested_len: usize = 0;
     for (code.items, hashes) |p, h| {
-        // Unreadable right now (deleted since enumeration, a submodule
-        // gitlink): left out of the request entirely, so it is neither
-        // tagged nor read from the cache in pass two below -- the same
-        // "quietly contributes nothing" outcome a plain cache miss gets.
-        const hv = h orelse continue;
+        const hv = h orelse continue; // unreadable now (deleted, submodule gitlink): left out entirely
         requested[requested_len] = .{ .path = p, .hash = hv };
         requested_len += 1;
     }
@@ -517,20 +402,15 @@ fn build(
         try writeTrace(io, trace, need);
 
         const cores = std.Thread.getCpuCount() catch 4;
-        // One chunk per core, floor 500 -- the script's rule, kept because it
-        // is the right shape: fewer, larger batches amortise a grammar load
-        // per thread, and a floor stops a small shortfall spawning twelve
-        // threads to tag forty files. Sized off the shortfall rather than
-        // the whole code subset, so a warm cache with little left to tag
-        // spawns little, not the pool a cold one would.
+        // One chunk per core, floor 500: sized off the shortfall, not the
+        // whole code subset, so a warm cache spawns little.
         const chunk = opts.chunk orelse @max(500, (need.len + cores - 1) / cores);
         const workers = @min(cores, (need.len + chunk - 1) / chunk);
 
         const Worker = struct {
-            // Everything a thread needs, and nothing shared but the immutable
-            // inputs. A `tree_sitter` parser cannot be shared and neither can
-            // a grammar handle mid-load, so each thread gets its own
-            // extractor; the commit is single-threaded afterwards.
+            // Nothing shared but immutable inputs -- a tree_sitter parser
+            // can't be shared, so each thread gets its own extractor; the
+            // commit is single-threaded afterwards.
             gpa: Allocator,
             io: Io,
             registry: treesitter.Registry,
@@ -540,18 +420,13 @@ fn build(
             query_override_dir: ?[]const u8,
             root: []const u8,
             items: []const PathHash,
-            /// One `Update` per file this worker tagged (or attempted to),
-            /// for the tags-cache commit the caller does once every thread
-            /// has joined. `path` and `entry.hash` borrow `self.items`;
-            /// `entry.tags`, when present, borrows the matching entry in
-            /// `cache_rendered` rather than owning its own copy -- see that
-            /// field for why.
+            /// One `Update` per tagged file, for the caller's commit once
+            /// every thread joins. `path`/`entry.hash` borrow `self.items`;
+            /// `entry.tags` borrows `cache_rendered`, not its own copy.
             cache_updates: std.ArrayListUnmanaged(Update) = .empty,
-            /// The owned, untrimmed buffers `cache_updates[i].entry.tags`
-            /// points into (a trimmed slice of one of these). Freed by the
-            /// caller after the commit; kept separate from `cache_updates`
-            /// because freeing a trimmed slice at the wrong length is the
-            /// bug this split avoids.
+            /// Owned, untrimmed buffers `cache_updates[i].entry.tags` points
+            /// into (a trimmed slice of one). Kept separate so freeing a
+            /// trimmed slice at the wrong length can't happen.
             cache_rendered: std.ArrayListUnmanaged([]u8) = .empty,
             failed: bool = false,
 
@@ -611,9 +486,7 @@ fn build(
 
         var assigned: usize = 0;
         for (slots, 0..) |*w, i| {
-            // The last worker takes the remainder, so no path is dropped when
-            // the count does not divide evenly.
-            const take = if (i + 1 == workers) need.len - assigned else @min(chunk, need.len - assigned);
+            const take = if (i + 1 == workers) need.len - assigned else @min(chunk, need.len - assigned); // last worker takes the remainder
             w.* = .{
                 .gpa = gpa,
                 .io = io,
@@ -644,11 +517,9 @@ fn build(
             }
         }
 
-        // Every worker's cache_updates, merged into one commit -- one write
-        // to `_tags_cache.bin`, not one per file or one per worker. Non-fatal:
-        // counts.tsv and groupexts.tsv are already on disk, and pass two below
-        // still runs -- against a cache left stale for this shortfall rather
-        // than current, but not absent.
+        // One commit for every worker's updates. Non-fatal: counts.tsv/
+        // groupexts.tsv are already on disk, and pass two still runs against
+        // whatever the cache holds.
         var cache_total: usize = 0;
         for (slots) |*w| cache_total += w.cache_updates.items.len;
         if (cache_total != 0) {
@@ -666,12 +537,9 @@ fn build(
         }
     }
 
-    // Pass two: every code file's vocabulary, read from the cache pass one
-    // just made current for all of them -- a cache hit that needed no
-    // tagging above, or one this call's own shortfall pass just filled.
-    // Single-threaded: a memory-mapped lookup and a string split are not
-    // worth a thread pool, and `pairs`' keys are interned straight into the
-    // arena, so there is no per-thread merge step to write.
+    // Pass two: every code file's vocabulary, from the cache pass one just
+    // made current. Single-threaded -- a memory-mapped lookup and string
+    // split aren't worth a thread pool.
     var pairs: std.StringHashMapUnmanaged(usize) = .empty;
     {
         var words: std.ArrayListUnmanaged([]u8) = .empty;
@@ -702,14 +570,6 @@ fn build(
     const groupwords_text = try writeGroupTable(gpa, io, groupwords_path, &pairs);
     defer gpa.free(groupwords_text);
 
-    // Distinctiveness at orientation time -- synapse-001, step 8. Reads back
-    // the exact bytes just written to groupwords.tsv (no disk round-trip:
-    // `writeGroupTable` already built them in memory) and scores each
-    // group's top terms with the saturation curve, not the gate's own cliff.
-    // Evidence for the model while it is still clustering, not a verdict on
-    // a clustering already made -- see core/gate.zig's own distinction
-    // between `judge` (post-clustering, cliff, calibrated) and
-    // `judgeDistinctiveness` (pre-clustering, curve, a repo-shape knob).
     var distinctiveness = try core.gate.judgeDistinctiveness(gpa, groupwords_text, .{
         .top = opts.distinctive_top,
         .k = opts.distinctive_k,
@@ -734,15 +594,9 @@ fn build(
     return 0;
 }
 
-/// Every path's current blob hash, computed in parallel -- a plain read and an
-/// in-process SHA1, not a tree-sitter parse, so this is worth doing even
-/// though `code` gets read a second time doing it: pass one below cannot ask
-/// the cache what needs tagging without a current hash for every candidate,
-/// and this is the only place that hash comes from.
-/// The record `synapse-fake` writes so a test can assert that N files, and no
-/// more, actually reached the extractor -- shared shape with `tags` and
-/// `tags-cache`'s own `writeTrace`, not shared code: each command's caller is
-/// the one place that knows what it is about to tag.
+/// The record `synapse-fake` writes so a test can assert N files, no more,
+/// reached the extractor -- shared shape with `tags`/`tags-cache`'s own
+/// `writeTrace`, not shared code.
 fn writeTrace(io: Io, trace: ?[]const u8, items: []const PathHash) !void {
     const path = trace orelse return;
     var f = try Io.Dir.cwd().createFile(io, path, .{ .truncate = false });
@@ -757,6 +611,9 @@ fn writeTrace(io: Io, trace: ?[]const u8, items: []const PathHash) !void {
     try w.interface.flush();
 }
 
+/// Every path's current blob hash, computed in parallel -- a plain read and
+/// SHA1, not a tree-sitter parse, needed by pass one to ask the cache
+/// what's stale.
 fn parallelHash(gpa: Allocator, io: Io, root: []const u8, paths: []const []const u8) ![]?[20]u8 {
     const out = try gpa.alloc(?[20]u8, paths.len);
     errdefer gpa.free(out);
@@ -805,8 +662,8 @@ fn parallelHash(gpa: Allocator, io: Io, root: []const u8, paths: []const []const
     return out;
 }
 
-/// The current blob hash of a repo file, or null if it cannot be read right
-/// now -- deleted since enumeration, a submodule gitlink, or similar.
+/// Blob hash of a repo file, or null if unreadable right now (deleted,
+/// submodule gitlink).
 fn hashOf(gpa: Allocator, io: Io, root: []const u8, path: []const u8) ?[20]u8 {
     const full = std.fmt.allocPrint(gpa, "{s}/{s}", .{ root, path }) catch return null;
     defer gpa.free(full);
@@ -824,8 +681,7 @@ fn hasUsableExtension(path: []const u8, usable: []const []const u8) bool {
     return false;
 }
 
-/// How many `NN.txt`/`NN.title` pairs a lists dir holds, for the "empty is an
-/// error, not a silent empty result" check.
+/// How many `NN.txt`/`NN.title` pairs a lists dir holds.
 fn readLists(arena: Allocator, io: Io, dir: []const u8) !usize {
     var found: usize = 0;
     var n: usize = 1;
@@ -863,8 +719,8 @@ fn mapFromLists(
             const gop = try groups.getOrPut(arena, p);
             if (!gop.found_existing) gop.value_ptr.* = .empty;
             try gop.value_ptr.append(arena, title);
-            // Counted off the list rows, not off the narrowed path set: a path
-            // claimed by two nodes has two rows and must count once under each.
+            // Off the list rows, not the narrowed path set -- a path claimed
+            // by two nodes counts once under each.
             const c = try counts.getOrPut(arena, title);
             if (!c.found_existing) c.value_ptr.* = 0;
             c.value_ptr.* += 1;
@@ -927,9 +783,8 @@ fn writeCounts(
 }
 
 /// `group <TAB> parseable <TAB> total`, group ascending. One row per group
-/// `counts` knows about, including a group with zero parseable files -- that
-/// is the exact row `synapse gate --parseable` looks for, so it must be
-/// present rather than omitted for having nothing to say.
+/// `counts` knows about, including zero-parseable groups -- the exact row
+/// `synapse gate --parseable` looks for.
 fn writeParseableShare(
     gpa: Allocator,
     io: Io,
@@ -963,18 +818,10 @@ fn writeParseableShare(
 
 const PairRow = struct { key: []const u8, count: usize };
 
-/// `group <TAB> thing <TAB> count`, group ascending then count descending --
-/// the script's `sort -k1,1 -k3,3nr`. The key already holds the tab, so the
-/// group comparison is a prefix comparison of the whole key up to it.
-///
-/// Shared by `groupwords.tsv` and `groupexts.tsv`, which differ only in what
-/// the middle column holds. One ordering rule rather than two means the two
-/// tables can be read side by side without wondering whether a difference is
-/// real or an artefact of how each was sorted.
-/// Writes the table and also returns the exact bytes written, owned by the
-/// caller -- `groupwords.tsv`'s call site reuses them to feed
-/// `core.gate.judgeDistinctiveness` without a disk round-trip; a call site
-/// that has no use for the text is free to discard it immediately.
+/// `group <TAB> thing <TAB> count`, group ascending then count descending.
+/// Shared by `groupwords.tsv` and `groupexts.tsv`. Returns the bytes written
+/// too, owned by the caller -- `groupwords.tsv`'s call site reuses them for
+/// `judgeDistinctiveness` with no disk round-trip.
 fn writeGroupTable(
     gpa: Allocator,
     io: Io,
@@ -999,9 +846,7 @@ fn writeGroupTable(
                 .eq => {},
             }
             if (a.count != b.count) return a.count > b.count;
-            // `sort` is not stable on the untouched third key, but a total order
-            // here keeps two runs over the same repo byte-identical.
-            return std.mem.order(u8, a.key, b.key) == .lt;
+            return std.mem.order(u8, a.key, b.key) == .lt; // total order keeps reruns byte-identical
         }
     }.less);
 
@@ -1013,14 +858,10 @@ fn writeGroupTable(
 }
 
 /// `group <TAB> namespace <TAB> agree <TAB> total`, group ascending. One row
-/// per group that had at least one file with a declared namespace: the
-/// namespace most of them declared, how many agreed, and how many were
-/// counted. Ties broken by namespace text, for a byte-identical rerun.
-///
-/// synapse-001, step 6. Runs over `kept`, not the code subset -- a Rust crate
-/// declares its namespace in `Cargo.toml`, not in a file a grammar would ever
-/// tag, so gating this on `hasUsableExtension` would silently drop the
-/// ecosystems the build-file rule exists for.
+/// per group with at least one declared namespace: the namespace most files
+/// declared, how many agreed, how many counted (synapse-001 step 6). Runs
+/// over `kept`, not the code subset -- a Rust crate declares its namespace
+/// in `Cargo.toml`, untagged by any grammar.
 fn writeNamespaceDivergence(
     gpa: Allocator,
     arena: Allocator,
@@ -1036,9 +877,7 @@ fn writeNamespaceDivergence(
         return;
     }
 
-    // Build-file rule -> its dir-keyed namespace map, built once per distinct
-    // filename on first need rather than scanned for up front: most repos use
-    // one ecosystem, and a rule nothing here ever needs costs nothing.
+    // Build-file rule -> dir-keyed namespace map, built lazily per filename.
     var build_maps: std.StringHashMapUnmanaged(std.StringHashMapUnmanaged([]const u8)) = .empty;
 
     // group -> (namespace -> file count), reduced to one row per group below.
@@ -1108,10 +947,8 @@ fn writeNamespaceDivergence(
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = body.written() });
 }
 
-/// The dir-keyed namespace map for one build-file rule, memoized in `cache`
-/// so a repo with many source files sharing the same rule (every `.ml` file
-/// under one `dune`-per-directory convention) scans `kept` for that filename
-/// exactly once, not once per source file.
+/// Dir-keyed namespace map for one build-file rule, memoized in `cache` so
+/// a repo with many source files sharing one rule scans `kept` once.
 fn buildFileMap(
     arena: Allocator,
     io: Io,

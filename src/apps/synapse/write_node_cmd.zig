@@ -2,34 +2,23 @@
 //!
 //!   write-node --title <t> --summary <s> --paths <file> --body <file>
 //!
-//! Hashes every source, computes `sources_digest`, records the baseline `commit`,
-//! expands the crux directive, records and strips the groundings, builds the
-//! `## Sources` mirror, and PUTs the note through the Obsidian Local REST API.
+//! Hashes every source, computes `sources_digest`, records the baseline
+//! `commit`, expands the crux directive, records and strips the groundings,
+//! builds the `## Sources` mirror, and PUTs the note through the Obsidian
+//! Local REST API.
 //!
-//! Prints `<file>\t<n> files\t<digest>` on success. Exit 1 for anything that made
-//! the write impossible, 2 for a usage error.
+//! Prints `<file>\t<n> files\t<digest>` on success. Exit 1 for anything
+//! that made the write impossible, 2 for a usage error.
 //!
-//! ## The PUT stays on the API, and the reads do not
+//! Writes go through the API so Obsidian's own view stays consistent and
+//! the vault's git hook sees the change; the three reads the script made
+//! through the same API are disk reads now (see `context.zig`).
 //!
-//! Writes go through the API so Obsidian's own view stays consistent and the
-//! vault's git hook sees the change -- that is what `adapters/obsidian` is for, and
-//! why `curl` is still spawned once here (see its header: `std.http` cannot verify
-//! the plugin's IP-SAN-only certificate). The three *reads* the script made through
-//! the same API -- the namespace `Index.md`, the existing node, and nothing else --
-//! are disk reads now, for the reason `context.zig` gives.
-//!
-//! ## What the writer refuses to do
-//!
-//! Three refusals, all of them in `core/emit.zig` and all of them exit 1 rather
-//! than a degraded write: a crux path the node does not claim, a range outside the
-//! file, and a range longer than its cap. Each produces a plausible-looking node --
-//! code the node does not cover, a slice of a file that has since shrunk, a whole
-//! function where a decision was asked for -- and a node nobody can distrust is
-//! worse than a write that failed.
-//!
-//! The fourth thing it will not do is destroy hand-written notes. Everything after
-//! `<!-- synapse:generated:end -->` in the existing node is re-emitted verbatim,
-//! because a regeneration is not an event anyone reviews.
+//! Refuses (exit 1, not a degraded write) a crux path the node doesn't
+//! claim, a range outside the file, and a range longer than its cap -- all
+//! in `core/emit.zig`. Also refuses to destroy hand-written notes:
+//! everything after `<!-- synapse:generated:end -->` in an existing node
+//! is re-emitted verbatim.
 
 const std = @import("std");
 const core = @import("core");
@@ -125,11 +114,8 @@ pub const Input = struct {
 };
 
 /// `result` receives the one success line, `<file>\t<n> files\t<digest>`.
-///
-/// Passed in rather than printed, because `push-nodes` prefixes it with the
-/// two-digit node number and does not want it on stdout twice. That is also the
-/// whole shape of the push-nodes port: the script spawned this writer once per
-/// node, and in one binary the loop is a function call.
+/// Passed in, not printed: `push-nodes` prefixes it with the node number
+/// and doesn't want it on stdout twice.
 pub fn write(
     comptime Extractor: type,
     gpa: Allocator,
@@ -140,10 +126,7 @@ pub fn write(
     result: *Io.Writer,
 ) !u8 {
     // --- refuse to write into another repo's namespace -----------------------
-    // A namespace is keyed by repo and branch, so a collision needs two repos
-    // whose remotes differ but whose key matches -- rare, and silently
-    // destructive if it happened. An absent Index.md means a first-time build is
-    // in progress, which is fine, so this is checked only when one exists.
+    // Checked only when Index.md exists -- absent means a first build, fine.
     if (try readVault(gpa, io, ctx, "Index.md")) |index_text| {
         defer gpa.free(index_text);
         const existing_remote = core.query.field(index_text, "remote") orelse "";
@@ -154,8 +137,6 @@ pub fn write(
             std.debug.print("  refusing to overwrite -- rename one of the two repos first\n", .{});
             return 1;
         }
-        // Absence is tolerated here, unlike on the read paths: a first build
-        // reaches this before the index carries either field.
         const existing_branch = core.query.field(index_text, "branch") orelse "";
         if (existing_branch.len != 0 and !std.mem.eql(u8, existing_branch, ctx.branch)) {
             std.debug.print(
@@ -167,8 +148,7 @@ pub fn write(
         }
     }
 
-    // Obsidian resolves a wikilink by filename, so a sanitised title silently
-    // breaks inbound links. Hence a warning rather than a silent rename.
+    // A sanitised title silently breaks inbound wikilinks, hence the warning.
     const file_title = try emit.fileTitle(gpa, in.title);
     defer gpa.free(file_title);
     if (!std.mem.eql(u8, file_title, in.title)) {
@@ -188,9 +168,6 @@ pub fn write(
     if (existing) |e| {
         const s = core.node.split(e);
         if (s.fenced) {
-            // From just past the end-marker line to the end, with trailing
-            // newlines dropped: `$(sed -n '/end/,$p' | sed 1d)` stripped them and
-            // `printf '%s\n'` put exactly one back.
             const after_marker = s.tail[core.node.generated_end.len..];
             const cut = if (after_marker.len != 0 and after_marker[0] == '\n')
                 after_marker[1..]
@@ -204,11 +181,8 @@ pub fn write(
     var paths = try sortedUnique(gpa, in.paths_text);
     defer paths.deinit(gpa);
 
-    // Every path is checked before any is hashed. `git hash-object --stdin-paths`
-    // aborted the whole batch on the first bad entry, leaving the caller exit 128
-    // and no offending path -- and the entries that hit it are real: a path
-    // deleted since enumeration, and a submodule gitlink, which is one `ls-files`
-    // entry but a directory on disk.
+    // Every path checked before any is hashed, so a bad entry (deleted since
+    // enumeration, a submodule gitlink) is named, not just an abort.
     var contents = try gpa.alloc([]u8, paths.items.len);
     var loaded: usize = 0;
     defer {
@@ -246,9 +220,7 @@ pub fn write(
 
     const digest = try core.node.sourcesDigest(gpa, sources);
 
-    // --- baseline commit, for `query drift` ----------------------------------
-    // Full sha, never abbreviated: an abbreviation unique today can become
-    // ambiguous as history grows. Omitted, not empty, when HEAD does not resolve.
+    // --- baseline commit, for `query drift` -- full sha, never abbreviated ---
     const commit = try headCommit(gpa, io, ctx);
     defer if (commit) |c| gpa.free(c);
     if (commit != null) try warnDirtySources(gpa, io, ctx, paths.items, commit.?);
@@ -319,10 +291,8 @@ pub fn write(
             try grounded.append(gpa, .{
                 .path = span.path,
                 .lines = try std.fmt.allocPrint(gpa, "{d}-{d}", .{ span.start, span.end }),
-                // Only the digest of the sliced text, never the text: it keeps the
-                // field small, avoids escaping multi-line code into YAML, and makes
-                // verification mechanical. Digesting the slice rather than the file
-                // is the point -- a change elsewhere leaves the grounding intact.
+                // Digest of the sliced text, never the text itself -- keeps
+                // the field small and a change elsewhere leaves it intact.
                 .digest = try gpa.dupe(u8, &core.verify.sha256Hex(cut)),
             });
         }
@@ -392,9 +362,6 @@ fn reportSpanProblem(
     const total = emit.wcLines(content.?);
     const problem = emit.checkSpan(span, kind, paths, total) orelse return false;
     switch (problem) {
-        // The span must quote a file the node actually claims. Without this a node
-        // could cite code it does not cover, which is the failure the pointer is
-        // meant to make impossible.
         .not_claimed => std.debug.print(
             "{s}: {s} path is not in this node's sources: {s}\n",
             .{ prog, label, span.path },
@@ -456,11 +423,8 @@ fn sortedUnique(gpa: Allocator, text: []const u8) !std.ArrayListUnmanaged([]cons
     return out;
 }
 
-/// `git rev-parse --verify --quiet HEAD`.
-///
-/// `--verify`, not a bare `rev-parse HEAD`: without it git echoes the
-/// unresolvable name "HEAD" to stdout while failing, so the baseline would be set
-/// to that literal string and every later diff would die on it.
+/// `git rev-parse --verify --quiet HEAD`. `--verify`, not bare `rev-parse
+/// HEAD`: without it, a failure still echoes the literal string "HEAD".
 fn headCommit(gpa: Allocator, io: Io, ctx: *const Context) !?[]u8 {
     const res = try adapters.process.run(io, gpa, &.{
         "git", "rev-parse", "--verify", "--quiet", "HEAD",
@@ -472,9 +436,8 @@ fn headCommit(gpa: Allocator, io: Io, ctx: *const Context) !?[]u8 {
     return try gpa.dupe(u8, sha);
 }
 
-/// Hashes come from the worktree, so a dirty source makes the recorded commit
-/// approximate. Scoped to this node's own paths, to stay quiet during work
-/// elsewhere in the repo.
+/// Hashes come from the worktree, so a dirty source makes the recorded
+/// commit approximate. Scoped to this node's own paths.
 fn warnDirtySources(
     gpa: Allocator,
     io: Io,
@@ -512,8 +475,8 @@ fn warnDirtySources(
     );
 }
 
-/// Persist the tagging this node's sources would need anyway, so `query symbol` is
-/// a cache read. Never fatal: a failure here must not block writing the node.
+/// Persists the tagging this node's sources need anyway, so `query symbol`
+/// is a cache read. Never fatal.
 fn refreshTagsCache(
     comptime Extractor: type,
     gpa: Allocator,
@@ -539,13 +502,8 @@ fn refreshTagsCache(
         std.debug.print("{s}: tags cache refresh failed (non-fatal)\n", .{prog});
 }
 
-/// `date '+%Y-%m-%d %H:%M'`, spawned.
-///
-/// Local time, and that is the whole reason this is a spawn: the offset comes from
-/// the timezone database, which `date` reads and Zig's standard library does not
-/// ship a reader for. Computing UTC instead would put a stamp in every node that
-/// disagrees with the wall clock of whoever wrote it, by an amount that changes
-/// twice a year. One spawn per node write, next to the `curl` that already happens.
+/// `date '+%Y-%m-%d %H:%M'`, spawned for local time -- the timezone
+/// database `date` reads has no Zig stdlib equivalent.
 fn nowStamp(gpa: Allocator, io: Io) ![]u8 {
     const res = try adapters.process.run(io, gpa, &.{ "date", "+%Y-%m-%d %H:%M" }, .{});
     defer res.deinit(gpa);
@@ -553,10 +511,8 @@ fn nowStamp(gpa: Allocator, io: Io) ![]u8 {
     return gpa.dupe(u8, std.mem.trim(u8, res.stdout, " \t\r\n"));
 }
 
-/// The plugin's port and API key, from the vault's own `data.json`.
-///
-/// Read here rather than passed in by the wrapper on purpose: an API key in `argv`
-/// is visible to every `ps` on the machine for as long as the process lives.
+/// The plugin's port and API key, from the vault's own `data.json` -- read
+/// here rather than passed in `argv`, which stays visible to `ps`.
 fn openStore(
     gpa: Allocator,
     io: Io,
@@ -591,8 +547,7 @@ fn openStore(
         .string => |s| s,
         else => "",
     };
-    // The plugin writes a number; a hand-edited config may hold a string.
-    const port: u16 = switch (obj.get("port") orelse .null) {
+    const port: u16 = switch (obj.get("port") orelse .null) { // plugin writes a number; hand-edited may be a string
         .integer => |i| @intCast(i),
         .string => |s| std.fmt.parseInt(u16, s, 10) catch 0,
         else => 0,

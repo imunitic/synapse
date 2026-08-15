@@ -1,20 +1,15 @@
-//! Time `Cache.open` + `needsTagging` against a real cache, so the claim the
-//! binary format was built on can be checked rather than asserted.
+//! Times `Cache.open` + `needsTagging` against a real cache, checking the
+//! claim the binary format was built on: answering "which paths changed?"
+//! should read the record table only, independent of tag-text size. Number
+//! to beat: 5.0s, what `jq` cost parsing syrius3's 828 MB JSON equivalent.
 //!
-//! The claim: answering "which of these paths changed?" should read the record
-//! table and nothing else, making it independent of how much tag text the
-//! cache holds. The number to beat is 5.0s, which is what `jq` costs parsing
-//! syrius3's 828 MB, 124,837-entry JSON cache to do the same thing.
-//!
-//! A tool rather than a test, for the same reason `tags-differential` is one:
-//! it needs a real cache from a real repository, which a hermetic test cannot
-//! have. Built with `zig build bench`, never installed.
+//! A tool, not a test -- needs a real cache from a real repo. Built with
+//! `zig build bench`, never installed.
 //!
 //!   tags-cache-bench <cache-file> [sample-count]
 //!
-//! Requests `sample-count` paths (default: all of them) at their cached hashes
-//! -- so every one is current and none needs tagging, which is the common case
-//! and the one whose cost matters.
+//! Requests `sample-count` paths (default: all) at their cached hashes, so
+//! none needs tagging -- the common case, and the one whose cost matters.
 
 const std = @import("std");
 const core = @import("core");

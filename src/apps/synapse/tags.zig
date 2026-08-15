@@ -16,9 +16,8 @@
 //!      Single-file mode only: a batch spanning many extensions has no single
 //!      answer, so it warns per extension and returns 0.
 //!
-//! Generic over the extractor so the test binary is this same dispatch with a
-//! different innermost step. See `extractor.zig`'s header for why the split is
-//! there rather than in a second copy of this file.
+//! Generic over the extractor so the test binary is this same dispatch with
+//! a different innermost step -- see `extractor.zig`'s header.
 
 const std = @import("std");
 const model = @import("model");
@@ -29,12 +28,10 @@ const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const render = treesitter.tagger.renderCliLine;
 
-/// Where to append a record of what was tagged, or null for no record at all.
-///
-/// This exists for `synapse-fake`, which stands in for the `tree-sitter` CLI
-/// in the bats suite: several tests assert that N files cost ONE invocation,
-/// and with nothing spawned there is no process to count. The real binary
-/// passes null unconditionally, so it cannot be made to write one.
+/// Where to append a record of what was tagged, or null for none. Exists
+/// for `synapse-fake`: bats tests assert N files cost ONE invocation, and
+/// with nothing spawned there's no process to count. The real binary always
+/// passes null.
 pub const Trace = ?[]const u8;
 
 const usage_text =
@@ -57,8 +54,7 @@ pub fn run(
     args: *std.process.Args.Iterator,
     trace: Trace,
 ) !u8 {
-    // Read before the registry: asking for help needs neither `$HOME` nor a grammar,
-    // and reaching the loader first is why `tags --help` used to exit 1 with no output.
+    // Before the registry: help needs neither $HOME nor a grammar.
     const first = args.next() orelse return usage();
     if (std.mem.eql(u8, first, "-h") or std.mem.eql(u8, first, "--help")) {
         _ = usage();
@@ -121,10 +117,8 @@ fn single(
 ) !u8 {
     Io.Dir.cwd().access(io, path, .{}) catch return 1;
 
-    // The exit code has to distinguish "no registry entry" (2, run discovery
-    // and retry) from "unusable" (1, nothing else to try), and the extractor's
-    // `.unsupported` collapses both. So the readiness is asked here, before
-    // extraction, purely to decide which number to return.
+    // Readiness asked before extraction, purely to pick 1 vs 2: the
+    // extractor's `.unsupported` collapses "no entry" and "unusable" alike.
     const ext = (try treesitter.extensionOf(gpa, path)) orelse return 1;
     defer gpa.free(ext);
     const readiness: u8 = switch (registry.lookup(ext)) {
@@ -183,17 +177,13 @@ fn batch(
     for (results) |r| if (r == .tagged) {
         usable += 1;
     };
-    // Nothing in the list could be tagged at all. Saying so beats an empty
-    // success that a caller would read as "this repo has no symbols".
-    if (usable == 0) return 1;
+    if (usable == 0) return 1; // beats an empty success reading as "no symbols"
 
     var buf: [256 * 1024]u8 = undefined;
     var out = Io.File.stdout().writer(io, &buf);
     for (paths.items, results) |path, r| {
-        // An unparseable file is absent from the output entirely, while one
-        // that parsed to nothing still gets its path line. The whole
-        // `unsupported` distinction rests on exactly that, in the cache and in
-        // every caller that attributes this output back to paths.
+        // Unparseable: absent entirely. Parsed to nothing: still gets its
+        // path line. The `unsupported` distinction rests on that.
         const tagged = switch (r) {
             .unsupported => continue,
             .tagged => |t| t,
@@ -208,12 +198,9 @@ fn batch(
     return 0;
 }
 
-/// One `tags <paths...>` line for the invocation, then one `path <p>` line per
-/// requested path -- the format `tests/fixtures/fake-bin/tree-sitter` used to
-/// write, kept byte-compatible so the assertions built on it stay valid.
-///
-/// Appended rather than truncated: a single test may run the binary more than
-/// once and count across the runs.
+/// One `tags <paths...>` line, then one `path <p>` line per path -- the
+/// format the old fake tree-sitter binary wrote, kept byte-compatible.
+/// Appended, not truncated: a test may run the binary more than once.
 fn writeTrace(io: Io, trace: Trace, paths: []const []const u8) !void {
     const path = trace orelse return;
 

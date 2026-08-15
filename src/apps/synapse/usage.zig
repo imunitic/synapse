@@ -1,10 +1,6 @@
-//! The subcommand listing, shared by `synapse` and `synapse-fake`.
-//!
-//! One text, two binaries. The fake is the one the bats suite runs, and it had no
-//! `--help` at all until `docs/generate-cli-reference.sh` needed one -- a gap that only
-//! showed up because the reference is generated from `--help` rather than from a
-//! comment. Sharing it means the two dispatch tables cannot describe themselves
-//! differently, and `tests/cli-reference.bats` fails if they ever do.
+//! The subcommand listing, shared by `synapse` and `synapse-fake` -- one
+//! text, two binaries, so the dispatch tables can't describe themselves
+//! differently (`tests/cli-reference.bats` catches it if they ever do).
 
 pub const text =
     \\usage: synapse <subcommand> [args]

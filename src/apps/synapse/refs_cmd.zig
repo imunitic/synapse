@@ -4,31 +4,15 @@
 //!   build-refs [--cache <f>] [--out <f>]   project the tags cache into the index
 //!   callers <name> [--all]                 repo-wide sites of an exact name
 //!
-//! One file, because they are one contract. `synapse-build-refs.sh` sorted under
-//! `LC_ALL=C` and `synapse-callers.sh` binary-searched with `look`, and each
-//! carried a comment shouting that the other must not change -- a disagreement
-//! returns nothing, which is indistinguishable from "this name is never called".
-//! Keeping them in one file makes that pairing visible rather than remembered; see
-//! `core/refs.zig` for why byte order is no longer a thing anyone has to hold.
+//! One file: they share a contract (writer's sort order, reader's search)
+//! that used to be held by matching comments in two scripts. See
+//! `core/refs.zig` for why byte order is no longer load-bearing to remember.
 //!
-//! ## What each one stopped spawning
-//!
-//! `build-refs` ran `tags-cache --refs` *and* `tags-cache --dump | grep -c`, which
-//! read the whole cache twice -- 942 MB twice, on a large repo -- to obtain one
-//! integer. Then `sort -u`, `wc -l`, `cut | sed | sort -u | wc -l`, and two `awk`
-//! passes for the def and ref counts. All of it is one walk of the record table
-//! now.
-//!
-//! `callers` ran `look` and `awk`. `look` is gone with a small gain rather than a
-//! loss: it matched by *prefix*, so a query for `bet` returned every `beta` and the
-//! exact match was left to the awk. Its absence also removes the fallback branch
-//! that scanned the whole index when `look` was not installed -- correct but
-//! O(index), and on a 1.4 GB index that was 26s against 0.235s.
-//!
-//! The script's own note about `grep` is worth keeping even though nothing here
-//! greps: the same query measured 0.15s under ugrep and 8.3s under BSD
-//! `/usr/bin/grep`, so *which* implementation is on `PATH` decided the answer. In
-//! process there is one implementation and it is this one.
+//! `build-refs` used to read a 942 MB cache twice (`--refs` plus `--dump |
+//! grep -c`) plus several `sort`/`awk` passes for the counts -- now one walk
+//! of the record table. `callers` used to shell out to `look` (prefix
+//! match, exact match left to `awk`) with an O(index) fallback that took
+//! 26s against this path's 0.235s on a 1.4 GB index.
 
 const std = @import("std");
 const core = @import("core");
@@ -75,9 +59,8 @@ pub fn runBuild(
         };
     }
 
-    // The work dir supplies whichever default is missing. Explicit flags make this
-    // usable against a cache for a repo that is not checked out here at all, which
-    // is what the tests do.
+    // Work dir supplies whichever default is missing. Explicit flags make
+    // this usable against a cache for a repo not checked out here at all.
     var owned_cache: ?[]u8 = null;
     defer if (owned_cache) |p| gpa.free(p);
     var owned_out: ?[]u8 = null;
@@ -115,17 +98,14 @@ pub fn runBuild(
         return 1;
     }
 
-    // The projection first, unsorted, into memory. A 942 MB cache projects to
-    // ~1.4 GB of rows and the script held them in a temp file for the same reason
-    // it then sorted them: `sort` needs the whole set. Held here instead, which is
-    // the one place this port trades memory for two fewer full passes over a file.
+    // Projected unsorted into memory (~1.4 GB of rows for a 942 MB cache):
+    // `sort` needs the whole set, and holding it here trades memory for
+    // two fewer full passes over a file.
     var unsorted: Io.Writer.Allocating = .init(gpa);
     defer unsorted.deinit();
     _ = try cache.writeRefs(&unsorted.writer);
 
-    // `unsupported` is a count of records, not of rows, and it exists so "no hits"
-    // can be told apart from "never parsed". The script got it from a second full
-    // read of the cache through `--dump | grep -c '^U\t'`.
+    // A count of records, not rows -- "no hits" vs "never parsed".
     var unsupported: usize = 0;
     var i: u32 = 0;
     while (i < cache.count()) : (i += 1) {
@@ -136,12 +116,8 @@ pub fn runBuild(
     defer sorted.deinit();
     const counts = try core.refs.writeSorted(gpa, &sorted.writer, unsorted.written());
 
-    // Rebuilt, never appended to, and via a rename: the reader binary-searches
-    // this file, and a half-written index is a wrong answer rather than a missing
-    // one.
-    // `index_map.writeFile` is the tmp-plus-rename writer, and it creates the
-    // directory itself -- named for the index it was written for, but it is the
-    // general "publish these bytes atomically" step and this file needs exactly it.
+    // Rebuilt via rename, never appended to: the reader binary-searches this
+    // file, and a half-written index is a wrong answer, not a missing one.
     try core.index_map.writeFile(gpa, io, out_path.?, sorted.written());
 
     std.debug.print(
@@ -199,10 +175,8 @@ pub fn runCallers(
         refs_path = owned.?;
     }
 
-    // Exit 1, not 0: a missing index is "could not run". Zero rows from a built
-    // index means "checked, not called"; silence from a missing one would be
-    // indistinguishable from it, which is the confusion this whole subcommand
-    // exists to avoid.
+    // Exit 1, not 0: a missing index is "could not run", distinct from zero
+    // rows from a built one ("checked, not called").
     var index = openIndex(io, gpa, refs_path.?) catch {
         std.debug.print(
             "{s}: no reference index at {s} -- run `synapse build-refs`\n",
@@ -223,11 +197,7 @@ pub fn runCallers(
         }
     }
     try out.interface.flush();
-    // Always 0 when the index was readable, including for zero rows. The script
-    // needed an explicit `exit 0` here because `look` exits non-zero on no match
-    // and `pipefail` made that the pipeline's status -- so "never called" became
-    // exit 1, indistinguishable from "could not run".
-    return 0;
+    return 0; // always 0 when the index was readable, including for zero rows
 }
 
 fn callersUsage() u8 {
@@ -235,8 +205,7 @@ fn callersUsage() u8 {
     return 2;
 }
 
-/// The index, however it was obtained -- mapped when that works, read when it
-/// does not.
+/// The index, mapped when that works, read when it does not.
 const Index = struct {
     bytes: []const u8,
     map: ?Io.File.MemoryMap = null,
@@ -252,42 +221,31 @@ const Index = struct {
     }
 };
 
-/// Map the index rather than read it.
-///
-/// `find` binary-searches, so answering a query reads a handful of lines --
-/// but `readFileAlloc` had to pay for the whole file first, in both I/O and
-/// resident memory, to look at them. On a large repo's 1.4 GB index that was
-/// 1.4 GB of read and allocation to reach roughly twenty pages, and it scaled
-/// with the repository rather than with the answer. The same mapping the tags
-/// cache and the index map already use makes the cost proportional to what is
-/// actually touched.
+/// Maps the index rather than reading it: `find` binary-searches, touching a
+/// handful of pages, but `readFileAlloc` paid for the whole file first --
+/// 1.4 GB of I/O to reach twenty pages, on a large repo's index.
 fn openIndex(io: Io, gpa: Allocator, path: []const u8) !Index {
     const file = try Io.Dir.cwd().openFile(io, path, .{ .mode = .read_only });
     var close_file = true;
     defer if (close_file) file.close(io);
 
-    // An empty index is not a missing one -- it is a projection that ran and
-    // found nothing, which must stay exit 0 with no rows. A zero-length
-    // mapping is refused by the OS, so that case never reaches one.
+    // Empty is not missing -- a projection that ran and found nothing, exit
+    // 0 with no rows. A zero-length mapping is refused by the OS, so that
+    // case never reaches one.
     const size = (try file.stat(io)).size;
     if (size == 0) return .{ .bytes = "" };
 
     if (file.createMemoryMap(io, .{
         .len = @intCast(size),
         .protection = .{ .read = true, .write = false },
-        // A binary search faults in the pages it lands on, and prefaulting
-        // would reinstate exactly the cost this replaces.
-        .populate = false,
+        .populate = false, // a binary search faults in only the pages it lands on
     })) |map| {
-        // The mapping keeps its own reference to the file.
-        close_file = false;
+        close_file = false; // the mapping keeps its own reference to the file
         return .{ .bytes = map.memory, .map = map };
     } else |_| {}
 
-    // Mapping can fail where reading still works -- some filesystems, and a
-    // mapping this size is a real request that can be refused. Falling back
-    // keeps the query answerable, because the alternative is reporting a
-    // missing index, which is a different claim and an untrue one.
+    // Mapping can fail where reading still works (some filesystems); falling
+    // back keeps the query answerable.
     const bytes = try Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(4 << 30));
     return .{ .bytes = bytes, .owned = bytes };
 }
