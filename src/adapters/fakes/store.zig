@@ -10,9 +10,8 @@ pub const FakeStore = struct {
     gpa: std.mem.Allocator,
     nodes: std.StringHashMapUnmanaged([]const u8) = .empty,
     writes: usize = 0,
-    /// Set to make the next call fail. A store that can only succeed cannot
-    /// test the thing that matters most about this one -- that a hook stays
-    /// quiet when the vault is unreachable.
+    /// Set to make the next call fail -- tests that a hook stays quiet when
+    /// the vault is unreachable.
     fail_next: ?anyerror = null,
 
     pub fn init(gpa: std.mem.Allocator) FakeStore {
@@ -70,8 +69,8 @@ pub const FakeStore = struct {
         return out.toOwnedSlice(gpa);
     }
 
-    /// Substring matching, and no more than that. A fake that ranked results
-    /// would be asserting an answer the real adapters do not have to agree on.
+    /// Substring matching, no more -- a fake that ranked results would
+    /// assert an answer real adapters don't have to agree on.
     fn search(ptr: *anyopaque, gpa: std.mem.Allocator, io: std.Io, query: []const u8) anyerror![]const Store.Hit {
         _ = io;
         const self: *FakeStore = @ptrCast(@alignCast(ptr));

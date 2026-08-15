@@ -1,34 +1,23 @@
-//! A second implementation of the Extractor port, to find out whether it is a
-//! port at all.
+//! A second implementation of the Extractor port, to prove it's a real port
+//! and not an indirection shaped around tree-sitter's own assumptions:
+//! entity notes, where a def is the entity's identity and a ref is each
+//! relationship field, shares none of them. If the port only fits the
+//! first product, this file won't compile.
 //!
-//! `TreeSitterExtractor` is the only real one, and a port with one
-//! implementation is an indirection with extra steps -- the shape it settled
-//! into is whatever tree-sitter happened to need, and nobody can tell the
-//! difference until something else has to fit through it. This is that
-//! something else: bard reads entity notes, where a def is the entity's own
-//! identity and a ref is each relationship field, and it shares none of
-//! tree-sitter's assumptions. If the port only fits the first product, this
-//! file will not compile, and that is the whole point of it existing now
-//! rather than when bard is real.
-//!
-//! **This is a test, not a product.** It is referenced only from `root.zig`'s
-//! test block, so Zig's lazy analysis keeps it out of any release build
-//! entirely. Bard will need a real frontmatter extractor; writing one now
-//! would be building past the decision gate, against a format nothing has
-//! pinned yet. What is worth having today is the proof that the seam holds.
+//! **A test, not a product** -- referenced only from `root.zig`'s test
+//! block, so Zig's lazy analysis keeps it out of release builds. Bard's
+//! real extractor waits on a format nothing has pinned yet; this only
+//! proves the seam holds.
 //!
 //! ## The subset, and why it refuses rather than skips
 //!
-//! Scalars, lists, one level of nested map, and wikilink values. Anything else
-//! -- anchors, aliases, block scalars, flow collections, a second document,
-//! tabs, deeper nesting -- makes the whole file `.unsupported`.
-//!
-//! Refusing is the entire discipline here. A parser that skips what it does
-//! not understand becomes a bad general YAML parser by accretion: each unknown
-//! construct is individually cheap to ignore, and the result silently drops
-//! relationships from notes that look fine. `.unsupported` is a visible,
-//! recoverable answer, and the tags cache already records it as one; a missing
-//! ref is neither.
+//! Scalars, lists, one level of nested map, wikilink values. Anything else
+//! (anchors, aliases, block scalars, flow collections, a second document,
+//! tabs, deeper nesting) makes the whole file `.unsupported`. Refusing
+//! rather than skipping matters: a parser that skips unknowns becomes a bad
+//! general YAML parser by accretion, silently dropping relationships from
+//! notes that look fine. `.unsupported` is visible and recoverable; a
+//! missing ref is neither.
 
 const std = @import("std");
 const model = @import("model");
@@ -38,13 +27,12 @@ const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
 pub const FrontmatterExtractor = struct {
-    /// The field naming the entity itself. Everything else carrying a wikilink
-    /// is a relationship to another entity.
+    /// The field naming the entity itself; every other wikilink field is a
+    /// relationship to another entity.
     identity_field: []const u8 = "title",
-    /// The field naming what kind of entity it is, used as the def's `kind`.
+    /// The field naming the entity's kind, used as the def's `kind`.
     type_field: []const u8 = "type",
-    /// Set when a file was refused, so a test can assert on the reason rather
-    /// than on `.unsupported` alone. A product would report this to the user.
+    /// Set on refusal, so a test can assert the reason, not just `.unsupported`.
     last_refusal: ?Refusal = null,
 
     pub const Refusal = enum {
@@ -115,9 +103,8 @@ pub const FrontmatterExtractor = struct {
         if (!std.mem.eql(u8, std.mem.trimEnd(u8, first, "\r"), "---"))
             return self.refuse(.no_frontmatter);
 
-        // The key whose nested block we are inside, or null at the top level.
-        // One level, so this is a single value rather than a stack -- a stack
-        // is what a general parser has, and this is not one.
+        // The key whose nested block we're inside, or null at top level --
+        // one level only, so a single value suffices, not a stack.
         var parent: ?[]const u8 = null;
         var closed = false;
         var row: u32 = 0;
@@ -137,9 +124,8 @@ pub const FrontmatterExtractor = struct {
             if (indent > 2) return self.refuse(.nesting_too_deep);
             if (indent == 0) parent = null;
 
-            // A list item under whatever key introduced the block. Each one is
-            // its own value, so `- [[Ruth]]` under `children:` is a
-            // relationship exactly as `spouse: [[Boaz]]` is.
+            // A list item under whatever key introduced the block: `- [[Ruth]]`
+            // under `children:` is a relationship like `spouse: [[Boaz]]`.
             if (std.mem.startsWith(u8, body, "- ")) {
                 const key = parent orelse return self.refuse(.malformed_line);
                 try self.addValue(gpa, &tags, key, body[2..], row, line);
@@ -153,7 +139,7 @@ pub const FrontmatterExtractor = struct {
             const value = std.mem.trim(u8, body[colon + 1 ..], " ");
 
             if (value.len == 0) {
-                // A key introducing a block: either a list or a nested map.
+                // Introduces a block: a list or a nested map.
                 if (indent != 0) return self.refuse(.nesting_too_deep);
                 parent = key;
                 continue;
@@ -177,9 +163,8 @@ pub const FrontmatterExtractor = struct {
                 });
                 continue;
             }
-            // A nested key keeps its parent in the relationship name, so
-            // `dates: { born: ... }` is `dates.born` rather than a bare `born`
-            // colliding with every other entity's.
+            // Nested key keeps its parent in the name: `dates.born`, not a
+            // bare `born` colliding with every other entity's.
             if (parent) |pkey| {
                 const qualified = try std.fmt.allocPrint(gpa, "{s}.{s}", .{ pkey, key });
                 defer gpa.free(qualified);
@@ -190,8 +175,8 @@ pub const FrontmatterExtractor = struct {
         }
 
         if (!closed) return self.refuse(.unterminated);
-        // Anything after the closing delimiter is prose, except a second
-        // `---`, which would be a multi-document stream.
+        // Anything after the delimiter is prose, except a second `---`
+        // (a multi-document stream).
         while (lines.next()) |raw| {
             if (std.mem.eql(u8, std.mem.trimEnd(u8, raw, "\r"), "---"))
                 return self.refuse(.second_document);
@@ -199,10 +184,8 @@ pub const FrontmatterExtractor = struct {
         return tags.toOwnedSlice(gpa);
     }
 
-    /// Only a wikilink is a relationship. A plain scalar is an attribute of
-    /// this entity and names no other one, so emitting a ref for it would
-    /// invent edges to things that are not entities -- `born: 1040 BC` is not
-    /// a reference to a year.
+    /// Only a wikilink is a relationship -- a plain scalar (`born: 1040 BC`)
+    /// names no other entity.
     fn addValue(
         self: *FrontmatterExtractor,
         gpa: Allocator,
@@ -321,7 +304,6 @@ test "a def is the entity's identity, a ref is each relationship field" {
 
     const tags = out[0].tags;
 
-    // Exactly one def, and it is the entity itself, kinded by its type.
     var defs: usize = 0;
     for (tags) |t| if (t.role == .def) {
         defs += 1;
@@ -330,8 +312,6 @@ test "a def is the entity's identity, a ref is each relationship field" {
     };
     try testing.expectEqual(@as(usize, 1), defs);
 
-    // Every relationship, and only relationships: `born` is an attribute of
-    // Ruth, not an edge to the year 1100 BC.
     try expectRef(tags, "Boaz", "spouse");
     try expectRef(tags, "Naomi", "mother_in_law");
     try expectRef(tags, "Book of Ruth", "appears_in");
@@ -371,17 +351,13 @@ test "tags carry the line they came from, and the line's own text" {
 
     for (out[0].tags) |t| {
         if (t.role != .def) continue;
-        // `title:` is the second line of the file; rows are 0-based, matching
-        // what the tree-sitter path carries through unadjusted.
+        // `title:` is line 2; rows are 0-based, matching tree-sitter's own.
         try testing.expectEqual(@as(u32, 1), t.line);
         try testing.expectEqualStrings("title: Ruth", t.expression);
     }
 }
 
 test "the port's batch shape holds: one outcome per path, in order" {
-    // The property that made the port batch-shaped in the first place, checked
-    // against an implementation with no startup cost to amortise. If it only
-    // made sense for tree-sitter it would be tree-sitter's shape, not a port's.
     const gpa = testing.allocator;
     var fx = Fixture.init();
     defer fx.deinit();
@@ -400,8 +376,6 @@ test "the port's batch shape holds: one outcome per path, in order" {
 }
 
 test "a note with no relationships parsed fine, and is not unsupported" {
-    // The same distinction the tags cache rests on, reached from the other
-    // side: an entity with no edges yet is not a file nothing can read.
     const gpa = testing.allocator;
     var fx = Fixture.init();
     defer fx.deinit();
@@ -429,9 +403,6 @@ test "an entity with no type still gets a def" {
 }
 
 test "everything outside the subset is refused, not skipped" {
-    // The discipline this file exists to hold. Each of these is individually
-    // cheap to ignore, and ignoring any of them turns a parser that refuses
-    // what it does not understand into one that silently drops relationships.
     const gpa = testing.allocator;
     const cases = [_]struct { why: FrontmatterExtractor.Refusal, body: []const u8 }{
         .{ .why = .anchor_or_alias, .body = "---\ntitle: A\nbase: &anchor x\n---\n" },

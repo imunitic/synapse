@@ -11,11 +11,9 @@ pub const FakeExtractor = struct {
     /// Consulted by path. A path with no entry gets `default`.
     scripted: std.StringHashMapUnmanaged(Extractor.Outcome) = .empty,
     default: Extractor.Outcome = .{ .tags = &.{} },
-    /// Every path the extractor was asked about, in call order, so a test can
-    /// assert that batching happened rather than trusting it.
+    /// Every path asked about, in call order, so a test can assert batching happened.
     seen: std.ArrayListUnmanaged([]const u8) = .empty,
-    /// Number of `extract` calls. Two hundred paths in one call is the point
-    /// of the batch-shaped port; this is how a test proves it.
+    /// Number of `extract` calls -- proves the batch shape is used, not just present.
     calls: usize = 0,
 
     pub fn init(gpa: std.mem.Allocator) FakeExtractor {
@@ -90,8 +88,6 @@ test "unsupported is distinguishable from parsed-but-empty" {
     const out = try fake.port().extract(testing.allocator, undefined, ".", &.{ "nogrammar.bin", "empty.java" });
     defer testing.allocator.free(out);
 
-    // The whole reason the port returns a union: an empty tag slice would
-    // conflate these, and the cache has to record them differently.
     try testing.expect(out[0] == .unsupported);
     try testing.expect(out[1] == .tags);
 }

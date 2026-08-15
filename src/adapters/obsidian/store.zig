@@ -1,34 +1,19 @@
 //! The Obsidian Local REST API as a `ports.Store`.
 //!
-//! `read` and `write` are `GET` and `PUT` on `/vault/{path}`; `list` reads the
-//! namespace directory from disk, because that is where the answer is and the
-//! API has no cheaper way to give it; `search` is the JsonLogic endpoint, which
-//! nothing currently calls -- the prompt hook that used to stopped searching --
-//! but which the port names and a future caller will want.
+//! `read`/`write` are `GET`/`PUT` on `/vault/{path}`; `list` reads the
+//! namespace directory from disk (cheaper than the API); `search` is the
+//! JsonLogic endpoint, unused today but named for a future caller.
 //!
-//! ## `curl` stays, and this is not a preference
+//! **`curl`, not `std.http`**: the plugin's certificate carries an IP SAN
+//! and no DNS name, which `std.crypto.tls` has no path for (verified
+//! 2026-08-11). One spawn per call is affordable here specifically because
+//! this runs per *node* (tens per namespace), not per *file* like `vocab`/`rank`.
 //!
-//! Zig's `std.http` cannot verify the plugin's certificate: it carries an IP SAN
-//! and no DNS name, which `std.crypto.tls` has no path for. Verified 2026-08-11.
-//! The alternatives were asking users to enable the plugin's plaintext port, or
-//! skipping verification, and both are worse than one spawn per call against a
-//! loopback address. Do not re-attempt this without new information about
-//! `std.crypto.tls`; the note in the design says the same thing.
-//!
-//! One spawn per call is affordable here in a way it was not in `vocab` or
-//! `rank`, and for a structural reason rather than a lucky one: those ran per
-//! *file* over a whole repository, while this runs per *node*. A namespace has
-//! tens of nodes against a hundred thousand files.
-//!
-//! ## Absence is an ordinary answer, and the 404 body is why that took care
-//!
-//! `read` returns null for a node that is not there. Getting that right needs
-//! the HTTP status, not the body: the API answers a missing path with a 404
-//! whose body is *itself valid JSON* (`{"message":"Not Found","errorCode":40400}`),
-//! so a reader that only checked "did I get parseable content" treated an absent
-//! node as a real one. That happened in the wild to two repositories edited
-//! before `/synapse-init` had ever run, and it is why `curl -f` (fail on HTTP
-//! error, exit 22) is used for reads rather than inspecting the payload.
+//! **Absence is ordinary, and needs the HTTP status, not the body**: a
+//! missing path 404s with a body that's itself valid JSON
+//! (`{"message":"Not Found",...}`), which silently misread as a real node
+//! in two repos in the wild. `curl -f` (exit 22 on HTTP error) is used for
+//! reads for exactly this reason.
 
 const std = @import("std");
 const ports = @import("ports");
@@ -38,9 +23,8 @@ const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const Store = ports.Store;
 
-/// `curl`'s exit code for "HTTP error" under `-f`. Distinguished from every
-/// other non-zero exit because it is the only one that means "the server
-/// answered, and the answer was no" rather than "the call did not happen".
+/// `curl -f`'s exit code for "the server answered, and said no" -- distinct
+/// from every other non-zero exit, which means the call didn't happen.
 const curl_http_error = 22;
 
 pub const ObsidianStore = struct {
@@ -50,22 +34,15 @@ pub const ObsidianStore = struct {
     /// The plugin's own CA, from `~/.claude/obsidian-local-rest-api-ca.pem`.
     cert_path: []const u8,
     api_key: []const u8,
-    /// `synapse/{repo}@{branch}`, prefixed onto every node name so callers pass
-    /// a node title and never a vault path. The namespace is resolved once, by
-    /// whoever constructed this, for the same reason every other component
-    /// resolves it once: two resolutions that disagree make one component refuse
-    /// where another proceeds.
+    /// `synapse/{repo}@{branch}`, prefixed onto every node name so callers
+    /// pass a title, never a vault path. Resolved once by the constructor,
+    /// so two resolutions can't disagree.
     namespace: []const u8,
 
-    /// Copies all three strings, and `deinit` frees them.
-    ///
-    /// Owning them rather than borrowing is what the callers actually need: every one
-    /// of them builds the certificate path and the namespace directory with
-    /// `allocPrint` and reads the key out of a parsed JSON tree that it then frees.
-    /// Borrowing made each caller responsible for outliving the store, and all three
-    /// got it wrong the same way -- caught not on macOS but by the Linux container's
-    /// `DebugAllocator`, which reports a leak on exit where the native build stayed
-    /// silent.
+    /// Copies all three strings; `deinit` frees them. Borrowing made every
+    /// caller responsible for outliving the store and all three got it
+    /// wrong the same way -- caught only by the Linux container's
+    /// `DebugAllocator`, silent on macOS.
     pub fn init(
         gpa: Allocator,
         port_number: u16,
@@ -105,8 +82,7 @@ pub const ObsidianStore = struct {
         } };
     }
 
-    /// `Authorization: Bearer …`, built per call because it borrows nothing the
-    /// caller can keep.
+    /// `Authorization: Bearer …`, built per call.
     fn authHeader(self: *ObsidianStore, gpa: Allocator) ![]u8 {
         return std.fmt.allocPrint(gpa, "Authorization: Bearer {s}", .{self.api_key});
     }
@@ -138,11 +114,9 @@ pub const ObsidianStore = struct {
 
         if (res.ok()) return res.stdout;
         gpa.free(res.stdout);
-        // 22 is the server saying no -- an absent node, which is an ordinary
-        // answer. Anything else is the call not having happened: a refused
-        // connection, a certificate that would not verify, no `curl` at all.
-        // Those must not read as "the node is missing", because a caller acting
-        // on that would treat an unreachable vault as an empty one.
+        // 22: server said no, an absent node. Anything else (refused
+        // connection, bad cert, no curl) must not read as "missing" -- a
+        // caller acting on that would treat an unreachable vault as empty.
         if (res.exitCode() == curl_http_error) return null;
         return error.VaultUnreachable;
     }
@@ -156,10 +130,9 @@ pub const ObsidianStore = struct {
 
     /// What the server said about a PUT.
     pub const PutResult = struct {
-        /// The HTTP status, or 0 when `curl` itself did not complete.
+        /// The HTTP status, or 0 when `curl` didn't complete.
         status: u16,
-        /// The response body, owned by the caller. The API's error bodies name
-        /// the problem, and the script printed them next to the status.
+        /// The response body, owned by the caller.
         body: []u8,
 
         pub fn accepted(self: PutResult) bool {
@@ -167,13 +140,9 @@ pub const ObsidianStore = struct {
         }
     };
 
-    /// A PUT, reporting the status rather than collapsing it to an error.
-    ///
-    /// `write` is the port, and a port cannot carry an HTTP status without
-    /// leaking HTTP into every other implementation of it. `write-node` needs
-    /// one -- its failure line is `PUT failed (500): <body>` -- so it calls this
-    /// directly, which is the one thing an app may do with a concrete adapter it
-    /// already chose to construct.
+    /// A PUT, reporting the status rather than collapsing it to an error --
+    /// the port can't carry an HTTP status, but `write-node`'s failure line
+    /// (`PUT failed (500): <body>`) needs one, so it calls this directly.
     pub fn put(self: *ObsidianStore, io: Io, node: []const u8, body: []const u8) !PutResult {
         const gpa = self.gpa;
         const url = try self.nodeUrl(gpa, node);
@@ -181,14 +150,9 @@ pub const ObsidianStore = struct {
         const auth = try self.authHeader(gpa);
         defer gpa.free(auth);
 
-        // `--data-binary @-` with the body on stdin, never `--data-binary <body>`
-        // inline: an argument list is bounded and a node runs to megabytes on a
-        // hub. The scripts wrote a temp file and passed `@file` for the same
-        // reason; stdin skips the file.
-        //
-        // `-w '\n%{http_code}'` with no `-o`, so stdout is the response body, a
-        // newline, and the status. The scripts sent the body to a temp file and
-        // read the status off stdout; one stream carrying both needs no file.
+        // `--data-binary @-` on stdin, not inline: an argument list is
+        // bounded and a node can run to megabytes. `-w '\n%{http_code}'`
+        // with no `-o` puts the body, a newline, and the status all on stdout.
         const res = try process.run(io, gpa, &.{
             "curl",          "-s",
             "-w",            "\n%{http_code}",
@@ -214,28 +178,23 @@ pub const ObsidianStore = struct {
     }
 
     /// Every node in the namespace, from the directory rather than the API.
-    ///
-    /// A node file is any `*.md` directly under the namespace except `Index.md`;
-    /// `_manifest.tsv` and `_profile.txt` are machine-only and not nodes. The
-    /// same distinction `synapse-graph-wipe.sh` draws, and the reverse index and
-    /// the caches are not here at all any more -- they live in the work dir.
+    /// A node is any `*.md` directly under the namespace except `Index.md`;
+    /// `_manifest.tsv`/`_profile.txt` are machine-only, matching
+    /// `synapse-graph-wipe.sh`'s own distinction.
     fn list(ptr: *anyopaque, gpa: Allocator, io: Io) anyerror![]const []const u8 {
         const self: *ObsidianStore = @ptrCast(@alignCast(ptr));
-        // The vault root is not this adapter's to know: `namespace` is a vault
-        // path, and turning it into a filesystem path needs `$OBSIDIAN_VAULT_DIR`,
-        // which belongs to whoever configured the adapter. Deliberately not
-        // guessed -- a listing against the wrong directory is silently empty.
+        // Vault root isn't this adapter's to know -- deliberately not
+        // guessed, since a listing against the wrong directory would be
+        // silently empty.
         _ = gpa;
         _ = io;
         _ = self;
         return error.ListNeedsVaultDir;
     }
 
-    /// The JsonLogic search endpoint. Nothing calls this yet: the prompt hook
-    /// that used to search stopped, because on a real 52-node namespace it
-    /// returned 50 of 52 nodes for ~1057 tokens on every turn. Left unimplemented
-    /// rather than guessed at, so the first real caller writes it against a real
-    /// requirement.
+    /// The JsonLogic search endpoint. Unimplemented: the prompt hook that
+    /// used to search stopped, since on a real 52-node namespace it
+    /// returned 50 of 52 for ~1057 tokens every turn.
     fn search(ptr: *anyopaque, gpa: Allocator, io: Io, query: []const u8) anyerror![]const Store.Hit {
         _ = ptr;
         _ = gpa;
@@ -245,16 +204,12 @@ pub const ObsidianStore = struct {
     }
 };
 
-/// Percent-encode each path segment, leaving `/` alone.
-///
-/// Node titles routinely contain spaces and em dashes -- `World — entity core.md`
-/// -- and the separators have to survive as separators. The scripts did this with
-/// one `jq -rn '$s|@uri'` per segment, which is a fork per segment; the rule is
-/// small enough to write out.
+/// Percent-encode each path segment, leaving `/` alone. Node titles
+/// routinely contain spaces and em dashes, which must survive as separators.
 ///
 /// Unreserved set from RFC 3986: `A-Z a-z 0-9 - . _ ~`. Everything else is
-/// escaped, including bytes above 0x7F one byte at a time, which is what `@uri`
-/// does to a UTF-8 em dash (`%E2%80%94`).
+/// escaped byte by byte, including UTF-8 bytes above 0x7F (an em dash
+/// becomes `%E2%80%94`).
 pub fn encodePath(gpa: Allocator, path: []const u8) ![]u8 {
     var out: std.ArrayListUnmanaged(u8) = .empty;
     errdefer out.deinit(gpa);
@@ -289,9 +244,6 @@ test "each segment is encoded and the separators survive" {
 }
 
 test "an em dash becomes three escapes, byte by byte" {
-    // The case the scripts' own test asserts by name: a node titled
-    // `World — entity_component_resource core.md` has to survive the round trip,
-    // and `jq @uri` escapes the UTF-8 bytes individually.
     const gpa = testing.allocator;
     const got = try encodePath(gpa, "World — entity_component_resource core.md");
     defer gpa.free(got);

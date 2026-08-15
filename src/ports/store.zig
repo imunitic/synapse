@@ -1,10 +1,8 @@
 //! Store: where nodes and indexes are read, written, listed and searched.
 //!
 //! The Obsidian REST API for code; plain files under `_bard/synapse/` for a
-//! bible. Search belongs to this port rather than to core, so "full-text over
-//! prose" and "exact symbol lookup" stay adapter concerns — they are the same
-//! question asked of very different corpora, and core has no business
-//! preferring one implementation's answer.
+//! bible. Search belongs here rather than in core, since "full-text over
+//! prose" vs. "exact symbol lookup" is an adapter-specific question.
 
 const std = @import("std");
 
@@ -19,10 +17,8 @@ pub const Store = struct {
     };
 
     pub const VTable = struct {
-        /// Null when the node does not exist. Absence is an ordinary answer
-        /// here, not an error: a first build asks for nodes that are not there
-        /// yet, and a namespace with no `Index.md` is a repo nobody has run
-        /// `/synapse-init` in rather than a fault.
+        /// Null when the node doesn't exist -- an ordinary answer, not an
+        /// error (a first build asks for nodes that aren't there yet).
         read: *const fn (
             ptr: *anyopaque,
             gpa: std.mem.Allocator,

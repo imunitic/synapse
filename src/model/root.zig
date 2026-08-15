@@ -4,10 +4,8 @@
 
 const std = @import("std");
 
-/// What tree-sitter calls the tag. Kept separate from `kind` because they
-/// answer different questions: a `ref` is not necessarily a call, since an
-/// `implements Foo` clause is `ref` with kind `implementation`, so a callers
-/// query filtering on `ref` alone over-reports.
+/// Kept separate from `kind`: a `ref` isn't necessarily a call (`implements
+/// Foo` is `ref`/`implementation`), so filtering on `ref` alone over-reports.
 pub const Role = enum {
     def,
     ref,
@@ -25,19 +23,14 @@ pub const Role = enum {
 
 /// One tagged symbol occurrence.
 pub const Tag = struct {
-    /// Trimmed. tree-sitter space-pads this column (`execute   `), and an
-    /// exact-match lookup against the raw text silently finds nothing -- the
-    /// failure returns success with no rows, which is indistinguishable from
-    /// "this name is never called". Trimming is therefore part of the type's
-    /// contract, not a convenience of whoever parses it.
+    /// Trimmed -- tree-sitter space-pads this column, and an exact-match
+    /// lookup against the raw text silently finds nothing rather than erroring.
     name: []const u8,
     role: Role,
     /// Syntactic category: class, method, call, implementation, ...
     kind: []const u8,
-    /// tree-sitter's own row number for the occurrence, carried through
-    /// unchanged. Whether it is 0- or 1-based is tree-sitter's business; the
-    /// bash pipeline never adjusted it and neither does this, because
-    /// `_refs.tsv` rows and every `path:line` a query prints must not move.
+    /// tree-sitter's own row number, unchanged (0- vs 1-based is its
+    /// business) -- `_refs.tsv` rows and `path:line` output must not move.
     line: u32,
     /// The source line the occurrence sits on, as tree-sitter echoed it.
     expression: []const u8,
@@ -46,8 +39,8 @@ pub const Tag = struct {
 /// A source file a node claims, at the content hash it was last seen with.
 pub const SourceRef = struct {
     path: []const u8,
-    /// Raw 20-byte SHA-1, not 40 hex characters: it halves the tags cache's
-    /// record table and turns comparison into a memcmp.
+    /// Raw 20-byte SHA-1, not 40 hex chars -- halves the tags cache's
+    /// record table and makes comparison a memcmp.
     hash: [20]u8,
 
     pub fn hashFromHex(hex: []const u8) error{InvalidHash}![20]u8 {
@@ -68,11 +61,9 @@ pub const SourceRef = struct {
     }
 };
 
-/// A graph node: a cluster of sources with prose about them.
-///
-/// Only the fields the graph itself reasons about are here. The node's
-/// LLM-authored parts (crux, summary, `grounded_in`) are Lifecycle's concern
-/// and are absent for a product whose lifecycle policy maintains none of them.
+/// A graph node: a cluster of sources with prose about them. Only the
+/// fields the graph itself reasons about -- LLM-authored parts (crux,
+/// summary, `grounded_in`) are Lifecycle's concern.
 pub const Node = struct {
     name: []const u8,
     sources: []const SourceRef,

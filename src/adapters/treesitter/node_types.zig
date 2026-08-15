@@ -1,23 +1,12 @@
-//! Tier 3 (sb-012): guessing which node types are declaration-shaped from a
-//! grammar's own `node-types.json`, and which of their fields holds the
-//! declared name -- the mechanical half of the tier that has no `tags.scm`
-//! or `locals.scm` to lean on at all.
+//! Tier 3 (sb-012): guessing which node types in a grammar's own
+//! `node-types.json` are declaration-shaped, and which field holds the name
+//! -- a heuristic classifier (Graft's generic-tier shape: a suffix/prefix
+//! test on the type name, a literal `name` field for the identifier), not a
+//! schema reader, since `node-types.json` says nothing about meaning.
 //!
-//! `node-types.json` is a `tree-sitter generate` build artifact every real
-//! grammar ships, describing every node type's shape: `type`, `named`, and
-//! `fields` (a map of field name to what may fill it). It says nothing about
-//! *meaning* -- nothing marks a type as "this is a definition" -- so this
-//! module is a heuristic classifier, not a schema reader, following Graft's
-//! own generic-tier shape exactly (see the Locals.scm design note's own
-//! citations): a suffix/prefix test on the type's own name decides whether
-//! it looks declaration-shaped at all, and a literal `name` field, when
-//! present, is where the declared identifier lives.
-//!
-//! This is deliberately pure and tree-sitter-C-API-free -- classification
-//! reads JSON, nothing else, and is unit-tested the same way
-//! `core.kind_synonyms`/`core.namespace` are. The other half of tier 3, the
-//! bounded tree-walk for a type with no `name` field, needs a real parsed
-//! tree and lives in `tagger.zig` instead, where the C API already is.
+//! Pure and tree-sitter-C-API-free -- reads JSON only. The other half of
+//! tier 3, the bounded tree-walk for a type with no `name` field, needs a
+//! real parsed tree and lives in `tagger.zig`.
 
 const std = @import("std");
 
@@ -28,18 +17,15 @@ const Io = std.Io;
 pub const Guess = struct {
     /// The grammar's own node type name, e.g. `function_declaration`.
     type_name: []const u8,
-    /// `Tag.kind`'s own vocabulary. Derived from whichever heuristic
-    /// matched -- see `classifyOne`'s own doc comment.
+    /// `Tag.kind`'s vocabulary, from whichever heuristic matched.
     kind: []const u8,
-    /// Whether `type_name` declares a `name` field -- when true, the
-    /// query-emission path (`buildQuery`) covers it; when false, only the
-    /// bounded tree-walk (`tagger.zig`'s `tagFileWalk`) can.
+    /// Whether `type_name` declares a `name` field: true means `buildQuery`
+    /// covers it; false means only `tagger.zig`'s bounded walk can.
     has_name_field: bool,
 };
 
-/// A classification result, owned together with the `Guess` slice it holds
-/// -- every `Guess` string borrows `parsed`'s own arena, the same shape
-/// `core.kind_synonyms.RuleList` already uses for the same reason.
+/// Owned together with the `Guess` slice -- every `Guess` string borrows
+/// `parsed`'s arena, like `core.kind_synonyms.RuleList`.
 pub const Classification = struct {
     parsed: std.json.Parsed(std.json.Value),
     gpa: Allocator,
@@ -52,12 +38,9 @@ pub const Classification = struct {
 };
 
 /// `{grammar}/src/node-types.json`, classified. `error.FileNotFound`
-/// propagates rather than opening empty the way `core.namespace.Registry`
-/// or `core.kind_synonyms.RuleList` do for an absent *user* config: a
-/// missing `node-types.json` is not "nothing configured yet," it is tier 3
-/// having no schema to guess from at all, and that is a real failure for a
-/// tier whose whole premise is "no `tags.scm`, no `locals.scm`, but at
-/// least this."
+/// propagates rather than opening empty the way `core.namespace.Registry`/
+/// `core.kind_synonyms.RuleList` do for an absent user config -- a missing
+/// `node-types.json` means tier 3 has no schema to guess from at all.
 pub fn classify(gpa: Allocator, io: Io, path: []const u8) !Classification {
     const bytes = try Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(16 << 20));
     defer gpa.free(bytes);
@@ -66,26 +49,19 @@ pub fn classify(gpa: Allocator, io: Io, path: []const u8) !Classification {
 }
 
 /// Type names ending in one of these are declaration-shaped -- Graft's own
-/// suffix regex, `/(declaration|definition|_item|_specifier|_decl|_def|_binding)$/`,
-/// as a fixed literal-suffix list rather than a regex engine this codebase
-/// does not have (see `tagger.zig`'s own docstring on why: no `#match?`
-/// support either, same reason).
+/// suffix regex, as a fixed literal-suffix list (no regex engine here, same
+/// reason `tagger.zig` has no `#match?` support).
 const declaration_suffixes = [_][]const u8{
     "declaration", "definition", "_item", "_specifier", "_decl", "_def", "_binding",
 };
 
-/// A type name starting with one of these (at a `_`-delimited word
-/// boundary) is also declaration-shaped, and the matched word doubles as
-/// its `Tag.kind` -- Graft's own "class/struct/enum/interface/trait/
-/// module/namespace prefix test", the second half of `classifyKind`.
+/// A type name starting with one of these (at a `_`-boundary) is also
+/// declaration-shaped, and the matched word doubles as its `Tag.kind`.
 const prefix_kinds = [_][]const u8{
     "class", "struct", "enum", "interface", "trait", "module", "namespace",
 };
 
-/// The generic kind a declaration-suffix-only match gets when no prefix
-/// keyword also matched -- Graft's own default for an unmapped kind (see
-/// the Locals.scm design note's Tier 2 section, which already cites this
-/// same fallback for the same reason: a real bucket beats an invented one).
+/// Default kind for a declaration-suffix match with no prefix keyword.
 const generic_kind = "function";
 
 fn classifyValue(gpa: Allocator, value: std.json.Value) ![]const Guess {
@@ -101,16 +77,14 @@ fn classifyValue(gpa: Allocator, value: std.json.Value) ![]const Guess {
     return out.toOwnedSlice(gpa);
 }
 
-/// One `node-types.json` entry, judged. Null when it is not declaration-
-/// shaped at all -- most entries in a real schema are not, and that is the
-/// expected, common outcome, not a warning-worthy one.
+/// One `node-types.json` entry, judged. Null when not declaration-shaped
+/// -- the common, expected outcome for most entries.
 fn classifyOne(item: std.json.Value) !?Guess {
     const obj = switch (item) {
         .object => |o| o,
         else => return null,
     };
-    // Anonymous node types (punctuation, literal keywords) are never a
-    // declaration -- only named ones are real grammar rules.
+    // Anonymous types (punctuation, literal keywords) are never declarations.
     const named = obj.get("named") orelse return null;
     if (named != .bool or !named.bool) return null;
 
@@ -149,12 +123,9 @@ fn hasDeclarationSuffix(type_name: []const u8) bool {
     return false;
 }
 
-/// An ordinary tree-sitter query string, one pattern per `has_name_field`
-/// guess -- `(TypeName name: (_) @name) @definition.<kind>`, the exact
-/// `tags.scm` capture shape `tagger.zig`'s `tagFileTags` already reads, so
-/// this reuses that path unchanged rather than needing a third convention.
-/// A guess with no `name` field contributes nothing here; it is
-/// `tagFileWalk`'s to find, not a query's.
+/// One pattern per `has_name_field` guess, in the exact tags.scm capture
+/// shape `tagFileTags` already reads. A guess with no `name` field
+/// contributes nothing -- that's `tagFileWalk`'s to find.
 pub fn buildQuery(gpa: Allocator, guesses: []const Guess) ![]u8 {
     var out: std.Io.Writer.Allocating = .init(gpa);
     errdefer out.deinit();
@@ -216,8 +187,7 @@ test "a prefix keyword becomes the kind, not the generic default" {
 
 test "a prefix keyword must land on a word boundary" {
     const gpa = testing.allocator;
-    // `classy_thing` starts with the letters of `class` but not the word --
-    // and has no declaration suffix either, so it is not a match at all.
+    // `classy_thing` isn't the word "class", and has no declaration suffix.
     var c = try classifyJson(gpa,
         \\[{"type": "classy_thing", "named": true}]
     );

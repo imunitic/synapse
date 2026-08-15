@@ -1,16 +1,9 @@
 //! Clusterer: source paths in, proposed nodes out.
 //!
-//! The two products differ more here than anywhere else. For code the
-//! clustering is *inferred* — vocabulary and directory weight, the process
-//! `synapse-orientation` describes, which is genuine work with a cost. For a
-//! bible it is simply *read*: the repo's own folder taxonomy already is the
-//! cluster hierarchy, every non-underscore folder a cluster, and there is no
-//! inference step at all.
-//!
-//! That asymmetry is the reason this is a port rather than a core function.
-//! Core wants "what are the nodes"; how expensive that question is, and
-//! whether answering it involves reading a directory listing or ranking a
-//! symbol vocabulary, is not core's business.
+//! A port rather than a core function because how expensive "what are the
+//! nodes" is varies by product: for code it's *inferred* (vocabulary and
+//! directory weight, see `synapse-orientation`); for a bible it's simply
+//! *read* from the repo's own folder taxonomy. Core doesn't need to know which.
 
 const std = @import("std");
 
@@ -19,8 +12,7 @@ pub const Clusterer = struct {
     vtable: *const VTable,
 
     pub const Cluster = struct {
-        /// Proposed node name. A clusterer that reads a taxonomy takes this
-        /// from the folder; one that infers has to derive it.
+        /// Proposed node name -- from the folder, or derived by inference.
         name: []const u8,
         /// Repo-relative source paths, owned by the caller.
         paths: []const []const u8,
