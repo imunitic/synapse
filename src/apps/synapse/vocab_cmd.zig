@@ -599,7 +599,7 @@ fn build(
         };
 
         const lock_tries: ?usize = if (env.get("SYNAPSE_GRAMMAR_LOCK_TRIES")) |s|
-            std.fmt.parseInt(usize, s, 10) catch 300
+            std.fmt.parseInt(usize, s, 10) catch treesitter.grammar.default_lock_tries
         else
             null;
         const query_override_dir = env.get("SYNAPSE_GRAMMARS_QUERY_PATH");

@@ -100,7 +100,7 @@ pub fn run(
     var ex: Ex = .init(gpa, registry, grammars_dir, kind_rules);
     defer ex.deinit();
     if (env.get("SYNAPSE_GRAMMAR_LOCK_TRIES")) |t|
-        ex.lock_tries = std.fmt.parseInt(usize, t, 10) catch 300;
+        ex.lock_tries = std.fmt.parseInt(usize, t, 10) catch treesitter.grammar.default_lock_tries;
     ex.query_override_dir = env.get("SYNAPSE_GRAMMARS_QUERY_PATH");
 
     if (std.mem.eql(u8, first, "--paths")) {

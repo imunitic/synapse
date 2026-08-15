@@ -207,7 +207,7 @@ pub fn Extractor(comptime Backend: type) type {
         kind_rules: core.kind_synonyms.RuleList,
         /// ~60s at 200ms a try, matching the shell script's default. Bounds a
         /// wedged lock from a crashed holder, not the clone itself.
-        lock_tries: usize = 300,
+        lock_tries: usize = grammar.default_lock_tries,
         /// `$SYNAPSE_GRAMMARS_QUERY_PATH` (sb-012), resolved by the caller the
         /// same way `grammars_dir` already is. `null` is the common case --
         /// no override for anything -- and preserves today's behavior exactly.

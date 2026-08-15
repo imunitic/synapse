@@ -24,10 +24,13 @@ const c = root.c;
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
-/// `ensureCloned`'s own hardcoded default (`Extractor.lock_tries`'s default,
-/// ~60s at 200ms a try) -- both of `build`'s callers pass this for `max_tries`
-/// today. Named so a caller wiring up its own configurable value later has a
-/// documented default to match, rather than inventing a new number.
+/// The one place ~60s at 200ms a try (matching the shell script's own
+/// default) is a number instead of a name. `Extractor.lock_tries`'s own
+/// field default and every `SYNAPSE_GRAMMAR_LOCK_TRIES`-parse-failure
+/// fallback (`tags.zig`, `vocab_cmd.zig`, `tags_cache_cmd.zig`) reference
+/// this constant rather than repeating `300` -- five independent literals
+/// that happened to agree is exactly the kind of drift a shared name
+/// closes off. `build`'s own two callers pass it too, for `max_tries`.
 pub const default_lock_tries: usize = 300;
 
 pub const Error = error{
