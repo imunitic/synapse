@@ -73,6 +73,22 @@ edit directly if a cached decision needs correcting.
   kind; a malformed entry (missing or wrong-typed `match`/`kind`) is silently skipped at load, and
   every rule around it still applies.
 
+## Curated-default registries (JSON)
+
+Unlike the self-populating registries above, this file is never empty in the ordinary case: it
+ships with real content via `claude/*.conf.template`, seeded verbatim into `~/.claude/` by
+`setup.sh` on install (only if the destination doesn't already exist, never overwriting a hand
+edit). Once that seeded file resolves, it is authoritative on its own — an extension it doesn't
+mention is simply unmapped, never silently filled in from anything else. A compiled-in fallback
+table exists only for the case where no conf resolves at all (before `setup.sh` has run, or a
+hermetic test environment).
+
+- **`synapse-fence-languages.conf`** (`SYNAPSE_FENCE_LANGUAGES_CONF` overrides the path) — object
+  keyed by file extension (with its leading dot, e.g. `".java"`), valued with the fence language a
+  crux block's code fence opens with (`"java"`, `"ocaml"`, ...). Matched by suffix, same as the
+  compiled-in fallback in `core.emit.languageFor` — add a line for any extension the shipped
+  template doesn't cover.
+
 ## Plain per-line conf files
 
 - **`synapse-ignore-files.conf`** — extra paths to drop from the graph entirely, on top of the

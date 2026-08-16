@@ -290,8 +290,14 @@ pub fn languageFor(path: []const u8) []const u8 {
 /// What replaces a `crux:` directive line: a fenced slice and a provenance
 /// line. `sliced` ends with a newline unless the file didn't; the closing
 /// fence always gets its own line either way.
-pub fn writeCruxBlock(w: *std.Io.Writer, span: Span, sliced: []const u8) !void {
-    try w.print("```{s}\n", .{languageFor(span.path)});
+///
+/// `lang` is the caller's resolved fence language (`""` for none) --
+/// usually `fence_languages.Registry.languageFor(span.path)`, or plain
+/// `languageFor(span.path)` where nothing has a reason to be customizable.
+/// Reading a conf file needs the world, which this module deliberately
+/// never touches (see the module docstring).
+pub fn writeCruxBlock(w: *std.Io.Writer, span: Span, sliced: []const u8, lang: []const u8) !void {
+    try w.print("```{s}\n", .{lang});
     try w.writeAll(sliced);
     if (sliced.len > 0 and sliced[sliced.len - 1] != '\n') try w.writeAll("\n");
     try w.writeAll("```\n");
@@ -637,7 +643,7 @@ test "the fence language comes from the extension, or is absent" {
 test "a crux block is the fence, the slice, and a provenance line" {
     var out: std.Io.Writer.Allocating = .init(testing.allocator);
     defer out.deinit();
-    try writeCruxBlock(&out.writer, .{ .path = "a/b.java", .start = 4, .end = 5 }, "  int x = 1;\n  return x;\n");
+    try writeCruxBlock(&out.writer, .{ .path = "a/b.java", .start = 4, .end = 5 }, "  int x = 1;\n  return x;\n", "java");
     try testing.expectEqualStrings(
         "```java\n  int x = 1;\n  return x;\n```\n— `a/b.java`:4-5\n",
         out.written(),
@@ -647,7 +653,7 @@ test "a crux block is the fence, the slice, and a provenance line" {
 test "a slice with no trailing newline still closes its fence on its own line" {
     var out: std.Io.Writer.Allocating = .init(testing.allocator);
     defer out.deinit();
-    try writeCruxBlock(&out.writer, .{ .path = "a.txt", .start = 1, .end = 1 }, "last line");
+    try writeCruxBlock(&out.writer, .{ .path = "a.txt", .start = 1, .end = 1 }, "last line", "");
     try testing.expectEqualStrings("```\nlast line\n```\n— `a.txt`:1-1\n", out.written());
 }
 

@@ -26,6 +26,7 @@ pub const verify = @import("verify.zig");
 pub const drift = @import("drift.zig");
 pub const symbol = @import("symbol.zig");
 pub const emit = @import("emit.zig");
+pub const fence_languages = @import("fence_languages.zig");
 pub const refs = @import("refs.zig");
 pub const gate = @import("gate.zig");
 pub const project_index = @import("project_index.zig");
@@ -51,6 +52,7 @@ test {
     _ = drift;
     _ = symbol;
     _ = emit;
+    _ = fence_languages;
     _ = refs;
     _ = gate;
     _ = project_index;

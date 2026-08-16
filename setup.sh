@@ -154,6 +154,14 @@ else
   echo "  installed from template -- edit to add another language's stopwords: $DEST/synapse-prompt-stopwords.conf"
 fi
 
+echo "== synapse-fence-languages.conf =="
+if [ -f "$DEST/synapse-fence-languages.conf" ]; then
+  echo "  already exists, leaving in place: $DEST/synapse-fence-languages.conf"
+else
+  cp "$SRC/synapse-fence-languages.conf.template" "$DEST/synapse-fence-languages.conf"
+  echo "  installed from template -- edit to add another extension's crux fence language: $DEST/synapse-fence-languages.conf"
+fi
+
 echo "== commands/skills =="
 cp "$SRC/commands/"*.md "$DEST/commands/"
 # Every skill directory, discovered rather than listed. Naming each one meant a new

@@ -230,6 +230,20 @@ pub fn write(
         try refreshTagsCache(Extractor, gpa, io, env, ctx, paths.items, contents);
 
     // --- crux and groundings -------------------------------------------------
+    const home = env.get("HOME") orelse return 1;
+    const fence_langs_path = if (env.get("SYNAPSE_FENCE_LANGUAGES_CONF")) |p|
+        try gpa.dupe(u8, p)
+    else if (try core.conf.resolveConfPath(gpa, io, adapters.env.vars(env), "synapse-fence-languages.conf")) |p|
+        p
+    else
+        try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-fence-languages.conf", .{home});
+    defer gpa.free(fence_langs_path);
+    var fence_langs = core.fence_languages.Registry.load(gpa, io, fence_langs_path) catch {
+        std.debug.print("{s}: cannot read the fence-languages registry\n", .{prog});
+        return 1;
+    };
+    defer fence_langs.deinit();
+
     var body: []const u8 = in.body_text;
     var owned_body: ?[]u8 = null;
     defer if (owned_body) |b| gpa.free(b);
@@ -266,7 +280,7 @@ pub fn write(
             defer if (content) |c| gpa.free(c);
             if (try reportSpanProblem(gpa, span, .crux, paths.items, content)) return 1;
             const cut = core.verify.slice(content.?, span.start, span.end).?;
-            try emit.writeCruxBlock(&block.writer, span, cut);
+            try emit.writeCruxBlock(&block.writer, span, cut, fence_langs.languageFor(span.path));
             crux_lines_buf = try std.fmt.allocPrint(gpa, "{d}-{d}", .{ span.start, span.end });
             crux_field = .{ .path = span.path, .lines = crux_lines_buf.? };
         }
