@@ -19,11 +19,19 @@ run_hook() {
   printf '{"cwd":"%s"}' "$cwd" | "$SYNAPSE_HOOK_BIN" session-start
 }
 
-@test "no vault index and no synapse namespace: no output at all" {
+@test "no vault index and no synapse namespace: offers to seed Index.md, states the namespace absence" {
+  # A reachable vault with no Index.md and a reachable vault that's simply
+  # misconfigured used to be indistinguishable -- both produced total
+  # silence. Stated now, same as the namespace-absence case just below it:
+  # the vault dir itself is confirmed to exist (common_setup creates it), so
+  # a missing Index.md is offered to the user, not treated as "nothing to say."
   make_repo
   run run_hook "$REPO"
   [ "$status" -eq 0 ]
-  [ -z "$output" ]
+  ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext')"
+  [[ "$ctx" == *"No Index.md found at"* ]]
+  [[ "$ctx" == *"Offer to seed it"* ]]
+  [[ "$ctx" == *"No Synapse namespace covers synapse/$(repo_name)/"* ]]
 }
 
 @test "vault index present, no synapse namespace: says so rather than staying silent" {

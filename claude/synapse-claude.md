@@ -9,12 +9,20 @@ running headless at login with the Local REST API plugin installed — see
 already injects the vault's `Index.md` at the start of every session, so
 you shouldn't need to go read it yourself. Don't re-read it reflexively,
 but do treat its injected contents as live information, not background
-flavor.
+flavor. If the hook instead reports that the configured vault has no
+`Index.md` yet, offer to seed it from the shipped default
+(`claude/Index.md.template` in the Synapse repo) before creating or
+linking any note in this session — never copy it yourself without asking;
+seeding the vault's foundational bootstrap file warrants a confirmation
+step the way an ordinary note-write doesn't.
 
 **This is a primary, load-bearing memory system, not an optional nicety.**
 Actively use it — don't wait to be asked. You MUST create or update a note
-(no permission needed first, as long as it lands in the right folder per
-the index) whenever, during a session, any of the following happens:
+whenever, during a session, any of the following happens. Before deciding
+which folder, check `Index.md`'s folder list for the matching category —
+don't rely on categories already in memory from earlier in the session,
+since a vault owner's own `Index.md` is the only authority on what exists
+and what each folder means:
 
 - A non-trivial bug is diagnosed and fixed, especially if the root cause
   or the fix was non-obvious.
@@ -47,21 +55,24 @@ a real yes/no answer, not a formality to wave past.
   of growing the original further. A handful of focused, well-linked notes
   is more useful later than one sprawling one — easier to search, easier to
   link into from elsewhere, easier to skim.
-- Folders: `designs/` (design directions already discussed and agreed,
-  created by `/synapse-design-note`), `tasks/` (concrete tracked tasks,
-  created only by `/synapse-task-note` or `/synapse-note --task`, never
-  freeform), `research/` (general research on a topic, project-related or
-  not), `inbox/` (needs more input or reflection before it's settled —
-  including "find this and write it down" requests — or otherwise doesn't
-  cleanly fit elsewhere), `scratchpad/` (high-churn notes iterating on
-  whether an idea works at all, likely to be moved or deleted wholesale
-  once it's settled one way or the other). Agents may create new folders
-  beyond these, but folder depth is capped at two levels
+- Folders: two are structurally fixed, and hardcoded here on purpose —
+  `designs/` (design directions already discussed and agreed, created by
+  `/synapse-design-note`) and `tasks/` (concrete tracked tasks, created
+  only by `/synapse-task-note` or `/synapse-note --task`, never freeform).
+  Every install has both; the commands that write to them assume those
+  exact names regardless of what a vault's `Index.md` says. Beyond those
+  two, `Index.md`'s own folder list is the authority on what exists and
+  what each one is for — check it rather than assuming a fixed set. A
+  fresh vault ships with `research/`, `scratchpad/`, and `inbox/` as a
+  starting point (see `claude/Index.md.template`), but a vault owner's own
+  `Index.md` may have renamed or restructured them; if nothing about a
+  note fits an existing category, use whichever folder `Index.md` itself
+  marks as the catch-all (`inbox/` by default) rather than forcing a bad
+  fit or inventing a folder for a one-off. Agents may create new folders
+  beyond what `Index.md` lists, but folder depth is capped at two levels
   (`folder/subfolder`, never deeper). Creating a new top-level folder
   requires adding a matching entry to `Index.md` in the same action — the
-  index must never fall behind what's actually on disk. If nothing about
-  a note fits an existing or obviously-new category, put it in `inbox/`
-  rather than forcing a bad fit or inventing a folder for a one-off.
+  index must never fall behind what's actually on disk.
 - **`tasks/` and `designs/` both group one level deeper by project**,
   using the two-level cap above: `tasks/{project}/` and
   `designs/{project}/` (e.g. `tasks/eon/`, `designs/synapse/`). A design

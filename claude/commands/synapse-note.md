@@ -9,7 +9,7 @@ If `$ARGUMENTS` starts with `--search` → **search mode**: see "Search mode" be
 Otherwise, split `$ARGUMENTS` on `--task`:
 
 - If `--task` is present → **task mode**: scaffold the note as a tracked task, following the `synapse-task` skill's conventions. Task notes always live under `tasks/`.
-- Otherwise → **bare mode**: create an empty node (title + frontmatter only). Which category folder it lands in (`research` / `scratchpad` / `inbox`) is resolved in "Choosing a category (bare mode only)" below.
+- Otherwise → **bare mode**: create an empty node (title + frontmatter only). Which category folder it lands in is resolved from `Index.md`, per "Choosing a category (bare mode only)" below — not a fixed set.
 
 The title is everything before `--task` (trimmed). Example:
 
@@ -93,20 +93,27 @@ they don't duplicate this resolution logic, just this file.
 
 Task mode always uses `tasks/` — skip this step entirely in task mode.
 
-In bare mode, ask the user which category the note belongs to, via a
-question with these options:
+In bare mode, ask the user which category the note belongs to. Read
+`Index.md`'s folder list first — every top-level folder listed there
+except `designs`/`tasks`/`synapse` (structurally fixed, not a bare-mode
+destination — see `synapse-claude.md`'s Folders bullet) is a candidate
+category, offered with that folder's own `Index.md` description as the
+option's description. Don't hardcode a fixed option set: a fresh vault's
+`Index.md` lists `research`/`scratchpad`/`inbox` (see
+`claude/Index.md.template`), but a vault owner's own `Index.md` may have
+renamed or restructured these, and whatever it currently says is what gets
+offered.
 
-- **research** — description: "general research about a topic, project-related or not"
-- **scratchpad** — description: "throwaway or in-progress, not yet worth filing"
-- **inbox** — description: "needs more input or reflection before it's settled"
-
-Resolve this to a `category` (`"research"`, `"scratchpad"`, or `"inbox"`)
-before moving on to the creation steps below. No project-slug question is
-needed here — Obsidian filenames are the title itself, not a slug-prefixed
-timestamp, so there's no separate namespacing concern to resolve. `inbox`
-always resolves to `inbox/{filename}.md` at root — never a priority
-subfolder; those (`inbox/{high,medium,low}/`, if the user has set them up)
-are triaged by hand, never by an agent.
+Resolve this to a `category` matching the folder name exactly as
+`Index.md` currently spells it, before moving on to the creation steps
+below. No project-slug question is needed here — Obsidian filenames are
+the title itself, not a slug-prefixed timestamp, so there's no separate
+namespacing concern to resolve. The note always lands flat at
+`{category}/{filename}.md` — never inferred into a subfolder such as a
+triage/priority one a vault owner might maintain by hand (e.g.
+`inbox/{high,medium,low}/`, per that folder's own `Index.md` description);
+sorting a note into one of those, if a category has one, is never an
+agent's call to make.
 
 ## Resolving the project folder (task mode only)
 

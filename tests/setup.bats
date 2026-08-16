@@ -189,6 +189,42 @@ EOF
   grep -q "^OBSIDIAN_VAULT_DIR=" "$HOME/.claude/synapse.conf"
 }
 
+@test "Index.md: not seeded when OBSIDIAN_VAULT_DIR doesn't exist yet" {
+  # The common first-install case: synapse.conf was just copied from its own
+  # template moments ago, and its placeholder path doesn't exist on disk.
+  rm -f "$HOME/.claude/synapse.conf"
+  run bash "$SETUP_SH"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"OBSIDIAN_VAULT_DIR"*"doesn't exist yet"* ]]
+
+  placeholder="$(. "$HOME/.claude/synapse.conf" && echo "$OBSIDIAN_VAULT_DIR")"
+  [ ! -e "$placeholder" ]
+  [ ! -e "$placeholder/Index.md" ]
+}
+
+@test "Index.md: seeded from template when the configured vault dir exists but has none" {
+  printf 'OBSIDIAN_VAULT_DIR="%s"\n' "$VAULT" > "$HOME/.claude/synapse.conf"
+  [ ! -f "$VAULT/Index.md" ]
+
+  run bash "$SETUP_SH"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"seeded from template: $VAULT/Index.md"* ]]
+
+  [ -f "$VAULT/Index.md" ]
+  diff "$VAULT/Index.md" "$REPO_ROOT/claude/Index.md.template"
+}
+
+@test "Index.md: never overwritten if the vault already has one" {
+  printf 'OBSIDIAN_VAULT_DIR="%s"\n' "$VAULT" > "$HOME/.claude/synapse.conf"
+  printf 'existing vault content, not the template\n' > "$VAULT/Index.md"
+
+  run bash "$SETUP_SH"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"already exists, leaving in place: $VAULT/Index.md"* ]]
+
+  grep -q "existing vault content, not the template" "$VAULT/Index.md"
+}
+
 @test "synapse-claude.md: installed unconditionally, every run, like a skill" {
   mkdir -p "$HOME/.claude"
   echo "stale content from a previous version" > "$HOME/.claude/synapse-claude.md"

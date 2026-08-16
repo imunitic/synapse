@@ -103,6 +103,25 @@ else
   echo "  installed from template -- EDIT THIS FILE (paths are machine-specific): $DEST/synapse.conf"
 fi
 
+echo "== Index.md =="
+# OBSIDIAN_VAULT_DIR is read back from the synapse.conf just installed above,
+# not assumed -- on a genuinely first-time install that file was only just
+# copied from its own template moments ago, so the path is still a
+# placeholder the user hasn't edited yet, and the vault directory it points
+# at does not exist. That is the expected, common case here, not a failure:
+# skip seeding silently rather than guess or create a directory ourselves.
+# The SessionStart hook offers to seed it later, once a real vault exists.
+vault_dir="$(. "$DEST/synapse.conf" 2>/dev/null; echo "$OBSIDIAN_VAULT_DIR")"
+if [ -d "$vault_dir" ] && [ ! -f "$vault_dir/Index.md" ]; then
+  cp "$SRC/Index.md.template" "$vault_dir/Index.md"
+  echo "  seeded from template: $vault_dir/Index.md"
+elif [ -d "$vault_dir" ]; then
+  echo "  already exists, leaving in place: $vault_dir/Index.md"
+else
+  echo "  skipped -- OBSIDIAN_VAULT_DIR ($vault_dir) doesn't exist yet."
+  echo "  Claude Code will offer to seed it once the vault is configured and a session starts."
+fi
+
 echo "== synapse-projects.conf =="
 if [ -f "$DEST/synapse-projects.conf" ]; then
   echo "  already exists, leaving in place: $DEST/synapse-projects.conf"

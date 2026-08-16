@@ -91,7 +91,17 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
                 "{s} ({s}) — read before creating or linking any note; prefer linking to an existing note over duplicating content, and fall back to linking this index if nothing more specific applies:\n\n{s}",
                 .{ label, index_path, content },
             );
-        } else |_| {}
+        } else |_| {
+            // `vault` is already confirmed to exist and be a real directory
+            // by common.vault() above, so a read failure here can only mean
+            // Index.md itself is missing -- not an unreachable vault. Offer,
+            // don't seed: this is the agent's call to make, not this hook's.
+            base = try std.fmt.allocPrint(
+                gpa,
+                "No Index.md found at {s} -- the configured Synapse Vault has no index yet. Offer to seed it from the shipped default (claude/Index.md.template in the Synapse repo) before creating or linking any note.",
+                .{index_path},
+            );
+        }
     }
 
     // Only worth saying alongside something else -- alone it's a hook
