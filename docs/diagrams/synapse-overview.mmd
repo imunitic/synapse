@@ -46,11 +46,11 @@ flowchart TB
 
     subgraph VAULT["Obsidian Vault -- one store underneath all three"]
         direction LR
-        VDESIGNS["designs/"]
-        VPROJECTS["projects/<br/>dev-log notes AND<br/>compiled task notes -- shared"]
+        VDESIGNS["designs/<br/>agreed design directions"]
+        VTASKS["tasks/<br/>concrete, tracked tasks"]
         VRESEARCH["research/ · scratchpad/ · inbox/"]
         VSYNAPSE["synapse/{repo}/<br/>nodes + Index.md<br/>(index and caches live in the work dir)"]
-        VDESIGNS ~~~ VPROJECTS ~~~ VRESEARCH ~~~ VSYNAPSE
+        VDESIGNS ~~~ VTASKS ~~~ VRESEARCH ~~~ VSYNAPSE
     end
 
     SESSION --> MEM

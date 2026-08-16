@@ -38,11 +38,11 @@ Every note lands in one of these, chosen by what kind of thing it is, not what p
 
 | Folder | What goes there |
 |---|---|
-| `projects/` | Dev-log notes and compiled task notes tied to a specific coding project |
-| `research/` | Standalone research/reading notes, not tied to one project's dev log |
-| `scratchpad/` | Throwaway or in-progress notes, not yet worth filing anywhere else |
-| `inbox/` | Doesn't cleanly fit the others — reviewed periodically, meant to stay small |
-| `designs/` | Cross-project design discussions (see [design-task-workflow.md](design-task-workflow.md)) |
+| `tasks/` | Concrete, tracked tasks — created only via `/synapse-task-note` or `/synapse-note --task`, never freeform |
+| `research/` | General research on a topic, project-related or not |
+| `scratchpad/` | High-churn notes iterating on whether an idea works at all, not yet worth filing anywhere else |
+| `inbox/` | Needs more input or reflection before it's settled, or otherwise doesn't cleanly fit the others — reviewed periodically, meant to stay small |
+| `designs/` | Cross-project design discussions, already agreed rather than tasks that execute them (see [design-task-workflow.md](design-task-workflow.md)) |
 | `synapse/` | Per-repo code-graph namespaces: node notes plus the machine-only `_manifest.tsv` and `_profile.txt`. The reverse index and the caches are not here -- they are derived and live in the work dir (see [synapse-graph.md](synapse-graph.md)) |
 
 Folder depth is capped at two levels. A new top-level folder requires adding a matching section to

@@ -31,7 +31,7 @@ Use those instead of reinventing a parallel view.
   nothing to compile. Reopen it with `/synapse-design-note \"{topic}\"` and mark it Ready if that's
   changed."
 - A task note already exists for this design (check the design note's `> Compiled task:` annotation,
-  or `search_query` for a `projects/` note linking to it) → show its current state (title, `status:`,
+  or `search_query` for a `tasks/` note linking to it) → show its current state (title, `status:`,
   checked/total) and ask: view it, or recompile (only on explicit confirmation — recompiling rewrites
   the checklist, so any progress on items that no longer exist is lost).
 
@@ -69,7 +69,9 @@ duplicate that scaffolding here, just supply its inputs:
 - **Project:** derive from the source design note's `project:` frontmatter — that prefix is already
   resolved (the design note went through `/synapse-design-note`'s resolution when it was created,
   which reads/appends `~/.claude/synapse-projects.conf`), so supply it directly instead of
-  re-deriving or re-asking. Never hardcode a specific project/prefix pair in this command's own
+  re-deriving or re-asking. This is the *prefix* (`ecs`, `sb`, ...), not the `tasks/{project}/`
+  folder name — `/synapse-note --task`'s own "Resolving the project folder" step turns it into
+  the folder name. Never hardcode a specific project/prefix pair in this command's own
   instructions — the conf file is machine-local and deliberately outside the portable
   Synapse package, so projects from unrelated contexts (e.g. personal vs. work) must
   never end up in the same place.
@@ -119,7 +121,7 @@ Claude: [reads designs/{PROJECT} — Rollup direct storage.md, Status: Ready]
 
         Project already known: {PROJECT} → {prefix}-005.
 
-        Created: projects/{prefix}-005 — Rollup direct storage implementation.md
+        Created: tasks/{PROJECT}/{prefix}-005 — Rollup direct storage implementation.md
         Linked back from designs/{PROJECT} — Rollup direct storage.md.
 
         Status transitions happen automatically via the synapse-task skill once you start work.

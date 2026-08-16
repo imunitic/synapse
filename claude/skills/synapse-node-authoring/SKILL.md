@@ -10,7 +10,8 @@ is the `synapse-node` skill's job, one node, triggered by a stale read). Today's
 `/synapse-init`'s node-authoring step. `/synapse-rebuild-full` inherits this for free — it
 delegates to `/synapse-init`'s procedure by reference rather than repeating it.
 `/synapse-rebuild-diff`'s *re-orient* class is a natural second caller (see the design's own
-Open Questions and `inbox-005` in the vault) but is not wired to this skill yet — it still
+Open Questions and the vault's `inbox/wire synapse-rebuild-diff's re-orient class onto the
+parallel-authoring skill` note) but is not wired to this skill yet — it still
 gathers its facts ad hoc rather than through `rank --lists`/`link-graph`, and needs that fixed
 first.
 

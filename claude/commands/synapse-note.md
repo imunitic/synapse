@@ -8,8 +8,8 @@ If `$ARGUMENTS` starts with `--search` → **search mode**: see "Search mode" be
 
 Otherwise, split `$ARGUMENTS` on `--task`:
 
-- If `--task` is present → **task mode**: scaffold the note as a tracked task, following the `synapse-task` skill's conventions. Task notes always live under `projects/`.
-- Otherwise → **bare mode**: create an empty node (title + frontmatter only). Which category folder it lands in (`projects` / `research` / `scratchpad`) is resolved in "Choosing a category (bare mode only)" below.
+- If `--task` is present → **task mode**: scaffold the note as a tracked task, following the `synapse-task` skill's conventions. Task notes always live under `tasks/`.
+- Otherwise → **bare mode**: create an empty node (title + frontmatter only). Which category folder it lands in (`research` / `scratchpad` / `inbox`) is resolved in "Choosing a category (bare mode only)" below.
 
 The title is everything before `--task` (trimmed). Example:
 
@@ -91,20 +91,38 @@ they don't duplicate this resolution logic, just this file.
 
 ## Choosing a category (bare mode only)
 
-Task mode always uses `projects/` — skip this step entirely in task mode.
+Task mode always uses `tasks/` — skip this step entirely in task mode.
 
 In bare mode, ask the user which category the note belongs to, via a
 question with these options:
 
-- **projects** — description: "tied to a specific coding project"
-- **research** — description: "standalone research/reading notes, not tied to a project's dev log"
+- **research** — description: "general research about a topic, project-related or not"
 - **scratchpad** — description: "throwaway or in-progress, not yet worth filing"
+- **inbox** — description: "needs more input or reflection before it's settled"
 
-Resolve this to a `category` (`"projects"`, `"research"`, or `"scratchpad"`)
+Resolve this to a `category` (`"research"`, `"scratchpad"`, or `"inbox"`)
 before moving on to the creation steps below. No project-slug question is
-needed here — Obsidian filenames are the title itself, not a
-slug-prefixed timestamp, so there's no separate namespacing concern to
-resolve.
+needed here — Obsidian filenames are the title itself, not a slug-prefixed
+timestamp, so there's no separate namespacing concern to resolve. `inbox`
+always resolves to `inbox/{filename}.md` at root — never a priority
+subfolder; those (`inbox/{high,medium,low}/`, if the user has set them up)
+are triaged by hand, never by an agent.
+
+## Resolving the project folder (task mode only)
+
+Task notes are grouped one level deeper by project, `tasks/{project}/{filename}.md` — see
+`Index.md`'s `tasks/` section. The prefix (`ecs`, `sb`, ...) is not itself the folder name — it
+names the *task*, not the *project* — so resolve what project it belongs to, regardless of how
+the prefix became known (matched from the title, resolved in "Resolving a missing task ID" above,
+or supplied directly by a caller like `/synapse-task-note`):
+
+1. Reverse-lookup the prefix in `~/.claude/synapse-projects.conf` — find the line whose value
+   after `=` equals the prefix; its key is the project name.
+2. If no line matches, check `Index.md`'s `tasks/` section, which documents the prefix-to-project
+   mapping directly (e.g. `ecs-NNN` → `eon`).
+3. If still unresolved (a genuinely new prefix with no mapping anywhere), ask the user for the
+   project name and append `{project-name}={prefix}` to the conf file — so the next task note
+   under this prefix resolves without asking.
 
 ## Creating the note
 
@@ -140,9 +158,10 @@ resolve.
    ## Notes
 
    ```
-4. Write it with `mcp__obsidian__vault_write`, path
-   `{category}/{filename}.md` (category resolved above; always `projects`
-   in task mode).
+4. Write it with `mcp__obsidian__vault_write`. Task mode: path
+   `tasks/{project}/{filename}.md` (project resolved in "Resolving the
+   project folder" above). Bare mode: path `{category}/{filename}.md`
+   (category resolved above).
 
 ## Confirm
 
