@@ -195,14 +195,56 @@ test "a commented-out assignment is not one" {
     );
 }
 
-/// The vault directory: the override first, then each conf file in turn. The
-/// environment wins since that's how a caller pins a vault deliberately (the
-/// bats suite does, against a fixture). Null means nothing names one.
+/// Resolves a synapse-*.conf filename to the first tier that exists on
+/// disk: `$XDG_CONFIG_HOME/synapse/{name}` (or `~/.config/synapse/{name}`
+/// if `XDG_CONFIG_HOME` is unset), then `~/.claude/{name}`. Null if
+/// neither exists -- callers decide what "unconfigured" means for their
+/// own conf. `$XDG_CONFIG_HOME` is checked, never assumed unset, because
+/// that is the one thing that makes tier 1 actually XDG-compliant rather
+/// than a hardcoded `~/.config` guess.
+///
+/// `~/.claude/{name}` survives indefinitely as tier 2, not as a stopgap:
+/// every existing install already has its conf there, and an install that
+/// never creates an XDG file must keep resolving exactly as it does today,
+/// unconditionally. Tier 1 wins when both exist -- `$XDG_CONFIG_HOME/synapse/`
+/// (or `~/.config/synapse/`) is namespaced to this tool specifically, so
+/// nothing else creates it by accident; the only realistic way it exists is
+/// a deliberate choice, and a user who just made that choice expects it to
+/// take effect immediately, not to also have to delete the old file.
+pub fn resolveConfPath(gpa: std.mem.Allocator, io: std.Io, vars: Vars, name: []const u8) !?[]u8 {
+    const home = vars.get("HOME");
+
+    if (vars.get("XDG_CONFIG_HOME")) |xdg| if (xdg.len != 0) {
+        if (try tryConfPath(gpa, io, "{s}/synapse/{s}", .{ xdg, name })) |p| return p;
+    };
+    if (home) |h| {
+        if (try tryConfPath(gpa, io, "{s}/.config/synapse/{s}", .{ h, name })) |p| return p;
+    }
+    if (home) |h| {
+        if (try tryConfPath(gpa, io, "{s}/.claude/{s}", .{ h, name })) |p| return p;
+    }
+    return null;
+}
+
+/// Formats one candidate path and returns it if it exists on disk, freeing
+/// it and returning null otherwise -- the one check `resolveConfPath`'s
+/// three tiers share.
+fn tryConfPath(gpa: std.mem.Allocator, io: std.Io, comptime fmt: []const u8, args: anytype) !?[]u8 {
+    const path = try std.fmt.allocPrint(gpa, fmt, args);
+    if (std.Io.Dir.cwd().access(io, path, .{})) |_| return path else |_| {
+        gpa.free(path);
+        return null;
+    }
+}
+
+/// The vault directory: the override first, then each conf file in turn,
+/// each resolved through `resolveConfPath`'s tier order. The environment
+/// wins since that's how a caller pins a vault deliberately (the bats suite
+/// does, against a fixture). Null means nothing names one.
 pub fn vaultDir(gpa: std.mem.Allocator, io: std.Io, vars: Vars) !?[]u8 {
     if (vars.get("OBSIDIAN_VAULT_DIR")) |v| if (v.len != 0) return try gpa.dupe(u8, v);
-    const home = vars.get("HOME") orelse return null;
     for (file_names) |name| {
-        const path = try std.fmt.allocPrint(gpa, "{s}/.claude/{s}", .{ home, name });
+        const path = (try resolveConfPath(gpa, io, vars, name)) orelse continue;
         defer gpa.free(path);
         const text = std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 20)) catch continue;
         defer gpa.free(text);
@@ -297,4 +339,103 @@ test "a Vars that knows nothing drops every reference" {
     const got = try expand(gpa, "$HOME/x", Vars.none);
     defer gpa.free(got);
     try testing.expectEqualStrings("/x", got);
+}
+
+test "resolveConfPath: tier 1 (XDG_CONFIG_HOME) wins over tier 2 (~/.claude) when both exist" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+    const cwd = std.Io.Dir.cwd();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const home = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    const xdg_dir = try std.fmt.allocPrint(gpa, "{s}/xdg/synapse", .{home});
+    defer gpa.free(xdg_dir);
+    try cwd.createDirPath(io, xdg_dir);
+    const xdg_file = try std.fmt.allocPrint(gpa, "{s}/xdg/synapse/foo.conf", .{home});
+    defer gpa.free(xdg_file);
+    try cwd.writeFile(io, .{ .sub_path = xdg_file, .data = "xdg" });
+
+    const claude_dir = try std.fmt.allocPrint(gpa, "{s}/.claude", .{home});
+    defer gpa.free(claude_dir);
+    try cwd.createDirPath(io, claude_dir);
+    const claude_file = try std.fmt.allocPrint(gpa, "{s}/.claude/foo.conf", .{home});
+    defer gpa.free(claude_file);
+    try cwd.writeFile(io, .{ .sub_path = claude_file, .data = "claude" });
+
+    const xdg_home = try std.fmt.allocPrint(gpa, "{s}/xdg", .{home});
+    defer gpa.free(xdg_home);
+    const tv: TestVars = .{ .pairs = &.{ .{ "XDG_CONFIG_HOME", xdg_home }, .{ "HOME", home } } };
+
+    const got = (try resolveConfPath(gpa, io, tv.vars(), "foo.conf")).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings(xdg_file, got);
+}
+
+test "resolveConfPath: XDG_CONFIG_HOME unset falls back to ~/.config/synapse, still ahead of ~/.claude" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+    const cwd = std.Io.Dir.cwd();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const home = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    const xdg_dir = try std.fmt.allocPrint(gpa, "{s}/.config/synapse", .{home});
+    defer gpa.free(xdg_dir);
+    try cwd.createDirPath(io, xdg_dir);
+    const xdg_file = try std.fmt.allocPrint(gpa, "{s}/.config/synapse/foo.conf", .{home});
+    defer gpa.free(xdg_file);
+    try cwd.writeFile(io, .{ .sub_path = xdg_file, .data = "dot-config" });
+
+    const claude_dir = try std.fmt.allocPrint(gpa, "{s}/.claude", .{home});
+    defer gpa.free(claude_dir);
+    try cwd.createDirPath(io, claude_dir);
+    const claude_file = try std.fmt.allocPrint(gpa, "{s}/.claude/foo.conf", .{home});
+    defer gpa.free(claude_file);
+    try cwd.writeFile(io, .{ .sub_path = claude_file, .data = "claude" });
+
+    const tv: TestVars = .{ .pairs = &.{.{ "HOME", home }} }; // no XDG_CONFIG_HOME
+    const got = (try resolveConfPath(gpa, io, tv.vars(), "foo.conf")).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings(xdg_file, got);
+}
+
+test "resolveConfPath: neither XDG location has the file, ~/.claude wins, unchanged from today" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+    const cwd = std.Io.Dir.cwd();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const home = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    const claude_dir = try std.fmt.allocPrint(gpa, "{s}/.claude", .{home});
+    defer gpa.free(claude_dir);
+    try cwd.createDirPath(io, claude_dir);
+    const claude_file = try std.fmt.allocPrint(gpa, "{s}/.claude/foo.conf", .{home});
+    defer gpa.free(claude_file);
+    try cwd.writeFile(io, .{ .sub_path = claude_file, .data = "claude" });
+
+    const tv: TestVars = .{ .pairs = &.{.{ "HOME", home }} };
+    const got = (try resolveConfPath(gpa, io, tv.vars(), "foo.conf")).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings(claude_file, got);
+}
+
+test "resolveConfPath: null when the file exists nowhere" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const home = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    const tv: TestVars = .{ .pairs = &.{.{ "HOME", home }} };
+    try testing.expectEqual(@as(?[]u8, null), try resolveConfPath(gpa, io, tv.vars(), "foo.conf"));
 }

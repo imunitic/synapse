@@ -49,17 +49,24 @@ Do not modify any files in search mode.
 
 Triggered when `--task` is given but the title doesn't match `{prefix}-\d+`.
 
-The known project/prefix pairs live in a plain local file, `~/.claude/synapse-projects.conf`
-(one `project-name=prefix` line each) — read/appended with the Read/Edit tools, not the `obsidian`
+The known project/prefix pairs live in a plain local file named `synapse-projects.conf` (one
+`project-name=prefix` line each) — read/appended with the Read/Edit tools, not the `obsidian`
 MCP server, since it's outside the vault. It is deliberately **not** part of the portable
 Synapse package and never copied between machines, so contexts that shouldn't mix (e.g.
 personal vs. work projects) never end up in the same file. It's self-managed — this command appends
 newly resolved pairs to it — but also plain text, so the user can add, fix, or remove a line by hand
 at any time.
 
+Resolve *which* file that is with the same tiered lookup every `synapse-*.conf` file uses: first
+`$XDG_CONFIG_HOME/synapse/synapse-projects.conf` if `$XDG_CONFIG_HOME` is set, else
+`~/.config/synapse/synapse-projects.conf`; then `~/.claude/synapse-projects.conf`. Read whichever of
+those exists first. Append a newly resolved pair (step 5 below) to that same file; if neither exists
+yet, create `~/.claude/synapse-projects.conf` — today's default, unchanged for anyone who has never
+touched an XDG config directory.
+
 1. Identify the current project from context: the repo's `CLAUDE.md` (title/"About" section) or
    `git remote`.
-2. Check `~/.claude/synapse-projects.conf` for a line whose project name matches (loosely —
+2. Check the resolved `synapse-projects.conf` for a line whose project name matches (loosely —
    case/whitespace-insensitive). If found, use that prefix directly — no need to ask.
 3. If the file doesn't have it yet, fall back to deducing from the vault itself (useful the first
    time this runs, or for a project whose notes predate this file): `search_simple` for the
@@ -123,8 +130,9 @@ names the *task*, not the *project* — so resolve what project it belongs to, r
 the prefix became known (matched from the title, resolved in "Resolving a missing task ID" above,
 or supplied directly by a caller like `/synapse-task-note`):
 
-1. Reverse-lookup the prefix in `~/.claude/synapse-projects.conf` — find the line whose value
-   after `=` equals the prefix; its key is the project name.
+1. Reverse-lookup the prefix in the resolved `synapse-projects.conf` (same tiered lookup as
+   "Resolving a missing task ID" above) — find the line whose value after `=` equals the prefix;
+   its key is the project name.
 2. If no line matches, check `Index.md`'s `tasks/` section, which documents the prefix-to-project
    mapping directly (e.g. `ecs-NNN` → `eon`).
 3. If still unresolved (a genuinely new prefix with no mapping anywhere), ask the user for the

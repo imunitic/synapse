@@ -152,7 +152,7 @@ pub fn backfill(
     defer registry.deinit();
     const grammars_dir = try grammarsDir(gpa, env);
     defer gpa.free(grammars_dir);
-    const kind_rules_path = try kindRulesPath(gpa, env);
+    const kind_rules_path = try kindRulesPath(gpa, io, env);
     defer gpa.free(kind_rules_path);
     var kind_rules = try core.kind_synonyms.RuleList.load(gpa, io, kind_rules_path);
     defer kind_rules.deinit();
@@ -327,7 +327,8 @@ fn refsFrom(io: Io, path: []const u8) !u8 {
 
 fn loadRegistry(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !treesitter.Registry {
     const home = env.get("HOME") orelse return error.NoHome;
-    const p = try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-grammars.conf", .{home});
+    const p = (try core.conf.resolveConfPath(gpa, io, envVars(env), "synapse-grammars.conf")) orelse
+        try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-grammars.conf", .{home});
     defer gpa.free(p);
     return treesitter.Registry.load(gpa, io, p);
 }
@@ -340,10 +341,22 @@ fn grammarsDir(gpa: Allocator, env: *std.process.Environ.Map) ![]u8 {
 
 /// `~/.claude/synapse-kind-synonyms.conf` (`SYNAPSE_KIND_SYNONYMS_CONF`
 /// overrides it); absent is a supported state.
-fn kindRulesPath(gpa: Allocator, env: *std.process.Environ.Map) ![]u8 {
+fn kindRulesPath(gpa: Allocator, io: Io, env: *std.process.Environ.Map) ![]u8 {
     if (env.get("SYNAPSE_KIND_SYNONYMS_CONF")) |p| return gpa.dupe(u8, p);
+    if (try core.conf.resolveConfPath(gpa, io, envVars(env), "synapse-kind-synonyms.conf")) |p| return p;
     const home = env.get("HOME") orelse return error.NoHome;
     return std.fmt.allocPrint(gpa, "{s}/.claude/synapse-kind-synonyms.conf", .{home});
+}
+
+/// A `core.conf.Vars` over this process's environment. Indirection exists
+/// because `core` may not name `std.process` (`ci/check-layering.sh`).
+fn envVars(env: *std.process.Environ.Map) core.conf.Vars {
+    return .{ .ctx = @ptrCast(env), .getFn = envLookup };
+}
+
+fn envLookup(ctx: *anyopaque, name: []const u8) ?[]const u8 {
+    const env: *std.process.Environ.Map = @ptrCast(@alignCast(ctx));
+    return env.get(name);
 }
 
 /// Shared with `tags`: the record `synapse-fake` writes so a test can

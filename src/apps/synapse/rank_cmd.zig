@@ -102,7 +102,8 @@ pub fn run(
     defer gpa.free(cache_path);
 
     const home = env.get("HOME") orelse return 1;
-    const registry_path = try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-grammars.conf", .{home});
+    const registry_path = (try core.conf.resolveConfPath(gpa, io, envVars(env), "synapse-grammars.conf")) orelse
+        try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-grammars.conf", .{home});
     defer gpa.free(registry_path);
     var registry = treesitter.Registry.load(gpa, io, registry_path) catch {
         std.debug.print("synapse-rank: cannot read the grammar registry\n", .{});
@@ -185,6 +186,17 @@ pub fn run(
         .{ pool orelse "summary", all.items.len, code_rows.len, dsl_rows.len, noncode.items.len, tests_dropped },
     );
     return 0;
+}
+
+/// A `core.conf.Vars` over this process's environment. Indirection exists
+/// because `core` may not name `std.process` (`ci/check-layering.sh`).
+fn envVars(env: *std.process.Environ.Map) core.conf.Vars {
+    return .{ .ctx = @ptrCast(env), .getFn = envLookup };
+}
+
+fn envLookup(ctx: *anyopaque, name: []const u8) ?[]const u8 {
+    const env: *std.process.Environ.Map = @ptrCast(@alignCast(ctx));
+    return env.get(name);
 }
 
 fn usage() u8 {

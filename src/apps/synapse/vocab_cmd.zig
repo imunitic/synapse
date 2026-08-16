@@ -159,7 +159,8 @@ pub fn run(
     }
 
     const home = env.get("HOME") orelse return 1;
-    const registry_path = try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-grammars.conf", .{home});
+    const registry_path = (try core.conf.resolveConfPath(gpa, io, envVars(env), "synapse-grammars.conf")) orelse
+        try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-grammars.conf", .{home});
     defer gpa.free(registry_path);
     var registry = treesitter.Registry.load(gpa, io, registry_path) catch {
         std.debug.print("synapse-vocab: cannot read the grammar registry\n", .{});
@@ -175,6 +176,8 @@ pub fn run(
 
     const kind_rules_path = if (env.get("SYNAPSE_KIND_SYNONYMS_CONF")) |p|
         try gpa.dupe(u8, p)
+    else if (try core.conf.resolveConfPath(gpa, io, envVars(env), "synapse-kind-synonyms.conf")) |p|
+        p
     else
         try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-kind-synonyms.conf", .{home});
     defer gpa.free(kind_rules_path);
@@ -191,6 +194,8 @@ pub fn run(
     // "nothing configured yet," not an error.
     const ns_rules_path = if (env.get("SYNAPSE_NAMESPACE_RULES_CONF")) |p|
         try gpa.dupe(u8, p)
+    else if (try core.conf.resolveConfPath(gpa, io, envVars(env), "synapse-namespace-rules.conf")) |p|
+        p
     else
         try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-namespace-rules.conf", .{home});
     defer gpa.free(ns_rules_path);
@@ -210,6 +215,17 @@ pub fn run(
         .distinctive_top = distinctive_top,
         .distinctive_k = distinctive_k,
     });
+}
+
+/// A `core.conf.Vars` over this process's environment. Indirection exists
+/// because `core` may not name `std.process` (`ci/check-layering.sh`).
+fn envVars(env: *std.process.Environ.Map) core.conf.Vars {
+    return .{ .ctx = @ptrCast(env), .getFn = envLookup };
+}
+
+fn envLookup(ctx: *anyopaque, name: []const u8) ?[]const u8 {
+    const env: *std.process.Environ.Map = @ptrCast(@alignCast(ctx));
+    return env.get(name);
 }
 
 fn usage() u8 {
@@ -739,7 +755,8 @@ fn loadStopwords(
 ) !std.StringHashMapUnmanaged(void) {
     var set: std.StringHashMapUnmanaged(void) = .empty;
     const home = env.get("HOME") orelse return set;
-    const path = try std.fmt.allocPrint(arena, "{s}/.claude/synapse-prompt-stopwords.conf", .{home});
+    const path = (try core.conf.resolveConfPath(arena, io, envVars(env), "synapse-prompt-stopwords.conf")) orelse
+        try std.fmt.allocPrint(arena, "{s}/.claude/synapse-prompt-stopwords.conf", .{home});
     const text = Io.Dir.cwd().readFileAlloc(io, path, arena, .limited(1 << 20)) catch return set;
     var lines = std.mem.splitScalar(u8, text, '\n');
     while (lines.next()) |raw| {

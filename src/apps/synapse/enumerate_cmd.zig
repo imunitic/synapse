@@ -109,6 +109,17 @@ fn usage() u8 {
     return 2;
 }
 
+/// A `core.conf.Vars` over this process's environment. Indirection exists
+/// because `core` may not name `std.process` (`ci/check-layering.sh`).
+fn envVars(env: *std.process.Environ.Map) core.conf.Vars {
+    return .{ .ctx = @ptrCast(env), .getFn = envLookup };
+}
+
+fn envLookup(ctx: *anyopaque, name: []const u8) ?[]const u8 {
+    const env: *std.process.Environ.Map = @ptrCast(@alignCast(ctx));
+    return env.get(name);
+}
+
 /// Default cap (`SYNAPSE_MAX_FILE_BYTES`). Skips are reported, not silent --
 /// a silent skip would make `enumerated` disagree with the repo.
 const default_max_file_bytes: u64 = 1048576;
@@ -182,7 +193,8 @@ pub fn applyUserPatterns(
     }
 
     if (env.get("HOME")) |home| {
-        const conf = try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-ignore-files.conf", .{home});
+        const conf = (try core.conf.resolveConfPath(gpa, io, envVars(env), "synapse-ignore-files.conf")) orelse
+            try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-ignore-files.conf", .{home});
         defer gpa.free(conf);
         if (Io.Dir.cwd().readFileAlloc(io, conf, gpa, .limited(1 << 20))) |text| {
             defer gpa.free(text);

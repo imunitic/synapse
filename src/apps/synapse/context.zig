@@ -148,6 +148,8 @@ fn loadChains(ctx: *Context, io: Io, env: *std.process.Environ.Map) !void {
     const gpa = ctx.gpa;
     const path = if (env.get("SYNAPSE_MODULE_BOILERPLATE_CONF")) |p|
         try gpa.dupe(u8, p)
+    else if (try core.conf.resolveConfPath(gpa, io, envVars(env), "synapse-module-boilerplate.conf")) |p|
+        p
     else if (env.get("HOME")) |home|
         try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-module-boilerplate.conf", .{home})
     else

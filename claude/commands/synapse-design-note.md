@@ -37,9 +37,11 @@ reading the same file:
 
 1. Infer the project from the current repo: check its project `CLAUDE.md` (title/"About" section) or
    `git remote`.
-2. Check `~/.claude/synapse-projects.conf` (plain `project-name=prefix` lines, read/appended
-   via Read/Edit, not the vault) for a loosely-matching project name. If found, use that prefix
-   directly.
+2. Check the resolved `synapse-projects.conf` (plain `project-name=prefix` lines, read/appended
+   via Read/Edit, not the vault — resolve which file that is with the same tiered lookup as
+   `/synapse-note`'s "Resolving a missing task ID": `$XDG_CONFIG_HOME/synapse/synapse-projects.conf`
+   or `~/.config/synapse/synapse-projects.conf`, then `~/.claude/synapse-projects.conf`, first one
+   that exists) for a loosely-matching project name. If found, use that prefix directly.
 3. If not in the file yet, fall back to searching the vault for a prefix already in use for this
    project. If exactly one confidently matches, use it — and append the pair to the conf file.
 4. If nothing confidently matches, ask the user for a short project tag — plain free-text, not a

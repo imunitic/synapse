@@ -46,6 +46,17 @@ fn usage() u8 {
     return 2;
 }
 
+/// A `core.conf.Vars` over this process's environment. Indirection exists
+/// because `core` may not name `std.process` (`ci/check-layering.sh`).
+fn envVars(env: *std.process.Environ.Map) core.conf.Vars {
+    return .{ .ctx = @ptrCast(env), .getFn = envLookup };
+}
+
+fn envLookup(ctx: *anyopaque, name: []const u8) ?[]const u8 {
+    const env: *std.process.Environ.Map = @ptrCast(@alignCast(ctx));
+    return env.get(name);
+}
+
 pub fn run(
     comptime Ex: type,
     gpa: Allocator,
@@ -63,7 +74,8 @@ pub fn run(
 
     const home = env.get("HOME") orelse return 1;
 
-    const registry_path = try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-grammars.conf", .{home});
+    const registry_path = (try core.conf.resolveConfPath(gpa, io, envVars(env), "synapse-grammars.conf")) orelse
+        try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-grammars.conf", .{home});
     defer gpa.free(registry_path);
     var registry = treesitter.Registry.load(gpa, io, registry_path) catch return 1;
     defer registry.deinit();
@@ -87,6 +99,8 @@ pub fn run(
 
     const kind_rules_path = if (env.get("SYNAPSE_KIND_SYNONYMS_CONF")) |p|
         try gpa.dupe(u8, p)
+    else if (try core.conf.resolveConfPath(gpa, io, envVars(env), "synapse-kind-synonyms.conf")) |p|
+        p
     else
         try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-kind-synonyms.conf", .{home});
     defer gpa.free(kind_rules_path);
