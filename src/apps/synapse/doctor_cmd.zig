@@ -155,7 +155,7 @@ fn vaultChecks(ctx: *Ctx) !?[]const u8 {
         try ctx.add("config", .fail, "no ~/.claude/synapse.conf -- copy the template and set the vault");
     }
 
-    const vault = core.conf.vaultDir(ctx.gpa, ctx.io, envVars(ctx.env)) catch null;
+    const vault = core.conf.vaultDir(ctx.gpa, ctx.io, adapters.env.vars(ctx.env)) catch null;
     if (vault) |v| {
         try ctx.owned.append(ctx.gpa, v);
         const st = Io.Dir.cwd().statFile(ctx.io, v, .{}) catch {
@@ -462,13 +462,4 @@ fn hookChecks(ctx: *Ctx) !void {
     // than a note.
     if (std.mem.indexOf(u8, text, "hooks/synapse-") != null)
         try ctx.add("hook wiring", .fail, "settings.json still names a hooks/*.sh wrapper -- re-run ./setup.sh");
-}
-
-fn envVars(env: *std.process.Environ.Map) core.conf.Vars {
-    return .{ .ctx = @ptrCast(env), .getFn = envLookup };
-}
-
-fn envLookup(c: *anyopaque, name: []const u8) ?[]const u8 {
-    const env: *std.process.Environ.Map = @ptrCast(@alignCast(c));
-    return env.get(name);
 }

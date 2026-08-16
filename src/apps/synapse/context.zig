@@ -67,7 +67,7 @@ pub fn resolve(
     env: *std.process.Environ.Map,
     prog: []const u8,
 ) !?Context {
-    const vault = (try core.conf.vaultDir(gpa, io, envVars(env))) orelse {
+    const vault = (try core.conf.vaultDir(gpa, io, adapters.env.vars(env))) orelse {
         std.debug.print("{s}: no vault\n", .{prog});
         return null;
     };
@@ -125,17 +125,6 @@ pub fn resolve(
     return ctx;
 }
 
-/// A `core.conf.Vars` over this process's environment. Indirection exists
-/// because `core` may not name `std.process` (`ci/check-layering.sh`).
-fn envVars(env: *std.process.Environ.Map) core.conf.Vars {
-    return .{ .ctx = @ptrCast(env), .getFn = envLookup };
-}
-
-fn envLookup(ctx: *anyopaque, name: []const u8) ?[]const u8 {
-    const env: *std.process.Environ.Map = @ptrCast(@alignCast(ctx));
-    return env.get(name);
-}
-
 fn nonEmpty(env: *std.process.Environ.Map, key: []const u8) ?[]const u8 {
     const v = env.get(key) orelse return null;
     return if (v.len == 0) null else v;
@@ -148,7 +137,7 @@ fn loadChains(ctx: *Context, io: Io, env: *std.process.Environ.Map) !void {
     const gpa = ctx.gpa;
     const path = if (env.get("SYNAPSE_MODULE_BOILERPLATE_CONF")) |p|
         try gpa.dupe(u8, p)
-    else if (try core.conf.resolveConfPath(gpa, io, envVars(env), "synapse-module-boilerplate.conf")) |p|
+    else if (try core.conf.resolveConfPath(gpa, io, adapters.env.vars(env), "synapse-module-boilerplate.conf")) |p|
         p
     else if (env.get("HOME")) |home|
         try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-module-boilerplate.conf", .{home})

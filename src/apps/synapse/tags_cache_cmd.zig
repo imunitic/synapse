@@ -20,6 +20,7 @@
 
 const std = @import("std");
 const core = @import("core");
+const adapters = @import("adapters");
 const treesitter = @import("treesitter");
 
 const Io = std.Io;
@@ -327,7 +328,7 @@ fn refsFrom(io: Io, path: []const u8) !u8 {
 
 fn loadRegistry(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !treesitter.Registry {
     const home = env.get("HOME") orelse return error.NoHome;
-    const p = (try core.conf.resolveConfPath(gpa, io, envVars(env), "synapse-grammars.conf")) orelse
+    const p = (try core.conf.resolveConfPath(gpa, io, adapters.env.vars(env), "synapse-grammars.conf")) orelse
         try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-grammars.conf", .{home});
     defer gpa.free(p);
     return treesitter.Registry.load(gpa, io, p);
@@ -343,20 +344,9 @@ fn grammarsDir(gpa: Allocator, env: *std.process.Environ.Map) ![]u8 {
 /// overrides it); absent is a supported state.
 fn kindRulesPath(gpa: Allocator, io: Io, env: *std.process.Environ.Map) ![]u8 {
     if (env.get("SYNAPSE_KIND_SYNONYMS_CONF")) |p| return gpa.dupe(u8, p);
-    if (try core.conf.resolveConfPath(gpa, io, envVars(env), "synapse-kind-synonyms.conf")) |p| return p;
+    if (try core.conf.resolveConfPath(gpa, io, adapters.env.vars(env), "synapse-kind-synonyms.conf")) |p| return p;
     const home = env.get("HOME") orelse return error.NoHome;
     return std.fmt.allocPrint(gpa, "{s}/.claude/synapse-kind-synonyms.conf", .{home});
-}
-
-/// A `core.conf.Vars` over this process's environment. Indirection exists
-/// because `core` may not name `std.process` (`ci/check-layering.sh`).
-fn envVars(env: *std.process.Environ.Map) core.conf.Vars {
-    return .{ .ctx = @ptrCast(env), .getFn = envLookup };
-}
-
-fn envLookup(ctx: *anyopaque, name: []const u8) ?[]const u8 {
-    const env: *std.process.Environ.Map = @ptrCast(@alignCast(ctx));
-    return env.get(name);
 }
 
 /// Shared with `tags`: the record `synapse-fake` writes so a test can

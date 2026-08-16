@@ -9,6 +9,7 @@
 const std = @import("std");
 
 pub const process = @import("process.zig");
+pub const env = @import("env.zig");
 pub const fakes = @import("fakes/root.zig");
 
 /// The Obsidian Local REST API behind the Store port. Spawns `curl` and
@@ -18,6 +19,7 @@ pub const obsidian = @import("obsidian/store.zig");
 test {
     std.testing.refAllDecls(@This());
     _ = process;
+    _ = env;
     _ = fakes;
     _ = obsidian;
     // Not `pub`: a conformance check on the port, compiled for tests only.

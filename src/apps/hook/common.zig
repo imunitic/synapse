@@ -3,6 +3,7 @@
 
 const std = @import("std");
 const core = @import("core");
+const adapters = @import("adapters");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -66,7 +67,7 @@ pub const Payload = struct {
 /// Absent, unreadable or not a directory is silence, like every other
 /// missing precondition. The caller owns the result.
 pub fn vault(gpa: Allocator, io: Io, env: *std.process.Environ.Map) ?[]u8 {
-    const dir = (core.conf.vaultDir(gpa, io, envVars(env)) catch return null) orelse return null;
+    const dir = (core.conf.vaultDir(gpa, io, adapters.env.vars(env)) catch return null) orelse return null;
     const st = Io.Dir.cwd().statFile(io, dir, .{}) catch {
         gpa.free(dir);
         return null;
@@ -124,17 +125,6 @@ pub const Namespace = struct {
         if (self.owned) |id| id.deinit(gpa);
     }
 };
-
-/// A `core.conf.Vars` over this process's environment. `core` may not name
-/// `std.process` (`ci/check-layering.sh`), hence the indirection.
-fn envVars(env: *std.process.Environ.Map) core.conf.Vars {
-    return .{ .ctx = @ptrCast(env), .getFn = envLookup };
-}
-
-fn envLookup(ctx: *anyopaque, name: []const u8) ?[]const u8 {
-    const env: *std.process.Environ.Map = @ptrCast(@alignCast(ctx));
-    return env.get(name);
-}
 
 fn nonEmpty(env: *std.process.Environ.Map, key: []const u8) ?[]const u8 {
     const v = env.get(key) orelse return null;
