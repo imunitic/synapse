@@ -70,6 +70,15 @@ to orient someone already inside. A node without one is an error, not a default.
   computes candidates before any node exists via `synapse link-graph`; read that node's rows from
   `links.tsv` rather than guessing which siblings it relates to, `part_of` stays a judgement call
   with nothing mechanical behind it), a `## Sources` section, and an empty `## Notes` section.
+- **Break a "does N things" enumeration into real bullets, not inline `(1)/(2)/(3)`.** A sentence
+  enumerating three or more parallel sub-points reads as a wall of text once each item carries its
+  own clause or parenthetical -- the node is read by a human skimming it in Obsidian as much as by
+  an agent (see the design note this format came from: hosting the graph as vault-readable markdown
+  was chosen specifically so it stays "just as readable by a human directly in Obsidian as it is by
+  Claude"), and a dense inline run-on defeats that. Use a markdown bullet list under the sentence
+  introducing them instead. This is narrow, not a general "prefer bullets" rule: an aside of one or
+  two items, or connected causal narrative ("X, because Y, which is why Z"), stays flowing prose --
+  over-bulleting ordinary narrative just trades one readability problem for another.
 - **Never write crux code. Point at it and let the writer cut it out.** In the body, emit a
   directive instead of a code block:
 
