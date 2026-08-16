@@ -238,7 +238,15 @@ pub fn write(
     var crux_lines_buf: ?[]u8 = null;
     defer if (crux_lines_buf) |b| gpa.free(b);
 
-    if (emit.findDirective(body, emit.kind_crux)) |directive| {
+    // Scoped to the `## Crux` section, not the whole body: prose describing
+    // the directive syntax elsewhere (a node about Synapse's own node format,
+    // say) is otherwise indistinguishable from the real directive and gets
+    // matched instead of it. No `## Crux` heading at all means no crux was
+    // authored -- not a fallback to a whole-body scan, which would just
+    // resurrect the same bug in a smaller disguise.
+    const crux_section = emit.section(body, "Crux");
+    const crux_directive = if (crux_section) |cs| emit.findDirective(cs, emit.kind_crux) else null;
+    if (crux_directive) |directive| {
         const arg = emit.directiveArg(directive[4 .. directive.len - 3], emit.kind_crux).?;
         var block: Io.Writer.Allocating = .init(gpa);
         defer block.deinit();

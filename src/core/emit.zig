@@ -86,6 +86,37 @@ pub fn findDirective(body: []const u8, keyword: []const u8) ?[]const u8 {
     return null;
 }
 
+/// The text under a `## {heading}` heading, up to the next `## ` heading or
+/// the generated-region end marker -- whichever comes first. Null if the
+/// heading itself isn't present. Same anchoring `query.edges` uses for
+/// `## Links`: only a line that is exactly the heading counts, never a
+/// substring match, so `## Crux` doesn't also match a hypothetical
+/// `## Cruxes and caveats`.
+///
+/// Exists so a directive search can be scoped to the one section it
+/// legitimately lives in (`crux`, which only ever appears under `## Crux`)
+/// instead of the whole body, where prose describing the directive syntax
+/// elsewhere would otherwise be indistinguishable from the real thing.
+pub fn section(body: []const u8, heading: []const u8) ?[]const u8 {
+    var buf: [128]u8 = undefined;
+    const marker = std.fmt.bufPrint(&buf, "## {s}", .{heading}) catch return null;
+
+    var offset: usize = 0;
+    var content_start: ?usize = null;
+    var lines = std.mem.splitScalar(u8, body, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trimEnd(u8, raw, "\r");
+        if (content_start) |start| {
+            if (std.mem.startsWith(u8, line, "## ") or std.mem.eql(u8, line, node.generated_end))
+                return body[start..offset];
+        } else if (std.mem.eql(u8, line, marker)) {
+            content_start = offset + raw.len + 1;
+        }
+        offset += raw.len + 1;
+    }
+    return if (content_start) |start| body[@min(start, body.len)..body.len] else null;
+}
+
 /// Every `<!-- <keyword>: … -->` in `body`, in order. `grounded_in` is repeatable.
 pub fn directives(body: []const u8, keyword: []const u8) DirectiveIterator {
     return .{ .body = body, .at = 0, .keyword = keyword };
@@ -486,6 +517,55 @@ test "a directive is found whole, so the caller can match its line again" {
 test "a comment that is not a directive is prose" {
     try testing.expectEqual(@as(?[]const u8, null), findDirective("<!-- cruxes are nice -->", kind_crux));
     try testing.expectEqual(@as(?[]const u8, null), findDirective("<!-- TODO -->", kind_crux));
+}
+
+test "section slices the text under a heading, stopping at the next ## or the generated-region end" {
+    const body = "# Title\n## Summary\nprose\n## Crux\n<!-- crux: src/a.java 10-12 -->\n## Links\n- uses [[X]]\n";
+    try testing.expectEqualStrings("<!-- crux: src/a.java 10-12 -->\n", section(body, "Crux").?);
+
+    const at_body_start = "## Crux\n<!-- crux: none -->\n## Notes\n";
+    try testing.expectEqualStrings("<!-- crux: none -->\n", section(at_body_start, "Crux").?);
+
+    const to_generated_end = "## Crux\n<!-- crux: none -->\n" ++ node.generated_end ++ "\n\n## Notes\nhand written\n";
+    try testing.expectEqualStrings("<!-- crux: none -->\n", section(to_generated_end, "Crux").?);
+
+    const last_heading_no_trailing_content = "## Summary\nprose\n## Crux";
+    try testing.expectEqualStrings("", section(last_heading_no_trailing_content, "Crux").?);
+}
+
+test "section returns null for a missing heading, and does not prefix-match a longer one" {
+    try testing.expectEqual(@as(?[]const u8, null), section("## Summary\nprose\n", "Crux"));
+    // "## Cruxes and caveats" is not "## Crux" -- a real heading elsewhere
+    // must never be mistaken for the one being searched for.
+    try testing.expectEqual(
+        @as(?[]const u8, null),
+        section("## Cruxes and caveats\nprose\n", "Crux"),
+    );
+}
+
+test "a quoted directive outside ## Crux is not found once the search is scoped" {
+    // The exact shape of the original bug report: a node whose ## Summary
+    // quotes the directive syntax as a literal example, with the real
+    // directive further down under ## Crux. A whole-body findDirective
+    // would match the quoted one first; scoping to the Crux section first
+    // means it never sees it.
+    const body =
+        "## Summary\n" ++
+        "A crux directive looks like `<!-- crux: path/to/file.ext 10-20 -->` in prose.\n" ++
+        "## Crux\n" ++
+        "<!-- crux: src/real.zig 5-8 -->\n" ++
+        "## Notes\n";
+    const crux_section = section(body, "Crux").?;
+    try testing.expectEqualStrings(
+        "<!-- crux: src/real.zig 5-8 -->",
+        findDirective(crux_section, kind_crux).?,
+    );
+    // The whole-body scan, unscoped, still finds the quoted one first --
+    // confirming this test would have caught the original bug.
+    try testing.expectEqualStrings(
+        "<!-- crux: path/to/file.ext 10-20 -->",
+        findDirective(body, kind_crux).?,
+    );
 }
 
 test "a span parses, with L prefixes tolerated on either bound" {

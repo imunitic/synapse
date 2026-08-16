@@ -536,6 +536,23 @@ make_crux_repo() {
   grep -qxF 'let line11 = 11' "$(node_file Recorded)"
 }
 
+@test "crux: a directive quoted as a prose example elsewhere is not mistaken for the real one" {
+  # The original bug report, reproduced at the command level: a node
+  # describing directive syntax itself (as a node about Synapse's own
+  # conventions naturally does) quotes the literal <!-- crux: ... --> form
+  # as an example inside ## Summary. Before this was scoped to ## Crux,
+  # that quoted example was found first and its bogus path/range refused
+  # the whole write.
+  make_crux_repo
+  printf '## Summary\nA crux directive looks like `<!-- crux: path/to/file.ext 1-99999 -->` in prose.\n\n## Crux\n<!-- crux: lib/calc.ml 5-7 -->\n' > "$BODY"
+
+  run run_write --title "QuotedExample" --paths "$PATHS" --body "$BODY"
+  [ "$status" -eq 0 ]
+  local f; f="$(node_file QuotedExample)"
+  grep -qxF 'let line05 = 5' "$f"
+  grep -qF '— `lib/calc.ml`:5-7' "$f"
+}
+
 @test "crux: 'none' is an honest answer, not a missing field" {
   make_crux_repo
   printf '## Summary\nA node.\n\n## Crux\n<!-- crux: none -->\n' > "$BODY"
