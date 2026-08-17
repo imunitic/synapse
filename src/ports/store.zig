@@ -33,6 +33,11 @@ pub const Store = struct {
             body: []const u8,
         ) anyerror!void,
 
+        /// Caller-owned: free the outer slice and every name in it. A
+        /// directory-backed implementation can only hand back names that
+        /// outlive its own iterator by copying them -- the contract has to
+        /// hold for every implementation, not just the ones for which it'd
+        /// be free.
         list: *const fn (
             ptr: *anyopaque,
             gpa: std.mem.Allocator,

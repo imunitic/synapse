@@ -21,6 +21,9 @@ pub const obsidian = @import("obsidian/store.zig");
 /// constructs and uses this directly, not just tests it.
 pub const bard_frontmatter = @import("bard/frontmatter.zig");
 
+/// `_bard/graph/`'s `Store` -- plain files, no daemon, no network.
+pub const bard_graph_store = @import("bard/graph_store.zig");
+
 test {
     std.testing.refAllDecls(@This());
     _ = process;
@@ -28,6 +31,7 @@ test {
     _ = fakes;
     _ = obsidian;
     _ = bard_frontmatter;
+    _ = bard_graph_store;
     // Not `pub`: a conformance check on the port, compiled for tests only.
     _ = @import("frontmatter_conformance.zig");
 }
