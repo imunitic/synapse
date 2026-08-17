@@ -12,6 +12,9 @@
 //!   synapse-bard fields --template <name>      same, by template name directly
 //!   synapse-bard search <query>                full-text
 //!   synapse-bard search --field <key>:<value>  structured filter
+//!   synapse-bard vault-search <query>          full-text over _bard/vault/,
+//!                                               ranked by backlink count
+//!   synapse-bard vault-links <note>            every note linking to <note>
 //!
 //! `_bard/graph/` holds one node per *cluster* (a source folder), not one
 //! per entity (`synapse-bard-005`) -- `sync` groups entities by folder,
@@ -19,9 +22,12 @@
 //! manifest to the real source file rather than reading a per-entity node
 //! directly. See `src/adapters/bard/cluster.zig`.
 //!
-//! No `_bard/vault/` subcommands yet -- the skill layer (`synapse-bard-001`
-//! step 7) reads/writes it directly with Read/Write/Edit/Glob/Grep, and
-//! nothing has needed a CLI door onto it the way the graph side did.
+//! `vault-search`/`vault-links` are the only `_bard/vault/` subcommands --
+//! the skill layer (`synapse-bard-001` step 7) still reads/writes notes
+//! directly with Read/Write/Edit/Glob/Grep for everything else, but Grep
+//! has no notion of `BardVaultStore`'s wikilink-resolution rules (filename
+//! stem, `|alias` handling, no self-backlink) or its backlink ranking,
+//! which is what these two exist to reach.
 
 const std = @import("std");
 const sync_cmd = @import("sync_cmd.zig");
@@ -29,6 +35,8 @@ const query_cmd = @import("query_cmd.zig");
 const field_cmd = @import("field_cmd.zig");
 const fields_cmd = @import("fields_cmd.zig");
 const search_cmd = @import("search_cmd.zig");
+const vault_search_cmd = @import("vault_search_cmd.zig");
+const vault_links_cmd = @import("vault_links_cmd.zig");
 
 const usage =
     \\usage: synapse-bard <command>
@@ -42,8 +50,12 @@ const usage =
     \\                                know which `field` calls are worth
     \\                                making instead of guessing
     \\  fields --template <name>      same, by template name directly
-    \\  search <query>                full-text
+    \\  search <query>                full-text over _bard/graph/
     \\  search --field <key>:<value>  structured filter across the graph
+    \\  vault-search <query>          full-text over _bard/vault/, ranked
+    \\                                by backlink count
+    \\  vault-links <note>            every note in _bard/vault/ linking to
+    \\                                <note>
     \\
 ;
 
@@ -73,6 +85,10 @@ pub fn main(init: std.process.Init) !u8 {
         return fields_cmd.run(gpa, io, &args);
     } else if (std.mem.eql(u8, which, "search")) {
         return search_cmd.run(gpa, io, &args);
+    } else if (std.mem.eql(u8, which, "vault-search")) {
+        return vault_search_cmd.run(gpa, io, &args);
+    } else if (std.mem.eql(u8, which, "vault-links")) {
+        return vault_links_cmd.run(gpa, io, &args);
     } else {
         std.debug.print("synapse-bard: unknown command '{s}'\n{s}", .{ which, usage });
         return 2;

@@ -17,9 +17,20 @@ repo, are the whole interface. This is the entire point of a repo-local vault �
 whether you're in an interactive session or the Android app's default cloud session, which can never
 reach a service running on the author's own machine.
 
-There is no ranked, backlink-scored search here yet — that's a `synapse-bard` CLI capability
-(`BardVaultStore.search`) that exists in the codebase but has no command surface pointed at it yet.
-`Grep` is what you have today: full-text, unranked, and that's fine at this vault's scale.
+**Prefer `synapse-bard vault-search <query>` over `Grep` when you're looking for the most relevant
+note, not just any match.** It's the same full-text substring search, but ranked by each matching
+note's backlink count — the vault's most-referenced note on a topic surfaces first, which a raw
+`Grep` has no way to do (it can only report matches in whatever order the filesystem hands them
+back). `Grep` still has its place for anything positional or regex-shaped `vault-search` doesn't
+cover; reach for `vault-search` first when what you actually want is "the note this vault treats
+as central to X."
+
+**Prefer `synapse-bard vault-links <note>` over `Grep` when the question is "which notes link
+here."** `Grep -r "\[\[note-name"` finds only the literal string, so it misses a `[[note-name|some
+other alias]]` link and can't tell a real link from an incidental substring match. `vault-links`
+resolves the same way Obsidian itself does — filename stem, `.md` suffix optional, alias-aware, no
+self-backlink — and takes either a full vault-relative path or just the stem, same as a
+`[[wikilink]]` target would.
 
 **The Bible-graph side (`_bard/graph/`) is different: `synapse-bard` has a real CLI for it
 (`synapse-bard-002`).** Anything about a character's established relationships, appearance, voice, or

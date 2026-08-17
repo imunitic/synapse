@@ -30,10 +30,10 @@
 //! What's actually reusable is smaller than either: "every `[[target]]` in
 //! some text, target before any `|`" -- the same primitive
 //! `bard/frontmatter.zig`'s `scanValue` already has, just over prose instead
-//! of a YAML scalar. `backlinkCounts` below is that primitive, plus
-//! Obsidian's own resolution rule (a wikilink resolves by filename stem,
-//! not by vault path -- `core/emit.zig`'s own doc comment says the same for
-//! the coding vault).
+//! of a YAML scalar. `backlinks` below is that primitive, plus Obsidian's
+//! own resolution rule (a wikilink resolves by filename stem, not by vault
+//! path -- `core/emit.zig`'s own doc comment says the same for the coding
+//! vault).
 
 const std = @import("std");
 const ports = @import("ports");
@@ -130,8 +130,12 @@ pub const BardVaultStore = struct {
             gpa.free(names);
         }
 
-        var counts = try backlinkCounts(gpa, io, self.root, names);
-        defer counts.deinit(gpa);
+        var links = try backlinks(gpa, io, self.root, names);
+        defer {
+            var it = links.valueIterator();
+            while (it.next()) |v| v.deinit(gpa);
+            links.deinit(gpa);
+        }
 
         var out: std.ArrayListUnmanaged(Store.Hit) = .empty;
         errdefer {
@@ -146,9 +150,10 @@ pub const BardVaultStore = struct {
             const body = (try read(ptr, gpa, io, name)) orelse continue;
             defer gpa.free(body);
             if (std.mem.indexOf(u8, body, query) == null) continue;
+            const count = if (links.get(name)) |l| l.items.len else 0;
             try out.append(gpa, .{
                 .node = try gpa.dupe(u8, name),
-                .score = @floatFromInt(counts.get(name) orelse 0),
+                .score = @floatFromInt(count),
                 .context = try gpa.dupe(u8, firstMatchingLine(body, query) orelse ""),
             });
         }
@@ -156,7 +161,52 @@ pub const BardVaultStore = struct {
         std.mem.sort(Store.Hit, out.items, {}, hitRank);
         return out.toOwnedSlice(gpa);
     }
+
+    /// Every note that links to `target`, resolved the same way a wikilink
+    /// itself resolves (by filename stem, `.md` suffix optional, so
+    /// `"Bible-graph"` and `"Bible-graph.md"` and a full vault-relative path
+    /// all find the same note). `null` when `target` itself doesn't resolve
+    /// to any note in the vault -- distinguishes "this note has no
+    /// backlinks" (a real, empty answer) from "no note by this name
+    /// exists" (the caller's own mistake to report differently). Not on
+    /// `ports.Store` -- same reasoning `BardGraphStore.searchText`/`delete`
+    /// already established: a capability the shared interface doesn't need,
+    /// added to the concrete type instead. Caller-owned: free every string
+    /// in the returned slice, then the slice itself.
+    pub fn linkingNotes(self: *BardVaultStore, gpa: Allocator, io: Io, target: []const u8) !?[]const []const u8 {
+        const names = try list(self, gpa, io);
+        defer {
+            for (names) |n| gpa.free(n);
+            gpa.free(names);
+        }
+
+        var by_stem: std.StringHashMapUnmanaged([]const u8) = .empty;
+        defer by_stem.deinit(gpa);
+        for (names) |n| try by_stem.put(gpa, stemOf(n), n);
+        const resolved = by_stem.get(stemOf(target)) orelse return null;
+
+        var links = try backlinks(gpa, io, self.root, names);
+        defer {
+            var it = links.valueIterator();
+            while (it.next()) |v| v.deinit(gpa);
+            links.deinit(gpa);
+        }
+
+        // A real, gpa-allocated empty slice when `resolved` has no
+        // backlinks -- not a literal `&.{}`, which isn't allocator-owned
+        // memory and would crash the caller's unconditional `gpa.free()`.
+        const source_names = if (links.get(resolved)) |l| l.items else &.{};
+        var out = try gpa.alloc([]const u8, source_names.len);
+        errdefer gpa.free(out);
+        for (source_names, 0..) |n, i| out[i] = try gpa.dupe(u8, n);
+        std.mem.sort([]const u8, out, {}, lessThan);
+        return out;
+    }
 };
+
+fn lessThan(_: void, a: []const u8, b: []const u8) bool {
+    return std.mem.order(u8, a, b) == .lt;
+}
 
 fn hitRank(_: void, a: Store.Hit, b: Store.Hit) bool {
     if (a.score != b.score) return a.score > b.score;
@@ -171,17 +221,18 @@ fn firstMatchingLine(body: []const u8, query: []const u8) ?[]const u8 {
     return null;
 }
 
-/// How many distinct notes link to each note in `names` -- a note that
-/// links to the same target three times still counts once, matching what
+/// Every note in `names` that links to each note in `names` -- a note that
+/// links to the same target three times contributes once, matching what
 /// "backlinks" means in Obsidian's own panel (linking notes, not raw
-/// occurrences). Keys borrow `names`' own strings; the map itself is the
-/// only thing the caller frees.
-fn backlinkCounts(
+/// occurrences). Both keys and the source names in each value list borrow
+/// `names`' own strings; the caller frees each value's `ArrayListUnmanaged`
+/// before deiniting the outer map.
+fn backlinks(
     gpa: Allocator,
     io: Io,
     root: []const u8,
     names: []const []const u8,
-) !std.StringHashMapUnmanaged(usize) {
+) !std.StringHashMapUnmanaged(std.ArrayListUnmanaged([]const u8)) {
     // A wikilink resolves by filename stem, not by vault path -- Obsidian's
     // own rule, and the one this codebase's coding-vault side already
     // documents (`core/emit.zig`).
@@ -189,8 +240,12 @@ fn backlinkCounts(
     defer by_stem.deinit(gpa);
     for (names) |n| try by_stem.put(gpa, stemOf(n), n);
 
-    var counts: std.StringHashMapUnmanaged(usize) = .empty;
-    errdefer counts.deinit(gpa);
+    var out: std.StringHashMapUnmanaged(std.ArrayListUnmanaged([]const u8)) = .empty;
+    errdefer {
+        var it = out.valueIterator();
+        while (it.next()) |v| v.deinit(gpa);
+        out.deinit(gpa);
+    }
 
     for (names) |from| {
         const path = try std.fs.path.join(gpa, &.{ root, from });
@@ -199,7 +254,7 @@ fn backlinkCounts(
         defer gpa.free(body);
 
         // Per-source dedup: this note's own multiple links to the same
-        // target must not inflate that target's count past 1 for this from.
+        // target must not list `from` more than once against that target.
         var seen: std.StringHashMapUnmanaged(void) = .empty;
         defer seen.deinit(gpa);
 
@@ -218,12 +273,12 @@ fn backlinkCounts(
             if (seen.contains(resolved)) continue;
             try seen.put(gpa, resolved, {});
 
-            const slot = try counts.getOrPut(gpa, resolved);
-            if (!slot.found_existing) slot.value_ptr.* = 0;
-            slot.value_ptr.* += 1;
+            const slot = try out.getOrPut(gpa, resolved);
+            if (!slot.found_existing) slot.value_ptr.* = .empty;
+            try slot.value_ptr.append(gpa, from);
         }
     }
-    return counts;
+    return out;
 }
 
 /// The filename stem a wikilink resolves against: the last path segment,
@@ -340,6 +395,83 @@ test "search ranks matching notes by backlink count, most-linked first" {
     try testing.expectEqual(@as(f32, 2.0), hits[0].score); // a.md and b.md, deduped within b.md
     try testing.expectEqualStrings("lonely.md", hits[1].node);
     try testing.expectEqual(@as(f32, 0.0), hits[1].score);
+}
+
+fn freeLinkingNotes(gpa: Allocator, notes: []const []const u8) void {
+    for (notes) |n| gpa.free(n);
+    gpa.free(notes);
+}
+
+test "linkingNotes lists every note that links to the target, resolved by stem" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try vaultRoot(gpa, &tmp);
+    defer gpa.free(root);
+
+    var s = try BardVaultStore.init(gpa, root);
+    defer s.deinit();
+    const port = s.store();
+
+    try port.write(testing.io, "designs/target.md", "# Target\n");
+    try port.write(testing.io, "a.md", "links to [[target]]\n");
+    try port.write(testing.io, "b.md", "links to [[target|Target Note]]\n");
+    try port.write(testing.io, "c.md", "no link here\n");
+
+    // Both a full path and a bare stem resolve to the same note.
+    const by_stem = (try s.linkingNotes(gpa, testing.io, "target")).?;
+    defer freeLinkingNotes(gpa, by_stem);
+    try testing.expectEqual(@as(usize, 2), by_stem.len);
+    try testing.expectEqualStrings("a.md", by_stem[0]);
+    try testing.expectEqualStrings("b.md", by_stem[1]);
+
+    const by_path = (try s.linkingNotes(gpa, testing.io, "designs/target.md")).?;
+    defer freeLinkingNotes(gpa, by_path);
+    try testing.expectEqual(@as(usize, 2), by_path.len);
+}
+
+test "linkingNotes returns an empty (non-null) slice for a real note with no backlinks" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try vaultRoot(gpa, &tmp);
+    defer gpa.free(root);
+
+    var s = try BardVaultStore.init(gpa, root);
+    defer s.deinit();
+    try s.store().write(testing.io, "lonely.md", "# Lonely, nobody links here\n");
+
+    const notes = (try s.linkingNotes(gpa, testing.io, "lonely")).?;
+    defer freeLinkingNotes(gpa, notes);
+    try testing.expectEqual(@as(usize, 0), notes.len);
+}
+
+test "linkingNotes is null for a name that resolves to no note at all" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try vaultRoot(gpa, &tmp);
+    defer gpa.free(root);
+
+    var s = try BardVaultStore.init(gpa, root);
+    defer s.deinit();
+    try testing.expectEqual(@as(?[]const []const u8, null), try s.linkingNotes(gpa, testing.io, "nonexistent"));
+}
+
+test "linkingNotes excludes a note linking to itself, same rule search() uses" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try vaultRoot(gpa, &tmp);
+    defer gpa.free(root);
+
+    var s = try BardVaultStore.init(gpa, root);
+    defer s.deinit();
+    try s.store().write(testing.io, "self.md", "links to [[self]]\n");
+
+    const notes = (try s.linkingNotes(gpa, testing.io, "self")).?;
+    defer freeLinkingNotes(gpa, notes);
+    try testing.expectEqual(@as(usize, 0), notes.len);
 }
 
 test "a note does not count as its own backlink" {

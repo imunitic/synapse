@@ -25,8 +25,12 @@ usage: synapse-bard <command>
                                 know which `field` calls are worth
                                 making instead of guessing
   fields --template <name>      same, by template name directly
-  search <query>                full-text
+  search <query>                full-text over _bard/graph/
   search --field <key>:<value>  structured filter across the graph
+  vault-search <query>          full-text over _bard/vault/, ranked
+                                by backlink count
+  vault-links <note>            every note in _bard/vault/ linking to
+                                <note>
 ```
 
 ### synapse-bard sync
@@ -86,6 +90,27 @@ usage: synapse-bard search <query>
   --field <key>:<value>  exact match on a root-level frontmatter field
                        across every entity, e.g. --field faction:"The
                        Radiant Dominion"
+```
+
+### synapse-bard vault-search
+
+```
+usage: synapse-bard vault-search <query>
+
+  <query>  full-text substring over _bard/vault/, ranked by each
+           matching note's backlink count -- most-linked first, node
+           path ascending to break a tie
+```
+
+### synapse-bard vault-links
+
+```
+usage: synapse-bard vault-links <note>
+
+  <note>  a vault-relative path, or just its filename stem (the same
+          way a [[wikilink]] itself resolves) -- e.g. both
+          "designs/synapse-bard/Bible-graph.md" and "Bible-graph"
+          find the same note
 ```
 
 ## synapse-bard-hook
