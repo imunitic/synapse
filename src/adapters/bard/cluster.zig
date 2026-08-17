@@ -58,6 +58,56 @@ pub fn preservedTail(existing_body: []const u8) []const u8 {
     return existing_body[idx + end_marker.len ..];
 }
 
+/// The complement of `preservedTail` above -- everything up to and
+/// including the generated region's closing marker: the `title`/`sources:`
+/// frontmatter plus the fenced `## Entities` block, all of it `sync`'s own
+/// output and never hand-edited (the `sources:` list itself sits *before*
+/// the start marker, in the frontmatter, but is exactly as generated as the
+/// entity bullets below it -- both come from the same `entries` argument to
+/// `renderClusterBody`). This is what "does this cluster node still match
+/// what `sync` would produce" has to compare: never the whole file (that
+/// would count a human's own hand-added tail as drift), and never just the
+/// marked span alone (that would silently ignore a `sources:` change with
+/// no matching change to the bullet list, which can't actually happen given
+/// how `renderClusterBody` writes both, but the point is not to rely on
+/// that coincidence to stay true). No marker at all -- a legacy file
+/// written before this fencing existed, or something else entirely -- falls
+/// back to the whole body, the same "nothing to segregate" case
+/// `preservedTail` handles by returning empty.
+pub fn generatedRegion(body: []const u8) []const u8 {
+    const idx = std.mem.indexOf(u8, body, end_marker) orelse return body;
+    return body[0 .. idx + end_marker.len];
+}
+
+/// `synapse-bard-009`: is `computed` (the body a real `sync` would write
+/// for one cluster) dirty relative to `existing` (what's currently on disk,
+/// `null` if the file doesn't exist yet at all)? Compares `generatedRegion`
+/// only -- a human's own hand-added tail never counts, and a missing file
+/// always does.
+pub fn isDirty(existing: ?[]const u8, computed: []const u8) bool {
+    const want = generatedRegion(computed);
+    if (existing) |e| return !std.mem.eql(u8, generatedRegion(e), want);
+    return true;
+}
+
+/// `synapse-bard-009`: every name in `existing` (a `_bard/graph/` listing)
+/// that `planned_nodes` doesn't produce at all -- what a real sync's
+/// `reconcile` (see `sync_cmd.zig`) would delete, reported instead of
+/// deleted. Caller owns the returned slice; its strings are borrowed from
+/// `existing`, not duplicated, so they must outlive it.
+pub fn wouldRemove(gpa: Allocator, existing: []const []const u8, planned_nodes: []const []const u8) ![]const []const u8 {
+    var kept: std.StringHashMapUnmanaged(void) = .empty;
+    defer kept.deinit(gpa);
+    for (planned_nodes) |n| try kept.put(gpa, n, {});
+
+    var out: std.ArrayListUnmanaged([]const u8) = .empty;
+    errdefer out.deinit(gpa);
+    for (existing) |n| {
+        if (!kept.contains(n)) try out.append(gpa, n);
+    }
+    return out.toOwnedSlice(gpa);
+}
+
 /// Renders one cluster node's full file content: frontmatter (`title` +
 /// `sources:`), then the fenced generated region (`## Entities`, one
 /// wikilinked bullet per member), then whatever human-authored `tail`
@@ -273,6 +323,77 @@ test "preservedTail returns everything after the generated region's end marker" 
 
 test "preservedTail is empty when there's no end marker at all" {
     try testing.expectEqualStrings("", preservedTail("---\ntitle: \"X\"\n---\n"));
+}
+
+test "generatedRegion is preservedTail's complement -- the two always reassemble the whole body" {
+    const body = "---\ntitle: \"X\"\nsources:\n---\n\n<!-- synapse:generated:start -->\n## Entities\n<!-- synapse:generated:end -->\n\n## Notes\nHand-written.\n";
+    const gen = generatedRegion(body);
+    const tail = preservedTail(body);
+    try testing.expectEqualStrings("---\ntitle: \"X\"\nsources:\n---\n\n<!-- synapse:generated:start -->\n## Entities\n<!-- synapse:generated:end -->\n", gen);
+    try testing.expectEqualStrings("\n## Notes\nHand-written.\n", tail);
+    try testing.expectEqual(body.len, gen.len + tail.len);
+}
+
+test "generatedRegion falls back to the whole body when there's no end marker at all" {
+    const body = "---\ntitle: \"X\"\n---\n";
+    try testing.expectEqualStrings(body, generatedRegion(body));
+}
+
+test "isDirty is true when there's no existing file at all -- a cluster that would be newly created" {
+    const gpa = testing.allocator;
+    const entries = [_]WriteEntry{.{ .slug = "a", .path = "a.md", .name = "A" }};
+    const computed = try renderClusterBody(gpa, "A", &entries, "");
+    defer gpa.free(computed);
+    try testing.expect(isDirty(null, computed));
+}
+
+test "isDirty is false when the existing file's generated region already matches" {
+    const gpa = testing.allocator;
+    const entries = [_]WriteEntry{.{ .slug = "a", .path = "a.md", .name = "A" }};
+    const computed = try renderClusterBody(gpa, "A", &entries, "");
+    defer gpa.free(computed);
+    try testing.expect(!isDirty(computed, computed));
+}
+
+test "isDirty is true when the generated region differs (a member's slug/path changed)" {
+    const gpa = testing.allocator;
+    const old_entries = [_]WriteEntry{.{ .slug = "a", .path = "a.md", .name = "A" }};
+    const old_body = try renderClusterBody(gpa, "A", &old_entries, "");
+    defer gpa.free(old_body);
+    const new_entries = [_]WriteEntry{.{ .slug = "a", .path = "a-renamed.md", .name = "A" }};
+    const new_body = try renderClusterBody(gpa, "A", &new_entries, "");
+    defer gpa.free(new_body);
+    try testing.expect(isDirty(old_body, new_body));
+}
+
+test "isDirty is false when only the human-owned tail differs -- that never counts as drift" {
+    const gpa = testing.allocator;
+    const entries = [_]WriteEntry{.{ .slug = "a", .path = "a.md", .name = "A" }};
+    const no_tail = try renderClusterBody(gpa, "A", &entries, "");
+    defer gpa.free(no_tail);
+    const with_tail = try renderClusterBody(gpa, "A", &entries, "\n## Notes\nHand-written.\n");
+    defer gpa.free(with_tail);
+    // A whole-file comparison would call these different; isDirty must not.
+    try testing.expect(!isDirty(with_tail, no_tail));
+}
+
+test "wouldRemove lists only existing nodes absent from the planned set" {
+    const gpa = testing.allocator;
+    const existing = [_][]const u8{ "A.md", "B.md", "C.md" };
+    const planned = [_][]const u8{ "A.md", "C.md" };
+    const removed = try wouldRemove(gpa, &existing, &planned);
+    defer gpa.free(removed);
+    try testing.expectEqual(@as(usize, 1), removed.len);
+    try testing.expectEqualStrings("B.md", removed[0]);
+}
+
+test "wouldRemove is empty when the planned set covers everything that exists" {
+    const gpa = testing.allocator;
+    const existing = [_][]const u8{"A.md"};
+    const planned = [_][]const u8{"A.md"};
+    const removed = try wouldRemove(gpa, &existing, &planned);
+    defer gpa.free(removed);
+    try testing.expectEqual(@as(usize, 0), removed.len);
 }
 
 test "a re-render with a non-empty tail preserves it verbatim after the marker" {

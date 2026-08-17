@@ -33,6 +33,12 @@ pub const bard_cluster = @import("bard/cluster.zig");
 /// ranked search.
 pub const bard_vault_store = @import("bard/vault_store.zig");
 
+/// `synapse-bard-009`: the clustering/extraction plan `sync` computes,
+/// factored out here so `synapse-bard-hook`'s `SessionStart` can compute
+/// the same plan in-process for drift detection, without shelling out to
+/// the `synapse-bard` binary.
+pub const bard_sync_plan = @import("bard/sync_plan.zig");
+
 test {
     std.testing.refAllDecls(@This());
     _ = process;
@@ -43,6 +49,7 @@ test {
     _ = bard_graph_store;
     _ = bard_cluster;
     _ = bard_vault_store;
+    _ = bard_sync_plan;
     // Not `pub`: a conformance check on the port, compiled for tests only.
     _ = @import("frontmatter_conformance.zig");
 }

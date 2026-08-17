@@ -37,6 +37,7 @@ usage: synapse-bard <command>
 
 ```
 usage: synapse-bard sync
+       synapse-bard sync --check
 
 Walks the bible repo for entity files (any path with a `_`- or
 `.`-prefixed folder is excluded), groups them into clusters -- the
@@ -45,6 +46,10 @@ directly contains a `.md` file -- and writes one
 _bard/graph/{Cluster Title}.md per cluster, carrying a `sources:`
 manifest of its member entities. Always a full re-ingest; stale
 cluster nodes for folders no longer producing any entity are removed.
+
+  --check    report whether _bard/graph/ matches what a real run
+             would produce, without writing anything. Exit 0 if it
+             already matches, exit 1 if it doesn't.
 ```
 
 ### synapse-bard query
