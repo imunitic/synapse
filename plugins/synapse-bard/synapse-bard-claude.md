@@ -5,7 +5,7 @@ outlive a session — plain markdown files, git-tracked, in this repo. A `Sessio
 injects the vault's `Index.md` at the start of every session, so you shouldn't need to go read it
 yourself. Don't re-read it reflexively, but do treat its injected contents as live information, not
 background flavor. If the hook instead reports that the vault has no `Index.md` yet, offer to seed
-it from the shipped default (`Index.md.template` in the `synapse-bard` plugin) before creating or
+it from the shipped default (`${CLAUDE_PLUGIN_ROOT}/Index.md.template`) before creating or
 linking any note in this session — never copy it yourself without asking; seeding the vault's
 foundational bootstrap file warrants a confirmation step the way an ordinary note-write doesn't.
 

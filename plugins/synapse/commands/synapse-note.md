@@ -111,7 +111,7 @@ destination — see `synapse-claude.md`'s Folders bullet) is a candidate
 category, offered with that folder's own `Index.md` description as the
 option's description. Don't hardcode a fixed option set: a fresh vault's
 `Index.md` lists `research`/`scratchpad`/`inbox` (see
-`claude/Index.md.template`), but a vault owner's own `Index.md` may have
+`${CLAUDE_PLUGIN_ROOT}/Index.md.template`), but a vault owner's own `Index.md` may have
 renamed or restructured these, and whatever it currently says is what gets
 offered.
 

@@ -59,7 +59,7 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
         index_text = try std.fmt.allocPrint(
             gpa,
             "No Writer's notes vault index found at {s} -- offer to seed it from the shipped default ({s}) before creating or linking any note.",
-            .{ index_path, template_path orelse "synapse-bard/Index.md.template in the synapse repo" },
+            .{ index_path, template_path orelse "this plugin's own Index.md.template" },
         );
     }
     defer gpa.free(index_text);
