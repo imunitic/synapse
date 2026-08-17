@@ -437,9 +437,26 @@ fn pluginVersionDir(ctx: *Ctx) !?[]const u8 {
     const cache = try ctx.fmt("{s}/.claude/plugins/cache/synapse/synapse", .{home});
     var dir = Io.Dir.cwd().openDir(ctx.io, cache, .{ .iterate = true }) catch return null;
     defer dir.close(ctx.io);
+
+    // Real version directories only -- a plain OS-dropped file in this
+    // directory (macOS's own .DS_Store, seen live: Finder had been opened
+    // to this exact path) is not one, and taking whatever entry.next()
+    // happens to hand back first, unfiltered, was exactly the bug that
+    // let it through. Picks the lexicographically greatest name (a
+    // YYYY-MM_N version string sorts newest-last) rather than the first
+    // one iterated, in case more than one version directory ever coexists
+    // mid-update -- iteration order itself is never guaranteed.
+    var best: ?[]const u8 = null;
     var it = dir.iterate();
-    const entry = (try it.next(ctx.io)) orelse return null;
-    return try ctx.fmt("{s}/{s}", .{ cache, entry.name });
+    while (try it.next(ctx.io)) |entry| {
+        if (entry.kind != .directory) continue;
+        if (entry.name.len == 0 or entry.name[0] == '.') continue;
+        if (best == null or std.mem.order(u8, entry.name, best.?) == .gt) {
+            best = try ctx.fmt("{s}", .{entry.name});
+        }
+    }
+    const name = best orelse return null;
+    return try ctx.fmt("{s}/{s}", .{ cache, name });
 }
 
 /// Whether the five hooks are registered, once each, at the current command. Mirrors

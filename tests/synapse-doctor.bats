@@ -195,6 +195,25 @@ EOF
   [[ "$output" != *"hook binary"* ]]
 }
 
+@test "a stray file in the plugin cache dir (macOS .DS_Store, seen live) is never mistaken for the version dir" {
+  # Caught live on a real machine: Finder had been opened to this exact
+  # path, dropping a .DS_Store file there, and pluginVersionDir() took
+  # whatever directory-iteration order handed it first -- the file, not
+  # the real version directory -- reporting a false "hooks.json is
+  # missing" failure against a perfectly healthy install.
+  make_repo
+  cache_dir="$HOME/.claude/plugins/cache/synapse/synapse"
+  mkdir -p "$cache_dir"
+  touch "$cache_dir/.DS_Store"
+  version_dir="$cache_dir/2026-08_9"
+  mkdir -p "$version_dir/hooks"
+  touch "$version_dir/hooks/hooks.json"
+
+  run run_doctor
+  [[ "$output" == *"ok    hooks"*"2026-08_9"* ]]
+  [[ "$output" != *"FAIL  hooks"* ]]
+}
+
 @test "a plugin install missing hooks.json is a failure that names the version dir" {
   make_repo
   version_dir="$HOME/.claude/plugins/cache/synapse/synapse/2026-08-1"

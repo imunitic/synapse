@@ -33,23 +33,32 @@ jobs:
       # minimum_zig_version, same reasoning as tests.yml.
       - uses: mlugg/setup-zig@v2
 
-      # $(date +%Y-%m)_N, N = how many releases this month already have,
-      # plus one. Mechanical, not a judgment call -- see the file header.
+      # $(date +%Y-%m)_N, N = the highest N already used this month, plus
+      # one. Mechanical, not a judgment call -- see the file header.
       # Underscore before N, not a third hyphen: YYYY-MM-N reads as a
-      # truncated date at a glance, YYYY-MM_N doesn't. The count matches on
-      # the bare month prefix (no trailing separator), so it still counts
-      # earlier hyphen-separated tags from before this format existed --
-      # the sequence stays continuous across the switch, only the
-      # separator changes.
+      # truncated date at a glance, YYYY-MM_N doesn't.
+      #
+      # The highest N, not a count of currently-existing releases -- a
+      # count silently goes backwards the moment any release from this
+      # month is ever deleted (confirmed live: deleting 2026-08-1 through
+      # -8 and keeping only 2026-08_9 made the *next* push compute
+      # 2026-08_2, because only one release existed to count). Taking the
+      # max instead is monotonic regardless of what got deleted in
+      # between. Matches both separators so it still sees earlier
+      # hyphen-separated tags from before this format existed.
       - name: Compute the release tag
         id: tag
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           prefix="$(date +%Y-%m)"
-          n=$(gh release list --repo "$GITHUB_REPOSITORY" --json tagName -q '.[].tagName' \
-            | grep -c "^${prefix}" || true)
-          echo "tag=${prefix}_$((n + 1))" >> "$GITHUB_OUTPUT"
+          max=0
+          while read -r n; do
+            case "$n" in '' | *[!0-9]*) continue ;; esac
+            [ "$n" -gt "$max" ] && max="$n"
+          done < <(gh release list --repo "$GITHUB_REPOSITORY" --json tagName -q '.[].tagName' \
+            | sed -nE "s/^${prefix}[_-]([0-9]+)\$/\1/p")
+          echo "tag=${prefix}_$((max + 1))" >> "$GITHUB_OUTPUT"
 
       # The one place plugin.json's version is ever written. Never by hand --
       # see the design note for why a version that stops changing silently
