@@ -6,8 +6,8 @@
 // The one rule: `core` imports `ports`, and nothing else. It never imports an
 // adapter, so a dependency pointing the wrong way fails to compile rather than
 // surviving until someone notices it in review. Per-app dependency sets fall
-// out of the same mechanism -- a future `bard` executable simply never lists
-// the tree-sitter adapter, so no libtree-sitter and no C compiler enter its
+// out of the same mechanism -- `synapse-bard` simply never lists the
+// tree-sitter adapter, so no libtree-sitter and no C compiler enter its
 // build at all.
 //
 // `std.Io` is the system boundary rather than a bespoke Fs/Clock/Http trio, so
@@ -106,10 +106,10 @@ pub fn build(b: *std.Build) void {
 
     // The tree-sitter Extractor is its own module, not part of `adapters`, and
     // that separation is the per-app dependency set made real: `synapse` lists
-    // it, a future `bard` does not, and so bard's build contains no
-    // libtree-sitter and needs no C toolchain. Folding it into `adapters`
-    // -- which bard does need, for the process helper -- would quietly hand
-    // bard the C dependency it was designed to avoid.
+    // it, `synapse-bard` does not, so bard's build contains no libtree-sitter
+    // and needs no C toolchain. Folding it into `adapters` -- which bard does
+    // need, for the process helper -- would quietly hand bard the C
+    // dependency it was designed to avoid.
     const treesitter = b.addModule("treesitter", .{
         .root_source_file = b.path("src/adapters/treesitter/root.zig"),
         .target = target,
@@ -162,6 +162,47 @@ pub fn build(b: *std.Build) void {
         }),
     });
     b.installArtifact(hook);
+
+    // synapse-bard: the Bible-graph and Writer's notes vault binary for a
+    // YAML-templated fiction bible. Imports no `treesitter` -- it parses YAML
+    // frontmatter only, never tree-sitter's grammars -- so it carries no
+    // libtree-sitter and needs no C compiler, the same per-app dependency-set
+    // discipline `hook` above already follows. See the compiled task note
+    // `synapse-bard-001` for the full build-out; this target and its
+    // placeholder `main.zig` are step one.
+    const bard = b.addExecutable(.{
+        .name = "synapse-bard",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/apps/bard/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "core", .module = core },
+                .{ .name = "ports", .module = ports },
+                .{ .name = "adapters", .module = adapters },
+                .{ .name = "model", .module = model },
+            },
+        }),
+    });
+    b.installArtifact(bard);
+
+    // synapse-bard's own hooks, same relationship to synapse-bard that hook
+    // above has to synapse -- a separate binary so a hook's startup carries
+    // nothing synapse-bard's own CLI needs but a hook doesn't.
+    const bard_hook = b.addExecutable(.{
+        .name = "synapse-bard-hook",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/apps/bard_hook/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "core", .module = core },
+                .{ .name = "adapters", .module = adapters },
+                .{ .name = "model", .module = model },
+            },
+        }),
+    });
+    b.installArtifact(bard_hook);
 
     // The binary the bats suite runs: the same app with the grammar
     // compile-and-load step stubbed. Its own step rather than part of the
@@ -247,7 +288,9 @@ pub fn build(b: *std.Build) void {
     // `hook.root_module` as well as the libraries: the hooks' shared helpers carry
     // tests (the namespace agreement rule, the JSON string escaping) and an app root
     // is the only way to reach them, since an app is not a module anything imports.
-    for ([_]*std.Build.Module{ model, core, ports, adapters, treesitter, hook.root_module }) |mod| {
+    // `bard.root_module`/`bard_hook.root_module` alongside them for the same reason,
+    // once either has tests of its own to pull in -- empty today, harmless to include.
+    for ([_]*std.Build.Module{ model, core, ports, adapters, treesitter, hook.root_module, bard.root_module, bard_hook.root_module }) |mod| {
         const unit = b.addTest(.{ .root_module = mod });
         test_step.dependOn(&b.addRunArtifact(unit).step);
         test_build_step.dependOn(&unit.step);
