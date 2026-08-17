@@ -144,10 +144,12 @@ jobs:
 
       - uses: actions/configure-pages@v5
 
-      # Raw docs/*.md, uploaded as-is, isn't a browsable site -- no rendering,
-      # no landing page. docs/generate-site.sh converts every doc to real
-      # HTML via pandoc (rewriting the .md cross-links pandoc itself leaves
-      # untouched) and turns docs/README.md into index.html.
+      # Raw docs/**/*.md, uploaded as-is, isn't a browsable site -- no
+      # rendering, no landing page. docs/generate-site.sh converts every doc
+      # to real HTML via pandoc (rewriting the .md cross-links pandoc itself
+      # leaves untouched), building one section per plugin
+      # (docs/synapse/, docs/synapse-bard/) under a shared top-level landing
+      # page derived from the repo's own README.md.
       - name: Install pandoc
         run: sudo apt-get update -y && sudo apt-get install -y pandoc
 

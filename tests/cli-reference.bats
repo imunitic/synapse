@@ -1,8 +1,9 @@
 #!/usr/bin/env bats
-# Tests docs/generate-cli-reference.sh, and asserts the committed docs/cli.md is
-# current. That second assertion is the point: it turns a stale reference into a
-# failing test rather than a document that quietly describes a command as it used
-# to be.
+# Tests docs/synapse/generate-cli-reference.sh, and asserts the committed
+# docs/synapse/cli.md is current. That second assertion is the point: it turns a
+# stale reference into a failing test rather than a document that quietly
+# describes a command as it used to be. synapse-bard has its own generator
+# (docs/synapse-bard/generate-cli-reference.sh) but no test file of its own yet.
 #
 # This replaced tests/scripts-reference.bats, whose subject was a generator that
 # read the header comment of every claude/lib/synapse/*.sh. Those scripts are gone.
@@ -13,7 +14,7 @@
 
 load 'test_helper'
 
-GEN="$REPO_ROOT/docs/generate-cli-reference.sh"
+GEN="$REPO_ROOT/docs/synapse/generate-cli-reference.sh"
 
 setup() {
   common_setup
@@ -23,7 +24,7 @@ teardown() {
   common_teardown
 }
 
-@test "the committed docs/cli.md is up to date" {
+@test "the committed docs/synapse/cli.md is up to date" {
   run bash "$GEN" --check
   [ "$status" -eq 0 ]
   [[ "$output" == *"up to date"* ]]
@@ -35,7 +36,7 @@ teardown() {
   # deliberately does not have.
   local scratch="$BATS_TEST_TMPDIR/docs"
   mkdir -p "$scratch"
-  cp "$REPO_ROOT/docs/cli.md" "$scratch/cli.md"
+  cp "$REPO_ROOT/docs/synapse/cli.md" "$scratch/cli.md"
   cp "$GEN" "$scratch/generate-cli-reference.sh"
 
   # The generator finds its output beside itself, so a copy checks the copy.
@@ -51,7 +52,7 @@ teardown() {
 }
 
 @test "every subcommand contributes a section, and no fenced block is empty" {
-  local doc="$REPO_ROOT/docs/cli.md"
+  local doc="$REPO_ROOT/docs/synapse/cli.md"
   # The listing in `synapse --help` is the authority on what exists, so the two
   # cannot disagree without this failing.
   local subs
@@ -84,7 +85,7 @@ teardown() {
   # `--check` passed throughout: the committed document matched the generator byte
   # for byte. Both were wrong together, which is exactly what a test comparing them
   # to each other cannot see. This one asserts a property of the document itself.
-  local doc="$REPO_ROOT/docs/cli.md"
+  local doc="$REPO_ROOT/docs/synapse/cli.md"
 
   run grep -nE '.```|```.' "$doc"
   [ "$status" -eq 1 ]
@@ -107,7 +108,7 @@ teardown() {
   local last_line
   last_line="$(printf '%s' "$from_binary" | grep -v '^[[:space:]]*$' | tail -1)"
   [ -n "$last_line" ]
-  grep -qF "$last_line" "$REPO_ROOT/docs/cli.md"
+  grep -qF "$last_line" "$REPO_ROOT/docs/synapse/cli.md"
 }
 
 @test "a --help that needs an environment fails the generator" {

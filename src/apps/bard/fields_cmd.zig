@@ -35,6 +35,12 @@ pub fn run(gpa: Allocator, io: Io, args: *std.process.Args.Iterator) !u8 {
         std.debug.print("{s}", .{usage});
         return 2;
     };
+    // Help must not need an environment -- checked before Roots.resolve
+    // below, which requires being inside a git repo.
+    if (std.mem.eql(u8, first, "-h") or std.mem.eql(u8, first, "--help")) {
+        std.debug.print("{s}", .{usage});
+        return 0;
+    }
 
     const roots = common.Roots.resolve(gpa, io) catch {
         std.debug.print("synapse-bard: not inside a git repository\n", .{});

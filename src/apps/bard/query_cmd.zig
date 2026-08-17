@@ -30,6 +30,11 @@ pub fn run(gpa: Allocator, io: Io, args: *std.process.Args.Iterator) !u8 {
         std.debug.print("{s}", .{usage});
         return 2;
     };
+    // Help must not need an environment.
+    if (std.mem.eql(u8, node_arg, "-h") or std.mem.eql(u8, node_arg, "--help")) {
+        std.debug.print("{s}", .{usage});
+        return 0;
+    }
     var inbound = false;
     while (args.next()) |a| {
         if (std.mem.eql(u8, a, "--inbound")) {

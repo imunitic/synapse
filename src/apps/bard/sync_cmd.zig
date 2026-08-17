@@ -56,6 +56,11 @@ const Cluster = struct {
 
 pub fn run(gpa: Allocator, io: Io, args: *std.process.Args.Iterator) !u8 {
     if (args.next()) |extra| {
+        // Help must not need an environment.
+        if (std.mem.eql(u8, extra, "-h") or std.mem.eql(u8, extra, "--help")) {
+            std.debug.print("{s}", .{usage});
+            return 0;
+        }
         std.debug.print("synapse-bard sync: unexpected argument '{s}'\n{s}", .{ extra, usage });
         return 2;
     }

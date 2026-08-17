@@ -1,24 +1,25 @@
 #!/bin/bash
-# Builds the GitHub Pages docs site: converts every docs/*.md plus the repo
-# root README.md to HTML via pandoc, rewriting the internal .md links pandoc
-# itself never touches, and wraps every page in the same left-sidebar nav
-# (docs/site.css positions it; this script only emits the markup).
+# Builds the GitHub Pages docs site: converts every project's docs/*.md to
+# HTML via pandoc, rewriting the internal .md links pandoc itself never
+# touches, and wraps every page in the same left-sidebar nav (site.css
+# positions it; this script only emits the markup). Two projects now
+# (`docs/synapse/`, `docs/synapse-bard/`), each rendered into its own
+# subdirectory of the output with its own sidebar, plus one top-level
+# landing page linking into both.
 #
 #   docs/generate-site.sh <output-dir>
 #
-# index.html is a build-time-only merge, not a copy of either source file
-# verbatim: the repo's own README.md and docs/README.md serve their own
-# separate readers (a GitHub visitor skimming the repo; someone already
-# committed to reading the docs) and stay exactly as they are -- this
-# script only assembles what a *docs-site* landing page needs from each:
-# README.md's intro pitch plus its "New machine setup" install
-# instructions, followed by docs/README.md's own list of components and
-# their doc links. Nothing here writes back to either source file.
+# index.html is a build-time-only merge, not a copy of any source file
+# verbatim: the repo's own README.md stays exactly as it is (a GitHub
+# visitor's entry point) -- this script only pulls its intro pitch plus
+# "New machine setup" into the site's own landing page, followed by a short,
+# generated-here list of the two projects' doc sections. Nothing writes back
+# to README.md.
 #
-# Not covered by `just docs-check`, unlike cli.md/the diagrams: those are
-# generated *and committed*, so staleness is a real drift to catch. This
-# script's output is never committed -- it's built fresh in CI and deployed
-# directly -- so there is nothing checked-in to compare against.
+# Not covered by `just docs-check`, unlike each project's own cli.md/rendered
+# diagrams: those are generated *and committed*, so staleness is a real drift
+# to catch. This script's output is never committed -- built fresh in CI and
+# deployed directly -- so there is nothing checked-in to compare against.
 set -euo pipefail
 
 out="${1:?usage: generate-site.sh <output-dir>}"
@@ -28,7 +29,6 @@ root="$(cd "$here/.." && pwd)"
 command -v pandoc >/dev/null || { echo "pandoc is required" >&2; exit 1; }
 
 mkdir -p "$out"
-cp -r "$here/diagrams" "$out/diagrams"
 cp "$here/site.css" "$out/site.css"
 cp "$here/logo.svg" "$out/logo.svg"
 
@@ -39,92 +39,121 @@ trap 'rm -rf "$work"' EXIT
 # --include-in-header since -B/-A only reach <body>, not <head>.
 favicon_file="$work/favicon.html"
 printf '<link rel="icon" href="logo.svg" type="image/svg+xml">' > "$favicon_file"
+favicon_file_nested="$work/favicon-nested.html"
+printf '<link rel="icon" href="../logo.svg" type="image/svg+xml">' > "$favicon_file_nested"
 
-# README.md from the start through the end of "## New machine setup" --
-# stops at the next ## heading ("## Synapse Vault -- the notes"), a
-# pattern match rather than a hardcoded line number so it tracks the file
-# instead of silently truncating wrong after an unrelated edit. awk, not
-# GNU-sed range syntax, since the macOS-shipped BSD sed rejects it.
-awk '/^## Synapse Vault/{exit} {print}' "$root/README.md" > "$work/home.md"
+# Renders one project's pages into "$out/$1/". `$3` is a newline-separated
+# list of "src|basename|sidebar label" triples, sidebar order -- same shape
+# generate-site.sh always used, now scoped per project instead of global.
+# Every page in a project links relative to its own directory (siblings, no
+# ../ needed) except the sidebar's own "All docs" link back up to the root.
+#
+# Takes the page list as one newline-joined string, not a bash array --
+# `local -n` namerefs need bash 4.3+, and this repo runs on the macOS-shipped
+# bash 3.2 locally (the same reason the rest of this repo's scripts stay off
+# GNU-only sed/bash features).
+render_project() { # render_project <dir> <label> <newline-joined pages>
+  local dir="$1" label="$2" pages="$3"
+  local proot="$out/$dir"
+  mkdir -p "$proot"
 
-# The whole rest of docs/README.md follows -- component-and-doc-links list,
-# the diagram walkthrough, "The three components, and why they are
-# separate", "What a session actually gets" -- its own H1 demoted to H2
-# since it is now a section of a longer page, not a page title of its own.
-{
-  echo
-  sed 's/^# Documentation/## Documentation/' "$here/README.md"
-} >> "$work/home.md"
+  local nav="<nav id=\"sidebar\"><div class=\"sidebar-title\">$label</div><ul>"
+  nav="$nav<li><a href=\"../index.html\">&larr; All docs</a></li>"
+  local p target plabel
+  while IFS='|' read -r _ target plabel; do
+    [ -n "$target" ] || continue
+    nav="$nav<li><a href=\"$target\">$plabel</a></li>"
+  done <<< "$pages"
+  nav="$nav</ul></nav><div id=\"content\">"
 
-# {source path} {output basename} {sidebar label} pairs, sidebar order.
-# "Documentation" is gone as its own entry -- docs/README.md's content now
-# lives inside Home instead of behind a separate, confusingly-named link.
-pages=(
-  "$work/home.md|index.html|Home"
-  "$here/synapse-vault.md|synapse-vault.html|Synapse Vault"
-  "$here/synapse-graph.md|synapse-graph.html|Synapse Graph"
-  "$here/design-task-workflow.md|design-task-workflow.html|Design -> Task Workflow"
-  "$here/synapse-code-cache.md|synapse-code-cache.html|Synapse Code Cache"
-  "$here/cli.md|cli.html|CLI Reference"
-  "$here/synapse-config.md|synapse-config.html|Configuration Reference"
-  "|diagrams/|Diagrams"
-)
+  local nav_file="$work/$dir-nav.html"
+  local close_file="$work/close.html"
+  printf '%s' "$nav" > "$nav_file"
+  printf '</div>' > "$close_file"
+
+  local src n=0
+  while IFS='|' read -r src target plabel; do
+    [ -n "$src" ] || continue  # a Diagrams-style entry with its own page built separately
+    [ -f "$src" ] || { echo "missing: $src" >&2; exit 1; }
+
+    # Sibling .md files (optionally #fragment) resolve to the .html this
+    # loop produces; a link to this project's own README.md means its Home.
+    sed -E \
+      -e "s/\\]\\((README\\.md|$dir\\/README\\.md)(#[a-zA-Z0-9_-]*)?\\)/](index.html\\2)/g" \
+      -e 's/\]\(([a-zA-Z0-9_-]+)\.md(#[a-zA-Z0-9_-]*)?\)/](\1.html\2)/g' \
+      "$src" \
+      | pandoc --from gfm --to html5 --standalone \
+          --metadata pagetitle="$plabel — $label" \
+          -c ../site.css -H "$favicon_file_nested" -B "$nav_file" -A "$close_file" \
+          -o "$proot/$target"
+    n=$((n + 1))
+  done <<< "$pages"
+  echo "  $dir: $n pages" >&2
+}
+
+# --- Synapse ---------------------------------------------------------------
+mkdir -p "$out/synapse/diagrams"
+cp -r "$here/synapse/diagrams/"*.png "$out/synapse/diagrams/" 2>/dev/null || true
+
+synapse_pages="$here/synapse/README.md|index.html|Home
+$here/synapse/synapse-vault.md|synapse-vault.html|Synapse Vault
+$here/synapse/synapse-graph.md|synapse-graph.html|Synapse Graph
+$here/synapse/design-task-workflow.md|design-task-workflow.html|Design -> Task Workflow
+$here/synapse/synapse-code-cache.md|synapse-code-cache.html|Synapse Code Cache
+$here/synapse/cli.md|cli.html|CLI Reference
+$here/synapse/synapse-config.md|synapse-config.html|Configuration Reference
+|diagrams/|Diagrams"
+render_project synapse "Synapse" "$synapse_pages"
 
 # The diagrams/ directory has no index of its own -- a bare `diagrams/` link
-# 404s on a static site with no directory listing. Give it a real one, and
-# keep it reachable now that it's not just a link mid-paragraph on Home
-# anymore -- it gets its own sidebar entry below.
+# 404s on a static site with no directory listing.
 {
   echo '<!doctype html><html><head><meta charset="utf-8">'
-  echo '<title>Diagrams — Synapse</title><link rel="stylesheet" href="../site.css">'
-  echo '<link rel="icon" href="../logo.svg" type="image/svg+xml"></head><body>'
+  echo '<title>Diagrams — Synapse</title><link rel="stylesheet" href="../../site.css">'
+  echo '<link rel="icon" href="../../logo.svg" type="image/svg+xml"></head><body>'
   echo '<main><h1>Diagrams</h1><ul>'
-  for png in "$here"/diagrams/*.png; do
+  for png in "$here"/synapse/diagrams/*.png; do
     name="$(basename "$png")"
     echo "<li><a href=\"$name\"><img src=\"$name\" alt=\"$name\" style=\"max-width:100%\"></a><br>$name</li>"
   done
   echo '</ul></main></body></html>'
-} > "$out/diagrams/index.html"
+} > "$out/synapse/diagrams/index.html"
 
-# The sidebar is identical on every page -- no active-page highlighting, kept
-# simple since that's what was actually asked for.
-nav='<nav id="sidebar"><div class="sidebar-title">Synapse</div><ul>'
-for p in "${pages[@]}"; do
-  IFS='|' read -r _ target label <<< "$p"
-  nav="$nav<li><a href=\"$target\">$label</a></li>"
-done
-nav="$nav</ul></nav><div id=\"content\">"
+# --- Synapse Bard ------------------------------------------------------------
+synapse_bard_pages="$here/synapse-bard/README.md|index.html|Home
+$here/synapse-bard/cli.md|cli.html|CLI Reference"
+render_project synapse-bard "Synapse Bard" "$synapse_bard_pages"
 
-nav_file="$work/nav.html"
-close_file="$work/close.html"
-printf '%s' "$nav" > "$nav_file"
-printf '</div>' > "$close_file"
+# --- Top-level landing page --------------------------------------------------
+# README.md from the start through the end of "## New machine setup" -- stops
+# at the next ## heading, a pattern match rather than a hardcoded line number
+# so it tracks the file instead of silently truncating wrong after an
+# unrelated edit. awk, not GNU-sed range syntax, since the macOS-shipped BSD
+# sed rejects it.
+awk '/^## Synapse Vault/{exit} {print}' "$root/README.md" > "$work/home.md"
 
-n=0
-for p in "${pages[@]}"; do
-  IFS='|' read -r src target label <<< "$p"
-  [ -n "$src" ] || continue  # the Diagrams entry has its own page already, built above
-  [ -f "$src" ] || { echo "missing: $src" >&2; exit 1; }
+{
+  echo
+  echo '## Documentation'
+  echo
+  echo 'This repository packages two Claude Code plugins, each with its own docs section:'
+  echo
+  echo '- **[Synapse](synapse/index.html)** -- durable memory and the per-repo code graph, the'
+  echo '  original component this repo was built around.'
+  echo '- **[Synapse Bard](synapse-bard/index.html)** -- the same underlying approach, retargeted at a'
+  echo '  YAML-templated fiction book bible instead of a code repo.'
+} >> "$work/home.md"
 
-  # Internal cross-links: sibling .md files (optionally #fragment) resolve
-  # to the .html this loop produces; the root README's docs/foo.md links
-  # drop the docs/ prefix the same way; a link to either README.md now
-  # means Home; LICENSE has no rendered page here, so it points at the
-  # real file on GitHub instead of 404ing. The README's inline logo <img>
-  # (docs/logo.svg, a repo-root-relative path) needs the same docs/-prefix
-  # drop -- it's an HTML src="", not a markdown link, so a separate rule.
-  sed -E \
-    -e 's/\]\((docs\/)?README\.md(#[a-zA-Z0-9_-]*)?\)/](index.html\2)/g' \
-    -e 's/\]\((docs\/)?([a-zA-Z0-9_-]+)\.md(#[a-zA-Z0-9_-]*)?\)/](\2.html\3)/g' \
-    -e 's/\]\(LICENSE\)/](https:\/\/github.com\/imunitic\/synapse\/blob\/main\/LICENSE)/g' \
-    -e 's/\]\(#dependencies\)/](https:\/\/github.com\/imunitic\/synapse#dependencies)/g' \
-    -e 's/src="docs\/logo\.svg"/src="logo.svg"/g' \
-    "$src" \
-    | pandoc --from gfm --to html5 --standalone \
-        --metadata pagetitle="$label — Synapse" \
-        -c site.css -H "$favicon_file" -B "$nav_file" -A "$close_file" \
-        -o "$out/$target"
-  n=$((n + 1))
-done
+sed -E \
+  -e 's/\]\(README\.md(#[a-zA-Z0-9_-]*)?\)/](index.html\1)/g' \
+  -e 's/\]\(docs\/([a-zA-Z0-9_-]+)\.md(#[a-zA-Z0-9_-]*)?\)/](synapse\/\1.html\2)/g' \
+  -e 's/\]\(LICENSE\)/](https:\/\/github.com\/imunitic\/synapse\/blob\/main\/LICENSE)/g' \
+  -e 's/\]\(#dependencies\)/](https:\/\/github.com\/imunitic\/synapse#dependencies)/g' \
+  -e 's/src="docs\/logo\.svg"/src="logo.svg"/g' \
+  "$work/home.md" \
+  | pandoc --from gfm --to html5 --standalone \
+      --metadata pagetitle="Synapse" \
+      -c site.css -H "$favicon_file" \
+      -o "$out/index.html"
 
-echo "site built: $out ($n pages, plus diagrams/index.html)"
+echo "site built: $out"

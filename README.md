@@ -13,7 +13,7 @@ you can use one without the others:
   `/synapse-init` is run in a repo. Underneath it is the **Code Cache** — tags, refs and call
   graph, no vault involved — which is a layer of the Graph rather than a fourth component, even
   though the binary alone is enough to use it (`synapse callers` needs no graph, no vault and no
-  nodes). See [`docs/synapse-code-cache.md`](docs/synapse-code-cache.md).
+  nodes). See [`docs/synapse/synapse-code-cache.md`](docs/synapse/synapse-code-cache.md).
 - **Synapse Tools** — the scripts, commands, skills and hooks that build and maintain both.
 
 This repository packages the **Tools**, plus the templates and config they need. It does not contain
@@ -108,7 +108,7 @@ flow. There's no `setup.sh` anymore; the plugin path replaced it entirely.
 `/synapse-rebuild-full` wipes a namespace and rebuilds it from scratch when triage isn't the right
 tool. Neither of the two repair commands requires knowing anything below this point. The `synapse`
 binary underneath them isn't something you're expected to run by hand; its subcommands are
-documented in [`docs/cli.md`](docs/cli.md) for whoever goes looking.
+documented in [`docs/synapse/cli.md`](docs/synapse/cli.md) for whoever goes looking.
 
 ## Synapse Vault — the notes
 
@@ -183,8 +183,9 @@ unsure. A change to prose in `docs/` or this README has no test to fail and need
 
 Two traps in that. Shipped instructions under `claude/` **look** like documentation and are not: they
 install as a Claude Code plugin, and `tests/legacy-commands.bats` covers them — that
-is how a skill telling Claude to run a nonexistent command got caught. And `docs/cli.md` and the
-diagrams are *generated*, so a change upstream of them needs `just fix`, not `just docs-check`.
+is how a skill telling Claude to run a nonexistent command got caught. And each project's `cli.md`
+(under `docs/synapse/`, `docs/synapse-bard/`) plus the diagrams are *generated*, so a change
+upstream of them needs `just fix`, not `just docs-check`.
 
 `--jobs` needs GNU `parallel` on `PATH`; without it `bats` falls back to running serially (slower but
 correct). `just test-changed` derives its selection by grep rather than from a maintained list — a
@@ -203,8 +204,8 @@ nothing touches your real `~/.claude` or Vault, and tests share no state, which 
 `--jobs` safe. The same suite runs in CI on **Linux** (`.github/workflows/tests.yml`); macOS is
 covered by development itself.
 
-The two generated artefacts (`docs/cli.md`, the Mermaid diagrams under `docs/diagrams/`) are each
-verified by running their generator's `--check` mode, so an edit that was never regenerated fails a
+The generated artefacts (each project's `cli.md`, the Mermaid diagrams under `docs/synapse/diagrams/`)
+are each verified by running their generator's `--check` mode, so an edit that was never regenerated fails a
 test instead of shipping something confidently wrong.
 
 `claude/commands/*.md` and `claude/skills/*/SKILL.md` are natural-language procedures, so no test

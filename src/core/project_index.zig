@@ -66,7 +66,7 @@ pub fn write(w: *std.Io.Writer, p: Params) !void {
     try w.writeAll("---\n\n");
 
     try w.print("# {s} — Synapse index\n\n", .{p.namespace});
-    // No repo-specific prose (see docs/synapse-graph.md) -- just how to
+    // No repo-specific prose (see docs/synapse/synapse-graph.md) -- just how to
     // read the namespace without opening a multi-MB node file.
     try w.print(
         "{d} tracked files, {d} nodes. Nodes are subsystems and concepts, not modules — each one's frontmatter `sources` lists every file it covers, and `synapse index lookup <path>` is the reverse index from any path back to its owning node.\n\n",
