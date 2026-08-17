@@ -47,7 +47,9 @@ track. Use those instead of reinventing a parallel view.
 
 ## Compiling the checklist
 
-1. Read the design note in full.
+1. Read the design note in full. If it centers on specific characters or entities, cross-check their
+   established relationships/facts with `synapse-bard query <slug>`/`field <slug> <key>` before
+   compiling — a step built on a stale or misremembered fact is worse than not compiling one at all.
 2. Break the approach into an ordered list of small, sequential, independently-completable steps.
 3. For each step, write it as a short `- [ ] {Do}` line. **Almost every bard task is the "non-code"
    case** — no fenced interface block, since there's no API surface to pin down. A substantive step

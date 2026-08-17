@@ -36,7 +36,9 @@ from it directly.
 **With a topic:**
 1. Search first — `Grep` the topic text across `_bard/vault/designs/**/*.md` (per the
    `synapse-bard-vault` skill: check what was already decided before starting a new discussion).
-   Also check for an obvious title match.
+   Also check for an obvious title match. If the topic centers on a specific character or entity,
+   also run `synapse-bard query <slug>`/`field <slug> <key>` — established relationships or facts
+   already settled in the Bible-graph shouldn't get re-litigated as if they were open.
 2. If found with `Status: Discussing` → ask "Resume this design?" or "Start fresh?"
 3. If found with `Status: Ready` → ask "Already marked Ready. Reopen to revise, or start a new note?"
 4. If found with `Status: Reference` → ask "This concluded as Reference (no implementation intended).
