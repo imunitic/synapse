@@ -415,6 +415,43 @@ pub fn frontmatterBlock(src: []const u8) ?[]const u8 {
     return null;
 }
 
+/// Every root-level (column-0) frontmatter key name, in the order they
+/// appear -- what `synapse-bard fields` (`synapse-bard-006`) lists so an
+/// agent can see which `field <node> <key>` calls are worth making,
+/// instead of guessing and taking clean misses one at a time. Meant for a
+/// *template* file (`_templates/character_pov_template.md`, all fields
+/// present with placeholder values) but works on any frontmatter block --
+/// a `# --- Identity ---`-style full-line comment is skipped the same way
+/// `tagsFor` skips one, and only column-0 keys count, so a nested block's
+/// own sub-fields (`appearance.height`) don't appear as separate entries
+/// -- `field <node> appearance` already returns that whole block, so the
+/// root-level name is the right granularity to list.
+///
+/// Independent of `tagsFor`: never refuses, just returns text. `null` when
+/// there's no frontmatter at all.
+pub fn rootKeys(gpa: Allocator, src: []const u8) !?[][]const u8 {
+    var lines = std.mem.splitScalar(u8, src, '\n');
+    const first = lines.next() orelse return null;
+    if (!std.mem.eql(u8, std.mem.trimEnd(u8, first, "\r"), "---")) return null;
+
+    var out: std.ArrayListUnmanaged([]const u8) = .empty;
+    errdefer {
+        for (out.items) |k| gpa.free(k);
+        out.deinit(gpa);
+    }
+
+    while (lines.next()) |raw| {
+        const line = std.mem.trimEnd(u8, raw, "\r");
+        if (std.mem.eql(u8, line, "---")) break;
+        if (line.len == 0 or line[0] == ' ' or line[0] == '\t' or line[0] == '#') continue;
+        const colon = std.mem.indexOfScalar(u8, line, ':') orelse continue;
+        const key = std.mem.trim(u8, line[0..colon], " ");
+        if (key.len == 0) continue;
+        try out.append(gpa, try gpa.dupe(u8, key));
+    }
+    return try out.toOwnedSlice(gpa);
+}
+
 /// The raw YAML for one root-level frontmatter key, verbatim -- the `key:`
 /// line itself plus every line indented deeper than column 0 below it,
 /// until indentation returns to column 0 or the frontmatter closes. Not
@@ -1011,4 +1048,39 @@ test "frontmatterBlock handles a file with no trailing newline after the closing
 test "frontmatterBlock is null for no frontmatter or an unterminated block" {
     try testing.expectEqual(@as(?[]const u8, null), frontmatterBlock("# Just prose\n"));
     try testing.expectEqual(@as(?[]const u8, null), frontmatterBlock("---\nname: \"A\"\n"));
+}
+
+test "rootKeys lists only column-0 keys, in order, skipping nested sub-fields and comments" {
+    const gpa = testing.allocator;
+    const src =
+        \\---
+        \\# --- Identity ---
+        \\name: ""
+        \\role: ""                    # trailing comment after real content
+        \\age: null
+        \\appearance:
+        \\  height: ""
+        \\  build: ""
+        \\images:
+        \\  - path: ""
+        \\    description: ""
+        \\---
+        \\
+    ;
+    const keys = (try rootKeys(gpa, src)).?;
+    defer {
+        for (keys) |k| gpa.free(k);
+        gpa.free(keys);
+    }
+    try testing.expectEqual(@as(usize, 5), keys.len);
+    try testing.expectEqualStrings("name", keys[0]);
+    try testing.expectEqualStrings("role", keys[1]);
+    try testing.expectEqualStrings("age", keys[2]);
+    try testing.expectEqualStrings("appearance", keys[3]);
+    try testing.expectEqualStrings("images", keys[4]);
+}
+
+test "rootKeys is null for a file with no frontmatter" {
+    const gpa = testing.allocator;
+    try testing.expectEqual(@as(?[][]const u8, null), try rootKeys(gpa, "# Just prose\n"));
 }

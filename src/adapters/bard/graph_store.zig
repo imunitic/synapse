@@ -65,14 +65,13 @@ pub const BardGraphStore = struct {
 
     /// Removes a node -- not on the shared `ports.Store` interface (`read`/
     /// `write`/`list`/`search` only, checked before adding this), so it's a
-    /// method on the concrete type instead, same reasoning `searchText`
-    /// already used: a capability `ObsidianStore`/`FakeStore`/
-    /// `BardVaultStore` have no need for shouldn't become a `Store`-wide
-    /// requirement. `synapse-bard sync` (`synapse-bard-004`) is the one
-    /// caller -- a renamed or deleted source entity must not leave a stale
-    /// node behind for `--inbound`/`search` to keep surfacing. A node that's
-    /// already gone is not an error, matching `read`'s own "absence is
-    /// ordinary" rule.
+    /// method on the concrete type instead: a capability
+    /// `ObsidianStore`/`FakeStore`/`BardVaultStore` have no need for
+    /// shouldn't become a `Store`-wide requirement. `synapse-bard sync`
+    /// (`synapse-bard-004`) is the one caller -- a renamed or deleted source
+    /// entity must not leave a stale node behind for `--inbound`/`search` to
+    /// keep surfacing. A node that's already gone is not an error, matching
+    /// `read`'s own "absence is ordinary" rule.
     pub fn delete(self: *BardGraphStore, io: Io, node: []const u8) anyerror!void {
         const path = try std.fs.path.join(self.gpa, &.{ self.root, node });
         defer self.gpa.free(path);
@@ -115,19 +114,6 @@ pub const BardGraphStore = struct {
     /// matching `FakeStore`'s own convention so tests can share the shape.
     fn search(ptr: *anyopaque, gpa: Allocator, io: Io, query: []const u8) anyerror![]const Store.Hit {
         return searchImpl(ptr, gpa, io, parseFieldQuery(query), query);
-    }
-
-    /// Full-text only, bypassing the `key:value` heuristic entirely --
-    /// `search`/the generic `ports.Store` interface has only `query` to
-    /// decide from, but a caller that already knows it wants full-text
-    /// (`synapse-bard search`'s bare positional argument, never `--field`)
-    /// can call this directly so an ordinary query containing a colon (a
-    /// book title, `"The Knife: Book One"`) is never misread as a field
-    /// filter. Bypasses the abstract `Store` port on purpose -- this is
-    /// `BardGraphStore`'s own richer API, for a caller that already holds
-    /// the concrete type, not something every `Store` implementation needs.
-    pub fn searchText(self: *BardGraphStore, gpa: Allocator, io: Io, query: []const u8) anyerror![]const Store.Hit {
-        return searchImpl(self, gpa, io, null, query);
     }
 
     fn searchImpl(ptr: *anyopaque, gpa: Allocator, io: Io, field: ?FieldQuery, query: []const u8) anyerror![]const Store.Hit {
@@ -193,7 +179,12 @@ fn parseFieldQuery(query: []const u8) ?FieldQuery {
 /// match. Independent single-pass scan, same technique as the extractor's
 /// own `rootKindValue`: this Store doesn't parse nested structure, only the
 /// flat fields the design's own example ("faction = X") calls for.
-fn fieldLine(body: []const u8, key: []const u8, value: []const u8) ?[]const u8 {
+///
+/// `pub`: `synapse-bard search` (`synapse-bard-005`) reuses this directly
+/// over real entity source files resolved through a cluster's `sources:`,
+/// not just over this Store's own stored content -- the scanning logic is
+/// the same either way, only which bytes get handed to it differs.
+pub fn fieldLine(body: []const u8, key: []const u8, value: []const u8) ?[]const u8 {
     var lines = std.mem.splitScalar(u8, body, '\n');
     _ = lines.next(); // opening `---`
     while (lines.next()) |raw| {
@@ -217,7 +208,10 @@ fn unquote(value: []const u8) []const u8 {
     return value;
 }
 
-fn firstMatchingLine(body: []const u8, query: []const u8) ?[]const u8 {
+/// `pub` for the same reason as `fieldLine` above: `synapse-bard search`
+/// reuses this over real entity source files, not just this Store's own
+/// content.
+pub fn firstMatchingLine(body: []const u8, query: []const u8) ?[]const u8 {
     var lines = std.mem.splitScalar(u8, body, '\n');
     while (lines.next()) |line| {
         if (std.mem.indexOf(u8, line, query) != null) return line;
@@ -414,7 +408,15 @@ test "a key:value query matches the frontmatter field exactly, not a substring" 
     try testing.expectEqualStrings("gael.md", hits[0].node);
 }
 
-test "searchText finds a query containing a colon as full text, never as a field filter" {
+test "port.search()'s key:value heuristic can misread a colon in ordinary text -- known, not this Store's problem to solve" {
+    // Documents why `synapse-bard-005` moved `search_cmd.zig` off this port
+    // method entirely for its own full-text mode, rather than fixing the
+    // heuristic here: `search`'s single-string signature genuinely can't
+    // distinguish "The Knife: Book One" (a title) from a field filter
+    // without a second parameter a CLI flag can supply but this interface
+    // can't. `fieldLine`/`firstMatchingLine` (exported above) are what the
+    // CLI now composes with directly, once it already knows which mode it's
+    // in from its own `--field` flag.
     const gpa = testing.allocator;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -427,15 +429,7 @@ test "searchText finds a query containing a colon as full text, never as a field
 
     try port.write(testing.io, "book.md", "---\nname: Note\n---\nThe Knife: Book One is her favorite.\n");
 
-    // The same query through the ambiguous port.search() misreads this as
-    // a field filter (key "The Knife", value "Book One") and finds nothing
-    // -- searchText must not have that failure mode.
     const via_port = try port.search(gpa, testing.io, "The Knife: Book One");
     defer freeHits(gpa, via_port);
     try testing.expectEqual(@as(usize, 0), via_port.len);
-
-    const hits = try s.searchText(gpa, testing.io, "The Knife: Book One");
-    defer freeHits(gpa, hits);
-    try testing.expectEqual(@as(usize, 1), hits.len);
-    try testing.expectEqualStrings("book.md", hits[0].node);
 }
