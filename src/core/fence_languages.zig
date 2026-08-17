@@ -3,7 +3,7 @@
 //! `emit.languageFor`'s hardcoded table is the fallback of last resort --
 //! used only when no `synapse-fence-languages.conf` resolves at all (before
 //! `setup.sh` has run, or a hermetic test environment). Once a real file
-//! resolves -- normally seeded verbatim from `claude/synapse-fence-languages
+//! resolves -- normally seeded verbatim from `plugins/synapse/synapse-fence-languages
 //! .conf.template` at install time -- it is authoritative: an extension the
 //! file doesn't mention is simply unmapped, never silently filled in from
 //! the hardcoded table. Same "resolved file replaces, doesn't merge with,

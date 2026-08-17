@@ -134,10 +134,26 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map, argv0: []const
             // by common.vault() above, so a read failure here can only mean
             // Index.md itself is missing -- not an unreachable vault. Offer,
             // don't seed: this is the agent's call to make, not this hook's.
+            //
+            // The seed template's own path is resolved the same way
+            // `claude_md_path` above resolves `synapse-claude.md` -- a
+            // repo-relative string (`plugins/synapse/Index.md.template`)
+            // means nothing to a model inside an ordinary installed
+            // session, which has no copy of this repo checked out at all.
+            // `CLAUDE_PLUGIN_ROOT` (or, pre-plugin, argv0's own directory)
+            // is the only path that resolves in every install shape.
+            const template_path: ?[]u8 = if (env.get("CLAUDE_PLUGIN_ROOT")) |root|
+                try std.fmt.allocPrint(gpa, "{s}/Index.md.template", .{root})
+            else if (std.fs.path.dirname(argv0)) |bin_dir|
+                try std.fmt.allocPrint(gpa, "{s}/../Index.md.template", .{bin_dir})
+            else
+                null;
+            defer if (template_path) |p| gpa.free(p);
+
             base = try std.fmt.allocPrint(
                 gpa,
-                "No Index.md found at {s} -- the configured Synapse Vault has no index yet. Offer to seed it from the shipped default (claude/Index.md.template in the Synapse repo) before creating or linking any note.",
-                .{index_path},
+                "No Index.md found at {s} -- the configured Synapse Vault has no index yet. Offer to seed it from the shipped default ({s}) before creating or linking any note.",
+                .{ index_path, template_path orelse "this plugin's own Index.md.template" },
             );
         }
     }

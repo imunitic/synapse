@@ -95,7 +95,7 @@ EOF
 
   # Seeded from the shipped template so tests exercise the real default
   # boilerplate list, not a hand-copied duplicate that could drift from it.
-  cp "$REPO_ROOT/claude/synapse-module-boilerplate.conf.template" \
+  cp "$REPO_ROOT/plugins/synapse/synapse-module-boilerplate.conf.template" \
     "$HOME/.claude/synapse-module-boilerplate.conf"
 
   # Nothing to install here any more. Every test invokes `$SYNAPSE_BIN` or
