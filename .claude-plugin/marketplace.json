@@ -9,7 +9,13 @@
     {
       "name": "synapse",
       "description": "Memory for Claude Code: durable notes that outlive a session, and a per-repo code graph so a codebase doesn't get re-explored from scratch every time.",
-      "source": "./claude",
+      "source": "./plugins/synapse",
+      "category": "productivity"
+    },
+    {
+      "name": "synapse-bard",
+      "description": "Memory for fiction writing: a structured fact graph over a YAML-templated book bible, plus a repo-local notes vault for decisions and rationale that outlive a session.",
+      "source": "./plugins/synapse-bard",
       "category": "productivity"
     }
   ]

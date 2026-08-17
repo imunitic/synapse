@@ -11,7 +11,7 @@ you shouldn't need to go read it yourself. Don't re-read it reflexively,
 but do treat its injected contents as live information, not background
 flavor. If the hook instead reports that the configured vault has no
 `Index.md` yet, offer to seed it from the shipped default
-(`claude/Index.md.template` in the Synapse repo) before creating or
+(`${CLAUDE_PLUGIN_ROOT}/Index.md.template`) before creating or
 linking any note in this session — never copy it yourself without asking;
 seeding the vault's foundational bootstrap file warrants a confirmation
 step the way an ordinary note-write doesn't.
@@ -64,7 +64,7 @@ a real yes/no answer, not a formality to wave past.
   two, `Index.md`'s own folder list is the authority on what exists and
   what each one is for — check it rather than assuming a fixed set. A
   fresh vault ships with `research/`, `scratchpad/`, and `inbox/` as a
-  starting point (see `claude/Index.md.template`), but a vault owner's own
+  starting point (see `${CLAUDE_PLUGIN_ROOT}/Index.md.template`), but a vault owner's own
   `Index.md` may have renamed or restructured them; if nothing about a
   note fits an existing category, use whichever folder `Index.md` itself
   marks as the catch-all (`inbox/` by default) rather than forcing a bad

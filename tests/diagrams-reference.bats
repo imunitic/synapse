@@ -1,7 +1,8 @@
 #!/usr/bin/env bats
-# Tests docs/generate-diagrams.sh -- the .mmd -> .png renderer and its --check
-# mode. The point of --check is that a stale diagram is worse than a missing one:
-# it is confidently wrong, and nothing about looking at it says so.
+# Tests docs/synapse/generate-diagrams.sh -- the .mmd -> .png renderer and its
+# --check mode. The point of --check is that a stale diagram is worse than a
+# missing one: it is confidently wrong, and nothing about looking at it says so.
+# synapse-bard has no diagrams of its own yet.
 #
 # Rendering needs mermaid-cli (which needs a headless Chromium), so the tests
 # that actually render skip when mmdc is absent. The --check logic is pure
@@ -10,12 +11,12 @@
 
 load 'test_helper'
 
-GEN="$REPO_ROOT/docs/generate-diagrams.sh"
+GEN="$REPO_ROOT/docs/synapse/generate-diagrams.sh"
 
 setup() {
   common_setup
   # A throwaway copy of the generator's layout, so nothing here touches the real
-  # docs/diagrams.
+  # docs/synapse/diagrams.
   WORK="$TEST_HOME/docs"
   mkdir -p "$WORK/diagrams"
   cp "$GEN" "$WORK/generate-diagrams.sh"

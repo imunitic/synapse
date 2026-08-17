@@ -1,5 +1,5 @@
 #!/bin/bash
-# Renders every docs/diagrams/*.mmd to a same-named .png with mermaid-cli, and
+# Renders every docs/synapse/diagrams/*.mmd to a same-named .png with mermaid-cli, and
 # records the source hash so a stale render is a test failure rather than a
 # picture that quietly disagrees with the text around it.
 #

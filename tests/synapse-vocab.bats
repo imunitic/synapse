@@ -112,7 +112,7 @@ count_of() { # count_of <group> <word>
 }
 
 @test "stopwords come from the tokenizer's own list, and short words are dropped" {
-  cp "$REPO_ROOT/claude/synapse-prompt-stopwords.conf.template" \
+  cp "$REPO_ROOT/plugins/synapse/synapse-prompt-stopwords.conf.template" \
     "$HOME/.claude/synapse-prompt-stopwords.conf"
   git init -q "$REPO"
   # `Another` and `Because` are ordinary English function words in that list and

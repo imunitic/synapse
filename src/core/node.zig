@@ -147,7 +147,7 @@ pub fn split(body: []const u8) Split {
 
 const testing = std.testing;
 
-/// A copy of `claude/synapse-module-boilerplate.conf.template`'s chains,
+/// A copy of `plugins/synapse/synapse-module-boilerplate.conf.template`'s chains,
 /// for realistic test input. Not kept in sync automatically -- safe to
 /// drift since `moduleOf` takes its chains as a parameter.
 const default_chains = [_][]const u8{

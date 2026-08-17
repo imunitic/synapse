@@ -134,8 +134,10 @@ jobs:
       # rather than arriving as one line inside a 238-test run.
       - name: Generated docs are in sync
         if: always()
-        run: ./docs/generate-cli-reference.sh --check
+        run: |
+          ./docs/synapse/generate-cli-reference.sh --check
+          ./docs/synapse-bard/generate-cli-reference.sh --check
 
       - name: Rendered diagrams are in sync
         if: always()
-        run: ./docs/generate-diagrams.sh --check
+        run: ./docs/synapse/generate-diagrams.sh --check

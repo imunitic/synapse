@@ -63,9 +63,15 @@ pub const FakeStore = struct {
         const self: *FakeStore = @ptrCast(@alignCast(ptr));
         if (self.take()) |e| return e;
         var out: std.ArrayListUnmanaged([]const u8) = .empty;
-        errdefer out.deinit(gpa);
+        errdefer {
+            for (out.items) |n| gpa.free(n);
+            out.deinit(gpa);
+        }
         var it = self.nodes.keyIterator();
-        while (it.next()) |k| try out.append(gpa, k.*);
+        // Duped, not borrowed from the map -- `ports.Store.list`'s contract
+        // is caller-frees-every-name for every implementation, since a
+        // directory-backed one has no persistent copy to lend.
+        while (it.next()) |k| try out.append(gpa, try gpa.dupe(u8, k.*));
         return out.toOwnedSlice(gpa);
     }
 
@@ -130,7 +136,10 @@ test "rewriting a node replaces it rather than accumulating" {
     try testing.expectEqualStrings("second", body);
 
     const names = try store.list(testing.allocator, undefined);
-    defer testing.allocator.free(names);
+    defer {
+        for (names) |n| testing.allocator.free(n);
+        testing.allocator.free(names);
+    }
     try testing.expectEqual(@as(usize, 1), names.len);
 }
 

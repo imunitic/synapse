@@ -494,7 +494,7 @@ write_fenced_node() {
   # now, and claude/bin/ holds only the synapse.sh porcelain, so both need
   # covering for the same reason the hooks did.
   run grep -nE 'mktemp( -d)?[[:space:]]*(\)|\||$)' \
-    "$REPO_ROOT"/claude/bin/*.sh "$REPO_ROOT"/claude/lib/synapse/*.sh "$REPO_ROOT"/claude/hooks/*.sh
+    "$REPO_ROOT"/plugins/synapse/bin/*.sh "$REPO_ROOT"/plugins/synapse/lib/synapse/*.sh "$REPO_ROOT"/plugins/synapse/hooks/*.sh
   if [ "$status" -eq 0 ]; then
     echo "bare mktemp (no template) found:"
     echo "$output"

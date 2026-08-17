@@ -1,0 +1,8 @@
+{
+  "name": "synapse-bard",
+  "description": "Memory for fiction writing: a structured fact graph over a YAML-templated book bible, plus a repo-local notes vault for decisions and rationale that outlive a session.",
+  "author": {
+    "name": "imunitic"
+  },
+  "version": "2026-08_1"
+}

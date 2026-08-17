@@ -16,15 +16,15 @@
 #   changed a .zig file         just test-changed
 #   changed a hook               just test-for <the file>
 #   changed docs/ or README     nothing -- prose has no test to fail
-#   changed claude/**/*.md      just test tests/legacy-commands.bats
+#   changed plugins/*/**/*.md   just test tests/legacy-commands.bats
 #   changed a lot, or unsure    just test-linux
 #   about to push               just check
 #
-# Two of those deserve their reason stated. Shipped instructions under `claude/`
+# Two of those deserve their reason stated. Shipped instructions under `plugins/*/`
 # LOOK like documentation and are not: they install into ~/.claude and are covered
 # by tests, which is how a skill telling Claude to run a command that does not exist
-# got caught. And `docs/cli.md` plus the rendered diagrams are generated, so editing
-# what they are generated *from* means `just fix`, not `just docs-check`.
+# got caught. And each project's `cli.md` plus the rendered diagrams are generated, so
+# editing what they are generated *from* means `just fix`, not `just docs-check`.
 #
 # Note on comments below: `just --list` shows the comment line immediately above a
 # recipe, so each one gets a single short line there and any longer explanation
@@ -296,14 +296,19 @@ syntax:
     set -euo pipefail
     n=0
     # claude/bin and claude/lib/synapse are gone -- the tooling is two
-    # binaries. claude/hooks/ is back, for a different reason: not the old
-    # per-hook shell scripts, but the plugin's binary-fetch bootstrap
-    # (sb-019). setup.sh and setup-obsidian-mcp.sh are gone too -- installing
-    # is Claude Code's own job now (marketplace add / plugin install), not a
-    # script this repo ships. What is left to parse-check beyond that is CI
-    # and the doc generators, and the `[ -f ]` guard below is what makes a
-    # removed glob harmless.
-    for f in ci/*.sh docs/*.sh claude/hooks/*.sh; do
+    # binaries. plugins/synapse/hooks/ is back, for a different reason: not
+    # the old per-hook shell scripts, but the plugin's binary-fetch
+    # bootstrap (sb-019). setup.sh and setup-obsidian-mcp.sh are gone too --
+    # installing is Claude Code's own job now (marketplace add / plugin
+    # install), not a script this repo ships. What is left to parse-check
+    # beyond that is CI and the doc generators, and the `[ -f ]` guard below
+    # is what makes a removed glob harmless. docs/*/*.sh reaches each
+    # project's own generators (docs/synapse/, docs/synapse-bard/) the same
+    # way plugins/*/hooks/*.sh reaches each plugin's own hook scripts, now
+    # that both docs/ and the plugin sources hold more than one project;
+    # docs/*.sh still needed for generate-site.sh, which stays at the top
+    # level since it builds all of them into one site.
+    for f in ci/*.sh docs/*.sh docs/*/*.sh plugins/*/hooks/*.sh; do
         [ -f "$f" ] || continue
         bash -n "$f"
         n=$((n + 1))
@@ -314,15 +319,18 @@ syntax:
 # cannot fail, and the point is to catch a script edit committed without the
 # regeneration that follows from it.
 
-# Verify docs/cli.md and the rendered diagrams match their sources.
+# Verify each project's generated cli.md and (for synapse) the rendered
+# diagrams match their sources. synapse-bard has no diagrams of its own yet.
 docs-check:
-    ./docs/generate-cli-reference.sh --check
-    ./docs/generate-diagrams.sh --check
+    ./docs/synapse/generate-cli-reference.sh --check
+    ./docs/synapse/generate-diagrams.sh --check
+    ./docs/synapse-bard/generate-cli-reference.sh --check
 
-# Regenerate both generated artefacts; diagrams need mermaid-cli and its Chromium.
+# Regenerate all generated artefacts; diagrams need mermaid-cli and its Chromium.
 fix:
-    ./docs/generate-cli-reference.sh
-    ./docs/generate-diagrams.sh
+    ./docs/synapse/generate-cli-reference.sh
+    ./docs/synapse/generate-diagrams.sh
+    ./docs/synapse-bard/generate-cli-reference.sh
 
 # What CI runs, in the same order, plus a syntax pass CI gets for free by
 # executing the scripts. `build` comes first because a compile error should not
