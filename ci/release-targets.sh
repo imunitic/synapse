@@ -13,14 +13,18 @@
 # plenty of real machines this plugin installs onto.
 #
 # x86_64-windows is deliberately absent, and its absence is a correction
-# rather than an omission. Windows is *bard's* target -- its author's machine
-# -- and bard does not exist yet. `synapse` is a developer tool for macOS and
+# rather than an omission. `synapse` is a developer tool for macOS and
 # Linux, and cross-compiling it to Windows was over-broad from the start. It
 # is also now impossible: `std.DynLib` is a compile error on Windows in Zig
 # 0.16 ("unsupported platform"), and `synapse` loads grammars through it.
 #
-# That costs nothing bard needs. Bard uses the frontmatter extractor, links no
-# libtree-sitter, and loads nothing dynamically -- which is exactly why it is
-# a separate module. When bard exists it brings its own Windows target, and
-# the portability guard this list provides moves with it.
+# Correction, 2026-08-17: this comment used to say Windows was bard's target
+# and would arrive once bard existed. It doesn't -- bard's author runs
+# Claude Code almost entirely through the Android app's default cloud
+# session (an ephemeral x86_64 Ubuntu VM, not her own machine), which made
+# repo-local storage the primary design rather than a network-reachable
+# Obsidian vault (see synapse-bard's own "Execution environment" design
+# note). Bard ships the same platform set as synapse -- this same list,
+# nothing narrower -- not just the one architecture her own session
+# happens to run today.
 targets=(x86_64-linux aarch64-linux aarch64-macos)

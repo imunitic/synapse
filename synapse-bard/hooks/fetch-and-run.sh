@@ -1,0 +1,90 @@
+#!/bin/bash
+# Every hook in synapse-bard's own hooks.json routes through this rather
+# than invoking synapse-bard-hook directly: the compiled binary isn't
+# shipped inside the plugin, it's downloaded once from the latest GitHub
+# Release and cached -- same idea synapse's own claude/hooks/fetch-and-run.sh
+# uses, forked rather than shared for the same reason the skill/command
+# layer was forked (see synapse-bard-001's own notes): this is
+# audience-independent protocol code, but it caches under its own
+# ~/.cache/synapse-bard/bin, distinct from synapse's ~/.cache/synapse/bin,
+# so the two plugins never fight over one binary slot on a machine that has
+# both installed.
+#
+#   fetch-and-run.sh <hook-subcommand> [args passed through to synapse-bard-hook]
+#
+# Never blocks a turn on a network hiccup: any failure here exits 0 with no
+# output, same "every missing precondition is silence" contract
+# synapse-bard-hook itself already follows.
+#
+# Same os/arch detection as the coding side's script, not narrowed to her
+# own session's architecture: synapse-bard ships the same platform set
+# synapse does (x86_64-linux, aarch64-linux, aarch64-macos), so this
+# resolves whichever one the machine actually is rather than assuming.
+#
+# Re-checks for a newer binary once per plugin update, not every session and
+# not never -- same mechanism as the coding side: plugin.json's `version`
+# field changes exactly when Claude Code decides the plugin updated, so
+# comparing it locally (a file read, not a network call) costs nothing and
+# stays correctly in sync with zero polling logic here.
+
+set -euo pipefail
+
+hook="${1:-}"
+[ -n "$hook" ] || exit 0
+shift
+
+cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/synapse-bard"
+bin_dir="$cache_dir/bin"
+bin_path="$bin_dir/synapse-bard-hook"
+version_file="$bin_dir/.plugin-version"
+
+# grep/sed, not jq -- same dependency-free reasoning as the coding side's
+# script: this runs on every synapse-bard event.
+current_version=""
+plugin_json="${CLAUDE_PLUGIN_ROOT:-}/.claude-plugin/plugin.json"
+if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$plugin_json" ]; then
+    current_version="$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' "$plugin_json" 2>/dev/null \
+        | sed -E 's/.*"([^"]+)"$/\1/' || true)"
+fi
+
+cached_version=""
+[ -f "$version_file" ] && cached_version="$(cat "$version_file" 2>/dev/null || true)"
+
+stale=0
+if [ -n "$current_version" ] && [ "$current_version" != "$cached_version" ]; then
+    stale=1
+fi
+
+if [ ! -x "$bin_path" ] || [ "$stale" -eq 1 ]; then
+    os=$(uname -s)
+    arch=$(uname -m)
+    target=""
+    case "$os-$arch" in
+        Darwin-arm64|Darwin-aarch64) target="aarch64-macos" ;;
+        Linux-x86_64)                target="x86_64-linux"  ;;
+        Linux-aarch64|Linux-arm64)   target="aarch64-linux" ;;
+    esac
+
+    if [ -n "$target" ]; then
+        mkdir -p "$bin_dir" 2>/dev/null || true
+        tmp="$(mktemp -d 2>/dev/null || true)"
+        if [ -n "$tmp" ]; then
+            trap 'rm -rf "$tmp"' EXIT
+            url="https://github.com/imunitic/synapse/releases/latest/download/synapse-bard-$target.tar.gz"
+            # Best-effort, not `|| exit 0`: a failed re-fetch of a *newer*
+            # version must fall through to running the still-perfectly-good
+            # binary already cached below, not exit silently and skip the
+            # hook entirely for this turn.
+            if curl -fsSL -o "$tmp/synapse-bard.tar.gz" "$url" 2>/dev/null \
+                && tar -xzf "$tmp/synapse-bard.tar.gz" -C "$tmp" 2>/dev/null \
+                && [ -x "$tmp/synapse-bard-hook" ]; then
+                mv "$tmp/synapse-bard" "$bin_dir/synapse-bard" 2>/dev/null || true
+                mv "$tmp/synapse-bard-hook" "$bin_path"
+                [ -n "$current_version" ] && printf '%s' "$current_version" > "$version_file"
+            fi
+        fi
+    fi
+fi
+
+[ -x "$bin_path" ] || exit 0
+exec "$bin_path" "$hook" "$@"
