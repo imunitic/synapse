@@ -1,0 +1,362 @@
+//! `BardVaultStore`: a `ports.Store` backed by plain files under `_bard/vault/`
+//! -- design notes, task notes, decisions, git-tracked, one `.md` per note
+//! under `designs/`/`tasks/`/whatever the writer grows next. Distinct from
+//! `_bard/graph/` (`graph_store.zig`), a separate `Store` instance over a
+//! separate, flat directory.
+//!
+//! `node` is a vault-relative path including `.md` (e.g.
+//! `"designs/synapse-bard/synapse-bard — Bible-graph.md"`) -- unlike the
+//! graph store's flat namespace, notes live in subdirectories, so `list`
+//! walks recursively and `write` creates whatever parent directories `node`
+//! implies.
+//!
+//! ## The backlink graph isn't reused from `core`, and here's why
+//!
+//! The task note that specified this store said graph traversal "reuses
+//! whatever link-graph logic `core` already has for code-graph node links."
+//! Neither of the two candidates actually fits, checked before writing a
+//! line of this file:
+//!
+//! - `core/links.zig` *infers* implicit code edges from rare-symbol
+//!   co-occurrence across `_refs.tsv` -- solving "which files are probably
+//!   related, given no one said so." A vault wikilink is never implicit; the
+//!   author already said so. Wrong problem.
+//! - `core/query.zig`'s `edges`/`parseEdge` parses `- <relation> [[Target]]`
+//!   lines, scoped to a node's `## Links` section specifically. Bard vault
+//!   notes (this file's own module docs included, this session) put
+//!   `[[wikilinks]]` inline in prose anywhere, with no relation prefix and
+//!   no reserved section. Wrong shape.
+//!
+//! What's actually reusable is smaller than either: "every `[[target]]` in
+//! some text, target before any `|`" -- the same primitive
+//! `bard/frontmatter.zig`'s `scanValue` already has, just over prose instead
+//! of a YAML scalar. `backlinkCounts` below is that primitive, plus
+//! Obsidian's own resolution rule (a wikilink resolves by filename stem,
+//! not by vault path -- `core/emit.zig`'s own doc comment says the same for
+//! the coding vault).
+
+const std = @import("std");
+const ports = @import("ports");
+
+const Io = std.Io;
+const Allocator = std.mem.Allocator;
+const Store = ports.Store;
+
+/// Not a real note -- the vault's own bootstrap file, excluded from `list`
+/// the same way `ObsidianStore`'s own doc comment excludes it for the
+/// coding vault.
+const index_node = "Index.md";
+
+pub const BardVaultStore = struct {
+    gpa: Allocator,
+    /// Directory notes live under, e.g. `"_bard/vault"` -- resolved once.
+    root: []const u8,
+
+    pub fn init(gpa: Allocator, root: []const u8) !BardVaultStore {
+        return .{ .gpa = gpa, .root = try gpa.dupe(u8, root) };
+    }
+
+    pub fn deinit(self: *BardVaultStore) void {
+        self.gpa.free(self.root);
+    }
+
+    pub fn store(self: *BardVaultStore) Store {
+        return .{ .ptr = self, .vtable = &.{
+            .read = read,
+            .write = write,
+            .list = list,
+            .search = search,
+        } };
+    }
+
+    fn read(ptr: *anyopaque, gpa: Allocator, io: Io, node: []const u8) anyerror!?[]u8 {
+        const self: *BardVaultStore = @ptrCast(@alignCast(ptr));
+        const path = try std.fs.path.join(gpa, &.{ self.root, node });
+        defer gpa.free(path);
+        return Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |e| {
+            if (e == error.FileNotFound) return null;
+            return e;
+        };
+    }
+
+    fn write(ptr: *anyopaque, io: Io, node: []const u8, body: []const u8) anyerror!void {
+        const self: *BardVaultStore = @ptrCast(@alignCast(ptr));
+        const path = try std.fs.path.join(self.gpa, &.{ self.root, node });
+        defer self.gpa.free(path);
+        // Unlike the graph store's flat namespace, `node` here routinely
+        // implies subdirectories (`designs/synapse-bard/...`) that may not
+        // exist yet -- create the whole parent chain, idempotently.
+        if (std.fs.path.dirname(path)) |parent| try Io.Dir.cwd().createDirPath(io, parent);
+        try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = body });
+    }
+
+    /// Every `.md` file under `root`, recursive -- notes live in
+    /// subdirectories, unlike the graph store's flat layout. `Index.md` at
+    /// the vault root is excluded (bootstrap, not a note). A `root` that
+    /// doesn't exist yet lists as empty, not an error.
+    fn list(ptr: *anyopaque, gpa: Allocator, io: Io) anyerror![]const []const u8 {
+        const self: *BardVaultStore = @ptrCast(@alignCast(ptr));
+        var out: std.ArrayListUnmanaged([]const u8) = .empty;
+        errdefer {
+            for (out.items) |n| gpa.free(n);
+            out.deinit(gpa);
+        }
+
+        if (Io.Dir.cwd().openDir(io, self.root, .{ .iterate = true })) |dir| {
+            var d = dir;
+            defer d.close(io);
+            var walker = try d.walk(gpa);
+            defer walker.deinit();
+            while (try walker.next(io)) |entry| {
+                if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".md")) continue;
+                if (std.mem.eql(u8, entry.path, index_node)) continue;
+                try out.append(gpa, try gpa.dupe(u8, entry.path));
+            }
+        } else |e| {
+            if (e != error.FileNotFound) return e;
+        }
+        return out.toOwnedSlice(gpa);
+    }
+
+    /// Full-text substring scan (no embeddings, no maintained index --
+    /// see the module docs), ranked by each matching note's backlink
+    /// count rather than a similarity or occurrence score, most-linked
+    /// first. Deterministic tiebreak: node path, ascending.
+    fn search(ptr: *anyopaque, gpa: Allocator, io: Io, query: []const u8) anyerror![]const Store.Hit {
+        const self: *BardVaultStore = @ptrCast(@alignCast(ptr));
+        const names = try list(ptr, gpa, io);
+        defer {
+            for (names) |n| gpa.free(n);
+            gpa.free(names);
+        }
+
+        var counts = try backlinkCounts(gpa, io, self.root, names);
+        defer counts.deinit(gpa);
+
+        var out: std.ArrayListUnmanaged(Store.Hit) = .empty;
+        errdefer {
+            for (out.items) |h| {
+                gpa.free(h.node);
+                gpa.free(h.context);
+            }
+            out.deinit(gpa);
+        }
+
+        for (names) |name| {
+            const body = (try read(ptr, gpa, io, name)) orelse continue;
+            defer gpa.free(body);
+            if (std.mem.indexOf(u8, body, query) == null) continue;
+            try out.append(gpa, .{
+                .node = try gpa.dupe(u8, name),
+                .score = @floatFromInt(counts.get(name) orelse 0),
+                .context = try gpa.dupe(u8, firstMatchingLine(body, query) orelse ""),
+            });
+        }
+
+        std.mem.sort(Store.Hit, out.items, {}, hitRank);
+        return out.toOwnedSlice(gpa);
+    }
+};
+
+fn hitRank(_: void, a: Store.Hit, b: Store.Hit) bool {
+    if (a.score != b.score) return a.score > b.score;
+    return std.mem.order(u8, a.node, b.node) == .lt;
+}
+
+fn firstMatchingLine(body: []const u8, query: []const u8) ?[]const u8 {
+    var lines = std.mem.splitScalar(u8, body, '\n');
+    while (lines.next()) |line| {
+        if (std.mem.indexOf(u8, line, query) != null) return line;
+    }
+    return null;
+}
+
+/// How many distinct notes link to each note in `names` -- a note that
+/// links to the same target three times still counts once, matching what
+/// "backlinks" means in Obsidian's own panel (linking notes, not raw
+/// occurrences). Keys borrow `names`' own strings; the map itself is the
+/// only thing the caller frees.
+fn backlinkCounts(
+    gpa: Allocator,
+    io: Io,
+    root: []const u8,
+    names: []const []const u8,
+) !std.StringHashMapUnmanaged(usize) {
+    // A wikilink resolves by filename stem, not by vault path -- Obsidian's
+    // own rule, and the one this codebase's coding-vault side already
+    // documents (`core/emit.zig`).
+    var by_stem: std.StringHashMapUnmanaged([]const u8) = .empty;
+    defer by_stem.deinit(gpa);
+    for (names) |n| try by_stem.put(gpa, stemOf(n), n);
+
+    var counts: std.StringHashMapUnmanaged(usize) = .empty;
+    errdefer counts.deinit(gpa);
+
+    for (names) |from| {
+        const path = try std.fs.path.join(gpa, &.{ root, from });
+        defer gpa.free(path);
+        const body = Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 20)) catch continue;
+        defer gpa.free(body);
+
+        // Per-source dedup: this note's own multiple links to the same
+        // target must not inflate that target's count past 1 for this from.
+        var seen: std.StringHashMapUnmanaged(void) = .empty;
+        defer seen.deinit(gpa);
+
+        var rest: []const u8 = body;
+        while (std.mem.indexOf(u8, rest, "[[")) |start| {
+            const after = rest[start + 2 ..];
+            const end = std.mem.indexOf(u8, after, "]]") orelse break;
+            const inner = after[0..end];
+            rest = after[end + 2 ..];
+
+            const pipe = std.mem.indexOfScalar(u8, inner, '|') orelse inner.len;
+            const target_text = std.mem.trim(u8, inner[0..pipe], " ");
+            if (target_text.len == 0) continue;
+            const resolved = by_stem.get(stripMdSuffix(target_text)) orelse continue;
+            if (std.mem.eql(u8, resolved, from)) continue; // no self-backlink
+            if (seen.contains(resolved)) continue;
+            try seen.put(gpa, resolved, {});
+
+            const slot = try counts.getOrPut(gpa, resolved);
+            if (!slot.found_existing) slot.value_ptr.* = 0;
+            slot.value_ptr.* += 1;
+        }
+    }
+    return counts;
+}
+
+/// The filename stem a wikilink resolves against: the last path segment,
+/// minus a trailing `.md` if the link target spelled one out explicitly.
+fn stemOf(node: []const u8) []const u8 {
+    return stripMdSuffix(std.fs.path.basename(node));
+}
+
+fn stripMdSuffix(text: []const u8) []const u8 {
+    if (std.mem.endsWith(u8, text, ".md")) return text[0 .. text.len - 3];
+    return text;
+}
+
+const testing = std.testing;
+
+fn freeHits(gpa: Allocator, hits: []const Store.Hit) void {
+    for (hits) |h| {
+        gpa.free(h.node);
+        gpa.free(h.context);
+    }
+    gpa.free(hits);
+}
+
+/// A fresh `_bard/vault`-shaped subdirectory (not yet created) under a
+/// fresh tmp dir, so every test starts from a clean root.
+fn vaultRoot(gpa: Allocator, tmp: *testing.TmpDir) ![]u8 {
+    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
+    const base = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+    return std.fmt.allocPrint(gpa, "{s}/vault", .{base});
+}
+
+test "write then read round-trips a note nested under a subdirectory" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try vaultRoot(gpa, &tmp);
+    defer gpa.free(root);
+
+    var s = try BardVaultStore.init(gpa, root);
+    defer s.deinit();
+    const port = s.store();
+
+    try port.write(testing.io, "designs/synapse-bard/Bible-graph.md", "# Bible-graph\n");
+    const body = (try port.read(gpa, testing.io, "designs/synapse-bard/Bible-graph.md")).?;
+    defer gpa.free(body);
+    try testing.expectEqualStrings("# Bible-graph\n", body);
+}
+
+test "a missing node reads as null, not as an error" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try vaultRoot(gpa, &tmp);
+    defer gpa.free(root);
+
+    var s = try BardVaultStore.init(gpa, root);
+    defer s.deinit();
+    try testing.expectEqual(@as(?[]u8, null), try s.store().read(gpa, testing.io, "absent.md"));
+}
+
+test "list walks subdirectories and excludes the vault's own Index.md" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try vaultRoot(gpa, &tmp);
+    defer gpa.free(root);
+
+    var s = try BardVaultStore.init(gpa, root);
+    defer s.deinit();
+    const port = s.store();
+
+    try port.write(testing.io, "Index.md", "# Index\n");
+    try port.write(testing.io, "designs/a.md", "a\n");
+    try port.write(testing.io, "tasks/synapse-bard/synapse-bard-001.md", "task\n");
+
+    const names = try port.list(gpa, testing.io);
+    defer {
+        for (names) |n| gpa.free(n);
+        gpa.free(names);
+    }
+    try testing.expectEqual(@as(usize, 2), names.len);
+    var saw_design = false;
+    var saw_task = false;
+    for (names) |n| {
+        if (std.mem.eql(u8, n, "designs/a.md")) saw_design = true;
+        if (std.mem.eql(u8, n, "tasks/synapse-bard/synapse-bard-001.md")) saw_task = true;
+    }
+    try testing.expect(saw_design);
+    try testing.expect(saw_task);
+}
+
+test "search ranks matching notes by backlink count, most-linked first" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try vaultRoot(gpa, &tmp);
+    defer gpa.free(root);
+
+    var s = try BardVaultStore.init(gpa, root);
+    defer s.deinit();
+    const port = s.store();
+
+    // Two notes link to `popular`, none link to `lonely` -- both mention
+    // "flame hilt" so both match the query; ranking must still separate them.
+    try port.write(testing.io, "popular.md", "# Popular\nmentions the flame hilt\n");
+    try port.write(testing.io, "lonely.md", "# Lonely\nalso mentions the flame hilt\n");
+    try port.write(testing.io, "a.md", "links to [[popular]]\n");
+    try port.write(testing.io, "b.md", "links to [[popular|Popular Note]] and again [[popular]]\n");
+
+    const hits = try port.search(gpa, testing.io, "flame hilt");
+    defer freeHits(gpa, hits);
+    try testing.expectEqual(@as(usize, 2), hits.len);
+    try testing.expectEqualStrings("popular.md", hits[0].node);
+    try testing.expectEqual(@as(f32, 2.0), hits[0].score); // a.md and b.md, deduped within b.md
+    try testing.expectEqualStrings("lonely.md", hits[1].node);
+    try testing.expectEqual(@as(f32, 0.0), hits[1].score);
+}
+
+test "a note does not count as its own backlink" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try vaultRoot(gpa, &tmp);
+    defer gpa.free(root);
+
+    var s = try BardVaultStore.init(gpa, root);
+    defer s.deinit();
+    const port = s.store();
+
+    try port.write(testing.io, "self.md", "mentions the flame hilt and links to [[self]]\n");
+
+    const hits = try port.search(gpa, testing.io, "flame hilt");
+    defer freeHits(gpa, hits);
+    try testing.expectEqual(@as(usize, 1), hits.len);
+    try testing.expectEqual(@as(f32, 0.0), hits[0].score);
+}

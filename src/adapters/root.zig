@@ -24,6 +24,10 @@ pub const bard_frontmatter = @import("bard/frontmatter.zig");
 /// `_bard/graph/`'s `Store` -- plain files, no daemon, no network.
 pub const bard_graph_store = @import("bard/graph_store.zig");
 
+/// `_bard/vault/`'s `Store` -- design/task notes, subdirectories, backlink-
+/// ranked search.
+pub const bard_vault_store = @import("bard/vault_store.zig");
+
 test {
     std.testing.refAllDecls(@This());
     _ = process;
@@ -32,6 +36,7 @@ test {
     _ = obsidian;
     _ = bard_frontmatter;
     _ = bard_graph_store;
+    _ = bard_vault_store;
     // Not `pub`: a conformance check on the port, compiled for tests only.
     _ = @import("frontmatter_conformance.zig");
 }
