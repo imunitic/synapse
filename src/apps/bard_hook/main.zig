@@ -4,18 +4,19 @@
 //! own reasoning: a hook runs on every edit and turn, so it must not carry
 //! the C toolchain a hook has no use for.
 //!
-//! Placeholder: no hook is implemented yet -- SessionStart (inject the
-//! vault's Index.md) is the first one due, in a later step of the
-//! synapse-bard-001 task note. Every missing precondition exits 0, same
-//! contract `synapse-hook` already follows -- a hook that errors interrupts
-//! a turn about something the user usually can't act on.
+//!   synapse-bard-hook session-start    SessionStart: inject _bard/vault/Index.md
+//!
+//! Every missing precondition exits 0, same contract `synapse-hook` already
+//! follows -- a hook that errors interrupts a turn about something the user
+//! usually can't act on.
 
 const std = @import("std");
+const session_start = @import("session_start.zig");
 
 const usage =
     \\usage: synapse-bard-hook <hook>
     \\
-    \\No hooks implemented yet -- see the synapse-bard-001 task note.
+    \\  session-start    SessionStart: inject _bard/vault/Index.md
     \\
 ;
 
@@ -32,7 +33,22 @@ pub fn main(init: std.process.Init) !u8 {
         return 0;
     }
 
-    // Every missing precondition is silence, same contract synapse-hook
-    // follows -- no hook is wired yet, so every hook name is "missing."
+    const gpa = init.gpa;
+    const io = init.io;
+    const env = init.environ_map;
+
+    // `catch`, not `try`: exit code is always 0, payload is whatever the
+    // hook wrote to stdout.
+    if (std.mem.eql(u8, which, "session-start")) {
+        session_start.run(gpa, io, env) catch {};
+    } else {
+        std.debug.print("synapse-bard-hook: unknown hook '{s}'\n{s}", .{ which, usage });
+        return 2;
+    }
     return 0;
+}
+
+test {
+    _ = @import("common.zig");
+    _ = session_start;
 }
