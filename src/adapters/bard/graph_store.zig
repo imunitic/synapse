@@ -95,6 +95,23 @@ pub const BardGraphStore = struct {
     /// Anything else is a full-text substring scan over the raw file,
     /// matching `FakeStore`'s own convention so tests can share the shape.
     fn search(ptr: *anyopaque, gpa: Allocator, io: Io, query: []const u8) anyerror![]const Store.Hit {
+        return searchImpl(ptr, gpa, io, parseFieldQuery(query), query);
+    }
+
+    /// Full-text only, bypassing the `key:value` heuristic entirely --
+    /// `search`/the generic `ports.Store` interface has only `query` to
+    /// decide from, but a caller that already knows it wants full-text
+    /// (`synapse-bard search`'s bare positional argument, never `--field`)
+    /// can call this directly so an ordinary query containing a colon (a
+    /// book title, `"The Knife: Book One"`) is never misread as a field
+    /// filter. Bypasses the abstract `Store` port on purpose -- this is
+    /// `BardGraphStore`'s own richer API, for a caller that already holds
+    /// the concrete type, not something every `Store` implementation needs.
+    pub fn searchText(self: *BardGraphStore, gpa: Allocator, io: Io, query: []const u8) anyerror![]const Store.Hit {
+        return searchImpl(self, gpa, io, null, query);
+    }
+
+    fn searchImpl(ptr: *anyopaque, gpa: Allocator, io: Io, field: ?FieldQuery, query: []const u8) anyerror![]const Store.Hit {
         const names = try list(ptr, gpa, io);
         defer {
             for (names) |n| gpa.free(n);
@@ -106,8 +123,6 @@ pub const BardGraphStore = struct {
             for (out.items) |h| gpa.free(h.context);
             out.deinit(gpa);
         }
-
-        const field = parseFieldQuery(query);
 
         for (names) |name| {
             const body = (try read(ptr, gpa, io, name)) orelse continue;
@@ -340,4 +355,30 @@ test "a key:value query matches the frontmatter field exactly, not a substring" 
     defer freeHits(gpa, hits);
     try testing.expectEqual(@as(usize, 1), hits.len);
     try testing.expectEqualStrings("gael.md", hits[0].node);
+}
+
+test "searchText finds a query containing a colon as full text, never as a field filter" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try graphRoot(gpa, &tmp);
+    defer gpa.free(root);
+
+    var s = try BardGraphStore.init(gpa, root);
+    defer s.deinit();
+    const port = s.store();
+
+    try port.write(testing.io, "book.md", "---\nname: Note\n---\nThe Knife: Book One is her favorite.\n");
+
+    // The same query through the ambiguous port.search() misreads this as
+    // a field filter (key "The Knife", value "Book One") and finds nothing
+    // -- searchText must not have that failure mode.
+    const via_port = try port.search(gpa, testing.io, "The Knife: Book One");
+    defer freeHits(gpa, via_port);
+    try testing.expectEqual(@as(usize, 0), via_port.len);
+
+    const hits = try s.searchText(gpa, testing.io, "The Knife: Book One");
+    defer freeHits(gpa, hits);
+    try testing.expectEqual(@as(usize, 1), hits.len);
+    try testing.expectEqualStrings("book.md", hits[0].node);
 }

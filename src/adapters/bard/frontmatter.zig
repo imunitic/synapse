@@ -394,6 +394,63 @@ pub const BardFrontmatterExtractor = struct {
     }
 };
 
+/// The raw YAML for one root-level frontmatter key, verbatim -- the `key:`
+/// line itself plus every line indented deeper than column 0 below it,
+/// until indentation returns to column 0 or the frontmatter closes. Not
+/// parsed further: a scalar, a flow list, or a multi-line nested block all
+/// come back exactly as written, so a caller (an LLM) reads the YAML
+/// directly rather than this function re-deriving a structured shape for
+/// every possible value type (`images:`'s list of `{path, description,
+/// source}` objects being the case that motivated it -- an asset reference
+/// with no wikilink in it at all, invisible to `tagsFor`'s def/ref walk by
+/// design).
+///
+/// Independent of `tagsFor`: never refuses, since it isn't building the
+/// graph, only returning text. `null` when the file has no frontmatter or
+/// `key` doesn't appear at root level. Root-level keys only -- no dotted
+/// nested-path lookup (`appearance.height`); add one only if that turns out
+/// to be a real, hit-in-practice need, not speculatively.
+pub fn rawField(gpa: Allocator, src: []const u8, key: []const u8) !?[]u8 {
+    var lines = std.mem.splitScalar(u8, src, '\n');
+    const first = lines.next() orelse return null;
+    if (!std.mem.eql(u8, std.mem.trimEnd(u8, first, "\r"), "---")) return null;
+
+    var out: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer out.deinit(gpa);
+    var capturing = false;
+
+    while (lines.next()) |raw| {
+        const line = std.mem.trimEnd(u8, raw, "\r");
+        if (std.mem.eql(u8, line, "---")) break;
+
+        if (capturing) {
+            const trimmed = std.mem.trim(u8, line, " ");
+            const indent = line.len - std.mem.trimStart(u8, line, " ").len;
+            // A non-blank line back at column 0 ends the block; a blank
+            // line inside it (common between list items) doesn't.
+            if (trimmed.len != 0 and indent == 0) break;
+            try out.appendSlice(gpa, line);
+            try out.append(gpa, '\n');
+            continue;
+        }
+
+        if (line.len == 0 or line[0] == ' ' or line[0] == '\t' or line[0] == '#') continue;
+        const colon = std.mem.indexOfScalar(u8, line, ':') orelse continue;
+        const line_key = std.mem.trim(u8, line[0..colon], " ");
+        if (!std.mem.eql(u8, line_key, key)) continue;
+
+        try out.appendSlice(gpa, line);
+        try out.append(gpa, '\n');
+        capturing = true;
+    }
+
+    if (!capturing) {
+        out.deinit(gpa);
+        return null;
+    }
+    return try out.toOwnedSlice(gpa);
+}
+
 /// The first `:` outside a quoted span -- `null` if there isn't one, meaning
 /// this line is a bare value, not a `key: value` pair.
 fn findTopLevelColon(body: []const u8) ?usize {
@@ -843,4 +900,77 @@ test "a batch call reports each path's own refusal reason, not the last one in t
     try testing.expectEqual(BardFrontmatterExtractor.Refusal.block_scalar, ex.last_refusals[0].?);
     try testing.expectEqual(BardFrontmatterExtractor.Refusal.flow_collection, ex.last_refusals[1].?);
     try testing.expectEqual(BardFrontmatterExtractor.Refusal.no_frontmatter, ex.last_refusals[2].?);
+}
+
+test "rawField returns a single-line scalar verbatim, key included" {
+    const gpa = testing.allocator;
+    const src = "---\ntemplate: \"character_pov\"\nname: \"Calla\"\n---\n";
+    const got = (try rawField(gpa, src, "template")).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("template: \"character_pov\"\n", got);
+}
+
+test "rawField returns a multi-line nested block, list-of-objects included" {
+    const gpa = testing.allocator;
+    const src =
+        \\---
+        \\name: "Aidan"
+        \\images:
+        \\  - path: "characters/Aidan/images/face.png"
+        \\    description: "Face reference"
+        \\    source: "Author-generated (AI)"
+        \\  - path: "characters/Aidan/images/outfit.png"
+        \\    description: "Frontier field outfit"
+        \\face_cast:
+        \\  - name: "Someone"
+        \\---
+    ;
+    const got = (try rawField(gpa, src, "images")).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings(
+        "images:\n" ++
+            "  - path: \"characters/Aidan/images/face.png\"\n" ++
+            "    description: \"Face reference\"\n" ++
+            "    source: \"Author-generated (AI)\"\n" ++
+            "  - path: \"characters/Aidan/images/outfit.png\"\n" ++
+            "    description: \"Frontier field outfit\"\n",
+        got,
+    );
+}
+
+test "rawField stops at the next root-level key, not partway through a blank line inside the block" {
+    const gpa = testing.allocator;
+    const src =
+        \\---
+        \\name: "A"
+        \\open_questions:
+        \\  - "First"
+        \\
+        \\  - "Second"
+        \\status: "Alive"
+        \\---
+    ;
+    const got = (try rawField(gpa, src, "open_questions")).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings(
+        "open_questions:\n  - \"First\"\n\n  - \"Second\"\n",
+        got,
+    );
+}
+
+test "rawField is null for a key that isn't there, and for a file with no frontmatter" {
+    const gpa = testing.allocator;
+    const with_fm = "---\nname: \"A\"\n---\n";
+    try testing.expectEqual(@as(?[]u8, null), try rawField(gpa, with_fm, "nonexistent"));
+
+    const no_fm = "# Just prose\n";
+    try testing.expectEqual(@as(?[]u8, null), try rawField(gpa, no_fm, "name"));
+}
+
+test "rawField never refuses -- a block scalar under the requested key comes back raw, not as an error" {
+    const gpa = testing.allocator;
+    const src = "---\nname: \"A\"\nsummary: |\n  a paragraph\n  more\ntemplate: \"x\"\n---\n";
+    const got = (try rawField(gpa, src, "summary")).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("summary: |\n  a paragraph\n  more\n", got);
 }

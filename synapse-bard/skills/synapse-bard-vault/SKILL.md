@@ -21,6 +21,23 @@ There is no ranked, backlink-scored search here yet — that's a `synapse-bard` 
 (`BardVaultStore.search`) that exists in the codebase but has no command surface pointed at it yet.
 `Grep` is what you have today: full-text, unranked, and that's fine at this vault's scale.
 
+**The Bible-graph side (`_bard/graph/`) is different: `synapse-bard` has a real CLI for it
+(`synapse-bard-002`).** Anything about a character's established relationships, appearance, voice, or
+other frontmatter facts goes through `synapse-bard query`/`field`/`search`, not `Grep` on
+`_bard/graph/*.md` directly — the CLI resolves wikilinks to their target's real kind and can find
+backlinks (`--inbound`) a raw grep can't produce correctly, the same "consult before grepping" habit
+this section already asks for on the vault side.
+
+```
+synapse-bard query <slug>              an entity's resolved outbound relationships
+synapse-bard query <slug> --inbound    who references <slug> -- backlinks
+synapse-bard field <slug> <key>        one raw frontmatter field, verbatim (e.g. images,
+                                        appearance.* is not reachable via query -- query only
+                                        ever surfaces wikilink-bearing fields)
+synapse-bard search <text>             full-text over _bard/graph/
+synapse-bard search --field <key>:<value>   e.g. --field faction:"The Radiant Dominion"
+```
+
 ## Only `Index.md` is pushed. Everything else is pull.
 
 If `synapse-bard-hook`'s `SessionStart` handler is wired up (see this repo's own `synapse-bard-001`
