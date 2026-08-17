@@ -138,15 +138,17 @@ fn dependencies(ctx: *Ctx) !void {
 /// The conf file and the vault directory. Mirrors: `core.conf.vaultDir`
 /// returning null, which every hook/command treats as silent "no vault".
 fn vaultChecks(ctx: *Ctx) !?[]const u8 {
-    const home = ctx.env.get("HOME") orelse "";
+    // Tiered, like vaultDir() just below it -- this used to hardcode
+    // ~/.claude/{name} directly, predating resolveConfPath (sb-017), so it
+    // reported a false FAIL for anyone whose synapse.conf resolves at tier
+    // 1 (XDG) or tier 3 (a plugin-bundled template) instead of tier 2.
     var found: ?[]const u8 = null;
-    if (home.len != 0) {
-        for (core.conf.file_names) |name| {
-            const path = try ctx.fmt("{s}/.claude/{s}", .{ home, name });
-            if (ctx.exists(path)) {
-                found = path;
-                break;
-            }
+    for (core.conf.file_names) |name| {
+        const path = core.conf.resolveConfPath(ctx.gpa, ctx.io, adapters.env.vars(ctx.env), name) catch null;
+        if (path) |p| {
+            try ctx.owned.append(ctx.gpa, p);
+            found = p;
+            break;
         }
     }
     if (found) |path| {
@@ -154,7 +156,7 @@ fn vaultChecks(ctx: *Ctx) !?[]const u8 {
     } else if (ctx.env.get("OBSIDIAN_VAULT_DIR") != null) {
         try ctx.add("config", .warn, "no synapse.conf; using $OBSIDIAN_VAULT_DIR");
     } else {
-        try ctx.add("config", .fail, "no ~/.claude/synapse.conf -- copy the template and set the vault");
+        try ctx.add("config", .fail, "no synapse.conf found -- create one at $XDG_CONFIG_HOME/synapse/synapse.conf (or ~/.config/synapse/synapse.conf), or ~/.claude/synapse.conf");
     }
 
     const vault = core.conf.vaultDir(ctx.gpa, ctx.io, adapters.env.vars(ctx.env)) catch null;

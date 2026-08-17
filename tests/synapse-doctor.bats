@@ -36,6 +36,15 @@ run_doctor() {
   [[ "$output" == *"127.0.0.1:"* ]]
 }
 
+@test "config resolves at tier 1 (XDG), not just tier 2 -- the config check used to hardcode ~/.claude" {
+  make_repo
+  mkdir -p "$HOME/.config/synapse"
+  mv "$HOME/.claude/synapse.conf" "$HOME/.config/synapse/synapse.conf"
+  run env -u XDG_CONFIG_HOME bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" doctor
+  [[ "$output" == *"ok    config"*".config/synapse/synapse.conf"* ]]
+  [[ "$output" != *"FAIL"*"config"* ]]
+}
+
 @test "no vault configured is a failure, and says where to set it" {
   make_repo
   rm -f "$HOME/.claude/synapse.conf"
