@@ -35,6 +35,7 @@ if [ ! -x "$bin_path" ]; then
     case "$os-$arch" in
         Darwin-arm64|Darwin-aarch64) target="aarch64-macos" ;;
         Linux-x86_64)                target="x86_64-linux"  ;;
+        Linux-aarch64|Linux-arm64)   target="aarch64-linux" ;;
         *) exit 0 ;; # unsupported platform -- no prebuilt binary, nothing to fetch
     esac
 

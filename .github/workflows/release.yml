@@ -65,7 +65,7 @@ jobs:
           git diff --cached --quiet || git commit -m "chore: stamp plugin.json for ${{ steps.tag.outputs.tag }}"
           git push
 
-      # Same two targets ci/build-targets.sh verifies compile on every push;
+      # Same targets ci/build-targets.sh verifies compile on every push;
       # this job packages the same builds instead of discarding them. See
       # ci/release-targets.sh for the one shared definition of the list.
       - name: Cross-compile and package each target

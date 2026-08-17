@@ -5,7 +5,12 @@
 # one copy that goes stale.
 #
 # aarch64-macos is where the hooks actually run; x86_64-linux is CI, the test
-# container, and bard's Android cloud session.
+# container, and bard's Android cloud session. aarch64-linux was added later,
+# once sb-019's own podman testing showed it isn't the niche case it looked
+# like from a developer-laptop vantage point: AWS Graviton, GitHub Actions'
+# arm64 runners, and Docker Desktop on Apple Silicon (which defaults new
+# containers to linux/arm64 unless told otherwise) all put it in front of
+# plenty of real machines this plugin installs onto.
 #
 # x86_64-windows is deliberately absent, and its absence is a correction
 # rather than an omission. Windows is *bard's* target -- its author's machine
@@ -18,4 +23,4 @@
 # libtree-sitter, and loads nothing dynamically -- which is exactly why it is
 # a separate module. When bard exists it brings its own Windows target, and
 # the portability guard this list provides moves with it.
-targets=(x86_64-linux aarch64-macos)
+targets=(x86_64-linux aarch64-linux aarch64-macos)
