@@ -57,12 +57,16 @@ personal vs. work projects) never end up in the same file. It's self-managed —
 newly resolved pairs to it — but also plain text, so the user can add, fix, or remove a line by hand
 at any time.
 
-Resolve *which* file that is with the same tiered lookup every `synapse-*.conf` file uses: first
-`$XDG_CONFIG_HOME/synapse/synapse-projects.conf` if `$XDG_CONFIG_HOME` is set, else
+Resolve *which* file that is with the same tiered lookup every `synapse-*.conf` file uses for
+reading: first `$XDG_CONFIG_HOME/synapse/synapse-projects.conf` if `$XDG_CONFIG_HOME` is set, else
 `~/.config/synapse/synapse-projects.conf`; then `~/.claude/synapse-projects.conf`. Read whichever of
-those exists first. Append a newly resolved pair (step 5 below) to that same file; if neither exists
-yet, create `~/.claude/synapse-projects.conf` — today's default, unchanged for anyone who has never
-touched an XDG config directory.
+those exists first. Append a newly resolved pair (step 5 below) to that same file.
+
+If neither exists yet, decide where to create it fresh: `$XDG_CONFIG_HOME/synapse/synapse-projects.conf`
+if `$XDG_CONFIG_HOME` is set; else `~/.config/synapse/synapse-projects.conf` if `~/.config` already
+exists as a directory on this machine (it's adopted XDG conventions for other tools even without ever
+setting the env var); else `~/.claude/synapse-projects.conf` as the final fallback — today's default,
+unchanged for anyone who has never touched an XDG config directory.
 
 1. Identify the current project from context: the repo's `CLAUDE.md` (title/"About" section) or
    `git remote`.

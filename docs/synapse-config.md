@@ -1,19 +1,46 @@
 # Synapse Configuration Reference
 
-Every conf file under `~/.claude/` and every `SYNAPSE_*`/`OBSIDIAN_*` environment variable the
-compiled binaries and hooks read, in one place. Unlike [cli.md](cli.md), this is hand-maintained,
-not generated: a `--help` string has one canonical declaration site to generate from, an
+Every `synapse-*.conf` file and every `SYNAPSE_*`/`OBSIDIAN_*` environment variable the compiled
+binaries and hooks read, in one place. Unlike [cli.md](cli.md), this is hand-maintained, not
+generated: a `--help` string has one canonical declaration site to generate from, an
 `env.get("SYNAPSE_...")` call does not — it's just scattered through `src/`. Treat this page as
 best-effort-current rather than push-button-verified — the gap it closes is the same "config
 sprawl" a multi-agent codebase audit flagged from the source side (documentation coverage was
 bimodal: vault- and work-dir-adjacent settings were documented, grammar/cache/identity-adjacent
 ones existed only in source comments and the bats suite).
 
-## `~/.claude/synapse.conf` — the one hand-edited file
+## Where a conf file actually lives
 
-Everything else under `~/.claude/` is either self-populating (discovered and cached automatically)
-or a plain list a human edits directly; this is the one file `setup.sh` asks you to edit by hand
-after install. Shell-syntax subset: `KEY=value`, `KEY="value"`, an optional `export` prefix,
+Every `synapse-*.conf` file resolves through the same three-tier order, first match wins:
+
+1. `$XDG_CONFIG_HOME/synapse/{name}` if `$XDG_CONFIG_HOME` is set, else `~/.config/synapse/{name}`
+   — for anyone who's adopted XDG config directories.
+2. `~/.claude/{name}` — today's default location, and where every pre-plugin install already has
+   its files. Survives indefinitely as a tier, not as a stopgap.
+3. The plugin's own bundled `{name}.template`, read live from `$CLAUDE_PLUGIN_ROOT` — only reached
+   when neither tier above has a file at all. Read-only by construction: this tier is never a write
+   target, and nothing here is ever copied or seeded into `~/.claude/` on install the way a
+   pre-plugin install once did. A curated-default registry (see below) effectively ships "for free"
+   this way — no seeding step, no install-time copy, just the shipped file read directly until a
+   real override appears at tier 1 or 2.
+
+A self-managed file with no default content at all (`synapse-projects.conf` is the only current
+example — plain-text, agent-appended, never touched by a compiled binary) follows a related but
+distinct rule when nothing resolves yet: create fresh at tier 1 if `$XDG_CONFIG_HOME` is set, else
+tier 1's `~/.config/synapse/` if that directory already exists, else `~/.claude/` as the final
+fallback — never tier 3, which is read-only by construction and was never a real option for a file
+meant to be written to.
+
+## `synapse.conf` — the one hand-edited file
+
+Everything else is either self-populating (discovered and cached automatically) or a plain list a
+human edits directly; this is the one file a fresh install actually requires editing, since
+`OBSIDIAN_VAULT_DIR` is inherently machine-specific and nothing can guess it. A plugin install has
+no interactive step to prompt for this — the `SessionStart` hook says so directly, every session,
+until the file exists and resolves to a real directory. Resolved via the same three-tier order
+every `synapse-*.conf` file uses (see "Where a conf file actually lives" below): typically
+`~/.claude/synapse.conf`, or `$XDG_CONFIG_HOME/synapse/synapse.conf` on a machine that's adopted
+XDG config directories. Shell-syntax subset: `KEY=value`, `KEY="value"`, an optional `export` prefix,
 `#`-comments, blank lines, and inside a value a leading `~` or `$VAR`/`${VAR}` expanding against
 whatever the *caller's* environment holds — not just `$HOME` as a special case. Not supported:
 `~user`, `${VAR:-default}`, command substitution, arithmetic. An unset variable expands to nothing,
@@ -76,12 +103,12 @@ edit directly if a cached decision needs correcting.
 ## Curated-default registries (JSON)
 
 Unlike the self-populating registries above, this file is never empty in the ordinary case: it
-ships with real content via `claude/*.conf.template`, seeded verbatim into `~/.claude/` by
-`setup.sh` on install (only if the destination doesn't already exist, never overwriting a hand
-edit). Once that seeded file resolves, it is authoritative on its own — an extension it doesn't
+ships with real content via `claude/*.conf.template`, read live as tier 3 of the resolution order
+above the moment nothing overrides it at tier 1 or 2 — no seeding, no install-time copy. Once a
+real file resolves at tier 1 or 2 instead, it is authoritative on its own — an extension it doesn't
 mention is simply unmapped, never silently filled in from anything else. A compiled-in fallback
-table exists only for the case where no conf resolves at all (before `setup.sh` has run, or a
-hermetic test environment).
+table exists only for the case where no conf resolves at all (no plugin installed and nothing at
+tier 1/2 either — a from-source checkout with nothing configured, or a hermetic test environment).
 
 - **`synapse-fence-languages.conf`** (`SYNAPSE_FENCE_LANGUAGES_CONF` overrides the path) — object
   keyed by file extension (with its leading dot, e.g. `".java"`), valued with the fence language a
@@ -144,5 +171,5 @@ not repeated here.
 | `SYNAPSE_DISABLE_PROMPT_INJECTION` | `prompt_context.zig` (hook) | Any value skips the `UserPromptSubmit` hook's one-line "this repo has a code graph" pointer entirely. |
 | `SYNAPSE_VAULT_PUSH_EVERY` | `stop_nudge.zig` (hook) | See the `synapse.conf` table above. |
 | `SYNAPSE_AUTHOR_POOL` | orchestrating agent, `/synapse-init` | See the `synapse.conf` table above. |
-| `SYNAPSE_BIN`, `SYNAPSE_HOOK_BIN` | `setup.sh` only | Point the installer at prebuilt binaries instead of `zig-out/bin/`, for a release tarball with no toolchain to build them with. Not read by the running binaries themselves — a build-time/install-time override only. |
-| `NODE_EXTRA_CA_CERTS` | Obsidian's Local REST API MCP client, not Synapse's own code | Wired into `~/.claude/settings.json` by `setup-obsidian-mcp.sh`, pointing at the plugin's self-signed cert. Machine-specific; regenerated by that script, never hand-set. |
+| `SYNAPSE_BIN`, `SYNAPSE_HOOK_BIN` | dev/CI tooling only (`tests/test_helper.bash`, `docs/generate-cli-reference.sh`) | Point the tests or the doc generator at a specific binary (e.g. a cross-compiled one for `just test-linux`) instead of `zig-out/bin/`. Not read by the running binaries themselves, and not part of the plugin install path at all -- that fetches from GitHub Releases into `~/.cache/synapse/bin/` directly. |
+| `NODE_EXTRA_CA_CERTS` | Obsidian's Local REST API MCP client, not Synapse's own code | Wired into `~/.claude/settings.json` automatically every `SessionStart` by the `obsidian-mcp-refresh.sh` hook, pointing at the plugin's self-signed cert. Machine-specific; regenerated by that hook, never hand-set. |

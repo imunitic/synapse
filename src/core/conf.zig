@@ -197,11 +197,12 @@ test "a commented-out assignment is not one" {
 
 /// Resolves a synapse-*.conf filename to the first tier that exists on
 /// disk: `$XDG_CONFIG_HOME/synapse/{name}` (or `~/.config/synapse/{name}`
-/// if `XDG_CONFIG_HOME` is unset), then `~/.claude/{name}`. Null if
-/// neither exists -- callers decide what "unconfigured" means for their
-/// own conf. `$XDG_CONFIG_HOME` is checked, never assumed unset, because
-/// that is the one thing that makes tier 1 actually XDG-compliant rather
-/// than a hardcoded `~/.config` guess.
+/// if `XDG_CONFIG_HOME` is unset), then `~/.claude/{name}`, then (read-only)
+/// the plugin's own bundled `{name}.template` at `$CLAUDE_PLUGIN_ROOT`. Null
+/// if none of those exist -- callers decide what "unconfigured" means for
+/// their own conf. `$XDG_CONFIG_HOME` is checked, never assumed unset,
+/// because that is the one thing that makes tier 1 actually XDG-compliant
+/// rather than a hardcoded `~/.config` guess.
 ///
 /// `~/.claude/{name}` survives indefinitely as tier 2, not as a stopgap:
 /// every existing install already has its conf there, and an install that
@@ -211,7 +212,27 @@ test "a commented-out assignment is not one" {
 /// nothing else creates it by accident; the only realistic way it exists is
 /// a deliberate choice, and a user who just made that choice expects it to
 /// take effect immediately, not to also have to delete the old file.
+///
+/// Tier 3 is last, not first: an install with a real tier-1/tier-2 file has
+/// already made a deliberate choice (even if that choice was to keep the
+/// installer's own seed), and the plugin's bundled default should never
+/// shadow it. It is also the only tier this function finds that
+/// `resolveWritePath` below must never return -- see `resolveExisting`.
 pub fn resolveConfPath(gpa: std.mem.Allocator, io: std.Io, vars: Vars, name: []const u8) !?[]u8 {
+    if (try resolveExisting(gpa, io, vars, name)) |p| return p;
+
+    if (vars.get("CLAUDE_PLUGIN_ROOT")) |root| if (root.len != 0) {
+        if (try tryConfPath(gpa, io, "{s}/{s}.template", .{ root, name })) |p| return p;
+    };
+    return null;
+}
+
+/// Tiers 1 and 2 only -- the part of `resolveConfPath` that names a file a
+/// caller could also legitimately write to. Factored out so
+/// `resolveWritePath` can share this exact lookup without ever risking tier
+/// 3 (the plugin's bundled template, read-only by construction) leaking
+/// through as a write target.
+fn resolveExisting(gpa: std.mem.Allocator, io: std.Io, vars: Vars, name: []const u8) !?[]u8 {
     const home = vars.get("HOME");
 
     if (vars.get("XDG_CONFIG_HOME")) |xdg| if (xdg.len != 0) {
@@ -235,6 +256,45 @@ fn tryConfPath(gpa: std.mem.Allocator, io: std.Io, comptime fmt: []const u8, arg
         gpa.free(path);
         return null;
     }
+}
+
+/// Where a self-managed, no-default-content conf file (`synapse-projects.conf`
+/// is the only current example -- agent-written via Read/Edit, never by the
+/// compiled binary) gets created when nothing resolves yet.
+///
+/// An existing file at tier 1 or tier 2 wins as its own write target, exactly
+/// what `resolveConfPath` already finds -- so state never forks across two
+/// files. Only when neither exists does this decide where to create one
+/// fresh: `$XDG_CONFIG_HOME` if set, else `~/.config/synapse/` if that
+/// directory already exists (this machine has adopted XDG conventions for
+/// other tools even without ever setting the env var), else `~/.claude/` as
+/// the final fallback. Tier 3 (a plugin-bundled template) never appears here
+/// at all -- it is read-only by construction, so writing to it was never a
+/// real option to begin with, not merely deprioritized.
+pub fn resolveWritePath(gpa: std.mem.Allocator, io: std.Io, vars: Vars, name: []const u8) ![]u8 {
+    if (try resolveExisting(gpa, io, vars, name)) |p| return p;
+
+    const home = vars.get("HOME");
+
+    if (vars.get("XDG_CONFIG_HOME")) |xdg| if (xdg.len != 0) {
+        return try std.fmt.allocPrint(gpa, "{s}/synapse/{s}", .{ xdg, name });
+    };
+
+    if (home) |h| {
+        const config_dir = try std.fmt.allocPrint(gpa, "{s}/.config", .{h});
+        defer gpa.free(config_dir);
+        if (existsAsDir(io, config_dir))
+            return try std.fmt.allocPrint(gpa, "{s}/.config/synapse/{s}", .{ h, name });
+    }
+
+    if (home) |h| return try std.fmt.allocPrint(gpa, "{s}/.claude/{s}", .{ h, name });
+
+    return error.NoHome;
+}
+
+fn existsAsDir(io: std.Io, path: []const u8) bool {
+    const st = std.Io.Dir.cwd().statFile(io, path, .{}) catch return false;
+    return st.kind == .directory;
 }
 
 /// The vault directory: the override first, then each conf file in turn,
@@ -438,4 +498,167 @@ test "resolveConfPath: null when the file exists nowhere" {
 
     const tv: TestVars = .{ .pairs = &.{.{ "HOME", home }} };
     try testing.expectEqual(@as(?[]u8, null), try resolveConfPath(gpa, io, tv.vars(), "foo.conf"));
+}
+
+test "resolveConfPath: tier 3 (CLAUDE_PLUGIN_ROOT template) wins only when tiers 1 and 2 have nothing" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+    const cwd = std.Io.Dir.cwd();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const home = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    const plugin_root = try std.fmt.allocPrint(gpa, "{s}/plugin", .{home});
+    defer gpa.free(plugin_root);
+    try cwd.createDirPath(io, plugin_root);
+    const template = try std.fmt.allocPrint(gpa, "{s}/foo.conf.template", .{plugin_root});
+    defer gpa.free(template);
+    try cwd.writeFile(io, .{ .sub_path = template, .data = "template" });
+
+    const tv: TestVars = .{ .pairs = &.{ .{ "HOME", home }, .{ "CLAUDE_PLUGIN_ROOT", plugin_root } } };
+    const got = (try resolveConfPath(gpa, io, tv.vars(), "foo.conf")).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings(template, got);
+}
+
+test "resolveWritePath: never returns tier 3 -- falls through to fresh-create even when only the plugin template exists" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+    const cwd = std.Io.Dir.cwd();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const home = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    const plugin_root = try std.fmt.allocPrint(gpa, "{s}/plugin", .{home});
+    defer gpa.free(plugin_root);
+    try cwd.createDirPath(io, plugin_root);
+    const template = try std.fmt.allocPrint(gpa, "{s}/foo.conf.template", .{plugin_root});
+    defer gpa.free(template);
+    try cwd.writeFile(io, .{ .sub_path = template, .data = "template" });
+
+    const tv: TestVars = .{ .pairs = &.{ .{ "HOME", home }, .{ "CLAUDE_PLUGIN_ROOT", plugin_root } } };
+    const got = try resolveWritePath(gpa, io, tv.vars(), "foo.conf");
+    defer gpa.free(got);
+    const want = try std.fmt.allocPrint(gpa, "{s}/.claude/foo.conf", .{home});
+    defer gpa.free(want);
+    try testing.expectEqualStrings(want, got);
+}
+
+test "resolveWritePath: an existing tier-1 file wins as the write target" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+    const cwd = std.Io.Dir.cwd();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const home = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    const xdg_dir = try std.fmt.allocPrint(gpa, "{s}/xdg/synapse", .{home});
+    defer gpa.free(xdg_dir);
+    try cwd.createDirPath(io, xdg_dir);
+    const xdg_file = try std.fmt.allocPrint(gpa, "{s}/xdg/synapse/foo.conf", .{home});
+    defer gpa.free(xdg_file);
+    try cwd.writeFile(io, .{ .sub_path = xdg_file, .data = "xdg" });
+
+    const claude_dir = try std.fmt.allocPrint(gpa, "{s}/.claude", .{home});
+    defer gpa.free(claude_dir);
+    try cwd.createDirPath(io, claude_dir);
+    const claude_file = try std.fmt.allocPrint(gpa, "{s}/.claude/foo.conf", .{home});
+    defer gpa.free(claude_file);
+    try cwd.writeFile(io, .{ .sub_path = claude_file, .data = "claude" });
+
+    const xdg_home = try std.fmt.allocPrint(gpa, "{s}/xdg", .{home});
+    defer gpa.free(xdg_home);
+    const tv: TestVars = .{ .pairs = &.{ .{ "XDG_CONFIG_HOME", xdg_home }, .{ "HOME", home } } };
+
+    const got = try resolveWritePath(gpa, io, tv.vars(), "foo.conf");
+    defer gpa.free(got);
+    try testing.expectEqualStrings(xdg_file, got);
+}
+
+test "resolveWritePath: an existing tier-2 file wins when tier 1 has nothing" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+    const cwd = std.Io.Dir.cwd();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const home = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    const claude_dir = try std.fmt.allocPrint(gpa, "{s}/.claude", .{home});
+    defer gpa.free(claude_dir);
+    try cwd.createDirPath(io, claude_dir);
+    const claude_file = try std.fmt.allocPrint(gpa, "{s}/.claude/foo.conf", .{home});
+    defer gpa.free(claude_file);
+    try cwd.writeFile(io, .{ .sub_path = claude_file, .data = "claude" });
+
+    const tv: TestVars = .{ .pairs = &.{.{ "HOME", home }} };
+    const got = try resolveWritePath(gpa, io, tv.vars(), "foo.conf");
+    defer gpa.free(got);
+    try testing.expectEqualStrings(claude_file, got);
+}
+
+test "resolveWritePath: nothing exists, XDG_CONFIG_HOME set -> creates there" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const home = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    const xdg_home = try std.fmt.allocPrint(gpa, "{s}/xdg", .{home});
+    defer gpa.free(xdg_home);
+    const tv: TestVars = .{ .pairs = &.{ .{ "XDG_CONFIG_HOME", xdg_home }, .{ "HOME", home } } };
+
+    const got = try resolveWritePath(gpa, io, tv.vars(), "foo.conf");
+    defer gpa.free(got);
+    const want = try std.fmt.allocPrint(gpa, "{s}/synapse/foo.conf", .{xdg_home});
+    defer gpa.free(want);
+    try testing.expectEqualStrings(want, got);
+}
+
+test "resolveWritePath: nothing exists, XDG_CONFIG_HOME unset but ~/.config already exists -> creates there" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+    const cwd = std.Io.Dir.cwd();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const home = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    const config_dir = try std.fmt.allocPrint(gpa, "{s}/.config", .{home});
+    defer gpa.free(config_dir);
+    try cwd.createDirPath(io, config_dir);
+
+    const tv: TestVars = .{ .pairs = &.{.{ "HOME", home }} }; // no XDG_CONFIG_HOME
+    const got = try resolveWritePath(gpa, io, tv.vars(), "foo.conf");
+    defer gpa.free(got);
+    const want = try std.fmt.allocPrint(gpa, "{s}/.config/synapse/foo.conf", .{home});
+    defer gpa.free(want);
+    try testing.expectEqualStrings(want, got);
+}
+
+test "resolveWritePath: nothing exists anywhere, ~/.config absent too -> falls back to ~/.claude" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const home = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    const tv: TestVars = .{ .pairs = &.{.{ "HOME", home }} };
+    const got = try resolveWritePath(gpa, io, tv.vars(), "foo.conf");
+    defer gpa.free(got);
+    const want = try std.fmt.allocPrint(gpa, "{s}/.claude/foo.conf", .{home});
+    defer gpa.free(want);
+    try testing.expectEqualStrings(want, got);
 }

@@ -22,23 +22,20 @@ your call).
 
 ## New machine setup
 
-```sh
-git clone <this repo> ~/synapse   # or copy the folder over
-cd ~/synapse
-zig build                          # or: just build
-./setup.sh
+Synapse ships as a real [Claude Code plugin](https://code.claude.com/docs/en/plugins) — no
+`git clone`, no build step, no install script. From inside Claude Code:
+
+```
+/plugin marketplace add imunitic/synapse
+/plugin install synapse@synapse
 ```
 
-`setup.sh` installs the portable tooling into `~/.claude/`, merges hook entries into
-`~/.claude/settings.json` (idempotent — safe to re-run, does not clobber unrelated settings), and
-prints the manual steps below.
-
-**The build step is not optional, and `setup.sh` refuses to run without it.** `synapse` and
-`synapse-hook` are the tooling — nothing stands behind them — and the hook entries this writes name
-`~/.claude/bin/synapse-hook` by path. Wiring that up before the binary exists would give every turn
-and every edit a hook that cannot launch, so an unbuilt checkout is a hard stop that installs
-nothing rather than a warning. `setup.sh` does not run a compiler itself; if you have prebuilt
-binaries elsewhere, point `$SYNAPSE_BIN` and `$SYNAPSE_HOOK_BIN` at them instead of building.
+That's the whole install. Claude Code clones the plugin's small files (commands, skills, hook
+wiring) into its own plugin cache; the first hook that fires downloads the two compiled binaries
+(`synapse`, `synapse-hook`) straight from this repo's [GitHub
+Releases](https://github.com/imunitic/synapse/releases) into `~/.cache/synapse/bin/` and caches
+them there — nothing to rebuild or re-fetch until a new release ships. `zig build` is only for
+contributing to Synapse itself; see [Dependencies](#dependencies).
 
 1. Install Obsidian, open (or create) your Vault.
 2. **Settings → Community plugins → Browse**, install + enable:
@@ -46,24 +43,30 @@ binaries elsewhere, point `$SYNAPSE_BIN` and `$SYNAPSE_HOOK_BIN` at them instead
    - **Headless Mode** (optional but recommended — lets Obsidian run as a background daemon with no
      visible window; enable "Start headless" in its settings)
    - **Iconic** (optional — folder/file icons)
-3. Run:
+3. Point Synapse at the vault — create `~/.claude/synapse.conf` (or, on a machine that's adopted
+   XDG config directories, `$XDG_CONFIG_HOME/synapse/synapse.conf`) with one line:
    ```sh
-   ./setup-obsidian-mcp.sh /path/to/your/vault
+   OBSIDIAN_VAULT_DIR="$HOME/path/to/your/vault"
    ```
-   This extracts the plugin's generated cert + API key, wires `NODE_EXTRA_CA_CERTS`, and registers the
-   `obsidian` MCP server at user scope (available from any project, any directory). Safe to re-run if
-   you ever reinstall the plugin — new cert and key each time.
-4. Edit `~/.claude/synapse.conf`: set `OBSIDIAN_VAULT_DIR` to the Vault path.
+   Nothing prompts for this during install — a plugin install is just files landing on disk, no
+   interactive step. Skip it and the next session's `SessionStart` hook says so directly instead of
+   staying silent.
+4. Restart Claude Code, or start a fresh session. From here on, a second `SessionStart` hook
+   registers the `obsidian` MCP server automatically every session — extracting the Local REST API
+   plugin's cert + API key, wiring `NODE_EXTRA_CA_CERTS`, running `claude mcp add` — no script to
+   run by hand, and it keeps itself current if you ever reinstall the Obsidian plugin (new cert and
+   key each time).
 5. Check the result:
    ```sh
-   synapse doctor
+   ~/.cache/synapse/bin/synapse doctor    # or add ~/.cache/synapse/bin to PATH first
    ```
    One line per precondition, and it exits non-zero if any of them is broken. Worth running
    even when everything seems fine, because almost every guard in the system is *silent* by
    design — a hook that errors is worse than one that quietly does nothing, so a half-installed
    machine looks exactly like a working one with nothing to say. `doctor` is the one place that
    speaks: a missing certificate, an Obsidian that is not running, a namespace whose recorded
-   remote no longer matches, a hook registered twice (which makes it fire twice).
+   remote no longer matches, a hook registered twice (which makes it fire twice) — and it tells a
+   plugin install and a from-source checkout apart automatically, checking whichever one it finds.
 6. (Recommended) Set Obsidian to start automatically at login, so it is always running:
    - **macOS**:
      ```sh
@@ -85,11 +88,12 @@ binaries elsewhere, point `$SYNAPSE_BIN` and `$SYNAPSE_HOOK_BIN` at them instead
      for a Flatpak install).
    - **Windows**: press **Win+R**, type `shell:startup`, hit Enter, then drop a shortcut to
      `Obsidian.exe` into the folder that opens.
-7. Restart Claude Code.
 
-`setup.sh` is safe to re-run at any time. It migrates config filenames it recognises, rewrites hook
-paths in `settings.json` rather than adding a second copy, and reports any file under `~/.claude/` that
-it no longer installs, so nothing is left running that the docs stop describing.
+**Contributing, or want to run from a checkout instead of the plugin?** `git clone`, `zig build`
+(or `just build`), then point Claude Code at the checkout's `claude/` directory with `claude
+--plugin-dir ./claude` for local testing — see [Claude Code's plugin
+docs](https://code.claude.com/docs/en/plugins#test-your-plugins-locally) for the full local-dev
+flow. There's no `setup.sh` anymore; the plugin path replaced it entirely.
 
 **Using it:** the human-facing entry points are `/synapse-init`, `/synapse-rebuild-diff`, and
 `/synapse-rebuild-full` — `/synapse-init` builds a repo's first Graph namespace,
@@ -102,9 +106,9 @@ documented in [`docs/cli.md`](docs/cli.md) for whoever goes looking.
 ## Synapse Vault — the notes
 
 - `claude/synapse-claude.md` — the global memory-system instructions: when to write a note, where it
-  goes, and the linking rules. Installed to `~/.claude/synapse-claude.md` and refreshed on every
-  `setup.sh` run; `~/.claude/CLAUDE.md` itself stays entirely yours, with one `@import` line pointing
-  at it.
+  goes, and the linking rules. Injected directly by the `SessionStart` hook every session (the same
+  mechanism that injects `Index.md`), not via a `CLAUDE.md` `@import` line — `~/.claude/CLAUDE.md`
+  stays entirely yours, untouched.
 - `claude/synapse.conf.template` — path config; set `OBSIDIAN_VAULT_DIR` per machine.
 - `synapse-hook session-start` — `SessionStart`: injects the Vault's index and this repo's
   Graph namespace pointer, if one exists.
@@ -146,8 +150,8 @@ plain-English summary, a quoted `crux`, typed links, and the exhaustive list of 
 ## What's NOT portable (per-machine, regenerated fresh each time)
 
 - The Obsidian Local REST API plugin's self-signed cert + API key — each install generates its own.
-  `setup-obsidian-mcp.sh` extracts these *after* you've installed the plugin; it does not carry them
-  over from another machine.
+  The `obsidian-mcp-refresh.sh` `SessionStart` hook extracts these automatically, every session,
+  *after* you've installed the Obsidian plugin; it does not carry them over from another machine.
 - The `obsidian` MCP server registration in `~/.claude.json` (contains the bearer token —
   machine-local, not meant to be copied or committed).
 - `NODE_EXTRA_CA_CERTS` in `~/.claude/settings.json` (the path is machine-specific anyway).
@@ -171,7 +175,7 @@ from your diff, and `just test-linux` is the honest answer whenever a change is 
 unsure. A change to prose in `docs/` or this README has no test to fail and needs neither.
 
 Two traps in that. Shipped instructions under `claude/` **look** like documentation and are not: they
-install into `~/.claude`, and `tests/legacy-commands.bats` plus `tests/setup.bats` cover them — that
+install as a Claude Code plugin, and `tests/legacy-commands.bats` covers them — that
 is how a skill telling Claude to run a nonexistent command got caught. And `docs/cli.md` and the
 diagrams are *generated*, so a change upstream of them needs `just fix`, not `just docs-check`.
 
@@ -179,7 +183,7 @@ diagrams are *generated*, so a change upstream of them needs `just fix`, not `ju
 correct). `just test-changed` derives its selection by grep rather than from a maintained list — a
 lower bound on coverage, which is the right trade per commit and the wrong one before a push.
 
-`just check` runs the suite in the Linux container, which is not a preference: the same 438 tests take
+`just check` runs the suite in the Linux container, which is not a preference: the same ~480 tests take
 ~30s there against six to seven minutes on the host, because macOS `fork`/`exec` costs 6.5ms where
 Linux costs 0.24ms. That took the gate from ~8min to 2:20, and finding the same tax inside
 `ci/check-layering.sh` — two forked greps per source line, 113s — took it to ~40s. `just check-local`
@@ -206,11 +210,15 @@ skill's table, with the whole suite green.
 
 ## Dependencies
 
-`jq`, `bats-core` (tests only), the `claude` CLI. Zig 0.16 to build the two binaries — a build-time
-dependency, not a runtime one: `setup.sh` copies the result rather than compiling anything itself,
-and refuses to install until it exists (see "New machine setup"). Optional: a C compiler for the Graph's tree-sitter acceleration (grammars
-are still native libraries, built on first use), GNU `parallel` for `bats --jobs`, and Node (for
-`npx`) to re-render the diagrams — everything except Zig degrades gracefully if missing.
+For using the plugin: the `claude` CLI itself, `curl` and `tar` (the `SessionStart` hook's one-time
+binary fetch from GitHub Releases), and `jq` (the `obsidian-mcp-refresh.sh` hook only — absence just
+means that one hook skips silently, everything else keeps working). Nothing to build, nothing to
+install by hand — see "New machine setup".
+
+For contributing to Synapse itself: Zig 0.16 (`just build`/`zig build`), `bats-core` (tests), a C
+compiler for the Graph's tree-sitter acceleration (grammars are native libraries, built on first
+use), GNU `parallel` for `bats --jobs`, and Node (for `npx`) to re-render the diagrams — everything
+except Zig degrades gracefully if missing.
 
 The `tree-sitter` CLI is no longer among them: libtree-sitter is linked into the binary and the
 grammar's own `queries/tags.scm` is run in-process.

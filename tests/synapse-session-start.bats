@@ -101,14 +101,62 @@ run_hook() {
   [[ "$ctx" != *"Synapse namespace"* ]]
 }
 
-@test "no OBSIDIAN_VAULT_DIR configured: no output, synapse check skipped" {
+@test "no OBSIDIAN_VAULT_DIR configured: warns instead of staying silent, synapse check skipped" {
+  # Total silence here used to be indistinguishable from "nothing to report" --
+  # but a plugin install has no interactive setup.sh step to print an "EDIT
+  # THIS FILE" message as a backstop, so this hook is the only place left
+  # that can ever say so.
   cat > "$HOME/.claude/synapse.conf" <<'EOF'
 EOF
   make_repo "git@github.com:example/repo.git"
 
   run run_hook "$REPO"
   [ "$status" -eq 0 ]
-  [ -z "$output" ]
+  ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext')"
+  [[ "$ctx" == *"Synapse Vault isn't configured"* ]]
+  [[ "$ctx" != *"Synapse namespace"* ]]
+}
+
+# --- synapse-claude.md injection (sb-019: no CLAUDE.md @import in the plugin
+# world). CLAUDE_PLUGIN_ROOT is a real exported environment variable on the
+# spawned hook process, checked first; resolving relative to this binary's
+# own invoked path is the fallback for the pre-plugin setup.sh install, which
+# has no CLAUDE_PLUGIN_ROOT at all. ---------------------------------------
+
+@test "synapse-claude.md is injected from \$CLAUDE_PLUGIN_ROOT when that's set" {
+  mkdir -p "$HOME/plugin"
+  echo "STANDING INSTRUCTIONS MARKER" > "$HOME/plugin/synapse-claude.md"
+  make_repo
+
+  CLAUDE_PLUGIN_ROOT="$HOME/plugin" run run_hook "$REPO"
+  [ "$status" -eq 0 ]
+  ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext')"
+  [[ "$ctx" == *"STANDING INSTRUCTIONS MARKER"* ]]
+}
+
+@test "synapse-claude.md, when CLAUDE_PLUGIN_ROOT is unset, falls back to one directory above this binary" {
+  # A standalone copy of the hook binary, not $SYNAPSE_HOOK_BIN directly: the
+  # fallback resolution is relative to argv0's own directory, so the test
+  # needs control over what sits next to it -- the real zig-out/bin/ has no
+  # synapse-claude.md beside it, which is exactly the "absent" case the next
+  # test covers.
+  mkdir -p "$HOME/plugin/hooks"
+  cp "$SYNAPSE_HOOK_BIN" "$HOME/plugin/hooks/synapse-hook"
+  echo "STANDING INSTRUCTIONS MARKER" > "$HOME/plugin/synapse-claude.md"
+  make_repo
+
+  run bash -c "printf '{\"cwd\":\"%s\"}' '$REPO' | '$HOME/plugin/hooks/synapse-hook' session-start"
+  [ "$status" -eq 0 ]
+  ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext')"
+  [[ "$ctx" == *"STANDING INSTRUCTIONS MARKER"* ]]
+}
+
+@test "no synapse-claude.md anywhere resolvable: injection is silently skipped" {
+  make_repo
+  run run_hook "$REPO"
+  [ "$status" -eq 0 ]
+  ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext')"
+  [[ "$ctx" != *"STANDING INSTRUCTIONS MARKER"* ]]
 }
 
 # --- namespace catalogue (sb-001 multi-repo discovery) ----------------------

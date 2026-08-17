@@ -1,0 +1,16 @@
+{
+  "$schema": "https://www.schemastore.org/claude-code-marketplace.json",
+  "name": "synapse",
+  "description": "Memory for Claude Code: durable notes that outlive a session, and a per-repo code graph so a codebase doesn't get re-explored from scratch every time.",
+  "owner": {
+    "name": "imunitic"
+  },
+  "plugins": [
+    {
+      "name": "synapse",
+      "description": "Memory for Claude Code: durable notes that outlive a session, and a per-repo code graph so a codebase doesn't get re-explored from scratch every time.",
+      "source": "./claude",
+      "category": "productivity"
+    }
+  ]
+}

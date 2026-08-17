@@ -40,7 +40,7 @@ const usage =
 
 pub fn main(init: std.process.Init) !u8 {
     var args = init.minimal.args.iterate();
-    const argv0 = args.next() orelse ""; // stop-nudge's own path, to re-invoke for vault-push
+    const argv0 = args.next() orelse ""; // this binary's own invoked path -- stop-nudge re-invokes it for vault-push; session-start resolves synapse-claude.md relative to it
 
     const which = args.next() orelse {
         std.debug.print("{s}", .{usage});
@@ -62,7 +62,7 @@ pub fn main(init: std.process.Init) !u8 {
     } else if (std.mem.eql(u8, which, "prompt-context")) {
         prompt_context.run(gpa, io, env) catch {};
     } else if (std.mem.eql(u8, which, "session-start")) {
-        session_start.run(gpa, io, env) catch {};
+        session_start.run(gpa, io, env, argv0) catch {};
     } else if (std.mem.eql(u8, which, "stop-nudge")) {
         stop_nudge.run(gpa, io, env, argv0) catch {};
     } else if (std.mem.eql(u8, which, "db-sync")) {

@@ -171,6 +171,31 @@ EOF
   [[ "$output" == *"more than once"* ]]
 }
 
+@test "a plugin install with hooks.json present reports ok, not the legacy-shape failures" {
+  # A healthy plugin install has neither ~/.claude/bin/synapse-hook nor a
+  # settings.json hook merge -- hooks.json is loaded straight from the
+  # plugin cache instead. Before hookChecks learned to tell the two install
+  # shapes apart, this exact state reported three false failures.
+  make_repo
+  version_dir="$HOME/.claude/plugins/cache/synapse/synapse/2026-08-1"
+  mkdir -p "$version_dir/hooks"
+  touch "$version_dir/hooks/hooks.json"
+
+  run run_doctor
+  [[ "$output" == *"ok    hooks"*"plugin install"* ]]
+  [[ "$output" != *"hook binary"* ]]
+}
+
+@test "a plugin install missing hooks.json is a failure that names the version dir" {
+  make_repo
+  version_dir="$HOME/.claude/plugins/cache/synapse/synapse/2026-08-1"
+  mkdir -p "$version_dir"
+
+  run run_doctor
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"FAIL"*"hooks"*"hooks/hooks.json is missing"* ]]
+}
+
 @test "outside a git repo it warns rather than failing" {
   # `doctor` is the one command someone runs when they do not know what is wrong, so it
   # has to answer everywhere -- including from a directory that is not a checkout.

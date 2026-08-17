@@ -14,9 +14,9 @@
 # thinking about what a change can actually break:
 #
 #   changed a .zig file         just test-changed
-#   changed setup.sh or a hook  just test-for <the file>
+#   changed a hook               just test-for <the file>
 #   changed docs/ or README     nothing -- prose has no test to fail
-#   changed claude/**/*.md      just test tests/legacy-commands.bats tests/setup.bats
+#   changed claude/**/*.md      just test tests/legacy-commands.bats
 #   changed a lot, or unsure    just test-linux
 #   about to push               just check
 #
@@ -78,14 +78,18 @@ test-serial *FILES: _fake
 # does not verify -- which is the right trade for a commit and the wrong one for a
 # push, where `just check` covers what this cannot see.
 #
-# `setup.bats` is the one always-run file: it is cheap and it catches the install
-# breaking, which nothing else would. `synapse-pipeline` and
-# `synapse-rebuild-scenario` were also in this set and have been taken out, on
-# measurement -- they are 12 tests but 21% of the suite's CPU, and
-# rebuild-scenario's slowest single test is 50s, so together they were 35s of a 42s
-# narrowed run. Keeping them made the inner loop 6x slower to re-cover ground
-# `check` covers anyway, which is a bad trade for a loop whose whole value is being
-# fast enough to actually run.
+# No always-run file anymore. `setup.bats` used to fill that role -- cheap, and
+# it caught the install breaking, which nothing else did -- but installing is
+# now Claude Code's own job (marketplace add / plugin install), not a script
+# this repo ships and can unit-test cheaply. What actually verifies the
+# plugin install path is the sb-019 podman-style end-to-end test, run by hand
+# when the install mechanics themselves change, not on every commit.
+# `synapse-pipeline` and `synapse-rebuild-scenario` were also once in this set
+# and have been taken out, on measurement -- they are 12 tests but 21% of the
+# suite's CPU, and rebuild-scenario's slowest single test is 50s, so together
+# they were 35s of a 42s narrowed run. Keeping them made the inner loop 6x
+# slower to re-cover ground `check` covers anyway, which is a bad trade for a
+# loop whose whole value is being fast enough to actually run.
 #
 # Groups are derived rather than listed on purpose. A hand-maintained group list is
 # one more thing that silently stops matching reality, and the coupling here is dense
@@ -95,7 +99,6 @@ test-serial *FILES: _fake
 test-for +PATHS:
     #!/usr/bin/env bash
     set -euo pipefail
-    always="tests/setup.bats"
     picked=""
     for p in {{ PATHS }}; do
         b="$(basename "$p")"
@@ -105,7 +108,7 @@ test-for +PATHS:
         [ -n "$hits" ] || echo "no test names '$b' -- relying on the integration files" >&2
         picked="$picked $hits"
     done
-    files="$(printf '%s %s' "$picked" "$always" | tr ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ')"
+    files="$(printf '%s' "$picked" | tr ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ')"
     echo "running: $(printf '%s' "$files" | wc -w | tr -d ' ') files" >&2
     just test $files
 
@@ -292,10 +295,15 @@ syntax:
     #!/usr/bin/env bash
     set -euo pipefail
     n=0
-    # claude/bin, claude/lib/synapse and claude/hooks are gone -- the tooling is two
-    # binaries. What is left to parse-check is the installer, CI and the doc
-    # generators, and the `[ -f ]` guard below is what makes a removed glob harmless.
-    for f in ci/*.sh docs/*.sh setup.sh setup-obsidian-mcp.sh; do
+    # claude/bin and claude/lib/synapse are gone -- the tooling is two
+    # binaries. claude/hooks/ is back, for a different reason: not the old
+    # per-hook shell scripts, but the plugin's binary-fetch bootstrap
+    # (sb-019). setup.sh and setup-obsidian-mcp.sh are gone too -- installing
+    # is Claude Code's own job now (marketplace add / plugin install), not a
+    # script this repo ships. What is left to parse-check beyond that is CI
+    # and the doc generators, and the `[ -f ]` guard below is what makes a
+    # removed glob harmless.
+    for f in ci/*.sh docs/*.sh claude/hooks/*.sh; do
         [ -f "$f" ] || continue
         bash -n "$f"
         n=$((n + 1))
@@ -351,13 +359,6 @@ check: build build-targets test-zig layering syntax test-linux docs-check
 # The full gate with the bats suite on the host instead of in the container.
 check-local: build build-targets test-zig layering syntax test docs-check
     @echo "all green (host bats)"
-
-# Several scripts shell out to the *installed* copy rather than the repo one, so
-# an unsynced ~/.claude means testing a mix of old and new.
-
-# Install into ~/.claude the way a user would.
-install:
-    ./setup.sh
 
 # Show what changed against the pushed branch.
 diff:

@@ -29,7 +29,7 @@ const Allocator = std.mem.Allocator;
 
 const label = "Synapse Vault index";
 
-pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
+pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map, argv0: []const u8) !void {
     const vault = common.vault(gpa, io, env) orelse ""; // one guard below, not two paths
     defer if (vault.len != 0) gpa.free(vault);
     var payload = common.Payload.read(gpa, io);
@@ -41,6 +41,44 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     defer if (absent) |s| gpa.free(s);
     var catalogue: ?[]u8 = null;
     defer if (catalogue) |s| gpa.free(s);
+
+    // Independent of vault configuration entirely -- this is Synapse's own
+    // standing instructions, not vault content. `CLAUDE_PLUGIN_ROOT` is a
+    // real exported environment variable on the spawned hook process
+    // ("regardless of how it was launched", per Claude Code's own hooks
+    // reference) -- checked first when running as a plugin. Falls back to
+    // resolving relative to this binary's own invoked path (`argv0`), one
+    // directory up, for the pre-plugin `setup.sh` install, which has no
+    // `CLAUDE_PLUGIN_ROOT` at all: `~/.claude/bin/synapse-hook` next to
+    // `~/.claude/synapse-claude.md` today. No frontmatter to strip --
+    // unlike a skill file, this one has none.
+    var claude_md: ?[]u8 = null;
+    defer if (claude_md) |s| gpa.free(s);
+    const claude_md_path: ?[]u8 = if (env.get("CLAUDE_PLUGIN_ROOT")) |root|
+        try std.fmt.allocPrint(gpa, "{s}/synapse-claude.md", .{root})
+    else if (std.fs.path.dirname(argv0)) |bin_dir|
+        try std.fmt.allocPrint(gpa, "{s}/../synapse-claude.md", .{bin_dir})
+    else
+        null;
+    if (claude_md_path) |path| {
+        defer gpa.free(path);
+        if (Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 20))) |content| {
+            claude_md = content;
+        } else |_| {}
+    }
+
+    // The one precondition every other section here silently depends on.
+    // Said, not implied by silence: there's no install-time prompt to catch
+    // this instead (a plugin install just clones files, nothing prints
+    // anything), so this hook is the only place it can ever get said.
+    var vault_warning: ?[]u8 = null;
+    defer if (vault_warning) |s| gpa.free(s);
+    if (vault.len == 0) {
+        vault_warning = try gpa.dupe(
+            u8,
+            "Synapse Vault isn't configured, or its directory isn't reachable -- code-graph and vault-note features are unavailable until synapse.conf's OBSIDIAN_VAULT_DIR points at a real directory. Create or edit synapse.conf at $XDG_CONFIG_HOME/synapse/synapse.conf (or ~/.config/synapse/synapse.conf if that variable isn't set), or ~/.claude/synapse.conf.",
+        );
+    }
 
     // The catalogue below needs the key to drop this repo's own namespace.
     const maybe_ns = if (vault.len != 0)
@@ -119,7 +157,7 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     var text: Io.Writer.Allocating = .init(gpa);
     defer text.deinit();
     var wrote = false;
-    for ([_]?[]u8{ base, synapse_line, catalogue }) |part| {
+    for ([_]?[]u8{ claude_md, vault_warning, base, synapse_line, catalogue }) |part| {
         const p = part orelse continue;
         if (p.len == 0) continue;
         if (wrote) try text.writer.writeAll("\n\n");

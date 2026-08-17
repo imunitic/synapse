@@ -120,17 +120,19 @@ fn dependencies(ctx: *Ctx) !void {
         const first = res.stdout[0 .. std.mem.indexOfScalar(u8, res.stdout, '\n') orelse res.stdout.len];
         try ctx.add(tool, .ok, try ctx.fmt("{s}", .{std.mem.trim(u8, first, " \t\r")}));
     }
-    // jq is unused by either binary now, but setup.sh still needs it to merge
-    // settings.json -- absence breaks installing, not running.
+    // jq is unused by either binary itself -- it's a shell-out dependency of
+    // the obsidian-mcp-refresh.sh SessionStart hook (cert/key extraction,
+    // settings.json merge), so absence breaks that hook silently, not either
+    // binary's own behaviour.
     const res = adapters.process.run(ctx.io, ctx.gpa, &.{ "jq", "--version" }, .{}) catch null;
     if (res) |r| {
         defer r.deinit(ctx.gpa);
         if (r.ok()) {
-            try ctx.add("jq", .ok, "used by setup.sh only");
+            try ctx.add("jq", .ok, "used by the obsidian-mcp-refresh.sh hook only");
             return;
         }
     }
-    try ctx.add("jq", .warn, "absent: setup.sh needs it to merge settings.json");
+    try ctx.add("jq", .warn, "absent: the obsidian-mcp-refresh.sh hook needs it and will skip silently");
 }
 
 /// The conf file and the vault directory. Mirrors: `core.conf.vaultDir`
@@ -218,7 +220,7 @@ fn apiChecks(ctx: *Ctx, vault: ?[]const u8) !void {
     if (ctx.exists(cert)) {
         try ctx.add("certificate", .ok, cert);
     } else {
-        try ctx.add("certificate", .fail, "absent -- run ./setup-obsidian-mcp.sh <vault>");
+        try ctx.add("certificate", .fail, "absent -- created automatically by the obsidian-mcp-refresh.sh SessionStart hook; start a new session");
         return;
     }
 
@@ -420,21 +422,50 @@ fn grammarLockChecks(ctx: *Ctx) !void {
     }
 }
 
+/// The installed version directory under the plugin cache, if `claude plugin
+/// install synapse@synapse` has actually succeeded -- keyed by the
+/// marketplace/plugin names this repo's own `marketplace.json` declares
+/// (verified directly against a real install, sb-019), not guessed. A plugin
+/// install never populates `~/.claude/bin/synapse-hook` or merges hooks into
+/// `settings.json` -- `hooks.json` is loaded straight from this cache
+/// instead -- so `hookChecks` below must tell the two install shapes apart
+/// rather than judge a healthy plugin install by the legacy shape's absence.
+fn pluginVersionDir(ctx: *Ctx) !?[]const u8 {
+    const home = ctx.env.get("HOME") orelse return null;
+    const cache = try ctx.fmt("{s}/.claude/plugins/cache/synapse/synapse", .{home});
+    var dir = Io.Dir.cwd().openDir(ctx.io, cache, .{ .iterate = true }) catch return null;
+    defer dir.close(ctx.io);
+    var it = dir.iterate();
+    const entry = (try it.next(ctx.io)) orelse return null;
+    return try ctx.fmt("{s}/{s}", .{ cache, entry.name });
+}
+
 /// Whether the five hooks are registered, once each, at the current command. Mirrors
 /// nothing silent -- it mirrors something *loud in the wrong direction*: a hook wired
 /// twice fires twice, and the only symptom is duplicated context nobody attributes to
-/// settings.json.
+/// settings.json. Two entirely different install shapes to check, not one: a plugin
+/// install (hooks.json in the plugin cache) or the legacy setup.sh shape (hooks merged
+/// into settings.json, binary at a fixed path) -- whichever one is actually present.
 fn hookChecks(ctx: *Ctx) !void {
+    if (try pluginVersionDir(ctx)) |version_dir| {
+        const hooks_json = try ctx.fmt("{s}/hooks/hooks.json", .{version_dir});
+        try ctx.add("hooks", if (ctx.exists(hooks_json)) .ok else .fail, if (ctx.exists(hooks_json))
+            try ctx.fmt("plugin install -- {s}", .{hooks_json})
+        else
+            try ctx.fmt("plugin install detected at {s} but hooks/hooks.json is missing -- reinstall the plugin", .{version_dir}));
+        return;
+    }
+
     const home = ctx.env.get("HOME") orelse return;
     const hook_bin = try ctx.fmt("{s}/.claude/bin/synapse-hook", .{home});
     try ctx.add("hook binary", if (ctx.exists(hook_bin)) .ok else .fail, if (ctx.exists(hook_bin))
         hook_bin
     else
-        "not installed -- run ./setup.sh");
+        "no plugin install and no legacy hook binary -- install the Synapse Claude Code plugin");
 
     const settings_path = try ctx.fmt("{s}/.claude/settings.json", .{home});
     const text = ctx.read(settings_path) orelse {
-        try ctx.add("hooks", .fail, "no settings.json -- run ./setup.sh");
+        try ctx.add("hooks", .fail, "no settings.json -- this looks like neither a plugin nor a legacy install");
         return;
     };
     const names = [_][]const u8{ "session-start", "prompt-context", "staleness", "db-sync", "stop-nudge" };
@@ -447,19 +478,19 @@ fn hookChecks(ctx: *Ctx) !void {
         if (n > 1) duplicated += 1;
     }
     if (missing == 0 and duplicated == 0) {
-        try ctx.add("hooks", .ok, "all five registered once");
+        try ctx.add("hooks", .ok, "all five registered once (legacy install)");
     } else if (duplicated != 0) {
         try ctx.add("hooks", .fail, try ctx.fmt(
-            "{d} registered more than once -- each fires that many times; re-run ./setup.sh",
+            "{d} registered more than once -- each fires that many times; fix ~/.claude/settings.json or reinstall the plugin",
             .{duplicated},
         ));
     } else {
-        try ctx.add("hooks", .fail, try ctx.fmt("{d} of 5 not registered -- run ./setup.sh", .{missing}));
+        try ctx.add("hooks", .fail, try ctx.fmt("{d} of 5 not registered -- fix ~/.claude/settings.json or install the plugin", .{missing}));
     }
 
     // A wrapper still referenced would silently take precedence over the binary for
     // that hook, and it would keep working -- which is why this is a failure rather
     // than a note.
     if (std.mem.indexOf(u8, text, "hooks/synapse-") != null)
-        try ctx.add("hook wiring", .fail, "settings.json still names a hooks/*.sh wrapper -- re-run ./setup.sh");
+        try ctx.add("hook wiring", .fail, "settings.json still names a hooks/*.sh wrapper -- fix ~/.claude/settings.json or reinstall the plugin");
 }
