@@ -442,21 +442,49 @@ fn pluginVersionDir(ctx: *Ctx) !?[]const u8 {
     // directory (macOS's own .DS_Store, seen live: Finder had been opened
     // to this exact path) is not one, and taking whatever entry.next()
     // happens to hand back first, unfiltered, was exactly the bug that
-    // let it through. Picks the lexicographically greatest name (a
-    // YYYY-MM_N version string sorts newest-last) rather than the first
-    // one iterated, in case more than one version directory ever coexists
-    // mid-update -- iteration order itself is never guaranteed.
+    // let it through. Picks the newest by `versionNewer` below (not a plain
+    // lexicographic max -- see that function for why) rather than the
+    // first one iterated, in case more than one version directory ever
+    // coexists mid-update -- iteration order itself is never guaranteed.
     var best: ?[]const u8 = null;
     var it = dir.iterate();
     while (try it.next(ctx.io)) |entry| {
         if (entry.kind != .directory) continue;
         if (entry.name.len == 0 or entry.name[0] == '.') continue;
-        if (best == null or std.mem.order(u8, entry.name, best.?) == .gt) {
+        if (best == null or versionNewer(entry.name, best.?)) {
             best = try ctx.fmt("{s}", .{entry.name});
         }
     }
     const name = best orelse return null;
     return try ctx.fmt("{s}/{s}", .{ cache, name });
+}
+
+/// Whether release-tag `a` is newer than `b`, both `YYYY-MM_N`. A plain
+/// lexicographic comparison -- what this replaced -- gets the `YYYY-MM`
+/// prefix right (dates sort correctly as strings) but not `N`: `2026-08_9`
+/// lexicographically outranks `2026-08_12` and `2026-08_13`, because `'9'`
+/// is greater than `'1'` at the first differing byte, even though 9 < 12 <
+/// 13 numerically. Confirmed live -- three real cached versions (`_9`,
+/// `_12`, `_13`) with `pluginVersionDir` picking `_9` as "newest". Compares
+/// the `YYYY-MM` prefix as a string (correct for dates) and only falls
+/// back to a numeric compare of `N` when the prefixes are equal, which is
+/// the one place the pure-string approach breaks down. Malformed input
+/// (no `_`, or a non-numeric suffix) falls back to the plain string
+/// compare rather than erroring -- a directory doctor doesn't recognize
+/// the shape of shouldn't crash the check, just lose the tiebreak.
+fn versionNewer(a: []const u8, b: []const u8) bool {
+    const a_us = std.mem.lastIndexOfScalar(u8, a, '_') orelse return std.mem.order(u8, a, b) == .gt;
+    const b_us = std.mem.lastIndexOfScalar(u8, b, '_') orelse return std.mem.order(u8, a, b) == .gt;
+    const a_prefix = a[0..a_us];
+    const b_prefix = b[0..b_us];
+    switch (std.mem.order(u8, a_prefix, b_prefix)) {
+        .lt => return false,
+        .gt => return true,
+        .eq => {},
+    }
+    const a_n = std.fmt.parseInt(u32, a[a_us + 1 ..], 10) catch return std.mem.order(u8, a, b) == .gt;
+    const b_n = std.fmt.parseInt(u32, b[b_us + 1 ..], 10) catch return std.mem.order(u8, a, b) == .gt;
+    return a_n > b_n;
 }
 
 /// Whether the five hooks are registered, once each, at the current command. Mirrors

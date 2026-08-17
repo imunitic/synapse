@@ -214,6 +214,28 @@ EOF
   [[ "$output" != *"FAIL  hooks"* ]]
 }
 
+@test "the newest of several coexisting version dirs wins by number, not lexicographically" {
+  # Caught live: a real install had 2026-08_9, 2026-08_12 and 2026-08_13
+  # coexisting (releases accumulate; nothing prunes old ones), and
+  # pluginVersionDir()'s plain lexicographic max picked 2026-08_9 as
+  # "newest" -- '9' outranks '1' at the first differing byte, even though
+  # 9 < 12 < 13 numerically. Only the numerically-newest dir gets a real
+  # hooks.json here, so a lexicographic pick would report FAIL, not the ok
+  # this test actually asserts.
+  make_repo
+  cache_dir="$HOME/.claude/plugins/cache/synapse/synapse"
+  mkdir -p "$cache_dir/2026-08_9/hooks" "$cache_dir/2026-08_12/hooks"
+  touch "$cache_dir/2026-08_9/hooks/hooks.json" "$cache_dir/2026-08_12/hooks/hooks.json"
+  version_dir="$cache_dir/2026-08_13"
+  mkdir -p "$version_dir/hooks"
+  touch "$version_dir/hooks/hooks.json"
+
+  run run_doctor
+  [[ "$output" == *"ok    hooks"*"2026-08_13"* ]]
+  [[ "$output" != *"2026-08_9/hooks"* ]]
+  [[ "$output" != *"2026-08_12/hooks"* ]]
+}
+
 @test "a plugin install missing hooks.json is a failure that names the version dir" {
   make_repo
   version_dir="$HOME/.claude/plugins/cache/synapse/synapse/2026-08-1"
