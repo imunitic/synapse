@@ -69,17 +69,17 @@ jobs:
         run: |
           tmp=$(mktemp)
           jq --arg v "${{ steps.tag.outputs.tag }}" '.version = $v' \
-            claude/.claude-plugin/plugin.json > "$tmp"
-          mv "$tmp" claude/.claude-plugin/plugin.json
+            plugins/synapse/.claude-plugin/plugin.json > "$tmp"
+          mv "$tmp" plugins/synapse/.claude-plugin/plugin.json
           jq --arg v "${{ steps.tag.outputs.tag }}" '.version = $v' \
-            synapse-bard/.claude-plugin/plugin.json > "$tmp"
-          mv "$tmp" synapse-bard/.claude-plugin/plugin.json
+            plugins/synapse-bard/.claude-plugin/plugin.json > "$tmp"
+          mv "$tmp" plugins/synapse-bard/.claude-plugin/plugin.json
 
       - name: Commit the version stamp
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add claude/.claude-plugin/plugin.json synapse-bard/.claude-plugin/plugin.json
+          git add plugins/synapse/.claude-plugin/plugin.json plugins/synapse-bard/.claude-plugin/plugin.json
           # Nothing to commit is not a failure -- workflow_dispatch on an
           # already-stamped commit, or a re-run, land here.
           git diff --cached --quiet || git commit -m "chore: stamp plugin.json for ${{ steps.tag.outputs.tag }}"

@@ -68,8 +68,12 @@ EOF
 }
 
 # Every file installed into ~/.claude that a model reads as instructions.
+# synapse's own shipped instructions only -- plugins/synapse-bard/ has its
+# own commands/skills now but this check's unknown_commands() below is
+# hardcoded to $SYNAPSE_BIN's own subcommand vocabulary, so scanning bard's
+# docs here would need that generalized first, not just this path updated.
 shipped_instructions() {
-  find "$REPO_ROOT/claude" -name '*.md' -type f
+  find "$REPO_ROOT/plugins/synapse" -name '*.md' -type f
 }
 
 # The shell entry points the rewrite deleted. Matched with a trailing `.sh` so this

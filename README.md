@@ -97,8 +97,8 @@ installed version against what it last fetched, and re-downloads the moment thos
      `Obsidian.exe` into the folder that opens.
 
 **Contributing, or want to run from a checkout instead of the plugin?** `git clone`, `zig build`
-(or `just build`), then point Claude Code at the checkout's `claude/` directory with `claude
---plugin-dir ./claude` for local testing — see [Claude Code's plugin
+(or `just build`), then point Claude Code at the checkout's `plugins/synapse/` directory with `claude
+--plugin-dir ./plugins/synapse` for local testing — see [Claude Code's plugin
 docs](https://code.claude.com/docs/en/plugins#test-your-plugins-locally) for the full local-dev
 flow. There's no `setup.sh` anymore; the plugin path replaced it entirely.
 
@@ -112,11 +112,11 @@ documented in [`docs/synapse/cli.md`](docs/synapse/cli.md) for whoever goes look
 
 ## Synapse Vault — the notes
 
-- `claude/synapse-claude.md` — the global memory-system instructions: when to write a note, where it
+- `plugins/synapse/synapse-claude.md` — the global memory-system instructions: when to write a note, where it
   goes, and the linking rules. Injected directly by the `SessionStart` hook every session (the same
   mechanism that injects `Index.md`), not via a `CLAUDE.md` `@import` line — `~/.claude/CLAUDE.md`
   stays entirely yours, untouched.
-- `claude/synapse.conf.template` — path config; set `OBSIDIAN_VAULT_DIR` per machine.
+- `plugins/synapse/synapse.conf.template` — path config; set `OBSIDIAN_VAULT_DIR` per machine.
 - `synapse-hook session-start` — `SessionStart`: injects the Vault's index and this repo's
   Graph namespace pointer, if one exists.
 - `synapse-hook stop-nudge` — a turn-count-based `Stop` hook that nudges a "worth
@@ -124,13 +124,13 @@ documented in [`docs/synapse/cli.md`](docs/synapse/cli.md) for whoever goes look
   `SYNAPSE_VAULT_PUSH_EVERY` turns (default 5), detached so a turn never waits on the network.
 - `synapse-hook db-sync` — commits Vault changes to the Vault's own local git repo,
   if one exists.
-- `claude/commands/synapse-note.md` — note creation (bare / `--task` / `--list` / `--search`).
-- `claude/commands/synapse-design-note.md`, `claude/commands/synapse-task-note.md` — a design-discussion →
+- `plugins/synapse/commands/synapse-note.md` — note creation (bare / `--task` / `--list` / `--search`).
+- `plugins/synapse/commands/synapse-design-note.md`, `plugins/synapse/commands/synapse-task-note.md` — a design-discussion →
   compiled-checklist pipeline, cross-project by default (lives in the Vault, not a repo's gitignored
   `docs/notes/`).
-- `claude/skills/synapse-task/` — proactive task-status tracking.
-- `claude/skills/synapse-node-format/`, `claude/skills/synapse-orientation/`,
-  `claude/skills/synapse-vault/` — loadable knowledge rather than procedure: the node contract, how to
+- `plugins/synapse/skills/synapse-task/` — proactive task-status tracking.
+- `plugins/synapse/skills/synapse-node-format/`, `plugins/synapse/skills/synapse-orientation/`,
+  `plugins/synapse/skills/synapse-vault/` — loadable knowledge rather than procedure: the node contract, how to
   orient in an unfamiliar tree, and vault-editing rules (pull-only apart from `Index.md`), each shared
   across multiple components rather than owned by one.
 
@@ -139,19 +139,19 @@ documented in [`docs/synapse/cli.md`](docs/synapse/cli.md) for whoever goes look
 A few dozen LLM-authored node notes per repo, one per subsystem or concept, each carrying a
 plain-English summary, a quoted `crux`, typed links, and the exhaustive list of files it covers.
 
-- `claude/commands/synapse-init.md` — first-time build: orientation pass, clustering into a
+- `plugins/synapse/commands/synapse-init.md` — first-time build: orientation pass, clustering into a
   `manifest.tsv`, then node notes plus two derived projections. Also the manual `_unassigned`-sweep
   fallback for an already-initialized but dormant repo.
-- `claude/commands/synapse-rebuild-diff.md` — manual repair for major same-branch drift (a pull, a
+- `plugins/synapse/commands/synapse-rebuild-diff.md` — manual repair for major same-branch drift (a pull, a
   rebase, a long absence): triages each flagged node into **reseat**, **patch from the diff**, or
   **re-orient**. Refuses outright on a cross-branch mismatch.
-- `claude/commands/synapse-rebuild-full.md` — wipes the current namespace and rebuilds it from
+- `plugins/synapse/commands/synapse-rebuild-full.md` — wipes the current namespace and rebuilds it from
   scratch via `/synapse-init`, for when triage isn't the right tool. Preserves any hand-written
   `## Notes` first (`synapse graph-wipe`) and auto-merges what it can back into
   the new nodes afterward.
 - `synapse-hook staleness` — `PostToolUse` Tier 1: flags a just-edited file's nodes `stale`
   and re-verifies any evidence that file's nodes cite, via the Local REST API directly.
-- `claude/skills/synapse-node/` — Tier 2: the lazy staleness check, regeneration and unassigned sweep
+- `plugins/synapse/skills/synapse-node/` — Tier 2: the lazy staleness check, regeneration and unassigned sweep
   Claude runs itself whenever a node's body is actually read.
 
 ## What's NOT portable (per-machine, regenerated fresh each time)
@@ -181,7 +181,7 @@ catches things. Per commit, run what the change touches; `just test-changed` pic
 from your diff, and `just test-linux` is the honest answer whenever a change is broad or you are
 unsure. A change to prose in `docs/` or this README has no test to fail and needs neither.
 
-Two traps in that. Shipped instructions under `claude/` **look** like documentation and are not: they
+Two traps in that. Shipped instructions under `plugins/*/` **look** like documentation and are not: they
 install as a Claude Code plugin, and `tests/legacy-commands.bats` covers them — that
 is how a skill telling Claude to run a nonexistent command got caught. And each project's `cli.md`
 (under `docs/synapse/`, `docs/synapse-bard/`) plus the diagrams are *generated*, so a change
@@ -208,7 +208,7 @@ The generated artefacts (each project's `cli.md`, the Mermaid diagrams under `do
 are each verified by running their generator's `--check` mode, so an edit that was never regenerated fails a
 test instead of shipping something confidently wrong.
 
-`claude/commands/*.md` and `claude/skills/*/SKILL.md` are natural-language procedures, so no test
+`plugins/synapse/commands/*.md` and `plugins/synapse/skills/*/SKILL.md` are natural-language procedures, so no test
 executes them — but `tests/legacy-commands.bats` does check the one thing about them that is
 mechanically true or false: **every command they tell Claude to run has to exist.** It cross-checks
 each `` `synapse <sub>` `` against the binary's own `--help`, and applies the same rule to the text
