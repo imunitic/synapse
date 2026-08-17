@@ -144,16 +144,32 @@ awk '/^## Synapse Vault/{exit} {print}' "$root/README.md" > "$work/home.md"
   echo '  YAML-templated fiction book bible instead of a code repo.'
 } >> "$work/home.md"
 
+# The landing page needs the same #sidebar/#content wrapper every other
+# page gets -- body{display:flex} in site.css applies unconditionally, so
+# a page missing this wrapper doesn't just lose the sidebar, every one of
+# pandoc's own top-level blocks (each heading, paragraph, list) becomes
+# its own flex item and lays out side by side as parallel columns of
+# wrapped text. Caught live: shipped without it once already.
+top_nav='<nav id="sidebar"><div class="sidebar-title">Synapse</div><ul>'
+top_nav="$top_nav<li><a href=\"index.html\">Home</a></li>"
+top_nav="$top_nav<li><a href=\"synapse/index.html\">Synapse</a></li>"
+top_nav="$top_nav<li><a href=\"synapse-bard/index.html\">Synapse Bard</a></li>"
+top_nav="$top_nav</ul></nav><div id=\"content\">"
+top_nav_file="$work/top-nav.html"
+top_close_file="$work/top-close.html"
+printf '%s' "$top_nav" > "$top_nav_file"
+printf '</div>' > "$top_close_file"
+
 sed -E \
   -e 's/\]\(README\.md(#[a-zA-Z0-9_-]*)?\)/](index.html\1)/g' \
-  -e 's/\]\(docs\/([a-zA-Z0-9_-]+)\.md(#[a-zA-Z0-9_-]*)?\)/](synapse\/\1.html\2)/g' \
+  -e 's/\]\(docs\/synapse\/([a-zA-Z0-9_-]+)\.md(#[a-zA-Z0-9_-]*)?\)/](synapse\/\1.html\2)/g' \
   -e 's/\]\(LICENSE\)/](https:\/\/github.com\/imunitic\/synapse\/blob\/main\/LICENSE)/g' \
   -e 's/\]\(#dependencies\)/](https:\/\/github.com\/imunitic\/synapse#dependencies)/g' \
   -e 's/src="docs\/logo\.svg"/src="logo.svg"/g' \
   "$work/home.md" \
   | pandoc --from gfm --to html5 --standalone \
       --metadata pagetitle="Synapse" \
-      -c site.css -H "$favicon_file" \
+      -c site.css -H "$favicon_file" -B "$top_nav_file" -A "$top_close_file" \
       -o "$out/index.html"
 
 echo "site built: $out"
