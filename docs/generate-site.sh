@@ -22,6 +22,7 @@ command -v pandoc >/dev/null || { echo "pandoc is required" >&2; exit 1; }
 
 mkdir -p "$out"
 cp -r "$here/diagrams" "$out/diagrams"
+cp "$here/site.css" "$out/site.css"
 
 n=0
 for f in "$here"/*.md; do
@@ -33,7 +34,7 @@ for f in "$here"/*.md; do
     # #fragment) -- rewrite to the .html files this loop is producing.
     sed -E 's/\]\(([a-zA-Z0-9_-]+)\.md(#[a-zA-Z0-9_-]*)?\)/](\1.html\2)/g' "$f" \
         | pandoc --from gfm --to html5 --standalone --metadata title="$name" \
-            -o "$out/$target"
+            -c site.css -o "$out/$target"
     n=$((n + 1))
 done
 
