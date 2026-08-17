@@ -16,12 +16,18 @@ pub const fakes = @import("fakes/root.zig");
 /// links nothing, so wanting a vault doesn't imply wanting a C compiler.
 pub const obsidian = @import("obsidian/store.zig");
 
+/// synapse-bard's real Extractor -- YAML frontmatter only, no C dependency.
+/// `pub`, unlike the conformance file below: `synapse-bard`'s own main.zig
+/// constructs and uses this directly, not just tests it.
+pub const bard_frontmatter = @import("bard/frontmatter.zig");
+
 test {
     std.testing.refAllDecls(@This());
     _ = process;
     _ = env;
     _ = fakes;
     _ = obsidian;
+    _ = bard_frontmatter;
     // Not `pub`: a conformance check on the port, compiled for tests only.
     _ = @import("frontmatter_conformance.zig");
 }
