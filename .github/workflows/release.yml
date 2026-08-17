@@ -33,8 +33,14 @@ jobs:
       # minimum_zig_version, same reasoning as tests.yml.
       - uses: mlugg/setup-zig@v2
 
-      # $(date +%Y-%m)-N, N = how many releases this month already have,
+      # $(date +%Y-%m)_N, N = how many releases this month already have,
       # plus one. Mechanical, not a judgment call -- see the file header.
+      # Underscore before N, not a third hyphen: YYYY-MM-N reads as a
+      # truncated date at a glance, YYYY-MM_N doesn't. The count matches on
+      # the bare month prefix (no trailing separator), so it still counts
+      # earlier hyphen-separated tags from before this format existed --
+      # the sequence stays continuous across the switch, only the
+      # separator changes.
       - name: Compute the release tag
         id: tag
         env:
@@ -42,8 +48,8 @@ jobs:
         run: |
           prefix="$(date +%Y-%m)"
           n=$(gh release list --repo "$GITHUB_REPOSITORY" --json tagName -q '.[].tagName' \
-            | grep -c "^${prefix}-" || true)
-          echo "tag=${prefix}-$((n + 1))" >> "$GITHUB_OUTPUT"
+            | grep -c "^${prefix}" || true)
+          echo "tag=${prefix}_$((n + 1))" >> "$GITHUB_OUTPUT"
 
       # The one place plugin.json's version is ever written. Never by hand --
       # see the design note for why a version that stops changing silently
