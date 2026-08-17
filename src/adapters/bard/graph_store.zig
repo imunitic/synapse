@@ -63,6 +63,25 @@ pub const BardGraphStore = struct {
         try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = body });
     }
 
+    /// Removes a node -- not on the shared `ports.Store` interface (`read`/
+    /// `write`/`list`/`search` only, checked before adding this), so it's a
+    /// method on the concrete type instead, same reasoning `searchText`
+    /// already used: a capability `ObsidianStore`/`FakeStore`/
+    /// `BardVaultStore` have no need for shouldn't become a `Store`-wide
+    /// requirement. `synapse-bard sync` (`synapse-bard-004`) is the one
+    /// caller -- a renamed or deleted source entity must not leave a stale
+    /// node behind for `--inbound`/`search` to keep surfacing. A node that's
+    /// already gone is not an error, matching `read`'s own "absence is
+    /// ordinary" rule.
+    pub fn delete(self: *BardGraphStore, io: Io, node: []const u8) anyerror!void {
+        const path = try std.fs.path.join(self.gpa, &.{ self.root, node });
+        defer self.gpa.free(path);
+        Io.Dir.cwd().deleteFile(io, path) catch |e| {
+            if (e == error.FileNotFound) return;
+            return e;
+        };
+    }
+
     /// Every `.md` file directly under `root`, flat -- `_bard/graph/` is
     /// file-per-entity, no subdirectories. A `root` that doesn't exist yet
     /// (nothing has been written) lists as empty, not an error -- the same
@@ -292,6 +311,44 @@ test "rewriting a node replaces it, and list reflects exactly what was written" 
     }
     try testing.expectEqual(@as(usize, 1), names.len);
     try testing.expectEqualStrings("n.md", names[0]);
+}
+
+test "delete removes a node, and it stops showing up in read/list" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try graphRoot(gpa, &tmp);
+    defer gpa.free(root);
+
+    var s = try BardGraphStore.init(gpa, root);
+    defer s.deinit();
+    const port = s.store();
+
+    try port.write(testing.io, "a.md", "a");
+    try port.write(testing.io, "b.md", "b");
+    try s.delete(testing.io, "a.md");
+
+    try testing.expectEqual(@as(?[]u8, null), try port.read(gpa, testing.io, "a.md"));
+
+    const names = try port.list(gpa, testing.io);
+    defer {
+        for (names) |n| gpa.free(n);
+        gpa.free(names);
+    }
+    try testing.expectEqual(@as(usize, 1), names.len);
+    try testing.expectEqualStrings("b.md", names[0]);
+}
+
+test "delete on a node that doesn't exist is not an error" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try graphRoot(gpa, &tmp);
+    defer gpa.free(root);
+
+    var s = try BardGraphStore.init(gpa, root);
+    defer s.deinit();
+    try s.delete(testing.io, "never-existed.md");
 }
 
 test "list only sees .md files, not other files someone dropped in the directory" {

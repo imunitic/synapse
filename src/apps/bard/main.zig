@@ -2,9 +2,10 @@
 //! YAML-templated fiction bible. Imports `model`/`ports`/`core`/`adapters`,
 //! never `treesitter`: this binary parses YAML frontmatter only, so it links
 //! no libtree-sitter and needs no C compiler. See the compiled task notes
-//! `synapse-bard-001`/`synapse-bard-002` and their design notes for the full
-//! contract.
+//! `synapse-bard-001` through `synapse-bard-004` and their design notes for
+//! the full contract.
 //!
+//!   synapse-bard sync                          populate _bard/graph/ from source
 //!   synapse-bard query <node> [--inbound]      resolved relationships
 //!   synapse-bard field <node> <key>            one raw frontmatter field
 //!   synapse-bard search <query>                full-text
@@ -15,6 +16,7 @@
 //! nothing has needed a CLI door onto it the way the graph side did.
 
 const std = @import("std");
+const sync_cmd = @import("sync_cmd.zig");
 const query_cmd = @import("query_cmd.zig");
 const field_cmd = @import("field_cmd.zig");
 const search_cmd = @import("search_cmd.zig");
@@ -22,6 +24,8 @@ const search_cmd = @import("search_cmd.zig");
 const usage =
     \\usage: synapse-bard <command>
     \\
+    \\  sync                          populate _bard/graph/ from the bible's
+    \\                                source tree (always a full re-ingest)
     \\  query <node> [--inbound]      resolved relationships (outbound by
     \\                                default, --inbound for backlinks)
     \\  field <node> <key>            one raw frontmatter field, verbatim
@@ -46,7 +50,9 @@ pub fn main(init: std.process.Init) !u8 {
     const gpa = init.gpa;
     const io = init.io;
 
-    if (std.mem.eql(u8, which, "query")) {
+    if (std.mem.eql(u8, which, "sync")) {
+        return sync_cmd.run(gpa, io, &args);
+    } else if (std.mem.eql(u8, which, "query")) {
         return query_cmd.run(gpa, io, &args);
     } else if (std.mem.eql(u8, which, "field")) {
         return field_cmd.run(gpa, io, &args);

@@ -394,6 +394,27 @@ pub const BardFrontmatterExtractor = struct {
     }
 };
 
+/// The whole frontmatter block, verbatim, from the opening `---` through the
+/// closing `---` inclusive -- what `synapse-bard sync` writes into
+/// `_bard/graph/{slug}.md`: a byte-for-byte copy of the source entity's own
+/// frontmatter, prose body dropped, no re-serialization. A slice into `src`,
+/// not a copy -- the caller owns `src`'s lifetime. `null` when `src` doesn't
+/// open with `---` or the frontmatter never closes.
+pub fn frontmatterBlock(src: []const u8) ?[]const u8 {
+    var lines = std.mem.splitScalar(u8, src, '\n');
+    const first = lines.next() orelse return null;
+    if (!std.mem.eql(u8, std.mem.trimEnd(u8, first, "\r"), "---")) return null;
+
+    var end: usize = first.len + 1; // bytes consumed so far, including the '\n' splitScalar ate
+    while (lines.next()) |raw| {
+        end += raw.len + 1;
+        if (std.mem.eql(u8, std.mem.trimEnd(u8, raw, "\r"), "---")) {
+            return src[0..@min(end, src.len)];
+        }
+    }
+    return null;
+}
+
 /// The raw YAML for one root-level frontmatter key, verbatim -- the `key:`
 /// line itself plus every line indented deeper than column 0 below it,
 /// until indentation returns to column 0 or the frontmatter closes. Not
@@ -973,4 +994,21 @@ test "rawField never refuses -- a block scalar under the requested key comes bac
     const got = (try rawField(gpa, src, "summary")).?;
     defer gpa.free(got);
     try testing.expectEqualStrings("summary: |\n  a paragraph\n  more\n", got);
+}
+
+test "frontmatterBlock returns the opening through closing --- inclusive, prose body dropped" {
+    const src = "---\nname: \"A\"\ntemplate: \"x\"\n---\n\nProse body, never included.\n";
+    const got = frontmatterBlock(src).?;
+    try testing.expectEqualStrings("---\nname: \"A\"\ntemplate: \"x\"\n---\n", got);
+}
+
+test "frontmatterBlock handles a file with no trailing newline after the closing ---" {
+    const src = "---\nname: \"A\"\n---";
+    const got = frontmatterBlock(src).?;
+    try testing.expectEqualStrings("---\nname: \"A\"\n---", got);
+}
+
+test "frontmatterBlock is null for no frontmatter or an unterminated block" {
+    try testing.expectEqual(@as(?[]const u8, null), frontmatterBlock("# Just prose\n"));
+    try testing.expectEqual(@as(?[]const u8, null), frontmatterBlock("---\nname: \"A\"\n"));
 }
