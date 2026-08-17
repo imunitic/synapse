@@ -34,8 +34,15 @@ That's the whole install. Claude Code clones the plugin's small files (commands,
 wiring) into its own plugin cache; the first hook that fires downloads the two compiled binaries
 (`synapse`, `synapse-hook`) straight from this repo's [GitHub
 Releases](https://github.com/imunitic/synapse/releases) into `~/.cache/synapse/bin/` and caches
-them there — nothing to rebuild or re-fetch until a new release ships. `zig build` is only for
-contributing to Synapse itself; see [Dependencies](#dependencies).
+them there — nothing to rebuild until a new release ships. `zig build` is only for contributing to
+Synapse itself; see [Dependencies](#dependencies).
+
+**Staying updated:** third-party marketplaces (this one included) have Claude Code's own
+marketplace auto-update turned *off* by default — turn it on with `/plugin` → **Marketplaces** →
+select `synapse` → **Enable auto-update**, or refresh on demand with `/plugin marketplace update
+synapse`. Either way, the binary itself follows automatically: every hook compares the plugin's
+installed version against what it last fetched, and re-downloads the moment those differ — no
+`~/.cache/synapse/bin/` cache-clearing or manual re-fetch needed once auto-update is on.
 
 1. Install Obsidian, open (or create) your Vault.
 2. **Settings → Community plugins → Browse**, install + enable:
