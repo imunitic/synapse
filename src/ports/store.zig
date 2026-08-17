@@ -1,6 +1,6 @@
 //! Store: where nodes and indexes are read, written, listed and searched.
 //!
-//! The Obsidian REST API for code; plain files under `_bard/synapse/` for a
+//! The Obsidian REST API for code; plain files under `_bard/graph/` for a
 //! bible. Search belongs here rather than in core, since "full-text over
 //! prose" vs. "exact symbol lookup" is an adapter-specific question.
 
