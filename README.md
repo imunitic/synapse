@@ -1,4 +1,4 @@
-# Synapse
+# <img src="docs/logo.svg" width="28" height="28" alt=""> Synapse
 
 [![tests](https://github.com/imunitic/synapse/actions/workflows/tests.yml/badge.svg)](https://github.com/imunitic/synapse/actions/workflows/tests.yml)
 

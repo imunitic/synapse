@@ -30,9 +30,15 @@ command -v pandoc >/dev/null || { echo "pandoc is required" >&2; exit 1; }
 mkdir -p "$out"
 cp -r "$here/diagrams" "$out/diagrams"
 cp "$here/site.css" "$out/site.css"
+cp "$here/logo.svg" "$out/logo.svg"
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
+
+# SVG favicons work in every browser that matters here; injected via
+# --include-in-header since -B/-A only reach <body>, not <head>.
+favicon_file="$work/favicon.html"
+printf '<link rel="icon" href="logo.svg" type="image/svg+xml">' > "$favicon_file"
 
 # README.md from the start through the end of "## New machine setup" --
 # stops at the next ## heading ("## Synapse Vault -- the notes"), a
@@ -70,7 +76,8 @@ pages=(
 # anymore -- it gets its own sidebar entry below.
 {
   echo '<!doctype html><html><head><meta charset="utf-8">'
-  echo '<title>Diagrams — Synapse</title><link rel="stylesheet" href="../site.css"></head><body>'
+  echo '<title>Diagrams — Synapse</title><link rel="stylesheet" href="../site.css">'
+  echo '<link rel="icon" href="../logo.svg" type="image/svg+xml"></head><body>'
   echo '<main><h1>Diagrams</h1><ul>'
   for png in "$here"/diagrams/*.png; do
     name="$(basename "$png")"
@@ -103,16 +110,19 @@ for p in "${pages[@]}"; do
   # to the .html this loop produces; the root README's docs/foo.md links
   # drop the docs/ prefix the same way; a link to either README.md now
   # means Home; LICENSE has no rendered page here, so it points at the
-  # real file on GitHub instead of 404ing.
+  # real file on GitHub instead of 404ing. The README's inline logo <img>
+  # (docs/logo.svg, a repo-root-relative path) needs the same docs/-prefix
+  # drop -- it's an HTML src="", not a markdown link, so a separate rule.
   sed -E \
     -e 's/\]\((docs\/)?README\.md(#[a-zA-Z0-9_-]*)?\)/](index.html\2)/g' \
     -e 's/\]\((docs\/)?([a-zA-Z0-9_-]+)\.md(#[a-zA-Z0-9_-]*)?\)/](\2.html\3)/g' \
     -e 's/\]\(LICENSE\)/](https:\/\/github.com\/imunitic\/synapse\/blob\/main\/LICENSE)/g' \
     -e 's/\]\(#dependencies\)/](https:\/\/github.com\/imunitic\/synapse#dependencies)/g' \
+    -e 's/src="docs\/logo\.svg"/src="logo.svg"/g' \
     "$src" \
     | pandoc --from gfm --to html5 --standalone \
         --metadata pagetitle="$label — Synapse" \
-        -c site.css -B "$nav_file" -A "$close_file" \
+        -c site.css -H "$favicon_file" -B "$nav_file" -A "$close_file" \
         -o "$out/$target"
   n=$((n + 1))
 done
