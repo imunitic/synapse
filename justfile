@@ -319,18 +319,19 @@ syntax:
 # cannot fail, and the point is to catch a script edit committed without the
 # regeneration that follows from it.
 
-# Verify each project's generated cli.md and (for synapse) the rendered
-# diagrams match their sources. synapse-bard has no diagrams of its own yet.
+# Verify each project's generated cli.md and rendered diagrams match their sources.
 docs-check:
     ./docs/synapse/generate-cli-reference.sh --check
     ./docs/synapse/generate-diagrams.sh --check
     ./docs/synapse-bard/generate-cli-reference.sh --check
+    ./docs/synapse-bard/generate-diagrams.sh --check
 
 # Regenerate all generated artefacts; diagrams need mermaid-cli and its Chromium.
 fix:
     ./docs/synapse/generate-cli-reference.sh
     ./docs/synapse/generate-diagrams.sh
     ./docs/synapse-bard/generate-cli-reference.sh
+    ./docs/synapse-bard/generate-diagrams.sh
 
 # What CI runs, in the same order, plus a syntax pass CI gets for free by
 # executing the scripts. `build` comes first because a compile error should not

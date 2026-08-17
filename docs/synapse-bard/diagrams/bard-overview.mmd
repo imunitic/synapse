@@ -1,0 +1,50 @@
+---
+title: Synapse Bard — two repo-local stores, no network dependency
+---
+%% Two pillars, not three: unlike Synapse (Vault + Graph + Tools, one hosted
+%% store underneath both), bard's Bible-graph and Writer's notes vault are
+%% each their own Store implementation over their own directory in the SAME
+%% repo -- there is no third, externally-hosted store either depends on. The
+%% "no network dependency" badge is the single fact this diagram exists to
+%% carry: it is what makes both pillars work unmodified from the Android
+%% app's default cloud session, which has no route to anything outside the
+%% repo it cloned.
+flowchart TB
+    classDef session fill:#d0ebff,stroke:#1971c2,color:#1e1e1e
+    classDef bgraph fill:#ffd8a8,stroke:#e8590c,color:#1e1e1e
+    classDef vault fill:#d3f9d8,stroke:#2f9e44,color:#1e1e1e
+    classDef repo fill:#e5dbff,stroke:#6741d9,color:#1e1e1e
+    classDef badge fill:#fff9db,stroke:#f08c00,color:#1e1e1e
+
+    SESSION["Claude Code session<br/>(the Android app's default cloud session,<br/>or any local/CLI session -- both work unmodified)"]
+
+    subgraph GRAPH["Bible-graph -- structured facts"]
+        direction TB
+        G1["synapse-bard sync<br/>clusters the bible's own folder taxonomy"]
+        G2["_bard/graph/{Cluster}.md<br/>a sources: manifest per cluster"]
+        G3["query · field · fields · search<br/>resolve a slug through sources:"]
+        G1 --> G2 --> G3
+    end
+
+    subgraph VAULT["Writer's notes vault -- decisions & rationale"]
+        direction TB
+        V1["SessionStart hook<br/>injects Index.md"]
+        V2["designs/ · tasks/ · ...<br/>plain notes, [[wikilinks]]"]
+        V3["vault-search · vault-links<br/>backlink-ranked, wikilink-resolved"]
+        V1 --> V2 --> V3
+    end
+
+    REPO[("the bible repo itself<br/>_bard/graph/ + _bard/vault/, git-tracked")]
+    NET["no Obsidian · no REST API<br/>no network dependency at all"]
+
+    SESSION --> GRAPH
+    SESSION --> VAULT
+    GRAPH -.-> REPO
+    VAULT -.-> REPO
+    REPO -.-> NET
+
+    class SESSION session
+    class G1,G2,G3 bgraph
+    class V1,V2,V3 vault
+    class REPO repo
+    class NET badge

@@ -1,0 +1,50 @@
+---
+title: Bible-graph — sync's clustering and extraction pipeline
+---
+%% Deliberately has no staleness/regeneration loop the way
+%% synapse-graph-tiers.mmd does -- `sync` is always a full re-ingest (the
+%% whole corpus extracts in ~10ms), so there is nothing to mark stale and
+%% nothing to regenerate lazily. The EXCL badge names what this pipeline
+%% deliberately does NOT have, the same "what a diagram omits is itself
+%% information" reasoning synapse-overview.mmd uses for its equal-sized
+%% pillars.
+flowchart TB
+    classDef mechanic fill:#ffd8a8,stroke:#e8590c,color:#1e1e1e
+    classDef artifact fill:#d3f9d8,stroke:#2f9e44,color:#1e1e1e
+    classDef query fill:#d0ebff,stroke:#1971c2,color:#1e1e1e
+    classDef excl fill:#f1f3f5,stroke:#868e96,color:#1e1e1e
+
+    TREE["the bible repo's tracked .md files<br/>(_- and .-prefixed folders excluded)"]
+    BOUND["findClusters / findBoundary<br/>shallowest folder with direct .md content wins"]
+    EXTRACT["BardFrontmatterExtractor<br/>YAML frontmatter only, never prose"]
+    COLLIDE{"same slug<br/>claimed twice?"}
+    KEEP["kept: first one seen"]
+    REPORT["reported, never<br/>silently overwritten"]
+    CLUSTER["_bard/graph/{Cluster Title}.md<br/>sources: [slug, path] per member,<br/>always a full re-ingest"]
+    RECON["reconcile<br/>deletes clusters no source<br/>folder still produces"]
+
+    TREE --> BOUND --> EXTRACT --> COLLIDE
+    COLLIDE -->|"no"| CLUSTER
+    COLLIDE -->|"yes"| KEEP
+    COLLIDE -->|"yes"| REPORT
+    KEEP -.-> CLUSTER
+    CLUSTER -.-> RECON
+
+    subgraph QUERY["resolving a slug -- scans every sources: at query time"]
+        direction LR
+        Q1["query &lt;slug&gt;<br/>[--inbound]"]
+        Q2["field &lt;slug&gt;<br/>&lt;key&gt;"]
+        Q3["fields &lt;slug&gt;<br/>/ --template"]
+        Q4["search &lt;query&gt;<br/>/ --field k:v"]
+    end
+    CLUSTER --> QUERY
+
+    EXCL["no staleness tiers · no crux · no grounded_in<br/>(the frontmatter already is the compact record)"]
+    CLUSTER -.-> EXCL
+
+    class TREE,BOUND,EXTRACT,COLLIDE,RECON mechanic
+    class CLUSTER,KEEP,REPORT artifact
+    class Q1,Q2,Q3,Q4 query
+    class EXCL excl
+
+    style QUERY fill:#ffffff,stroke:#1971c2,stroke-dasharray:4 4

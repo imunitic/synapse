@@ -77,9 +77,13 @@ render_project() { # render_project <dir> <label> <newline-joined pages>
     [ -f "$src" ] || { echo "missing: $src" >&2; exit 1; }
 
     # Sibling .md files (optionally #fragment) resolve to the .html this
-    # loop produces; a link to this project's own README.md means its Home.
+    # loop produces; a link to this project's own README.md means its Home;
+    # a cross-project "../other-project/name.md" link (each project links
+    # into the other's docs, e.g. bard-vault.md -> ../synapse/synapse-vault.md)
+    # resolves the same way, one directory up from where this page lands.
     sed -E \
       -e "s/\\]\\((README\\.md|$dir\\/README\\.md)(#[a-zA-Z0-9_-]*)?\\)/](index.html\\2)/g" \
+      -e 's/\]\(\.\.\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)\.md(#[a-zA-Z0-9_-]*)?\)/](..\/\1\/\2.html\3)/g' \
       -e 's/\]\(([a-zA-Z0-9_-]+)\.md(#[a-zA-Z0-9_-]*)?\)/](\1.html\2)/g' \
       "$src" \
       | pandoc --from gfm --to html5 --standalone \
@@ -120,9 +124,29 @@ render_project synapse "Synapse" "$synapse_pages"
 } > "$out/synapse/diagrams/index.html"
 
 # --- Synapse Bard ------------------------------------------------------------
+mkdir -p "$out/synapse-bard/diagrams"
+cp -r "$here/synapse-bard/diagrams/"*.png "$out/synapse-bard/diagrams/" 2>/dev/null || true
+
 synapse_bard_pages="$here/synapse-bard/README.md|index.html|Home
-$here/synapse-bard/cli.md|cli.html|CLI Reference"
+$here/synapse-bard/bard-graph.md|bard-graph.html|Bible-graph
+$here/synapse-bard/bard-vault.md|bard-vault.html|Writer's notes vault
+$here/synapse-bard/cli.md|cli.html|CLI Reference
+$here/synapse-bard/bard-config.md|bard-config.html|Configuration Reference
+|diagrams/|Diagrams"
 render_project synapse-bard "Synapse Bard" "$synapse_bard_pages"
+
+# Same "diagrams/ has no index of its own" fix as Synapse's own block above.
+{
+  echo '<!doctype html><html><head><meta charset="utf-8">'
+  echo '<title>Diagrams — Synapse Bard</title><link rel="stylesheet" href="../../site.css">'
+  echo '<link rel="icon" href="../../logo.svg" type="image/svg+xml"></head><body>'
+  echo '<main><h1>Diagrams</h1><ul>'
+  for png in "$here"/synapse-bard/diagrams/*.png; do
+    name="$(basename "$png")"
+    echo "<li><a href=\"$name\"><img src=\"$name\" alt=\"$name\" style=\"max-width:100%\"></a><br>$name</li>"
+  done
+  echo '</ul></main></body></html>'
+} > "$out/synapse-bard/diagrams/index.html"
 
 # --- Top-level landing page --------------------------------------------------
 # README.md from the start through the end of "## New machine setup" -- stops

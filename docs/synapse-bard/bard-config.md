@@ -1,0 +1,63 @@
+# Configuration Reference
+
+Short, unlike [Synapse's own config reference](../synapse/synapse-config.md), because there's genuinely little
+to configure. Checked directly against the source, not assumed: neither `synapse-bard` nor
+`synapse-bard-hook` reads a single `*.conf` file or a `SYNAPSE_BARD_*`/`BARD_*` environment
+variable anywhere.
+
+## Why there's nothing here to tune
+
+Every piece of Synapse's own config surface exists to bridge something machine-specific or
+cross-project: `OBSIDIAN_VAULT_DIR` because the Vault lives outside any one repo,
+`SYNAPSE_GRAMMARS_DIR` because tree-sitter grammars are cached once and shared across every
+project, `synapse-projects.conf` because one vault serves many repos that shouldn't share a task-ID
+sequence. None of that applies to `synapse-bard`: both its stores
+([Bible-graph](bard-graph.md), [Writer's notes vault](bard-vault.md)) live under `_bard/` inside the
+one repo being worked in, so there's no external location to point at and no cross-project state to
+disambiguate.
+
+## The one thing every command resolves, automatically
+
+`common.Roots.resolve` (`src/apps/bard/common.zig`) finds `repo_root`, `_bard/graph/`, and
+`_bard/vault/` with one `core.identity.resolve` call per invocation — the same repo-root discovery
+`bard_hook`'s own `SessionStart` handler uses for `_bard/vault/Index.md`. It walks up from the
+current directory to find the repo root the way git itself would, so a command run from a
+subdirectory still finds `_bard/` at the top rather than looking for it relative to wherever the
+shell happened to be. Nothing about this is configurable, and nothing needs to be: there is exactly
+one repo a `synapse-bard` invocation could mean, unlike Synapse's own per-repo-and-branch
+`{repo}@{branch}` namespace keying, which exists because one Vault can hold graphs for many repos
+side by side.
+
+## `CLAUDE_PLUGIN_ROOT`: the one environment variable that matters
+
+Both `synapse-bard-claude.md` (the plugin's standing instructions) and `Index.md.template` (the
+vault's bootstrap default) are read by `synapse-bard-hook`'s `SessionStart` handler through
+`CLAUDE_PLUGIN_ROOT` — the variable Claude Code exports to every hook invocation, pointing at the
+installed plugin's own bundled files. Unlike `synapse-hook`'s equivalent resolution, there's no
+`argv0`-relative fallback for a pre-plugin install to support — `synapse-bard` has no pre-plugin
+history, so `CLAUDE_PLUGIN_ROOT` unset simply means neither file is found, reported plainly rather
+than guessed at.
+
+## What a fresh bible repo needs, and what it doesn't
+
+No `synapse.conf`, no per-machine setup step, no interactive prompt on first run. The one thing a
+repo needs to activate the plugin from a session that can never run `/plugin` itself (the Android
+app's default cloud session has no such command) is committing the plugin's registration directly
+into *that repo's* own `.claude/settings.json` — a project-scoped `extraKnownMarketplaces` entry
+plus `enabledPlugins`, not a `synapse-bard`-specific mechanism but the same fields any Claude Code
+plugin uses for the same purpose:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "synapse": { "source": { "source": "github", "repo": "imunitic/synapse" } }
+  },
+  "enabledPlugins": { "synapse-bard@synapse": true }
+}
+```
+
+From there, `synapse-bard`/`synapse-bard-hook` fetch and cache themselves the same way `synapse`
+does — `hooks/fetch-and-run.sh` downloads the platform-matching GitHub Release tarball into
+`~/.cache/synapse-bard/bin` (a cache path distinct from `synapse`'s own, so both can be installed
+side by side without colliding) and re-checks only when `plugin.json`'s version moves. No install
+step of the author's own, ever.
