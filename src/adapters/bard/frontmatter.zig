@@ -233,7 +233,13 @@ pub const BardFrontmatterExtractor = struct {
             switch (value[0]) {
                 '&', '*' => return self.refuse(.anchor_or_alias),
                 '|', '>' => return self.refuse(.block_scalar),
-                '{' => return self.refuse(.flow_collection),
+                '{' => {
+                    // `key: {}` -- an empty flow map, nothing to scan,
+                    // nothing to refuse. Mirrors `key: []` below; only a
+                    // *non-empty* flow map (unsupported) still refuses.
+                    if (!std.mem.eql(u8, value, "{}")) return self.refuse(.flow_collection);
+                    continue;
+                },
                 '[' => {
                     if (isWikilink(value)) {
                         // A single wikilink is also valid flow syntax
@@ -871,6 +877,27 @@ test "an empty flow list and an empty scalar list-of-scalars key are both fine" 
     defer freeOutcomes(gpa, out);
     try testing.expect(out[0] == .tags);
     try testing.expectEqual(@as(usize, 0), countRole(out[0].tags, .ref));
+}
+
+test "an empty flow map is fine; a non-empty one still refuses" {
+    const gpa = testing.allocator;
+    var fx = Fixture.init();
+    defer fx.deinit();
+    const dir = try fx.write("empty_map.md", "---\nname: A\nroles: {}\nproficiency: {}\n---\n");
+
+    var ex: BardFrontmatterExtractor = .{};
+    defer ex.deinit(gpa);
+    const out = try ex.port().extract(gpa, testing.io, dir, &.{"empty_map.md"});
+    defer freeOutcomes(gpa, out);
+    try testing.expect(out[0] == .tags);
+    try testing.expectEqual(@as(usize, 0), countRole(out[0].tags, .ref));
+
+    var ex2: BardFrontmatterExtractor = .{};
+    defer ex2.deinit(gpa);
+    const dir2 = try fx.write("nonempty_map.md", "---\nname: A\nrefs: {a: b}\n---\n");
+    const out2 = try ex2.port().extract(gpa, testing.io, dir2, &.{"nonempty_map.md"});
+    defer freeOutcomes(gpa, out2);
+    try testing.expectEqual(BardFrontmatterExtractor.Refusal.flow_collection, ex2.last_refusals[0].?);
 }
 
 test "a flow list spanning multiple physical lines (open_questions:) closes correctly" {
