@@ -141,11 +141,22 @@ Then rebuild the reverse index so the hook and the read path agree with the new 
 
 ### 3. Triage each flagged node — reseat, patch, or re-orient
 
-**Two skills to load before triaging.** `synapse-node-format` is the node contract — frontmatter,
-the crux pointer, `## Links`, `grounded_in` — the same one `/synapse-init` and the `synapse-node`
-skill write against. For a node in the *re-orient* class, whose premises have to be re-derived rather
-than patched, `synapse-orientation` is the technique for working out where meaning lives in a tree,
-which is the same problem a first build faces.
+**Hard requirement for the *re-orient* class, not a recommendation: invoke the `synapse-orientation`
+skill before writing one sentence of new prose for that node.** Reading the node's own source
+directly and reasoning from what you already know about the codebase is not a substitute, no matter
+how accurate or hard-won that knowledge is — a node's premises being re-derived is the same problem
+a first build faces, and it gets the same required technique, every time, not just when nothing
+faster is available. The reason this can't be skipped even by a confident, correct reading of the
+source: the skill's own verification step is to *run* something real (`synapse tags`/`synapse query`
+against a real sample) and judge the actual output, not what the source implies the output should
+be — and only an executed check can surface a gap in the tooling itself, one the source reading alone
+has no way to reveal, however carefully it's done. A node whose own subject is the tagging or
+extraction pipeline is exactly the case most tempting to shortcut this way, and exactly the case
+where doing so costs the most.
+
+`synapse-node-format` is the other skill to load before triaging, for every class, not just
+*re-orient*: the node contract — frontmatter, the crux pointer, `## Links`, `grounded_in` — the same
+one `/synapse-init` and the `synapse-node` skill write against.
 
 **The principle: compute new prose from the diff, not by re-reading the node's sources.** A node
 covering 15,000 files where 12 changed already has prose encoding the other 14,988. Re-reading it all
