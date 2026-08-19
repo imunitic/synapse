@@ -25,11 +25,14 @@ pub const Guess = struct {
 };
 
 /// Owned together with the `Guess` slice -- every `Guess` string borrows
-/// `parsed`'s arena, like `core.kind_synonyms.RuleList`.
+/// `parsed`'s arena, like `core.kind_synonyms.RuleList`. `guesses` is
+/// mutable (not `[]const Guess`) so a caller holding `synapse-kind-
+/// synonyms.conf` rules can override a guess's `.kind` after classifying,
+/// before it's baked into the tier-3 query string -- see `extractor.zig`.
 pub const Classification = struct {
     parsed: std.json.Parsed(std.json.Value),
     gpa: Allocator,
-    guesses: []const Guess,
+    guesses: []Guess,
 
     pub fn deinit(self: *Classification) void {
         self.parsed.deinit();
@@ -90,7 +93,7 @@ const prefix_kind_overrides = std.StaticStringMap([]const u8).initComptime(.{
 /// Default kind for a declaration-suffix match with no prefix keyword.
 const generic_kind = "function";
 
-fn classifyValue(gpa: Allocator, value: std.json.Value) ![]const Guess {
+fn classifyValue(gpa: Allocator, value: std.json.Value) ![]Guess {
     const arr = switch (value) {
         .array => |a| a,
         else => return &.{},
