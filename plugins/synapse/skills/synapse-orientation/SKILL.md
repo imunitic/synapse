@@ -217,13 +217,37 @@ contribute to a node's prose. Do not build a tally out of those warnings.
      under any casing, confirmed directly. That's still not a reason to hardcode one grammar's
      exact spelling into the classifier — the generic case/boundary handling covers a real,
      cross-language class of grammars (PascalCase/ALL-CAPS naming conventions), a per-grammar word
-     substitution would not. When this tier gets the node right but the kind label wrong, or
-     guesses nothing for a node worth naming, `~/.claude/synapse-kind-synonyms.conf` — the same
-     rule list tier 2 reads above — overrides tier 3's guessed kind too, keyed on the grammar's
-     raw node type name (e.g. `ContainerDecl`) instead of a locals.scm suffix. Absent/empty is a
-     no-op either way, so this never needs touching unless a specific grammar's labels are wrong.
+     substitution would not. `~/.claude/synapse-kind-synonyms.conf` — the same rule list tier 2
+     reads above — reaches into tier 3 too, keyed on the grammar's raw node type name (e.g.
+     `ContainerDecl`, `subprogram_body`) instead of a locals.scm suffix, and it can do two things:
+     relabel a kind the heuristic already guessed, or **force-classify a type the heuristic missed
+     outright** — confirmed needed against `tree-sitter-ada`'s `subprogram_body` (a full
+     function-with-implementation, no `_declaration`/`_definition`/`decl`/`def` suffix at all, so
+     it never became a candidate on its own). Absent/empty is a no-op either way, so this never
+     needs touching unless a specific grammar needs it.
 
-     **When none of the three verify, or tier 3 verifies but is too weak to be worth keeping:**
+     **Before falling through to the escape hatch, try inference once — verified, not left as a
+     guess.** When tier 3 runs but is visibly weak (real declarations missing entirely, or caught
+     with an unhelpfully generic kind), read `node-types.json` for the pattern the heuristic
+     missed, the way this was actually found: Common Lisp's `defun` is *prefix*-marked (`def-un`),
+     not suffix-marked, invisible to a suffix scan built for the C-family convention; Ada's
+     `subprogram_body` uses a body/declaration split the classifier had no word for at all. Propose
+     `synapse-kind-synonyms.conf` rules scoped to this grammar's `source.<lang>` for what's missing
+     or mislabeled, then **re-run `synapse tags` against the same real sample and confirm the
+     result actually improved** — not just that the rule looks reasonable on paper. This session's
+     own Ada locals.scm was a live warning about skipping that step: read as well-formed, produced
+     zero tags when actually run. Only write to the conf file once the improvement is confirmed
+     live, and only there — never `$SYNAPSE_WORK_DIR`. These are facts about a *language*, not this
+     repo, and the whole reason these conf files are global and permanent (see step 4 below) is so
+     the next project in the same language skips rediscovering it; a repo-scoped copy would throw
+     that away for exactly the kind of finding worth keeping. This step is additive only and has a
+     real ceiling: it can fix a wrong kind or catch a type that exists as its own grammar node but
+     was missed, never conjure structure a grammar doesn't have. Confirmed live: Clojure's and
+     Scheme's `defn`/`define` aren't distinct node types in their own grammars at all, just a
+     generic list form — no rule fixes an absence of structure to key one on.
+
+     **When none of the three verify, tier 3 verifies but stays too weak even after an inference
+     attempt, or the language's grammar has no distinct node types worth keying rules on at all:**
      `$SYNAPSE_GRAMMARS_QUERY_PATH/{ext}.scm` is the sanctioned escape hatch — a human-authored
      query file that preempts the whole cascade, not a fourth tier to discover automatically. Name
      it as an option when reporting the outcome (step 5) rather than silently accepting a weak

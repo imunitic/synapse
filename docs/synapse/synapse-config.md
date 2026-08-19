@@ -100,13 +100,17 @@ edit directly if a cached decision needs correcting.
   kind; a malformed entry (missing or wrong-typed `match`/`kind`) is silently skipped at load, and
   every rule around it still applies.
 
-  Also read by **Tier 3** (`node-types.json`-generated queries), where the same file overrides a
-  guessed kind rather than a locals.scm capture spelling — so `match` there is the grammar's raw
-  node *type name* (e.g. `"ContainerDecl"`), not a `@local.definition` suffix. Same rule list, same
-  precedence, two different `match` vocabularies depending on which tier is asking; unmapped keeps
-  Tier 3's own classifier guess instead of being dropped (Tier 3 has no "no tag" state the way a
-  locals.scm capture does — it either guesses a kind or the node isn't classified as a definition
-  at all).
+  Also read by **Tier 3** (`node-types.json`-generated queries), where the same file can do two
+  things instead of one — relabel a kind Tier 3's own suffix/prefix heuristic already guessed, or
+  **force-classify a type the heuristic missed outright**, one it would otherwise never treat as
+  declaration-shaped at all. `match` there is the grammar's raw node *type name* (e.g.
+  `"ContainerDecl"`, `"subprogram_body"`), not a `@local.definition` suffix. Confirmed needed
+  against `tree-sitter-ada`: `subprogram_body` names a full function-with-implementation but has
+  none of the recognized suffixes (`_declaration`/`_definition`/`decl`/`def`), so without a rule it
+  never becomes a candidate to relabel — a matching rule is what lets it be classified at all. Same
+  rule list, same precedence, two different `match` vocabularies depending on which tier is asking;
+  unmapped keeps Tier 3's own classifier verdict (a guess, or nothing) instead of being dropped —
+  Tier 3 has no "no tag" state the way a locals.scm capture does.
 
 ## Curated-default registries (JSON)
 
