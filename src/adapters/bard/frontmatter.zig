@@ -234,10 +234,14 @@ pub const BardFrontmatterExtractor = struct {
                 '&', '*' => return self.refuse(.anchor_or_alias),
                 '|', '>' => return self.refuse(.block_scalar),
                 '{' => {
-                    // `key: {}` -- an empty flow map, nothing to scan,
-                    // nothing to refuse. Mirrors `key: []` below; only a
-                    // *non-empty* flow map (unsupported) still refuses.
-                    if (!std.mem.eql(u8, value, "{}")) return self.refuse(.flow_collection);
+                    // `key: {}` (or `key: { }`) -- an empty flow map,
+                    // nothing to scan, nothing to refuse. Mirrors
+                    // `scanFlowList`'s own tolerance for internal
+                    // whitespace on `key: [ ]`; only a *non-empty* flow
+                    // map (unsupported) still refuses.
+                    if (!std.mem.endsWith(u8, value, "}")) return self.refuse(.flow_collection);
+                    const inner = std.mem.trim(u8, value[1 .. value.len - 1], " ");
+                    if (inner.len != 0) return self.refuse(.flow_collection);
                     continue;
                 },
                 '[' => {
@@ -883,7 +887,7 @@ test "an empty flow map is fine; a non-empty one still refuses" {
     const gpa = testing.allocator;
     var fx = Fixture.init();
     defer fx.deinit();
-    const dir = try fx.write("empty_map.md", "---\nname: A\nroles: {}\nproficiency: {}\n---\n");
+    const dir = try fx.write("empty_map.md", "---\nname: A\nroles: {}\nproficiency: { }\n---\n");
 
     var ex: BardFrontmatterExtractor = .{};
     defer ex.deinit(gpa);
