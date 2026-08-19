@@ -1,3 +1,7 @@
+---
+description: Create a plain note in Synapse Vault (bare mode — title + frontmatter, category resolved from Index.md), a tracked task note (--task, scaffolds the checklist skeleton synapse-task expects), list every tracked task (--list), or search existing notes (--search) before creating a new one. Use for a note with no design framing, or any task note not compiled from a design discussion. Not for starting/continuing a design conversation (that's synapse-design-note) or compiling a Ready one into a task (that's synapse-task-note) — both of those delegate to this command themselves.
+---
+
 Create a note in Synapse Vault with the title and options, list existing notes, or search existing notes: $ARGUMENTS
 
 ## Argument parsing
