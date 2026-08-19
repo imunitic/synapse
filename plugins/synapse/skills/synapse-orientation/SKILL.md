@@ -184,8 +184,14 @@ contribute to a node's prose. Do not build a tally out of those warnings.
      standard as tier 1, not a weaker one just because there is less to work with:
      `tree-sitter-grammars/tree-sitter-zig`'s locals.scm is well-formed, per-kind captures
      (`function`, `method`, `type`, `field`, `var`, `parameter`); `GrayJack/tree-sitter-zig`'s
-     captures a bare `@reference` on *every identifier in the file*, which would flood `_refs.tsv`
-     with noise rather than add signal — reject that one, even though the file exists and parses.
+     produces zero tags under this tier regardless — not because of its own blanket `@reference`
+     capture on every identifier (confirmed inert: `tagFileLocals` discards any capture without the
+     `local.definition` prefix before it can reach output, so a `@reference`/`@scope` capture's
+     presence or noisiness, however broad, is never itself a reject signal), but because its
+     `@definition.function`/`@definition.var` captures are themselves missing the `local.` prefix
+     this tier requires — the same structural gap Odin's own `locals.scm` has (see the
+     tags.scm-generation section below, case 1). Judge tier 2 purely on whether well-formed
+     `@local.definition.*` captures exist.
      A capture with **no** kind suffix at all — bare `@local.definition`, not
      `@local.definition.<kind>` — is not a defect to reject on sight: it is a real, common
      nvim-treesitter shape (`tree-sitter-ocaml`'s own `locals.scm` does exactly this,
