@@ -438,7 +438,15 @@ pub const Tagger = struct {
             out.deinit(gpa);
         }
 
-        try walkNode(gpa, c.ts_tree_root_node(tree), source, guesses, &out);
+        // Keyed by the found identifier's byte span: a nested declaration
+        // wrapper (`Decl` around `VarDecl`, both guessed) walks to the same
+        // nearest identifier from two different starting nodes otherwise --
+        // confirmed live on maxxnino/tree-sitter-zig, real defs double-
+        // counted rather than fabricated, but a duplicate all the same.
+        var seen: std.AutoHashMapUnmanaged(u64, void) = .empty;
+        defer seen.deinit(gpa);
+
+        try walkNode(gpa, c.ts_tree_root_node(tree), source, guesses, &seen, &out);
         return out.toOwnedSlice(gpa);
     }
 };
@@ -451,6 +459,7 @@ fn walkNode(
     node: c.TSNode,
     source: []const u8,
     guesses: []const node_types.Guess,
+    seen: *std.AutoHashMapUnmanaged(u64, void),
     out: *std.ArrayListUnmanaged(Tagged),
 ) !void {
     const type_name = std.mem.span(c.ts_node_type(node));
@@ -462,6 +471,14 @@ fn walkNode(
         const start_byte = c.ts_node_start_byte(found);
         const end_byte = c.ts_node_end_byte(found);
         if (start_byte > source.len or end_byte > source.len) break;
+
+        // Two different guessed ancestors landing on the same identifier
+        // is a duplicate, not a second definition -- skip the append, but
+        // still stop trying further guesses on this node (one match found).
+        const key = (@as(u64, start_byte) << 32) | end_byte;
+        if (seen.contains(key)) break;
+        try seen.put(gpa, key, {});
+
         const start = c.ts_node_start_point(found);
         const end = c.ts_node_end_point(found);
         try out.append(gpa, .{
@@ -485,7 +502,7 @@ fn walkNode(
     const count = c.ts_node_named_child_count(node);
     var i: u32 = 0;
     while (i < count) : (i += 1) {
-        try walkNode(gpa, c.ts_node_named_child(node, i), source, guesses, out);
+        try walkNode(gpa, c.ts_node_named_child(node, i), source, guesses, seen, out);
     }
 }
 
@@ -502,8 +519,11 @@ fn findNameDescendant(gpa: Allocator, node: c.TSNode, source: []const u8) !?c.TS
     while (head < queue.items.len) : (head += 1) {
         const item = queue.items[head];
         if (item.depth > 0) {
+            // Case-insensitive: some grammars name their identifier leaf
+            // in caps (`maxxnino/tree-sitter-zig`'s `IDENTIFIER`), not the
+            // lowercase `identifier`/`name` convention most others use.
             const type_name = std.mem.span(c.ts_node_type(item.node));
-            if (std.mem.eql(u8, type_name, "identifier") or std.mem.eql(u8, type_name, "name")) {
+            if (std.ascii.eqlIgnoreCase(type_name, "identifier") or std.ascii.eqlIgnoreCase(type_name, "name")) {
                 const start = c.ts_node_start_byte(item.node);
                 const end = c.ts_node_end_byte(item.node);
                 if (start <= end and end <= source.len and isSingleLine(source[start..end])) {

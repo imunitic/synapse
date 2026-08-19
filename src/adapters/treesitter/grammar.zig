@@ -128,6 +128,11 @@ pub fn build(io: Io, gpa: Allocator, repo_dir: []const u8, out_path: []const u8,
 
     if (try upToDate(io, out_path, sources.items)) return;
 
+    // Must exist before the lock dir is created under it -- `createDir` is
+    // single-level and fails on a missing parent, which a fresh
+    // `grammars_dir` always is on its first-ever compile.
+    if (std.fs.path.dirname(out_path)) |dir| cwd.createDirPath(io, dir) catch {};
+
     // Same locking discipline as `ensureCloned`'s clone lock, kept separate:
     // compiling and cloning are different resources, and serializing a fast
     // compile behind a network-clone-sized wait would be its own bug.
@@ -176,8 +181,6 @@ pub fn build(io: Io, gpa: Allocator, repo_dir: []const u8, out_path: []const u8,
     defer argv.deinit(gpa);
     try argv.appendSlice(gpa, &.{ "-shared", "-fPIC", "-O2", include, "-o", out_path });
     try argv.appendSlice(gpa, sources.items);
-
-    if (std.fs.path.dirname(out_path)) |dir| cwd.createDirPath(io, dir) catch {};
 
     // Every present candidate gets a real attempt; failures are collected
     // rather than reported from the first one (see `probe`).
@@ -368,6 +371,31 @@ test "repo names come off a URL with or without .git" {
 test "a compiler is found on this machine" {
     const found = try findCompiler(testing.io, testing.allocator);
     try testing.expect(found.argv0.len > 0);
+}
+
+test "compiling into a nested output dir that doesn't exist yet -- a fresh grammars_dir's first-ever compile" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const dir = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    try tmp.dir.createDirPath(io, "src");
+    try tmp.dir.writeFile(io, .{
+        .sub_path = "src/parser.c",
+        .data = "void *tree_sitter_fake(void) { return 0; }\n",
+    });
+
+    // Mirrors extractor.zig's real lib_path shape: {grammars_dir}/lib/{symbol}.{ext} --
+    // "lib" must not exist yet, or this doesn't reproduce the bug.
+    const out = try std.fmt.allocPrint(gpa, "{s}/lib/fake.{s}", .{ dir, sharedLibExt() });
+    defer gpa.free(out);
+    try testing.expectError(error.FileNotFound, Io.Dir.cwd().access(io, std.fs.path.dirname(out).?, .{}));
+
+    try build(io, gpa, dir, out, default_lock_tries);
+    try Io.Dir.cwd().access(io, out, .{});
 }
 
 test "end to end: compile a source tree and load a symbol out of it" {

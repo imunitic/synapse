@@ -50,9 +50,13 @@ pub fn classify(gpa: Allocator, io: Io, path: []const u8) !Classification {
 
 /// Type names ending in one of these are declaration-shaped -- Graft's own
 /// suffix regex, as a fixed literal-suffix list (no regex engine here, same
-/// reason `tagger.zig` has no `#match?` support).
+/// reason `tagger.zig` has no `#match?` support). Matched case-insensitively
+/// (see `hasDeclarationSuffix`), so both the snake_case spelling
+/// (`_decl`) and the PascalCase one (`VarDecl`) hit the same entry --
+/// confirmed against `maxxnino/tree-sitter-zig`, which names every
+/// declaration-shaped node `*Decl`/`*Def` with no underscore at all.
 const declaration_suffixes = [_][]const u8{
-    "declaration", "definition", "_item", "_specifier", "_decl", "_def", "_binding",
+    "declaration", "definition", "_item", "_specifier", "decl", "def", "_binding",
 };
 
 /// A type name starting with one of these (at a `_`-boundary) is also
@@ -92,9 +96,14 @@ fn classifyOne(item: std.json.Value) !?Guess {
     if (type_v != .string or type_v.string.len == 0) return null;
     const type_name = type_v.string;
 
-    const prefix_kind = matchedPrefixKind(type_name);
-    if (prefix_kind == null and !hasDeclarationSuffix(type_name)) return null;
-    const kind = prefix_kind orelse generic_kind;
+    // A bare prefix-keyword match alone is too permissive: `struct` (a type
+    // expression/literal, not a declaration) matches the keyword "struct"
+    // with no suffix at all -- confirmed on tree-sitter-odin, where it
+    // fabricated a definition out of a struct literal (`Vec2{x=1,y=2}`).
+    // The suffix is the actual declaration-shape signal; the prefix only
+    // ever picks which kind label to use.
+    if (!hasDeclarationSuffix(type_name)) return null;
+    const kind = matchedPrefixKind(type_name) orelse generic_kind;
 
     const has_name_field = blk: {
         const fields_v = obj.get("fields") orelse break :blk false;
@@ -108,17 +117,25 @@ fn classifyOne(item: std.json.Value) !?Guess {
     return .{ .type_name = type_name, .kind = kind, .has_name_field = has_name_field };
 }
 
+/// Case-insensitive so `Struct_decl`/`STRUCT_DECL` also match; the
+/// underscore-or-end boundary itself is unchanged -- widening it to accept
+/// a bare case transition (`StructDecl` with no underscore) is a plausible
+/// next step but untested against any real grammar, so left alone for now.
 fn matchedPrefixKind(type_name: []const u8) ?[]const u8 {
     for (prefix_kinds) |kw| {
-        if (!std.mem.startsWith(u8, type_name, kw)) continue;
+        if (type_name.len < kw.len) continue;
+        if (!std.ascii.eqlIgnoreCase(type_name[0..kw.len], kw)) continue;
         if (type_name.len == kw.len or type_name[kw.len] == '_') return kw;
     }
     return null;
 }
 
+/// Case-insensitive: `_decl`/`_def`'s PascalCase spelling (`VarDecl`,
+/// `TestDef`) carries the same signal with no underscore at all.
 fn hasDeclarationSuffix(type_name: []const u8) bool {
     for (declaration_suffixes) |suf| {
-        if (std.mem.endsWith(u8, type_name, suf)) return true;
+        if (type_name.len < suf.len) continue;
+        if (std.ascii.eqlIgnoreCase(type_name[type_name.len - suf.len ..], suf)) return true;
     }
     return false;
 }
@@ -183,6 +200,39 @@ test "a prefix keyword becomes the kind, not the generic default" {
     defer c.deinit();
     try testing.expectEqual(@as(usize, 1), c.guesses.len);
     try testing.expectEqualStrings("struct", c.guesses[0].kind);
+}
+
+test "PascalCase Decl/Def suffixes match the same as snake_case _decl/_def" {
+    // Confirmed live against maxxnino/tree-sitter-zig: every declaration
+    // node is PascalCase (VarDecl, ParamDecl, TestDecl, ...), no underscore
+    // at all. Before this, the classifier found zero guesses for that
+    // grammar; case-insensitive bare decl/def recovers most of them.
+    const gpa = testing.allocator;
+    var c = try classifyJson(gpa,
+        \\[{"type": "VarDecl", "named": true},
+        \\ {"type": "TestDef", "named": true},
+        \\ {"type": "FnProto", "named": true}]
+    );
+    defer c.deinit();
+    try testing.expectEqual(@as(usize, 2), c.guesses.len);
+    try testing.expectEqualStrings("VarDecl", c.guesses[0].type_name);
+    try testing.expectEqualStrings("TestDef", c.guesses[1].type_name);
+}
+
+test "a bare prefix keyword with no declaration suffix does not qualify on its own" {
+    // Confirmed live against tree-sitter-odin: a node type literally named
+    // "struct" is the type-expression/composite-literal node (used at a
+    // struct literal like `Vec2{x=1,y=2}`), not a declaration -- matching
+    // it fabricated a fake definition out of a usage site.
+    const gpa = testing.allocator;
+    var c = try classifyJson(gpa,
+        \\[{"type": "struct", "named": true},
+        \\ {"type": "struct_type", "named": true},
+        \\ {"type": "struct_declaration", "named": true, "fields": {"name": {}}}]
+    );
+    defer c.deinit();
+    try testing.expectEqual(@as(usize, 1), c.guesses.len);
+    try testing.expectEqualStrings("struct_declaration", c.guesses[0].type_name);
 }
 
 test "a prefix keyword must land on a word boundary" {
