@@ -67,7 +67,8 @@ test "Registry: an absent file falls back to emit.languageFor's built-in table" 
     var reg = try Registry.load(gpa, testing.io, "/nonexistent/synapse-fence-languages.conf");
     defer reg.deinit();
     try testing.expectEqualStrings("java", reg.languageFor("x/Foo.java"));
-    try testing.expectEqualStrings("", reg.languageFor("x/Foo.zig")); // not in the hardcoded table
+    try testing.expectEqualStrings("zig", reg.languageFor("x/Foo.zig"));
+    try testing.expectEqualStrings("", reg.languageFor("x/Foo.md")); // not in the hardcoded table
 }
 
 test "Registry: a resolved conf is authoritative, even for an extension the hardcoded table also knows" {

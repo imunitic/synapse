@@ -282,6 +282,7 @@ pub fn languageFor(path: []const u8) []const u8 {
         .{ .ext = ".yml", .lang = "yaml" },
         .{ .ext = ".yaml", .lang = "yaml" },
         .{ .ext = ".json", .lang = "json" },
+        .{ .ext = ".zig", .lang = "zig" },
     };
     for (table) |e| if (std.mem.endsWith(u8, path, e.ext)) return e.lang;
     return "";
