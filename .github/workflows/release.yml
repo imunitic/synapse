@@ -26,6 +26,19 @@ jobs:
   release:
     runs-on: ubuntu-latest
 
+    # The tag above is computed from `gh release list` at the *start* of a
+    # run, but publishing happens after a multi-minute cross-compile step --
+    # two pushes close enough together both read the same "highest N so
+    # far" before either has published, compute the same next tag, and
+    # whichever finishes compiling first wins; the other fails with "a
+    # release with the same tag name already exists" (confirmed live,
+    # 2026-08-19). `cancel-in-progress: false`: queue, don't cancel -- a
+    # cancelled run would silently drop a real commit's release rather than
+    # just delay it.
+    concurrency:
+      group: release-tag
+      cancel-in-progress: false
+
     steps:
       - uses: actions/checkout@v5
 
