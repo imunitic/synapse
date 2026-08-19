@@ -207,14 +207,21 @@ contribute to a node's prose. Do not build a tally out of those warnings.
      not presence: run it against a real sample file the same way as tier 2, and judge whether
      what it caught is useful signal. The zero-cost floor (a candidate matching literally nothing
      is auto-rejected, no judgement needed) is the only mechanical check; everything else is read
-     and decided by eye. Expect this tier to be genuinely weak, not merely cautious about it — two
-     concrete, confirmed failure shapes, so as not to mistake either for a bug: a grammar using
-     unconventional node names (`maxxnino/tree-sitter-zig`'s `Decl`/`FnProto`, not
-     `*_declaration`) can leave the classifier finding nothing at all; a grammar whose identifier
-     leaf type isn't literally named `identifier` or `name` (`tree-sitter-ocaml` calls its own
-     `value_name`/`value_pattern`, confirmed directly) silently starves the depth-3 name search
-     even when the declaration-shaped node itself was found correctly. Neither is a reason to
-     patch the tier's own logic per language — that is precisely what it is designed not to do.
+     and decided by eye. Expect this tier to be weaker than tier 1/2, not absent-minded about it.
+     The classifier's suffix/prefix matching and the walk's identifier search are both
+     case-insensitive and PascalCase-boundary-aware (`maxxnino/tree-sitter-zig`'s `VarDecl`/
+     `TestDecl` and its all-caps `IDENTIFIER` leaf are both caught now, confirmed live — 0 tags to
+     46 on a real file). What still doesn't match is a genuinely *different word*, not just
+     different casing: `FnProto` has no suffix this tier recognizes at all, and
+     `tree-sitter-ocaml`'s `value_name`/`value_pattern` leaf types aren't `identifier`/`name`
+     under any casing, confirmed directly. That's still not a reason to hardcode one grammar's
+     exact spelling into the classifier — the generic case/boundary handling covers a real,
+     cross-language class of grammars (PascalCase/ALL-CAPS naming conventions), a per-grammar word
+     substitution would not. When this tier gets the node right but the kind label wrong, or
+     guesses nothing for a node worth naming, `~/.claude/synapse-kind-synonyms.conf` — the same
+     rule list tier 2 reads above — overrides tier 3's guessed kind too, keyed on the grammar's
+     raw node type name (e.g. `ContainerDecl`) instead of a locals.scm suffix. Absent/empty is a
+     no-op either way, so this never needs touching unless a specific grammar's labels are wrong.
 
      **When none of the three verify, or tier 3 verifies but is too weak to be worth keeping:**
      `$SYNAPSE_GRAMMARS_QUERY_PATH/{ext}.scm` is the sanctioned escape hatch — a human-authored
