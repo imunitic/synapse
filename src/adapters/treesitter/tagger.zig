@@ -730,7 +730,9 @@ test "tagFileGenerated combines the query path and the walk path, in every empti
 
     const node_types_path = try std.fs.path.join(gpa, &.{ dir, "src", "node-types.json" });
     defer gpa.free(node_types_path);
-    const classification = try node_types.classify(gpa, io, node_types_path);
+    var no_rules = try core.kind_synonyms.RuleList.load(gpa, io, "/nonexistent");
+    defer no_rules.deinit();
+    const classification = try node_types.classify(gpa, io, node_types_path, no_rules, "test");
 
     const query = try node_types.buildQuery(gpa, classification.guesses);
     defer gpa.free(query);

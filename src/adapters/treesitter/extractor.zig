@@ -99,21 +99,21 @@ pub const TsBackend = struct {
         if (source == .generated) {
             const node_types_path = try std.fs.path.join(gpa, &.{ src_root, "src", "node-types.json" });
             defer gpa.free(node_types_path);
-            var classification = try node_types.classify(gpa, io, node_types_path);
+            // `synapse-kind-synonyms.conf` is consulted during classification
+            // itself, not applied after the fact -- same rule list tier 2
+            // already reads, reused here keyed on the grammar's raw node
+            // *type name* (e.g. "ContainerDecl"/"subprogram_body") rather
+            // than a `local.definition.` suffix. A rule can relabel a type
+            // the suffix/prefix heuristic already caught, or force-classify
+            // one it missed entirely (`node_types.zig`'s own doc comment has
+            // the confirmed `subprogram_body` case this needed). Absent/empty
+            // (the default) means every lookup misses and classification is
+            // unchanged from before this existed.
+            var classification = try node_types.classify(gpa, io, node_types_path, kind_rules, scope);
             // Armed only up to the ownership transfer into `t.classification`
             // below: nothing fallible may sit between `Tagger.init` and
             // `return t`, or this would double-free after the transfer.
             errdefer classification.deinit();
-
-            // `synapse-kind-synonyms.conf` overrides a guessed kind before it's
-            // baked into the query string -- same rule list tier 2 already
-            // reads, reused here keyed on the grammar's raw node *type name*
-            // (e.g. "ContainerDecl") rather than a `local.definition.` suffix.
-            // Absent/empty (the default) means every lookup misses and every
-            // guess keeps its classifier-derived kind, unchanged from before.
-            for (classification.guesses) |*g| {
-                if (kind_rules.kindFor(g.type_name, scope)) |k| g.kind = k;
-            }
 
             const generated_query = try node_types.buildQuery(gpa, classification.guesses);
             defer gpa.free(generated_query);

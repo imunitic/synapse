@@ -4,14 +4,22 @@
 //! test on the type name, a literal `name` field for the identifier), not a
 //! schema reader, since `node-types.json` says nothing about meaning.
 //!
-//! Pure and tree-sitter-C-API-free -- reads JSON only. The other half of
-//! tier 3, the bounded tree-walk for a type with no `name` field, needs a
-//! real parsed tree and lives in `tagger.zig`.
+//! Tree-sitter-C-API-free -- reads JSON only, still no parsing/tagging here.
+//! `kind_rules` is consulted, not just applied after the fact: a rule can
+//! also force-classify a type the suffix/prefix heuristic missed entirely
+//! (confirmed needed against `tree-sitter-ada`'s `subprogram_body`, which
+//! names a full function-with-implementation but has no `_declaration`/
+//! `_definition`/`decl`/`def` suffix at all -- a relabel-only override could
+//! never rescue it, since it never became a `Guess` to relabel). The other
+//! half of tier 3, the bounded tree-walk for a type with no `name` field,
+//! needs a real parsed tree and lives in `tagger.zig`.
 
 const std = @import("std");
+const core = @import("core");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
+const RuleList = core.kind_synonyms.RuleList;
 
 /// One node type judged declaration-shaped, and how to find its name.
 pub const Guess = struct {
@@ -25,10 +33,7 @@ pub const Guess = struct {
 };
 
 /// Owned together with the `Guess` slice -- every `Guess` string borrows
-/// `parsed`'s arena, like `core.kind_synonyms.RuleList`. `guesses` is
-/// mutable (not `[]const Guess`) so a caller holding `synapse-kind-
-/// synonyms.conf` rules can override a guess's `.kind` after classifying,
-/// before it's baked into the tier-3 query string -- see `extractor.zig`.
+/// `parsed`'s arena, like `core.kind_synonyms.RuleList`.
 pub const Classification = struct {
     parsed: std.json.Parsed(std.json.Value),
     gpa: Allocator,
@@ -44,11 +49,21 @@ pub const Classification = struct {
 /// propagates rather than opening empty the way `core.namespace.Registry`/
 /// `core.kind_synonyms.RuleList` do for an absent user config -- a missing
 /// `node-types.json` means tier 3 has no schema to guess from at all.
-pub fn classify(gpa: Allocator, io: Io, path: []const u8) !Classification {
+pub fn classify(
+    gpa: Allocator,
+    io: Io,
+    path: []const u8,
+    kind_rules: RuleList,
+    scope: []const u8,
+) !Classification {
     const bytes = try Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(16 << 20));
     defer gpa.free(bytes);
     const parsed = try std.json.parseFromSlice(std.json.Value, gpa, bytes, .{});
-    return .{ .parsed = parsed, .gpa = gpa, .guesses = try classifyValue(gpa, parsed.value) };
+    return .{
+        .parsed = parsed,
+        .gpa = gpa,
+        .guesses = try classifyValue(gpa, parsed.value, kind_rules, scope),
+    };
 }
 
 /// Type names ending in one of these are declaration-shaped -- Graft's own
@@ -93,7 +108,12 @@ const prefix_kind_overrides = std.StaticStringMap([]const u8).initComptime(.{
 /// Default kind for a declaration-suffix match with no prefix keyword.
 const generic_kind = "function";
 
-fn classifyValue(gpa: Allocator, value: std.json.Value) ![]Guess {
+fn classifyValue(
+    gpa: Allocator,
+    value: std.json.Value,
+    kind_rules: RuleList,
+    scope: []const u8,
+) ![]Guess {
     const arr = switch (value) {
         .array => |a| a,
         else => return &.{},
@@ -101,14 +121,14 @@ fn classifyValue(gpa: Allocator, value: std.json.Value) ![]Guess {
     var out: std.ArrayListUnmanaged(Guess) = .empty;
     errdefer out.deinit(gpa);
     for (arr.items) |item| {
-        if (try classifyOne(item)) |g| try out.append(gpa, g);
+        if (try classifyOne(item, kind_rules, scope)) |g| try out.append(gpa, g);
     }
     return out.toOwnedSlice(gpa);
 }
 
 /// One `node-types.json` entry, judged. Null when not declaration-shaped
 /// -- the common, expected outcome for most entries.
-fn classifyOne(item: std.json.Value) !?Guess {
+fn classifyOne(item: std.json.Value, kind_rules: RuleList, scope: []const u8) !?Guess {
     const obj = switch (item) {
         .object => |o| o,
         else => return null,
@@ -121,14 +141,19 @@ fn classifyOne(item: std.json.Value) !?Guess {
     if (type_v != .string or type_v.string.len == 0) return null;
     const type_name = type_v.string;
 
-    // A bare prefix-keyword match alone is too permissive: `struct` (a type
-    // expression/literal, not a declaration) matches the keyword "struct"
-    // with no suffix at all -- confirmed on tree-sitter-odin, where it
-    // fabricated a definition out of a struct literal (`Vec2{x=1,y=2}`).
-    // The suffix is the actual declaration-shape signal; the prefix only
-    // ever picks which kind label to use.
-    if (!hasDeclarationSuffix(type_name)) return null;
-    const kind = matchedPrefixKind(type_name) orelse generic_kind;
+    // `synapse-kind-synonyms.conf` can force-classify a type the generic
+    // heuristic missed entirely, not just relabel one it already caught --
+    // `subprogram_body` above is exactly that case, and a relabel-only rule
+    // could never reach it. A bare prefix-keyword match alone is still too
+    // permissive on its own: `struct` (a type expression/literal, not a
+    // declaration) matches the keyword "struct" with no suffix at all --
+    // confirmed on tree-sitter-odin, where it fabricated a definition out
+    // of a struct literal (`Vec2{x=1,y=2}`). The suffix (or an explicit
+    // rule) is the declaration-shape signal; the prefix only ever picks
+    // which kind label to use when no rule already decided one.
+    const override_kind = kind_rules.kindFor(type_name, scope);
+    if (override_kind == null and !hasDeclarationSuffix(type_name)) return null;
+    const kind = override_kind orelse (matchedPrefixKind(type_name) orelse generic_kind);
 
     const has_name_field = blk: {
         const fields_v = obj.get("fields") orelse break :blk false;
@@ -186,9 +211,22 @@ pub fn buildQuery(gpa: Allocator, guesses: []const Guess) ![]u8 {
 
 const testing = std.testing;
 
+/// No rules -- the common case every existing test wants, and consistent
+/// with an absent `synapse-kind-synonyms.conf` in real use (empty, not an
+/// error). `classifyJsonWithRules` below is for the force-classify tests.
 fn classifyJson(gpa: Allocator, json: []const u8) !Classification {
+    var rules = try RuleList.load(gpa, testing.io, "/nonexistent");
+    defer rules.deinit();
+    return classifyJsonWithRules(gpa, json, rules, "test-scope");
+}
+
+fn classifyJsonWithRules(gpa: Allocator, json: []const u8, rules: RuleList, scope: []const u8) !Classification {
     const parsed = try std.json.parseFromSlice(std.json.Value, gpa, json, .{});
-    return .{ .parsed = parsed, .gpa = gpa, .guesses = try classifyValue(gpa, parsed.value) };
+    return .{
+        .parsed = parsed,
+        .gpa = gpa,
+        .guesses = try classifyValue(gpa, parsed.value, rules, scope),
+    };
 }
 
 test "an anonymous node type is never declaration-shaped, however it is named" {
@@ -363,4 +401,47 @@ test "a non-array top level classifies to nothing, not an error" {
     var c = try classifyJson(gpa, "{}");
     defer c.deinit();
     try testing.expectEqual(@as(usize, 0), c.guesses.len);
+}
+
+test "a kind_rules entry force-classifies a type the suffix/prefix heuristic misses entirely" {
+    // subprogram_body: confirmed live against tree-sitter-ada -- a full
+    // function-with-implementation, no "_declaration"/"_definition"/"decl"/
+    // "def" suffix at all, so it never became a Guess before this fix. A
+    // relabel-only override could never reach it, since there was nothing
+    // to relabel.
+    const gpa = testing.allocator;
+    const io = testing.io;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const dir = buf[0..try tmp.dir.realPath(io, &buf)];
+    const conf_path = try std.fmt.allocPrint(gpa, "{s}/kind-synonyms.conf", .{dir});
+    defer gpa.free(conf_path);
+    try tmp.dir.writeFile(io, .{
+        .sub_path = "kind-synonyms.conf",
+        .data =
+        \\[{"match": "subprogram_body", "scope": "source.ada", "kind": "function"}]
+        ,
+    });
+
+    var rules = try RuleList.load(gpa, io, conf_path);
+    defer rules.deinit();
+
+    // Without the rule (wrong scope): still nothing, exactly as before.
+    var wrong_scope = try classifyJsonWithRules(gpa,
+        \\[{"type": "subprogram_body", "named": true, "fields": {"name": {}}}]
+    , rules, "source.zig");
+    defer wrong_scope.deinit();
+    try testing.expectEqual(@as(usize, 0), wrong_scope.guesses.len);
+
+    // With the rule, scoped correctly: now classified, with the ruled kind.
+    var right_scope = try classifyJsonWithRules(gpa,
+        \\[{"type": "subprogram_body", "named": true, "fields": {"name": {}}}]
+    , rules, "source.ada");
+    defer right_scope.deinit();
+    try testing.expectEqual(@as(usize, 1), right_scope.guesses.len);
+    try testing.expectEqualStrings("subprogram_body", right_scope.guesses[0].type_name);
+    try testing.expectEqualStrings("function", right_scope.guesses[0].kind);
+    try testing.expect(right_scope.guesses[0].has_name_field);
 }
