@@ -229,22 +229,25 @@ contribute to a node's prose. Do not build a tally out of those warnings.
      **Before falling through to the escape hatch, try inference once — verified, not left as a
      guess.** When tier 3 runs but is visibly weak (real declarations missing entirely, or caught
      with an unhelpfully generic kind), read `node-types.json` for the pattern the heuristic
-     missed, the way this was actually found: Common Lisp's `defun` is *prefix*-marked (`def-un`),
-     not suffix-marked, invisible to a suffix scan built for the C-family convention; Ada's
-     `subprogram_body` uses a body/declaration split the classifier had no word for at all. Propose
-     `synapse-kind-synonyms.conf` rules scoped to this grammar's `source.<lang>` for what's missing
-     or mislabeled, then **re-run `synapse tags` against the same real sample and confirm the
-     result actually improved** — not just that the rule looks reasonable on paper. This session's
-     own Ada locals.scm was a live warning about skipping that step: read as well-formed, produced
-     zero tags when actually run. Only write to the conf file once the improvement is confirmed
-     live, and only there — never `$SYNAPSE_WORK_DIR`. These are facts about a *language*, not this
-     repo, and the whole reason these conf files are global and permanent (see step 4 below) is so
-     the next project in the same language skips rediscovering it; a repo-scoped copy would throw
-     that away for exactly the kind of finding worth keeping. This step is additive only and has a
-     real ceiling: it can fix a wrong kind or catch a type that exists as its own grammar node but
-     was missed, never conjure structure a grammar doesn't have. Confirmed live: Clojure's and
-     Scheme's `defn`/`define` aren't distinct node types in their own grammars at all, just a
-     generic list form — no rule fixes an absence of structure to key one on.
+     missed. Two confirmed shapes to recognize: a *prefix*-marked defining keyword instead of a
+     suffix-marked one (Common Lisp's `defun` is `def-un`, invisible to a suffix scan built for the
+     C-family `noun_declaration` convention), and a body/declaration split the classifier has no
+     word for (`tree-sitter-ada`'s `subprogram_body` names a full function-with-implementation but
+     carries none of the recognized suffixes). Propose `synapse-kind-synonyms.conf` rules scoped to
+     this grammar's `source.<lang>` for what's missing or mislabeled, then **re-run `synapse tags`
+     against the same real sample and confirm the result actually improved** — not just that the
+     rule looks reasonable on paper. Text quality is not a proxy for this: `tree-sitter-ada`'s
+     `locals.scm` reads as well-formed and produces zero tags when actually run against a real
+     sample, confirmed directly — exactly the gap this verification step exists to catch. Only
+     write to the conf file once the improvement is confirmed live, and only there — never
+     `$SYNAPSE_WORK_DIR`. These are facts about a *language*, not this repo, and the whole reason
+     these conf files are global and permanent (see step 4 below) is so the next project in the
+     same language skips rediscovering it; a repo-scoped copy would throw that away for exactly the
+     kind of finding worth keeping. This step is additive only and has a real ceiling: it can fix a
+     wrong kind or catch a type that exists as its own grammar node but was missed, never conjure
+     structure a grammar doesn't have. Clojure's and Scheme's `defn`/`define` aren't distinct node
+     types in their own grammars at all, just a generic list form, confirmed directly — no rule
+     fixes an absence of structure to key one on.
 
      **When none of the three verify, tier 3 verifies but stays too weak even after an inference
      attempt, or the language's grammar has no distinct node types worth keying rules on at all:**
