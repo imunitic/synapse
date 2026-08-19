@@ -249,12 +249,70 @@ contribute to a node's prose. Do not build a tally out of those warnings.
      types in their own grammars at all, just a generic list form, confirmed directly — no rule
      fixes an absence of structure to key one on.
 
-     **When none of the three verify, tier 3 verifies but stays too weak even after an inference
-     attempt, or the language's grammar has no distinct node types worth keying rules on at all:**
-     `$SYNAPSE_GRAMMARS_QUERY_PATH/{ext}.scm` is the sanctioned escape hatch — a human-authored
-     query file that preempts the whole cascade, not a fourth tier to discover automatically. Name
-     it as an option when reporting the outcome (step 5) rather than silently accepting a weak
-     tier 3 or a bare `unsupported`.
+     **Generating a real tags.scm, before the escape hatch.** `synapse-kind-synonyms.conf` only
+     ever helps when the missing signal is still type-level — a node type the classifier missed or
+     mislabeled. It cannot help a homoiconic language at all, because there the distinguishing fact
+     (which symbol is in call position) lives in the parse tree's *content*, never in any node's
+     *type*. A tree-sitter query with predicates (`#eq?`, `#any-of?`) can read that content; a
+     node-type classifier structurally cannot. This is a bigger, riskier artifact than one JSON
+     rule — a whole query file, not a label — so it gets its own explicit steps rather than a
+     mention alongside the smaller kind-synonyms fix above.
+
+     Three source-material cases, tried in this order:
+
+     1. **A `locals.scm` exists but failed tier 2 for a structural reason, not a content reason**
+        (e.g. missing the `local.` prefix on its captures, not noisy captures — see tier 2 above).
+        Its per-node-type capture pattern is usually close to tags.scm-shaped already — translate
+        by field rename. Confirmed on `tree-sitter-odin`'s own real `locals.scm`:
+        `(package_declaration (identifier) @definition.namespace)` becomes
+        `(package_declaration name: (identifier) @name) @definition.namespace`, one field-name
+        away from the real thing.
+     2. **No `locals.scm`, and `node-types.json` exists but is nearly featureless** (Common
+        Lisp/Clojure/Scheme's own real `node-types.json` files have 50/35/22 named types
+        respectively, almost none declaration-shaped, confirmed directly). Generate from the
+        model's own knowledge of the language's defining forms instead of the grammar's files.
+        Route around this tagger's missing `#match?` support explicitly — prefer `#eq?`/`#any-of?`
+        (`(#any-of? @ignore "defclass" "cl:defclass")`, not a regex) from the start, rather than
+        porting a pattern written for an evaluator with a richer predicate set.
+     3. **`node-types.json` itself is absent.** Probe for the `tree-sitter` CLI the same
+        opportunistic way step 3 above probes for a C compiler — used if present, silently skipped
+        if not, never installed. If both the CLI and the grammar's own `grammar.js` are present,
+        `tree-sitter generate` regenerates `node-types.json` (confirmed live: byte-identical to
+        what was already committed for Scheme), landing back in case 1 or 2, whichever the
+        grammar's real design implies — regeneration recovers a missing artifact, it never
+        manufactures structure the grammar doesn't have. If either is missing, this collapses
+        straight into case 2 with even less grounding.
+
+     **Every case resolves the same way:** write the candidate query, run `synapse tags` against
+     the same real sample, and judge the result by its actual tag output — real names, kinds, and
+     spans on real code — never by reading the raw query syntax, which most users have no reason to
+     know and can't meaningfully evaluate. If it looks right, write it to
+     `$SYNAPSE_GRAMMARS_QUERY_PATH/{ext}.scm`, the same escape-hatch path a human-authored file
+     would use — check first that a human hasn't already placed one there, and never overwrite it.
+     If it doesn't look right, write nothing; the normal cascade proceeds exactly as if this had
+     never been attempted. No case needs a different rule, and no separate approval gate is needed
+     beyond this — a malformed query fails to load outright (`Error.QueryInvalid`), one matching
+     nothing is the existing zero-cost floor, one matching the wrong things is caught by eye, the
+     same standard every other tier's output already has to clear.
+
+     Two harmless quirks to expect while judging output, confirmed live against real Common
+     Lisp/Clojure/Scheme grammars — neither is a reason to reject an otherwise-working query:
+     `#any-of?` needs every case variant spelled out as a literal (no `(?i)` equivalent), so an
+     odd casing like `dEFclass` can slip through uncaught where a regex-based `#match?` wouldn't —
+     acceptable, since the common real-world spelling is what matters, not every deliberately
+     mixed-case adversarial input. And this tagger doesn't implement the classic tags.scm
+     convention where an early `@ignore` capture suppresses a later pattern from also matching the
+     same node — a defining form's own name can end up tagged twice, once as the intended
+     definition and once more as a generic call from the catch-all pattern; noise, not a wrong
+     answer, and it happens identically with human-authored upstream queries loaded by this same
+     tagger, not something specific to a generated one.
+
+     **When none of the three tiers verify, tier 3 stays too weak even after a kind-synonyms
+     attempt and a generated query, or the language's grammar has no distinct node types worth
+     keying anything on at all:** `$SYNAPSE_GRAMMARS_QUERY_PATH/{ext}.scm` is the sanctioned escape
+     hatch — a human-authored query file that preempts the whole cascade, not a fourth tier to
+     discover automatically. Name it as an option when reporting the outcome (step 5) rather than
+     silently accepting a weak tier 3 or a bare `unsupported`.
   4. Write the result back to `~/.claude/synapse-grammars.conf` (create it as `{}` first if it
      doesn't exist) — a positive entry (`{"repo": "...", "scope": "..."}`) for whichever tier
      verified, `{"unsupported": true}` only when all three came up empty or unusable. Record which
