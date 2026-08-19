@@ -100,6 +100,14 @@ edit directly if a cached decision needs correcting.
   kind; a malformed entry (missing or wrong-typed `match`/`kind`) is silently skipped at load, and
   every rule around it still applies.
 
+  Also read by **Tier 3** (`node-types.json`-generated queries), where the same file overrides a
+  guessed kind rather than a locals.scm capture spelling — so `match` there is the grammar's raw
+  node *type name* (e.g. `"ContainerDecl"`), not a `@local.definition` suffix. Same rule list, same
+  precedence, two different `match` vocabularies depending on which tier is asking; unmapped keeps
+  Tier 3's own classifier guess instead of being dropped (Tier 3 has no "no tag" state the way a
+  locals.scm capture does — it either guesses a kind or the node isn't classified as a definition
+  at all).
+
 ## Curated-default registries (JSON)
 
 Unlike the self-populating registries above, this file is never empty in the ordinary case: it
