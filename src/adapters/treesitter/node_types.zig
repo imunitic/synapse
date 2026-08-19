@@ -59,11 +59,33 @@ const declaration_suffixes = [_][]const u8{
     "declaration", "definition", "_item", "_specifier", "decl", "def", "_binding",
 };
 
-/// A type name starting with one of these (at a `_`-boundary) is also
-/// declaration-shaped, and the matched word doubles as its `Tag.kind`.
+/// A type name starting with one of these (at a boundary -- `_`, a
+/// following capital letter, or the type name simply ending there) is also
+/// declaration-shaped, and the matched word doubles as its `Tag.kind`. The
+/// second column of each new entry below is not invented: it's the kind
+/// `tree-sitter-odin`'s own real `locals.scm` already uses for the matching
+/// node (`package_declaration`/`import_declaration` -> `namespace`,
+/// `const_declaration` -> `constant`, `variable_declaration` -> `var`,
+/// `parameter` -> `parameter`), reused here for consistency rather than
+/// picked ad hoc. `test`/`container`/`error` have no such precedent to
+/// borrow (confirmed only against `maxxnino/tree-sitter-zig`'s
+/// `TestDecl`/`ContainerDecl`/`ErrorSetDecl`) -- mapped to the closest
+/// existing label rather than inventing a new one.
 const prefix_kinds = [_][]const u8{
-    "class", "struct", "enum", "interface", "trait", "module", "namespace",
+    "class",     "struct", "enum",      "interface", "trait", "module",
+    "namespace", "const",  "var",       "variable",  "param", "parameter",
+    "package",   "import", "container", "error",     "test",
 };
+
+const prefix_kind_overrides = std.StaticStringMap([]const u8).initComptime(.{
+    .{ "const", "constant" },
+    .{ "variable", "var" },
+    .{ "param", "parameter" },
+    .{ "package", "namespace" },
+    .{ "import", "namespace" },
+    .{ "container", "type" },
+    .{ "error", "type" },
+});
 
 /// Default kind for a declaration-suffix match with no prefix keyword.
 const generic_kind = "function";
@@ -117,15 +139,21 @@ fn classifyOne(item: std.json.Value) !?Guess {
     return .{ .type_name = type_name, .kind = kind, .has_name_field = has_name_field };
 }
 
-/// Case-insensitive so `Struct_decl`/`STRUCT_DECL` also match; the
-/// underscore-or-end boundary itself is unchanged -- widening it to accept
-/// a bare case transition (`StructDecl` with no underscore) is a plausible
-/// next step but untested against any real grammar, so left alone for now.
+/// Case-insensitive so `Struct_decl`/`STRUCT_DECL` also match. Boundary
+/// after the prefix word is `_`, the string simply ending there, or a
+/// capital letter -- a PascalCase word transition (`ParamDecl`), confirmed
+/// needed against `maxxnino/tree-sitter-zig`, whose declaration nodes are
+/// all PascalCase with no separator at all. A lowercase continuation still
+/// correctly rejects (`structure` does not match `struct`).
 fn matchedPrefixKind(type_name: []const u8) ?[]const u8 {
     for (prefix_kinds) |kw| {
         if (type_name.len < kw.len) continue;
         if (!std.ascii.eqlIgnoreCase(type_name[0..kw.len], kw)) continue;
-        if (type_name.len == kw.len or type_name[kw.len] == '_') return kw;
+        if (type_name.len == kw.len or type_name[kw.len] == '_' or
+            std.ascii.isUpper(type_name[kw.len]))
+        {
+            return prefix_kind_overrides.get(kw) orelse kw;
+        }
     }
     return null;
 }
@@ -200,6 +228,52 @@ test "a prefix keyword becomes the kind, not the generic default" {
     defer c.deinit();
     try testing.expectEqual(@as(usize, 1), c.guesses.len);
     try testing.expectEqualStrings("struct", c.guesses[0].kind);
+}
+
+test "prefix_kinds expansion: real node types from tree-sitter-odin and maxxnino/tree-sitter-zig" {
+    const gpa = testing.allocator;
+    var c = try classifyJson(gpa,
+        \\[{"type": "package_declaration", "named": true},
+        \\ {"type": "import_declaration", "named": true},
+        \\ {"type": "const_declaration", "named": true},
+        \\ {"type": "variable_declaration", "named": true},
+        \\ {"type": "ParamDecl", "named": true},
+        \\ {"type": "VarDecl", "named": true},
+        \\ {"type": "TestDecl", "named": true},
+        \\ {"type": "ContainerDecl", "named": true},
+        \\ {"type": "ErrorSetDecl", "named": true}]
+    );
+    defer c.deinit();
+    const want = [_]struct { type_name: []const u8, kind: []const u8 }{
+        .{ .type_name = "package_declaration", .kind = "namespace" },
+        .{ .type_name = "import_declaration", .kind = "namespace" },
+        .{ .type_name = "const_declaration", .kind = "constant" },
+        .{ .type_name = "variable_declaration", .kind = "var" },
+        .{ .type_name = "ParamDecl", .kind = "parameter" },
+        .{ .type_name = "VarDecl", .kind = "var" },
+        .{ .type_name = "TestDecl", .kind = "test" },
+        .{ .type_name = "ContainerDecl", .kind = "type" },
+        .{ .type_name = "ErrorSetDecl", .kind = "type" },
+    };
+    try testing.expectEqual(want.len, c.guesses.len);
+    for (want, c.guesses) |w, g| {
+        try testing.expectEqualStrings(w.type_name, g.type_name);
+        try testing.expectEqualStrings(w.kind, g.kind);
+    }
+}
+
+test "a PascalCase word boundary rejects a lowercase continuation, same as the underscore rule" {
+    // Has a real declaration suffix ("Decl"), so it still classifies -- but
+    // "Structure" is not "Struct" + a word boundary, so the kind must fall
+    // back to generic, not wrongly become "struct". Same guard as the
+    // existing `classy_thing` test, now also covering the PascalCase path.
+    const gpa = testing.allocator;
+    var c = try classifyJson(gpa,
+        \\[{"type": "StructureDecl", "named": true}]
+    );
+    defer c.deinit();
+    try testing.expectEqual(@as(usize, 1), c.guesses.len);
+    try testing.expectEqualStrings(generic_kind, c.guesses[0].kind);
 }
 
 test "PascalCase Decl/Def suffixes match the same as snake_case _decl/_def" {
