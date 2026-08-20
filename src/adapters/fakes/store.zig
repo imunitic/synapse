@@ -24,13 +24,11 @@ pub const FakeStore = struct {
         self.nodes.deinit(self.gpa);
     }
 
+    /// The wrapper idiom (sb-024): `Store.from` generates the `*anyopaque`
+    /// cast from `FakeStore` alone, so it can never disagree with `.ptr`
+    /// the way a hand-written vtable literal could.
     pub fn port(self: *FakeStore) Store {
-        return .{ .ptr = self, .vtable = &.{
-            .read = read,
-            .write = write,
-            .list = list,
-            .search = search,
-        } };
+        return Store.from(FakeStore, self);
     }
 
     fn take(self: *FakeStore) ?anyerror {
@@ -38,17 +36,15 @@ pub const FakeStore = struct {
         return self.fail_next;
     }
 
-    fn read(ptr: *anyopaque, gpa: std.mem.Allocator, io: std.Io, node: []const u8) anyerror!?[]u8 {
+    pub fn read(self: *FakeStore, gpa: std.mem.Allocator, io: std.Io, node: []const u8) anyerror!?[]u8 {
         _ = io;
-        const self: *FakeStore = @ptrCast(@alignCast(ptr));
         if (self.take()) |e| return e;
         const body = self.nodes.get(node) orelse return null;
         return try gpa.dupe(u8, body);
     }
 
-    fn write(ptr: *anyopaque, io: std.Io, node: []const u8, body: []const u8) anyerror!void {
+    pub fn write(self: *FakeStore, io: std.Io, node: []const u8, body: []const u8) anyerror!Store.WriteResult {
         _ = io;
-        const self: *FakeStore = @ptrCast(@alignCast(ptr));
         if (self.take()) |e| return e;
         const copy = try self.gpa.dupe(u8, body);
         errdefer self.gpa.free(copy);
@@ -56,11 +52,11 @@ pub const FakeStore = struct {
         if (gop.found_existing) self.gpa.free(gop.value_ptr.*);
         gop.value_ptr.* = copy;
         self.writes += 1;
+        return .{ .accepted = true };
     }
 
-    fn list(ptr: *anyopaque, gpa: std.mem.Allocator, io: std.Io) anyerror![]const []const u8 {
+    pub fn list(self: *FakeStore, gpa: std.mem.Allocator, io: std.Io) anyerror![]const []const u8 {
         _ = io;
-        const self: *FakeStore = @ptrCast(@alignCast(ptr));
         if (self.take()) |e| return e;
         var out: std.ArrayListUnmanaged([]const u8) = .empty;
         errdefer {
@@ -77,9 +73,8 @@ pub const FakeStore = struct {
 
     /// Substring matching, no more -- a fake that ranked results would
     /// assert an answer real adapters don't have to agree on.
-    fn search(ptr: *anyopaque, gpa: std.mem.Allocator, io: std.Io, query: []const u8) anyerror![]const Store.Hit {
+    pub fn search(self: *FakeStore, gpa: std.mem.Allocator, io: std.Io, query: []const u8) anyerror![]const Store.Hit {
         _ = io;
-        const self: *FakeStore = @ptrCast(@alignCast(ptr));
         if (self.take()) |e| return e;
         var out: std.ArrayListUnmanaged(Store.Hit) = .empty;
         errdefer out.deinit(gpa);
@@ -100,7 +95,7 @@ test "write then read round-trips through the port" {
     defer fake.deinit();
     const store = fake.port();
 
-    try store.write(undefined, "Foo Node.md", "body text");
+    _ = try store.write(undefined, "Foo Node.md", "body text");
     const body = (try store.read(testing.allocator, undefined, "Foo Node.md")).?;
     defer testing.allocator.free(body);
 
@@ -128,8 +123,8 @@ test "rewriting a node replaces it rather than accumulating" {
     defer fake.deinit();
     const store = fake.port();
 
-    try store.write(undefined, "n.md", "first");
-    try store.write(undefined, "n.md", "second");
+    _ = try store.write(undefined, "n.md", "first");
+    _ = try store.write(undefined, "n.md", "second");
 
     const body = (try store.read(testing.allocator, undefined, "n.md")).?;
     defer testing.allocator.free(body);
@@ -148,8 +143,8 @@ test "search finds by content" {
     defer fake.deinit();
     const store = fake.port();
 
-    try store.write(undefined, "a.md", "mentions tree-sitter");
-    try store.write(undefined, "b.md", "mentions nothing");
+    _ = try store.write(undefined, "a.md", "mentions tree-sitter");
+    _ = try store.write(undefined, "b.md", "mentions nothing");
 
     const hits = try store.search(testing.allocator, undefined, "tree-sitter");
     defer testing.allocator.free(hits);

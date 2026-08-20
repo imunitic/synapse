@@ -84,23 +84,23 @@ pub fn run(gpa: Allocator, io: Io, args: *std.process.Args.Iterator) !u8 {
     var store: adapters.bard_graph_store.BardGraphStore = try .init(gpa, roots.graph_root);
     defer store.deinit();
 
-    var plan = try adapters.bard_sync_plan.computePlan(gpa, io, roots.repo_root, &store);
+    var plan = try adapters.bard_sync_plan.computePlan(gpa, io, roots.repo_root, store.store());
     defer plan.deinit(gpa);
 
-    if (check) return runCheck(gpa, io, &store, &plan);
+    if (check) return runCheck(gpa, io, store.store(), &plan);
     return runWrite(gpa, io, &store, &plan);
 }
 
 /// Real sync: writes every planned cluster, then deletes whatever
-/// `_bard/graph/` node the plan didn't produce at all.
+/// `_bard/graph/` node the plan didn't produce at all. Takes the concrete
+/// store, not `ports.Store` -- `reconcile` below needs `.delete`, which
+/// isn't on the shared interface.
 fn runWrite(gpa: Allocator, io: Io, store: *adapters.bard_graph_store.BardGraphStore, plan: *const adapters.bard_sync_plan.Plan) !u8 {
-    const port = store.store();
-
     var buf: [4096]u8 = undefined;
     var w = Io.File.stdout().writer(io, &buf);
     for (plan.report_lines.items) |l| try w.interface.print("{s}", .{l});
 
-    for (plan.clusters.items) |pc| try port.write(io, pc.node, pc.body);
+    for (plan.clusters.items) |pc| _ = try store.write(io, pc.node, pc.body);
 
     const written = try gpa.alloc([]const u8, plan.clusters.items.len);
     defer gpa.free(written); // the names themselves are borrowed from `plan`, not owned here
@@ -123,18 +123,16 @@ fn runWrite(gpa: Allocator, io: Io, store: *adapters.bard_graph_store.BardGraphS
 /// yet at all. Separately, any `_bard/graph/` node the plan doesn't produce
 /// at all is what a real sync's `reconcile` would delete -- reported, not
 /// deleted.
-fn runCheck(gpa: Allocator, io: Io, store: *adapters.bard_graph_store.BardGraphStore, plan: *const adapters.bard_sync_plan.Plan) !u8 {
-    const port = store.store();
-
+fn runCheck(gpa: Allocator, io: Io, store: ports.Store, plan: *const adapters.bard_sync_plan.Plan) !u8 {
     var dirty: std.ArrayListUnmanaged([]const u8) = .empty; // node names, borrowed from `plan`
     defer dirty.deinit(gpa);
     for (plan.clusters.items) |pc| {
-        const existing = try port.read(gpa, io, pc.node);
+        const existing = try store.read(gpa, io, pc.node);
         defer if (existing) |e| gpa.free(e);
         if (adapters.bard_cluster.isDirty(existing, pc.body)) try dirty.append(gpa, pc.node);
     }
 
-    const existing_nodes = try port.list(gpa, io);
+    const existing_nodes = try store.list(gpa, io);
     defer common.freeNames(gpa, existing_nodes);
     const planned_nodes = try gpa.alloc([]const u8, plan.clusters.items.len);
     defer gpa.free(planned_nodes);

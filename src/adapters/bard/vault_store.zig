@@ -60,17 +60,14 @@ pub const BardVaultStore = struct {
         self.gpa.free(self.root);
     }
 
+    /// The wrapper idiom (sb-024): `Store.from` generates the `*anyopaque`
+    /// cast from `BardVaultStore` alone, so it can never disagree with
+    /// `.ptr` the way a hand-written vtable literal could.
     pub fn store(self: *BardVaultStore) Store {
-        return .{ .ptr = self, .vtable = &.{
-            .read = read,
-            .write = write,
-            .list = list,
-            .search = search,
-        } };
+        return Store.from(BardVaultStore, self);
     }
 
-    fn read(ptr: *anyopaque, gpa: Allocator, io: Io, node: []const u8) anyerror!?[]u8 {
-        const self: *BardVaultStore = @ptrCast(@alignCast(ptr));
+    pub fn read(self: *BardVaultStore, gpa: Allocator, io: Io, node: []const u8) anyerror!?[]u8 {
         const path = try std.fs.path.join(gpa, &.{ self.root, node });
         defer gpa.free(path);
         return Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |e| {
@@ -79,8 +76,7 @@ pub const BardVaultStore = struct {
         };
     }
 
-    fn write(ptr: *anyopaque, io: Io, node: []const u8, body: []const u8) anyerror!void {
-        const self: *BardVaultStore = @ptrCast(@alignCast(ptr));
+    pub fn write(self: *BardVaultStore, io: Io, node: []const u8, body: []const u8) anyerror!Store.WriteResult {
         const path = try std.fs.path.join(self.gpa, &.{ self.root, node });
         defer self.gpa.free(path);
         // Unlike the graph store's flat namespace, `node` here routinely
@@ -88,14 +84,14 @@ pub const BardVaultStore = struct {
         // exist yet -- create the whole parent chain, idempotently.
         if (std.fs.path.dirname(path)) |parent| try Io.Dir.cwd().createDirPath(io, parent);
         try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = body });
+        return .{ .accepted = true };
     }
 
     /// Every `.md` file under `root`, recursive -- notes live in
     /// subdirectories, unlike the graph store's flat layout. `Index.md` at
     /// the vault root is excluded (bootstrap, not a note). A `root` that
     /// doesn't exist yet lists as empty, not an error.
-    fn list(ptr: *anyopaque, gpa: Allocator, io: Io) anyerror![]const []const u8 {
-        const self: *BardVaultStore = @ptrCast(@alignCast(ptr));
+    pub fn list(self: *BardVaultStore, gpa: Allocator, io: Io) anyerror![]const []const u8 {
         var out: std.ArrayListUnmanaged([]const u8) = .empty;
         errdefer {
             for (out.items) |n| gpa.free(n);
@@ -122,9 +118,8 @@ pub const BardVaultStore = struct {
     /// see the module docs), ranked by each matching note's backlink
     /// count rather than a similarity or occurrence score, most-linked
     /// first. Deterministic tiebreak: node path, ascending.
-    fn search(ptr: *anyopaque, gpa: Allocator, io: Io, query: []const u8) anyerror![]const Store.Hit {
-        const self: *BardVaultStore = @ptrCast(@alignCast(ptr));
-        const names = try list(ptr, gpa, io);
+    pub fn search(self: *BardVaultStore, gpa: Allocator, io: Io, query: []const u8) anyerror![]const Store.Hit {
+        const names = try self.list(gpa, io);
         defer {
             for (names) |n| gpa.free(n);
             gpa.free(names);
@@ -147,7 +142,7 @@ pub const BardVaultStore = struct {
         }
 
         for (names) |name| {
-            const body = (try read(ptr, gpa, io, name)) orelse continue;
+            const body = (try self.read(gpa, io, name)) orelse continue;
             defer gpa.free(body);
             if (std.mem.indexOf(u8, body, query) == null) continue;
             const count = if (links.get(name)) |l| l.items.len else 0;
@@ -321,7 +316,7 @@ test "write then read round-trips a note nested under a subdirectory" {
     defer s.deinit();
     const port = s.store();
 
-    try port.write(testing.io, "designs/synapse-bard/Bible-graph.md", "# Bible-graph\n");
+    _ = try port.write(testing.io, "designs/synapse-bard/Bible-graph.md", "# Bible-graph\n");
     const body = (try port.read(gpa, testing.io, "designs/synapse-bard/Bible-graph.md")).?;
     defer gpa.free(body);
     try testing.expectEqualStrings("# Bible-graph\n", body);
@@ -350,9 +345,9 @@ test "list walks subdirectories and excludes the vault's own Index.md" {
     defer s.deinit();
     const port = s.store();
 
-    try port.write(testing.io, "Index.md", "# Index\n");
-    try port.write(testing.io, "designs/a.md", "a\n");
-    try port.write(testing.io, "tasks/synapse-bard/synapse-bard-001.md", "task\n");
+    _ = try port.write(testing.io, "Index.md", "# Index\n");
+    _ = try port.write(testing.io, "designs/a.md", "a\n");
+    _ = try port.write(testing.io, "tasks/synapse-bard/synapse-bard-001.md", "task\n");
 
     const names = try port.list(gpa, testing.io);
     defer {
@@ -383,10 +378,10 @@ test "search ranks matching notes by backlink count, most-linked first" {
 
     // Two notes link to `popular`, none link to `lonely` -- both mention
     // "flame hilt" so both match the query; ranking must still separate them.
-    try port.write(testing.io, "popular.md", "# Popular\nmentions the flame hilt\n");
-    try port.write(testing.io, "lonely.md", "# Lonely\nalso mentions the flame hilt\n");
-    try port.write(testing.io, "a.md", "links to [[popular]]\n");
-    try port.write(testing.io, "b.md", "links to [[popular|Popular Note]] and again [[popular]]\n");
+    _ = try port.write(testing.io, "popular.md", "# Popular\nmentions the flame hilt\n");
+    _ = try port.write(testing.io, "lonely.md", "# Lonely\nalso mentions the flame hilt\n");
+    _ = try port.write(testing.io, "a.md", "links to [[popular]]\n");
+    _ = try port.write(testing.io, "b.md", "links to [[popular|Popular Note]] and again [[popular]]\n");
 
     const hits = try port.search(gpa, testing.io, "flame hilt");
     defer freeHits(gpa, hits);
@@ -413,10 +408,10 @@ test "linkingNotes lists every note that links to the target, resolved by stem" 
     defer s.deinit();
     const port = s.store();
 
-    try port.write(testing.io, "designs/target.md", "# Target\n");
-    try port.write(testing.io, "a.md", "links to [[target]]\n");
-    try port.write(testing.io, "b.md", "links to [[target|Target Note]]\n");
-    try port.write(testing.io, "c.md", "no link here\n");
+    _ = try port.write(testing.io, "designs/target.md", "# Target\n");
+    _ = try port.write(testing.io, "a.md", "links to [[target]]\n");
+    _ = try port.write(testing.io, "b.md", "links to [[target|Target Note]]\n");
+    _ = try port.write(testing.io, "c.md", "no link here\n");
 
     // Both a full path and a bare stem resolve to the same note.
     const by_stem = (try s.linkingNotes(gpa, testing.io, "target")).?;
@@ -439,7 +434,7 @@ test "linkingNotes returns an empty (non-null) slice for a real note with no bac
 
     var s = try BardVaultStore.init(gpa, root);
     defer s.deinit();
-    try s.store().write(testing.io, "lonely.md", "# Lonely, nobody links here\n");
+    _ = try s.store().write(testing.io, "lonely.md", "# Lonely, nobody links here\n");
 
     const notes = (try s.linkingNotes(gpa, testing.io, "lonely")).?;
     defer freeLinkingNotes(gpa, notes);
@@ -467,7 +462,7 @@ test "linkingNotes excludes a note linking to itself, same rule search() uses" {
 
     var s = try BardVaultStore.init(gpa, root);
     defer s.deinit();
-    try s.store().write(testing.io, "self.md", "links to [[self]]\n");
+    _ = try s.store().write(testing.io, "self.md", "links to [[self]]\n");
 
     const notes = (try s.linkingNotes(gpa, testing.io, "self")).?;
     defer freeLinkingNotes(gpa, notes);
@@ -485,7 +480,7 @@ test "a note does not count as its own backlink" {
     defer s.deinit();
     const port = s.store();
 
-    try port.write(testing.io, "self.md", "mentions the flame hilt and links to [[self]]\n");
+    _ = try port.write(testing.io, "self.md", "mentions the flame hilt and links to [[self]]\n");
 
     const hits = try port.search(gpa, testing.io, "flame hilt");
     defer freeHits(gpa, hits);

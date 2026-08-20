@@ -93,7 +93,7 @@ pub fn run(gpa: Allocator, io: Io, args: *std.process.Args.Iterator) !u8 {
     var store: adapters.bard_graph_store.BardGraphStore = try .init(gpa, roots.graph_root);
     defer store.deinit();
 
-    const entries = try adapters.bard_cluster.allEntities(gpa, io, &store);
+    const entries = try adapters.bard_cluster.allEntities(gpa, io, store.store());
     defer adapters.bard_cluster.freeSourceEntries(gpa, entries);
 
     var buf: [4096]u8 = undefined;

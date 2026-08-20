@@ -122,13 +122,13 @@ pub fn run(
 
     var store = (try openStore(gpa, io, env, &ctx)) orelse return 1;
     defer store.deinit();
-    const put = store.put(io, "Index.md", index.written()) catch {
+    const result = store.write(io, "Index.md", index.written()) catch {
         std.debug.print("{s}: PUT failed (000): curl did not complete\n", .{prog});
         return 1;
     };
-    defer gpa.free(put.body);
-    if (!put.accepted()) {
-        std.debug.print("{s}: PUT failed ({d:0>3}): {s}\n", .{ prog, put.status, put.body });
+    defer gpa.free(result.body);
+    if (!result.accepted) {
+        std.debug.print("{s}: PUT failed ({d:0>3}): {s}\n", .{ prog, result.status, result.body });
         return 1;
     }
 

@@ -88,8 +88,12 @@ pub const BardFrontmatterExtractor = struct {
     /// a real ceiling anyone should hit.
     const max_frames = 8;
 
+    /// The wrapper idiom (sb-024): `ports.Extractor.from` generates the
+    /// `*anyopaque` cast from `BardFrontmatterExtractor` alone, so it can
+    /// never disagree with `.ptr` the way a hand-written vtable literal
+    /// could.
     pub fn port(self: *BardFrontmatterExtractor) ports.Extractor {
-        return .{ .ptr = self, .vtable = &.{ .extract = extract } };
+        return ports.Extractor.from(BardFrontmatterExtractor, self);
     }
 
     pub fn deinit(self: *BardFrontmatterExtractor, gpa: Allocator) void {
@@ -97,15 +101,13 @@ pub const BardFrontmatterExtractor = struct {
         self.last_refusals = &.{};
     }
 
-    fn extract(
-        ptr: *anyopaque,
+    pub fn extract(
+        self: *BardFrontmatterExtractor,
         gpa: Allocator,
         io: Io,
         root: []const u8,
         paths: []const []const u8,
     ) anyerror![]ports.Extractor.Outcome {
-        const self: *BardFrontmatterExtractor = @ptrCast(@alignCast(ptr));
-
         const out = try gpa.alloc(ports.Extractor.Outcome, paths.len);
         errdefer gpa.free(out);
 

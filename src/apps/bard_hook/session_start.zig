@@ -114,7 +114,7 @@ fn driftNoteImpl(gpa: Allocator, io: Io, repo_root: []const u8) !?[]u8 {
 
     // Same plan `synapse-bard sync --check` computes -- one implementation,
     // never a second one re-derived here.
-    var plan = try adapters.bard_sync_plan.computePlan(gpa, io, repo_root, &store);
+    var plan = try adapters.bard_sync_plan.computePlan(gpa, io, repo_root, port);
     defer plan.deinit(gpa);
 
     var dirty: usize = 0;
@@ -220,9 +220,9 @@ test "driftNote is null right after a real sync, since the graph now matches sou
     defer gpa.free(graph_root);
     var store: adapters.bard_graph_store.BardGraphStore = try .init(gpa, graph_root);
     defer store.deinit();
-    var plan = try adapters.bard_sync_plan.computePlan(gpa, testing.io, root, &store);
+    var plan = try adapters.bard_sync_plan.computePlan(gpa, testing.io, root, store.store());
     defer plan.deinit(gpa);
-    for (plan.clusters.items) |pc| try store.store().write(testing.io, pc.node, pc.body);
+    for (plan.clusters.items) |pc| _ = try store.write(testing.io, pc.node, pc.body);
 
     try testing.expectEqual(@as(?[]u8, null), driftNote(gpa, testing.io, root));
 }

@@ -22,6 +22,7 @@ const cluster = @import("cluster.zig");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const BardGraphStore = graph_store.BardGraphStore;
+const Store = ports.Store;
 
 /// One cluster: the boundary folder (repo-root-relative) and every `.md`
 /// path at or below it, `.md` extension included, also repo-root-relative.
@@ -39,7 +40,7 @@ pub const Cluster = struct {
 /// One cluster `sync` would write, computed but not yet on disk -- `node`
 /// is the filename (`"Characters - Main.md"`), `body` is the full rendered
 /// content *with the existing file's own preserved tail already spliced
-/// in* (via `port.read` + `cluster.preservedTail`, same as a real write
+/// in* (via `store.read` + `cluster.preservedTail`, same as a real write
 /// does), so a caller never has to know about tails separately: `body` is
 /// directly what a write would produce, and `cluster.generatedRegion(body)`
 /// is directly what drift detection compares against what's on disk.
@@ -76,9 +77,7 @@ pub const Plan = struct {
 /// with at least one accepted member -- everything short of actually
 /// writing a byte to `_bard/graph/`. `store` is read from (to find each
 /// cluster's existing preserved tail) but never written to here.
-pub fn computePlan(gpa: Allocator, io: Io, repo_root: []const u8, store: *BardGraphStore) !Plan {
-    const port = store.store();
-
+pub fn computePlan(gpa: Allocator, io: Io, repo_root: []const u8, store: Store) !Plan {
     var clusters = try findClusters(gpa, io, repo_root);
     defer {
         for (clusters.items) |*c| c.deinit(gpa);
@@ -169,7 +168,7 @@ pub fn computePlan(gpa: Allocator, io: Io, repo_root: []const u8, store: *BardGr
         const node = try std.fmt.allocPrint(gpa, "{s}.md", .{title});
         errdefer gpa.free(node);
 
-        const existing = try port.read(gpa, io, node);
+        const existing = try store.read(gpa, io, node);
         defer if (existing) |e| gpa.free(e);
         const tail = if (existing) |e| cluster.preservedTail(e) else "";
 
@@ -375,7 +374,7 @@ test "computePlan clusters a scratch tree and produces one PlannedCluster with t
     var store: BardGraphStore = try .init(gpa, graph_root);
     defer store.deinit();
 
-    var plan = try computePlan(gpa, testing.io, root, &store);
+    var plan = try computePlan(gpa, testing.io, root, store.store());
     defer plan.deinit(gpa);
 
     try testing.expectEqual(@as(usize, 1), plan.ingested);
@@ -406,9 +405,9 @@ test "computePlan's rendered body already carries the existing file's preserved 
 
     // Write a cluster node with a hand-added tail before planning, the same
     // shape a real prior `sync` plus a human edit would leave behind.
-    try store.store().write(testing.io, "Characters.md", "---\ntitle: \"Characters\"\nsources:\n  - slug: \"a\"\n    path: \"characters/a.md\"\n---\n\n<!-- synapse:generated:start -->\n## Entities\n- [[a]] \xe2\x80\x94 Alice\n<!-- synapse:generated:end -->\n\n## Notes\nKeep me.\n");
+    _ = try store.store().write(testing.io, "Characters.md", "---\ntitle: \"Characters\"\nsources:\n  - slug: \"a\"\n    path: \"characters/a.md\"\n---\n\n<!-- synapse:generated:start -->\n## Entities\n- [[a]] \xe2\x80\x94 Alice\n<!-- synapse:generated:end -->\n\n## Notes\nKeep me.\n");
 
-    var plan = try computePlan(gpa, testing.io, root, &store);
+    var plan = try computePlan(gpa, testing.io, root, store.store());
     defer plan.deinit(gpa);
 
     try testing.expectEqual(@as(usize, 1), plan.clusters.items.len);
@@ -426,8 +425,8 @@ test "reconcile deletes a graph-store node the plan didn't produce" {
 
     var store: BardGraphStore = try .init(gpa, graph_root);
     defer store.deinit();
-    try store.store().write(testing.io, "Stale.md", "stale");
-    try store.store().write(testing.io, "Keep.md", "keep");
+    _ = try store.store().write(testing.io, "Stale.md", "stale");
+    _ = try store.store().write(testing.io, "Keep.md", "keep");
 
     const removed = try reconcile(gpa, testing.io, &store, &.{"Keep.md"});
     try testing.expectEqual(@as(usize, 1), removed);

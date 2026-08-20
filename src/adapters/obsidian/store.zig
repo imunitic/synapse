@@ -1,19 +1,17 @@
-//! The Obsidian Local REST API as a `ports.Store`.
-//!
-//! `read`/`write` are `GET`/`PUT` on `/vault/{path}`; `list` reads the
-//! namespace directory from disk (cheaper than the API); `search` is the
-//! JsonLogic endpoint, unused today but named for a future caller.
+//! The Obsidian Local REST API's write side: `write` is a `PUT` on
+//! `/vault/{path}`, called by `write-node`/`build-project-index` through
+//! `ports.Store` (sb-024's wrapper idiom -- `.store()` is `Store.from`,
+//! same as every other real implementation). Vault *reads*, by contrast,
+//! happen through the `obsidian` MCP server directly -- the agent reading
+//! vault content has no reason to go through the compiled binary at all,
+//! so this file never grew a read path to begin with; only the write side
+//! needs real logic (hashing, `## Sources`, the `## Crux` mirror) that
+//! belongs in Zig.
 //!
 //! **`curl`, not `std.http`**: the plugin's certificate carries an IP SAN
 //! and no DNS name, which `std.crypto.tls` has no path for (verified
 //! 2026-08-11). One spawn per call is affordable here specifically because
 //! this runs per *node* (tens per namespace), not per *file* like `vocab`/`rank`.
-//!
-//! **Absence is ordinary, and needs the HTTP status, not the body**: a
-//! missing path 404s with a body that's itself valid JSON
-//! (`{"message":"Not Found",...}`), which silently misread as a real node
-//! in two repos in the wild. `curl -f` (exit 22 on HTTP error) is used for
-//! reads for exactly this reason.
 
 const std = @import("std");
 const ports = @import("ports");
@@ -22,10 +20,6 @@ const process = @import("../process.zig");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const Store = ports.Store;
-
-/// `curl -f`'s exit code for "the server answered, and said no" -- distinct
-/// from every other non-zero exit, which means the call didn't happen.
-const curl_http_error = 22;
 
 pub const ObsidianStore = struct {
     gpa: Allocator,
@@ -73,15 +67,6 @@ pub const ObsidianStore = struct {
         self.gpa.free(self.namespace);
     }
 
-    pub fn store(self: *ObsidianStore) Store {
-        return .{ .ptr = self, .vtable = &.{
-            .read = read,
-            .write = write,
-            .list = list,
-            .search = search,
-        } };
-    }
-
     /// `Authorization: Bearer …`, built per call.
     fn authHeader(self: *ObsidianStore, gpa: Allocator) ![]u8 {
         return std.fmt.allocPrint(gpa, "Authorization: Bearer {s}", .{self.api_key});
@@ -95,55 +80,19 @@ pub const ObsidianStore = struct {
         return std.fmt.allocPrint(gpa, "{s}/vault/{s}", .{ self.base, encoded });
     }
 
-    fn read(ptr: *anyopaque, gpa: Allocator, io: Io, node: []const u8) anyerror!?[]u8 {
-        const self: *ObsidianStore = @ptrCast(@alignCast(ptr));
-        const url = try self.nodeUrl(gpa, node);
-        defer gpa.free(url);
-        const auth = try self.authHeader(gpa);
-        defer gpa.free(auth);
-
-        const res = try process.run(io, gpa, &.{
-            "curl", "-s",  "-f",
-            "--cacert", self.cert_path,
-            "-H",       auth,
-            "-H",       "Accept: text/markdown",
-            url,
-        }, .{});
-        defer gpa.free(res.stderr);
-        errdefer gpa.free(res.stdout);
-
-        if (res.ok()) return res.stdout;
-        gpa.free(res.stdout);
-        // 22: server said no, an absent node. Anything else (refused
-        // connection, bad cert, no curl) must not read as "missing" -- a
-        // caller acting on that would treat an unreachable vault as empty.
-        if (res.exitCode() == curl_http_error) return null;
-        return error.VaultUnreachable;
+    /// The wrapper idiom (sb-024): `Store.from` generates the `*anyopaque`
+    /// cast from `ObsidianStore` alone, so it can never disagree with
+    /// `.ptr` the way a hand-written vtable literal could.
+    pub fn store(self: *ObsidianStore) Store {
+        return Store.from(ObsidianStore, self);
     }
 
-    fn write(ptr: *anyopaque, io: Io, node: []const u8, body: []const u8) anyerror!void {
-        const self: *ObsidianStore = @ptrCast(@alignCast(ptr));
-        const res = try self.put(io, node, body);
-        defer self.gpa.free(res.body);
-        if (!res.accepted()) return error.VaultWriteRejected;
-    }
-
-    /// What the server said about a PUT.
-    pub const PutResult = struct {
-        /// The HTTP status, or 0 when `curl` didn't complete.
-        status: u16,
-        /// The response body, owned by the caller.
-        body: []u8,
-
-        pub fn accepted(self: PutResult) bool {
-            return self.status >= 200 and self.status < 300;
-        }
-    };
-
-    /// A PUT, reporting the status rather than collapsing it to an error --
-    /// the port can't carry an HTTP status, but `write-node`'s failure line
-    /// (`PUT failed (500): <body>`) needs one, so it calls this directly.
-    pub fn put(self: *ObsidianStore, io: Io, node: []const u8, body: []const u8) !PutResult {
+    /// A PUT, reporting the status in `WriteResult` rather than collapsing
+    /// it to a plain error -- `write-node`'s failure line
+    /// (`PUT failed (500): <body>`) needs the real number, and `Store`'s
+    /// shared `write` signature carries it precisely so every implementation
+    /// can report a rejection this way, not just this one.
+    pub fn write(self: *ObsidianStore, io: Io, node: []const u8, body: []const u8) anyerror!Store.WriteResult {
         const gpa = self.gpa;
         const url = try self.nodeUrl(gpa, node);
         defer gpa.free(url);
@@ -165,42 +114,18 @@ pub const ObsidianStore = struct {
         }, .{ .stdin = body });
         defer gpa.free(res.stderr);
         defer gpa.free(res.stdout);
-        if (!res.ok()) return .{ .status = 0, .body = try gpa.dupe(u8, "") };
+        if (!res.ok()) return .{ .accepted = false, .status = 0, .body = try gpa.dupe(u8, "") };
 
         const trimmed = std.mem.trimEnd(u8, res.stdout, " \t\r\n");
         const nl = std.mem.lastIndexOfScalar(u8, trimmed, '\n');
         const status_text = if (nl) |at| trimmed[at + 1 ..] else trimmed;
         const payload = if (nl) |at| trimmed[0..at] else "";
+        const status = std.fmt.parseInt(u16, status_text, 10) catch 0;
         return .{
-            .status = std.fmt.parseInt(u16, status_text, 10) catch 0,
+            .accepted = status >= 200 and status < 300,
+            .status = status,
             .body = try gpa.dupe(u8, payload),
         };
-    }
-
-    /// Every node in the namespace, from the directory rather than the API.
-    /// A node is any `*.md` directly under the namespace except `Index.md`;
-    /// `_manifest.tsv`/`_profile.txt` are machine-only, matching
-    /// `synapse-graph-wipe.sh`'s own distinction.
-    fn list(ptr: *anyopaque, gpa: Allocator, io: Io) anyerror![]const []const u8 {
-        const self: *ObsidianStore = @ptrCast(@alignCast(ptr));
-        // Vault root isn't this adapter's to know -- deliberately not
-        // guessed, since a listing against the wrong directory would be
-        // silently empty.
-        _ = gpa;
-        _ = io;
-        _ = self;
-        return error.ListNeedsVaultDir;
-    }
-
-    /// The JsonLogic search endpoint. Unimplemented: the prompt hook that
-    /// used to search stopped, since on a real 52-node namespace it
-    /// returned 50 of 52 for ~1057 tokens every turn.
-    fn search(ptr: *anyopaque, gpa: Allocator, io: Io, query: []const u8) anyerror![]const Store.Hit {
-        _ = ptr;
-        _ = gpa;
-        _ = io;
-        _ = query;
-        return error.SearchNotImplemented;
     }
 };
 

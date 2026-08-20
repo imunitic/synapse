@@ -44,4 +44,25 @@ pub const Extractor = struct {
     ) anyerror![]Outcome {
         return self.vtable.extract(self.ptr, gpa, io, root, paths);
     }
+
+    /// Builds an `Extractor` from any concrete `T` exposing `extract` with
+    /// this same shape, self-first -- the wrapper idiom (sb-024), same
+    /// reasoning as `Store.from`: the compiler generates the one
+    /// `*anyopaque` -> `*T` cast, from `T` alone, so it can never disagree
+    /// with `.ptr` the way a hand-written `.port()` literal could.
+    pub fn from(comptime T: type, self: *T) Extractor {
+        const Impl = struct {
+            fn extract(
+                ptr: *anyopaque,
+                gpa: std.mem.Allocator,
+                io: std.Io,
+                root: []const u8,
+                paths: []const []const u8,
+            ) anyerror![]Outcome {
+                const s: *T = @ptrCast(@alignCast(ptr));
+                return s.extract(gpa, io, root, paths);
+            }
+        };
+        return .{ .ptr = self, .vtable = &.{ .extract = Impl.extract } };
+    }
 };

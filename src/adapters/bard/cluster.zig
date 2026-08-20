@@ -15,12 +15,14 @@
 //! `synapse-bard`'s other adapters already use.
 
 const std = @import("std");
+const ports = @import("ports");
 const frontmatter = @import("frontmatter.zig");
 const graph_store = @import("graph_store.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const BardGraphStore = graph_store.BardGraphStore;
+const Store = ports.Store;
 
 /// One member of a cluster's `sources:` list, read back from a cluster
 /// node. `slug`/`path` are both owned, allocator-independent copies.
@@ -223,16 +225,15 @@ fn quotedValueAfter(line: []const u8, key: []const u8) ?[]const u8 {
 /// relative terms but the absolute gap is noise against a CLI invocation's
 /// own process-launch cost at this scale. `null` when no cluster claims
 /// this slug.
-pub fn resolveSlug(gpa: Allocator, io: Io, store: *BardGraphStore, slug: []const u8) !?SourceEntry {
-    const port = store.store();
-    const names = try port.list(gpa, io);
+pub fn resolveSlug(gpa: Allocator, io: Io, store: Store, slug: []const u8) !?SourceEntry {
+    const names = try store.list(gpa, io);
     defer {
         for (names) |n| gpa.free(n);
         gpa.free(names);
     }
 
     for (names) |name| {
-        const body = (try port.read(gpa, io, name)) orelse continue;
+        const body = (try store.read(gpa, io, name)) orelse continue;
         defer gpa.free(body);
         const entries = try parseSources(gpa, body);
         defer freeSourceEntries(gpa, entries);
@@ -249,9 +250,8 @@ pub fn resolveSlug(gpa: Allocator, io: Io, store: *BardGraphStore, slug: []const
 /// the whole graph rather than one slug (`query --inbound`, `search`, both
 /// of which touch every entity regardless of which one triggered the
 /// call).
-pub fn allEntities(gpa: Allocator, io: Io, store: *BardGraphStore) ![]SourceEntry {
-    const port = store.store();
-    const names = try port.list(gpa, io);
+pub fn allEntities(gpa: Allocator, io: Io, store: Store) ![]SourceEntry {
+    const names = try store.list(gpa, io);
     defer {
         for (names) |n| gpa.free(n);
         gpa.free(names);
@@ -267,7 +267,7 @@ pub fn allEntities(gpa: Allocator, io: Io, store: *BardGraphStore) ![]SourceEntr
     }
 
     for (names) |name| {
-        const body = (try port.read(gpa, io, name)) orelse continue;
+        const body = (try store.read(gpa, io, name)) orelse continue;
         defer gpa.free(body);
         const entries = try parseSources(gpa, body);
         defer gpa.free(entries); // ownership of slug/path moves into `out` below
@@ -418,21 +418,21 @@ test "resolveSlug scans every cluster node and stops at the first match" {
     const entries_a = [_]WriteEntry{.{ .slug = "a", .path = "places/a.md", .name = "A" }};
     const body_a = try renderClusterBody(gpa, "Places", &entries_a, "");
     defer gpa.free(body_a);
-    try port.write(testing.io, "Places.md", body_a);
+    _ = try port.write(testing.io, "Places.md", body_a);
 
     const entries_b = [_]WriteEntry{.{ .slug = "b", .path = "items/b.md", .name = "B" }};
     const body_b = try renderClusterBody(gpa, "Items", &entries_b, "");
     defer gpa.free(body_b);
-    try port.write(testing.io, "Items.md", body_b);
+    _ = try port.write(testing.io, "Items.md", body_b);
 
-    const found = (try resolveSlug(gpa, testing.io, &s, "b")).?;
+    const found = (try resolveSlug(gpa, testing.io, s.store(), "b")).?;
     defer {
         gpa.free(found.slug);
         gpa.free(found.path);
     }
     try testing.expectEqualStrings("items/b.md", found.path);
 
-    try testing.expectEqual(@as(?SourceEntry, null), try resolveSlug(gpa, testing.io, &s, "nonexistent"));
+    try testing.expectEqual(@as(?SourceEntry, null), try resolveSlug(gpa, testing.io, s.store(), "nonexistent"));
 }
 
 test "allEntities aggregates every cluster's sources into one list" {
@@ -452,14 +452,14 @@ test "allEntities aggregates every cluster's sources into one list" {
     };
     const body_a = try renderClusterBody(gpa, "Places", &entries_a, "");
     defer gpa.free(body_a);
-    try port.write(testing.io, "Places.md", body_a);
+    _ = try port.write(testing.io, "Places.md", body_a);
 
     const entries_b = [_]WriteEntry{.{ .slug = "b1", .path = "items/b1.md", .name = "B1" }};
     const body_b = try renderClusterBody(gpa, "Items", &entries_b, "");
     defer gpa.free(body_b);
-    try port.write(testing.io, "Items.md", body_b);
+    _ = try port.write(testing.io, "Items.md", body_b);
 
-    const all = try allEntities(gpa, testing.io, &s);
+    const all = try allEntities(gpa, testing.io, s.store());
     defer freeSourceEntries(gpa, all);
     try testing.expectEqual(@as(usize, 3), all.len);
 }

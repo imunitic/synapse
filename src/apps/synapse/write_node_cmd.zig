@@ -353,13 +353,13 @@ pub fn write(
     // --- PUT into the vault --------------------------------------------------
     var store = (try openStore(gpa, io, env, ctx)) orelse return 1;
     defer store.deinit();
-    const put = store.put(io, node_file, note.written()) catch {
+    const put_result = store.write(io, node_file, note.written()) catch {
         std.debug.print("{s}: PUT failed (000): curl did not complete\n", .{prog});
         return 1;
     };
-    defer gpa.free(put.body);
-    if (!put.accepted()) {
-        std.debug.print("{s}: PUT failed ({d:0>3}): {s}\n", .{ prog, put.status, put.body });
+    defer gpa.free(put_result.body);
+    if (!put_result.accepted) {
+        std.debug.print("{s}: PUT failed ({d:0>3}): {s}\n", .{ prog, put_result.status, put_result.body });
         return 1;
     }
 

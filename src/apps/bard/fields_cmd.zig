@@ -71,7 +71,7 @@ pub fn run(gpa: Allocator, io: Io, args: *std.process.Args.Iterator) !u8 {
         var store: adapters.bard_graph_store.BardGraphStore = try .init(gpa, roots.graph_root);
         defer store.deinit();
 
-        const resolved = (try adapters.bard_cluster.resolveSlug(gpa, io, &store, first)) orelse {
+        const resolved = (try adapters.bard_cluster.resolveSlug(gpa, io, store.store(), first)) orelse {
             std.debug.print("{s}: not found\n", .{first});
             return 1;
         };

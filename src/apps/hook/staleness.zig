@@ -112,7 +112,7 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
         const changed = try core.emit.setStaleTrue(&next.writer, node_text);
         if (!changed) continue; // already stale, or no frontmatter -- don't churn mtime
 
-        _ = store.put(io, node_file, next.written()) catch continue;
+        _ = store.write(io, node_file, next.written()) catch continue;
     }
 
     const sid = payload.str("session_id") orelse "default"; // same field stop-nudge reads

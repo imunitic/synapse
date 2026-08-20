@@ -59,7 +59,7 @@ fn runOutbound(gpa: Allocator, io: Io, roots: common.Roots, node_arg: []const u8
     var store: adapters.bard_graph_store.BardGraphStore = try .init(gpa, roots.graph_root);
     defer store.deinit();
 
-    const resolved = (try adapters.bard_cluster.resolveSlug(gpa, io, &store, node_arg)) orelse {
+    const resolved = (try adapters.bard_cluster.resolveSlug(gpa, io, store.store(), node_arg)) orelse {
         std.debug.print("{s}: not found\n", .{node_arg});
         return 1;
     };
@@ -100,7 +100,7 @@ fn runInbound(gpa: Allocator, io: Io, roots: common.Roots, node_slug: []const u8
     // Backlinks require looking at every entity's outbound refs, so this
     // resolves the whole graph rather than one slug -- same data
     // `search`'s new implementation needs, for the same reason.
-    const entries = try adapters.bard_cluster.allEntities(gpa, io, &store);
+    const entries = try adapters.bard_cluster.allEntities(gpa, io, store.store());
     defer adapters.bard_cluster.freeSourceEntries(gpa, entries);
 
     var target_found = false;
