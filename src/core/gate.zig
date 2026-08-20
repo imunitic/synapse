@@ -34,6 +34,7 @@
 //! `judge` without `parseable` behaves exactly as before.
 
 const std = @import("std");
+const rarity = @import("rarity.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -140,8 +141,10 @@ pub fn judge(gpa: Allocator, table: []const u8, opts: Options) !std.ArrayListUnm
     if (parsed.clusters.items.len == 0) return out;
 
     // Scales with cluster count, floors at the measured constant: N/20 is 2
-    // for anything up to 40 clusters.
-    const rare_max = @max(@as(usize, 2), parsed.clusters.items.len / 20);
+    // for anything up to 40 clusters. `rarity.divisor` is the same 20
+    // `links.zig` uses for its own, unrelated rarity filter -- shared so the
+    // two can't recalibrate independently without it being visible.
+    const rare_max = @max(@as(usize, 2), parsed.clusters.items.len / rarity.divisor);
 
     for (parsed.clusters.items) |*c| {
         const top = try selectTop(gpa, c.terms.items, opts.top);

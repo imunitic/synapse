@@ -350,9 +350,7 @@ fn rankCode(
         // print-then-sort: sorting unrounded values ordered ties by a
         // difference the output never shows (78 misordered pairs out of
         // 1,278 rows on a real node, all identical when printed).
-        var buf: [32]u8 = undefined;
-        const shown = std.fmt.bufPrint(&buf, "{d:.3}", .{core.rank.density(defs, st.size)}) catch continue;
-        const rounded = std.fmt.parseFloat(f64, shown) catch continue;
+        const rounded = @round(core.rank.density(defs, st.size) * 1000.0) / 1000.0;
         try rows.append(arena, .{ .score = rounded, .path = p });
     }
     std.mem.sort(Row, rows.items, {}, lessByScore);

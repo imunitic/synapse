@@ -30,6 +30,7 @@
 
 const std = @import("std");
 const refs = @import("refs.zig");
+const rarity = @import("rarity.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -107,7 +108,7 @@ pub fn compute(
         for (owners.items) |node| try set.put(gpa, node, {});
     }
 
-    const rare_max = @max(@as(usize, 2), node_count / 20); // same floor/ratio as core/gate.zig
+    const rare_max = @max(@as(usize, 2), node_count / rarity.divisor); // same floor/ratio as core/gate.zig, shared via core.rarity
 
     // from -> to -> the rare symbols supporting that edge. Nested rather
     // than a joined "from\x00to" key: a joined key would need its own

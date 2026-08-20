@@ -21,12 +21,16 @@ const test_dirs = [_][]const u8{
     "test", "tests", "spec", "specs", "__tests__", "testing",
 };
 
-/// Built-in test heuristic, path/filename only, four alternatives:
+/// Built-in test heuristic, path/filename only, five alternatives:
 ///
 ///   1. a path segment named test/tests/spec/specs/__tests__/testing
-///   2. a basename ending `<lower-or-digit>Test`, `Tests` or `Spec`, then `.ext`
-///   3. a basename ending `[._-]test` or `[._-]spec`, then `.ext`
+///   2. a basename ending `<lower-or-digit-or-.>Test`, `Tests` or `Spec`, then `.ext`
+///      (the `.` case is .NET's dot-segment convention, `Foo.Tests.cs`)
+///   3. a basename ending `[._-]test`, `[._-]tests` or `[._-]spec`, then `.ext`
+///      (the plural `tests` case is Erlang EUnit's own convention, `mymodule_tests.erl`)
 ///   4. a basename beginning `test_` or `Test_`
+///   5. a basename ending `_SUITE`, then `.ext` -- Erlang Common Test, case-sensitive
+///      and its own word, not a variant of `test`/`spec`
 pub fn isTest(path: []const u8) bool {
     if (hasTestSegment(path)) return true;
     const name = basename(path);
@@ -36,6 +40,7 @@ pub fn isTest(path: []const u8) bool {
     if (endsWithCapitalisedTest(stem)) return true;
     if (endsWithSeparatedTest(stem)) return true;
     if (startsWithTestUnderscore(name)) return true;
+    if (endsWithSuite(stem)) return true;
     return false;
 }
 
@@ -50,21 +55,23 @@ fn hasTestSegment(path: []const u8) bool {
 }
 
 /// `FooTest`, `FooTests`, `FooSpec` -- only when preceded by a lowercase
-/// letter or digit, which keeps `Latest` out.
+/// letter, digit, or `.`, which keeps `Latest` out. The `.` case is .NET's
+/// dot-segment convention, `Foo.Tests.cs`.
 fn endsWithCapitalisedTest(stem: []const u8) bool {
     for ([_][]const u8{ "Tests", "Test", "Spec" }) |suffix| {
         if (!std.mem.endsWith(u8, stem, suffix)) continue;
         const at = stem.len - suffix.len;
         if (at == 0) continue;
         const prev = stem[at - 1];
-        if ((prev >= 'a' and prev <= 'z') or (prev >= '0' and prev <= '9')) return true;
+        if ((prev >= 'a' and prev <= 'z') or (prev >= '0' and prev <= '9') or prev == '.') return true;
     }
     return false;
 }
 
-/// `foo.test`, `foo_test`, `foo-spec` as the stem, i.e. `foo.test.js`.
+/// `foo.test`, `foo_test`, `foo-spec` as the stem, i.e. `foo.test.js`. The
+/// plural `tests` word is Erlang EUnit's own convention (`mymodule_tests.erl`).
 fn endsWithSeparatedTest(stem: []const u8) bool {
-    for ([_][]const u8{ "test", "spec" }) |word| {
+    for ([_][]const u8{ "test", "tests", "spec" }) |word| {
         if (!std.mem.endsWith(u8, stem, word)) continue;
         const at = stem.len - word.len;
         if (at == 0) continue;
@@ -78,6 +85,14 @@ fn endsWithSeparatedTest(stem: []const u8) bool {
 
 fn startsWithTestUnderscore(name: []const u8) bool {
     return std.mem.startsWith(u8, name, "test_") or std.mem.startsWith(u8, name, "Test_");
+}
+
+/// Erlang Common Test: `mymodule_SUITE.erl`. Case-sensitive and its own
+/// word -- `SUITE` isn't a `test`/`spec` variant, so it gets its own check
+/// rather than folding into `endsWithSeparatedTest`'s lowercase word list.
+fn endsWithSuite(stem: []const u8) bool {
+    const suffix = "_SUITE";
+    return stem.len > suffix.len and std.mem.endsWith(u8, stem, suffix);
 }
 
 fn basename(path: []const u8) []const u8 {
@@ -155,11 +170,13 @@ test "a test directory segment is matched whole, not as a substring" {
     }) |p| try testing.expect(!isTest(p));
 }
 
-test "a capitalised Test suffix needs a lowercase or digit before it" {
+test "a capitalised Test suffix needs a lowercase, digit, or . before it" {
     try testing.expect(isTest("src/FooTest.java"));
     try testing.expect(isTest("src/FooTests.java"));
     try testing.expect(isTest("src/FooSpec.scala"));
     try testing.expect(isTest("src/Foo2Test.java"));
+    // .NET's dot-segment convention: `Foo.Tests.cs`, stem is `Foo.Tests`.
+    try testing.expect(isTest("src/Foo.Tests.cs"));
 
     try testing.expect(!isTest("src/Latest.java"));
     try testing.expect(!isTest("src/Greatest.java"));
@@ -167,15 +184,25 @@ test "a capitalised Test suffix needs a lowercase or digit before it" {
     try testing.expect(!isTest("src/Test.java"));
 }
 
-test "a separated test or spec suffix is matched on any of . _ -" {
+test "a separated test, tests, or spec suffix is matched on any of . _ -" {
     try testing.expect(isTest("src/foo.test.js"));
     try testing.expect(isTest("src/foo_test.go"));
     try testing.expect(isTest("src/foo-spec.ts"));
     try testing.expect(isTest("src/foo.spec.ts"));
+    // Erlang EUnit's plural convention.
+    try testing.expect(isTest("src/mymodule_tests.erl"));
 
     // No separator and no capital -- neither branch applies.
     try testing.expect(!isTest("src/footest.go"));
     try testing.expect(!isTest("src/protest.py"));
+}
+
+test "an Erlang Common Test _SUITE suffix counts" {
+    try testing.expect(isTest("src/mymodule_SUITE.erl"));
+    // Bare `_SUITE.erl` has nothing before the suffix.
+    try testing.expect(!isTest("src/_SUITE.erl"));
+    // Lowercase `_suite` isn't the real convention.
+    try testing.expect(!isTest("src/mymodule_suite.erl"));
 }
 
 test "a test_ prefix counts, in either case" {

@@ -187,8 +187,10 @@ pub fn backfill(
                 .entry = .{ .hash = n.hash, .tags = "", .unsupported = true },
             },
             .tagged => |tagged| {
-                // Text, not structs -- transitional, since synapse-query.sh
-                // symbol still reads these lines by field until it's ported.
+                // Text, not structs -- core.symbol.zig's matches() field-splits
+                // these lines directly (query_cmd's native `symbol` port kept
+                // this dependency rather than resolving it), and Cache.writeRefs
+                // needs this exact rendering for _refs.tsv's look-compat bytes.
                 var buf: std.Io.Writer.Allocating = .init(gpa);
                 errdefer buf.deinit();
                 for (tagged) |t| try treesitter.tagger.renderCliLine(&buf.writer, t.tag, t.span);

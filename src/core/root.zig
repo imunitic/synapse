@@ -19,6 +19,7 @@ pub const vocab = @import("vocab.zig");
 pub const namespace = @import("namespace.zig");
 pub const kind_synonyms = @import("kind_synonyms.zig");
 pub const links = @import("links.zig");
+pub const rarity = @import("rarity.zig");
 pub const rank = @import("rank.zig");
 pub const node = @import("node.zig");
 pub const query = @import("query.zig");
