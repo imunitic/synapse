@@ -268,6 +268,25 @@ test-zig:
     zig build test
     echo "zig tests ok"
 
+# Deliberately not part of `check`/CI: under a plain `zig build test`, a
+# `std.testing.fuzz`-based test runs exactly once with an empty corpus, a
+# smoke check, not real coverage (verified live, sb-024). Real randomized,
+# coverage-guided fuzzing only happens under `--fuzz`, which runs
+# continuously (a web UI, by default no iteration limit) until stopped --
+# an interactive activity to run yourself, not a pass/fail gate. Pass a
+# limit to bound it instead of leaving it open-ended, e.g. `just fuzz 100K`.
+
+# Continuous, coverage-guided fuzzing (a person runs this, CI doesn't).
+fuzz LIMIT="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v zig >/dev/null || { echo "zig not on PATH -- brew install zig" >&2; exit 1; }
+    if [ -n "{{ LIMIT }}" ]; then
+        zig build test --fuzz="{{ LIMIT }}"
+    else
+        zig build test --fuzz
+    fi
+
 # The other half of the layering. `build.zig`'s module graph rejects a
 # wrong-direction import, but only once something references it -- Zig analyses
 # declarations lazily, so a dead one compiles. This catches those, and the rule

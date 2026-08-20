@@ -573,3 +573,48 @@ test "writeDistinctiveness is tab-separated, group then distinctive then conside
     try writeDistinctiveness(&out.writer, .{ .group = "core/src", .distinctive = 3, .considered = 8 });
     try testing.expectEqualStrings("core/src\t3\t8\n", out.written());
 }
+
+test "distinctivenessScore: never negative, never above 1, for any real input" {
+    try testing.fuzz({}, struct {
+        fn testOne(_: void, smith: *testing.Smith) anyerror!void {
+            const df: usize = @intCast(smith.valueRangeAtMostWithHash(u32, 0, 1_000_000, 0));
+            const n: usize = @intCast(smith.valueRangeAtMostWithHash(u32, 0, 1_000_000, 1));
+            const k: usize = @intCast(smith.valueRangeAtMostWithHash(u32, 1, 1_000_000, 2));
+
+            const score = distinctivenessScore(df, n, k);
+            try testing.expect(std.math.isFinite(score));
+            try testing.expect(score > 0.0 and score <= 1.0);
+        }
+    }.testOne, .{});
+}
+
+test "distinctivenessScore: monotonically non-increasing in df, n and k held fixed" {
+    try testing.fuzz({}, struct {
+        fn testOne(_: void, smith: *testing.Smith) anyerror!void {
+            const n: usize = @intCast(smith.valueRangeAtMostWithHash(u32, 0, 1_000_000, 0));
+            const k: usize = @intCast(smith.valueRangeAtMostWithHash(u32, 1, 1_000_000, 1));
+            const a: usize = @intCast(smith.valueRangeAtMostWithHash(u32, 0, 1_000_000, 2));
+            const b: usize = @intCast(smith.valueRangeAtMostWithHash(u32, 0, 1_000_000, 3));
+            const df_lo = @min(a, b);
+            const df_hi = @max(a, b);
+
+            try testing.expect(distinctivenessScore(df_lo, n, k) >= distinctivenessScore(df_hi, n, k));
+        }
+    }.testOne, .{});
+}
+
+test "distinctivenessScore: the K-scaling floor at 2 holds for any n, k -- df == max(2, n/k) is always exactly the midpoint" {
+    try testing.fuzz({}, struct {
+        fn testOne(_: void, smith: *testing.Smith) anyerror!void {
+            const n: usize = @intCast(smith.valueRangeAtMostWithHash(u32, 0, 1_000_000, 0));
+            const k: usize = @intCast(smith.valueRangeAtMostWithHash(u32, 1, 1_000_000, 1));
+            // Same floor the function itself applies -- this isn't
+            // re-deriving distinctivenessScore's formula, it's the
+            // algebraic fact that d/(d+df) == 0.5 exactly when df == d,
+            // whatever d itself floors to.
+            const d = @max(@as(usize, 2), n / k);
+
+            try testing.expectApproxEqAbs(@as(f64, 0.5), distinctivenessScore(d, n, k), 1e-9);
+        }
+    }.testOne, .{});
+}

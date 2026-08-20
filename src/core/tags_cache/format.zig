@@ -528,3 +528,54 @@ test "the committed v1 fixture still decodes" {
     try testing.expectEqual(@as(?u32, 1), view.find("src/Empty.java"));
     try testing.expectEqual(@as(?u32, null), view.find("src/Missing.java"));
 }
+
+test "encode/parse round trip: any valid sorted []Entry survives byte-for-byte" {
+    try testing.fuzz({}, struct {
+        fn testOne(_: void, smith: *testing.Smith) anyerror!void {
+            const max_entries = 6;
+            const n: usize = @intCast(smith.valueRangeAtMostWithHash(u32, 1, max_entries, 0));
+
+            var path_bufs: [max_entries][32]u8 = undefined;
+            var tags_bufs: [max_entries][24]u8 = undefined;
+            var entries: [max_entries]Entry = undefined;
+
+            for (0..n) |i| {
+                // A zero-padded numeric prefix guarantees strictly
+                // increasing path order regardless of the fuzzed suffix
+                // that follows it -- the property under test is the
+                // codec's byte-fidelity, not this test's own sorting.
+                const suffix_len: usize = @intCast(smith.valueRangeAtMostWithHash(u32, 0, 20, @intCast(i * 4 + 1)));
+                var suffix_buf: [20]u8 = undefined;
+                for (suffix_buf[0..suffix_len], 0..) |*c, j| {
+                    // Printable, non-slash, so the path stays one clean
+                    // segment -- content diversity is the point, not
+                    // exercising path-segment parsing (this format has none).
+                    c.* = smith.valueRangeAtMostWithHash(u8, '!', '~', @intCast(i * 40 + j + 2));
+                }
+                entries[i].path = std.fmt.bufPrint(&path_bufs[i], "{d:0>3}-{s}", .{ i, suffix_buf[0..suffix_len] }) catch unreachable;
+
+                smith.bytesWithHash(&entries[i].hash, @intCast(i * 4 + 2));
+
+                const tags_len: usize = @intCast(smith.valueRangeAtMostWithHash(u32, 0, 24, @intCast(i * 4 + 3)));
+                smith.bytesWithHash(tags_bufs[i][0..tags_len], @intCast(i * 4 + 3));
+                entries[i].tags = tags_bufs[i][0..tags_len];
+
+                entries[i].unsupported = smith.valueWithHash(bool, @intCast(i * 4 + 4));
+            }
+
+            const gpa = testing.allocator;
+            const bytes = try encode(gpa, entries[0..n]);
+            defer gpa.free(bytes);
+
+            const view = try parse(bytes);
+            try testing.expectEqual(@as(u32, @intCast(n)), view.count());
+            for (0..n) |i| {
+                const r = view.record(@intCast(i));
+                try testing.expectEqualStrings(entries[i].path, view.path(r));
+                try testing.expectEqualSlices(u8, &entries[i].hash, &r.hash);
+                try testing.expectEqualStrings(entries[i].tags, view.tags(r));
+                try testing.expectEqual(entries[i].unsupported, r.unsupported());
+            }
+        }
+    }.testOne, .{});
+}

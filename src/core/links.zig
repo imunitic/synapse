@@ -481,3 +481,56 @@ test "writeEdge is tab-separated with a space-joined symbol list" {
     });
     try testing.expectEqualStrings("A\tB\t2\tAlpha Beta\n", out.written());
 }
+
+test "compute: no edge is ever a self-edge, and weight is never smaller than the symbol list shown" {
+    try testing.fuzz({}, struct {
+        fn testOne(_: void, smith: *testing.Smith) anyerror!void {
+            const gpa = testing.allocator;
+            const num_nodes: usize = @intCast(smith.valueRangeAtMostWithHash(u32, 2, 4, 0));
+            const num_symbols: usize = @intCast(smith.valueRangeAtMostWithHash(u32, 1, 3, 1));
+
+            var node_names: [4][8]u8 = undefined;
+            var paths: [4][8]u8 = undefined;
+            for (0..num_nodes) |i| {
+                _ = std.fmt.bufPrint(&node_names[i], "N{d}", .{i}) catch unreachable;
+                _ = std.fmt.bufPrint(&paths[i], "n{d}.ext", .{i}) catch unreachable;
+            }
+
+            var pm: std.StringHashMapUnmanaged(std.ArrayListUnmanaged([]const u8)) = .empty;
+            defer {
+                var it = pm.valueIterator();
+                while (it.next()) |l| l.deinit(gpa);
+                pm.deinit(gpa);
+            }
+            for (0..num_nodes) |i| {
+                var owners: std.ArrayListUnmanaged([]const u8) = .empty;
+                try owners.append(gpa, node_names[i][0..2]);
+                try pm.put(gpa, paths[i][0..6], owners);
+            }
+
+            var table: std.Io.Writer.Allocating = .init(gpa);
+            defer table.deinit();
+            var hash: u32 = 2;
+            for (0..num_symbols) |s| {
+                for (0..num_nodes) |i| {
+                    if (smith.valueWithHash(bool, hash)) {
+                        try table.writer.print("S{d}\tdef\tk\t{s}:1\tx\n", .{ s, paths[i][0..6] });
+                    }
+                    hash += 1;
+                    if (smith.valueWithHash(bool, hash)) {
+                        try table.writer.print("S{d}\tref\tk\t{s}:1\tx\n", .{ s, paths[i][0..6] });
+                    }
+                    hash += 1;
+                }
+            }
+
+            var edges = try compute(gpa, table.written(), &pm, num_nodes, .{});
+            defer free(gpa, &edges);
+
+            for (edges.items) |e| {
+                try testing.expect(!std.mem.eql(u8, e.from, e.to));
+                try testing.expect(e.weight >= e.symbols.len);
+            }
+        }
+    }.testOne, .{});
+}

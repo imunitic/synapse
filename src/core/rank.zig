@@ -131,7 +131,12 @@ pub fn keyOf(path: []const u8) Key {
         }
         break :blk path;
     };
-    return .{ .stem = stem, .module = module, .path = path };
+    // A leading `/` puts the first slash at index 0, so `path[0..0]` comes
+    // back empty -- not a real module name, the same "nothing to key on"
+    // case `limit < 1` already has a name for. No real caller produces an
+    // absolute path (`git ls-files` is always repo-relative), but `keyOf`
+    // shouldn't have a silent empty-string case for one that does.
+    return .{ .stem = stem, .module = if (module.len == 0) repo_root_module else module, .path = path };
 }
 
 /// Below this, a stem prefixes half the repo and isn't a hop worth making.
@@ -232,6 +237,12 @@ test "keyOf takes the stem and the first two segments" {
     try testing.expectEqualStrings("Kunde", root.stem);
     try testing.expectEqualStrings(repo_root_module, root.module);
 
+    // A leading `/` would otherwise put the first slash at index 0,
+    // computing an empty module -- falls back to repo_root_module instead.
+    const absolute = keyOf("/a");
+    try testing.expectEqualStrings("a", absolute.stem);
+    try testing.expectEqualStrings(repo_root_module, absolute.module);
+
     // Only the final extension is stripped.
     try testing.expectEqualStrings("Adresse.domvo", keyOf("a/b/Adresse.domvo.bak").stem);
     try testing.expectEqualStrings("Makefile", keyOf("a/b/Makefile").stem);
@@ -263,4 +274,85 @@ test "density normalises by size, which is the whole point of the tier" {
     try testing.expect(impl > table);
     try testing.expectApproxEqAbs(@as(f64, 1.0), density(40, 40_000), 0.001);
     try testing.expectApproxEqAbs(@as(f64, 5.0), density(10, 2_000), 0.001);
+}
+
+test "density: monotonic in definitions, always finite and non-negative, for any size > 0" {
+    try testing.fuzz({}, struct {
+        fn testOne(_: void, smith: *testing.Smith) anyerror!void {
+            const size = smith.valueRangeAtMostWithHash(u64, 1, 1 << 40, 0);
+            const a = smith.valueRangeAtMostWithHash(u64, 0, 1_000_000, 1);
+            const b = smith.valueRangeAtMostWithHash(u64, 0, 1_000_000, 2);
+            const lo: usize = @intCast(@min(a, b));
+            const hi: usize = @intCast(@max(a, b));
+
+            const d_lo = density(lo, size);
+            const d_hi = density(hi, size);
+            try testing.expect(std.math.isFinite(d_lo) and d_lo >= 0);
+            try testing.expect(std.math.isFinite(d_hi) and d_hi >= 0);
+            try testing.expect(d_hi >= d_lo);
+        }
+    }.testOne, .{});
+}
+
+test "isTest: a _test.<ext> suffix is caught whatever the stem, as long as it stays one path segment" {
+    try testing.fuzz({}, struct {
+        fn testOne(_: void, smith: *testing.Smith) anyerror!void {
+            const len: usize = @intCast(smith.valueRangeAtMostWithHash(u32, 1, 40, 0));
+            var buf: [40]u8 = undefined;
+            for (buf[0..len], 0..) |*c, i| {
+                c.* = smith.valueRangeAtMostWithHash(u8, 'a', 'z', @intCast(i + 1));
+            }
+            const stem = buf[0..len];
+            var path_buf: [64]u8 = undefined;
+            const path = try std.fmt.bufPrint(&path_buf, "src/{s}_test.go", .{stem});
+            try testing.expect(isTest(path));
+        }
+    }.testOne, .{});
+}
+
+test "keyOf: the path field always round-trips, the module is never empty" {
+    try testing.fuzz({}, struct {
+        fn testOne(_: void, smith: *testing.Smith) anyerror!void {
+            const len: usize = @intCast(smith.valueRangeAtMostWithHash(u32, 1, 40, 0));
+            var buf: [40]u8 = undefined;
+            for (buf[0..len], 0..) |*c, i| {
+                // `/` and `.` included -- keyOf must cope with arbitrary
+                // segment/extension shapes, not just the alphabet.
+                c.* = smith.valueRangeAtMostWithHash(u8, '-', 'z', @intCast(i + 1));
+            }
+            const path = buf[0..len];
+            const key = keyOf(path);
+            try testing.expectEqualStrings(path, key.path);
+            try testing.expect(key.module.len != 0);
+        }
+    }.testOne, .{});
+}
+
+test "consumes: a real prefix relationship in the same module is always caught" {
+    try testing.fuzz({}, struct {
+        fn testOne(_: void, smith: *testing.Smith) anyerror!void {
+            const decl_len: usize = @intCast(smith.valueRangeAtMostWithHash(u32, min_stem, 20, 0));
+            const suffix_len: usize = @intCast(smith.valueRangeAtMostWithHash(u32, 0, 20, 1));
+            var decl_buf: [20]u8 = undefined;
+            var suffix_buf: [20]u8 = undefined;
+            for (decl_buf[0..decl_len], 0..) |*c, i| {
+                c.* = smith.valueRangeAtMostWithHash(u8, 'a', 'z', @intCast(i + 2));
+            }
+            for (suffix_buf[0..suffix_len], 0..) |*c, i| {
+                c.* = smith.valueRangeAtMostWithHash(u8, 'a', 'z', @intCast(i + 22));
+            }
+
+            var decl_path_buf: [40]u8 = undefined;
+            var code_path_buf: [64]u8 = undefined;
+            const decl_stem = decl_buf[0..decl_len];
+            const decl_path = try std.fmt.bufPrint(&decl_path_buf, "core/src/{s}.gui", .{decl_stem});
+            const code_path = try std.fmt.bufPrint(
+                &code_path_buf,
+                "core/src/{s}{s}.java",
+                .{ decl_stem, suffix_buf[0..suffix_len] },
+            );
+
+            try testing.expect(consumes(keyOf(decl_path), keyOf(code_path)));
+        }
+    }.testOne, .{});
 }

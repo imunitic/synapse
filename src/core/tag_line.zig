@@ -133,3 +133,56 @@ test "a refs row is tab-separated in the order look expects" {
         out.written(),
     );
 }
+
+test "parse never crashes on arbitrary bytes, tabs and backticks included" {
+    try testing.fuzz({}, struct {
+        fn testOne(_: void, smith: *testing.Smith) anyerror!void {
+            const len: usize = @intCast(smith.valueRangeAtMostWithHash(u32, 0, 80, 0));
+            var buf: [80]u8 = undefined;
+            smith.bytesWithHash(buf[0..len], 1);
+            // A crash (not a `null`) is the only failure mode this property
+            // checks -- `parse` is meant to skip anything malformed, never
+            // panic on it, since batch tree-sitter output legitimately
+            // contains non-tag lines this codec has never seen the shape of.
+            _ = parse(buf[0..len]);
+        }
+    }.testOne, .{});
+}
+
+test "parse: an expression's embedded backticks never break the first/last-backtick recovery" {
+    try testing.fuzz({}, struct {
+        fn testOne(_: void, smith: *testing.Smith) anyerror!void {
+            const name_len: usize = @intCast(smith.valueRangeAtMostWithHash(u32, 1, 10, 0));
+            var name_buf: [10]u8 = undefined;
+            for (name_buf[0..name_len], 0..) |*c, i|
+                c.* = smith.valueRangeAtMostWithHash(u8, 'a', 'z', @intCast(i + 1));
+
+            const is_def = smith.valueWithHash(bool, 11);
+            const role_text: []const u8 = if (is_def) "def" else "ref";
+            const row = smith.valueRangeAtMostWithHash(u32, 0, 10_000_000, 12);
+
+            // The expression: arbitrary printable bytes, backticks freely
+            // included, tabs excluded -- an embedded tab would split fields
+            // differently, a separate, already-documented behavior, not
+            // what this property checks.
+            const expr_len: usize = @intCast(smith.valueRangeAtMostWithHash(u32, 0, 60, 13));
+            var expr_buf: [60]u8 = undefined;
+            for (expr_buf[0..expr_len], 0..) |*c, i|
+                c.* = smith.valueRangeAtMostWithHash(u8, '!', '~', @intCast(i + 14));
+            const expr = expr_buf[0..expr_len];
+
+            var line_buf: [256]u8 = undefined;
+            const line = try std.fmt.bufPrint(
+                &line_buf,
+                "{s}\t | kind\t{s} ({d}, 0) - ({d}, 1) `{s}`",
+                .{ name_buf[0..name_len], role_text, row, row, expr },
+            );
+
+            const tag = parse(line) orelse return error.TestUnexpectedResult;
+            try testing.expectEqualStrings(name_buf[0..name_len], tag.name);
+            try testing.expectEqual(row, tag.line);
+            try testing.expectEqual(if (is_def) Role.def else Role.ref, tag.role);
+            try testing.expectEqualStrings(expr, tag.expression);
+        }
+    }.testOne, .{});
+}
