@@ -1,3 +1,7 @@
+---
+description: Build a repo's Synapse Graph namespace from scratch — enumerate tracked files, orient into the repo's own symbol vocabulary, cluster into manifest.tsv, gate cluster quality, compute the link graph, author each node's prose, and write the two derived projections (_index.bin, Index.md). This is the only way a project gets a Synapse namespace in the first place — nothing else in the system creates one unprompted. Also handles the lighter re-run case for an already-initialized project (sweeping unassigned files into existing nodes, never re-clustering). Use whenever the user wants to set up Synapse for a repo for the first time ("init synapse here", "build the code graph", "set up the namespace") or asks to sweep newly-unassigned files into an existing graph. Not for repairing drift in an existing namespace (that's synapse-rebuild-diff) or a full wipe-and-rebuild (that's synapse-rebuild-full).
+---
+
 # Synapse Init: Build or Refresh a Repo's Code-Graph Namespace
 
 Builds a repo's Synapse Graph namespace in Synapse Vault — a small set of LLM-authored node

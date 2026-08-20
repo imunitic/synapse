@@ -1,3 +1,7 @@
+---
+description: Start or continue a free-form, single-project design discussion about the book — tone choices, plot mechanics, character motivation problems, worldbuilding decisions — written to the Writer's notes vault, thinking through a problem/approach/tradeoffs out loud before anything is drafted. Use whenever the author wants to open, resume, or reason through a story decision ("let's create/write a design note", "let's think through X", "let's design this", "let's talk this through"). Not for a note that's already ready to become tracked work (that's synapse-bard-task-note), or a plain vault note with no design framing (that's synapse-bard-note).
+---
+
 # Writer's Notes Vault Design Note: Free-Form Story/Plot Design Discussion
 
 A free-form "think it through out loud" pipeline for a design conversation about the book — tone

@@ -1,3 +1,7 @@
+---
+description: Compile a Ready design note into a single tracked, checklist-based task note in the Writer's notes vault — delegates the actual note creation to synapse-bard-note --task under the hood. Use whenever the author wants to turn a settled design discussion into actionable, tracked work ("let's compile a task note", "let's turn this into a task", "make this a task now") — not for starting or continuing the design discussion itself (that's synapse-bard-design-note).
+---
+
 # Writer's Notes Vault Task Note: Compile a Design into a Tracked Checklist
 
 Compiles a `Ready` design note (from `/synapse-bard-design-note`) into a single tracked task, using
