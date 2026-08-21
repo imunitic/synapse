@@ -212,6 +212,8 @@ test-linux:
 # Needs `brew install act` once -- podman-ready's Podman machine is reused.
 # Tests committed HEAD, same as a real push would -- see the recipe body for
 # why (a worktree's own .git is a pointer act cannot resolve on its own).
+# Scoped to tests.yml (-W, not -j -- act's -j takes one job ID, not a list)
+# so both its jobs (zig, bats) run without also pulling in release.yml.
 
 # What CI actually runs, locally, via act -- the pre-push check.
 ci-local:
@@ -239,7 +241,7 @@ ci-local:
     # a step, so the fix is disabling that bind-mount rather than chasing a
     # path valid on both sides at once: `-` per act's own docs.
     sock="$(podman machine inspect "$machine" | jq -r '.[0].ConnectionInfo.PodmanSocket.Path')"
-    (cd "$clone" && DOCKER_HOST="unix://$sock" act -j bats --container-daemon-socket - \
+    (cd "$clone" && DOCKER_HOST="unix://$sock" act -W .github/workflows/tests.yml --container-daemon-socket - \
       -P ubuntu-latest=catthehacker/ubuntu:act-latest)
 
 # `just` stays the task runner and calls `zig build`, never the other way round:
