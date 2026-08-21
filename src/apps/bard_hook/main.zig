@@ -49,6 +49,5 @@ pub fn main(init: std.process.Init) !u8 {
 }
 
 test {
-    _ = @import("common.zig");
-    _ = session_start;
+    _ = @import("test_root.zig");
 }

@@ -79,11 +79,5 @@ pub fn main(init: std.process.Init) !u8 {
 }
 
 test {
-    // Zig analyses lazily; referencing these is what pulls their tests in.
-    _ = @import("common.zig");
-    _ = staleness;
-    _ = prompt_context;
-    _ = session_start;
-    _ = stop_nudge;
-    _ = db_sync;
+    _ = @import("test_root.zig");
 }

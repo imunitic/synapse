@@ -9,11 +9,6 @@
 
 const std = @import("std");
 
-// Referenced, not merely imported: Zig analyses lazily, so an untouched
-// `@import` is never compiled or checked.
-const core = @import("core");
-const ports = @import("ports");
-const adapters = @import("adapters");
 const treesitter = @import("treesitter");
 const tags_cmd = @import("tags.zig");
 const tags_cache_cmd = @import("tags_cache_cmd.zig");
@@ -36,34 +31,7 @@ const namespace_cmd = @import("namespace_cmd.zig");
 const doctor_cmd = @import("doctor_cmd.zig");
 
 comptime {
-    // `treesitter` needs no line here: tags.zig uses it for real.
-    _ = core;
-    _ = ports;
-    _ = adapters;
-    // `write_node_cmd`/`gate_cmd`/`links_cmd`/`refs_cmd`/`query_cmd`/
-    // `index_cmd`/`enumerate_cmd`/`build_lists_cmd`/`push_nodes_cmd`/
-    // `project_index_cmd`/`rank_cmd`/`tags_cache_cmd`/`tags_cmd`/
-    // `vocab_cmd`/`brief_cmd`/`graph_cmd`/`doctor_cmd`'s own native tests
-    // are otherwise unreached in a test build: every `*_cmd.zig` import
-    // below is used only inside `main()`'s body, which the test runner
-    // never calls.
-    _ = write_node_cmd;
-    _ = gate_cmd;
-    _ = links_cmd;
-    _ = refs_cmd;
-    _ = query_cmd;
-    _ = index_cmd;
-    _ = enumerate_cmd;
-    _ = build_lists_cmd;
-    _ = push_nodes_cmd;
-    _ = project_index_cmd;
-    _ = rank_cmd;
-    _ = tags_cache_cmd;
-    _ = tags_cmd;
-    _ = vocab_cmd;
-    _ = brief_cmd;
-    _ = graph_cmd;
-    _ = doctor_cmd;
+    _ = @import("test_root.zig");
 }
 
 
