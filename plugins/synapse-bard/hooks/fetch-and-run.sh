@@ -1,14 +1,23 @@
 #!/bin/bash
 # Every hook in synapse-bard's own hooks.json routes through this rather
 # than invoking synapse-bard-hook directly: the compiled binary isn't
-# shipped inside the plugin, it's downloaded once from the latest GitHub
-# Release and cached -- same idea synapse's own claude/hooks/fetch-and-run.sh
-# uses, forked rather than shared for the same reason the skill/command
-# layer was forked (see synapse-bard-001's own notes): this is
-# audience-independent protocol code, but it caches under its own
-# ~/.cache/synapse-bard/bin, distinct from synapse's ~/.cache/synapse/bin,
-# so the two plugins never fight over one binary slot on a machine that has
-# both installed.
+# shipped inside the plugin, it's downloaded once from the `dist` branch's
+# latest committed tarball and cached -- same idea synapse's own
+# claude/hooks/fetch-and-run.sh uses, forked rather than shared for the same
+# reason the skill/command layer was forked (see synapse-bard-001's own
+# notes): this is audience-independent protocol code, but it caches under
+# its own ~/.cache/synapse-bard/bin, distinct from synapse's
+# ~/.cache/synapse/bin, so the two plugins never fight over one binary slot
+# on a machine that has both installed.
+#
+# Fetched via raw.githubusercontent.com, not a GitHub Release download URL:
+# `synapse-bard`'s primary audience is an Android-app cloud session, and in
+# an Anthropic-hosted cloud sandbox, release-asset downloads route through a
+# repo-scoped GitHub proxy that 403s any repo other than the one the session
+# is attached to (which is the bible repo, never this one) -- confirmed
+# against Claude Code's own cloud-environments docs, 2026-08-21. Raw file
+# content from a public repo routes through the general security proxy
+# instead, unscoped, so this URL shape actually reaches the session.
 #
 #   fetch-and-run.sh <hook-subcommand> [args passed through to synapse-bard-hook]
 #
@@ -70,7 +79,7 @@ if [ ! -x "$bin_path" ] || [ "$stale" -eq 1 ]; then
         tmp="$(mktemp -d 2>/dev/null || true)"
         if [ -n "$tmp" ]; then
             trap 'rm -rf "$tmp"' EXIT
-            url="https://github.com/imunitic/synapse/releases/latest/download/synapse-bard-$target.tar.gz"
+            url="https://raw.githubusercontent.com/imunitic/synapse/dist/synapse-bard-$target.tar.gz"
             # Best-effort, not `|| exit 0`: a failed re-fetch of a *newer*
             # version must fall through to running the still-perfectly-good
             # binary already cached below, not exit silently and skip the

@@ -3,9 +3,17 @@
 # synapse-hook directly: the compiled binary isn't shipped inside the plugin
 # (which would bloat every install with a platform-specific artifact and
 # require rebuilding the marketplace source per push) -- it's downloaded
-# once from the latest GitHub Release and cached, same idea as
-# SYNAPSE_GRAMMARS_DIR already caching cloned grammars at
+# once from the `dist` branch's latest committed tarball and cached, same
+# idea as SYNAPSE_GRAMMARS_DIR already caching cloned grammars at
 # ~/.cache/synapse/grammars.
+#
+# Fetched via raw.githubusercontent.com, not a GitHub Release download URL,
+# for consistency with synapse-bard's own fetch-and-run.sh -- that plugin
+# needs this specific URL shape to work at all from an Anthropic-hosted
+# cloud sandbox (see its own comment), and one fetch mechanism for every
+# binary this repo ships, rather than two, is worth keeping even though
+# synapse's own local/desktop sessions never hit the constraint that forced
+# the change.
 #
 #   fetch-and-run.sh <hook-subcommand> [args passed through to synapse-hook]
 #
@@ -74,7 +82,7 @@ if [ ! -x "$bin_path" ] || [ "$stale" -eq 1 ]; then
         tmp="$(mktemp -d 2>/dev/null || true)"
         if [ -n "$tmp" ]; then
             trap 'rm -rf "$tmp"' EXIT
-            url="https://github.com/imunitic/synapse/releases/latest/download/synapse-$target.tar.gz"
+            url="https://raw.githubusercontent.com/imunitic/synapse/dist/synapse-$target.tar.gz"
             # Best-effort, not `|| exit 0`: a failed re-fetch of a *newer*
             # version must fall through to running the still-perfectly-good
             # binary already cached below, not exit silently and skip the

@@ -219,7 +219,7 @@ skill's table, with the whole suite green.
 ## Dependencies
 
 For using the plugin: the `claude` CLI itself, `curl` and `tar` (the `SessionStart` hook's one-time
-binary fetch from GitHub Releases), and `jq` (the `obsidian-mcp-refresh.sh` hook only — absence just
+binary fetch from the `dist` branch), and `jq` (the `obsidian-mcp-refresh.sh` hook only — absence just
 means that one hook skips silently, everything else keeps working). Nothing to build, nothing to
 install by hand — see "New machine setup".
 
