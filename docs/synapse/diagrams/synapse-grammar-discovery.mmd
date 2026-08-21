@@ -1,0 +1,32 @@
+---
+title: Synapse Grammar Discovery — two tiers, generate rather than accept
+---
+flowchart TB
+    classDef script fill:#d0ebff,stroke:#1971c2,color:#1e1e1e
+    classDef artifact fill:#d3f9d8,stroke:#2f9e44,color:#1e1e1e
+    classDef decision fill:#fff3bf,stroke:#f08c00,color:#1e1e1e
+    classDef weaker fill:#f1f3f5,stroke:#868e96,color:#1e1e1e
+
+    START["extension needs discovery<br/>(synapse tags exit 2)"]
+    T1{{"Tier 1 · real<br/>queries/tags.scm?"}}
+    USE_T1["use it directly<br/>defs + refs, cached as 'tags'"]
+
+    GATHER["Tier 2 · gather source material<br/>locals.scm? node-types.json?<br/>(locals.scm wins for kinds where both exist,<br/>model's own language knowledge if neither exists)"]
+    GEN["generate a tags.scm-shaped query<br/>defs from whichever material exists<br/>+ reference patterns, unconditionally<br/>— attempted every time, never skipped"]
+    VERIFY{{"run against a real sample<br/>judge the actual tag output"}}
+    WRITE["write to<br/>$SYNAPSE_GRAMMARS_QUERY_PATH/{ext}.scm<br/>cached as 'tags'"]
+    FALLBACK["fall back to locals.scm/node-types.json's<br/>own weaker classifier at tag time<br/>cached as 'locals' or 'generated'"]
+    ESCAPE["no source material existed either:<br/>registry 'unsupported'"]
+
+    START --> T1
+    T1 -->|yes| USE_T1
+    T1 -->|no| GATHER
+    GATHER --> GEN --> VERIFY
+    VERIFY -->|looks right| WRITE
+    VERIFY -->|doesn't verify,<br/>had locals.scm/node-types.json| FALLBACK
+    VERIFY -->|doesn't verify,<br/>had neither| ESCAPE
+
+    class USE_T1,WRITE artifact
+    class T1,VERIFY decision
+    class GATHER,GEN script
+    class FALLBACK,ESCAPE weaker

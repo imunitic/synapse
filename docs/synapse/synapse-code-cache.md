@@ -20,8 +20,8 @@ and the Graph is what gives its answers somewhere to live.
 acceleration layer: given a file, it prints real definitions and name-based call references, extracted
 by parsing rather than text guessing. It fails soft — no C compiler, an unsupported
 language — and every caller falls back to reading the file directly, exactly as if the script did not
-exist. Which query file (or generated fallback) actually does the extracting is a three-tier decision
-of its own — see [Grammar discovery](#grammar-discovery-tagsscm-localsscm-or-generated) below.
+exist. Which query file actually does the extracting is a two-tier decision of its own — see
+[Grammar discovery](#grammar-discovery-tagsscm-localsscm-or-generated) below.
 
 `synapse tags-cache` keeps `_tags_cache.bin` (`path → {hash, tags}`) current for a set of files,
 piggybacked on the same per-file hash comparison node regeneration already performs: unchanged paths
@@ -47,52 +47,63 @@ still what a binary search wants.
 
 ## Grammar discovery: tags.scm, locals.scm, or generated
 
+![Two-tier grammar discovery: a real tags.scm wins outright, otherwise tier 2 always generates one from whatever source material exists](diagrams/synapse-grammar-discovery.png)
+
 `queries/tags.scm` is not a tree-sitter standard — it's a convention GitHub's code-navigation
 feature popularized, and plenty of real grammars don't ship one. Confirmed directly: none of the
 three actively maintained "parse Zig" grammars on GitHub (`maxxnino/tree-sitter-zig`,
 `tree-sitter-grammars/tree-sitter-zig`, `GrayJack/tree-sitter-zig`) ships a `tags.scm`, and one of
 the three has neither `tags.scm` nor `locals.scm`. Registering every such extension `unsupported`
 would make whole languages contribute zero signal — no vocabulary, no ranking, no link graph — even
-though the grammar itself parses the language fine. So discovery cascades through three tiers, in a
-fixed order, stopping at the first one that verifies:
+though the grammar itself parses the language fine. Worse, neither a grammar's `locals.scm` nor its
+`node-types.json` can ever produce reference data on their own — only a real `tags.scm`-shaped query
+assigns a reference role — so discovery is two tiers, not a menu of independently-sufficient
+fallbacks: tier 1 wins outright if it verifies, otherwise tier 2 always generates a real query.
 
 **Tier 1 — `queries/tags.scm`.** Unchanged: `@name` plus a sibling `@definition.<kind>`/
 `@reference.<kind>` capture.
 
-**Tier 2 — `queries/locals.scm`, when tier 1 is absent.** `locals.scm` is nvim-treesitter's
-convention for scope-aware syntax highlighting, not a tags format — so only its
-`@local.definition.<kind>` captures are read, never `@local.reference`, the least standardized part
-of the convention across grammars: `tree-sitter-grammars/tree-sitter-zig`'s definitions are
-genuinely well-formed and per-kind, but `GrayJack/tree-sitter-zig`'s `locals.scm` captures a bare
-`@reference` on *every identifier in the file*, which would flood `_refs.tsv` with noise rather
-than add signal. A capture with no kind suffix at all (`tree-sitter-ocaml`'s own `locals.scm` does
-this) is a real, common nvim-treesitter shape, not a defect — every kind spelling, suffixed or
+**Tier 2 — generate a tags.scm, when tier 1 is absent.** Draws on whichever of `locals.scm` and
+`node-types.json` exist, with reference-pattern generation unconditional every time — the one thing
+neither source file can supply by itself. `locals.scm` is nvim-treesitter's convention for
+scope-aware syntax highlighting, not a tags format, so only its `@local.definition.<kind>` captures
+are ground truth for kind labels, never `@local.reference`, the least standardized part of the
+convention across grammars: `tree-sitter-grammars/tree-sitter-zig`'s definitions are genuinely
+well-formed and per-kind, but `GrayJack/tree-sitter-zig`'s `locals.scm` captures a bare `@reference`
+on *every identifier in the file* — inert here, since only the prefixed `@local.definition.*`
+captures are ever read. A capture with no kind suffix at all (`tree-sitter-ocaml`'s own `locals.scm`
+does this) is a real, common nvim-treesitter shape, not a defect — every kind spelling, suffixed or
 bare, is normalized onto `Tag.kind`'s shared vocabulary through an ordered rule list
 (`~/.claude/synapse-kind-synonyms.conf`), first match wins, unmapped dropped rather than guessed.
 
-**Tier 3 — a query or bounded tree-walk generated from `node-types.json`, when neither tier above
-exists.** `node-types.json` is a `tree-sitter generate` build artifact every real grammar ships, so
-this tier is available almost everywhere — which makes it about *quality*, not *presence*. A
-suffix/prefix heuristic (`_declaration`, `_item`, a `class`/`struct`/`enum`/… prefix) guesses which
-node types are declaration-shaped; a type with a literal `name` field becomes an ordinary
-tags.scm-shaped query pattern, compiled and cached the same way tier 1's is, and one without a
-`name` field falls to a breadth-first walk capped at depth 3 for the nearest `identifier`/`name`
-descendant. Confirmed weaker than tier 2 against two real grammars: `maxxnino/tree-sitter-zig`
-names its nodes `Decl`/`FnProto` rather than `*_declaration`, so the naming heuristic matches
-nothing at all; `tree-sitter-grammars/tree-sitter-zig` names things conventionally but represents
-`const Foo = struct {...}` as a `variable_declaration` wrapping a `struct_declaration`, an idiom no
-structural heuristic over `node-types.json` alone can derive. Real, but a fallback of last resort,
-not a peer to tier 2.
+`node-types.json` fills whatever `locals.scm` doesn't cover, or stands alone when `locals.scm` is
+absent, and supplies the node-type list reference patterns build from. It is a `tree-sitter generate`
+build artifact every real grammar ships, so it is available almost everywhere — which makes it about
+*quality*, not *presence*. A suffix/prefix heuristic (`_declaration`, `_item`, a
+`class`/`struct`/`enum`/… prefix) guesses which node types are declaration-shaped; a type with a
+literal `name` field becomes an ordinary tags.scm-shaped query pattern, compiled and cached the same
+way tier 1's is, and one without a `name` field falls to a breadth-first walk capped at depth 3 for
+the nearest `identifier`/`name` descendant. Confirmed weaker than reading `locals.scm` directly
+against two real grammars: `maxxnino/tree-sitter-zig` names its nodes `Decl`/`FnProto` rather than
+`*_declaration`, so the naming heuristic matches nothing at all; `tree-sitter-grammars/tree-sitter-zig`
+names things conventionally but represents `const Foo = struct {...}` as a `variable_declaration`
+wrapping a `struct_declaration`, an idiom no structural heuristic over `node-types.json` alone can
+derive — real signal, but weaker grounding than a grammar author's own `locals.scm` captures wherever
+both exist. Same `synapse-kind-synonyms.conf` rule list as above, keyed here on the grammar's raw
+node type name instead of a `locals.scm` suffix, can relabel a guessed kind or force-classify a type
+the heuristic missed outright.
 
-Every tier is verified against real source before being trusted — a candidate matching zero
+Every case is verified against real source before being trusted — a candidate matching zero
 definitions is an automatic reject, everything past that zero-cost floor is read and judged by eye
-— the same standard tier 1 already applied, extended rather than relaxed for tiers with less to
+— the same standard tier 1 already applies, extended rather than relaxed for material with less to
 work with. The registry (`~/.claude/synapse-grammars.conf`) records which tier won per extension
 (`"queries": "tags" | "locals" | "generated"`, absent meaning `"tags"` so every entry predating
-this addition stays valid), so discovery happens once per language, ever, not once per repository.
-`$SYNAPSE_GRAMMARS_QUERY_PATH/{ext}.scm`, when present, preempts the whole cascade — a
-human-authored query for the rare grammar none of the three tiers handles well, checked fresh every
-run rather than cached.
+this addition stays valid); `"locals"`/`"generated"` mean generation was attempted from that source
+material and its output didn't verify well enough to write, not that the tier won without an attempt
+being made — tier 2 always attempts generation once tier 1 is absent. Discovery happens once per
+language, ever, not once per repository. `$SYNAPSE_GRAMMARS_QUERY_PATH/{ext}.scm`, when present,
+preempts the whole cascade — a human-authored (or successfully generated) query for a grammar the
+cascade doesn't handle well on its own, checked fresh every run rather than cached.
 
 ## Query path
 
