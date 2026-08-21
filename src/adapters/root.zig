@@ -25,7 +25,7 @@ pub const bard_frontmatter = @import("bard/frontmatter.zig");
 pub const bard_graph_store = @import("bard/graph_store.zig");
 
 /// `_bard/graph/` cluster nodes: `sources:` manifest parsing/rendering and
-/// slug resolution (`synapse-bard-005`) -- built on `bard_graph_store` and
+/// slug resolution -- built on `bard_graph_store` and
 /// `bard_frontmatter`, not a `Store`/`Extractor` implementation itself.
 pub const bard_cluster = @import("bard/cluster.zig");
 
@@ -33,8 +33,8 @@ pub const bard_cluster = @import("bard/cluster.zig");
 /// ranked search.
 pub const bard_vault_store = @import("bard/vault_store.zig");
 
-/// `synapse-bard-009`: the clustering/extraction plan `sync` computes,
-/// factored out here so `synapse-bard-hook`'s `SessionStart` can compute
+/// The clustering/extraction plan `sync` computes, factored out here so
+/// `synapse-bard-hook`'s `SessionStart` can compute
 /// the same plan in-process for drift detection, without shelling out to
 /// the `synapse-bard` binary.
 pub const bard_sync_plan = @import("bard/sync_plan.zig");

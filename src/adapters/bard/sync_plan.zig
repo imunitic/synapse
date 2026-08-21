@@ -1,4 +1,4 @@
-//! `synapse-bard-009`: the clustering + extraction pipeline `sync` runs,
+//! The clustering + extraction pipeline `sync` runs,
 //! factored out of `apps/bard/sync_cmd.zig` into the adapter layer so a
 //! second binary -- `synapse-bard-hook`'s `SessionStart` handler -- can
 //! compute the exact same plan in-process, for drift detection, without
@@ -9,9 +9,6 @@
 //! never two that can drift apart from each other -- the same reason this
 //! module exists rather than session_start.zig re-deriving its own
 //! clustering pass.
-//!
-//! See `designs/synapse-bard/synapse-bard — Bible-graph drift detection.md`
-//! (Synapse Vault) for the full design.
 
 const std = @import("std");
 const ports = @import("ports");
@@ -87,8 +84,8 @@ pub fn computePlan(gpa: Allocator, io: Io, repo_root: []const u8, store: Store) 
     for (clusters.items) |*c| std.mem.sort([]const u8, c.candidates.items, {}, lessThan);
 
     // Flatten for one batch `extract()` call across the whole corpus (CLI
-    // startup cost paid once, same reasoning `synapse-bard-004` already
-    // used), tracking which cluster each flattened path belongs to.
+    // startup cost paid once), tracking which cluster each flattened path
+    // belongs to.
     var flat: std.ArrayListUnmanaged([]const u8) = .empty;
     defer flat.deinit(gpa);
     var owner: std.ArrayListUnmanaged(usize) = .empty;
@@ -112,8 +109,8 @@ pub fn computePlan(gpa: Allocator, io: Io, repo_root: []const u8, store: Store) 
     // slug can only resolve to one real path (`query`/`field` need exactly
     // one answer), so two entities anywhere in the corpus sharing a
     // filename stem is a collision even if they land in different
-    // clusters. Same "refuse rather than silently mishandle" tracking
-    // `synapse-bard-004` built for the flat layout, unchanged in mechanism.
+    // clusters. Same "refuse rather than silently mishandle" tracking the
+    // flat layout this replaced used, unchanged in mechanism.
     var claimed: std.StringHashMapUnmanaged([]const u8) = .empty;
     defer claimed.deinit(gpa);
 

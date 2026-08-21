@@ -23,7 +23,7 @@
 //!   author already said so. Wrong problem.
 //! - `core/query.zig`'s `edges`/`parseEdge` parses `- <relation> [[Target]]`
 //!   lines, scoped to a node's `## Links` section specifically. Bard vault
-//!   notes (this file's own module docs included, this session) put
+//!   notes (this file's own module docs included) put
 //!   `[[wikilinks]]` inline in prose anywhere, with no relation prefix and
 //!   no reserved section. Wrong shape.
 //!
@@ -60,7 +60,7 @@ pub const BardVaultStore = struct {
         self.gpa.free(self.root);
     }
 
-    /// The wrapper idiom (sb-024): `Store.from` generates the `*anyopaque`
+    /// The wrapper idiom: `Store.from` generates the `*anyopaque`
     /// cast from `BardVaultStore` alone, so it can never disagree with
     /// `.ptr` the way a hand-written vtable literal could.
     pub fn store(self: *BardVaultStore) Store {

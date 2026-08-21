@@ -1,11 +1,10 @@
-//! `synapse-bard`'s real `Extractor` -- the extraction contract settled in
-//! `synapse-bard-001` and its three design notes. See
-//! `src/adapters/frontmatter_conformance.zig` for the proof-of-seam
-//! predecessor this is *not* extended from: that file's YAML subset refuses
-//! past one level of nesting and has no list-of-objects support, both of
-//! which real bible data needs throughout (`relationships.key_relationships`
-//! is a list of `{name, link, kinds, type, dynamic}` objects, three levels
-//! deep from root).
+//! `synapse-bard`'s real `Extractor`, parsing bible entity frontmatter into
+//! `def`/`ref` tags. See `src/adapters/frontmatter_conformance.zig` for
+//! the proof-of-seam predecessor this is *not* extended from: that file's
+//! YAML subset refuses past one level of nesting and has no
+//! list-of-objects support, both of which real bible data needs
+//! throughout (`relationships.key_relationships` is a list of `{name,
+//! link, kinds, type, dynamic}` objects, three levels deep from root).
 //!
 //! ## The subset, and why it refuses rather than skips
 //!
@@ -45,7 +44,7 @@ const Allocator = std.mem.Allocator;
 pub const BardFrontmatterExtractor = struct {
     /// The field naming the entity itself, at the frontmatter root.
     identity_field: []const u8 = "name",
-    /// The field naming the entity's kind (`synapse-bard-001`'s `template:`).
+    /// The field naming the entity's kind (its `template:` value).
     kind_field: []const u8 = "template",
     /// Transient: set by `refuse()`, read back by `extract()` immediately
     /// after `tagsFor()` returns `error.Refused`, before the next path in
@@ -88,7 +87,7 @@ pub const BardFrontmatterExtractor = struct {
     /// a real ceiling anyone should hit.
     const max_frames = 8;
 
-    /// The wrapper idiom (sb-024): `ports.Extractor.from` generates the
+    /// The wrapper idiom: `ports.Extractor.from` generates the
     /// `*anyopaque` cast from `BardFrontmatterExtractor` alone, so it can
     /// never disagree with `.ptr` the way a hand-written vtable literal
     /// could.
@@ -428,7 +427,7 @@ pub fn frontmatterBlock(src: []const u8) ?[]const u8 {
 }
 
 /// Every root-level (column-0) frontmatter key name, in the order they
-/// appear -- what `synapse-bard fields` (`synapse-bard-006`) lists so an
+/// appear -- what `synapse-bard fields` lists so an
 /// agent can see which `field <node> <key>` calls are worth making,
 /// instead of guessing and taking clean misses one at a time. Meant for a
 /// *template* file (`_templates/character_pov_template.md`, all fields

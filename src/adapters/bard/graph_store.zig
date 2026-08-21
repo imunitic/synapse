@@ -33,7 +33,7 @@ pub const BardGraphStore = struct {
         self.gpa.free(self.root);
     }
 
-    /// The wrapper idiom (sb-024): `Store.from` generates the `*anyopaque`
+    /// The wrapper idiom: `Store.from` generates the `*anyopaque`
     /// cast from `BardGraphStore` alone, so it can never disagree with
     /// `.ptr` the way a hand-written vtable literal could.
     pub fn store(self: *BardGraphStore) Store {
@@ -65,7 +65,7 @@ pub const BardGraphStore = struct {
     /// method on the concrete type instead: a capability
     /// `ObsidianStore`/`FakeStore`/`BardVaultStore` have no need for
     /// shouldn't become a `Store`-wide requirement. `synapse-bard sync`
-    /// (`synapse-bard-004`) is the one caller -- a renamed or deleted source
+    /// is the one caller -- a renamed or deleted source
     /// entity must not leave a stale node behind for `--inbound`/`search` to
     /// keep surfacing. A node that's already gone is not an error, matching
     /// `read`'s own "absence is ordinary" rule.
@@ -176,7 +176,7 @@ fn parseFieldQuery(query: []const u8) ?FieldQuery {
 /// own `rootKindValue`: this Store doesn't parse nested structure, only the
 /// flat fields the design's own example ("faction = X") calls for.
 ///
-/// `pub`: `synapse-bard search` (`synapse-bard-005`) reuses this directly
+/// `pub`: `synapse-bard search` reuses this directly
 /// over real entity source files resolved through a cluster's `sources:`,
 /// not just over this Store's own stored content -- the scanning logic is
 /// the same either way, only which bytes get handed to it differs.
@@ -405,8 +405,8 @@ test "a key:value query matches the frontmatter field exactly, not a substring" 
 }
 
 test "port.search()'s key:value heuristic can misread a colon in ordinary text -- known, not this Store's problem to solve" {
-    // Documents why `synapse-bard-005` moved `search_cmd.zig` off this port
-    // method entirely for its own full-text mode, rather than fixing the
+    // Documents why `search_cmd.zig` moved off this port method entirely
+    // for its own full-text mode, rather than fixing the
     // heuristic here: `search`'s single-string signature genuinely can't
     // distinguish "The Knife: Book One" (a title) from a field filter
     // without a second parameter a CLI flag can supply but this interface

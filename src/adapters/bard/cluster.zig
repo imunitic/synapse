@@ -1,5 +1,5 @@
-//! `_bard/graph/` cluster nodes (`synapse-bard-005`) -- the storage format
-//! that replaced `synapse-bard-004`'s flat one-file-per-entity layout.
+//! `_bard/graph/` cluster nodes -- the storage format that replaced an
+//! earlier flat one-file-per-entity layout.
 //! `synapse-bard sync` writes one node per source folder (a "cluster",
 //! boundary chosen by `sync_cmd.zig`'s own shallowest-content-wins walk),
 //! carrying a `sources:` manifest -- each member entity's slug plus its
@@ -81,7 +81,7 @@ pub fn generatedRegion(body: []const u8) []const u8 {
     return body[0 .. idx + end_marker.len];
 }
 
-/// `synapse-bard-009`: is `computed` (the body a real `sync` would write
+/// Is `computed` (the body a real `sync` would write
 /// for one cluster) dirty relative to `existing` (what's currently on disk,
 /// `null` if the file doesn't exist yet at all)? Compares `generatedRegion`
 /// only -- a human's own hand-added tail never counts, and a missing file
@@ -92,7 +92,7 @@ pub fn isDirty(existing: ?[]const u8, computed: []const u8) bool {
     return true;
 }
 
-/// `synapse-bard-009`: every name in `existing` (a `_bard/graph/` listing)
+/// Every name in `existing` (a `_bard/graph/` listing)
 /// that `planned_nodes` doesn't produce at all -- what a real sync's
 /// `reconcile` (see `sync_cmd.zig`) would delete, reported instead of
 /// deleted. Caller owns the returned slice; its strings are borrowed from
@@ -220,11 +220,10 @@ fn quotedValueAfter(line: []const u8, key: []const u8) ?[]const u8 {
 }
 
 /// Resolves `slug` to its real source path by scanning every cluster
-/// node's `sources:`, stopping at the first match -- `synapse-bard-005`'s
-/// measured call (see the design note): a reverse-index file would win on
-/// relative terms but the absolute gap is noise against a CLI invocation's
-/// own process-launch cost at this scale. `null` when no cluster claims
-/// this slug.
+/// node's `sources:`, stopping at the first match -- a measured call: a
+/// reverse-index file would win on relative terms but the absolute gap is
+/// noise against a CLI invocation's own process-launch cost at this
+/// scale. `null` when no cluster claims this slug.
 pub fn resolveSlug(gpa: Allocator, io: Io, store: Store, slug: []const u8) !?SourceEntry {
     const names = try store.list(gpa, io);
     defer {
