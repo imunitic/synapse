@@ -316,8 +316,9 @@ EOF
 }
 
 @test "branch-identity check fails after a rename -- the directory key alone is not enough" {
-  # Same trap synapse-graph-clean.bats documents for its own branch field: the
-  # directory name is sanitized and not reversible, so only the field can answer.
+  # Same trap graph_cmd.zig's own native tests document for its branch field
+  # ("the branch field, not the directory name, decides"): the directory name
+  # is sanitized and not reversible, so only the field can answer.
   # Here the namespace's own field still says the old branch after HEAD moved.
   make_repo
   git -C "$REPO" checkout -q -b feature-a
