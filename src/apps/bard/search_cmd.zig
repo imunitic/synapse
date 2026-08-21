@@ -1,7 +1,7 @@
 //! `synapse-bard search <query>` (full-text) / `synapse-bard search --field
 //! <key>:<value>` (structured filter across the whole graph).
 //!
-//! `synapse-bard-005`: before clustering, `_bard/graph/{slug}.md` *was* a
+//! Before clustering, `_bard/graph/{slug}.md` *was* a
 //! verbatim copy of each entity's frontmatter, so scanning `_bard/graph/`
 //! itself found real content. A cluster node's body is now just a
 //! `sources:` manifest and an `## Entities` link list -- scanning that

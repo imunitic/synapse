@@ -1,9 +1,7 @@
 //! `synapse-bard` -- the Bible-graph and Writer's notes vault binary for a
 //! YAML-templated fiction bible. Imports `model`/`ports`/`core`/`adapters`,
 //! never `treesitter`: this binary parses YAML frontmatter only, so it links
-//! no libtree-sitter and needs no C compiler. See the compiled task notes
-//! `synapse-bard-001` through `synapse-bard-005` and their design notes for
-//! the full contract.
+//! no libtree-sitter and needs no C compiler.
 //!
 //!   synapse-bard sync                          populate _bard/graph/ from source
 //!   synapse-bard query <node> [--inbound]      resolved relationships
@@ -17,14 +15,14 @@
 //!   synapse-bard vault-links <note>            every note linking to <note>
 //!
 //! `_bard/graph/` holds one node per *cluster* (a source folder), not one
-//! per entity (`synapse-bard-005`) -- `sync` groups entities by folder,
+//! per entity -- `sync` groups entities by folder,
 //! `query`/`field`/`search` resolve a slug through a cluster's `sources:`
 //! manifest to the real source file rather than reading a per-entity node
 //! directly. See `src/adapters/bard/cluster.zig`.
 //!
 //! `vault-search`/`vault-links` are the only `_bard/vault/` subcommands --
-//! the skill layer (`synapse-bard-001` step 7) still reads/writes notes
-//! directly with Read/Write/Edit/Glob/Grep for everything else, but Grep
+//! the skill layer still reads/writes notes directly with
+//! Read/Write/Edit/Glob/Grep for everything else, but Grep
 //! has no notion of `BardVaultStore`'s wikilink-resolution rules (filename
 //! stem, `|alias` handling, no self-backlink) or its backlink ranking,
 //! which is what these two exist to reach.

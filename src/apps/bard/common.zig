@@ -14,8 +14,8 @@ const Allocator = std.mem.Allocator;
 /// Every root a subcommand might need: `graph_root` to list/read/write
 /// `_bard/graph/`'s own cluster nodes, `repo_root` to resolve a cluster's
 /// `sources:` path entries (repo-root-relative) to real files, `vault_root`
-/// for `_bard/vault/`'s design/task notes. Before `synapse-bard-005`'s
-/// clustering refactor, only `sync` ever needed `repo_root` -- `query`/
+/// for `_bard/vault/`'s design/task notes. Before the clustering refactor,
+/// only `sync` ever needed `repo_root` -- `query`/
 /// `field`/`search` read `_bard/graph/{slug}.md` directly and never touched
 /// a real source file. Now all four resolve through a cluster's `sources:`
 /// first, so all four need both graph-side roots. `vault_root` is unused by
@@ -49,8 +49,8 @@ pub const Roots = struct {
 
 /// A wikilink target with a literal `.md` suffix resolves the same as one
 /// without -- the same rule `BardVaultStore.backlinkCounts` already proved
-/// out for the vault side (`synapse-bard-001` step 5), applied here fresh
-/// rather than exported and shared: three lines isn't worth a cross-module
+/// out for the vault side, applied here fresh rather than exported and
+/// shared: three lines isn't worth a cross-module
 /// dependency for.
 pub fn stripMdSuffix(text: []const u8) []const u8 {
     if (std.mem.endsWith(u8, text, ".md")) return text[0 .. text.len - 3];

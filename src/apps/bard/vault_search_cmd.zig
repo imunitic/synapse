@@ -1,8 +1,8 @@
 //! `synapse-bard vault-search <query>` -- full-text search over `_bard/vault/`
 //! (design notes, task notes, decisions), ranked by backlink count via
-//! `BardVaultStore.search()`. That capability has existed since
-//! `synapse-bard-001` with no command surface pointed at it -- the skill
-//! layer read/wrote the vault directly with Read/Write/Edit/Glob/Grep, and
+//! `BardVaultStore.search()`. That capability existed with no command
+//! surface pointed at it -- the skill layer read/wrote the vault directly
+//! with Read/Write/Edit/Glob/Grep, and
 //! Grep has no notion of backlink rank, so a search that should surface the
 //! vault's most-referenced note first was doing an unranked substring scan
 //! instead. This is that command surface.

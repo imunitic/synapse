@@ -4,22 +4,21 @@
 //! what subsystems exist and authoring summary/crux prose per node. Bard's
 //! version is a mechanical transform with no judgment calls.
 //!
-//! `synapse-bard-005` rewrote this from `synapse-bard-004`'s flat
-//! one-file-per-entity layout to clustering: `_bard/graph/` now holds one
+//! This was rewritten from an earlier flat one-file-per-entity layout to
+//! clustering: `_bard/graph/` now holds one
 //! node per *cluster* (a source folder), each carrying a `sources:`
 //! manifest of its member entities rather than a copy of one entity's own
-//! frontmatter. See `src/adapters/bard/cluster.zig` for the manifest
-//! format and `designs/synapse-bard/synapse-bard — Bible-graph.md` (Synapse
-//! Vault) for why: a flat 53-file `_bard/graph/` wasn't browsable the way
-//! Synapse's own code-graph is.
+//! frontmatter -- a flat 53-file `_bard/graph/` wasn't browsable the way
+//! Synapse's own code-graph is. See `src/adapters/bard/cluster.zig` for
+//! the manifest format.
 //!
 //! Always a full re-ingest, never incremental: the whole corpus extracts in
-//! ~10ms (`synapse-bard-002`'s own measurement), so there's nothing to gain
-//! from dirty-tracking complexity -- re-ingesting a few hundred small files
+//! ~10ms (measured directly), so there's nothing to gain from
+//! dirty-tracking complexity -- re-ingesting a few hundred small files
 //! is cheaper than the bookkeeping a "what changed" system would cost.
 //!
-//! `synapse-bard-009` added `--check`: a dry-run mode answering "would a
-//! real `sync` change anything", reusing `adapters.bard_sync_plan.computePlan`
+//! `--check` is a dry-run mode answering "would a real `sync` change
+//! anything", reusing `adapters.bard_sync_plan.computePlan`
 //! -- the exact same clustering/extraction pipeline the write path below
 //! uses -- so there is never a second, parallel notion of what `sync` would
 //! produce. `synapse-bard-hook`'s `SessionStart` calls the same plan

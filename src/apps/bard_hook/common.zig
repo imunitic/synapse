@@ -3,7 +3,7 @@
 //!
 //! Deliberately a smaller, independent copy of `synapse-hook`'s own
 //! `common.zig`, not an import of it: `bard_hook` is its own binary
-//! (`synapse-bard-001`'s own build.zig scaffolding keeps the two apps
+//! (`build.zig`'s own scaffolding keeps the two apps
 //! independent, same as `synapse-hook`/`synapse-fake`), and the two files
 //! would diverge immediately anyway -- `synapse-hook`'s `Payload` also
 //! carries `tool_input.file_path`/`session_id` fields no bard hook needs,

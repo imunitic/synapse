@@ -5,7 +5,7 @@
 //! `images`, `appearance.*`, `voice.*` are otherwise invisible to the CLI
 //! entirely.
 //!
-//! `synapse-bard-005`: resolves `<node>` through a cluster's `sources:`
+//! Resolves `<node>` through a cluster's `sources:`
 //! manifest to the real source file, then reads *that* -- `_bard/graph/`
 //! no longer has one file per entity to read directly.
 

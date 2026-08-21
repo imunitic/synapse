@@ -3,8 +3,8 @@
 //! knows which `field <node> <key>` calls are worth making instead of
 //! guessing one at a time.
 //!
-//! `synapse-bard-006`, surfaced live during a real writing-assistant
-//! simulation: `query`'s own output already names an entity's template
+//! Surfaced live during a real writing-assistant simulation: `query`'s
+//! own output already names an entity's template
 //! (`Gael Varis (character_pov)`), but nothing said what fields that
 //! template actually has -- probing `goals`/`arc`/`secrets`/`internal_
 //! conflict` cost four clean misses before `personality` hit. The missing

@@ -1,9 +1,9 @@
 //! `synapse-bard query <node> [--inbound]` -- an entity's resolved
 //! relationships from `_bard/graph/`, both directions. A thin CLI door onto
-//! `BardFrontmatterExtractor`/`BardGraphStore` (`synapse-bard-001`), not new
-//! extraction or storage logic (`synapse-bard-002`).
+//! `BardFrontmatterExtractor`/`BardGraphStore`, not new extraction or
+//! storage logic.
 //!
-//! `synapse-bard-005`: resolves `<node>` through a cluster's `sources:`
+//! Resolves `<node>` through a cluster's `sources:`
 //! manifest to the real source file, then extracts *that* -- `_bard/graph/`
 //! no longer has one file per entity to read directly.
 

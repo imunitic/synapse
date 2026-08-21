@@ -4,10 +4,9 @@
 //! SessionStart uses (each piece optional, joined with a blank line,
 //! nothing emitted at all if all are empty): `synapse-bard-claude.md`
 //! (the plugin's own standing instructions -- vault discipline, the
-//! Bible-graph query CLI, `synapse-bard-001`/`-002`/`-003`),
-//! `_bard/vault/Index.md` (the vault's own folder layout), and --
-//! `synapse-bard-009` -- a Bible-graph drift note, only when there
-//! actually is one. Much simpler than the coding side's version otherwise:
+//! Bible-graph query CLI), `_bard/vault/Index.md` (the vault's own folder
+//! layout), and a Bible-graph drift note, only when there actually is
+//! one. Much simpler than the coding side's version otherwise:
 //! `_bard/vault/` is always repo-relative, so there is no external
 //! `synapse.conf`/`OBSIDIAN_VAULT_DIR` to resolve, no namespace, no remote
 //! to verify. The one thing this still needs from outside the payload is
@@ -26,9 +25,6 @@
 //! parallel implementation -- and compares the result against what's on
 //! disk via `cluster.isDirty`/`cluster.wouldRemove`, exactly what
 //! `sync --check` itself does, but without shelling out to that binary.
-//! See `designs/synapse-bard/synapse-bard — Bible-graph drift detection.md`
-//! (Synapse Vault) for why this stays a report-only Tier-1-style flag
-//! rather than an automatic `sync` run.
 
 const std = @import("std");
 const core = @import("core");
@@ -95,7 +91,7 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     try common.emitContext(gpa, io, "SessionStart", out.written());
 }
 
-/// `synapse-bard-009`: `null` on anything short of confirmed drift --
+/// `null` on anything short of confirmed drift --
 /// already current, or the check itself couldn't run cleanly (I/O error,
 /// no `_bard/graph/` yet) -- this hook only ever reports, so anything it
 /// can't cleanly answer is silence, the same "missing precondition is
