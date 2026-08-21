@@ -6,7 +6,7 @@ Create a note in the Writer's notes vault (`_bard/vault/`) with the title and op
 
 ## Where the vault lives
 
-`_bard/vault/` at the repo root — plain markdown files, git-tracked, in the same repo and session you're already working in. No Obsidian, no REST API, no separate server: read and write it with the ordinary Read/Write/Edit/Glob tools, same as any other file in this repo. `Grep` over `_bard/vault/**/*.md` is full-text search; there is no ranked/backlink-scored search surface yet (that's a future `synapse-bard` CLI capability, not built — see this repo's own `synapse-bard-001` task note if you're curious).
+`_bard/vault/` at the repo root — plain markdown files, git-tracked, in the same repo and session you're already working in. No Obsidian, no REST API, no separate server: read and write it with the ordinary Read/Write/Edit/Glob tools, same as any other file in this repo. `Grep` over `_bard/vault/**/*.md` is full-text search; `synapse-bard vault-search`/`vault-links` cover ranked, backlink-scored search and inbound-link lookup specifically.
 
 Unlike the coding-focused `synapse` plugin's vault, this is **always single-project** — one repo is one book bible, one vault. There is no cross-project prefix to resolve, no `synapse-projects.conf` equivalent: a task ID here is just `task-{NNN}`, sequential, nothing else.
 

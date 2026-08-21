@@ -87,5 +87,6 @@ synapse-bard search --field <key>:<value>   e.g. --field faction:"The Radiant Do
 ```
 
 `<slug>` is the wikilink target text without `.md` (`calla-starweaver`, not `Calla Starweaver` and
-not `calla-starweaver.md`). There is no equivalent CLI over `_bard/vault/` yet — that side is still
-`Grep`-driven, per the `synapse-bard-vault` skill.
+not `calla-starweaver.md`). `_bard/vault/` has its own CLI for search and backlinks
+(`synapse-bard vault-search`, `synapse-bard vault-links`); everything else — reading, writing,
+editing notes — is still `Grep`/`Read`/`Write`-driven, per the `synapse-bard-vault` skill.

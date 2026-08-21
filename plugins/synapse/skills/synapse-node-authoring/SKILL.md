@@ -123,13 +123,12 @@ parallel author produces exactly what a sequential one does," and keeps the qual
 comparison in the design's own checklist item to one variable (isolation/concurrency) rather
 than two (that, plus a cheaper model).
 
-**Why this is spelled out explicitly rather than assumed inherited:** a first live run
-(`sb-011`'s own dogfood build against `synapse@main`) shipped four of eleven pooled nodes with
-hard-wrapped paragraphs before this line existed in the prompt — the vault's no-hard-wrap rule
-lives in global `CLAUDE.md` instructions, and evidently isn't reliably carried into a fresh
-subagent's behaviour on its own. Loading `synapse-node-format` does not cover it either, since
-that skill is about the node's structure, not the vault's prose-formatting convention. State it
-here, every time, rather than assuming it travels for free.
+**Why this is spelled out explicitly rather than assumed inherited:** a prior pooled run shipped
+hard-wrapped nodes despite the vault's no-hard-wrap rule living in global `CLAUDE.md`
+instructions — evidently not reliably carried into a fresh subagent's behavior on its own.
+Loading `synapse-node-format` does not cover it either, since that skill is about the node's
+structure, not the vault's prose-formatting convention. State it here, every time, rather than
+assuming it travels for free.
 
 ### 3d. Verify on completion, retry once, then fall back
 

@@ -32,8 +32,8 @@ resolves the same way Obsidian itself does — filename stem, `.md` suffix optio
 self-backlink — and takes either a full vault-relative path or just the stem, same as a
 `[[wikilink]]` target would.
 
-**The Bible-graph side (`_bard/graph/`) is different: `synapse-bard` has a real CLI for it
-(`synapse-bard-002`).** Anything about a character's established relationships, appearance, voice, or
+**The Bible-graph side (`_bard/graph/`) is different: `synapse-bard` has a real CLI for it.**
+Anything about a character's established relationships, appearance, voice, or
 other frontmatter facts goes through `synapse-bard query`/`field`/`search`, not `Grep` on
 `_bard/graph/*.md` directly — the CLI resolves wikilinks to their target's real kind and can find
 backlinks (`--inbound`) a raw grep can't produce correctly, the same "consult before grepping" habit
@@ -51,10 +51,9 @@ synapse-bard search --field <key>:<value>   e.g. --field faction:"The Radiant Do
 
 ## Only `Index.md` is pushed. Everything else is pull.
 
-If `synapse-bard-hook`'s `SessionStart` handler is wired up (see this repo's own `synapse-bard-001`
-task note), it injects `_bard/vault/Index.md` — folder layout only. Every other note exists and is
-never injected, so the only thing standing between you and a written-down answer is deciding to
-look.
+If `synapse-bard-hook`'s `SessionStart` handler is wired up, it injects `_bard/vault/Index.md` —
+folder layout only. Every other note exists and is never injected, so the only thing standing
+between you and a written-down answer is deciding to look.
 
 **The failure this exists to prevent is not "not knowing". It is re-deriving, in the reply, a thing
 the vault already says** — a character's established motivation, a plot mechanic already settled, a

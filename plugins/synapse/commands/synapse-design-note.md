@@ -2,7 +2,7 @@
 description: Start or continue a free-form, cross-project design discussion, written to Synapse Vault rather than tied to one repo — thinking through a problem/approach/tradeoffs out loud before anything is built. Use whenever the user wants to open, resume, or reason through a design ("let's create/write a design note", "let's think through X", "let's design this", "let's talk this through"). Not for a note that's already ready to become tracked work (that's synapse-task-note), or a plain vault note with no design framing (that's synapse-note, whose project-resolution logic this command reuses).
 ---
 
-# Second Brain Design Note: Cross-Project Personal Design Discussion
+# Synapse Design Note: Cross-Project Personal Design Discussion
 
 A free-form "think it through out loud" pipeline for a design conversation, written to Synapse
 Vault rather than any one repo. Use it when the design conversation isn't (or shouldn't be) tied

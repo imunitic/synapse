@@ -150,7 +150,7 @@ needs one.
    - Read the bucket with a shell command, not into context — the index runs to tens of megabytes:
 
      ```sh
-     ~/.claude/bin/synapse index unassigned
+     ~/.synapse index unassigned
      ```
 
      Empty → nothing to do, skip silently (an empty sweep isn't worth announcing).

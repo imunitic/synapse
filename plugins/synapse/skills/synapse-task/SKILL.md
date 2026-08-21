@@ -3,7 +3,7 @@ name: synapse-task
 description: Update Obsidian task notes' status frontmatter and Notes sections, enforcing status transitions so active work is IN-PROGRESS and completed checklists move only to REVIEW (not DONE).
 ---
 
-# Second Brain Task Status Skill
+# Synapse Task Status Skill
 
 Tracks status for task notes created via `/synapse-note --task` and compiled via `/synapse-task-note`,
 using a `status:` frontmatter field and GFM `- [ ]`/`- [x]` checklists (the vault's native format,

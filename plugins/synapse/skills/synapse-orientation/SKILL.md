@@ -100,15 +100,12 @@ internal and free; only what you print costs tokens, so a 15,000-file cluster sh
 a few dozen lines before you read anything. Then let `synapse rank` pick which 2–4 files per
 node are worth actually reading — see "Choosing what to read" below.
 
-**Do not sample, and do not invent a sampling rule.** An earlier version of this skill said
-`synapse tags` took one file per invocation and so could not be run over a whole cluster,
-and told you to pick a sampling rule and defend it. That is obsolete: `synapse tags --paths`
-tags a whole list in one invocation, which measured 33× on 200 files, and `synapse vocab`
-above uses it to cover an entire repository in under a minute. Sampling existed only to bound a
-cost that no longer exists, and every fixed rule was biased in a way that had to be chosen
-deliberately — alphabetical is an accident, largest-file favours generated code and god-classes,
-most-referenced needs the full scan you were avoiding. If you find yourself reaching for a
-sample, run the full pass instead.
+**Do not sample, and do not invent a sampling rule.** `synapse tags --paths` tags a whole list in
+one invocation (measured 33× faster on 200 files than one-file-at-a-time), and `synapse vocab`
+above uses it to cover an entire repository in under a minute — there's no cost left to bound with
+a sampling rule. Every fixed rule is biased anyway: alphabetical is an accident, largest-file
+favours generated code and god-classes, most-referenced needs the full scan you were avoiding. If
+you find yourself reaching for a sample, run the full pass instead.
 
 **When an aggregation is worth repeating, write it down rather than retyping it.** Once you have
 run the same one-liner for the third cluster, record it in `synapse/{repo}@{branch}/_profile.txt` — a
@@ -168,7 +165,7 @@ contribute to a node's prose. Do not build a tally out of those warnings.
   2. If that doesn't resolve, fall back to a web search for a community-maintained grammar for
      the language.
   3. **Verify before trusting — two tiers, tried in order, and a repo existing is never
-     sufficient on its own for either** (sb-012). Stop at tier 1 if it verifies; otherwise tier 2
+     sufficient on its own for either.** Stop at tier 1 if it verifies; otherwise tier 2
      always runs. The registry records which tier actually won, per step 4 below.
 
      **Tier 1 — `queries/tags.scm`.** Check **both** the repo root and any sub-grammar subpath,
