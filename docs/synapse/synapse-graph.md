@@ -412,15 +412,24 @@ Outside any git repo there is no pointer and nothing to exclude, so the catalogu
 
 `SessionStart` injects a pointer once. `UserPromptSubmit` (`synapse-hook prompt-context`) repeats one short line on every prompt: this repo has a code graph, it has N nodes, read it before grepping, and the skills have the procedure. That is the whole payload — no search, no node list, no network call. ~80 tokens. Set `SYNAPSE_DISABLE_PROMPT_INJECTION` (any value) to turn it off entirely; the check is the hook's literal first line, so a disabled run costs nothing beyond that one test.
 
-**It used to search, and the measurement that ended that is worth keeping.** The hook ran the prompt through `synapse-tokenizer.sh`, OR'd the surviving terms into one `regexp` clause, POSTed it to the Local REST API's `/search/` endpoint alongside a `glob` on the repo's namespace, and injected the matching node paths.
+A per-prompt search preceded this: tokenize the prompt, OR the surviving terms into one `regexp`
+clause, POST it to the Local REST API's `/search/` endpoint alongside a `glob` on the repo's
+namespace, and inject the matching node paths. Measured against a 52-node repo, the prompt *"can
+you explain how BatchRunner dispatches work items"* returned **50 of 52 nodes** for **~1057
+tokens, every turn** — `[Ww]ork` matched the substring inside `framework` (1392 occurrences
+across the namespace's `sources` lists), and one domain-ubiquitous term OR'd into the query
+destroys it; the distinctive term `[Bb]atchRunner` matched a useful 11 nodes and was drowned by
+the weak one beside it.
 
-This section previously recorded the known weakness — that OR-ing every term lets one domain-ubiquitous word match most of a namespace, confirmed at 22 of ~32 nodes in one repo — and deferred: *"Fix this only if real usage shows it's actually a problem, not preemptively."* It also left open whether the feature earned a permanent place at all, to be decided from real usage rather than from a fixed answer here.
-
-Real usage answered both. Against a medium repo (52 nodes), the prompt *"can you explain how BatchRunner dispatches work items"* returned **50 of 52 nodes** for **~1057 tokens, on every turn**. The cause was not tunable: `[Ww]ork` matched 50 nodes because it matched the substring inside `framework`, which occurs 1392 times across the namespace's `sources` lists. Word boundaries took the union only from 50 to 25 — "work" is genuinely a word in this domain. The distinctive term `[Bb]atchRunner` matched a useful 11, and was drowned by the weak one it was OR'd with.
-
-**The verdict split the feature in two.** The search was solving a discovery problem that no longer exists: `synapse index lookup` answers path → owning node for ~15 tokens with nothing entering context, the tags cache answers symbol questions without opening a file, and `synapse query` projects exactly the field asked for. Those are *pull*, precise, and paid only when the question is about the codebase. The search was *push*, imprecise, and paid always — including on "commit and push". Reading the entire node map costs ~2500 tokens once, so the search overtook that after 2.4 turns and kept charging.
-
-What could not be replaced by pulling is the reminder itself. A `SessionStart` injection ages out of a long session once context is compacted; a per-turn line does not, and the habit it defends against — reaching for `grep` by reflex — is exactly what the graph exists to displace. So the nudge stayed and the search went. The cost went from ~1057 to ~80 tokens per turn, and the line is now constant: same text whatever the prompt says, because it is a standing reminder rather than a result.
+The search was solving a discovery problem `synapse index lookup` (path → owning node, ~15
+tokens), the tags cache (symbol lookups with no file opened), and `synapse query` (exact-field
+projection) already solve for a fraction of the cost — those are *pull*, paid only when the
+question is actually about the codebase, where the search was *push*, paid on every turn
+including "commit and push". The reminder line itself survived because pulling can't replace it:
+a `SessionStart` injection ages out once a long session compacts, a per-turn line doesn't, and the
+habit it defends against — reaching for `grep` by reflex — is exactly what the graph exists to
+displace. Cost dropped from ~1057 to ~80 tokens per turn, and the line is now constant text
+regardless of the prompt, a standing reminder rather than a result.
 
 A consequence worth noting: the hook no longer touches the vault REST API, so it needs no cert, no API key and no plugin data. Filesystem and git only.
 

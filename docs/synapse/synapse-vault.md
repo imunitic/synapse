@@ -16,7 +16,7 @@ The boxes name the four hooks; what each one does is here rather than crammed in
 | Hook | Fires | What it does |
 |---|---|---|
 | `synapse-hook session-start` | `SessionStart` | Injects `Index.md`, this repo's Graph pointer if a namespace covers the current branch, and a catalogue of the other namespaces in the vault. A plain path lookup — never a model call, so a repo that never opted in pays nothing. |
-| `synapse-hook prompt-context` | `UserPromptSubmit` | Extracts terms from the prompt and surfaces matching Graph nodes. Set `SYNAPSE_DISABLE_PROMPT_INJECTION` to skip it. |
+| `synapse-hook prompt-context` | `UserPromptSubmit` | One fixed standing line per turn naming the Graph/Code Cache tools available for a repo with a namespace -- no search, no node list, no network. Set `SYNAPSE_DISABLE_PROMPT_INJECTION` to skip it. |
 | `synapse-hook stop-nudge` | `Stop`, every 25 turns | Forces a real "did anything here belong in the vault?" check-in rather than relying on the agent to remember unprompted. Also pushes the vault to its git remote every `SYNAPSE_VAULT_PUSH_EVERY` turns (default 5), detached so the turn never waits on the network. |
 | `synapse-hook db-sync` | `PostToolUse` | Commits vault changes to the vault's own git history on any vault-modifying write. That history is what makes a destructive mistake recoverable. |
 
@@ -55,7 +55,7 @@ Filenames are the human-readable title itself — no timestamp prefix, no slug �
 sidebar and graph view show the filename directly. Frontmatter carries what the filename doesn't:
 `title`, `created`, and for task notes `task_id`/`status`.
 
-## The three hooks
+## The four hooks
 
 Nothing here runs on a schedule; everything is triggered by an actual session event.
 
@@ -67,6 +67,14 @@ matching Synapse namespace, if one exists and its `remote` field actually matche
 lists every *other* namespace in the vault as a `name | remote` catalogue, because one session
 routinely spans several repos and without it only the starting repo's graph is ever announced. Both
 are derived per session and stored nowhere — see [synapse-graph.md](synapse-graph.md) for the detail.
+
+**`UserPromptSubmit` → `synapse-hook prompt-context`**
+One fixed standing line per turn, in a repo with a namespace: the graph exists, here are the tools
+that read it. No search, no node list, no network — a per-turn nudge that survives context
+compaction, unlike a `SessionStart` injection. Names the Graph and the Code Cache separately, each
+announced only when actually present. `SYNAPSE_DISABLE_PROMPT_INJECTION` (any value) disables it.
+See [synapse-graph.md](synapse-graph.md#what-every-prompt-is-told) for why this replaced an earlier
+per-prompt search.
 
 **`Stop` → `synapse-hook stop-nudge`**
 A turn-count-based nudge, firing every 25 turns, asking: *did anything in this stretch belong in

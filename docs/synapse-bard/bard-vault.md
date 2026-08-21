@@ -13,11 +13,10 @@ in use for everything else.
 
 [Synapse Vault](../synapse/synapse-vault.md) is a single, cross-project Obsidian instance reached over its
 Local REST API — durable exactly because it's *not* tied to any one repo. That design assumes the
-session running Claude Code can reach a REST API on the vault owner's own machine. The Writer's
-notes vault was originally specced the same way, and the assumption didn't survive contact: this
-tool's first real author runs Claude Code almost entirely through the Android app's default cloud
-session — an Anthropic-managed VM with no network route to anything on her own machine at all. An
-externally-hosted vault is exactly the one thing that execution mode can never reach.
+session running Claude Code can reach a REST API on the vault owner's own machine — a route
+`_bard/vault/`'s primary execution environment doesn't have: the Android app's default cloud
+session is an Anthropic-managed VM with no network route to anything on the author's own machine
+at all. An externally-hosted vault is exactly the one thing that execution mode can never reach.
 
 So `_bard/vault/` is a second `Store` implementation of the same port `_bard/graph/` already
 uses (`ports.Store` — `read`/`write`/`list`/`search`), backed by a plain directory instead of an
@@ -46,7 +45,7 @@ information from turn one. If no `Index.md` exists yet, the hook offers to seed 
 plugin's shipped `Index.md.template` rather than writing it unasked — the same "offer, don't
 seed" rule the coding side's `SessionStart` hook follows.
 
-Much simpler than [Synapse Vault's four hooks](../synapse/synapse-vault.md#the-three-hooks), and deliberately
+Much simpler than [Synapse Vault's four hooks](../synapse/synapse-vault.md#the-four-hooks), and deliberately
 so: `_bard/vault/` is always repo-relative, so there's no external `synapse.conf`/
 `OBSIDIAN_VAULT_DIR` to resolve, no cross-repo namespace to catalogue, no remote to verify before a
 write. There's also, as of this writing, no `Stop`-hook nudge, no per-prompt injection, and — the

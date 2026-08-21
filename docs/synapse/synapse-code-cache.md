@@ -146,12 +146,13 @@ the Graph, but real, with no Obsidian install as its price of entry.
 ## Vault-freedom, measured
 
 Counting vault references (`OBSIDIAN_VAULT_DIR`, the Local REST API, its cert/key) across the
-subcommands of `synapse`: 12 of 18 are vault-free outright — `namespace`, `build-index`,
-`build-lists`, `build-refs`, `callers`, `enumerate`, `gate`, `push-nodes`, `rank`, `vocab`, `tags`
-and `tags-cache`. The remaining six (`write-node`, `query`, `build-project-index`, `graph-clean`,
-`graph-wipe`, `index`) are mostly *path*-bound rather than *API*-bound: every write is a `PUT` of a
-file, replaceable by writing to disk, and `links` parses a node's own `## Links` section directly
-rather than asking Obsidian.
+subcommands of `synapse`: 14 of 21 are vault-free outright — `namespace`, `build-index`,
+`build-lists`, `build-refs`, `callers`, `enumerate`, `gate`, `push-nodes`, `rank`, `vocab`, `tags`,
+`tags-cache`, `link-graph`, and `brief`. The remaining seven (`write-node`, `query`,
+`build-project-index`, `graph-clean`, `graph-wipe`, `index`, `doctor`) are mostly *path*-bound
+rather than *API*-bound: every write is a `PUT` of a file, replaceable by writing to disk, `links`
+parses a node's own `## Links` section directly rather than asking Obsidian, and `doctor`'s only
+vault touch is checking whether one is configured and reachable, not reading or writing through it.
 
 The counting is easier than it was, and that is the point of the port rather than a side effect:
 this was fifteen shell scripts plus a compiled binary, so "is this piece vault-free" meant reading

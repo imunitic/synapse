@@ -178,9 +178,9 @@ re-running `sync` is just idempotent regeneration, not a triage problem.
 
 This stays deliberately deferred rather than ruled out forever: it would earn its place if a bulkier
 prose section (world-lore essays, planning documents) ever needed scoped summarization, but nothing
-in the corpus this shipped against crossed that line — checked directly rather than assumed (see
-the design note's own corpus sweep: ~118,600 words across *every* markdown file in the repo,
-nowhere close to where a flat `grep`/`Grep` becomes the bottleneck).
+in the corpus this shipped against crossed that line — checked directly rather than assumed:
+~118,600 words across *every* markdown file in the repo, nowhere close to where a flat
+`grep`/`Grep` becomes the bottleneck.
 
 Prose-body `[[wikilinks]]` inside entity files stay out of the graph entirely too, on purpose, not
 by oversight — a fresh corpus grep found entity files with real prose-body relationships that never

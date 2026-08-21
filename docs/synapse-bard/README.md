@@ -37,7 +37,7 @@ authoritative.
 - `diagrams/bard-graph-pipeline.png` — `sync`'s clustering and extraction pipeline, and what it
   deliberately has no equivalent of (staleness, crux, grounding).
 - `diagrams/bard-vault-overview.png` — the vault's one hook, contrasted directly against
-  [Synapse Vault's four](../synapse/synapse-vault.md#the-three-hooks).
+  [Synapse Vault's four](../synapse/synapse-vault.md#the-four-hooks).
 
 ## Why this is two stores, not one shared with Synapse's own Vault
 

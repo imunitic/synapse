@@ -32,8 +32,7 @@ Synapse ships as a real [Claude Code plugin](https://code.claude.com/docs/en/plu
 
 That's the whole install. Claude Code clones the plugin's small files (commands, skills, hook
 wiring) into its own plugin cache; the first hook that fires downloads the two compiled binaries
-(`synapse`, `synapse-hook`) straight from this repo's [GitHub
-Releases](https://github.com/imunitic/synapse/releases) into `~/.cache/synapse/bin/` and caches
+(`synapse`, `synapse-hook`) from this repo's `dist` branch into `~/.cache/synapse/bin/` and caches
 them there — nothing to rebuild until a new release ships. `zig build` is only for contributing to
 Synapse itself; see [Dependencies](#dependencies).
 
