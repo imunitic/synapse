@@ -42,6 +42,17 @@ hook="${1:-}"
 [ -n "$hook" ] || exit 0
 shift
 
+# sha256sum (Linux) or shasum -a 256 (macOS has no sha256sum by default) --
+# whichever's present, one or the other always is on the target platforms
+# this ships for.
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        shasum -a 256 "$1" | awk '{print $1}'
+    fi
+}
+
 cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/synapse-bard"
 bin_dir="$cache_dir/bin"
 bin_path="$bin_dir/synapse-bard-hook"
@@ -79,13 +90,24 @@ if [ ! -x "$bin_path" ] || [ "$stale" -eq 1 ]; then
         tmp="$(mktemp -d 2>/dev/null || true)"
         if [ -n "$tmp" ]; then
             trap 'rm -rf "$tmp"' EXIT
-            url="https://raw.githubusercontent.com/imunitic/synapse/dist/synapse-bard-$target.tar.gz"
+            archive="synapse-bard-$target.tar.gz"
+            url="https://raw.githubusercontent.com/imunitic/synapse/dist/$archive"
+            sums_url="https://raw.githubusercontent.com/imunitic/synapse/dist/SHA256SUMS"
             # Best-effort, not `|| exit 0`: a failed re-fetch of a *newer*
             # version must fall through to running the still-perfectly-good
             # binary already cached below, not exit silently and skip the
             # hook entirely for this turn.
-            if curl -fsSL -o "$tmp/synapse-bard.tar.gz" "$url" 2>/dev/null \
-                && tar -xzf "$tmp/synapse-bard.tar.gz" -C "$tmp" 2>/dev/null \
+            #
+            # SHA256SUMS is fetched fresh alongside the archive every time
+            # (not cached) and checked against it before extracting: this is
+            # the only thing standing between "raw.githubusercontent.com
+            # served bytes" and "these are the bytes release.yml actually
+            # published" -- a mismatch here is treated exactly like a failed
+            # curl, silently keeping the last-known-good cached binary.
+            if curl -fsSL -o "$tmp/$archive" "$url" 2>/dev/null \
+                && curl -fsSL -o "$tmp/SHA256SUMS" "$sums_url" 2>/dev/null \
+                && [ "$(awk -v f="$archive" '$2 == f { print $1 }' "$tmp/SHA256SUMS")" = "$(sha256_of "$tmp/$archive")" ] \
+                && tar -xzf "$tmp/$archive" -C "$tmp" 2>/dev/null \
                 && [ -x "$tmp/synapse-bard-hook" ]; then
                 mv "$tmp/synapse-bard" "$bin_dir/synapse-bard" 2>/dev/null || true
                 mv "$tmp/synapse-bard-hook" "$bin_path"

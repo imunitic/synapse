@@ -117,6 +117,7 @@ jobs:
             tar -C "$out/bin" -czf "synapse-$t.tar.gz" synapse synapse-hook
             tar -C "$out/bin" -czf "synapse-bard-$t.tar.gz" synapse-bard synapse-bard-hook
           done
+          sha256sum synapse-*.tar.gz > SHA256SUMS
 
       # A plain git tag, not a GitHub Release -- no changelog, no assets
       # attached, just the monotonic version marker `fetch-and-run.sh` reads
@@ -126,6 +127,12 @@ jobs:
           git tag "${{ steps.tag.outputs.tag }}"
           git push origin "${{ steps.tag.outputs.tag }}"
 
+      # SHA256SUMS travels alongside the tarballs on `dist` so each
+      # fetch-and-run.sh can verify what it downloaded before executing it --
+      # raw.githubusercontent.com is plain HTTP-over-TLS to GitHub's CDN, not
+      # a signed artifact channel, so TLS alone only proves the bytes came
+      # from GitHub, not that they're the bytes this workflow published.
+      #
       # No GitHub Release, no release assets -- binaries are published as
       # plain committed files on the `dist` branch instead (see below), which
       # `fetch-and-run.sh` reads through `raw.githubusercontent.com`. That
@@ -150,6 +157,7 @@ jobs:
           for t in "${targets[@]}"; do
             cp "synapse-$t.tar.gz" "synapse-bard-$t.tar.gz" "$publish_dir/"
           done
+          cp SHA256SUMS "$publish_dir/"
           cp ci/dist-readme.md "$publish_dir/README.md"
           cd "$publish_dir"
           git init -q -b dist

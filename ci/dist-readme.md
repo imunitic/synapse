@@ -8,7 +8,13 @@ This branch holds prebuilt binaries for the **latest release only**: no
 history, no older versions, one commit that replaces the last one.
 `synapse`/`synapse-hook` and `synapse-bard`/`synapse-bard-hook`, one
 `.tar.gz` per target platform (`x86_64-linux`, `aarch64-linux`,
-`aarch64-macos`).
+`aarch64-macos`), plus one `SHA256SUMS` covering all of them.
+
+Both plugins' `fetch-and-run.sh` fetch `SHA256SUMS` alongside their own
+tarball and verify it before extracting — `raw.githubusercontent.com` is
+plain HTTP-over-TLS to GitHub's CDN, not a signed artifact channel, so this
+is what actually confirms a downloaded tarball is the one this workflow
+published.
 
 ## Why this exists instead of GitHub Releases
 
