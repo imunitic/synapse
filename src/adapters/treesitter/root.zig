@@ -30,7 +30,7 @@ const Allocator = std.mem.Allocator;
 const Extractor = ports.Extractor;
 
 /// Which file backs an extension's tags. `tags`/`locals`/`generated` come
-/// from the registry's `"queries"` field (sb-012); `override` is never
+/// from the registry's `"queries"` field; `override` is never
 /// recorded there -- resolved fresh from `$SYNAPSE_GRAMMARS_QUERY_PATH` on
 /// every call and always wins, so callers check for it before `Readiness`.
 pub const QuerySource = enum { tags, locals, generated, override };
@@ -86,8 +86,9 @@ pub const Registry = struct {
         return .{ .ready = .{ .scope = scope.string, .source = queriesFieldFor(obj) } };
     }
 
-    /// The registry's `"queries"` field: `"tags"` (default, so pre-sb-012
-    /// entries need no migration), `"locals"`, or `"generated"`. Unrecognised
+    /// The registry's `"queries"` field: `"tags"` (default, so entries
+    /// written before this field existed need no migration), `"locals"`,
+    /// or `"generated"`. Unrecognised
     /// or wrong-typed falls back to `.tags` rather than refusing an entry
     /// whose `repo`/`scope` already passed validation.
     fn queriesFieldFor(obj: std.json.ObjectMap) QuerySource {

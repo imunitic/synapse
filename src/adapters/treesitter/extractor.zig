@@ -41,7 +41,7 @@ pub const TsBackend = struct {
         source: root.QuerySource,
         /// Bare extension, no leading dot -- for the override path below.
         ext: []const u8,
-        /// `$SYNAPSE_GRAMMARS_QUERY_PATH` (sb-012), or null. `{this}/{ext}.scm`,
+        /// `$SYNAPSE_GRAMMARS_QUERY_PATH`, or null. `{this}/{ext}.scm`,
         /// when present, wins over `source` entirely.
         query_override_dir: ?[]const u8,
         /// Passed straight to `Tagger.init`.
@@ -72,7 +72,7 @@ pub const TsBackend = struct {
 
         const lang = try grammar.load(gpa, lib_path, symbol);
 
-        // Override (sb-012): checked first, wins over every tier.
+        // Override: checked first, wins over every tier.
         // FileNotFound means no override; anything else propagates.
         if (query_override_dir) |dir| {
             const override_name = try std.fmt.allocPrint(gpa, "{s}.scm", .{ext});
@@ -94,20 +94,21 @@ pub const TsBackend = struct {
             }
         }
 
-        // Tier 3 (sb-012): query synthesized from node-types.json beside
+        // Tier 2: query synthesized from node-types.json beside
         // src/parser.c. Tagger owns `classification` from here on.
         if (source == .generated) {
             const node_types_path = try std.fs.path.join(gpa, &.{ src_root, "src", "node-types.json" });
             defer gpa.free(node_types_path);
             // `synapse-kind-synonyms.conf` is consulted during classification
-            // itself, not applied after the fact -- same rule list tier 2
-            // already reads, reused here keyed on the grammar's raw node
-            // *type name* (e.g. "ContainerDecl"/"subprogram_body") rather
-            // than a `local.definition.` suffix. A rule can relabel a type
-            // the suffix/prefix heuristic already caught, or force-classify
-            // one it missed entirely (`node_types.zig`'s own doc comment has
-            // the confirmed `subprogram_body` case this needed). Absent/empty
-            // (the default) means every lookup misses and classification is
+            // itself, not applied after the fact -- same rule list the
+            // locals.scm reading already applies, reused here keyed on the
+            // grammar's raw node *type name* (e.g. "ContainerDecl"/
+            // "subprogram_body") rather than a `local.definition.` suffix. A
+            // rule can relabel a type the suffix/prefix heuristic already
+            // caught, or force-classify one it missed entirely
+            // (`node_types.zig`'s own doc comment has the confirmed
+            // `subprogram_body` case this needed). Absent/empty (the
+            // default) means every lookup misses and classification is
             // unchanged from before this existed.
             var classification = try node_types.classify(gpa, io, node_types_path, kind_rules, scope);
             // Armed only up to the ownership transfer into `t.classification`
@@ -124,8 +125,9 @@ pub const TsBackend = struct {
             return t;
         }
 
-        // Tier 1/2 (sb-012): static file in the clone; tags.scm/locals.scm
-        // never move with a sub-grammar's `sub_path`.
+        // The tags.scm/locals.scm read path: static file in the
+        // clone; tags.scm/locals.scm never move with a sub-grammar's
+        // `sub_path`.
         const scm_filename = switch (source) {
             .tags => "tags.scm",
             .locals => "locals.scm",
@@ -164,12 +166,12 @@ pub fn Extractor(comptime Backend: type) type {
         registry: root.Registry,
         /// `$SYNAPSE_GRAMMARS_DIR`, default `~/.cache/synapse/grammars`.
         grammars_dir: []const u8,
-        /// Kind-synonym rules (sb-012), borrowed for as long as any
+        /// Kind-synonym rules, borrowed for as long as any
         /// `locals.scm`-built `Tagger` might consult them.
         kind_rules: core.kind_synonyms.RuleList,
         /// Bounds a wedged lock from a crashed holder, not the clone itself.
         lock_tries: usize = grammar.default_lock_tries,
-        /// `$SYNAPSE_GRAMMARS_QUERY_PATH` (sb-012); when set, `{this}/{ext}.scm`
+        /// `$SYNAPSE_GRAMMARS_QUERY_PATH`; when set, `{this}/{ext}.scm`
         /// is tried before every tier, for every extension.
         query_override_dir: ?[]const u8 = null,
 

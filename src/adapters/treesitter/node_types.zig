@@ -1,4 +1,4 @@
-//! Tier 3 (sb-012): guessing which node types in a grammar's own
+//! Tier 2: guessing which node types in a grammar's own
 //! `node-types.json` are declaration-shaped, and which field holds the name
 //! -- a heuristic classifier (Graft's generic-tier shape: a suffix/prefix
 //! test on the type name, a literal `name` field for the identifier), not a
@@ -11,7 +11,7 @@
 //! names a full function-with-implementation but has no `_declaration`/
 //! `_definition`/`decl`/`def` suffix at all -- a relabel-only override could
 //! never rescue it, since it never became a `Guess` to relabel). The other
-//! half of tier 3, the bounded tree-walk for a type with no `name` field,
+//! half of tier 2, the bounded tree-walk for a type with no `name` field,
 //! needs a real parsed tree and lives in `tagger.zig`.
 
 const std = @import("std");
@@ -48,7 +48,7 @@ pub const Classification = struct {
 /// `{grammar}/src/node-types.json`, classified. `error.FileNotFound`
 /// propagates rather than opening empty the way `core.namespace.Registry`/
 /// `core.kind_synonyms.RuleList` do for an absent user config -- a missing
-/// `node-types.json` means tier 3 has no schema to guess from at all.
+/// `node-types.json` means tier 2 has no schema to guess from at all.
 pub fn classify(
     gpa: Allocator,
     io: Io,

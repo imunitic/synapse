@@ -38,7 +38,7 @@ pub const Error = error{
 pub const Tagger = struct {
     query: *c.TSQuery,
     parser: *c.TSParser,
-    /// Which convention `scm` follows (sb-012): tags.scm's `@name` + sibling
+    /// Which convention `scm` follows: tags.scm's `@name` + sibling
     /// `@definition`/`@reference`, or locals.scm's single
     /// `@local.definition.<kind>` capture as both name and role.
     query_source: root.QuerySource,
@@ -48,7 +48,7 @@ pub const Tagger = struct {
     /// This grammar's tree-sitter scope (e.g. `source.ocaml`), for a scoped
     /// kind-synonym rule. Unused outside the locals.scm reading.
     grammar_scope: []const u8,
-    /// Tier 3's node-types.json guesses, owned by this `Tagger` (unlike
+    /// Tier 2's node-types.json guesses, owned by this `Tagger` (unlike
     /// `kind_rules`, which is global). `query` already covers every
     /// `has_name_field` guess; `tagFileWalk` reads the rest. Null except
     /// for `.generated`.
@@ -386,7 +386,7 @@ pub const Tagger = struct {
         return out.toOwnedSlice(gpa);
     }
 
-    /// Tier 3: `tagFileTags` (query path) plus the bounded walk
+    /// Tier 2: `tagFileTags` (query path) plus the bounded walk
     /// (declaration-shaped types with no name field), combined.
     fn tagFileGenerated(self: *Tagger, gpa: Allocator, source: []const u8) ![]Tagged {
         const from_query = try self.tagFileTags(gpa, source);
@@ -694,7 +694,7 @@ test "lineAt copes with a file that has no trailing newline" {
     try testing.expectEqualStrings("only line", lineAt(src, 4));
 }
 
-/// A tiny real grammar (sb-013, generated once with `tree-sitter generate`,
+/// A tiny real grammar (generated once with `tree-sitter generate`,
 /// checked in under `testdata/fake3_grammar`) -- `synapse-fake` can't stand
 /// in here since it never builds a real `Tagger`/`TSLanguage`.
 /// `function_declaration` has a `name` field (query path); `struct_item`
