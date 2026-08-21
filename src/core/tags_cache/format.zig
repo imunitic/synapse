@@ -48,7 +48,7 @@ const Allocator = std.mem.Allocator;
 /// aligns and `head -c 8` shows the name intact.
 pub const magic: [8]u8 = "SYNTAGS\x00".*;
 
-/// Bumped for sb-026: the payload region's own content changed shape (a
+/// Bumped when the payload region's own content changed shape (a
 /// `tags_cache/payload.zig`-encoded record list, not `renderCliLine`'s
 /// rendered text), so a cache written by version 1 must not be read as
 /// version 2's bytes -- a stale-but-structurally-valid-looking payload would

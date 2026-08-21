@@ -9,8 +9,9 @@
 //!   links    <node> [--inbound|--closure] / links --check
 //!   symbol   <name> <node>             exact-name def/ref hits in the node's sources
 //!
-//! `callers` is not here -- it needs no graph, so the script execs
-//! `synapse-callers.sh` directly. Tranche C ports it.
+//! `callers` is not here -- it needs no graph, so it's its own top-level
+//! subcommand (`synapse callers`, in `refs_cmd.zig`) rather than one of
+//! these eight.
 //!
 //! stdout/exit codes/stderr are frozen to match the script exactly (73 tests
 //! across `tests/synapse-query.bats` plus drift/links/grounding pin it).

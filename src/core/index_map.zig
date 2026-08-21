@@ -1,10 +1,11 @@
 //! The reverse index: which nodes claim a source path, and which paths no
 //! node claims.
 //!
-//! Storage is `index_map/format.zig`, not JSON -- `_index.json` was 26 MB
-//! for syrius3, read by `jq`, and sat in the vault behind an HTTP PUT
-//! despite being derived and gitignored. This layer maps the file to read,
-//! and groups unordered `(path, node)` pairs into one to write: the format
+//! Storage is `index_map/format.zig`, not JSON -- `_index.json` grew to
+//! 26 MB on a real large repo, read by `jq`, and sat in the vault behind
+//! an HTTP PUT despite being derived and gitignored. This layer maps the
+//! file to read, and groups unordered `(path, node)` pairs into one to
+//! write: the format
 //! demands strictly-ascending paths and node lists, which the emitting
 //! shell pipeline does not guarantee, so grouping belongs here, with tests.
 

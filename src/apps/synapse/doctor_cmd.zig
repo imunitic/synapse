@@ -152,7 +152,7 @@ fn dependencies(ctx: *Ctx) !void {
 /// returning null, which every hook/command treats as silent "no vault".
 fn vaultChecks(ctx: *Ctx) !?[]const u8 {
     // Tiered, like vaultDir() just below it -- this used to hardcode
-    // ~/.claude/{name} directly, predating resolveConfPath (sb-017), so it
+    // ~/.claude/{name} directly, predating resolveConfPath, so it
     // reported a false FAIL for anyone whose synapse.conf resolves at tier
     // 1 (XDG) or tier 3 (a plugin-bundled template) instead of tier 2.
     var found: ?[]const u8 = null;
@@ -440,7 +440,7 @@ fn grammarLockChecks(ctx: *Ctx) !void {
 /// The installed version directory under the plugin cache, if `claude plugin
 /// install synapse@synapse` has actually succeeded -- keyed by the
 /// marketplace/plugin names this repo's own `marketplace.json` declares
-/// (verified directly against a real install, sb-019), not guessed. A plugin
+/// (verified directly against a real install), not guessed. A plugin
 /// install never populates `~/.claude/bin/synapse-hook` or merges hooks into
 /// `settings.json` -- `hooks.json` is loaded straight from this cache
 /// instead -- so `hookChecks` below must tell the two install shapes apart

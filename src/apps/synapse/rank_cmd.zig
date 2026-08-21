@@ -16,7 +16,7 @@
 //! carries little meaning alone), matching names against a module-bucketed
 //! file list -- unrelated to the tags cache.
 //!
-//! `--lists` (sb-011 stage 1) computes both pools for every `NN.txt` node in
+//! `--lists` computes both pools for every `NN.txt` node in
 //! a directory in one repo pass, writing `{out}/rank/NN.{summary,crux}.tsv`
 //! instead of stdout -- the module bucketing `dsl` needs doesn't depend on
 //! which node is ranked, so `--sources` invoked once per node pays for it N

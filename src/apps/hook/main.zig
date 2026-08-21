@@ -16,9 +16,8 @@
 //! `main` catches too: an unexpected failure is still a hook failing in
 //! front of someone.
 //!
-//! Identity still arrives from a thin bash wrapper (`synapse-identity.sh`
-//! isn't ported yet), which resolves the namespace and exports it; the
-//! wrappers collapse once identity lands.
+//! Identity resolves in-process via `core.identity.resolve()` -- no
+//! external wrapper script.
 
 const std = @import("std");
 const staleness = @import("staleness.zig");

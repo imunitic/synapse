@@ -1,5 +1,5 @@
 //! The kind-synonym rule list: `locals.scm`'s `@local.definition.<kind>`
-//! capture suffix, normalized onto `Tag.kind` -- sb-012, tier 2's own step.
+//! capture suffix, normalized onto `Tag.kind`.
 //! `tags.scm` converges on one shared kind vocabulary across grammars;
 //! `locals.scm` was written for a different consumer (nvim-treesitter's
 //! scope tracking), so its kind spellings are whatever the grammar author

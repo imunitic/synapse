@@ -1,5 +1,5 @@
 //! Per-file declared namespace, and the directory-level divergence table it
-//! feeds -- synapse-001 (precompute before inference), step 6.
+//! feeds, computed before any inference step reads it.
 //!
 //! A file's declared namespace is what its own ecosystem says (a Java
 //! `package`, a Rust crate `name`, a Go `module`); the directory holding it

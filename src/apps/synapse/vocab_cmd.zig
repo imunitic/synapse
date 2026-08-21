@@ -15,7 +15,7 @@
 //! Prints groups / files / code files / pairs on stderr, so a repo that
 //! yielded no vocabulary is a number, not an unnoticed empty file.
 //!
-//! `distinctive.tsv` (synapse-001 step 8) scores each group's top terms via
+//! `distinctive.tsv` scores each group's top terms via
 //! `core.gate.judgeDistinctiveness`'s saturation curve
 //! (`distinctiveness = D / (D + df)`, `D = max(2, N/K)`) -- deliberately a
 //! different function from `synapse gate`'s own calibrated cliff, so this
@@ -23,7 +23,7 @@
 //! `--distinctive-top`/`--distinctive-k` default to 8/20, matching `judge`'s
 //! own `--top`.
 //!
-//! `parseable.tsv` (synapse-001 step 7) is `code.items`' membership per
+//! `parseable.tsv` is `code.items`' membership per
 //! group, so `synapse gate --parseable` can tell "owns no vocabulary" apart
 //! from "nothing in the cluster has a grammar" -- both are zero rare terms
 //! otherwise. See `core/gate.zig`.
@@ -865,7 +865,7 @@ fn writeGroupTable(
 
 /// `group <TAB> namespace <TAB> agree <TAB> total`, group ascending. One row
 /// per group with at least one declared namespace: the namespace most files
-/// declared, how many agreed, how many counted (synapse-001 step 6). Runs
+/// declared, how many agreed, how many counted. Runs
 /// over `kept`, not the code subset -- a Rust crate declares its namespace
 /// in `Cargo.toml`, untagged by any grammar.
 fn writeNamespaceDivergence(
@@ -1382,7 +1382,7 @@ test "vocab: a mixed group reports the real share, not all-or-nothing" {
 }
 
 test "vocab: distinctive.tsv reports every group, including one scoring entirely zero" {
-    // synapse-001, step 8. A word shared by every group is common, not
+    // A word shared by every group is common, not
     // distinctive, and the group still gets a row -- 0 is a computed
     // answer, not the absence of one.
     const gpa = testing.allocator;
@@ -1608,7 +1608,7 @@ test "vocab: --lists keys vocabulary by node title, cutting across directories" 
 }
 
 test "vocab: the --lists run against an already-warm cache tags nothing at all" {
-    // synapse-001, step 3: /synapse-init runs plain vocab first (directory-
+    // /synapse-init runs plain vocab first (directory-
     // keyed) then vocab --lists (cluster-keyed) against the same files.
     // Once the first call warms the cache for the whole code subset, the
     // second call's list-narrowed slice should already be entirely
@@ -1811,7 +1811,7 @@ test "vocab: a file outside the code subset is not added to the tags cache" {
 }
 
 test "vocab: a second run against an unchanged repo tags nothing" {
-    // synapse-001, step 2: the directory-keyed reduction comes from the
+    // The directory-keyed reduction comes from the
     // cache, not from re-tagging. A repeat run with nothing changed should
     // reach the extractor for zero files.
     const gpa = testing.allocator;
@@ -1864,7 +1864,7 @@ test "vocab: only a changed file is re-tagged on a second run, the rest come fro
 
 // --- namespaces.tsv: does the code's own name match the directory holding it ---
 //
-// synapse-001, step 6. Rules live in `$HOME/.claude/synapse-namespace-rules.conf`,
+// Rules live in `$HOME/.claude/synapse-namespace-rules.conf`,
 // same discovery contract as the grammar registry: absent means nothing
 // configured yet, not an error.
 

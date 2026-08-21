@@ -1,5 +1,5 @@
 //! `synapse link-graph` -- the node-to-node link graph, computed before any
-//! prose is written (synapse-001 step 9). Rule in `core/links.zig`; this is
+//! prose is written. Rule in `core/links.zig`; this is
 //! the file-in/file-out wrapper.
 //!
 //!   link-graph --refs <_refs.tsv> --lists <dir> [--top N] [--out <dir>]

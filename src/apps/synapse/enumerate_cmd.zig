@@ -1,4 +1,4 @@
-//! `synapse enumerate` -- the work half of `claude/lib/synapse/synapse-enumerate.sh`.
+//! `synapse enumerate` -- tracked files worth graphing, into the work dir.
 //!
 //!   enumerate [--reenumerate]   tracked files worth graphing, into the work dir
 //!
@@ -6,9 +6,9 @@
 //! `oversize.txt` (`size<TAB>path`). An existing non-empty `all.txt` is
 //! reused unless `--reenumerate` forces a rebuild.
 //!
-//! The script stays in front for identity resolution (`synapse-identity.sh`,
-//! still bash); the work dir arrives via `SYNAPSE_WORK_DIR`, and its absence
-//! is an error, not a guess.
+//! Identity resolves in-process via `core.identity.resolve()`; the work
+//! dir arrives via `SYNAPSE_WORK_DIR`, and its absence is an error, not a
+//! guess.
 //!
 //! Measured on syrius3: bash spent 15.9s / 65 spawns (45 of them `sed`, one
 //! per conf line) enumerating 124,817 of 125,351 tracked files; this is one

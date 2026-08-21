@@ -117,7 +117,7 @@ fn maybePush(gpa: Allocator, io: Io, env: *std.process.Environ.Map, total: usize
     };
     if (every == 0 or total % every != 0) return;
 
-    // `argv[0]`, threaded from `main`, not `$SYNAPSE_HOOK_BIN` (sb-013):
+    // `argv[0]`, threaded from `main`, not `$SYNAPSE_HOOK_BIN`:
     // settings.json's hook entry never sets that variable, so reading it
     // made the push silently a no-op on every real install. `argv[0]` is
     // guaranteed to already be this process's own invoked path.

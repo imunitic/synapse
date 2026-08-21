@@ -1,6 +1,5 @@
-//! `synapse brief` -- one self-contained data file per node (sb-011 stage 3's
-//! precondition), bundling everything a concurrent author needs except the
-//! prose itself: [[sb — Parallel node authoring]].
+//! `synapse brief` -- one self-contained data file per node, bundling
+//! everything a concurrent author needs except the prose itself.
 //!
 //!   brief --lists <dir> [--rank <dir>] [--links <file>] [--repo <path>] [--out <dir>]
 //!
@@ -532,9 +531,8 @@ test "brief: a --repo that is not a git repo is an error, not an empty root in a
     try bf.commit();
     // Not a subdirectory of the fixture's own tmp root: that root sits
     // inside this very project's real git repo, so `git rev-parse
-    // --show-toplevel` would walk up and resolve to it instead of failing
-    // -- confirmed live. `/tmp` itself is the one directory this session
-    // has already established is reliably outside any git repo.
+    // --show-toplevel` would walk up and resolve to it instead of failing.
+    // `/tmp` itself is reliably outside any git repo.
     try testing.expectEqual(@as(u8, 1), try bf.run(.{ .repo = "/tmp" }));
     try testing.expect((try bf.readBrief(gpa, "01")) == null);
 }

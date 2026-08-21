@@ -1,5 +1,4 @@
-//! The node-to-node link graph, computed before any prose exists --
-//! synapse-001 (precompute before inference), step 9.
+//! The node-to-node link graph, computed before any prose exists.
 //!
 //! A node's `## Links` section is typed relations, not prose. Two of the
 //! three types are reference relations the Code Cache already holds, and

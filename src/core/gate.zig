@@ -22,7 +22,7 @@
 //! means something different at each scale, and feeding the wrong table in
 //! is what made the threshold look unstable.
 //!
-//! `unparseable` (synapse-001, step 7): a cluster can show zero rare terms
+//! `unparseable`: a cluster can show zero rare terms
 //! because it owns no distinctive vocabulary, or because it produced no
 //! vocabulary at all (every file unparseable) -- previously indistinguishable.
 //! Given each cluster's parseable share (`synapse vocab`'s `parseable.tsv`),
@@ -449,7 +449,7 @@ test "the line shape is the same for flagged and ok rows" {
 }
 
 // --- distinctivenessScore / judgeDistinctiveness ----------------------------
-// synapse-001, addendum: the saturation curve replacing the cliff.
+// The saturation curve replacing the cliff.
 
 test "distinctivenessScore reproduces the addendum's own worked table" {
     // 500 groups, K = 20: D = max(2, 500/20) = 25.

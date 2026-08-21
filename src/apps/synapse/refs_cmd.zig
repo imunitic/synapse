@@ -477,8 +477,7 @@ test "build-refs: output is LC_ALL=C sorted" {
 test "build-refs: a tab inside the expression survives intact, no longer truncated" {
     // The old rendered-text storage format used tabs as its own field
     // delimiters, so an embedded tab in the expression silently truncated
-    // it on the way back out. The structured payload has no such limit --
-    // this is the exact bug sb-026 exists to fix.
+    // it on the way back out. The structured payload has no such limit.
     const gpa = testing.allocator;
     var fx = try CacheFixture.init(gpa);
     defer fx.deinit();
