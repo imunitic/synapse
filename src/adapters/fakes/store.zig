@@ -24,7 +24,7 @@ pub const FakeStore = struct {
         self.nodes.deinit(self.gpa);
     }
 
-    /// The wrapper idiom (sb-024): `Store.from` generates the `*anyopaque`
+    /// The wrapper idiom: `Store.from` generates the `*anyopaque`
     /// cast from `FakeStore` alone, so it can never disagree with `.ptr`
     /// the way a hand-written vtable literal could.
     pub fn port(self: *FakeStore) Store {

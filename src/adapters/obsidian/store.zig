@@ -1,6 +1,6 @@
 //! The Obsidian Local REST API's write side: `write` is a `PUT` on
 //! `/vault/{path}`, called by `write-node`/`build-project-index` through
-//! `ports.Store` (sb-024's wrapper idiom -- `.store()` is `Store.from`,
+//! `ports.Store` (the wrapper idiom -- `.store()` is `Store.from`,
 //! same as every other real implementation). Vault *reads*, by contrast,
 //! happen through the `obsidian` MCP server directly -- the agent reading
 //! vault content has no reason to go through the compiled binary at all,
@@ -80,7 +80,7 @@ pub const ObsidianStore = struct {
         return std.fmt.allocPrint(gpa, "{s}/vault/{s}", .{ self.base, encoded });
     }
 
-    /// The wrapper idiom (sb-024): `Store.from` generates the `*anyopaque`
+    /// The wrapper idiom: `Store.from` generates the `*anyopaque`
     /// cast from `ObsidianStore` alone, so it can never disagree with
     /// `.ptr` the way a hand-written vtable literal could.
     pub fn store(self: *ObsidianStore) Store {

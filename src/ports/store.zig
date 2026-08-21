@@ -87,15 +87,14 @@ pub const Store = struct {
 
     /// Builds a `Store` from any concrete `T` exposing `read`/`write`/`list`/
     /// `search` with this same shape, self-first (otherwise identical to
-    /// `VTable`'s own signatures) -- the wrapper idiom (sb-024): the
+    /// `VTable`'s own signatures) -- the wrapper idiom: the
     /// compiler generates the one `*anyopaque` -> `*T` cast, from `T` alone,
     /// so `.ptr` and the vtable's function pointers can never be built from
     /// two different concrete types the way a hand-written `.store()`
-    /// literal could (the exact mismatch `vtable_break.zig` demonstrated).
-    /// Every real implementation (`BardGraphStore`, `BardVaultStore`,
-    /// `ObsidianStore`, `FakeStore`) gets its own `.store()` for free by
-    /// calling this once with its own type -- no hand-written vtable
-    /// anywhere.
+    /// literal could. Every real implementation (`BardGraphStore`,
+    /// `BardVaultStore`, `ObsidianStore`, `FakeStore`) gets its own
+    /// `.store()` for free by calling this once with its own type -- no
+    /// hand-written vtable anywhere.
     pub fn from(comptime T: type, self: *T) Store {
         const Impl = struct {
             fn read(ptr: *anyopaque, gpa: std.mem.Allocator, io: std.Io, node: []const u8) anyerror!?[]u8 {

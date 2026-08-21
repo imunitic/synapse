@@ -46,7 +46,7 @@ pub const Extractor = struct {
     }
 
     /// Builds an `Extractor` from any concrete `T` exposing `extract` with
-    /// this same shape, self-first -- the wrapper idiom (sb-024), same
+    /// this same shape, self-first -- the wrapper idiom, same
     /// reasoning as `Store.from`: the compiler generates the one
     /// `*anyopaque` -> `*T` cast, from `T` alone, so it can never disagree
     /// with `.ptr` the way a hand-written `.port()` literal could.
