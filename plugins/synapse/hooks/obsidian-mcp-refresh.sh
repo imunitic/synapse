@@ -69,7 +69,7 @@ fi
 
 SETTINGS="$HOME/.claude/settings.json"
 [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
-TMP="$(mktemp)"
+TMP="$(mktemp "${TMPDIR:-/tmp}/obsidian-mcp-refresh.XXXXXX")"
 jq --arg cert "$CERT_PATH" '.env = (.env // {}) | .env.NODE_EXTRA_CA_CERTS = $cert' "$SETTINGS" > "$TMP" && mv "$TMP" "$SETTINGS"
 
 # Registering means removing first -- `claude mcp add` will not overwrite an

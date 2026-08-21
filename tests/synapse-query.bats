@@ -1,22 +1,24 @@
 #!/usr/bin/env bats
-# Tests claude/lib/synapse/synapse-query.sh. The `stale` subcommand is the Tier 2 batch
-# staleness verification that used to live in synapse-verify.sh.
-# The Obsidian Local REST API is stubbed by tests/fixtures/fake-bin/curl,
-# which serves and writes real files under $FAKE_CURL_VAULT_DIR -- so these
-# tests exercise the script's actual digest arithmetic against real git
-# objects, not a mock of it.
+# Tests `synapse query`'s remaining process-level concerns. The Obsidian
+# Local REST API is stubbed by tests/fixtures/fake-bin/curl, which serves
+# and writes real files under $FAKE_CURL_VAULT_DIR -- so these tests
+# exercise real digest arithmetic against real git objects, not a mock of
+# it.
 #
 # The expected digest is computed independently in python rather than by
-# reusing the script's own formula, so a change to either implementation
+# reusing the binary's own formula, so a change to either implementation
 # fails the test instead of silently agreeing with itself.
 #
 # `stale`'s own detection logic (unchanged/changed/deleted/missing-digest/
 # node-missing) moved to native coverage -- `src/apps/synapse/query_cmd.zig`'s
 # own `test` blocks, calling `cmdStale` directly against a fixture vault and
 # a real `_index.bin` built through `core.index_map.build`. What's left here
-# are the three genuinely process-level cases: the shared remote-mismatch/
-# no-namespace preamble every `query` subcommand gates on, and running
-# outside a git repo entirely.
+# is the shared remote-mismatch/no-namespace preamble every `query`
+# subcommand gates on (kept once here as the canonical version -- the same
+# check is exercised again, for a different subcommand, in
+# synapse-drift.bats's branch-switch scenario), the top-level dispatcher's
+# own unknown-subcommand handling, and a static audit unrelated to `query`
+# itself but with no better home.
 
 load 'test_helper'
 
@@ -43,7 +45,7 @@ run_query() {
 run_stale() { run_query stale; }
 
 # sha256 over the LC_ALL=C sorted "path:hash" lines, newline-joined, no
-# trailing newline -- computed independently of the script under test.
+# trailing newline -- computed independently of the binary under test.
 expected_digest() {
   python3 - "$REPO" "$@" <<'PY'
 import hashlib, subprocess, sys
@@ -56,8 +58,7 @@ PY
 }
 
 # The index the query reads, built through the shipped writer. Every path here
-# maps to one node, which is what these tests need; a path with two claimants is
-# synapse-build-index.bats's case.
+# maps to one node, which is what these tests need.
 write_node_index() { # write_node_index <node.md> <path>...
   local node="$1" p; shift
   for p in "$@"; do printf '%s\t%s\n' "$p" "$node"; done \
@@ -81,13 +82,6 @@ write_node_index() { # write_node_index <node.md> <path>...
   # Exit 1 already means "could not run", but a mute exit 1 is indistinguishable
   # from a broken install; naming the branch that has no graph is the difference.
   [[ "$output" == *"no namespace covers"* ]]
-}
-
-@test "stale: not inside a git repo: exits 1" {
-  mkdir -p "$TEST_HOME/plain"
-  run bash -c 'cd "$1" && PATH="$2:$PATH" FAKE_CURL_LOG="$3" FAKE_CURL_VAULT_DIR="$4" exec "$5" "$6" stale' \
-    _ "$TEST_HOME/plain" "$FAKE_BIN" "$CURL_LOG" "$VAULT" "$SYNAPSE_BIN" query
-  [ "$status" -eq 1 ]
 }
 
 # --- body / sources / field ------------------------------------------------
@@ -133,16 +127,6 @@ write_fenced_node() {
   } > "$VAULT/synapse/$(repo_name)/$node"
 }
 
-@test "field --file: a missing path or key is a usage error" {
-  mkdir -p "$REPO"
-  printf -- '---\nsummary: "x"\n---\n' > "$REPO/b-01.md"
-
-  run run_query field --file
-  [ "$status" -eq 2 ]
-  run run_query field --file b-01.md
-  [ "$status" -eq 2 ]
-}
-
 @test "unknown subcommand and no subcommand both exit 2" {
   make_repo
   run run_query bogus
@@ -151,41 +135,28 @@ write_fenced_node() {
   [ "$status" -eq 2 ]
 }
 
-# --- temp-dir handling -----------------------------------------------------
+# --- static audits ----------------------------------------------------------
 
-@test "an unusable TMPDIR is not fatal, because nothing needs a temp dir" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_fenced_node "Foo Node.md" "src/foo.ml"
-  printf 'src/foo.ml\tFoo Node.md\n' | write_index_bin "$(default_work_dir)"
-
-  # This used to assert the opposite, and the inversion is the point. The script
-  # ran without `set -e` -- its exit codes are answers, not failures -- so a
-  # failed `mktemp -d` left $WORK empty and every path under it resolving against
-  # `/`; the guarantee then was that it died instead. `synapse query` writes no
-  # intermediate files at all, so there is no temp dir to fail and the whole class
-  # of failure is gone rather than handled.
-  run env TMPDIR="$TEST_HOME/definitely-not-here" \
-    PATH="$FAKE_BIN:$PATH" FAKE_CURL_LOG="$CURL_LOG" FAKE_CURL_VAULT_DIR="$VAULT" \
-    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" query stale
-  [ "$status" -eq 0 ]
-  [ -z "$output" ]
-}
-
-@test "every mktemp in the shipped scripts passes an explicit template" {
+@test "every mktemp in the shipped hooks passes an explicit template" {
   # macOS `mktemp`/`mktemp -d` ignore TMPDIR unless given a template, so a bare
   # call writes to the system temp dir whatever the caller asked for. Checked
-  # statically because the resulting failure is environment-dependent: it passes
-  # on Linux and on any macOS where the system temp dir happens to be writable.
-  # Hooks and lib/synapse as well as bin: the first version of this check
-  # globbed only claude/bin and missed a bare mktemp in synapse-staleness.sh
-  # for exactly that reason -- the plumbing scripts live in claude/lib/synapse/
-  # now, and claude/bin/ holds only the synapse.sh porcelain, so both need
-  # covering for the same reason the hooks did.
-  run grep -nE 'mktemp( -d)?[[:space:]]*(\)|\||$)' \
-    "$REPO_ROOT"/plugins/synapse/bin/*.sh "$REPO_ROOT"/plugins/synapse/lib/synapse/*.sh "$REPO_ROOT"/plugins/synapse/hooks/*.sh
-  if [ "$status" -eq 0 ]; then
-    echo "bare mktemp (no template) found:"
+  # statically because the resulting failure is environment-dependent: it
+  # passes on Linux and on any macOS where the system temp dir happens to be
+  # writable.
+  #
+  # Only plugins/synapse/hooks/*.sh still exists -- the bin/ and lib/synapse/
+  # shell scripts this once also globbed were ported to Zig and deleted.
+  # Globbing a since-deleted directory doesn't fail this test the way it
+  # should: bash passes the literal unexpanded pattern to grep, which then
+  # exits 2 (error) rather than 0 or 1, and the check below only ever fired
+  # on exit 0 -- so a real bare `mktemp` in a shipped hook (confirmed live:
+  # obsidian-mcp-refresh.sh) passed silently for as long as those two dead
+  # globs sat alongside a real one. Restricted to the one path that still
+  # exists, and the status check now treats "grep errored" the same as
+  # "grep found something" rather than only the latter.
+  run grep -nE 'mktemp( -d)?[[:space:]]*(\)|\||$)' "$REPO_ROOT"/plugins/synapse/hooks/*.sh
+  if [ "$status" -ne 1 ]; then
+    echo "bare mktemp (no template), or the audit itself is broken -- grep exit $status:"
     echo "$output"
     false
   fi
