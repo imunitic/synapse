@@ -72,13 +72,11 @@ pub fn run(
 
 
     if (std.mem.eql(u8, first, "--list-extensions")) {
-        const exts = try registry.usableExtensions(gpa);
-        defer gpa.free(exts);
         var buf: [8192]u8 = undefined;
         var out = Io.File.stdout().writer(io, &buf);
-        for (exts) |e| try out.interface.print("{s}\n", .{e});
+        const code = try listExtensions(gpa, registry, &out.interface);
         try out.interface.flush();
-        return 0;
+        return code;
     }
 
     const grammars_dir = if (env.get("SYNAPSE_GRAMMARS_DIR")) |d|
@@ -103,14 +101,26 @@ pub fn run(
         ex.lock_tries = std.fmt.parseInt(usize, t, 10) catch treesitter.grammar.default_lock_tries;
     ex.query_override_dir = env.get("SYNAPSE_GRAMMARS_QUERY_PATH");
 
-    if (std.mem.eql(u8, first, "--paths")) {
-        const list_file = args.next() orelse return 1;
-        return batch(Ex, gpa, io, &ex, list_file, trace);
-    }
-    return single(Ex, gpa, io, &ex, registry, first, trace);
+    var buf: [256 * 1024]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &buf);
+    const code = if (std.mem.eql(u8, first, "--paths")) code: {
+        const list_file = args.next() orelse break :code 1;
+        break :code try batch(Ex, gpa, io, &ex, list_file, trace, &out.interface);
+    } else try single(Ex, gpa, io, &ex, registry, first, trace, &out.interface);
+    try out.interface.flush();
+    return code;
 }
 
-fn single(
+/// The registry's usable extensions, one per line, sorted -- the allowlist
+/// `vocab`/`rank` pre-filter tagging with.
+pub fn listExtensions(gpa: Allocator, registry: treesitter.Registry, result: *Io.Writer) !u8 {
+    const exts = try registry.usableExtensions(gpa);
+    defer gpa.free(exts);
+    for (exts) |e| try result.print("{s}\n", .{e});
+    return 0;
+}
+
+pub fn single(
     comptime Ex: type,
     gpa: Allocator,
     io: Io,
@@ -118,6 +128,7 @@ fn single(
     registry: treesitter.Registry,
     path: []const u8,
     trace: Trace,
+    result: *Io.Writer,
 ) !u8 {
     Io.Dir.cwd().access(io, path, .{}) catch return 1;
 
@@ -140,22 +151,20 @@ fn single(
         .unsupported => return 1,
         .tagged => |tagged| {
             defer treesitter.tagger.freeTagged(gpa, tagged);
-            var buf: [64 * 1024]u8 = undefined;
-            var out = Io.File.stdout().writer(io, &buf);
-            for (tagged) |t| try render(&out.interface, t.tag, t.span);
-            try out.interface.flush();
+            for (tagged) |t| try render(result, t.tag, t.span);
             return 0;
         },
     }
 }
 
-fn batch(
+pub fn batch(
     comptime Ex: type,
     gpa: Allocator,
     io: Io,
     ex: *Ex,
     list_file: []const u8,
     trace: Trace,
+    result: *Io.Writer,
 ) !u8 {
     const listing = Io.Dir.cwd().readFileAlloc(io, list_file, gpa, .limited(64 << 20)) catch return 1;
     defer gpa.free(listing);
@@ -183,8 +192,6 @@ fn batch(
     };
     if (usable == 0) return 1; // beats an empty success reading as "no symbols"
 
-    var buf: [256 * 1024]u8 = undefined;
-    var out = Io.File.stdout().writer(io, &buf);
     for (paths.items, results) |path, r| {
         // Unparseable: absent entirely. Parsed to nothing: still gets its
         // path line. The `unsupported` distinction rests on that.
@@ -192,13 +199,12 @@ fn batch(
             .unsupported => continue,
             .tagged => |t| t,
         };
-        try out.interface.print("{s}\n", .{path});
+        try result.print("{s}\n", .{path});
         for (tagged) |t| {
-            try out.interface.writeAll("\t");
-            try render(&out.interface, t.tag, t.span);
+            try result.writeAll("\t");
+            try render(result, t.tag, t.span);
         }
     }
-    try out.interface.flush();
     return 0;
 }
 
@@ -220,4 +226,383 @@ fn writeTrace(io: Io, trace: Trace, paths: []const []const u8) !void {
     try w.interface.writeAll("\n");
     for (paths) |p| try w.interface.print("path {s}\n", .{p});
     try w.interface.flush();
+}
+
+const testing = std.testing;
+const fixture = @import("cmd_test_support.zig");
+const fake_grammar = @import("fake_grammar.zig");
+
+/// A real registry plus extractor, built the same way `run()` builds them
+/// after its own arg-parsing -- for calling `single`/`batch`/`listExtensions`
+/// directly. `git clone` (real, for any never-before-cloned extension) is
+/// intercepted by `tests/fixtures/fake-bin/git`'s own `clone`-only stub,
+/// already on the fixture's `PATH`; `FakeBackend` stubs only compile-and-load.
+const TagsFixture = struct {
+    fx: fixture.Fixture,
+
+    fn init(gpa: Allocator) !TagsFixture {
+        var fx = try fixture.Fixture.init(gpa);
+        errdefer fx.deinit();
+        try fx.tmp.dir.createDirPath(testing.io, "home/.claude");
+        return .{ .fx = fx };
+    }
+
+    fn deinit(self: *TagsFixture) void {
+        self.fx.deinit();
+    }
+
+    fn writeRegistry(self: *TagsFixture, json: []const u8) !void {
+        try self.fx.tmp.dir.writeFile(testing.io, .{
+            .sub_path = "home/.claude/synapse-grammars.conf",
+            .data = json,
+        });
+    }
+
+    /// A real file at an absolute path -- `single`/`batch` resolve the paths
+    /// they're given against the real process cwd, not the fixture's tmp
+    /// dir, so every path used with them has to be absolute.
+    fn writeSample(self: *TagsFixture, sub_path: []const u8, content: []const u8) ![]const u8 {
+        try self.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = sub_path, .data = content });
+        return std.fmt.allocPrint(self.fx.gpa, "{s}/{s}", .{ self.fx.root, sub_path });
+    }
+
+    fn listPath(self: *TagsFixture, sub_path: []const u8, entries: []const []const u8) ![]const u8 {
+        var body: Io.Writer.Allocating = .init(self.fx.gpa);
+        defer body.deinit();
+        for (entries) |e| try body.writer.print("{s}\n", .{e});
+        try self.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = sub_path, .data = body.written() });
+        return std.fmt.allocPrint(self.fx.gpa, "{s}/{s}", .{ self.fx.root, sub_path });
+    }
+
+    fn runSingle(self: *TagsFixture, path: []const u8, trace: Trace) !struct { code: u8, out: []u8 } {
+        const gpa = self.fx.gpa;
+        const registry_path = try self.registryPath();
+        defer gpa.free(registry_path);
+        var registry = try treesitter.Registry.load(gpa, self.fx.io(), registry_path);
+        defer registry.deinit();
+        var kind_rules = try core.kind_synonyms.RuleList.load(gpa, self.fx.io(), "/nonexistent");
+        defer kind_rules.deinit();
+        var ex: fake_grammar.FakeExtractor = .init(gpa, registry, self.fx.work, kind_rules);
+        defer ex.deinit();
+
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try single(fake_grammar.FakeExtractor, gpa, self.fx.io(), &ex, registry, path, trace, &out.writer);
+        return .{ .code = code, .out = try gpa.dupe(u8, out.written()) };
+    }
+
+    fn runBatch(self: *TagsFixture, list_file: []const u8, trace: Trace) !struct { code: u8, out: []u8 } {
+        const gpa = self.fx.gpa;
+        const registry_path = try self.registryPath();
+        defer gpa.free(registry_path);
+        var registry = try treesitter.Registry.load(gpa, self.fx.io(), registry_path);
+        defer registry.deinit();
+        var kind_rules = try core.kind_synonyms.RuleList.load(gpa, self.fx.io(), "/nonexistent");
+        defer kind_rules.deinit();
+        var ex: fake_grammar.FakeExtractor = .init(gpa, registry, self.fx.work, kind_rules);
+        defer ex.deinit();
+
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try batch(fake_grammar.FakeExtractor, gpa, self.fx.io(), &ex, list_file, trace, &out.writer);
+        return .{ .code = code, .out = try gpa.dupe(u8, out.written()) };
+    }
+
+    fn runListExtensions(self: *TagsFixture) !struct { code: u8, out: []u8 } {
+        const gpa = self.fx.gpa;
+        const registry_path = try self.registryPath();
+        defer gpa.free(registry_path);
+        var registry = try treesitter.Registry.load(gpa, self.fx.io(), registry_path);
+        defer registry.deinit();
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try listExtensions(gpa, registry, &out.writer);
+        return .{ .code = code, .out = try gpa.dupe(u8, out.written()) };
+    }
+
+    fn registryPath(self: *TagsFixture) ![]const u8 {
+        return std.fmt.allocPrint(self.fx.gpa, "{s}/.claude/synapse-grammars.conf", .{self.fx.home});
+    }
+};
+
+const ml_registry =
+    \\{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}
+;
+
+test "single: file with no extension exits 1" {
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    try tf.writeRegistry("{}");
+    const path = try tf.writeSample("noext", "no extension here\n");
+    defer gpa.free(path);
+
+    const r = try tf.runSingle(path, null);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 1), r.code);
+}
+
+test "single: extension has no registry entry at all exits 2, no clone attempted" {
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    try tf.writeRegistry("{}");
+    const path = try tf.writeSample("sample.ml", "let x = 1\n");
+    defer gpa.free(path);
+
+    const r = try tf.runSingle(path, null);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 2), r.code);
+    try testing.expectEqual(@as(usize, 0), r.out.len);
+}
+
+test "single: extension marked unsupported exits 1, no clone attempted" {
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    try tf.writeRegistry("{\"rs\": {\"unsupported\": true}}");
+    const path = try tf.writeSample("sample.rs", "fn main() {}\n");
+    defer gpa.free(path);
+
+    const r = try tf.runSingle(path, null);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 1), r.code);
+}
+
+test "single: a known, never-cloned extension clones the grammar and prints tags" {
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    try tf.writeRegistry(ml_registry);
+    const path = try tf.writeSample("sample.ml", "let x = 1\n");
+    defer gpa.free(path);
+
+    const r = try tf.runSingle(path, null);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expect(std.mem.indexOf(u8, r.out, "FAKE_NAME") != null);
+    try tf.fx.tmp.dir.access(testing.io, "work/repos/tree-sitter-ocaml", .{});
+}
+
+test "single: the clone lands in a staging directory, never at the destination" {
+    // Why an interrupted clone cannot leave a zombie: `git clone <dst>` builds
+    // its destination in place, so a process killed mid-clone used to leave a
+    // directory that existed and was not a repository, and the readiness
+    // check is existence -- the next run adopted it and failed forever.
+    // Publication is one rename, atomic, so there is no window where a
+    // partial clone sits at the destination.
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    try tf.writeRegistry(ml_registry);
+    const path = try tf.writeSample("sample.ml", "let x = 1\n");
+    defer gpa.free(path);
+    const git_log = try std.fmt.allocPrint(gpa, "{s}/git.log", .{tf.fx.root});
+    defer gpa.free(git_log);
+    try tf.fx.env.put("FAKE_GIT_LOG", git_log);
+    try tf.fx.refreshEnv();
+
+    const r = try tf.runSingle(path, null);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+
+    const log = try tf.fx.tmp.dir.readFileAlloc(testing.io, "git.log", gpa, .limited(1 << 20));
+    defer gpa.free(log);
+    const line = std.mem.trimEnd(u8, log, "\n");
+    const dest = line[std.mem.lastIndexOfScalar(u8, line, ' ').? + 1 ..];
+    try testing.expect(std.mem.indexOf(u8, dest, ".partial.") != null);
+    const final = try std.fmt.allocPrint(gpa, "{s}/work/repos/tree-sitter-ocaml", .{tf.fx.root});
+    defer gpa.free(final);
+    try testing.expect(!std.mem.eql(u8, dest, final));
+    _ = try tf.fx.tmp.dir.access(testing.io, "work/repos/tree-sitter-ocaml", .{});
+    try testing.expectEqual(error.FileNotFound, tf.fx.tmp.dir.access(testing.io, dest, .{}));
+}
+
+test "single: grammar already cloned does not clone again" {
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    try tf.writeRegistry(ml_registry);
+    const path = try tf.writeSample("sample.ml", "let x = 1\n");
+    defer gpa.free(path);
+    try tf.fx.tmp.dir.createDirPath(testing.io, "work/repos/tree-sitter-ocaml");
+    const git_log = try std.fmt.allocPrint(gpa, "{s}/git.log", .{tf.fx.root});
+    defer gpa.free(git_log);
+    try tf.fx.env.put("FAKE_GIT_LOG", git_log);
+    try tf.fx.refreshEnv();
+
+    const r = try tf.runSingle(path, null);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqual(error.FileNotFound, tf.fx.tmp.dir.access(testing.io, "git.log", .{}));
+}
+
+test "batch: a second file of the same extension resolves the grammar once, not twice" {
+    // Per-extension work happens once per extension, however many files
+    // carry it -- the property that survives the port from the deleted
+    // shell script's own "forks nothing per file" check.
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    try tf.writeRegistry(ml_registry);
+    const a = try tf.writeSample("a.ml", "let a = 1\n");
+    defer gpa.free(a);
+    const b = try tf.writeSample("b.ml", "let b = 2\n");
+    defer gpa.free(b);
+    const list = try tf.listPath("list.txt", &.{ a, b });
+    defer gpa.free(list);
+    const git_log = try std.fmt.allocPrint(gpa, "{s}/git.log", .{tf.fx.root});
+    defer gpa.free(git_log);
+    try tf.fx.env.put("FAKE_GIT_LOG", git_log);
+    try tf.fx.refreshEnv();
+
+    const r = try tf.runBatch(list, null);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    const log = try tf.fx.tmp.dir.readFileAlloc(testing.io, "git.log", gpa, .limited(1 << 20));
+    defer gpa.free(log);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, log, "clone "));
+}
+
+test "batch: one tagging pass for the whole list, output attributable" {
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    try tf.writeRegistry(ml_registry);
+    const a = try tf.writeSample("a.ml", "let a = 1\n");
+    defer gpa.free(a);
+    const b = try tf.writeSample("b.ml", "let b = 2\n");
+    defer gpa.free(b);
+    const c = try tf.writeSample("c.ml", "let c = 3\n");
+    defer gpa.free(c);
+    const list = try tf.listPath("list.txt", &.{ a, b, c });
+    defer gpa.free(list);
+    const trace_path = try std.fmt.allocPrint(gpa, "{s}/trace.log", .{tf.fx.root});
+    defer gpa.free(trace_path);
+
+    const r = try tf.runBatch(list, trace_path);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    const trace = try tf.fx.tmp.dir.readFileAlloc(testing.io, "trace.log", gpa, .limited(1 << 20));
+    defer gpa.free(trace);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, trace, "tags "));
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, trace, "path "));
+    // Attributable: a path line, then that path's tab-indented tags.
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, r.out, "\n\t"));
+}
+
+test "batch: an extension with no grammar still lets the rest tag" {
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    try tf.writeRegistry(ml_registry);
+    const a = try tf.writeSample("a.ml", "let a = 1\n");
+    defer gpa.free(a);
+    const one = try tf.writeSample("one.zzz", "x\n");
+    defer gpa.free(one);
+    const two = try tf.writeSample("two.zzz", "y\n");
+    defer gpa.free(two);
+    const list = try tf.listPath("list.txt", &.{ a, one, two });
+    defer gpa.free(list);
+
+    const r = try tf.runBatch(list, null);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expect(std.mem.indexOf(u8, r.out, "a.ml") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, ".zzz") == null);
+}
+
+test "batch: a one-path list still gets a path line and indented tags, matching a many-path list's shape" {
+    // Asserted as an equivalence, not two separate expectations, so the
+    // normalisation cannot drift in only one direction.
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    try tf.writeRegistry(ml_registry);
+    const a = try tf.writeSample("a.ml", "let a = 1\n");
+    defer gpa.free(a);
+    const b = try tf.writeSample("b.ml", "let b = 2\n");
+    defer gpa.free(b);
+
+    const one_list = try tf.listPath("one.txt", &.{a});
+    defer gpa.free(one_list);
+    const alone = try tf.runBatch(one_list, null);
+    defer gpa.free(alone.out);
+    try testing.expectEqual(@as(u8, 0), alone.code);
+    try testing.expect(std.mem.startsWith(u8, alone.out, a));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, alone.out, "\n\t"));
+
+    const two_list = try tf.listPath("two.txt", &.{ a, b });
+    defer gpa.free(two_list);
+    const together = try tf.runBatch(two_list, null);
+    defer gpa.free(together.out);
+    try testing.expectEqual(@as(u8, 0), together.code);
+    // a.ml's slice of the two-path output: its path line plus every
+    // following indented line, up to the next unindented one.
+    var lines = std.mem.splitScalar(u8, together.out, '\n');
+    var slice: Io.Writer.Allocating = .init(gpa);
+    defer slice.deinit();
+    var on = false;
+    while (lines.next()) |line| {
+        if (std.mem.eql(u8, line, a)) {
+            on = true;
+            try slice.writer.print("{s}\n", .{line});
+            continue;
+        }
+        if (on and std.mem.startsWith(u8, line, "\t")) {
+            try slice.writer.print("{s}\n", .{line});
+            continue;
+        }
+        if (on) break;
+    }
+    try testing.expectEqualStrings(alone.out, slice.written());
+}
+
+test "batch: no usable grammar for anything in the list exits 1, and nothing but warnings prints" {
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    try tf.writeRegistry("{}");
+    const one = try tf.writeSample("one.zzz", "x\n");
+    defer gpa.free(one);
+    const list = try tf.listPath("list.txt", &.{one});
+    defer gpa.free(list);
+
+    const r = try tf.runBatch(list, null);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 1), r.code);
+    try testing.expectEqual(@as(usize, 0), r.out.len);
+}
+
+test "batch: a missing list file exits 1 rather than tagging nothing quietly" {
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    try tf.writeRegistry(ml_registry);
+    const missing = try std.fmt.allocPrint(gpa, "{s}/nope.txt", .{tf.fx.root});
+    defer gpa.free(missing);
+
+    const r = try tf.runBatch(missing, null);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 1), r.code);
+}
+
+test "--list-extensions: the registry's usable entries, one per line, sorted" {
+    // An entry marked unsupported, or missing repo or scope, is not usable
+    // and must not appear -- a caller that tags on the strength of this list
+    // would get a warning per file for a language it was told was available.
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    try tf.writeRegistry(
+        \\{"py": {"repo": "https://example.invalid/tree-sitter-python", "scope": "source.python"},
+        \\ "java": {"repo": "https://example.invalid/tree-sitter-java", "scope": "source.java"},
+        \\ "rs": {"unsupported": true},
+        \\ "go": {"repo": "https://example.invalid/tree-sitter-go"}}
+    );
+
+    const r = try tf.runListExtensions();
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqualStrings("java\npy\n", r.out);
 }

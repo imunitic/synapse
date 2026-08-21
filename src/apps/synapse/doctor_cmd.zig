@@ -47,6 +47,22 @@ pub fn run(
         }
     }
 
+    var out_buf: [64 * 1024]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try diagnose(gpa, io, env, repo, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+/// The command itself, minus argument parsing -- separated so a test can
+/// drive it against a real fixture directly.
+pub fn diagnose(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    repo: []const u8,
+    w: *Io.Writer,
+) !u8 {
     var checks: std.ArrayListUnmanaged(Check) = .empty;
     defer checks.deinit(gpa);
     var owned: std.ArrayListUnmanaged([]u8) = .empty; // every detail string, freed at the end
@@ -66,10 +82,7 @@ pub fn run(
     try grammarLockChecks(&ctx);
     try hookChecks(&ctx);
 
-    var buf: [64 * 1024]u8 = undefined;
-    var out = Io.File.stdout().writer(io, &buf);
-    try core.doctor.writeReport(&out.interface, checks.items);
-    try out.interface.flush();
+    try core.doctor.writeReport(w, checks.items);
     return core.doctor.exitCode(checks.items);
 }
 
@@ -540,4 +553,491 @@ fn hookChecks(ctx: *Ctx) !void {
     // than a note.
     if (std.mem.indexOf(u8, text, "hooks/synapse-") != null)
         try ctx.add("hook wiring", .fail, "settings.json still names a hooks/*.sh wrapper -- fix ~/.claude/settings.json or reinstall the plugin");
+}
+
+const testing = std.testing;
+const fixture = @import("cmd_test_support.zig");
+
+const DoctorFixture = struct {
+    fx: fixture.Fixture,
+
+    fn init(gpa: Allocator) !DoctorFixture {
+        const fx = try fixture.Fixture.init(gpa);
+        return .{ .fx = fx };
+    }
+
+    fn deinit(self: *DoctorFixture) void {
+        self.fx.deinit();
+    }
+
+    fn commit(self: *DoctorFixture) !void {
+        try self.fx.writeRepoFile("README.md", "seed\n");
+        try self.fx.gitCommit("init");
+    }
+
+    /// Matches bats' own `common_setup()` default: a real `synapse.conf` at
+    /// `$HOME/.claude/synapse.conf` pointing `OBSIDIAN_VAULT_DIR` at the
+    /// fixture vault -- the "configured machine" baseline every doctor test
+    /// in bats started from. `Fixture.init()` sets the env var directly
+    /// instead, which is a *different* state (`vaultChecks`' own `.warn`
+    /// "no synapse.conf; using $OBSIDIAN_VAULT_DIR" branch), so tests that
+    /// want the `ok` config state need this written explicitly.
+    fn writeConf(self: *DoctorFixture) !void {
+        const data = try std.fmt.allocPrint(self.fx.gpa, "OBSIDIAN_VAULT_DIR=\"{s}\"\n", .{self.fx.vault});
+        defer self.fx.gpa.free(data);
+        try self.fx.tmp.dir.createDirPath(testing.io, "home/.claude");
+        try self.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "home/.claude/synapse.conf", .data = data });
+    }
+
+    /// Matches `setup_fake_obsidian_plugin`'s own cert write -- present in
+    /// every real bats test in this file's suite via its file-level
+    /// `setup()`, so needed here too for the "Obsidian: ok" round trip.
+    fn writeCert(self: *DoctorFixture) !void {
+        try self.fx.tmp.dir.createDirPath(testing.io, "home/.claude");
+        try self.fx.tmp.dir.writeFile(testing.io, .{
+            .sub_path = "home/.claude/obsidian-local-rest-api-ca.pem",
+            .data = "",
+        });
+    }
+
+    /// `commit()` + `writeConf()` + `writeCert()` -- the "configured
+    /// machine" most tests start from.
+    fn baseline(self: *DoctorFixture) !void {
+        try self.commit();
+        try self.writeConf();
+        try self.writeCert();
+    }
+
+    fn check(self: *DoctorFixture, repo: []const u8, w: *Io.Writer) !u8 {
+        return diagnose(self.fx.gpa, self.fx.io(), &self.fx.env, repo, w);
+    }
+};
+
+test "a configured machine reports the vault, the namespace and the API" {
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.baseline();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try df.check(df.fx.repo, &out.writer);
+
+    const text = out.written();
+    try testing.expect(std.mem.indexOf(u8, text, "ok") != null and std.mem.indexOf(u8, text, "config") != null);
+    try testing.expect(std.mem.indexOf(u8, text, df.fx.vault) != null);
+    try testing.expect(std.mem.indexOf(u8, text, "repo") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "127.0.0.1:") != null);
+}
+
+test "config resolves at tier 1 (XDG), not just tier 2 -- the config check used to hardcode ~/.claude" {
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.commit();
+    try df.writeCert();
+    const data = try std.fmt.allocPrint(gpa, "OBSIDIAN_VAULT_DIR=\"{s}\"\n", .{df.fx.vault});
+    defer gpa.free(data);
+    try df.fx.tmp.dir.createDirPath(testing.io, "home/.config/synapse");
+    try df.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "home/.config/synapse/synapse.conf", .data = data });
+    _ = df.fx.env.swapRemove("XDG_CONFIG_HOME");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try df.check(df.fx.repo, &out.writer);
+
+    const text = out.written();
+    try testing.expect(std.mem.indexOf(u8, text, "config") != null and std.mem.indexOf(u8, text, ".config/synapse/synapse.conf") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "FAIL") == null or std.mem.indexOf(u8, text, "FAIL  config") == null);
+}
+
+test "no vault configured is a failure, and says where to set it" {
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.commit();
+    // No conf file, and no OBSIDIAN_VAULT_DIR -- the state every hook treats
+    // as silence and every command as a bare "no vault".
+    _ = df.fx.env.swapRemove("OBSIDIAN_VAULT_DIR");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try df.check(df.fx.repo, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+
+    const text = out.written();
+    try testing.expect(std.mem.indexOf(u8, text, "FAIL") != null and std.mem.indexOf(u8, text, "config") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "synapse.conf") != null);
+}
+
+test "a vault path that does not exist is named as such, not reported as absent" {
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.commit();
+    // The env var wins over the conf file (core.conf.vaultDir's own tier
+    // order), so it has to be cleared for the conf-file value to matter at all.
+    _ = df.fx.env.swapRemove("OBSIDIAN_VAULT_DIR");
+    const nope = try std.fmt.allocPrint(gpa, "{s}/nope", .{df.fx.root});
+    defer gpa.free(nope);
+    const data = try std.fmt.allocPrint(gpa, "OBSIDIAN_VAULT_DIR=\"{s}\"\n", .{nope});
+    defer gpa.free(data);
+    try df.fx.tmp.dir.createDirPath(testing.io, "home/.claude");
+    try df.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "home/.claude/synapse.conf", .data = data });
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try df.check(df.fx.repo, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "does not exist") != null);
+}
+
+test "an absent namespace is a warning, not a failure" {
+    // The distinction the whole three-level scheme exists for: a branch
+    // nobody has clustered is an ordinary state, so this must not fail a
+    // scripted check.
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.baseline();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try df.check(df.fx.repo, &out.writer);
+
+    const text = out.written();
+    try testing.expect(std.mem.indexOf(u8, text, "warn") != null and std.mem.indexOf(u8, text, "graph") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "/synapse-init") != null);
+}
+
+test "a namespace whose remote disagrees is a failure that names the remedy" {
+    // The exact case the SessionStart hook skips a pointer for and the
+    // staleness hook refuses to write on -- both without a word.
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.baseline();
+    try df.fx.writeIndex("ssh://git@elsewhere.invalid/other.git", "main");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try df.check(df.fx.repo, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+
+    const text = out.written();
+    try testing.expect(std.mem.indexOf(u8, text, "remote mismatch") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "/synapse-rebuild-full") != null);
+}
+
+test "a namespace whose branch field disagrees is a failure" {
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.baseline();
+    // A real (matching) remote, so this test isolates the branch mismatch
+    // rather than tripping the "no remote field" check first -- an empty
+    // remote short-circuits before the branch is ever compared.
+    const id = try core.identity.resolve(gpa, df.fx.io(), df.fx.repo);
+    defer id.deinit(gpa);
+    try df.fx.writeIndex(id.remote, "some-other-branch");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try df.check(df.fx.repo, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "branch mismatch") != null);
+}
+
+test "an absent reverse index says what stops working without it" {
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.baseline();
+    try df.fx.writeIndex("", "main");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try df.check(df.fx.repo, &out.writer);
+
+    const text = out.written();
+    try testing.expect(std.mem.indexOf(u8, text, "warn") != null and std.mem.indexOf(u8, text, "reverse index") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "staleness hook does nothing") != null);
+}
+
+test "a staged reverse index is reported with its counts" {
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.baseline();
+    try df.fx.writeIndex("", "main");
+    try df.fx.writeIndexBin(&.{.{ .path = "src/foo.ml", .node = "Foo.md" }});
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try df.check(df.fx.repo, &out.writer);
+
+    const text = out.written();
+    try testing.expect(std.mem.indexOf(u8, text, "ok") != null and std.mem.indexOf(u8, text, "reverse index") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "1 paths") != null);
+}
+
+test "a recent grammar lock warns and names the directory to delete" {
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.baseline();
+    const grammars = try std.fmt.allocPrint(gpa, "{s}/grammars", .{df.fx.root});
+    defer gpa.free(grammars);
+    const lock = try std.fmt.allocPrint(gpa, "{s}/repos/tree-sitter-ocaml.lock", .{grammars});
+    defer gpa.free(lock);
+    try Io.Dir.cwd().createDirPath(df.fx.io(), lock);
+    try df.fx.env.put("SYNAPSE_GRAMMARS_DIR", grammars);
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try df.check(df.fx.repo, &out.writer);
+
+    const text = out.written();
+    try testing.expect(std.mem.indexOf(u8, text, "warn") != null and std.mem.indexOf(u8, text, "grammar locks") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "tree-sitter-ocaml.lock") != null);
+    // Naming the path is the whole point: the condition is a directory to
+    // remove, and the failure it causes elsewhere reads as a network problem.
+    try testing.expect(std.mem.indexOf(u8, text, "delete it if nothing is running") != null);
+}
+
+test "a grammar lock past the staleness window is reported as self-healing" {
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.baseline();
+    const grammars = try std.fmt.allocPrint(gpa, "{s}/grammars", .{df.fx.root});
+    defer gpa.free(grammars);
+    const lock = try std.fmt.allocPrint(gpa, "{s}/repos/tree-sitter-ocaml.lock", .{grammars});
+    defer gpa.free(lock);
+    try Io.Dir.cwd().createDirPath(df.fx.io(), lock);
+    const touch_res = try adapters.process.run(df.fx.io(), gpa, &.{ "touch", "-t", "202601010000", lock }, .{});
+    touch_res.deinit(gpa);
+    try df.fx.env.put("SYNAPSE_GRAMMARS_DIR", grammars);
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try df.check(df.fx.repo, &out.writer);
+
+    const text = out.written();
+    try testing.expect(std.mem.indexOf(u8, text, "ok") != null and std.mem.indexOf(u8, text, "grammar locks") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "takes it over") != null);
+}
+
+test "no grammar lock says nothing at all" {
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.baseline();
+    const grammars = try std.fmt.allocPrint(gpa, "{s}/grammars", .{df.fx.root});
+    defer gpa.free(grammars);
+    const repo_dir = try std.fmt.allocPrint(gpa, "{s}/repos/tree-sitter-ocaml", .{grammars});
+    defer gpa.free(repo_dir);
+    try Io.Dir.cwd().createDirPath(df.fx.io(), repo_dir);
+    try df.fx.env.put("SYNAPSE_GRAMMARS_DIR", grammars);
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try df.check(df.fx.repo, &out.writer);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "grammar locks") == null);
+}
+
+test "hooks wired to a wrapper are a failure, because the wrapper would still run" {
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.baseline();
+    try df.fx.tmp.dir.createDirPath(testing.io, "home/.claude");
+    try df.fx.tmp.dir.writeFile(testing.io, .{
+        .sub_path = "home/.claude/settings.json",
+        .data = "{\"hooks\":{\"PostToolUse\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"bash ~/.claude/hooks/synapse-staleness.sh\"}]}]}}",
+    });
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try df.check(df.fx.repo, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "still names a hooks/") != null);
+}
+
+test "a hook registered twice is a failure that says it fires twice" {
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.baseline();
+    try df.fx.tmp.dir.createDirPath(testing.io, "home/.claude/bin");
+    try df.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "home/.claude/bin/synapse-hook", .data = "" });
+    // db-sync is deliberately absent as well, but the duplicate is the
+    // louder problem and is what the message must name -- a hook firing
+    // twice produces duplicated context nobody attributes to settings.json.
+    try df.fx.tmp.dir.writeFile(testing.io, .{
+        .sub_path = "home/.claude/settings.json",
+        .data =
+        \\{"hooks":{"PostToolUse":[
+        \\  {"hooks":[{"type":"command","command":"~/.claude/bin/synapse-hook staleness"}]},
+        \\  {"hooks":[{"type":"command","command":"~/.claude/bin/synapse-hook staleness"}]}],
+        \\ "SessionStart":[{"hooks":[{"type":"command","command":"~/.claude/bin/synapse-hook session-start"}]}],
+        \\ "UserPromptSubmit":[{"hooks":[{"type":"command","command":"~/.claude/bin/synapse-hook prompt-context"}]}],
+        \\ "Stop":[{"hooks":[{"type":"command","command":"~/.claude/bin/synapse-hook stop-nudge"}]}]}}
+        ,
+    });
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try df.check(df.fx.repo, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "more than once") != null);
+}
+
+test "a plugin install with hooks.json present reports ok, not the legacy-shape failures" {
+    // A healthy plugin install has neither ~/.claude/bin/synapse-hook nor a
+    // settings.json hook merge -- hooks.json is loaded straight from the
+    // plugin cache instead.
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.baseline();
+    try df.fx.tmp.dir.createDirPath(testing.io, "home/.claude/plugins/cache/synapse/synapse/2026-08-1/hooks");
+    try df.fx.tmp.dir.writeFile(testing.io, .{
+        .sub_path = "home/.claude/plugins/cache/synapse/synapse/2026-08-1/hooks/hooks.json",
+        .data = "",
+    });
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try df.check(df.fx.repo, &out.writer);
+
+    const text = out.written();
+    try testing.expect(std.mem.indexOf(u8, text, "ok") != null and std.mem.indexOf(u8, text, "hooks") != null and std.mem.indexOf(u8, text, "plugin install") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "hook binary") == null);
+}
+
+test "a stray file in the plugin cache dir (macOS .DS_Store, seen live) is never mistaken for the version dir" {
+    // Caught live on a real machine: Finder had been opened to this exact
+    // path, dropping a .DS_Store file there, and pluginVersionDir() took
+    // whatever directory-iteration order handed it first -- the file, not
+    // the real version directory -- reporting a false "hooks.json is
+    // missing" failure against a perfectly healthy install.
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.baseline();
+    try df.fx.tmp.dir.createDirPath(testing.io, "home/.claude/plugins/cache/synapse/synapse");
+    try df.fx.tmp.dir.writeFile(testing.io, .{
+        .sub_path = "home/.claude/plugins/cache/synapse/synapse/.DS_Store",
+        .data = "",
+    });
+    try df.fx.tmp.dir.createDirPath(testing.io, "home/.claude/plugins/cache/synapse/synapse/2026-08_9/hooks");
+    try df.fx.tmp.dir.writeFile(testing.io, .{
+        .sub_path = "home/.claude/plugins/cache/synapse/synapse/2026-08_9/hooks/hooks.json",
+        .data = "",
+    });
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try df.check(df.fx.repo, &out.writer);
+
+    const text = out.written();
+    try testing.expect(std.mem.indexOf(u8, text, "ok") != null and std.mem.indexOf(u8, text, "hooks") != null and std.mem.indexOf(u8, text, "2026-08_9") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "FAIL  hooks") == null);
+}
+
+test "the newest of several coexisting version dirs wins by number, not lexicographically" {
+    // Caught live: a real install had 2026-08_9, 2026-08_12 and 2026-08_13
+    // coexisting (releases accumulate; nothing prunes old ones), and
+    // pluginVersionDir()'s plain lexicographic max picked 2026-08_9 as
+    // "newest". Only the numerically-newest dir gets a real hooks.json
+    // here, so a lexicographic pick would report FAIL, not the ok this
+    // test actually asserts.
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.baseline();
+    const cache = "home/.claude/plugins/cache/synapse/synapse";
+    try df.fx.tmp.dir.createDirPath(testing.io, cache ++ "/2026-08_9/hooks");
+    try df.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = cache ++ "/2026-08_9/hooks/hooks.json", .data = "" });
+    try df.fx.tmp.dir.createDirPath(testing.io, cache ++ "/2026-08_12/hooks");
+    try df.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = cache ++ "/2026-08_12/hooks/hooks.json", .data = "" });
+    try df.fx.tmp.dir.createDirPath(testing.io, cache ++ "/2026-08_13/hooks");
+    try df.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = cache ++ "/2026-08_13/hooks/hooks.json", .data = "" });
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try df.check(df.fx.repo, &out.writer);
+
+    const text = out.written();
+    try testing.expect(std.mem.indexOf(u8, text, "ok") != null and std.mem.indexOf(u8, text, "hooks") != null and std.mem.indexOf(u8, text, "2026-08_13") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "2026-08_9/hooks") == null);
+    try testing.expect(std.mem.indexOf(u8, text, "2026-08_12/hooks") == null);
+}
+
+test "a plugin install missing hooks.json is a failure that names the version dir" {
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.baseline();
+    try df.fx.tmp.dir.createDirPath(testing.io, "home/.claude/plugins/cache/synapse/synapse/2026-08-1");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try df.check(df.fx.repo, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+
+    const text = out.written();
+    try testing.expect(std.mem.indexOf(u8, text, "FAIL") != null and std.mem.indexOf(u8, text, "hooks") != null and std.mem.indexOf(u8, text, "hooks/hooks.json is missing") != null);
+}
+
+test "outside a git repo it warns rather than failing" {
+    // `doctor` is the one command someone runs when they do not know what
+    // is wrong, so it has to answer everywhere -- including from a
+    // directory that is not a checkout.
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.baseline();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try df.check("/tmp", &out.writer);
+
+    const text = out.written();
+    try testing.expect(std.mem.indexOf(u8, text, "warn") != null and std.mem.indexOf(u8, text, "repository") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "not inside a git repo") != null);
+}
+
+test "every line carries a status, and the tally matches the lines" {
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.baseline();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try df.check(df.fx.repo, &out.writer);
+
+    var lines: usize = 0;
+    var ok: usize = 0;
+    var warn: usize = 0;
+    var fail: usize = 0;
+    var it = std.mem.splitScalar(u8, out.written(), '\n');
+    while (it.next()) |line| {
+        if (std.mem.startsWith(u8, line, "ok ")) {
+            lines += 1;
+            ok += 1;
+        } else if (std.mem.startsWith(u8, line, "warn ")) {
+            lines += 1;
+            warn += 1;
+        } else if (std.mem.startsWith(u8, line, "FAIL ")) {
+            lines += 1;
+            fail += 1;
+        }
+    }
+    const summary = try std.fmt.allocPrint(gpa, "{d} ok, {d} warning(s), {d} failure(s)", .{ ok, warn, fail });
+    defer gpa.free(summary);
+    try testing.expect(std.mem.indexOf(u8, out.written(), summary) != null);
+    try testing.expectEqual(ok + warn + fail, lines);
 }

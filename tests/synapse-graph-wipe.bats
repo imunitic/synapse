@@ -1,10 +1,10 @@
 #!/usr/bin/env bats
 # Tests claude/lib/synapse/synapse-graph-wipe.sh -- the delete half of
 # /synapse-rebuild-full, and the second destructive tool in Synapse (after
-# synapse-graph-clean.sh). Bias throughout is the same as that suite's: every
-# test that asserts a removal has a sibling proving the one thing a wipe cannot
-# regenerate -- hand-written `## Notes` content -- survives it, because a false
-# negative here silently destroys authored prose.
+# synapse-graph-clean.sh). Everything but genuinely CLI/process-level
+# concerns moved to native coverage -- src/apps/synapse/graph_cmd.zig's own
+# `test` blocks, via the `wipe()` entry point `runWipe()` delegates to after
+# arg parsing.
 
 load 'test_helper'
 
@@ -97,107 +97,6 @@ Generated stuff about Node B.
 
 EOF
   printf 'Node A\t^a\t\nNode B\t^b\t\n' > "$dir/_manifest.tsv"
-}
-
-@test "--dry-run reports node count and which nodes are at risk, deletes nothing" {
-  make_repo
-  make_namespace
-
-  run run_wipe --dry-run
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"2 nodes"* ]]
-  [[ "$output" == *"1 with ## Notes content"* ]]
-  [[ "$output" == *"at-risk"*"Node A"* ]]
-  [[ "$output" != *"at-risk"*"Node B"* ]]
-  [[ "$output" == *"would-remove"* ]]
-
-  [ -d "$(ns_dir)" ]
-  [ ! -f "$(staging_note)" ]
-}
-
-@test "a real run preserves hand-written ## Notes verbatim to a scratchpad staging note, then deletes the namespace" {
-  make_repo
-  make_namespace
-
-  run run_wipe
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"preserved ->"* ]]
-  [[ "$output" == *"removed synapse/$(repo_name)"* ]]
-
-  [ ! -d "$(ns_dir)" ]
-  [ -f "$(staging_note)" ]
-  grep -q "retry logic here is load-bearing" "$(staging_note)"
-  grep -q '^## Node A$' "$(staging_note)"
-  # Node B had nothing worth keeping and must not clutter the staging note.
-  ! grep -q '^## Node B$' "$(staging_note)"
-}
-
-@test "a node with an empty ## Notes section is never flagged or preserved" {
-  make_repo
-  mkdir -p "$(ns_dir)"
-  cat > "$(ns_dir)/Index.md" <<EOF
----
-branch: $(ns_branch)
-remote: "$(repo_remote_or_path)"
----
-- [[Node B]]
-EOF
-  cat > "$(ns_dir)/Node B.md" <<'EOF'
----
-title: "Node B"
----
-
-# Node B
-<!-- synapse:generated:start -->
-
-## Summary
-Nothing notable.
-<!-- synapse:generated:end -->
-
-## Notes
-
-EOF
-
-  run run_wipe
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"0 with ## Notes content"* ]]
-  [ ! -f "$(staging_note)" ]
-  [ ! -d "$(ns_dir)" ]
-}
-
-@test "no namespace at all refuses cleanly rather than wiping nothing silently" {
-  make_repo
-
-  run run_wipe
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"nothing to wipe"* ]]
-}
-
-@test "--dry-run on a namespace with no ## Notes at risk still reports cleanly" {
-  make_repo
-  mkdir -p "$(ns_dir)"
-  cat > "$(ns_dir)/Index.md" <<EOF
----
-branch: $(ns_branch)
-remote: "$(repo_remote_or_path)"
----
-EOF
-
-  run run_wipe --dry-run
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"0 nodes"* ]]
-  [[ "$output" == *"0 with ## Notes content"* ]]
-}
-
-@test "another namespace in the same vault is never touched" {
-  make_repo
-  make_namespace
-  mkdir -p "$VAULT/synapse/unrelated-project@main"
-  printf -- '---\nbranch: main\n---\n' > "$VAULT/synapse/unrelated-project@main/Index.md"
-
-  run run_wipe
-  [ "$status" -eq 0 ]
-  [ -d "$VAULT/synapse/unrelated-project@main" ]
 }
 
 @test "outside a git repo it exits 1, and an unknown flag exits 2" {

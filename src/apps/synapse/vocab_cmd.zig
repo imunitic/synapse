@@ -226,7 +226,7 @@ fn usage() u8 {
     return 2;
 }
 
-const Options = struct {
+pub const Options = struct {
     root: []const u8,
     out: []const u8,
     depth: usize,
@@ -251,7 +251,7 @@ fn repoRoot(gpa: Allocator, io: Io, repo: ?[]const u8) ![]u8 {
 /// `group <TAB> word` counted, and the file counts alongside it. A path
 /// claimed by two node lists counts under both -- a manifest may
 /// legitimately overlap.
-fn build(
+pub fn build(
     comptime Ex: type,
     gpa: Allocator,
     io: Io,
@@ -977,4 +977,994 @@ fn buildFileMap(
     }
     try cache.put(arena, file_name, m);
     return cache.getPtr(file_name).?;
+}
+
+const testing = std.testing;
+const fixture = @import("cmd_test_support.zig");
+const fake_grammar = @import("fake_grammar.zig");
+const tags_cache_cmd = @import("tags_cache_cmd.zig");
+
+/// A real git repo (`.java`/`.py`/`.ml` registered, matching the bats
+/// fixture's own registry) plus `build()`, called directly with
+/// `fake_grammar.FakeExtractor` -- avoids the real thread pool's only real
+/// dependency, a usable `comptime Ex: type`, without needing a shelled-out
+/// tree-sitter at all.
+const VocabFixture = struct {
+    fx: fixture.Fixture,
+
+    fn init(gpa: Allocator) !VocabFixture {
+        var fx = try fixture.Fixture.init(gpa);
+        errdefer fx.deinit();
+        try fx.writeGrammarsJson(
+            \\{"java": {"repo": "https://example.invalid/tree-sitter-java", "scope": "source.java"},
+            \\ "py": {"repo": "https://example.invalid/tree-sitter-python", "scope": "source.python"},
+            \\ "ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}
+        );
+        return .{ .fx = fx };
+    }
+
+    fn deinit(self: *VocabFixture) void {
+        self.fx.deinit();
+    }
+
+    /// A file with one `symbol:<Name>` line per symbol -- `FakeBackend`
+    /// tags FAKE_NAME plus one tag per such line, matching the bats
+    /// fixture's own `src` helper.
+    fn src(self: *VocabFixture, path: []const u8, symbols: []const []const u8) !void {
+        var body: Io.Writer.Allocating = .init(self.fx.gpa);
+        defer body.deinit();
+        for (symbols) |s| try body.writer.print("symbol:{s}\n", .{s});
+        try self.fx.writeRepoFile(path, body.written());
+    }
+
+    fn plain(self: *VocabFixture, path: []const u8, content: []const u8) !void {
+        try self.fx.writeRepoFile(path, content);
+    }
+
+    fn writeIgnoreFiles(self: *VocabFixture, pattern: []const u8) !void {
+        try self.fx.tmp.dir.createDirPath(testing.io, "home/.claude");
+        try self.fx.tmp.dir.writeFile(testing.io, .{
+            .sub_path = "home/.claude/synapse-ignore-files.conf",
+            .data = pattern,
+        });
+    }
+
+    fn writeStopwords(self: *VocabFixture, words: []const u8) !void {
+        try self.fx.tmp.dir.createDirPath(testing.io, "home/.claude");
+        try self.fx.tmp.dir.writeFile(testing.io, .{
+            .sub_path = "home/.claude/synapse-prompt-stopwords.conf",
+            .data = words,
+        });
+    }
+
+    fn writeNamespaceRules(self: *VocabFixture, json: []const u8) !void {
+        try self.fx.tmp.dir.createDirPath(testing.io, "home/.claude");
+        try self.fx.tmp.dir.writeFile(testing.io, .{
+            .sub_path = "home/.claude/synapse-namespace-rules.conf",
+            .data = json,
+        });
+    }
+
+    /// `{nn}.txt`/`{nn}.title` under a real `lists/` dir in the fixture's
+    /// work tree, matching `synapse-build-lists.sh`'s own shape.
+    fn writeList(self: *VocabFixture, nn: []const u8, title: []const u8, paths: []const []const u8) !void {
+        try self.fx.tmp.dir.createDirPath(testing.io, "work/lists");
+        const title_sub = try std.fmt.allocPrint(self.fx.gpa, "work/lists/{s}.title", .{nn});
+        defer self.fx.gpa.free(title_sub);
+        const title_line = try std.fmt.allocPrint(self.fx.gpa, "{s}\n", .{title});
+        defer self.fx.gpa.free(title_line);
+        try self.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = title_sub, .data = title_line });
+
+        var body: Io.Writer.Allocating = .init(self.fx.gpa);
+        defer body.deinit();
+        for (paths) |p| try body.writer.print("{s}\n", .{p});
+        const txt_sub = try std.fmt.allocPrint(self.fx.gpa, "work/lists/{s}.txt", .{nn});
+        defer self.fx.gpa.free(txt_sub);
+        try self.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = txt_sub, .data = body.written() });
+    }
+
+    fn listsDir(self: *VocabFixture) ![]const u8 {
+        return std.fmt.allocPrint(self.fx.gpa, "{s}/lists", .{self.fx.work});
+    }
+
+    fn commit(self: *VocabFixture) !void {
+        try self.fx.gitCommit("fixture");
+    }
+
+    const RunOpts = struct {
+        depth: usize = 2,
+        lists: ?[]const u8 = null,
+        chunk: ?usize = null,
+        distinctive_top: usize = 8,
+        distinctive_k: usize = 20,
+        trace: ?[]const u8 = null,
+    };
+
+    /// Loads a fresh registry/kind-rules/namespace-registry from the
+    /// fixture's HOME and calls `build` directly -- the same setup `run()`
+    /// itself does after its own arg parsing, minus the CLI layer.
+    fn run(self: *VocabFixture, opts: RunOpts) !u8 {
+        const gpa = self.fx.gpa;
+        const registry_path = try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-grammars.conf", .{self.fx.home});
+        defer gpa.free(registry_path);
+        var registry = try treesitter.Registry.load(gpa, self.fx.io(), registry_path);
+        defer registry.deinit();
+        const usable = try registry.usableExtensions(gpa);
+        defer gpa.free(usable);
+
+        var kind_rules = try core.kind_synonyms.RuleList.load(gpa, self.fx.io(), "/nonexistent");
+        defer kind_rules.deinit();
+
+        const ns_path = if (self.fx.env.get("SYNAPSE_NAMESPACE_RULES_CONF")) |p|
+            try gpa.dupe(u8, p)
+        else if (try core.conf.resolveConfPath(gpa, self.fx.io(), adapters.env.vars(&self.fx.env), "synapse-namespace-rules.conf")) |p|
+            p
+        else
+            try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-namespace-rules.conf", .{self.fx.home});
+        defer gpa.free(ns_path);
+        var ns_registry = try core.namespace.Registry.load(gpa, self.fx.io(), ns_path);
+        defer ns_registry.deinit();
+
+        // Kept out of `out` (the work dir): a cloned grammar's `repos/` dir
+        // would otherwise show up as an unexpected entry to the test that
+        // checks the work dir holds only the six reductions plus the cache.
+        const grammars_dir = try std.fmt.allocPrint(gpa, "{s}/grammars", .{self.fx.root});
+        defer gpa.free(grammars_dir);
+
+        return build(fake_grammar.FakeExtractor, gpa, self.fx.io(), &self.fx.env, registry, grammars_dir, kind_rules, ns_registry, opts.trace, .{
+            .root = self.fx.repo,
+            .out = self.fx.work,
+            .depth = opts.depth,
+            .lists = opts.lists,
+            .usable = usable,
+            .chunk = opts.chunk,
+            .distinctive_top = opts.distinctive_top,
+            .distinctive_k = opts.distinctive_k,
+        });
+    }
+
+    /// A `.tsv` under the fixture's work dir, or null if it doesn't exist.
+    fn readOut(self: *VocabFixture, gpa: Allocator, name: []const u8) !?[]u8 {
+        const sub = try std.fmt.allocPrint(gpa, "work/{s}", .{name});
+        defer gpa.free(sub);
+        return self.fx.tmp.dir.readFileAlloc(testing.io, sub, gpa, .limited(4 << 20)) catch |e| switch (e) {
+            error.FileNotFound => null,
+            else => e,
+        };
+    }
+
+    /// `groupwords.tsv`'s count for one `(group, word)` pair, or null if
+    /// the pair never appears.
+    fn countOf(self: *VocabFixture, gpa: Allocator, group: []const u8, word: []const u8) !?usize {
+        const text = (try self.readOut(gpa, "groupwords.tsv")) orelse return null;
+        defer gpa.free(text);
+        return tsvCount(text, group, word);
+    }
+};
+
+/// The `count` field of the first row whose first two tab-separated fields
+/// equal `a`/`b`, or null if no row matches.
+fn tsvCount(text: []const u8, a: []const u8, b: []const u8) ?usize {
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        if (line.len == 0) continue;
+        var fields = std.mem.splitScalar(u8, line, '\t');
+        const fa = fields.next() orelse continue;
+        const fb = fields.next() orelse continue;
+        const fc = fields.next() orelse continue;
+        if (std.mem.eql(u8, fa, a) and std.mem.eql(u8, fb, b)) return std.fmt.parseInt(usize, fc, 10) catch null;
+    }
+    return null;
+}
+
+/// The row (as raw tab-separated text, no trailing newline) whose first
+/// field equals `group`, or null if absent.
+fn tsvRow(text: []const u8, group: []const u8) ?[]const u8 {
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        if (line.len == 0) continue;
+        const tab = std.mem.indexOfScalar(u8, line, '\t') orelse continue;
+        if (std.mem.eql(u8, line[0..tab], group)) return line;
+    }
+    return null;
+}
+
+/// Two modules with deliberately disjoint domain vocabulary, plus one term
+/// ("Shared") every module uses -- the corpus-common case the quality gate
+/// later has to be able to see.
+fn makeTwoModuleRepo(vf: *VocabFixture) !void {
+    try vf.src("billing/src/InvoiceCalculator.java", &.{ "InvoiceCalculator", "SharedRegistry" });
+    try vf.src("billing/src/DunningSchedule.java", &.{ "DunningSchedule", "SharedRegistry" });
+    try vf.src("shipping/src/ParcelRouter.java", &.{ "ParcelRouter", "SharedRegistry" });
+    try vf.src("shipping/src/CarrierManifest.java", &.{ "CarrierManifest", "SharedRegistry" });
+    try vf.commit();
+}
+
+test "vocab: two modules with different symbols yield disjoint top terms" {
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try makeTwoModuleRepo(&vf);
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+
+    try testing.expect((try vf.countOf(gpa, "billing/src", "invoice")) != null);
+    try testing.expect((try vf.countOf(gpa, "billing/src", "dunning")) != null);
+    try testing.expect((try vf.countOf(gpa, "billing/src", "parcel")) == null);
+    try testing.expect((try vf.countOf(gpa, "billing/src", "carrier")) == null);
+    try testing.expect((try vf.countOf(gpa, "shipping/src", "parcel")) != null);
+    try testing.expect((try vf.countOf(gpa, "shipping/src", "carrier")) != null);
+    try testing.expect((try vf.countOf(gpa, "shipping/src", "invoice")) == null);
+}
+
+test "vocab: a term used by every module is present in every group, so its df is visible" {
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try makeTwoModuleRepo(&vf);
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    try testing.expectEqual(@as(?usize, 2), try vf.countOf(gpa, "billing/src", "shared"));
+    try testing.expectEqual(@as(?usize, 2), try vf.countOf(gpa, "shipping/src", "shared"));
+
+    const gw = (try vf.readOut(gpa, "groupwords.tsv")).?;
+    defer gpa.free(gw);
+    var n: usize = 0;
+    var lines = std.mem.splitScalar(u8, gw, '\n');
+    while (lines.next()) |line| {
+        var fields = std.mem.splitScalar(u8, line, '\t');
+        _ = fields.next();
+        const w = fields.next() orelse continue;
+        if (std.mem.eql(u8, w, "registry")) n += 1;
+    }
+    try testing.expectEqual(@as(usize, 2), n);
+}
+
+test "vocab: CamelCase and snake_case split into words; a run of capitals stays whole" {
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("core/src/A.java", &.{ "getUserName", "premium_rate_table", "HTTPServer" });
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    try testing.expect((try vf.countOf(gpa, "core/src", "user")) != null);
+    try testing.expect((try vf.countOf(gpa, "core/src", "name")) != null);
+    try testing.expect((try vf.countOf(gpa, "core/src", "premium")) != null);
+    try testing.expect((try vf.countOf(gpa, "core/src", "rate")) != null);
+    try testing.expect((try vf.countOf(gpa, "core/src", "table")) != null);
+    // Under four characters, never survives regardless.
+    try testing.expect((try vf.countOf(gpa, "core/src", "get")) == null);
+    // An acronym run absorbs what follows it -- documented behavior, not a
+    // bug: the alternative needs lookahead.
+    try testing.expect((try vf.countOf(gpa, "core/src", "httpserver")) != null);
+}
+
+test "vocab: stopwords come from the tokenizer's own list, and short words are dropped" {
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.writeStopwords("another\nbecause\n");
+    // "Another"/"Because" are ordinary English function words and would
+    // otherwise be perfectly good-looking domain terms.
+    try vf.src("core/src/A.java", &.{ "AnotherThing", "BecauseInvoice", "Fee" });
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    try testing.expect((try vf.countOf(gpa, "core/src", "another")) == null);
+    try testing.expect((try vf.countOf(gpa, "core/src", "because")) == null);
+    try testing.expect((try vf.countOf(gpa, "core/src", "fee")) == null); // three characters
+    try testing.expect((try vf.countOf(gpa, "core/src", "thing")) != null);
+    try testing.expect((try vf.countOf(gpa, "core/src", "invoice")) != null);
+}
+
+test "vocab: groupexts.tsv names what an area is made of, grammar or not" {
+    // Counts every kept path, not the code subset -- the files that carry
+    // the orientation answer are usually the ones no grammar can read.
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("core/src/A.java", &.{"Alpha"});
+    try vf.plain("core/src/b.xml", "x\n");
+    try vf.plain("core/src/c.xml", "y\n");
+    try vf.plain("core/src/dune", "z\n"); // no dot at all
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    const ge = (try vf.readOut(gpa, "groupexts.tsv")).?;
+    defer gpa.free(ge);
+    try testing.expectEqual(@as(?usize, 2), tsvCount(ge, "core/src", "xml"));
+    try testing.expectEqual(@as(?usize, 1), tsvCount(ge, "core/src", "java"));
+    try testing.expectEqual(@as(?usize, 1), tsvCount(ge, "core/src", "dune"));
+    // Most common first within a group, matching groupwords.tsv.
+    const first_row = tsvRow(ge, "core/src").?;
+    var fields = std.mem.splitScalar(u8, first_row, '\t');
+    _ = fields.next();
+    try testing.expectEqualStrings("xml", fields.next().?);
+}
+
+test "vocab: groupexts.tsv and counts.tsv agree, group for group" {
+    // One shared map for "which group is this path in," not two rules that
+    // can silently disagree -- a group can never appear to hold more kinds
+    // of file than it holds files.
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("core/src/A.java", &.{"Alpha"});
+    try vf.src("other/src/B.java", &.{"Beta"});
+    try vf.plain("core/src/b.xml", "x\n");
+    try vf.plain("top.md", "y\n");
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    const ge = (try vf.readOut(gpa, "groupexts.tsv")).?;
+    defer gpa.free(ge);
+    const counts = (try vf.readOut(gpa, "counts.tsv")).?;
+    defer gpa.free(counts);
+
+    var sums: std.StringHashMapUnmanaged(usize) = .empty;
+    defer sums.deinit(gpa);
+    var lines = std.mem.splitScalar(u8, ge, '\n');
+    while (lines.next()) |line| {
+        if (line.len == 0) continue;
+        var fields = std.mem.splitScalar(u8, line, '\t');
+        const g = fields.next().?;
+        _ = fields.next();
+        const c = try std.fmt.parseInt(usize, fields.next().?, 10);
+        const gop = try sums.getOrPut(gpa, g);
+        if (!gop.found_existing) gop.value_ptr.* = 0;
+        gop.value_ptr.* += c;
+    }
+    var clines = std.mem.splitScalar(u8, counts, '\n');
+    while (clines.next()) |line| {
+        if (line.len == 0) continue;
+        var fields = std.mem.splitScalar(u8, line, '\t');
+        const g = fields.next().?;
+        const c = try std.fmt.parseInt(usize, fields.next().?, 10);
+        try testing.expectEqual(c, sums.get(g).?);
+    }
+}
+
+test "vocab: parseable.tsv's total agrees with counts.tsv, group for group" {
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("core/src/A.java", &.{"Alpha"});
+    try vf.plain("core/src/b.xml", "x\n");
+    try vf.plain("core/src/c.xml", "y\n");
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    const parseable = (try vf.readOut(gpa, "parseable.tsv")).?;
+    defer gpa.free(parseable);
+    const counts = (try vf.readOut(gpa, "counts.tsv")).?;
+    defer gpa.free(counts);
+
+    const p_row = tsvRow(parseable, "core/src").?;
+    var pf = std.mem.splitScalar(u8, p_row, '\t');
+    _ = pf.next();
+    _ = pf.next(); // parseable count
+    const p_total = pf.next().?;
+    const c_row = tsvRow(counts, "core/src").?;
+    var cf = std.mem.splitScalar(u8, c_row, '\t');
+    _ = cf.next();
+    try testing.expectEqualStrings(cf.next().?, p_total);
+}
+
+test "vocab: a group with no parseable files reports zero, not an absent row" {
+    // The exact row `synapse gate --parseable` looks for: it cannot tell
+    // "owns no vocabulary" from "nothing here has a grammar" without it.
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.plain("config/settings.properties", "a=1\n");
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    const parseable = (try vf.readOut(gpa, "parseable.tsv")).?;
+    defer gpa.free(parseable);
+    try testing.expectEqualStrings("config\t0\t1", tsvRow(parseable, "config").?);
+}
+
+test "vocab: a mixed group reports the real share, not all-or-nothing" {
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("core/src/A.java", &.{"Alpha"});
+    try vf.src("core/src/B.java", &.{"Beta"});
+    try vf.plain("core/src/c.xml", "x\n");
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    const parseable = (try vf.readOut(gpa, "parseable.tsv")).?;
+    defer gpa.free(parseable);
+    try testing.expectEqualStrings("core/src\t2\t3", tsvRow(parseable, "core/src").?);
+}
+
+test "vocab: distinctive.tsv reports every group, including one scoring entirely zero" {
+    // synapse-001, step 8. A word shared by every group is common, not
+    // distinctive, and the group still gets a row -- 0 is a computed
+    // answer, not the absence of one.
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("core/src/A.java", &.{"Shared"});
+    try vf.src("shipping/src/B.java", &.{"Shared"});
+    try vf.src("pricing/src/C.java", &.{"Shared"});
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    const distinctive = (try vf.readOut(gpa, "distinctive.tsv")).?;
+    defer gpa.free(distinctive);
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, distinctive, "\n"));
+    var fields = std.mem.splitScalar(u8, tsvRow(distinctive, "core/src").?, '\t');
+    _ = fields.next();
+    try testing.expectEqualStrings("0", fields.next().?);
+}
+
+test "vocab: a word unique to one group is distinctive; a word shared by every group is not" {
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("core/src/A.java", &.{ "Invoice", "Shared" });
+    try vf.src("shipping/src/B.java", &.{ "Parcel", "Shared" });
+    try vf.src("pricing/src/C.java", &.{ "Tariff", "Shared" });
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    // N = 3, D = max(2, 3/20) = 2. df(invoice) = 1: score 2/3 > 0.5, counted.
+    // df(shared) = 3: score 2/5 < 0.5, not counted.
+    const distinctive = (try vf.readOut(gpa, "distinctive.tsv")).?;
+    defer gpa.free(distinctive);
+    var fields = std.mem.splitScalar(u8, tsvRow(distinctive, "core/src").?, '\t');
+    _ = fields.next();
+    try testing.expectEqualStrings("1", fields.next().?);
+}
+
+test "vocab: --distinctive-top limits how many terms are considered per group" {
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("core/src/A.java", &.{ "One", "Two", "Three", "Four" });
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{ .distinctive_top = 2 }));
+    const two = (try vf.readOut(gpa, "distinctive.tsv")).?;
+    defer gpa.free(two);
+    var tf = std.mem.splitScalar(u8, tsvRow(two, "core/src").?, '\t');
+    _ = tf.next();
+    _ = tf.next();
+    try testing.expectEqualStrings("2", tf.next().?);
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{ .distinctive_top = 8 }));
+    const eight = (try vf.readOut(gpa, "distinctive.tsv")).?;
+    defer gpa.free(eight);
+    var ef = std.mem.splitScalar(u8, tsvRow(eight, "core/src").?, '\t');
+    _ = ef.next();
+    _ = ef.next();
+    try testing.expectEqualStrings("4", ef.next().?);
+}
+
+test "vocab: counts.tsv counts every tracked file, not only the ones with a grammar" {
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("core/src/A.java", &.{"Alpha"});
+    try vf.plain("core/src/b.xml", "x\n");
+    try vf.plain("core/src/c.xml", "y\n");
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    const counts = (try vf.readOut(gpa, "counts.tsv")).?;
+    defer gpa.free(counts);
+    var fields = std.mem.splitScalar(u8, tsvRow(counts, "core/src").?, '\t');
+    _ = fields.next();
+    try testing.expectEqualStrings("3", fields.next().?);
+}
+
+test "vocab: a repo-root file groups as (repo root) rather than vanishing" {
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("core/src/A.java", &.{"Alpha"});
+    try vf.plain("README.md", "readme\n");
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    const counts = (try vf.readOut(gpa, "counts.tsv")).?;
+    defer gpa.free(counts);
+    var fields = std.mem.splitScalar(u8, tsvRow(counts, "(repo root)").?, '\t');
+    _ = fields.next();
+    try testing.expectEqualStrings("1", fields.next().?);
+}
+
+test "vocab: --depth changes the group key, and counts.tsv keys agree with groupwords.tsv" {
+    // The two files keyed differently is the failure that makes a group
+    // look like it has vocabulary but no files, or the reverse -- the
+    // grouping rule is shared textually and this pins that it stays shared.
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("alpha/one/deep/A.java", &.{"Invoice"});
+    try vf.src("alpha/two/deep/B.java", &.{"Parcel"});
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{ .depth = 1 }));
+    try testing.expect((try vf.countOf(gpa, "alpha", "invoice")) != null);
+    try testing.expect((try vf.countOf(gpa, "alpha", "parcel")) != null);
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{ .depth = 2 }));
+    try testing.expect((try vf.countOf(gpa, "alpha/one", "invoice")) != null);
+    try testing.expect((try vf.countOf(gpa, "alpha/one", "parcel")) == null);
+
+    // Every group named in groupwords.tsv exists in counts.tsv.
+    const gw = (try vf.readOut(gpa, "groupwords.tsv")).?;
+    defer gpa.free(gw);
+    const counts = (try vf.readOut(gpa, "counts.tsv")).?;
+    defer gpa.free(counts);
+    var lines = std.mem.splitScalar(u8, gw, '\n');
+    while (lines.next()) |line| {
+        if (line.len == 0) continue;
+        const g = line[0 .. std.mem.indexOfScalar(u8, line, '\t') orelse continue];
+        try testing.expect(tsvRow(counts, g) != null);
+    }
+}
+
+test "vocab: an extension with no registry entry is excluded before tagging, not warned about" {
+    // CODE_RE is built once, up front, from the registry's own usable
+    // extensions, rather than a hardcoded guess -- an extension the
+    // registry has never heard of never reaches the code subset, so it
+    // never reaches the extractor (and its cache) at all.
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("core/src/A.java", &.{"Alpha"});
+    try vf.src("core/src/B.java", &.{"Beta"});
+    // `.rb` looks like a code extension but has no registry entry in this
+    // fixture -- exactly the case a hardcoded CODE_RE would slip through.
+    try vf.plain("core/src/c.rb", "x\n");
+    try vf.plain("core/src/d.rb", "y\n");
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{ .chunk = 1 }));
+    try testing.expect((try vf.countOf(gpa, "core/src", "alpha")) != null);
+    const cache_path = try std.fmt.allocPrint(gpa, "{s}/_tags_cache.bin", .{vf.fx.work});
+    defer gpa.free(cache_path);
+    var cache = try core.tags_cache.Cache.open(testing.io, cache_path);
+    defer cache.close(testing.io);
+    try testing.expect(cache.get("core/src/c.rb") == null);
+    try testing.expect(cache.get("core/src/d.rb") == null);
+}
+
+test "vocab: nothing with a usable grammar: empty groupwords.tsv and exit 0, not an error" {
+    // The signal to fall back to synapse-orientation. An exit 1 here would
+    // read as "the script is broken" in a repo simply written in a
+    // language with no grammar installed, which is a supported state.
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.plain("core/src/a.txt", "x\n");
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    const gw = (try vf.readOut(gpa, "groupwords.tsv")).?;
+    defer gpa.free(gw);
+    try testing.expectEqual(@as(usize, 0), gw.len);
+}
+
+test "vocab: synapse-ignore-files.conf excludes a path from the evidence as well as the graph" {
+    // Vendored/generated trees would otherwise dominate the vocabulary of
+    // whatever group they sit in, and a path excluded from the graph has
+    // no node for that vocabulary to describe.
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("core/src/A.java", &.{"Alpha"});
+    try vf.src("vendor/lib/B.java", &.{"Vendored"});
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    try testing.expect((try vf.countOf(gpa, "vendor/lib", "vendored")) != null);
+
+    try vf.writeIgnoreFiles("(^|/)vendor/\n");
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    try testing.expect((try vf.countOf(gpa, "vendor/lib", "vendored")) == null);
+    const counts = (try vf.readOut(gpa, "counts.tsv")).?;
+    defer gpa.free(counts);
+    try testing.expect(tsvRow(counts, "vendor/lib") == null);
+    try testing.expect((try vf.countOf(gpa, "core/src", "alpha")) != null);
+}
+
+// --- --lists: keyed by cluster rather than by directory ---------------------
+//
+// The quality gate scores clusters, and a cluster is not generally a union
+// of directories, so its vocabulary cannot be derived from the
+// directory-keyed table after the fact.
+
+test "vocab: --lists keys vocabulary by node title, cutting across directories" {
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("alpha/src/InvoiceCalculator.java", &.{"InvoiceCalculator"});
+    try vf.src("beta/src/DunningSchedule.java", &.{"DunningSchedule"});
+    try vf.src("beta/src/ParcelRouter.java", &.{"ParcelRouter"});
+    try vf.commit();
+    // Deliberately not a union of directories: one node takes a file from each.
+    try vf.writeList("01", "Billing", &.{ "alpha/src/InvoiceCalculator.java", "beta/src/DunningSchedule.java" });
+    try vf.writeList("02", "Shipping", &.{"beta/src/ParcelRouter.java"});
+    const lists_dir = try vf.listsDir();
+    defer gpa.free(lists_dir);
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{ .lists = lists_dir }));
+    try testing.expect((try vf.countOf(gpa, "Billing", "invoice")) != null);
+    try testing.expect((try vf.countOf(gpa, "Billing", "dunning")) != null);
+    try testing.expect((try vf.countOf(gpa, "Billing", "parcel")) == null);
+    try testing.expect((try vf.countOf(gpa, "Shipping", "parcel")) != null);
+    const counts = (try vf.readOut(gpa, "counts.tsv")).?;
+    defer gpa.free(counts);
+    var fields = std.mem.splitScalar(u8, tsvRow(counts, "Billing").?, '\t');
+    _ = fields.next();
+    try testing.expectEqualStrings("2", fields.next().?);
+}
+
+test "vocab: the --lists run against an already-warm cache tags nothing at all" {
+    // synapse-001, step 3: /synapse-init runs plain vocab first (directory-
+    // keyed) then vocab --lists (cluster-keyed) against the same files.
+    // Once the first call warms the cache for the whole code subset, the
+    // second call's list-narrowed slice should already be entirely
+    // covered -- it neither re-tags nor even needs the grammar registry
+    // entry it would otherwise have to have.
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("alpha/src/InvoiceCalculator.java", &.{"InvoiceCalculator"});
+    try vf.src("beta/src/DunningSchedule.java", &.{"DunningSchedule"});
+    try vf.src("beta/src/ParcelRouter.java", &.{"ParcelRouter"});
+    try vf.commit();
+
+    const trace1 = try std.fmt.allocPrint(gpa, "{s}/trace1.log", .{vf.fx.root});
+    defer gpa.free(trace1);
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{ .trace = trace1 }));
+    const t1 = try vf.fx.tmp.dir.readFileAlloc(testing.io, "trace1.log", gpa, .limited(1 << 20));
+    defer gpa.free(t1);
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, t1, "path "));
+
+    try vf.writeList("01", "Billing", &.{ "alpha/src/InvoiceCalculator.java", "beta/src/DunningSchedule.java" });
+    try vf.writeList("02", "Shipping", &.{"beta/src/ParcelRouter.java"});
+    const lists_dir = try vf.listsDir();
+    defer gpa.free(lists_dir);
+
+    const trace2 = try std.fmt.allocPrint(gpa, "{s}/trace2.log", .{vf.fx.root});
+    defer gpa.free(trace2);
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{ .lists = lists_dir, .trace = trace2 }));
+    try testing.expectEqual(error.FileNotFound, vf.fx.tmp.dir.access(testing.io, "trace2.log", .{}));
+
+    try testing.expect((try vf.countOf(gpa, "Billing", "invoice")) != null);
+    try testing.expect((try vf.countOf(gpa, "Billing", "dunning")) != null);
+    try testing.expect((try vf.countOf(gpa, "Billing", "parcel")) == null);
+    try testing.expect((try vf.countOf(gpa, "Shipping", "parcel")) != null);
+}
+
+test "vocab: --lists a file claimed by two nodes contributes to both" {
+    // Node manifests may legitimately overlap -- keeping one membership
+    // would make the gate's verdict depend on the order lists were read in.
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("core/src/Shared.java", &.{"InvoiceCalculator"});
+    try vf.commit();
+    try vf.writeList("01", "Billing", &.{"core/src/Shared.java"});
+    try vf.writeList("02", "Reporting", &.{"core/src/Shared.java"});
+    const lists_dir = try vf.listsDir();
+    defer gpa.free(lists_dir);
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{ .lists = lists_dir }));
+    try testing.expect((try vf.countOf(gpa, "Billing", "invoice")) != null);
+    try testing.expect((try vf.countOf(gpa, "Reporting", "invoice")) != null);
+    const counts = (try vf.readOut(gpa, "counts.tsv")).?;
+    defer gpa.free(counts);
+    var bf = std.mem.splitScalar(u8, tsvRow(counts, "Billing").?, '\t');
+    _ = bf.next();
+    try testing.expectEqualStrings("1", bf.next().?);
+    var rf = std.mem.splitScalar(u8, tsvRow(counts, "Reporting").?, '\t');
+    _ = rf.next();
+    try testing.expectEqualStrings("1", rf.next().?);
+}
+
+test "vocab: --lists a file no node claims contributes nothing" {
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("core/src/Claimed.java", &.{"InvoiceCalculator"});
+    try vf.src("core/src/Orphan.java", &.{"OrphanRegistry"});
+    try vf.commit();
+    try vf.writeList("01", "Billing", &.{"core/src/Claimed.java"});
+    const lists_dir = try vf.listsDir();
+    defer gpa.free(lists_dir);
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{ .lists = lists_dir }));
+    try testing.expect((try vf.countOf(gpa, "Billing", "invoice")) != null);
+    const gw = (try vf.readOut(gpa, "groupwords.tsv")).?;
+    defer gpa.free(gw);
+    try testing.expect(std.mem.indexOf(u8, gw, "orphan") == null);
+}
+
+test "vocab: --lists a missing or empty lists dir is an error, not a silent empty result" {
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try makeTwoModuleRepo(&vf);
+
+    const missing = try std.fmt.allocPrint(gpa, "{s}/nope", .{vf.fx.work});
+    defer gpa.free(missing);
+    try testing.expectEqual(@as(u8, 1), try vf.run(.{ .lists = missing }));
+
+    try vf.fx.tmp.dir.createDirPath(testing.io, "work/empty-lists");
+    const empty = try std.fmt.allocPrint(gpa, "{s}/empty-lists", .{vf.fx.work});
+    defer gpa.free(empty);
+    try testing.expectEqual(@as(u8, 1), try vf.run(.{ .lists = empty }));
+}
+
+test "vocab: test classes contribute vocabulary, because a summary is made of names" {
+    // The other half of the summary/crux pool split (`rank --pool`). Tests
+    // are excluded from the crux pool -- a crux is concentrated logic --
+    // but must keep feeding the summary: on a real node, terms came only
+    // from test class names, at zero read cost. Excluding tests here too
+    // would silently cost those concepts.
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("src/main/java/Service.java", &.{"Alpha"});
+    try vf.src("src/test/java/GegenparteiTest.java", &.{ "GegenparteiTest", "Frist" });
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{ .depth = 1 }));
+    try testing.expect((try vf.countOf(gpa, "src", "frist")) != null);
+    try testing.expect((try vf.countOf(gpa, "src", "gegenpartei")) != null);
+}
+
+test "vocab: the output directory holds only the six reductions plus the tags cache, never a raw dump" {
+    // 98k code files produce ~942 MB of tags against 6.9 MB of vocabulary,
+    // so this process must never hold or write the whole repo's tags at
+    // once. The allowlist is meant to be widened by hand: adding an output
+    // should fail this test once and be added here on purpose, which is
+    // what stops a debug dump of raw tags from arriving unnoticed.
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("core/src/A.java", &.{ "getUserName", "premium_rate_table" });
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    var it = (try vf.fx.tmp.dir.openDir(testing.io, "work", .{ .iterate = true }));
+    defer it.close(testing.io);
+    var walker = it.iterate();
+    while (try walker.next(testing.io)) |entry| {
+        const allowed = std.mem.eql(u8, entry.name, "counts.tsv") or
+            std.mem.eql(u8, entry.name, "groupwords.tsv") or
+            std.mem.eql(u8, entry.name, "groupexts.tsv") or
+            std.mem.eql(u8, entry.name, "namespaces.tsv") or
+            std.mem.eql(u8, entry.name, "parseable.tsv") or
+            std.mem.eql(u8, entry.name, "distinctive.tsv") or
+            std.mem.eql(u8, entry.name, "_tags_cache.bin");
+        try testing.expect(allowed);
+    }
+}
+
+test "vocab: fills the tags cache from the same tagging pass, not a second one" {
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("core/src/A.java", &.{"Alpha"});
+    try vf.src("core/src/B.java", &.{"Beta"});
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    const cache_path = try std.fmt.allocPrint(gpa, "{s}/_tags_cache.bin", .{vf.fx.work});
+    defer gpa.free(cache_path);
+    {
+        var cache = try core.tags_cache.Cache.open(testing.io, cache_path);
+        defer cache.close(testing.io);
+        try testing.expectEqual(@as(u32, 2), cache.count());
+        const a = cache.get("core/src/A.java").?;
+        try testing.expect(!a.unsupported);
+        try testing.expect(std.mem.indexOf(u8, a.tags, "FAKE_NAME") != null);
+    }
+
+    // write-node's own backfill finds both already current and does
+    // nothing -- the whole point of filling the cache here.
+    var pairs: [2]core.tags_cache.PathHash = undefined;
+    {
+        const content_a = try vf.fx.tmp.dir.readFileAlloc(testing.io, "repo/core/src/A.java", gpa, .limited(1 << 20));
+        defer gpa.free(content_a);
+        pairs[0] = .{ .path = "core/src/A.java", .hash = core.verify.blobHashRaw(content_a) };
+        const content_b = try vf.fx.tmp.dir.readFileAlloc(testing.io, "repo/core/src/B.java", gpa, .limited(1 << 20));
+        defer gpa.free(content_b);
+        pairs[1] = .{ .path = "core/src/B.java", .hash = core.verify.blobHashRaw(content_b) };
+    }
+    var cache = try core.tags_cache.Cache.open(testing.io, cache_path);
+    defer cache.close(testing.io);
+    var kind_rules = try core.kind_synonyms.RuleList.load(gpa, testing.io, "/nonexistent");
+    defer kind_rules.deinit();
+    try tags_cache_cmd.backfill(fake_grammar.FakeExtractor, gpa, testing.io, &vf.fx.env, vf.fx.repo, &cache, &pairs, null);
+    try testing.expectEqual(@as(u32, 2), cache.count());
+}
+
+test "vocab: a file outside the code subset is not added to the tags cache" {
+    // vocab only ever tags the code subset (a usable grammar); a file
+    // counted in groupexts.tsv purely as artifact-mix evidence was never
+    // parsed and has nothing to cache.
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("core/src/A.java", &.{"Alpha"});
+    try vf.plain("core/src/b.xml", "x\n");
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    const cache_path = try std.fmt.allocPrint(gpa, "{s}/_tags_cache.bin", .{vf.fx.work});
+    defer gpa.free(cache_path);
+    var cache = try core.tags_cache.Cache.open(testing.io, cache_path);
+    defer cache.close(testing.io);
+    try testing.expectEqual(@as(u32, 1), cache.count());
+    try testing.expect(cache.get("core/src/b.xml") == null);
+}
+
+test "vocab: a second run against an unchanged repo tags nothing" {
+    // synapse-001, step 2: the directory-keyed reduction comes from the
+    // cache, not from re-tagging. A repeat run with nothing changed should
+    // reach the extractor for zero files.
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("core/src/A.java", &.{"Alpha"});
+    try vf.src("core/src/B.java", &.{"Beta"});
+    try vf.commit();
+
+    const trace1 = try std.fmt.allocPrint(gpa, "{s}/trace1.log", .{vf.fx.root});
+    defer gpa.free(trace1);
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{ .trace = trace1 }));
+    const t1 = try vf.fx.tmp.dir.readFileAlloc(testing.io, "trace1.log", gpa, .limited(1 << 20));
+    defer gpa.free(t1);
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, t1, "path "));
+
+    const trace2 = try std.fmt.allocPrint(gpa, "{s}/trace2.log", .{vf.fx.root});
+    defer gpa.free(trace2);
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{ .trace = trace2 }));
+    try testing.expectEqual(error.FileNotFound, vf.fx.tmp.dir.access(testing.io, "trace2.log", .{}));
+
+    try testing.expect((try vf.countOf(gpa, "core/src", "alpha")) != null);
+    try testing.expect((try vf.countOf(gpa, "core/src", "beta")) != null);
+}
+
+test "vocab: only a changed file is re-tagged on a second run, the rest come from the cache" {
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.src("core/src/A.java", &.{"Alpha"});
+    try vf.src("core/src/B.java", &.{"Beta"});
+    try vf.commit();
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+
+    // A symbol sharing no CamelCase sub-word with "Alpha", so a surviving
+    // "alpha" count could only mean a stale read, not a coincidence.
+    try vf.src("core/src/A.java", &.{"GammaRenamed"});
+    const trace = try std.fmt.allocPrint(gpa, "{s}/trace.log", .{vf.fx.root});
+    defer gpa.free(trace);
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{ .trace = trace }));
+    const t = try vf.fx.tmp.dir.readFileAlloc(testing.io, "trace.log", gpa, .limited(1 << 20));
+    defer gpa.free(t);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, t, "path "));
+    try testing.expect(std.mem.indexOf(u8, t, "path core/src/A.java\n") != null);
+
+    try testing.expect((try vf.countOf(gpa, "core/src", "gamma")) != null);
+    try testing.expect((try vf.countOf(gpa, "core/src", "alpha")) == null);
+    try testing.expect((try vf.countOf(gpa, "core/src", "beta")) != null);
+}
+
+// --- namespaces.tsv: does the code's own name match the directory holding it ---
+//
+// synapse-001, step 6. Rules live in `$HOME/.claude/synapse-namespace-rules.conf`,
+// same discovery contract as the grammar registry: absent means nothing
+// configured yet, not an error.
+
+test "vocab: namespaces.tsv is empty when no rules are configured, not an error" {
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.plain("core/src/A.java", "package com.example.billing;\nclass A {}\n");
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    const ns = (try vf.readOut(gpa, "namespaces.tsv")).?;
+    defer gpa.free(ns);
+    try testing.expectEqual(@as(usize, 0), ns.len);
+}
+
+const in_file_java_rule =
+    \\{"java": {"kind": "in-file", "prefix": "package ", "terminator": ";"}}
+;
+
+test "vocab: an in-file rule captures a package declaration, and full agreement shows agree == total" {
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.writeNamespaceRules(in_file_java_rule);
+    try vf.plain("core/src/A.java", "package com.example.billing;\nclass A {}\n");
+    try vf.plain("core/src/B.java", "package com.example.billing;\nclass B {}\n");
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    const ns = (try vf.readOut(gpa, "namespaces.tsv")).?;
+    defer gpa.free(ns);
+    try testing.expectEqualStrings("core/src\tcom.example.billing\t2\t2", tsvRow(ns, "core/src").?);
+}
+
+test "vocab: a divergence shows the majority namespace, not an average of the two" {
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.writeNamespaceRules(in_file_java_rule);
+    try vf.plain("core/src/A.java", "package com.example.billing;\n");
+    try vf.plain("core/src/B.java", "package com.example.billing;\n");
+    try vf.plain("core/src/C.java", "package com.example.legacy;\n");
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    const ns = (try vf.readOut(gpa, "namespaces.tsv")).?;
+    defer gpa.free(ns);
+    try testing.expectEqualStrings("core/src\tcom.example.billing\t2\t3", tsvRow(ns, "core/src").?);
+}
+
+test "vocab: a build-file rule resolves via the nearest ancestor, not just a same-directory sibling" {
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.writeNamespaceRules(
+        \\{"ml": {"kind": "build-file", "file": "dune", "prefix": "(name ", "terminator": ")"}}
+    );
+    try vf.plain("eon_edn/src/dune", "(name eon_edn)\n");
+    try vf.plain("eon_edn/src/foo.ml", "let x = 1\n");
+    try vf.plain("eon_edn/src/nested/bar.ml", "let y = 2\n");
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{ .depth = 1 }));
+    // Both foo.ml (same directory as dune) and bar.ml (one level deeper, no
+    // dune of its own) resolve to the same declared namespace via the
+    // ancestor walk.
+    const ns = (try vf.readOut(gpa, "namespaces.tsv")).?;
+    defer gpa.free(ns);
+    try testing.expectEqualStrings("eon_edn\teon_edn\t2\t2", tsvRow(ns, "eon_edn").?);
+}
+
+test "vocab: an extension with no rule contributes nothing, even alongside one that has a rule" {
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    try vf.writeNamespaceRules(in_file_java_rule);
+    try vf.plain("core/src/A.java", "package com.example.billing;\n");
+    try vf.plain("core/src/A.py", "class A: pass\n");
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    const ns = (try vf.readOut(gpa, "namespaces.tsv")).?;
+    defer gpa.free(ns);
+    try testing.expectEqualStrings("core/src\tcom.example.billing\t1\t1", tsvRow(ns, "core/src").?);
+}
+
+test "vocab: SYNAPSE_NAMESPACE_RULES_CONF overrides the default path" {
+    const gpa = testing.allocator;
+    var vf = try VocabFixture.init(gpa);
+    defer vf.deinit();
+    const custom = try std.fmt.allocPrint(gpa, "{s}/custom-rules.conf", .{vf.fx.root});
+    defer gpa.free(custom);
+    try vf.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "custom-rules.conf", .data = in_file_java_rule });
+    try vf.fx.env.put("SYNAPSE_NAMESPACE_RULES_CONF", custom);
+    try vf.plain("core/src/A.java", "package com.example.billing;\n");
+    try vf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try vf.run(.{}));
+    const ns = (try vf.readOut(gpa, "namespaces.tsv")).?;
+    defer gpa.free(ns);
+    try testing.expectEqualStrings("core/src\tcom.example.billing\t1\t1", tsvRow(ns, "core/src").?);
 }

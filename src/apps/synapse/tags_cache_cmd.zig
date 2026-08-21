@@ -82,7 +82,7 @@ fn usage() u8 {
     return 1;
 }
 
-fn update(
+pub fn update(
     comptime Ex: type,
     gpa: Allocator,
     io: Io,
@@ -365,4 +365,361 @@ fn writeTrace(io: Io, trace: ?[]const u8, paths: []const []const u8) !void {
     try w.interface.writeAll("\n");
     for (paths) |p| try w.interface.print("path {s}\n", .{p});
     try w.interface.flush();
+}
+
+const testing = std.testing;
+const fixture = @import("cmd_test_support.zig");
+const fake_grammar = @import("fake_grammar.zig");
+
+/// A compile-time 40-hex-char hash from a small integer -- distinct fixture
+/// files never need a real git hash, only distinct/stable ones, since
+/// `Cache.needsTagging` only ever compares hash bytes for equality.
+fn hx(comptime n: u32) []const u8 {
+    return comptime std.fmt.comptimePrint("{x:0>40}", .{n});
+}
+
+/// A real `Fixture` plus `.ml` registered in a real `synapse-grammars.conf`
+/// (matching `fake_grammar.FakeBackend`'s taggable extensions) -- `update`'s
+/// own grammar resolution reads that file for real, so a `.ml` file with no
+/// registry entry would score `.unsupported` before `FakeBackend.tagFile`
+/// ever ran.
+const TagsFixture = struct {
+    fx: fixture.Fixture,
+
+    fn init(gpa: Allocator) !TagsFixture {
+        var fx = try fixture.Fixture.init(gpa);
+        errdefer fx.deinit();
+        try fx.writeGrammars();
+        return .{ .fx = fx };
+    }
+
+    fn deinit(self: *TagsFixture) void {
+        self.fx.deinit();
+    }
+
+    fn src(self: *TagsFixture, path: []const u8, content: []const u8) !void {
+        try self.fx.writeRepoFile(path, content);
+    }
+
+    fn cachePath(self: *TagsFixture) ![]const u8 {
+        return std.fmt.allocPrint(self.fx.gpa, "{s}/_tags_cache.bin", .{self.fx.work});
+    }
+
+    /// Writes an absolute `paths.tsv` from (path, hash-hex) pairs and calls
+    /// `update` with `fake_grammar.FakeExtractor` -- `trace_path`, when
+    /// given, is the same file `writeTrace` appends "tags ...\n"/"path
+    /// ...\n" lines to for every real `synapse-fake` run, read back here
+    /// directly instead of through a shelled-out log file.
+    fn run(self: *TagsFixture, pairs: []const [2][]const u8, trace_path: ?[]const u8) !u8 {
+        const gpa = self.fx.gpa;
+        var body: Io.Writer.Allocating = .init(gpa);
+        defer body.deinit();
+        for (pairs) |p| try body.writer.print("{s}\t{s}\n", .{ p[0], p[1] });
+        try self.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "work/paths.tsv", .data = body.written() });
+        const paths_file = try std.fmt.allocPrint(gpa, "{s}/paths.tsv", .{self.fx.work});
+        defer gpa.free(paths_file);
+        const cache_path = try self.cachePath();
+        defer gpa.free(cache_path);
+        return update(fake_grammar.FakeExtractor, self.fx.gpa, self.fx.io(), &self.fx.env, self.fx.repo, cache_path, paths_file, trace_path);
+    }
+
+    /// `Cache.get`'s own slices point into the mapping, invalidated the
+    /// instant this closes it -- returns an owned copy instead so a test
+    /// can read `.tags` after this returns. Caller frees `.tags`.
+    fn get(self: *TagsFixture, path: []const u8) !?core.tags_cache.Entry {
+        const cache_path = try self.cachePath();
+        defer self.fx.gpa.free(cache_path);
+        var cache = try Cache.open(testing.io, cache_path);
+        defer cache.close(testing.io);
+        const e = cache.get(path) orelse return null;
+        return .{ .hash = e.hash, .tags = try self.fx.gpa.dupe(u8, e.tags), .unsupported = e.unsupported };
+    }
+
+    fn tracePath(self: *TagsFixture) ![]const u8 {
+        return std.fmt.allocPrint(self.fx.gpa, "{s}/trace.log", .{self.fx.work});
+    }
+
+    /// Count of lines starting with `prefix` (` ` included) in the trace
+    /// file -- the native equivalent of bats' `grep -c '^path '`.
+    fn traceCount(self: *TagsFixture, prefix: []const u8) !usize {
+        const text = self.fx.tmp.dir.readFileAlloc(testing.io, "work/trace.log", self.fx.gpa, .limited(1 << 20)) catch |e| {
+            if (e == error.FileNotFound) return 0;
+            return e;
+        };
+        defer self.fx.gpa.free(text);
+        var n: usize = 0;
+        var lines = std.mem.splitScalar(u8, text, '\n');
+        while (lines.next()) |line| {
+            if (std.mem.startsWith(u8, line, prefix)) n += 1;
+        }
+        return n;
+    }
+};
+
+test "cold cache: tags every requested file, records hash and tags" {
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    try tf.src("sample_1.ml", "let x_1 = 1\n");
+    try tf.src("sample_2.ml", "let x_2 = 2\n");
+    try tf.src("sample_3.ml", "let x_3 = 3\n");
+
+    const trace_path = try tf.tracePath();
+    defer gpa.free(trace_path);
+    const code = try tf.run(&.{
+        .{ "sample_1.ml", hx(1) },
+        .{ "sample_2.ml", hx(2) },
+        .{ "sample_3.ml", hx(3) },
+    }, trace_path);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const e1 = (try tf.get("sample_1.ml")).?;
+    defer gpa.free(e1.tags);
+    try testing.expect(std.mem.indexOf(u8, e1.tags, "FAKE_NAME") != null);
+    try testing.expect(!e1.unsupported);
+    try testing.expectEqualSlices(u8, &(try core.model.SourceRef.hashFromHex(hx(1))), &e1.hash);
+    // Every requested file was tagged in one extraction pass, not three
+    // separate ones -- grammar load is nearly all of the per-file cost.
+    try testing.expectEqual(@as(usize, 3), try tf.traceCount("path "));
+    try testing.expectEqual(@as(usize, 1), try tf.traceCount("tags "));
+}
+
+test "unchanged hashes: no re-tagging on a second run" {
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    try tf.src("sample_1.ml", "let x_1 = 1\n");
+    _ = try tf.run(&.{.{ "sample_1.ml", hx(1) }}, null);
+
+    const trace_path = try tf.tracePath();
+    defer gpa.free(trace_path);
+    const code = try tf.run(&.{.{ "sample_1.ml", hx(1) }}, trace_path);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expectEqual(@as(usize, 0), try tf.traceCount("path "));
+}
+
+test "one file's hash changes: only that file is re-tagged, others untouched" {
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    try tf.src("sample_1.ml", "let x_1 = 1\n");
+    try tf.src("sample_2.ml", "let x_2 = 2\n");
+    try tf.src("sample_3.ml", "let x_3 = 3\n");
+    _ = try tf.run(&.{
+        .{ "sample_1.ml", hx(1) },
+        .{ "sample_2.ml", hx(2) },
+        .{ "sample_3.ml", hx(3) },
+    }, null);
+    const before_2 = (try tf.get("sample_2.ml")).?;
+    defer gpa.free(before_2.tags);
+    const before_3 = (try tf.get("sample_3.ml")).?;
+    defer gpa.free(before_3.tags);
+
+    try tf.src("sample_1.ml", "let x_1 = 999 (* changed *)\n");
+    const trace_path = try tf.tracePath();
+    defer gpa.free(trace_path);
+    const code = try tf.run(&.{
+        .{ "sample_1.ml", hx(11) },
+        .{ "sample_2.ml", hx(2) },
+        .{ "sample_3.ml", hx(3) },
+    }, trace_path);
+    try testing.expectEqual(@as(u8, 0), code);
+    // Which file was tagged, not how many calls happened.
+    try testing.expectEqual(@as(usize, 1), try tf.traceCount("path "));
+
+    const e1 = (try tf.get("sample_1.ml")).?;
+    defer gpa.free(e1.tags);
+    try testing.expectEqualSlices(u8, &(try core.model.SourceRef.hashFromHex(hx(11))), &e1.hash);
+    const after_2 = (try tf.get("sample_2.ml")).?;
+    defer gpa.free(after_2.tags);
+    const after_3 = (try tf.get("sample_3.ml")).?;
+    defer gpa.free(after_3.tags);
+    try testing.expectEqualSlices(u8, &before_2.hash, &after_2.hash);
+    try testing.expectEqualStrings(before_2.tags, after_2.tags);
+    try testing.expectEqualSlices(u8, &before_3.hash, &after_3.hash);
+    try testing.expectEqualStrings(before_3.tags, after_3.tags);
+}
+
+test "unsupported file: recorded as unsupported, never retried while unchanged" {
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    try tf.src("sample.unknownext", "no grammar for this\n");
+    // No registry entry for "unknownext" at all -- the same outcome as a
+    // grammar that fails to build.
+
+    const code = try tf.run(&.{.{ "sample.unknownext", hx(1) }}, null);
+    try testing.expectEqual(@as(u8, 0), code);
+    const e = (try tf.get("sample.unknownext")).?;
+    defer gpa.free(e.tags);
+    try testing.expect(e.unsupported);
+    try testing.expectEqualStrings("", e.tags);
+
+    const trace_path = try tf.tracePath();
+    defer gpa.free(trace_path);
+    const code2 = try tf.run(&.{.{ "sample.unknownext", hx(1) }}, trace_path);
+    try testing.expectEqual(@as(u8, 0), code2);
+    try testing.expectEqual(@as(usize, 0), try tf.traceCount("path "));
+}
+
+test "a file that parsed to no tags is NOT recorded as unsupported" {
+    // The distinction the batched shell form once lost: an unparseable file
+    // is absent from a grammar entirely, while a file that parsed and
+    // simply had nothing in it still gets its path recorded, tags empty.
+    // Conflating them would make `synapse query symbol` report a perfectly
+    // readable file as "not checked", and re-tag it on every call.
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    try tf.src("empty.ml", "notags\n");
+    try tf.src("full.ml", "let x = 1\n");
+    try tf.src("other.unknownext", "no grammar for this\n");
+
+    const code = try tf.run(&.{
+        .{ "empty.ml", hx(1) },
+        .{ "full.ml", hx(2) },
+        .{ "other.unknownext", hx(3) },
+    }, null);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const empty = (try tf.get("empty.ml")).?;
+    defer gpa.free(empty.tags);
+    try testing.expect(!empty.unsupported);
+    try testing.expectEqualStrings("", empty.tags);
+    const full = (try tf.get("full.ml")).?;
+    defer gpa.free(full.tags);
+    try testing.expect(std.mem.indexOf(u8, full.tags, "FAKE_NAME") != null);
+    const other = (try tf.get("other.unknownext")).?;
+    defer gpa.free(other.tags);
+    try testing.expect(other.unsupported);
+
+    // All three are current: none is re-attempted.
+    const trace_path = try tf.tracePath();
+    defer gpa.free(trace_path);
+    _ = try tf.run(&.{
+        .{ "empty.ml", hx(1) },
+        .{ "full.ml", hx(2) },
+        .{ "other.unknownext", hx(3) },
+    }, trace_path);
+    try testing.expectEqual(@as(usize, 0), try tf.traceCount("path "));
+}
+
+test "tags are attributed to the right file, never bleeding into a neighbor" {
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    try tf.src("a.ml", "symbol:AlphaOnly\n");
+    try tf.src("b.ml", "symbol:BetaOnly\n");
+    try tf.src("c.ml", "notags\n");
+
+    _ = try tf.run(&.{
+        .{ "a.ml", hx(1) },
+        .{ "b.ml", hx(2) },
+        .{ "c.ml", hx(3) },
+    }, null);
+
+    const a = (try tf.get("a.ml")).?;
+    defer gpa.free(a.tags);
+    try testing.expect(std.mem.indexOf(u8, a.tags, "AlphaOnly") != null);
+    try testing.expect(std.mem.indexOf(u8, a.tags, "BetaOnly") == null);
+    const b = (try tf.get("b.ml")).?;
+    defer gpa.free(b.tags);
+    try testing.expect(std.mem.indexOf(u8, b.tags, "BetaOnly") != null);
+    try testing.expect(std.mem.indexOf(u8, b.tags, "AlphaOnly") == null);
+    const c = (try tf.get("c.ml")).?;
+    defer gpa.free(c.tags);
+    try testing.expectEqualStrings("", c.tags);
+}
+
+test "a cached tag line's first field is the symbol name, trimmed of tree-sitter's padding" {
+    // Consumers split on tab and read field 1 as the symbol; a leading tab
+    // or untrimmed padding would empty or corrupt it, making `synapse query
+    // symbol` silently miss a file it did read.
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    try tf.src("a.ml", "symbol:AlphaOnly\n");
+    _ = try tf.run(&.{.{ "a.ml", hx(1) }}, null);
+
+    const a = (try tf.get("a.ml")).?;
+    defer gpa.free(a.tags);
+    var lines = std.mem.splitScalar(u8, a.tags, '\n');
+    var matched: usize = 0;
+    while (lines.next()) |line| {
+        var fields = std.mem.splitScalar(u8, line, '\t');
+        const name_field = fields.next() orelse continue;
+        const trimmed = std.mem.trim(u8, name_field, " \t");
+        if (std.mem.eql(u8, trimmed, "AlphaOnly")) matched += 1;
+    }
+    try testing.expectEqual(@as(usize, 1), matched);
+}
+
+test "several files needing tagging at once: every one ends up correctly cached" {
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    var pairs: [6][2][]const u8 = undefined;
+    inline for (1..7) |i| {
+        const path = std.fmt.comptimePrint("sample_{d}.ml", .{i});
+        try tf.src(path, "let x = 1\n");
+        pairs[i - 1] = .{ path, hx(i) };
+    }
+
+    const code = try tf.run(&pairs, null);
+    try testing.expectEqual(@as(u8, 0), code);
+    inline for (1..7) |i| {
+        const path = std.fmt.comptimePrint("sample_{d}.ml", .{i});
+        const e = (try tf.get(path)).?;
+        defer gpa.free(e.tags);
+        try testing.expect(std.mem.indexOf(u8, e.tags, "FAKE_NAME") != null);
+    }
+}
+
+test "a path containing a space is cached correctly" {
+    // A regression in the old shell implementation's per-file `xargs -L 1`
+    // dispatch (which word-split on spaces as well as tabs) -- the Zig port
+    // parses paths.tsv by explicit tab, never by word-splitting, so this is
+    // now a plain correctness check rather than a targeted regression test.
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    try tf.src("src/some dir/spaced.ml", "let spaced = 1\n");
+    try tf.src("plain.ml", "let plain = 2\n");
+
+    const code = try tf.run(&.{
+        .{ "src/some dir/spaced.ml", hx(1) },
+        .{ "plain.ml", hx(2) },
+    }, null);
+    try testing.expectEqual(@as(u8, 0), code);
+    const spaced = (try tf.get("src/some dir/spaced.ml")).?;
+    defer gpa.free(spaced.tags);
+    try testing.expect(std.mem.indexOf(u8, spaced.tags, "FAKE_NAME") != null);
+    try testing.expectEqualSlices(u8, &(try core.model.SourceRef.hashFromHex(hx(1))), &spaced.hash);
+}
+
+test "nonexistent paths file: exit 1" {
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+    const cache_path = try tf.cachePath();
+    defer gpa.free(cache_path);
+    const missing = try std.fmt.allocPrint(gpa, "{s}/does-not-exist.tsv", .{tf.fx.work});
+    defer gpa.free(missing);
+
+    const code = try update(fake_grammar.FakeExtractor, gpa, tf.fx.io(), &tf.fx.env, tf.fx.repo, cache_path, missing, null);
+    try testing.expectEqual(@as(u8, 1), code);
+}
+
+test "empty paths file: nothing to do, exit 0, cache created but empty" {
+    const gpa = testing.allocator;
+    var tf = try TagsFixture.init(gpa);
+    defer tf.deinit();
+
+    const code = try tf.run(&.{}, null);
+    try testing.expectEqual(@as(u8, 0), code);
+    const cache_path = try tf.cachePath();
+    defer gpa.free(cache_path);
+    var cache = try Cache.open(testing.io, cache_path);
+    defer cache.close(testing.io);
+    try testing.expectEqual(@as(u32, 0), cache.count());
 }

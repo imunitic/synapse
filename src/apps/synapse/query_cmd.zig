@@ -362,7 +362,7 @@ fn cmdDrift(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []const u
 
     var baselines: std.ArrayListUnmanaged(Baseline) = .empty;
     defer {
-        for (baselines.items) |b| b.diff.deinit(gpa);
+        for (baselines.items) |b| freeOwnedDiff(gpa, b.diff);
         baselines.deinit(gpa);
     }
     // node index -> baseline index, for the second pass.
@@ -474,6 +474,7 @@ fn baselineFor(
     const diff = try core.drift.parseNameStatus(gpa, raw);
     // `parseNameStatus` slices into `raw`, which `res.deinit` frees -- copy first.
     const owned = try ownDiff(gpa, diff);
+    errdefer freeOwnedDiff(gpa, owned);
     diff.deinit(gpa);
 
     const divergent = !try isAncestor(gpa, io, ctx, commit);
@@ -508,6 +509,19 @@ fn dupePaths(gpa: Allocator, in: []const []const u8) ![][]const u8 {
     const out = try gpa.alloc([]const u8, in.len);
     for (in, 0..) |p, i| out[i] = try gpa.dupe(u8, p);
     return out;
+}
+
+/// `Diff.deinit` only frees the four outer slices, correct for
+/// `parseNameStatus`'s own result (each path borrowed from the diff output
+/// buffer it slices into) but not for one `ownDiff` produced -- every path
+/// in *that* one is its own allocation from `dupePaths`, and `Diff.deinit`
+/// alone leaks all of them.
+fn freeOwnedDiff(gpa: Allocator, d: core.drift.Diff) void {
+    for (d.modified) |p| gpa.free(p);
+    for (d.deleted) |p| gpa.free(p);
+    for (d.renamed_from) |p| gpa.free(p);
+    for (d.added) |p| gpa.free(p);
+    d.deinit(gpa);
 }
 
 fn isAncestor(gpa: Allocator, io: Io, ctx: *const Context, commit: []const u8) !bool {
@@ -928,4 +942,1460 @@ fn cmdSymbol(
         }
     }
     return 0;
+}
+
+const testing = std.testing;
+const fixture = @import("cmd_test_support.zig");
+const fake_grammar = @import("fake_grammar.zig");
+
+/// "let lineNN = N\n" for N in `from..=to`.
+fn calcMl(gpa: Allocator, from: u32, to: u32) ![]u8 {
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    var n = from;
+    while (n <= to) : (n += 1) try out.writer.print("let line{d:0>2} = {d}\n", .{ n, n });
+    return gpa.dupe(u8, out.written());
+}
+
+/// A node grounded in a two-line doc comment at the top of `lib/calc.ml`,
+/// matching the bats fixture's own `build_grounded_node` -- built directly
+/// as a node file and a repo file, not through `write-node`, since
+/// `cmdGrounding` only cares what's on disk, not how it got there.
+fn buildGroundedNode(gpa: Allocator, fx: *fixture.Fixture) !void {
+    const header = "(* Computes the premium for a contract.\n   Rounds half-up at two decimals. *)\n";
+    const body_lines = try calcMl(gpa, 3, 12);
+    defer gpa.free(body_lines);
+    const calc = try std.fmt.allocPrint(gpa, "{s}{s}", .{ header, body_lines });
+    defer gpa.free(calc);
+    try fx.writeRepoFile("lib/calc.ml", calc);
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+
+    const digest = core.verify.sha256Hex(header);
+    const node = try std.fmt.allocPrint(gpa,
+        \\---
+        \\title: "Premium"
+        \\summary: "Premium calc."
+        \\sources:
+        \\  - path: lib/calc.ml
+        \\    hash: 1111111111111111111111111111111111111111
+        \\grounded_in:
+        \\  - path: lib/calc.ml
+        \\    lines: "1-2"
+        \\    digest: {s}
+        \\stale: false
+        \\built_at: "test"
+        \\---
+        \\
+        \\# Premium
+        \\<!-- synapse:generated:start -->
+        \\
+        \\## Summary
+        \\Rounds half-up at two decimals.
+        \\<!-- synapse:generated:end -->
+        \\
+    , .{&digest});
+    defer gpa.free(node);
+    try fx.writeNodeFile("Premium", node);
+}
+
+fn runGrounding(gpa: Allocator, fx: *fixture.Fixture, rest: []const []const u8) !struct { code: u8, out: []u8 } {
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cmdGrounding(gpa, fx.io(), &ctx, rest, &out.writer);
+    return .{ .code = code, .out = try gpa.dupe(u8, out.written()) };
+}
+
+test "grounding: silence when every recorded grounding still matches" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try buildGroundedNode(gpa, &fx);
+
+    // Positive control first: the grounding is actually visible.
+    const list = try runGrounding(gpa, &fx, &.{ "Premium", "--list" });
+    defer gpa.free(list.out);
+    try testing.expect(list.out.len != 0);
+
+    const r = try runGrounding(gpa, &fx, &.{});
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqual(@as(usize, 0), r.out.len);
+}
+
+test "grounding: an unrelated edit elsewhere in the file stays silent" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try buildGroundedNode(gpa, &fx);
+
+    const header = "(* Computes the premium for a contract.\n   Rounds half-up at two decimals. *)\n";
+    const body_lines = try calcMl(gpa, 3, 12);
+    defer gpa.free(body_lines);
+    const appended = try std.fmt.allocPrint(gpa, "{s}{s}let tail = 99\n", .{ header, body_lines });
+    defer gpa.free(appended);
+    try fx.writeRepoFile("lib/calc.ml", appended);
+
+    const r = try runGrounding(gpa, &fx, &.{});
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqual(@as(usize, 0), r.out.len);
+}
+
+test "grounding: a pure line shift is reported as moved, with the new range" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try buildGroundedNode(gpa, &fx);
+
+    const header = "(* Computes the premium for a contract.\n   Rounds half-up at two decimals. *)\n";
+    const body_lines = try calcMl(gpa, 3, 12);
+    defer gpa.free(body_lines);
+    const shifted = try std.fmt.allocPrint(gpa, "(* new header *)\n(* second line *)\n{s}{s}", .{ header, body_lines });
+    defer gpa.free(shifted);
+    try fx.writeRepoFile("lib/calc.ml", shifted);
+
+    const r = try runGrounding(gpa, &fx, &.{});
+    defer gpa.free(r.out);
+    try testing.expect(std.mem.indexOf(u8, r.out, "grounding moved") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "1-2 -> 3-4") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "grounding changed") == null);
+}
+
+test "grounding: an edit to the grounded text itself is reported as changed" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try buildGroundedNode(gpa, &fx);
+
+    const header = "(* Computes the premium for a contract.\n   Truncates toward zero at two decimals. *)\n";
+    const body_lines = try calcMl(gpa, 3, 12);
+    defer gpa.free(body_lines);
+    const edited = try std.fmt.allocPrint(gpa, "{s}{s}", .{ header, body_lines });
+    defer gpa.free(edited);
+    try fx.writeRepoFile("lib/calc.ml", edited);
+
+    const r = try runGrounding(gpa, &fx, &.{});
+    defer gpa.free(r.out);
+    try testing.expect(std.mem.indexOf(u8, r.out, "grounding changed") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "lib/calc.ml 1-2") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "re-check the claim") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "grounding moved") == null);
+}
+
+test "grounding: a deleted grounding file is named" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try buildGroundedNode(gpa, &fx);
+    // Delete by overwriting the repo dir entry: writeRepoFile only adds, so
+    // remove the tmp-dir file directly.
+    try fx.tmp.dir.deleteFile(testing.io, "repo/lib/calc.ml");
+
+    const r = try runGrounding(gpa, &fx, &.{});
+    defer gpa.free(r.out);
+    try testing.expect(std.mem.indexOf(u8, r.out, "grounding file gone: lib/calc.ml") != null);
+}
+
+test "grounding: a node with no grounded_in is silently skipped" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeNodeFile("Plain",
+        \\---
+        \\title: "Plain"
+        \\summary: "S."
+        \\sources:
+        \\  - path: src/foo.ml
+        \\    hash: 1111111111111111111111111111111111111111
+        \\stale: false
+        \\built_at: "test"
+        \\---
+        \\# Plain
+        \\
+    );
+
+    const r = try runGrounding(gpa, &fx, &.{});
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqual(@as(usize, 0), r.out.len);
+}
+
+test "grounding: takes no arguments" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try buildGroundedNode(gpa, &fx);
+
+    const r = try runGrounding(gpa, &fx, &.{"extra"});
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 2), r.code);
+}
+
+test "grounding --list: prints the recorded pointers, so a rebuild can re-emit them" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try buildGroundedNode(gpa, &fx);
+
+    const r = try runGrounding(gpa, &fx, &.{ "Premium", "--list" });
+    defer gpa.free(r.out);
+    try testing.expectEqualStrings("lib/calc.ml\t1-2\n", r.out);
+}
+
+test "grounding --list: the digest is not printed, only what a directive needs" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try buildGroundedNode(gpa, &fx);
+
+    const r = try runGrounding(gpa, &fx, &.{ "Premium.md", "--list" });
+    defer gpa.free(r.out);
+    // a directive needs path and lines; the digest is the writer's to
+    // recompute.
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, r.out, "\t"));
+}
+
+test "grounding --list: a node without groundings prints nothing, exit 0" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeNodeFile("Bare",
+        \\---
+        \\title: "Bare"
+        \\summary: "S."
+        \\sources:
+        \\  - path: src/foo.ml
+        \\    hash: 1111111111111111111111111111111111111111
+        \\stale: false
+        \\built_at: "test"
+        \\---
+        \\# Bare
+        \\
+    );
+
+    const r = try runGrounding(gpa, &fx, &.{ "Bare", "--list" });
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqual(@as(usize, 0), r.out.len);
+}
+
+test "grounding --list: an unknown node exits 1" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try buildGroundedNode(gpa, &fx);
+
+    const r = try runGrounding(gpa, &fx, &.{ "Nope", "--list" });
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 1), r.code);
+}
+
+// --- links --------------------------------------------------------------
+
+/// A node carrying only a Links section -- enough for `cmdLinks`, matching
+/// the bats fixture's own `node()` helper.
+fn linksNode(gpa: Allocator, fx: *fixture.Fixture, title: []const u8, links: []const []const u8) !void {
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    try out.writer.print(
+        "---\ntitle: \"{s}\"\nsummary: \"S.\"\n---\n\n# {s}\n" ++
+            "<!-- synapse:generated:start -->\n\n## Summary\nProse.\n\n## Links\n",
+        .{ title, title },
+    );
+    for (links) |l| try out.writer.print("- {s}\n", .{l});
+    try out.writer.writeAll("\n## Sources\n- `src` (1)\n<!-- synapse:generated:end -->\n\n## Notes\n");
+    try fx.writeNodeFile(title, out.written());
+}
+
+fn runLinks(gpa: Allocator, fx: *fixture.Fixture, rest: []const []const u8) !struct { code: u8, out: []u8 } {
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cmdLinks(gpa, fx.io(), &ctx, rest, &out.writer);
+    return .{ .code = code, .out = try gpa.dupe(u8, out.written()) };
+}
+
+test "links: outbound relations come back with their type" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try linksNode(gpa, &fx, "Alpha", &.{ "depends_on [[Beta]]", "uses [[Gamma]]" });
+    try linksNode(gpa, &fx, "Beta", &.{});
+    try linksNode(gpa, &fx, "Gamma", &.{});
+
+    const r = try runLinks(gpa, &fx, &.{"Alpha"});
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, r.out, "\n"));
+    try testing.expect(std.mem.indexOf(u8, r.out, "depends_on\tBeta") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "uses\tGamma") != null);
+}
+
+test "links: --inbound distinguishes relations, which the link graph cannot" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try linksNode(gpa, &fx, "Alpha", &.{"depends_on [[Target]]"});
+    try linksNode(gpa, &fx, "Beta", &.{"uses [[Target]]"});
+    try linksNode(gpa, &fx, "Gamma", &.{"depends_on [[Target]]"});
+    try linksNode(gpa, &fx, "Target", &.{});
+
+    const r = try runLinks(gpa, &fx, &.{ "Target", "--inbound" });
+    defer gpa.free(r.out);
+    try testing.expect(std.mem.indexOf(u8, r.out, "depends_on\tAlpha") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "depends_on\tGamma") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "uses\tBeta") != null);
+    // the whole point: Beta must not appear as a depends_on
+    try testing.expect(std.mem.indexOf(u8, r.out, "depends_on\tBeta") == null);
+}
+
+test "links: --closure reports every reachable node with its shortest depth" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try linksNode(gpa, &fx, "A", &.{"uses [[B]]"});
+    try linksNode(gpa, &fx, "B", &.{"uses [[C]]"});
+    try linksNode(gpa, &fx, "C", &.{"uses [[D]]"});
+    try linksNode(gpa, &fx, "D", &.{});
+
+    const r = try runLinks(gpa, &fx, &.{ "A", "--closure" });
+    defer gpa.free(r.out);
+    try testing.expect(std.mem.indexOf(u8, r.out, "1\tB") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "2\tC") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "3\tD") != null);
+    // the start node is not its own descendant
+    try testing.expect(std.mem.indexOf(u8, r.out, "\tA") == null);
+}
+
+test "links: --closure prefers the shorter path when two exist" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try linksNode(gpa, &fx, "A", &.{ "uses [[B]]", "uses [[C]]" });
+    try linksNode(gpa, &fx, "B", &.{"uses [[D]]"});
+    try linksNode(gpa, &fx, "C", &.{});
+    try linksNode(gpa, &fx, "D", &.{});
+
+    const r = try runLinks(gpa, &fx, &.{ "A", "--closure" });
+    defer gpa.free(r.out);
+    // D is reachable at depth 2 via B; breadth-first must not report it deeper
+    try testing.expect(std.mem.indexOf(u8, r.out, "2\tD") != null);
+}
+
+test "links: --closure terminates on a cycle instead of looping" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try linksNode(gpa, &fx, "A", &.{"uses [[B]]"});
+    try linksNode(gpa, &fx, "B", &.{"uses [[C]]"});
+    try linksNode(gpa, &fx, "C", &.{"uses [[A]]"});
+
+    const r = try runLinks(gpa, &fx, &.{ "A", "--closure" });
+    defer gpa.free(r.out);
+    try testing.expect(std.mem.indexOf(u8, r.out, "1\tB") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "2\tC") != null);
+    // A is reachable from itself through the cycle, but is already seen, so
+    // the walk stops rather than revisiting it.
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, r.out, "\n"));
+}
+
+test "links: --check names a target that resolves to no node" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try linksNode(gpa, &fx, "Alpha", &.{ "depends_on [[Beta]]", "uses [[Ghost]]" });
+    try linksNode(gpa, &fx, "Beta", &.{});
+
+    const r = try runLinks(gpa, &fx, &.{"--check"});
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expect(std.mem.indexOf(u8, r.out, "Alpha\tuses -> Ghost (no such node)") != null);
+    // a broken wikilink is a valid link to a not-yet-existing note, so
+    // Obsidian renders it silently -- this is the only thing that reports it
+    try testing.expect(std.mem.indexOf(u8, r.out, "Beta") == null);
+}
+
+test "links: --check is silent when every target resolves" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try linksNode(gpa, &fx, "Alpha", &.{"depends_on [[Beta]]"});
+    try linksNode(gpa, &fx, "Beta", &.{"part_of [[Alpha]]"});
+
+    const r = try runLinks(gpa, &fx, &.{"--check"});
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqual(@as(usize, 0), r.out.len);
+}
+
+test "links: a node with no Links section returns nothing, exit 0" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try linksNode(gpa, &fx, "Lonely", &.{});
+
+    const r = try runLinks(gpa, &fx, &.{"Lonely"});
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqual(@as(usize, 0), r.out.len);
+}
+
+test "links: an unknown node exits 1 rather than reporting no relations" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try linksNode(gpa, &fx, "Alpha", &.{"uses [[Beta]]"});
+    try linksNode(gpa, &fx, "Beta", &.{});
+
+    const r = try runLinks(gpa, &fx, &.{"Nope"});
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 1), r.code);
+}
+
+test "links: usage errors exit 2" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try linksNode(gpa, &fx, "Alpha", &.{});
+
+    const no_args = try runLinks(gpa, &fx, &.{});
+    defer gpa.free(no_args.out);
+    try testing.expectEqual(@as(u8, 2), no_args.code);
+
+    const bad_flag = try runLinks(gpa, &fx, &.{ "Alpha", "--bogus" });
+    defer gpa.free(bad_flag.out);
+    try testing.expectEqual(@as(u8, 2), bad_flag.code);
+
+    const extra = try runLinks(gpa, &fx, &.{ "--check", "extra" });
+    defer gpa.free(extra.out);
+    try testing.expectEqual(@as(u8, 2), extra.code);
+}
+
+// --- stale ----------------------------------------------------------------
+
+/// A node covering `sources` (each a real repo file already written), with
+/// a digest correct by construction unless `force_digest` overrides it --
+/// matching the bats fixture's own `write_node` helper.
+fn staleNode(gpa: Allocator, sources: []const struct { path: []const u8, content: []const u8 }, force_digest: ?[]const u8) ![]u8 {
+    var node_sources = try gpa.alloc(core.node.Source, sources.len);
+    defer {
+        for (node_sources) |s| gpa.free(s.hash);
+        gpa.free(node_sources);
+    }
+    for (sources, 0..) |s, i|
+        node_sources[i] = .{ .path = s.path, .hash = try gpa.dupe(u8, &core.verify.blobHash(s.content)) };
+    const real_digest = try core.node.sourcesDigest(gpa, node_sources);
+    const digest = force_digest orelse &real_digest;
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    try out.writer.writeAll("---\ntitle: \"Foo Node\"\nnode_type: synapse-node\nsources:\n");
+    for (node_sources) |s| try out.writer.print("  - path: {s}\n    hash: {s}\n", .{ s.path, s.hash });
+    try out.writer.print("sources_digest: \"{s}\"\nstale: false\nbuilt_at: \"test\"\n---\n\n# Foo Node\n", .{digest});
+    return gpa.dupe(u8, out.written());
+}
+
+fn runStale(gpa: Allocator, fx: *fixture.Fixture) !struct { code: u8, out: []u8 } {
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cmdStale(gpa, fx.io(), &ctx, &.{}, &out.writer);
+    return .{ .code = code, .out = try gpa.dupe(u8, out.written()) };
+}
+
+test "stale: node whose files are unchanged: reports nothing, exit 0" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    const node = try staleNode(gpa, &.{.{ .path = "src/foo.ml", .content = "let x = 1\n" }}, null);
+    defer gpa.free(node);
+    try fx.writeNodeFile("Foo Node", node);
+    try fx.writeIndexBin(&.{.{ .path = "src/foo.ml", .node = "Foo Node.md" }});
+
+    const r = try runStale(gpa, &fx);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqual(@as(usize, 0), r.out.len);
+}
+
+test "stale: source file changed outside Claude Code: reports the node" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    const node = try staleNode(gpa, &.{.{ .path = "src/foo.ml", .content = "let x = 1\n" }}, null);
+    defer gpa.free(node);
+    try fx.writeNodeFile("Foo Node", node);
+    try fx.writeIndexBin(&.{.{ .path = "src/foo.ml", .node = "Foo Node.md" }});
+
+    // The case Tier 1 cannot see: an edit that never went through a hook.
+    try fx.writeRepoFile("src/foo.ml", "let x = 2 (* changed *)\n");
+
+    const r = try runStale(gpa, &fx);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expect(std.mem.indexOf(u8, r.out, "Foo Node") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "content changed") != null);
+}
+
+test "stale: recorded source file deleted: reports it by name" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    const node = try staleNode(gpa, &.{.{ .path = "src/foo.ml", .content = "let x = 1\n" }}, null);
+    defer gpa.free(node);
+    try fx.writeNodeFile("Foo Node", node);
+    try fx.writeIndexBin(&.{.{ .path = "src/foo.ml", .node = "Foo Node.md" }});
+
+    try fx.tmp.dir.deleteFile(testing.io, "repo/src/foo.ml");
+
+    const r = try runStale(gpa, &fx);
+    defer gpa.free(r.out);
+    try testing.expect(std.mem.indexOf(u8, r.out, "source files gone: src/foo.ml") != null);
+}
+
+test "stale: multi-file node: order in sources does not affect the digest" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    try fx.writeRepoFile("src/bar.ml", "let y = 1\n");
+    // written in reverse order; the digest sorts, so it must still verify
+    const node = try staleNode(gpa, &.{
+        .{ .path = "src/foo.ml", .content = "let x = 1\n" },
+        .{ .path = "src/bar.ml", .content = "let y = 1\n" },
+    }, null);
+    defer gpa.free(node);
+    try fx.writeNodeFile("Foo Node", node);
+    try fx.writeIndexBin(&.{
+        .{ .path = "src/foo.ml", .node = "Foo Node.md" },
+        .{ .path = "src/bar.ml", .node = "Foo Node.md" },
+    });
+
+    const r = try runStale(gpa, &fx);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqual(@as(usize, 0), r.out.len);
+}
+
+test "stale: node with a wrong stored digest: reported as changed" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    const node = try staleNode(
+        gpa,
+        &.{.{ .path = "src/foo.ml", .content = "let x = 1\n" }},
+        "0000000000000000000000000000000000000000000000000000000000000000",
+    );
+    defer gpa.free(node);
+    try fx.writeNodeFile("Foo Node", node);
+    try fx.writeIndexBin(&.{.{ .path = "src/foo.ml", .node = "Foo Node.md" }});
+
+    const r = try runStale(gpa, &fx);
+    defer gpa.free(r.out);
+    try testing.expect(std.mem.indexOf(u8, r.out, "content changed") != null);
+}
+
+test "stale: node built before sources_digest existed: reported, not silently passed" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    const node = try staleNode(gpa, &.{.{ .path = "src/foo.ml", .content = "let x = 1\n" }}, null);
+    defer gpa.free(node);
+    // Strip the digest line, simulating a namespace built under the old format.
+    var lines: std.ArrayListUnmanaged(u8) = .empty;
+    defer lines.deinit(gpa);
+    var it = std.mem.splitScalar(u8, node, '\n');
+    while (it.next()) |line| {
+        if (std.mem.startsWith(u8, line, "sources_digest:")) continue;
+        try lines.appendSlice(gpa, line);
+        try lines.append(gpa, '\n');
+    }
+    try fx.writeNodeFile("Foo Node", lines.items);
+    try fx.writeIndexBin(&.{.{ .path = "src/foo.ml", .node = "Foo Node.md" }});
+
+    const r = try runStale(gpa, &fx);
+    defer gpa.free(r.out);
+    try testing.expect(std.mem.indexOf(u8, r.out, "no sources_digest") != null);
+}
+
+test "stale: node in the index but missing from the vault: reported" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeIndexBin(&.{.{ .path = "src/foo.ml", .node = "Ghost Node.md" }});
+
+    const r = try runStale(gpa, &fx);
+    defer gpa.free(r.out);
+    try testing.expect(std.mem.indexOf(u8, r.out, "node file missing") != null);
+}
+
+// --- body / sources / field ------------------------------------------------
+// The point of these subcommands is that they read the expensive parts
+// internally and print only a projection, so the assertions are mostly
+// about what is *absent* from the output.
+
+/// A node with a generated fence, real hashes, and Notes content that must
+/// never leak into `body` -- matching the bats fixture's own
+/// `write_fenced_node` helper.
+fn fencedNode(gpa: Allocator, sources: []const struct { path: []const u8, content: []const u8 }) ![]u8 {
+    var node_sources = try gpa.alloc(core.node.Source, sources.len);
+    defer {
+        for (node_sources) |s| gpa.free(s.hash);
+        gpa.free(node_sources);
+    }
+    for (sources, 0..) |s, i|
+        node_sources[i] = .{ .path = s.path, .hash = try gpa.dupe(u8, &core.verify.blobHash(s.content)) };
+    const digest = try core.node.sourcesDigest(gpa, node_sources);
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    try out.writer.writeAll("---\ntitle: \"Foo Node\"\nnode_type: synapse-node\nsources:\n");
+    for (node_sources) |s| try out.writer.print("  - path: {s}\n    hash: {s}\n", .{ s.path, s.hash });
+    try out.writer.print(
+        "sources_digest: \"{s}\"\nstale: false\nbuilt_at: \"2026-08-03 16:15\"\n---\n\n" ++
+            "# Foo Node\n<!-- synapse:generated:start -->\n\n## Summary\nProse that should be printed.\n\n" ++
+            "## Sources\n- `src` ({d})\n<!-- synapse:generated:end -->\n\n## Notes\n" ++
+            "HUMAN NOTES must never appear in body output.",
+        .{ digest, sources.len },
+    );
+    return gpa.dupe(u8, out.written());
+}
+
+fn runBody(gpa: Allocator, fx: *fixture.Fixture, node: []const u8) !struct { code: u8, out: []u8 } {
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cmdBody(gpa, fx.io(), &ctx, &.{node}, &out.writer);
+    return .{ .code = code, .out = try gpa.dupe(u8, out.written()) };
+}
+
+test "body: prints the fenced prose only, excluding frontmatter and Notes" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    const node = try fencedNode(gpa, &.{.{ .path = "src/foo.ml", .content = "let x = 1\n" }});
+    defer gpa.free(node);
+    try fx.writeNodeFile("Foo Node", node);
+
+    const r = try runBody(gpa, &fx, "Foo Node");
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expect(std.mem.indexOf(u8, r.out, "Prose that should be printed.") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "path:") == null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "HUMAN NOTES") == null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "sources_digest") == null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "synapse:generated") == null);
+}
+
+test "body: accepts the node name with or without .md" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    const node = try fencedNode(gpa, &.{.{ .path = "src/foo.ml", .content = "let x = 1\n" }});
+    defer gpa.free(node);
+    try fx.writeNodeFile("Foo Node", node);
+
+    const r = try runBody(gpa, &fx, "Foo Node.md");
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expect(std.mem.indexOf(u8, r.out, "Prose that should be printed.") != null);
+}
+
+test "body: unfenced node falls back to post-frontmatter and warns on stderr" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    // Written without a fence.
+    const node = try staleNode(gpa, &.{.{ .path = "src/foo.ml", .content = "let x = 1\n" }}, null);
+    defer gpa.free(node);
+    try fx.writeNodeFile("Old Node", node);
+
+    const r = try runBody(gpa, &fx, "Old Node");
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expect(std.mem.indexOf(u8, r.out, "path:") == null);
+}
+
+test "body: unknown node exits 1" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+
+    const r = try runBody(gpa, &fx, "Nope");
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 1), r.code);
+}
+
+fn runSources(gpa: Allocator, fx: *fixture.Fixture, rest: []const []const u8) !struct { code: u8, out: []u8 } {
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cmdSources(gpa, fx.io(), &ctx, rest, &out.writer);
+    return .{ .code = code, .out = try gpa.dupe(u8, out.written()) };
+}
+
+test "sources: --count matches the real number of paths" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    try fx.writeRepoFile("src/bar.ml", "let y = 1\n");
+    const node = try fencedNode(gpa, &.{
+        .{ .path = "src/foo.ml", .content = "let x = 1\n" },
+        .{ .path = "src/bar.ml", .content = "let y = 1\n" },
+    });
+    defer gpa.free(node);
+    try fx.writeNodeFile("Foo Node", node);
+
+    const r = try runSources(gpa, &fx, &.{ "Foo Node", "--count" });
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqualStrings("2\n", r.out);
+}
+
+test "sources: bare form lists every path, --filter narrows it" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    try fx.writeRepoFile("src/bar.ml", "let y = 1\n");
+    const node = try fencedNode(gpa, &.{
+        .{ .path = "src/foo.ml", .content = "let x = 1\n" },
+        .{ .path = "src/bar.ml", .content = "let y = 1\n" },
+    });
+    defer gpa.free(node);
+    try fx.writeNodeFile("Foo Node", node);
+
+    const all = try runSources(gpa, &fx, &.{"Foo Node"});
+    defer gpa.free(all.out);
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, all.out, "\n"));
+
+    const filtered = try runSources(gpa, &fx, &.{ "Foo Node", "--filter", "bar" });
+    defer gpa.free(filtered.out);
+    try testing.expectEqualStrings("src/bar.ml\n", filtered.out);
+}
+
+test "sources: --modules groups by module root with counts" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    try fx.writeRepoFile("other/src/main/java/A.java", "x\n");
+    const node = try fencedNode(gpa, &.{
+        .{ .path = "src/foo.ml", .content = "let x = 1\n" },
+        .{ .path = "other/src/main/java/A.java", .content = "x\n" },
+    });
+    defer gpa.free(node);
+    try fx.writeNodeFile("Foo Node", node);
+
+    // "src/main/java" is Maven boilerplate per the shipped default
+    // `synapse-module-boilerplate.conf` -- a real bats run gets it from
+    // $HOME, so the fixture needs its own copy of that one line.
+    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "boilerplate.conf", .data = "src/main/java\n" });
+    var conf_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const root = conf_buf[0..try fx.tmp.dir.realPath(testing.io, &conf_buf)];
+    const conf_path = try std.fmt.allocPrint(gpa, "{s}/boilerplate.conf", .{root});
+    defer gpa.free(conf_path);
+    try fx.env.put("SYNAPSE_MODULE_BOILERPLATE_CONF", conf_path);
+
+    const r = try runSources(gpa, &fx, &.{ "Foo Node", "--modules" });
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    // `other/src/main/java/A.java` is Maven boilerplate and groups as
+    // `other`; `src/foo.ml` has src first so it is the repo root's own src.
+    try testing.expect(std.mem.indexOf(u8, r.out, "other\t1") != null);
+}
+
+test "sources: --modules keeps one segment past src/ for a non-boilerplate layout" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    try fx.writeRepoFile("eon_engine/src/render/render_commands.ml", "x\n");
+    try fx.writeRepoFile("eon_engine/src/audio/audio_system.ml", "x\n");
+    const node = try fencedNode(gpa, &.{
+        .{ .path = "src/foo.ml", .content = "let x = 1\n" },
+        .{ .path = "eon_engine/src/render/render_commands.ml", .content = "x\n" },
+        .{ .path = "eon_engine/src/audio/audio_system.ml", .content = "x\n" },
+    });
+    defer gpa.free(node);
+    try fx.writeNodeFile("Foo Node", node);
+
+    const r = try runSources(gpa, &fx, &.{ "Foo Node", "--modules" });
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    // Neither path is Maven boilerplate, so each keeps the segment right
+    // after src/ instead of collapsing both into one "eon_engine".
+    try testing.expect(std.mem.indexOf(u8, r.out, "eon_engine/src/render\t1") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "eon_engine/src/audio\t1") != null);
+}
+
+test "sources: --modules boilerplate chains are read from config, not hardcoded" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    try fx.writeRepoFile("mod-a/src/main/kotlin/A.kt", "x\n");
+    const node = try fencedNode(gpa, &.{
+        .{ .path = "src/foo.ml", .content = "let x = 1\n" },
+        .{ .path = "mod-a/src/main/kotlin/A.kt", .content = "x\n" },
+    });
+    defer gpa.free(node);
+    try fx.writeNodeFile("Foo Node", node);
+
+    // Not in the shipped default list yet: falls through to the generic
+    // rule, keeping one segment past src/ rather than collapsing to "mod-a".
+    const before = try runSources(gpa, &fx, &.{ "Foo Node", "--modules" });
+    defer gpa.free(before.out);
+    try testing.expect(std.mem.indexOf(u8, before.out, "mod-a/src/main\t1") != null);
+
+    // Point --modules at a real boilerplate conf, same as a user would add
+    // to by hand -- now it collapses, proving the chain list is genuinely
+    // read from disk each run.
+    try fx.tmp.dir.writeFile(testing.io, .{
+        .sub_path = "boilerplate.conf",
+        .data = "src/main/kotlin\n",
+    });
+    var conf_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const root = conf_buf[0..try fx.tmp.dir.realPath(testing.io, &conf_buf)];
+    const conf_path = try std.fmt.allocPrint(gpa, "{s}/boilerplate.conf", .{root});
+    defer gpa.free(conf_path);
+    try fx.env.put("SYNAPSE_MODULE_BOILERPLATE_CONF", conf_path);
+
+    const after = try runSources(gpa, &fx, &.{ "Foo Node", "--modules" });
+    defer gpa.free(after.out);
+    try testing.expect(std.mem.indexOf(u8, after.out, "mod-a\t1") != null);
+}
+
+test "field: returns unquoted scalars, empty for an absent key" {
+    const gpa = testing.allocator;
+    const text = "---\nstale: false\nbuilt_at: \"2026-08-03 16:15\"\n---\n\n# Foo\n";
+
+    var stale_out: Io.Writer.Allocating = .init(gpa);
+    defer stale_out.deinit();
+    _ = try writeField(text, "stale", &stale_out.writer);
+    try testing.expectEqualStrings("false\n", stale_out.written());
+
+    var built_out: Io.Writer.Allocating = .init(gpa);
+    defer built_out.deinit();
+    _ = try writeField(text, "built_at", &built_out.writer);
+    try testing.expectEqualStrings("2026-08-03 16:15\n", built_out.written()); // quotes stripped
+
+    var absent_out: Io.Writer.Allocating = .init(gpa);
+    defer absent_out.deinit();
+    const code = try writeField(text, "nonexistent_key", &absent_out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expectEqual(@as(usize, 0), absent_out.written().len);
+}
+
+test "field: refuses 'sources' with exit 2 and points at the right subcommand" {
+    const gpa = testing.allocator;
+    const text = "---\nstale: false\n---\n\n# Foo\n";
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try writeField(text, "sources", &out.writer);
+    try testing.expectEqual(@as(u8, 2), code);
+}
+
+test "field --file: reads a plain file directly, no vault node or namespace needed" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(testing.io, .{
+        .sub_path = "b-01.md",
+        .data = "---\nsummary: \"A one-line draft summary.\"\n---\n\n## Summary\n",
+    });
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const root = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+    const path = try std.fmt.allocPrint(gpa, "{s}/b-01.md", .{root});
+    defer gpa.free(path);
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cmdFieldFile(gpa, testing.io, path, "summary", &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expectEqualStrings("A one-line draft summary.\n", out.written());
+}
+
+test "field --file: an absent key prints nothing and exits 0" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "b-01.md", .data = "---\nsummary: \"x\"\n---\n" });
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const root = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+    const path = try std.fmt.allocPrint(gpa, "{s}/b-01.md", .{root});
+    defer gpa.free(path);
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cmdFieldFile(gpa, testing.io, path, "nonexistent_key", &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expectEqual(@as(usize, 0), out.written().len);
+}
+
+test "field --file: a missing file exits 1 with a clear message" {
+    const gpa = testing.allocator;
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cmdFieldFile(gpa, testing.io, "/nonexistent/nope.md", "summary", &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+}
+
+test "field --file: still refuses 'sources' with exit 2" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "b-01.md", .data = "---\nsummary: \"x\"\n---\n" });
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const root = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+    const path = try std.fmt.allocPrint(gpa, "{s}/b-01.md", .{root});
+    defer gpa.free(path);
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cmdFieldFile(gpa, testing.io, path, "sources", &out.writer);
+    try testing.expectEqual(@as(u8, 2), code);
+}
+
+// --- drift -------------------------------------------------------------
+
+fn makeTwoAreaRepo(fx: *fixture.Fixture) !void {
+    try fx.writeRepoFile("mod-a/a.java", "class A {}\n");
+    try fx.writeRepoFile("mod-a/b.java", "class B {}\n");
+    try fx.writeRepoFile("docs/guide.md", "# guide\n");
+    try fx.gitCommit("two-areas");
+}
+
+/// Writes a node with an explicit baseline commit and source list --
+/// matching the bats fixture's own `stage_node`. `commit` null omits the
+/// field entirely.
+fn driftNode(gpa: Allocator, fx: *fixture.Fixture, title: []const u8, commit: ?[]const u8, sources: []const []const u8) !void {
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    try out.writer.print(
+        "---\ntitle: \"{s}\"\nsummary: \"One line.\"\nnode_type: synapse-node\nsources:\n",
+        .{title},
+    );
+    for (sources) |p| try out.writer.print("  - path: {s}\n    hash: deadbeef\n", .{p});
+    try out.writer.writeAll("sources_digest: notchecked\nstale: false\nbuilt_at: \"2026-01-01 00:00\"\n");
+    if (commit) |c| try out.writer.print("commit: {s}\n", .{c});
+    try out.writer.print(
+        "---\n\n# {s}\n<!-- synapse:generated:start -->\nbody\n<!-- synapse:generated:end -->\n\n## Notes\n",
+        .{title},
+    );
+    try fx.writeNodeFile(title, out.written());
+}
+
+fn runDrift(gpa: Allocator, fx: *fixture.Fixture, rest: []const []const u8) !struct { code: u8, out: []u8 } {
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cmdDrift(gpa, fx.io(), &ctx, rest, &out.writer);
+    return .{ .code = code, .out = try gpa.dupe(u8, out.written()) };
+}
+
+test "drift: a namespace built at HEAD reports nothing" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeTwoAreaRepo(&fx);
+    const head = try fx.gitOutput(&.{ "rev-parse", "HEAD" });
+    defer gpa.free(head);
+    try driftNode(gpa, &fx, "Mod A", head, &.{ "mod-a/a.java", "mod-a/b.java" });
+    try fx.writeIndexBin(&.{
+        .{ .path = "mod-a/a.java", .node = "Mod A.md" },
+        .{ .path = "mod-a/b.java", .node = "Mod A.md" },
+    });
+
+    const r = try runDrift(gpa, &fx, &.{});
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqual(@as(usize, 0), r.out.len);
+}
+
+test "drift: a modified file is reported against its own node only" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeTwoAreaRepo(&fx);
+    const base = try fx.gitOutput(&.{ "rev-parse", "HEAD" });
+    defer gpa.free(base);
+    try driftNode(gpa, &fx, "Mod A", base, &.{ "mod-a/a.java", "mod-a/b.java" });
+    try driftNode(gpa, &fx, "Docs", base, &.{"docs/guide.md"});
+    try fx.writeIndexBin(&.{
+        .{ .path = "mod-a/a.java", .node = "Mod A.md" },
+        .{ .path = "mod-a/b.java", .node = "Mod A.md" },
+    });
+
+    try fx.writeRepoFile("mod-a/a.java", "class A { int x; }\n");
+    try fx.gitCommit("edit");
+
+    const r = try runDrift(gpa, &fx, &.{});
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expect(std.mem.indexOf(u8, r.out, "Mod A\tcontent changed in 1 of its files") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "Docs\tcontent changed") == null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "(repo)\t1 commits since baseline") != null);
+}
+
+test "drift: a deleted file is reported as gone" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeTwoAreaRepo(&fx);
+    const head = try fx.gitOutput(&.{ "rev-parse", "HEAD" });
+    defer gpa.free(head);
+    try driftNode(gpa, &fx, "Mod A", head, &.{ "mod-a/a.java", "mod-a/b.java" });
+    try fx.writeIndexBin(&.{
+        .{ .path = "mod-a/a.java", .node = "Mod A.md" },
+        .{ .path = "mod-a/b.java", .node = "Mod A.md" },
+    });
+
+    const rm = try fx.git(&.{ "rm", "-q", "mod-a/b.java" });
+    rm.deinit(gpa);
+    try fx.gitCommit("delete");
+
+    const r = try runDrift(gpa, &fx, &.{});
+    defer gpa.free(r.out);
+    try testing.expect(std.mem.indexOf(u8, r.out, "Mod A\t1 of its files are gone") != null);
+}
+
+test "drift: a rename is reported as reseatable rather than as a deletion" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeTwoAreaRepo(&fx);
+    const head = try fx.gitOutput(&.{ "rev-parse", "HEAD" });
+    defer gpa.free(head);
+    try driftNode(gpa, &fx, "Mod A", head, &.{ "mod-a/a.java", "mod-a/b.java" });
+    try fx.writeIndexBin(&.{
+        .{ .path = "mod-a/a.java", .node = "Mod A.md" },
+        .{ .path = "mod-a/b.java", .node = "Mod A.md" },
+    });
+
+    const mv = try fx.git(&.{ "mv", "mod-a/b.java", "mod-a/renamed.java" });
+    mv.deinit(gpa);
+    try fx.gitCommit("rename");
+
+    const r = try runDrift(gpa, &fx, &.{});
+    defer gpa.free(r.out);
+    // The distinction that matters: the concept is unchanged, only the path
+    // moved, so the node can be rewritten from its own prose with an
+    // updated path list. `stale` can only ever call this "source files gone".
+    try testing.expect(std.mem.indexOf(u8, r.out, "reseat sources, prose may still hold") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "are gone") == null);
+}
+
+test "drift: added paths that an existing manifest pattern already covers are counted, not listed" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeTwoAreaRepo(&fx);
+    const head = try fx.gitOutput(&.{ "rev-parse", "HEAD" });
+    defer gpa.free(head);
+    try driftNode(gpa, &fx, "Mod A", head, &.{ "mod-a/a.java", "mod-a/b.java" });
+    try fx.writeIndexBin(&.{
+        .{ .path = "mod-a/a.java", .node = "Mod A.md" },
+        .{ .path = "mod-a/b.java", .node = "Mod A.md" },
+    });
+    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "work/manifest.tsv", .data = "Mod A\t^mod-a/\t\n" });
+
+    try fx.writeRepoFile("mod-a/c.java", "class C {}\n");
+    try fx.writeRepoFile("mod-a/d.java", "class D {}\n");
+    try fx.gitCommit("adds");
+
+    const r = try runDrift(gpa, &fx, &.{});
+    defer gpa.free(r.out);
+    // Ordinary development needs no judgment: the clustering patterns claim
+    // these on the next build-lists run.
+    try testing.expect(std.mem.indexOf(u8, r.out, "2 new paths already match a manifest pattern") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "synapse build-lists") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "match no manifest pattern") == null);
+}
+
+test "drift: an added path matching no manifest pattern is listed for a decision" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeTwoAreaRepo(&fx);
+    const head = try fx.gitOutput(&.{ "rev-parse", "HEAD" });
+    defer gpa.free(head);
+    try driftNode(gpa, &fx, "Mod A", head, &.{"mod-a/a.java"});
+    try fx.writeIndexBin(&.{.{ .path = "mod-a/a.java", .node = "Mod A.md" }});
+    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "work/manifest.tsv", .data = "Mod A\t^mod-a/\t\n" });
+
+    try fx.writeRepoFile("brand-new-subsystem/thing.java", "new\n");
+    try fx.gitCommit("newsubsystem");
+
+    const r = try runDrift(gpa, &fx, &.{});
+    defer gpa.free(r.out);
+    try testing.expect(std.mem.indexOf(u8, r.out, "1 new paths match no manifest pattern") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "brand-new-subsystem/thing.java") != null);
+}
+
+test "drift: without a manifest, unclaimed additions are still reported" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeTwoAreaRepo(&fx);
+    const head = try fx.gitOutput(&.{ "rev-parse", "HEAD" });
+    defer gpa.free(head);
+    try driftNode(gpa, &fx, "Mod A", head, &.{"mod-a/a.java"});
+    try fx.writeIndexBin(&.{.{ .path = "mod-a/a.java", .node = "Mod A.md" }});
+
+    try fx.writeRepoFile("mod-a/c.java", "class C {}\n");
+    try fx.gitCommit("add");
+
+    const r = try runDrift(gpa, &fx, &.{});
+    defer gpa.free(r.out);
+    try testing.expect(std.mem.indexOf(u8, r.out, "claimed by no node, and no manifest to classify them against") != null);
+}
+
+test "drift: a node with no commit field says so instead of guessing a baseline" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeTwoAreaRepo(&fx);
+    try driftNode(gpa, &fx, "Mod A", null, &.{"mod-a/a.java"});
+    try fx.writeIndexBin(&.{.{ .path = "mod-a/a.java", .node = "Mod A.md" }});
+
+    const r = try runDrift(gpa, &fx, &.{});
+    defer gpa.free(r.out);
+    try testing.expect(std.mem.indexOf(u8, r.out, "Mod A\tno commit recorded") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "verify with `stale`") != null);
+}
+
+test "drift: a baseline that is not in local history falls back to stale rather than diffing" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeTwoAreaRepo(&fx);
+    // A plausible but absent sha: force-push, a rebase that dropped it, or a
+    // shallow clone. Diffing against it would either fail or, worse, appear
+    // to work.
+    try driftNode(gpa, &fx, "Mod A", "0123456789abcdef0123456789abcdef01234567", &.{"mod-a/a.java"});
+    try fx.writeIndexBin(&.{.{ .path = "mod-a/a.java", .node = "Mod A.md" }});
+
+    const r = try runDrift(gpa, &fx, &.{});
+    defer gpa.free(r.out);
+    try testing.expect(std.mem.indexOf(u8, r.out, "baseline 0123456789ab not in local history") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "verify with `stale`") != null);
+}
+
+test "drift: a node listed in the index but absent from the vault is reported" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeTwoAreaRepo(&fx);
+    try fx.writeIndexBin(&.{.{ .path = "mod-a/a.java", .node = "Ghost.md" }});
+
+    const r = try runDrift(gpa, &fx, &.{});
+    defer gpa.free(r.out);
+    try testing.expect(std.mem.indexOf(u8, r.out, "Ghost\tnode file missing from the vault") != null);
+}
+
+test "drift: being behind upstream is context, printed only alongside a finding" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeTwoAreaRepo(&fx);
+    const base = try fx.gitOutput(&.{ "rev-parse", "HEAD" });
+    defer gpa.free(base);
+    try driftNode(gpa, &fx, "Mod A", base, &.{"mod-a/a.java"});
+    try fx.writeIndexBin(&.{.{ .path = "mod-a/a.java", .node = "Mod A.md" }});
+
+    // A local branch serves as an upstream, keeping the test free of a real remote.
+    const branch = try fx.gitOutput(&.{ "rev-parse", "--abbrev-ref", "HEAD" });
+    defer gpa.free(branch);
+    (try fx.git(&.{ "branch", "-q", "up" })).deinit(gpa);
+    (try fx.git(&.{ "checkout", "-q", "up" })).deinit(gpa);
+    try fx.writeRepoFile("mod-a/ahead.java", "ahead\n");
+    try fx.gitCommit("ahead");
+    (try fx.git(&.{ "checkout", "-q", branch })).deinit(gpa);
+    (try fx.git(&.{ "branch", "-q", "--set-upstream-to=up", branch })).deinit(gpa);
+
+    // Behind upstream, but the graph still matches this worktree: nothing to
+    // do, so silence. Being behind is a git fact, and reporting it here
+    // would make silence useless as a signal.
+    const clean = try runDrift(gpa, &fx, &.{});
+    defer gpa.free(clean.out);
+    try testing.expectEqual(@as(usize, 0), clean.out.len);
+
+    // Once a node actually drifts, the same fact becomes useful context and appears.
+    try fx.writeRepoFile("mod-a/a.java", "class A { int x; }\n");
+    try fx.gitCommit("edit");
+    const dirty = try runDrift(gpa, &fx, &.{});
+    defer gpa.free(dirty.out);
+    try testing.expect(std.mem.indexOf(u8, dirty.out, "Mod A\tcontent changed in 1 of its files") != null);
+    try testing.expect(std.mem.indexOf(u8, dirty.out, "commits behind up, as of the last fetch") != null);
+
+    // Read-only throughout: HEAD must not have moved and nothing may be fetched in.
+    const after_branch = try fx.gitOutput(&.{ "rev-parse", "--abbrev-ref", "HEAD" });
+    defer gpa.free(after_branch);
+    try testing.expectEqualStrings(branch, after_branch);
+    if (fx.tmp.dir.access(testing.io, "repo/mod-a/ahead.java", .{})) {
+        try testing.expect(false); // ahead.java must not have been fetched in
+    } else |_| {}
+}
+
+test "drift: a divergent baseline is reported in both directions, and the file diff still holds" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeTwoAreaRepo(&fx);
+    // The real scenario, and the ordering matters: the release branch forks
+    // *before* the commit the node was built at, so the baseline is not on
+    // this checkout's line. Branching from the baseline itself would leave
+    // it an ancestor and prove nothing.
+    const fork = try fx.gitOutput(&.{ "rev-parse", "HEAD" });
+    defer gpa.free(fork);
+    try fx.writeRepoFile("mod-a/a.java", "class A { int mainline; }\n");
+    try fx.gitCommit("mainline-work");
+    const base = try fx.gitOutput(&.{ "rev-parse", "HEAD" });
+    defer gpa.free(base);
+    try driftNode(gpa, &fx, "Mod A", base, &.{ "mod-a/a.java", "mod-a/b.java" });
+    try fx.writeIndexBin(&.{
+        .{ .path = "mod-a/a.java", .node = "Mod A.md" },
+        .{ .path = "mod-a/b.java", .node = "Mod A.md" },
+    });
+
+    // Diverge without leaving the branch. Resetting to the fork point and
+    // committing elsewhere reproduces the identical topology (the recorded
+    // baseline is no longer an ancestor of HEAD).
+    (try fx.git(&.{ "reset", "--hard", "-q", fork })).deinit(gpa);
+    (try fx.git(&.{ "rm", "-q", "mod-a/b.java" })).deinit(gpa);
+    try fx.gitCommit("diverged-line");
+
+    const r = try runDrift(gpa, &fx, &.{});
+    defer gpa.free(r.out);
+    // A one-directional count would claim "1 commits since baseline" and
+    // hide that the baseline's line has work this checkout does not.
+    try testing.expect(std.mem.indexOf(u8, r.out, "is not an ancestor of HEAD") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "the graph describes a different line") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "commits since baseline") == null);
+    // The tree diff is still correct and useful: b.java genuinely is not here.
+    try testing.expect(std.mem.indexOf(u8, r.out, "Mod A\t1 of its files are gone") != null);
+}
+
+test "drift: one diff per distinct baseline, not one per node" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeTwoAreaRepo(&fx);
+    const base = try fx.gitOutput(&.{ "rev-parse", "HEAD" });
+    defer gpa.free(base);
+    // Three nodes sharing a baseline, as a single build run produces.
+    try driftNode(gpa, &fx, "Mod A", base, &.{"mod-a/a.java"});
+    try driftNode(gpa, &fx, "Mod B", base, &.{"mod-a/b.java"});
+    try driftNode(gpa, &fx, "Docs", base, &.{"docs/guide.md"});
+    try fx.writeIndexBin(&.{.{ .path = "mod-a/a.java", .node = "Mod A.md" }});
+
+    try fx.writeRepoFile("mod-a/a.java", "class A { int x; }\n");
+    try fx.gitCommit("edit");
+
+    const r = try runDrift(gpa, &fx, &.{});
+    defer gpa.free(r.out);
+    // The commits-since line is per baseline, so a shared baseline reports once.
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, r.out, "commits since baseline"));
+}
+
+test "drift: arguments are a usage error" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeTwoAreaRepo(&fx);
+    const head = try fx.gitOutput(&.{ "rev-parse", "HEAD" });
+    defer gpa.free(head);
+    try driftNode(gpa, &fx, "Mod A", head, &.{"mod-a/a.java"});
+    try fx.writeIndexBin(&.{.{ .path = "mod-a/a.java", .node = "Mod A.md" }});
+
+    const r = try runDrift(gpa, &fx, &.{"extra"});
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 2), r.code);
+}
+
+// --- symbol ------------------------------------------------------------
+
+fn runSymbol(gpa: Allocator, fx: *fixture.Fixture, rest: []const []const u8) !struct { code: u8, out: []u8 } {
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cmdSymbol(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, rest, &out.writer);
+    return .{ .code = code, .out = try gpa.dupe(u8, out.written()) };
+}
+
+fn cachePath(gpa: Allocator, fx: *fixture.Fixture) ![]const u8 {
+    return std.fmt.allocPrint(gpa, "{s}/_tags_cache.bin", .{fx.work});
+}
+
+test "symbol: exact match across a node's sources, with file and tag line" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("SYNAPSE_DISABLE_SYMBOL_CACHE");
+    try fx.writeGrammars();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    const node = try fencedNode(gpa, &.{.{ .path = "src/foo.ml", .content = "let x = 1\n" }});
+    defer gpa.free(node);
+    try fx.writeNodeFile("Foo Node", node);
+
+    const r = try runSymbol(gpa, &fx, &.{ "FAKE_NAME", "Foo Node" });
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expect(std.mem.indexOf(u8, r.out, "src/foo.ml") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "FAKE_NAME") != null);
+}
+
+test "symbol: a name that never appears is silent, exit 0" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("SYNAPSE_DISABLE_SYMBOL_CACHE");
+    try fx.writeGrammars();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    const node = try fencedNode(gpa, &.{.{ .path = "src/foo.ml", .content = "let x = 1\n" }});
+    defer gpa.free(node);
+    try fx.writeNodeFile("Foo Node", node);
+
+    const r = try runSymbol(gpa, &fx, &.{ "this_name_does_not_exist", "Foo Node" });
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqual(@as(usize, 0), r.out.len);
+}
+
+test "symbol: second query against the same node re-tags nothing" {
+    // No output distinguishes "re-tagged and got the same answer" from
+    // "read from cache" -- what does is that `backfill`'s no-op path never
+    // calls `commit` at all, so the cache file's own bytes are untouched.
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("SYNAPSE_DISABLE_SYMBOL_CACHE");
+    try fx.writeGrammars();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    const node = try fencedNode(gpa, &.{.{ .path = "src/foo.ml", .content = "let x = 1\n" }});
+    defer gpa.free(node);
+    try fx.writeNodeFile("Foo Node", node);
+
+    const first = try runSymbol(gpa, &fx, &.{ "FAKE_NAME", "Foo Node" });
+    defer gpa.free(first.out);
+    try testing.expectEqual(@as(u8, 0), first.code);
+
+    const cache_path = try cachePath(gpa, &fx);
+    defer gpa.free(cache_path);
+    const before = try fx.tmp.dir.readFileAlloc(testing.io, "work/_tags_cache.bin", gpa, .limited(1 << 20));
+    defer gpa.free(before);
+
+    const second = try runSymbol(gpa, &fx, &.{ "FAKE_NAME", "Foo Node" });
+    defer gpa.free(second.out);
+    try testing.expectEqual(@as(u8, 0), second.code);
+    try testing.expectEqualStrings(first.out, second.out);
+
+    const after = try fx.tmp.dir.readFileAlloc(testing.io, "work/_tags_cache.bin", gpa, .limited(1 << 20));
+    defer gpa.free(after);
+    try testing.expectEqualStrings(before, after);
+}
+
+test "symbol: disabled via env var -- no output, no cache file even created" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("SYNAPSE_DISABLE_SYMBOL_CACHE");
+    try fx.writeGrammars();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    const node = try fencedNode(gpa, &.{.{ .path = "src/foo.ml", .content = "let x = 1\n" }});
+    defer gpa.free(node);
+    try fx.writeNodeFile("Foo Node", node);
+    try fx.env.put("SYNAPSE_DISABLE_SYMBOL_CACHE", "1");
+
+    const r = try runSymbol(gpa, &fx, &.{ "FAKE_NAME", "Foo Node" });
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqual(@as(usize, 0), r.out.len);
+    try testing.expectEqual(error.FileNotFound, fx.tmp.dir.access(testing.io, "work/_tags_cache.bin", .{}));
+}
+
+test "symbol: missing arguments is a usage error, exit 2" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("SYNAPSE_DISABLE_SYMBOL_CACHE");
+    const r = try runSymbol(gpa, &fx, &.{"FAKE_NAME"});
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 2), r.code);
+}
+
+test "symbol: unknown node exits 1" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("SYNAPSE_DISABLE_SYMBOL_CACHE");
+    const r = try runSymbol(gpa, &fx, &.{ "FAKE_NAME", "No Such Node" });
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 1), r.code);
+}
+
+test "symbol: unsupported file is reported distinctly, never conflated with no-match" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("SYNAPSE_DISABLE_SYMBOL_CACHE");
+    try fx.writeGrammars();
+    // No registry entry for this extension at all.
+    try fx.writeRepoFile("src/foo.unknownext", "no grammar for this\n");
+    const node = try fencedNode(gpa, &.{.{ .path = "src/foo.unknownext", .content = "no grammar for this\n" }});
+    defer gpa.free(node);
+    try fx.writeNodeFile("Foo Node", node);
+
+    const r = try runSymbol(gpa, &fx, &.{ "FAKE_NAME", "Foo Node" });
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    // No tab-separated hit line at all: the file was never actually tagged.
+    try testing.expect(std.mem.indexOf(u8, r.out, "\tFAKE_NAME") == null);
+
+    const cache_path = try cachePath(gpa, &fx);
+    defer gpa.free(cache_path);
+    var cache = try core.tags_cache.Cache.open(testing.io, cache_path);
+    defer cache.close(testing.io);
+    const e = cache.get("src/foo.unknownext").?;
+    try testing.expect(e.unsupported);
+}
+
+test "symbol: a node with several sources returns hits from every one that matches" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("SYNAPSE_DISABLE_SYMBOL_CACHE");
+    try fx.writeGrammars();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    try fx.writeRepoFile("src/bar.ml", "let y = 2\n");
+    const node = try fencedNode(gpa, &.{
+        .{ .path = "src/foo.ml", .content = "let x = 1\n" },
+        .{ .path = "src/bar.ml", .content = "let y = 2\n" },
+    });
+    defer gpa.free(node);
+    try fx.writeNodeFile("Foo Node", node);
+
+    const r = try runSymbol(gpa, &fx, &.{ "FAKE_NAME", "Foo Node" });
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expect(std.mem.indexOf(u8, r.out, "src/foo.ml") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "src/bar.ml") != null);
 }

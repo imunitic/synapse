@@ -63,14 +63,20 @@ pub fn run(
     const path = file orelse (defaultPath(gpa, io, env) catch return noWorkDir()) orelse return noWorkDir();
     defer if (file == null) gpa.free(@constCast(path));
 
-    if (std.mem.eql(u8, form, "build")) return buildIndex(gpa, io, path, unassigned_file, lists_dir);
-    if (std.mem.eql(u8, form, "unassigned")) return listUnassigned(io, path);
-    if (std.mem.eql(u8, form, "lookup")) return lookup(io, path, positional orelse return usage());
-    if (std.mem.eql(u8, form, "nodes")) return listNodes(io, path);
-    if (std.mem.eql(u8, form, "paths")) return listPaths(io, path);
-    if (std.mem.eql(u8, form, "add-unassigned"))
-        return addUnassigned(gpa, io, path, positional orelse return usage());
-    return usage();
+    var out_buf: [256 * 1024]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = code: {
+        if (std.mem.eql(u8, form, "build")) break :code try buildIndex(gpa, io, path, unassigned_file, lists_dir, &out.interface);
+        if (std.mem.eql(u8, form, "unassigned")) break :code try listUnassigned(io, path, &out.interface);
+        if (std.mem.eql(u8, form, "lookup")) break :code try lookup(io, path, positional orelse return usage(), &out.interface);
+        if (std.mem.eql(u8, form, "nodes")) break :code try listNodes(io, path, &out.interface);
+        if (std.mem.eql(u8, form, "paths")) break :code try listPaths(io, path, &out.interface);
+        if (std.mem.eql(u8, form, "add-unassigned"))
+            break :code try addUnassigned(gpa, io, path, positional orelse return usage());
+        return usage();
+    };
+    try out.interface.flush();
+    return code;
 }
 
 fn usage() u8 {
@@ -109,6 +115,7 @@ fn buildIndex(
     path: []const u8,
     unassigned_file: ?[]const u8,
     lists_dir: ?[]const u8,
+    result: *Io.Writer,
 ) !u8 {
     var pairs: std.ArrayListUnmanaged(core.index_map.Pair) = .empty;
     defer pairs.deinit(gpa);
@@ -178,21 +185,18 @@ fn buildIndex(
         return 1;
     }
 
-    var out_buf: [4096]u8 = undefined;
-    var out = Io.File.stdout().writer(io, &out_buf);
-    try out.interface.print("keys={d} unassigned={d} bytes={d}\n", .{
+    try result.print("keys={d} unassigned={d} bytes={d}\n", .{
         map.count(),
         map.unassignedCount(),
         bytes.len,
     });
-    try out.interface.flush();
     return 0;
 }
 
 /// Every unclaimed path, one per line, in the order the index holds them.
 /// Replaces `jq -r '._unassigned[]'` -- tens of megabytes must not reach a
 /// context window.
-fn listUnassigned(io: Io, path: []const u8) !u8 {
+fn listUnassigned(io: Io, path: []const u8, result: *Io.Writer) !u8 {
     var map = try Map.open(io, path);
     defer map.close(io);
     if (map.discarded) |e| {
@@ -200,11 +204,8 @@ fn listUnassigned(io: Io, path: []const u8) !u8 {
         return 1;
     }
 
-    var buf: [256 * 1024]u8 = undefined;
-    var out = Io.File.stdout().writer(io, &buf);
     var it = map.unassignedIter();
-    while (it.next()) |p| try out.interface.print("{s}\n", .{p});
-    try out.interface.flush();
+    while (it.next()) |p| try result.print("{s}\n", .{p});
     return 0;
 }
 
@@ -233,7 +234,7 @@ fn addUnassigned(gpa: Allocator, io: Io, path: []const u8, newly: []const u8) !u
 
 /// Every node that claims at least one path, one per line, ascending -- the
 /// node table is already sorted by name.
-fn listNodes(io: Io, path: []const u8) !u8 {
+fn listNodes(io: Io, path: []const u8, result: *Io.Writer) !u8 {
     var map = try Map.open(io, path);
     defer map.close(io);
     if (map.discarded) |e| {
@@ -241,12 +242,9 @@ fn listNodes(io: Io, path: []const u8) !u8 {
         return 1;
     }
 
-    var buf: [64 * 1024]u8 = undefined;
-    var out = Io.File.stdout().writer(io, &buf);
     var id: u32 = 0;
     while (id < map.nodeCount()) : (id += 1)
-        try out.interface.print("{s}\n", .{map.view.nodeName(id)});
-    try out.interface.flush();
+        try result.print("{s}\n", .{map.view.nodeName(id)});
     return 0;
 }
 
@@ -318,7 +316,7 @@ fn pairsFromLists(
 /// Every claimed path, one per line, in `LC_ALL=C` byte order -- the record
 /// table is already in that order. Unlike the old `jq -r 'keys[]'`, this
 /// never includes the literal `_unassigned` string as a claimed path.
-fn listPaths(io: Io, path: []const u8) !u8 {
+fn listPaths(io: Io, path: []const u8, result: *Io.Writer) !u8 {
     var map = try Map.open(io, path);
     defer map.close(io);
     if (map.discarded) |e| {
@@ -326,18 +324,15 @@ fn listPaths(io: Io, path: []const u8) !u8 {
         return 1;
     }
 
-    var buf: [256 * 1024]u8 = undefined;
-    var out = Io.File.stdout().writer(io, &buf);
     var i: u32 = 0;
     while (i < map.count()) : (i += 1)
-        try out.interface.print("{s}\n", .{map.view.path(map.view.record(i))});
-    try out.interface.flush();
+        try result.print("{s}\n", .{map.view.path(map.view.record(i))});
     return 0;
 }
 
 /// The nodes claiming `wanted`, one per line, ascending. Exit 1 with no
 /// output when no node claims it -- covers both unassigned and never-enumerated.
-fn lookup(io: Io, path: []const u8, wanted: []const u8) !u8 {
+fn lookup(io: Io, path: []const u8, wanted: []const u8, result: *Io.Writer) !u8 {
     var map = try Map.open(io, path);
     defer map.close(io);
     if (map.discarded) |e| {
@@ -348,10 +343,7 @@ fn lookup(io: Io, path: []const u8, wanted: []const u8) !u8 {
     var names: [core.index_map.max_nodes_per_path][]const u8 = undefined;
     const nodes = map.nodesFor(wanted, &names) orelse return 1;
 
-    var buf: [64 * 1024]u8 = undefined;
-    var out = Io.File.stdout().writer(io, &buf);
-    for (nodes) |n| try out.interface.print("{s}\n", .{n});
-    try out.interface.flush();
+    for (nodes) |n| try result.print("{s}\n", .{n});
     return 0;
 }
 
@@ -377,26 +369,307 @@ pub fn runBuildIndex(
     var ctx = (try context.resolve(gpa, io, env, "synapse-build-index")) orelse return 1;
     defer ctx.deinit();
 
-    const lists = try std.fmt.allocPrint(gpa, "{s}/lists", .{ctx.work_dir});
+    var buf: [4096]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &buf);
+    const code = try buildIndexAt(gpa, io, ctx.work_dir, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+/// `index build --lists` with every path derived from `work_dir` -- split
+/// out of `runBuildIndex` so a test can drive it against a real work dir
+/// without a full `Context` resolution.
+pub fn buildIndexAt(gpa: Allocator, io: Io, work_dir: []const u8, result: *Io.Writer) !u8 {
+    const lists = try std.fmt.allocPrint(gpa, "{s}/lists", .{work_dir});
     defer gpa.free(lists);
-    const unassigned = try std.fmt.allocPrint(gpa, "{s}/unassigned.txt", .{ctx.work_dir});
+    const unassigned = try std.fmt.allocPrint(gpa, "{s}/unassigned.txt", .{work_dir});
     defer gpa.free(unassigned);
-    const out_path = try std.fmt.allocPrint(gpa, "{s}/_index.bin", .{ctx.work_dir});
+    const out_path = try std.fmt.allocPrint(gpa, "{s}/_index.bin", .{work_dir});
     defer gpa.free(out_path);
 
     const cwd = Io.Dir.cwd();
     if (cwd.statFile(io, lists, .{})) |_| {} else |_| {
-        std.debug.print("synapse-build-index: no lists/ in {s}\n", .{ctx.work_dir});
+        std.debug.print("synapse-build-index: no lists/ in {s}\n", .{work_dir});
         return 1;
     }
     if (cwd.statFile(io, unassigned, .{})) |_| {} else |_| {
-        std.debug.print("synapse-build-index: no unassigned.txt in {s}\n", .{ctx.work_dir});
+        std.debug.print("synapse-build-index: no unassigned.txt in {s}\n", .{work_dir});
         return 1;
     }
 
-    var buf: [4096]u8 = undefined;
-    var out = Io.File.stdout().writer(io, &buf);
-    try out.interface.writeAll("_index.bin written: ");
-    try out.interface.flush();
-    return buildIndex(gpa, io, out_path, unassigned, lists);
+    try result.writeAll("_index.bin written: ");
+    return buildIndex(gpa, io, out_path, unassigned, lists, result);
+}
+
+const testing = std.testing;
+
+/// A real `work/lists/` + `work/unassigned.txt` in a real temp dir --
+/// `buildIndexAt` reads both by path, same shape `synapse enumerate`/
+/// `build-lists` produce.
+const Fixture = struct {
+    tmp: testing.TmpDir,
+    gpa: Allocator,
+
+    fn init(gpa: Allocator) !Fixture {
+        var tmp = testing.tmpDir(.{});
+        errdefer tmp.cleanup();
+        try tmp.dir.createDirPath(testing.io, "work/lists");
+        try tmp.dir.writeFile(testing.io, .{ .sub_path = "work/unassigned.txt", .data = "" });
+        return .{ .tmp = tmp, .gpa = gpa };
+    }
+
+    fn deinit(self: *Fixture) void {
+        self.tmp.cleanup();
+    }
+
+    fn stageList(self: *Fixture, nn: []const u8, title: []const u8, paths: []const []const u8) !void {
+        const title_path = try std.fmt.allocPrint(self.gpa, "work/lists/{s}.title", .{nn});
+        defer self.gpa.free(title_path);
+        try self.tmp.dir.writeFile(testing.io, .{ .sub_path = title_path, .data = title });
+
+        var body: Io.Writer.Allocating = .init(self.gpa);
+        defer body.deinit();
+        for (paths) |p| try body.writer.print("{s}\n", .{p});
+        const txt_path = try std.fmt.allocPrint(self.gpa, "work/lists/{s}.txt", .{nn});
+        defer self.gpa.free(txt_path);
+        try self.tmp.dir.writeFile(testing.io, .{ .sub_path = txt_path, .data = body.written() });
+    }
+
+    fn writeRaw(self: *Fixture, sub: []const u8, data: []const u8) !void {
+        const full = try std.fmt.allocPrint(self.gpa, "work/{s}", .{sub});
+        defer self.gpa.free(full);
+        try self.tmp.dir.writeFile(testing.io, .{ .sub_path = full, .data = data });
+    }
+
+    fn workPath(self: *Fixture) ![]const u8 {
+        var buf: [Io.Dir.max_path_bytes]u8 = undefined;
+        const root = buf[0..try self.tmp.dir.realPath(testing.io, &buf)];
+        return std.fmt.allocPrint(self.gpa, "{s}/work", .{root});
+    }
+
+    fn indexPath(self: *Fixture) ![]const u8 {
+        const work = try self.workPath();
+        defer self.gpa.free(work);
+        return std.fmt.allocPrint(self.gpa, "{s}/_index.bin", .{work});
+    }
+
+    /// Runs `buildIndexAt` and returns its own output. Caller frees.
+    fn build(self: *Fixture) !struct { code: u8, out: []u8 } {
+        const work = try self.workPath();
+        defer self.gpa.free(work);
+        var out: Io.Writer.Allocating = .init(self.gpa);
+        defer out.deinit();
+        const code = try buildIndexAt(self.gpa, testing.io, work, &out.writer);
+        return .{ .code = code, .out = try self.gpa.dupe(u8, out.written()) };
+    }
+
+    /// The nodes claiming one path, comma-joined -- `lookup`'s own output,
+    /// read straight from `_index.bin`, not through the CLI.
+    fn claimants(self: *Fixture, path: []const u8) ![]u8 {
+        const index_path = try self.indexPath();
+        defer self.gpa.free(index_path);
+        var out: Io.Writer.Allocating = .init(self.gpa);
+        defer out.deinit();
+        _ = lookup(testing.io, index_path, path, &out.writer) catch {};
+        const joined = try self.gpa.dupe(u8, std.mem.trimEnd(u8, out.written(), "\n"));
+        for (joined) |*c| if (c.* == '\n') {
+            c.* = ',';
+        };
+        return joined;
+    }
+
+    fn unassignedPaths(self: *Fixture) ![]u8 {
+        const index_path = try self.indexPath();
+        defer self.gpa.free(index_path);
+        var out: Io.Writer.Allocating = .init(self.gpa);
+        defer out.deinit();
+        _ = try listUnassigned(testing.io, index_path, &out.writer);
+        return self.gpa.dupe(u8, out.written());
+    }
+
+    fn lookupStatus(self: *Fixture, path: []const u8) !u8 {
+        const index_path = try self.indexPath();
+        defer self.gpa.free(index_path);
+        var out: Io.Writer.Allocating = .init(self.gpa);
+        defer out.deinit();
+        return lookup(testing.io, index_path, path, &out.writer);
+    }
+};
+
+test "build-index: maps each path to its owning node, with the .md extension" {
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.stageList("01", "Mod A", &.{ "mod-a/a.txt", "mod-a/b.txt" });
+    try fx.stageList("02", "Docs", &.{"docs/d.md"});
+
+    const r = try fx.build();
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+
+    // The hook and the read-time procedure use this value directly as a
+    // vault path with no extension handling of their own.
+    const a = try fx.claimants("mod-a/a.txt");
+    defer gpa.free(a);
+    try testing.expectEqualStrings("Mod A.md", a);
+    const b = try fx.claimants("mod-a/b.txt");
+    defer gpa.free(b);
+    try testing.expectEqualStrings("Mod A.md", b);
+    const d = try fx.claimants("docs/d.md");
+    defer gpa.free(d);
+    try testing.expectEqualStrings("Docs.md", d);
+}
+
+test "build-index: a file load-bearing for two concepts lists both nodes, sorted" {
+    // Many-to-many is intentional in the design, not an oversight.
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.stageList("01", "Zeta", &.{"shared/thing.java"});
+    try fx.stageList("02", "Alpha", &.{"shared/thing.java"});
+
+    const r = try fx.build();
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+
+    const claimed = try fx.claimants("shared/thing.java");
+    defer gpa.free(claimed);
+    try testing.expectEqualStrings("Alpha.md,Zeta.md", claimed);
+}
+
+test "build-index: the unassigned list carries what no node claimed, in the order given" {
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.stageList("01", "Mod A", &.{"mod-a/a.txt"});
+    try fx.writeRaw("unassigned.txt", "stray.txt\n.claude/settings.json\n");
+
+    const r = try fx.build();
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expect(std.mem.indexOf(u8, r.out, "unassigned=2") != null);
+
+    const unassigned = try fx.unassignedPaths();
+    defer gpa.free(unassigned);
+    try testing.expectEqualStrings("stray.txt\n.claude/settings.json\n", unassigned);
+}
+
+test "build-index: an unassigned path is not also a claimed one" {
+    // "Claimed by nobody" and "never enumerated" are different answers, and
+    // the index has to keep them apart: the first is in the unassigned
+    // list, the second is in neither place. `lookup` says nothing for both.
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.stageList("01", "Mod A", &.{"mod-a/a.txt"});
+    try fx.writeRaw("unassigned.txt", "stray.txt\n");
+
+    const r = try fx.build();
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+
+    try testing.expectEqual(@as(u8, 1), try fx.lookupStatus("stray.txt"));
+    try testing.expectEqual(@as(u8, 1), try fx.lookupStatus("never/enumerated.txt"));
+}
+
+test "build-index: an empty unassigned.txt yields no entries, not one blank one" {
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.stageList("01", "Mod A", &.{"mod-a/a.txt"});
+
+    const r = try fx.build();
+    defer gpa.free(r.out);
+    try testing.expect(std.mem.indexOf(u8, r.out, "unassigned=0") != null);
+    const unassigned = try fx.unassignedPaths();
+    defer gpa.free(unassigned);
+    try testing.expectEqual(@as(usize, 0), unassigned.len);
+}
+
+test "build-index: node values are sanitized to the filenames that actually exist on disk" {
+    // The value has to match the file the writer produced, which is the
+    // sanitized title -- an unsanitized value would point the hook at a
+    // nonexistent note.
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.stageList("01", "Bad — import/export", &.{"mod-a/a.txt"});
+
+    const r = try fx.build();
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    const claimed = try fx.claimants("mod-a/a.txt");
+    defer gpa.free(claimed);
+    try testing.expectEqualStrings("Bad — import_export.md", claimed);
+}
+
+test "build-index: blank lines in a list do not become empty keys" {
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRaw("lists/01.title", "Mod A\n");
+    try fx.writeRaw("lists/01.txt", "mod-a/a.txt\n\nmod-a/b.txt\n\n");
+
+    const r = try fx.build();
+    defer gpa.free(r.out);
+    // Two paths, and `keys` now counts only paths. The JSON index reported 3
+    // here, because `_unassigned` was a sibling key of every path in the
+    // same object and `jq 'keys | length'` counted it. It is a separate
+    // region now, counted separately, so the honest number for two paths is 2.
+    try testing.expect(std.mem.indexOf(u8, r.out, "keys=2") != null);
+    try testing.expect(try fx.lookupStatus("") != 0);
+}
+
+test "build-index: a list with no matching .title file is skipped rather than keyed to '.md'" {
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.stageList("01", "Mod A", &.{"mod-a/a.txt"});
+    try fx.writeRaw("lists/99.txt", "orphan/path.txt\n");
+
+    const r = try fx.build();
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqual(@as(u8, 1), try fx.lookupStatus("orphan/path.txt"));
+}
+
+test "build-index: reports key count and byte size so a truncated index is visible" {
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.stageList("01", "Mod A", &.{ "mod-a/a.txt", "mod-a/b.txt" });
+
+    const r = try fx.build();
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expect(std.mem.indexOf(u8, r.out, "keys=2") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "bytes=") != null);
+}
+
+test "build-index: missing lists, missing unassigned.txt and an empty lists dir each exit 1" {
+    // The three distinct error messages ("no (path, node) pairs", "no
+    // unassigned.txt", "no lists/") all go to real stderr via
+    // `std.debug.print`, not through `result` -- deliberately, the same
+    // split every other command in this codebase draws between error
+    // output and success output. Not capturable here, so only the exit
+    // code is asserted; the message text stays bats' job if ever revisited.
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+
+    const empty = try fx.build();
+    defer gpa.free(empty.out);
+    try testing.expectEqual(@as(u8, 1), empty.code);
+
+    try fx.stageList("01", "Mod A", &.{"mod-a/a.txt"});
+    try fx.tmp.dir.deleteFile(testing.io, "work/unassigned.txt");
+    const no_unassigned = try fx.build();
+    defer gpa.free(no_unassigned.out);
+    try testing.expectEqual(@as(u8, 1), no_unassigned.code);
+
+    try fx.writeRaw("unassigned.txt", "");
+    try fx.tmp.dir.deleteTree(testing.io, "work/lists");
+    const no_lists = try fx.build();
+    defer gpa.free(no_lists.out);
+    try testing.expectEqual(@as(u8, 1), no_lists.code);
 }

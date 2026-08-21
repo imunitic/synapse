@@ -49,6 +49,22 @@ pub fn runClean(
         }
     }
 
+    var out_buf: [64 * 1024]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try clean(gpa, io, env, dry_run, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+/// The command itself, minus argument parsing -- separated so a test can
+/// drive it against a real fixture repo directly.
+pub fn clean(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    dry_run: bool,
+    w: *Io.Writer,
+) !u8 {
     var ctx = (try context.resolve(gpa, io, env, clean_prog)) orelse return 1;
     defer ctx.deinit();
     // The repo half of the key: walks every branch's namespace, not just this one.
@@ -75,10 +91,6 @@ pub fn runClean(
             .{clean_prog},
         );
     }
-
-    var out_buf: [64 * 1024]u8 = undefined;
-    var out = Io.File.stdout().writer(io, &out_buf);
-    const w = &out.interface;
 
     var removed: usize = 0;
     var reported: usize = 0;
@@ -128,7 +140,6 @@ pub fn runClean(
     }
 
     if (removed == 0 and reported == 0) try w.writeAll("nothing to clean\n");
-    try w.flush();
     return 0;
 }
 
@@ -285,6 +296,22 @@ pub fn runWipe(
         }
     }
 
+    var out_buf: [64 * 1024]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try wipe(gpa, io, env, dry_run, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+/// The command itself, minus argument parsing -- separated so a test can
+/// drive it against a real fixture `Context` directly.
+pub fn wipe(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    dry_run: bool,
+    w: *Io.Writer,
+) !u8 {
     var ctx = (try context.resolve(gpa, io, env, wipe_prog)) orelse return 1;
     defer ctx.deinit();
 
@@ -295,10 +322,6 @@ pub fn runWipe(
         );
         return 1;
     }
-
-    var out_buf: [64 * 1024]u8 = undefined;
-    var out = Io.File.stdout().writer(io, &out_buf);
-    const w = &out.interface;
 
     var files = try context.listNodeFiles(&ctx, io);
     defer {
@@ -326,7 +349,6 @@ pub fn runWipe(
 
     if (dry_run) {
         try w.print("would-remove {s}\n", .{ctx.dir});
-        try w.flush();
         return 0;
     }
 
@@ -336,12 +358,8 @@ pub fn runWipe(
         try w.print("preserved -> {s}\n", .{staged});
     }
 
-    if (!try removeNamespace(gpa, io, ctx.vault, ctx.abs_dir, wipe_prog)) {
-        try w.flush();
-        return 1;
-    }
+    if (!try removeNamespace(gpa, io, ctx.vault, ctx.abs_dir, wipe_prog)) return 1;
     try w.print("removed {s}\n", .{ctx.dir});
-    try w.flush();
     return 0;
 }
 
@@ -383,4 +401,523 @@ fn stagePreserved(gpa: Allocator, io: Io, ctx: *const Context, body: []const u8)
     try note.writer.writeAll(body);
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = full, .data = note.written() });
     return rel;
+}
+
+const testing = std.testing;
+const fixture = @import("cmd_test_support.zig");
+
+/// `Node A.md` has hand-written `## Notes` content (at risk); `Node B.md`
+/// has the section present but empty (not at risk) -- the exact shape
+/// `write-node` produces, not a simplified stand-in, since the extraction
+/// logic depends on the literal generated-fence markers.
+fn makeNamespace(fx: *fixture.Fixture) !void {
+    try fx.writeIndex("", "main");
+    try fx.writeNodeFile("Node A",
+        \\---
+        \\title: "Node A"
+        \\summary: "Node A in one line."
+        \\node_type: synapse-node
+        \\---
+        \\
+        \\# Node A
+        \\<!-- synapse:generated:start -->
+        \\
+        \\## Summary
+        \\Generated stuff about Node A.
+        \\
+        \\## Sources
+        \\- `src` (1)
+        \\<!-- synapse:generated:end -->
+        \\
+        \\## Notes
+        \\
+        \\Hand-written finding worth keeping: the retry logic here is load-bearing for the batch job, do not simplify it away.
+        \\
+    );
+    try fx.writeNodeFile("Node B",
+        \\---
+        \\title: "Node B"
+        \\summary: "Node B in one line."
+        \\node_type: synapse-node
+        \\---
+        \\
+        \\# Node B
+        \\<!-- synapse:generated:start -->
+        \\
+        \\## Summary
+        \\Generated stuff about Node B.
+        \\
+        \\## Sources
+        \\- `src` (1)
+        \\<!-- synapse:generated:end -->
+        \\
+        \\## Notes
+        \\
+        \\
+    );
+}
+
+fn stagingNotePath(gpa: Allocator) ![]u8 {
+    return std.fmt.allocPrint(gpa, "vault/scratchpad/repo@main — preserved notes before full rebuild.md", .{});
+}
+
+test "--dry-run reports node count and which nodes are at risk, deletes nothing" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeNamespace(&fx);
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try wipe(gpa, fx.io(), &fx.env, true, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const text = out.written();
+    try testing.expect(std.mem.indexOf(u8, text, "2 nodes") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "1 with ## Notes content") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "at-risk\tNode A") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "at-risk\tNode B") == null);
+    try testing.expect(std.mem.indexOf(u8, text, "would-remove") != null);
+
+    try testing.expect(try fx.nodeExists("Node A"));
+    const staging = try stagingNotePath(gpa);
+    defer gpa.free(staging);
+    try testing.expectEqual(error.FileNotFound, fx.tmp.dir.access(testing.io, staging, .{}));
+}
+
+test "a real run preserves hand-written ## Notes verbatim to a scratchpad staging note, then deletes the namespace" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeNamespace(&fx);
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try wipe(gpa, fx.io(), &fx.env, false, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const text = out.written();
+    try testing.expect(std.mem.indexOf(u8, text, "preserved ->") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "removed synapse/repo@main") != null);
+
+    try testing.expectEqual(error.FileNotFound, fx.tmp.dir.access(testing.io, "vault/synapse/repo@main", .{}));
+    const staging = try stagingNotePath(gpa);
+    defer gpa.free(staging);
+    const staged = try fx.tmp.dir.readFileAlloc(testing.io, staging, gpa, .limited(1 << 20));
+    defer gpa.free(staged);
+    try testing.expect(std.mem.indexOf(u8, staged, "retry logic here is load-bearing") != null);
+    try testing.expect(std.mem.indexOf(u8, staged, "## Node A\n") != null);
+    // Node B had nothing worth keeping and must not clutter the staging note.
+    try testing.expect(std.mem.indexOf(u8, staged, "## Node B\n") == null);
+}
+
+test "a node with an empty ## Notes section is never flagged or preserved" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeIndex("", "main");
+    try fx.writeNodeFile("Node B",
+        \\---
+        \\title: "Node B"
+        \\---
+        \\
+        \\# Node B
+        \\<!-- synapse:generated:start -->
+        \\
+        \\## Summary
+        \\Nothing notable.
+        \\<!-- synapse:generated:end -->
+        \\
+        \\## Notes
+        \\
+        \\
+    );
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try wipe(gpa, fx.io(), &fx.env, false, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    try testing.expect(std.mem.indexOf(u8, out.written(), "0 with ## Notes content") != null);
+    const staging = try stagingNotePath(gpa);
+    defer gpa.free(staging);
+    try testing.expectEqual(error.FileNotFound, fx.tmp.dir.access(testing.io, staging, .{}));
+    try testing.expectEqual(error.FileNotFound, fx.tmp.dir.access(testing.io, "vault/synapse/repo@main", .{}));
+}
+
+test "no namespace at all refuses cleanly rather than wiping nothing silently" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    // No Index.md, no nodes -- the namespace directory itself never exists.
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try wipe(gpa, fx.io(), &fx.env, false, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+}
+
+test "--dry-run on a namespace with no ## Notes at risk still reports cleanly" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeIndex("", "main");
+    // Index.md exists, no node files at all.
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try wipe(gpa, fx.io(), &fx.env, true, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const text = out.written();
+    try testing.expect(std.mem.indexOf(u8, text, "0 nodes") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "0 with ## Notes content") != null);
+}
+
+test "another namespace in the same vault is never touched" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeNamespace(&fx);
+    try fx.tmp.dir.createDirPath(testing.io, "vault/synapse/unrelated-project@main");
+    try fx.tmp.dir.writeFile(testing.io, .{
+        .sub_path = "vault/synapse/unrelated-project@main/Index.md",
+        .data = "---\nbranch: main\n---\n",
+    });
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try wipe(gpa, fx.io(), &fx.env, false, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    try fx.tmp.dir.access(testing.io, "vault/synapse/unrelated-project@main", .{});
+}
+
+/// Real refs, real upstream config, real pruning -- the entire subject of
+/// `graph-clean`'s decision tree, so no fake git here. `commit()` (real git
+/// spawns) is a separate step from `init()`, called by every test right
+/// after construction -- see `BriefFixture`'s own comment in `brief_cmd.zig`
+/// for why that split matters.
+const CleanFixture = struct {
+    fx: fixture.Fixture,
+
+    fn init(gpa: Allocator) !CleanFixture {
+        const fx = try fixture.Fixture.init(gpa);
+        return .{ .fx = fx };
+    }
+
+    fn deinit(self: *CleanFixture) void {
+        self.fx.deinit();
+    }
+
+    fn commit(self: *CleanFixture) !void {
+        // A real file first: `git commit` with nothing staged exits nonzero
+        // and `gitCommit()` doesn't check that -- an empty first commit left
+        // every branch this task creates on an unborn HEAD, confirmed live
+        // via `git rev-parse --abbrev-ref HEAD` returning the literal
+        // string "HEAD" instead of a real branch name.
+        try self.fx.writeRepoFile("README.md", "seed\n");
+        try self.fx.gitCommit("init");
+    }
+
+    /// A real bare remote, added as `origin` and pushed to once (`HEAD` on
+    /// whatever branch is currently checked out). Caller frees.
+    fn addRemote(self: *CleanFixture) ![]u8 {
+        const gpa = self.fx.gpa;
+        const remote = try std.fmt.allocPrint(gpa, "{s}/remote.git", .{self.fx.root});
+        errdefer gpa.free(remote);
+        const init_res = try adapters.process.run(self.fx.io(), gpa, &.{ "git", "init", "-q", "--bare", remote }, .{});
+        init_res.deinit(gpa);
+        const add_res = try self.fx.git(&.{ "remote", "add", "origin", remote });
+        add_res.deinit(gpa);
+        const push_res = try self.fx.git(&.{ "push", "-q", "-u", "origin", "HEAD" });
+        push_res.deinit(gpa);
+        return remote;
+    }
+
+    fn checkout(self: *CleanFixture, branch: []const u8) !void {
+        const res = try self.fx.git(&.{ "checkout", "-q", "-b", branch });
+        res.deinit(self.fx.gpa);
+    }
+
+    fn push(self: *CleanFixture, branch: []const u8) !void {
+        const res = try self.fx.git(&.{ "push", "-q", "-u", "origin", branch });
+        res.deinit(self.fx.gpa);
+    }
+
+    fn deleteRemoteBranch(self: *CleanFixture, branch: []const u8) !void {
+        const res = try self.fx.git(&.{ "push", "-q", "origin", "--delete", branch });
+        res.deinit(self.fx.gpa);
+    }
+
+    fn fetchPrune(self: *CleanFixture) !void {
+        const res = try self.fx.git(&.{ "fetch", "--prune", "-q" });
+        res.deinit(self.fx.gpa);
+    }
+
+    /// `repo@{branch, slashes dashed}`, with the real `branch:`/`remote:`
+    /// fields the cleaner reads. Content beyond that is a stand-in -- what
+    /// matters is that it is a directory of notes that must not vanish by
+    /// accident. Caller frees.
+    fn writeNamespace(self: *CleanFixture, branch: []const u8, remote: []const u8) ![]u8 {
+        const gpa = self.fx.gpa;
+        const dashed = try gpa.dupe(u8, branch);
+        defer gpa.free(dashed);
+        for (dashed) |*c| {
+            if (c.* == '/') c.* = '-';
+        }
+        const ns = try std.fmt.allocPrint(gpa, "repo@{s}", .{dashed});
+        errdefer gpa.free(ns);
+
+        const dir = try std.fmt.allocPrint(gpa, "vault/synapse/{s}", .{ns});
+        defer gpa.free(dir);
+        try self.fx.tmp.dir.createDirPath(testing.io, dir);
+        const idx = try std.fmt.allocPrint(gpa, "{s}/Index.md", .{dir});
+        defer gpa.free(idx);
+        const data = try std.fmt.allocPrint(
+            gpa,
+            "---\ntitle: \"{s} — Synapse index\"\nnode_type: synapse-index\nproject: repo\nbranch: {s}\nremote: \"{s}\"\nbuilt_at: \"test\"\n---\n# {s}\n",
+            .{ ns, branch, remote, ns },
+        );
+        defer gpa.free(data);
+        try self.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = idx, .data = data });
+        const node_path = try std.fmt.allocPrint(gpa, "{s}/Some Node.md", .{dir});
+        defer gpa.free(node_path);
+        try self.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = node_path, .data = "a node\n" });
+        return ns;
+    }
+
+    /// A namespace with no `branch:` field at all -- deliberately malformed.
+    fn writeMysteryNamespace(self: *CleanFixture) !void {
+        try self.fx.tmp.dir.createDirPath(testing.io, "vault/synapse/repo@mystery");
+        try self.fx.tmp.dir.writeFile(testing.io, .{
+            .sub_path = "vault/synapse/repo@mystery/Index.md",
+            .data = "---\ntitle: \"x\"\nremote: \"y\"\n---\n",
+        });
+    }
+
+    fn nsExists(self: *CleanFixture, ns: []const u8) !bool {
+        const dir = try std.fmt.allocPrint(self.fx.gpa, "vault/synapse/{s}", .{ns});
+        defer self.fx.gpa.free(dir);
+        self.fx.tmp.dir.access(testing.io, dir, .{}) catch return false;
+        return true;
+    }
+
+    fn run(self: *CleanFixture, dry_run: bool, w: *Io.Writer) !u8 {
+        return clean(self.fx.gpa, self.fx.io(), &self.fx.env, dry_run, w);
+    }
+};
+
+test "a branch whose upstream was deleted is removed" {
+    const gpa = testing.allocator;
+    var cf = try CleanFixture.init(gpa);
+    defer cf.deinit();
+    try cf.commit();
+    const remote = try cf.addRemote();
+    defer gpa.free(remote);
+    try cf.checkout("feature/gone");
+    try cf.push("feature/gone");
+    const ns = try cf.writeNamespace("feature/gone", remote);
+    defer gpa.free(ns);
+    // Merged and deleted on the remote, which is what the command exists for.
+    try cf.deleteRemoteBranch("feature/gone");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cf.run(false, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "removed") != null);
+    try testing.expect(!try cf.nsExists(ns));
+}
+
+test "a branch that was never pushed and still exists is kept" {
+    // The failure that would matter most: deleting the namespace of the
+    // branch someone is working on right now, because it has no remote
+    // counterpart.
+    const gpa = testing.allocator;
+    var cf = try CleanFixture.init(gpa);
+    defer cf.deinit();
+    try cf.commit();
+    const remote = try cf.addRemote();
+    defer gpa.free(remote);
+    try cf.checkout("local-only-wip");
+    const ns = try cf.writeNamespace("local-only-wip", remote);
+    defer gpa.free(ns);
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cf.run(false, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(try cf.nsExists(ns));
+    try testing.expect(std.mem.indexOf(u8, out.written(), "removed") == null);
+}
+
+test "a branch still present on the remote is kept" {
+    const gpa = testing.allocator;
+    var cf = try CleanFixture.init(gpa);
+    defer cf.deinit();
+    try cf.commit();
+    const remote = try cf.addRemote();
+    defer gpa.free(remote);
+    try cf.checkout("alive");
+    try cf.push("alive");
+    const ns = try cf.writeNamespace("alive", remote);
+    defer gpa.free(ns);
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cf.run(false, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(try cf.nsExists(ns));
+}
+
+test "a remoteless repo keeps every namespace whose branch still exists" {
+    // Without the no-remote fallback the first run here would read every
+    // namespace as "upstream gone" and wipe the lot.
+    const gpa = testing.allocator;
+    var cf = try CleanFixture.init(gpa);
+    defer cf.deinit();
+    try cf.commit();
+    try cf.checkout("work");
+    const ns = try cf.writeNamespace("work", "");
+    defer gpa.free(ns);
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cf.run(false, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(try cf.nsExists(ns));
+    try testing.expect(std.mem.indexOf(u8, out.written(), "removed") == null);
+}
+
+test "a gone branch in a remoteless repo is reported, never removed" {
+    const gpa = testing.allocator;
+    var cf = try CleanFixture.init(gpa);
+    defer cf.deinit();
+    try cf.commit();
+    const ns = try cf.writeNamespace("vanished", "");
+    defer gpa.free(ns);
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cf.run(false, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "report") != null);
+    try testing.expect(try cf.nsExists(ns));
+}
+
+test "a branch absent locally with no upstream config is reported, not removed" {
+    const gpa = testing.allocator;
+    var cf = try CleanFixture.init(gpa);
+    defer cf.deinit();
+    try cf.commit();
+    const remote = try cf.addRemote();
+    defer gpa.free(remote);
+    const ns = try cf.writeNamespace("never-existed", remote);
+    defer gpa.free(ns);
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cf.run(false, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "report") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "removed") == null);
+    try testing.expect(try cf.nsExists(ns));
+}
+
+test "a namespace with no branch field is reported rather than guessed at" {
+    const gpa = testing.allocator;
+    var cf = try CleanFixture.init(gpa);
+    defer cf.deinit();
+    try cf.commit();
+    const remote = try cf.addRemote();
+    defer gpa.free(remote);
+    try cf.writeMysteryNamespace();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cf.run(false, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "no branch field") != null);
+    try testing.expect(try cf.nsExists("repo@mystery"));
+}
+
+test "the branch field, not the directory name, decides -- sanitizing is not reversible" {
+    // The directory is `repo@feature-slashed`, which could be branch
+    // `feature/slashed` or a branch literally named `feature-slashed`. Only
+    // the field knows.
+    const gpa = testing.allocator;
+    var cf = try CleanFixture.init(gpa);
+    defer cf.deinit();
+    try cf.commit();
+    const remote = try cf.addRemote();
+    defer gpa.free(remote);
+    try cf.checkout("feature/slashed");
+    try cf.push("feature/slashed");
+    const ns = try cf.writeNamespace("feature/slashed", remote);
+    defer gpa.free(ns);
+    try testing.expectEqualStrings("repo@feature-slashed", ns);
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cf.run(false, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(try cf.nsExists(ns)); // still on the remote, so kept
+}
+
+test "--dry-run reports what it would remove and deletes nothing" {
+    const gpa = testing.allocator;
+    var cf = try CleanFixture.init(gpa);
+    defer cf.deinit();
+    try cf.commit();
+    const remote = try cf.addRemote();
+    defer gpa.free(remote);
+    try cf.checkout("doomed");
+    try cf.push("doomed");
+    const ns = try cf.writeNamespace("doomed", remote);
+    defer gpa.free(ns);
+    try cf.deleteRemoteBranch("doomed");
+    try cf.fetchPrune();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cf.run(true, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "would-remove") != null);
+    try testing.expect(try cf.nsExists(ns));
+}
+
+test "another repo's namespaces are never touched" {
+    const gpa = testing.allocator;
+    var cf = try CleanFixture.init(gpa);
+    defer cf.deinit();
+    try cf.commit();
+    const remote = try cf.addRemote();
+    defer gpa.free(remote);
+    try cf.fx.tmp.dir.createDirPath(testing.io, "vault/synapse/unrelated-project@main");
+    try cf.fx.tmp.dir.writeFile(testing.io, .{
+        .sub_path = "vault/synapse/unrelated-project@main/Index.md",
+        .data = "---\nbranch: main\n---\n",
+    });
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cf.run(false, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try cf.fx.tmp.dir.access(testing.io, "vault/synapse/unrelated-project@main", .{});
+}
+
+test "nothing to clean says so, rather than exiting mute" {
+    const gpa = testing.allocator;
+    var cf = try CleanFixture.init(gpa);
+    defer cf.deinit();
+    try cf.commit();
+    const remote = try cf.addRemote();
+    defer gpa.free(remote);
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cf.run(false, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "nothing to clean") != null);
 }

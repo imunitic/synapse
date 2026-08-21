@@ -9,6 +9,14 @@
 # The expected digest is computed independently in python rather than by
 # reusing the script's own formula, so a change to either implementation
 # fails the test instead of silently agreeing with itself.
+#
+# `stale`'s own detection logic (unchanged/changed/deleted/missing-digest/
+# node-missing) moved to native coverage -- `src/apps/synapse/query_cmd.zig`'s
+# own `test` blocks, calling `cmdStale` directly against a fixture vault and
+# a real `_index.bin` built through `core.index_map.build`. What's left here
+# are the three genuinely process-level cases: the shared remote-mismatch/
+# no-namespace preamble every `query` subcommand gates on, and running
+# outside a git repo entirely.
 
 load 'test_helper'
 
@@ -18,15 +26,6 @@ setup() {
   setup_fake_obsidian_plugin
   CURL_LOG="$TEST_HOME/curl.log"
   : > "$CURL_LOG"
-  # For `symbol`: tagging and the cache are subcommands of the binary, and
-  # common_setup points $SYNAPSE_BIN at the stubbed-grammar build.
-  GRAMMARS_DIR="$TEST_HOME/grammars"
-  FAKE_TS_LOG="$TEST_HOME/ts.log"
-  FAKE_GIT_LOG="$TEST_HOME/git.log"
-  : > "$FAKE_TS_LOG"
-  : > "$FAKE_GIT_LOG"
-  printf '{"ml": {"repo": "https://example.invalid/tree-sitter-ocaml", "scope": "source.ocaml"}}' \
-    > "$HOME/.claude/synapse-grammars.conf"
 }
 
 teardown() {
@@ -38,9 +37,6 @@ run_query() {
   PATH="$FAKE_BIN:$PATH" \
     FAKE_CURL_LOG="$CURL_LOG" \
     FAKE_CURL_VAULT_DIR="$VAULT" \
-    SYNAPSE_GRAMMARS_DIR="$GRAMMARS_DIR" \
-    FAKE_TS_LOG="$FAKE_TS_LOG" \
-    FAKE_GIT_LOG="$FAKE_GIT_LOG" \
     bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" query "$@"
 }
 
@@ -59,33 +55,6 @@ print(hashlib.sha256("\n".join(lines).encode()).hexdigest())
 PY
 }
 
-# Writes a node covering the given repo-relative paths, with a digest that is
-# correct by construction unless $FORCE_DIGEST is set.
-write_node() {
-  local node="$1"; shift
-  local digest="${FORCE_DIGEST:-$(expected_digest "$@")}"
-  mkdir -p "$VAULT/synapse/$(repo_name)"
-  {
-    echo "---"
-    echo "title: \"${node%.md}\""
-    echo "node_type: synapse-node"
-    echo "project: $(repo_name)"
-    echo "sources:"
-    local p h
-    for p in "$@"; do
-      h="$(git -C "$REPO" hash-object "$p")"
-      echo "  - path: $p"
-      echo "    hash: $h"
-    done
-    echo "sources_digest: \"$digest\""
-    echo "stale: false"
-    echo "built_at: \"2026-08-03 16:15\""
-    echo "---"
-    echo
-    echo "# ${node%.md}"
-  } > "$VAULT/synapse/$(repo_name)/$node"
-}
-
 # The index the query reads, built through the shipped writer. Every path here
 # maps to one node, which is what these tests need; a path with two claimants is
 # synapse-build-index.bats's case.
@@ -93,97 +62,6 @@ write_node_index() { # write_node_index <node.md> <path>...
   local node="$1" p; shift
   for p in "$@"; do printf '%s\t%s\n' "$p" "$node"; done \
     | write_index_bin "$(default_work_dir)"
-}
-
-@test "stale: node whose files are unchanged: reports nothing, exit 0" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_node "Foo Node.md" "src/foo.ml"
-  write_node_index 'Foo Node.md' src/foo.ml
-
-  run run_stale
-  [ "$status" -eq 0 ]
-  [ -z "$output" ]
-}
-
-@test "stale: source file changed outside Claude Code: reports the node" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_node "Foo Node.md" "src/foo.ml"
-  write_node_index 'Foo Node.md' src/foo.ml
-
-  # The case Tier 1 cannot see: an edit that never went through a hook.
-  printf 'let x = 2 (* changed *)\n' > "$REPO/src/foo.ml"
-
-  run run_stale
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"Foo Node"* ]]
-  [[ "$output" == *"content changed"* ]]
-}
-
-@test "stale: recorded source file deleted: reports it by name" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_node "Foo Node.md" "src/foo.ml"
-  write_node_index 'Foo Node.md' src/foo.ml
-
-  rm "$REPO/src/foo.ml"
-
-  run run_stale
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"source files gone: src/foo.ml"* ]]
-}
-
-@test "stale: multi-file node: order in sources does not affect the digest" {
-  make_repo
-  printf 'let y = 1\n' > "$REPO/src/bar.ml"
-  git -C "$REPO" add src/bar.ml
-  git -C "$REPO" -c user.email=t@t -c user.name=t commit -q -m bar
-
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  # written in reverse order; the digest sorts, so it must still verify
-  write_node "Foo Node.md" "src/foo.ml" "src/bar.ml"
-  write_node_index 'Foo Node.md' src/foo.ml src/bar.ml
-
-  run run_stale
-  [ "$status" -eq 0 ]
-  [ -z "$output" ]
-}
-
-@test "stale: node with a wrong stored digest: reported as changed" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  FORCE_DIGEST="0000000000000000000000000000000000000000000000000000000000000000" \
-    write_node "Foo Node.md" "src/foo.ml"
-  write_node_index 'Foo Node.md' src/foo.ml
-
-  run run_stale
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"content changed"* ]]
-}
-
-@test "stale: node built before sources_digest existed: reported, not silently passed" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_node "Foo Node.md" "src/foo.ml"
-  # strip the digest, simulating a namespace built under the old format
-  grep -v '^sources_digest:' "$VAULT/synapse/$(repo_name)/Foo Node.md" > "$TEST_HOME/tmp" \
-    && mv "$TEST_HOME/tmp" "$VAULT/synapse/$(repo_name)/Foo Node.md"
-  write_node_index 'Foo Node.md' src/foo.ml
-
-  run run_stale
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"no sources_digest"* ]]
-}
-
-@test "stale: node in the index but missing from the vault: reported" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_node_index 'Ghost Node.md' src/foo.ml
-
-  run run_stale
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"node file missing"* ]]
 }
 
 @test "stale: namespace belongs to a different remote: exits 1, reports nothing" {
@@ -213,9 +91,11 @@ write_node_index() { # write_node_index <node.md> <path>...
 }
 
 # --- body / sources / field ------------------------------------------------
-# The point of these subcommands is that they read the expensive parts
-# internally and print only a projection, so the assertions are mostly about
-# what is *absent* from the output.
+# `body`/`sources`/`field`'s own logic moved to native coverage --
+# `src/apps/synapse/query_cmd.zig`'s own `test` blocks, calling `cmdBody`/
+# `cmdSources`/`cmdField`/`writeField`/`cmdFieldFile` directly against a
+# fixture vault. `write_fenced_node` stays -- the two `config:` tests below
+# still need a real fenced node to read back through the actual CLI.
 
 # A node with a generated fence, real hashes, and Notes content that must never
 # leak into `body`.
@@ -251,197 +131,6 @@ write_fenced_node() {
     echo "## Notes"
     echo "HUMAN NOTES must never appear in body output."
   } > "$VAULT/synapse/$(repo_name)/$node"
-}
-
-@test "body: prints the fenced prose only, excluding frontmatter and Notes" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_fenced_node "Foo Node.md" "src/foo.ml"
-
-  run run_query body "Foo Node"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"Prose that should be printed."* ]]
-  [[ "$output" != *"path:"* ]]
-  [[ "$output" != *"HUMAN NOTES"* ]]
-  [[ "$output" != *"sources_digest"* ]]
-  [[ "$output" != *"synapse:generated"* ]]
-}
-
-@test "body: accepts the node name with or without .md" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_fenced_node "Foo Node.md" "src/foo.ml"
-
-  run run_query body "Foo Node.md"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"Prose that should be printed."* ]]
-}
-
-@test "body: unfenced node falls back to post-frontmatter and warns on stderr" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_node "Old Node.md" "src/foo.ml"   # written without a fence
-
-  run run_query body "Old Node"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"no generated fence"* ]]
-  [[ "$output" != *"path:"* ]]
-}
-
-@test "body: unknown node exits 1" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-
-  run run_query body "Nope"
-  [ "$status" -eq 1 ]
-}
-
-@test "sources: --count matches the real number of paths" {
-  make_repo
-  printf 'let y = 1\n' > "$REPO/src/bar.ml"
-  git -C "$REPO" add src/bar.ml
-  git -C "$REPO" -c user.email=t@t -c user.name=t commit -q -m bar
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_fenced_node "Foo Node.md" "src/foo.ml" "src/bar.ml"
-
-  run run_query sources "Foo Node" --count
-  [ "$status" -eq 0 ]
-  [ "$output" = "2" ]
-}
-
-@test "sources: bare form lists every path, --filter narrows it" {
-  make_repo
-  printf 'let y = 1\n' > "$REPO/src/bar.ml"
-  git -C "$REPO" add src/bar.ml
-  git -C "$REPO" -c user.email=t@t -c user.name=t commit -q -m bar
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_fenced_node "Foo Node.md" "src/foo.ml" "src/bar.ml"
-
-  run run_query sources "Foo Node"
-  [ "$(printf '%s\n' "$output" | wc -l | tr -d ' ')" = "2" ]
-
-  run run_query sources "Foo Node" --filter bar
-  [ "$output" = "src/bar.ml" ]
-}
-
-@test "sources: --modules groups by module root with counts" {
-  make_repo
-  mkdir -p "$REPO/other/src/main/java"
-  printf 'x\n' > "$REPO/other/src/main/java/A.java"
-  git -C "$REPO" add other/src/main/java/A.java
-  git -C "$REPO" -c user.email=t@t -c user.name=t commit -q -m other
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_fenced_node "Foo Node.md" "src/foo.ml" "other/src/main/java/A.java"
-
-  run run_query sources "Foo Node" --modules
-  [ "$status" -eq 0 ]
-  # `other/src/main/java/A.java` is Maven boilerplate and groups as `other`;
-  # `src/foo.ml` has src first so it is the repo root's own src -- grouped as
-  # "src" per the module_of rule.
-  [[ "$output" == *"other"$'\t'"1"* ]]
-}
-
-@test "sources: --modules keeps one segment past src/ for a non-boilerplate layout" {
-  make_repo
-  mkdir -p "$REPO/eon_engine/src/render" "$REPO/eon_engine/src/audio"
-  printf 'x\n' > "$REPO/eon_engine/src/render/render_commands.ml"
-  printf 'x\n' > "$REPO/eon_engine/src/audio/audio_system.ml"
-  git -C "$REPO" add eon_engine
-  git -C "$REPO" -c user.email=t@t -c user.name=t commit -q -m eon_engine
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_fenced_node "Foo Node.md" "src/foo.ml" \
-    "eon_engine/src/render/render_commands.ml" "eon_engine/src/audio/audio_system.ml"
-
-  run run_query sources "Foo Node" --modules
-  [ "$status" -eq 0 ]
-  # Neither path is Maven boilerplate, so each keeps the segment right after
-  # src/ instead of collapsing both into one indistinguishable "eon_engine".
-  [[ "$output" == *"eon_engine/src/render"$'\t'"1"* ]]
-  [[ "$output" == *"eon_engine/src/audio"$'\t'"1"* ]]
-}
-
-@test "sources: --modules boilerplate chains are read from config, not hardcoded" {
-  make_repo
-  mkdir -p "$REPO/mod-a/src/main/kotlin"
-  printf 'x\n' > "$REPO/mod-a/src/main/kotlin/A.kt"
-  git -C "$REPO" add mod-a
-  git -C "$REPO" -c user.email=t@t -c user.name=t commit -q -m kotlin
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_fenced_node "Foo Node.md" "src/foo.ml" "mod-a/src/main/kotlin/A.kt"
-
-  # Not in the shipped default list yet: falls through to the generic rule,
-  # keeping one segment past src/ rather than collapsing to "mod-a".
-  run run_query sources "Foo Node" --modules
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"mod-a/src/main"$'\t'"1"* ]]
-
-  # Add it to the config, same as a user would by hand -- now it collapses,
-  # proving the chain list is genuinely read from disk each run.
-  printf 'src/main/kotlin\n' >> "$HOME/.claude/synapse-module-boilerplate.conf"
-  run run_query sources "Foo Node" --modules
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"mod-a"$'\t'"1"* ]]
-}
-
-@test "field: returns unquoted scalars, empty for an absent key" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_fenced_node "Foo Node.md" "src/foo.ml"
-
-  run run_query field "Foo Node" stale
-  [ "$output" = "false" ]
-
-  run run_query field "Foo Node" built_at
-  [ "$output" = "2026-08-03 16:15" ]     # quotes stripped
-
-  run run_query field "Foo Node" nonexistent_key
-  [ "$status" -eq 0 ]
-  [ -z "$output" ]
-}
-
-@test "field: refuses 'sources' with exit 2 and points at the right subcommand" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_fenced_node "Foo Node.md" "src/foo.ml"
-
-  run run_query field "Foo Node" sources
-  [ "$status" -eq 2 ]
-  [[ "$output" == *"use: synapse query sources"* ]]
-}
-
-@test "field --file: reads a plain file directly, no vault node or namespace needed" {
-  mkdir -p "$REPO"
-  printf -- '---\nsummary: "A one-line draft summary."\n---\n\n## Summary\n' > "$REPO/b-01.md"
-
-  run run_query field --file b-01.md summary
-  [ "$status" -eq 0 ]
-  [ "$output" = "A one-line draft summary." ]
-}
-
-@test "field --file: an absent key prints nothing and exits 0" {
-  mkdir -p "$REPO"
-  printf -- '---\nsummary: "x"\n---\n' > "$REPO/b-01.md"
-
-  run run_query field --file b-01.md nonexistent_key
-  [ "$status" -eq 0 ]
-  [ -z "$output" ]
-}
-
-@test "field --file: a missing file exits 1 with a clear message" {
-  mkdir -p "$REPO"
-
-  run run_query field --file nope.md summary
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"no such file"* ]]
-}
-
-@test "field --file: still refuses 'sources' with exit 2" {
-  mkdir -p "$REPO"
-  printf -- '---\nsummary: "x"\n---\n' > "$REPO/b-01.md"
-
-  run run_query field --file b-01.md sources
-  [ "$status" -eq 2 ]
-  [[ "$output" == *"use: synapse query sources"* ]]
 }
 
 @test "field --file: a missing path or key is a usage error" {
@@ -502,136 +191,10 @@ write_fenced_node() {
   fi
 }
 
-@test "config: reads the pre-rename second-brain.conf when synapse.conf is absent" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_fenced_node "Foo Node.md" "src/foo.ml"
-
-  # A machine whose scripts were updated ahead of setup.sh: only the old name
-  # exists. Without the fallback this reports "no vault" and every subcommand
-  # exits 1, which reads as "the graph is fine" to a caller that treats exit 1
-  # as absence rather than failure.
-  mv "$HOME/.claude/synapse.conf" "$HOME/.claude/second-brain.conf"
-
-  run run_query body "Foo Node"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"Prose that should be printed."* ]]
-}
-
-@test "config: synapse.conf wins when both names exist" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_fenced_node "Foo Node.md" "src/foo.ml"
-
-  # The old file points somewhere useless; if it were preferred, this fails.
-  printf 'OBSIDIAN_VAULT_DIR="%s/nope"\n' "$TEST_HOME" > "$HOME/.claude/second-brain.conf"
-
-  run run_query body "Foo Node"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"Prose that should be printed."* ]]
-}
-
-# --- symbol: exact-name def/ref lookup, backed by the tags cache -----------
-# Real tree-sitter is stubbed (fake-bin/tree-sitter always emits one
-# deterministic `FAKE_NAME` tag line), so these tests exercise `symbol`'s own
-# control flow -- cache backfill, exact-name filtering, disable knob, and the
-# distinct "not checked" reporting -- not tree-sitter's actual output.
-
-@test "symbol: exact match across a node's sources, with file and tag line" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_fenced_node "Foo Node.md" "src/foo.ml"
-
-  run run_query symbol FAKE_NAME "Foo Node"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"src/foo.ml"* ]]
-  [[ "$output" == *"FAKE_NAME"* ]]
-}
-
-@test "symbol: a name that never appears is silent, exit 0" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_fenced_node "Foo Node.md" "src/foo.ml"
-
-  run run_query symbol this_name_does_not_exist "Foo Node"
-  [ "$status" -eq 0 ]
-  [ -z "$output" ]
-}
-
-@test "symbol: second query against the same node re-tags nothing" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_fenced_node "Foo Node.md" "src/foo.ml"
-
-  run run_query symbol FAKE_NAME "Foo Node"
-  [ "$status" -eq 0 ]
-  : > "$FAKE_TS_LOG"
-
-  run run_query symbol FAKE_NAME "Foo Node"
-  [ "$status" -eq 0 ]
-  [ ! -s "$FAKE_TS_LOG" ]
-}
-
-@test "symbol: disabled via env var -- no output, no tagging at all" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_fenced_node "Foo Node.md" "src/foo.ml"
-
-  run env SYNAPSE_DISABLE_SYMBOL_CACHE=1 \
-    PATH="$FAKE_BIN:$PATH" FAKE_CURL_LOG="$CURL_LOG" FAKE_CURL_VAULT_DIR="$VAULT" \
-    SYNAPSE_GRAMMARS_DIR="$GRAMMARS_DIR" FAKE_TS_LOG="$FAKE_TS_LOG" FAKE_GIT_LOG="$FAKE_GIT_LOG" \
-    bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" query symbol FAKE_NAME "Foo Node"
-  [ "$status" -eq 0 ]
-  [ -z "$output" ]
-  [ ! -s "$FAKE_TS_LOG" ]
-}
-
-@test "symbol: missing arguments is a usage error, exit 2" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_fenced_node "Foo Node.md" "src/foo.ml"
-
-  run run_query symbol FAKE_NAME
-  [ "$status" -eq 2 ]
-}
-
-@test "symbol: unknown node exits 1" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-
-  run run_query symbol FAKE_NAME "No Such Node"
-  [ "$status" -eq 1 ]
-}
-
-@test "symbol: unsupported file is reported distinctly, never conflated with no-match" {
-  make_repo
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  # No registry entry for this extension at all -- `synapse tags` exits 2
-  # (needs discovery), which the cache records as unsupported.
-  printf 'no grammar for this\n' > "$REPO/src/foo.unknownext"
-  git -C "$REPO" add src/foo.unknownext
-  git -C "$REPO" -c user.email=t@t -c user.name=t commit -q -m "add unsupported file"
-  write_fenced_node "Foo Node.md" "src/foo.unknownext"
-
-  run run_query symbol FAKE_NAME "Foo Node"
-  [ "$status" -eq 0 ]
-  # bats merges stderr into $output by default, so the "not checked" note
-  # (stderr) is what's here -- no tab-separated hit line (stdout) at all,
-  # since the file was never actually tagged.
-  [[ "$output" == *"unsupported"* ]]
-  [[ "$output" != *$'\t'"FAKE_NAME"* ]]
-}
-
-@test "symbol: a node with several sources returns hits from every one that matches" {
-  make_repo
-  printf 'let y = 2\n' > "$REPO/src/bar.ml"
-  git -C "$REPO" add src/bar.ml
-  git -C "$REPO" -c user.email=t@t -c user.name=t commit -q -m "add bar.ml"
-  write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  write_fenced_node "Foo Node.md" "src/foo.ml" "src/bar.ml"
-
-  run run_query symbol FAKE_NAME "Foo Node"
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"src/foo.ml"* ]]
-  [[ "$output" == *"src/bar.ml"* ]]
-}
+# `core.conf.vaultDir`'s own synapse.conf/second-brain.conf precedence
+# ("vaultDir: synapse.conf wins when both exist", "vaultDir: reads the
+# pre-rename second-brain.conf when synapse.conf is absent") moved to native
+# coverage in src/core/conf.zig -- a pure function of the two file paths, no
+# CLI needed. What stayed there over here previously was only a second proof
+# that the value actually reaches this far; the underlying precedence is now
+# covered where it lives.

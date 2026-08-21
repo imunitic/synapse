@@ -43,12 +43,31 @@ pub fn run(
         } else return usage();
     }
 
-    if (core.identity.resolve(gpa, io, ".")) |id| {
-        id.deinit(gpa);
-    } else |_| {
+    var out_buf: [256 * 1024]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try build(gpa, io, env, ".", reenumerate, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+/// The command itself, minus argument parsing -- separated so a test can
+/// drive it against a real fixture repo without depending on the test
+/// process's own cwd. `identity_path` is `"."` for the real CLI (identity
+/// resolves from wherever the process was invoked) or a fixture's real
+/// repo root for a test, matching `enumerate_cmd.runEnumerate`'s own split.
+pub fn build(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    identity_path: []const u8,
+    reenumerate: bool,
+    out: *Io.Writer,
+) !u8 {
+    const id = core.identity.resolve(gpa, io, identity_path) catch {
         std.debug.print("synapse-build-lists: not inside a git repo\n", .{});
         return 1;
-    }
+    };
+    defer id.deinit(gpa);
 
     const work = (try context.workDir(gpa, io, env, "synapse-build-lists")) orelse return 1;
     defer work.deinit(gpa);
@@ -68,11 +87,7 @@ pub fn run(
     };
     defer gpa.free(manifest);
 
-    var out_buf: [256 * 1024]u8 = undefined;
-    var out = Io.File.stdout().writer(io, &out_buf);
-
-    try enumerate_cmd.ensure(gpa, io, env, work_dir, reenumerate, &out.interface);
-    try out.interface.flush();
+    try enumerate_cmd.ensure(gpa, io, env, id.layout.repo_root, work_dir, reenumerate, out);
 
     const all_path = try std.fmt.allocPrint(gpa, "{s}/all.txt", .{work_dir});
     defer gpa.free(all_path);
@@ -131,12 +146,11 @@ pub fn run(
             count += 1;
             try covered.append(gpa, p);
         }
-        try out.interface.print("{s}\t{d}\t{s}\n", .{ slug, count, title });
+        try out.print("{s}\t{d}\t{s}\n", .{ slug, count, title });
     }
 
-    try out.interface.writeAll("--- coverage\n");
-    try writeCoverage(gpa, io, work_dir, all, covered.items, &out.interface);
-    try out.interface.flush();
+    try out.writeAll("--- coverage\n");
+    try writeCoverage(gpa, io, work_dir, all, covered.items, out);
     return 0;
 }
 
@@ -262,4 +276,249 @@ fn writeLines(
     defer body.deinit();
     for (lines) |l| try body.writer.print("{s}\n", .{l});
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = body.written() });
+}
+
+const testing = std.testing;
+const fixture = @import("cmd_test_support.zig");
+
+/// Enumeration itself (binary/noise extensions, `$SYNAPSE_EXTRA_EXCLUDE_RE`,
+/// `synapse-ignore-files.conf`, submodule gitlinks, the size cap) is covered
+/// by `enumerate_cmd.zig`'s own native tests, driven through the same
+/// `ensure()` this file also calls -- nothing here re-proves it. This file's
+/// own tests cover what only `build()` does: manifest parsing, `grep -E`/
+/// `grep -vE` selection per node, the coverage arithmetic, and rebuilding
+/// `lists/` from scratch.
+const BuildListsFixture = struct {
+    fx: fixture.Fixture,
+
+    fn init(gpa: Allocator) !BuildListsFixture {
+        const fx = try fixture.Fixture.init(gpa);
+        return .{ .fx = fx };
+    }
+
+    fn deinit(self: *BuildListsFixture) void {
+        self.fx.deinit();
+    }
+
+    /// A separate step from `init()`, called by every test right after
+    /// construction: `gitCommit()` spawns a real subprocess, and doing that
+    /// on `init()`'s own local copy before it returns the fixture by value
+    /// binds `Io.Threaded`'s worker thread to a stale, soon-to-be-orphaned
+    /// address -- see [[sb — Io.Threaded fixture-wrapper hang]] (found
+    /// building `BriefFixture` in `brief_cmd.zig`).
+    fn commit(self: *BuildListsFixture, message: []const u8) !void {
+        try self.fx.gitCommit(message);
+    }
+
+    fn writeManifest(self: *BuildListsFixture, content: []const u8) !void {
+        try self.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "work/manifest.tsv", .data = content });
+    }
+
+    fn run(self: *BuildListsFixture, reenumerate: bool, out: *Io.Writer) !u8 {
+        return build(self.fx.gpa, self.fx.io(), &self.fx.env, self.fx.repo, reenumerate, out);
+    }
+};
+
+test "expands each manifest line into a numbered list plus its title, with per-node counts printed" {
+    const gpa = testing.allocator;
+    var bf = try BuildListsFixture.init(gpa);
+    defer bf.deinit();
+    try bf.fx.writeRepoFile("mod-a/src/main/java/A.java", "class A {}\n");
+    try bf.fx.writeRepoFile("mod-a/src/main/java/B.java", "class B {}\n");
+    try bf.fx.writeRepoFile("docs/guide.md", "# guide\n");
+    try bf.commit("mixed");
+    try bf.writeManifest("Code — the java\t^mod-a/\t\nDocs — the docs\t^docs/\t\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try bf.run(false, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const title1 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/lists/01.title", gpa, .limited(1 << 10));
+    defer gpa.free(title1);
+    try testing.expectEqualStrings("Code — the java\n", title1);
+    const title2 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/lists/02.title", gpa, .limited(1 << 10));
+    defer gpa.free(title2);
+    try testing.expectEqualStrings("Docs — the docs\n", title2);
+
+    const list1 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/lists/01.txt", gpa, .limited(1 << 10));
+    defer gpa.free(list1);
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, list1, "\n"));
+    const list2 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/lists/02.txt", gpa, .limited(1 << 10));
+    defer gpa.free(list2);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, list2, "\n"));
+
+    // Echoed per node, so a bad regex is visible immediately.
+    try testing.expect(std.mem.indexOf(u8, out.written(), "01\t2\tCode — the java\n") != null);
+}
+
+test "the exclude column removes paths the include column matched" {
+    const gpa = testing.allocator;
+    var bf = try BuildListsFixture.init(gpa);
+    defer bf.deinit();
+    try bf.fx.writeRepoFile("mod-a/src/main/java/A.java", "class A {}\n");
+    try bf.fx.writeRepoFile("mod-a/src/main/java/B.java", "class B {}\n");
+    try bf.commit("mixed");
+    try bf.writeManifest("Java except B\t^mod-a/\tB\\.java$\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try bf.run(false, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const list1 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/lists/01.txt", gpa, .limited(1 << 10));
+    defer gpa.free(list1);
+    try testing.expect(std.mem.indexOf(u8, list1, "A.java") != null);
+    try testing.expect(std.mem.indexOf(u8, list1, "B.java") == null);
+}
+
+test "an empty exclude column excludes nothing" {
+    const gpa = testing.allocator;
+    var bf = try BuildListsFixture.init(gpa);
+    defer bf.deinit();
+    try bf.fx.writeRepoFile("mod-a/src/main/java/A.java", "class A {}\n");
+    try bf.fx.writeRepoFile("mod-a/src/main/java/B.java", "class B {}\n");
+    try bf.commit("mixed");
+    // Third column absent entirely -- must not fall back to a pattern that
+    // silently matches everything.
+    try bf.writeManifest("Java\t^mod-a/\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try bf.run(false, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const list1 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/lists/01.txt", gpa, .limited(1 << 10));
+    defer gpa.free(list1);
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, list1, "\n"));
+}
+
+test "coverage reports the arithmetic and records what nothing claimed" {
+    const gpa = testing.allocator;
+    var bf = try BuildListsFixture.init(gpa);
+    defer bf.deinit();
+    try bf.fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    try bf.fx.writeRepoFile("mod-a/src/main/java/A.java", "class A {}\n");
+    try bf.fx.writeRepoFile("mod-a/src/main/java/B.java", "class B {}\n");
+    try bf.fx.writeRepoFile("docs/guide.md", "# guide\n");
+    try bf.fx.writeRepoFile("stray.txt", "stray\n");
+    try bf.fx.writeRepoFile(".gitignore", "secret.txt\n");
+    try bf.commit("mixed");
+    try bf.writeManifest("Java\t^mod-a/\t\nDocs\t^docs/\t\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try bf.run(false, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "covered:    3\n") != null);
+
+    // src/foo.ml, stray.txt and .gitignore are claimed by nothing.
+    const unassigned = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/unassigned.txt", gpa, .limited(1 << 10));
+    defer gpa.free(unassigned);
+    try testing.expect(std.mem.indexOf(u8, unassigned, "src/foo.ml\n") != null);
+    try testing.expect(std.mem.indexOf(u8, unassigned, "stray.txt\n") != null);
+    try testing.expect(std.mem.indexOf(u8, unassigned, ".gitignore\n") != null);
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, unassigned, "\n"));
+}
+
+test "a pattern that matches nothing yields an empty list rather than failing" {
+    const gpa = testing.allocator;
+    var bf = try BuildListsFixture.init(gpa);
+    defer bf.deinit();
+    try bf.fx.writeRepoFile("mod-a/src/main/java/A.java", "class A {}\n");
+    try bf.commit("mixed");
+    // Looks like "the config directory" but matches only a literal `config`.
+    try bf.writeManifest("Nothing\t^config$\t\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try bf.run(false, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const list1 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/lists/01.txt", gpa, .limited(1 << 10));
+    defer gpa.free(list1);
+    try testing.expectEqualStrings("", list1);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "01\t0\tNothing\n") != null);
+}
+
+test "lists are rebuilt from scratch, so a removed manifest line leaves no stale list" {
+    const gpa = testing.allocator;
+    var bf = try BuildListsFixture.init(gpa);
+    defer bf.deinit();
+    try bf.fx.writeRepoFile("mod-a/src/main/java/A.java", "class A {}\n");
+    try bf.fx.writeRepoFile("docs/guide.md", "# guide\n");
+    try bf.commit("mixed");
+    try bf.writeManifest("Java\t^mod-a/\t\nDocs\t^docs/\t\n");
+
+    var out1: Io.Writer.Allocating = .init(gpa);
+    defer out1.deinit();
+    try testing.expectEqual(@as(u8, 0), try bf.run(false, &out1.writer));
+    try bf.fx.tmp.dir.access(testing.io, "work/lists/02.txt", .{});
+
+    try bf.writeManifest("Java\t^mod-a/\t\n");
+    var out2: Io.Writer.Allocating = .init(gpa);
+    defer out2.deinit();
+    try testing.expectEqual(@as(u8, 0), try bf.run(false, &out2.writer));
+    try testing.expectEqual(error.FileNotFound, bf.fx.tmp.dir.access(testing.io, "work/lists/02.txt", .{}));
+}
+
+test "a missing manifest.tsv is an error, not a silent empty result" {
+    const gpa = testing.allocator;
+    var bf = try BuildListsFixture.init(gpa);
+    defer bf.deinit();
+    try bf.fx.writeRepoFile("mod-a/src/main/java/A.java", "class A {}\n");
+    try bf.commit("mixed");
+    // No manifest written.
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    try testing.expectEqual(@as(u8, 1), try bf.run(false, &out.writer));
+}
+
+test "a --repo that is not a git repo is an error" {
+    const gpa = testing.allocator;
+    var bf = try BuildListsFixture.init(gpa);
+    defer bf.deinit();
+    try bf.writeManifest("Java\t^mod-a/\t\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    // `/tmp` itself, not a subdirectory of the fixture's own tmp root: that
+    // root sits inside this project's real git repo, so identity resolution
+    // would walk up and find it instead of failing.
+    const code = try build(gpa, bf.fx.io(), &bf.fx.env, "/tmp", false, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+}
+
+test "with $SYNAPSE_WORK_DIR unset, output lands in the default work dir and never in the repo" {
+    const gpa = testing.allocator;
+    var bf = try BuildListsFixture.init(gpa);
+    defer bf.deinit();
+    try bf.fx.writeRepoFile("mod-a/src/main/java/A.java", "class A {}\n");
+    try bf.commit("mixed");
+    _ = bf.fx.env.swapRemove("SYNAPSE_WORK_DIR");
+
+    // `context.workDirFor` derives the default from `SYNAPSE_NAMESPACE`
+    // (the fixture's own env-var identity bypass) without needing real
+    // git for this call -- `$HOME/.claude/synapse-work/repo@main`, created
+    // on demand by `build()`'s own `createDirPath`.
+    try bf.fx.tmp.dir.createDirPath(testing.io, "home/.claude/synapse-work/repo@main");
+    try bf.fx.tmp.dir.writeFile(testing.io, .{
+        .sub_path = "home/.claude/synapse-work/repo@main/manifest.tsv",
+        .data = "Java\t^mod-a/\t\n",
+    });
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try bf.run(false, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const list1 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "home/.claude/synapse-work/repo@main/lists/01.txt", gpa, .limited(1 << 10));
+    defer gpa.free(list1);
+    try testing.expect(std.mem.indexOf(u8, list1, "A.java") != null);
+
+    try testing.expectEqual(error.FileNotFound, bf.fx.tmp.dir.access(testing.io, "repo/lists", .{}));
+    try testing.expectEqual(error.FileNotFound, bf.fx.tmp.dir.access(testing.io, "repo/all.txt", .{}));
+    try testing.expectEqual(error.FileNotFound, bf.fx.tmp.dir.access(testing.io, "repo/unassigned.txt", .{}));
+    try testing.expectEqual(error.FileNotFound, bf.fx.tmp.dir.access(testing.io, "repo/covered.txt", .{}));
 }

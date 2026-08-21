@@ -37,14 +37,32 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     defer payload.deinit();
     const raw_file = payload.nested("tool_input", "file_path") orelse
         payload.nested("tool_response", "filePath") orelse return;
+    const sid = payload.str("session_id") orelse "default"; // same field stop-nudge reads
 
+    const text = try build(gpa, io, env, vault, raw_file, sid) orelse return;
+    defer gpa.free(text);
+    try common.emitContext(gpa, io, "PostToolUse", text);
+}
+
+/// The command itself, minus payload parsing -- separated so a test can
+/// drive it against a real fixture directly, without a real stdin payload.
+/// Returns the context text, or null when nothing should be emitted.
+/// Caller owns the result.
+pub fn build(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    vault: []const u8,
+    raw_file: []const u8,
+    sid: []const u8,
+) !?[]u8 {
     // From the edited file's directory, not $PWD -- not always the same repo.
     const ns = common.Namespace.resolve(gpa, io, env, std.fs.path.dirname(raw_file) orelse ".") orelse
-        return;
+        return null;
     defer ns.deinit(gpa);
 
-    const st = Io.Dir.cwd().statFile(io, raw_file, .{}) catch return; // a delete has nothing to hash
-    if (st.kind != .file) return;
+    const st = Io.Dir.cwd().statFile(io, raw_file, .{}) catch return null; // a delete has nothing to hash
+    if (st.kind != .file) return null;
 
     // Resolved before the prefix strip: repo_root is already symlink-resolved
     // (macOS /tmp -> /private/tmp) but tool_input.file_path may not be.
@@ -54,30 +72,30 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     const prefix = try std.fmt.allocPrint(gpa, "{s}/", .{ns.repo_root}); // repo-relative, like sources
 
     defer gpa.free(prefix);
-    if (!std.mem.startsWith(u8, file, prefix)) return;
+    if (!std.mem.startsWith(u8, file, prefix)) return null;
     const rel = file[prefix.len..];
 
-    if (!try common.namespaceMatches(gpa, io, vault, ns)) return;
+    if (!try common.namespaceMatches(gpa, io, vault, ns)) return null;
 
-    const work = common.workDir(env) orelse return;
+    const work = common.workDir(env) orelse return null;
     const index_path = try std.fmt.allocPrint(gpa, "{s}/_index.bin", .{work});
     defer gpa.free(index_path);
 
     // Checked before opening -- Map.open answers a missing file with an empty
     // map (deliberate elsewhere), but here that would write out an index
     // nobody built.
-    _ = Io.Dir.cwd().statFile(io, index_path, .{}) catch return;
+    _ = Io.Dir.cwd().statFile(io, index_path, .{}) catch return null;
 
-    var map = core.index_map.Map.open(io, index_path) catch return;
+    var map = core.index_map.Map.open(io, index_path) catch return null;
     defer map.close(io);
-    if (map.discarded != null) return; // an unreadable index is silence too
+    if (map.discarded != null) return null; // an unreadable index is silence too
 
     var names: [core.index_map.max_nodes_per_path][]const u8 = undefined;
     const owners = map.nodesFor(rel, &names) orelse {
         // New, unclaimed file -- queue for the _unassigned sweep. One
         // idempotent re-encode replaces a 27 MB read-modify-write + PUT.
         try addUnassigned(gpa, io, &map, index_path, rel);
-        return;
+        return null;
     };
     // Copied out: the blast-radius pass and per-node loop outlive assumptions
     // about the mapping staying put.
@@ -88,13 +106,13 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     }
     for (owners) |o| try owned.append(gpa, try gpa.dupe(u8, o));
 
-    const content = Io.Dir.cwd().readFileAlloc(io, file, gpa, .limited(256 << 20)) catch return;
+    const content = Io.Dir.cwd().readFileAlloc(io, file, gpa, .limited(256 << 20)) catch return null;
     defer gpa.free(content);
 
     var findings: Io.Writer.Allocating = .init(gpa);
     defer findings.deinit();
 
-    var store = (try openStore(gpa, io, env, vault, ns)) orelse return;
+    var store = (try openStore(gpa, io, env, vault, ns)) orelse return null;
     defer store.deinit();
 
     for (owned.items) |node_file| {
@@ -115,7 +133,6 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
         _ = store.write(io, node_file, next.written()) catch continue;
     }
 
-    const sid = payload.str("session_id") orelse "default"; // same field stop-nudge reads
     const blast = try blastRadius(gpa, io, env, vault, ns, owned.items, rel, sid);
     defer if (blast) |b| gpa.free(b);
 
@@ -137,8 +154,8 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
         if (findings.written().len != 0) try text.writer.writeAll("\n\n---\n\n");
         try text.writer.writeAll(b);
     }
-    if (text.written().len == 0) return;
-    try common.emitContext(gpa, io, "PostToolUse", text.written());
+    if (text.written().len == 0) return null;
+    return try gpa.dupe(u8, text.written());
 }
 
 /// The physical path of `path`'s directory, plus its basename.
@@ -367,4 +384,635 @@ fn openStore(
     const dir = try std.fmt.allocPrint(gpa, "synapse/{s}", .{ns.key});
     defer gpa.free(dir);
     return try adapters.obsidian.ObsidianStore.init(gpa, port, cert, api_key, dir);
+}
+
+const testing = std.testing;
+const fixture = @import("cmd_test_support.zig");
+
+/// Real git identity resolution, not an env-var bypass: several of this
+/// file's own tests exercise remote/branch matching directly, so they need
+/// `common.Namespace.resolve` to actually walk the fixture repo.
+const StalenessFixture = struct {
+    fx: fixture.Fixture,
+    key: []u8 = &.{},
+    remote: []u8 = &.{},
+    branch: []u8 = &.{},
+
+    fn init(gpa: Allocator) !StalenessFixture {
+        const fx = try fixture.Fixture.init(gpa);
+        return .{ .fx = fx };
+    }
+
+    fn deinit(self: *StalenessFixture) void {
+        if (self.key.len != 0) self.fx.gpa.free(self.key);
+        if (self.remote.len != 0) self.fx.gpa.free(self.remote);
+        if (self.branch.len != 0) self.fx.gpa.free(self.branch);
+        self.fx.deinit();
+    }
+
+    /// `git init` + one commit adding everything currently staged, then
+    /// resolves the real identity once and caches it -- every helper below
+    /// addresses `vault/synapse/{key}/...` off this.
+    fn commit(self: *StalenessFixture, message: []const u8) !void {
+        try self.fx.gitCommit(message);
+        const ns = common.Namespace.resolve(self.fx.gpa, self.fx.io(), &self.fx.env, self.fx.repo) orelse
+            return error.NoIdentity;
+        defer ns.deinit(self.fx.gpa);
+        self.key = try self.fx.gpa.dupe(u8, ns.key);
+        self.remote = try self.fx.gpa.dupe(u8, ns.remote);
+        self.branch = try self.fx.gpa.dupe(u8, ns.branch);
+    }
+
+    fn writeIndex(self: *StalenessFixture) !void {
+        try self.fx.writeIndex(self.key, self.remote, self.branch);
+    }
+
+    fn writeIndexWithRemote(self: *StalenessFixture, remote: []const u8) !void {
+        try self.fx.writeIndex(self.key, remote, self.branch);
+    }
+
+    fn writeNode(self: *StalenessFixture, name: []const u8, content: []const u8) !void {
+        try self.fx.writeNode(self.key, name, content);
+    }
+
+    fn readNode(self: *StalenessFixture, gpa: Allocator, name: []const u8) !?[]u8 {
+        return self.fx.readNode(gpa, self.key, name);
+    }
+
+    fn writeIndexBin(self: *StalenessFixture, pairs: []const core.index_map.Pair) !void {
+        try self.fx.writeIndexBin(pairs);
+    }
+
+    /// Drives `build()` against a repo-relative edited path, session
+    /// `"default"` -- the value every real payload gets when `session_id`
+    /// is absent, and what every bats fixture this was ported from left
+    /// unset too.
+    fn edit(self: *StalenessFixture, rel_path: []const u8) !?[]u8 {
+        return self.editSession(rel_path, "default");
+    }
+
+    fn editSession(self: *StalenessFixture, rel_path: []const u8, sid: []const u8) !?[]u8 {
+        const raw_file = try std.fmt.allocPrint(self.fx.gpa, "{s}/{s}", .{ self.fx.repo, rel_path });
+        defer self.fx.gpa.free(raw_file);
+        return build(self.fx.gpa, self.fx.io(), &self.fx.env, self.fx.vault, raw_file, sid);
+    }
+};
+
+fn expectNoHttp(sf: *StalenessFixture) !void {
+    const st = Io.Dir.cwd().statFile(testing.io, sf.fx.curl_log, .{}) catch return; // never created: no calls
+    try testing.expectEqual(@as(u64, 0), st.size);
+}
+
+/// Every frontmatter shape the old `PATCH -H "Target-Type: frontmatter"`
+/// call used to mangle: a title long enough to be line-folded, quoted
+/// values, and an all-digit `hash` that YAML happily coerces to a float.
+fn simpleNode(gpa: Allocator, stale: []const u8) ![]u8 {
+    return std.fmt.allocPrint(
+        gpa,
+        "---\ntitle: \"A deliberately long node title that a re-serialising writer would fold across two lines\"\nnode_type: synapse-node\nsources:\n  - path: src/foo.ml\n    hash: 1111111111111111111111111111111111111111\nsources_digest: \"2222222222222222222222222222222222222222222222222222222222222222\"\nstale: {s}\nbuilt_at: \"2026-08-03 16:15\"\n---\n\n# A node\n\nBody text, including a decoy: stale: false\n",
+        .{stale},
+    );
+}
+
+/// `calc.ml` with a stable doc comment on lines 1-2 and numbered lines
+/// below, `second_line`/`line5` overridable so a test can move exactly the
+/// range it's checking without disturbing the rest of the file.
+fn calcMlCustom(gpa: Allocator, second_line: []const u8, line5: usize) ![]u8 {
+    var buf: Io.Writer.Allocating = .init(gpa);
+    defer buf.deinit();
+    try buf.writer.print("(* Computes the premium.\n   {s} *)\n", .{second_line});
+    var i: usize = 3;
+    while (i <= 12) : (i += 1) {
+        const v: usize = if (i == 5) line5 else i;
+        try buf.writer.print("let line{d:0>2} = {d}\n", .{ i, v });
+    }
+    return try gpa.dupe(u8, buf.written());
+}
+
+fn calcMl(gpa: Allocator) ![]u8 {
+    return calcMlCustom(gpa, "Rounds half-up.", 5);
+}
+
+/// A node citing `lib/calc.ml` both as its crux (lines 5-6, sliced into the
+/// body) and as a grounding (lines 1-2, recorded as a digest of `calc`'s
+/// *original* content -- `calc` is not re-read here, so a caller free to
+/// overwrite the repo file afterward without disturbing what was recorded).
+fn writeCitedNode(sf: *StalenessFixture, calc: []const u8, stale: bool) !void {
+    const digest = core.verify.sha256Hex(core.verify.slice(calc, 1, 2).?);
+    const content = try std.fmt.allocPrint(
+        sf.fx.gpa,
+        "---\ntitle: \"Cited\"\nnode_type: synapse-node\nsources:\n  - path: lib/calc.ml\n    hash: 1111111111111111111111111111111111111111\nsources_digest: \"2222222222222222222222222222222222222222222222222222222222222222\"\nstale: {}\nbuilt_at: \"2026-08-03 16:15\"\ncrux_path: lib/calc.ml\ncrux_lines: \"5-6\"\ngrounded_in:\n  - path: lib/calc.ml\n    lines: \"1-2\"\n    digest: {s}\n---\n\n# Cited\n<!-- synapse:generated:start -->\n\n## Summary\nRounds half-up at two decimals.\n\n## Crux\n```ocaml\nlet line05 = 5\nlet line06 = 6\n```\n— `lib/calc.ml`:5-6\n<!-- synapse:generated:end -->\n\n## Notes\n",
+        .{ stale, &digest },
+    );
+    defer sf.fx.gpa.free(content);
+    try sf.writeNode("Cited.md", content);
+}
+
+/// A node whose `## Links` section `depends_on <target>` -- for
+/// blast-radius tests, where `target` is the node that directly covers the
+/// edited file.
+fn writeDependentNode(sf: *StalenessFixture, name: []const u8, target: []const u8) !void {
+    const content = try std.fmt.allocPrint(
+        sf.fx.gpa,
+        "---\ntitle: \"Dependent\"\nnode_type: synapse-node\nsources:\n  - path: lib/dependent.ml\n    hash: 3333333333333333333333333333333333333333\nsources_digest: \"4444444444444444444444444444444444444444444444444444444444444444\"\nstale: false\nbuilt_at: \"2026-08-03 16:15\"\n---\n\n# Dependent\n<!-- synapse:generated:start -->\n\n## Summary\nDepends on {s}.\n\n## Links\n- depends_on [[{s}]]\n<!-- synapse:generated:end -->\n\n## Notes\n",
+        .{ target, target },
+    );
+    defer sf.fx.gpa.free(content);
+    try sf.writeNode(name, content);
+}
+
+/// A real git repo with `lib/calc.ml`, its namespace, an index mapping it
+/// to `Cited.md`, and `Cited.md` itself, freshly built (`stale: false`).
+fn makeCitedRepo(sf: *StalenessFixture) !void {
+    const calc = try calcMl(sf.fx.gpa);
+    defer sf.fx.gpa.free(calc);
+    try sf.fx.writeRepoFile("lib/calc.ml", calc);
+    try sf.commit("calc");
+    try sf.writeIndex();
+    try sf.writeIndexBin(&.{.{ .path = "lib/calc.ml", .node = "Cited.md" }});
+    try writeCitedNode(sf, calc, false);
+}
+
+test "file mapped to a node: rewrites that node's stale line, never PATCHes frontmatter" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try sf.fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    try sf.commit("init");
+    try sf.writeIndex();
+    try sf.writeIndexBin(&.{.{ .path = "src/foo.ml", .node = "Foo Node.md" }});
+    const node = try simpleNode(gpa, "false");
+    defer gpa.free(node);
+    try sf.writeNode("Foo Node.md", node);
+
+    const text = try sf.edit("src/foo.ml");
+    defer if (text) |t| gpa.free(t);
+
+    const written = (try sf.readNode(gpa, "Foo Node.md")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "stale: true") != null);
+
+    const path = try std.fmt.allocPrint(gpa, "{s}/_index.bin", .{sf.fx.work});
+    defer gpa.free(path);
+    var map = try core.index_map.Map.open(sf.fx.io(), path);
+    defer map.close(sf.fx.io());
+    try testing.expectEqual(@as(u32, 0), map.unassignedCount());
+}
+
+test "file mapped to two nodes: flags both" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try sf.fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    try sf.commit("init");
+    try sf.writeIndex();
+    try sf.writeIndexBin(&.{
+        .{ .path = "src/foo.ml", .node = "Foo Node.md" },
+        .{ .path = "src/foo.ml", .node = "Bar Node.md" },
+    });
+    const node_a = try simpleNode(gpa, "false");
+    defer gpa.free(node_a);
+    try sf.writeNode("Foo Node.md", node_a);
+    const node_b = try simpleNode(gpa, "false");
+    defer gpa.free(node_b);
+    try sf.writeNode("Bar Node.md", node_b);
+
+    const text = try sf.edit("src/foo.ml");
+    defer if (text) |t| gpa.free(t);
+
+    const wa = (try sf.readNode(gpa, "Foo Node.md")).?;
+    defer gpa.free(wa);
+    try testing.expect(std.mem.indexOf(u8, wa, "stale: true") != null);
+    const wb = (try sf.readNode(gpa, "Bar Node.md")).?;
+    defer gpa.free(wb);
+    try testing.expect(std.mem.indexOf(u8, wb, "stale: true") != null);
+}
+
+test "new file not in any node's sources: queued into the unassigned list, no PATCH" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try sf.fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    try sf.fx.writeRepoFile("src/other.ml", "let y = 2\n");
+    try sf.commit("init");
+    try sf.writeIndex();
+    try sf.writeIndexBin(&.{.{ .path = "src/other.ml", .node = "Other Node.md" }});
+
+    const text = try sf.edit("src/foo.ml");
+    try testing.expectEqual(@as(?[]u8, null), text);
+
+    const path = try std.fmt.allocPrint(gpa, "{s}/_index.bin", .{sf.fx.work});
+    defer gpa.free(path);
+    var map = try core.index_map.Map.open(sf.fx.io(), path);
+    defer map.close(sf.fx.io());
+    var found = false;
+    var it = map.unassignedIter();
+    while (it.next()) |p| {
+        if (std.mem.eql(u8, p, "src/foo.ml")) found = true;
+    }
+    try testing.expect(found);
+
+    var names: [core.index_map.max_nodes_per_path][]const u8 = undefined;
+    const owners = map.nodesFor("src/other.ml", &names).?;
+    try testing.expectEqual(@as(usize, 1), owners.len);
+    try testing.expectEqualStrings("Other Node.md", owners[0]);
+}
+
+test "queueing the same new file twice does not grow the list" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try sf.fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    try sf.fx.writeRepoFile("src/other.ml", "let y = 2\n");
+    try sf.commit("init");
+    try sf.writeIndex();
+    try sf.writeIndexBin(&.{.{ .path = "src/other.ml", .node = "Other Node.md" }});
+
+    _ = try sf.edit("src/foo.ml");
+    _ = try sf.edit("src/foo.ml"); // second edit, same file
+
+    const path = try std.fmt.allocPrint(gpa, "{s}/_index.bin", .{sf.fx.work});
+    defer gpa.free(path);
+    var map = try core.index_map.Map.open(sf.fx.io(), path);
+    defer map.close(sf.fx.io());
+    try testing.expectEqual(@as(u32, 1), map.unassignedCount());
+}
+
+test "no Synapse namespace for this repo: no-op, no write or PATCH" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try sf.fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    try sf.commit("init");
+    try sf.writeIndex();
+    // No index staged at all.
+
+    const text = try sf.edit("src/foo.ml");
+    try testing.expectEqual(@as(?[]u8, null), text);
+}
+
+test "edited file outside any git repo: no-op" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    const outside = "/tmp/synapse-staleness-notarepo-test";
+    try Io.Dir.cwd().createDirPath(sf.fx.io(), outside);
+    defer Io.Dir.cwd().deleteTree(sf.fx.io(), outside) catch {};
+    const stray = try std.fmt.allocPrint(gpa, "{s}/stray.txt", .{outside});
+    defer gpa.free(stray);
+    try Io.Dir.cwd().writeFile(sf.fx.io(), .{ .sub_path = stray, .data = "stray\n" });
+
+    const text = try build(gpa, sf.fx.io(), &sf.fx.env, sf.fx.vault, stray, "default");
+    try testing.expectEqual(@as(?[]u8, null), text);
+}
+
+test "node title with special characters is percent-encoded correctly in the request URL" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try sf.fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    try sf.commit("init");
+    try sf.writeIndex();
+    try sf.writeIndexBin(&.{.{ .path = "src/foo.ml", .node = "World — entity_component_resource core.md" }});
+    const node = try simpleNode(gpa, "false");
+    defer gpa.free(node);
+    try sf.writeNode("World — entity_component_resource core.md", node);
+
+    const text = try sf.edit("src/foo.ml");
+    defer if (text) |t| gpa.free(t);
+
+    const log = try Io.Dir.cwd().readFileAlloc(sf.fx.io(), sf.fx.curl_log, gpa, .limited(1 << 20));
+    defer gpa.free(log);
+    try testing.expect(std.mem.indexOf(u8, log, "World%20%E2%80%94%20entity_component_resource%20core.md") != null);
+
+    const written = (try sf.readNode(gpa, "World — entity_component_resource core.md")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "stale: true") != null);
+}
+
+test "node already stale: no write at all" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try sf.fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    try sf.commit("init");
+    try sf.writeIndex();
+    try sf.writeIndexBin(&.{.{ .path = "src/foo.ml", .node = "Foo Node.md" }});
+    const node = try simpleNode(gpa, "true");
+    defer gpa.free(node);
+    try sf.writeNode("Foo Node.md", node);
+    const before = (try sf.readNode(gpa, "Foo Node.md")).?;
+    defer gpa.free(before);
+
+    const text = try sf.edit("src/foo.ml");
+    defer if (text) |t| gpa.free(t);
+
+    // Already true -> the hook must skip the PUT rather than churn the file.
+    const after = (try sf.readNode(gpa, "Foo Node.md")).?;
+    defer gpa.free(after);
+    try testing.expectEqualStrings(before, after);
+}
+
+test "node listed in the index but missing from the vault: no-op, no crash" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try sf.fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    try sf.commit("init");
+    try sf.writeIndex();
+    try sf.writeIndexBin(&.{.{ .path = "src/foo.ml", .node = "Ghost Node.md" }});
+    // deliberately no writeNode -- the fake curl's GET -o exits 22
+
+    const text = try sf.edit("src/foo.ml");
+    try testing.expectEqual(@as(?[]u8, null), text);
+}
+
+test "namespace belongs to a different remote: no write, and no HTTP at all" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try sf.fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    const add_res = try sf.fx.git(&.{ "remote", "add", "origin", "ssh://git@example.com/mine.git" });
+    add_res.deinit(gpa);
+    try sf.commit("init");
+    try sf.writeIndexWithRemote("ssh://git@example.com/SOMEONE-ELSE.git");
+    try sf.writeIndexBin(&.{.{ .path = "src/foo.ml", .node = "Foo Node.md" }});
+    const node = try simpleNode(gpa, "false");
+    defer gpa.free(node);
+    try sf.writeNode("Foo Node.md", node);
+
+    const text = try sf.edit("src/foo.ml");
+    try testing.expectEqual(@as(?[]u8, null), text);
+
+    const written = (try sf.readNode(gpa, "Foo Node.md")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "stale: false") != null);
+    // The guard is ahead of any HTTP, so nothing should have been dialed at all.
+    try expectNoHttp(&sf);
+}
+
+test "namespace Index.md with no remote line: treated as a mismatch, not a match on empty" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try sf.fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    const add_res = try sf.fx.git(&.{ "remote", "add", "origin", "ssh://git@example.com/mine.git" });
+    add_res.deinit(gpa);
+    try sf.commit("init");
+
+    const idx_dir = try std.fmt.allocPrint(gpa, "vault/synapse/{s}", .{sf.key});
+    defer gpa.free(idx_dir);
+    try sf.fx.tmp.dir.createDirPath(testing.io, idx_dir);
+    const idx_path = try std.fmt.allocPrint(gpa, "{s}/Index.md", .{idx_dir});
+    defer gpa.free(idx_path);
+    try sf.fx.tmp.dir.writeFile(testing.io, .{
+        .sub_path = idx_path,
+        .data = "---\ntitle: \"no remote here\"\n---\n# index\n",
+    });
+    try sf.writeIndexBin(&.{.{ .path = "src/foo.ml", .node = "Foo Node.md" }});
+    const node = try simpleNode(gpa, "false");
+    defer gpa.free(node);
+    try sf.writeNode("Foo Node.md", node);
+
+    const text = try sf.edit("src/foo.ml");
+    try testing.expectEqual(@as(?[]u8, null), text);
+    try expectNoHttp(&sf);
+}
+
+test "repo with no remote at all: falls back to the repo root and still matches" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try sf.fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    try sf.commit("init"); // no remote argument
+    try sf.writeIndex();
+    try sf.writeIndexBin(&.{.{ .path = "src/foo.ml", .node = "Foo Node.md" }});
+    const node = try simpleNode(gpa, "false");
+    defer gpa.free(node);
+    try sf.writeNode("Foo Node.md", node);
+
+    const text = try sf.edit("src/foo.ml");
+    defer if (text) |t| gpa.free(t);
+
+    const written = (try sf.readNode(gpa, "Foo Node.md")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "stale: true") != null);
+}
+
+test "correction: silent when the cited evidence still matches" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try makeCitedRepo(&sf);
+
+    const text = try sf.edit("lib/calc.ml");
+    try testing.expectEqual(@as(?[]u8, null), text);
+
+    // the staleness flag is still written -- the nudge is additive, not a replacement
+    const written = (try sf.readNode(gpa, "Cited.md")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "stale: true") != null);
+}
+
+test "correction: silent for an edit to a file the node cites nothing from" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try makeCitedRepo(&sf);
+    try sf.fx.writeRepoFile("lib/elsewhere.ml", "let other = 1\n");
+    try sf.writeIndexBin(&.{.{ .path = "lib/elsewhere.ml", .node = "Cited.md" }});
+
+    const text = try sf.edit("lib/elsewhere.ml");
+    try testing.expectEqual(@as(?[]u8, null), text);
+}
+
+test "correction: a changed grounding range produces a nudge naming the node" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try makeCitedRepo(&sf);
+    const changed = try calcMlCustom(gpa, "Truncates toward zero.", 5);
+    defer gpa.free(changed);
+    try sf.fx.writeRepoFile("lib/calc.ml", changed);
+
+    const text = (try sf.edit("lib/calc.ml")).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "Cited") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "grounding (lib/calc.ml:1-2)") != null);
+}
+
+test "correction: a changed crux range produces a nudge too" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try makeCitedRepo(&sf);
+    const changed = try calcMlCustom(gpa, "Rounds half-up.", 999);
+    defer gpa.free(changed);
+    try sf.fx.writeRepoFile("lib/calc.ml", changed);
+
+    const text = (try sf.edit("lib/calc.ml")).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "crux (lib/calc.ml:5-6)") != null);
+}
+
+test "correction: the nudge tells the model to stay incidental" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try makeCitedRepo(&sf);
+    const changed = try calcMlCustom(gpa, "Something else entirely.", 5);
+    defer gpa.free(changed);
+    try sf.fx.writeRepoFile("lib/calc.ml", changed);
+
+    const text = (try sf.edit("lib/calc.ml")).?;
+    defer gpa.free(text);
+    // the guardrail is the point: without it this becomes an unbounded sweep
+    try testing.expect(std.mem.indexOf(u8, text, "Keep it incidental") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "do not start a sweep") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "synapse-rebuild") != null);
+}
+
+test "correction: an already-stale node is still checked" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+
+    // A node flagged stale earlier has had the LONGEST time to go wrong, so
+    // skipping it would hide the very case worth catching.
+    const calc = try calcMl(gpa);
+    defer gpa.free(calc);
+    try sf.fx.writeRepoFile("lib/calc.ml", calc);
+    try sf.commit("calc");
+    try sf.writeIndex();
+    try sf.writeIndexBin(&.{.{ .path = "lib/calc.ml", .node = "Cited.md" }});
+    try writeCitedNode(&sf, calc, true);
+    const before = (try sf.readNode(gpa, "Cited.md")).?;
+    defer gpa.free(before);
+
+    const changed = try calcMlCustom(gpa, "Truncates toward zero.", 5);
+    defer gpa.free(changed);
+    try sf.fx.writeRepoFile("lib/calc.ml", changed);
+
+    const text = (try sf.edit("lib/calc.ml")).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "grounding (lib/calc.ml:1-2)") != null);
+
+    // and no redundant PUT, since stale was already true
+    const after = (try sf.readNode(gpa, "Cited.md")).?;
+    defer gpa.free(after);
+    try testing.expectEqualStrings(before, after);
+}
+
+test "blast radius: silent when the owning node has no dependents" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try makeCitedRepo(&sf);
+    // calc.ml is untouched -- no citation break either, so this isolates the
+    // "no dependents" case rather than piggybacking on the correction check.
+    const text = try sf.edit("lib/calc.ml");
+    try testing.expectEqual(@as(?[]u8, null), text);
+}
+
+test "blast radius: fires once when another node depends on the owning node" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try makeCitedRepo(&sf);
+    try writeDependentNode(&sf, "Dependent.md", "Cited");
+
+    const text = (try sf.edit("lib/calc.ml")).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "Dependent") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "covered by a Synapse node that other nodes depend on") != null);
+}
+
+test "blast radius: silent on a second edit to the same file in the same session" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try makeCitedRepo(&sf);
+    try writeDependentNode(&sf, "Dependent.md", "Cited");
+
+    const first = try sf.edit("lib/calc.ml");
+    defer if (first) |t| gpa.free(t);
+    try testing.expect(first != null);
+
+    const second = try sf.edit("lib/calc.ml");
+    try testing.expectEqual(@as(?[]u8, null), second);
+}
+
+test "blast radius: a different file under the same session still gets its own first nudge" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try makeCitedRepo(&sf);
+    try writeDependentNode(&sf, "Dependent.md", "Cited");
+    try sf.fx.writeRepoFile("lib/calc2.ml", "(* second file *)\nlet x = 1\n");
+    try sf.writeIndexBin(&.{
+        .{ .path = "lib/calc.ml", .node = "Cited.md" },
+        .{ .path = "lib/calc2.ml", .node = "Cited.md" },
+    });
+
+    const first = try sf.edit("lib/calc.ml");
+    defer if (first) |t| gpa.free(t);
+    try testing.expect(first != null);
+
+    const second = try sf.edit("lib/calc2.ml");
+    defer if (second) |t| gpa.free(t);
+    try testing.expect(second != null);
+}
+
+test "blast radius and correction merge into one context, not two" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try makeCitedRepo(&sf);
+    try writeDependentNode(&sf, "Dependent.md", "Cited");
+    const changed = try calcMlCustom(gpa, "Truncates toward zero.", 5);
+    defer gpa.free(changed);
+    try sf.fx.writeRepoFile("lib/calc.ml", changed);
+
+    const text = (try sf.edit("lib/calc.ml")).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "grounding (lib/calc.ml:1-2)") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "Dependent") != null);
+}
+
+test "a malformed index is left alone, not overwritten with nothing" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try sf.fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    try sf.commit("init");
+    try sf.writeIndex();
+    try sf.writeIndexBin(&.{.{ .path = "src/foo.ml", .node = "Foo Node.md" }});
+
+    const path = try std.fmt.allocPrint(gpa, "{s}/_index.bin", .{sf.fx.work});
+    defer gpa.free(path);
+    const bytes = try Io.Dir.cwd().readFileAlloc(sf.fx.io(), path, gpa, .limited(1 << 20));
+    defer gpa.free(bytes);
+    const before = try gpa.dupe(u8, bytes[0..@min(40, bytes.len)]);
+    defer gpa.free(before);
+    try Io.Dir.cwd().writeFile(sf.fx.io(), .{ .sub_path = path, .data = before });
+
+    const text = try sf.edit("src/foo.ml");
+    try testing.expectEqual(@as(?[]u8, null), text);
+
+    const after = try Io.Dir.cwd().readFileAlloc(sf.fx.io(), path, gpa, .limited(1 << 20));
+    defer gpa.free(after);
+    try testing.expectEqualStrings(before, after);
+}
+
+test "an absent index is the no-namespace case, and costs nothing" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try sf.fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    try sf.commit("init");
+    // No vault Index.md, no _index.bin -- neither piece of the opt-in exists.
+
+    const text = try sf.edit("src/foo.ml");
+    try testing.expectEqual(@as(?[]u8, null), text);
+    try expectNoHttp(&sf);
 }

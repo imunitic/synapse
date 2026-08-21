@@ -42,13 +42,32 @@ pub fn run(
         } else return usage();
     }
 
+    var out_buf: [64 * 1024]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try runEnumerate(gpa, io, env, ".", reenumerate, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+/// The command itself, minus argument parsing -- separated so a test can
+/// drive it against a real fixture repo without depending on the test
+/// process's own cwd. `identity_path` is `"."` for the real CLI (identity
+/// resolves from wherever the process was invoked) or a fixture's real
+/// repo root for a test.
+pub fn runEnumerate(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    identity_path: []const u8,
+    reenumerate: bool,
+    result: *Io.Writer,
+) !u8 {
     // Outside a repo, say so rather than letting `git ls-files` fail with its own wording.
-    if (core.identity.resolve(gpa, io, ".")) |id| {
-        id.deinit(gpa);
-    } else |_| {
+    const id = core.identity.resolve(gpa, io, identity_path) catch {
         std.debug.print("synapse-enumerate: not inside a git repo\n", .{});
         return 1;
-    }
+    };
+    defer id.deinit(gpa);
 
     const work = (try context.workDir(gpa, io, env, "synapse-enumerate")) orelse return 1;
     defer work.deinit(gpa);
@@ -58,10 +77,7 @@ pub fn run(
         return 1;
     }
 
-    var out_buf: [64 * 1024]u8 = undefined;
-    var out = Io.File.stdout().writer(io, &out_buf);
-    try ensure(gpa, io, env, work_dir, reenumerate, &out.interface);
-    try out.interface.flush();
+    try ensure(gpa, io, env, id.layout.repo_root, work_dir, reenumerate, result);
     return 0;
 }
 
@@ -74,6 +90,7 @@ pub fn ensure(
     gpa: Allocator,
     io: Io,
     env: *std.process.Environ.Map,
+    repo_root: []const u8,
     work_dir: []const u8,
     reenumerate: bool,
     out: *Io.Writer,
@@ -92,7 +109,7 @@ pub fn ensure(
     if (existing == 0 or reenumerate) {
         try out.writeAll("--- enumerating tracked files\n");
         try out.flush();
-        try enumerateInto(gpa, io, env, all_path, oversize_path);
+        try enumerateInto(gpa, io, env, repo_root, all_path, oversize_path);
     }
 
     try reportOversize(gpa, io, env, out, oversize_path);
@@ -122,6 +139,7 @@ fn enumerateInto(
     gpa: Allocator,
     io: Io,
     env: *std.process.Environ.Map,
+    repo_root: []const u8,
     all_path: []const u8,
     oversize_path: []const u8,
 ) !void {
@@ -129,8 +147,12 @@ fn enumerateInto(
     // Truncated up front so a clean rebuild doesn't keep the previous run's findings.
     try cwd.writeFile(io, .{ .sub_path = oversize_path, .data = "" });
 
-    // Inherited cwd, matching the script: every caller invokes from the repo root.
-    const listed = try adapters.process.run(io, gpa, &.{ "git", "ls-files" }, .{});
+    // Explicit cwd, not inherited: every real caller invokes from the repo
+    // root anyway, but a test needs to point this at a fixture repo without
+    // touching the test process's own cwd.
+    const listed = try adapters.process.run(io, gpa, &.{ "git", "ls-files" }, .{
+        .cwd = .{ .path = repo_root },
+    });
     defer listed.deinit(gpa);
     if (!listed.ok()) return error.GitLsFilesFailed;
 
@@ -151,7 +173,9 @@ fn enumerateInto(
         // One statFile answers both is-it-a-regular-file (a submodule gitlink
         // is an ls-files entry but a directory on disk) and how big. Symlinks
         // followed: measures the target, not the link, unlike the script.
-        const st = cwd.statFile(io, path, .{}) catch continue;
+        const full = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ repo_root, path });
+        defer gpa.free(full);
+        const st = cwd.statFile(io, full, .{}) catch continue;
         if (st.kind != .file) continue;
         if (st.size > cap) {
             try oversize.writer.print("{d}\t{s}\n", .{ st.size, path });
@@ -260,4 +284,241 @@ fn countLines(gpa: Allocator, io: Io, path: []const u8) !usize {
     const text = try Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(256 << 20));
     defer gpa.free(text);
     return std.mem.count(u8, text, "\n");
+}
+
+const testing = std.testing;
+const fixture = @import("cmd_test_support.zig");
+
+fn makeMixedRepo(fx: *fixture.Fixture) !void {
+    try fx.writeRepoFile("mod-a/src/main/java/A.java", "class A {}\n");
+    try fx.writeRepoFile("docs/guide.md", "# guide\n");
+    try fx.writeRepoFile("stray.txt", "stray\n");
+    try fx.writeRepoFile("assets/logo.png", "PNGDATA\n");
+    try fx.gitCommit("mixed");
+}
+
+fn runEnum(gpa: Allocator, fx: *fixture.Fixture, reenumerate: bool) !struct { out: []u8 } {
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try runEnumerate(gpa, fx.io(), &fx.env, fx.repo, reenumerate, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    return .{ .out = try gpa.dupe(u8, out.written()) };
+}
+
+test "enumerates tracked files with no manifest.tsv anywhere -- the whole point of the split" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeMixedRepo(&fx);
+
+    const r = try runEnum(gpa, &fx, false);
+    defer gpa.free(r.out);
+
+    const all = try fx.tmp.dir.readFileAlloc(testing.io, "work/all.txt", gpa, .limited(1 << 20));
+    defer gpa.free(all);
+    try testing.expect(std.mem.indexOf(u8, all, "mod-a/src/main/java/A.java\n") != null);
+    try testing.expect(std.mem.indexOf(u8, all, "docs/guide.md\n") != null);
+    try testing.expect(std.mem.indexOf(u8, all, "logo.png") == null);
+}
+
+test "prints the enumerated count" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeMixedRepo(&fx);
+
+    const r = try runEnum(gpa, &fx, false);
+    defer gpa.free(r.out);
+
+    const all = try fx.tmp.dir.readFileAlloc(testing.io, "work/all.txt", gpa, .limited(1 << 20));
+    defer gpa.free(all);
+    const enumerated = std.mem.count(u8, all, "\n");
+    const want = try std.fmt.allocPrint(gpa, "enumerated: {d}", .{enumerated});
+    defer gpa.free(want);
+    try testing.expect(std.mem.indexOf(u8, r.out, want) != null);
+}
+
+test "an existing all.txt is reused, and --reenumerate rebuilds it" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeMixedRepo(&fx);
+
+    const first = try runEnum(gpa, &fx, false);
+    gpa.free(first.out);
+
+    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "work/all.txt", .data = "sentinel-only" });
+    const reused = try runEnum(gpa, &fx, false);
+    defer gpa.free(reused.out);
+    try testing.expect(std.mem.indexOf(u8, reused.out, "enumerating") == null);
+    const kept = try fx.tmp.dir.readFileAlloc(testing.io, "work/all.txt", gpa, .limited(1 << 20));
+    defer gpa.free(kept);
+    try testing.expectEqualStrings("sentinel-only", kept);
+
+    const rebuilt = try runEnum(gpa, &fx, true);
+    defer gpa.free(rebuilt.out);
+    try testing.expect(std.mem.indexOf(u8, rebuilt.out, "enumerating") != null);
+    const after = try fx.tmp.dir.readFileAlloc(testing.io, "work/all.txt", gpa, .limited(1 << 20));
+    defer gpa.free(after);
+    try testing.expect(std.mem.indexOf(u8, after, "sentinel-only") == null);
+}
+
+test "files over the size cap are skipped AND reported, never dropped silently" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/small.java", "small\n");
+    const huge = try gpa.alloc(u8, 3000);
+    defer gpa.free(huge);
+    @memset(huge, 'x');
+    try fx.writeRepoFile("src/huge.java", huge);
+    try fx.gitCommit("files");
+    try fx.env.put("SYNAPSE_MAX_FILE_BYTES", "1000");
+
+    const r = try runEnum(gpa, &fx, false);
+    defer gpa.free(r.out);
+
+    const all = try fx.tmp.dir.readFileAlloc(testing.io, "work/all.txt", gpa, .limited(1 << 20));
+    defer gpa.free(all);
+    try testing.expect(std.mem.indexOf(u8, all, "src/small.java\n") != null);
+    try testing.expect(std.mem.indexOf(u8, all, "src/huge.java") == null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "skipped 1 file(s) over 1000 bytes") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "src/huge.java") != null);
+}
+
+test "a non-repo directory exits 1" {
+    // `fx.repo` itself won't do: it's never git-initialized, but it lives
+    // under `.zig-cache/tmp/`, inside this very repo -- identity resolution
+    // walks up looking for `.git` and finds this project's own, same as it
+    // would for any other file in the tree. Needs a directory with no git
+    // ancestor at all, which the real system temp dir (outside the repo)
+    // provides.
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    // `/tmp` directly, not `$TMPDIR`: this machine's own `$TMPDIR` turned
+    // out to be `~/.emacs.d/var/tmp` -- itself a real git repo, which
+    // defeated the whole point. `/tmp` is the one POSIX system temp root
+    // no real project lives inside.
+    const notarepo = "/tmp/synapse-enumerate-notarepo-test";
+    try Io.Dir.cwd().createDirPath(fx.io(), notarepo);
+    defer Io.Dir.cwd().deleteTree(fx.io(), notarepo) catch {};
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try runEnumerate(gpa, fx.io(), &fx.env, notarepo, false, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+}
+
+test "$SYNAPSE_EXTRA_EXCLUDE_RE adds repo-specific noise without losing the built-in filters" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeMixedRepo(&fx);
+    try fx.writeRepoFile("generated/client.java", "gen\n");
+    try fx.gitCommit("gen");
+    try fx.env.put("SYNAPSE_EXTRA_EXCLUDE_RE", "^generated/");
+
+    const r = try runEnum(gpa, &fx, false);
+    defer gpa.free(r.out);
+
+    const all = try fx.tmp.dir.readFileAlloc(testing.io, "work/all.txt", gpa, .limited(1 << 20));
+    defer gpa.free(all);
+    try testing.expect(std.mem.indexOf(u8, all, "generated/client.java") == null);
+    try testing.expect(std.mem.indexOf(u8, all, "logo.png") == null); // built-in filter still applies
+    try testing.expect(std.mem.indexOf(u8, all, "mod-a/src/main/java/A.java\n") != null);
+}
+
+test "synapse-ignore-files.conf patterns are honoured, and OR'd with the env var" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("vendor/lib.java", "x\n");
+    try fx.writeRepoFile("gen/Made.java", "x\n");
+    try fx.writeRepoFile("src/keep.java", "x\n");
+    try fx.gitCommit("mix");
+    // Comments and blank lines must survive parsing; an empty pattern would
+    // match every path and enumerate nothing.
+    try fx.tmp.dir.createDirPath(testing.io, "home/.claude");
+    try fx.tmp.dir.writeFile(testing.io, .{
+        .sub_path = "home/.claude/synapse-ignore-files.conf",
+        .data = "# a comment\n\n(^|/)vendor/\n",
+    });
+    try fx.env.put("SYNAPSE_EXTRA_EXCLUDE_RE", "(^|/)gen/");
+
+    const r = try runEnum(gpa, &fx, false);
+    defer gpa.free(r.out);
+
+    const all = try fx.tmp.dir.readFileAlloc(testing.io, "work/all.txt", gpa, .limited(1 << 20));
+    defer gpa.free(all);
+    try testing.expect(std.mem.indexOf(u8, all, "src/keep.java\n") != null);
+    try testing.expect(std.mem.indexOf(u8, all, "vendor/") == null); // from the conf file
+    try testing.expect(std.mem.indexOf(u8, all, "gen/") == null); // from the env var
+}
+
+test "a blank or comment line after a pattern in synapse-ignore-files.conf does not swallow the whole listing" {
+    // The hazard: appending an empty string to the alternation leaves a
+    // trailing `|`, i.e. an empty alternative, which matches every path --
+    // so the listing silently comes back empty.
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("vendor/lib.java", "x\n");
+    try fx.writeRepoFile("src/keep.java", "x\n");
+    try fx.gitCommit("mix");
+    try fx.tmp.dir.createDirPath(testing.io, "home/.claude");
+    try fx.tmp.dir.writeFile(testing.io, .{
+        .sub_path = "home/.claude/synapse-ignore-files.conf",
+        .data = "(^|/)vendor/\n\n# a trailing comment\n\n",
+    });
+
+    const r = try runEnum(gpa, &fx, false);
+    defer gpa.free(r.out);
+
+    const all = try fx.tmp.dir.readFileAlloc(testing.io, "work/all.txt", gpa, .limited(1 << 20));
+    defer gpa.free(all);
+    try testing.expect(std.mem.indexOf(u8, all, "src/keep.java\n") != null); // survives
+    try testing.expect(std.mem.indexOf(u8, all, "vendor/") == null); // still excluded
+    try testing.expect(all.len > 0);
+}
+
+test "skips a submodule gitlink, which git ls-files reports but git hash-object cannot hash" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try makeMixedRepo(&fx);
+
+    const sub = try std.fmt.allocPrint(gpa, "{s}/sub", .{fx.root});
+    defer gpa.free(sub);
+    try Io.Dir.cwd().createDirPath(fx.io(), sub);
+    const init_res = try adapters.process.run(fx.io(), gpa, &.{ "git", "init", "-q" }, .{ .cwd = .{ .path = sub } });
+    init_res.deinit(gpa);
+    const thing_path = try std.fmt.allocPrint(gpa, "{s}/thing.txt", .{sub});
+    defer gpa.free(thing_path);
+    try Io.Dir.cwd().writeFile(fx.io(), .{ .sub_path = thing_path, .data = "sub content\n" });
+    const add_res = try adapters.process.run(fx.io(), gpa, &.{ "git", "add", "-A" }, .{ .cwd = .{ .path = sub } });
+    add_res.deinit(gpa);
+    const commit_res = try adapters.process.run(fx.io(), gpa, &.{
+        "git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init",
+    }, .{ .cwd = .{ .path = sub } });
+    commit_res.deinit(gpa);
+
+    const submodule_res = try adapters.process.run(fx.io(), gpa, &.{
+        "git", "-c", "protocol.file.allow=always", "submodule", "add", "-q", sub, "vendor/sub",
+    }, .{ .cwd = .{ .path = fx.repo } });
+    submodule_res.deinit(gpa);
+    try fx.gitCommit("addsub");
+
+    const r = try runEnum(gpa, &fx, false);
+    defer gpa.free(r.out);
+
+    const all = try fx.tmp.dir.readFileAlloc(testing.io, "work/all.txt", gpa, .limited(1 << 20));
+    defer gpa.free(all);
+    // `git ls-files` lists vendor/sub as a single entry, but it is a
+    // directory on disk -- leaving it in takes down the whole
+    // `git hash-object --stdin-paths` batch this command doesn't even run
+    // (a plain `statFile` skips it instead). `.gitmodules` itself is real
+    // text and must survive.
+    try testing.expect(std.mem.indexOf(u8, all, "vendor/sub") == null);
+    try testing.expect(std.mem.indexOf(u8, all, ".gitmodules\n") != null);
 }

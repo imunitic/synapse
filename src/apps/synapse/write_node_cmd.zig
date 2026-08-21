@@ -111,6 +111,10 @@ pub const Input = struct {
     summary: []const u8,
     paths_text: []const u8,
     body_text: []const u8,
+    /// Test-only: `tags_cache_cmd.backfill`'s own per-path trace log, so a
+    /// test can tell a cache-hit second run (nothing traced) from a real
+    /// re-tag without a call counter on the fake extractor.
+    trace: ?[]const u8 = null,
 };
 
 /// `result` receives the one success line, `<file>\t<n> files\t<digest>`.
@@ -227,7 +231,7 @@ pub fn write(
 
     // --- keep the tags cache current, as a byproduct -------------------------
     if (env.get("SYNAPSE_DISABLE_SYMBOL_CACHE") == null)
-        try refreshTagsCache(Extractor, gpa, io, env, ctx, paths.items, contents);
+        try refreshTagsCache(Extractor, gpa, io, env, ctx, paths.items, contents, in.trace);
 
     // --- crux and groundings -------------------------------------------------
     const home = env.get("HOME") orelse return 1;
@@ -507,6 +511,7 @@ fn refreshTagsCache(
     ctx: *const Context,
     paths: []const []const u8,
     contents: []const []u8,
+    trace: ?[]const u8,
 ) !void {
     const cache_path = try std.fmt.allocPrint(gpa, "{s}/_tags_cache.bin", .{ctx.work_dir});
     defer gpa.free(cache_path);
@@ -520,7 +525,7 @@ fn refreshTagsCache(
         return;
     };
     defer cache.close(io);
-    tags_cache_cmd.backfill(Extractor, gpa, io, env, ctx.repo_root, &cache, pairs, null) catch
+    tags_cache_cmd.backfill(Extractor, gpa, io, env, ctx.repo_root, &cache, pairs, trace) catch
         std.debug.print("{s}: tags cache refresh failed (non-fatal)\n", .{prog});
 }
 
@@ -589,4 +594,1304 @@ fn certPath(gpa: Allocator, env: *std.process.Environ.Map) ![]const u8 {
     return std.fmt.allocPrint(gpa, "{s}/.claude/obsidian-local-rest-api-ca.pem", .{
         env.get("HOME") orelse "",
     });
+}
+
+const testing = std.testing;
+const fixture = @import("cmd_test_support.zig");
+const fake_grammar = @import("fake_grammar.zig");
+
+test "writes frontmatter, a fenced body, and an empty ## Notes section" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Widget core",
+        .summary = "one line",
+        .paths_text = "src/foo.ml\n",
+        .body_text = "## Summary\nA node.\n\n## Links\n- part_of [[Other]]\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const written = (try fx.readNode(gpa, "Widget core")).?;
+    defer gpa.free(written);
+
+    try testing.expect(std.mem.indexOf(u8, written, "title: \"Widget core\"\n") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "node_type: synapse-node\n") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "project: repo\n") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "branch: main\n") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "stale: false\n") != null);
+    try testing.expect(std.mem.indexOf(u8, written, core.node.generated_start) != null);
+    try testing.expect(std.mem.indexOf(u8, written, core.node.generated_end) != null);
+
+    // ## Notes sits outside the generated region -- what makes "preserved
+    // verbatim" enforceable rather than just a promise.
+    const end_at = std.mem.indexOf(u8, written, core.node.generated_end).?;
+    const notes_at = std.mem.indexOf(u8, written, "## Notes\n").?;
+    try testing.expect(notes_at > end_at);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, written, "## Notes\n"));
+}
+
+test "a summary containing quotes and backslashes stays valid YAML" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Widget core",
+        .summary = "a \"quoted\" path C:\\x",
+        .paths_text = "src/foo.ml\n",
+        .body_text = "## Summary\nA node.\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const written = (try fx.readNode(gpa, "Widget core")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(
+        u8,
+        written,
+        "summary: \"a \\\"quoted\\\" path C:\\\\x\"\n",
+    ) != null);
+}
+
+test "body is reproduced verbatim between the fences" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const body = "## Summary\nExact words, unmodified.\n\n## Links\n- uses [[Thing]]\n";
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Verbatim",
+        .summary = "one line",
+        .paths_text = "src/foo.ml\n",
+        .body_text = body,
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const written = (try fx.readNode(gpa, "Verbatim")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, body) != null);
+}
+
+test "sources_digest is independent of input order and of duplicate lines" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("a/A.ml", "a\n");
+    try fx.writeRepoFile("b/B.ml", "b\n");
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out_a: Io.Writer.Allocating = .init(gpa);
+    defer out_a.deinit();
+    _ = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Order A",
+        .summary = "one line",
+        .paths_text = "a/A.ml\nb/B.ml\n",
+        .body_text = "## Summary\nx\n",
+    }, &out_a.writer);
+    const a = (try fx.readNode(gpa, "Order A")).?;
+    defer gpa.free(a);
+
+    var out_b: Io.Writer.Allocating = .init(gpa);
+    defer out_b.deinit();
+    // Reordered, plus a duplicate of one path -- `sortedUnique` must erase
+    // both before hashing, so this and the run above agree.
+    _ = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Order B",
+        .summary = "one line",
+        .paths_text = "b/B.ml\na/A.ml\nb/B.ml\n",
+        .body_text = "## Summary\nx\n",
+    }, &out_b.writer);
+    const b = (try fx.readNode(gpa, "Order B")).?;
+    defer gpa.free(b);
+
+    const digest_a = core.query.field(a, "sources_digest").?;
+    const digest_b = core.query.field(b, "sources_digest").?;
+    try testing.expectEqualStrings(digest_a, digest_b);
+    // The duplicate must not survive into `sources:` either.
+    try testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(u8, b, "  - path: b/B.ml\n"),
+    );
+}
+
+test "a rebuild preserves human-authored ## Notes instead of resetting them" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Kept",
+        .summary = "one line",
+        .paths_text = "src/foo.ml\n",
+        .body_text = "## Summary\nOriginal.\n",
+    }, &out.writer);
+
+    // A human writes under the ## Notes heading the first build created --
+    // that text sits outside the generated fence, which the design
+    // guarantees is preserved verbatim forever after.
+    const first = (try fx.readNode(gpa, "Kept")).?;
+    defer gpa.free(first);
+    const hand_written = "Hand-written: the timer id is nullable on legacy rows.\n";
+    const appended = try std.fmt.allocPrint(gpa, "{s}{s}", .{ first, hand_written });
+    defer gpa.free(appended);
+    try fx.tmp.dir.writeFile(testing.io, .{
+        .sub_path = "vault/synapse/repo@main/Kept.md",
+        .data = appended,
+    });
+
+    out.clearRetainingCapacity();
+    _ = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Kept",
+        .summary = "one line",
+        .paths_text = "src/foo.ml\n",
+        .body_text = "## Summary\nRewritten body.\n",
+    }, &out.writer);
+
+    const second = (try fx.readNode(gpa, "Kept")).?;
+    defer gpa.free(second);
+    // The generated region is replaced...
+    try testing.expect(std.mem.indexOf(u8, second, "Rewritten body.") != null);
+    try testing.expect(std.mem.indexOf(u8, second, "Original.") == null);
+    // ...and everything after the closing fence survives. A blind PUT here
+    // would silently destroy the human's notes, which is the one failure
+    // the fencing scheme exists to prevent.
+    try testing.expect(std.mem.indexOf(u8, second, hand_written) != null);
+    // Exactly one ## Notes heading -- the tail is re-emitted, not appended
+    // to a fresh one.
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, second, "## Notes\n"));
+}
+
+test "writing a node from its own recovered body is idempotent" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    const body = "## Summary\nThe prose.\n\n## Crux\n```ocaml\nlet x = 1\n```\n";
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Roundtrip",
+        .summary = "one line",
+        .paths_text = "src/foo.ml\n",
+        .body_text = body,
+    }, &out.writer);
+
+    // A reseat recovers the body from the node, drops the regenerated
+    // ## Sources block, and writes it back. Doing that repeatedly must not
+    // accrete padding, since the fenced region is emitted with blank lines
+    // around the body.
+    var pass1: ?[]u8 = null;
+    defer if (pass1) |p| gpa.free(p);
+    var i: usize = 0;
+    while (i < 2) : (i += 1) {
+        const written = (try fx.readNode(gpa, "Roundtrip")).?;
+        defer gpa.free(written);
+        const start_at = std.mem.indexOf(u8, written, core.node.generated_start).? + core.node.generated_start.len;
+        const end_at = std.mem.indexOf(u8, written, core.node.generated_end).?;
+        const between = written[start_at..end_at];
+        const sources_at = std.mem.indexOf(u8, between, "\n## Sources\n").?;
+        const recovered = between[0..sources_at];
+
+        out.clearRetainingCapacity();
+        _ = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+            .title = "Roundtrip",
+            .summary = "one line",
+            .paths_text = "src/foo.ml\n",
+            .body_text = recovered,
+        }, &out.writer);
+
+        if (i == 0) {
+            const snapshot = (try fx.readNode(gpa, "Roundtrip")).?;
+            defer gpa.free(snapshot);
+            pass1 = try gpa.dupe(u8, snapshot);
+        }
+    }
+    const pass2 = (try fx.readNode(gpa, "Roundtrip")).?;
+    defer gpa.free(pass2);
+
+    // Identical but for `built_at:`, which moves by design.
+    const strip = struct {
+        fn call(a: Allocator, text: []const u8) ![]u8 {
+            var out2: std.ArrayListUnmanaged(u8) = .empty;
+            defer out2.deinit(a);
+            var lines = std.mem.splitScalar(u8, text, '\n');
+            while (lines.next()) |line| {
+                if (std.mem.startsWith(u8, line, "built_at:")) continue;
+                try out2.appendSlice(a, line);
+                try out2.append(a, '\n');
+            }
+            return out2.toOwnedSlice(a);
+        }
+    }.call;
+    const s1 = try strip(gpa, pass1.?);
+    defer gpa.free(s1);
+    const s2 = try strip(gpa, pass2);
+    defer gpa.free(s2);
+    try testing.expectEqualStrings(s1, s2);
+}
+
+test "sources lists every path with its real blob hash, not a sample" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("mod-a/src/main/java/com/example/A.java", "class A {}\n");
+    try fx.writeRepoFile("mod-a/src/main/java/com/example/B.java", "class B {}\n");
+    try fx.writeRepoFile("mod-b/src/main/java/C.java", "class C {}\n");
+    try fx.writeRepoFile("docs/guide.md", "# doc\n");
+    try fx.writeRepoFile("rootfile.txt", "root\n");
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Wide",
+        .summary = "one line",
+        .paths_text = "mod-a/src/main/java/com/example/A.java\nmod-a/src/main/java/com/example/B.java\n" ++
+            "mod-b/src/main/java/C.java\ndocs/guide.md\nrootfile.txt\n",
+        .body_text = "## Summary\nx\n",
+    }, &out.writer);
+
+    const written = (try fx.readNode(gpa, "Wide")).?;
+    defer gpa.free(written);
+    try testing.expectEqual(@as(usize, 5), std.mem.count(u8, written, "  - path: "));
+
+    for ([_]struct { path: []const u8, data: []const u8 }{
+        .{ .path = "mod-a/src/main/java/com/example/A.java", .data = "class A {}\n" },
+        .{ .path = "mod-a/src/main/java/com/example/B.java", .data = "class B {}\n" },
+        .{ .path = "mod-b/src/main/java/C.java", .data = "class C {}\n" },
+        .{ .path = "docs/guide.md", .data = "# doc\n" },
+        .{ .path = "rootfile.txt", .data = "root\n" },
+    }) |p| {
+        const want = core.verify.blobHash(p.data);
+        const line = try std.fmt.allocPrint(gpa, "  - path: {s}\n    hash: {s}\n", .{ p.path, want });
+        defer gpa.free(line);
+        try testing.expect(std.mem.indexOf(u8, written, line) != null);
+    }
+}
+
+test "sources_digest is wired from the same real sources" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("a.java", "a\n");
+    try fx.writeRepoFile("b.java", "b\n");
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Digest",
+        .summary = "one line",
+        .paths_text = "a.java\nb.java\n",
+        .body_text = "## Summary\nx\n",
+    }, &out.writer);
+    // Also echoed on stdout, so a caller can log it without re-reading.
+    try testing.expect(std.mem.indexOf(u8, out.written(), "Digest.md\t2 files\t") != null);
+
+    const written = (try fx.readNode(gpa, "Digest")).?;
+    defer gpa.free(written);
+    const want = try core.node.sourcesDigest(gpa, &.{
+        .{ .path = "a.java", .hash = &core.verify.blobHash("a\n") },
+        .{ .path = "b.java", .hash = &core.verify.blobHash("b\n") },
+    });
+    const line = try std.fmt.allocPrint(gpa, "sources_digest: {s}\n", .{&want});
+    defer gpa.free(line);
+    try testing.expect(std.mem.indexOf(u8, written, line) != null);
+}
+
+test "## Sources mirror groups exactly like core.query.moduleCounts" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("mod-a/src/main/java/com/example/A.java", "class A {}\n");
+    try fx.writeRepoFile("mod-a/src/main/java/com/example/B.java", "class B {}\n");
+    try fx.writeRepoFile("mod-b/src/main/java/C.java", "class C {}\n");
+    try fx.writeRepoFile("docs/guide.md", "# doc\n");
+    try fx.writeRepoFile("rootfile.txt", "root\n");
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    const paths_text = "mod-a/src/main/java/com/example/A.java\nmod-a/src/main/java/com/example/B.java\n" ++
+        "mod-b/src/main/java/C.java\ndocs/guide.md\nrootfile.txt\n";
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Mirror",
+        .summary = "one line",
+        .paths_text = paths_text,
+        .body_text = "## Summary\nx\n",
+    }, &out.writer);
+
+    const written = (try fx.readNode(gpa, "Mirror")).?;
+    defer gpa.free(written);
+    // module = everything before /src/, plus one segment past it (no
+    // boilerplate chains configured); else the first path component; else
+    // "(repo root)".
+    try testing.expect(std.mem.indexOf(u8, written, "- `mod-a/src/main` (2)\n") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "- `mod-b/src/main` (1)\n") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "- `docs` (1)\n") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "- `(repo root)` (1)\n") != null);
+}
+
+test "a sanitised title keeps the original in frontmatter, only the filename changes" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Bad — import/export",
+        .summary = "one line",
+        .paths_text = "src/foo.ml\n",
+        .body_text = "## Summary\nx\n",
+    }, &out.writer);
+
+    try testing.expect(try fx.nodeExists("Bad — import_export"));
+    const written = (try fx.readNode(gpa, "Bad — import_export")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "title: \"Bad — import/export\"\n") != null);
+}
+
+test "refuses to write when the namespace records a different remote" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("rootfile.txt", "root\n");
+    try fx.writeIndex("ssh://git@example.com/y/theirs.git", "main");
+    try fx.env.put("SYNAPSE_REMOTE", "ssh://git@example.com/x/mine.git");
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Contaminant",
+        .summary = "one line",
+        .paths_text = "rootfile.txt\n",
+        .body_text = "## Summary\nx\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+    try testing.expect(!try fx.nodeExists("Contaminant"));
+}
+
+test "writes when the namespace remote matches" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("rootfile.txt", "root\n");
+    try fx.writeIndex("ssh://git@example.com/x/mine.git", "main");
+    try fx.env.put("SYNAPSE_REMOTE", "ssh://git@example.com/x/mine.git");
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Allowed",
+        .summary = "one line",
+        .paths_text = "rootfile.txt\n",
+        .body_text = "## Summary\nx\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(try fx.nodeExists("Allowed"));
+}
+
+test "writes when no Index.md exists yet, since that is a first-time build" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "First",
+        .summary = "one line",
+        .paths_text = "src/foo.ml\n",
+        .body_text = "## Summary\nx\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(try fx.nodeExists("First"));
+}
+
+test "a listed path that no longer exists fails loudly instead of writing a short node" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    // src/deleted.ml deliberately not written.
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Missing",
+        .summary = "one line",
+        .paths_text = "src/foo.ml\nsrc/deleted.ml\n",
+        .body_text = "## Summary\nx\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+    try testing.expect(!try fx.nodeExists("Missing"));
+}
+
+test "a directory in the path list fails, the way a submodule gitlink would" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("rootfile.txt", "root\n");
+    try fx.writeRepoFile("docs/guide.md", "# doc\n"); // makes "docs" a real directory
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Gitlink",
+        .summary = "one line",
+        .paths_text = "rootfile.txt\ndocs\n",
+        .body_text = "## Summary\nx\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+    try testing.expect(!try fx.nodeExists("Gitlink"));
+}
+
+test "a non-2xx PUT is reported as a failure and stores nothing" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.setPutStatus("500");
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Rejected",
+        .summary = "one line",
+        .paths_text = "src/foo.ml\n",
+        .body_text = "## Summary\nx\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+    try testing.expect(!try fx.nodeExists("Rejected"));
+}
+
+test "records HEAD as the baseline commit, in full" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    try fx.gitCommit("init");
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Baselined",
+        .summary = "one line",
+        .paths_text = "src/foo.ml\n",
+        .body_text = "## Summary\nx\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const written = (try fx.readNode(gpa, "Baselined")).?;
+    defer gpa.free(written);
+    const head = try fx.gitOutput(&.{ "rev-parse", "HEAD" });
+    defer gpa.free(head);
+    try testing.expectEqual(@as(usize, 40), head.len);
+
+    const line = try std.fmt.allocPrint(gpa, "commit: {s}\n", .{head});
+    defer gpa.free(line);
+    try testing.expect(std.mem.indexOf(u8, written, line) != null);
+}
+
+test "the commit field is omitted when HEAD does not resolve yet" {
+    // Staged, nothing committed: `git rev-parse --verify --quiet HEAD` fails,
+    // and the field is left out rather than written empty -- so a later
+    // drift check reads a missing baseline the same as an unusable one.
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    (try fx.git(&.{ "init", "-q" })).deinit(fx.gpa);
+    (try fx.git(&.{ "add", "-A" })).deinit(fx.gpa);
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Uncommitted",
+        .summary = "one line",
+        .paths_text = "src/foo.ml\n",
+        .body_text = "## Summary\nx\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const written = (try fx.readNode(gpa, "Uncommitted")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "commit:") == null);
+    // The rest of the node must still be complete.
+    try testing.expect(std.mem.indexOf(u8, written, "sources_digest: ") != null);
+}
+
+test "writing a node populates the tags cache for its sources, in the work dir alone" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    _ = fx.env.swapRemove("SYNAPSE_DISABLE_SYMBOL_CACHE");
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Widget core",
+        .summary = "one line",
+        .paths_text = "src/foo.ml\n",
+        .body_text = "## Summary\nx\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const cache_path = try std.fmt.allocPrint(gpa, "{s}/_tags_cache.bin", .{ctx.work_dir});
+    defer gpa.free(cache_path);
+    var cache = try core.tags_cache.Cache.open(fx.io(), cache_path);
+    defer cache.close(fx.io());
+    try testing.expect(cache.get("src/foo.ml") != null);
+
+    // Derived and disposable -- ~942 MB at scale against a 26 MB reverse
+    // index, and the vault is version-controlled, so a copy per rebuild
+    // would end up in its history.
+    try testing.expectError(
+        error.FileNotFound,
+        fx.tmp.dir.access(testing.io, "vault/_tags_cache.bin", .{}),
+    );
+}
+
+test "the tags cache honours SYNAPSE_WORK_DIR" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    _ = fx.env.swapRemove("SYNAPSE_DISABLE_SYMBOL_CACHE");
+    const elsewhere = try std.fmt.allocPrint(gpa, "{s}/elsewhere", .{fx.root});
+    defer gpa.free(elsewhere);
+    try fx.tmp.dir.createDirPath(testing.io, "elsewhere");
+    try fx.env.put("SYNAPSE_WORK_DIR", elsewhere);
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+    try testing.expectEqualStrings(elsewhere, ctx.work_dir);
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Widget core",
+        .summary = "one line",
+        .paths_text = "src/foo.ml\n",
+        .body_text = "## Summary\nx\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const cache_path = try std.fmt.allocPrint(gpa, "{s}/_tags_cache.bin", .{elsewhere});
+    defer gpa.free(cache_path);
+    var cache = try core.tags_cache.Cache.open(fx.io(), cache_path);
+    defer cache.close(fx.io());
+    try testing.expect(cache.get("src/foo.ml") != null);
+    try testing.expectError(
+        error.FileNotFound,
+        fx.tmp.dir.access(testing.io, "work/_tags_cache.bin", .{}),
+    );
+}
+
+test "rewriting a node with an unchanged source re-tags nothing" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    _ = fx.env.swapRemove("SYNAPSE_DISABLE_SYMBOL_CACHE");
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    const trace1 = try std.fmt.allocPrint(gpa, "{s}/trace1.log", .{fx.root});
+    defer gpa.free(trace1);
+    var out1: Io.Writer.Allocating = .init(gpa);
+    defer out1.deinit();
+    try testing.expectEqual(@as(u8, 0), try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Widget core",
+        .summary = "one line",
+        .paths_text = "src/foo.ml\n",
+        .body_text = "## Summary\nx\n",
+        .trace = trace1,
+    }, &out1.writer));
+    const t1 = try fx.tmp.dir.readFileAlloc(testing.io, "trace1.log", gpa, .limited(1 << 20));
+    defer gpa.free(t1);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, t1, "path "));
+
+    const trace2 = try std.fmt.allocPrint(gpa, "{s}/trace2.log", .{fx.root});
+    defer gpa.free(trace2);
+    var out2: Io.Writer.Allocating = .init(gpa);
+    defer out2.deinit();
+    try testing.expectEqual(@as(u8, 0), try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Widget core",
+        .summary = "one line",
+        .paths_text = "src/foo.ml\n",
+        .body_text = "## Summary\nx\n",
+        .trace = trace2,
+    }, &out2.writer));
+    try testing.expectEqual(
+        error.FileNotFound,
+        fx.tmp.dir.access(testing.io, "trace2.log", .{}),
+    );
+}
+
+test "disabled via env var: node write still succeeds, no cache file created" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    // `Fixture.init` already sets this by default; asserted explicitly here
+    // so a future change to that default doesn't silently drop the case.
+    try testing.expect(fx.env.get("SYNAPSE_DISABLE_SYMBOL_CACHE") != null);
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Widget core",
+        .summary = "one line",
+        .paths_text = "src/foo.ml\n",
+        .body_text = "## Summary\nx\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    try testing.expectError(
+        error.FileNotFound,
+        fx.tmp.dir.access(testing.io, "work/_tags_cache.bin", .{}),
+    );
+}
+
+/// "let lineNN = N\n" for N in `from..=to` -- the crux/grounded_in fixture
+/// file's own shape, real enough for a directive to slice.
+fn calcMl(gpa: Allocator, from: u32, to: u32) ![]u8 {
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    var n = from;
+    while (n <= to) : (n += 1) try out.writer.print("let line{d:0>2} = {d}\n", .{ n, n });
+    return gpa.dupe(u8, out.written());
+}
+
+fn cruxFixture(gpa: Allocator, fx: *fixture.Fixture) !void {
+    const calc = try calcMl(gpa, 1, 30);
+    defer gpa.free(calc);
+    try fx.writeRepoFile("lib/calc.ml", calc);
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+}
+
+const crux_paths_text = "src/foo.ml\nlib/calc.ml\n";
+
+test "crux: the pointed-at lines are sliced from the file, verbatim" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try cruxFixture(gpa, &fx);
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Sliced",
+        .summary = "one line",
+        .paths_text = crux_paths_text,
+        .body_text = "## Summary\nA node.\n\n## Crux\n<!-- crux: lib/calc.ml 5-7 -->\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const written = (try fx.readNode(gpa, "Sliced")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "let line05 = 5") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "let line07 = 7") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "let line04 = 4") == null);
+    try testing.expect(std.mem.indexOf(u8, written, "let line08 = 8") == null);
+    try testing.expect(std.mem.indexOf(u8, written, "```ocaml") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "lib/calc.ml`:5-7") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "<!-- crux:") == null);
+}
+
+test "crux: the pointer is recorded in frontmatter, not just the sliced text" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try cruxFixture(gpa, &fx);
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Recorded",
+        .summary = "one line",
+        .paths_text = crux_paths_text,
+        .body_text = "## Summary\nA node.\n\n## Crux\n<!-- crux: lib/calc.ml L11-L13 -->\n",
+    }, &out.writer);
+
+    const written = (try fx.readNode(gpa, "Recorded")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "crux_path: lib/calc.ml\n") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "crux_lines: \"11-13\"\n") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "let line11 = 11") != null);
+}
+
+test "crux: a directive quoted as a prose example elsewhere is not mistaken for the real one" {
+    // The original bug report: a node describing directive syntax itself
+    // quotes the literal <!-- crux: ... --> form as an example inside
+    // ## Summary. Before this was scoped to ## Crux, that quoted example
+    // was found first and its bogus path/range refused the whole write.
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try cruxFixture(gpa, &fx);
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "QuotedExample",
+        .summary = "one line",
+        .paths_text = crux_paths_text,
+        .body_text = "## Summary\nA crux directive looks like `<!-- crux: path/to/file.ext 1-99999 -->` in prose.\n\n" ++
+            "## Crux\n<!-- crux: lib/calc.ml 5-7 -->\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const written = (try fx.readNode(gpa, "QuotedExample")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "let line05 = 5") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "lib/calc.ml`:5-7") != null);
+}
+
+test "crux: 'none' is an honest answer, not a missing field" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try cruxFixture(gpa, &fx);
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "NoCrux",
+        .summary = "one line",
+        .paths_text = crux_paths_text,
+        .body_text = "## Summary\nA node.\n\n## Crux\n<!-- crux: none -->\n",
+    }, &out.writer);
+
+    const written = (try fx.readNode(gpa, "NoCrux")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "No single span carries") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "crux_path:") == null);
+    try testing.expect(std.mem.indexOf(u8, written, "<!-- crux:") == null);
+}
+
+test "crux: a path the node does not claim is refused" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try cruxFixture(gpa, &fx);
+    try fx.writeRepoFile("lib/other.ml", "let z = 1\n"); // real, but not in paths_text
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Foreign",
+        .summary = "one line",
+        .paths_text = crux_paths_text,
+        .body_text = "## Summary\nA node.\n\n## Crux\n<!-- crux: lib/other.ml 1-1 -->\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+    try testing.expect(!try fx.nodeExists("Foreign"));
+}
+
+test "crux: a range past the end of the file is refused, not clamped" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try cruxFixture(gpa, &fx);
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Overrun",
+        .summary = "one line",
+        .paths_text = crux_paths_text,
+        .body_text = "## Summary\nA node.\n\n## Crux\n<!-- crux: lib/calc.ml 28-40 -->\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+    try testing.expect(!try fx.nodeExists("Overrun"));
+}
+
+test "crux: a range longer than ~20 lines is refused" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try cruxFixture(gpa, &fx);
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "TooBig",
+        .summary = "one line",
+        .paths_text = crux_paths_text,
+        .body_text = "## Summary\nA node.\n\n## Crux\n<!-- crux: lib/calc.ml 1-25 -->\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+    try testing.expect(!try fx.nodeExists("TooBig"));
+}
+
+test "crux: a malformed directive is refused rather than silently ignored" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try cruxFixture(gpa, &fx);
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Malformed",
+        .summary = "one line",
+        .paths_text = crux_paths_text,
+        .body_text = "## Summary\nA node.\n\n## Crux\n<!-- crux: lib/calc.ml -->\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+    try testing.expect(!try fx.nodeExists("Malformed"));
+}
+
+test "crux: a body with no directive is written unchanged" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try cruxFixture(gpa, &fx);
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Plain",
+        .summary = "one line",
+        .paths_text = crux_paths_text,
+        .body_text = "## Summary\nA node.\n\n## Links\n- part_of [[Other]]\n",
+    }, &out.writer);
+
+    const written = (try fx.readNode(gpa, "Plain")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "crux_path:") == null);
+    try testing.expect(std.mem.indexOf(u8, written, "part_of [[Other]]") != null);
+}
+
+test "crux: re-pointing after the file changed re-slices, rather than keeping the old quote" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try cruxFixture(gpa, &fx);
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    const body = "## Summary\nA node.\n\n## Crux\n<!-- crux: lib/calc.ml 5-6 -->\n";
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Repointed",
+        .summary = "one line",
+        .paths_text = crux_paths_text,
+        .body_text = body,
+    }, &out.writer);
+    const first = (try fx.readNode(gpa, "Repointed")).?;
+    defer gpa.free(first);
+    try testing.expect(std.mem.indexOf(u8, first, "let line05 = 5") != null);
+
+    // The file changes under the node: line 5 now says something else,
+    // everything else unchanged (a whole-file rewrite would also change
+    // line 6, which the assertions below don't distinguish from a real
+    // re-slice).
+    const before_5 = try calcMl(gpa, 1, 4);
+    defer gpa.free(before_5);
+    const after_5 = try calcMl(gpa, 6, 30);
+    defer gpa.free(after_5);
+    const changed = try std.fmt.allocPrint(
+        gpa,
+        "{s}let line999 = 999 (* CHANGED *)\n{s}",
+        .{ before_5, after_5 },
+    );
+    defer gpa.free(changed);
+    try fx.writeRepoFile("lib/calc.ml", changed);
+
+    // Writing the SAME directive back must reflect the new content, which is
+    // the whole point of storing a pointer: a rebuild re-cuts instead of
+    // carrying a stale quote.
+    out.clearRetainingCapacity();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Repointed",
+        .summary = "one line",
+        .paths_text = crux_paths_text,
+        .body_text = body,
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const second = (try fx.readNode(gpa, "Repointed")).?;
+    defer gpa.free(second);
+    try testing.expect(std.mem.indexOf(u8, second, "let line999 = 999 (* CHANGED *)") != null);
+    try testing.expect(std.mem.indexOf(u8, second, "let line05 = 5\n") == null);
+}
+
+// --- grounded_in: the evidence a summary rests on ---------------------------
+
+fn groundedFixture(gpa: Allocator, fx: *fixture.Fixture) !void {
+    const header = "(* Computes the premium for a contract.\n   Rounds half-up at two decimals. *)\n";
+    const body_lines = try calcMl(gpa, 3, 20);
+    defer gpa.free(body_lines);
+    const calc = try std.fmt.allocPrint(gpa, "{s}{s}", .{ header, body_lines });
+    defer gpa.free(calc);
+    try fx.writeRepoFile("lib/calc.ml", calc);
+    try fx.writeRepoFile(
+        "test/calc_test.ml",
+        "let test_rounds_half_up () = assert (round 1.005 = 1.01)\n" ++
+            "let test_rejects_negative () = assert_raises Invalid_argument\n",
+    );
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+}
+
+const grounded_paths_text = "src/foo.ml\nlib/calc.ml\ntest/calc_test.ml\n";
+
+/// sha256 of a `from..=to` line range -- the same formula `write()` itself
+/// uses (`emit.zig`'s grounded digest), reused here to check the *wiring*
+/// (the right slice reaches it), not to re-derive the digest algorithm
+/// itself, which `core.verify`'s own tests already cover independently.
+fn sliceDigest(gpa: Allocator, content: []const u8, from: u32, to: u32) ![64]u8 {
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    var n: u32 = 1;
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    while (lines.next()) |line| : (n += 1) {
+        if (n < from) continue;
+        if (n > to) break;
+        try out.writer.print("{s}\n", .{line});
+    }
+    return core.verify.sha256Hex(out.written());
+}
+
+test "grounded_in: records path, lines and a digest of the slice" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try groundedFixture(gpa, &fx);
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Grounded",
+        .summary = "one line",
+        .paths_text = grounded_paths_text,
+        .body_text = "## Summary\nRounds half-up.\n<!-- grounded_in: lib/calc.ml 1-2 -->\n",
+    }, &out.writer);
+
+    const written = (try fx.readNode(gpa, "Grounded")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "grounded_in:\n") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "  - path: lib/calc.ml\n") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "    lines: \"1-2\"\n") != null);
+
+    const header = "(* Computes the premium for a contract.\n   Rounds half-up at two decimals. *)\n";
+    const digest = try sliceDigest(gpa, header, 1, 2);
+    const line = try std.fmt.allocPrint(gpa, "    digest: {s}\n", .{&digest});
+    defer gpa.free(line);
+    try testing.expect(std.mem.indexOf(u8, written, line) != null);
+}
+
+test "grounded_in: multiple groundings are all recorded" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try groundedFixture(gpa, &fx);
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Multi",
+        .summary = "one line",
+        .paths_text = grounded_paths_text,
+        .body_text = "## Summary\nRounds half-up, rejects negatives.\n" ++
+            "<!-- grounded_in: lib/calc.ml 1-2 -->\n" ++
+            "<!-- grounded_in: test/calc_test.ml 1-1 -->\n" ++
+            "<!-- grounded_in: test/calc_test.ml 2-2 -->\n",
+    }, &out.writer);
+
+    const written = (try fx.readNode(gpa, "Multi")).?;
+    defer gpa.free(written);
+    // Count `lines:`, not `- path:` -- both `sources` and `grounded_in` are
+    // lists of `- path:` entries, so counting those conflates the two
+    // blocks; `lines:` is emitted only by grounded_in.
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, written, "    lines: "));
+    try testing.expect(std.mem.indexOf(u8, written, "    lines: \"2-2\"\n") != null);
+}
+
+test "grounded_in: directives are stripped from the body, not rendered" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try groundedFixture(gpa, &fx);
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Stripped",
+        .summary = "one line",
+        .paths_text = grounded_paths_text,
+        .body_text = "## Summary\nRounds half-up.\n<!-- grounded_in: lib/calc.ml 1-2 -->\n",
+    }, &out.writer);
+
+    const written = (try fx.readNode(gpa, "Stripped")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "<!-- grounded_in:") == null);
+    // The prose survives, and the grounding's own text is NOT pasted in.
+    try testing.expect(std.mem.indexOf(u8, written, "Rounds half-up.") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "Computes the premium for a contract") == null);
+}
+
+test "grounded_in: a digest over the slice, not the whole file" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try groundedFixture(gpa, &fx);
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    const body = "## Summary\nRounds half-up.\n<!-- grounded_in: lib/calc.ml 1-2 -->\n";
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "SliceOnly",
+        .summary = "one line",
+        .paths_text = grounded_paths_text,
+        .body_text = body,
+    }, &out.writer);
+    const before = (try fx.readNode(gpa, "SliceOnly")).?;
+    defer gpa.free(before);
+    const digest_at = std.mem.indexOf(u8, before, "    digest: ").?;
+    const before_digest = try gpa.dupe(u8, before[digest_at .. digest_at + "    digest: ".len + 64]);
+    defer gpa.free(before_digest);
+
+    // Change the file well away from the grounded range.
+    const header = "(* Computes the premium for a contract.\n   Rounds half-up at two decimals. *)\n";
+    const body_lines = try calcMl(gpa, 3, 20);
+    defer gpa.free(body_lines);
+    const changed = try std.fmt.allocPrint(gpa, "{s}{s}let tail = 99\n", .{ header, body_lines });
+    defer gpa.free(changed);
+    try fx.writeRepoFile("lib/calc.ml", changed);
+
+    out.clearRetainingCapacity();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "SliceOnly",
+        .summary = "one line",
+        .paths_text = grounded_paths_text,
+        .body_text = body,
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const after = (try fx.readNode(gpa, "SliceOnly")).?;
+    defer gpa.free(after);
+    const after_at = std.mem.indexOf(u8, after, "    digest: ").?;
+    const after_digest = after[after_at .. after_at + "    digest: ".len + 64];
+    // The whole-file hash in `sources` moved; the grounding digest must not.
+    try testing.expectEqualStrings(before_digest, after_digest);
+}
+
+test "grounded_in: a path outside the node's sources is refused" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try groundedFixture(gpa, &fx);
+    try fx.writeRepoFile("lib/other.ml", "let z = 1\n");
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Foreign2",
+        .summary = "one line",
+        .paths_text = grounded_paths_text,
+        .body_text = "## Summary\nX.\n<!-- grounded_in: lib/other.ml 1-1 -->\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+    try testing.expect(!try fx.nodeExists("Foreign2"));
+}
+
+test "grounded_in: a bad range or malformed directive is refused" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try groundedFixture(gpa, &fx);
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const bad_range = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "BadRange",
+        .summary = "one line",
+        .paths_text = grounded_paths_text,
+        .body_text = "## Summary\nX.\n<!-- grounded_in: lib/calc.ml 900-901 -->\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 1), bad_range);
+
+    out.clearRetainingCapacity();
+    const bad_form = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "BadForm",
+        .summary = "one line",
+        .paths_text = grounded_paths_text,
+        .body_text = "## Summary\nX.\n<!-- grounded_in: lib/calc.ml -->\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 1), bad_form);
+}
+
+test "grounded_in: absent means no field, not an empty one" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try groundedFixture(gpa, &fx);
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Ungrounded",
+        .summary = "one line",
+        .paths_text = grounded_paths_text,
+        .body_text = "## Summary\nUngrounded prose.\n",
+    }, &out.writer);
+
+    const written = (try fx.readNode(gpa, "Ungrounded")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "grounded_in:") == null);
+}
+
+test "grounded_in: coexists with a crux directive" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try groundedFixture(gpa, &fx);
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Both",
+        .summary = "one line",
+        .paths_text = grounded_paths_text,
+        .body_text = "## Summary\nRounds half-up.\n<!-- grounded_in: lib/calc.ml 1-2 -->\n\n" ++
+            "## Crux\n<!-- crux: lib/calc.ml 5-6 -->\n",
+    }, &out.writer);
+
+    const written = (try fx.readNode(gpa, "Both")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "crux_path: lib/calc.ml\n") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "  - path: lib/calc.ml\n") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "let line05 = 5") != null); // crux sliced and rendered
+    try testing.expect(std.mem.indexOf(u8, written, "Computes the premium") == null); // grounding not rendered
 }

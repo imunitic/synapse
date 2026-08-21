@@ -50,6 +50,16 @@ pub fn build(b: *std.Build) void {
         "Prioritize performance, safety, or binary size (default: ReleaseSafe)",
     ) orelse .ReleaseSafe;
 
+    // `zig build test -Dtest-filter="name"` runs the full module graph
+    // filtered to matching tests, without hand-building a standalone `zig
+    // test` binary and copying this file's own `--dep` flags by hand.
+    const test_filter = b.option(
+        []const u8,
+        "test-filter",
+        "Skip tests whose name does not contain this text",
+    );
+    const test_filters: []const []const u8 = if (test_filter) |f| &.{f} else &.{};
+
     // The vocabulary every layer speaks: defs, refs, nodes. Imports nothing.
     // It sits below `ports` rather than inside `core` because a port's
     // signatures name these types, and `core` imports `ports` -- putting the
@@ -270,10 +280,15 @@ pub fn build(b: *std.Build) void {
     // Invoke `zig-out/bin/synapse` directly, which is what the hooks, the
     // tests and the installed copy all do anyway.
 
-    // Zig tests cover internals only -- format round-trips, binary search,
-    // scoring. The CLI contract belongs to tests/*.bats and stays there: if an
-    // assertion can be written against stdout or an exit code, duplicating it
-    // here would quietly retire bats as the specification.
+    // Zig tests cover internals -- format round-trips, binary search, scoring
+    // -- plus a `*_cmd.zig`'s own assembly logic where a real `Context` and
+    // a real Obsidian PUT are reachable without a real git repo or network
+    // call (`cmd_test_support.zig`'s fixture, reusing the bats suite's own
+    // `tests/fixtures/fake-bin/curl`). The CLI contract itself -- argument
+    // parsing, exit codes, real git/process integration -- stays
+    // tests/*.bats: if an assertion can be written against stdout or an exit
+    // code with no `*_cmd.zig` logic behind it, duplicating it here would
+    // quietly retire bats as the specification.
     const test_step = b.step("test", "Run Zig unit tests (bats owns the CLI contract)");
 
     // Compile the same tests without running them, so a cross-target build can
@@ -290,8 +305,8 @@ pub fn build(b: *std.Build) void {
     // is the only way to reach them, since an app is not a module anything imports.
     // `bard.root_module`/`bard_hook.root_module` alongside them for the same reason,
     // once either has tests of its own to pull in -- empty today, harmless to include.
-    for ([_]*std.Build.Module{ model, core, ports, adapters, treesitter, hook.root_module, bard.root_module, bard_hook.root_module }) |mod| {
-        const unit = b.addTest(.{ .root_module = mod });
+    for ([_]*std.Build.Module{ model, core, ports, adapters, treesitter, exe.root_module, hook.root_module, bard.root_module, bard_hook.root_module }) |mod| {
+        const unit = b.addTest(.{ .root_module = mod, .filters = test_filters });
         test_step.dependOn(&b.addRunArtifact(unit).step);
         test_build_step.dependOn(&unit.step);
     }

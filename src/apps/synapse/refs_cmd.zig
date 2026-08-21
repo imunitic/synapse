@@ -59,6 +59,23 @@ pub fn runBuild(
         };
     }
 
+    return buildRefs(gpa, io, env, cache_path, out_path);
+}
+
+/// The projection itself, minus argument parsing -- separated so a test
+/// can drive it against a real cache file without going through the CLI.
+/// `cache_path`/`out_path` still resolve against `$SYNAPSE_WORK_DIR` when
+/// null, same as `runBuild`'s own default.
+pub fn buildRefs(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    cache_path_in: ?[]const u8,
+    out_path_in: ?[]const u8,
+) !u8 {
+    var cache_path = cache_path_in;
+    var out_path = out_path_in;
+
     // Work dir supplies whichever default is missing. Explicit flags make
     // this usable against a cache for a repo not checked out here at all.
     var owned_cache: ?[]u8 = null;
@@ -166,6 +183,27 @@ pub fn runCallers(
     }
     if (name.len == 0) return callersUsage();
 
+    var buf: [256 * 1024]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &buf);
+    const code = try callers(gpa, io, env, name, all, refs_path, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+/// The lookup itself, minus argument parsing -- separated so a test can
+/// drive it against a real index without going through the CLI or
+/// capturing stdout. `refs_path` still resolves against
+/// `$SYNAPSE_WORK_DIR` when null, same as `runCallers`'s own default.
+pub fn callers(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    name: []const u8,
+    all: bool,
+    refs_path_in: ?[]const u8,
+    result: *Io.Writer,
+) !u8 {
+    var refs_path = refs_path_in;
     var owned: ?[]u8 = null;
     defer if (owned) |p| gpa.free(p);
     if (refs_path == null) {
@@ -186,17 +224,14 @@ pub fn runCallers(
     };
     defer index.deinit(io, gpa);
 
-    var buf: [256 * 1024]u8 = undefined;
-    var out = Io.File.stdout().writer(io, &buf);
     var it = core.refs.find(index.bytes, name);
     while (it.next()) |row| {
         if (all) {
-            try out.interface.print("{s}\t{s}\t{s}\t{s}\n", .{ row.dir, row.kind, row.site, row.expr });
+            try result.print("{s}\t{s}\t{s}\t{s}\n", .{ row.dir, row.kind, row.site, row.expr });
         } else if (row.isCall()) {
-            try out.interface.print("{s}\t{s}\n", .{ row.site, row.expr });
+            try result.print("{s}\t{s}\n", .{ row.site, row.expr });
         }
     }
-    try out.interface.flush();
     return 0; // always 0 when the index was readable, including for zero rows
 }
 
@@ -248,4 +283,465 @@ fn openIndex(io: Io, gpa: Allocator, path: []const u8) !Index {
     // back keeps the query answerable.
     const bytes = try Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(4 << 30));
     return .{ .bytes = bytes, .owned = bytes };
+}
+
+const testing = std.testing;
+
+/// One tab-separated tag line exactly as tree-sitter emits it, name column
+/// padded -- what `tag_line.parse` (and so `Cache.writeRefs`) expects.
+/// Caller frees.
+fn tagline(gpa: Allocator, padded_name: []const u8, kind: []const u8, role: []const u8, row: u32, expr: []const u8) ![]u8 {
+    return std.fmt.allocPrint(gpa, "{s}\t | {s}\t{s} ({d}, 13) - ({d}, 39) `{s}`", .{ padded_name, kind, role, row, row, expr });
+}
+
+/// A real `_tags_cache.bin` in a real temp dir, built directly through
+/// `core.tags_cache.Cache.commit` -- the same call `tags-cache --load`
+/// makes, minus that command's own dump-text round trip, which exists so a
+/// *bats* test can author a cache without a bespoke fixture format. A
+/// native test doesn't need the round trip: it can hand `Entry` values
+/// straight to `commit`.
+const CacheFixture = struct {
+    tmp: testing.TmpDir,
+    gpa: Allocator,
+
+    fn init(gpa: Allocator) !CacheFixture {
+        return .{ .tmp = testing.tmpDir(.{}), .gpa = gpa };
+    }
+
+    fn deinit(self: *CacheFixture) void {
+        self.tmp.cleanup();
+    }
+
+    fn build(self: *CacheFixture, updates: []const core.tags_cache.Update) ![]const u8 {
+        try self.tmp.dir.writeFile(testing.io, .{ .sub_path = "_tags_cache.bin", .data = "" });
+        var buf: [Io.Dir.max_path_bytes]u8 = undefined;
+        const root = buf[0..try self.tmp.dir.realPath(testing.io, &buf)];
+        const path = try std.fmt.allocPrint(self.gpa, "{s}/_tags_cache.bin", .{root});
+
+        var cache = try core.tags_cache.Cache.open(testing.io, path);
+        defer cache.close(testing.io);
+        _ = try cache.commit(self.gpa, testing.io, updates, &.{});
+        return path;
+    }
+
+    fn absPath(self: *CacheFixture, rel: []const u8) ![]const u8 {
+        var buf: [Io.Dir.max_path_bytes]u8 = undefined;
+        const root = buf[0..try self.tmp.dir.realPath(testing.io, &buf)];
+        return std.fmt.allocPrint(self.gpa, "{s}/{s}", .{ root, rel });
+    }
+};
+
+fn h(hex: []const u8) [20]u8 {
+    return core.model.SourceRef.hashFromHex(hex) catch unreachable;
+}
+
+const H1 = "1111111111111111111111111111111111111111";
+const H2 = "2222222222222222222222222222222222222222";
+
+test "build-refs: emits name/reftype/kind/path:line/expression, tab separated" {
+    const gpa = testing.allocator;
+    var fx = try CacheFixture.init(gpa);
+    defer fx.deinit();
+    const tags = try tagline(gpa, "Token     ", "class  ", "def", 15, "public class Token {");
+    defer gpa.free(tags);
+    const cache_path = try fx.build(&.{.{ .path = "src/Token.java", .entry = .{ .hash = h(H1), .tags = tags } }});
+    defer gpa.free(cache_path);
+    const out_path = try fx.absPath("_refs.tsv");
+    defer gpa.free(out_path);
+
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+    const code = try buildRefs(gpa, testing.io, &env, cache_path, out_path);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const out = try fx.tmp.dir.readFileAlloc(testing.io, "_refs.tsv", gpa, .limited(1 << 20));
+    defer gpa.free(out);
+    // Name trimmed of its padding; row taken from the first coordinate.
+    try testing.expectEqualStrings(
+        "Token\tdef\tclass\tsrc/Token.java:15\tpublic class Token {\n",
+        out,
+    );
+}
+
+test "build-refs: a short padded name is trimmed, so exact lookup finds it" {
+    const gpa = testing.allocator;
+    var fx = try CacheFixture.init(gpa);
+    defer fx.deinit();
+    const tags = try tagline(gpa, "execute   ", "call   ", "ref", 42, "foo.execute();");
+    defer gpa.free(tags);
+    const cache_path = try fx.build(&.{.{ .path = "src/A.java", .entry = .{ .hash = h(H1), .tags = tags } }});
+    defer gpa.free(cache_path);
+    const out_path = try fx.absPath("_refs.tsv");
+    defer gpa.free(out_path);
+
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+    _ = try buildRefs(gpa, testing.io, &env, cache_path, out_path);
+
+    const out = try fx.tmp.dir.readFileAlloc(testing.io, "_refs.tsv", gpa, .limited(1 << 20));
+    defer gpa.free(out);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, out, "execute\t"));
+}
+
+test "build-refs: unsupported files contribute nothing and are counted separately" {
+    const gpa = testing.allocator;
+    var fx = try CacheFixture.init(gpa);
+    defer fx.deinit();
+    const tags = try tagline(gpa, "Kept      ", "class  ", "def", 1, "class Kept {}");
+    defer gpa.free(tags);
+    const cache_path = try fx.build(&.{
+        .{ .path = "src/Kept.java", .entry = .{ .hash = h(H1), .tags = tags } },
+        .{ .path = "src/data.sql", .entry = .{ .hash = h(H2), .tags = "", .unsupported = true } },
+    });
+    defer gpa.free(cache_path);
+    const out_path = try fx.absPath("_refs.tsv");
+    defer gpa.free(out_path);
+
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+    var out_writer: Io.Writer.Allocating = .init(gpa);
+    defer out_writer.deinit();
+    const code = try buildRefs(gpa, testing.io, &env, cache_path, out_path);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const out = try fx.tmp.dir.readFileAlloc(testing.io, "_refs.tsv", gpa, .limited(1 << 20));
+    defer gpa.free(out);
+    try testing.expect(std.mem.indexOf(u8, out, "data.sql") == null);
+}
+
+test "build-refs: multiple tag lines in one file all become rows" {
+    const gpa = testing.allocator;
+    var fx = try CacheFixture.init(gpa);
+    defer fx.deinit();
+    const a = try tagline(gpa, "A         ", "class  ", "def", 1, "class A {}");
+    defer gpa.free(a);
+    const b = try tagline(gpa, "run       ", "call   ", "ref", 7, "a.run();");
+    defer gpa.free(b);
+    const both = try std.fmt.allocPrint(gpa, "{s}\n{s}", .{ a, b });
+    defer gpa.free(both);
+    const cache_path = try fx.build(&.{.{ .path = "src/A.java", .entry = .{ .hash = h(H1), .tags = both } }});
+    defer gpa.free(cache_path);
+    const out_path = try fx.absPath("_refs.tsv");
+    defer gpa.free(out_path);
+
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+    _ = try buildRefs(gpa, testing.io, &env, cache_path, out_path);
+
+    const out = try fx.tmp.dir.readFileAlloc(testing.io, "_refs.tsv", gpa, .limited(1 << 20));
+    defer gpa.free(out);
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, out, "\n"));
+}
+
+test "build-refs: output is LC_ALL=C sorted" {
+    const gpa = testing.allocator;
+    var fx = try CacheFixture.init(gpa);
+    defer fx.deinit();
+    const a = try tagline(gpa, "Zebra     ", "class  ", "def", 1, "class Zebra {}");
+    defer gpa.free(a);
+    const b = try tagline(gpa, "apple     ", "call   ", "ref", 2, "apple();");
+    defer gpa.free(b);
+    const c = try tagline(gpa, "Apple     ", "class  ", "def", 3, "class Apple {}");
+    defer gpa.free(c);
+    const all = try std.fmt.allocPrint(gpa, "{s}\n{s}\n{s}", .{ a, b, c });
+    defer gpa.free(all);
+    const cache_path = try fx.build(&.{.{ .path = "src/A.java", .entry = .{ .hash = h(H1), .tags = all } }});
+    defer gpa.free(cache_path);
+    const out_path = try fx.absPath("_refs.tsv");
+    defer gpa.free(out_path);
+
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+    _ = try buildRefs(gpa, testing.io, &env, cache_path, out_path);
+
+    const out = try fx.tmp.dir.readFileAlloc(testing.io, "_refs.tsv", gpa, .limited(1 << 20));
+    defer gpa.free(out);
+    var lines = std.mem.splitScalar(u8, std.mem.trimEnd(u8, out, "\n"), '\n');
+    var prev: ?[]const u8 = null;
+    while (lines.next()) |line| {
+        if (prev) |p| try testing.expect(std.mem.order(u8, p, line) != .gt);
+        prev = line;
+    }
+}
+
+test "build-refs: a tab inside the expression cannot add a column" {
+    const gpa = testing.allocator;
+    var fx = try CacheFixture.init(gpa);
+    defer fx.deinit();
+    const tags = try std.fmt.allocPrint(gpa, "weird     \t | call   \tref (5, 13) - (5, 39) `a\tb();`", .{});
+    defer gpa.free(tags);
+    const cache_path = try fx.build(&.{.{ .path = "src/A.java", .entry = .{ .hash = h(H1), .tags = tags } }});
+    defer gpa.free(cache_path);
+    const out_path = try fx.absPath("_refs.tsv");
+    defer gpa.free(out_path);
+
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+    _ = try buildRefs(gpa, testing.io, &env, cache_path, out_path);
+
+    const out = try fx.tmp.dir.readFileAlloc(testing.io, "_refs.tsv", gpa, .limited(1 << 20));
+    defer gpa.free(out);
+    var lines = std.mem.splitScalar(u8, std.mem.trimEnd(u8, out, "\n"), '\n');
+    while (lines.next()) |line| try testing.expectEqual(@as(usize, 4), std.mem.count(u8, line, "\t"));
+}
+
+test "build-refs: a malformed tag line is skipped, not emitted half-parsed" {
+    const gpa = testing.allocator;
+    var fx = try CacheFixture.init(gpa);
+    defer fx.deinit();
+    const cache_path = try fx.build(&.{.{ .path = "src/A.java", .entry = .{ .hash = h(H1), .tags = "no tabs here at all" } }});
+    defer gpa.free(cache_path);
+    const out_path = try fx.absPath("_refs.tsv");
+    defer gpa.free(out_path);
+
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+    _ = try buildRefs(gpa, testing.io, &env, cache_path, out_path);
+
+    const out = try fx.tmp.dir.readFileAlloc(testing.io, "_refs.tsv", gpa, .limited(1 << 20));
+    defer gpa.free(out);
+    try testing.expectEqual(@as(usize, 0), out.len);
+}
+
+test "build-refs: missing cache is exit 1 with a pointer to the fix" {
+    const gpa = testing.allocator;
+    var fx = try CacheFixture.init(gpa);
+    defer fx.deinit();
+    const out_path = try fx.absPath("_refs.tsv");
+    defer gpa.free(out_path);
+
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+    const code = try buildRefs(gpa, testing.io, &env, "/nonexistent/nope.bin", out_path);
+    try testing.expectEqual(@as(u8, 1), code);
+}
+
+test "build-refs: unreadable cache is exit 1, not a silently empty index" {
+    const gpa = testing.allocator;
+    var fx = try CacheFixture.init(gpa);
+    defer fx.deinit();
+    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "bad.bin", .data = "this is not a cache" });
+    const cache_path = try fx.absPath("bad.bin");
+    defer gpa.free(cache_path);
+    const out_path = try fx.absPath("_refs.tsv");
+    defer gpa.free(out_path);
+
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+    const code = try buildRefs(gpa, testing.io, &env, cache_path, out_path);
+    try testing.expectEqual(@as(u8, 1), code);
+}
+
+test "build-refs: rebuilds rather than appending" {
+    const gpa = testing.allocator;
+    var fx = try CacheFixture.init(gpa);
+    defer fx.deinit();
+    const tags = try tagline(gpa, "Once      ", "class  ", "def", 1, "class Once {}");
+    defer gpa.free(tags);
+    const cache_path = try fx.build(&.{.{ .path = "src/A.java", .entry = .{ .hash = h(H1), .tags = tags } }});
+    defer gpa.free(cache_path);
+    const out_path = try fx.absPath("_refs.tsv");
+    defer gpa.free(out_path);
+
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+    _ = try buildRefs(gpa, testing.io, &env, cache_path, out_path);
+    _ = try buildRefs(gpa, testing.io, &env, cache_path, out_path);
+
+    const out = try fx.tmp.dir.readFileAlloc(testing.io, "_refs.tsv", gpa, .limited(1 << 20));
+    defer gpa.free(out);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, out, "\n"));
+}
+
+/// A cache with one definition, one call, and one non-call reference -- the
+/// three cases the default filter has to tell apart.
+fn seedIndex(gpa: Allocator, fx: *CacheFixture) ![]const u8 {
+    const d = try tagline(gpa, "doThing   ", "method ", "def", 10, "public void doThing() {");
+    defer gpa.free(d);
+    const c = try tagline(gpa, "doThing   ", "call   ", "ref", 20, "svc.doThing();");
+    defer gpa.free(c);
+    const i = try tagline(gpa, "doThing   ", "implementation", "ref", 30, "class Impl implements doThing {");
+    defer gpa.free(i);
+    const all = try std.fmt.allocPrint(gpa, "{s}\n{s}\n{s}", .{ d, c, i });
+    defer gpa.free(all);
+    const cache_path = try fx.build(&.{.{ .path = "src/A.java", .entry = .{ .hash = h(H1), .tags = all } }});
+    defer gpa.free(cache_path);
+    const out_path = try fx.absPath("_refs.tsv");
+    defer gpa.free(out_path);
+
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+    _ = try buildRefs(gpa, testing.io, &env, cache_path, out_path);
+    return fx.absPath("_refs.tsv");
+}
+
+fn callersHelper(gpa: Allocator, refs_path: ?[]const u8, name: []const u8, all: bool) !struct { code: u8, out: []u8 } {
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try callers(gpa, testing.io, &env, name, all, refs_path, &out.writer);
+    return .{ .code = code, .out = try gpa.dupe(u8, out.written()) };
+}
+
+test "callers: default returns call sites only, as path:line<TAB>expression" {
+    const gpa = testing.allocator;
+    var fx = try CacheFixture.init(gpa);
+    defer fx.deinit();
+    const refs_path = try seedIndex(gpa, &fx);
+    defer gpa.free(refs_path);
+
+    const r = try callersHelper(gpa, refs_path, "doThing", false);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqualStrings("src/A.java:20\tsvc.doThing();\n", r.out);
+}
+
+test "callers: a non-call reference is not reported as a caller" {
+    const gpa = testing.allocator;
+    var fx = try CacheFixture.init(gpa);
+    defer fx.deinit();
+    const refs_path = try seedIndex(gpa, &fx);
+    defer gpa.free(refs_path);
+
+    const r = try callersHelper(gpa, refs_path, "doThing", false);
+    defer gpa.free(r.out);
+    try testing.expect(std.mem.indexOf(u8, r.out, "implements") == null);
+}
+
+test "callers: --all returns defs and every ref, with reftype and kind columns" {
+    const gpa = testing.allocator;
+    var fx = try CacheFixture.init(gpa);
+    defer fx.deinit();
+    const refs_path = try seedIndex(gpa, &fx);
+    defer gpa.free(refs_path);
+
+    const r = try callersHelper(gpa, refs_path, "doThing", true);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, r.out, "\n"));
+    try testing.expect(std.mem.indexOf(u8, r.out, "def\t") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "ref\t") != null);
+}
+
+test "callers: a missing index is exit 1 naming the fix, not silent success" {
+    const r = try callersHelper(testing.allocator, "/nonexistent/_refs.tsv", "doThing", false);
+    defer testing.allocator.free(r.out);
+    try testing.expectEqual(@as(u8, 1), r.code);
+}
+
+test "callers: an empty index is 'checked, not called', not a missing index" {
+    const gpa = testing.allocator;
+    var fx = try CacheFixture.init(gpa);
+    defer fx.deinit();
+    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "_refs.tsv", .data = "" });
+    const refs_path = try fx.absPath("_refs.tsv");
+    defer gpa.free(refs_path);
+
+    const r = try callersHelper(gpa, refs_path, "doThing", false);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqual(@as(usize, 0), r.out.len);
+}
+
+test "callers: a name that is present but never called is silent, exit 0" {
+    const gpa = testing.allocator;
+    var fx = try CacheFixture.init(gpa);
+    defer fx.deinit();
+    const d = try tagline(gpa, "lonely    ", "method ", "def", 3, "void lonely() {");
+    defer gpa.free(d);
+    const cache_path = try fx.build(&.{.{ .path = "src/A.java", .entry = .{ .hash = h(H1), .tags = d } }});
+    defer gpa.free(cache_path);
+    const out_path = try fx.absPath("_refs.tsv");
+    defer gpa.free(out_path);
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+    _ = try buildRefs(gpa, testing.io, &env, cache_path, out_path);
+
+    const r = try callersHelper(gpa, out_path, "lonely", false);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqual(@as(usize, 0), r.out.len);
+}
+
+test "callers: matching is exact, not prefix" {
+    const gpa = testing.allocator;
+    var fx = try CacheFixture.init(gpa);
+    defer fx.deinit();
+    const a = try tagline(gpa, "run       ", "call   ", "ref", 5, "a.run();");
+    defer gpa.free(a);
+    const b = try tagline(gpa, "runFast   ", "call   ", "ref", 6, "a.runFast();");
+    defer gpa.free(b);
+    const both = try std.fmt.allocPrint(gpa, "{s}\n{s}", .{ a, b });
+    defer gpa.free(both);
+    const cache_path = try fx.build(&.{.{ .path = "src/A.java", .entry = .{ .hash = h(H1), .tags = both } }});
+    defer gpa.free(cache_path);
+    const out_path = try fx.absPath("_refs.tsv");
+    defer gpa.free(out_path);
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+    _ = try buildRefs(gpa, testing.io, &env, cache_path, out_path);
+
+    const r = try callersHelper(gpa, out_path, "run", false);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, r.out, "\n"));
+    try testing.expect(std.mem.indexOf(u8, r.out, "a.run();") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "runFast") == null);
+}
+
+test "callers: the look fast path agrees with a full scan over the index" {
+    const gpa = testing.allocator;
+    var fx = try CacheFixture.init(gpa);
+    defer fx.deinit();
+    const names = [_][]const u8{ "alpha", "Beta", "gamma", "_under", "zz9", "Aardvark", "run", "runFast" };
+    var all: Io.Writer.Allocating = .init(gpa);
+    defer all.deinit();
+    for (names, 0..) |n, i| {
+        var padded_buf: [10]u8 = undefined;
+        @memset(&padded_buf, ' ');
+        @memcpy(padded_buf[0..n.len], n);
+        const expr = try std.fmt.allocPrint(gpa, "x.{s}();", .{n});
+        defer gpa.free(expr);
+        const t = try tagline(gpa, &padded_buf, "call   ", "ref", 5, expr);
+        defer gpa.free(t);
+        if (i > 0) try all.writer.writeAll("\n");
+        try all.writer.writeAll(t);
+    }
+    const cache_path = try fx.build(&.{.{ .path = "src/A.java", .entry = .{ .hash = h(H1), .tags = all.written() } }});
+    defer gpa.free(cache_path);
+    const out_path = try fx.absPath("_refs.tsv");
+    defer gpa.free(out_path);
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+    _ = try buildRefs(gpa, testing.io, &env, cache_path, out_path);
+
+    for (names) |n| {
+        const r = try callersHelper(gpa, out_path, n, false);
+        defer gpa.free(r.out);
+        const expected = try std.fmt.allocPrint(gpa, "src/A.java:5\tx.{s}();\n", .{n});
+        defer gpa.free(expected);
+        try testing.expectEqualStrings(expected, r.out);
+    }
+}
+
+test "callers: a name containing regex metacharacters is matched literally" {
+    const gpa = testing.allocator;
+    var fx = try CacheFixture.init(gpa);
+    defer fx.deinit();
+    const a = try tagline(gpa, "a.b       ", "call   ", "ref", 5, "x.a.b();");
+    defer gpa.free(a);
+    const cache_path = try fx.build(&.{.{ .path = "src/A.java", .entry = .{ .hash = h(H1), .tags = a } }});
+    defer gpa.free(cache_path);
+    const out_path = try fx.absPath("_refs.tsv");
+    defer gpa.free(out_path);
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+    _ = try buildRefs(gpa, testing.io, &env, cache_path, out_path);
+
+    const hit = try callersHelper(gpa, out_path, "a.b", false);
+    defer gpa.free(hit.out);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, hit.out, "\n"));
+
+    const miss = try callersHelper(gpa, out_path, "axb", false);
+    defer gpa.free(miss.out);
+    try testing.expectEqual(@as(usize, 0), miss.out.len);
 }

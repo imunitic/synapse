@@ -30,10 +30,21 @@ const Allocator = std.mem.Allocator;
 const label = "Synapse Vault index";
 
 pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map, argv0: []const u8) !void {
-    const vault = common.vault(gpa, io, env) orelse ""; // one guard below, not two paths
-    defer if (vault.len != 0) gpa.free(vault);
     var payload = common.Payload.read(gpa, io);
     defer payload.deinit();
+
+    const text = try build(gpa, io, env, argv0, payload.str("cwd") orelse ".") orelse return;
+    defer gpa.free(text);
+    try common.emitContext(gpa, io, "SessionStart", text);
+}
+
+/// The command itself, minus payload parsing -- separated so a test can
+/// drive it against a real fixture directly, without a real stdin payload.
+/// Returns the injected context text, or null when there's nothing to say.
+/// Caller owns the result.
+pub fn build(gpa: Allocator, io: Io, env: *std.process.Environ.Map, argv0: []const u8, cwd: []const u8) !?[]u8 {
+    const vault = common.vault(gpa, io, env) orelse ""; // one guard below, not two paths
+    defer if (vault.len != 0) gpa.free(vault);
 
     var synapse_line: ?[]u8 = null;
     defer if (synapse_line) |s| gpa.free(s);
@@ -82,7 +93,7 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map, argv0: []const
 
     // The catalogue below needs the key to drop this repo's own namespace.
     const maybe_ns = if (vault.len != 0)
-        common.Namespace.resolve(gpa, io, env, payload.str("cwd") orelse ".")
+        common.Namespace.resolve(gpa, io, env, cwd)
     else
         null;
     defer if (maybe_ns) |ns| ns.deinit(gpa);
@@ -180,8 +191,8 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map, argv0: []const
         try text.writer.writeAll(p);
         wrote = true;
     }
-    if (!wrote) return;
-    try common.emitContext(gpa, io, "SessionStart", text.written());
+    if (!wrote) return null;
+    return try gpa.dupe(u8, text.written());
 }
 
 /// `name|remote` for every *other* namespace in the vault, byte-sorted (this
@@ -227,4 +238,315 @@ fn buildCatalogue(gpa: Allocator, io: Io, vault: []const u8, own: ?[]const u8) !
         try out.writer.writeAll(e);
     }
     return try out.toOwnedSlice();
+}
+
+const testing = std.testing;
+const fixture = @import("cmd_test_support.zig");
+
+const SessionStartFixture = struct {
+    fx: fixture.Fixture,
+
+    fn init(gpa: Allocator) !SessionStartFixture {
+        const fx = try fixture.Fixture.init(gpa);
+        return .{ .fx = fx };
+    }
+
+    fn deinit(self: *SessionStartFixture) void {
+        self.fx.deinit();
+    }
+
+    /// A separate step from `init()`, called by every test right after
+    /// construction -- see `graph_cmd.zig`'s `CleanFixture.commit()` for
+    /// why a real file has to exist before `gitCommit()`, and
+    /// `brief_cmd.zig`'s `BriefFixture` for why this can't happen inside
+    /// `init()` itself.
+    fn commit(self: *SessionStartFixture) !void {
+        try self.fx.writeRepoFile("README.md", "seed\n");
+        try self.fx.gitCommit("init");
+    }
+
+    fn addRemote(self: *SessionStartFixture, remote_url: []const u8) !void {
+        const res = try self.fx.git(&.{ "remote", "add", "origin", remote_url });
+        res.deinit(self.fx.gpa);
+    }
+
+    fn writeVaultIndex(self: *SessionStartFixture) !void {
+        try self.fx.tmp.dir.writeFile(testing.io, .{
+            .sub_path = "vault/Index.md",
+            .data = "---\ntitle: \"Index\"\n---\n# Index\nTest index content.\n",
+        });
+    }
+
+    /// `synapse/{key}/Index.md`, real enough for `build()` to read (only
+    /// `remote:` matters to it) -- `key` need not correspond to a real repo
+    /// on disk, for the catalogue's "foreign" namespaces.
+    fn writeNamespace(self: *SessionStartFixture, key: []const u8, remote: []const u8) !void {
+        try self.fx.writeIndex(key, remote, "main");
+    }
+
+    /// `dir` is an absolute path, potentially outside the fixture's own tmp
+    /// root (the argv0-fallback test needs a `plugin/hooks/../` shape) --
+    /// written through `Io.Dir.cwd()` directly rather than the fixture's
+    /// own relative-rooted `tmp.dir`, the same pattern `staleness.zig`'s own
+    /// tests already use for paths outside the tmp tree.
+    fn writeClaudeMd(self: *SessionStartFixture, dir: []const u8, content: []const u8) !void {
+        try Io.Dir.cwd().createDirPath(self.fx.io(), dir);
+        const path = try std.fmt.allocPrint(self.fx.gpa, "{s}/synapse-claude.md", .{dir});
+        defer self.fx.gpa.free(path);
+        try Io.Dir.cwd().writeFile(self.fx.io(), .{ .sub_path = path, .data = content });
+    }
+
+    fn inject(self: *SessionStartFixture, argv0: []const u8, cwd: []const u8) !?[]u8 {
+        return build(self.fx.gpa, self.fx.io(), &self.fx.env, argv0, cwd);
+    }
+};
+
+test "no vault index and no synapse namespace: offers to seed Index.md, states the namespace absence" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.commit();
+
+    const text = (try sf.inject("", sf.fx.repo)).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "No Index.md found at") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "Offer to seed it") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "No Synapse namespace covers synapse/repo@main/") != null);
+}
+
+test "vault index present, no synapse namespace: says so rather than staying silent" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.writeVaultIndex();
+    try sf.commit();
+
+    const text = (try sf.inject("", sf.fx.repo)).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "Test index content.") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "No Synapse namespace covers synapse/repo@main/") != null);
+    // Ordinary, not alarming: it must not read as something being broken.
+    try testing.expect(std.mem.indexOf(u8, text, "That is normal") != null);
+}
+
+test "synapse namespace with matching remote: appends pointer line" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.writeVaultIndex();
+    try sf.commit();
+    try sf.addRemote("git@github.com:example/repo.git");
+    try sf.writeNamespace("repo@main", "git@github.com:example/repo.git");
+
+    const text = (try sf.inject("", sf.fx.repo)).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "Synapse namespace for this repo and branch: synapse/repo@main/Index.md") != null);
+}
+
+test "synapse namespace with mismatched remote: skips pointer and says so" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.writeVaultIndex();
+    try sf.commit();
+    try sf.addRemote("git@github.com:example/repo.git");
+    try sf.writeNamespace("repo@main", "git@github.com:someone-else/unrelated.git");
+
+    const text = (try sf.inject("", sf.fx.repo)).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "doesn't match") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "Skipping the pointer") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "Synapse namespace for this repo:") == null);
+    // Both causes named, and a remedy. A changed remote is the likelier of
+    // the two and used to go unmentioned, so the message read as an
+    // accusation of a name collision with nothing to do about it.
+    try testing.expect(std.mem.indexOf(u8, text, "this repo's remote changed") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "/synapse-rebuild-full") != null);
+}
+
+test "synapse namespace keyed by path fallback when repo has no remote" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.writeVaultIndex();
+    try sf.commit(); // no remote
+    const remote = common.Namespace.resolve(gpa, sf.fx.io(), &sf.fx.env, sf.fx.repo) orelse return error.NoIdentity;
+    defer remote.deinit(gpa);
+    try sf.writeNamespace("repo@main", remote.remote);
+
+    const text = (try sf.inject("", sf.fx.repo)).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "Synapse namespace for this repo and branch: synapse/repo@main/Index.md") != null);
+}
+
+test "cwd outside any git repo: base index still injected, no synapse logic invoked" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.writeVaultIndex();
+
+    const text = (try sf.inject("", "/tmp")).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "Test index content.") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "Synapse namespace") == null);
+}
+
+test "no OBSIDIAN_VAULT_DIR configured: warns instead of staying silent, synapse check skipped" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.commit();
+    try sf.addRemote("git@github.com:example/repo.git");
+    _ = sf.fx.env.swapRemove("OBSIDIAN_VAULT_DIR");
+
+    const text = (try sf.inject("", sf.fx.repo)).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "Synapse Vault isn't configured") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "Synapse namespace") == null);
+}
+
+test "synapse-claude.md is injected from $CLAUDE_PLUGIN_ROOT when that's set" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.commit();
+    const plugin_dir = try std.fmt.allocPrint(gpa, "{s}/plugin", .{sf.fx.root});
+    defer gpa.free(plugin_dir);
+    try sf.writeClaudeMd(plugin_dir, "STANDING INSTRUCTIONS MARKER\n");
+    try sf.fx.env.put("CLAUDE_PLUGIN_ROOT", plugin_dir);
+
+    const text = (try sf.inject("", sf.fx.repo)).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "STANDING INSTRUCTIONS MARKER") != null);
+}
+
+test "synapse-claude.md, when CLAUDE_PLUGIN_ROOT is unset, falls back to one directory above this binary" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.commit();
+    const plugin_dir = try std.fmt.allocPrint(gpa, "{s}/plugin", .{sf.fx.root});
+    defer gpa.free(plugin_dir);
+    try sf.writeClaudeMd(plugin_dir, "STANDING INSTRUCTIONS MARKER\n");
+    // `hooks/` has to exist as a real directory even though argv0 itself
+    // doesn't need to be a real executable (build() only ever takes its
+    // dirname to resolve a sibling file, never executes it) -- the
+    // resolved path traverses through it via `..`, and path resolution
+    // fails if an intermediate component doesn't exist on disk.
+    const hooks_dir = try std.fmt.allocPrint(gpa, "{s}/plugin/hooks", .{sf.fx.root});
+    defer gpa.free(hooks_dir);
+    try Io.Dir.cwd().createDirPath(sf.fx.io(), hooks_dir);
+    const argv0 = try std.fmt.allocPrint(gpa, "{s}/synapse-hook", .{hooks_dir});
+    defer gpa.free(argv0);
+
+    const text = (try sf.inject(argv0, sf.fx.repo)).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "STANDING INSTRUCTIONS MARKER") != null);
+}
+
+test "no synapse-claude.md anywhere resolvable: injection is silently skipped" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.commit();
+
+    const text = (try sf.inject("", sf.fx.repo)).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "STANDING INSTRUCTIONS MARKER") == null);
+}
+
+test "catalogue: other namespaces are listed, the cwd repo's own is not" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.writeVaultIndex();
+    try sf.commit();
+    try sf.addRemote("git@github.com:example/repo.git");
+    try sf.writeNamespace("repo@main", "git@github.com:example/repo.git");
+    try sf.writeNamespace("mono-repo", "ssh://git@example.com/mono-repo.git");
+    try sf.writeNamespace("shared-lib", "ssh://git@example.com/shared-lib.git");
+
+    const text = (try sf.inject("", sf.fx.repo)).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "Other Synapse namespaces in this vault") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "mono-repo|ssh://git@example.com/mono-repo.git") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "shared-lib|ssh://git@example.com/shared-lib.git") != null);
+    // own namespace excluded -- it already got the verified pointer above
+    try testing.expect(std.mem.indexOf(u8, text, "repo@main|") == null);
+}
+
+test "catalogue: only the cwd repo has a namespace, so no catalogue is emitted" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.writeVaultIndex();
+    try sf.commit();
+    try sf.addRemote("git@github.com:example/repo.git");
+    try sf.writeNamespace("repo@main", "git@github.com:example/repo.git");
+
+    const text = (try sf.inject("", sf.fx.repo)).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "Other Synapse namespaces") == null);
+    // the pointer itself is unaffected
+    try testing.expect(std.mem.indexOf(u8, text, "Synapse namespace for this repo") != null);
+}
+
+test "catalogue: no synapse/ directory at all means nothing extra is emitted" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.writeVaultIndex();
+    try sf.commit();
+
+    const text = (try sf.inject("", sf.fx.repo)).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "Other Synapse namespaces") == null);
+}
+
+test "catalogue: ordering is byte sorted, not directory creation order" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.writeVaultIndex();
+    try sf.commit();
+    // created in deliberately non-alphabetical order
+    try sf.writeNamespace("zzz-last", "ssh://git@example.com/z.git");
+    try sf.writeNamespace("mmm-middle", "ssh://git@example.com/m.git");
+    try sf.writeNamespace("aaa-first", "ssh://git@example.com/a.git");
+
+    const text = (try sf.inject("", sf.fx.repo)).?;
+    defer gpa.free(text);
+    const first = std.mem.indexOf(u8, text, "aaa-first|").?;
+    const middle = std.mem.indexOf(u8, text, "mmm-middle|").?;
+    const last = std.mem.indexOf(u8, text, "zzz-last|").?;
+    try testing.expect(first < middle);
+    try testing.expect(middle < last);
+}
+
+test "catalogue: outside any git repo, every namespace is listed and no pointer is emitted" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.writeVaultIndex();
+    try sf.writeNamespace("core-lib", "ssh://git@example.com/core-lib.git");
+    try sf.writeNamespace("mono-repo", "ssh://git@example.com/mono-repo.git");
+
+    const text = (try sf.inject("", "/tmp")).?;
+    defer gpa.free(text);
+    // nothing to exclude, so both appear
+    try testing.expect(std.mem.indexOf(u8, text, "core-lib|") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "mono-repo|") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "Synapse namespace for this repo") == null);
+}
+
+test "catalogue: emitted even when the vault has no Index.md to inject" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.commit();
+    try sf.writeNamespace("mono-repo", "ssh://git@example.com/mono-repo.git");
+
+    const text = (try sf.inject("", sf.fx.repo)).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "mono-repo|") != null);
 }

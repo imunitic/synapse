@@ -60,6 +60,25 @@ pub fn run(
         } else return usage();
     }
     const lists = lists_dir orelse return usage();
+    return write(gpa, io, env, refs_path, lists, out_dir, top);
+}
+
+/// The rule itself, minus argument parsing -- separated so a test can drive
+/// it against real files without going through the CLI. `refs_path`/
+/// `out_dir` still resolve against `$SYNAPSE_WORK_DIR` when null, same as
+/// `run()`'s own default, so a test can exercise that path too by setting
+/// the env var directly instead of passing `--refs`/`--out`.
+pub fn write(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    refs_path_in: ?[]const u8,
+    lists: []const u8,
+    out_dir_in: ?[]const u8,
+    top: usize,
+) !u8 {
+    var refs_path = refs_path_in;
+    var out_dir = out_dir_in;
 
     const cwd = Io.Dir.cwd();
     cwd.access(io, lists, .{}) catch {
@@ -158,4 +177,259 @@ fn readLists(
 
 fn firstLine(text: []const u8) []const u8 {
     return text[0 .. std.mem.indexOfScalar(u8, text, '\n') orelse text.len];
+}
+
+const testing = std.testing;
+
+/// A real `_refs.tsv` and `lists/` dir in a real temp dir -- `write()`
+/// reads both by path, same shape `synapse build-refs`/`build-lists`
+/// produce.
+const Fixture = struct {
+    tmp: testing.TmpDir,
+    refs: Io.Writer.Allocating,
+    gpa: Allocator,
+
+    fn init(gpa: Allocator) !Fixture {
+        var tmp = testing.tmpDir(.{});
+        errdefer tmp.cleanup();
+        try tmp.dir.createDirPath(testing.io, "lists");
+        try tmp.dir.createDirPath(testing.io, "out");
+        return .{ .tmp = tmp, .refs = .init(gpa), .gpa = gpa };
+    }
+
+    fn deinit(self: *Fixture) void {
+        self.refs.deinit();
+        self.tmp.cleanup();
+    }
+
+    /// One `_refs.tsv` row: `name <TAB> def|ref <TAB> kind <TAB> path:line <TAB> expr`.
+    fn refline(
+        self: *Fixture,
+        name: []const u8,
+        role: []const u8,
+        kind: []const u8,
+        path: []const u8,
+        line: u32,
+        expr: []const u8,
+    ) !void {
+        try self.refs.writer.print("{s}\t{s}\t{s}\t{s}:{d}\t{s}\n", .{ name, role, kind, path, line, expr });
+    }
+
+    /// A `synapse build-lists`-shaped `lists/` entry: `NN.txt` (one path per
+    /// line) and `NN.title`.
+    fn writeList(self: *Fixture, nn: []const u8, title: []const u8, paths: []const []const u8) !void {
+        const title_path = try std.fmt.allocPrint(self.gpa, "lists/{s}.title", .{nn});
+        defer self.gpa.free(title_path);
+        try self.tmp.dir.writeFile(testing.io, .{ .sub_path = title_path, .data = title });
+
+        var body: Io.Writer.Allocating = .init(self.gpa);
+        defer body.deinit();
+        for (paths) |p| try body.writer.print("{s}\n", .{p});
+        const txt_path = try std.fmt.allocPrint(self.gpa, "lists/{s}.txt", .{nn});
+        defer self.gpa.free(txt_path);
+        try self.tmp.dir.writeFile(testing.io, .{ .sub_path = txt_path, .data = body.written() });
+    }
+
+    fn absPath(self: *Fixture, rel: []const u8) ![]const u8 {
+        var buf: [Io.Dir.max_path_bytes]u8 = undefined;
+        const root = buf[0..try self.tmp.dir.realPath(testing.io, &buf)];
+        return std.fmt.allocPrint(self.gpa, "{s}/{s}", .{ root, rel });
+    }
+
+    /// Writes `_refs.tsv` (everything accumulated via `refline` so far) and
+    /// calls `write()` with `--refs`/`--lists`/`--out` all explicit --
+    /// `context.workDir` is never reached. Caller frees `.out`.
+    fn run(self: *Fixture, top: usize) !struct { code: u8, out: []const u8 } {
+        try self.tmp.dir.writeFile(testing.io, .{ .sub_path = "_refs.tsv", .data = self.refs.written() });
+        const refs_path = try self.absPath("_refs.tsv");
+        defer self.gpa.free(refs_path);
+        const lists_path = try self.absPath("lists");
+        defer self.gpa.free(lists_path);
+        const out_path = try self.absPath("out");
+        defer self.gpa.free(out_path);
+
+        var env = std.process.Environ.Map.init(self.gpa);
+        defer env.deinit();
+        const code = try write(self.gpa, testing.io, &env, refs_path, lists_path, out_path, top);
+
+        const links_path = try std.fmt.allocPrint(self.gpa, "out/links.tsv", .{});
+        defer self.gpa.free(links_path);
+        const out = self.tmp.dir.readFileAlloc(testing.io, links_path, self.gpa, .limited(1 << 20)) catch "";
+        return .{ .code = code, .out = out };
+    }
+};
+
+test "a ref in one node to a def in another is an edge, weighted and evidenced" {
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeList("01", "A", &.{"a/Widget.java"});
+    try fx.writeList("02", "B", &.{"b/Gadget.java"});
+    try fx.refline("Helper", "def", "class", "b/Gadget.java", 1, "class Helper {");
+    try fx.refline("Helper", "ref", "call", "a/Widget.java", 5, "Helper.run();");
+
+    const r = try fx.run(8);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqualStrings("A\tB\t1\tHelper\n", r.out);
+}
+
+test "a ref and its def in the same node produce no edge" {
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeList("01", "A", &.{ "a/One.java", "a/Two.java" });
+    try fx.refline("Local", "def", "class", "a/One.java", 1, "class Local {");
+    try fx.refline("Local", "ref", "call", "a/Two.java", 2, "Local.run();");
+
+    const r = try fx.run(8);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqual(@as(usize, 0), r.out.len);
+}
+
+test "a symbol referenced from too many nodes is filtered out, not just down-weighted" {
+    // rare_max = max(2, 4/20) = 2. Three referencing nodes exceeds it.
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeList("01", "D", &.{"d/Def.java"});
+    try fx.writeList("02", "A", &.{"a/A.java"});
+    try fx.writeList("03", "B", &.{"b/B.java"});
+    try fx.writeList("04", "C", &.{"c/C.java"});
+    try fx.refline("Common", "def", "class", "d/Def.java", 1, "class Common {");
+    try fx.refline("Common", "ref", "call", "a/A.java", 1, "Common.run();");
+    try fx.refline("Common", "ref", "call", "b/B.java", 1, "Common.run();");
+    try fx.refline("Common", "ref", "call", "c/C.java", 1, "Common.run();");
+
+    const r = try fx.run(8);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(usize, 0), r.out.len);
+}
+
+test "weight is distinct rare symbols, so two calls to the same one still weigh one" {
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeList("01", "B", &.{"b/B.java"});
+    try fx.writeList("02", "A", &.{"a/A.java"});
+    try fx.refline("Widget", "def", "class", "b/B.java", 1, "class Widget {");
+    try fx.refline("Widget", "ref", "call", "a/A.java", 3, "Widget.run();");
+    try fx.refline("Widget", "ref", "call", "a/A.java", 9, "Widget.run();");
+
+    const r = try fx.run(8);
+    defer gpa.free(r.out);
+    try testing.expect(std.mem.indexOf(u8, r.out, "\t1\t") != null);
+}
+
+test "--top caps edges kept per node, strongest first" {
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeList("01", "A", &.{"a/A.java"});
+    try fx.writeList("02", "B", &.{"b/B.java"});
+    try fx.writeList("03", "C", &.{"c/C.java"});
+    try fx.writeList("04", "D", &.{"d/D.java"});
+    try fx.refline("X", "def", "class", "b/B.java", 1, "class X {");
+    try fx.refline("X", "ref", "call", "a/A.java", 1, "X.run();");
+    try fx.refline("Y", "def", "class", "c/C.java", 1, "class Y {");
+    try fx.refline("Y", "ref", "call", "a/A.java", 2, "Y.run();");
+    try fx.refline("Z", "def", "class", "d/D.java", 1, "class Z {");
+    try fx.refline("Z", "ref", "call", "a/A.java", 3, "Z.run();");
+
+    const capped = try fx.run(2);
+    defer gpa.free(capped.out);
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, capped.out, "\n"));
+
+    const uncapped = try fx.run(0);
+    defer gpa.free(uncapped.out);
+    try testing.expectEqual(@as(usize, 3), std.mem.count(u8, uncapped.out, "\n"));
+}
+
+test "a path claimed by two nodes fans out an edge from each" {
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeList("01", "B", &.{"b/B.java"});
+    try fx.writeList("02", "A", &.{"a/A.java"});
+    try fx.writeList("03", "C", &.{"a/A.java"});
+    try fx.refline("Alpha", "def", "class", "b/B.java", 1, "class Alpha {");
+    try fx.refline("Alpha", "ref", "call", "a/A.java", 1, "Alpha.run();");
+
+    const r = try fx.run(8);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, r.out, "A\t"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, r.out, "C\t"));
+}
+
+test "a missing --lists dir is an error, not a silent empty result" {
+    const gpa = testing.allocator;
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+
+    const code = try write(gpa, testing.io, &env, "/nonexistent/_refs.tsv", "/nonexistent/lists", "/nonexistent/out", 8);
+    try testing.expectEqual(@as(u8, 1), code);
+}
+
+test "an empty --lists dir is an error, pointing at what to run" {
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+    // lists/ exists (created by Fixture.init) but is empty.
+
+    const r = try fx.run(8);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 1), r.code);
+}
+
+test "a missing _refs.tsv points at build-refs rather than failing opaquely" {
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeList("01", "A", &.{"a/A.java"});
+    const lists_path = try fx.absPath("lists");
+    defer gpa.free(lists_path);
+    const out_path = try fx.absPath("out");
+    defer gpa.free(out_path);
+
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+    const code = try write(gpa, testing.io, &env, "/nonexistent/nope.tsv", lists_path, out_path, 8);
+    try testing.expectEqual(@as(u8, 1), code);
+}
+
+test "an empty refs table and a real lists dir produce an empty, present links.tsv" {
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeList("01", "A", &.{"a/A.java"});
+    try fx.writeList("02", "B", &.{"b/B.java"});
+
+    const r = try fx.run(8);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqual(@as(usize, 0), r.out.len);
+}
+
+test "defaults to SYNAPSE_WORK_DIR when --refs/--out are omitted" {
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeList("01", "A", &.{"a/A.java"});
+    try fx.writeList("02", "B", &.{"b/B.java"});
+    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "_refs.tsv", .data = fx.refs.written() });
+
+    const work_path = try fx.absPath(".");
+    defer gpa.free(work_path);
+    const lists_path = try fx.absPath("lists");
+    defer gpa.free(lists_path);
+
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+    try env.put("SYNAPSE_WORK_DIR", work_path);
+
+    const code = try write(gpa, testing.io, &env, null, lists_path, null, 8);
+    try testing.expectEqual(@as(u8, 0), code);
+    const links = try fx.tmp.dir.readFileAlloc(testing.io, "links.tsv", gpa, .limited(1 << 20));
+    defer gpa.free(links);
 }

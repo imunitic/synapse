@@ -71,6 +71,35 @@ pub fn run(
     }
     const lists = lists_dir orelse return usage();
 
+    return build(gpa, io, env, .{
+        .lists = lists,
+        .rank_dir = rank_dir,
+        .links_path = links_path,
+        .repo = repo,
+        .out_dir = out_dir,
+    });
+}
+
+pub const Options = struct {
+    lists: []const u8,
+    rank_dir: ?[]const u8 = null,
+    links_path: ?[]const u8 = null,
+    repo: ?[]const u8 = null,
+    out_dir: ?[]const u8 = null,
+};
+
+pub fn build(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    opts: Options,
+) !u8 {
+    const lists = opts.lists;
+    var rank_dir = opts.rank_dir;
+    var links_path = opts.links_path;
+    var out_dir = opts.out_dir;
+    const repo = opts.repo;
+
     const cwd = Io.Dir.cwd();
     cwd.access(io, lists, .{}) catch {
         std.debug.print("{s}: no such lists dir: {s}\n", .{ prog, lists });
@@ -93,7 +122,11 @@ pub fn run(
     if (rank_dir == null) rank_dir = try std.fmt.allocPrint(arena, "{s}/rank", .{derived.?.path});
     if (links_path == null) links_path = try std.fmt.allocPrint(arena, "{s}/links.tsv", .{derived.?.path});
 
-    const root = try repoRoot(arena, io, repo);
+    // `gpa`, not `arena`: `process.run` drains a spawned child's stdout
+    // inline while draining stderr concurrently on another thread, and
+    // `ArenaAllocator` isn't safe for that concurrent use.
+    const root = try repoRoot(gpa, io, repo);
+    defer gpa.free(root);
     if (root.len == 0) {
         std.debug.print("{s}: not inside a git repo: {s}\n", .{ prog, repo orelse "." });
         return 1;
@@ -244,4 +277,282 @@ fn readLists(arena: Allocator, io: Io, dir: []const u8) ![]NodeInfo {
 
 fn firstLine(text: []const u8) []const u8 {
     return text[0 .. std.mem.indexOfScalar(u8, text, '\n') orelse text.len];
+}
+
+const testing = std.testing;
+const fixture = @import("cmd_test_support.zig");
+
+/// A real git repo (`brief` needs `git rev-parse --show-toplevel` to
+/// resolve `--repo`'s root) plus real `lists`/`rank`/`links.tsv` inputs --
+/// no vault, no curl, no tagging, so most of `cmd_test_support.Fixture`
+/// goes unused, but its real-git support (`gitCommit()`) is the one thing
+/// this file genuinely needs.
+///
+/// `commit()` is a separate step from `init()`, called once by every test
+/// right after construction, never inside `init()` itself -- confirmed
+/// live as the fix for a real hang: `gitCommit()` spawns real subprocesses,
+/// which binds the fixture's `Io.Threaded` worker threads to `init()`'s own
+/// *local* copy of the struct; `init()` then returns that struct by value,
+/// moving it to the caller's stack slot, and the already-spawned worker
+/// keeps servicing the old (now-orphaned) address forever while every
+/// later call operates on the moved one -- the real subprocess exits fine
+/// (reaped as a zombie), but its async stderr-drain future is never again
+/// signalled, and the caller hangs waiting on it. Every other fixture
+/// wrapper in this codebase already avoids this by construction, never
+/// spawning a subprocess before its own `init()` returns.
+const BriefFixture = struct {
+    fx: fixture.Fixture,
+
+    fn init(gpa: Allocator) !BriefFixture {
+        var fx = try fixture.Fixture.init(gpa);
+        errdefer fx.deinit();
+        try fx.tmp.dir.createDirPath(testing.io, "lists");
+        try fx.tmp.dir.createDirPath(testing.io, "rank");
+        try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "links.tsv", .data = "" });
+        try fx.writeRepoFile(".gitkeep", "");
+        return .{ .fx = fx };
+    }
+
+    fn deinit(self: *BriefFixture) void {
+        self.fx.deinit();
+    }
+
+    /// Commits the repo for real. Call once, after every `writeList`/
+    /// `writePool`/`appendLink` call for a test, and always before `run()`.
+    fn commit(self: *BriefFixture) !void {
+        try self.fx.gitCommit("init");
+    }
+
+    fn writeList(self: *BriefFixture, nn: []const u8, title: []const u8, paths: []const []const u8) !void {
+        const title_sub = try std.fmt.allocPrint(self.fx.gpa, "lists/{s}.title", .{nn});
+        defer self.fx.gpa.free(title_sub);
+        const title_line = try std.fmt.allocPrint(self.fx.gpa, "{s}\n", .{title});
+        defer self.fx.gpa.free(title_line);
+        try self.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = title_sub, .data = title_line });
+
+        var body: Io.Writer.Allocating = .init(self.fx.gpa);
+        defer body.deinit();
+        for (paths) |p| try body.writer.print("{s}\n", .{p});
+        const txt_sub = try std.fmt.allocPrint(self.fx.gpa, "lists/{s}.txt", .{nn});
+        defer self.fx.gpa.free(txt_sub);
+        try self.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = txt_sub, .data = body.written() });
+    }
+
+    fn writePool(self: *BriefFixture, nn: []const u8, pool: []const u8, tier: []const u8, score: []const u8, paths: []const []const u8) !void {
+        var body: Io.Writer.Allocating = .init(self.fx.gpa);
+        defer body.deinit();
+        for (paths) |p| try body.writer.print("{s}\t{s}\t{s}\n", .{ tier, score, p });
+        const sub = try std.fmt.allocPrint(self.fx.gpa, "rank/{s}.{s}.tsv", .{ nn, pool });
+        defer self.fx.gpa.free(sub);
+        try self.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = sub, .data = body.written() });
+    }
+
+    fn appendLink(self: *BriefFixture, from: []const u8, to: []const u8, weight: []const u8, symbols: []const u8) !void {
+        const existing = self.fx.tmp.dir.readFileAlloc(testing.io, "links.tsv", self.fx.gpa, .limited(1 << 20)) catch "";
+        defer if (existing.len != 0) self.fx.gpa.free(existing);
+        const line = try std.fmt.allocPrint(self.fx.gpa, "{s}\t{s}\t{s}\t{s}\n", .{ from, to, weight, symbols });
+        defer self.fx.gpa.free(line);
+        const combined = try std.fmt.allocPrint(self.fx.gpa, "{s}{s}", .{ existing, line });
+        defer self.fx.gpa.free(combined);
+        try self.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "links.tsv", .data = combined });
+    }
+
+    fn listsDir(self: *BriefFixture) ![]const u8 {
+        return std.fmt.allocPrint(self.fx.gpa, "{s}/lists", .{self.fx.root});
+    }
+
+    fn rankDir(self: *BriefFixture) ![]const u8 {
+        return std.fmt.allocPrint(self.fx.gpa, "{s}/rank", .{self.fx.root});
+    }
+
+    fn linksPath(self: *BriefFixture) ![]const u8 {
+        return std.fmt.allocPrint(self.fx.gpa, "{s}/links.tsv", .{self.fx.root});
+    }
+
+    /// Runs `build` with `--lists`/`--rank`/`--links`/`--repo`/`--out` all
+    /// resolved to the fixture's own real paths, unless overridden. Call
+    /// `commit()` first.
+    fn run(self: *BriefFixture, over: struct {
+        lists: ?[]const u8 = null,
+        rank_dir: ?[]const u8 = null,
+        links_path: ?[]const u8 = null,
+        repo: ?[]const u8 = null,
+        out_dir: ?[]const u8 = null,
+    }) !u8 {
+        const gpa = self.fx.gpa;
+        const lists = over.lists orelse try self.listsDir();
+        defer if (over.lists == null) gpa.free(lists);
+        const rank_dir = over.rank_dir orelse try self.rankDir();
+        defer if (over.rank_dir == null) gpa.free(rank_dir);
+        const links_path = over.links_path orelse try self.linksPath();
+        defer if (over.links_path == null) gpa.free(links_path);
+        const repo = over.repo orelse self.fx.repo;
+        const out_dir = over.out_dir orelse self.fx.work;
+
+        return build(gpa, self.fx.io(), &self.fx.env, .{
+            .lists = lists,
+            .rank_dir = rank_dir,
+            .links_path = links_path,
+            .repo = repo,
+            .out_dir = out_dir,
+        });
+    }
+
+    fn readBrief(self: *BriefFixture, gpa: Allocator, nn: []const u8) !?[]u8 {
+        const sub = try std.fmt.allocPrint(gpa, "work/brief/{s}.md", .{nn});
+        defer gpa.free(sub);
+        return self.fx.tmp.dir.readFileAlloc(testing.io, sub, gpa, .limited(1 << 20)) catch |e| switch (e) {
+            error.FileNotFound => null,
+            else => e,
+        };
+    }
+};
+
+test "brief: writes one brief per node, with title, source count, both pools and this node's own edges" {
+    const gpa = testing.allocator;
+    var bf = try BriefFixture.init(gpa);
+    defer bf.deinit();
+    try bf.writeList("01", "A", &.{ "a/One.java", "a/Two.java" });
+    try bf.writeList("02", "B", &.{"b/Three.java"});
+    try bf.writePool("01", "summary", "code", "3.5", &.{"a/One.java"});
+    try bf.writePool("01", "crux", "code", "3.5", &.{"a/One.java"});
+    try bf.writePool("02", "summary", "code", "1.0", &.{"b/Three.java"});
+    try bf.writePool("02", "crux", "code", "1.0", &.{"b/Three.java"});
+    try bf.appendLink("A", "B", "2", "Widget Gadget");
+    try bf.appendLink("B", "A", "1", "Helper");
+    try bf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try bf.run(.{}));
+
+    const a = (try bf.readBrief(gpa, "01")).?;
+    defer gpa.free(a);
+    try testing.expect(std.mem.startsWith(u8, a, "# A"));
+    try testing.expect(std.mem.indexOf(u8, a, "(2 files, exhaustive") != null);
+    try testing.expect(std.mem.indexOf(u8, a, "a/One.java") != null);
+    try testing.expect(std.mem.indexOf(u8, a, "A\tB\t2\tWidget Gadget") != null);
+    try testing.expect(std.mem.indexOf(u8, a, "B\tA\t1\tHelper") == null);
+
+    const b = (try bf.readBrief(gpa, "02")).?;
+    defer gpa.free(b);
+    try testing.expect(std.mem.startsWith(u8, b, "# B"));
+    try testing.expect(std.mem.indexOf(u8, b, "B\tA\t1\tHelper") != null);
+    try testing.expect(std.mem.indexOf(u8, b, "Widget Gadget") == null);
+}
+
+test "brief: every node's title is listed for judging part_of, not just the current one" {
+    const gpa = testing.allocator;
+    var bf = try BriefFixture.init(gpa);
+    defer bf.deinit();
+    try bf.writeList("01", "A", &.{"a/One.java"});
+    try bf.writeList("02", "B", &.{"b/Two.java"});
+    try bf.writeList("03", "C", &.{"c/Three.java"});
+    try bf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try bf.run(.{}));
+    const a = (try bf.readBrief(gpa, "01")).?;
+    defer gpa.free(a);
+    try testing.expect(std.mem.indexOf(u8, a, "- A") != null);
+    try testing.expect(std.mem.indexOf(u8, a, "- B") != null);
+    try testing.expect(std.mem.indexOf(u8, a, "- C") != null);
+}
+
+test "brief: a node with no candidate links gets (none), not an empty section" {
+    const gpa = testing.allocator;
+    var bf = try BriefFixture.init(gpa);
+    defer bf.deinit();
+    try bf.writeList("01", "A", &.{"a/One.java"});
+    try bf.writeList("02", "B", &.{"b/Two.java"});
+    try bf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try bf.run(.{}));
+    const a = (try bf.readBrief(gpa, "01")).?;
+    defer gpa.free(a);
+    try testing.expect(std.mem.indexOf(u8, a, "Candidate links") != null);
+    try testing.expect(std.mem.indexOf(u8, a, "\n(none)") != null);
+}
+
+test "brief: missing rank output is advice, not fatal: empty pools, still succeeds" {
+    const gpa = testing.allocator;
+    var bf = try BriefFixture.init(gpa);
+    defer bf.deinit();
+    try bf.writeList("01", "A", &.{"a/One.java"});
+    try bf.commit();
+
+    try testing.expectEqual(@as(u8, 0), try bf.run(.{}));
+    const a = (try bf.readBrief(gpa, "01")).?;
+    defer gpa.free(a);
+    try testing.expect(std.mem.indexOf(u8, a, "Summary pool") != null);
+    try testing.expect(std.mem.indexOf(u8, a, "\n(none)") != null);
+}
+
+test "brief: missing links.tsv is advice, not fatal: every node's links are (none)" {
+    const gpa = testing.allocator;
+    var bf = try BriefFixture.init(gpa);
+    defer bf.deinit();
+    try bf.writeList("01", "A", &.{"a/One.java"});
+    try bf.writeList("02", "B", &.{"b/Two.java"});
+    try bf.commit();
+    const missing = try std.fmt.allocPrint(gpa, "{s}/nope.tsv", .{bf.fx.root});
+    defer gpa.free(missing);
+
+    try testing.expectEqual(@as(u8, 0), try bf.run(.{ .links_path = missing }));
+    const a = (try bf.readBrief(gpa, "01")).?;
+    defer gpa.free(a);
+    try testing.expect(std.mem.indexOf(u8, a, "(none)") != null);
+}
+
+test "brief: a missing --lists dir is an error, not a silent empty result" {
+    const gpa = testing.allocator;
+    var bf = try BriefFixture.init(gpa);
+    defer bf.deinit();
+    try bf.commit();
+    const missing = try std.fmt.allocPrint(gpa, "{s}/nope", .{bf.fx.root});
+    defer gpa.free(missing);
+
+    try testing.expectEqual(@as(u8, 1), try bf.run(.{ .lists = missing }));
+}
+
+test "brief: an empty --lists dir is an error, pointing at what to run" {
+    const gpa = testing.allocator;
+    var bf = try BriefFixture.init(gpa);
+    defer bf.deinit();
+    try bf.commit();
+    try bf.fx.tmp.dir.createDirPath(testing.io, "empty-lists");
+    const empty = try std.fmt.allocPrint(gpa, "{s}/empty-lists", .{bf.fx.root});
+    defer gpa.free(empty);
+
+    try testing.expectEqual(@as(u8, 1), try bf.run(.{ .lists = empty }));
+}
+
+test "brief: a --repo that is not a git repo is an error, not an empty root in a plausible-looking brief" {
+    const gpa = testing.allocator;
+    var bf = try BriefFixture.init(gpa);
+    defer bf.deinit();
+    try bf.writeList("01", "A", &.{"a/One.java"});
+    try bf.commit();
+    // Not a subdirectory of the fixture's own tmp root: that root sits
+    // inside this very project's real git repo, so `git rev-parse
+    // --show-toplevel` would walk up and resolve to it instead of failing
+    // -- confirmed live. `/tmp` itself is the one directory this session
+    // has already established is reliably outside any git repo.
+    try testing.expectEqual(@as(u8, 1), try bf.run(.{ .repo = "/tmp" }));
+    try testing.expect((try bf.readBrief(gpa, "01")) == null);
+}
+
+test "brief: defaults to SYNAPSE_WORK_DIR for --rank/--links/--out when omitted" {
+    const gpa = testing.allocator;
+    var bf = try BriefFixture.init(gpa);
+    defer bf.deinit();
+    try bf.writeList("01", "A", &.{"a/One.java"});
+    try bf.commit();
+
+    const lists = try bf.listsDir();
+    defer gpa.free(lists);
+    const code = try build(gpa, bf.fx.io(), &bf.fx.env, .{
+        .lists = lists,
+        .repo = bf.fx.repo,
+    });
+    try testing.expectEqual(@as(u8, 0), code);
+    const a = (try bf.readBrief(gpa, "01")).?;
+    defer gpa.free(a);
 }

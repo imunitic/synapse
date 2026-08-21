@@ -27,13 +27,33 @@ const n = 25;
 
 pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map, self_path: []const u8) !void {
     const home = env.get("HOME") orelse return;
-    const state_dir = try std.fmt.allocPrint(gpa, "{s}/.claude/state", .{home});
-    defer gpa.free(state_dir);
-    Io.Dir.cwd().createDirPath(io, state_dir) catch {};
 
     var payload = common.Payload.read(gpa, io);
     defer payload.deinit();
     const sid = payload.str("session_id") orelse "default";
+
+    const result = try tick(gpa, io, env, home, sid);
+    defer if (result.text) |t| gpa.free(t);
+    if (result.text) |t| try common.emitContext(gpa, io, "Stop", t);
+
+    try maybePush(gpa, io, env, result.total, self_path);
+}
+
+pub const Tick = struct {
+    /// The check-in nudge, when this call just re-armed. Caller owns it.
+    text: ?[]u8,
+    /// The running total turn count, across every call for this session --
+    /// what `maybePush` gates on, independent of whether a nudge fired.
+    total: usize,
+};
+
+/// Advances this session's turn counters and decides whether a check-in
+/// nudge is due -- separated from `run()` so a test can drive it directly,
+/// against real state files, without a real stdin payload.
+pub fn tick(gpa: Allocator, io: Io, env: *std.process.Environ.Map, home: []const u8, sid: []const u8) !Tick {
+    const state_dir = try std.fmt.allocPrint(gpa, "{s}/.claude/state", .{home});
+    defer gpa.free(state_dir);
+    Io.Dir.cwd().createDirPath(io, state_dir) catch {};
 
     const total_path = try std.fmt.allocPrint(gpa, "{s}/synapse-stop-nudge-total-{s}", .{ state_dir, sid });
     defer gpa.free(total_path);
@@ -56,12 +76,11 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map, self_path: []c
             "This session has grown substantial ({d} turns, re-armed at the {d}-turn mark). Before continuing: did this session produce a debugging/investigation/research finding, decision, or piece of context worth persisting to Synapse Vault ({s})? If so, write it up now (see the global CLAUDE.md \"Synapse Vault as permanent memory\" section, or use /synapse-note) while full context is still available -- do not wait for a wrap-up step. If you already wrote or updated a note earlier this session, check whether anything since then is worth folding in too.",
             .{ total, n, location },
         );
-        try common.emitContext(gpa, io, "Stop", text.written());
+        return .{ .text = try gpa.dupe(u8, text.written()), .total = total };
     } else {
         try writeCount(gpa, io, since_path, since);
+        return .{ .text = null, .total = total };
     }
-
-    try maybePush(gpa, io, env, total, self_path);
 }
 
 fn readCount(gpa: Allocator, io: Io, path: []const u8) usize {
@@ -189,4 +208,242 @@ fn appendPushFailure(gpa: Allocator, io: Io, log_path: []const u8, ahead: usize)
     try out.writer.writeAll(existing);
     try out.writer.print("{s} push failed, {d} commit(s) still pending\n", .{ stamp, ahead });
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = log_path, .data = out.written() });
+}
+
+const testing = std.testing;
+const fixture = @import("cmd_test_support.zig");
+
+fn vaultGit(fx: *fixture.Fixture, args: []const []const u8) !adapters.process.Result {
+    var argv_buf: [16][]const u8 = undefined;
+    argv_buf[0] = "git";
+    @memcpy(argv_buf[1 .. 1 + args.len], args);
+    return adapters.process.run(fx.io(), fx.gpa, argv_buf[0 .. 1 + args.len], .{ .cwd = .{ .path = fx.vault } });
+}
+
+/// A bare "remote" and a vault repo tracking it, both local paths -- so a
+/// push in these tests is real git plumbing with no network involved, same
+/// as the bats fixture this was ported from. Caller frees the returned
+/// remote path.
+fn seedVaultWithRemote(fx: *fixture.Fixture) ![]u8 {
+    const remote = try std.fmt.allocPrint(fx.gpa, "{s}/vault-remote.git", .{fx.root});
+    errdefer fx.gpa.free(remote);
+
+    const init_remote = try adapters.process.run(fx.io(), fx.gpa, &.{ "git", "init", "-q", "--bare", "-b", "main", remote }, .{});
+    init_remote.deinit(fx.gpa);
+    const init_vault = try vaultGit(fx, &.{ "init", "-q", "-b", "main" });
+    init_vault.deinit(fx.gpa);
+    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/seed.md", .data = "seed\n" });
+    const add = try vaultGit(fx, &.{ "add", "seed.md" });
+    add.deinit(fx.gpa);
+    const commit = try vaultGit(fx, &.{ "-c", "user.email=t@e", "-c", "user.name=t", "commit", "-q", "-m", "seed" });
+    commit.deinit(fx.gpa);
+    const add_remote = try vaultGit(fx, &.{ "remote", "add", "origin", remote });
+    add_remote.deinit(fx.gpa);
+    const do_push = try vaultGit(fx, &.{ "push", "-q", "-u", "origin", "main" });
+    do_push.deinit(fx.gpa);
+
+    return remote;
+}
+
+fn remoteHeadSubject(fx: *fixture.Fixture, gpa: Allocator, remote: []const u8) ![]u8 {
+    const res = try adapters.process.run(fx.io(), gpa, &.{ "git", "-C", remote, "log", "-1", "--format=%s", "main" }, .{});
+    defer res.deinit(gpa);
+    return gpa.dupe(u8, std.mem.trim(u8, res.stdout, " \t\r\n"));
+}
+
+test "push: a real push lands on the local remote when the vault is ahead" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    const remote = try seedVaultWithRemote(&fx);
+    defer gpa.free(remote);
+
+    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/more.md", .data = "more\n" });
+    const add = try vaultGit(&fx, &.{ "add", "more.md" });
+    add.deinit(gpa);
+    const commit = try vaultGit(&fx, &.{ "-c", "user.email=t@e", "-c", "user.name=t", "commit", "-q", "-m", "more" });
+    commit.deinit(gpa);
+
+    try push(gpa, fx.io(), &fx.env);
+
+    const head = try remoteHeadSubject(&fx, gpa, remote);
+    defer gpa.free(head);
+    try testing.expectEqualStrings("more", head);
+}
+
+test "push: nothing to push when the vault is already up to date with its remote" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    const remote = try seedVaultWithRemote(&fx);
+    defer gpa.free(remote);
+
+    try push(gpa, fx.io(), &fx.env);
+
+    const head = try remoteHeadSubject(&fx, gpa, remote);
+    defer gpa.free(head);
+    try testing.expectEqualStrings("seed", head);
+}
+
+test "push: no vault configured is a silent no-op" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("OBSIDIAN_VAULT_DIR");
+
+    try push(gpa, fx.io(), &fx.env); // must not error
+}
+
+test "push: a vault with no .git repo is a silent no-op" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    // Fixture's own vault dir exists but was never `git init`'d.
+
+    try push(gpa, fx.io(), &fx.env); // must not error or crash
+}
+
+test "push: no upstream tracking branch is a silent no-op" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    const init_vault = try vaultGit(&fx, &.{ "init", "-q", "-b", "main" });
+    init_vault.deinit(gpa);
+    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/seed.md", .data = "seed\n" });
+    const add = try vaultGit(&fx, &.{ "add", "seed.md" });
+    add.deinit(gpa);
+    const commit = try vaultGit(&fx, &.{ "-c", "user.email=t@e", "-c", "user.name=t", "commit", "-q", "-m", "seed" });
+    commit.deinit(gpa);
+    // No `git push -u` ever done, so no upstream tracking branch exists.
+
+    try push(gpa, fx.io(), &fx.env); // must not error
+}
+
+test "push: an existing lock is honoured, not raced -- and left in place" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    const remote = try seedVaultWithRemote(&fx);
+    defer gpa.free(remote);
+
+    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/more.md", .data = "more\n" });
+    const add = try vaultGit(&fx, &.{ "add", "more.md" });
+    add.deinit(gpa);
+    const commit = try vaultGit(&fx, &.{ "-c", "user.email=t@e", "-c", "user.name=t", "commit", "-q", "-m", "more" });
+    commit.deinit(gpa);
+
+    const lock = try std.fmt.allocPrint(gpa, "{s}/.git/synapse-push.lock", .{fx.vault});
+    defer gpa.free(lock);
+    try Io.Dir.cwd().createDir(fx.io(), lock, .default_dir);
+
+    try push(gpa, fx.io(), &fx.env);
+
+    // Left in place: `push()` only ever removes a lock it created itself.
+    try Io.Dir.cwd().access(fx.io(), lock, .{});
+    const head = try remoteHeadSubject(&fx, gpa, remote);
+    defer gpa.free(head);
+    try testing.expectEqualStrings("seed", head);
+}
+
+test "push: a failed push is logged, not surfaced" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    const remote = try seedVaultWithRemote(&fx);
+    defer gpa.free(remote);
+    // The remote is gone, but upstream tracking (set locally by the earlier
+    // `push -u`) survives -- `git rev-parse @{upstream}` still resolves.
+    try Io.Dir.cwd().deleteTree(fx.io(), remote);
+
+    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/more.md", .data = "more\n" });
+    const add = try vaultGit(&fx, &.{ "add", "more.md" });
+    add.deinit(gpa);
+    const commit = try vaultGit(&fx, &.{ "-c", "user.email=t@e", "-c", "user.name=t", "commit", "-q", "-m", "more" });
+    commit.deinit(gpa);
+
+    try push(gpa, fx.io(), &fx.env);
+
+    const log_path = try std.fmt.allocPrint(gpa, "{s}/.git/synapse-push.log", .{fx.vault});
+    defer gpa.free(log_path);
+    const log = try Io.Dir.cwd().readFileAlloc(fx.io(), log_path, gpa, .limited(1 << 20));
+    defer gpa.free(log);
+    try testing.expect(std.mem.indexOf(u8, log, "push failed") != null);
+    try testing.expect(std.mem.indexOf(u8, log, "1 commit(s) still pending") != null);
+}
+
+test "no nudge before the check-in turn" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    var i: usize = 0;
+    while (i < n - 1) : (i += 1) {
+        const r = try tick(gpa, fx.io(), &fx.env, fx.home, "s1");
+        try testing.expectEqual(@as(?[]u8, null), r.text);
+    }
+}
+
+test "nudge fires on the Nth turn, naming the vault" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    var i: usize = 0;
+    var last: ?[]u8 = null;
+    while (i < n) : (i += 1) {
+        if (last) |t| gpa.free(t);
+        const r = try tick(gpa, fx.io(), &fx.env, fx.home, "s1");
+        last = r.text;
+    }
+    const text = last.?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, fx.vault) != null);
+    try testing.expect(std.mem.indexOf(u8, text, "25 turns") != null);
+}
+
+test "the nudge re-arms after another cycle" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    var i: usize = 0;
+    var fires: usize = 0;
+    while (i < 2 * n) : (i += 1) {
+        const r = try tick(gpa, fx.io(), &fx.env, fx.home, "s1");
+        if (r.text) |t| {
+            fires += 1;
+            gpa.free(t);
+        }
+    }
+    try testing.expectEqual(@as(usize, 2), fires);
+}
+
+test "vault unresolvable: the nudge still fires, naming the generic phrase" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("OBSIDIAN_VAULT_DIR");
+
+    var i: usize = 0;
+    var last: ?[]u8 = null;
+    while (i < n) : (i += 1) {
+        if (last) |t| gpa.free(t);
+        const r = try tick(gpa, fx.io(), &fx.env, fx.home, "s1");
+        last = r.text;
+    }
+    const text = last.?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "the Obsidian vault") != null);
+}
+
+test "separate sessions count turns independently" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        const r = try tick(gpa, fx.io(), &fx.env, fx.home, "s1");
+        if (r.text) |t| gpa.free(t);
+    }
+    // A fresh session hasn't accumulated any turns yet.
+    const r2 = try tick(gpa, fx.io(), &fx.env, fx.home, "s2");
+    try testing.expectEqual(@as(?[]u8, null), r2.text);
+    try testing.expectEqual(@as(usize, 1), r2.total);
 }

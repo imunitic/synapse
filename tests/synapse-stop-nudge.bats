@@ -6,6 +6,14 @@
 # The fix threads argv[0] down from `main` instead; these tests exercise the
 # real spawn and a real (local, no-network) git push to prove it actually
 # fires.
+#
+# Everything else -- push()'s own logic (nothing-to-push, no vault, no .git,
+# no upstream, an existing lock, a failed push getting logged) and the
+# check-in nudge's turn-counting/re-arming -- moved to native coverage,
+# src/apps/hook/stop_nudge.zig's own `test` blocks, called directly rather
+# than through a detached self-respawn. These two tests are what remains
+# because they are the one thing that can't be: the spawn itself, which only
+# a real compiled binary re-invoking itself can prove still works.
 
 load 'test_helper'
 

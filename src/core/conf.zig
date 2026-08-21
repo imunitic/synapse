@@ -662,3 +662,57 @@ test "resolveWritePath: nothing exists anywhere, ~/.config absent too -> falls b
     defer gpa.free(want);
     try testing.expectEqualStrings(want, got);
 }
+
+test "vaultDir: synapse.conf wins when both synapse.conf and second-brain.conf exist" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+    const cwd = std.Io.Dir.cwd();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const home = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    const claude_dir = try std.fmt.allocPrint(gpa, "{s}/.claude", .{home});
+    defer gpa.free(claude_dir);
+    try cwd.createDirPath(io, claude_dir);
+
+    // The old name points somewhere useless; if it were preferred, this fails.
+    const synapse_conf = try std.fmt.allocPrint(gpa, "{s}/.claude/synapse.conf", .{home});
+    defer gpa.free(synapse_conf);
+    try cwd.writeFile(io, .{ .sub_path = synapse_conf, .data = "OBSIDIAN_VAULT_DIR=\"/right/vault\"\n" });
+    const brain_conf = try std.fmt.allocPrint(gpa, "{s}/.claude/second-brain.conf", .{home});
+    defer gpa.free(brain_conf);
+    try cwd.writeFile(io, .{ .sub_path = brain_conf, .data = "OBSIDIAN_VAULT_DIR=\"/nope\"\n" });
+
+    const tv: TestVars = .{ .pairs = &.{.{ "HOME", home }} }; // no OBSIDIAN_VAULT_DIR override
+    const got = (try vaultDir(gpa, io, tv.vars())).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("/right/vault", got);
+}
+
+test "vaultDir: reads the pre-rename second-brain.conf when synapse.conf is absent" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+    const cwd = std.Io.Dir.cwd();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const home = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    const claude_dir = try std.fmt.allocPrint(gpa, "{s}/.claude", .{home});
+    defer gpa.free(claude_dir);
+    try cwd.createDirPath(io, claude_dir);
+    const brain_conf = try std.fmt.allocPrint(gpa, "{s}/.claude/second-brain.conf", .{home});
+    defer gpa.free(brain_conf);
+    try cwd.writeFile(io, .{ .sub_path = brain_conf, .data = "OBSIDIAN_VAULT_DIR=\"/legacy/vault\"\n" });
+
+    // A machine whose scripts were updated ahead of setup.sh: only the old
+    // name exists. Without the fallback this reports "no vault", which reads
+    // as a broken graph to a caller that treats that the same as "absent".
+    const tv: TestVars = .{ .pairs = &.{.{ "HOME", home }} };
+    const got = (try vaultDir(gpa, io, tv.vars())).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("/legacy/vault", got);
+}

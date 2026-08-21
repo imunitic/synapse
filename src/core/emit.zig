@@ -453,6 +453,12 @@ pub const Note = struct {
     tail: ?[]const u8,
 };
 
+/// Below this many source files, `## Sources` lists each path directly
+/// instead of the module+count rollup -- a handful of files reads better
+/// as an exact list than as `` `module` (1) `` rows that hide which file
+/// it actually is.
+const sources_path_threshold: usize = 5;
+
 pub fn writeNote(w: *std.Io.Writer, n: Note) !void {
     try w.writeAll("---\n");
     try w.print("title: \"{s}\"\n", .{n.title});
@@ -487,7 +493,11 @@ pub fn writeNote(w: *std.Io.Writer, n: Note) !void {
     try w.writeAll(trimmed);
     if (trimmed.len > 0 and trimmed[trimmed.len - 1] != '\n') try w.writeAll("\n");
     try w.writeAll("\n## Sources\n");
-    for (n.modules) |m| try w.print("- `{s}` ({d})\n", .{ m.module, m.count });
+    if (n.sources.len < sources_path_threshold) {
+        for (n.sources) |s| try w.print("- `{s}`\n", .{s.path});
+    } else {
+        for (n.modules) |m| try w.print("- `{s}` ({d})\n", .{ m.module, m.count });
+    }
     try w.writeAll(node.generated_end ++ "\n");
     if (n.tail) |t| {
         if (t.len > 0) {
@@ -765,14 +775,49 @@ test "a fresh node gets an empty Notes section" {
         \\prose
         \\
         \\## Sources
-        \\- `a` (1)
-        \\- `b` (1)
+        \\- `a/A.java`
+        \\- `b/B.java`
         \\<!-- synapse:generated:end -->
         \\
         \\## Notes
         \\
         \\
     , out.written());
+}
+
+test "## Sources lists paths directly below the threshold, and rolls up at or above it" {
+    const gpa = testing.allocator;
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+
+    const below = baseNote(); // 2 sources, well under the threshold
+    try writeNote(&out.writer, below);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "\n## Sources\n- `a/A.java`\n- `b/B.java`\n") != null);
+
+    const five_sources = [_]node.Source{
+        .{ .path = "a/A.java", .hash = "1111111111111111111111111111111111111111" },
+        .{ .path = "b/B.java", .hash = "2222222222222222222222222222222222222222" },
+        .{ .path = "c/C.java", .hash = "3333333333333333333333333333333333333333" },
+        .{ .path = "d/D.java", .hash = "4444444444444444444444444444444444444444" },
+        .{ .path = "e/E.java", .hash = "5555555555555555555555555555555555555555" },
+    };
+    const five_modules = [_]query.ModuleCount{
+        .{ .module = "a", .count = 1 },
+        .{ .module = "b", .count = 1 },
+        .{ .module = "c", .count = 1 },
+        .{ .module = "d", .count = 1 },
+        .{ .module = "e", .count = 1 },
+    };
+    var at_threshold = baseNote();
+    at_threshold.sources = &five_sources;
+    at_threshold.modules = &five_modules;
+    out.clearRetainingCapacity();
+    try writeNote(&out.writer, at_threshold);
+    try testing.expect(std.mem.indexOf(
+        u8,
+        out.written(),
+        "\n## Sources\n- `a` (1)\n- `b` (1)\n- `c` (1)\n- `d` (1)\n- `e` (1)\n",
+    ) != null);
 }
 
 test "an existing tail is re-emitted instead of a fresh Notes section" {
