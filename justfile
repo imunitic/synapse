@@ -151,7 +151,9 @@ _podman-machine:
     set -euo pipefail
     command -v podman >/dev/null || { echo "podman not on PATH -- brew install podman" >&2; exit 1; }
     if [ -n "${CONTAINER_CONNECTION:-}" ]; then echo "$CONTAINER_CONNECTION"; exit 0; fi
-    machines="$(podman machine list -q)"
+    # `-q` marks the default machine with a trailing `*` -- strip it, or
+    # every `--connection` lookup downstream fails on the decorated name.
+    machines="$(podman machine list -q | sed 's/\*$//')"
     if [ -z "$machines" ]; then
         podman machine init --cpus 8 --memory 8192 >/dev/null
         echo podman-machine-default

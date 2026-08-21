@@ -240,7 +240,11 @@ pub const Fixture = struct {
     /// need real git (identity resolution, `git ls-files`), not the
     /// env-var bypass most of this fixture's callers use instead.
     pub fn gitCommit(self: *Fixture, message: []const u8) !void {
-        const init_res = try adapters.process.run(self.io(), self.gpa, &.{ "git", "init", "-q" }, .{
+        // `-b main`: git's own default branch name isn't uniform across
+        // installs (this repo's tests assume "main" throughout), and the
+        // fixture's own overridden `HOME` (no `.gitconfig`) means an ambient
+        // `init.defaultBranch` never reaches this subprocess either way.
+        const init_res = try adapters.process.run(self.io(), self.gpa, &.{ "git", "init", "-q", "-b", "main" }, .{
             .cwd = .{ .path = self.repo },
         });
         defer init_res.deinit(self.gpa);
