@@ -48,7 +48,12 @@ const Allocator = std.mem.Allocator;
 /// aligns and `head -c 8` shows the name intact.
 pub const magic: [8]u8 = "SYNTAGS\x00".*;
 
-pub const version: u32 = 1;
+/// Bumped for sb-026: the payload region's own content changed shape (a
+/// `tags_cache/payload.zig`-encoded record list, not `renderCliLine`'s
+/// rendered text), so a cache written by version 1 must not be read as
+/// version 2's bytes -- a stale-but-structurally-valid-looking payload would
+/// otherwise decode as silent garbage instead of a clean rebuild.
+pub const version: u32 = 2;
 
 pub const Header = struct {
     version: u32,
@@ -335,7 +340,7 @@ test "one entry encodes to exactly the bytes this file documents" {
     try testing.expectEqual(@as(usize, 88), bytes.len);
 
     try testing.expectEqualSlices(u8, "SYNTAGS\x00", bytes[0..8]);
-    try testing.expectEqualSlices(u8, &.{ 1, 0, 0, 0 }, bytes[8..12]); // version 1
+    try testing.expectEqualSlices(u8, &.{ 2, 0, 0, 0 }, bytes[8..12]); // version 2
     try testing.expectEqualSlices(u8, &.{ 1, 0, 0, 0 }, bytes[12..16]); // entry_count 1
     try testing.expectEqualSlices(u8, &.{ 83, 0, 0, 0, 0, 0, 0, 0 }, bytes[16..24]); // paths_off 40+43
     try testing.expectEqualSlices(u8, &.{ 87, 0, 0, 0, 0, 0, 0, 0 }, bytes[24..32]); // blob_off 83+4
@@ -478,7 +483,11 @@ test "a record pointing outside its region is refused, not followed" {
     try testing.expectError(error.OffsetOutOfRange, parse(bytes));
 }
 
-/// The three entries `testdata/v1.bin` holds.
+/// The three entries `testdata/fixture.bin` holds. `.tags` is opaque bytes
+/// at this layer (the record table doesn't interpret payload content), so
+/// the old rendered-CLI-line text here is as valid a payload as any other
+/// -- this fixture guards the record-table byte layout, not what a payload
+/// decodes to.
 const fixture_entries = [_]Entry{
     .{
         .path = "src/Alpha.java",
@@ -490,19 +499,22 @@ const fixture_entries = [_]Entry{
 };
 
 test "encode reproduces the committed fixture byte for byte" {
-    // `testdata/v1.bin` was generated from the layout comment by a separate
-    // implementation, not by `encode` -- checks the doc against the code.
+    // `testdata/fixture.bin` was generated from the layout comment by a
+    // separate implementation, not by `encode` -- checks the doc against
+    // the code. Re-pinned at each `version` bump (currently 2): the byte
+    // this fixture guards is the record-table layout, not a specific
+    // version number.
     const gpa = testing.allocator;
     const bytes = try encode(gpa, &fixture_entries);
     defer gpa.free(bytes);
-    try testing.expectEqualSlices(u8, @embedFile("testdata/v1.bin"), bytes);
+    try testing.expectEqualSlices(u8, @embedFile("testdata/fixture.bin"), bytes);
 }
 
-test "the committed v1 fixture still decodes" {
+test "the committed fixture still decodes" {
     // Frozen bytes, not bytes this build produced -- every other test here
     // encodes and reads back, so all would keep passing through a change
     // that altered the format both ways at once.
-    const view = try parse(@embedFile("testdata/v1.bin"));
+    const view = try parse(@embedFile("testdata/fixture.bin"));
     try testing.expectEqual(@as(u32, 3), view.count());
 
     try testing.expectEqualStrings("src/Alpha.java", view.path(view.record(0)));

@@ -127,7 +127,7 @@ const usage_text =
     \\  links   <node> --inbound           what points here, relation<TAB>source
     \\  links   <node> --closure           reachable outbound, depth<TAB>node
     \\  links   --check                    link targets that resolve to no node
-    \\  symbol  <name> <node>              exact-name hits, path<TAB>tag-line
+    \\  symbol  <name> <node>              exact-name hits, name<TAB>role<TAB>kind<TAB>path:line<TAB>expression
     \\
 ;
 
@@ -937,7 +937,7 @@ fn cmdSymbol(
             ),
             .checked => |tags| {
                 var it = core.symbol.matches(tags, name);
-                while (it.next()) |line| try w.print("{s}\t{s}\n", .{ p, line });
+                while (it.next()) |tag| try core.tag_line.writeRefsRow(w, p, tag);
             },
         }
     }

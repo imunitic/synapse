@@ -64,5 +64,6 @@ test {
     _ = doctor;
     _ = task_status;
     _ = @import("tags_cache/format.zig");
+    _ = @import("tags_cache/payload.zig");
     _ = @import("index_map/format.zig");
 }

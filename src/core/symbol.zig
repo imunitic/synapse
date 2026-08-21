@@ -12,6 +12,7 @@
 
 const std = @import("std");
 const tags_cache = @import("tags_cache.zig");
+const model = @import("model");
 
 /// What the cache knows about one requested path.
 pub const Outcome = union(enum) {
@@ -19,8 +20,8 @@ pub const Outcome = union(enum) {
     not_cached,
     /// Seen but never parsed (no grammar/compiler); backfilling won't help.
     unsupported,
-    /// Parsed. Whole tag text, for `matches` to walk. Empty is real: a file
-    /// with no tags was still checked.
+    /// Parsed. The raw encoded payload, for `matches` to walk. Empty is
+    /// real: a file with no tags was still checked.
     checked: []const u8,
 };
 
@@ -30,25 +31,22 @@ pub fn outcomeFor(entry: ?tags_cache.Entry) Outcome {
     return .{ .checked = e.tags };
 }
 
-/// Tag lines in `tags` whose name is exactly `name` (trimmed first field --
-/// space-padded by tree-sitter's table output). Exact, not prefix: a prefix
-/// match would answer a `Token` query with every `Tokenizer` too.
+/// Tags in `tags` whose name is exactly `name` (already trimmed -- `Tag.name`
+/// never carries tree-sitter's own table padding). Exact, not prefix: a
+/// prefix match would answer a `Token` query with every `Tokenizer` too.
 pub fn matches(tags: []const u8, name: []const u8) MatchIterator {
-    return .{ .lines = std.mem.splitScalar(u8, tags, '\n'), .name = name };
+    return .{ .tags = tags_cache.payload.iterate(tags), .name = name };
 }
 
 pub const MatchIterator = struct {
-    lines: std.mem.SplitIterator(u8, .scalar),
+    tags: tags_cache.payload.Iterator,
     name: []const u8,
 
-    /// Yields the matching line verbatim (padding, kind, span included) --
-    /// prints what tree-sitter wrote, not a re-rendered copy.
-    pub fn next(self: *MatchIterator) ?[]const u8 {
-        while (self.lines.next()) |line| {
-            if (line.len == 0) continue;
-            const end = std.mem.indexOfScalar(u8, line, '\t') orelse line.len;
-            if (std.mem.eql(u8, std.mem.trim(u8, line[0..end], " \t"), self.name))
-                return line;
+    /// Yields the matching `Tag` itself, not a rendered line -- what a
+    /// match looks like on screen is the caller's decision, not this one's.
+    pub fn next(self: *MatchIterator) ?model.Tag {
+        while (self.tags.next()) |tag| {
+            if (std.mem.eql(u8, tag.name, self.name)) return tag;
         }
         return null;
     }
@@ -75,38 +73,46 @@ pub const PathIterator = struct {
 
 const testing = std.testing;
 
-/// Tag text as the cache stores it: newline-joined tree-sitter lines, real
-/// padding and tabs included.
-const sample_tags =
-    "Token     \t | class   \tdef (15, 13) - (15, 18) `public class Token {`\n" ++
-    "Tokenizer \t | class   \tdef (20, 13) - (20, 22) `class Tokenizer {`\n" ++
-    "Token     \t | method  \tref (31, 4) - (31, 9) `new Token();`";
+/// The payload bytes `matches` walks, encoded from the same three tags the
+/// old rendered-text fixture held: two `Token`s (a def and a ref) and one
+/// `Tokenizer` def, so a prefix match has something real to fail against.
+fn sampleTags(gpa: std.mem.Allocator) ![]u8 {
+    return tags_cache.payload.encode(gpa, &.{
+        .{ .name = "Token", .role = .def, .kind = "class", .line = 15, .expression = "public class Token {" },
+        .{ .name = "Tokenizer", .role = .def, .kind = "class", .line = 20, .expression = "class Tokenizer {" },
+        .{ .name = "Token", .role = .ref, .kind = "method", .line = 31, .expression = "new Token();" },
+    });
+}
 
-test "a match keeps the tag line verbatim, padding and all" {
-    var it = matches(sample_tags, "Token");
-    try testing.expectEqualStrings(
-        "Token     \t | class   \tdef (15, 13) - (15, 18) `public class Token {`",
-        it.next().?,
-    );
+test "a match yields the tag itself, every field intact" {
+    const gpa = testing.allocator;
+    const tags = try sampleTags(gpa);
+    defer gpa.free(tags);
+
+    var it = matches(tags, "Token");
+    const first = it.next().?;
+    try testing.expectEqual(model.Role.def, first.role);
+    try testing.expectEqual(@as(u32, 15), first.line);
+    try testing.expectEqualStrings("public class Token {", first.expression);
     // Both hits, in cache order: def and ref are two answers, not one.
-    try testing.expect(std.mem.indexOf(u8, it.next().?, "ref (31, 4)") != null);
-    try testing.expectEqual(@as(?[]const u8, null), it.next());
+    const second = it.next().?;
+    try testing.expectEqual(model.Role.ref, second.role);
+    try testing.expectEqual(@as(u32, 31), second.line);
+    try testing.expectEqual(@as(?model.Tag, null), it.next());
 }
 
 test "the name matches exactly, so a longer symbol is not a hit" {
-    var it = matches(sample_tags, "Token");
-    while (it.next()) |line| {
-        try testing.expect(std.mem.indexOf(u8, line, "Tokenizer") == null);
+    const gpa = testing.allocator;
+    const tags = try sampleTags(gpa);
+    defer gpa.free(tags);
+
+    var it = matches(tags, "Token");
+    while (it.next()) |tag| {
+        try testing.expect(!std.mem.eql(u8, tag.name, "Tokenizer"));
     }
     // A prefix of a real name matches nothing.
-    var none = matches(sample_tags, "Tokeniz");
-    try testing.expectEqual(@as(?[]const u8, null), none.next());
-}
-
-test "a tag line with no tab is still matchable by its whole text" {
-    // Not a shape tree-sitter emits, but the cache holds whatever was written.
-    var it = matches("bare\n", "bare");
-    try testing.expectEqualStrings("bare", it.next().?);
+    var none = matches(tags, "Tokeniz");
+    try testing.expectEqual(@as(?model.Tag, null), none.next());
 }
 
 test "the three answers stay distinct" {

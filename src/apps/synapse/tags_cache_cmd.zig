@@ -172,10 +172,10 @@ pub fn backfill(
         gpa.free(results);
     }
 
-    var rendered: std.ArrayListUnmanaged([]u8) = .empty;
+    var encoded: std.ArrayListUnmanaged([]u8) = .empty;
     defer {
-        for (rendered.items) |b| gpa.free(b);
-        rendered.deinit(gpa);
+        for (encoded.items) |b| gpa.free(b);
+        encoded.deinit(gpa);
     }
     var updates = try gpa.alloc(Update, need.len);
     defer gpa.free(updates);
@@ -187,18 +187,18 @@ pub fn backfill(
                 .entry = .{ .hash = n.hash, .tags = "", .unsupported = true },
             },
             .tagged => |tagged| {
-                // Text, not structs -- core.symbol.zig's matches() field-splits
-                // these lines directly (query_cmd's native `symbol` port kept
-                // this dependency rather than resolving it), and Cache.writeRefs
-                // needs this exact rendering for _refs.tsv's look-compat bytes.
+                // Structured data, not rendered display text -- see
+                // core.tags_cache.payload's own docs for why. Every reader
+                // (core.symbol.zig's matches(), rank_cmd, vocab_cmd,
+                // Cache.writeRefs) decodes this directly now.
                 var buf: std.Io.Writer.Allocating = .init(gpa);
                 errdefer buf.deinit();
-                for (tagged) |t| try treesitter.tagger.renderCliLine(&buf.writer, t.tag, t.span);
-                const text = try buf.toOwnedSlice();
-                try rendered.append(gpa, text);
+                for (tagged) |t| try core.tags_cache.payload.encodeOne(&buf.writer, t.tag);
+                const bytes = try buf.toOwnedSlice();
+                try encoded.append(gpa, bytes);
                 updates[i] = .{
                     .path = n.path,
-                    .entry = .{ .hash = n.hash, .tags = std.mem.trimEnd(u8, text, "\n") },
+                    .entry = .{ .hash = n.hash, .tags = bytes },
                 };
             },
         }
@@ -213,6 +213,15 @@ pub fn backfill(
 ///   U <TAB> path                 cached, but unparseable (no grammar)
 ///   P <TAB> path                 cached and parsed; tags follow, possibly none
 ///   T <TAB> path <TAB> tag line  one per tag
+///
+/// The tag line is `tag_line.parse`'s own grammar (name, ` | `kind, role
+/// `(row, col) - (row, col)` `` `expression` `` -- column/end-position are
+/// always written as the row twice, since nothing decodes them back out of
+/// storage any more). A name, kind, or expression containing a tab, newline,
+/// or backtick cannot round-trip through this text form -- an inherent limit
+/// of `tag_line`'s grammar, not new here; `Entry.tags` itself has no such
+/// limit, since `--dump`/`--load` are a debug/test-fixture view onto it, not
+/// how it is actually stored.
 fn dumpCache(io: Io, path: []const u8) !u8 {
     var cache = try Cache.open(io, path);
     defer cache.close(io);
@@ -233,10 +242,11 @@ fn dumpCache(io: Io, path: []const u8) !u8 {
             continue;
         }
         try out.interface.print("P\t{s}\n", .{p});
-        var lines = std.mem.splitScalar(u8, cache.view.tags(r), '\n');
-        while (lines.next()) |line| {
-            if (line.len == 0) continue;
-            try out.interface.print("T\t{s}\t{s}\n", .{ p, line });
+        var it = core.tags_cache.payload.iterate(cache.view.tags(r));
+        while (it.next()) |tag| {
+            try out.interface.print("T\t{s}\t{s}\t | {s}\t{s} ({d}, 0) - ({d}, 0) `{s}`\n", .{
+                p, tag.name, tag.kind, tag.role.text(), tag.line, tag.line, tag.expression,
+            });
         }
     }
     try out.interface.flush();
@@ -257,11 +267,11 @@ fn loadCache(gpa: Allocator, io: Io, path: []const u8) !u8 {
     defer order.deinit(gpa);
     var byPath: std.StringHashMapUnmanaged(core.tags_cache.Entry) = .empty;
     defer byPath.deinit(gpa);
-    var tag_text: std.StringHashMapUnmanaged(std.Io.Writer.Allocating) = .empty;
+    var tags_by_path: std.StringHashMapUnmanaged(std.ArrayListUnmanaged(core.model.Tag)) = .empty;
     defer {
-        var it = tag_text.valueIterator();
-        while (it.next()) |w| w.deinit();
-        tag_text.deinit(gpa);
+        var it = tags_by_path.valueIterator();
+        while (it.next()) |v| v.deinit(gpa);
+        tags_by_path.deinit(gpa);
     }
 
     var lines = std.mem.splitScalar(u8, text, '\n');
@@ -288,10 +298,10 @@ fn loadCache(gpa: Allocator, io: Io, path: []const u8) !u8 {
                 const tab = std.mem.indexOfScalar(u8, rest, '\t') orelse continue;
                 const p = rest[0..tab];
                 if (!byPath.contains(p)) continue;
-                const gop = try tag_text.getOrPut(gpa, p);
-                if (!gop.found_existing) gop.value_ptr.* = .init(gpa);
-                if (gop.value_ptr.written().len != 0) try gop.value_ptr.writer.writeAll("\n");
-                try gop.value_ptr.writer.writeAll(rest[tab + 1 ..]);
+                const tag = core.tag_line.parse(rest[tab + 1 ..]) orelse continue;
+                const gop = try tags_by_path.getOrPut(gpa, p);
+                if (!gop.found_existing) gop.value_ptr.* = .empty;
+                try gop.value_ptr.append(gpa, tag);
             },
             else => {},
         }
@@ -299,9 +309,18 @@ fn loadCache(gpa: Allocator, io: Io, path: []const u8) !u8 {
 
     var updates = try gpa.alloc(Update, order.items.len);
     defer gpa.free(updates);
+    var encoded: std.ArrayListUnmanaged([]u8) = .empty;
+    defer {
+        for (encoded.items) |b| gpa.free(b);
+        encoded.deinit(gpa);
+    }
     for (order.items, 0..) |p, i| {
         var e = byPath.get(p).?;
-        if (tag_text.getPtr(p)) |w| e.tags = w.written();
+        if (tags_by_path.getPtr(p)) |list| {
+            const bytes = try core.tags_cache.payload.encode(gpa, list.items);
+            try encoded.append(gpa, bytes);
+            e.tags = bytes;
+        }
         updates[i] = .{ .path = p, .entry = e };
     }
 
@@ -631,10 +650,10 @@ test "tags are attributed to the right file, never bleeding into a neighbor" {
     try testing.expectEqualStrings("", c.tags);
 }
 
-test "a cached tag line's first field is the symbol name, trimmed of tree-sitter's padding" {
-    // Consumers split on tab and read field 1 as the symbol; a leading tab
-    // or untrimmed padding would empty or corrupt it, making `synapse query
-    // symbol` silently miss a file it did read.
+test "a cached tag's name decodes trimmed, with no tree-sitter table padding" {
+    // Consumers decode the payload and read `tag.name` as the symbol; any
+    // leftover padding would corrupt it, making `synapse query symbol`
+    // silently miss a file it did read.
     const gpa = testing.allocator;
     var tf = try TagsFixture.init(gpa);
     defer tf.deinit();
@@ -643,13 +662,10 @@ test "a cached tag line's first field is the symbol name, trimmed of tree-sitter
 
     const a = (try tf.get("a.ml")).?;
     defer gpa.free(a.tags);
-    var lines = std.mem.splitScalar(u8, a.tags, '\n');
+    var it = core.tags_cache.payload.iterate(a.tags);
     var matched: usize = 0;
-    while (lines.next()) |line| {
-        var fields = std.mem.splitScalar(u8, line, '\t');
-        const name_field = fields.next() orelse continue;
-        const trimmed = std.mem.trim(u8, name_field, " \t");
-        if (std.mem.eql(u8, trimmed, "AlphaOnly")) matched += 1;
+    while (it.next()) |tag| {
+        if (std.mem.eql(u8, tag.name, "AlphaOnly")) matched += 1;
     }
     try testing.expectEqual(@as(usize, 1), matched);
 }

@@ -287,11 +287,21 @@ fn openIndex(io: Io, gpa: Allocator, path: []const u8) !Index {
 
 const testing = std.testing;
 
-/// One tab-separated tag line exactly as tree-sitter emits it, name column
-/// padded -- what `tag_line.parse` (and so `Cache.writeRefs`) expects.
-/// Caller frees.
+/// One tag, encoded as `Entry.tags` actually stores it -- what `Cache.writeRefs`
+/// decodes via `payload.iterate`. `padded_name`/`kind` keep their old
+/// table-padding spelling (trimmed here) so every call site below reads the
+/// same as it did when this built a rendered CLI line. Caller frees.
 fn tagline(gpa: Allocator, padded_name: []const u8, kind: []const u8, role: []const u8, row: u32, expr: []const u8) ![]u8 {
-    return std.fmt.allocPrint(gpa, "{s}\t | {s}\t{s} ({d}, 13) - ({d}, 39) `{s}`", .{ padded_name, kind, role, row, row, expr });
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    errdefer out.deinit();
+    try core.tags_cache.payload.encodeOne(&out.writer, .{
+        .name = std.mem.trim(u8, padded_name, " "),
+        .role = core.model.Role.parse(role) orelse unreachable,
+        .kind = std.mem.trim(u8, kind, " "),
+        .line = row,
+        .expression = expr,
+    });
+    return out.toOwnedSlice();
 }
 
 /// A real `_tags_cache.bin` in a real temp dir, built directly through
@@ -417,7 +427,7 @@ test "build-refs: multiple tag lines in one file all become rows" {
     defer gpa.free(a);
     const b = try tagline(gpa, "run       ", "call   ", "ref", 7, "a.run();");
     defer gpa.free(b);
-    const both = try std.fmt.allocPrint(gpa, "{s}\n{s}", .{ a, b });
+    const both = try std.mem.concat(gpa, u8, &.{ a, b });
     defer gpa.free(both);
     const cache_path = try fx.build(&.{.{ .path = "src/A.java", .entry = .{ .hash = h(H1), .tags = both } }});
     defer gpa.free(cache_path);
@@ -443,7 +453,7 @@ test "build-refs: output is LC_ALL=C sorted" {
     defer gpa.free(b);
     const c = try tagline(gpa, "Apple     ", "class  ", "def", 3, "class Apple {}");
     defer gpa.free(c);
-    const all = try std.fmt.allocPrint(gpa, "{s}\n{s}\n{s}", .{ a, b, c });
+    const all = try std.mem.concat(gpa, u8, &.{ a, b, c });
     defer gpa.free(all);
     const cache_path = try fx.build(&.{.{ .path = "src/A.java", .entry = .{ .hash = h(H1), .tags = all } }});
     defer gpa.free(cache_path);
@@ -464,11 +474,15 @@ test "build-refs: output is LC_ALL=C sorted" {
     }
 }
 
-test "build-refs: a tab inside the expression cannot add a column" {
+test "build-refs: a tab inside the expression survives intact, no longer truncated" {
+    // The old rendered-text storage format used tabs as its own field
+    // delimiters, so an embedded tab in the expression silently truncated
+    // it on the way back out. The structured payload has no such limit --
+    // this is the exact bug sb-026 exists to fix.
     const gpa = testing.allocator;
     var fx = try CacheFixture.init(gpa);
     defer fx.deinit();
-    const tags = try std.fmt.allocPrint(gpa, "weird     \t | call   \tref (5, 13) - (5, 39) `a\tb();`", .{});
+    const tags = try tagline(gpa, "weird     ", "call   ", "ref", 5, "a\tb();");
     defer gpa.free(tags);
     const cache_path = try fx.build(&.{.{ .path = "src/A.java", .entry = .{ .hash = h(H1), .tags = tags } }});
     defer gpa.free(cache_path);
@@ -481,8 +495,7 @@ test "build-refs: a tab inside the expression cannot add a column" {
 
     const out = try fx.tmp.dir.readFileAlloc(testing.io, "_refs.tsv", gpa, .limited(1 << 20));
     defer gpa.free(out);
-    var lines = std.mem.splitScalar(u8, std.mem.trimEnd(u8, out, "\n"), '\n');
-    while (lines.next()) |line| try testing.expectEqual(@as(usize, 4), std.mem.count(u8, line, "\t"));
+    try testing.expect(std.mem.indexOf(u8, out, "a\tb();") != null);
 }
 
 test "build-refs: a malformed tag line is skipped, not emitted half-parsed" {
@@ -562,7 +575,7 @@ fn seedIndex(gpa: Allocator, fx: *CacheFixture) ![]const u8 {
     defer gpa.free(c);
     const i = try tagline(gpa, "doThing   ", "implementation", "ref", 30, "class Impl implements doThing {");
     defer gpa.free(i);
-    const all = try std.fmt.allocPrint(gpa, "{s}\n{s}\n{s}", .{ d, c, i });
+    const all = try std.mem.concat(gpa, u8, &.{ d, c, i });
     defer gpa.free(all);
     const cache_path = try fx.build(&.{.{ .path = "src/A.java", .entry = .{ .hash = h(H1), .tags = all } }});
     defer gpa.free(cache_path);
@@ -671,7 +684,7 @@ test "callers: matching is exact, not prefix" {
     defer gpa.free(a);
     const b = try tagline(gpa, "runFast   ", "call   ", "ref", 6, "a.runFast();");
     defer gpa.free(b);
-    const both = try std.fmt.allocPrint(gpa, "{s}\n{s}", .{ a, b });
+    const both = try std.mem.concat(gpa, u8, &.{ a, b });
     defer gpa.free(both);
     const cache_path = try fx.build(&.{.{ .path = "src/A.java", .entry = .{ .hash = h(H1), .tags = both } }});
     defer gpa.free(cache_path);
@@ -695,7 +708,7 @@ test "callers: the look fast path agrees with a full scan over the index" {
     const names = [_][]const u8{ "alpha", "Beta", "gamma", "_under", "zz9", "Aardvark", "run", "runFast" };
     var all: Io.Writer.Allocating = .init(gpa);
     defer all.deinit();
-    for (names, 0..) |n, i| {
+    for (names) |n| {
         var padded_buf: [10]u8 = undefined;
         @memset(&padded_buf, ' ');
         @memcpy(padded_buf[0..n.len], n);
@@ -703,7 +716,6 @@ test "callers: the look fast path agrees with a full scan over the index" {
         defer gpa.free(expr);
         const t = try tagline(gpa, &padded_buf, "call   ", "ref", 5, expr);
         defer gpa.free(t);
-        if (i > 0) try all.writer.writeAll("\n");
         try all.writer.writeAll(t);
     }
     const cache_path = try fx.build(&.{.{ .path = "src/A.java", .entry = .{ .hash = h(H1), .tags = all.written() } }});

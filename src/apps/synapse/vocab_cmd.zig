@@ -427,12 +427,13 @@ pub fn build(
             items: []const PathHash,
             /// One `Update` per tagged file, for the caller's commit once
             /// every thread joins. `path`/`entry.hash` borrow `self.items`;
-            /// `entry.tags` borrows `cache_rendered`, not its own copy.
+            /// `entry.tags` is one of `cache_encoded`'s own slices, not a copy.
             cache_updates: std.ArrayListUnmanaged(Update) = .empty,
-            /// Owned, untrimmed buffers `cache_updates[i].entry.tags` points
-            /// into (a trimmed slice of one). Kept separate so freeing a
-            /// trimmed slice at the wrong length can't happen.
-            cache_rendered: std.ArrayListUnmanaged([]u8) = .empty,
+            /// Owned encoded-payload buffers `cache_updates[i].entry.tags`
+            /// points into directly. Kept separate so `cache_updates` stays
+            /// borrow-only and freeing never has to guess a slice's real
+            /// allocated length.
+            cache_encoded: std.ArrayListUnmanaged([]u8) = .empty,
             failed: bool = false,
 
             fn work(self: *@This()) void {
@@ -461,12 +462,12 @@ pub fn build(
                     switch (r) {
                         .tagged => |tagged| {
                             var buf: std.Io.Writer.Allocating = .init(self.gpa);
-                            for (tagged) |t| try treesitter.tagger.renderCliLine(&buf.writer, t.tag, t.span);
-                            const text = try buf.toOwnedSlice();
-                            try self.cache_rendered.append(self.gpa, text);
+                            for (tagged) |t| try core.tags_cache.payload.encodeOne(&buf.writer, t.tag);
+                            const bytes = try buf.toOwnedSlice();
+                            try self.cache_encoded.append(self.gpa, bytes);
                             try self.cache_updates.append(self.gpa, .{
                                 .path = ph.path,
-                                .entry = .{ .hash = ph.hash, .tags = std.mem.trimEnd(u8, text, "\n") },
+                                .entry = .{ .hash = ph.hash, .tags = bytes },
                             });
                         },
                         .unsupported => try self.cache_updates.append(self.gpa, .{
@@ -510,8 +511,8 @@ pub fn build(
         for (threads) |th| th.join();
 
         defer for (slots) |*w| {
-            for (w.cache_rendered.items) |t| gpa.free(t);
-            w.cache_rendered.deinit(gpa);
+            for (w.cache_encoded.items) |t| gpa.free(t);
+            w.cache_encoded.deinit(gpa);
             w.cache_updates.deinit(gpa);
         };
 
@@ -553,9 +554,8 @@ pub fn build(
             const path_groups = groups.get(path) orelse continue;
             const entry = cache.get(path) orelse continue;
             if (entry.unsupported) continue;
-            var tag_lines = std.mem.splitScalar(u8, entry.tags, '\n');
-            while (tag_lines.next()) |line| {
-                const tag = core.tag_line.parse(line) orelse continue;
+            var tags = core.tags_cache.payload.iterate(entry.tags);
+            while (tags.next()) |tag| {
                 words.clearRetainingCapacity();
                 defer for (words.items) |w| gpa.free(w);
                 try core.vocab.splitWords(gpa, tag.name, &words);

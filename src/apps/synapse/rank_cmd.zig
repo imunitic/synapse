@@ -372,9 +372,8 @@ fn rankCode(
         var defs: usize = 0;
         if (cache.get(p)) |entry| {
             if (!entry.unsupported) {
-                var lines = std.mem.splitScalar(u8, entry.tags, '\n');
-                while (lines.next()) |line| {
-                    const tag = core.tag_line.parse(line) orelse continue;
+                var tags = core.tags_cache.payload.iterate(entry.tags);
+                while (tags.next()) |tag| {
                     if (tag.role == .def) defs += 1; // definitions, not references
                 }
             }
@@ -611,21 +610,21 @@ const RankFixture = struct {
         while (i < pad) : (i += 1) try content.writer.writeByte('x');
         try self.fx.writeRepoFile(path, content.written());
 
-        var tags: Io.Writer.Allocating = .init(gpa);
-        defer tags.deinit();
+        var tags: std.ArrayListUnmanaged(core.model.Tag) = .empty;
+        defer tags.deinit(gpa);
         var row: u32 = 1;
         for (defs) |s| {
-            try tags.writer.print("{s}\t | kind   \tdef ({d}, 1) - ({d}, 20) `x`\n", .{ s, row, row });
+            try tags.append(gpa, .{ .name = s, .role = .def, .kind = "kind", .line = row, .expression = "x" });
             row += 1;
         }
         for (refs) |s| {
-            try tags.writer.print("{s}\t | kind   \tref ({d}, 1) - ({d}, 20) `x`\n", .{ s, row, row });
+            try tags.append(gpa, .{ .name = s, .role = .ref, .kind = "kind", .line = row, .expression = "x" });
             row += 1;
         }
 
         try self.updates.append(gpa, .{
             .path = try gpa.dupe(u8, path),
-            .entry = .{ .hash = std.mem.zeroes([20]u8), .tags = try gpa.dupe(u8, tags.written()) },
+            .entry = .{ .hash = std.mem.zeroes([20]u8), .tags = try core.tags_cache.payload.encode(gpa, tags.items) },
         });
     }
 

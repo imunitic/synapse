@@ -17,6 +17,12 @@
 
 const std = @import("std");
 const format = @import("tags_cache/format.zig");
+/// Public: `tags_cache_cmd.zig`/`vocab_cmd.zig` encode a `Tag` list directly
+/// when writing an entry, and `rank_cmd.zig`/`core/symbol.zig` decode one
+/// when reading -- `Cache` itself only needs `payload.iterate` for
+/// `writeRefs`, but the codec is the whole point of this module's Entry.tags
+/// contract, not an implementation detail to hide from its own callers.
+pub const payload = @import("tags_cache/payload.zig");
 const tag_line = @import("tag_line.zig");
 
 const Io = std.Io;
@@ -25,8 +31,10 @@ const Allocator = std.mem.Allocator;
 /// What the cache knows about one path. No `path` field: you found it by one.
 pub const Entry = struct {
     hash: [20]u8,
-    /// Extractor output, newline-separated. Empty means parsed and declared
-    /// nothing -- not the same as `unsupported`.
+    /// `tags_cache/payload.zig`'s encoding of every tag found -- structured
+    /// data, not a rendered display line; decode with `payload.iterate`.
+    /// Empty means parsed and declared nothing -- not the same as
+    /// `unsupported`.
     tags: []const u8,
     unsupported: bool = false,
 };
@@ -229,19 +237,23 @@ pub const Cache = struct {
     }
 
     /// Every cached tag as an `_refs.tsv` row, in path order. Streams the
-    /// payload one line at a time -- 828 MB on syrius3, too big to
+    /// payload one record at a time -- 828 MB on syrius3, too big to
     /// materialise. An `unsupported` or evicted entry contributes nothing.
     /// Path order, not `_refs.tsv`'s own sort order: the writer sorts these
     /// rows, this just emits them.
+    ///
+    /// The one place `look`-compatible rendering happens: `writeRefsRow`'s
+    /// tab-separated columns are `_refs.tsv`'s actual on-disk contract, read
+    /// straight from each entry's stored `Tag`s -- no intermediate text to
+    /// re-parse.
     pub fn writeRefs(self: *const Cache, w: *std.Io.Writer) !usize {
         var rows: usize = 0;
         var i: u32 = 0;
         while (i < self.view.count()) : (i += 1) {
             const r = self.view.record(i);
             const path = self.view.path(r);
-            var lines = std.mem.splitScalar(u8, self.view.tags(r), '\n');
-            while (lines.next()) |line| {
-                const tag = tag_line.parse(line) orelse continue;
+            var it = payload.iterate(self.view.tags(r));
+            while (it.next()) |tag| {
                 try tag_line.writeRefsRow(w, path, tag);
                 rows += 1;
             }
@@ -458,8 +470,14 @@ test "eviction: a removed path leaves the cache and the refs projection" {
     const path = try fx.cachePath(gpa, io);
     defer gpa.free(path);
 
-    const alpha = "Alpha     \t | class   \tdef (14, 13) - (14, 18) `public class Alpha {`";
-    const gone = "Gone      \t | class   \tdef (2, 13) - (2, 17) `public class Gone {`";
+    const alpha = try payload.encode(gpa, &.{
+        .{ .name = "Alpha", .role = .def, .kind = "class", .line = 14, .expression = "public class Alpha {" },
+    });
+    defer gpa.free(alpha);
+    const gone = try payload.encode(gpa, &.{
+        .{ .name = "Gone", .role = .def, .kind = "class", .line = 2, .expression = "public class Gone {" },
+    });
+    defer gpa.free(gone);
 
     var cache = try Cache.open(io, path);
     defer cache.close(io);
@@ -537,18 +555,21 @@ test "the refs projection is the tag-line codec's rows, in path order" {
     const path = try fx.cachePath(gpa, io);
     defer gpa.free(path);
 
+    const zed = try payload.encode(gpa, &.{
+        .{ .name = "Zed", .role = .def, .kind = "class", .line = 1, .expression = "public class Zed {" },
+    });
+    defer gpa.free(zed);
+    const ay = try payload.encode(gpa, &.{
+        .{ .name = "Ay", .role = .def, .kind = "class", .line = 0, .expression = "public class Ay {" },
+        .{ .name = "call", .role = .ref, .kind = "call", .line = 3, .expression = "call();" },
+    });
+    defer gpa.free(ay);
+
     var cache = try Cache.open(io, path);
     defer cache.close(io);
     _ = try cache.commit(gpa, io, &.{
-        .{ .path = "z.java", .entry = .{
-            .hash = h("11" ** 20),
-            .tags = "Zed       \t | class   \tdef (1, 13) - (1, 16) `public class Zed {`",
-        } },
-        .{ .path = "a.java", .entry = .{
-            .hash = h("22" ** 20),
-            .tags = "Ay        \t | class   \tdef (0, 13) - (0, 15) `public class Ay {`\n" ++
-                "call      \t | call    \tref (3, 4) - (3, 8) `call();`",
-        } },
+        .{ .path = "z.java", .entry = .{ .hash = h("11" ** 20), .tags = zed } },
+        .{ .path = "a.java", .entry = .{ .hash = h("22" ** 20), .tags = ay } },
         .{ .path = "none.bin", .entry = .{ .hash = h("33" ** 20), .tags = "", .unsupported = true } },
     }, &.{});
 
