@@ -1,10 +1,12 @@
 #!/usr/bin/env bats
-# Tests claude/lib/synapse/synapse-graph-wipe.sh -- the delete half of
-# /synapse-rebuild-full, and the second destructive tool in Synapse (after
-# synapse-graph-clean.sh). Everything but genuinely CLI/process-level
-# concerns moved to native coverage -- src/apps/synapse/graph_cmd.zig's own
-# `test` blocks, via the `wipe()` entry point `runWipe()` delegates to after
-# arg parsing.
+# Tests `synapse graph-wipe` -- the delete half of /synapse-rebuild-full,
+# and the second destructive tool in Synapse (after `graph-clean`). Arg
+# parsing and the wipe logic itself moved to native coverage --
+# `src/apps/synapse/graph_cmd.zig`'s own `test` blocks, via the `wipe()`
+# entry point `runWipe()` delegates to. What's left is the one thing native
+# coverage can't reach: a real multi-subcommand composition proving the
+# destructive operation and a fresh rebuild actually work together end to
+# end.
 
 load 'test_helper'
 
@@ -97,22 +99,6 @@ Generated stuff about Node B.
 
 EOF
   printf 'Node A\t^a\t\nNode B\t^b\t\n' > "$dir/_manifest.tsv"
-}
-
-@test "outside a git repo it exits 1, and an unknown flag exits 2" {
-  run bash -c 'cd "$1" && exec "$2" "$3"' _ "$TEST_HOME" "$SYNAPSE_BIN" graph-wipe
-  [ "$status" -eq 1 ]
-
-  make_repo
-  run run_wipe --bogus
-  [ "$status" -eq 2 ]
-}
-
-@test "--help exits 0 and documents both flags" {
-  make_repo
-  run run_wipe --help
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"--dry-run"* ]]
 }
 
 # --- Composes with a real /synapse-init-style rebuild -------------------------

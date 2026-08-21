@@ -144,7 +144,6 @@ test "CamelCase splits at each capital, snake_case at the underscore" {
 test "a run of capitals stays with what follows it, as one word" {
     // `[A-Z]+[a-z0-9]*` is greedy on both halves: `HTTPServer` is a single
     // match (`HTTPS` then `erver`), reducing to `httpserver`, not two words.
-    // `tests/synapse-vocab.bats` pins the same contract.
     try expectWords("HTTPServer", &.{"httpserver"});
     try expectWords("HTTP", &.{"http"});
     try expectWords("IOError", &.{"ioerror"});

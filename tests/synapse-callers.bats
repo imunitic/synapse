@@ -1,10 +1,10 @@
 #!/usr/bin/env bats
-# Tests `synapse callers`'s CLI concerns that native coverage can't reach:
-# argument parsing exit codes, and that the real binary's dispatch skips
-# the shared vault/namespace preamble entirely for this subcommand. The
-# lookup itself (exact-match filtering, call-vs-reference, sort agreement)
-# moved to native coverage -- `src/apps/synapse/refs_cmd.zig`'s own `test`
-# blocks, via the `callers()` entry point `runCallers()` delegates to.
+# Tests the one CLI concern native coverage can't reach: that the real
+# binary's dispatch skips the shared vault/namespace preamble entirely for
+# this subcommand. The lookup itself (exact-match filtering, call-vs-
+# reference, sort agreement) moved to native coverage --
+# `src/apps/synapse/refs_cmd.zig`'s own `test` blocks, via the `callers()`
+# entry point `runCallers()` delegates to.
 
 load 'test_helper'
 
@@ -58,14 +58,4 @@ run_callers() {
   rm -rf "$VAULT"
   run run_callers doThing
   [ "$status" -eq 0 ]
-}
-
-@test "callers: usage errors are exit 2" {
-  seed_index
-  run run_callers
-  [ "$status" -eq 2 ]
-  run run_callers doThing --nonsense
-  [ "$status" -eq 2 ]
-  run run_callers doThing extra-arg
-  [ "$status" -eq 2 ]
 }

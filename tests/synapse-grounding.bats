@@ -1,13 +1,15 @@
 #!/usr/bin/env bats
-# Tests `synapse-query.sh grounding`'s two genuinely process-level concerns:
-# the shared namespace-remote-mismatch preamble every `query` subcommand
-# gates on (`run()`'s own check, not `cmdGrounding`'s), and a real
-# write-node -> query round trip. The verification logic itself (moved
-# vs. changed vs. gone, --list, argument handling) moved to native
-# coverage -- `src/apps/synapse/query_cmd.zig`'s own `test` blocks, calling
-# `cmdGrounding` directly against a node file written straight into a
-# fixture vault rather than through `write-node`'s own pipeline, since
-# `cmdGrounding` only cares what's on disk, not how it got there.
+# Tests `synapse query grounding`'s one genuinely process-level concern: a
+# real write-node -> query round trip proving `grounded_in` provenance
+# survives a realistic edit-regenerate-rewrite cycle. The remote-mismatch
+# preamble this subcommand shares with every other `query` subcommand has
+# its canonical test in synapse-query.bats, not duplicated here. The
+# verification logic itself (moved vs. changed vs. gone, --list, argument
+# handling) moved to native coverage -- `src/apps/synapse/query_cmd.zig`'s
+# own `test` blocks, calling `cmdGrounding` directly against a node file
+# written straight into a fixture vault rather than through `write-node`'s
+# own pipeline, since `cmdGrounding` only cares what's on disk, not how it
+# got there.
 
 load 'test_helper'
 
@@ -46,14 +48,6 @@ build_grounded_node() {
     --paths "$PATHS" --body "$BODY" >/dev/null
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
   printf 'lib/calc.ml\tPremium.md\nsrc/foo.ml\tPremium.md\n' | write_index_bin "$(default_work_dir)"
-}
-
-@test "grounding: refuses on a remote mismatch rather than reporting clean" {
-  build_grounded_node
-  write_synapse_index "$(repo_name)" "ssh://git@example.com/SOMEONE-ELSE.git"
-  run in_repo "$SYNAPSE_BIN" query grounding
-  [ "$status" -eq 1 ]
-  [ -z "$output" ]
 }
 
 @test "round trip: --list plus re-emit preserves groundings; omitting them loses all" {

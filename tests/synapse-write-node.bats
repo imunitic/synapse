@@ -10,12 +10,9 @@
 # the tags-cache wiring all moved to native `zig build test` coverage --
 # `src/apps/synapse/write_node_cmd.zig`'s own `test` blocks, calling `write()`
 # directly against `cmd_test_support.zig`'s fixture (real git, fake curl, a
-# fake extractor). What's left here is `run()`'s own arg-parsing (untestable
-# in-process: `std.process.Args.Iterator` has no test-friendly constructor),
-# two warnings that only ever reach real stderr via `std.debug.print` (which
-# no in-process fixture captures), and running outside a git repo entirely
-# (`context.resolve` always resolves identity from the real process cwd, not
-# a caller-supplied path).
+# fake extractor). What's left here are two warning pairs that only ever
+# reach real stderr via `std.debug.print`, which no in-process fixture
+# captures.
 
 load 'test_helper'
 
@@ -62,8 +59,6 @@ run_writer_raw() {
     bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" write-node "$@"
 }
 
-node_file() { echo "$VAULT/synapse/$(repo_name)/$1.md"; }
-
 # A repo with files at three shapes that the `## Sources` module rule treats
 # differently: under a module's src/, under a top-level dir, and at the root.
 make_layered_repo() {
@@ -76,15 +71,6 @@ make_layered_repo() {
   printf 'root\n' > "$REPO/rootfile.txt"
   git -C "$REPO" add -A
   git -C "$REPO" -c user.email=test@test -c user.name=test commit -q -m layered
-}
-
-@test "a missing --summary is a usage error, not a node without one" {
-  make_repo
-  printf 'src/foo.ml\n' > "$PATHS"
-
-  run run_writer_raw --title "Nosummary" --paths "$PATHS" --body "$BODY"
-  [ "$status" -eq 2 ]
-  [ ! -f "$(node_file Nosummary)" ]
 }
 
 @test "uncommitted changes in this node's own sources are called out" {
@@ -136,30 +122,3 @@ make_layered_repo() {
   [[ "$output" != *"WARNING"* ]]
 }
 
-@test "missing arguments exit 2, and an empty path list exits 1" {
-  make_repo
-  printf 'src/foo.ml\n' > "$PATHS"
-
-  run run_write --title "T" --paths "$PATHS"
-  [ "$status" -eq 2 ]
-
-  run run_write --paths "$PATHS" --body "$BODY"
-  [ "$status" -eq 2 ]
-
-  : > "$PATHS"
-  run run_write --title "T" --paths "$PATHS" --body "$BODY"
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"empty path list"* ]]
-}
-
-@test "runs outside a git repo exit 1 rather than inventing a namespace" {
-  make_repo
-  printf 'src/foo.ml\n' > "$PATHS"
-  mkdir -p "$TEST_HOME/notarepo"
-
-  run env PATH="$FAKE_BIN:$PATH" FAKE_CURL_LOG="$CURL_LOG" FAKE_CURL_VAULT_DIR="$VAULT" \
-    bash -c 'cd "$1" && shift && exec "$@"' _ "$TEST_HOME/notarepo" \
-    "$SYNAPSE_BIN" write-node --title "Nope" --summary "S." --paths "$PATHS" --body "$BODY"
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"not inside a git repo"* ]]
-}

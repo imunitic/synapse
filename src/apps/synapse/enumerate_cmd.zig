@@ -84,8 +84,8 @@ pub fn runEnumerate(
 /// Brings `all.txt`/`oversize.txt` up to date and reports: the rebuild
 /// banner when a rebuild happens, the oversize report if anything was
 /// skipped, `enumerated: N` always. Shared with `build-lists` (writes to
-/// the caller's own writer) rather than spawned, since
-/// `tests/synapse-build-lists.bats` asserts on where these lines land.
+/// the caller's own writer) rather than spawned, since a native test below
+/// asserts on where these lines land.
 pub fn ensure(
     gpa: Allocator,
     io: Io,

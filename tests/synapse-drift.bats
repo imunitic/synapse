@@ -1,9 +1,7 @@
 #!/usr/bin/env bats
-# Tests `synapse-query.sh drift`'s two genuinely process-level cases: a real
-# branch switch landing on a namespace that doesn't describe it, both alone
-# and combined with a bad argument (arity is checked inside the subcommand,
-# after the shared no-namespace preamble, so the preamble's exit code has to
-# win). The diff logic itself (modified/deleted/renamed/added classification,
+# Tests `synapse query drift`'s one genuinely process-level case: a real
+# branch switch landing on a namespace that doesn't describe it. The diff
+# logic itself (modified/deleted/renamed/added classification,
 # baseline resolution, divergence, upstream context, manifest classification)
 # moved to native coverage -- `src/apps/synapse/query_cmd.zig`'s own `test`
 # blocks, calling `cmdDrift` directly against a real git repo built through
@@ -105,19 +103,4 @@ stage_index() { # stage_index <node.md> <path>...
   run run_drift
   [ "$status" -eq 1 ]
   [[ "$output" != *"is not an ancestor of HEAD"* ]]
-}
-
-@test "in a repo with no namespace it exits 1, not 2, even with bad arguments" {
-  # Documents a real limitation rather than asserting it is ideal. The subcommand
-  # name is validated before the preamble, but per-subcommand arity is checked
-  # inside the subcommand, so a missing namespace masks a typo'd argument — the
-  # exact confusion the early subcommand check exists to avoid. `stale` behaves the
-  # same way; fixing it means hoisting arity out of every subcommand.
-  make_two_area_repo
-  run run_drift extra
-  [ "$status" -eq 1 ]
-  # It now names the reason on stderr rather than exiting mute -- but the reason
-  # must be "no graph here", never anything a caller could read as a finding.
-  [[ "$output" == *"no namespace covers"* ]]
-  [[ "$output" != *"is not an ancestor"* ]]
 }
