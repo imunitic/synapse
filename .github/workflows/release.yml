@@ -141,7 +141,8 @@ jobs:
       # `dist` before -- built in a scratch directory outside this job's own
       # checkout so there's no working tree to reconcile, no fetch, no
       # merge, and no growing history to ever prune. `dist` holds exactly
-      # the latest release's binaries, nothing else, ever.
+      # the latest release's binaries plus ci/dist-readme.md (as README.md,
+      # so it renders on the branch's own GitHub page), nothing else, ever.
       - name: Publish binaries to the dist branch
         run: |
           source ci/release-targets.sh
@@ -149,6 +150,7 @@ jobs:
           for t in "${targets[@]}"; do
             cp "synapse-$t.tar.gz" "synapse-bard-$t.tar.gz" "$publish_dir/"
           done
+          cp ci/dist-readme.md "$publish_dir/README.md"
           cd "$publish_dir"
           git init -q -b dist
           git config user.name "github-actions[bot]"
