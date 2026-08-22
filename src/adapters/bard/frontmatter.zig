@@ -315,24 +315,19 @@ pub const BardFrontmatterExtractor = struct {
         line: []const u8,
     ) !void {
         _ = self;
-        const inner = unquote(value);
-        var rest = inner;
-        while (std.mem.indexOf(u8, rest, "[[")) |start| {
-            const after = rest[start + 2 ..];
-            const end = std.mem.indexOf(u8, after, "]]") orelse break;
-            const body = after[0..end];
-            const pipe = std.mem.indexOfScalar(u8, body, '|') orelse body.len;
-            const target = std.mem.trim(u8, body[0..pipe], " ");
-            if (target.len != 0) {
-                try tags.append(gpa, .{
-                    .name = try gpa.dupe(u8, target),
-                    .role = .ref,
-                    .kind = try gpa.dupe(u8, qualified_key),
-                    .line = row,
-                    .expression = try gpa.dupe(u8, line),
-                });
-            }
-            rest = after[end + 2 ..];
+        const targets = try wikilinkTargets(gpa, unquote(value));
+        defer {
+            for (targets) |t| gpa.free(t);
+            gpa.free(targets);
+        }
+        for (targets) |target| {
+            try tags.append(gpa, .{
+                .name = try gpa.dupe(u8, target),
+                .role = .ref,
+                .kind = try gpa.dupe(u8, qualified_key),
+                .line = row,
+                .expression = try gpa.dupe(u8, line),
+            });
         }
     }
 
@@ -404,6 +399,30 @@ pub const BardFrontmatterExtractor = struct {
         return null;
     }
 };
+
+/// Every `[[wikilink]]` substring in `text`, target only (before `|`),
+/// in order of appearance, duplicates included -- callers dedupe if
+/// they need to. Works line-agnostically, so the same function scans a
+/// single frontmatter scalar or a whole multi-line prose body.
+pub fn wikilinkTargets(gpa: Allocator, text: []const u8) ![][]const u8 {
+    var out: std.ArrayListUnmanaged([]const u8) = .empty;
+    errdefer {
+        for (out.items) |t| gpa.free(t);
+        out.deinit(gpa);
+    }
+
+    var rest = text;
+    while (std.mem.indexOf(u8, rest, "[[")) |start| {
+        const after = rest[start + 2 ..];
+        const end = std.mem.indexOf(u8, after, "]]") orelse break;
+        const body = after[0..end];
+        const pipe = std.mem.indexOfScalar(u8, body, '|') orelse body.len;
+        const target = std.mem.trim(u8, body[0..pipe], " ");
+        if (target.len != 0) try out.append(gpa, try gpa.dupe(u8, target));
+        rest = after[end + 2 ..];
+    }
+    return out.toOwnedSlice(gpa);
+}
 
 /// The whole frontmatter block, verbatim, from the opening `---` through the
 /// closing `---` inclusive -- what `synapse-bard sync` writes into
@@ -1115,4 +1134,25 @@ test "rootKeys lists only column-0 keys, in order, skipping nested sub-fields an
 test "rootKeys is null for a file with no frontmatter" {
     const gpa = testing.allocator;
     try testing.expectEqual(@as(?[][]const u8, null), try rootKeys(gpa, "# Just prose\n"));
+}
+
+test "wikilinkTargets finds every [[wikilink]] target in a multi-line string, duplicates included" {
+    const gpa = testing.allocator;
+    const text = "Mentions [[maren-solveig|Maren]] here, then again as [[maren-solveig]].\nA new line references [[drisdan-noor|Drisdan]].";
+    const targets = try wikilinkTargets(gpa, text);
+    defer {
+        for (targets) |t| gpa.free(t);
+        gpa.free(targets);
+    }
+    try testing.expectEqual(@as(usize, 3), targets.len);
+    try testing.expectEqualStrings("maren-solveig", targets[0]);
+    try testing.expectEqualStrings("maren-solveig", targets[1]);
+    try testing.expectEqualStrings("drisdan-noor", targets[2]);
+}
+
+test "wikilinkTargets is empty for text with no wikilinks at all" {
+    const gpa = testing.allocator;
+    const targets = try wikilinkTargets(gpa, "Plain prose, no brackets here.");
+    defer gpa.free(targets);
+    try testing.expectEqual(@as(usize, 0), targets.len);
 }

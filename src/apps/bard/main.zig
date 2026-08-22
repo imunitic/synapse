@@ -13,6 +13,8 @@
 //!   synapse-bard vault-search <query>          full-text over _bard/vault/,
 //!                                               ranked by backlink count
 //!   synapse-bard vault-links <note>            every note linking to <note>
+//!   synapse-bard verify                        check frontmatter/prose
+//!                                               links and kinds: values
 //!
 //! `_bard/graph/` holds one node per *cluster* (a source folder), not one
 //! per entity -- `sync` groups entities by folder,
@@ -35,6 +37,7 @@ const fields_cmd = @import("fields_cmd.zig");
 const search_cmd = @import("search_cmd.zig");
 const vault_search_cmd = @import("vault_search_cmd.zig");
 const vault_links_cmd = @import("vault_links_cmd.zig");
+const verify_cmd = @import("verify_cmd.zig");
 
 const usage =
     \\usage: synapse-bard <command>
@@ -54,6 +57,8 @@ const usage =
     \\                                by backlink count
     \\  vault-links <note>            every note in _bard/vault/ linking to
     \\                                <note>
+    \\  verify                        check frontmatter/prose-body links and
+    \\                                kinds: values against the graph
     \\
 ;
 
@@ -87,6 +92,8 @@ pub fn main(init: std.process.Init) !u8 {
         return vault_search_cmd.run(gpa, io, &args);
     } else if (std.mem.eql(u8, which, "vault-links")) {
         return vault_links_cmd.run(gpa, io, &args);
+    } else if (std.mem.eql(u8, which, "verify")) {
+        return verify_cmd.run(gpa, io, &args);
     } else {
         std.debug.print("synapse-bard: unknown command '{s}'\n{s}", .{ which, usage });
         return 2;

@@ -31,6 +31,8 @@ usage: synapse-bard <command>
                                 by backlink count
   vault-links <note>            every note in _bard/vault/ linking to
                                 <note>
+  verify                        check frontmatter/prose-body links and
+                                kinds: values against the graph
 ```
 
 ### synapse-bard sync
@@ -116,6 +118,17 @@ usage: synapse-bard vault-links <note>
           way a [[wikilink]] itself resolves) -- e.g. both
           "designs/synapse-bard/Bible-graph.md" and "Bible-graph"
           find the same note
+```
+
+### synapse-bard verify
+
+```
+usage: synapse-bard verify
+
+Checks every entity's frontmatter refs and prose-body [[wikilinks]]
+resolve to a real entity, and every kinds: value matches the settled
+vocabulary. Read-only -- reports findings, fixes nothing. Exit 1 if
+any check found something.
 ```
 
 ## synapse-bard-hook
