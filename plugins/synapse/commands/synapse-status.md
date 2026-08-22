@@ -123,6 +123,6 @@ go dig for.
 - Read-only end to end. Never calls `vault_write`/`vault_patch`/`vault_move`/`vault_delete`/
   `vault_copy` -- if a step here ever seems to need one, that step is out of scope, not a case to
   special-case around.
-- No Artifact/web-UI output. No `SessionStart` wiring. No `synapse vault-*` CLI subcommand -- every
+- No Artifact/web-UI output. No `SessionStart` wiring. Not a new binary CLI subcommand -- every
   category above is a plain mechanical query already reachable through `mcp__obsidian__*` tools.
 - Scoped to `designs/`/`tasks/` only -- never `inbox/`/`research/`/`scratchpad/`.
