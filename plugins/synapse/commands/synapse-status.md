@@ -59,7 +59,8 @@ step patches a compiled design note with a `> Compiled task: [[...]]` line right
 
 **3. Design notes (any status) with a non-empty `## Open Questions`.** Match the heading followed by
 at least one bullet -- a heading with nothing under it (fully pruned, per the Ready-gate convention
-`/synapse-design-note` now follows) doesn't count as open:
+`/synapse-design-note` now follows) doesn't count as open. Since this section spans every status,
+each line in the composed report also shows *which* status the note is currently in:
 
 ```
 {"and": [
@@ -67,6 +68,17 @@ at least one bullet -- a heading with nothing under it (fully pruned, per the Re
   {"regexp": ["## Open Questions\\n- ", {"var": "content"}]}
 ]}
 ```
+
+`regexp` is boolean-only (no captured groups), so getting each match's actual status needs a second
+pass. Run the same query three more times, `and`-ed with `{"regexp": ["## Status\\nDiscussing", ...]}`
+/ `Ready` / `Reference` respectively, to sort the matches from the first query into the three known
+statuses without a body read. **A design note written before `## Status` was standardized on those
+exact three words can carry free text there instead** (e.g. `Superseded by [[...]]`) -- it matches
+the first query but none of the three status-scoped ones. Whatever's left over after removing the
+Discussing/Ready/Reference matches from the first query's full result set is exactly this case:
+report those under a fourth bucket, "Other", rather than silently dropping them -- surfacing an odd
+note beats losing it, the same reasoning behind reporting a 0-unchecked task instead of hiding it
+(see Query 4 below).
 
 **4. Open task notes with at least one unchecked item.** Task notes carry `status:` in frontmatter,
 unlike design notes -- filter there first:
@@ -91,7 +103,11 @@ note past `REVIEW` on its own:
 ## Composing the report
 
 One section per category, in the order above. Each line names the note (title, or filename if no
-`title` frontmatter) plus the one identifying detail that category needs:
+`title` frontmatter) plus the one identifying detail that category needs. The Open Questions section
+is the one place a note's status also belongs on the line -- every other section's heading already
+implies it (the "Discussing" section only ever holds `Discussing` notes), but Open Questions spans
+every status (`Discussing`/`Ready`/`Reference`/the "Other" catch-all from Query 3 above), so put the
+status first, before the title, so it's the first thing scanned:
 
 ```
 ## Discussing
@@ -101,7 +117,7 @@ One section per category, in the order above. Each line names the note (title, o
 - {title}
 
 ## Open questions
-- {title}
+- **{status}** — {title}
 
 ## In progress (unchecked items)
 - {title} ({N} unchecked)
