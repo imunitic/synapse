@@ -110,19 +110,46 @@ Y, confirmed by Z"), never as commentary on the discussion that found it ("inves
 "the first attempt was"). Test: would the sentence still make sense to someone who wasn't in the
 conversation and has no idea anything was ever revised? If not, rewrite it as a direct statement.
 
+**Prune `## Open Questions` the moment a question resolves — every time the note is touched, not
+just at conclusion.** This section must only ever contain what is currently, actually unresolved:
+a reader (or the agent checking for a blocking question before marking `Ready`, below) has to be
+able to tell in one pass whether anything is still open, not read through a history of past answers
+to find the one real one. When a question is answered during discussion, delete its bullet outright
+— if the answer matters going forward, fold it into `## Approach` (as a direct settled fact, same
+rule as above) or `### Alternatives considered` (if something specific was tried and rejected along
+the way). Never leave a "Resolved on {date}" or "Revised ({review}): ..." bullet parked under Open
+Questions as a historical record — that is exactly the changelog-as-current-state failure the rule
+above already prohibits, just easier to miss here because the section reads as a list either way.
+
 Angles worth covering (skip whatever's not relevant):
 - What problem are we solving, and why now?
 - What's the chosen approach? If there were real alternatives, a one-line "why not" for each.
 - What are the hard constraints?
 - Anything risky, or that needs deciding now vs. can be deferred?
 
-### Concluding: Ready or Reference
+### Concluding: Discussing, Ready, or Reference
 
-- **Something to build** → `Status: Ready`. Confirm: "Design note ready: `designs/{title}.md`.
+A design note starts `Discussing` and stays there by default — reaching `Ready` is a deliberate
+judgment call, not the automatic result of an `## Approach` section existing. Before marking
+`Ready`, check both explicitly:
+- Is `## Approach` complete and actionable as written, with no hedge language standing in for a
+  decision that hasn't actually been made ("a plausible shape," "TBD," "leaning toward," "something
+  like")? If the approach still contains that kind of placeholder, it isn't `Ready` yet regardless
+  of how much has been discussed.
+- Does every `## Open Questions` bullet, if any survive the pruning above, sit off the critical
+  path — genuinely deferred, not something `/synapse-task-note` would need answered to turn this
+  into real work? A `Ready` note is not required to have zero open questions (a deferred, non-
+  blocking question is fine to carry forward), but a note with a *blocking* open question is not
+  `Ready`, no matter how developed the rest of it is.
+
+- **Both hold** → `Status: Ready`. Confirm: "Design note ready: `designs/{title}.md`.
   Whenever you're ready to implement, generate the task with
   `/synapse-task-note \"{topic}\"` — no rush, nothing here expires."
-- **Nothing to build** → `Status: Reference`. Confirm: "Design note concluded as Reference:
-  `designs/{title}.md`. No task note needed."
+- **Genuinely nothing to build** → `Status: Reference`. Confirm: "Design note concluded as
+  Reference: `designs/{title}.md`. No task note needed."
+- **Anything else** (the approach is still hedged, or an open question blocks it) → stays
+  `Status: Discussing`. This is the default outcome, not a fallback to apologize for — most
+  conversations end here, and that's fine; nothing here expires either.
 
 If genuinely unsure which, ask the user directly.
 
