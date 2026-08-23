@@ -21,6 +21,8 @@ pub const text =
     \\  query <subcommand> [args]  read-only queries against the graph
     \\  write-node --title <t> --summary <s> --paths <f> --body <f>
     \\  build-refs [--cache <f>] [--out <f>]   _refs.tsv from the tags cache
+    \\  build-deps [--repo <dir>] [--out <f>]  _deps.tsv, per-file declared dependencies
+    \\  build-namespaces [--repo <dir>] [--out <f>]  _namespaces.tsv, per-file declared namespace
     \\  callers <name> [--all]     repo-wide sites of an exact name
     \\  gate --vocab <file> [--all] [--top N]   clusters owning no vocabulary
     \\  link-graph --refs <f> --lists <dir> [--top N]   candidate node links

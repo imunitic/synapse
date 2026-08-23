@@ -26,6 +26,14 @@
 //! exactly one definer is unambiguous by construction; a name defined more
 //! than once contributes no edges at all -- the false edges a wrong guess
 //! would add cost more than the true edges a right guess would keep.
+//!
+//! `resolveAmbiguous` recovers some of what that drop costs, for the one
+//! case with a real signal beyond bare name/path: a reference whose own
+//! file declares a dependency on exactly one candidate definition's own
+//! library. Still a heuristic over syntax, not real semantic analysis --
+//! narrows the candidate set, never guarantees correctness -- so a name
+//! that stays genuinely ambiguous even after checking dependency edges is
+//! left alone exactly like `compute`'s own drop.
 
 const std = @import("std");
 const refs = @import("refs.zig");
@@ -169,6 +177,194 @@ pub fn compute(
 
     if (opts.top != 0) capPerNode(gpa, &edges, opts.top);
     return edges;
+}
+
+/// Recovers an edge for a name `compute` had to drop for being defined by
+/// more than one node, consuming two per-file facts `compute` itself never
+/// touches: each candidate definition's own declared identities
+/// (`path_to_namespace`, from `synapse-namespace-rules.conf` via
+/// `core.namespace.computePerFile` -- a set, not a single string, since a
+/// rule's aliases can give one file more than one valid self-reference)
+/// and each referencing file's own declared dependencies (`path_to_deps`,
+/// from `synapse-dependency-rules.conf` via `core.deps.compute`). A
+/// reference in file A resolves to a candidate definition in file D only
+/// when exactly one of D's declared identities appears in A's dependency
+/// set -- more than one qualifying candidate is still genuinely ambiguous,
+/// left alone exactly like `compute`'s own drop. Real signal, not a
+/// guarantee: a file can declare a dependency it never actually uses for
+/// this specific symbol.
+///
+/// A reference whose own node *also* defines the name is never resolved to
+/// a different node, no matter what its file declares depending on --
+/// lexical scoping makes the same-node definition the true answer almost
+/// always, so a cross-node resolution here would risk exactly the
+/// misattribution this mechanism exists to avoid. Left ambiguous, not
+/// attempted.
+///
+/// Same `Edge` shape as `compute`'s own output, sorted and (if `opts.top
+/// != 0`) capped the same way -- concatenate the two results with
+/// `mergeEdges` rather than treating this as a second, parallel graph.
+pub fn resolveAmbiguous(
+    gpa: Allocator,
+    refs_table: []const u8,
+    path_to_nodes: *const std.StringHashMapUnmanaged(std.ArrayListUnmanaged([]const u8)),
+    path_to_namespace: *const std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(void)),
+    path_to_deps: *const std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(void)),
+    opts: Options,
+) !std.ArrayListUnmanaged(Edge) {
+    const Occ = struct { path: []const u8, node: []const u8 };
+    const Occs = struct {
+        defs: std.ArrayListUnmanaged(Occ) = .empty,
+        refs: std.ArrayListUnmanaged(Occ) = .empty,
+
+        fn deinit(self: *@This(), g: Allocator) void {
+            self.defs.deinit(g);
+            self.refs.deinit(g);
+        }
+    };
+    var by_name: std.StringHashMapUnmanaged(Occs) = .empty;
+    defer {
+        var it = by_name.valueIterator();
+        while (it.next()) |o| o.deinit(gpa);
+        by_name.deinit(gpa);
+    }
+
+    var lines = std.mem.splitScalar(u8, refs_table, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trimEnd(u8, raw, "\r");
+        if (line.len == 0) continue;
+        const row = refs.parseRow(line) orelse continue;
+        const is_def = std.mem.eql(u8, row.dir, "def");
+        const is_ref = std.mem.eql(u8, row.dir, "ref");
+        if (!is_def and !is_ref) continue;
+
+        const colon = std.mem.lastIndexOfScalar(u8, row.site, ':') orelse row.site.len;
+        const path = row.site[0..colon];
+        const owners = path_to_nodes.get(path) orelse continue;
+        if (owners.items.len == 0) continue;
+
+        const slot = try by_name.getOrPut(gpa, row.name);
+        if (!slot.found_existing) slot.value_ptr.* = .{};
+        const list = if (is_def) &slot.value_ptr.defs else &slot.value_ptr.refs;
+        for (owners.items) |node| try list.append(gpa, .{ .path = path, .node = node });
+    }
+
+    // from -> to -> the resolved symbols supporting that edge, deduped by
+    // name -- same nesting `compute`'s own `pairs` uses, for the same
+    // reason (each key already owned elsewhere, nothing here to leak).
+    var pairs: std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(void))) = .empty;
+    defer {
+        var outer = pairs.valueIterator();
+        while (outer.next()) |inner| {
+            var it = inner.valueIterator();
+            while (it.next()) |v| v.deinit(gpa);
+            inner.deinit(gpa);
+        }
+        pairs.deinit(gpa);
+    }
+
+    var name_it = by_name.iterator();
+    while (name_it.next()) |entry| {
+        const occs = entry.value_ptr;
+        if (occs.defs.items.len == 0 or occs.refs.items.len == 0) continue;
+
+        // Distinct definer nodes -- the exact condition `compute` drops on.
+        // A name with exactly one definer node is `compute`'s job, not
+        // this one's, even if it has several defining files in that node.
+        var def_nodes: std.StringHashMapUnmanaged(void) = .empty;
+        defer def_nodes.deinit(gpa);
+        for (occs.defs.items) |d| try def_nodes.put(gpa, d.node, {});
+        if (def_nodes.count() <= 1) continue;
+
+        for (occs.refs.items) |r| {
+            // A same-node definition already exists for this name -- lexical
+            // scoping makes that the true answer almost always, so resolving
+            // to a *different* node here would risk exactly the kind of
+            // misattribution this mechanism exists to avoid. Left ambiguous,
+            // not attempted, regardless of what `r`'s own file depends on.
+            var same_node = false;
+            for (occs.defs.items) |d| {
+                if (std.mem.eql(u8, r.node, d.node)) {
+                    same_node = true;
+                    break;
+                }
+            }
+            if (same_node) continue;
+
+            const deps = path_to_deps.get(r.path) orelse continue;
+
+            var resolved_node: ?[]const u8 = null;
+            var ambiguous_here = false;
+            for (occs.defs.items) |d| {
+                const identities = path_to_namespace.get(d.path) orelse continue;
+                var qualifies = false;
+                var id_it = identities.keyIterator();
+                while (id_it.next()) |lib| {
+                    if (deps.contains(lib.*)) {
+                        qualifies = true;
+                        break;
+                    }
+                }
+                if (!qualifies) continue;
+                if (resolved_node) |already| {
+                    if (!std.mem.eql(u8, already, d.node)) ambiguous_here = true;
+                    continue;
+                }
+                resolved_node = d.node;
+            }
+            if (ambiguous_here) continue;
+            const to_node = resolved_node orelse continue;
+
+            const outer = try pairs.getOrPut(gpa, r.node);
+            if (!outer.found_existing) outer.value_ptr.* = .empty;
+            const inner = try outer.value_ptr.getOrPut(gpa, to_node);
+            if (!inner.found_existing) inner.value_ptr.* = .empty;
+            try inner.value_ptr.put(gpa, entry.key_ptr.*, {});
+        }
+    }
+
+    var edges: std.ArrayListUnmanaged(Edge) = .empty;
+    errdefer free(gpa, &edges);
+    var outer_it = pairs.iterator();
+    while (outer_it.next()) |oe| {
+        const from = oe.key_ptr.*;
+        var inner_it = oe.value_ptr.iterator();
+        while (inner_it.next()) |ie| {
+            const to = ie.key_ptr.*;
+            var symbols = try gpa.alloc([]const u8, ie.value_ptr.count());
+            defer gpa.free(symbols);
+            var si: usize = 0;
+            var sym_it = ie.value_ptr.keyIterator();
+            while (sym_it.next()) |s| : (si += 1) symbols[si] = s.*;
+            std.mem.sort([]const u8, symbols, {}, lessByBytes);
+
+            const weight = symbols.len;
+            const shown = if (opts.symbols_shown == 0) weight else @min(opts.symbols_shown, weight);
+            try edges.append(gpa, .{
+                .from = from,
+                .to = to,
+                .weight = weight,
+                .symbols = try gpa.dupe([]const u8, symbols[0..shown]),
+            });
+        }
+    }
+
+    std.mem.sort(Edge, edges.items, {}, lessByRank);
+    if (opts.top != 0) capPerNode(gpa, &edges, opts.top);
+    return edges;
+}
+
+/// Concatenates `extra`'s edges into `edges` -- ownership of each edge's
+/// `symbols` slice transfers, so `extra`'s own list is cleared, not freed
+/// with `free` (that would double-free what `edges` now owns) -- then
+/// re-sorts and (if `top != 0`) re-caps the combined set the same way
+/// `compute` orders its own output. The join point for `resolveAmbiguous`'s
+/// recovered edges: a caller treats the result as one graph, never two.
+pub fn mergeEdges(gpa: Allocator, edges: *std.ArrayListUnmanaged(Edge), extra: *std.ArrayListUnmanaged(Edge), top: usize) !void {
+    try edges.appendSlice(gpa, extra.items);
+    extra.clearAndFree(gpa);
+    std.mem.sort(Edge, edges.items, {}, lessByRank);
+    if (top != 0) capPerNode(gpa, edges, top);
 }
 
 /// Frees what `compute` returned. Only `symbols` is owned per edge --
@@ -532,4 +728,236 @@ test "compute: no edge is ever a self-edge, and weight is never smaller than the
             }
         }
     }.testOne, .{});
+}
+
+/// `path -> {value, ...}` -- the shape both `path_to_deps` (a file's own
+/// declared dependencies) and `path_to_namespace` (a file's own declared
+/// identities) share, so one builder serves both in tests.
+fn pathSetsMap(
+    gpa: Allocator,
+    pairs: []const struct { path: []const u8, values: []const []const u8 },
+) !std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(void)) {
+    var m: std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(void)) = .empty;
+    for (pairs) |p| {
+        var set: std.StringHashMapUnmanaged(void) = .empty;
+        for (p.values) |v| try set.put(gpa, v, {});
+        try m.put(gpa, p.path, set);
+    }
+    return m;
+}
+
+fn freePathSetsMap(gpa: Allocator, m: *std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(void))) void {
+    var it = m.valueIterator();
+    while (it.next()) |v| v.deinit(gpa);
+    m.deinit(gpa);
+}
+
+test "resolveAmbiguous: a reference resolves to the one candidate its own file actually depends on" {
+    const gpa = testing.allocator;
+    // `Shared` is defined in both B and C; A references it and declares a
+    // dependency on B's own library, not C's.
+    var pm = try pathMap(gpa, &.{
+        .{ .path = "a/A.ext", .nodes = &.{"A"} },
+        .{ .path = "b/B.ext", .nodes = &.{"B"} },
+        .{ .path = "c/C.ext", .nodes = &.{"C"} },
+    });
+    defer freePathMap(gpa, &pm);
+    var ns = try pathSetsMap(gpa, &.{
+        .{ .path = "b/B.ext", .values = &.{"lib_b"} },
+        .{ .path = "c/C.ext", .values = &.{"lib_c"} },
+    });
+    defer freePathSetsMap(gpa, &ns);
+    var deps = try pathSetsMap(gpa, &.{
+        .{ .path = "a/A.ext", .values = &.{"lib_b"} },
+    });
+    defer freePathSetsMap(gpa, &deps);
+
+    const refs_table =
+        "Shared\tdef\tclass\tb/B.ext:1\tclass Shared {\n" ++
+        "Shared\tdef\tclass\tc/C.ext:1\tclass Shared {\n" ++
+        "Shared\tref\tcall\ta/A.ext:5\tShared.run();\n";
+
+    var edges = try resolveAmbiguous(gpa, refs_table, &pm, &ns, &deps, .{});
+    defer free(gpa, &edges);
+    try testing.expectEqual(@as(usize, 1), edges.items.len);
+    try testing.expectEqualStrings("A", edges.items[0].from);
+    try testing.expectEqualStrings("B", edges.items[0].to);
+    try testing.expectEqualStrings("Shared", edges.items[0].symbols[0]);
+}
+
+test "resolveAmbiguous: no matching dependency edge leaves the reference ambiguous" {
+    const gpa = testing.allocator;
+    var pm = try pathMap(gpa, &.{
+        .{ .path = "a/A.ext", .nodes = &.{"A"} },
+        .{ .path = "b/B.ext", .nodes = &.{"B"} },
+        .{ .path = "c/C.ext", .nodes = &.{"C"} },
+    });
+    defer freePathMap(gpa, &pm);
+    var ns = try pathSetsMap(gpa, &.{
+        .{ .path = "b/B.ext", .values = &.{"lib_b"} },
+        .{ .path = "c/C.ext", .values = &.{"lib_c"} },
+    });
+    defer freePathSetsMap(gpa, &ns);
+    // A depends on neither candidate's library.
+    var deps = try pathSetsMap(gpa, &.{
+        .{ .path = "a/A.ext", .values = &.{"lib_unrelated"} },
+    });
+    defer freePathSetsMap(gpa, &deps);
+
+    const refs_table =
+        "Shared\tdef\tclass\tb/B.ext:1\tclass Shared {\n" ++
+        "Shared\tdef\tclass\tc/C.ext:1\tclass Shared {\n" ++
+        "Shared\tref\tcall\ta/A.ext:5\tShared.run();\n";
+
+    var edges = try resolveAmbiguous(gpa, refs_table, &pm, &ns, &deps, .{});
+    defer free(gpa, &edges);
+    try testing.expectEqual(@as(usize, 0), edges.items.len);
+}
+
+test "resolveAmbiguous: a candidate in the reference's own node is never a resolution target" {
+    const gpa = testing.allocator;
+    // `Shared` is defined in both A (the reference's own node) and B. Even
+    // though A's own declared library would also match A's own deps
+    // (self-reference), the true answer already lived in A's own node --
+    // never resolved to an edge, same as `compute`'s own self-edge drop.
+    var pm = try pathMap(gpa, &.{
+        .{ .path = "a/A.ext", .nodes = &.{"A"} },
+        .{ .path = "b/B.ext", .nodes = &.{"B"} },
+    });
+    defer freePathMap(gpa, &pm);
+    var ns = try pathSetsMap(gpa, &.{
+        .{ .path = "a/A.ext", .values = &.{"lib_a"} },
+        .{ .path = "b/B.ext", .values = &.{"lib_b"} },
+    });
+    defer freePathSetsMap(gpa, &ns);
+    var deps = try pathSetsMap(gpa, &.{
+        .{ .path = "a/A.ext", .values = &.{ "lib_a", "lib_b" } },
+    });
+    defer freePathSetsMap(gpa, &deps);
+
+    const refs_table =
+        "Shared\tdef\tclass\ta/A.ext:1\tclass Shared {\n" ++
+        "Shared\tdef\tclass\tb/B.ext:1\tclass Shared {\n" ++
+        "Shared\tref\tcall\ta/A.ext:5\tShared.run();\n";
+
+    var edges = try resolveAmbiguous(gpa, refs_table, &pm, &ns, &deps, .{});
+    defer free(gpa, &edges);
+    try testing.expectEqual(@as(usize, 0), edges.items.len);
+}
+
+test "resolveAmbiguous: more than one qualifying candidate library stays ambiguous" {
+    const gpa = testing.allocator;
+    var pm = try pathMap(gpa, &.{
+        .{ .path = "a/A.ext", .nodes = &.{"A"} },
+        .{ .path = "b/B.ext", .nodes = &.{"B"} },
+        .{ .path = "c/C.ext", .nodes = &.{"C"} },
+    });
+    defer freePathMap(gpa, &pm);
+    var ns = try pathSetsMap(gpa, &.{
+        .{ .path = "b/B.ext", .values = &.{"lib_b"} },
+        .{ .path = "c/C.ext", .values = &.{"lib_c"} },
+    });
+    defer freePathSetsMap(gpa, &ns);
+    // A depends on both candidates' libraries -- still genuinely ambiguous.
+    var deps = try pathSetsMap(gpa, &.{
+        .{ .path = "a/A.ext", .values = &.{ "lib_b", "lib_c" } },
+    });
+    defer freePathSetsMap(gpa, &deps);
+
+    const refs_table =
+        "Shared\tdef\tclass\tb/B.ext:1\tclass Shared {\n" ++
+        "Shared\tdef\tclass\tc/C.ext:1\tclass Shared {\n" ++
+        "Shared\tref\tcall\ta/A.ext:5\tShared.run();\n";
+
+    var edges = try resolveAmbiguous(gpa, refs_table, &pm, &ns, &deps, .{});
+    defer free(gpa, &edges);
+    try testing.expectEqual(@as(usize, 0), edges.items.len);
+}
+
+test "resolveAmbiguous: two aliases for the same candidate still resolve to a single edge" {
+    const gpa = testing.allocator;
+    // B's file is known under two identities (a rule's primary value and
+    // one alias) -- A's dependency matches only the alias, and the
+    // candidate still resolves, exactly once.
+    var pm = try pathMap(gpa, &.{
+        .{ .path = "a/A.ext", .nodes = &.{"A"} },
+        .{ .path = "b/B.ext", .nodes = &.{"B"} },
+        .{ .path = "c/C.ext", .nodes = &.{"C"} },
+    });
+    defer freePathMap(gpa, &pm);
+    var ns = try pathSetsMap(gpa, &.{
+        .{ .path = "b/B.ext", .values = &.{ "lib_b", "lib_b_pub" } },
+        .{ .path = "c/C.ext", .values = &.{"lib_c"} },
+    });
+    defer freePathSetsMap(gpa, &ns);
+    var deps = try pathSetsMap(gpa, &.{
+        .{ .path = "a/A.ext", .values = &.{"lib_b_pub"} },
+    });
+    defer freePathSetsMap(gpa, &deps);
+
+    const refs_table =
+        "Shared\tdef\tclass\tb/B.ext:1\tclass Shared {\n" ++
+        "Shared\tdef\tclass\tc/C.ext:1\tclass Shared {\n" ++
+        "Shared\tref\tcall\ta/A.ext:5\tShared.run();\n";
+
+    var edges = try resolveAmbiguous(gpa, refs_table, &pm, &ns, &deps, .{});
+    defer free(gpa, &edges);
+    try testing.expectEqual(@as(usize, 1), edges.items.len);
+    try testing.expectEqualStrings("B", edges.items[0].to);
+}
+
+test "resolveAmbiguous: a reference with no declared dependency data at all is left ambiguous" {
+    const gpa = testing.allocator;
+    var pm = try pathMap(gpa, &.{
+        .{ .path = "a/A.ext", .nodes = &.{"A"} },
+        .{ .path = "b/B.ext", .nodes = &.{"B"} },
+        .{ .path = "c/C.ext", .nodes = &.{"C"} },
+    });
+    defer freePathMap(gpa, &pm);
+    var ns: std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(void)) = .empty;
+    defer freePathSetsMap(gpa, &ns);
+    var deps: std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(void)) = .empty;
+    defer freePathSetsMap(gpa, &deps);
+
+    const refs_table =
+        "Shared\tdef\tclass\tb/B.ext:1\tclass Shared {\n" ++
+        "Shared\tdef\tclass\tc/C.ext:1\tclass Shared {\n" ++
+        "Shared\tref\tcall\ta/A.ext:5\tShared.run();\n";
+
+    var edges = try resolveAmbiguous(gpa, refs_table, &pm, &ns, &deps, .{});
+    defer free(gpa, &edges);
+    try testing.expectEqual(@as(usize, 0), edges.items.len);
+}
+
+test "mergeEdges: concatenates, re-sorts, and re-caps -- ownership of extra's edges transfers" {
+    const gpa = testing.allocator;
+    var edges: std.ArrayListUnmanaged(Edge) = .empty;
+    try edges.append(gpa, .{ .from = "A", .to = "B", .weight = 1, .symbols = try gpa.dupe([]const u8, &.{"One"}) });
+
+    var extra: std.ArrayListUnmanaged(Edge) = .empty;
+    try extra.append(gpa, .{ .from = "A", .to = "C", .weight = 5, .symbols = try gpa.dupe([]const u8, &.{"Two"}) });
+
+    try mergeEdges(gpa, &edges, &extra, 0);
+    defer free(gpa, &edges);
+
+    try testing.expectEqual(@as(usize, 0), extra.items.len);
+    try testing.expectEqual(@as(usize, 2), edges.items.len);
+    // Sorted by from asc, weight desc, to asc -- the higher-weight A->C edge first.
+    try testing.expectEqualStrings("C", edges.items[0].to);
+    try testing.expectEqualStrings("B", edges.items[1].to);
+}
+
+test "mergeEdges: a nonzero top re-applies the per-node cap across the combined set" {
+    const gpa = testing.allocator;
+    var edges: std.ArrayListUnmanaged(Edge) = .empty;
+    try edges.append(gpa, .{ .from = "A", .to = "B", .weight = 1, .symbols = try gpa.dupe([]const u8, &.{"One"}) });
+
+    var extra: std.ArrayListUnmanaged(Edge) = .empty;
+    try extra.append(gpa, .{ .from = "A", .to = "C", .weight = 5, .symbols = try gpa.dupe([]const u8, &.{"Two"}) });
+
+    try mergeEdges(gpa, &edges, &extra, 1);
+    defer free(gpa, &edges);
+
+    try testing.expectEqual(@as(usize, 1), edges.items.len);
+    try testing.expectEqualStrings("C", edges.items[0].to);
 }

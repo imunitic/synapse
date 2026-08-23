@@ -17,6 +17,7 @@ pub const index_map = @import("index_map.zig");
 pub const enumerate = @import("enumerate.zig");
 pub const vocab = @import("vocab.zig");
 pub const namespace = @import("namespace.zig");
+pub const deps = @import("deps.zig");
 pub const kind_synonyms = @import("kind_synonyms.zig");
 pub const links = @import("links.zig");
 pub const rarity = @import("rarity.zig");
@@ -46,6 +47,7 @@ test {
     _ = enumerate;
     _ = vocab;
     _ = namespace;
+    _ = deps;
     _ = links;
     _ = rank;
     _ = node;

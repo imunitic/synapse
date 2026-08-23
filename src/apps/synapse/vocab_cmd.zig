@@ -894,7 +894,7 @@ fn writeNamespaceDivergence(
         const dot = std.mem.lastIndexOfScalar(u8, base, '.') orelse continue;
         if (dot == 0) continue; // a leading-dot file has no extension, same rule `hasUsableExtension` uses
         const ext = base[dot + 1 ..];
-        const rule = ns_registry.ruleFor(ext) orelse continue;
+        const rule = (try ns_registry.ruleFor(arena, ext)) orelse continue;
 
         const declared: ?[]const u8 = switch (rule.kind) {
             .in_file => blk: {
@@ -904,7 +904,7 @@ fn writeNamespaceDivergence(
             },
             .build_file => blk: {
                 const file_name = rule.file.?;
-                const map = try buildFileMap(arena, io, root, kept, file_name, rule.prefix, rule.terminator, &build_maps);
+                const map = try core.namespace.buildFileMap(arena, io, root, kept, file_name, rule.prefix, rule.terminator, &build_maps);
                 break :blk core.namespace.nearestNamespace(map, core.namespace.dirOf(p));
             },
         };
@@ -951,32 +951,6 @@ fn writeNamespaceDivergence(
     defer body.deinit();
     for (rows) |r| try body.writer.print("{s}\t{s}\t{d}\t{d}\n", .{ r.group, r.namespace, r.agree, r.total });
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = body.written() });
-}
-
-/// Dir-keyed namespace map for one build-file rule, memoized in `cache` so
-/// a repo with many source files sharing one rule scans `kept` once.
-fn buildFileMap(
-    arena: Allocator,
-    io: Io,
-    root: []const u8,
-    kept: []const []const u8,
-    file_name: []const u8,
-    prefix: []const u8,
-    terminator: ?[]const u8,
-    cache: *std.StringHashMapUnmanaged(std.StringHashMapUnmanaged([]const u8)),
-) !*const std.StringHashMapUnmanaged([]const u8) {
-    if (cache.getPtr(file_name)) |m| return m;
-
-    var m: std.StringHashMapUnmanaged([]const u8) = .empty;
-    for (kept) |p| {
-        if (!std.mem.eql(u8, core.namespace.baseOf(p), file_name)) continue;
-        const full = try std.fmt.allocPrint(arena, "{s}/{s}", .{ root, p });
-        const content = Io.Dir.cwd().readFileAlloc(io, full, arena, .limited(4 << 20)) catch continue;
-        const namespace = core.namespace.extractField(content, prefix, terminator) orelse continue;
-        try m.put(arena, core.namespace.dirOf(p), namespace);
-    }
-    try cache.put(arena, file_name, m);
-    return cache.getPtr(file_name).?;
 }
 
 const testing = std.testing;

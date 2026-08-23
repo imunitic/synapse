@@ -2,12 +2,18 @@
 //! prose is written. Rule in `core/links.zig`; this is
 //! the file-in/file-out wrapper.
 //!
-//!   link-graph --refs <_refs.tsv> --lists <dir> [--top N] [--out <dir>]
+//!   link-graph --refs <_refs.tsv> --lists <dir> [--deps <f>] [--namespaces <f>] [--top N] [--out <dir>]
 //!
 //! Distinct from `synapse query links "{Node}"`, which traverses a node's
 //! already-written `## Links`; this computes candidates before any node
 //! exists, from `_refs.tsv` and the cluster path lists alone. Needs no
 //! vault or git: every input is a file `build-refs`/`build-lists` produced.
+//!
+//! `--deps`/`--namespaces` (`synapse build-deps`/`build-namespaces`'s own
+//! output) enable `core.links.resolveAmbiguous` -- optional, and silently
+//! skipped, not an error, when either file is missing: this is a strictly
+//! additive enhancement over `compute`'s own always-on join, never a
+//! requirement to get ordinary link candidates.
 
 const std = @import("std");
 const core = @import("core");
@@ -19,12 +25,17 @@ const Allocator = std.mem.Allocator;
 const prog = "synapse-link-graph";
 
 const usage_text =
-    \\usage: synapse link-graph --refs <_refs.tsv> --lists <dir> [--top N] [--out <dir>]
+    \\usage: synapse link-graph --refs <_refs.tsv> --lists <dir> [--deps <f>] [--namespaces <f>]
+    \\                          [--top N] [--out <dir>]
     \\
-    \\  --refs   synapse build-refs's index. Default $SYNAPSE_WORK_DIR/_refs.tsv.
-    \\  --lists  the NN.txt/NN.title path lists synapse build-lists wrote.
-    \\  --top    edges kept per node, strongest first, default 8. 0 means no cap.
-    \\  --out    where to write links.tsv. Default $SYNAPSE_WORK_DIR.
+    \\  --refs        synapse build-refs's index. Default $SYNAPSE_WORK_DIR/_refs.tsv.
+    \\  --lists       the NN.txt/NN.title path lists synapse build-lists wrote.
+    \\  --deps        synapse build-deps's index. Default $SYNAPSE_WORK_DIR/_deps.tsv,
+    \\                skipped silently if absent.
+    \\  --namespaces  synapse build-namespaces's index. Default
+    \\                $SYNAPSE_WORK_DIR/_namespaces.tsv, skipped silently if absent.
+    \\  --top         edges kept per node, strongest first, default 8. 0 means no cap.
+    \\  --out         where to write links.tsv. Default $SYNAPSE_WORK_DIR.
     \\
 ;
 
@@ -41,6 +52,8 @@ pub fn run(
 ) !u8 {
     var refs_path: ?[]const u8 = null;
     var lists_dir: ?[]const u8 = null;
+    var deps_path: ?[]const u8 = null;
+    var namespaces_path: ?[]const u8 = null;
     var out_dir: ?[]const u8 = null;
     var top: usize = 8;
     while (args.next()) |arg| {
@@ -52,6 +65,10 @@ pub fn run(
             refs_path = args.next() orelse return usage();
         } else if (std.mem.eql(u8, arg, "--lists")) {
             lists_dir = args.next() orelse return usage();
+        } else if (std.mem.eql(u8, arg, "--deps")) {
+            deps_path = args.next() orelse return usage();
+        } else if (std.mem.eql(u8, arg, "--namespaces")) {
+            namespaces_path = args.next() orelse return usage();
         } else if (std.mem.eql(u8, arg, "--out")) {
             out_dir = args.next() orelse return usage();
         } else if (std.mem.eql(u8, arg, "--top")) {
@@ -60,24 +77,30 @@ pub fn run(
         } else return usage();
     }
     const lists = lists_dir orelse return usage();
-    return write(gpa, io, env, refs_path, lists, out_dir, top);
+    return write(gpa, io, env, refs_path, lists, deps_path, namespaces_path, out_dir, top);
 }
 
 /// The rule itself, minus argument parsing -- separated so a test can drive
 /// it against real files without going through the CLI. `refs_path`/
 /// `out_dir` still resolve against `$SYNAPSE_WORK_DIR` when null, same as
 /// `run()`'s own default, so a test can exercise that path too by setting
-/// the env var directly instead of passing `--refs`/`--out`.
+/// the env var directly instead of passing `--refs`/`--out`. `deps_path`/
+/// `namespaces_path` resolve the same way, but a missing file at the
+/// resolved path is not an error -- `resolveAmbiguous` is simply skipped.
 pub fn write(
     gpa: Allocator,
     io: Io,
     env: *std.process.Environ.Map,
     refs_path_in: ?[]const u8,
     lists: []const u8,
+    deps_path_in: ?[]const u8,
+    namespaces_path_in: ?[]const u8,
     out_dir_in: ?[]const u8,
     top: usize,
 ) !u8 {
     var refs_path = refs_path_in;
+    var deps_path = deps_path_in;
+    var namespaces_path = namespaces_path_in;
     var out_dir = out_dir_in;
 
     const cwd = Io.Dir.cwd();
@@ -91,8 +114,9 @@ pub fn write(
     const arena = arena_state.allocator();
 
     // Work dir supplies whichever of --refs/--out is missing (as build-refs
-    // does for --cache/--out); resolved only if needed. Kept alive for the
-    // rest of the function since `refs_path`/`out_dir` borrow its `path`.
+    // does for --cache/--out); resolved only if needed -- required, so a
+    // failure to resolve is an error. Kept alive for the rest of the
+    // function since the resolved paths borrow its `path`.
     var derived: ?context.WorkDir = null;
     defer if (derived) |d| d.deinit(gpa);
     if (refs_path == null or out_dir == null) {
@@ -101,6 +125,19 @@ pub fn write(
             refs_path = try std.fmt.allocPrint(arena, "{s}/_refs.tsv", .{derived.?.path});
         }
         if (out_dir == null) out_dir = derived.?.path;
+    }
+    // --deps/--namespaces default from the *same* work dir, but only when
+    // one was already resolved above -- optional, so a caller who passed
+    // explicit --refs/--out (no work dir needed at all) never pays for a
+    // git-identity resolution, or its stderr noise, just to learn these two
+    // files don't exist. Left null here, `resolveAmbiguous` is skipped.
+    if (derived) |d| {
+        if (deps_path == null) {
+            deps_path = try std.fmt.allocPrint(arena, "{s}/_deps.tsv", .{d.path});
+        }
+        if (namespaces_path == null) {
+            namespaces_path = try std.fmt.allocPrint(arena, "{s}/_namespaces.tsv", .{d.path});
+        }
     }
 
     const refs_table = cwd.readFileAlloc(io, refs_path.?, arena, .limited(1 << 30)) catch {
@@ -121,6 +158,20 @@ pub fn write(
     var edges = try core.links.compute(gpa, refs_table, &path_to_nodes, node_count, .{ .top = top });
     defer core.links.free(gpa, &edges);
 
+    var resolved_ambiguous: usize = 0;
+    resolve_ambiguous: {
+        const dp = deps_path orelse break :resolve_ambiguous;
+        const nsp = namespaces_path orelse break :resolve_ambiguous;
+        const deps_table = cwd.readFileAlloc(io, dp, arena, .limited(1 << 30)) catch break :resolve_ambiguous;
+        const namespaces_table = cwd.readFileAlloc(io, nsp, arena, .limited(1 << 30)) catch break :resolve_ambiguous;
+
+        var path_to_deps = try readPathSets(arena, deps_table);
+        var path_to_namespace = try readPathSets(arena, namespaces_table);
+        var extra = try core.links.resolveAmbiguous(gpa, refs_table, &path_to_nodes, &path_to_namespace, &path_to_deps, .{ .top = top });
+        resolved_ambiguous = extra.items.len;
+        try core.links.mergeEdges(gpa, &edges, &extra, top);
+    }
+
     cwd.createDirPath(io, out_dir.?) catch {
         std.debug.print("{s}: cannot write {s}\n", .{ prog, out_dir.? });
         return 1;
@@ -136,10 +187,33 @@ pub fn write(
     for (edges.items) |e| try nodes_covered.put(arena, e.from, {});
 
     std.debug.print(
-        "{s}: {d} nodes, {d} edges, {d} nodes with at least one -> {s}\n",
-        .{ prog, node_count, edges.items.len, nodes_covered.count(), out_path },
+        "{s}: {d} nodes, {d} edges ({d} via import-edge resolution), {d} nodes with at least one -> {s}\n",
+        .{ prog, node_count, edges.items.len, resolved_ambiguous, nodes_covered.count(), out_path },
     );
     return 0;
+}
+
+/// `path <TAB> library` rows (`core.deps.Row`'s own shape) folded into
+/// `path -> {library, ...}`, the set `resolveAmbiguous` checks a
+/// referencing file's dependencies against.
+/// `path <TAB> value` rows folded into `path -> {value, ...}` -- the shape
+/// both `_deps.tsv` (a file's own declared dependencies) and
+/// `_namespaces.tsv` (a file's own declared identities, more than one when
+/// its rule has aliases) share, so one reader serves both.
+fn readPathSets(arena: Allocator, table: []const u8) !std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(void)) {
+    var out: std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(void)) = .empty;
+    var lines = std.mem.splitScalar(u8, table, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trimEnd(u8, raw, "\r");
+        if (line.len == 0) continue;
+        var it = std.mem.splitScalar(u8, line, '\t');
+        const path = it.next() orelse continue;
+        const value = it.next() orelse continue;
+        const gop = try out.getOrPut(arena, path);
+        if (!gop.found_existing) gop.value_ptr.* = .empty;
+        try gop.value_ptr.put(arena, value, {});
+    }
+    return out;
 }
 
 /// Same `NN.txt`/`NN.title` reading as `vocab_cmd.zig`'s `mapFromLists`,
@@ -250,7 +324,7 @@ const Fixture = struct {
 
         var env = std.process.Environ.Map.init(self.gpa);
         defer env.deinit();
-        const code = try write(self.gpa, testing.io, &env, refs_path, lists_path, out_path, top);
+        const code = try write(self.gpa, testing.io, &env, refs_path, lists_path, null, null, out_path, top);
 
         const links_path = try std.fmt.allocPrint(self.gpa, "out/links.tsv", .{});
         defer self.gpa.free(links_path);
@@ -367,7 +441,7 @@ test "a missing --lists dir is an error, not a silent empty result" {
     var env = std.process.Environ.Map.init(gpa);
     defer env.deinit();
 
-    const code = try write(gpa, testing.io, &env, "/nonexistent/_refs.tsv", "/nonexistent/lists", "/nonexistent/out", 8);
+    const code = try write(gpa, testing.io, &env, "/nonexistent/_refs.tsv", "/nonexistent/lists", null, null, "/nonexistent/out", 8);
     try testing.expectEqual(@as(u8, 1), code);
 }
 
@@ -394,7 +468,7 @@ test "a missing _refs.tsv points at build-refs rather than failing opaquely" {
 
     var env = std.process.Environ.Map.init(gpa);
     defer env.deinit();
-    const code = try write(gpa, testing.io, &env, "/nonexistent/nope.tsv", lists_path, out_path, 8);
+    const code = try write(gpa, testing.io, &env, "/nonexistent/nope.tsv", lists_path, null, null, out_path, 8);
     try testing.expectEqual(@as(u8, 1), code);
 }
 
@@ -428,8 +502,115 @@ test "defaults to SYNAPSE_WORK_DIR when --refs/--out are omitted" {
     defer env.deinit();
     try env.put("SYNAPSE_WORK_DIR", work_path);
 
-    const code = try write(gpa, testing.io, &env, null, lists_path, null, 8);
+    const code = try write(gpa, testing.io, &env, null, lists_path, null, null, null, 8);
     try testing.expectEqual(@as(u8, 0), code);
     const links = try fx.tmp.dir.readFileAlloc(testing.io, "links.tsv", gpa, .limited(1 << 20));
     defer gpa.free(links);
+}
+
+test "--deps/--namespaces recover an edge compute() alone would have dropped" {
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+
+    // `Shared` is defined in both B and C -- ambiguous, compute() drops it
+    // entirely. A's own file declares a dependency on B's library only.
+    try fx.writeList("01", "A", &.{"a/A.ext"});
+    try fx.writeList("02", "B", &.{"b/B.ext"});
+    try fx.writeList("03", "C", &.{"c/C.ext"});
+    try fx.refline("Shared", "def", "class", "b/B.ext", 1, "class Shared {");
+    try fx.refline("Shared", "def", "class", "c/C.ext", 1, "class Shared {");
+    try fx.refline("Shared", "ref", "call", "a/A.ext", 5, "Shared.run();");
+    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "_refs.tsv", .data = fx.refs.written() });
+    try fx.tmp.dir.writeFile(testing.io, .{
+        .sub_path = "_deps.tsv",
+        .data = "a/A.ext\tlib_b\n",
+    });
+    try fx.tmp.dir.writeFile(testing.io, .{
+        .sub_path = "_namespaces.tsv",
+        .data = "b/B.ext\tlib_b\nc/C.ext\tlib_c\n",
+    });
+
+    const refs_path = try fx.absPath("_refs.tsv");
+    defer gpa.free(refs_path);
+    const lists_path = try fx.absPath("lists");
+    defer gpa.free(lists_path);
+    const deps_path = try fx.absPath("_deps.tsv");
+    defer gpa.free(deps_path);
+    const namespaces_path = try fx.absPath("_namespaces.tsv");
+    defer gpa.free(namespaces_path);
+    const out_path = try fx.absPath("out");
+    defer gpa.free(out_path);
+
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+    const code = try write(gpa, testing.io, &env, refs_path, lists_path, deps_path, namespaces_path, out_path, 8);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const links = try fx.tmp.dir.readFileAlloc(testing.io, "out/links.tsv", gpa, .limited(1 << 20));
+    defer gpa.free(links);
+    try testing.expectEqualStrings("A\tB\t1\tShared\n", links);
+}
+
+test "--deps/--namespaces: a second identity row for the same file (an alias) still resolves" {
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+
+    // B's file is known under two identities in _namespaces.tsv (its rule's
+    // primary value plus one alias) -- A's declared dependency matches only
+    // the alias.
+    try fx.writeList("01", "A", &.{"a/A.ext"});
+    try fx.writeList("02", "B", &.{"b/B.ext"});
+    try fx.writeList("03", "C", &.{"c/C.ext"});
+    try fx.refline("Shared", "def", "class", "b/B.ext", 1, "class Shared {");
+    try fx.refline("Shared", "def", "class", "c/C.ext", 1, "class Shared {");
+    try fx.refline("Shared", "ref", "call", "a/A.ext", 5, "Shared.run();");
+    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "_refs.tsv", .data = fx.refs.written() });
+    try fx.tmp.dir.writeFile(testing.io, .{
+        .sub_path = "_deps.tsv",
+        .data = "a/A.ext\tlib_b_pub\n",
+    });
+    try fx.tmp.dir.writeFile(testing.io, .{
+        .sub_path = "_namespaces.tsv",
+        .data = "b/B.ext\tlib_b\nb/B.ext\tlib_b_pub\nc/C.ext\tlib_c\n",
+    });
+
+    const refs_path = try fx.absPath("_refs.tsv");
+    defer gpa.free(refs_path);
+    const lists_path = try fx.absPath("lists");
+    defer gpa.free(lists_path);
+    const deps_path = try fx.absPath("_deps.tsv");
+    defer gpa.free(deps_path);
+    const namespaces_path = try fx.absPath("_namespaces.tsv");
+    defer gpa.free(namespaces_path);
+    const out_path = try fx.absPath("out");
+    defer gpa.free(out_path);
+
+    var env = std.process.Environ.Map.init(gpa);
+    defer env.deinit();
+    const code = try write(gpa, testing.io, &env, refs_path, lists_path, deps_path, namespaces_path, out_path, 8);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const links = try fx.tmp.dir.readFileAlloc(testing.io, "out/links.tsv", gpa, .limited(1 << 20));
+    defer gpa.free(links);
+    try testing.expectEqualStrings("A\tB\t1\tShared\n", links);
+}
+
+test "--deps/--namespaces absent leaves compute()'s own ambiguous-name drop unchanged" {
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+
+    try fx.writeList("01", "A", &.{"a/A.ext"});
+    try fx.writeList("02", "B", &.{"b/B.ext"});
+    try fx.writeList("03", "C", &.{"c/C.ext"});
+    try fx.refline("Shared", "def", "class", "b/B.ext", 1, "class Shared {");
+    try fx.refline("Shared", "def", "class", "c/C.ext", 1, "class Shared {");
+    try fx.refline("Shared", "ref", "call", "a/A.ext", 5, "Shared.run();");
+
+    const r = try fx.run(8);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqual(@as(usize, 0), r.out.len);
 }

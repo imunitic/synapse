@@ -70,8 +70,23 @@ edit directly if a cached decision needs correcting.
   override.
 - **`synapse-namespace-rules.conf`** (`SYNAPSE_NAMESPACE_RULES_CONF` overrides the path) — object
   keyed by bare extension, one rule per ecosystem's own "what does this file call itself" signal (a
-  Java `package` line, a Rust crate's `Cargo.toml` name). Feeds `synapse vocab`'s `namespaces.tsv`.
-  Silently answers nothing for an extension with no rule yet, never guesses.
+  Java `package` line, a Rust crate's `Cargo.toml` name). Feeds `synapse vocab`'s `namespaces.tsv`
+  and `synapse build-namespaces`'s per-file `_namespaces.tsv`. Silently answers nothing for an
+  extension with no rule yet, never guesses. A rule may carry an optional `"aliases"` array
+  (`[{"prefix": "...", "terminator": "..."}]`, terminator optional, unbounded), each entry an
+  independent extraction against the *same* nearest-ancestor file as the rule's own primary
+  `prefix`/`terminator` — for an ecosystem where one file has more than one valid self-reference
+  (a build system's internal name versus the name it publishes for other files to depend on),
+  giving that file more than one row in `_namespaces.tsv`.
+- **`synapse-dependency-rules.conf`** (`SYNAPSE_DEPENDENCY_RULES_CONF` overrides the path) — same
+  shape and extension-keyed registry as `synapse-namespace-rules.conf`, kept as a separate file
+  because it answers a different question about the same file (what it *depends on*, not what it
+  *is*) and a rule per extension leaves no room for both facts in one object. Feeds `_deps.tsv`, the
+  per-file dependency-edge artifact `core/links.zig` consumes to narrow an ambiguous reference to
+  the candidate the referencing file actually declares a dependency on. Ships with only whichever
+  rule has already been dogfooded against a real ambiguous-reference finding; `synapse-orientation`'s
+  own skill doc carries the qualification test and self-population procedure every other language's
+  rule gets written from.
 - **`synapse-kind-synonyms.conf`** (`SYNAPSE_KIND_SYNONYMS_CONF` overrides the path) — normalizes a
   `locals.scm` grammar's own capture-kind spellings onto `Tag.kind`'s shared vocabulary (`"class"`,
   `"method"`, `"call"`, `"function"`, ...), since `locals.scm` was written for nvim-treesitter's

@@ -31,7 +31,9 @@ pub fn main(init: std.process.Init) !u8 {
     const scm = try cwd.readFileAlloc(io, scm_path, gpa, .unlimited);
 
     // Always tags.scm, so kind_rules/grammar_scope are unused -- see Tagger's own docs.
-    var tagger = try treesitter.tagger.Tagger.init(lang, scm, .tags, null, "", null);
+    // No locals.scm here on purpose: this compares raw tags.scm extraction against
+    // the real CLI's own output, which knows nothing about local-reference filtering.
+    var tagger = try treesitter.tagger.Tagger.init(lang, scm, .tags, null, "", null, null);
     defer tagger.deinit();
 
     var out: std.Io.Writer.Allocating = .init(gpa);

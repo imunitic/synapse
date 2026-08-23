@@ -9,3 +9,6 @@ zig-out/
 zig-pkg/
 job.txt
 zig-tags.tsv
+# Personal, machine-local Claude Code instructions -- never shared, never
+# committed by anyone else working in this repo.
+CLAUDE.local.md

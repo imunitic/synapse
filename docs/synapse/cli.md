@@ -30,6 +30,8 @@ usage: synapse <subcommand> [args]
   query <subcommand> [args]  read-only queries against the graph
   write-node --title <t> --summary <s> --paths <f> --body <f>
   build-refs [--cache <f>] [--out <f>]   _refs.tsv from the tags cache
+  build-deps [--repo <dir>] [--out <f>]  _deps.tsv, per-file declared dependencies
+  build-namespaces [--repo <dir>] [--out <f>]  _namespaces.tsv, per-file declared namespace
   callers <name> [--all]     repo-wide sites of an exact name
   gate --vocab <file> [--all] [--top N]   clusters owning no vocabulary
   link-graph --refs <f> --lists <dir> [--top N]   candidate node links
@@ -142,6 +144,24 @@ usage: synapse build-refs [--cache <path>] [--out <path>]
   --out    where to write the index. Default $SYNAPSE_WORK_DIR/_refs.tsv.
 ```
 
+### synapse build-deps
+
+```
+usage: synapse build-deps [--repo <path>] [--out <path>]
+
+  --repo   the checkout to scan. Default: the one containing $PWD.
+  --out    where to write the index. Default $SYNAPSE_WORK_DIR/_deps.tsv.
+```
+
+### synapse build-namespaces
+
+```
+usage: synapse build-namespaces [--repo <path>] [--out <path>]
+
+  --repo   the checkout to scan. Default: the one containing $PWD.
+  --out    where to write the index. Default $SYNAPSE_WORK_DIR/_namespaces.tsv.
+```
+
 ### synapse callers
 
 ```
@@ -168,12 +188,17 @@ usage: synapse gate --vocab <groupwords.tsv> [--parseable <parseable.tsv>] [--al
 ### synapse link-graph
 
 ```
-usage: synapse link-graph --refs <_refs.tsv> --lists <dir> [--top N] [--out <dir>]
+usage: synapse link-graph --refs <_refs.tsv> --lists <dir> [--deps <f>] [--namespaces <f>]
+                          [--top N] [--out <dir>]
 
-  --refs   synapse build-refs's index. Default $SYNAPSE_WORK_DIR/_refs.tsv.
-  --lists  the NN.txt/NN.title path lists synapse build-lists wrote.
-  --top    edges kept per node, strongest first, default 8. 0 means no cap.
-  --out    where to write links.tsv. Default $SYNAPSE_WORK_DIR.
+  --refs        synapse build-refs's index. Default $SYNAPSE_WORK_DIR/_refs.tsv.
+  --lists       the NN.txt/NN.title path lists synapse build-lists wrote.
+  --deps        synapse build-deps's index. Default $SYNAPSE_WORK_DIR/_deps.tsv,
+                skipped silently if absent.
+  --namespaces  synapse build-namespaces's index. Default
+                $SYNAPSE_WORK_DIR/_namespaces.tsv, skipped silently if absent.
+  --top         edges kept per node, strongest first, default 8. 0 means no cap.
+  --out         where to write links.tsv. Default $SYNAPSE_WORK_DIR.
 ```
 
 ### synapse brief

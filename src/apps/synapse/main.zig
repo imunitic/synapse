@@ -21,6 +21,8 @@ const query_cmd = @import("query_cmd.zig");
 const usage = @import("usage.zig").text;
 const write_node_cmd = @import("write_node_cmd.zig");
 const refs_cmd = @import("refs_cmd.zig");
+const deps_cmd = @import("deps_cmd.zig");
+const namespaces_cmd = @import("namespaces_cmd.zig");
 const links_cmd = @import("links_cmd.zig");
 const brief_cmd = @import("brief_cmd.zig");
 const gate_cmd = @import("gate_cmd.zig");
@@ -123,6 +125,12 @@ pub fn main(init: std.process.Init) !u8 {
 
     if (std.mem.eql(u8, sub, "callers"))
         return refs_cmd.runCallers(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "build-deps"))
+        return deps_cmd.run(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "build-namespaces"))
+        return namespaces_cmd.run(init.gpa, init.io, init.environ_map, &args);
 
     if (std.mem.eql(u8, sub, "link-graph"))
         return links_cmd.run(init.gpa, init.io, init.environ_map, &args);

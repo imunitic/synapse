@@ -53,6 +53,17 @@ pub const Tagger = struct {
     /// `has_name_field` guess; `tagFileWalk` reads the rest. Null except
     /// for `.generated`.
     classification: ?node_types.Classification,
+    /// A second, independent query compiled from the grammar's own
+    /// `locals.scm`, used only to build a per-file set of locally-bound
+    /// names -- never for extraction itself. Orthogonal to `query_source`:
+    /// a tier-1 grammar (real `tags.scm`) can still have a real
+    /// `locals.scm` sitting unused beside it -- a function parameter,
+    /// `let`-binding, or module/functor argument with zero `def` rows
+    /// anywhere in `_refs.tsv` would otherwise be misread as an unresolved
+    /// cross-file reference by `tags.scm` alone. Null when the grammar has
+    /// no usable `locals.scm` -- local-reference filtering is then simply
+    /// skipped, not refused.
+    locals_query: ?*c.TSQuery,
 
     pub fn init(
         lang: *const c.TSLanguage,
@@ -61,6 +72,9 @@ pub const Tagger = struct {
         kind_rules: ?core.kind_synonyms.RuleList,
         grammar_scope: []const u8,
         classification: ?node_types.Classification,
+        /// Raw `locals.scm` source, when the grammar ships one -- compiled
+        /// independently of `scm`/`query_source` above. See `locals_query`.
+        locals_scm: ?[]const u8,
     ) !Tagger {
         var err_off: u32 = 0;
         var err_type: c.TSQueryError = 0;
@@ -79,6 +93,32 @@ pub const Tagger = struct {
         }
         if (patterns != 0 and disabled == patterns) return Error.PredicateUnsupported;
 
+        // Best-effort: an invalid or otherwise unusable locals.scm just
+        // means no local-reference filtering for this grammar, the same
+        // graceful degradation as a grammar with no locals.scm at all --
+        // never refuses the whole `Tagger` over it.
+        const locals_query: ?*c.TSQuery = if (locals_scm) |ls| blk: {
+            var lerr_off: u32 = 0;
+            var lerr_type: c.TSQueryError = 0;
+            const lq = c.ts_query_new(lang, ls.ptr, @intCast(ls.len), &lerr_off, &lerr_type) orelse
+                break :blk null;
+            const lpatterns = c.ts_query_pattern_count(lq);
+            var ldisabled: u32 = 0;
+            var li: u32 = 0;
+            while (li < lpatterns) : (li += 1) {
+                if (patternIsUnevaluable(lq, li)) {
+                    c.ts_query_disable_pattern(lq, li);
+                    ldisabled += 1;
+                }
+            }
+            if (lpatterns != 0 and ldisabled == lpatterns) {
+                c.ts_query_delete(lq);
+                break :blk null;
+            }
+            break :blk lq;
+        } else null;
+        errdefer if (locals_query) |lq| c.ts_query_delete(lq);
+
         const parser = c.ts_parser_new() orelse return Error.ParseFailed;
         errdefer c.ts_parser_delete(parser);
         if (!c.ts_parser_set_language(parser, lang)) return Error.ParseFailed;
@@ -90,11 +130,13 @@ pub const Tagger = struct {
             .kind_rules = kind_rules,
             .grammar_scope = grammar_scope,
             .classification = classification,
+            .locals_query = locals_query,
         };
     }
 
     pub fn deinit(self: *Tagger) void {
         c.ts_query_delete(self.query);
+        if (self.locals_query) |lq| c.ts_query_delete(lq);
         c.ts_parser_delete(self.parser);
         if (self.classification) |*cl| cl.deinit();
     }
@@ -233,7 +275,7 @@ pub const Tagger = struct {
     /// call. Dispatches on `query_source`; every source yields the same
     /// `Tagged` shape.
     pub fn tagFile(self: *Tagger, gpa: Allocator, source: []const u8) ![]Tagged {
-        return switch (self.query_source) {
+        const tagged = try switch (self.query_source) {
             // `.override` is human-authored with no convention of its own;
             // tags.scm's is the default.
             .tags, .override => self.tagFileTags(gpa, source),
@@ -242,6 +284,88 @@ pub const Tagger = struct {
             // guess, the bounded walk covers the rest.
             .generated => self.tagFileGenerated(gpa, source),
         };
+        const lq = self.locals_query orelse return tagged;
+        return self.stripLocalRefs(gpa, source, lq, tagged);
+    }
+
+    /// Every name with a `@local.definition.*` capture anywhere in `source`,
+    /// via `locals_query` -- reused as a name-only set, not turned into
+    /// `Tagged` entries the way `tagFileLocals`'s own defs pass does.
+    /// Same-file, not same-scope: matches the design's own stated scope
+    /// ("resolved against `@local.definition.*` captures within the same
+    /// file"), a deliberately coarser check than real lexical-scope
+    /// resolution -- cheaper, and the false-positive direction it risks
+    /// (two distinct same-named locals in one file) only ever suppresses a
+    /// cross-file candidate that already coincides with a local name in the
+    /// same file, never fabricates one.
+    fn localDefinedNames(self: *Tagger, gpa: Allocator, source: []const u8, locals_query: *c.TSQuery) !std.StringHashMapUnmanaged(void) {
+        var names: std.StringHashMapUnmanaged(void) = .empty;
+        errdefer {
+            var it = names.keyIterator();
+            while (it.next()) |k| gpa.free(k.*);
+            names.deinit(gpa);
+        }
+
+        const tree = c.ts_parser_parse_string(self.parser, null, source.ptr, @intCast(source.len)) orelse
+            return Error.ParseFailed;
+        defer c.ts_tree_delete(tree);
+
+        const cursor = c.ts_query_cursor_new() orelse return Error.ParseFailed;
+        defer c.ts_query_cursor_delete(cursor);
+        c.ts_query_cursor_exec(cursor, locals_query, c.ts_tree_root_node(tree));
+
+        const definition_prefix = "local.definition";
+
+        var match: c.TSQueryMatch = undefined;
+        while (c.ts_query_cursor_next_match(cursor, &match)) {
+            for (match.captures[0..match.capture_count]) |cap| {
+                var len: u32 = 0;
+                const raw = c.ts_query_capture_name_for_id(locals_query, cap.index, &len);
+                const cname = raw[0..len];
+                if (!std.mem.startsWith(u8, cname, definition_prefix)) continue;
+                const rest = cname[definition_prefix.len..];
+                if (rest.len != 0 and rest[0] != '.') continue; // `.definitions_list` etc.
+
+                const start_byte = c.ts_node_start_byte(cap.node);
+                const end_byte = c.ts_node_end_byte(cap.node);
+                if (start_byte > end_byte or end_byte > source.len) continue;
+                const name = source[start_byte..end_byte];
+
+                if (names.contains(name)) continue;
+                try names.put(gpa, try gpa.dupe(u8, name), {});
+            }
+        }
+        return names;
+    }
+
+    /// Drops any `.ref`-role tag whose name resolves to a same-file local
+    /// binding -- answered and discarded here, before the caller ever sees
+    /// it, rather than surviving into `_refs.tsv` as an unresolved global
+    /// name destined for a cross-file join it was never a candidate for.
+    /// `tagged`'s ownership passes in; the returned slice is what survives.
+    fn stripLocalRefs(self: *Tagger, gpa: Allocator, source: []const u8, locals_query: *c.TSQuery, tagged: []Tagged) ![]Tagged {
+        var locals = try self.localDefinedNames(gpa, source, locals_query);
+        defer {
+            var it = locals.keyIterator();
+            while (it.next()) |k| gpa.free(k.*);
+            locals.deinit(gpa);
+        }
+        if (locals.count() == 0) return tagged;
+
+        var kept: std.ArrayListUnmanaged(Tagged) = .empty;
+        errdefer {
+            for (kept.items) |t| freeTag(gpa, t.tag);
+            kept.deinit(gpa);
+        }
+        for (tagged) |t| {
+            if (t.tag.role == .ref and locals.contains(t.tag.name)) {
+                freeTag(gpa, t.tag);
+                continue;
+            }
+            try kept.append(gpa, t);
+        }
+        gpa.free(tagged);
+        return kept.toOwnedSlice(gpa);
     }
 
     /// tags.scm convention: `@name` + sibling `@definition.<kind>`/`@reference.<kind>`.
@@ -737,7 +861,7 @@ test "tagFileGenerated combines the query path and the walk path, in every empti
     const query = try node_types.buildQuery(gpa, classification.guesses);
     defer gpa.free(query);
 
-    var tagger = try Tagger.init(lang, query, .generated, null, "test", classification);
+    var tagger = try Tagger.init(lang, query, .generated, null, "test", classification, null);
     defer tagger.deinit(); // frees `classification` too
 
     // Both empty: no function_declaration, no struct_item.
@@ -781,4 +905,104 @@ test "tagFileGenerated combines the query path and the walk path, in every empti
         try testing.expectEqualStrings("Bar", second.name);
         try testing.expectEqualStrings("struct", second.kind);
     }
+}
+
+/// A hand-built `tags.scm`/`locals.scm` pair over the fake3 grammar, purely
+/// to drive `stripLocalRefs` end to end: `struct_item`'s identifier stands
+/// in for a `.ref` (real tags.scm files would never call a struct name a
+/// reference -- the point here is only to exercise the filtering mechanism
+/// against a real compiled query and a real parse, not to model any real
+/// language). `function_declaration`'s identifier stands in for
+/// `@local.definition.function`.
+const fake_ref_query = "(struct_item (identifier) @name) @reference.type";
+const fake_locals_query = "(function_declaration name: (identifier) @local.definition.function)";
+
+fn buildFake3Tagger(gpa: Allocator, io: std.Io, dir: []const u8, locals_scm: ?[]const u8) !Tagger {
+    const lib = try std.fmt.allocPrint(gpa, "{s}/fake3.{s}", .{ dir, grammar.sharedLibExt() });
+    defer gpa.free(lib);
+    try grammar.build(io, gpa, dir, lib, grammar.default_lock_tries);
+    const lang = try grammar.load(gpa, lib, "tree_sitter_fake3");
+    return Tagger.init(lang, fake_ref_query, .tags, null, "test", null, locals_scm);
+}
+
+test "a reference whose name matches a same-file local definition is stripped, never reaches the caller" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const dir = buf[0..try tmp.dir.realPath(io, &buf)];
+    try writeFake3Fixture(io, tmp.dir);
+
+    var tagger = try buildFake3Tagger(gpa, io, dir, fake_locals_query);
+    defer tagger.deinit();
+
+    // "foo" is both the struct name (the fake .ref) and the function name
+    // (the fake local def) -- same-file, same name, must resolve locally.
+    const tagged = try tagger.tagFile(gpa, "fn foo()\nstruct foo{}");
+    defer freeTagged(gpa, tagged);
+    try testing.expectEqual(@as(usize, 0), tagged.len);
+}
+
+test "a reference whose name matches no local definition survives unfiltered" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const dir = buf[0..try tmp.dir.realPath(io, &buf)];
+    try writeFake3Fixture(io, tmp.dir);
+
+    var tagger = try buildFake3Tagger(gpa, io, dir, fake_locals_query);
+    defer tagger.deinit();
+
+    // "other" (the local def) and "foo" (the ref) don't share a name --
+    // stays a candidate for cross-file resolution, same as today.
+    const tagged = try tagger.tagFile(gpa, "fn other()\nstruct foo{}");
+    defer freeTagged(gpa, tagged);
+    try testing.expectEqual(@as(usize, 1), tagged.len);
+    try testing.expectEqualStrings("foo", tagged[0].tag.name);
+    try testing.expectEqual(model.Role.ref, tagged[0].tag.role);
+}
+
+test "a grammar with no locals.scm at all keeps every reference unfiltered -- graceful degradation" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const dir = buf[0..try tmp.dir.realPath(io, &buf)];
+    try writeFake3Fixture(io, tmp.dir);
+
+    var tagger = try buildFake3Tagger(gpa, io, dir, null);
+    defer tagger.deinit();
+
+    // Same source as the matching case above, but no locals_query at all --
+    // must not filter anything, not even accidentally.
+    const tagged = try tagger.tagFile(gpa, "fn foo()\nstruct foo{}");
+    defer freeTagged(gpa, tagged);
+    try testing.expectEqual(@as(usize, 1), tagged.len);
+    try testing.expectEqualStrings("foo", tagged[0].tag.name);
+}
+
+test "an invalid locals.scm degrades gracefully instead of refusing the whole Tagger" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const dir = buf[0..try tmp.dir.realPath(io, &buf)];
+    try writeFake3Fixture(io, tmp.dir);
+
+    var tagger = try buildFake3Tagger(gpa, io, dir, "(this is not valid tree-sitter query syntax");
+    defer tagger.deinit();
+    try testing.expect(tagger.locals_query == null);
+
+    const tagged = try tagger.tagFile(gpa, "fn foo()\nstruct foo{}");
+    defer freeTagged(gpa, tagged);
+    try testing.expectEqual(@as(usize, 1), tagged.len);
 }

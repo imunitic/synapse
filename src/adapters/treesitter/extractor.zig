@@ -21,6 +21,36 @@ const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const Tagger = tagger_mod.Tagger;
 
+/// `locals.scm` for `Tagger`'s local-reference filtering (see its own doc
+/// comment), independent of `source`/tier. Same override precedent
+/// `query_override_dir` already gives the main query: `{dir}/{ext}.locals.scm`
+/// wins when present (e.g. a grammar's own `locals.scm` misses a real
+/// binding shape -- `package_pattern` for OCaml's first-class modules is the
+/// confirmed motivating case), falling back to the grammar's own
+/// `queries/locals.scm` otherwise. `FileNotFound` at either step means "try
+/// the next source" (override absent) or "no locals.scm at all" (neither
+/// exists); anything else propagates.
+fn readLocalsScm(io: Io, gpa: Allocator, repo_dir: []const u8, query_override_dir: ?[]const u8, ext: []const u8) !?[]const u8 {
+    if (query_override_dir) |dir| {
+        const override_name = try std.fmt.allocPrint(gpa, "{s}.locals.scm", .{ext});
+        defer gpa.free(override_name);
+        const override_path = try std.fs.path.join(gpa, &.{ dir, override_name });
+        defer gpa.free(override_path);
+        const overridden = Io.Dir.cwd().readFileAlloc(io, override_path, gpa, .limited(1 << 20)) catch |e| switch (e) {
+            error.FileNotFound => null,
+            else => return e,
+        };
+        if (overridden) |scm| return scm;
+    }
+
+    const path = try std.fs.path.join(gpa, &.{ repo_dir, "queries", "locals.scm" });
+    defer gpa.free(path);
+    return Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |e| switch (e) {
+        error.FileNotFound => null,
+        else => return e,
+    };
+}
+
 /// The production backend: `zig cc` the cloned grammar, `dlopen` it, and run
 /// the repo's own `queries/tags.scm`.
 pub const TsBackend = struct {
@@ -85,11 +115,13 @@ pub const TsBackend = struct {
             };
             if (overridden) |scm| {
                 defer gpa.free(scm);
+                const locals_scm = try readLocalsScm(io, gpa, repo_dir, query_override_dir, ext);
+                defer if (locals_scm) |ls| gpa.free(ls);
                 const t = try gpa.create(Tagger);
                 errdefer gpa.destroy(t);
                 // `.override`, not `source`: always reads the tags.scm
                 // convention regardless of what the registry says.
-                t.* = try Tagger.init(lang, scm, .override, kind_rules, scope, null);
+                t.* = try Tagger.init(lang, scm, .override, kind_rules, scope, null, locals_scm);
                 return t;
             }
         }
@@ -119,9 +151,12 @@ pub const TsBackend = struct {
             const generated_query = try node_types.buildQuery(gpa, classification.guesses);
             defer gpa.free(generated_query);
 
+            const locals_scm = try readLocalsScm(io, gpa, repo_dir, query_override_dir, ext);
+            defer if (locals_scm) |ls| gpa.free(ls);
+
             const t = try gpa.create(Tagger);
             errdefer gpa.destroy(t);
-            t.* = try Tagger.init(lang, generated_query, .generated, kind_rules, scope, classification);
+            t.* = try Tagger.init(lang, generated_query, .generated, kind_rules, scope, classification, locals_scm);
             return t;
         }
 
@@ -139,9 +174,16 @@ pub const TsBackend = struct {
         const scm = try Io.Dir.cwd().readFileAlloc(io, scm_path, gpa, .limited(1 << 20));
         defer gpa.free(scm);
 
+        // `.locals` already *is* the locals.scm read above -- a second copy
+        // would only filter `tagFileLocals`'s own defs-only output, which
+        // has no `.ref` tags to filter in the first place. Only `.tags`
+        // needs a genuinely separate read.
+        const locals_scm = if (source == .tags) try readLocalsScm(io, gpa, repo_dir, query_override_dir, ext) else null;
+        defer if (locals_scm) |ls| gpa.free(ls);
+
         const t = try gpa.create(Tagger);
         errdefer gpa.destroy(t);
-        t.* = try Tagger.init(lang, scm, source, kind_rules, scope, null);
+        t.* = try Tagger.init(lang, scm, source, kind_rules, scope, null, locals_scm);
         return t;
     }
 

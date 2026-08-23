@@ -31,14 +31,28 @@ const Io = std.Io;
 
 pub const Kind = enum { in_file, build_file };
 
+/// An additional identity on the *same* nearest-ancestor file as the rule's
+/// own primary `prefix`/`terminator` -- some ecosystems give one file more
+/// than one valid self-reference: an internal name the code calls itself,
+/// and a separate published name a dependent's own dependency declaration
+/// actually uses, genuinely different strings for the same file.
+pub const Alias = struct {
+    prefix: []const u8,
+    terminator: ?[]const u8 = null,
+};
+
 /// One extension's rule. `file` is set only for `.build_file` -- the name to
 /// search ancestor directories for. `terminator` null means to end of line
-/// (trimmed).
+/// (trimmed). `aliases` is a real, unbounded slice -- the conf format is an
+/// array because there is no real reason to cap how many identities one
+/// file can have; `Registry.ruleFor` allocates it (empty, no allocation,
+/// for the overwhelmingly common no-alias case).
 pub const Rule = struct {
     kind: Kind,
     file: ?[]const u8 = null,
     prefix: []const u8,
     terminator: ?[]const u8 = null,
+    aliases: []const Alias = &.{},
 };
 
 /// `~/.claude/synapse-namespace-rules.conf`, keyed by bare extension.
@@ -68,7 +82,9 @@ pub const Registry = struct {
         };
     }
 
-    pub fn ruleFor(self: Registry, ext: []const u8) ?Rule {
+    /// `gpa` backs `Rule.aliases` when the rule actually has any -- the
+    /// overwhelmingly common no-alias case allocates nothing at all.
+    pub fn ruleFor(self: Registry, gpa: Allocator, ext: []const u8) !?Rule {
         const obj = switch (self.parsed.value) {
             .object => |o| o.get(ext) orelse return null,
             else => return null,
@@ -100,7 +116,24 @@ pub const Registry = struct {
             break :blk if (v == .string and v.string.len != 0) v.string else null;
         };
 
-        return .{ .kind = kind, .file = file, .prefix = prefix_v.string, .terminator = terminator };
+        var rule: Rule = .{ .kind = kind, .file = file, .prefix = prefix_v.string, .terminator = terminator };
+
+        if (fields.get("aliases")) |aliases_v| if (aliases_v == .array and aliases_v.array.items.len != 0) {
+            var built: std.ArrayListUnmanaged(Alias) = .empty;
+            for (aliases_v.array.items) |item| {
+                if (item != .object) continue;
+                const alias_prefix_v = item.object.get("prefix") orelse continue;
+                if (alias_prefix_v != .string or alias_prefix_v.string.len == 0) continue;
+                const alias_terminator: ?[]const u8 = blk: {
+                    const v = item.object.get("terminator") orelse break :blk null;
+                    break :blk if (v == .string and v.string.len != 0) v.string else null;
+                };
+                try built.append(gpa, .{ .prefix = alias_prefix_v.string, .terminator = alias_terminator });
+            }
+            rule.aliases = try built.toOwnedSlice(gpa);
+        };
+
+        return rule;
     }
 };
 
@@ -166,6 +199,134 @@ pub fn nearestNamespace(by_dir: *const std.StringHashMapUnmanaged([]const u8), d
     }
 }
 
+/// Dir-keyed declared-value map for one build-file rule, memoized in
+/// `cache` so a repo with many files sharing one rule (every file under a
+/// library scanning the same nearest build file) reads `kept` once per
+/// distinct filename. Shared infrastructure: any per-file extraction built
+/// on this registry's rule shape needs exactly this "nearest ancestor
+/// build file's declared value" walk -- a namespace divergence table, a
+/// dependency-edge extraction, or any future one, all the same way.
+pub fn buildFileMap(
+    arena: Allocator,
+    io: Io,
+    root: []const u8,
+    kept: []const []const u8,
+    file_name: []const u8,
+    prefix: []const u8,
+    terminator: ?[]const u8,
+    cache: *std.StringHashMapUnmanaged(std.StringHashMapUnmanaged([]const u8)),
+) !*const std.StringHashMapUnmanaged([]const u8) {
+    if (cache.getPtr(file_name)) |m| return m;
+
+    var m: std.StringHashMapUnmanaged([]const u8) = .empty;
+    for (kept) |p| {
+        if (!std.mem.eql(u8, baseOf(p), file_name)) continue;
+        const full = try std.fmt.allocPrint(arena, "{s}/{s}", .{ root, p });
+        const content = Io.Dir.cwd().readFileAlloc(io, full, arena, .limited(4 << 20)) catch continue;
+        const raw = extractField(content, prefix, terminator) orelse continue;
+        try m.put(arena, dirOf(p), raw);
+    }
+    try cache.put(arena, file_name, m);
+    return cache.getPtr(file_name).?;
+}
+
+/// One file's declared identity -- a namespace, or (via `Rule.aliases`) one
+/// of the additional identities the same nearest-ancestor file also
+/// declares.
+pub const NamespaceRow = struct {
+    path: []const u8,
+    namespace: []const u8,
+};
+
+/// One `prefix`/`terminator` extraction against `p`, `.in_file` or
+/// `.build_file` per `kind` -- the switch `computePerFile` needs once per
+/// identity (the rule's own primary pair, then each of its aliases), each
+/// against its own `cache` so a different prefix on the same nearest
+/// ancestor file never collides with another's memoized result.
+fn extractOne(
+    arena: Allocator,
+    io: Io,
+    root: []const u8,
+    kept: []const []const u8,
+    p: []const u8,
+    kind: Kind,
+    file: ?[]const u8,
+    prefix: []const u8,
+    terminator: ?[]const u8,
+    cache: *std.StringHashMapUnmanaged(std.StringHashMapUnmanaged([]const u8)),
+) !?[]const u8 {
+    return switch (kind) {
+        .in_file => blk: {
+            const full = try std.fmt.allocPrint(arena, "{s}/{s}", .{ root, p });
+            const content = Io.Dir.cwd().readFileAlloc(io, full, arena, .limited(4 << 20)) catch break :blk null;
+            break :blk extractField(content, prefix, terminator);
+        },
+        .build_file => blk: {
+            const map = try buildFileMap(arena, io, root, kept, file.?, prefix, terminator, cache);
+            break :blk nearestNamespace(map, dirOf(p));
+        },
+    };
+}
+
+/// Every path in `kept` mapped to its own declared namespace(s) -- one row
+/// per identity that resolved to a real value (more than one when the
+/// rule has aliases), kept *per file* rather than aggregated per group the
+/// way `synapse vocab`'s own `namespaces.tsv` is. The per-file signal
+/// `core/links.zig`'s import-edge resolution needs: which library does a
+/// candidate definition's own file actually belong to, under any of the
+/// names a dependent might call it. Sorted `path` ascending, `namespace`
+/// ascending within a path, so two runs over an unchanged repo are
+/// byte-identical.
+pub fn computePerFile(
+    gpa: Allocator,
+    arena: Allocator,
+    io: Io,
+    root: []const u8,
+    kept: []const []const u8,
+    registry: Registry,
+) !std.ArrayListUnmanaged(NamespaceRow) {
+    var out: std.ArrayListUnmanaged(NamespaceRow) = .empty;
+    errdefer out.deinit(gpa);
+    if (registry.isEmpty()) return out;
+
+    var build_maps: std.StringHashMapUnmanaged(std.StringHashMapUnmanaged([]const u8)) = .empty;
+    // One cache per distinct alias *prefix* (not a fixed count): the same
+    // (file_name, prefix) pair always extracts the same value, but two
+    // different aliases must never share a cache, since `buildFileMap`'s
+    // own memoization keys only on `file_name`.
+    var alias_build_maps: std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(std.StringHashMapUnmanaged([]const u8))) = .empty;
+
+    for (kept) |p| {
+        const base = baseOf(p);
+        const dot = std.mem.lastIndexOfScalar(u8, base, '.') orelse continue;
+        if (dot == 0) continue; // a leading-dot file has no extension
+        const ext = base[dot + 1 ..];
+        const rule = (try registry.ruleFor(arena, ext)) orelse continue;
+
+        if (try extractOne(arena, io, root, kept, p, rule.kind, rule.file, rule.prefix, rule.terminator, &build_maps)) |v| {
+            try out.append(gpa, .{ .path = p, .namespace = v });
+        }
+        for (rule.aliases) |alias| {
+            const cache_gop = try alias_build_maps.getOrPut(arena, alias.prefix);
+            if (!cache_gop.found_existing) cache_gop.value_ptr.* = .empty;
+            if (try extractOne(arena, io, root, kept, p, rule.kind, rule.file, alias.prefix, alias.terminator, cache_gop.value_ptr)) |v| {
+                try out.append(gpa, .{ .path = p, .namespace = v });
+            }
+        }
+    }
+
+    std.mem.sort(NamespaceRow, out.items, {}, lessByPathThenNamespace);
+    return out;
+}
+
+fn lessByPathThenNamespace(_: void, a: NamespaceRow, b: NamespaceRow) bool {
+    return switch (std.mem.order(u8, a.path, b.path)) {
+        .lt => true,
+        .gt => false,
+        .eq => std.mem.order(u8, a.namespace, b.namespace) == .lt,
+    };
+}
+
 const testing = std.testing;
 
 test "extractField: prefix to a terminator, trimmed" {
@@ -183,7 +344,7 @@ test "extractField: no terminator means to end of line" {
 }
 
 test "extractField: leading whitespace before the prefix is skipped" {
-    try testing.expectEqualStrings("eon_edn", extractField("  (name eon_edn)\n", "(name ", ")").?);
+    try testing.expectEqualStrings("widget", extractField("  (name widget)\n", "(name ", ")").?);
 }
 
 test "extractField: matches the first qualifying line, not a later one" {
@@ -245,18 +406,18 @@ test "nearestNamespace: an exact match wins over a farther ancestor" {
     var by_dir: std.StringHashMapUnmanaged([]const u8) = .empty;
     defer by_dir.deinit(gpa);
     try by_dir.put(gpa, "", "root_lib");
-    try by_dir.put(gpa, "eon_edn/src", "eon_edn");
+    try by_dir.put(gpa, "widget/src", "widget");
 
-    try testing.expectEqualStrings("eon_edn", nearestNamespace(&by_dir, "eon_edn/src").?);
+    try testing.expectEqualStrings("widget", nearestNamespace(&by_dir, "widget/src").?);
 }
 
 test "nearestNamespace: walks up past a directory with no build file" {
     const gpa = testing.allocator;
     var by_dir: std.StringHashMapUnmanaged([]const u8) = .empty;
     defer by_dir.deinit(gpa);
-    try by_dir.put(gpa, "eon_edn/src", "eon_edn");
+    try by_dir.put(gpa, "widget/src", "widget");
 
-    try testing.expectEqualStrings("eon_edn", nearestNamespace(&by_dir, "eon_edn/src/nested/deep").?);
+    try testing.expectEqualStrings("widget", nearestNamespace(&by_dir, "widget/src/nested/deep").?);
 }
 
 test "nearestNamespace: no ancestor recorded anything is null" {
@@ -265,7 +426,7 @@ test "nearestNamespace: no ancestor recorded anything is null" {
     defer by_dir.deinit(gpa);
     try by_dir.put(gpa, "other/crate", "other");
 
-    try testing.expectEqual(@as(?[]const u8, null), nearestNamespace(&by_dir, "eon_edn/src"));
+    try testing.expectEqual(@as(?[]const u8, null), nearestNamespace(&by_dir, "widget/src"));
 }
 
 test "Registry: an absent file opens empty, not an error" {
@@ -273,7 +434,7 @@ test "Registry: an absent file opens empty, not an error" {
     var reg = try Registry.load(gpa, testing.io, "/nonexistent/synapse-namespace-rules.conf");
     defer reg.deinit();
     try testing.expect(reg.isEmpty());
-    try testing.expectEqual(@as(?Rule, null), reg.ruleFor("java"));
+    try testing.expectEqual(@as(?Rule, null), try reg.ruleFor(gpa, "java"));
 }
 
 test "Registry: an in-file rule round-trips every field" {
@@ -284,7 +445,7 @@ test "Registry: an in-file rule round-trips every field" {
     var reg: Registry = .{ .parsed = parsed };
     defer reg.deinit();
 
-    const rule = reg.ruleFor("java").?;
+    const rule = (try reg.ruleFor(gpa, "java")).?;
     try testing.expectEqual(Kind.in_file, rule.kind);
     try testing.expectEqualStrings("package ", rule.prefix);
     try testing.expectEqualStrings(";", rule.terminator.?);
@@ -299,7 +460,7 @@ test "Registry: a build-file rule without terminator means end of line" {
     var reg: Registry = .{ .parsed = parsed };
     defer reg.deinit();
 
-    const rule = reg.ruleFor("go").?;
+    const rule = (try reg.ruleFor(gpa, "go")).?;
     try testing.expectEqual(Kind.build_file, rule.kind);
     try testing.expectEqualStrings("go.mod", rule.file.?);
     try testing.expectEqual(@as(?[]const u8, null), rule.terminator);
@@ -313,7 +474,28 @@ test "Registry: a build-file rule missing 'file' is not a rule" {
     var reg: Registry = .{ .parsed = parsed };
     defer reg.deinit();
 
-    try testing.expectEqual(@as(?Rule, null), reg.ruleFor("go"));
+    try testing.expectEqual(@as(?Rule, null), try reg.ruleFor(gpa, "go"));
+}
+
+test "Registry: a dependency-declaration rule (multi-token value) needs no shape change -- extractField returns the whole span" {
+    // A dependency declaration's value is a list, not a single scalar --
+    // confirming the existing Rule/extractField shape already handles this
+    // (space-separated, split by the caller) is what lets
+    // `synapse-dependency-rules.conf` reuse this registry unchanged rather
+    // than needing a second rule type.
+    const gpa = testing.allocator;
+    const parsed = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"xx": {"kind": "build-file", "file": "build.deps", "prefix": "depends ", "terminator": ")"}}
+    , .{});
+    var reg: Registry = .{ .parsed = parsed };
+    defer reg.deinit();
+
+    const rule = (try reg.ruleFor(gpa, "xx")).?;
+    try testing.expectEqual(Kind.build_file, rule.kind);
+    try testing.expectEqualStrings("build.deps", rule.file.?);
+
+    const value = extractField("depends widget str)\n", rule.prefix, rule.terminator).?;
+    try testing.expectEqualStrings("widget str", value);
 }
 
 test "Registry: an unregistered extension is null, and the registry is not empty because of it" {
@@ -324,6 +506,146 @@ test "Registry: an unregistered extension is null, and the registry is not empty
     var reg: Registry = .{ .parsed = parsed };
     defer reg.deinit();
 
-    try testing.expectEqual(@as(?Rule, null), reg.ruleFor("py"));
+    try testing.expectEqual(@as(?Rule, null), try reg.ruleFor(gpa, "py"));
     try testing.expect(!reg.isEmpty());
+}
+
+test "computePerFile: a build-file rule resolves every file under it to the nearest ancestor's declared value" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const root = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    try tmp.dir.createDirPath(io, "widget/src");
+    try tmp.dir.writeFile(io, .{ .sub_path = "widget/src/build.deps", .data = "name widget\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "widget/src/main.xx", .data = "run\n" });
+
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+
+    const parsed = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"xx": {"kind": "build-file", "file": "build.deps", "prefix": "name "}}
+    , .{});
+    var reg: Registry = .{ .parsed = parsed };
+    defer reg.deinit();
+
+    const kept = [_][]const u8{ "widget/src/build.deps", "widget/src/main.xx" };
+    var out = try computePerFile(gpa, arena_state.allocator(), io, root, &kept, reg);
+    defer out.deinit(gpa);
+
+    try testing.expectEqual(@as(usize, 1), out.items.len);
+    try testing.expectEqualStrings("widget/src/main.xx", out.items[0].path);
+    try testing.expectEqualStrings("widget", out.items[0].namespace);
+}
+
+test "computePerFile: an empty registry short-circuits to no rows without touching any file" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+
+    var reg = try Registry.load(gpa, io, "/nonexistent/synapse-namespace-rules.conf");
+    defer reg.deinit();
+
+    const kept = [_][]const u8{"widget/src/main.xx"};
+    var out = try computePerFile(gpa, arena_state.allocator(), io, "/nonexistent-root", &kept, reg);
+    defer out.deinit(gpa);
+    try testing.expectEqual(@as(usize, 0), out.items.len);
+}
+
+test "computePerFile: an in-file rule reads the file itself, no ancestor search" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const root = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    try tmp.dir.createDirPath(io, "pkg");
+    try tmp.dir.writeFile(io, .{ .sub_path = "pkg/main.yy", .data = "package pkg.widget\n" });
+
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+
+    const parsed = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"yy": {"kind": "in-file", "prefix": "package "}}
+    , .{});
+    var reg: Registry = .{ .parsed = parsed };
+    defer reg.deinit();
+
+    const kept = [_][]const u8{"pkg/main.yy"};
+    var out = try computePerFile(gpa, arena_state.allocator(), io, root, &kept, reg);
+    defer out.deinit(gpa);
+    try testing.expectEqual(@as(usize, 1), out.items.len);
+    try testing.expectEqualStrings("pkg.widget", out.items[0].namespace);
+}
+
+test "computePerFile: a rule's aliases add extra identities for the same file, from the same nearest-ancestor build file" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const root = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    try tmp.dir.createDirPath(io, "widget/src");
+    try tmp.dir.writeFile(io, .{ .sub_path = "widget/src/build.deps", .data = "name widget\npublic widget-pub\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "widget/src/main.xx", .data = "run\n" });
+
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+
+    const parsed = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"xx": {"kind": "build-file", "file": "build.deps", "prefix": "name ",
+        \\        "aliases": [{"prefix": "public "}]}}
+    , .{});
+    var reg: Registry = .{ .parsed = parsed };
+    defer reg.deinit();
+
+    const kept = [_][]const u8{ "widget/src/build.deps", "widget/src/main.xx" };
+    var out = try computePerFile(gpa, arena_state.allocator(), io, root, &kept, reg);
+    defer out.deinit(gpa);
+
+    try testing.expectEqual(@as(usize, 2), out.items.len);
+    try testing.expectEqualStrings("widget/src/main.xx", out.items[0].path);
+    try testing.expectEqualStrings("widget", out.items[0].namespace);
+    try testing.expectEqualStrings("widget/src/main.xx", out.items[1].path);
+    try testing.expectEqualStrings("widget-pub", out.items[1].namespace);
+}
+
+test "computePerFile: an alias with no match for this file contributes nothing, primary value still returned" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const root = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    try tmp.dir.createDirPath(io, "widget/src");
+    try tmp.dir.writeFile(io, .{ .sub_path = "widget/src/build.deps", .data = "name widget\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "widget/src/main.xx", .data = "run\n" });
+
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+
+    const parsed = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"xx": {"kind": "build-file", "file": "build.deps", "prefix": "name ",
+        \\        "aliases": [{"prefix": "public "}]}}
+    , .{});
+    var reg: Registry = .{ .parsed = parsed };
+    defer reg.deinit();
+
+    const kept = [_][]const u8{ "widget/src/build.deps", "widget/src/main.xx" };
+    var out = try computePerFile(gpa, arena_state.allocator(), io, root, &kept, reg);
+    defer out.deinit(gpa);
+
+    try testing.expectEqual(@as(usize, 1), out.items.len);
+    try testing.expectEqualStrings("widget", out.items[0].namespace);
 }
