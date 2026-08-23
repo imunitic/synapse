@@ -45,8 +45,13 @@ jobs:
         run: ./ci/check-layering.sh
 
       # Same script `just build-targets` runs, so the release matrix has one
-      # definition rather than one here and one in the justfile.
+      # definition rather than one here and one in the justfile. Main only --
+      # a portability break is real work either way, but a feature branch
+      # already gets it from this same job's `Build` step failing outright on
+      # its own host target; the other two platforms only need checking
+      # before the merge that actually ships them.
       - name: Cross-compile every release target
+        if: github.ref == 'refs/heads/main'
         run: ./ci/build-targets.sh
 
   bats:

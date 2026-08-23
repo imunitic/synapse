@@ -25,6 +25,13 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Belt-and-suspenders alongside the `push: branches: [main]` trigger
+    # above: that trigger already keeps a feature-branch push from starting
+    # this job, but `workflow_dispatch` has no branch restriction of its own
+    # and can be fired against any ref. Without this, a manual dispatch off a
+    # feature branch would still compute a tag, push it, and force-push a
+    # fresh orphan history over `dist` from that branch's code.
+    if: github.ref == 'refs/heads/main'
 
     # The tag above is computed from the repo's own git tags at the *start*
     # of a run, but publishing happens after a multi-minute cross-compile
