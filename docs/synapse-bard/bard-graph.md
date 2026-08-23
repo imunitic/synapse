@@ -51,11 +51,15 @@ scalars, block lists (bare-scalar or list-of-objects), flow lists, arbitrary nes
 (`current_holder: "[[gael-varis|Gael Varis]] (active), [[calla-starweaver|Calla Starweaver]]
 (issued, never used)"` has two in one string).
 
-What it refuses, rather than silently skipping: anchors, aliases, block scalars, flow maps, a
-second document, tab indentation, and a flow list holding anything other than scalars/wikilinks —
-the whole file, not just the offending field. A parser that skips unknowns becomes a bad general
-YAML parser by accretion, silently dropping relationships from notes that otherwise look fine; a
-visible, reported refusal is recoverable, a silently missing ref is not.
+What it refuses, rather than silently skipping: anchors, aliases, block scalars, flow maps, tab
+indentation, and a flow list holding anything other than scalars/wikilinks — the whole file, not
+just the offending field. A parser that skips unknowns becomes a bad general YAML parser by
+accretion, silently dropping relationships from notes that otherwise look fine; a visible, reported
+refusal is recoverable, a silently missing ref is not.
+
+A bare `---` line in the prose body (a Markdown scene-break/horizontal rule) is *not* refused as a
+second document — the prose body is never parsed, so it's inert there, and real notes use `---` to
+mark scene breaks throughout.
 
 **def/ref shape:** a `def` is the file's own identity — `name:` at the root, `kind` from the
 root-level `template:` field (an entity's own declared schema, e.g. `character_pov`, `place`,

@@ -11,12 +11,18 @@
 //! Same philosophy as the predecessor: scalars, block lists (bare-scalar or
 //! list-of-objects), flow lists of scalars/wikilinks, arbitrary nested-map
 //! depth, wikilink values -- anywhere, including more than one per scalar
-//! string. Anchors, aliases, block scalars, flow maps, a second document,
-//! tabs, and a flow list containing anything other than scalars/wikilinks
-//! all refuse the whole file. A parser that skips unknowns becomes a bad
-//! general YAML parser by accretion, silently dropping relationships from
-//! notes that look fine; `.unsupported` is visible and recoverable, a
-//! missing ref is neither.
+//! string. Anchors, aliases, block scalars, flow maps, tabs, and a flow list
+//! containing anything other than scalars/wikilinks all refuse the whole
+//! file. A parser that skips unknowns becomes a bad general YAML parser by
+//! accretion, silently dropping relationships from notes that look fine;
+//! `.unsupported` is visible and recoverable, a missing ref is neither.
+//!
+//! Deliberately *not* refused: a bare `---` line anywhere in the prose body
+//! after the frontmatter closes. That's a standard Markdown horizontal
+//! rule/scene-break, not a second YAML document -- prose is never parsed
+//! (see below), so it poses no ambiguity for this extractor to guard
+//! against, and refusing on it would silently drop every note whose author
+//! uses `---` to mark a scene break.
 //!
 //! ## def/ref shape
 //!
@@ -67,7 +73,6 @@ pub const BardFrontmatterExtractor = struct {
         anchor_or_alias,
         block_scalar,
         flow_collection,
-        second_document,
         tab_indent,
         nesting_too_deep,
         malformed_line,
@@ -294,10 +299,6 @@ pub const BardFrontmatterExtractor = struct {
         }
 
         if (!closed) return self.refuse(.unterminated);
-        while (lines.next()) |raw| {
-            if (std.mem.eql(u8, std.mem.trimEnd(u8, raw, "\r"), "---"))
-                return self.refuse(.second_document);
-        }
         return tags.toOwnedSlice(gpa);
     }
 
@@ -859,7 +860,6 @@ test "everything outside the subset is refused, not skipped" {
         .{ .why = .block_scalar, .body = "---\nname: A\nsummary: >\n  folded\n---\n" },
         .{ .why = .flow_collection, .body = "---\nname: A\nrefs: {a: b}\n---\n" },
         .{ .why = .flow_collection, .body = "---\nname: A\nrefs: [a: b]\n---\n" },
-        .{ .why = .second_document, .body = "---\nname: A\n---\nprose\n---\n" },
         .{ .why = .tab_indent, .body = "---\nname: A\nlist:\n\t- x\n---\n" },
         .{ .why = .unterminated, .body = "---\nname: A\ntemplate: person\n" },
         .{ .why = .no_frontmatter, .body = "# Just prose\n\nNo frontmatter here.\n" },
@@ -989,6 +989,41 @@ test "full-line YAML comments (real templates' section dividers) are skipped, no
     for (out[0].tags) |t| if (t.role == .def) {
         defs += 1;
         try testing.expectEqualStrings("Callista Starweaver", t.name);
+    };
+    try testing.expectEqual(@as(usize, 1), defs);
+}
+
+test "a `---` scene-break divider in the prose body is not a second document, no refusal" {
+    const gpa = testing.allocator;
+    var fx = Fixture.init();
+    defer fx.deinit();
+    const body =
+        \\---
+        \\template: "character_pov"
+        \\name: "Gael Varis"
+        \\---
+        \\
+        \\First scene.
+        \\
+        \\---
+        \\
+        \\Second scene, after the break.
+        \\
+        \\---
+        \\
+    ;
+    const dir = try fx.write("gael.md", body);
+
+    var ex: BardFrontmatterExtractor = .{};
+    defer ex.deinit(gpa);
+    const out = try ex.port().extract(gpa, testing.io, dir, &.{"gael.md"});
+    defer freeOutcomes(gpa, out);
+
+    try testing.expect(out[0] == .tags);
+    var defs: usize = 0;
+    for (out[0].tags) |t| if (t.role == .def) {
+        defs += 1;
+        try testing.expectEqualStrings("Gael Varis", t.name);
     };
     try testing.expectEqual(@as(usize, 1), defs);
 }
