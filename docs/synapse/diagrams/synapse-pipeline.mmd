@@ -40,6 +40,8 @@ flowchart TB
         GATE["synapse gate<br/>flag empty clusters"]
         RANK["synapse rank<br/>what to read"]
         LINKGRAPH["synapse link-graph<br/>candidate node edges"]
+        BUILDDEPS["synapse build-deps<br/>optional: dependency edges"]
+        BUILDNS["synapse build-namespaces<br/>optional: declared identities"]
         BRIEF["synapse brief<br/>bundle for pooled authoring"]
         PROSE["<b>model</b><br/>author node prose"]
         PUSH["synapse push-nodes"]
@@ -56,6 +58,8 @@ flowchart TB
         LISTS --> RANK
         RANK -->|"top-N, pool 0"| PROSE
         LISTS --> LINKGRAPH
+        BUILDDEPS -.->|"--deps, optional"| LINKGRAPH
+        BUILDNS -.->|"--namespaces, optional"| LINKGRAPH
         LINKGRAPH -->|"candidate ## Links, pool 0"| PROSE
         RANK -.->|"pool >= 1"| BRIEF
         LINKGRAPH -.->|"pool >= 1"| BRIEF
@@ -129,7 +133,7 @@ flowchart TB
 
     class ORIENT,PROSE model
     class MANIFEST seam
-    class LISTS,PUSH,WRITE,IDX,PIDX,TAGS,VOCAB,GATE,RANK,LINKGRAPH,BRIEF,QUERY,SYMBOL,REFS,CALLERS,STALE2,DRIFT,GROUND,CLEAN,WIPE script
+    class LISTS,PUSH,WRITE,IDX,PIDX,TAGS,VOCAB,GATE,RANK,LINKGRAPH,BUILDDEPS,BUILDNS,BRIEF,QUERY,SYMBOL,REFS,CALLERS,STALE2,DRIFT,GROUND,CLEAN,WIPE script
     class NODE,INDEX,AUX vault
     class IDXBIN,TAGSCACHE,REFSIDX,WORDS work
     class STALE1 hook

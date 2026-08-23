@@ -105,6 +105,23 @@ language, ever, not once per repository. `$SYNAPSE_GRAMMARS_QUERY_PATH/{ext}.scm
 preempts the whole cascade — a human-authored (or successfully generated) query for a grammar the
 cascade doesn't handle well on its own, checked fresh every run rather than cached.
 
+## Local-reference filtering
+
+Orthogonal to which tier won above: a second, independent query compiled from the grammar's own
+`locals.scm`, used only to build a per-file set of `@local.definition.*` names — never for
+extraction itself. A tier-1 grammar with a real `tags.scm` can still have a real `locals.scm`
+sitting unused beside it, and a `.ref` tag whose name is actually a local binding (a function
+parameter, a `let`-binding, a functor argument) has zero real candidates for `core/links.zig`'s
+cross-file join — it should never reach `_refs.tsv` as an unresolved global name in the first
+place. Any `.ref` tag whose name is in that per-file set is stripped before `synapse tags` returns,
+one file at a time.
+
+Graceful degradation, not a blocking gate: no `locals.scm`, an unparseable one, or one with every
+pattern disabled all fall back to today's unfiltered behavior — a grammar's `Tagger` is never
+refused over this. `locals.scm` gets the same override precedent `tags.scm` already has:
+`$SYNAPSE_GRAMMARS_QUERY_PATH/{ext}.locals.scm`, checked before falling back to the grammar's own
+real `locals.scm`, for the case where the shipped query misses a real local-binding construct.
+
 ## Query path
 
 Two commands read the cache, at different scopes:
