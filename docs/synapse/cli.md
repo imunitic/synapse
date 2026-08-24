@@ -272,6 +272,6 @@ usage: synapse-hook <hook>
   staleness        PostToolUse: flag owning nodes, check cited evidence
   prompt-context   UserPromptSubmit: the standing one-line pointer
   session-start    SessionStart: inject the vault index and the pointer
-  stop-nudge       Stop: the periodic capture check-in, and the vault push
+  stop-nudge       Stop: the periodic capture check-in, and the vault sync
   db-sync          PostToolUse: commit a vault edit to the vault's own git
 ```

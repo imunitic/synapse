@@ -337,6 +337,15 @@ fn seedVaultWithRemote(fx: *fixture.Fixture) ![]u8 {
     init_remote.deinit(fx.gpa);
     const init_vault = try vaultGit(fx, &.{ "init", "-q", "-b", "main" });
     init_vault.deinit(fx.gpa);
+    // Repo-local, not just per-commit `-c` flags: `git rebase` re-commits
+    // each replayed patch itself, which needs a resolvable identity even
+    // when nothing here calls `commit` directly -- a CI runner with no
+    // global user.email/name configured (unlike a real dev machine) fails
+    // that step outright, aborts, and gets misread as a genuine conflict.
+    const email = try vaultGit(fx, &.{ "config", "user.email", "t@e" });
+    email.deinit(fx.gpa);
+    const name = try vaultGit(fx, &.{ "config", "user.name", "t" });
+    name.deinit(fx.gpa);
     try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/seed.md", .data = "seed\n" });
     const add = try vaultGit(fx, &.{ "add", "seed.md" });
     add.deinit(fx.gpa);
@@ -374,6 +383,13 @@ fn seedOtherClone(fx: *fixture.Fixture, remote: []const u8) ![]u8 {
     try Io.Dir.cwd().createDirPath(fx.io(), other);
     const init = try adapters.process.run(fx.io(), gpa, &.{ "git", "init", "-q", "-b", "main" }, .{ .cwd = cwd });
     init.deinit(gpa);
+    // Same reasoning as seedVaultWithRemote's own config: repo-local
+    // identity for anything git does internally, not just the explicit
+    // `-c` flags on this file's own `commit` calls.
+    const email = try adapters.process.run(fx.io(), gpa, &.{ "git", "config", "user.email", "t@e" }, .{ .cwd = cwd });
+    email.deinit(gpa);
+    const name = try adapters.process.run(fx.io(), gpa, &.{ "git", "config", "user.name", "t" }, .{ .cwd = cwd });
+    name.deinit(gpa);
     const add_remote = try adapters.process.run(fx.io(), gpa, &.{ "git", "remote", "add", "origin", remote }, .{ .cwd = cwd });
     add_remote.deinit(gpa);
     const pull_res = try adapters.process.run(fx.io(), gpa, &.{ "git", "pull", "-q", "origin", "main" }, .{ .cwd = cwd });
