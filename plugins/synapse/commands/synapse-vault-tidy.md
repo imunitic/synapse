@@ -34,7 +34,9 @@ there is no local-file fallback.
 No compiled code anywhere in this command. `adapters/obsidian/store.zig`'s `ObsidianStore` only
 implements `write`, for the code graph's own node-authoring flow — vault reads deliberately go
 through these same MCP tools rather than the compiled binary, the same way `/synapse-status` and
-`/synapse-rebuild-diff`'s vault-side checks already work.
+`/synapse-rebuild-diff`'s vault-side checks already work. The one exception is Step 3's broken-link
+history check, a plain `git log` call (via Bash, not a compiled tool) against the vault's own local
+repo when one exists — best-effort, never a hard requirement.
 
 ## Step 1: Inventory sweep
 
@@ -76,11 +78,27 @@ unrelated fields, the same hazard `synapse-vault`/`synapse-task` already documen
 
 ## Step 3: Note-health findings (reported, not fixed)
 
-From the same inventory, no additional reads. Each of these three has no safe mechanical repair —
+From the same inventory, no additional vault reads (the broken-link history check below reads the
+vault's local git log, not more notes). Each of these three has no safe mechanical repair —
 fixing any of them means guessing at intent — so they become findings for the Step 6 proposal
 instead of a silent edit:
 
-- **Broken links** — `unresolvedLinks` non-empty.
+- **Broken links** — `unresolvedLinks` non-empty. Before writing the finding, check the vault's own
+  local git history to say *why* it's broken instead of leaving that to guesswork — the vault is
+  usually a git repo (`db-sync` auto-commits every agent-driven edit into it, opt-in per vault, same
+  precondition as that hook). Resolve the vault's filesystem path the same way `synapse.conf`
+  already does (`OBSIDIAN_VAULT_DIR`), skip this sub-step entirely if `{vault}/.git` doesn't exist,
+  and never let a missing/unreachable git repo block the rest of the finding — worst case it's
+  reported with no history context, same as today.
+  - `git -C {vault} log --all --diff-filter=A --name-only --pretty=format: -- "**/{target}.md"` — a
+    hit means a note by that exact title was created at some point (even if later renamed or
+    deleted): report it as *"used to be a note — find what it's called now, or was deleted"*.
+  - No hit → `git -C {vault} log --all -p -S"[[{target}]]" -- .` and look at the earliest match's
+    diff: if the line first appears inside a `new file mode` addition (the note was created with the
+    link already broken), report it as *"born broken — never pointed at a real note; probably meant
+    as plain text or an external reference, not a vault link"* rather than implying anything was
+    lost.
+  - Neither check resolves anything more specific → report the target plainly, same as before.
 - **Orphaned notes** — `links` empty *and* `backlinks` empty.
 - **Duplicate/near-duplicate titles** — group notes by title normalized (lowercased, trimmed,
   internal whitespace collapsed); any group with 2+ members is a finding. This is a mechanical
@@ -129,7 +147,9 @@ other command that can create a top-level folder already follows). Two sections:
 - {note or cluster}: {proposed move/new category/merge}, because {reasoning}
 
 ## Note health
-- Broken link in {note}: → {target text that doesn't resolve}
+- Broken link in {note}: → {target text that doesn't resolve} ({history classification, if the
+  vault's local git repo yielded one — "used to be a note", "born broken", or omitted entirely if
+  neither check resolved anything})
 - Orphaned: {note}
 - Possible duplicate: {note A} / {note B}
 ```
@@ -160,5 +180,6 @@ Print a short summary directly in the response, not left only in tool-call outpu
   Broken links, orphaned notes, and duplicate titles are proposal findings, never auto-repaired.
 - Invoked on demand only — no `SessionStart` wiring, no autonomous scheduling. Run it directly, or
   under a `/loop` the user sets up themselves.
-- No compiled code — every step above is a plain `mcp__obsidian__*` call; `ObsidianStore` gets no
-  new read path.
+- No compiled code — every step above is a plain `mcp__obsidian__*` call, or (Step 3's broken-link
+  history check only) a plain `git log` via Bash against the vault's own local repo; `ObsidianStore`
+  gets no new read path.
