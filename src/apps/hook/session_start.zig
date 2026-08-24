@@ -1,13 +1,17 @@
 //! `synapse-hook session-start` -- SessionStart.
 //!
 //! Injects the vault's `Index.md` so a session starts with the map already
-//! in context, plus the Synapse pointer check. Everything here is a path
+//! in context, plus the Synapse pointer check. `build()` itself is a path
 //! lookup, never a model call or HTTP round trip, which keeps it zero-cost
 //! for a repo that never ran `/synapse-init`. Three pieces: the vault
 //! index; this repo's namespace pointer (verified against the recorded
 //! remote, or an explicit "no namespace" line); and a catalogue of the
 //! *other* namespaces, so a session that later `cd`s elsewhere knows that
 //! repo's graph exists too.
+//!
+//! `run()` also spawns `stop_nudge.zig`'s detached vault pull -- the one
+//! network call this hook makes, kept out of `build()` so nothing here
+//! blocks on it and so `build()`'s own tests stay pure reads.
 //!
 //! The catalogue is built here and stored nowhere -- the directory listing
 //! plus each index's `remote:` field is the source of truth, so nothing to
@@ -23,6 +27,7 @@
 const std = @import("std");
 const core = @import("core");
 const common = @import("common.zig");
+const stop_nudge = @import("stop_nudge.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -32,6 +37,11 @@ const label = "Synapse Vault index";
 pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map, argv0: []const u8) !void {
     var payload = common.Payload.read(gpa, io);
     defer payload.deinit();
+
+    // Detached, so this never waits on the network -- see stop_nudge.zig's
+    // `spawnPull`. Fires unconditionally; `vault-pull` itself no-ops
+    // silently when there's no vault, no git repo, or no remote configured.
+    stop_nudge.spawnPull(io, argv0);
 
     const text = try build(gpa, io, env, argv0, payload.str("cwd") orelse ".") orelse return;
     defer gpa.free(text);

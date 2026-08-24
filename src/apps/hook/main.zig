@@ -32,7 +32,7 @@ const usage =
     \\  staleness        PostToolUse: flag owning nodes, check cited evidence
     \\  prompt-context   UserPromptSubmit: the standing one-line pointer
     \\  session-start    SessionStart: inject the vault index and the pointer
-    \\  stop-nudge       Stop: the periodic capture check-in, and the vault push
+    \\  stop-nudge       Stop: the periodic capture check-in, and the vault sync
     \\  db-sync          PostToolUse: commit a vault edit to the vault's own git
     \\
 ;
@@ -66,10 +66,14 @@ pub fn main(init: std.process.Init) !u8 {
         stop_nudge.run(gpa, io, env, argv0) catch {};
     } else if (std.mem.eql(u8, which, "db-sync")) {
         db_sync.run(gpa, io, env) catch {};
-    } else if (std.mem.eql(u8, which, "vault-push")) {
+    } else if (std.mem.eql(u8, which, "vault-sync")) {
         // Not registered as a hook: stop-nudge spawns this detached so the
         // turn never waits on the network.
-        stop_nudge.push(gpa, io, env) catch {};
+        stop_nudge.sync(gpa, io, env) catch {};
+    } else if (std.mem.eql(u8, which, "vault-pull")) {
+        // Not registered as a hook either: session-start spawns this
+        // detached, same reason as vault-sync above.
+        stop_nudge.pull(gpa, io, env) catch {};
     } else {
         std.debug.print("synapse-hook: unknown hook '{s}'\n{s}", .{ which, usage });
         return 2;

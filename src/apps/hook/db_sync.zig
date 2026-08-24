@@ -7,6 +7,14 @@
 //! `mcp__obsidian__vault_*` rather than editing files. This is the
 //! vault-wide undo: `git show <sha>:<path>` only works because every edit
 //! is committed, not just intentional ones.
+//!
+//! No pull here, deliberately, even though a phone-side edit (Obsidian's
+//! own git-sync plugin, say) is exactly what a pull would catch: this fires
+//! per tool call, several times a turn, and network I/O has no business on
+//! that path. The pull lives in `stop_nudge.zig` instead -- once, detached,
+//! at SessionStart, plus periodically alongside the same file's throttled
+//! push -- for the identical reason the push already lives there and not
+//! here.
 
 const std = @import("std");
 const adapters = @import("adapters");
