@@ -16,15 +16,11 @@
 #   curl -sL https://raw.githubusercontent.com/6/stopwords-json/master/dist/{lang}.json \
 #     | jq -r '.[]' >> ~/.claude/synapse-prompt-stopwords.conf
 #
-# One word per line, matched with `grep -vxFf` (whole-line, fixed-string) --
-# not `-w` (word-boundary), since `-` isn't a word character to grep's own
-# definition: a `-w` match against a hyphenated token (when
-# $SYNAPSE_TOKENIZER_EXTRA_CHARS includes `-`) would find a stopword
-# embedded at the hyphen boundary and wrongly drop the whole token.
-# Blank lines and lines starting with # are themselves harmless here since
-# the tokenizer's character class (A-Za-z_ plus any $SYNAPSE_TOKENIZER_EXTRA_CHARS)
-# never produces a token containing a literal # or apostrophe, so entries
-# like "a's" below are inert but kept for fidelity with the upstream source.
+# One word per line, matched by exact (case-folded) lookup in
+# `core.vocab.keep()` -- no shell, no regex. Blank lines and lines starting
+# with # are themselves harmless here since the symbol-word splitter never
+# produces a token containing a literal # or apostrophe, so entries like
+# "a's" below are inert but kept for fidelity with the upstream source.
 
 a
 a's

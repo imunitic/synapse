@@ -58,7 +58,7 @@ case "${1:-}" in
       # deliberately. Given a list of two or more it prints an unindented path
       # line followed by that path's tab-indented tags; given a list of exactly
       # ONE it prints neither -- just the bare tags, identical to single-file
-      # form. Verified against tree-sitter 0.25.10.
+      # form, matching tree-sitter 0.25.10's real CLI.
       #
       # An earlier version of this fake always printed path lines, and that lie
       # let a real bug ship: a caller attributing batch output saw no path line

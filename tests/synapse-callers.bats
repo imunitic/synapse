@@ -41,7 +41,7 @@ H1="1111111111111111111111111111111111111111"
 seed_index() {
   local d
   d="$(tagline 'doThing   ' 'method ' 'def' 10 'public void doThing() {')"
-  cache_entry "src/A.java" "$H1" "$d" | write_cache
+  cache_entry "src/A.bb" "$H1" "$d" | write_cache
   "$SYNAPSE_BIN" build-refs --cache "$CACHE" --out "$INDEX" 2>/dev/null
 }
 

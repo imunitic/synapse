@@ -242,8 +242,9 @@ emit into tool calls than read into a window. Never hand-author those.
    yourself in one continuous pass (`rank --sources` per node, `## Links` candidates from
    step 6's `links.tsv`, reading order only — `sources` stays exhaustive either way), or fans
    out to a configurable pool of concurrent subagents, each handed a self-contained
-   `synapse brief` and verified on completion. Same outcome either way: on a real node a
-   summary authored from 3 files out of 809 matched the hand-written one.
+   `synapse brief` and verified on completion. Same outcome either way: a summary authored
+   from a small `sources` subset matches a hand-written one just as well as one authored
+   from every source file.
 
    **Load the `synapse-node-format` skill too, before writing the first one** — it is the
    single description of the node contract itself (summary, the crux *pointer*, `## Links`,

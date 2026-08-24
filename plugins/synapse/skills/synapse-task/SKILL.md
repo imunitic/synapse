@@ -13,7 +13,7 @@ no conversion needed).
 
 Applies to any task note, in any project — a task note is identified by having
 `task_id` and `status` frontmatter fields, not by which prefix `task_id` uses
-(`ecs-NNN`, `sb-NNN`, or any other project's prefix from
+(`proj-NNN`, `sb-NNN`, or any other project's prefix from
 `~/.claude/synapse-projects.conf`). Never gate this skill on a specific
 prefix.
 
@@ -54,7 +54,7 @@ into `status:` either — always go through this skill, which caps at
 
 1. Find the task note: `mcp__obsidian__search_query` with
    `{"==": [{"var": "frontmatter.task_id"}, "<task-id>"]}`, where `<task-id>`
-   is the specific task's ID (whatever prefix it uses — `ecs-035`, `sb-008`,
+   is the specific task's ID (whatever prefix it uses — `proj-035`, `sb-008`,
    etc.), then `mcp__obsidian__vault_read` the matched file.
 2. Inspect its checklist items (`- [ ]` / `- [x]`).
 3. Determine the new `status:` value: `IN-PROGRESS` if any unchecked,
@@ -68,11 +68,11 @@ into `status:` either — always go through this skill, which caps at
    and byte-preserving because you write back what you read.
 
    **Do not use `vault_patch` with `targetType: frontmatter`.** It is *not*
-   field-local, despite reading that way. Verified 2026-08-03: two patches
-   (one for `status`, one for `last_updated`) re-serialised the entire
-   frontmatter block — every quoted value lost its quotes (`created:
-   "2026-08-03 15:57"` → `created: 2026-08-03 15:57`) and a long `title:`
-   was folded across two lines. Both are valid YAML, so nothing breaks
+   field-local, despite reading that way: two patches
+   (one for `status`, one for `last_updated`) re-serialise the entire
+   frontmatter block — every quoted value loses its quotes (`created:
+   "2024-01-01 15:57"` → `created: 2024-01-01 15:57`) and a long `title:`
+   is folded across two lines. Both are valid YAML, so nothing breaks
    loudly, but any tool string-matching `^title: "` stops matching, and
    every status transition silently reformats the note. Since transitions
    are this skill's main job, that reformatting would land on every task
@@ -81,8 +81,8 @@ into `status:` either — always go through this skill, which caps at
    `## Notes` section with `mcp__obsidian__vault_patch`
    (`targetType: heading`, `target: "{H1 title}::Notes"`, `operation:
    append`) — append is safe here too. **The target must be the full
-   nested path** (`H1::Notes`), not just `"Notes"` — verified by testing:
-   since `## Notes` is nested under the top-level `# {title}` heading, the
+   nested path** (`H1::Notes`), not just `"Notes"`: since `## Notes` is
+   nested under the top-level `# {title}` heading, the
    plugin's heading lookup fails with "target not found in document" on
    the bare leaf name and requires the `::`-joined path from the tool's
    own docs. If no notes section exists, same call with
@@ -93,7 +93,7 @@ The vault_patch hazards below are the task-note-specific instance of a general r
 re-serialisation) for every note, not just task notes.
 
 **Do not use `vault_patch` with `operation: replace` on the top-level
-heading to edit checklist items.** Verified by testing: "content beneath
+heading to edit checklist items.** "Content beneath
 heading" for a top-level (`#`) heading extends through *all* nested
 subheadings (including `## Notes`), not just the leading paragraph/checklist
 directly under it — a replace there silently deletes everything past the
@@ -196,10 +196,10 @@ When the user asks to create a GitHub issue from a task note:
 
 1. **Title** — `<TASK-ID> — <description>`, where `<TASK-ID>` is the
    `task_id` frontmatter field (whatever project's prefix it uses — e.g.
-   `ecs-030`, `sb-008`) and `<description>` is the heading with any leading
+   `proj-030`, `sb-008`) and `<description>` is the heading with any leading
    task-id prefix stripped (`<TASK-ID>`, `<TASK-ID> —`, or `<TASK-ID> - `).
-   Example: heading `# ecs-035 - Time resource implementation` → title
-   `ecs-035 — Time resource implementation`.
+   Example: heading `# proj-035 - Widget catalog rework` → title
+   `proj-035 — Widget catalog rework`.
 2. **Body** — the full content of the top-level heading section: the
    description paragraph and all checklist items (with any inline code
    blocks) — already GFM Markdown, so this goes straight into

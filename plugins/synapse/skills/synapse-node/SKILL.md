@@ -26,7 +26,7 @@ needs one.
    when everything is current, so its output is the complete stale set for the project.
 
    Do this **once** per orienting task, not once per node: it costs a single `git hash-object` fork
-   plus one GET per node (~1.5s for a 51-node project), and covers every node at once. Re-run only
+   plus one GET per node (a couple of seconds for a few dozen nodes), and covers every node at once. Re-run only
    after source files have actually changed since the last run.
 
    Never do this by hand instead. Recomputing a digest needs the node's path list, and both places
@@ -135,7 +135,7 @@ needs one.
      which is what makes the `## Notes` guarantee enforceable rather than a promise.
    - **Never hand-write the frontmatter**, with `vault_patch` at `targetType: frontmatter` or
      otherwise. Two reasons, both load-bearing: that patch re-serialises the whole YAML block and
-     YAML-coerces values (verified: an all-digit `hash` became `1.1111111111111112e+39`), and
+     YAML-coerces values (an all-digit `hash` becomes `1.1111111111111112e+39`), and
      enumerating fields by hand is how `summary` and `commit` get silently dropped — which then breaks
      the next `synapse build-project-index` run, far from the cause.
    - **`## Notes` is human-authored only.** Never write into it — not at regeneration, not to record

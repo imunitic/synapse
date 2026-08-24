@@ -439,8 +439,8 @@ fn grammarLockChecks(ctx: *Ctx) !void {
 
 /// The installed version directory under the plugin cache, if `claude plugin
 /// install synapse@synapse` has actually succeeded -- keyed by the
-/// marketplace/plugin names this repo's own `marketplace.json` declares
-/// (verified directly against a real install), not guessed. A plugin
+/// marketplace/plugin names this repo's own `marketplace.json` declares,
+/// not guessed. A plugin
 /// install never populates `~/.claude/bin/synapse-hook` or merges hooks into
 /// `settings.json` -- `hooks.json` is loaded straight from this cache
 /// instead -- so `hookChecks` below must tell the two install shapes apart
@@ -477,14 +477,14 @@ fn pluginVersionDir(ctx: *Ctx) !?[]const u8 {
 /// prefix right (dates sort correctly as strings) but not `N`: `2026-08_9`
 /// lexicographically outranks `2026-08_12` and `2026-08_13`, because `'9'`
 /// is greater than `'1'` at the first differing byte, even though 9 < 12 <
-/// 13 numerically. Confirmed live -- three real cached versions (`_9`,
-/// `_12`, `_13`) with `pluginVersionDir` picking `_9` as "newest". Compares
+/// 13 numerically -- three cached versions (`_9`, `_12`, `_13`) make
+/// `pluginVersionDir` pick `_9` as "newest" under that comparison. Compares
 /// the `YYYY-MM` prefix as a string (correct for dates) and only falls
 /// back to a numeric compare of `N` when the prefixes are equal, which is
 /// the one place the pure-string approach breaks down. Malformed input
 /// (no `_`, or a non-numeric suffix) falls back to the plain string
-/// compare rather than erroring -- a directory doctor doesn't recognize
-/// the shape of shouldn't crash the check, just lose the tiebreak.
+/// compare rather than erroring -- a shape the directory doctor doesn't
+/// recognize shouldn't crash the check, just lose the tiebreak.
 fn versionNewer(a: []const u8, b: []const u8) bool {
     const a_us = std.mem.lastIndexOfScalar(u8, a, '_') orelse return std.mem.order(u8, a, b) == .gt;
     const b_us = std.mem.lastIndexOfScalar(u8, b, '_') orelse return std.mem.order(u8, a, b) == .gt;

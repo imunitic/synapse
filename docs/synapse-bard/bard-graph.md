@@ -182,13 +182,12 @@ re-running `sync` is just idempotent regeneration, not a triage problem.
 
 This stays deliberately deferred rather than ruled out forever: it would earn its place if a bulkier
 prose section (world-lore essays, planning documents) ever needed scoped summarization, but nothing
-in the corpus this shipped against crossed that line — checked directly rather than assumed:
-~118,600 words across *every* markdown file in the repo, nowhere close to where a flat
-`grep`/`Grep` becomes the bottleneck.
+in the corpus this shipped against crossed that line: ~118,600 words across *every* markdown file
+in the repo, nowhere close to where a flat `grep`/`Grep` becomes the bottleneck.
 
 Prose-body `[[wikilinks]]` inside entity files stay out of the graph entirely too, on purpose, not
-by oversight — a fresh corpus grep found entity files with real prose-body relationships that never
-made it into structured frontmatter at all. Surfacing that gap as a diagnostic was considered and
+by oversight — some entity files hold real prose-body relationships that never made it into
+structured frontmatter at all. Surfacing that gap as a diagnostic was considered and
 declined: the frontmatter-only extraction boundary exists specifically to keep prose from becoming
 a second source of graph-structural authority by degrees, and formalizing an informal prose
 relationship is the author's own canon-audit call, not something a tool should nudge into

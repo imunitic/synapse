@@ -1,19 +1,19 @@
 //! Per-file declared namespace, and the directory-level divergence table it
 //! feeds, computed before any inference step reads it.
 //!
-//! A file's declared namespace is what its own ecosystem says (a Java
-//! `package`, a Rust crate `name`, a Go `module`); the directory holding it
-//! is what the filesystem says. When the two disagree across most of a
-//! directory, searching for the directory's own name later comes back
-//! empty, because the code calls itself something else.
+//! A file's declared namespace is what its own ecosystem says (an in-file
+//! declaration keyword, or a build manifest's declared unit name); the
+//! directory holding it is what the filesystem says. When the two disagree
+//! across most of a directory, searching for the directory's own name later
+//! comes back empty, because the code calls itself something else.
 //!
-//! A rule, not a grammar query: existing tags queries never capture
-//! `package` (Java/Kotlin), Python has no module node at all, and OCaml's
-//! `@definition.module` captures a nested `module Foo = struct end`, not
-//! the library a file belongs to (that's in a sibling `dune`). Every rule
-//! is either in the file itself (Java/Kotlin's `package` line) or in the
-//! nearest ancestor build file (OCaml's `dune`, Rust's `Cargo.toml`, Go's
-//! `go.mod`).
+//! A rule, not a grammar query: existing tags queries never capture an
+//! in-file namespace declaration for every ecosystem, some ecosystems have
+//! no such node at all, and some ecosystems' closest capture names a nested
+//! sub-unit rather than the library a file belongs to (that lives in a
+//! sibling build manifest instead). Every rule is either in the file itself
+//! (an in-file declaration line) or in the nearest ancestor build file (a
+//! manifest's declared module/crate/package name).
 //!
 //! A prefix and a terminator, not a regex: every case above is "find the
 //! line starting with X, take everything up to Y." A prefix/terminator
@@ -142,8 +142,8 @@ pub const Registry = struct {
 /// blank. Line by line, not a whole-content search, to avoid matching a
 /// prefix inside a comment or string. Tracks one bit of "inside `/* */`"
 /// across lines -- not a real comment parser, just enough to skip a
-/// commented-out declaration (both `Rule.kind == .in_file` ecosystems here,
-/// Java/Kotlin, use C-style block comments).
+/// commented-out declaration (both `Rule.kind == .in_file` ecosystems here
+/// use C-style block comments).
 pub fn extractField(content: []const u8, prefix: []const u8, terminator: ?[]const u8) ?[]const u8 {
     var lines = std.mem.splitScalar(u8, content, '\n');
     var in_block_comment = false;
@@ -434,18 +434,18 @@ test "Registry: an absent file opens empty, not an error" {
     var reg = try Registry.load(gpa, testing.io, "/nonexistent/synapse-namespace-rules.conf");
     defer reg.deinit();
     try testing.expect(reg.isEmpty());
-    try testing.expectEqual(@as(?Rule, null), try reg.ruleFor(gpa, "java"));
+    try testing.expectEqual(@as(?Rule, null), try reg.ruleFor(gpa, "xx"));
 }
 
 test "Registry: an in-file rule round-trips every field" {
     const gpa = testing.allocator;
     const parsed = try std.json.parseFromSlice(std.json.Value, gpa,
-        \\{"java": {"kind": "in-file", "prefix": "package ", "terminator": ";"}}
+        \\{"xx": {"kind": "in-file", "prefix": "package ", "terminator": ";"}}
     , .{});
     var reg: Registry = .{ .parsed = parsed };
     defer reg.deinit();
 
-    const rule = (try reg.ruleFor(gpa, "java")).?;
+    const rule = (try reg.ruleFor(gpa, "xx")).?;
     try testing.expectEqual(Kind.in_file, rule.kind);
     try testing.expectEqualStrings("package ", rule.prefix);
     try testing.expectEqualStrings(";", rule.terminator.?);
@@ -455,26 +455,26 @@ test "Registry: an in-file rule round-trips every field" {
 test "Registry: a build-file rule without terminator means end of line" {
     const gpa = testing.allocator;
     const parsed = try std.json.parseFromSlice(std.json.Value, gpa,
-        \\{"go": {"kind": "build-file", "file": "go.mod", "prefix": "module "}}
+        \\{"yy": {"kind": "build-file", "file": "manifest.yy", "prefix": "module "}}
     , .{});
     var reg: Registry = .{ .parsed = parsed };
     defer reg.deinit();
 
-    const rule = (try reg.ruleFor(gpa, "go")).?;
+    const rule = (try reg.ruleFor(gpa, "yy")).?;
     try testing.expectEqual(Kind.build_file, rule.kind);
-    try testing.expectEqualStrings("go.mod", rule.file.?);
+    try testing.expectEqualStrings("manifest.yy", rule.file.?);
     try testing.expectEqual(@as(?[]const u8, null), rule.terminator);
 }
 
 test "Registry: a build-file rule missing 'file' is not a rule" {
     const gpa = testing.allocator;
     const parsed = try std.json.parseFromSlice(std.json.Value, gpa,
-        \\{"go": {"kind": "build-file", "prefix": "module "}}
+        \\{"yy": {"kind": "build-file", "prefix": "module "}}
     , .{});
     var reg: Registry = .{ .parsed = parsed };
     defer reg.deinit();
 
-    try testing.expectEqual(@as(?Rule, null), try reg.ruleFor(gpa, "go"));
+    try testing.expectEqual(@as(?Rule, null), try reg.ruleFor(gpa, "yy"));
 }
 
 test "Registry: a dependency-declaration rule (multi-token value) needs no shape change -- extractField returns the whole span" {
@@ -501,12 +501,12 @@ test "Registry: a dependency-declaration rule (multi-token value) needs no shape
 test "Registry: an unregistered extension is null, and the registry is not empty because of it" {
     const gpa = testing.allocator;
     const parsed = try std.json.parseFromSlice(std.json.Value, gpa,
-        \\{"java": {"kind": "in-file", "prefix": "package ", "terminator": ";"}}
+        \\{"xx": {"kind": "in-file", "prefix": "package ", "terminator": ";"}}
     , .{});
     var reg: Registry = .{ .parsed = parsed };
     defer reg.deinit();
 
-    try testing.expectEqual(@as(?Rule, null), try reg.ruleFor(gpa, "py"));
+    try testing.expectEqual(@as(?Rule, null), try reg.ruleFor(gpa, "zz"));
     try testing.expect(!reg.isEmpty());
 }
 

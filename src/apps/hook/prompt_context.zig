@@ -181,8 +181,8 @@ test "no Synapse namespace for this repo: no-op" {
     defer fx.deinit();
     // `/tmp` itself: no `SYNAPSE_NAMESPACE` env-var bypass is set, so
     // `common.Namespace.resolve` falls to real git identity resolution on
-    // `cwd`, which must fail here -- confirmed elsewhere in this task that
-    // `/tmp` is reliably outside any git repo on this machine.
+    // `cwd`, which must fail here -- `/tmp` is reliably outside any git repo
+    // on this machine.
     try testing.expectEqual(@as(?[]u8, null), try fx.nudge("/tmp"));
 }
 

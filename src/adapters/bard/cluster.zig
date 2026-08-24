@@ -6,7 +6,7 @@
 //! real repo-relative path -- instead of a copy of that entity's own
 //! frontmatter. `query`/`field`/`search` resolve a slug *through* a
 //! cluster's `sources:` to find the real file to read, rather than reading
-//! `_bard/graph/{slug}.md` directly the way they did before this task.
+//! `_bard/graph/{slug}.md` directly the way the earlier flat layout did.
 //!
 //! `sources:`'s shape is fixed and this module is its only writer, so the
 //! parser below is a narrow pattern match on that exact shape, not a

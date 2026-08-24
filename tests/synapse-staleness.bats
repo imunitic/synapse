@@ -23,7 +23,7 @@ title: "A deliberately long node title that a re-serialising writer would fold a
 node_type: synapse-node
 project: $project
 sources:
-  - path: src/foo.ml
+  - path: src/foo.aa
     hash: 1111111111111111111111111111111111111111
 sources_digest: "2222222222222222222222222222222222222222222222222222222222222222"
 stale: $stale
@@ -74,7 +74,7 @@ run_staleness_hook() {
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
   write_synapse_node "$(repo_name)" "Foo Node.md" false
 
-  run run_staleness_hook "$REPO/src/foo.ml" 'Foo Node.md' src/foo.ml
+  run run_staleness_hook "$REPO/src/foo.aa" 'Foo Node.md' src/foo.aa
   [ "$status" -eq 0 ]
 
   grep -q "synapse/$(repo_name)/Foo Node.md" "$CURL_CAPTURE/node-puts.log"

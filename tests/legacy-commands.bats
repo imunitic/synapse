@@ -51,7 +51,7 @@ summary: "$summary"
 node_type: synapse-node
 project: $(repo_name)
 sources:
-  - path: src/foo.ml
+  - path: src/foo.aa
     hash: y
 sources_digest: deadbeef
 stale: false
@@ -140,12 +140,12 @@ unknown_commands() {
   make_repo "git@github.com:example/repo.git"
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
   stage_node "Query API" "Conditions and validation."
-  printf 'src/foo.ml\tQuery API.md\n' | write_index_bin "$(default_work_dir)"
+  printf 'src/foo.aa\tQuery API.md\n' | write_index_bin "$(default_work_dir)"
 
   # A filled reference index as well, so the branch of the nudge that only appears
   # with a Code Cache is exercised rather than skipped -- that branch is where
   # `synapse.sh callers` was.
-  printf 'foo\tdef\tfunction\tsrc/foo.ml\t1\tlet foo x =\n' > "$(default_work_dir)/_refs.tsv"
+  printf 'foo\tdef\tfunction\tsrc/foo.aa\t1\tlet foo x =\n' > "$(default_work_dir)/_refs.tsv"
 
   local input="$BATS_TEST_TMPDIR/in.json"
   local emitted=""
@@ -158,7 +158,7 @@ unknown_commands() {
   emitted="$emitted$(PATH="$FAKE_BIN:$PATH" FAKE_CURL_VAULT_DIR="$VAULT" \
     "$SYNAPSE_HOOK_BIN" session-start < "$input" 2>&1 || true)"
 
-  jq -n --arg p "$REPO/src/foo.ml" '{tool_input: {file_path: $p}}' > "$input"
+  jq -n --arg p "$REPO/src/foo.aa" '{tool_input: {file_path: $p}}' > "$input"
   emitted="$emitted$(cd "$REPO" && PATH="$FAKE_BIN:$PATH" FAKE_CURL_VAULT_DIR="$VAULT" \
     "$SYNAPSE_HOOK_BIN" staleness < "$input" 2>&1 || true)"
 
@@ -189,7 +189,7 @@ unknown_commands() {
   # as model-facing as a skill.
   make_repo "ssh://git@example.com/x/proj.git"
   printf '%s\n' "Query API" > "$WORK/lists/01.title"
-  printf '%s\n' src/foo.ml > "$WORK/lists/01.txt"
+  printf '%s\n' src/foo.aa > "$WORK/lists/01.txt"
   stage_node "Query API" "Conditions and validation."
 
   run env PATH="$FAKE_BIN:$PATH" FAKE_CURL_LOG="$CURL_LOG" FAKE_CURL_VAULT_DIR="$VAULT" \

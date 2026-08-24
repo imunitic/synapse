@@ -25,8 +25,8 @@ const Tagger = tagger_mod.Tagger;
 /// comment), independent of `source`/tier. Same override precedent
 /// `query_override_dir` already gives the main query: `{dir}/{ext}.locals.scm`
 /// wins when present (e.g. a grammar's own `locals.scm` misses a real
-/// binding shape -- `package_pattern` for OCaml's first-class modules is the
-/// confirmed motivating case), falling back to the grammar's own
+/// binding shape -- a nested first-class-module pattern is one such
+/// motivating case), falling back to the grammar's own
 /// `queries/locals.scm` otherwise. `FileNotFound` at either step means "try
 /// the next source" (override absent) or "no locals.scm at all" (neither
 /// exists); anything else propagates.

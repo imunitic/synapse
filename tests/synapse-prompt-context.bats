@@ -31,8 +31,8 @@ run_hook() {
   export FAKE_CURL_VAULT_DIR="$VAULT"
   # A temp file, not a pipe: the hook's disable check is its literal first
   # line, so a disabled run exits before ever reading stdin. Piping jq's
-  # output straight in races the hook's exit against jq's write -- confirmed
-  # on CI (both runners) as "jq: error: writing output failed: Broken pipe",
+  # output straight in races the hook's exit against jq's write: on both CI
+  # runners this surfaces as "jq: error: writing output failed: Broken pipe",
   # merged into $output by bats' run and failing the "no output" assertion.
   # Writing to a file first and redirecting it as stdin has no such race.
   local input="$BATS_TEST_TMPDIR/hook-input.json"

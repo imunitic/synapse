@@ -6,7 +6,7 @@
 #
 # aarch64-macos is where the hooks actually run; x86_64-linux is CI, the test
 # container, and bard's Android cloud session. aarch64-linux was added later,
-# once sb-019's own podman testing showed it isn't the niche case it looked
+# once podman testing under emulation showed it isn't the niche case it looked
 # like from a developer-laptop vantage point: AWS Graviton, GitHub Actions'
 # arm64 runners, and Docker Desktop on Apple Silicon (which defaults new
 # containers to linux/arm64 unless told otherwise) all put it in front of

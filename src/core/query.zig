@@ -330,7 +330,7 @@ const sample =
 test "body is what sits between the fences, minus the two marker lines" {
     const b = body(sample).?;
     // The blank line after the start marker survives, because `sed '1d'` deletes
-    // the marker *line* and nothing else (confirmed against 132 real nodes).
+    // the marker *line* and nothing else.
     try testing.expect(std.mem.startsWith(u8, b, "\n## Summary"));
     try testing.expect(std.mem.endsWith(u8, b, "- `statemachine` (2)"));
     // The two things being between the fences buys, rather than reading after

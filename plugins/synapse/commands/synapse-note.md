@@ -133,7 +133,7 @@ agent's call to make.
 ## Resolving the project folder (task mode only)
 
 Task notes are grouped one level deeper by project, `tasks/{project}/{filename}.md` — see
-`Index.md`'s `tasks/` section. The prefix (`ecs`, `sb`, ...) is not itself the folder name — it
+`Index.md`'s `tasks/` section. The prefix (`proj`, `sb`, ...) is not itself the folder name — it
 names the *task*, not the *project* — so resolve what project it belongs to, regardless of how
 the prefix became known (matched from the title, resolved in "Resolving a missing task ID" above,
 or supplied directly by a caller like `/synapse-task-note`):
@@ -142,7 +142,7 @@ or supplied directly by a caller like `/synapse-task-note`):
    "Resolving a missing task ID" above) — find the line whose value after `=` equals the prefix;
    its key is the project name.
 2. If no line matches, check `Index.md`'s `tasks/` section, which documents the prefix-to-project
-   mapping directly (e.g. `ecs-NNN` → `eon`).
+   mapping directly (e.g. `proj-NNN` → `widget`).
 3. If still unresolved (a genuinely new prefix with no mapping anywhere), ask the user for the
    project name and append `{project-name}={prefix}` to the conf file — so the next task note
    under this prefix resolves without asking.

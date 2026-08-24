@@ -75,11 +75,11 @@ a real yes/no answer, not a formality to wave past.
   index must never fall behind what's actually on disk.
 - **`tasks/` and `designs/` both group one level deeper by project**,
   using the two-level cap above: `tasks/{project}/` and
-  `designs/{project}/` (e.g. `tasks/eon/`, `designs/synapse/`). A design
+  `designs/{project}/` (e.g. `tasks/widget/`, `designs/synapse/`). A design
   note already carries its project as a `project:` frontmatter field, so
   its subfolder is that value directly. A task note has no such field —
   decide from its task-prefix family per `Index.md`'s `tasks/` section
-  (`ecs-NNN` → `eon`, `sb-NNN` → `synapse`) or, for a non-prefixed note,
+  (`proj-NNN` → `widget`, `sb-NNN` → `synapse`) or, for a non-prefixed note,
   from its title naming that same project. Either way, a note with no
   established project family stays flat directly in `tasks/` or
   `designs/` — don't invent a one-note subfolder.

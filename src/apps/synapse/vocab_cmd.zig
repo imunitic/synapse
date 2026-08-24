@@ -1897,9 +1897,9 @@ test "vocab: a build-file rule resolves via the nearest ancestor, not just a sam
     try vf.writeNamespaceRules(
         \\{"ml": {"kind": "build-file", "file": "dune", "prefix": "(name ", "terminator": ")"}}
     );
-    try vf.plain("eon_edn/src/dune", "(name eon_edn)\n");
-    try vf.plain("eon_edn/src/foo.ml", "let x = 1\n");
-    try vf.plain("eon_edn/src/nested/bar.ml", "let y = 2\n");
+    try vf.plain("widget_edn/src/dune", "(name widget_edn)\n");
+    try vf.plain("widget_edn/src/foo.ml", "let x = 1\n");
+    try vf.plain("widget_edn/src/nested/bar.ml", "let y = 2\n");
     try vf.commit();
 
     try testing.expectEqual(@as(u8, 0), try vf.run(.{ .depth = 1 }));
@@ -1908,7 +1908,7 @@ test "vocab: a build-file rule resolves via the nearest ancestor, not just a sam
     // ancestor walk.
     const ns = (try vf.readOut(gpa, "namespaces.tsv")).?;
     defer gpa.free(ns);
-    try testing.expectEqualStrings("eon_edn\teon_edn\t2\t2", tsvRow(ns, "eon_edn").?);
+    try testing.expectEqualStrings("widget_edn\twidget_edn\t2\t2", tsvRow(ns, "widget_edn").?);
 }
 
 test "vocab: an extension with no rule contributes nothing, even alongside one that has a rule" {

@@ -105,7 +105,7 @@ make_layered_repo() {
   # filename changes"); the warning text itself needs a real stderr, which
   # the native fixture doesn't capture, so that half stays here.
   make_repo
-  printf 'src/foo.ml\n' > "$PATHS"
+  printf 'src/foo.aa\n' > "$PATHS"
 
   run run_write --title "Bad — import/export" --paths "$PATHS" --body "$BODY"
   [ "$status" -eq 0 ]
@@ -115,7 +115,7 @@ make_layered_repo() {
 
 @test "a clean title writes silently" {
   make_repo
-  printf 'src/foo.ml\n' > "$PATHS"
+  printf 'src/foo.aa\n' > "$PATHS"
 
   run run_write --title "Bad — import and export" --paths "$PATHS" --body "$BODY"
   [ "$status" -eq 0 ]

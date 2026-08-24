@@ -14,8 +14,9 @@
 # `synapse-bard`'s primary audience is an Android-app cloud session, and in
 # an Anthropic-hosted cloud sandbox, release-asset downloads route through a
 # repo-scoped GitHub proxy that 403s any repo other than the one the session
-# is attached to (which is the bible repo, never this one) -- confirmed
-# against Claude Code's own cloud-environments docs, 2026-08-21. Raw file
+# is attached to (rarely this one, since synapse-bard's primary audience
+# isn't developing this plugin itself), per Claude Code's own
+# cloud-environments docs. Raw file
 # content from a public repo routes through the general security proxy
 # instead, unscoped, so this URL shape actually reaches the session.
 #

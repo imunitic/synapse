@@ -612,10 +612,10 @@ const CleanFixture = struct {
 
     fn commit(self: *CleanFixture) !void {
         // A real file first: `git commit` with nothing staged exits nonzero
-        // and `gitCommit()` doesn't check that -- an empty first commit left
-        // every branch this task creates on an unborn HEAD, confirmed live
-        // via `git rev-parse --abbrev-ref HEAD` returning the literal
-        // string "HEAD" instead of a real branch name.
+        // and `gitCommit()` doesn't check that -- an empty first commit leaves
+        // every branch this helper creates on an unborn HEAD: `git rev-parse
+        // --abbrev-ref HEAD` returns the literal string "HEAD" instead of a
+        // real branch name.
         try self.fx.writeRepoFile("README.md", "seed\n");
         try self.fx.gitCommit("init");
     }

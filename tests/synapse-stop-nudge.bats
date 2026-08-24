@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Tests `synapse-hook stop-nudge`'s vault-push half (sb-013 regression). It used
+# Tests `synapse-hook stop-nudge`'s vault-push half. It used
 # to read $SYNAPSE_HOOK_BIN to find its own path for the detached vault-push
 # re-invocation, but settings.json's hook entry never actually sets that
 # variable at runtime -- the push was silently a no-op on every real install.

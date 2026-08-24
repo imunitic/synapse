@@ -114,8 +114,8 @@ case "$method" in
     #
     # Narrow on purpose. A general JsonLogic evaluator in a test fixture would be
     # a reimplementation of someone else's semantics, and the suite would end up
-    # verifying this file instead of the endpoint. The real endpoint's response
-    # shape was confirmed by hand against a live vault; what these tests cover is
+    # verifying this file instead of the endpoint. This fixture matches the
+    # real endpoint's response shape; what these tests cover is
     # the script's handling of it.
     case "$url" in
       */search/*)

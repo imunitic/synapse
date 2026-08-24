@@ -155,10 +155,10 @@ The division that keeps Synapse language-agnostic, and the test for where any fu
   across the writer and the verifier or every node reports a false mismatch — and none of them can
   know or care what language the repo is in.
 - **Interpretation — the model, and only the model.** What the nodes *are*, and what their prose
-  says. There is no language-neutral way to answer "where does meaning live in this tree": Java says
-  packages and `*Service` suffixes, Rust says crates and `pub`, Go says packages and exported
-  identifiers, Elixir says `defmodule`. A shipped script would have to pick one and be wrong
-  everywhere else.
+  says. There is no language-neutral way to answer "where does meaning live in this tree": one
+  ecosystem says packages and a naming-suffix convention, another says a build-manifest-declared
+  unit and an export keyword, a third says a single top-level module keyword. A shipped script
+  would have to pick one and be wrong everywhere else.
 
 **`manifest.tsv` (`title <TAB> include-ERE <TAB> exclude-ERE`) is the interface between the two.**
 Judgment enters as a few dozen regexes; everything downstream is mechanical and verifiable, which is
@@ -173,7 +173,8 @@ path is scripted at all.
 
 It is also why **no aggregation or profiling script ships hardcoded to an ecosystem.** "What is the
 signal in this tree?" is interpretation: a fixed script has to hardcode one ecosystem's conventions —
-JVM source roots and `*Service` suffixes, say, or Rust crate paths — and is then wrong everywhere else.
+a specific source-root layout and naming suffix, say, or a specific build-manifest path convention —
+and is then wrong everywhere else.
 `/synapse-init` carries a checklist instead (where is the weight, what artifact dominates, what does
 the code call itself versus what its directories call it, what are the domain's verbs), plus the
 instruction to record the aggregations that earned their keep in
@@ -183,8 +184,9 @@ per-language or per-repo specifics be discovered and cached.
 
 One of those four questions now has exactly that shape of primitive: `synapse vocab`'s
 `namespaces.tsv` answers "what does the code call itself versus what its directories call it" for
-whichever extensions `~/.claude/synapse-namespace-rules.conf` has a rule for — a Java `package`
-declaration, a Rust crate's `Cargo.toml` name — keyed by bare extension exactly like the grammar
+whichever extensions `~/.claude/synapse-namespace-rules.conf` has a rule for — a source file's own
+in-language namespace declaration, or a build manifest's declared package name — keyed by bare
+extension exactly like the grammar
 registry, and silently answering nothing for an extension with no rule yet rather than guessing.
 Weight and artifact dominance were already this mechanical before either — `counts.tsv` and
 `groupexts.tsv` are plain counts, no rule to discover at all.
@@ -416,12 +418,12 @@ Outside any git repo there is no pointer and nothing to exclude, so the catalogu
 
 A per-prompt search preceded this: tokenize the prompt, OR the surviving terms into one `regexp`
 clause, POST it to the Local REST API's `/search/` endpoint alongside a `glob` on the repo's
-namespace, and inject the matching node paths. Measured against a 52-node repo, the prompt *"can
-you explain how BatchRunner dispatches work items"* returned **50 of 52 nodes** for **~1057
-tokens, every turn** — `[Ww]ork` matched the substring inside `framework` (1392 occurrences
-across the namespace's `sources` lists), and one domain-ubiquitous term OR'd into the query
-destroys it; the distinctive term `[Bb]atchRunner` matched a useful 11 nodes and was drowned by
-the weak one beside it.
+namespace, and inject the matching node paths. On a repo of a few dozen nodes, a natural-language
+prompt asking about one specific subsystem routinely matched nearly every node in the namespace,
+for roughly a thousand tokens on every single turn — a domain-ubiquitous substring (a common
+English word buried inside an unrelated identifier) OR'd into the query destroys precision on its
+own; a genuinely distinctive term in the same prompt matched a useful handful of nodes and was
+drowned out by the weak one beside it.
 
 The search was solving a discovery problem `synapse index lookup` (path → owning node, ~15
 tokens), the tags cache (symbol lookups with no file opened), and `synapse query` (exact-field

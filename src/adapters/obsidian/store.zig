@@ -9,8 +9,8 @@
 //! belongs in Zig.
 //!
 //! **`curl`, not `std.http`**: the plugin's certificate carries an IP SAN
-//! and no DNS name, which `std.crypto.tls` has no path for (verified
-//! 2026-08-11). One spawn per call is affordable here specifically because
+//! and no DNS name, which `std.crypto.tls` has no path for. One spawn per
+//! call is affordable here specifically because
 //! this runs per *node* (tens per namespace), not per *file* like `vocab`/`rank`.
 
 const std = @import("std");

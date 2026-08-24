@@ -112,8 +112,8 @@ EOF
 @test "wipe then rebuild: a fresh /synapse-init-style build over the wiped repo is drift-clean, and the preserved-notes staging note survives" {
   make_repo
   mkdir -p "$REPO/src"
-  printf 'let x = 1\n' > "$REPO/src/a.ml"
-  printf 'let y = 2\n' > "$REPO/src/b.ml"
+  printf 'let x = 1\n' > "$REPO/src/a.aa"
+  printf 'let y = 2\n' > "$REPO/src/b.aa"
   git -C "$REPO" add -A
   git -C "$REPO" -c user.email=t@t -c user.name=t commit -q -m more
 

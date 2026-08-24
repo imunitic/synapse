@@ -5,17 +5,17 @@
 //!
 //! ```
 //! ---
-//! title: "fw-core@master — Synapse index"
+//! title: "widget-repo@master — Synapse index"
 //! node_type: synapse-index
-//! project: fw-core
+//! project: widget-repo
 //! branch: master
-//! remote: "ssh://…/fw-core.git"
-//! built_at: "2026-08-12 20:16"
+//! remote: "ssh://…/widget-repo.git"
+//! built_at: "2024-01-01 20:16"
 //! ---
 //!
-//! # fw-core@master — Synapse index
+//! # widget-repo@master — Synapse index
 //!
-//! 124817 tracked files, 52 nodes. …
+//! 12345 tracked files, 5 nodes. …
 //!
 //! - [[State machine]] — How states advance (19 files)
 //! ```

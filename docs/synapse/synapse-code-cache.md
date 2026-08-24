@@ -30,7 +30,7 @@ are skipped, changed-or-missing ones are (re-)tagged in one extraction over ever
 There is no chunking and no worker pool any more, and that is a deletion rather than a regression. The
 shell version split the work across `xargs -P` workers, with each worker writing a private temp file
 and one sequential merge afterwards, because CLI startup and grammar load dominated the per-file cost
-— chunking was how it stopped paying that per file, and it bought a real 10.26s → 1.39s on 400 Java
+— chunking was how it stopped paying that per file, and it bought a real 10.26s → 1.39s on 400
 files. In process there is nothing to amortise: a grammar is loaded once per extension for the life of
 the run, so the whole apparatus collapses into a single pass. What that trades away is CPU
 parallelism, and whether *that* costs anything on a cold repository has not been measured — it is an
@@ -38,22 +38,21 @@ open question, not a settled one.
 
 `synapse build-refs` projects that cache into `_refs.tsv`, a flat, byte-sorted index —
 `name ⇥ def|ref ⇥ kind ⇥ path:line ⇥ expression`. A separate artifact because the constraint is
-*format*, not size. That was measured back when the cache was JSON: one `jq` pass over a 4.6 MB cache
-took 0.064s, which extrapolates to ~13s per query at a large repo's 942 MB, for something meant to
-feel interactive — while the same data as flat sorted lines was a different regime entirely, 0.092s
-against a 560 MB index. The cache is a binary format now rather than JSON, so the `jq` half of that
-comparison is history; the conclusion it produced is why this file exists, and a sorted line index is
-still what a binary search wants.
+*format*, not size. That was measured back when the cache was JSON: a `jq` pass over a small JSON
+cache extrapolates to double-digit seconds per query once a large repo's cache reaches the
+several-hundred-megabyte scale, for something meant to feel interactive — while the same data as
+flat sorted lines stays sub-second at that same scale, a different regime entirely. The cache is a
+binary format now rather than JSON, so the `jq` half of that comparison is history; the conclusion
+it produced is why this file exists, and a sorted line index is still what a binary search wants.
 
 ## Grammar discovery: tags.scm, locals.scm, or generated
 
 ![Two-tier grammar discovery: a real tags.scm wins outright, otherwise tier 2 always generates one from whatever source material exists](diagrams/synapse-grammar-discovery.png)
 
 `queries/tags.scm` is not a tree-sitter standard — it's a convention GitHub's code-navigation
-feature popularized, and plenty of real grammars don't ship one. Confirmed directly: none of the
-three actively maintained "parse Zig" grammars on GitHub (`maxxnino/tree-sitter-zig`,
-`tree-sitter-grammars/tree-sitter-zig`, `GrayJack/tree-sitter-zig`) ships a `tags.scm`, and one of
-the three has neither `tags.scm` nor `locals.scm`. Registering every such extension `unsupported`
+feature popularized, and plenty of real grammars don't ship one: of several actively maintained
+grammars for one language checked directly on GitHub, none shipped a `tags.scm`, and one had
+neither `tags.scm` nor `locals.scm`. Registering every such extension `unsupported`
 would make whole languages contribute zero signal — no vocabulary, no ranking, no link graph — even
 though the grammar itself parses the language fine. Worse, neither a grammar's `locals.scm` nor its
 `node-types.json` can ever produce reference data on their own — only a real `tags.scm`-shaped query
@@ -68,12 +67,11 @@ fallbacks: tier 1 wins outright if it verifies, otherwise tier 2 always generate
 neither source file can supply by itself. `locals.scm` is nvim-treesitter's convention for
 scope-aware syntax highlighting, not a tags format, so only its `@local.definition.<kind>` captures
 are ground truth for kind labels, never `@local.reference`, the least standardized part of the
-convention across grammars: `tree-sitter-grammars/tree-sitter-zig`'s definitions are genuinely
-well-formed and per-kind, but `GrayJack/tree-sitter-zig`'s `locals.scm` captures a bare `@reference`
-on *every identifier in the file* — inert here, since only the prefixed `@local.definition.*`
-captures are ever read. A capture with no kind suffix at all (`tree-sitter-ocaml`'s own `locals.scm`
-does this) is a real, common nvim-treesitter shape, not a defect — every kind spelling, suffixed or
-bare, is normalized onto `Tag.kind`'s shared vocabulary through an ordered rule list
+convention across grammars: one grammar's definitions can be genuinely well-formed and per-kind,
+while another's `locals.scm` captures a bare `@reference` on *every identifier in the file* — inert
+here, since only the prefixed `@local.definition.*` captures are ever read. A capture with no kind
+suffix at all is a real, common nvim-treesitter shape in some grammars, not a defect — every kind
+spelling, suffixed or bare, is normalized onto `Tag.kind`'s shared vocabulary through an ordered rule list
 (`~/.claude/synapse-kind-synonyms.conf`), first match wins, unmapped dropped rather than guessed.
 
 `node-types.json` fills whatever `locals.scm` doesn't cover, or stands alone when `locals.scm` is
@@ -83,17 +81,17 @@ build artifact every real grammar ships, so it is available almost everywhere �
 `class`/`struct`/`enum`/… prefix) guesses which node types are declaration-shaped; a type with a
 literal `name` field becomes an ordinary tags.scm-shaped query pattern, compiled and cached the same
 way tier 1's is, and one without a `name` field falls to a breadth-first walk capped at depth 3 for
-the nearest `identifier`/`name` descendant. Confirmed weaker than reading `locals.scm` directly
-against two real grammars: `maxxnino/tree-sitter-zig` names its nodes `Decl`/`FnProto` rather than
-`*_declaration`, so the naming heuristic matches nothing at all; `tree-sitter-grammars/tree-sitter-zig`
-names things conventionally but represents `const Foo = struct {...}` as a `variable_declaration`
-wrapping a `struct_declaration`, an idiom no structural heuristic over `node-types.json` alone can
-derive — real signal, but weaker grounding than a grammar author's own `locals.scm` captures wherever
+the nearest `identifier`/`name` descendant. This is weaker grounding than reading `locals.scm`
+directly, in two distinct ways real grammars show: a grammar can name its own declaration-shaped
+nodes entirely outside the suffix convention, so the naming heuristic matches nothing at all; or it
+can name things conventionally but wrap one declaration-shaped node inside another in a way no
+structural heuristic over `node-types.json` alone can derive — real signal, but weaker grounding
+than a grammar author's own `locals.scm` captures wherever
 both exist. Same `synapse-kind-synonyms.conf` rule list as above, keyed here on the grammar's raw
 node type name instead of a `locals.scm` suffix, can relabel a guessed kind or force-classify a type
 the heuristic missed outright.
 
-Every case is verified against real source before being trusted — a candidate matching zero
+Every case is checked against real source before being trusted — a candidate matching zero
 definitions is an automatic reject, everything past that zero-cost floor is read and judged by eye
 — the same standard tier 1 already applies, extended rather than relaxed for material with less to
 work with. The registry (`~/.claude/synapse-grammars.conf`) records which tier won per extension
@@ -134,13 +132,14 @@ Two commands read the cache, at different scopes:
   every call site of an exact name, anywhere, as `path:line ⇥ calling expression`, reading `_refs.tsv`
   directly. The lookup is an in-process binary search over the index, which is mapped rather than read
   — a query touches the pages its handful of lines sit on, where reading the file first meant paying
-  1.4 GB of I/O and resident memory to reach roughly twenty pages of it. Defaults to `ref | call`
+  for the full index's I/O and resident memory to reach a small fraction of it. Defaults to `ref | call`
   matches; `--all` widens to every def and ref.
 
   The binary search is the part worth keeping from the shell version, which reached it with `look`
-  plus an exact `awk` filter: on a 1.4 GB index (5.56M tags, 96,513 files) that answered in 0.235s
-  where `awk` alone — a full scan — took 26s, and where the answer's speed depended on *which* `grep`
-  was on `PATH`, a 50× spread. In process there is one implementation, `look`'s prefix-matching quirk
+  plus an exact `awk` filter: on a large repo's multi-gigabyte, multi-million-line index that
+  answered in a fraction of a second, where `awk` alone — a full scan — took tens of seconds, and
+  where the answer's speed depended on *which* `grep` was on `PATH`, an order-of-magnitude spread.
+  In process there is one implementation, `look`'s prefix-matching quirk
   is gone (asking for `bet` no longer returns every `beta`), and the byte-order agreement that the
   writer and the reader each had a shouting comment about is arithmetic in one program rather than a
   contract between two scripts.
@@ -163,7 +162,7 @@ the Graph, but real, with no Obsidian install as its price of entry.
 ## Vault-freedom, measured
 
 Counting vault references (`OBSIDIAN_VAULT_DIR`, the Local REST API, its cert/key) across the
-subcommands of `synapse`: 14 of 21 are vault-free outright — `namespace`, `build-index`,
+subcommands of `synapse`: most are vault-free outright — `namespace`, `build-index`,
 `build-lists`, `build-refs`, `callers`, `enumerate`, `gate`, `push-nodes`, `rank`, `vocab`, `tags`,
 `tags-cache`, `link-graph`, and `brief`. The remaining seven (`write-node`, `query`,
 `build-project-index`, `graph-clean`, `graph-wipe`, `index`, `doctor`) are mostly *path*-bound

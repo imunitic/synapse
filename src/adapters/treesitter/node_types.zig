@@ -7,8 +7,8 @@
 //! Tree-sitter-C-API-free -- reads JSON only, still no parsing/tagging here.
 //! `kind_rules` is consulted, not just applied after the fact: a rule can
 //! also force-classify a type the suffix/prefix heuristic missed entirely
-//! (confirmed needed against `tree-sitter-ada`'s `subprogram_body`, which
-//! names a full function-with-implementation but has no `_declaration`/
+//! (needed for a grammar whose node type names a full
+//! function-with-implementation but has no `_declaration`/
 //! `_definition`/`decl`/`def` suffix at all -- a relabel-only override could
 //! never rescue it, since it never became a `Guess` to relabel). The other
 //! half of tier 2, the bounded tree-walk for a type with no `name` field,
@@ -71,8 +71,8 @@ pub fn classify(
 /// reason `tagger.zig` has no `#match?` support). Matched case-insensitively
 /// (see `hasDeclarationSuffix`), so both the snake_case spelling
 /// (`_decl`) and the PascalCase one (`VarDecl`) hit the same entry --
-/// confirmed against `maxxnino/tree-sitter-zig`, which names every
-/// declaration-shaped node `*Decl`/`*Def` with no underscore at all.
+/// needed for a grammar that names every declaration-shaped node
+/// `*Decl`/`*Def` with no underscore at all.
 const declaration_suffixes = [_][]const u8{
     "declaration", "definition", "_item", "_specifier", "decl", "def", "_binding",
 };
@@ -81,12 +81,12 @@ const declaration_suffixes = [_][]const u8{
 /// following capital letter, or the type name simply ending there) is also
 /// declaration-shaped, and the matched word doubles as its `Tag.kind`. The
 /// second column of each new entry below is not invented: it's the kind
-/// `tree-sitter-odin`'s own real `locals.scm` already uses for the matching
+/// a real grammar's own `locals.scm` already uses for the matching
 /// node (`package_declaration`/`import_declaration` -> `namespace`,
 /// `const_declaration` -> `constant`, `variable_declaration` -> `var`,
 /// `parameter` -> `parameter`), reused here for consistency rather than
 /// picked ad hoc. `test`/`container`/`error` have no such precedent to
-/// borrow (confirmed only against `maxxnino/tree-sitter-zig`'s
+/// borrow (needed only for one grammar's own
 /// `TestDecl`/`ContainerDecl`/`ErrorSetDecl`) -- mapped to the closest
 /// existing label rather than inventing a new one.
 const prefix_kinds = [_][]const u8{
@@ -147,8 +147,8 @@ fn classifyOne(item: std.json.Value, kind_rules: RuleList, scope: []const u8) !?
     // could never reach it. A bare prefix-keyword match alone is still too
     // permissive on its own: `struct` (a type expression/literal, not a
     // declaration) matches the keyword "struct" with no suffix at all --
-    // confirmed on tree-sitter-odin, where it fabricated a definition out
-    // of a struct literal (`Vec2{x=1,y=2}`). The suffix (or an explicit
+    // one real grammar fabricated a definition out of a struct literal
+    // (`Vec2{x=1,y=2}`) this way. The suffix (or an explicit
     // rule) is the declaration-shape signal; the prefix only ever picks
     // which kind label to use when no rule already decided one.
     const override_kind = kind_rules.kindFor(type_name, scope);
@@ -169,10 +169,10 @@ fn classifyOne(item: std.json.Value, kind_rules: RuleList, scope: []const u8) !?
 
 /// Case-insensitive so `Struct_decl`/`STRUCT_DECL` also match. Boundary
 /// after the prefix word is `_`, the string simply ending there, or a
-/// capital letter -- a PascalCase word transition (`ParamDecl`), confirmed
-/// needed against `maxxnino/tree-sitter-zig`, whose declaration nodes are
-/// all PascalCase with no separator at all. A lowercase continuation still
-/// correctly rejects (`structure` does not match `struct`).
+/// capital letter -- a PascalCase word transition (`ParamDecl`), needed
+/// for a grammar whose declaration nodes are all PascalCase with no
+/// separator at all. A lowercase continuation still correctly rejects
+/// (`structure` does not match `struct`).
 fn matchedPrefixKind(type_name: []const u8) ?[]const u8 {
     for (prefix_kinds) |kw| {
         if (type_name.len < kw.len) continue;
@@ -271,7 +271,7 @@ test "a prefix keyword becomes the kind, not the generic default" {
     try testing.expectEqualStrings("struct", c.guesses[0].kind);
 }
 
-test "prefix_kinds expansion: real node types from tree-sitter-odin and maxxnino/tree-sitter-zig" {
+test "prefix_kinds expansion: real node types from two grammars with different naming conventions" {
     const gpa = testing.allocator;
     var c = try classifyJson(gpa,
         \\[{"type": "package_declaration", "named": true},
@@ -318,10 +318,10 @@ test "a PascalCase word boundary rejects a lowercase continuation, same as the u
 }
 
 test "PascalCase Decl/Def suffixes match the same as snake_case _decl/_def" {
-    // Confirmed live against maxxnino/tree-sitter-zig: every declaration
-    // node is PascalCase (VarDecl, ParamDecl, TestDecl, ...), no underscore
-    // at all. Before this, the classifier found zero guesses for that
-    // grammar; case-insensitive bare decl/def recovers most of them.
+    // One real grammar's every declaration node is PascalCase (VarDecl,
+    // ParamDecl, TestDecl, ...), no underscore at all. Before this, the
+    // classifier found zero guesses for that grammar; case-insensitive
+    // bare decl/def recovers most of them.
     const gpa = testing.allocator;
     var c = try classifyJson(gpa,
         \\[{"type": "VarDecl", "named": true},
@@ -335,10 +335,10 @@ test "PascalCase Decl/Def suffixes match the same as snake_case _decl/_def" {
 }
 
 test "a bare prefix keyword with no declaration suffix does not qualify on its own" {
-    // Confirmed live against tree-sitter-odin: a node type literally named
-    // "struct" is the type-expression/composite-literal node (used at a
-    // struct literal like `Vec2{x=1,y=2}`), not a declaration -- matching
-    // it fabricated a fake definition out of a usage site.
+    // One real grammar's node type literally named "struct" is the
+    // type-expression/composite-literal node (used at a struct literal
+    // like `Vec2{x=1,y=2}`), not a declaration -- matching it fabricated a
+    // fake definition out of a usage site.
     const gpa = testing.allocator;
     var c = try classifyJson(gpa,
         \\[{"type": "struct", "named": true},
@@ -404,7 +404,7 @@ test "a non-array top level classifies to nothing, not an error" {
 }
 
 test "a kind_rules entry force-classifies a type the suffix/prefix heuristic misses entirely" {
-    // subprogram_body: confirmed live against tree-sitter-ada -- a full
+    // subprogram_body: a real grammar's node type naming a full
     // function-with-implementation, no "_declaration"/"_definition"/"decl"/
     // "def" suffix at all, so it never became a Guess before this fix. A
     // relabel-only override could never reach it, since there was nothing

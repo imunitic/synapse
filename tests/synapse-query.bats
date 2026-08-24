@@ -68,7 +68,7 @@ write_node_index() { # write_node_index <node.md> <path>...
 @test "stale: namespace belongs to a different remote: exits 1, reports nothing" {
   make_repo "ssh://git@example.com/mine.git"
   write_synapse_index "$(repo_name)" "ssh://git@example.com/SOMEONE-ELSE.git"
-  write_node_index 'Foo Node.md' src/foo.ml
+  write_node_index 'Foo Node.md' src/foo.aa
 
   run run_stale
   [ "$status" -eq 1 ]
@@ -149,8 +149,8 @@ write_fenced_node() {
   # Globbing a since-deleted directory doesn't fail this test the way it
   # should: bash passes the literal unexpanded pattern to grep, which then
   # exits 2 (error) rather than 0 or 1, and the check below only ever fired
-  # on exit 0 -- so a real bare `mktemp` in a shipped hook (confirmed live:
-  # obsidian-mcp-refresh.sh) passed silently for as long as those two dead
+  # on exit 0 -- so a real bare `mktemp` in a shipped hook
+  # (obsidian-mcp-refresh.sh) passed silently for as long as those two dead
   # globs sat alongside a real one. Restricted to the one path that still
   # exists, and the status check now treats "grep errored" the same as
   # "grep found something" rather than only the latter.

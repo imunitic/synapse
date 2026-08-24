@@ -200,7 +200,7 @@ test "the artifact kind is the extension, or the filename when there is none" {
     const cases = [_]struct { path: []const u8, want: []const u8 }{
         .{ .path = "src/main/java/Foo.java", .want = "java" },
         .{ .path = "db/Schema.SQL", .want = "sql" }, // lowercased
-        .{ .path = "eon_edn/src/dune", .want = "dune" }, // no dot: filename stands
+        .{ .path = "widget_edn/src/dune", .want = "dune" }, // no dot: filename stands
         .{ .path = "Makefile", .want = "makefile" },
         .{ .path = ".gitignore", .want = "gitignore" }, // leading dot is an extension
         .{ .path = "weird.", .want = "weird." }, // trailing dot: nothing after it

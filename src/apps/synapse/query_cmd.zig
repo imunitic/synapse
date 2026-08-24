@@ -1726,12 +1726,12 @@ test "sources: --modules keeps one segment past src/ for a non-boilerplate layou
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
     try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
-    try fx.writeRepoFile("eon_engine/src/render/render_commands.ml", "x\n");
-    try fx.writeRepoFile("eon_engine/src/audio/audio_system.ml", "x\n");
+    try fx.writeRepoFile("widget_engine/src/render/render_commands.ml", "x\n");
+    try fx.writeRepoFile("widget_engine/src/audio/audio_system.ml", "x\n");
     const node = try fencedNode(gpa, &.{
         .{ .path = "src/foo.ml", .content = "let x = 1\n" },
-        .{ .path = "eon_engine/src/render/render_commands.ml", .content = "x\n" },
-        .{ .path = "eon_engine/src/audio/audio_system.ml", .content = "x\n" },
+        .{ .path = "widget_engine/src/render/render_commands.ml", .content = "x\n" },
+        .{ .path = "widget_engine/src/audio/audio_system.ml", .content = "x\n" },
     });
     defer gpa.free(node);
     try fx.writeNodeFile("Foo Node", node);
@@ -1740,9 +1740,9 @@ test "sources: --modules keeps one segment past src/ for a non-boilerplate layou
     defer gpa.free(r.out);
     try testing.expectEqual(@as(u8, 0), r.code);
     // Neither path is Maven boilerplate, so each keeps the segment right
-    // after src/ instead of collapsing both into one "eon_engine".
-    try testing.expect(std.mem.indexOf(u8, r.out, "eon_engine/src/render\t1") != null);
-    try testing.expect(std.mem.indexOf(u8, r.out, "eon_engine/src/audio\t1") != null);
+    // after src/ instead of collapsing both into one "widget_engine".
+    try testing.expect(std.mem.indexOf(u8, r.out, "widget_engine/src/render\t1") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "widget_engine/src/audio\t1") != null);
 }
 
 test "sources: --modules boilerplate chains are read from config, not hardcoded" {

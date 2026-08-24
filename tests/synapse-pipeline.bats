@@ -124,7 +124,7 @@ run_pipeline() {
   [[ "$output" != *"## Notes"* ]]
 
   # Asserted against the list the node was built from, so the two cannot drift:
-  # the ^src/ pattern also picks up the helper's src/foo.ml.
+  # the ^src/ pattern also picks up the helper's src/foo.aa.
   run in_repo "$SYNAPSE_BIN" query sources "Java — the application" --count
   [ "$status" -eq 0 ]
   [ "$output" -eq "$(wc -l < "$WORK/lists/01.txt" | tr -d ' ')" ]

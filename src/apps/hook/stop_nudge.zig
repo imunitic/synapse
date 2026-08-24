@@ -367,10 +367,10 @@ fn remoteHeadSubject(fx: *fixture.Fixture, gpa: Allocator, remote: []const u8) !
 
 /// A second working copy of `remote`, standing in for the phone in the pull
 /// tests below -- `init` + `remote add` + `pull` rather than `git clone`,
-/// which (verified directly: an otherwise-successful, zero-stderr `git
-/// clone` of a `.zig-cache/tmp/...`-rooted local bare repo left the
-/// destination completely empty, no `.git`, no working tree) doesn't behave
-/// reliably against these tmp-rooted local paths in this environment. Every
+/// which doesn't behave reliably against these tmp-rooted local paths in
+/// this environment: an otherwise-successful, zero-stderr `git clone` of a
+/// `.zig-cache/tmp/...`-rooted local bare repo leaves the destination
+/// completely empty, no `.git`, no working tree. Every
 /// other git sequence in this file already goes through this same
 /// init/add/commit/push shape successfully, so this stays on the proven
 /// path instead. Caller-owned `other` path.

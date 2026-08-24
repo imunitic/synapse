@@ -888,8 +888,8 @@ test "a recovered body written back produces the same bytes" {
 /// so a caller can skip the write.
 ///
 /// **Not** `PATCH -H "Target-Type: frontmatter"` -- that re-serialises the
-/// entire YAML block, stripping quotes, folding long lines, coercing values
-/// to other types. Verified 2026-08-03: an all-digit `hash` became
+/// entire YAML block, stripping quotes, folding long lines, and coercing
+/// values to other types: an all-digit `hash` becomes
 /// `1.1111111111111112e+39`, unrecoverably, permanently desyncing
 /// `sources_digest`. Rewriting one line leaves every other byte -- including
 /// a megabyte `sources` list on a hub node -- untouched.

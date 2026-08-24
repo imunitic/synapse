@@ -32,22 +32,22 @@ in_repo() {
 
 ns() { echo "$VAULT/synapse/$(repo_name)"; }
 
-# A node grounded in a two-line doc comment at the top of calc.ml.
+# A node grounded in a two-line doc comment at the top of calc.aa.
 build_grounded_node() {
   make_repo
   mkdir -p "$REPO/lib"
   { printf '(* Computes the premium for a contract.\n'
     printf '   Rounds half-up at two decimals. *)\n'
-    for i in $(seq 3 12); do printf 'let line%02d = %d\n' "$i" "$i"; done; } > "$REPO/lib/calc.ml"
-  git -C "$REPO" add lib/calc.ml
+    for i in $(seq 3 12); do printf 'let line%02d = %d\n' "$i" "$i"; done; } > "$REPO/lib/calc.aa"
+  git -C "$REPO" add lib/calc.aa
   git -C "$REPO" -c user.email=t@t -c user.name=t commit -q -m calc
-  printf 'src/foo.ml\nlib/calc.ml\n' > "$PATHS"
-  printf '## Summary\nRounds half-up at two decimals.\n<!-- grounded_in: lib/calc.ml 1-2 -->\n' > "$BODY"
+  printf 'src/foo.aa\nlib/calc.aa\n' > "$PATHS"
+  printf '## Summary\nRounds half-up at two decimals.\n<!-- grounded_in: lib/calc.aa 1-2 -->\n' > "$BODY"
 
   in_repo "$SYNAPSE_BIN" write-node --title "Premium" --summary "Premium calc." \
     --paths "$PATHS" --body "$BODY" >/dev/null
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
-  printf 'lib/calc.ml\tPremium.md\nsrc/foo.ml\tPremium.md\n' | write_index_bin "$(default_work_dir)"
+  printf 'lib/calc.aa\tPremium.md\nsrc/foo.aa\tPremium.md\n' | write_index_bin "$(default_work_dir)"
 }
 
 @test "round trip: --list plus re-emit preserves groundings; omitting them loses all" {
@@ -65,11 +65,11 @@ build_grounded_node() {
   cp "$TEST_HOME/recovered.md" "$TEST_HOME/reemit.md"
   while IFS="$(printf '\t')" read -r p l; do
     printf '<!-- grounded_in: %s %s -->\n' "$p" "$l" >> "$TEST_HOME/reemit.md"
-  done < <(printf 'lib/calc.ml\t1-2\n')
+  done < <(printf 'lib/calc.aa\t1-2\n')
 
   in_repo "$SYNAPSE_BIN" write-node --title "Premium" --summary "Premium calc." \
     --paths "$PATHS" --body "$TEST_HOME/reemit.md" >/dev/null
-  grep -qxF '  - path: lib/calc.ml' "$(ns)/Premium.md"
+  grep -qxF '  - path: lib/calc.aa' "$(ns)/Premium.md"
   grep -qxF '    lines: "1-2"' "$(ns)/Premium.md"
   run in_repo "$SYNAPSE_BIN" query grounding
   [ -z "$output" ]

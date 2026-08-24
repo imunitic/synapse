@@ -288,8 +288,8 @@ const fixture = @import("cmd_test_support.zig");
 /// this file genuinely needs.
 ///
 /// `commit()` is a separate step from `init()`, called once by every test
-/// right after construction, never inside `init()` itself -- confirmed
-/// live as the fix for a real hang: `gitCommit()` spawns real subprocesses,
+/// right after construction, never inside `init()` itself, because a hang
+/// follows otherwise: `gitCommit()` spawns real subprocesses,
 /// which binds the fixture's `Io.Threaded` worker threads to `init()`'s own
 /// *local* copy of the struct; `init()` then returns that struct by value,
 /// moving it to the caller's stack slot, and the already-spawned worker

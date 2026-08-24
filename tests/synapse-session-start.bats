@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # Tests claude/hooks/synapse-session-start.sh -- both the pre-existing
-# index-injection behavior and the Synapse pointer check added for sb-001.
+# index-injection behavior and the Synapse pointer check.
 # Everything but the cross-file consistency guard below moved to native
 # coverage -- src/apps/hook/session_start.zig's own `test` blocks, via the
 # `build()` entry point `run()` delegates to after reading the stdin

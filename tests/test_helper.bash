@@ -155,7 +155,7 @@ EOF
 # tracked file, its content, or the commit message ever change, so a stale
 # /tmp survivor from a previous session can never silently diverge from what
 # make_repo()'s callers assert against.
-_repo_template_dir() { echo "${TMPDIR:-/tmp}/synapse-test-repo-template-v1"; }
+_repo_template_dir() { echo "${TMPDIR:-/tmp}/synapse-test-repo-template-v2"; }
 
 _ensure_repo_template() {
   local tmpl; tmpl="$(_repo_template_dir)"
@@ -163,8 +163,8 @@ _ensure_repo_template() {
   local build; build="$(mktemp -d "${TMPDIR:-/tmp}/synapse-repo-template-build.XXXXXX")"
   mkdir -p "$build/src"
   git init -q "$build"
-  printf 'let x = 1\n' > "$build/src/foo.ml"
-  git -C "$build" add src/foo.ml
+  printf 'let x = 1\n' > "$build/src/foo.aa"
+  git -C "$build" add src/foo.aa
   git -C "$build" -c user.email=test@test -c user.name=test commit -q -m init
   mv -n "$build" "$tmpl" 2>/dev/null || rm -rf "$build"
 }

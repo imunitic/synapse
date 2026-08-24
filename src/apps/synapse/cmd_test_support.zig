@@ -89,11 +89,11 @@ pub const Fixture = struct {
         // PATH, to `exec` the real `git` underneath without recursing into
         // itself. A relative PATH entry ("tests/fixtures/fake-bin") never
         // matches that absolute string, so the strip silently no-ops and
-        // the script re-execs itself as `git` forever -- confirmed live,
-        // spinning at 100% CPU until killed. `curl` has no such self-check,
+        // the script re-execs itself as `git` forever, spinning at 100% CPU
+        // until killed. `curl` has no such self-check,
         // so this was invisible until a test first spawned `git` for real.
         // `Io.Dir.cwd().realPath` (the cwd sentinel itself) fails with
-        // FileNotFound in this test environment -- confirmed live. Opening
+        // FileNotFound in this test environment. Opening
         // the relative path as a real directory handle first and resolving
         // *that* sidesteps it; the same pattern `tmp.dir.realPath` above
         // already relies on for a non-sentinel handle.

@@ -4,10 +4,9 @@ Every `synapse-*.conf` file and every `SYNAPSE_*`/`OBSIDIAN_*` environment varia
 binaries and hooks read, in one place. Unlike [cli.md](cli.md), this is hand-maintained, not
 generated: a `--help` string has one canonical declaration site to generate from, an
 `env.get("SYNAPSE_...")` call does not — it's just scattered through `src/`. Treat this page as
-best-effort-current rather than push-button-verified — the gap it closes is the same "config
-sprawl" a multi-agent codebase audit flagged from the source side (documentation coverage was
-bimodal: vault- and work-dir-adjacent settings were documented, grammar/cache/identity-adjacent
-ones existed only in source comments and the bats suite).
+best-effort-current rather than push-button-verified — before it existed, documentation coverage
+was bimodal: vault- and work-dir-adjacent settings were documented, while grammar/cache/identity-
+adjacent ones existed only in source comments and the bats suite. This page closes that gap.
 
 ## Where a conf file actually lives
 
@@ -66,11 +65,12 @@ edit directly if a cached decision needs correcting.
   `{"unsupported": true}` when neither discovery tier verified (see
   [Grammar discovery](synapse-code-cache.md#grammar-discovery-tagsscm-localsscm-or-generated) in
   synapse-code-cache.md). `path`/`symbol` are only needed for a multi-grammar repo
-  (`tree-sitter-ocaml`'s three sub-grammars sharing one clone). No environment-variable path
+  (a grammar whose sub-grammars share one upstream clone). No environment-variable path
   override.
 - **`synapse-namespace-rules.conf`** (`SYNAPSE_NAMESPACE_RULES_CONF` overrides the path) — object
   keyed by bare extension, one rule per ecosystem's own "what does this file call itself" signal (a
-  Java `package` line, a Rust crate's `Cargo.toml` name). Feeds `synapse vocab`'s `namespaces.tsv`
+  source file's own in-language namespace declaration, or a build manifest's declared package
+  name). Feeds `synapse vocab`'s `namespaces.tsv`
   and `synapse build-namespaces`'s per-file `_namespaces.tsv`. Silently answers nothing for an
   extension with no rule yet, never guesses. A rule may carry an optional `"aliases"` array
   (`[{"prefix": "...", "terminator": "..."}]`, terminator optional, unbounded), each entry an
@@ -98,20 +98,20 @@ edit directly if a cached decision needs correcting.
 
   ```json
   [
-    {"match": "ctor", "scope": "source.zig", "kind": "constructor"},
+    {"match": "ctor", "scope": "source.langA", "kind": "constructor"},
     {"match": "ctor", "kind": "method"},
     {"match": "", "kind": "variable"}
   ]
   ```
 
   Tried top to bottom, **first match wins — by list position, not by which rule is more specific.**
-  Above, a bare `zig` `ctor` gets `constructor` because that rule comes first; every other
-  grammar's `ctor` falls through to the general `method` rule below it. Reversing the two would
-  make the scoped rule dead code — nothing checks "is there a more specific rule later," so a
-  general rule placed first always wins. `scope` is a tree-sitter scope (`source.ocaml`) or absent
+  Above, a bare `ctor` scoped to `langA` gets `constructor` because that rule comes first; every
+  other grammar's `ctor` falls through to the general `method` rule below it. Reversing the two
+  would make the scoped rule dead code — nothing checks "is there a more specific rule later," so a
+  general rule placed first always wins. `scope` is a tree-sitter scope (`source.langB`) or absent
   to match any grammar; `match` may be the empty string, a real, matchable value for a bare
-  `@local.definition` capture with no kind suffix at all (`tree-sitter-ocaml`'s own `locals.scm`
-  does this — the third rule above). An unmapped spelling is dropped, never defaulted to a guessed
+  `@local.definition` capture with no kind suffix at all (some grammars' own `locals.scm` do this
+  — the third rule above). An unmapped spelling is dropped, never defaulted to a guessed
   kind; a malformed entry (missing or wrong-typed `match`/`kind`) is silently skipped at load, and
   every rule around it still applies.
 
@@ -119,9 +119,9 @@ edit directly if a cached decision needs correcting.
   doesn't cover), where the same file can do two things instead of one — relabel a kind the
   suffix/prefix heuristic already guessed, or **force-classify a type the heuristic missed
   outright**, one it would otherwise never treat as declaration-shaped at all. `match` there is the
-  grammar's raw node *type name* (e.g. `"ContainerDecl"`, `"subprogram_body"`), not a
-  `@local.definition` suffix. Confirmed needed against `tree-sitter-ada`: `subprogram_body` names a
-  full function-with-implementation but has none of the recognized suffixes
+  grammar's raw node *type name* (e.g. `"TypeDecl"`, `"SubroutineBody"`), not a
+  `@local.definition` suffix. Some grammars need exactly this: a node type naming a full
+  function-with-implementation but carrying none of the recognized suffixes
   (`_declaration`/`_definition`/`decl`/`def`), so without a rule it never becomes a candidate to
   relabel — a matching rule is what lets it be classified at all. Same rule list, same precedence,
   two different `match` vocabularies depending on which source material is being classified;

@@ -40,8 +40,8 @@ run_drift() {
 make_two_area_repo() {
   make_repo
   mkdir -p "$REPO/mod-a" "$REPO/docs"
-  printf 'class A {}\n' > "$REPO/mod-a/a.java"
-  printf 'class B {}\n' > "$REPO/mod-a/b.java"
+  printf 'class A {}\n' > "$REPO/mod-a/a.bb"
+  printf 'class B {}\n' > "$REPO/mod-a/b.bb"
   printf '# guide\n' > "$REPO/docs/guide.md"
   git -C "$REPO" add -A
   git -C "$REPO" -c user.email=t@t -c user.name=t commit -q -m two-areas
@@ -93,8 +93,8 @@ stage_index() { # stage_index <node.md> <path>...
   make_two_area_repo
   write_synapse_index "$(repo_name)" "$(repo_remote_or_path)"
   local base; base="$(git_head)"
-  stage_node "Mod A" "$base" mod-a/a.java
-  stage_index "Mod A.md" mod-a/a.java
+  stage_node "Mod A" "$base" mod-a/a.bb
+  stage_index "Mod A.md" mod-a/a.bb
 
   run run_drift
   [ "$status" -eq 0 ]

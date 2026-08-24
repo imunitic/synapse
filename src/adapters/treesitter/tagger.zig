@@ -565,8 +565,8 @@ pub const Tagger = struct {
         // Keyed by the found identifier's byte span: a nested declaration
         // wrapper (`Decl` around `VarDecl`, both guessed) walks to the same
         // nearest identifier from two different starting nodes otherwise --
-        // confirmed live on maxxnino/tree-sitter-zig, real defs double-
-        // counted rather than fabricated, but a duplicate all the same.
+        // one real grammar shows this as real defs double-counted rather
+        // than fabricated, but a duplicate all the same.
         var seen: std.AutoHashMapUnmanaged(u64, void) = .empty;
         defer seen.deinit(gpa);
 
@@ -644,8 +644,8 @@ fn findNameDescendant(gpa: Allocator, node: c.TSNode, source: []const u8) !?c.TS
         const item = queue.items[head];
         if (item.depth > 0) {
             // Case-insensitive: some grammars name their identifier leaf
-            // in caps (`maxxnino/tree-sitter-zig`'s `IDENTIFIER`), not the
-            // lowercase `identifier`/`name` convention most others use.
+            // in caps (`IDENTIFIER`), not the lowercase `identifier`/`name`
+            // convention most others use.
             const type_name = std.mem.span(c.ts_node_type(item.node));
             if (std.ascii.eqlIgnoreCase(type_name, "identifier") or std.ascii.eqlIgnoreCase(type_name, "name")) {
                 const start = c.ts_node_start_byte(item.node);

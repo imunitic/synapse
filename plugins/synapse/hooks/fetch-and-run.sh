@@ -28,9 +28,9 @@
 # it directly.
 #
 # Re-checks for a newer binary once per plugin update, not every session and
-# not never (the two extremes the design originally left open). Confirmed
-# live: with only a fresh-cache check, a machine's cached binary silently
-# never updates again, ever, however many releases ship after it. Rather
+# not never (the two extremes the design originally left open): with only a
+# fresh-cache check, a machine's cached binary silently never updates again,
+# ever, however many releases ship after it. Rather
 # than polling the network for a version marker every session, this
 # piggybacks on Claude Code's own plugin-update detection: plugin.json's
 # `version` field already changes exactly when Claude Code decides the
