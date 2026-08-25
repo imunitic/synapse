@@ -49,9 +49,14 @@ Every item below returns success.
   with "target not found in document", which reads like the heading is missing rather than like
   the path is wrong. `mcp__obsidian__vault_get_document_map` returns the exact `::` paths.
 - **Never `vault_patch` frontmatter.** `targetType: frontmatter` reads as field-local and is not:
-  it re-serialises the whole YAML block, so unrelated values lose their quotes and long lines get
-  re-wrapped. Read the file, change the one line, write the whole file back — byte-preserving,
-  because you write back what you read.
+  it re-serialises the whole YAML block, so unrelated values lose their quotes, long lines get
+  re-wrapped, and an array value comes back as a quoted string instead of a real YAML list. Use
+  `synapse frontmatter-set <path> <key> <value>` (or `--add-tag`/`--remove-tag` for `tags`
+  specifically) — it changes one field in the compiled binary, byte-preserving, without ever
+  pulling the note's body into your context. It only handles a flat scalar or comma-separated
+  array field; for anything it doesn't cover (a block-style value, or an edit outside
+  frontmatter), fall back to reading the file, changing the one line, and writing the whole file
+  back.
 - **Do not patch for whitespace-precise edits.** A blank line between a heading and the block
   under it is exactly what a patch may normalise away. A disk-level `Edit` with a unique anchor is
   more predictable; Obsidian picks up external changes automatically.

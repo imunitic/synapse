@@ -31,12 +31,14 @@ of scope — foundational files, not taxonomy notes.
 Requires the `obsidian` MCP server (`mcp__obsidian__*` tools). If unreachable, say so and stop —
 there is no local-file fallback.
 
-No compiled code anywhere in this command. `adapters/obsidian/store.zig`'s `ObsidianStore` only
-implements `write`, for the code graph's own node-authoring flow — vault reads deliberately go
-through these same MCP tools rather than the compiled binary, the same way `/synapse-status` and
-`/synapse-rebuild-diff`'s vault-side checks already work. The one exception is Step 3's broken-link
-history check, a plain `git log` call (via Bash, not a compiled tool) against the vault's own local
-repo when one exists — best-effort, never a hard requirement.
+No compiled code anywhere in this command. `adapters/obsidian/store.zig`'s `ObsidianStore` does now
+implement `read`/`list`/`search`, but for `synapse frontmatter-set`'s narrow one-field-at-a-time
+use — a full-vault tidy sweep, reading every note's whole body to judge category, tags and broken
+links, is a different shape of work entirely, and stays on these same MCP tools rather than the
+compiled binary, the same way `/synapse-status` and `/synapse-rebuild-diff`'s vault-side checks
+already work. The one exception is Step 3's broken-link history check, a plain `git log` call (via
+Bash, not a compiled tool) against the vault's own local repo when one exists — best-effort, never
+a hard requirement.
 
 ## Step 1: Inventory sweep
 
@@ -181,5 +183,5 @@ Print a short summary directly in the response, not left only in tool-call outpu
 - Invoked on demand only — no `SessionStart` wiring, no autonomous scheduling. Run it directly, or
   under a `/loop` the user sets up themselves.
 - No compiled code — every step above is a plain `mcp__obsidian__*` call, or (Step 3's broken-link
-  history check only) a plain `git log` via Bash against the vault's own local repo; `ObsidianStore`
-  gets no new read path.
+  history check only) a plain `git log` via Bash against the vault's own local repo; this command
+  itself never calls into `ObsidianStore`.

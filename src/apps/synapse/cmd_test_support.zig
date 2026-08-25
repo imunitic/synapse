@@ -160,6 +160,29 @@ pub const Fixture = struct {
         return self.tmp.dir.readFileAlloc(testing.io, sub, gpa, .limited(1 << 20)) catch null;
     }
 
+    /// A file written directly at an arbitrary vault-relative path -- for a
+    /// command (`frontmatter-set`) that addresses the vault directly rather
+    /// than through one repo's `synapse/{namespace}/` code-graph directory.
+    pub fn writeVaultFile(self: *Fixture, sub_path: []const u8, data: []const u8) !void {
+        var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+        const dir_part = std.fs.path.dirname(sub_path);
+        if (dir_part) |d| {
+            const full_dir = try std.fmt.bufPrint(&path_buf, "vault/{s}", .{d});
+            try self.tmp.dir.createDirPath(testing.io, full_dir);
+        }
+        const full = try std.fmt.allocPrint(self.gpa, "vault/{s}", .{sub_path});
+        defer self.gpa.free(full);
+        try self.tmp.dir.writeFile(testing.io, .{ .sub_path = full, .data = data });
+    }
+
+    /// The raw bytes at an arbitrary vault-relative path, as a PUT (real or
+    /// fake-curl) left it, or null if nothing is there.
+    pub fn readVaultFile(self: *Fixture, gpa: Allocator, sub_path: []const u8) !?[]u8 {
+        const full = try std.fmt.allocPrint(self.gpa, "vault/{s}", .{sub_path});
+        defer self.gpa.free(full);
+        return self.tmp.dir.readFileAlloc(testing.io, full, gpa, .limited(1 << 20)) catch null;
+    }
+
     pub fn resolveContext(self: *Fixture) !context.Context {
         return (try context.resolve(self.gpa, self.io(), &self.env, "test")).?;
     }

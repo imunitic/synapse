@@ -7,12 +7,13 @@
 # enough of the Local REST API's /vault/{path} behavior for the hook:
 #
 #   GET without -o  -> body + "\n<code>" (matching a real curl -w '\n%{http_code}'):
-#            $FAKE_CURL_INDEX_BODY's contents + 200 if set and present, else the
-#            real API's actual 404 JSON error body + 404 -- NOT an empty body,
-#            since that 404 body is itself valid JSON and a bare `jq -e .` check
-#            cannot tell it apart from a real note. No shipped caller GETs an
-#            index over the API any more; this shape is kept because the 404-body
-#            distinction applies to every /vault/{path} GET, not just that one.
+#            $FAKE_CURL_VAULT_DIR/<decoded path>'s contents + 200 when that file
+#            exists (ObsidianStore.read's own shape -- status-precise, not just
+#            present/absent, since read distinguishes a 404 from a genuine
+#            failure), else $FAKE_CURL_INDEX_BODY's contents + 200 if set and
+#            present, else the real API's actual 404 JSON error body + 404 --
+#            NOT an empty body, since that 404 body is itself valid JSON and a
+#            bare `jq -e .` check cannot tell it apart from a real note.
 #   GET with -o FILE -> node fetch. Serves $FAKE_CURL_VAULT_DIR/<percent-decoded
 #            path> into FILE, or exits 22 (curl's -f "HTTP error" code) when the
 #            file doesn't exist, so the hook's `|| continue` path is exercised.
@@ -99,12 +100,37 @@ case "$method" in
       fi
       exit 22
     fi
-    if [ -n "${FAKE_CURL_INDEX_BODY:-}" ] && [ -f "$FAKE_CURL_INDEX_BODY" ]; then
-      cat "$FAKE_CURL_INDEX_BODY"
-      printf '\n200'
-    else
-      printf '{"message":"Not Found","errorCode":40400}\n404'
-    fi
+    case "$vault_path" in
+      */)
+        # Directory listing, for ObsidianStore.list. Flat by construction --
+        # a real namespace directory has no subdirectories -- so this only
+        # ever needs top-level `.md` names, matching the real API's shape
+        # (`{"files": [...]}`) closely enough for what list() itself reads.
+        dir="${FAKE_CURL_VAULT_DIR:-}/$vault_path"
+        if [ -n "${FAKE_CURL_VAULT_DIR:-}" ] && [ -d "$dir" ]; then
+          python3 -c '
+import json, os, sys
+names = sorted(n for n in os.listdir(sys.argv[1]) if n.endswith(".md"))
+print(json.dumps({"files": names}))
+' "$dir"
+          printf '\n200'
+        else
+          printf '{"files":[]}\n200'
+        fi
+        ;;
+      *)
+        src="${FAKE_CURL_VAULT_DIR:-}/$vault_path"
+        if [ -n "${FAKE_CURL_VAULT_DIR:-}" ] && [ -f "$src" ]; then
+          cat "$src"
+          printf '\n200'
+        elif [ -n "${FAKE_CURL_INDEX_BODY:-}" ] && [ -f "$FAKE_CURL_INDEX_BODY" ]; then
+          cat "$FAKE_CURL_INDEX_BODY"
+          printf '\n200'
+        else
+          printf '{"message":"Not Found","errorCode":40400}\n404'
+        fi
+        ;;
+    esac
     ;;
   POST)
     # JsonLogic frontmatter search. Emulates the Local REST API's /search/ for the
@@ -118,6 +144,41 @@ case "$method" in
     # real endpoint's response shape; what these tests cover is
     # the script's handling of it.
     case "$url" in
+      */search/simple/\?*)
+        # ObsidianStore.search's shape: query in the URL, not the POST body
+        # (real curl sends none here either). A plain substring scan over
+        # every tracked .md file, response shape {filename, score, matches:
+        # [{context}]} matching the real endpoint -- confirmed live against
+        # it before this was written. Narrow on purpose, same reasoning as
+        # the JsonLogic case below: this fixture matches the endpoint's
+        # shape, it doesn't reimplement its real relevance ranking.
+        emit() { if [ -n "$outfile" ]; then cat > "$outfile"; else cat; fi; }
+        query="$(printf '%s' "$url" | sed -n 's/.*[?&]query=\([^&]*\).*/\1/p')"
+        query="$(printf '%b' "${query//%/\\x}")"
+        if [ -z "${FAKE_CURL_VAULT_DIR:-}" ] || [ -z "$query" ]; then
+          echo '[]' | emit
+          exit 0
+        fi
+        QUERY="$query" ROOT="$FAKE_CURL_VAULT_DIR" python3 - <<'PYEOF' | emit
+import json, os, pathlib
+root, q = pathlib.Path(os.environ["ROOT"]), os.environ["QUERY"]
+out = []
+for f in sorted(root.rglob("*.md")):
+    text = f.read_text(errors="replace")
+    count = text.count(q)
+    if count == 0: continue
+    idx = text.find(q)
+    start = max(0, idx - 20)
+    context = text[start:idx + len(q) + 20]
+    out.append({
+        "filename": str(f.relative_to(root)),
+        "score": float(count),
+        "matches": [{"match": {"start": idx, "end": idx + len(q), "source": "content"}, "context": context}],
+    })
+print(json.dumps(out))
+PYEOF
+        exit 0
+        ;;
       */search/*)
         emit() { if [ -n "$outfile" ]; then cat > "$outfile"; else cat; fi; }
         # Per-prompt context injection's shape: {"and": [{"glob": [pat, {"var":"path"}]},

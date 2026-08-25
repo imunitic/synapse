@@ -61,13 +61,17 @@ into `status:` either — always go through this skill, which caps at
    `REVIEW` if all checked.
 4. Fetch machine local time: `date '+%Y-%m-%d %H:%M'` — never use inferred
    time.
-5. Update `status:` and `last_updated:` by **read-modify-write**, not by
-   patching frontmatter: `vault_read` the file, replace the one `status:` /
-   `last_updated:` line in the returned content, `vault_write` the whole
-   file back. Same mechanism step 2 below already uses for checklist items,
-   and byte-preserving because you write back what you read.
+5. Update `status:` and `last_updated:` with two `synapse frontmatter-set`
+   calls, one per field: `synapse frontmatter-set <path> status <value>`
+   then `synapse frontmatter-set <path> last_updated "{now}"`. Each call
+   changes exactly that one line and nothing else, entirely inside the
+   compiled binary — the note's body never enters your context at all.
+   When the command isn't available, fall back to **read-modify-write**:
+   `vault_read` the file, replace the one line in the returned content,
+   `vault_write` the whole file back — byte-preserving, because you write
+   back what you read.
 
-   **Do not use `vault_patch` with `targetType: frontmatter`.** It is *not*
+   **Never use `vault_patch` with `targetType: frontmatter`.** It is *not*
    field-local, despite reading that way: two patches
    (one for `status`, one for `last_updated`) re-serialise the entire
    frontmatter block — every quoted value loses its quotes (`created:
@@ -76,7 +80,8 @@ into `status:` either — always go through this skill, which caps at
    loudly, but any tool string-matching `^title: "` stops matching, and
    every status transition silently reformats the note. Since transitions
    are this skill's main job, that reformatting would land on every task
-   note in the vault.
+   note in the vault. `frontmatter-set` exists specifically so this never
+   has to be reached for.
 6. **For completion only:** append implementation bullets to the existing
    `## Notes` section with `mcp__obsidian__vault_patch`
    (`targetType: heading`, `target: "{H1 title}::Notes"`, `operation:

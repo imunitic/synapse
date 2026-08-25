@@ -20,6 +20,7 @@ const rank_cmd = @import("rank_cmd.zig");
 const query_cmd = @import("query_cmd.zig");
 const usage = @import("usage.zig").text;
 const write_node_cmd = @import("write_node_cmd.zig");
+const frontmatter_set_cmd = @import("frontmatter_set_cmd.zig");
 const refs_cmd = @import("refs_cmd.zig");
 const deps_cmd = @import("deps_cmd.zig");
 const namespaces_cmd = @import("namespaces_cmd.zig");
@@ -95,6 +96,9 @@ pub fn main(init: std.process.Init) !u8 {
 
     if (std.mem.eql(u8, sub, "write-node"))
         return write_node_cmd.run(treesitter.extractor.TreeSitterExtractor, init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "frontmatter-set"))
+        return frontmatter_set_cmd.run(init.gpa, init.io, init.environ_map, &args);
 
     if (std.mem.eql(u8, sub, "doctor"))
         return doctor_cmd.run(init.gpa, init.io, init.environ_map, &args);

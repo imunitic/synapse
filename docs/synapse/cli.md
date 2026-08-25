@@ -29,6 +29,8 @@ usage: synapse <subcommand> [args]
   rank --sources <file>      a node's sources by reading value
   query <subcommand> [args]  read-only queries against the graph
   write-node --title <t> --summary <s> --paths <f> --body <f>
+  frontmatter-set <path> <key> <value>    set one frontmatter field, byte-preserving
+  frontmatter-set <path> --add-tag|--remove-tag <tag>   same, for the tags field
   build-refs [--cache <f>] [--out <f>]   _refs.tsv from the tags cache
   build-deps [--repo <dir>] [--out <f>]  _deps.tsv, per-file declared dependencies
   build-namespaces [--repo <dir>] [--out <f>]  _namespaces.tsv, per-file declared namespace
@@ -133,6 +135,17 @@ usage: synapse write-node --title <t> --summary <s> --paths <file> --body <file>
   --summary  one line for the index bullet, stored as the `summary` field.
   --paths    file of repo-relative paths, one per line: every file the node covers.
   --body     file holding the authored prose (## Summary / ## Crux / ## Links).
+```
+
+### synapse frontmatter-set
+
+```
+usage: synapse frontmatter-set <path> <key> <value>
+       synapse frontmatter-set <path> --add-tag <tag>
+       synapse frontmatter-set <path> --remove-tag <tag>
+
+  <path>   the note's full vault-relative path, e.g. tasks/proj/foo.md
+  <value>  bare sets a scalar field; comma-separated sets an array
 ```
 
 ### synapse build-refs

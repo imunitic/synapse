@@ -1,12 +1,19 @@
-//! The Obsidian Local REST API's write side: `write` is a `PUT` on
-//! `/vault/{path}`, called by `write-node`/`build-project-index` through
-//! `ports.Store` (the wrapper idiom -- `.store()` is `Store.from`,
-//! same as every other real implementation). Vault *reads*, by contrast,
-//! happen through the `obsidian` MCP server directly -- the agent reading
-//! vault content has no reason to go through the compiled binary at all,
-//! so this file never grew a read path to begin with; only the write side
-//! needs real logic (hashing, `## Sources`, the `## Crux` mirror) that
-//! belongs in Zig.
+//! The Obsidian Local REST API adapter: `write` is a `PUT`, `read` a `GET`,
+//! both on `/vault/{path}`, reached through `ports.Store` (the wrapper idiom
+//! -- `.store()` is `Store.from`, same as every other real implementation).
+//! `write-node`/`build-project-index` call `write` directly on the concrete
+//! type, bypassing the port -- the same pattern this file's own two Bard
+//! siblings (`BardGraphStore`/`BardVaultStore`) already use for their real
+//! callers.
+//!
+//! `read`/`list`/`search` exist for a different reason than "the agent
+//! wants to browse vault content" -- that stays on the `obsidian` MCP
+//! server directly, with no reason to go through this binary at all. These
+//! three exist because `Store.from(ObsidianStore, self)` needs all four
+//! methods to compile the moment anything calls `.store()`, and
+//! `frontmatter-set` is the first real caller: a compiled command doing an
+//! internal read-modify-write on one file, which never exposes the note's
+//! body to the agent's context at all -- the opposite case from browsing.
 //!
 //! **`curl`, not `std.http`**: the plugin's certificate carries an IP SAN
 //! and no DNS name, which `std.crypto.tls` has no path for. One spawn per
@@ -31,6 +38,12 @@ pub const ObsidianStore = struct {
     /// `synapse/{repo}@{branch}`, prefixed onto every node name so callers
     /// pass a title, never a vault path. Resolved once by the constructor,
     /// so two resolutions can't disagree.
+    ///
+    /// Empty means "no prefix at all" -- `node` is then a full vault-relative
+    /// path itself, addressing any note in the vault rather than one code
+    /// namespace. `frontmatter-set` opens a store this way: the notes it
+    /// edits (task notes, design notes) live outside `synapse/{repo}@{branch}/`
+    /// entirely, so a namespace-scoped store could never reach them.
     namespace: []const u8,
 
     /// Copies all three strings; `deinit` frees them. Borrowing made every
@@ -73,8 +86,13 @@ pub const ObsidianStore = struct {
     }
 
     fn nodeUrl(self: *ObsidianStore, gpa: Allocator, node: []const u8) ![]u8 {
-        const vault_path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ self.namespace, node });
-        defer gpa.free(vault_path);
+        const owned_path: ?[]u8 = if (self.namespace.len == 0)
+            null
+        else
+            try std.fmt.allocPrint(gpa, "{s}/{s}", .{ self.namespace, node });
+        defer if (owned_path) |p| gpa.free(p);
+        const vault_path: []const u8 = owned_path orelse node;
+
         const encoded = try encodePath(gpa, vault_path);
         defer gpa.free(encoded);
         return std.fmt.allocPrint(gpa, "{s}/vault/{s}", .{ self.base, encoded });
@@ -127,6 +145,192 @@ pub const ObsidianStore = struct {
             .body = try gpa.dupe(u8, payload),
         };
     }
+
+    /// A GET, same `-w '\n%{http_code}'` shape as `write`'s PUT. `null` for
+    /// a 404 -- the port's own documented "doesn't exist yet" answer, not an
+    /// error -- and `error.VaultUnreachable` for anything else that isn't a
+    /// clean 2xx: a spawn/connection failure (`!res.ok()`) or an unexpected
+    /// status alike, since neither means "the node doesn't exist," and only
+    /// the caller of `read` can decide what a genuine failure should do.
+    pub fn read(self: *ObsidianStore, gpa: Allocator, io: Io, node: []const u8) anyerror!?[]u8 {
+        const url = try self.nodeUrl(gpa, node);
+        defer gpa.free(url);
+        const auth = try self.authHeader(gpa);
+        defer gpa.free(auth);
+
+        const res = try process.run(io, gpa, &.{
+            "curl",     "-s",
+            "-w",       "\n%{http_code}",
+            "-X",       "GET",
+            "--cacert", self.cert_path,
+            "-H",       auth,
+            url,
+        }, .{});
+        defer gpa.free(res.stderr);
+        defer gpa.free(res.stdout);
+        if (!res.ok()) return error.VaultUnreachable;
+
+        const trimmed = std.mem.trimEnd(u8, res.stdout, " \t\r\n");
+        const nl = std.mem.lastIndexOfScalar(u8, trimmed, '\n');
+        const status_text = if (nl) |at| trimmed[at + 1 ..] else trimmed;
+        const payload = if (nl) |at| trimmed[0..at] else "";
+        const status = std.fmt.parseInt(u16, status_text, 10) catch 0;
+
+        if (status == 404) return null;
+        if (status < 200 or status >= 300) return error.VaultUnreachable;
+        return try gpa.dupe(u8, payload);
+    }
+
+    /// `GET /vault/{namespace}/`, this store's own directory listing --
+    /// `{"files": [...]}`, subdirectories suffixed `/` (there are none under
+    /// a real namespace directory, but a defensive filter costs nothing).
+    /// Every real caller of `read`/`write` addresses a node by this same
+    /// bare, namespace-relative name, so `list`'s own output has to match --
+    /// confirmed live against the real API before writing this, not assumed
+    /// from documentation.
+    pub fn list(self: *ObsidianStore, gpa: Allocator, io: Io) anyerror![]const []const u8 {
+        const encoded_ns = try encodePath(gpa, self.namespace);
+        defer gpa.free(encoded_ns);
+        const url = try std.fmt.allocPrint(gpa, "{s}/vault/{s}/", .{ self.base, encoded_ns });
+        defer gpa.free(url);
+        const auth = try self.authHeader(gpa);
+        defer gpa.free(auth);
+
+        const res = try process.run(io, gpa, &.{
+            "curl",     "-s",
+            "-w",       "\n%{http_code}",
+            "-X",       "GET",
+            "--cacert", self.cert_path,
+            "-H",       auth,
+            url,
+        }, .{});
+        defer gpa.free(res.stderr);
+        defer gpa.free(res.stdout);
+        if (!res.ok()) return error.VaultUnreachable;
+
+        const trimmed = std.mem.trimEnd(u8, res.stdout, " \t\r\n");
+        const nl = std.mem.lastIndexOfScalar(u8, trimmed, '\n');
+        const status_text = if (nl) |at| trimmed[at + 1 ..] else trimmed;
+        const payload = if (nl) |at| trimmed[0..at] else "";
+        const status = std.fmt.parseInt(u16, status_text, 10) catch 0;
+        if (status < 200 or status >= 300) return error.VaultUnreachable;
+
+        var out: std.ArrayListUnmanaged([]const u8) = .empty;
+        errdefer {
+            for (out.items) |n| gpa.free(n);
+            out.deinit(gpa);
+        }
+
+        const parsed = std.json.parseFromSlice(std.json.Value, gpa, payload, .{}) catch
+            return error.VaultUnreachable;
+        defer parsed.deinit();
+        const files = switch (parsed.value) {
+            .object => |o| switch (o.get("files") orelse return try out.toOwnedSlice(gpa)) {
+                .array => |a| a,
+                else => return try out.toOwnedSlice(gpa),
+            },
+            else => return try out.toOwnedSlice(gpa),
+        };
+        for (files.items) |item| {
+            const name = switch (item) {
+                .string => |s| s,
+                else => continue,
+            };
+            if (std.mem.endsWith(u8, name, "/")) continue; // no subdirs under a real namespace
+            try out.append(gpa, try gpa.dupe(u8, name));
+        }
+        return out.toOwnedSlice(gpa);
+    }
+
+    /// `POST /search/simple/?query=...&contextLength=...`, vault-wide by
+    /// construction -- filtered here to this store's own namespace and
+    /// re-keyed to the same bare node name `read`/`write`/`list` use, so a
+    /// caller can pass a `Store.Hit.node` straight into `read` without
+    /// knowing this is REST underneath. Response shape (`filename`, `score`,
+    /// `matches: [{context}]`) confirmed live against the real API, not
+    /// assumed: only the first match's context is kept per file, the same
+    /// one-line-per-hit simplification `BardGraphStore.search` already uses.
+    pub fn search(self: *ObsidianStore, gpa: Allocator, io: Io, query: []const u8) anyerror![]const Store.Hit {
+        const encoded_q = try encodePath(gpa, query);
+        defer gpa.free(encoded_q);
+        const url = try std.fmt.allocPrint(
+            gpa,
+            "{s}/search/simple/?query={s}&contextLength=80",
+            .{ self.base, encoded_q },
+        );
+        defer gpa.free(url);
+        const auth = try self.authHeader(gpa);
+        defer gpa.free(auth);
+
+        const res = try process.run(io, gpa, &.{
+            "curl", "-s", "-X", "POST", "--cacert", self.cert_path, "-H", auth, url,
+        }, .{});
+        defer gpa.free(res.stderr);
+        defer gpa.free(res.stdout);
+        if (!res.ok()) return error.VaultUnreachable;
+
+        var out: std.ArrayListUnmanaged(Store.Hit) = .empty;
+        errdefer {
+            for (out.items) |h| {
+                gpa.free(h.node);
+                gpa.free(h.context);
+            }
+            out.deinit(gpa);
+        }
+
+        const parsed = std.json.parseFromSlice(std.json.Value, gpa, res.stdout, .{}) catch
+            return error.VaultUnreachable;
+        defer parsed.deinit();
+        const results = switch (parsed.value) {
+            .array => |a| a,
+            else => return try out.toOwnedSlice(gpa),
+        };
+
+        const prefix = try std.fmt.allocPrint(gpa, "{s}/", .{self.namespace});
+        defer gpa.free(prefix);
+
+        for (results.items) |item| {
+            const obj = switch (item) {
+                .object => |o| o,
+                else => continue,
+            };
+            const filename = switch (obj.get("filename") orelse continue) {
+                .string => |s| s,
+                else => continue,
+            };
+            if (!std.mem.startsWith(u8, filename, prefix)) continue; // outside this namespace
+            const bare = filename[prefix.len..];
+
+            const score: f32 = switch (obj.get("score") orelse .null) {
+                .float => |f| @floatCast(f),
+                .integer => |i| @floatFromInt(i),
+                else => 0,
+            };
+
+            const context = ctx: {
+                const matches = switch (obj.get("matches") orelse .null) {
+                    .array => |a| a,
+                    else => break :ctx "",
+                };
+                if (matches.items.len == 0) break :ctx "";
+                const first = switch (matches.items[0]) {
+                    .object => |o| o,
+                    else => break :ctx "",
+                };
+                break :ctx switch (first.get("context") orelse .null) {
+                    .string => |s| s,
+                    else => "",
+                };
+            };
+
+            try out.append(gpa, .{
+                .node = try gpa.dupe(u8, bare),
+                .score = score,
+                .context = try gpa.dupe(u8, context),
+            });
+        }
+        return out.toOwnedSlice(gpa);
+    }
 };
 
 /// Percent-encode each path segment, leaving `/` alone. Node titles
@@ -160,6 +364,139 @@ fn hex(nibble: u8) u8 {
 }
 
 const testing = std.testing;
+
+// `Store.from(ObsidianStore, self)` needs all four methods to exist on the
+// type to compile at all -- but only the moment something actually calls
+// `.store()`. Nothing did, for the whole life of this file, until this
+// test: a clean `zig build` alone never proved `store()` compiled, since
+// Zig's lazy analysis skips a function body nothing references. This test
+// is that reference, exercised against the real fake-curl fixture end to
+// end -- not just "it compiles," every op's real output is checked too.
+test "ObsidianStore.store() compiles, and every op round-trips through the real fixture" {
+    const gpa = testing.allocator;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(testing.io, "vault/synapse/repo@main");
+
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const root = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+    const vault = try std.fmt.allocPrint(gpa, "{s}/vault", .{root});
+    defer gpa.free(vault);
+    const curl_log = try std.fmt.allocPrint(gpa, "{s}/curl.log", .{root});
+    defer gpa.free(curl_log);
+
+    var env = try std.process.Environ.createMap(testing.environ, gpa);
+    defer env.deinit();
+    try env.put("FAKE_CURL_VAULT_DIR", vault);
+    try env.put("FAKE_CURL_LOG", curl_log);
+
+    // Same "fake curl ahead of the real one on PATH" setup
+    // `cmd_test_support.zig` uses -- an absolute entry, since the fake
+    // `git`/`curl` scripts strip their own directory from PATH by
+    // exact-matching its real absolute location.
+    var fake_bin_dir = try std.Io.Dir.cwd().openDir(testing.io, "tests/fixtures/fake-bin", .{});
+    defer fake_bin_dir.close(testing.io);
+    var fake_bin_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const fake_bin_abs = fake_bin_buf[0..try fake_bin_dir.realPath(testing.io, &fake_bin_buf)];
+    const real_path = env.get("PATH") orelse "";
+    const fake_bin = try std.fmt.allocPrint(gpa, "{s}:{s}", .{ fake_bin_abs, real_path });
+    defer gpa.free(fake_bin);
+    try env.put("PATH", fake_bin);
+
+    var block = try env.createPosixBlock(gpa, .{});
+    defer block.deinit(gpa);
+    var io_threaded: std.Io.Threaded = .init(gpa, .{ .environ = .{ .block = block } });
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    var os_store = try ObsidianStore.init(gpa, 27124, "/dev/null", "test-key", "synapse/repo@main");
+    defer os_store.deinit();
+    var store = os_store.store();
+
+    const wr = try store.write(io, "Foo.md", "---\ntitle: Foo\n---\nbody\n");
+    try testing.expect(wr.accepted);
+
+    const got = (try store.read(gpa, io, "Foo.md")).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("---\ntitle: Foo\n---\nbody\n", got);
+
+    try testing.expectEqual(@as(?[]u8, null), try store.read(gpa, io, "Nope.md"));
+
+    const names = try store.list(gpa, io);
+    defer {
+        for (names) |n| gpa.free(n);
+        gpa.free(names);
+    }
+    try testing.expectEqual(@as(usize, 1), names.len);
+    try testing.expectEqualStrings("Foo.md", names[0]);
+
+    const hits = try store.search(gpa, io, "body");
+    defer {
+        for (hits) |h| {
+            gpa.free(h.node);
+            gpa.free(h.context);
+        }
+        gpa.free(hits);
+    }
+    try testing.expectEqual(@as(usize, 1), hits.len);
+    try testing.expectEqualStrings("Foo.md", hits[0].node);
+}
+
+// `frontmatter-set` opens a store with an empty namespace so it can reach
+// any note in the vault, not just one repo's code-graph nodes -- this pins
+// that `node` is then used as-is, with no `namespace/` prefix added.
+test "an empty namespace addresses a node by its full vault-relative path, unprefixed" {
+    const gpa = testing.allocator;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(testing.io, "vault/tasks/synapse");
+
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const root = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+    const vault = try std.fmt.allocPrint(gpa, "{s}/vault", .{root});
+    defer gpa.free(vault);
+    const curl_log = try std.fmt.allocPrint(gpa, "{s}/curl.log", .{root});
+    defer gpa.free(curl_log);
+
+    var env = try std.process.Environ.createMap(testing.environ, gpa);
+    defer env.deinit();
+    try env.put("FAKE_CURL_VAULT_DIR", vault);
+    try env.put("FAKE_CURL_LOG", curl_log);
+
+    var fake_bin_dir = try std.Io.Dir.cwd().openDir(testing.io, "tests/fixtures/fake-bin", .{});
+    defer fake_bin_dir.close(testing.io);
+    var fake_bin_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const fake_bin_abs = fake_bin_buf[0..try fake_bin_dir.realPath(testing.io, &fake_bin_buf)];
+    const real_path = env.get("PATH") orelse "";
+    const fake_bin = try std.fmt.allocPrint(gpa, "{s}:{s}", .{ fake_bin_abs, real_path });
+    defer gpa.free(fake_bin);
+    try env.put("PATH", fake_bin);
+
+    var block = try env.createPosixBlock(gpa, .{});
+    defer block.deinit(gpa);
+    var io_threaded: std.Io.Threaded = .init(gpa, .{ .environ = .{ .block = block } });
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    var os_store = try ObsidianStore.init(gpa, 27124, "/dev/null", "test-key", "");
+    defer os_store.deinit();
+    var store = os_store.store();
+
+    const wr = try store.write(io, "tasks/synapse/sb-037 — Task.md", "---\ntitle: Task\n---\nbody\n");
+    try testing.expect(wr.accepted);
+
+    // Landed at the exact vault-relative path, no `synapse/repo@main/` (or
+    // any other) prefix inserted.
+    const on_disk = try tmp.dir.readFileAlloc(testing.io, "vault/tasks/synapse/sb-037 — Task.md", gpa, .limited(1 << 20));
+    defer gpa.free(on_disk);
+    try testing.expectEqualStrings("---\ntitle: Task\n---\nbody\n", on_disk);
+
+    const got = (try store.read(gpa, io, "tasks/synapse/sb-037 — Task.md")).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("---\ntitle: Task\n---\nbody\n", got);
+}
 
 test "each segment is encoded and the separators survive" {
     const gpa = testing.allocator;

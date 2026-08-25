@@ -20,6 +20,8 @@ pub const text =
     \\  rank --sources <file>      a node's sources by reading value
     \\  query <subcommand> [args]  read-only queries against the graph
     \\  write-node --title <t> --summary <s> --paths <f> --body <f>
+    \\  frontmatter-set <path> <key> <value>    set one frontmatter field, byte-preserving
+    \\  frontmatter-set <path> --add-tag|--remove-tag <tag>   same, for the tags field
     \\  build-refs [--cache <f>] [--out <f>]   _refs.tsv from the tags cache
     \\  build-deps [--repo <dir>] [--out <f>]  _deps.tsv, per-file declared dependencies
     \\  build-namespaces [--repo <dir>] [--out <f>]  _namespaces.tsv, per-file declared namespace
