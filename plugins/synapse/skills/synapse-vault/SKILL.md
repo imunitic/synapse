@@ -48,11 +48,19 @@ Every item below returns success.
 - **Heading targets are nested paths.** An H2 is `H1 title::H2 title`; a bare `H2 title` fails
   with "target not found in document", which reads like the heading is missing rather than like
   the path is wrong. `mcp__obsidian__vault_get_document_map` returns the exact `::` paths.
+- **`operation: append` against the bare H1 can land one heading level too deep.** When the
+  document's last section has a subheading of its own (e.g. `## Approach` ending in
+  `### Alternatives considered`), an appended `## Notes` can come back as `### Notes`, nested
+  under that last subsection instead of sitting as a sibling top-level heading. Target the
+  specific preceding heading directly, or check `mcp__obsidian__vault_get_document_map` after —
+  it shows the real heading tree, so a wrong level is visible immediately rather than assumed
+  from the call's own success response.
 - **Never `vault_patch` frontmatter.** `targetType: frontmatter` reads as field-local and is not:
   it re-serialises the whole YAML block, so unrelated values lose their quotes, long lines get
   re-wrapped, and an array value comes back as a quoted string instead of a real YAML list. Use
-  `synapse frontmatter-set <path> <key> <value>` (or `--add-tag`/`--remove-tag` for `tags`
-  specifically) — it changes one field in the compiled binary, byte-preserving, without ever
+  `synapse frontmatter set <path> <key> <value>` (or `--add-tag`/`--remove-tag` for `tags`
+  specifically; `synapse frontmatter get <path> <key>` reads one back) — it changes one field in
+  the compiled binary, byte-preserving, without ever
   pulling the note's body into your context. It only handles a flat scalar or comma-separated
   array field; for anything it doesn't cover (a block-style value, or an edit outside
   frontmatter), fall back to reading the file, changing the one line, and writing the whole file

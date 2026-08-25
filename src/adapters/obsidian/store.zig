@@ -11,9 +11,10 @@
 //! server directly, with no reason to go through this binary at all. These
 //! three exist because `Store.from(ObsidianStore, self)` needs all four
 //! methods to compile the moment anything calls `.store()`, and
-//! `frontmatter-set` is the first real caller: a compiled command doing an
-//! internal read-modify-write on one file, which never exposes the note's
-//! body to the agent's context at all -- the opposite case from browsing.
+//! `frontmatter` is the first real caller: a compiled command doing an
+//! internal read (and, for `set`, a read-modify-write) on one file, which
+//! never exposes the note's body to the agent's context at all -- the
+//! opposite case from browsing.
 //!
 //! **`curl`, not `std.http`**: the plugin's certificate carries an IP SAN
 //! and no DNS name, which `std.crypto.tls` has no path for. One spawn per
@@ -41,7 +42,7 @@ pub const ObsidianStore = struct {
     ///
     /// Empty means "no prefix at all" -- `node` is then a full vault-relative
     /// path itself, addressing any note in the vault rather than one code
-    /// namespace. `frontmatter-set` opens a store this way: the notes it
+    /// namespace. `frontmatter` opens a store this way: the notes it
     /// edits (task notes, design notes) live outside `synapse/{repo}@{branch}/`
     /// entirely, so a namespace-scoped store could never reach them.
     namespace: []const u8,
@@ -443,7 +444,7 @@ test "ObsidianStore.store() compiles, and every op round-trips through the real 
     try testing.expectEqualStrings("Foo.md", hits[0].node);
 }
 
-// `frontmatter-set` opens a store with an empty namespace so it can reach
+// `frontmatter` opens a store with an empty namespace so it can reach
 // any note in the vault, not just one repo's code-graph nodes -- this pins
 // that `node` is then used as-is, with no `namespace/` prefix added.
 test "an empty namespace addresses a node by its full vault-relative path, unprefixed" {

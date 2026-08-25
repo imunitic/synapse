@@ -161,7 +161,7 @@ pub const Fixture = struct {
     }
 
     /// A file written directly at an arbitrary vault-relative path -- for a
-    /// command (`frontmatter-set`) that addresses the vault directly rather
+    /// command (`frontmatter`) that addresses the vault directly rather
     /// than through one repo's `synapse/{namespace}/` code-graph directory.
     pub fn writeVaultFile(self: *Fixture, sub_path: []const u8, data: []const u8) !void {
         var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;

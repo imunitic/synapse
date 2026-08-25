@@ -32,7 +32,7 @@ Requires the `obsidian` MCP server (`mcp__obsidian__*` tools). If unreachable, s
 there is no local-file fallback.
 
 No compiled code anywhere in this command. `adapters/obsidian/store.zig`'s `ObsidianStore` does now
-implement `read`/`list`/`search`, but for `synapse frontmatter-set`'s narrow one-field-at-a-time
+implement `read`/`list`/`search`, but for `synapse frontmatter get`/`set`'s narrow one-field-at-a-time
 use — a full-vault tidy sweep, reading every note's whole body to judge category, tags and broken
 links, is a different shape of work entirely, and stays on these same MCP tools rather than the
 compiled binary, the same way `/synapse-status` and `/synapse-rebuild-diff`'s vault-side checks

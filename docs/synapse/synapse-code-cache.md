@@ -164,9 +164,9 @@ the Graph, but real, with no Obsidian install as its price of entry.
 Counting vault references (`OBSIDIAN_VAULT_DIR`, the Local REST API, its cert/key) across the
 subcommands of `synapse`: most are vault-free outright — `namespace`, `build-index`,
 `build-lists`, `build-refs`, `callers`, `enumerate`, `gate`, `push-nodes`, `rank`, `vocab`, `tags`,
-`tags-cache`, `link-graph`, and `brief`. The remaining eight (`write-node`, `frontmatter-set`,
+`tags-cache`, `link-graph`, and `brief`. The remaining eight (`write-node`, `frontmatter`,
 `query`, `build-project-index`, `graph-clean`, `graph-wipe`, `index`, `doctor`) are mostly
-*path*-bound rather than *API*-bound: every write is a `PUT` of a file (`frontmatter-set` a `GET`
+*path*-bound rather than *API*-bound: every write is a `PUT` of a file (`frontmatter` a `GET`
 first too, to read the one field it's changing), replaceable by writing to disk, `links` parses a
 node's own `## Links` section directly rather than asking Obsidian, and `doctor`'s only vault touch
 is checking whether one is configured and reachable, not reading or writing through it.
@@ -180,7 +180,7 @@ each script's preamble. It is now one binary whose vault access is a single func
 distinction predicted: the index it writes was derived, gitignored in the vault and never travelled,
 so the vault reference was a `PUT` with nothing behind it. `query` moved most of the way for the same
 reason — every read is a disk read now, and only `write-node`, `build-project-index`, and
-`frontmatter-set` still speak to the API at all.
+`frontmatter` still speak to the API at all.
 
 The genuine Obsidian dependency in the whole system is two things, not five scripts: full-text search
 (the "where does X live" entry point) and `api_search_frontmatter`'s JsonLogic evaluation over the

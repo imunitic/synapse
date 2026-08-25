@@ -61,9 +61,9 @@ into `status:` either — always go through this skill, which caps at
    `REVIEW` if all checked.
 4. Fetch machine local time: `date '+%Y-%m-%d %H:%M'` — never use inferred
    time.
-5. Update `status:` and `last_updated:` with two `synapse frontmatter-set`
-   calls, one per field: `synapse frontmatter-set <path> status <value>`
-   then `synapse frontmatter-set <path> last_updated "{now}"`. Each call
+5. Update `status:` and `last_updated:` with two `synapse frontmatter set`
+   calls, one per field: `synapse frontmatter set <path> status <value>`
+   then `synapse frontmatter set <path> last_updated "{now}"`. Each call
    changes exactly that one line and nothing else, entirely inside the
    compiled binary — the note's body never enters your context at all.
    When the command isn't available, fall back to **read-modify-write**:
@@ -80,7 +80,7 @@ into `status:` either — always go through this skill, which caps at
    loudly, but any tool string-matching `^title: "` stops matching, and
    every status transition silently reformats the note. Since transitions
    are this skill's main job, that reformatting would land on every task
-   note in the vault. `frontmatter-set` exists specifically so this never
+   note in the vault. `frontmatter set` exists specifically so this never
    has to be reached for.
 6. **For completion only:** append implementation bullets to the existing
    `## Notes` section with `mcp__obsidian__vault_patch`
