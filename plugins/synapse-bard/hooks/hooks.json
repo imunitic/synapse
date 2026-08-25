@@ -5,8 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/fetch-and-run.sh", "session-start"]
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/fetch-and-run.cjs", "session-start"]
           }
         ]
       }

@@ -133,19 +133,6 @@ fn dependencies(ctx: *Ctx) !void {
         const first = res.stdout[0 .. std.mem.indexOfScalar(u8, res.stdout, '\n') orelse res.stdout.len];
         try ctx.add(tool, .ok, try ctx.fmt("{s}", .{std.mem.trim(u8, first, " \t\r")}));
     }
-    // jq is unused by either binary itself -- it's a shell-out dependency of
-    // the obsidian-mcp-refresh.sh SessionStart hook (cert/key extraction,
-    // settings.json merge), so absence breaks that hook silently, not either
-    // binary's own behaviour.
-    const res = adapters.process.run(ctx.io, ctx.gpa, &.{ "jq", "--version" }, .{}) catch null;
-    if (res) |r| {
-        defer r.deinit(ctx.gpa);
-        if (r.ok()) {
-            try ctx.add("jq", .ok, "used by the obsidian-mcp-refresh.sh hook only");
-            return;
-        }
-    }
-    try ctx.add("jq", .warn, "absent: the obsidian-mcp-refresh.sh hook needs it and will skip silently");
 }
 
 /// The conf file and the vault directory. Mirrors: `core.conf.vaultDir`
@@ -235,7 +222,7 @@ fn apiChecks(ctx: *Ctx, vault: ?[]const u8) !void {
     if (ctx.exists(cert)) {
         try ctx.add("certificate", .ok, cert);
     } else {
-        try ctx.add("certificate", .fail, "absent -- created automatically by the obsidian-mcp-refresh.sh SessionStart hook; start a new session");
+        try ctx.add("certificate", .fail, "absent -- created automatically by the obsidian-mcp-refresh.cjs SessionStart hook; start a new session");
         return;
     }
 

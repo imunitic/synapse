@@ -10,7 +10,7 @@ history, no older versions, one commit that replaces the last one.
 `.tar.gz` per target platform (`x86_64-linux`, `aarch64-linux`,
 `aarch64-macos`), plus one `SHA256SUMS` covering all of them.
 
-Both plugins' `fetch-and-run.sh` fetch `SHA256SUMS` alongside their own
+Both plugins' `fetch-and-run.cjs` fetch `SHA256SUMS` alongside their own
 tarball and verify it before extracting — `raw.githubusercontent.com` is
 plain HTTP-over-TLS to GitHub's CDN, not a signed artifact channel, so this
 is what actually confirms a downloaded tarball is the one this workflow
@@ -18,7 +18,7 @@ published.
 
 ## Why this exists instead of GitHub Releases
 
-Both plugins' `hooks/fetch-and-run.sh` fetch their own binary on first use
+Both plugins' `hooks/fetch-and-run.cjs` fetch their own binary on first use
 and cache it locally, rather than shipping a platform-specific binary
 inside the plugin itself. That fetch used to point at a GitHub Release
 download URL. In an Anthropic-hosted Claude Code cloud sandbox — the

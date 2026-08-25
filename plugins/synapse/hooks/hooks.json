@@ -5,8 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/fetch-and-run.sh", "session-start"]
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/fetch-and-run.cjs", "session-start"]
           }
         ]
       },
@@ -14,8 +14,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/obsidian-mcp-refresh.sh"]
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/obsidian-mcp-refresh.cjs"]
           }
         ]
       }
@@ -25,8 +25,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/fetch-and-run.sh", "prompt-context"]
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/fetch-and-run.cjs", "prompt-context"]
           }
         ]
       }
@@ -37,8 +37,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/fetch-and-run.sh", "db-sync"]
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/fetch-and-run.cjs", "db-sync"]
           }
         ]
       },
@@ -47,8 +47,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/fetch-and-run.sh", "staleness"]
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/fetch-and-run.cjs", "staleness"]
           }
         ]
       }
@@ -58,8 +58,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash",
-            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/fetch-and-run.sh", "stop-nudge"]
+            "command": "node",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/fetch-and-run.cjs", "stop-nudge"]
           }
         ]
       }

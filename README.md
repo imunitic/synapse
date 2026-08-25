@@ -156,7 +156,7 @@ plain-English summary, a quoted `crux`, typed links, and the exhaustive list of 
 ## What's NOT portable (per-machine, regenerated fresh each time)
 
 - The Obsidian Local REST API plugin's self-signed cert + API key — each install generates its own.
-  The `obsidian-mcp-refresh.sh` `SessionStart` hook extracts these automatically, every session,
+  The `obsidian-mcp-refresh.cjs` `SessionStart` hook extracts these automatically, every session,
   *after* you've installed the Obsidian plugin; it does not carry them over from another machine.
 - The `obsidian` MCP server registration in `~/.claude.json` (contains the bearer token —
   machine-local, not meant to be copied or committed).
@@ -217,10 +217,11 @@ skill's table, with the whole suite green.
 
 ## Dependencies
 
-For using the plugin: the `claude` CLI itself, `curl` and `tar` (the `SessionStart` hook's one-time
-binary fetch from the `dist` branch), and `jq` (the `obsidian-mcp-refresh.sh` hook only — absence just
-means that one hook skips silently, everything else keeps working). Nothing to build, nothing to
-install by hand — see "New machine setup".
+For using the plugin: the `claude` CLI itself, `tar` (the `SessionStart` hook's one-time binary fetch
+from the `dist` branch), and `curl` (the compiled binary's own calls to Obsidian's Local REST API —
+`write-node`, `doctor`). Node itself is assumed, the same way it is for Claude Code overall — every
+shipped hook (`fetch-and-run.cjs`, `obsidian-mcp-refresh.cjs`) runs on it directly, no `jq` or `curl`
+of its own. Nothing to build, nothing to install by hand — see "New machine setup".
 
 For contributing to Synapse itself: Zig 0.16 (`just build`/`zig build`), `bats-core` (tests), a C
 compiler for the Graph's tree-sitter acceleration (grammars are native libraries, built on first

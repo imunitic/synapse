@@ -127,7 +127,7 @@ jobs:
           sha256sum synapse-*.tar.gz > SHA256SUMS
 
       # A plain git tag, not a GitHub Release -- no changelog, no assets
-      # attached, just the monotonic version marker `fetch-and-run.sh` reads
+      # attached, just the monotonic version marker `fetch-and-run.cjs` reads
       # via plugin.json and a human-readable pointer at this commit.
       - name: Tag the release commit
         run: |
@@ -135,14 +135,14 @@ jobs:
           git push origin "${{ steps.tag.outputs.tag }}"
 
       # SHA256SUMS travels alongside the tarballs on `dist` so each
-      # fetch-and-run.sh can verify what it downloaded before executing it --
+      # fetch-and-run.cjs can verify what it downloaded before executing it --
       # raw.githubusercontent.com is plain HTTP-over-TLS to GitHub's CDN, not
       # a signed artifact channel, so TLS alone only proves the bytes came
       # from GitHub, not that they're the bytes this workflow published.
       #
       # No GitHub Release, no release assets -- binaries are published as
       # plain committed files on the `dist` branch instead (see below), which
-      # `fetch-and-run.sh` reads through `raw.githubusercontent.com`. That
+      # `fetch-and-run.cjs` reads through `raw.githubusercontent.com`. That
       # domain is unauthenticated, unscoped, ordinary Trusted-allowlist
       # traffic in an Anthropic-hosted cloud sandbox; GitHub Release assets
       # are not -- release-asset requests route through a repo-scoped GitHub

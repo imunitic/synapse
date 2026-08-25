@@ -57,7 +57,7 @@ plugin uses for the same purpose:
 ```
 
 From there, `synapse-bard`/`synapse-bard-hook` fetch and cache themselves the same way `synapse`
-does — `hooks/fetch-and-run.sh` downloads the platform-matching tarball from the `dist` branch into
+does — `hooks/fetch-and-run.cjs` downloads the platform-matching tarball from the `dist` branch into
 `~/.cache/synapse-bard/bin` (a cache path distinct from `synapse`'s own, so both can be installed
 side by side without colliding) and re-checks only when `plugin.json`'s version moves. No install
 step of the author's own, ever.

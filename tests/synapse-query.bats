@@ -144,17 +144,22 @@ write_fenced_node() {
   # passes on Linux and on any macOS where the system temp dir happens to be
   # writable.
   #
-  # Only plugins/synapse/hooks/*.sh still exists -- the bin/ and lib/synapse/
-  # shell scripts this once also globbed were ported to Zig and deleted.
-  # Globbing a since-deleted directory doesn't fail this test the way it
-  # should: bash passes the literal unexpanded pattern to grep, which then
-  # exits 2 (error) rather than 0 or 1, and the check below only ever fired
-  # on exit 0 -- so a real bare `mktemp` in a shipped hook
-  # (obsidian-mcp-refresh.sh) passed silently for as long as those two dead
-  # globs sat alongside a real one. Restricted to the one path that still
-  # exists, and the status check now treats "grep errored" the same as
-  # "grep found something" rather than only the latter.
-  run grep -nE 'mktemp( -d)?[[:space:]]*(\)|\||$)' "$REPO_ROOT"/plugins/synapse/hooks/*.sh
+  # plugins/synapse/hooks/*.sh is empty as of the Node rewrite (every shipped
+  # hook is .cjs now, and Node's own mktemp equivalents already respect
+  # TMPDIR), but the check stays glob-safe rather than being deleted: an
+  # unmatched glob left bare would pass its literal, unexpanded pattern to
+  # grep, which exits 2 (error) rather than 0 or 1 -- silently defeating the
+  # check the moment the directory it globs has nothing matching, exactly the
+  # failure mode this test exists to catch in the shipped hooks themselves.
+  # `nullglob` makes an empty match an empty array instead, so this test
+  # skips cleanly today and starts checking again the moment a `.sh` hook
+  # reappears.
+  shopt -s nullglob
+  local files=("$REPO_ROOT"/plugins/synapse/hooks/*.sh)
+  shopt -u nullglob
+  [ "${#files[@]}" -eq 0 ] && skip "no .sh hooks currently shipped"
+
+  run grep -nE 'mktemp( -d)?[[:space:]]*(\)|\||$)' "${files[@]}"
   if [ "$status" -ne 1 ]; then
     echo "bare mktemp (no template), or the audit itself is broken -- grep exit $status:"
     echo "$output"
