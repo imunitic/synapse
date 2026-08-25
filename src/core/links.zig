@@ -65,6 +65,36 @@ pub const Options = struct {
     symbols_shown: usize = 5,
 };
 
+/// Walks `refs_table` (`compute` and `resolveAmbiguous` both take one),
+/// parsing each row, keeping only `def`/`ref`, cutting `site` at its last
+/// `:` for the bare `path`, and looking that path up in `path_to_nodes` --
+/// a row whose path claims no node contributes nothing. `visit` runs once
+/// per surviving row; the two callers diverge only in what they do with
+/// `(name, is_def, path, owners)` from there.
+fn forEachOwnedRow(
+    refs_table: []const u8,
+    path_to_nodes: *const std.StringHashMapUnmanaged(std.ArrayListUnmanaged([]const u8)),
+    context: anytype,
+    comptime visit: fn (@TypeOf(context), name: []const u8, is_def: bool, path: []const u8, owners: []const []const u8) anyerror!void,
+) !void {
+    var lines = std.mem.splitScalar(u8, refs_table, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trimEnd(u8, raw, "\r");
+        if (line.len == 0) continue;
+        const row = refs.parseRow(line) orelse continue;
+        const is_def = std.mem.eql(u8, row.dir, "def");
+        const is_ref = std.mem.eql(u8, row.dir, "ref");
+        if (!is_def and !is_ref) continue;
+
+        const colon = std.mem.lastIndexOfScalar(u8, row.site, ':') orelse row.site.len;
+        const path = row.site[0..colon];
+        const owners = path_to_nodes.get(path) orelse continue;
+        if (owners.items.len == 0) continue;
+
+        try visit(context, row.name, is_def, path, owners.items);
+    }
+}
+
 /// Joins `refs_table` against `path_to_nodes` (path -> claiming node
 /// titles, multi-valued) and returns every node's strongest outgoing
 /// edges: `from` ascending, `weight` descending, `to` ascending -- a total
@@ -95,25 +125,15 @@ pub fn compute(
         by_name.deinit(gpa);
     }
 
-    var lines = std.mem.splitScalar(u8, refs_table, '\n');
-    while (lines.next()) |raw| {
-        const line = std.mem.trimEnd(u8, raw, "\r");
-        if (line.len == 0) continue;
-        const row = refs.parseRow(line) orelse continue;
-        const is_def = std.mem.eql(u8, row.dir, "def");
-        const is_ref = std.mem.eql(u8, row.dir, "ref");
-        if (!is_def and !is_ref) continue;
-
-        const colon = std.mem.lastIndexOfScalar(u8, row.site, ':') orelse row.site.len;
-        const path = row.site[0..colon];
-        const owners = path_to_nodes.get(path) orelse continue;
-        if (owners.items.len == 0) continue;
-
-        const slot = try by_name.getOrPut(gpa, row.name);
-        if (!slot.found_existing) slot.value_ptr.* = .{};
-        const set = if (is_def) &slot.value_ptr.def else &slot.value_ptr.ref;
-        for (owners.items) |node| try set.put(gpa, node, {});
-    }
+    const Ctx = struct { gpa: Allocator, by_name: *std.StringHashMapUnmanaged(Sets) };
+    try forEachOwnedRow(refs_table, path_to_nodes, Ctx{ .gpa = gpa, .by_name = &by_name }, struct {
+        fn visit(ctx: Ctx, name: []const u8, is_def: bool, _: []const u8, owners: []const []const u8) !void {
+            const slot = try ctx.by_name.getOrPut(ctx.gpa, name);
+            if (!slot.found_existing) slot.value_ptr.* = .{};
+            const set = if (is_def) &slot.value_ptr.def else &slot.value_ptr.ref;
+            for (owners) |node| try set.put(ctx.gpa, node, {});
+        }
+    }.visit);
 
     const rare_max = @max(@as(usize, 2), node_count / rarity.divisor); // same floor/ratio as core/gate.zig, shared via core.rarity
 
@@ -229,25 +249,15 @@ pub fn resolveAmbiguous(
         by_name.deinit(gpa);
     }
 
-    var lines = std.mem.splitScalar(u8, refs_table, '\n');
-    while (lines.next()) |raw| {
-        const line = std.mem.trimEnd(u8, raw, "\r");
-        if (line.len == 0) continue;
-        const row = refs.parseRow(line) orelse continue;
-        const is_def = std.mem.eql(u8, row.dir, "def");
-        const is_ref = std.mem.eql(u8, row.dir, "ref");
-        if (!is_def and !is_ref) continue;
-
-        const colon = std.mem.lastIndexOfScalar(u8, row.site, ':') orelse row.site.len;
-        const path = row.site[0..colon];
-        const owners = path_to_nodes.get(path) orelse continue;
-        if (owners.items.len == 0) continue;
-
-        const slot = try by_name.getOrPut(gpa, row.name);
-        if (!slot.found_existing) slot.value_ptr.* = .{};
-        const list = if (is_def) &slot.value_ptr.defs else &slot.value_ptr.refs;
-        for (owners.items) |node| try list.append(gpa, .{ .path = path, .node = node });
-    }
+    const Ctx = struct { gpa: Allocator, by_name: *std.StringHashMapUnmanaged(Occs) };
+    try forEachOwnedRow(refs_table, path_to_nodes, Ctx{ .gpa = gpa, .by_name = &by_name }, struct {
+        fn visit(ctx: Ctx, name: []const u8, is_def: bool, path: []const u8, owners: []const []const u8) !void {
+            const slot = try ctx.by_name.getOrPut(ctx.gpa, name);
+            if (!slot.found_existing) slot.value_ptr.* = .{};
+            const list = if (is_def) &slot.value_ptr.defs else &slot.value_ptr.refs;
+            for (owners) |node| try list.append(ctx.gpa, .{ .path = path, .node = node });
+        }
+    }.visit);
 
     // from -> to -> the resolved symbols supporting that edge, deduped by
     // name -- same nesting `compute`'s own `pairs` uses, for the same

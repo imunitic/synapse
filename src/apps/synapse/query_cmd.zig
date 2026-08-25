@@ -620,14 +620,9 @@ fn reportAddedPaths(
         hits.deinit(gpa);
     }
     var rows = std.mem.splitScalar(u8, manifest.?, '\n');
-    while (rows.next()) |row| {
-        if (row.len == 0) continue;
-        var cols = std.mem.splitScalar(u8, row, '\t');
-        const title = cols.next() orelse continue;
-        if (title.len == 0) continue;
-        const include = cols.next() orelse continue;
-        const exclude = cols.next() orelse "";
-        const hit = build_lists_cmd.selectPaths(gpa, io, unclaimed.written(), include, exclude) catch continue;
+    while (rows.next()) |raw| {
+        const row = build_lists_cmd.parseRow(raw) orelse continue;
+        const hit = build_lists_cmd.selectPaths(gpa, io, unclaimed.written(), row.include, row.exclude) catch continue;
         try hits.append(gpa, hit);
         var lines = std.mem.splitScalar(u8, hit, '\n');
         while (lines.next()) |l| if (l.len != 0) try matched.put(gpa, l, {});

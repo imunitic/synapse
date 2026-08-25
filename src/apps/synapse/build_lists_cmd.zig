@@ -115,12 +115,7 @@ pub fn build(
     var node_index: usize = 0;
     var lines = std.mem.splitScalar(u8, manifest, '\n');
     while (lines.next()) |raw| {
-        const line = std.mem.trimEnd(u8, raw, "\r");
-        var cols = std.mem.splitScalar(u8, line, '\t');
-        const title = cols.next() orelse continue;
-        if (title.len == 0) continue; // blank title = blank line
-        const include = cols.next() orelse "";
-        const exclude = cols.next() orelse "";
+        const row = parseRow(raw) orelse continue;
 
         node_index += 1;
         const slug = try std.fmt.allocPrint(gpa, "{d:0>2}", .{node_index});
@@ -128,11 +123,11 @@ pub fn build(
 
         const title_path = try std.fmt.allocPrint(gpa, "{s}/{s}.title", .{ lists_dir, slug });
         defer gpa.free(title_path);
-        const title_body = try std.fmt.allocPrint(gpa, "{s}\n", .{title});
+        const title_body = try std.fmt.allocPrint(gpa, "{s}\n", .{row.title});
         defer gpa.free(title_body);
         try cwd.writeFile(io, .{ .sub_path = title_path, .data = title_body });
 
-        const matched = try selectPaths(gpa, io, all, include, exclude);
+        const matched = try selectPaths(gpa, io, all, row.include, row.exclude);
         try matched_buffers.append(gpa, matched);
 
         const list_path = try std.fmt.allocPrint(gpa, "{s}/{s}.txt", .{ lists_dir, slug });
@@ -146,7 +141,7 @@ pub fn build(
             count += 1;
             try covered.append(gpa, p);
         }
-        try out.print("{s}\t{d}\t{s}\n", .{ slug, count, title });
+        try out.print("{s}\t{d}\t{s}\n", .{ slug, count, row.title });
     }
 
     try out.writeAll("--- coverage\n");
@@ -160,6 +155,29 @@ fn usage() u8 {
         \\
     , .{});
     return 2;
+}
+
+/// One `manifest.tsv` row: `title <TAB> include-ERE <TAB> exclude-ERE`.
+pub const Row = struct {
+    title: []const u8,
+    include: []const u8,
+    exclude: []const u8,
+};
+
+/// A blank line has an empty title, treated as blank rather than a row; a
+/// row missing its `include` field is skipped the same way -- the same
+/// "truncated line, not fatal" contract `core/refs.zig`'s and
+/// `core/deps.zig`'s own `parseRow` use for their tab-separated formats.
+/// Missing `exclude` means "exclude nothing" (`selectPaths` below), not a
+/// truncation -- a two-column row is a normal, complete one.
+pub fn parseRow(raw: []const u8) ?Row {
+    const line = std.mem.trimEnd(u8, raw, "\r");
+    var cols = std.mem.splitScalar(u8, line, '\t');
+    const title = cols.next() orelse return null;
+    if (title.len == 0) return null;
+    const include = cols.next() orelse return null;
+    const exclude = cols.next() orelse "";
+    return .{ .title = title, .include = include, .exclude = exclude };
 }
 
 /// `grep -E "$include" all.txt | grep -vE "${exclude:-^$}"`. Empty exclude
