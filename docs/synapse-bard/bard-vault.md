@@ -38,12 +38,17 @@ root is the one file excluded from every listing and search — bootstrap, not a
 
 ## The one hook: `SessionStart`
 
-`synapse-bard-hook session-start` injects two pieces, joined with a blank line, nothing emitted at
-all if both are empty: the plugin's own standing instructions
+Gated on `_bard/` already existing at the repo root — nothing here creates it, so its absence means
+bard has never been deliberately used in this repo. A repo with no fiction bible at all, the plugin
+merely installed, gets no injection at all.
+
+Once `_bard/` exists, `synapse-bard-hook session-start` injects two pieces, joined with a blank
+line, nothing emitted at all if both are empty: the plugin's own standing instructions
 (`synapse-bard-claude.md`) and `_bard/vault/Index.md` itself, so its folder layout is live
-information from turn one. If no `Index.md` exists yet, the hook offers to seed one from the
-plugin's shipped `Index.md.template` rather than writing it unasked — the same "offer, don't
-seed" rule the coding side's `SessionStart` hook follows.
+information from turn one. If no `Index.md` exists yet — a repo where `synapse-bard sync` created
+`_bard/graph/` but the vault side was never touched — the hook offers to seed one from the plugin's
+shipped `Index.md.template` rather than writing it unasked — the same "offer, don't seed" rule the
+coding side's `SessionStart` hook follows.
 
 Much simpler than [Synapse Vault's four hooks](../synapse/synapse-vault.md#the-four-hooks), and deliberately
 so: `_bard/vault/` is always repo-relative, so there's no external `synapse.conf`/

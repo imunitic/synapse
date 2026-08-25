@@ -18,6 +18,11 @@ Walks the bible repo's tracked `.md` files (any `_`- or `.`-prefixed folder excl
 ~10ms, so there's nothing dirty-tracking would buy that re-ingesting everything doesn't already
 give for free.
 
+`/synapse-bard-sync` is the discoverable entry point for this — a plugin user has no reason to
+already know `synapse-bard` is a CLI binary with a `sync` subcommand, so the slash command just
+runs it and relays its output, offering to seed the vault afterward if this looks like the first
+time bard's been used in this repo.
+
 ### Clustering needs no LLM pass at all
 
 Synapse's own code graph needs `/synapse-init`'s vocabulary/directory-weight orientation because
@@ -100,39 +105,25 @@ has at least one accepted member, `sync` deletes every existing `_bard/graph/` n
 set — a renamed folder, an emptied one, or one where every member's frontmatter now refuses to
 parse leaves no stale cluster node behind for `--inbound`/`search` to keep surfacing.
 
-## Drift detection: `--check` and the `SessionStart` hook
+## `--check`: would a real `sync` change anything?
 
-Nothing runs `sync` automatically, so `_bard/graph/` can fall behind the moment someone edits an
-entity's YAML by hand between sessions. [Synapse Graph](../synapse/synapse-graph.md)'s own
-two-tier staleness model would be the obvious thing to port, but it solves a cost problem `sync`
-doesn't have — Tier 1 flags and Tier 2 lazily regenerates specifically to avoid re-running
+[Synapse Graph](../synapse/synapse-graph.md)'s own two-tier staleness model solves a cost problem
+`sync` doesn't have — Tier 1 flags and Tier 2 lazily regenerates specifically to avoid re-running
 *expensive, LLM-authored* prose generation, and `sync` has neither: it's a ~10ms mechanical
-extract-and-cluster pass, already a full re-ingest every time it runs. Porting the two-tier
-machinery would add a digest field, a per-node `stale:` flag, and a lazy regeneration path to
-protect a regeneration cost that simply isn't real here.
+extract-and-cluster pass, already a full re-ingest every time it runs.
 
-**`synapse-bard sync --check`** answers the cheaper, actually-relevant question instead: would a
-real `sync` change anything? It runs the exact same clustering/extraction pipeline
-(`adapters.bard_sync_plan.computePlan` — the one implementation both the write path and `--check`
-share, so there's never a second, parallel notion of what `sync` would produce) and compares each
-computed cluster's generated region — never the whole file, so a hand-added tail below the
-`<!-- synapse:generated:end -->` fence never counts — against what's on disk right now. No new
-state is stored anywhere to make this work: the comparison baseline is `_bard/graph/`'s own
-already-git-tracked content, so there's nothing that can itself drift out of sync the way a stored
-baseline commit could after a rebase. Exit 0 when nothing's out of date, exit 1 with a per-cluster
-report otherwise — same convention this repo's own doc generators (`generate-diagrams.sh --check`)
-already use.
+**`synapse-bard sync --check`** is a dry run: would a real `sync` change anything? It runs the
+exact same clustering/extraction pipeline (`adapters.bard_sync_plan.computePlan` — the one
+implementation both the write path and `--check` share, so there's never a second, parallel notion
+of what `sync` would produce) and compares each computed cluster's generated region — never the
+whole file, so a hand-added tail below the `<!-- synapse:generated:end -->` fence never counts —
+against what's on disk right now. No new state is stored anywhere to make this work: the comparison
+baseline is `_bard/graph/`'s own already-git-tracked content. Exit 0 when nothing's out of date,
+exit 1 with a per-cluster report otherwise — same convention this repo's own doc generators
+(`generate-diagrams.sh --check`) already use.
 
-**`synapse-bard-hook`'s `SessionStart` handler calls the same check in-process** (never by shelling
-out to the `synapse-bard` binary) and, only when it finds real drift, injects one line — a count
-and a pointer to run `sync` — alongside the vault-index/standing-instructions pieces it already
-injects. It only ever reports. It never writes `_bard/graph/` itself, on the same "flag, don't
-silently fix" principle Synapse's own Tier 1 hook follows, minus everything Tier 1 needed to make
-that safe for expensive regeneration — there's no expensive regeneration here to defer in the
-first place, just a cheap check and a decision to surface rather than hide. An unconditional
-every-session `sync` and a stored last-synced-commit marker were both considered and rejected —
-the former because it writes to the working tree before anyone's done anything, the latter because
-it would be a second, redundant copy of a fact `_bard/graph/`'s own content already records.
+`/synapse-bard-sync` is the on-demand entry point for running a real sync, discoverable as a plugin
+command rather than requiring prior knowledge of the CLI binary.
 
 ## Querying the graph
 

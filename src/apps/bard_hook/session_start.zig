@@ -1,34 +1,32 @@
 //! `synapse-bard-hook session-start` -- SessionStart.
 //!
-//! Injects up to three pieces, same assembly shape `synapse-hook`'s own
-//! SessionStart uses (each piece optional, joined with a blank line,
-//! nothing emitted at all if all are empty): `synapse-bard-claude.md`
-//! (the plugin's own standing instructions -- vault discipline, the
-//! Bible-graph query CLI), `_bard/vault/Index.md` (the vault's own folder
-//! layout), and a Bible-graph drift note, only when there actually is
-//! one. Much simpler than the coding side's version otherwise:
-//! `_bard/vault/` is always repo-relative, so there is no external
-//! `synapse.conf`/`OBSIDIAN_VAULT_DIR` to resolve, no namespace, no remote
-//! to verify. The one thing this still needs from outside the payload is
-//! the repo root -- `core.identity.resolve` (already shared, already
-//! tested) finds it from `cwd`, so a session started from a subdirectory
-//! still finds the vault at the repo's top, not wherever the shell
-//! happened to be.
+//! Gated on `_bard/` already existing at the repo root: nothing here creates
+//! `_bard/` (only a real `/synapse-bard-sync` run or an explicit vault seed
+//! does that), so its absence means bard has never been deliberately used in
+//! this repo, and the hook must stay silent rather than offer a fiction-bible
+//! vault in every repo the plugin happens to be installed in.
+//!
+//! Once `_bard/` exists, injects up to two pieces, same assembly shape
+//! `synapse-hook`'s own SessionStart uses (each piece optional, joined with a
+//! blank line, nothing emitted at all if both are empty): `synapse-bard-
+//! claude.md` (the plugin's own standing instructions -- vault discipline,
+//! the Bible-graph query CLI) and `_bard/vault/Index.md` (the vault's own
+//! folder layout), or, if the vault side hasn't been set up yet even though
+//! `_bard/graph/` has (a sync-only repo), the seed-offer message instead.
+//! Much simpler than the coding side's version otherwise: `_bard/vault/` is
+//! always repo-relative, so there is no external `synapse.conf`/
+//! `OBSIDIAN_VAULT_DIR` to resolve, no namespace, no remote to verify. The
+//! one thing this still needs from outside the payload is the repo root --
+//! `core.identity.resolve` (already shared, already tested) finds it from
+//! `cwd`, so a session started from a subdirectory still finds `_bard/` at
+//! the repo's top, not wherever the shell happened to be.
 //!
 //! `synapse-bard-claude.md` resolves via `CLAUDE_PLUGIN_ROOT` only --
 //! unlike `synapse-hook`'s own version, bard has no legacy pre-plugin
 //! install to support an argv0-relative fallback for.
-//!
-//! **The drift check only ever reports; it must never write.** It calls
-//! `adapters.bard_sync_plan.computePlan` in-process -- the same clustering/
-//! extraction pipeline `synapse-bard sync --check` runs, never a second,
-//! parallel implementation -- and compares the result against what's on
-//! disk via `cluster.isDirty`/`cluster.wouldRemove`, exactly what
-//! `sync --check` itself does, but without shelling out to that binary.
 
 const std = @import("std");
 const core = @import("core");
-const adapters = @import("adapters");
 const common = @import("common.zig");
 
 const Io = std.Io;
@@ -40,6 +38,8 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
 
     const id = core.identity.resolve(gpa, io, payload.str("cwd") orelse ".") catch return;
     defer id.deinit(gpa);
+
+    if (!bardEnabled(gpa, io, id.layout.repo_root)) return;
 
     var claude_md: ?[]u8 = null;
     defer if (claude_md) |s| gpa.free(s);
@@ -62,7 +62,9 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     } else |_| {
         // Offer, don't seed -- same rule `synapse-hook`'s own SessionStart
         // follows for the coding vault: this hook stays read-only, seeding
-        // is the agent's call.
+        // is the agent's call. Reaching this point means `_bard/` exists
+        // (the gate above), so a human has already used bard in this repo,
+        // just not the vault side yet.
         const template_path = templatePath(gpa, env) catch null;
         defer if (template_path) |p| gpa.free(p);
         index_text = try std.fmt.allocPrint(
@@ -73,13 +75,10 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     }
     defer gpa.free(index_text);
 
-    const drift_note: ?[]u8 = driftNote(gpa, io, id.layout.repo_root);
-    defer if (drift_note) |s| gpa.free(s);
-
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
     var wrote = false;
-    for ([_]?[]u8{ claude_md, index_text, drift_note }) |part| {
+    for ([_]?[]u8{ claude_md, index_text }) |part| {
         const p = part orelse continue;
         if (p.len == 0) continue;
         if (wrote) try out.writer.writeAll("\n\n");
@@ -91,54 +90,17 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     try common.emitContext(gpa, io, "SessionStart", out.written());
 }
 
-/// `null` on anything short of confirmed drift --
-/// already current, or the check itself couldn't run cleanly (I/O error,
-/// no `_bard/graph/` yet) -- this hook only ever reports, so anything it
-/// can't cleanly answer is silence, the same "missing precondition is
-/// silence" rule every hook here follows. Never writes.
-fn driftNote(gpa: Allocator, io: Io, repo_root: []const u8) ?[]u8 {
-    return driftNoteImpl(gpa, io, repo_root) catch null;
-}
-
-fn driftNoteImpl(gpa: Allocator, io: Io, repo_root: []const u8) !?[]u8 {
-    const graph_root = try std.fmt.allocPrint(gpa, "{s}/_bard/graph", .{repo_root});
-    defer gpa.free(graph_root);
-
-    var store: adapters.bard_graph_store.BardGraphStore = try .init(gpa, graph_root);
-    defer store.deinit();
-    const port = store.store();
-
-    // Same plan `synapse-bard sync --check` computes -- one implementation,
-    // never a second one re-derived here.
-    var plan = try adapters.bard_sync_plan.computePlan(gpa, io, repo_root, port);
-    defer plan.deinit(gpa);
-
-    var dirty: usize = 0;
-    for (plan.clusters.items) |pc| {
-        const existing = try port.read(gpa, io, pc.node);
-        defer if (existing) |e| gpa.free(e);
-        if (adapters.bard_cluster.isDirty(existing, pc.body)) dirty += 1;
-    }
-
-    const existing_nodes = try port.list(gpa, io);
-    defer {
-        for (existing_nodes) |n| gpa.free(n);
-        gpa.free(existing_nodes);
-    }
-    const planned_nodes = try gpa.alloc([]const u8, plan.clusters.items.len);
-    defer gpa.free(planned_nodes);
-    for (plan.clusters.items, 0..) |pc, i| planned_nodes[i] = pc.node;
-    const would_remove = try adapters.bard_cluster.wouldRemove(gpa, existing_nodes, planned_nodes);
-    defer gpa.free(would_remove);
-
-    const total = dirty + would_remove.len;
-    if (total == 0) return null;
-
-    return try std.fmt.allocPrint(
-        gpa,
-        "_bard/graph/ is behind source by {d} cluster(s) -- run `synapse-bard sync` to refresh it.",
-        .{total},
-    );
+/// Whether `_bard/` exists at all under `repo_root` -- the one thing that
+/// distinguishes a repo where bard has been deliberately used (a real
+/// `/synapse-bard-sync` run wrote `_bard/graph/`, or the vault side was
+/// seeded) from a repo where the plugin merely happens to be installed.
+/// Nothing in this hook ever creates `_bard/` itself.
+fn bardEnabled(gpa: Allocator, io: Io, repo_root: []const u8) bool {
+    const path = std.fmt.allocPrint(gpa, "{s}/_bard", .{repo_root}) catch return false;
+    defer gpa.free(path);
+    var dir = Io.Dir.cwd().openDir(io, path, .{}) catch return false;
+    dir.close(io);
+    return true;
 }
 
 /// `CLAUDE_PLUGIN_ROOT/Index.md.template` when running as an installed
@@ -187,59 +149,24 @@ test "claudeMdPath joins CLAUDE_PLUGIN_ROOT onto synapse-bard-claude.md" {
     try testing.expectEqualStrings("/plugins/synapse-bard/synapse-bard-claude.md", got);
 }
 
-test "driftNote is null on a repo with no entity files at all -- nothing to be behind on" {
+test "bardEnabled is false when _bard doesn't exist" {
     const gpa = testing.allocator;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
     var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const root = buf[0..try tmp.dir.realPath(testing.io, &buf)];
 
-    try testing.expectEqual(@as(?[]u8, null), driftNote(gpa, testing.io, root));
+    try testing.expect(!bardEnabled(gpa, testing.io, root));
 }
 
-test "driftNote is null right after a real sync, since the graph now matches source" {
+test "bardEnabled is true once _bard/graph exists, e.g. after a sync-only repo" {
     const gpa = testing.allocator;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
     var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const root = buf[0..try tmp.dir.realPath(testing.io, &buf)];
 
-    try tmp.dir.createDirPath(testing.io, "characters");
-    try tmp.dir.writeFile(testing.io, .{
-        .sub_path = "characters/a.md",
-        .data = "---\nname: Alice\ntemplate: character\n---\n",
-    });
+    try tmp.dir.createDirPath(testing.io, "_bard/graph");
 
-    // A real sync: compute the plan and write it, same as `synapse-bard
-    // sync`'s own write path.
-    const graph_root = try std.fmt.allocPrint(gpa, "{s}/_bard/graph", .{root});
-    defer gpa.free(graph_root);
-    var store: adapters.bard_graph_store.BardGraphStore = try .init(gpa, graph_root);
-    defer store.deinit();
-    var plan = try adapters.bard_sync_plan.computePlan(gpa, testing.io, root, store.store());
-    defer plan.deinit(gpa);
-    for (plan.clusters.items) |pc| _ = try store.write(testing.io, pc.node, pc.body);
-
-    try testing.expectEqual(@as(?[]u8, null), driftNote(gpa, testing.io, root));
-}
-
-test "driftNote reports a real count when the graph is behind source" {
-    const gpa = testing.allocator;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
-    const root = buf[0..try tmp.dir.realPath(testing.io, &buf)];
-
-    try tmp.dir.createDirPath(testing.io, "characters");
-    try tmp.dir.writeFile(testing.io, .{
-        .sub_path = "characters/a.md",
-        .data = "---\nname: Alice\ntemplate: character\n---\n",
-    });
-    // No sync ever run -- _bard/graph/ doesn't exist at all yet, so the one
-    // computed cluster is drift (a missing file).
-
-    const note = driftNote(gpa, testing.io, root).?;
-    defer gpa.free(note);
-    try testing.expect(std.mem.indexOf(u8, note, "1 cluster(s)") != null);
-    try testing.expect(std.mem.indexOf(u8, note, "synapse-bard sync") != null);
+    try testing.expect(bardEnabled(gpa, testing.io, root));
 }

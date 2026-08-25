@@ -21,10 +21,8 @@
 //! anything", reusing `adapters.bard_sync_plan.computePlan`
 //! -- the exact same clustering/extraction pipeline the write path below
 //! uses -- so there is never a second, parallel notion of what `sync` would
-//! produce. `synapse-bard-hook`'s `SessionStart` calls the same plan
-//! in-process for the same reason; see
-//! `designs/synapse-bard/synapse-bard — Bible-graph drift detection.md`.
-//! `--check` never calls `port.write`/`store.delete`; it only reads.
+//! produce. `--check` never calls `port.write`/`store.delete`; it only
+//! reads.
 
 const std = @import("std");
 const core = @import("core");
