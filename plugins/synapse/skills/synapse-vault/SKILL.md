@@ -73,6 +73,16 @@ verification that cannot fail in the direction you are worried about is not a ve
 `git show <sha>:<path>` away in the vault's own git history. That hook is a vault-wide undo for
 destructive tool calls, not merely a record of intentional edits.
 
+## Tagging is part of writing a note, not a separate pass
+
+Every note-authoring command (`synapse-note`, `synapse-design-note`, `synapse-task-note`) applies tags as one of the steps in creating or substantially updating a note. There is no separate tagging pass or command — `/synapse-vault-tidy`'s recategorization signal reads tag data, it never writes it.
+
+The vocabulary is `synapse-tag-vocabulary.conf` — one tag per line, `#`-comments allowed, agent-maintained but freely human-editable. It resolves with the same tiered lookup `synapse-projects.conf` uses: first `$XDG_CONFIG_HOME/synapse/synapse-tag-vocabulary.conf` if `$XDG_CONFIG_HOME` is set, else `~/.config/synapse/synapse-tag-vocabulary.conf`, then `~/.claude/synapse-tag-vocabulary.conf` — read whichever of those exists first. If none exists yet, create it fresh at `$XDG_CONFIG_HOME/synapse/synapse-tag-vocabulary.conf` when `$XDG_CONFIG_HOME` is set, else `~/.config/synapse/synapse-tag-vocabulary.conf` if `~/.config` already exists as a directory, else `~/.claude/synapse-tag-vocabulary.conf` as the final fallback. It lives outside the portable Synapse package, same as `synapse-projects.conf` — never committed there, never copied between machines.
+
+Before adding a tag to a note, read the conf and prefer an existing entry over minting a new one. Add a new entry only for a genuinely new concept the existing vocabulary doesn't cover, and append it to the conf when you do. A note's tag set is agent-owned working content: a command may add or remove a tag freely, including one a human added by hand — there is no special protection that would block reconsidering it.
+
+Tagging many existing notes at once (a backfill) should be rare to the point of not recurring — every note created through the authoring commands above is tagged inline as part of being written, so a vault only ever needs a backfill once, for notes that predate tagging being wired in at all. If one is ever needed anyway, resolve tags mechanically first: title text, folder path, and frontmatter (`task_id` prefix, `project` field) matched against the vocabulary settle the large majority of notes with no content read at all. Read a note's body only when those signals don't already resolve to at least one vocabulary tag. A full `vault_read` on every note in a large backfill spends session context on a decision cheap signals usually already make.
+
 ## The graph side of the vault
 
 `synapse/{repo}@{branch}/` is not free-form notes. Nodes are written by `synapse write-node`
