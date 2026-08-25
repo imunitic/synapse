@@ -77,7 +77,8 @@ pub fn build(
 
     if (!try common.namespaceMatches(gpa, io, vault, ns)) return null;
 
-    const work = common.workDir(env) orelse return null;
+    const work = common.workDir(gpa, env, ns.key) orelse return null;
+    defer gpa.free(work);
     const index_path = try std.fmt.allocPrint(gpa, "{s}/_index.bin", .{work});
     defer gpa.free(index_path);
 
@@ -557,6 +558,45 @@ test "file mapped to a node: rewrites that node's stale line, never PATCHes fron
     var map = try core.index_map.Map.open(sf.fx.io(), path);
     defer map.close(sf.fx.io());
     try testing.expectEqual(@as(u32, 0), map.unassignedCount());
+}
+
+// Regression coverage for the SYNAPSE_WORK_DIR bug: production never
+// exports it (nothing in hooks.json or fetch-and-run.cjs ever does), but
+// every other test in this file runs through StalenessFixture, which sets
+// it unconditionally -- so the one env shape that matters, "unset, same as
+// a real hook invocation gets," was never once exercised end to end before
+// this. Removing the fixture's override alone isn't enough to reproduce the
+// bug faithfully: the index/nodes still have to actually live where the
+// *default* resolution points, or a broken default and a merely-relocated
+// fixture would look identical from the assertions' point of view. A
+// symlink from that default path back to the fixture's own work dir makes
+// both true at once, with no change to any of the shared write helpers.
+test "regression: SYNAPSE_WORK_DIR unset (the real production shape) still finds the index and flags the node" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+    try sf.fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    try sf.commit("init"); // resolves sf.key, needed for the default path below
+
+    try sf.fx.tmp.dir.createDirPath(sf.fx.io(), "home/.claude/synapse-work");
+    const default_link = try std.fmt.allocPrint(gpa, "home/.claude/synapse-work/{s}", .{sf.key});
+    defer gpa.free(default_link);
+    try sf.fx.tmp.dir.symLink(sf.fx.io(), sf.fx.work, default_link, .{ .is_directory = true });
+
+    _ = sf.fx.env.swapRemove("SYNAPSE_WORK_DIR");
+
+    try sf.writeIndex();
+    try sf.writeIndexBin(&.{.{ .path = "src/foo.ml", .node = "Foo Node.md" }});
+    const node = try simpleNode(gpa, "false");
+    defer gpa.free(node);
+    try sf.writeNode("Foo Node.md", node);
+
+    const text = try sf.edit("src/foo.ml");
+    defer if (text) |t| gpa.free(t);
+
+    const written = (try sf.readNode(gpa, "Foo Node.md")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "stale: true") != null);
 }
 
 test "file mapped to two nodes: flags both" {

@@ -59,10 +59,12 @@ pub fn build(gpa: Allocator, io: Io, env: *std.process.Environ.Map, cwd: []const
     const nodes = try countNodes(io, ns_dir);
     if (nodes == 0) return null;
 
-    const refs = try std.fmt.allocPrint(gpa, "{s}/_refs.tsv", .{common.workDir(env) orelse ""});
-    defer gpa.free(refs);
+    const work_dir = common.workDir(gpa, env, ns.key);
+    defer if (work_dir) |w| gpa.free(w);
     const have_cache = blk: {
-        if (common.workDir(env) == null) break :blk false;
+        const w = work_dir orelse break :blk false;
+        const refs = try std.fmt.allocPrint(gpa, "{s}/_refs.tsv", .{w});
+        defer gpa.free(refs);
         _ = Io.Dir.cwd().statFile(io, refs, .{}) catch break :blk false;
         break :blk true;
     };

@@ -131,9 +131,15 @@ fn nonEmpty(env: *std.process.Environ.Map, key: []const u8) ?[]const u8 {
     return if (v.len == 0) null else v;
 }
 
-/// The work dir, which the wrapper exports the same way every command's does.
-pub fn workDir(env: *std.process.Environ.Map) ?[]const u8 {
-    return nonEmpty(env, "SYNAPSE_WORK_DIR");
+/// The work dir: `$SYNAPSE_WORK_DIR` when set, else `~/.claude/synapse-work/{key}`
+/// -- the same default `context.workDirFor` already uses for the main CLI, so a
+/// hook agrees with a bare `synapse` invocation about where the cache lives
+/// even when nothing exported the override, which nothing in `hooks.json`
+/// ever does. Caller-owned.
+pub fn workDir(gpa: Allocator, env: *std.process.Environ.Map, key: []const u8) ?[]u8 {
+    if (nonEmpty(env, "SYNAPSE_WORK_DIR")) |w| return gpa.dupe(u8, w) catch null;
+    const home = env.get("HOME") orelse return null;
+    return std.fmt.allocPrint(gpa, "{s}/.claude/synapse-work/{s}", .{ home, key }) catch null;
 }
 
 /// Whether the namespace's own `Index.md` agrees it belongs to this repo
@@ -246,4 +252,44 @@ test "a control byte is escaped rather than emitted raw" {
     defer out.deinit();
     try writeJsonString(&out.writer, "a\x01b");
     try testing.expectEqualStrings("\"a\\u0001b\"", out.written());
+}
+
+// Regression coverage for the bug where every real hook invocation silently
+// no-oped: hooks.json never exports SYNAPSE_WORK_DIR (nothing in this repo's
+// wiring ever has), so a bare env lookup with no default -- what workDir()
+// used to be -- always returned null in production while every test's own
+// fixture happily set the variable for it, masking the gap completely.
+
+test "workDir: SYNAPSE_WORK_DIR set wins outright" {
+    const gpa = testing.allocator;
+    var env = try std.process.Environ.createMap(testing.environ, gpa);
+    defer env.deinit();
+    try env.put("SYNAPSE_WORK_DIR", "/explicit/work");
+    try env.put("HOME", "/home/nobody");
+
+    const got = workDir(gpa, &env, "repo@main").?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("/explicit/work", got);
+}
+
+test "workDir: SYNAPSE_WORK_DIR unset falls back to ~/.claude/synapse-work/{key}" {
+    const gpa = testing.allocator;
+    var env = try std.process.Environ.createMap(testing.environ, gpa);
+    defer env.deinit();
+    _ = env.swapRemove("SYNAPSE_WORK_DIR");
+    try env.put("HOME", "/home/nobody");
+
+    const got = workDir(gpa, &env, "repo@main").?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("/home/nobody/.claude/synapse-work/repo@main", got);
+}
+
+test "workDir: neither SYNAPSE_WORK_DIR nor HOME set is null, not a crash" {
+    const gpa = testing.allocator;
+    var env = try std.process.Environ.createMap(testing.environ, gpa);
+    defer env.deinit();
+    _ = env.swapRemove("SYNAPSE_WORK_DIR");
+    _ = env.swapRemove("HOME");
+
+    try testing.expectEqual(@as(?[]u8, null), workDir(gpa, &env, "repo@main"));
 }
