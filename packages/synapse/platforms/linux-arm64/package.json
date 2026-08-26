@@ -1,6 +1,6 @@
 {
   "name": "@imunitic/synapse-linux-arm64",
-  "version": "0.1.0-experimental",
+  "version": "0.1.1",
   "description": "Compiled synapse/synapse-hook binaries for linux/arm64. An optionalDependency of @imunitic/synapse -- never installed directly.",
   "os": [
     "linux"

@@ -296,6 +296,7 @@ pub fn write(
     var grounded: std.ArrayListUnmanaged(emit.Grounded) = .empty;
     defer {
         for (grounded.items) |g| {
+            gpa.free(g.path);
             gpa.free(g.lines);
             gpa.free(g.digest);
         }
@@ -315,7 +316,16 @@ pub fn write(
             if (try reportSpanProblem(gpa, span, .grounded, paths.items, content)) return 1;
             const cut = core.verify.slice(content.?, span.start, span.end).?;
             try grounded.append(gpa, .{
-                .path = span.path,
+                // Owned, not borrowed from `body` -- `body` gets replaced
+                // (and the buffer `span.path` points into freed) by the
+                // `stripGrounded` call just below, once every directive in
+                // this loop has been read. A borrowed slice here survives
+                // only until that free, then reads back as whatever the
+                // allocator leaves behind (confirmed live: all-zero bytes),
+                // silently corrupting every grounded_in path in the
+                // written note while `lines`/`digest` -- already
+                // independently allocated -- stay correct.
+                .path = try gpa.dupe(u8, span.path),
                 .lines = try std.fmt.allocPrint(gpa, "{d}-{d}", .{ span.start, span.end }),
                 // Digest of the sliced text, never the text itself -- keeps
                 // the field small and a change elsewhere leaves it intact.
