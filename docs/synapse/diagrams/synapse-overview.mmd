@@ -16,13 +16,13 @@ flowchart TB
     classDef codegraph fill:#ffd8a8,stroke:#e8590c,color:#1e1e1e
     classDef vault fill:#fff9db,stroke:#f08c00,color:#1e1e1e
 
-    SESSION["Claude Code session<br/>(any repo, any moment)"]
+    SESSION["harness session<br/>(any repo, any moment)"]
 
     subgraph MEM["Permanent memory"]
         direction TB
         M1["SessionStart hook<br/>injects the map and<br/>this repo's Graph pointer"]
         M2["Stop hook, every 25 turns:<br/>did anything belong in the Vault?"]
-        M3["plain notes -- human and Claude,<br/>outlive any one session"]
+        M3["plain notes -- human and agent,<br/>outlive any one session"]
         M1 -.-> M3
         M2 -.-> M3
     end

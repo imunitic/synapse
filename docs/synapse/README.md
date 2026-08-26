@@ -101,7 +101,7 @@ neither be read into a context window nor emitted from one — ends up dictating
 ## What a session actually gets
 
 The breakdown above describes what the three components *are* — a store, an accelerant layered on it,
-and the scripts that build both. This is the complementary view: what a Claude Code session actually
+and the scripts that build both. This is the complementary view: what a harness session actually
 *gets* out of using Synapse at all, as three capabilities rather than three components.
 
 ![Three equally-weighted pillars -- permanent memory, the design-to-task workflow, and the code graph -- sharing one Obsidian Vault underneath](diagrams/synapse-overview.png)
