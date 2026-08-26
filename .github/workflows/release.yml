@@ -81,13 +81,15 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           registry-url: "https://registry.npmjs.org"
 
       # Trusted Publishing needs a recent npm CLI (the OIDC exchange isn't
-      # in whatever ships with Node 20's bundled npm) -- upgrading here
-      # rather than pinning a newer Node version keeps the zig/test image
-      # story untouched everywhere else in this repo.
+      # in whatever ships with Node 20's bundled npm), and current npm
+      # itself now requires Node >=22 to install at all (confirmed live:
+      # `npm install -g npm@latest` under Node 20 fails with EBADENGINE) --
+      # so both had to move together, scoped to just this job rather than
+      # bumping every other workflow's Node version along with it.
       - name: Upgrade npm for OIDC trusted-publishing support
         run: npm install -g npm@latest
 
