@@ -541,7 +541,7 @@ test "resolveConfPath: tier 3 also resolves via SYNAPSE_CONTENT_ROOT, for an npm
     var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const home = buf[0..try tmp.dir.realPath(io, &buf)];
 
-    const content_root = try std.fmt.allocPrint(gpa, "{s}/npm-pkg", .{home});
+    const content_root = try std.fmt.allocPrint(gpa, "{s}/packages/synapse", .{home});
     defer gpa.free(content_root);
     try cwd.createDirPath(io, content_root);
     const template = try std.fmt.allocPrint(gpa, "{s}/foo.conf.template", .{content_root});

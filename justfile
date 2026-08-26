@@ -319,7 +319,7 @@ syntax:
     set -euo pipefail
     n=0
     # claude/bin and claude/lib/synapse are gone -- the tooling is two
-    # binaries. Every shipped hook/setup script is .cjs now (npm-pkg/,
+    # binaries. Every shipped hook/setup script is .cjs now (packages/synapse/,
     # plugins/synapse-bard/hooks/), not .sh -- nothing left for this recipe
     # to parse-check there, but plugins/*/hooks/*.sh stays in the glob list
     # rather than being deleted: the `[ -f ]` guard below makes an empty

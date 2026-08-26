@@ -144,7 +144,7 @@ write_fenced_node() {
   # passes on Linux and on any macOS where the system temp dir happens to be
   # writable.
   #
-  # npm-pkg/lib/*.sh is empty -- every shipped hook is .cjs (Node's own
+  # packages/synapse/lib/*.sh is empty -- every shipped hook is .cjs (Node's own
   # mktemp equivalents already respect TMPDIR), but the check stays
   # glob-safe rather than being deleted: an unmatched glob left bare would
   # pass its literal, unexpanded pattern to grep, which exits 2 (error)
@@ -154,7 +154,7 @@ write_fenced_node() {
   # an empty match an empty array instead, so this test skips cleanly today
   # and starts checking again the moment a `.sh` hook reappears.
   shopt -s nullglob
-  local files=("$REPO_ROOT"/npm-pkg/lib/*.sh)
+  local files=("$REPO_ROOT"/packages/synapse/lib/*.sh)
   shopt -u nullglob
   [ "${#files[@]}" -eq 0 ] && skip "no .sh hooks currently shipped"
 

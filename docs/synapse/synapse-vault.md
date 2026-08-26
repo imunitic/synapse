@@ -98,7 +98,7 @@ remember to commit it themselves.
 
 ## The standing instruction
 
-The behavioral half of this system lives in `npm-pkg/synapse-claude.md`, injected directly by the
+The behavioral half of this system lives in `packages/synapse/synapse-claude.md`, injected directly by the
 `SessionStart` hook (`synapse-hook session-start`) into every session's context — the same
 mechanism that injects `Index.md`, not a `CLAUDE.md` `@import` line. The hook reads
 `$CLAUDE_PLUGIN_ROOT/synapse-claude.md` when running as a Claude Code plugin, or

@@ -38,7 +38,7 @@ afterward. `zig build` is only for contributing to Synapse itself; see [Dependen
 > Not yet published to the npm registry. Until then, run from a checkout instead:
 > ```sh
 > git clone https://github.com/imunitic/synapse
-> cd synapse/npm-pkg
+> cd synapse/packages/synapse
 > node bin/synapse-setup.cjs configure claude   # or: codex / opencode
 > ```
 > This needs the platform binaries built locally first (`zig build`, or `just build`) and copied
@@ -122,12 +122,12 @@ synapse-setup configure codex       # or: opencode
   uses, since neither harness has a way to trust that endpoint's self-signed cert. **Requires the
   plugin's plain-HTTP server enabled first**: in Obsidian, **Settings → Local REST API → Enable HTTP
   server**.
-- **Skills and commands** — the shared `npm-pkg/skills/` copied into each harness's own skill
+- **Skills and commands** — the shared `packages/synapse/skills/` copied into each harness's own skill
   directory (`~/.codex/skills/`, `~/.config/opencode/skill/`), plus, for OpenCode only, the shared
-  `npm-pkg/commands/` copied into `~/.config/opencode/command/` (its command format already matches
+  `packages/synapse/commands/` copied into `~/.config/opencode/command/` (its command format already matches
   this repo's own argument convention verbatim). Codex has no equivalent positional-argument
   mechanism, so its 8 command-equivalents are separately hand-authored under
-  `npm-pkg/harness/codex/skills/` and copied in alongside the shared skills instead.
+  `packages/synapse/harness/codex/skills/` and copied in alongside the shared skills instead.
 
 OpenCode needs no manual step at all — its plugin resolves the installed binary's path directly.
 Codex needs one: it reads the vault's bearer token from a named env var, never inline in
@@ -144,11 +144,11 @@ run repeatedly.
 
 ## Synapse Vault — the notes
 
-- `npm-pkg/synapse-claude.md` — the global memory-system instructions: when to write a note, where it
+- `packages/synapse/synapse-claude.md` — the global memory-system instructions: when to write a note, where it
   goes, and the linking rules. Injected directly by the `SessionStart` hook every session (the same
   mechanism that injects `Index.md`), not via a `CLAUDE.md` `@import` line — `~/.claude/CLAUDE.md`
   stays entirely yours, untouched.
-- `npm-pkg/synapse.conf.template` — path config; set `OBSIDIAN_VAULT_DIR` per machine.
+- `packages/synapse/synapse.conf.template` — path config; set `OBSIDIAN_VAULT_DIR` per machine.
 - `synapse-hook session-start` — `SessionStart`: injects the Vault's index and this repo's
   Graph namespace pointer, if one exists.
 - `synapse-hook stop-nudge` — a turn-count-based `Stop` hook that nudges a "worth
@@ -156,13 +156,13 @@ run repeatedly.
   `SYNAPSE_VAULT_PUSH_EVERY` turns (default 5), detached so a turn never waits on the network.
 - `synapse-hook db-sync` — commits Vault changes to the Vault's own local git repo,
   if one exists.
-- `npm-pkg/commands/synapse-note.md` — note creation (bare / `--task` / `--list` / `--search`).
-- `npm-pkg/commands/synapse-design-note.md`, `npm-pkg/commands/synapse-task-note.md` — a design-discussion →
+- `packages/synapse/commands/synapse-note.md` — note creation (bare / `--task` / `--list` / `--search`).
+- `packages/synapse/commands/synapse-design-note.md`, `packages/synapse/commands/synapse-task-note.md` — a design-discussion →
   compiled-checklist pipeline, cross-project by default (lives in the Vault, not a repo's gitignored
   `docs/notes/`).
-- `npm-pkg/skills/synapse-task/` — proactive task-status tracking.
-- `npm-pkg/skills/synapse-node-format/`, `npm-pkg/skills/synapse-orientation/`,
-  `npm-pkg/skills/synapse-vault/` — loadable knowledge rather than procedure: the node contract, how to
+- `packages/synapse/skills/synapse-task/` — proactive task-status tracking.
+- `packages/synapse/skills/synapse-node-format/`, `packages/synapse/skills/synapse-orientation/`,
+  `packages/synapse/skills/synapse-vault/` — loadable knowledge rather than procedure: the node contract, how to
   orient in an unfamiliar tree, and vault-editing rules (pull-only apart from `Index.md`), each shared
   across multiple components rather than owned by one.
 
@@ -171,19 +171,19 @@ run repeatedly.
 A few dozen LLM-authored node notes per repo, one per subsystem or concept, each carrying a
 plain-English summary, a quoted `crux`, typed links, and the exhaustive list of files it covers.
 
-- `npm-pkg/commands/synapse-init.md` — first-time build: orientation pass, clustering into a
+- `packages/synapse/commands/synapse-init.md` — first-time build: orientation pass, clustering into a
   `manifest.tsv`, then node notes plus two derived projections. Also the manual `_unassigned`-sweep
   fallback for an already-initialized but dormant repo.
-- `npm-pkg/commands/synapse-rebuild-diff.md` — manual repair for major same-branch drift (a pull, a
+- `packages/synapse/commands/synapse-rebuild-diff.md` — manual repair for major same-branch drift (a pull, a
   rebase, a long absence): triages each flagged node into **reseat**, **patch from the diff**, or
   **re-orient**. Refuses outright on a cross-branch mismatch.
-- `npm-pkg/commands/synapse-rebuild-full.md` — wipes the current namespace and rebuilds it from
+- `packages/synapse/commands/synapse-rebuild-full.md` — wipes the current namespace and rebuilds it from
   scratch via `/synapse-init`, for when triage isn't the right tool. Preserves any hand-written
   `## Notes` first (`synapse graph-wipe`) and auto-merges what it can back into
   the new nodes afterward.
 - `synapse-hook staleness` — `PostToolUse` Tier 1: flags a just-edited file's nodes `stale`
   and re-verifies any evidence that file's nodes cite, via the Local REST API directly.
-- `npm-pkg/skills/synapse-node/` — Tier 2: the lazy staleness check, regeneration and unassigned sweep
+- `packages/synapse/skills/synapse-node/` — Tier 2: the lazy staleness check, regeneration and unassigned sweep
   Claude runs itself whenever a node's body is actually read.
 
 ## What's NOT portable (per-machine, regenerated fresh each time)
@@ -240,7 +240,7 @@ The generated artefacts (each project's `cli.md`, the Mermaid diagrams under `do
 are each verified by running their generator's `--check` mode, so an edit that was never regenerated fails a
 test instead of shipping something confidently wrong.
 
-`npm-pkg/commands/*.md` and `npm-pkg/skills/*/SKILL.md` are natural-language procedures, so no test
+`packages/synapse/commands/*.md` and `packages/synapse/skills/*/SKILL.md` are natural-language procedures, so no test
 executes them — but `tests/legacy-commands.bats` does check the one thing about them that is
 mechanically true or false: **every command they tell Claude to run has to exist.** It cross-checks
 each `` `synapse <sub>` `` against the binary's own `--help`, and applies the same rule to the text
@@ -250,11 +250,13 @@ skill's table, with the whole suite green.
 
 ## Dependencies
 
-For using the plugin: the `claude` CLI itself, `tar` (the `SessionStart` hook's one-time binary fetch
-from a GitHub Release), and `curl` (the compiled binary's own calls to Obsidian's Local REST API —
-`write-node`, `doctor`). Node itself is assumed, the same way it is for Claude Code overall — every
-shipped hook (`fetch-and-run.cjs`, `obsidian-mcp-refresh.cjs`) runs on it directly, no `jq` or `curl`
-of its own. Nothing to build, nothing to install by hand — see "New machine setup".
+For using it day to day: npm itself (the compiled binaries ship as ordinary per-platform
+optionalDependencies, `npm install` fetches and verifies them the same way it does any other
+package, no separate fetch script or `tar` step involved), whichever harness's own CLI (`claude`,
+`codex`, or `opencode`), and `curl` (the compiled binary's own calls to Obsidian's Local REST API —
+`write-node`, `doctor`). Node itself is assumed, the same way it already is for every harness here —
+`synapse-setup` and the shipped hooks (`resolve-binaries.cjs`, `obsidian-mcp-refresh.cjs`) run on it
+directly, no `jq` of its own. Nothing to build, nothing to install by hand — see "New machine setup".
 
 For contributing to Synapse itself: Zig 0.16 (`just build`/`zig build`), `bats-core` (tests), a C
 compiler for the Graph's tree-sitter acceleration (grammars are native libraries, built on first

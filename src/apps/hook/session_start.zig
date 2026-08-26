@@ -165,7 +165,7 @@ pub fn build(gpa: Allocator, io: Io, env: *std.process.Environ.Map, argv0: []con
             //
             // The seed template's own path is resolved the same way
             // `claude_md_path` above resolves `synapse-claude.md` -- a
-            // repo-relative string (`npm-pkg/Index.md.template`) means
+            // repo-relative string (`packages/synapse/Index.md.template`) means
             // nothing to a model inside an ordinary installed session,
             // which has no copy of this repo checked out at all.
             // `CLAUDE_PLUGIN_ROOT`, `SYNAPSE_CONTENT_ROOT` (or, pre-plugin,
@@ -445,7 +445,7 @@ test "synapse-claude.md is injected from $SYNAPSE_CONTENT_ROOT when that's set" 
     var sf = try SessionStartFixture.init(gpa);
     defer sf.deinit();
     try sf.commit();
-    const content_root = try std.fmt.allocPrint(gpa, "{s}/npm-pkg", .{sf.fx.root});
+    const content_root = try std.fmt.allocPrint(gpa, "{s}/packages/synapse", .{sf.fx.root});
     defer gpa.free(content_root);
     try sf.writeClaudeMd(content_root, "STANDING INSTRUCTIONS MARKER\n");
     try sf.fx.env.put("SYNAPSE_CONTENT_ROOT", content_root);

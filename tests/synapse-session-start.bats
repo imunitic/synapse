@@ -35,5 +35,5 @@ teardown() {
   local cited
   cited="$(grep -o 'CLAUDE.md \\"[^\\]*\\" section' "$nudge" | sed -e 's/.*\\"\(.*\)\\" section/\1/')"
   [ -n "$cited" ]
-  grep -qxF "# $cited" "$REPO_ROOT/npm-pkg/synapse-claude.md"
+  grep -qxF "# $cited" "$REPO_ROOT/packages/synapse/synapse-claude.md"
 }

@@ -7,7 +7,7 @@ out/
 # The compiled synapse/synapse-hook binaries each platform package ships --
 # release.yml's own publish step copies them in fresh from out/ at publish
 # time (or a local hand-test does the same); never checked into source.
-npm-pkg/platforms/*/bin/
+packages/synapse/platforms/*/bin/
 # Where zig 0.16 unpacks fetched dependencies -- the global cache under
 # ~/.cache/zig/p holds only the tarballs. Build output like the two above,
 # not vendored source: `zig build --fetch` refills it from the hash pinned in
