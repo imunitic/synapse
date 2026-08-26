@@ -80,10 +80,43 @@ function readObsidianPluginData() {
   return data;
 }
 
+// The manifest recording exactly which names this tool wrote into a given
+// destination on the prior run -- diffed against the current run's names
+// so a renamed or removed skill/command is deleted instead of left behind
+// as an orphan forever. Scoped strictly to names a previous manifest
+// actually listed: anything else living in the same directory (a skill
+// from a different source, or the user's own) was never in that manifest
+// and is never touched. Lives inside `destRoot` itself, as a dotfile --
+// no `.md` extension and not a `{name}/SKILL.md` subdirectory, so no
+// harness's own skill/command discovery mistakes it for one of ours.
+const MANAGED_MANIFEST = ".synapse-managed.json";
+
+function pruneStale(destRoot, currentNames) {
+  const manifestPath = path.join(destRoot, MANAGED_MANIFEST);
+  let previous = [];
+  if (fs.existsSync(manifestPath)) {
+    try {
+      previous = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    } catch {
+      previous = [];
+    }
+  }
+  const current = new Set(currentNames);
+  for (const name of previous) {
+    if (current.has(name)) continue;
+    fs.rmSync(path.join(destRoot, name), { recursive: true, force: true });
+  }
+  fs.mkdirSync(destRoot, { recursive: true });
+  fs.writeFileSync(manifestPath, JSON.stringify(currentNames, null, 2) + "\n");
+}
+
 // Copies every shared SKILL.md into `destRoot/{name}/SKILL.md`, verbatim
 // unless `transform` is given. Each skill gets its own uniquely-named
 // subdirectory, so overwriting ours on every run never touches anything a
 // harness's own skill discovery also finds there under a different name.
+// Returns the names written -- pruning stale ones is the caller's job,
+// since a destRoot shared with another source (Codex's own skills, on top
+// of these) needs the combined set before it can prune safely.
 function copySkills(destRoot, transform) {
   const src = path.join(PKG_ROOT, "skills");
   const names = fs
@@ -96,7 +129,7 @@ function copySkills(destRoot, transform) {
     fs.mkdirSync(destDir, { recursive: true });
     writeMaybeTransformed(path.join(src, name, "SKILL.md"), path.join(destDir, "SKILL.md"), transform);
   }
-  return names.length;
+  return names;
 }
 
 function copyCommands(destRoot, transform) {
@@ -106,7 +139,7 @@ function copyCommands(destRoot, transform) {
   for (const name of names) {
     writeMaybeTransformed(path.join(src, name), path.join(destRoot, name), transform);
   }
-  return names.length;
+  return names;
 }
 
 function writeMaybeTransformed(srcPath, destPath, transform) {
@@ -177,9 +210,13 @@ function mergeHooksInto(existingHooks, rendered, hookBin) {
 function configureClaude() {
   const hookBin = resolveHookBin();
 
-  const skillCount = copySkills(path.join(os.homedir(), ".claude", "skills"));
-  const commandCount = copyCommands(path.join(os.homedir(), ".claude", "commands"));
-  console.log(`installed ${skillCount} skills, ${commandCount} commands to ~/.claude`);
+  const skillsDest = path.join(os.homedir(), ".claude", "skills");
+  const skillNames = copySkills(skillsDest);
+  pruneStale(skillsDest, skillNames);
+  const commandsDest = path.join(os.homedir(), ".claude", "commands");
+  const commandNames = copyCommands(commandsDest);
+  pruneStale(commandsDest, commandNames);
+  console.log(`installed ${skillNames.length} skills, ${commandNames.length} commands to ~/.claude`);
 
   const settingsPath = path.join(os.homedir(), ".claude", "settings.json");
   let settings = {};
@@ -283,7 +320,7 @@ function configureCodex() {
   console.log(`configured ${hooksPath}`);
 
   const skillsDestRoot = path.join(os.homedir(), ".codex", "skills");
-  const sharedCount = copySkills(skillsDestRoot);
+  const sharedNames = copySkills(skillsDestRoot);
   const codexSkillsSrc = path.join(PKG_ROOT, "harness", "codex", "skills");
   const codexNames = fs
     .readdirSync(codexSkillsSrc, { withFileTypes: true })
@@ -293,7 +330,8 @@ function configureCodex() {
   for (const name of codexNames) {
     fs.cpSync(path.join(codexSkillsSrc, name), path.join(skillsDestRoot, name), { recursive: true, force: true });
   }
-  console.log(`installed ${sharedCount + codexNames.length} skills to ${skillsDestRoot}`);
+  pruneStale(skillsDestRoot, [...sharedNames, ...codexNames]);
+  console.log(`installed ${sharedNames.length + codexNames.length} skills to ${skillsDestRoot}`);
 
   const pluginData = readObsidianPluginData();
   if (!pluginData.enableInsecureServer || !pluginData.insecurePort) {
@@ -365,12 +403,13 @@ function configureOpencode() {
   fs.writeFileSync(pluginDest, pluginSource);
   console.log(`installed ${pluginDest}`);
 
-  const skillCount = copySkills(path.join(os.homedir(), ".config", "opencode", "skill"), opencodeToolNameTransform);
-  const commandCount = copyCommands(
-    path.join(os.homedir(), ".config", "opencode", "command"),
-    opencodeToolNameTransform
-  );
-  console.log(`installed ${skillCount} skills, ${commandCount} commands to ~/.config/opencode`);
+  const skillsDest = path.join(os.homedir(), ".config", "opencode", "skill");
+  const skillNames = copySkills(skillsDest, opencodeToolNameTransform);
+  pruneStale(skillsDest, skillNames);
+  const commandsDest = path.join(os.homedir(), ".config", "opencode", "command");
+  const commandNames = copyCommands(commandsDest, opencodeToolNameTransform);
+  pruneStale(commandsDest, commandNames);
+  console.log(`installed ${skillNames.length} skills, ${commandNames.length} commands to ~/.config/opencode`);
 
   const pluginData = readObsidianPluginData();
   if (!pluginData.enableInsecureServer || !pluginData.insecurePort) {
