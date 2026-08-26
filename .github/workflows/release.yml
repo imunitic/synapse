@@ -57,27 +57,20 @@ jobs:
         id: tag
         run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
 
-      # Same targets ci/build-targets.sh verifies compile on every push;
-      # this job packages the same builds instead of discarding them. See
-      # ci/release-targets.sh for the one shared definition of the list.
-      # `zig build` with no step name builds every installed artifact for
-      # that target in one invocation -- synapse-bard/synapse-bard-hook
-      # included, since build.zig registers them unconditionally -- so
-      # bard needs no cross-compile step of its own, one extra tar line
-      # per target already being built here is enough. Ships the same
-      # platform set as synapse, not narrowed to her own machine's
-      # architecture: nothing about the binary depends on which session
-      # type downloads it.
-      - name: Cross-compile and package each target
+      # Same targets ci/build-targets.sh verifies compile on every push; this
+      # job compiles the same builds instead of discarding them, for the npm
+      # publish step below to copy binaries out of directly. See
+      # ci/release-targets.sh for the one shared definition of the list. No
+      # tarring, no SHA256SUMS: those existed only for the old dist-branch
+      # fetch-and-run download path, which npm's own package integrity
+      # replaces for synapse -- see bard-dist.yml for that mechanism's
+      # surviving use (bard hasn't moved to npm distribution).
+      - name: Cross-compile each target
         run: |
           source ci/release-targets.sh
           for t in "${targets[@]}"; do
-            out="out/$t"
-            zig build -Dtarget="$t" -Doptimize=ReleaseSafe -p "$out"
-            tar -C "$out/bin" -czf "synapse-$t.tar.gz" synapse synapse-hook
-            tar -C "$out/bin" -czf "synapse-bard-$t.tar.gz" synapse-bard synapse-bard-hook
+            zig build -Dtarget="$t" -Doptimize=ReleaseSafe -p "out/$t"
           done
-          sha256sum synapse-*.tar.gz > SHA256SUMS
 
       - uses: actions/setup-node@v4
         with:
@@ -189,43 +182,3 @@ jobs:
             packages/synapse/package.json > "$tmp"
           mv "$tmp" packages/synapse/package.json
           publish_if_new "packages/synapse" "@imunitic/synapse"
-
-      # SHA256SUMS travels alongside the tarballs on `dist` so each
-      # fetch-and-run.cjs can verify what it downloaded before executing it --
-      # raw.githubusercontent.com is plain HTTP-over-TLS to GitHub's CDN, not
-      # a signed artifact channel, so TLS alone only proves the bytes came
-      # from GitHub, not that they're the bytes this workflow published.
-      #
-      # No GitHub Release, no release assets -- binaries are published as
-      # plain committed files on the `dist` branch instead (see below), which
-      # `fetch-and-run.cjs` reads through `raw.githubusercontent.com`. That
-      # domain is unauthenticated, unscoped, ordinary Trusted-allowlist
-      # traffic in an Anthropic-hosted cloud sandbox; GitHub Release assets
-      # are not -- release-asset requests route through a repo-scoped GitHub
-      # proxy there, and get a 403 for any repo other than the one the
-      # session is attached to. `synapse-bard`'s Android cloud sessions are
-      # attached to the *bible* repo, never this one, so its binaries could
-      # never actually reach them over the old release-download URL.
-      #
-      # A fresh orphan history every run, force-pushed over whatever was on
-      # `dist` before -- built in a scratch directory outside this job's own
-      # checkout so there's no working tree to reconcile, no fetch, no
-      # merge, and no growing history to ever prune. `dist` holds exactly
-      # the latest release's binaries plus ci/dist-readme.md (as README.md,
-      # so it renders on the branch's own GitHub page), nothing else, ever.
-      - name: Publish binaries to the dist branch
-        run: |
-          source ci/release-targets.sh
-          publish_dir="$(mktemp -d)"
-          for t in "${targets[@]}"; do
-            cp "synapse-$t.tar.gz" "synapse-bard-$t.tar.gz" "$publish_dir/"
-          done
-          cp SHA256SUMS "$publish_dir/"
-          cp ci/dist-readme.md "$publish_dir/README.md"
-          cd "$publish_dir"
-          git init -q -b dist
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -q -m "dist: ${{ steps.tag.outputs.tag }}"
-          git push --force "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" dist

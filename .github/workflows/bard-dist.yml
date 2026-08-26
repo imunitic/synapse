@@ -1,0 +1,98 @@
+name: bard-dist
+
+# synapse-bard hasn't moved to npm distribution the way synapse itself has --
+# her Android cloud session still fetches binaries from the `dist` branch via
+# raw.githubusercontent.com (plugins/synapse-bard/hooks/fetch-and-run.cjs,
+# ci/dist-readme.md). Unlike synapse's own npm releases (release.yml,
+# tag-only, deliberate, semver), bard isn't tied to that cadence, so this
+# runs on every push to main -- no path filter, a version bump here is meant
+# to mean "whatever's on main right now", not "bard's own source changed".
+#
+# Versioned as `YYYY-MM_N` in a `version.txt` committed onto `dist` itself,
+# not a git tag on `main`: a tag here would sit in the same namespace
+# release.yml's own tag-push trigger watches, and while `YYYY-MM_N` doesn't
+# match its `v*` glob today, there's no reason to let `main`'s tag list
+# accumulate one entry per ordinary push, or to depend on a glob never
+# drifting into matching it later.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  dist:
+    runs-on: ubuntu-latest
+
+    # Same reasoning as release.yml's own concurrency group: `dist` is force-
+    # pushed a fresh orphan history every run, so two overlapping runs could
+    # race and one's publish could stomp the other's. Queue, don't cancel.
+    concurrency:
+      group: bard-dist
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: mlugg/setup-zig@v2
+
+      # Reads the currently-published version.txt off `dist` (if any) to
+      # decide whether this month's counter continues or resets -- `dist` is
+      # rebuilt as a fresh orphan history every run (see the publish step
+      # below), so nothing on `main` remembers the last version between runs.
+      - name: Compute the next YYYY-MM_N version
+        id: ver
+        run: |
+          prefix="$(date -u +%Y-%m)"
+          prev=""
+          if git fetch --depth 1 origin dist 2>/dev/null; then
+            prev="$(git show FETCH_HEAD:version.txt 2>/dev/null || true)"
+          fi
+          next=1
+          if [[ "$prev" == "${prefix}_"* ]]; then
+            n="${prev#"${prefix}"_}"
+            if [[ "$n" =~ ^[0-9]+$ ]]; then
+              next=$(( n + 1 ))
+            fi
+          fi
+          echo "version=${prefix}_${next}" >> "$GITHUB_OUTPUT"
+
+      # Same targets synapse itself ships (ci/release-targets.sh) -- see that
+      # file's own comment for why. `zig build` with no step name builds
+      # every installed artifact for the target in one invocation (synapse's
+      # own binaries included, since build.zig registers them
+      # unconditionally); only synapse-bard's two get tarred and published
+      # below, the rest of the build's output is simply unused.
+      - name: Cross-compile synapse-bard for each target
+        run: |
+          source ci/release-targets.sh
+          for t in "${targets[@]}"; do
+            out="out/$t"
+            zig build -Dtarget="$t" -Doptimize=ReleaseSafe -p "$out"
+            tar -C "$out/bin" -czf "synapse-bard-$t.tar.gz" synapse-bard synapse-bard-hook
+          done
+          sha256sum synapse-bard-*.tar.gz > SHA256SUMS
+
+      # Fresh orphan history every run, force-pushed over whatever was on
+      # `dist` before -- same shape release.yml's own dist-publish step
+      # already used when this branch also carried synapse's binaries. See
+      # ci/dist-readme.md for why raw.githubusercontent.com instead of a
+      # GitHub Release.
+      - name: Publish synapse-bard binaries to the dist branch
+        run: |
+          source ci/release-targets.sh
+          publish_dir="$(mktemp -d)"
+          for t in "${targets[@]}"; do
+            cp "synapse-bard-$t.tar.gz" "$publish_dir/"
+          done
+          cp SHA256SUMS "$publish_dir/"
+          cp ci/dist-readme.md "$publish_dir/README.md"
+          echo "${{ steps.ver.outputs.version }}" > "$publish_dir/version.txt"
+          cd "$publish_dir"
+          git init -q -b dist
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -q -m "dist: ${{ steps.ver.outputs.version }}"
+          git push --force "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" dist
