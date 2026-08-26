@@ -112,6 +112,22 @@ jobs:
           v="${{ steps.tag.outputs.tag }}"
           v="${v#v}"
 
+          # npm refuses to publish a prerelease version (anything with a
+          # `-` in it, e.g. `0.1.0-experimental`) to the default `latest`
+          # dist-tag without an explicit --tag -- derives one from the
+          # version's own prerelease identifier (the part between the
+          # first `-` and the next `.`, e.g. `experimental` out of
+          # `0.1.0-experimental`, `test` out of `0.0.1-test.0`) rather than
+          # hardcoding one, so a real non-prerelease tag still publishes to
+          # `latest` unchanged.
+          dist_tag="latest"
+          case "$v" in
+            *-*)
+              pre="${v#*-}"
+              dist_tag="${pre%%.*}"
+              ;;
+          esac
+
           # Translates a Zig cross-compile triple to the npm platform
           # package it feeds -- npm's `os`/`cpu` fields select on
           # process.platform/process.arch, an unrelated naming scheme to
@@ -139,14 +155,14 @@ jobs:
             tmp=$(mktemp)
             jq --arg v "$v" '.version = $v' "npm-pkg/platforms/$plat/package.json" > "$tmp"
             mv "$tmp" "npm-pkg/platforms/$plat/package.json"
-            npm publish "npm-pkg/platforms/$plat" --access public
+            npm publish "npm-pkg/platforms/$plat" --access public --tag "$dist_tag"
           done
 
           tmp=$(mktemp)
           jq --arg v "$v" '.version = $v | .optionalDependencies |= map_values($v)' \
             npm-pkg/package.json > "$tmp"
           mv "$tmp" npm-pkg/package.json
-          npm publish npm-pkg --access public
+          npm publish npm-pkg --access public --tag "$dist_tag"
 
       # Real, versioned, permanently-fetchable binaries for `synapse` --
       # unlike `dist` below (bard-only, force-pushed, latest-release-only),
