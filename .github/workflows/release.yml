@@ -134,6 +134,31 @@ jobs:
           git tag "${{ steps.tag.outputs.tag }}"
           git push origin "${{ steps.tag.outputs.tag }}"
 
+      # Real, versioned, permanently-fetchable binaries for `synapse` --
+      # unlike `dist` below (bard-only, force-pushed, latest-release-only),
+      # GitHub Release assets persist per tag forever, so any consumer
+      # (the harness setup script today; `fetch-and-run.cjs` itself once
+      # sb-040 repoints it) can pin to an exact version's binary rather
+      # than whatever happens to be currently published. `synapse-bard`'s
+      # own binaries stay `dist`-only below -- Android cloud sessions can't
+      # reach Release-asset URLs at all (see that step's own comment),
+      # which is the entire reason `dist` exists; `synapse`'s consumers
+      # have no such constraint, so there's no reason to make them pay for
+      # it too.
+      - name: Publish synapse binaries to a GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          source ci/release-targets.sh
+          assets=(SHA256SUMS)
+          for t in "${targets[@]}"; do
+            assets+=("synapse-$t.tar.gz")
+          done
+          gh release create "${{ steps.tag.outputs.tag }}" "${assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "${{ steps.tag.outputs.tag }}" \
+            --notes "Automated release. See commit history for changes."
+
       # SHA256SUMS travels alongside the tarballs on `dist` so each
       # fetch-and-run.cjs can verify what it downloaded before executing it --
       # raw.githubusercontent.com is plain HTTP-over-TLS to GitHub's CDN, not
