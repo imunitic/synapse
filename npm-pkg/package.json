@@ -2,6 +2,10 @@
   "name": "@imunitic/synapse",
   "version": "0.1.0-experimental",
   "description": "Memory for Claude Code, Codex CLI, and OpenCode: a durable Obsidian vault plus a per-repo code graph.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/imunitic/synapse"
+  },
   "bin": {
     "synapse-setup": "bin/synapse-setup.cjs",
     "synapse": "bin/synapse.cjs",
