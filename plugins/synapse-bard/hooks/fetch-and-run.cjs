@@ -68,7 +68,16 @@ async function main() {
 
   const currentVersion = readCurrentVersion();
   const cachedVersion = readIfExists(versionFile);
-  const stale = currentVersion !== "" && currentVersion !== cachedVersion;
+  // No plugin.json to compare (the marketplace/plugin install path is gone --
+  // her .claude/ files are committed directly into the bible repo now, not
+  // installed through Claude Code's plugin system), so there's no local
+  // signal for "did the binary change" at all. Rather than read that as
+  // "never stale" (the empty-string comparison below would otherwise do
+  // forever, since nothing ever writes a real version past the first run),
+  // treat no signal as always-stale: refetch every SessionStart. `dist`
+  // regenerates on every push to main now (bard-dist.yml), so this is the
+  // only way a re-fetch ever actually happens.
+  const stale = currentVersion === "" || currentVersion !== cachedVersion;
 
   if (!isExecutable(binPath) || stale) {
     await refreshBinary({ binDir, binPath, versionFile, currentVersion });
