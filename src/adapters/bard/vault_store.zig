@@ -144,7 +144,7 @@ pub const BardVaultStore = struct {
         for (names) |name| {
             const body = (try self.read(gpa, io, name)) orelse continue;
             defer gpa.free(body);
-            if (std.mem.indexOf(u8, body, query) == null) continue;
+            if (std.ascii.findIgnoreCase(body, query) == null) continue;
             const count = if (links.get(name)) |l| l.items.len else 0;
             try out.append(gpa, .{
                 .node = try gpa.dupe(u8, name),
@@ -211,7 +211,7 @@ fn hitRank(_: void, a: Store.Hit, b: Store.Hit) bool {
 fn firstMatchingLine(body: []const u8, query: []const u8) ?[]const u8 {
     var lines = std.mem.splitScalar(u8, body, '\n');
     while (lines.next()) |line| {
-        if (std.mem.indexOf(u8, line, query) != null) return line;
+        if (std.ascii.findIgnoreCase(line, query) != null) return line;
     }
     return null;
 }

@@ -108,6 +108,10 @@ pub const BardGraphStore = struct {
     /// structured half of the design ("all characters where faction = X").
     /// Anything else is a full-text substring scan over the raw file,
     /// matching `FakeStore`'s own convention so tests can share the shape.
+    /// Both the `key:value` value half and full-text mode match
+    /// case-insensitively -- only the frontmatter `key` itself stays
+    /// case-sensitive, since it's a schema name the author isn't guessing
+    /// the spelling of the way she might a character's name.
     pub fn search(self: *BardGraphStore, gpa: Allocator, io: Io, query: []const u8) anyerror![]const Store.Hit {
         return self.searchImpl(gpa, io, parseFieldQuery(query), query);
     }
@@ -140,7 +144,7 @@ pub const BardGraphStore = struct {
                 continue;
             }
 
-            const count = std.mem.count(u8, body, query);
+            const count = countIgnoreCase(body, query);
             if (count == 0) continue;
             try out.append(gpa, .{
                 .node = try gpa.dupe(u8, name),
@@ -192,7 +196,7 @@ pub fn fieldLine(body: []const u8, key: []const u8, value: []const u8) ?[]const 
         if (!std.mem.eql(u8, line_key, key)) continue;
         const raw_value = std.mem.trim(u8, line[colon + 1 ..], " ");
         const line_value = unquote(raw_value);
-        if (std.mem.eql(u8, line_value, value)) return line;
+        if (std.ascii.eqlIgnoreCase(line_value, value)) return line;
         return null;
     }
     return null;
@@ -206,13 +210,32 @@ fn unquote(value: []const u8) []const u8 {
 
 /// `pub` for the same reason as `fieldLine` above: `synapse-bard search`
 /// reuses this over real entity source files, not just this Store's own
-/// content.
+/// content. Case-insensitive, matching `fieldLine`/`countIgnoreCase` --
+/// a writer searching her own bible shouldn't have to remember how she
+/// capitalized a name.
 pub fn firstMatchingLine(body: []const u8, query: []const u8) ?[]const u8 {
     var lines = std.mem.splitScalar(u8, body, '\n');
     while (lines.next()) |line| {
-        if (std.mem.indexOf(u8, line, query) != null) return line;
+        if (std.ascii.findIgnoreCase(line, query) != null) return line;
     }
     return null;
+}
+
+/// Case-insensitive occurrence count, the `std.mem.count` this Store used
+/// before values needed to be case-insensitive doesn't have an ignore-case
+/// form of. `pub` for the same reuse reason as `fieldLine`/
+/// `firstMatchingLine`: `synapse-bard search`'s full-text mode counts
+/// occurrences over real entity source files with this exact function, not
+/// a second implementation of the same loop.
+pub fn countIgnoreCase(haystack: []const u8, needle: []const u8) usize {
+    if (needle.len == 0) return 0;
+    var count: usize = 0;
+    var pos: usize = 0;
+    while (std.ascii.findIgnoreCasePos(haystack, pos, needle)) |idx| {
+        count += 1;
+        pos = idx + needle.len;
+    }
+    return count;
 }
 
 const testing = std.testing;
@@ -364,7 +387,7 @@ test "list only sees .md files, not other files someone dropped in the directory
     try testing.expectEqualStrings("a.md", names[0]);
 }
 
-test "full-text search finds a substring by content, case-sensitive" {
+test "full-text search finds a substring by content, case-insensitive" {
     const gpa = testing.allocator;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -375,7 +398,7 @@ test "full-text search finds a substring by content, case-sensitive" {
     defer s.deinit();
     const port = s.store();
 
-    _ = try port.write(testing.io, "a.md", "---\nname: A\n---\nmentions the flame hilt\n");
+    _ = try port.write(testing.io, "a.md", "---\nname: A\n---\nmentions the Flame Hilt\n");
     _ = try port.write(testing.io, "b.md", "---\nname: B\n---\nmentions nothing relevant\n");
 
     const hits = try port.search(gpa, testing.io, "flame hilt");
@@ -384,7 +407,7 @@ test "full-text search finds a substring by content, case-sensitive" {
     try testing.expectEqualStrings("a.md", hits[0].node);
 }
 
-test "a key:value query matches the frontmatter field exactly, not a substring" {
+test "a key:value query matches the frontmatter field exactly on the key, case-insensitively on the value" {
     const gpa = testing.allocator;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -398,10 +421,28 @@ test "a key:value query matches the frontmatter field exactly, not a substring" 
     _ = try port.write(testing.io, "gael.md", "---\nname: Gael\nfaction: \"The Radiant Dominion\"\n---\n");
     _ = try port.write(testing.io, "aidan.md", "---\nname: Aidan\nfaction: \"The Dominion\"\n---\n");
 
-    const hits = try port.search(gpa, testing.io, "faction:The Radiant Dominion");
+    const hits = try port.search(gpa, testing.io, "faction:the radiant dominion");
     defer freeHits(gpa, hits);
     try testing.expectEqual(@as(usize, 1), hits.len);
     try testing.expectEqualStrings("gael.md", hits[0].node);
+}
+
+test "a key:value query does not match a differently-cased key -- only the value is case-insensitive" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try graphRoot(gpa, &tmp);
+    defer gpa.free(root);
+
+    var s = try BardGraphStore.init(gpa, root);
+    defer s.deinit();
+    const port = s.store();
+
+    _ = try port.write(testing.io, "gael.md", "---\nname: Gael\nfaction: \"The Radiant Dominion\"\n---\n");
+
+    const hits = try port.search(gpa, testing.io, "Faction:The Radiant Dominion");
+    defer freeHits(gpa, hits);
+    try testing.expectEqual(@as(usize, 0), hits.len);
 }
 
 test "port.search()'s key:value heuristic can misread a colon in ordinary text -- known, not this Store's problem to solve" {

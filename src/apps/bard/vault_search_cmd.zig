@@ -17,7 +17,8 @@ const Allocator = std.mem.Allocator;
 const usage =
     \\usage: synapse-bard vault-search <query>
     \\
-    \\  <query>  full-text substring over _bard/vault/, ranked by each
+    \\  <query>  full-text substring over _bard/vault/, case-insensitive,
+    \\           ranked by each
     \\           matching note's backlink count -- most-linked first, node
     \\           path ascending to break a tie
     \\

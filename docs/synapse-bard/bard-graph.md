@@ -133,7 +133,7 @@ synapse-bard field <slug> <key>               one raw frontmatter value, verbati
 synapse-bard fields <slug>                    a template's own field names
 synapse-bard fields --template <name>         same, by template name directly, no example needed
 synapse-bard search <query>                   full-text over every entity's frontmatter
-synapse-bard search --field <key>:<value>     exact match on a root-level field, e.g. faction
+synapse-bard search --field <key>:<value>     case-insensitive exact match on a root-level field, e.g. faction
 ```
 
 **`query`** resolves a slug through `sources:`, extracts that one real file, and prints its defs

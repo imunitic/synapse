@@ -92,11 +92,13 @@ usage: synapse-bard fields <node>
 usage: synapse-bard search <query>
        synapse-bard search --field <key>:<value>
 
-  <query>              full-text substring, always -- never treated as
-                       key:value even if it contains a colon
+  <query>              full-text substring, always, case-insensitive --
+                       never treated as key:value even if it contains
+                       a colon
   --field <key>:<value>  exact match on a root-level frontmatter field
-                       across every entity, e.g. --field faction:"The
-                       Radiant Dominion"
+                       across every entity (key case-sensitive, value
+                       case-insensitive), e.g. --field faction:"the
+                       radiant dominion"
 ```
 
 ### synapse-bard vault-search
@@ -104,7 +106,8 @@ usage: synapse-bard search <query>
 ```
 usage: synapse-bard vault-search <query>
 
-  <query>  full-text substring over _bard/vault/, ranked by each
+  <query>  full-text substring over _bard/vault/, case-insensitive,
+           ranked by each
            matching note's backlink count -- most-linked first, node
            path ascending to break a tie
 ```

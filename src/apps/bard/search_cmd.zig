@@ -31,11 +31,13 @@ const usage =
     \\usage: synapse-bard search <query>
     \\       synapse-bard search --field <key>:<value>
     \\
-    \\  <query>              full-text substring, always -- never treated as
-    \\                       key:value even if it contains a colon
+    \\  <query>              full-text substring, always, case-insensitive --
+    \\                       never treated as key:value even if it contains
+    \\                       a colon
     \\  --field <key>:<value>  exact match on a root-level frontmatter field
-    \\                       across every entity, e.g. --field faction:"The
-    \\                       Radiant Dominion"
+    \\                       across every entity (key case-sensitive, value
+    \\                       case-insensitive), e.g. --field faction:"the
+    \\                       radiant dominion"
     \\
 ;
 
@@ -119,7 +121,7 @@ pub fn run(gpa: Allocator, io: Io, args: *std.process.Args.Iterator) !u8 {
             continue;
         }
 
-        const count = std.mem.count(u8, body, query);
+        const count = adapters.bard_graph_store.countIgnoreCase(body, query);
         if (count == 0) continue;
         const line = adapters.bard_graph_store.firstMatchingLine(body, query) orelse "";
         try w.interface.print("{s} ({d})  {s}\n", .{ e.slug, count, line });
