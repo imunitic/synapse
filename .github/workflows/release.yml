@@ -149,6 +149,30 @@ jobs:
             esac
           }
 
+          # Safe to re-run: a version already on the registry is skipped
+          # rather than re-published (npm would reject it anyway, but as a
+          # hard failure -- this makes a retry after a partial failure
+          # possible without bumping the version again). `npm view` exits
+          # non-zero for "not found" (the common case, before a version
+          # exists), but that's the condition of an `if` below, which bash's
+          # own `set -e` never aborts on -- no separate guard needed.
+          #
+          # `./` prefix on every publish target, always -- without it, a
+          # single-slash relative path like `packages/synapse` parses as
+          # npm's own `owner/repo` GitHub shorthand instead of a local
+          # directory, and npm tries to fetch it as a git dependency
+          # (confirmed live: `npm error code EALLOWGIT`). Multi-segment
+          # paths like `packages/synapse/platforms/$plat` never hit this,
+          # but there's no reason to leave the one-segment case fragile.
+          publish_if_new() {
+            local dir="$1" name="$2"
+            if npm view "$name@$v" version >/dev/null 2>&1; then
+              echo "$name@$v already published -- skipping"
+            else
+              npm publish "./$dir" --access public --tag "$dist_tag"
+            fi
+          }
+
           for t in "${targets[@]}"; do
             plat="$(npm_platform_for "$t")"
             dest="packages/synapse/platforms/$plat/bin"
@@ -157,14 +181,14 @@ jobs:
             tmp=$(mktemp)
             jq --arg v "$v" '.version = $v' "packages/synapse/platforms/$plat/package.json" > "$tmp"
             mv "$tmp" "packages/synapse/platforms/$plat/package.json"
-            npm publish "packages/synapse/platforms/$plat" --access public --tag "$dist_tag"
+            publish_if_new "packages/synapse/platforms/$plat" "@imunitic/synapse-$plat"
           done
 
           tmp=$(mktemp)
           jq --arg v "$v" '.version = $v | .optionalDependencies |= map_values($v)' \
             packages/synapse/package.json > "$tmp"
           mv "$tmp" packages/synapse/package.json
-          npm publish packages/synapse --access public --tag "$dist_tag"
+          publish_if_new "packages/synapse" "@imunitic/synapse"
 
       # SHA256SUMS travels alongside the tarballs on `dist` so each
       # fetch-and-run.cjs can verify what it downloaded before executing it --
