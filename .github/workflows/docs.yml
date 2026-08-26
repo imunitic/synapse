@@ -1,0 +1,55 @@
+name: docs
+
+# Every push to main rebuilds and redeploys the docs site -- independent of
+# release.yml, which now only runs on a pushed tag. Docs aren't tied to a
+# specific release: this job used to live inside release.yml itself, back
+# when that also triggered on every push to main and the two shared a
+# trigger for free. Splitting it out here is what that decoupling requires --
+# a tag push isn't an allowed ref for the github-pages deployment
+# environment's own protection rules (defaults to the repo's default branch
+# only), so leaving this inside release.yml would fail this job on every
+# real release.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # One-time manual prerequisite this workflow cannot do for itself: repo
+  # Settings -> Pages -> Source: "GitHub Actions". Until that's set, this job
+  # runs and uploads an artifact but has nowhere to deploy it.
+  #
+  # Deploys docs/generate-site.sh's build output, not docs/ itself -- raw
+  # markdown uploaded as-is has no landing page and doesn't render.
+  pages:
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/configure-pages@v5
+
+      # Raw docs/**/*.md, uploaded as-is, isn't a browsable site -- no
+      # rendering, no landing page. docs/generate-site.sh converts every doc
+      # to real HTML via pandoc (rewriting the .md cross-links pandoc itself
+      # leaves untouched), building one section per plugin
+      # (docs/synapse/, docs/synapse-bard/) under a shared top-level landing
+      # page derived from the repo's own README.md.
+      - name: Install pandoc
+        run: sudo apt-get update -y && sudo apt-get install -y pandoc
+
+      - name: Build the docs site
+        run: ./docs/generate-site.sh site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - uses: actions/deploy-pages@v4
+        id: deployment
