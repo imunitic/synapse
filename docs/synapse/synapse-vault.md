@@ -98,11 +98,13 @@ remember to commit it themselves.
 
 ## The standing instruction
 
-The behavioral half of this system lives in `plugins/synapse/synapse-claude.md`, injected directly by the
+The behavioral half of this system lives in `npm-pkg/synapse-claude.md`, injected directly by the
 `SessionStart` hook (`synapse-hook session-start`) into every session's context — the same
 mechanism that injects `Index.md`, not a `CLAUDE.md` `@import` line. The hook reads
-`$CLAUDE_PLUGIN_ROOT/synapse-claude.md` when running as a plugin, falling back to a path resolved
-relative to its own binary otherwise. `~/.claude/CLAUDE.md` is never touched — it stays entirely
+`$CLAUDE_PLUGIN_ROOT/synapse-claude.md` when running as a Claude Code plugin, or
+`$SYNAPSE_CONTENT_ROOT/synapse-claude.md` when installed via npm (`synapse-setup configure claude`
+sets it), falling back to a path resolved relative to its own binary otherwise. `~/.claude/CLAUDE.md`
+is never touched — it stays entirely
 the user's own file, with nothing shipped into it to drift out of sync. Its core claim: this is
 a *primary* memory system, not an optional nicety, and specific triggers (a non-trivial bug fixed,
 a stated preference or decision, a milestone, research worth not redoing, a note gone stale)

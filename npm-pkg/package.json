@@ -1,0 +1,26 @@
+{
+  "name": "@imunitic/synapse",
+  "version": "0.1.0-experimental",
+  "description": "Memory for Claude Code, Codex CLI, and OpenCode: a durable Obsidian vault plus a per-repo code graph.",
+  "bin": {
+    "synapse-setup": "bin/synapse-setup.cjs",
+    "synapse": "bin/synapse.cjs",
+    "synapse-hook": "bin/synapse-hook.cjs"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "skills",
+    "commands",
+    "harness",
+    "synapse-claude.md",
+    "Index.md.template",
+    "*.conf.template"
+  ],
+  "optionalDependencies": {
+    "@imunitic/synapse-darwin-arm64": "0.1.0-experimental",
+    "@imunitic/synapse-linux-x64": "0.1.0-experimental",
+    "@imunitic/synapse-linux-arm64": "0.1.0-experimental"
+  },
+  "license": "SEE LICENSE IN LICENSE"
+}

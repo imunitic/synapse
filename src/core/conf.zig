@@ -198,11 +198,13 @@ test "a commented-out assignment is not one" {
 /// Resolves a synapse-*.conf filename to the first tier that exists on
 /// disk: `$XDG_CONFIG_HOME/synapse/{name}` (or `~/.config/synapse/{name}`
 /// if `XDG_CONFIG_HOME` is unset), then `~/.claude/{name}`, then (read-only)
-/// the plugin's own bundled `{name}.template` at `$CLAUDE_PLUGIN_ROOT`. Null
-/// if none of those exist -- callers decide what "unconfigured" means for
-/// their own conf. `$XDG_CONFIG_HOME` is checked, never assumed unset,
-/// because that is the one thing that makes tier 1 actually XDG-compliant
-/// rather than a hardcoded `~/.config` guess.
+/// the package's own bundled `{name}.template` at `$CLAUDE_PLUGIN_ROOT` (a
+/// Claude Code plugin install) or `$SYNAPSE_CONTENT_ROOT` (an npm install --
+/// `synapse-setup configure claude` sets it, since npm never sets
+/// `CLAUDE_PLUGIN_ROOT`). Null if none of those exist -- callers decide what
+/// "unconfigured" means for their own conf. `$XDG_CONFIG_HOME` is checked,
+/// never assumed unset, because that is the one thing that makes tier 1
+/// actually XDG-compliant rather than a hardcoded `~/.config` guess.
 ///
 /// `~/.claude/{name}` survives indefinitely as tier 2, not as a stopgap:
 /// every existing install already has its conf there, and an install that
@@ -215,13 +217,19 @@ test "a commented-out assignment is not one" {
 ///
 /// Tier 3 is last, not first: an install with a real tier-1/tier-2 file has
 /// already made a deliberate choice (even if that choice was to keep the
-/// installer's own seed), and the plugin's bundled default should never
-/// shadow it. It is also the only tier this function finds that
-/// `resolveWritePath` below must never return -- see `resolveExisting`.
+/// installer's own seed), and the bundled default should never shadow it.
+/// It is also the only tier this function finds that `resolveWritePath`
+/// below must never return -- see `resolveExisting`. `CLAUDE_PLUGIN_ROOT`
+/// is checked before `SYNAPSE_CONTENT_ROOT` when both happen to be set --
+/// an arbitrary but deterministic choice, since the two installs they each
+/// signal (plugin marketplace vs. npm) are not meant to coexist.
 pub fn resolveConfPath(gpa: std.mem.Allocator, io: std.Io, vars: Vars, name: []const u8) !?[]u8 {
     if (try resolveExisting(gpa, io, vars, name)) |p| return p;
 
     if (vars.get("CLAUDE_PLUGIN_ROOT")) |root| if (root.len != 0) {
+        if (try tryConfPath(gpa, io, "{s}/{s}.template", .{ root, name })) |p| return p;
+    };
+    if (vars.get("SYNAPSE_CONTENT_ROOT")) |root| if (root.len != 0) {
         if (try tryConfPath(gpa, io, "{s}/{s}.template", .{ root, name })) |p| return p;
     };
     return null;
@@ -518,6 +526,29 @@ test "resolveConfPath: tier 3 (CLAUDE_PLUGIN_ROOT template) wins only when tiers
     try cwd.writeFile(io, .{ .sub_path = template, .data = "template" });
 
     const tv: TestVars = .{ .pairs = &.{ .{ "HOME", home }, .{ "CLAUDE_PLUGIN_ROOT", plugin_root } } };
+    const got = (try resolveConfPath(gpa, io, tv.vars(), "foo.conf")).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings(template, got);
+}
+
+test "resolveConfPath: tier 3 also resolves via SYNAPSE_CONTENT_ROOT, for an npm install" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+    const cwd = std.Io.Dir.cwd();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const home = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    const content_root = try std.fmt.allocPrint(gpa, "{s}/npm-pkg", .{home});
+    defer gpa.free(content_root);
+    try cwd.createDirPath(io, content_root);
+    const template = try std.fmt.allocPrint(gpa, "{s}/foo.conf.template", .{content_root});
+    defer gpa.free(template);
+    try cwd.writeFile(io, .{ .sub_path = template, .data = "template" });
+
+    const tv: TestVars = .{ .pairs = &.{ .{ "HOME", home }, .{ "SYNAPSE_CONTENT_ROOT", content_root } } };
     const got = (try resolveConfPath(gpa, io, tv.vars(), "foo.conf")).?;
     defer gpa.free(got);
     try testing.expectEqualStrings(template, got);

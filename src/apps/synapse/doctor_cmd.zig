@@ -424,95 +424,22 @@ fn grammarLockChecks(ctx: *Ctx) !void {
     }
 }
 
-/// The installed version directory under the plugin cache, if `claude plugin
-/// install synapse@synapse` has actually succeeded -- keyed by the
-/// marketplace/plugin names this repo's own `marketplace.json` declares,
-/// not guessed. A plugin
-/// install never populates `~/.claude/bin/synapse-hook` or merges hooks into
-/// `settings.json` -- `hooks.json` is loaded straight from this cache
-/// instead -- so `hookChecks` below must tell the two install shapes apart
-/// rather than judge a healthy plugin install by the legacy shape's absence.
-fn pluginVersionDir(ctx: *Ctx) !?[]const u8 {
-    const home = ctx.env.get("HOME") orelse return null;
-    const cache = try ctx.fmt("{s}/.claude/plugins/cache/synapse/synapse", .{home});
-    var dir = Io.Dir.cwd().openDir(ctx.io, cache, .{ .iterate = true }) catch return null;
-    defer dir.close(ctx.io);
-
-    // Real version directories only -- a plain OS-dropped file in this
-    // directory (macOS's own .DS_Store, seen live: Finder had been opened
-    // to this exact path) is not one, and taking whatever entry.next()
-    // happens to hand back first, unfiltered, was exactly the bug that
-    // let it through. Picks the newest by `versionNewer` below (not a plain
-    // lexicographic max -- see that function for why) rather than the
-    // first one iterated, in case more than one version directory ever
-    // coexists mid-update -- iteration order itself is never guaranteed.
-    var best: ?[]const u8 = null;
-    var it = dir.iterate();
-    while (try it.next(ctx.io)) |entry| {
-        if (entry.kind != .directory) continue;
-        if (entry.name.len == 0 or entry.name[0] == '.') continue;
-        if (best == null or versionNewer(entry.name, best.?)) {
-            best = try ctx.fmt("{s}", .{entry.name});
-        }
-    }
-    const name = best orelse return null;
-    return try ctx.fmt("{s}/{s}", .{ cache, name });
-}
-
-/// Whether release-tag `a` is newer than `b`, both `YYYY-MM_N`. A plain
-/// lexicographic comparison -- what this replaced -- gets the `YYYY-MM`
-/// prefix right (dates sort correctly as strings) but not `N`: `2026-08_9`
-/// lexicographically outranks `2026-08_12` and `2026-08_13`, because `'9'`
-/// is greater than `'1'` at the first differing byte, even though 9 < 12 <
-/// 13 numerically -- three cached versions (`_9`, `_12`, `_13`) make
-/// `pluginVersionDir` pick `_9` as "newest" under that comparison. Compares
-/// the `YYYY-MM` prefix as a string (correct for dates) and only falls
-/// back to a numeric compare of `N` when the prefixes are equal, which is
-/// the one place the pure-string approach breaks down. Malformed input
-/// (no `_`, or a non-numeric suffix) falls back to the plain string
-/// compare rather than erroring -- a shape the directory doctor doesn't
-/// recognize shouldn't crash the check, just lose the tiebreak.
-fn versionNewer(a: []const u8, b: []const u8) bool {
-    const a_us = std.mem.lastIndexOfScalar(u8, a, '_') orelse return std.mem.order(u8, a, b) == .gt;
-    const b_us = std.mem.lastIndexOfScalar(u8, b, '_') orelse return std.mem.order(u8, a, b) == .gt;
-    const a_prefix = a[0..a_us];
-    const b_prefix = b[0..b_us];
-    switch (std.mem.order(u8, a_prefix, b_prefix)) {
-        .lt => return false,
-        .gt => return true,
-        .eq => {},
-    }
-    const a_n = std.fmt.parseInt(u32, a[a_us + 1 ..], 10) catch return std.mem.order(u8, a, b) == .gt;
-    const b_n = std.fmt.parseInt(u32, b[b_us + 1 ..], 10) catch return std.mem.order(u8, a, b) == .gt;
-    return a_n > b_n;
-}
-
-/// Whether the five hooks are registered, once each, at the current command. Mirrors
-/// nothing silent -- it mirrors something *loud in the wrong direction*: a hook wired
-/// twice fires twice, and the only symptom is duplicated context nobody attributes to
-/// settings.json. Two entirely different install shapes to check, not one: a plugin
-/// install (hooks.json in the plugin cache) or the legacy setup.sh shape (hooks merged
-/// into settings.json, binary at a fixed path) -- whichever one is actually present.
+/// Whether the five hooks are registered, once each, in `settings.json` --
+/// what `synapse-setup configure claude` writes there, npm's own commands
+/// merged in directly (no plugin cache, no fixed-path legacy binary to
+/// check for instead: an npm install's binary lives inside
+/// node_modules/@imunitic/synapse-{platform}-{arch}/, a path this check has
+/// no fixed location to look for, but doesn't need to -- the full resolved
+/// command each hook was merged with is already sitting in settings.json,
+/// which is what the count below actually reads). Mirrors nothing silent --
+/// it mirrors something *loud in the wrong direction*: a hook wired twice
+/// fires twice, and the only symptom is duplicated context nobody
+/// attributes to settings.json.
 fn hookChecks(ctx: *Ctx) !void {
-    if (try pluginVersionDir(ctx)) |version_dir| {
-        const hooks_json = try ctx.fmt("{s}/hooks/hooks.json", .{version_dir});
-        try ctx.add("hooks", if (ctx.exists(hooks_json)) .ok else .fail, if (ctx.exists(hooks_json))
-            try ctx.fmt("plugin install -- {s}", .{hooks_json})
-        else
-            try ctx.fmt("plugin install detected at {s} but hooks/hooks.json is missing -- reinstall the plugin", .{version_dir}));
-        return;
-    }
-
     const home = ctx.env.get("HOME") orelse return;
-    const hook_bin = try ctx.fmt("{s}/.claude/bin/synapse-hook", .{home});
-    try ctx.add("hook binary", if (ctx.exists(hook_bin)) .ok else .fail, if (ctx.exists(hook_bin))
-        hook_bin
-    else
-        "no plugin install and no legacy hook binary -- install the Synapse Claude Code plugin");
-
     const settings_path = try ctx.fmt("{s}/.claude/settings.json", .{home});
     const text = ctx.read(settings_path) orelse {
-        try ctx.add("hooks", .fail, "no settings.json -- this looks like neither a plugin nor a legacy install");
+        try ctx.add("hooks", .fail, "no settings.json -- run `synapse-setup configure claude`");
         return;
     };
     const names = [_][]const u8{ "session-start", "prompt-context", "staleness", "db-sync", "stop-nudge" };
@@ -525,21 +452,21 @@ fn hookChecks(ctx: *Ctx) !void {
         if (n > 1) duplicated += 1;
     }
     if (missing == 0 and duplicated == 0) {
-        try ctx.add("hooks", .ok, "all five registered once (legacy install)");
+        try ctx.add("hooks", .ok, "all five registered once");
     } else if (duplicated != 0) {
         try ctx.add("hooks", .fail, try ctx.fmt(
-            "{d} registered more than once -- each fires that many times; fix ~/.claude/settings.json or reinstall the plugin",
+            "{d} registered more than once -- each fires that many times; fix ~/.claude/settings.json or re-run `synapse-setup configure claude`",
             .{duplicated},
         ));
     } else {
-        try ctx.add("hooks", .fail, try ctx.fmt("{d} of 5 not registered -- fix ~/.claude/settings.json or install the plugin", .{missing}));
+        try ctx.add("hooks", .fail, try ctx.fmt("{d} of 5 not registered -- run `synapse-setup configure claude`", .{missing}));
     }
 
     // A wrapper still referenced would silently take precedence over the binary for
     // that hook, and it would keep working -- which is why this is a failure rather
     // than a note.
     if (std.mem.indexOf(u8, text, "hooks/synapse-") != null)
-        try ctx.add("hook wiring", .fail, "settings.json still names a hooks/*.sh wrapper -- fix ~/.claude/settings.json or reinstall the plugin");
+        try ctx.add("hook wiring", .fail, "settings.json still names a hooks/*.sh wrapper -- fix ~/.claude/settings.json or re-run `synapse-setup configure claude`");
 }
 
 const testing = std.testing;
@@ -856,8 +783,7 @@ test "a hook registered twice is a failure that says it fires twice" {
     var df = try DoctorFixture.init(gpa);
     defer df.deinit();
     try df.baseline();
-    try df.fx.tmp.dir.createDirPath(testing.io, "home/.claude/bin");
-    try df.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "home/.claude/bin/synapse-hook", .data = "" });
+    try df.fx.tmp.dir.createDirPath(testing.io, "home/.claude");
     // db-sync is deliberately absent as well, but the duplicate is the
     // louder problem and is what the message must name -- a hook firing
     // twice produces duplicated context nobody attributes to settings.json.
@@ -880,102 +806,33 @@ test "a hook registered twice is a failure that says it fires twice" {
     try testing.expect(std.mem.indexOf(u8, out.written(), "more than once") != null);
 }
 
-test "a plugin install with hooks.json present reports ok, not the legacy-shape failures" {
-    // A healthy plugin install has neither ~/.claude/bin/synapse-hook nor a
-    // settings.json hook merge -- hooks.json is loaded straight from the
-    // plugin cache instead.
+test "all five hooks registered once reports ok, whatever absolute path they were merged with" {
     const gpa = testing.allocator;
     var df = try DoctorFixture.init(gpa);
     defer df.deinit();
     try df.baseline();
-    try df.fx.tmp.dir.createDirPath(testing.io, "home/.claude/plugins/cache/synapse/synapse/2026-08-1/hooks");
+    try df.fx.tmp.dir.createDirPath(testing.io, "home/.claude");
+    // The command prefix is an npm-resolved node_modules path here -- an
+    // arbitrary absolute path, on purpose: this check counts occurrences of
+    // "synapse-hook {name}" as a substring, so it never needs to know or
+    // care what precedes it.
     try df.fx.tmp.dir.writeFile(testing.io, .{
-        .sub_path = "home/.claude/plugins/cache/synapse/synapse/2026-08-1/hooks/hooks.json",
-        .data = "",
+        .sub_path = "home/.claude/settings.json",
+        .data =
+        \\{"hooks":{
+        \\ "SessionStart":[{"hooks":[{"type":"command","command":"/x/node_modules/@imunitic/synapse-darwin-arm64/bin/synapse-hook session-start"}]}],
+        \\ "UserPromptSubmit":[{"hooks":[{"type":"command","command":"/x/node_modules/@imunitic/synapse-darwin-arm64/bin/synapse-hook prompt-context"}]}],
+        \\ "PostToolUse":[
+        \\  {"hooks":[{"type":"command","command":"/x/node_modules/@imunitic/synapse-darwin-arm64/bin/synapse-hook db-sync"}]},
+        \\  {"hooks":[{"type":"command","command":"/x/node_modules/@imunitic/synapse-darwin-arm64/bin/synapse-hook staleness"}]}],
+        \\ "Stop":[{"hooks":[{"type":"command","command":"/x/node_modules/@imunitic/synapse-darwin-arm64/bin/synapse-hook stop-nudge"}]}]}}
+        ,
     });
 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
     _ = try df.check(df.fx.repo, &out.writer);
-
-    const text = out.written();
-    try testing.expect(std.mem.indexOf(u8, text, "ok") != null and std.mem.indexOf(u8, text, "hooks") != null and std.mem.indexOf(u8, text, "plugin install") != null);
-    try testing.expect(std.mem.indexOf(u8, text, "hook binary") == null);
-}
-
-test "a stray file in the plugin cache dir (macOS .DS_Store, seen live) is never mistaken for the version dir" {
-    // Caught live on a real machine: Finder had been opened to this exact
-    // path, dropping a .DS_Store file there, and pluginVersionDir() took
-    // whatever directory-iteration order handed it first -- the file, not
-    // the real version directory -- reporting a false "hooks.json is
-    // missing" failure against a perfectly healthy install.
-    const gpa = testing.allocator;
-    var df = try DoctorFixture.init(gpa);
-    defer df.deinit();
-    try df.baseline();
-    try df.fx.tmp.dir.createDirPath(testing.io, "home/.claude/plugins/cache/synapse/synapse");
-    try df.fx.tmp.dir.writeFile(testing.io, .{
-        .sub_path = "home/.claude/plugins/cache/synapse/synapse/.DS_Store",
-        .data = "",
-    });
-    try df.fx.tmp.dir.createDirPath(testing.io, "home/.claude/plugins/cache/synapse/synapse/2026-08_9/hooks");
-    try df.fx.tmp.dir.writeFile(testing.io, .{
-        .sub_path = "home/.claude/plugins/cache/synapse/synapse/2026-08_9/hooks/hooks.json",
-        .data = "",
-    });
-
-    var out: Io.Writer.Allocating = .init(gpa);
-    defer out.deinit();
-    _ = try df.check(df.fx.repo, &out.writer);
-
-    const text = out.written();
-    try testing.expect(std.mem.indexOf(u8, text, "ok") != null and std.mem.indexOf(u8, text, "hooks") != null and std.mem.indexOf(u8, text, "2026-08_9") != null);
-    try testing.expect(std.mem.indexOf(u8, text, "FAIL  hooks") == null);
-}
-
-test "the newest of several coexisting version dirs wins by number, not lexicographically" {
-    // Caught live: a real install had 2026-08_9, 2026-08_12 and 2026-08_13
-    // coexisting (releases accumulate; nothing prunes old ones), and
-    // pluginVersionDir()'s plain lexicographic max picked 2026-08_9 as
-    // "newest". Only the numerically-newest dir gets a real hooks.json
-    // here, so a lexicographic pick would report FAIL, not the ok this
-    // test actually asserts.
-    const gpa = testing.allocator;
-    var df = try DoctorFixture.init(gpa);
-    defer df.deinit();
-    try df.baseline();
-    const cache = "home/.claude/plugins/cache/synapse/synapse";
-    try df.fx.tmp.dir.createDirPath(testing.io, cache ++ "/2026-08_9/hooks");
-    try df.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = cache ++ "/2026-08_9/hooks/hooks.json", .data = "" });
-    try df.fx.tmp.dir.createDirPath(testing.io, cache ++ "/2026-08_12/hooks");
-    try df.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = cache ++ "/2026-08_12/hooks/hooks.json", .data = "" });
-    try df.fx.tmp.dir.createDirPath(testing.io, cache ++ "/2026-08_13/hooks");
-    try df.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = cache ++ "/2026-08_13/hooks/hooks.json", .data = "" });
-
-    var out: Io.Writer.Allocating = .init(gpa);
-    defer out.deinit();
-    _ = try df.check(df.fx.repo, &out.writer);
-
-    const text = out.written();
-    try testing.expect(std.mem.indexOf(u8, text, "ok") != null and std.mem.indexOf(u8, text, "hooks") != null and std.mem.indexOf(u8, text, "2026-08_13") != null);
-    try testing.expect(std.mem.indexOf(u8, text, "2026-08_9/hooks") == null);
-    try testing.expect(std.mem.indexOf(u8, text, "2026-08_12/hooks") == null);
-}
-
-test "a plugin install missing hooks.json is a failure that names the version dir" {
-    const gpa = testing.allocator;
-    var df = try DoctorFixture.init(gpa);
-    defer df.deinit();
-    try df.baseline();
-    try df.fx.tmp.dir.createDirPath(testing.io, "home/.claude/plugins/cache/synapse/synapse/2026-08-1");
-
-    var out: Io.Writer.Allocating = .init(gpa);
-    defer out.deinit();
-    const code = try df.check(df.fx.repo, &out.writer);
-    try testing.expectEqual(@as(u8, 1), code);
-
-    const text = out.written();
-    try testing.expect(std.mem.indexOf(u8, text, "FAIL") != null and std.mem.indexOf(u8, text, "hooks") != null and std.mem.indexOf(u8, text, "hooks/hooks.json is missing") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "all five registered once") != null);
 }
 
 test "outside a git repo it warns rather than failing" {

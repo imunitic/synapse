@@ -1,108 +1,61 @@
 name: release
 
-# Every push to main is a release -- no semantic versioning, no manual tag,
-# no version-bump decision. See designs/synapse/sb — Convert Synapse into a
-# proper Claude Code plugin.md for why: a static or hand-bumped version
-# string in plugin.json silently breaks Claude Code's update detection, so
-# the only sustainable choice is a version that changes on its own, every
-# time, mechanically.
+# A release is cut by pushing a tag (`vX.Y.Z`), not by every push to main --
+# main can move freely with nothing building or publishing. workflow_dispatch
+# takes an explicit `tag` input for a manual re-run and checks out that tag
+# rather than whatever ref triggered the dispatch, so a manual run can never
+# accidentally build off an untagged commit.
 #
 # Deliberately independent of tests.yml, which also runs on every push: a
 # compile failure here fails this workflow's own build step the same way it
 # would there (both run the identical `zig build -Dtarget=...` per release
 # target), so there is no real gap in the common case, and chaining this
 # workflow behind tests.yml's own success would only add latency to every
-# release for a case (compiles fine, fails a unit/bats test) this rolling
-# model already accepts as the cost of shipping continuously.
+# release for a case (compiles fine, fails a unit/bats test) a maintainer
+# tagging a known-good commit has already accepted responsibility for.
 on:
   push:
-    branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (must already exist, e.g. v0.2.0)"
+        required: true
 
 permissions:
   contents: write
+  # OIDC for npm's Trusted Publishing -- lets `npm publish` mint a
+  # short-lived token itself instead of reading a stored NPM_TOKEN secret.
+  # Requires Trusted Publisher configured per-package on npmjs.com first
+  # (pointing at this workflow file), which only becomes possible after a
+  # package's first publish -- see the release job's own publish step.
+  id-token: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
-    # Belt-and-suspenders alongside the `push: branches: [main]` trigger
-    # above: that trigger already keeps a feature-branch push from starting
-    # this job, but `workflow_dispatch` has no branch restriction of its own
-    # and can be fired against any ref. Without this, a manual dispatch off a
-    # feature branch would still compute a tag, push it, and force-push a
-    # fresh orphan history over `dist` from that branch's code.
-    if: github.ref == 'refs/heads/main'
 
-    # The tag above is computed from the repo's own git tags at the *start*
-    # of a run, but publishing happens after a multi-minute cross-compile
-    # step -- two pushes close enough together both read the same "highest N
-    # so far" before either has published, compute the same next tag, and
-    # whichever finishes compiling first wins; the other fails to push a tag
-    # that now already exists (confirmed live for the equivalent GitHub
-    # Release race, 2026-08-19, before this moved to plain git tags).
-    # `cancel-in-progress: false`: queue, don't cancel -- a cancelled run
-    # would silently drop a real commit's release rather than just delay it.
+    # Two tags pushed close together could still both reach the "Publish
+    # binaries to the dist branch" step concurrently; that step force-pushes
+    # a fresh orphan history, so two overlapping runs could race and one's
+    # publish could stomp the other's. Queue, don't cancel -- a cancelled
+    # run would silently drop a real tag's release rather than just delay it.
     concurrency:
       group: release-tag
       cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
 
       # No version pinned here -- resolved from build.zig.zon's
       # minimum_zig_version, same reasoning as tests.yml.
       - uses: mlugg/setup-zig@v2
 
-      # $(date +%Y-%m)_N, N = the highest N already used this month, plus
-      # one. Mechanical, not a judgment call -- see the file header.
-      # Underscore before N, not a third hyphen: YYYY-MM-N reads as a
-      # truncated date at a glance, YYYY-MM_N doesn't.
-      #
-      # The highest N, not a count of currently-existing tags -- a count
-      # silently goes backwards the moment any tag from this month is ever
-      # deleted. Taking the max instead is monotonic regardless of what got
-      # deleted in between. Matches both separators so it still sees earlier
-      # hyphen-separated tags from before this format existed.
-      #
-      # Reads `git ls-remote --tags`, not a local `git tag -l`: the checkout
-      # above is a shallow, single-branch clone with no tag refs fetched, so
-      # a local listing would silently see nothing every run.
-      - name: Compute the release tag
+      - name: Resolve the release tag
         id: tag
-        run: |
-          prefix="$(date +%Y-%m)"
-          max=0
-          while read -r n; do
-            case "$n" in '' | *[!0-9]*) continue ;; esac
-            [ "$n" -gt "$max" ] && max="$n"
-          done < <(git ls-remote --tags origin \
-            | sed -nE "s#^.*refs/tags/${prefix}[_-]([0-9]+)\$#\1#p")
-          echo "tag=${prefix}_$((max + 1))" >> "$GITHUB_OUTPUT"
-
-      # The one place either plugin.json's version is ever written. Never by
-      # hand -- see the design note for why a version that stops changing
-      # silently breaks Claude Code's update detection. Both plugins share
-      # one tag: they ship from the same push, so there's no meaningful
-      # sense in which one could be "newer" than the other.
-      - name: Stamp both plugin.json files with the release tag
-        run: |
-          tmp=$(mktemp)
-          jq --arg v "${{ steps.tag.outputs.tag }}" '.version = $v' \
-            plugins/synapse/.claude-plugin/plugin.json > "$tmp"
-          mv "$tmp" plugins/synapse/.claude-plugin/plugin.json
-          jq --arg v "${{ steps.tag.outputs.tag }}" '.version = $v' \
-            plugins/synapse-bard/.claude-plugin/plugin.json > "$tmp"
-          mv "$tmp" plugins/synapse-bard/.claude-plugin/plugin.json
-
-      - name: Commit the version stamp
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add plugins/synapse/.claude-plugin/plugin.json plugins/synapse-bard/.claude-plugin/plugin.json
-          # Nothing to commit is not a failure -- workflow_dispatch on an
-          # already-stamped commit, or a re-run, land here.
-          git diff --cached --quiet || git commit -m "chore: stamp plugin.json for ${{ steps.tag.outputs.tag }}"
-          git push
+        run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
 
       # Same targets ci/build-targets.sh verifies compile on every push;
       # this job packages the same builds instead of discarding them. See
@@ -126,13 +79,74 @@ jobs:
           done
           sha256sum synapse-*.tar.gz > SHA256SUMS
 
-      # A plain git tag, not a GitHub Release -- no changelog, no assets
-      # attached, just the monotonic version marker `fetch-and-run.cjs` reads
-      # via plugin.json and a human-readable pointer at this commit.
-      - name: Tag the release commit
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      # Trusted Publishing needs a recent npm CLI (the OIDC exchange isn't
+      # in whatever ships with Node 20's bundled npm) -- upgrading here
+      # rather than pinning a newer Node version keeps the zig/test image
+      # story untouched everywhere else in this repo.
+      - name: Upgrade npm for OIDC trusted-publishing support
+        run: npm install -g npm@latest
+
+      # One tag, one version, four packages -- npm has no cross-package
+      # transaction, so this is as atomic as it gets: a single step, a
+      # single job, one sequential loop. If a publish partway through
+      # fails, the job just stops there (nothing rolls back the packages
+      # that already published), but nothing races either, since nothing
+      # here runs concurrently. Strips the leading `v` since npm's version
+      # field must be bare semver; platform packages publish before the
+      # main package so its optionalDependencies always resolve to a
+      # version that already exists on the registry.
+      #
+      # No NODE_AUTH_TOKEN -- OIDC trusted publishing (id-token: write
+      # above, plus each package's Trusted Publisher configured on
+      # npmjs.com to trust this exact workflow file) is what authenticates
+      # instead. npm detects the GitHub Actions OIDC environment
+      # automatically; nothing here has to request or pass a token by hand.
+      - name: Publish npm packages in lock-step
         run: |
-          git tag "${{ steps.tag.outputs.tag }}"
-          git push origin "${{ steps.tag.outputs.tag }}"
+          source ci/release-targets.sh
+          v="${{ steps.tag.outputs.tag }}"
+          v="${v#v}"
+
+          # Translates a Zig cross-compile triple to the npm platform
+          # package it feeds -- npm's `os`/`cpu` fields select on
+          # process.platform/process.arch, an unrelated naming scheme to
+          # Zig's target triples, so this is the one place the two are
+          # bridged. Fails loudly on an unmapped target rather than
+          # silently skipping it, so a new entry in ci/release-targets.sh
+          # can't ship without a matching npm platform package.
+          npm_platform_for() {
+            case "$1" in
+              x86_64-linux) echo linux-x64 ;;
+              aarch64-linux) echo linux-arm64 ;;
+              aarch64-macos) echo darwin-arm64 ;;
+              *)
+                echo "no npm platform package mapped for target: $1" >&2
+                exit 1
+                ;;
+            esac
+          }
+
+          for t in "${targets[@]}"; do
+            plat="$(npm_platform_for "$t")"
+            dest="npm-pkg/platforms/$plat/bin"
+            mkdir -p "$dest"
+            cp "out/$t/bin/synapse" "out/$t/bin/synapse-hook" "$dest/"
+            tmp=$(mktemp)
+            jq --arg v "$v" '.version = $v' "npm-pkg/platforms/$plat/package.json" > "$tmp"
+            mv "$tmp" "npm-pkg/platforms/$plat/package.json"
+            npm publish "npm-pkg/platforms/$plat" --access public
+          done
+
+          tmp=$(mktemp)
+          jq --arg v "$v" '.version = $v | .optionalDependencies |= map_values($v)' \
+            npm-pkg/package.json > "$tmp"
+          mv "$tmp" npm-pkg/package.json
+          npm publish npm-pkg --access public
 
       # Real, versioned, permanently-fetchable binaries for `synapse` --
       # unlike `dist` below (bard-only, force-pushed, latest-release-only),

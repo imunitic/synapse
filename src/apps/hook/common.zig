@@ -61,6 +61,35 @@ pub const Payload = struct {
             else => null,
         };
     }
+
+    /// The file a mutating tool touched, across every payload shape a hook in
+    /// this repo has to read: Claude Code's `tool_input.file_path` (Write/
+    /// Edit) or `tool_response.filePath` (some other tools) -- both already
+    /// absolute -- and Codex's `apply_patch`, whose `tool_input` carries no
+    /// path field at all: the target path is the first line of patch-
+    /// directive text instead, `"*** Update File: {path}"` or `"*** Add
+    /// File: {path}"`, right after `"*** Begin Patch"`. That path is
+    /// relative to the payload's own `cwd`, not absolute, unlike the other
+    /// two shapes -- live-observed against a real Codex session, not
+    /// assumed. Always allocates, so every match resolves the same way;
+    /// caller frees.
+    pub fn toolFile(self: Payload, gpa: Allocator) !?[]u8 {
+        if (self.nested("tool_input", "file_path")) |f| return try gpa.dupe(u8, f);
+        if (self.nested("tool_response", "filePath")) |f| return try gpa.dupe(u8, f);
+        const cmd = self.nested("tool_input", "command") orelse return null;
+        const markers = [_][]const u8{ "*** Update File: ", "*** Add File: " };
+        for (markers) |m| {
+            const idx = std.mem.indexOf(u8, cmd, m) orelse continue;
+            const rest = cmd[idx + m.len ..];
+            const end = std.mem.indexOfScalar(u8, rest, '\n') orelse rest.len;
+            const path = std.mem.trimEnd(u8, rest[0..end], " \r");
+            if (path.len == 0) continue;
+            if (std.fs.path.isAbsolute(path)) return try gpa.dupe(u8, path);
+            const cwd = self.str("cwd") orelse return try gpa.dupe(u8, path);
+            return try std.fmt.allocPrint(gpa, "{s}/{s}", .{ cwd, path });
+        }
+        return null;
+    }
 };
 
 /// The vault directory: the environment, else `~/.claude/synapse.conf`.
@@ -207,6 +236,75 @@ pub fn writeJsonString(w: *Io.Writer, s: []const u8) !void {
 }
 
 const testing = std.testing;
+
+fn parsedPayload(gpa: Allocator, json: []const u8) Payload {
+    return .{ .parsed = std.json.parseFromSlice(std.json.Value, gpa, json, .{}) catch unreachable };
+}
+
+test "toolFile: tool_input.file_path wins outright" {
+    const gpa = testing.allocator;
+    var p = parsedPayload(gpa, "{\"tool_input\":{\"file_path\":\"/a/b.ml\"}}");
+    defer p.deinit();
+    const got = (try p.toolFile(gpa)).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("/a/b.ml", got);
+}
+
+test "toolFile: falls back to tool_response.filePath when tool_input.file_path is absent" {
+    const gpa = testing.allocator;
+    var p = parsedPayload(gpa, "{\"tool_response\":{\"filePath\":\"/a/c.ml\"}}");
+    defer p.deinit();
+    const got = (try p.toolFile(gpa)).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("/a/c.ml", got);
+}
+
+test "toolFile: apply_patch's Update File path is relative to the payload's own cwd" {
+    const gpa = testing.allocator;
+    var p = parsedPayload(
+        gpa,
+        "{\"cwd\":\"/repo\",\"tool_input\":{\"command\":\"*** Begin Patch\\n*** Update File: lib/calc.ml\\n@@\\n-old\\n+new\\n*** End Patch\"}}",
+    );
+    defer p.deinit();
+    const got = (try p.toolFile(gpa)).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("/repo/lib/calc.ml", got);
+}
+
+test "toolFile: apply_patch's Add File path, also joined against cwd" {
+    const gpa = testing.allocator;
+    var p = parsedPayload(
+        gpa,
+        "{\"cwd\":\"/repo\",\"tool_input\":{\"command\":\"*** Begin Patch\\n*** Add File: brand/new.txt\\n+content\\n*** End Patch\"}}",
+    );
+    defer p.deinit();
+    const got = (try p.toolFile(gpa)).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("/repo/brand/new.txt", got);
+}
+
+test "toolFile: an already-absolute apply_patch path is used as-is, not double-joined" {
+    const gpa = testing.allocator;
+    var p = parsedPayload(
+        gpa,
+        "{\"cwd\":\"/repo\",\"tool_input\":{\"command\":\"*** Begin Patch\\n*** Update File: /elsewhere/calc.ml\\n*** End Patch\"}}",
+    );
+    defer p.deinit();
+    const got = (try p.toolFile(gpa)).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("/elsewhere/calc.ml", got);
+}
+
+test "toolFile: none of the known shapes present is null, not a crash" {
+    const gpa = testing.allocator;
+    var p = parsedPayload(gpa, "{\"tool_input\":{\"command\":\"*** Begin Patch\\n*** Delete File: gone.ml\\n*** End Patch\"}}");
+    defer p.deinit();
+    try testing.expectEqual(@as(?[]u8, null), try p.toolFile(gpa));
+
+    var empty = parsedPayload(gpa, "{}");
+    defer empty.deinit();
+    try testing.expectEqual(@as(?[]u8, null), try empty.toolFile(gpa));
+}
 
 test "an index that names another repo, or another branch, does not agree" {
     const ns: Namespace = .{

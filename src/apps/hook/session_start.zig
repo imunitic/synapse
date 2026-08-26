@@ -67,15 +67,22 @@ pub fn build(gpa: Allocator, io: Io, env: *std.process.Environ.Map, argv0: []con
     // standing instructions, not vault content. `CLAUDE_PLUGIN_ROOT` is a
     // real exported environment variable on the spawned hook process
     // ("regardless of how it was launched", per Claude Code's own hooks
-    // reference) -- checked first when running as a plugin. Falls back to
-    // resolving relative to this binary's own invoked path (`argv0`), one
-    // directory up, for the pre-plugin `setup.sh` install, which has no
-    // `CLAUDE_PLUGIN_ROOT` at all: `~/.claude/bin/synapse-hook` next to
+    // reference) -- checked first when running as a plugin. `SYNAPSE_CONTENT_ROOT`
+    // is the npm-install equivalent -- `synapse-setup configure claude` sets
+    // it, since npm never sets `CLAUDE_PLUGIN_ROOT` and the binary itself
+    // (resolved via node_modules/@imunitic/synapse-{platform}-{arch}/bin/)
+    // has no fixed relationship to where the npm package's own content root
+    // lives, unlike the pre-plugin install below. Falls back to resolving
+    // relative to this binary's own invoked path (`argv0`), one directory
+    // up, for the pre-plugin `setup.sh` install, which has neither env var
+    // set at all: `~/.claude/bin/synapse-hook` next to
     // `~/.claude/synapse-claude.md` today. No frontmatter to strip --
     // unlike a skill file, this one has none.
     var claude_md: ?[]u8 = null;
     defer if (claude_md) |s| gpa.free(s);
     const claude_md_path: ?[]u8 = if (env.get("CLAUDE_PLUGIN_ROOT")) |root|
+        try std.fmt.allocPrint(gpa, "{s}/synapse-claude.md", .{root})
+    else if (env.get("SYNAPSE_CONTENT_ROOT")) |root|
         try std.fmt.allocPrint(gpa, "{s}/synapse-claude.md", .{root})
     else if (std.fs.path.dirname(argv0)) |bin_dir|
         try std.fmt.allocPrint(gpa, "{s}/../synapse-claude.md", .{bin_dir})
@@ -158,12 +165,15 @@ pub fn build(gpa: Allocator, io: Io, env: *std.process.Environ.Map, argv0: []con
             //
             // The seed template's own path is resolved the same way
             // `claude_md_path` above resolves `synapse-claude.md` -- a
-            // repo-relative string (`plugins/synapse/Index.md.template`)
-            // means nothing to a model inside an ordinary installed
-            // session, which has no copy of this repo checked out at all.
-            // `CLAUDE_PLUGIN_ROOT` (or, pre-plugin, argv0's own directory)
-            // is the only path that resolves in every install shape.
+            // repo-relative string (`npm-pkg/Index.md.template`) means
+            // nothing to a model inside an ordinary installed session,
+            // which has no copy of this repo checked out at all.
+            // `CLAUDE_PLUGIN_ROOT`, `SYNAPSE_CONTENT_ROOT` (or, pre-plugin,
+            // argv0's own directory) is the only path that resolves in
+            // every install shape.
             const template_path: ?[]u8 = if (env.get("CLAUDE_PLUGIN_ROOT")) |root|
+                try std.fmt.allocPrint(gpa, "{s}/Index.md.template", .{root})
+            else if (env.get("SYNAPSE_CONTENT_ROOT")) |root|
                 try std.fmt.allocPrint(gpa, "{s}/Index.md.template", .{root})
             else if (std.fs.path.dirname(argv0)) |bin_dir|
                 try std.fmt.allocPrint(gpa, "{s}/../Index.md.template", .{bin_dir})
@@ -424,6 +434,21 @@ test "synapse-claude.md is injected from $CLAUDE_PLUGIN_ROOT when that's set" {
     defer gpa.free(plugin_dir);
     try sf.writeClaudeMd(plugin_dir, "STANDING INSTRUCTIONS MARKER\n");
     try sf.fx.env.put("CLAUDE_PLUGIN_ROOT", plugin_dir);
+
+    const text = (try sf.inject("", sf.fx.repo)).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "STANDING INSTRUCTIONS MARKER") != null);
+}
+
+test "synapse-claude.md is injected from $SYNAPSE_CONTENT_ROOT when that's set" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.commit();
+    const content_root = try std.fmt.allocPrint(gpa, "{s}/npm-pkg", .{sf.fx.root});
+    defer gpa.free(content_root);
+    try sf.writeClaudeMd(content_root, "STANDING INSTRUCTIONS MARKER\n");
+    try sf.fx.env.put("SYNAPSE_CONTENT_ROOT", content_root);
 
     const text = (try sf.inject("", sf.fx.repo)).?;
     defer gpa.free(text);

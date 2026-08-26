@@ -131,7 +131,7 @@ edit directly if a cached decision needs correcting.
 ## Curated-default registries (JSON)
 
 Unlike the self-populating registries above, this file is never empty in the ordinary case: it
-ships with real content via `plugins/synapse/*.conf.template`, read live as tier 3 of the resolution order
+ships with real content via `npm-pkg/*.conf.template`, read live as tier 3 of the resolution order
 above the moment nothing overrides it at tier 1 or 2 — no seeding, no install-time copy. Once a
 real file resolves at tier 1 or 2 instead, it is authoritative on its own — an extension it doesn't
 mention is simply unmapped, never silently filled in from anything else. A compiled-in fallback
@@ -175,7 +175,7 @@ tier 1/2 either — a from-source checkout with nothing configured, or a hermeti
 
 - **`synapse-projects.conf`** — `project-name=prefix` pairs (e.g. `my-app=myapp`) resolving a
   repo to its task-note ID prefix for `/synapse-note --task` and friends. Deliberately outside the
-  portable `plugins/synapse/` package and never copied between machines, so contexts that shouldn't mix
+  portable `npm-pkg/` package and never copied between machines, so contexts that shouldn't mix
   (personal vs. work projects) never land in the same file. Self-managed by `/synapse-note` — it
   appends a newly resolved pair the first time it has to ask — and safe to hand-edit any time. Read
   by the orchestrating agent running a `/synapse-*` command, never by a Zig binary.

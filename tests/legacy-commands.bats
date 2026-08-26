@@ -73,7 +73,7 @@ EOF
 # hardcoded to $SYNAPSE_BIN's own subcommand vocabulary, so scanning bard's
 # docs here would need that generalized first, not just this path updated.
 shipped_instructions() {
-  find "$REPO_ROOT/plugins/synapse" -name '*.md' -type f
+  find "$REPO_ROOT/npm-pkg" -name '*.md' -type f
 }
 
 # The shell entry points the rewrite deleted. Matched with a trailing `.sh` so this

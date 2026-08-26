@@ -144,18 +144,17 @@ write_fenced_node() {
   # passes on Linux and on any macOS where the system temp dir happens to be
   # writable.
   #
-  # plugins/synapse/hooks/*.sh is empty as of the Node rewrite (every shipped
-  # hook is .cjs now, and Node's own mktemp equivalents already respect
-  # TMPDIR), but the check stays glob-safe rather than being deleted: an
-  # unmatched glob left bare would pass its literal, unexpanded pattern to
-  # grep, which exits 2 (error) rather than 0 or 1 -- silently defeating the
-  # check the moment the directory it globs has nothing matching, exactly the
-  # failure mode this test exists to catch in the shipped hooks themselves.
-  # `nullglob` makes an empty match an empty array instead, so this test
-  # skips cleanly today and starts checking again the moment a `.sh` hook
-  # reappears.
+  # npm-pkg/lib/*.sh is empty -- every shipped hook is .cjs (Node's own
+  # mktemp equivalents already respect TMPDIR), but the check stays
+  # glob-safe rather than being deleted: an unmatched glob left bare would
+  # pass its literal, unexpanded pattern to grep, which exits 2 (error)
+  # rather than 0 or 1 -- silently defeating the check the moment the
+  # directory it globs has nothing matching, exactly the failure mode this
+  # test exists to catch in the shipped hooks themselves. `nullglob` makes
+  # an empty match an empty array instead, so this test skips cleanly today
+  # and starts checking again the moment a `.sh` hook reappears.
   shopt -s nullglob
-  local files=("$REPO_ROOT"/plugins/synapse/hooks/*.sh)
+  local files=("$REPO_ROOT"/npm-pkg/lib/*.sh)
   shopt -u nullglob
   [ "${#files[@]}" -eq 0 ] && skip "no .sh hooks currently shipped"
 

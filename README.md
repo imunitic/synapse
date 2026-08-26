@@ -22,26 +22,27 @@ your call).
 
 ## New machine setup
 
-Synapse ships as a real [Claude Code plugin](https://code.claude.com/docs/en/plugins) — no
-`git clone`, no build step, no install script. From inside Claude Code:
+Synapse installs via npm — one package (`@imunitic/synapse`), one setup command, three harnesses
+(Claude Code, Codex CLI, OpenCode):
 
+```sh
+npm install -g @imunitic/synapse
+synapse-setup configure claude       # or: codex / opencode
 ```
-/plugin marketplace add imunitic/synapse
-/plugin install synapse@synapse
-```
 
-That's the whole install. Claude Code clones the plugin's small files (commands, skills, hook
-wiring) into its own plugin cache; the first hook that fires downloads the two compiled binaries
-(`synapse`, `synapse-hook`) from this repo's `dist` branch into `~/.cache/synapse/bin/` and caches
-them there — nothing to rebuild until a new release ships. `zig build` is only for contributing to
-Synapse itself; see [Dependencies](#dependencies).
+`npm install` alone already puts the right compiled binaries (`synapse`, `synapse-hook`) on disk —
+`@imunitic/synapse` depends on a per-platform package (`@imunitic/synapse-darwin-arm64` etc.) that
+npm resolves automatically for the machine it's running on, so there's nothing to fetch or build
+afterward. `zig build` is only for contributing to Synapse itself; see [Dependencies](#dependencies).
 
-**Staying updated:** third-party marketplaces (this one included) have Claude Code's own
-marketplace auto-update turned *off* by default — turn it on with `/plugin` → **Marketplaces** →
-select `synapse` → **Enable auto-update**, or refresh on demand with `/plugin marketplace update
-synapse`. Either way, the binary itself follows automatically: every hook compares the plugin's
-installed version against what it last fetched, and re-downloads the moment those differ — no
-`~/.cache/synapse/bin/` cache-clearing or manual re-fetch needed once auto-update is on.
+> Not yet published to the npm registry. Until then, run from a checkout instead:
+> ```sh
+> git clone https://github.com/imunitic/synapse
+> cd synapse/npm-pkg
+> node bin/synapse-setup.cjs configure claude   # or: codex / opencode
+> ```
+> This needs the platform binaries built locally first (`zig build`, or `just build`) and copied
+> into `platforms/{platform}-{arch}/bin/` — see [Dependencies](#dependencies).
 
 1. Install Obsidian, open (or create) your Vault.
 2. **Settings → Community plugins → Browse**, install + enable:
@@ -54,25 +55,23 @@ installed version against what it last fetched, and re-downloads the moment thos
    ```sh
    OBSIDIAN_VAULT_DIR="$HOME/path/to/your/vault"
    ```
-   Nothing prompts for this during install — a plugin install is just files landing on disk, no
-   interactive step. Skip it and the next session's `SessionStart` hook says so directly instead of
-   staying silent.
-4. Restart Claude Code, or start a fresh session. From here on, a second `SessionStart` hook
-   registers the `obsidian` MCP server automatically every session — extracting the Local REST API
-   plugin's cert + API key, wiring `NODE_EXTRA_CA_CERTS`, running `claude mcp add` — no script to
-   run by hand, and it keeps itself current if you ever reinstall the Obsidian plugin (new cert and
-   key each time).
+   Nothing prompts for this during `npm install` — `synapse-setup configure claude` is the step that
+   actually wires things up, and it doesn't ask for this either. Skip it and the next session's
+   `SessionStart` hook says so directly instead of staying silent.
+4. Restart Claude Code, or start a fresh session — `synapse-setup configure claude` already
+   registered the `obsidian` MCP server and wrote `NODE_EXTRA_CA_CERTS` for you, and a
+   `SessionStart` hook keeps that registration current on every future session (new cert and key
+   whenever the Obsidian plugin reinstalls), no script to re-run by hand.
 5. Check the result:
    ```sh
-   ~/.cache/synapse/bin/synapse doctor    # or add ~/.cache/synapse/bin to PATH first
+   synapse doctor
    ```
    One line per precondition, and it exits non-zero if any of them is broken. Worth running
    even when everything seems fine, because almost every guard in the system is *silent* by
    design — a hook that errors is worse than one that quietly does nothing, so a half-installed
    machine looks exactly like a working one with nothing to say. `doctor` is the one place that
    speaks: a missing certificate, an Obsidian that is not running, a namespace whose recorded
-   remote no longer matches, a hook registered twice (which makes it fire twice) — and it tells a
-   plugin install and a from-source checkout apart automatically, checking whichever one it finds.
+   remote no longer matches, a hook registered twice (which makes it fire twice).
 6. (Recommended) Set Obsidian to start automatically at login, so it is always running:
    - **macOS**:
      ```sh
@@ -95,12 +94,6 @@ installed version against what it last fetched, and re-downloads the moment thos
    - **Windows**: press **Win+R**, type `shell:startup`, hit Enter, then drop a shortcut to
      `Obsidian.exe` into the folder that opens.
 
-**Contributing, or want to run from a checkout instead of the plugin?** `git clone`, `zig build`
-(or `just build`), then point Claude Code at the checkout's `plugins/synapse/` directory with `claude
---plugin-dir ./plugins/synapse` for local testing — see [Claude Code's plugin
-docs](https://code.claude.com/docs/en/plugins#test-your-plugins-locally) for the full local-dev
-flow. There's no `setup.sh` anymore; the plugin path replaced it entirely.
-
 **Using it:** the human-facing entry points are `/synapse-init`, `/synapse-rebuild-diff`, and
 `/synapse-rebuild-full` — `/synapse-init` builds a repo's first Graph namespace,
 `/synapse-rebuild-diff` repairs one after major same-branch drift (triage, nothing deleted),
@@ -109,13 +102,53 @@ tool. Neither of the two repair commands requires knowing anything below this po
 binary underneath them isn't something you're expected to run by hand; its subcommands are
 documented in [`docs/synapse/cli.md`](docs/synapse/cli.md) for whoever goes looking.
 
+### Codex CLI and OpenCode
+
+Synapse also runs under [Codex CLI](https://github.com/openai/codex) and
+[OpenCode](https://opencode.ai) — same compiled `synapse`/`synapse-hook` binaries, same Vault, same
+Graph, adapted per harness rather than reimplemented, and the same `synapse-setup configure
+<harness>` command shown above:
+
+```sh
+synapse-setup configure codex       # or: opencode
+```
+
+- **Hooks** — `SessionStart`/`UserPromptSubmit`/`PostToolUse`/`Stop` equivalents, registered in each
+  harness's own hook mechanism (Codex: the global `~/.codex/hooks.json`; OpenCode: a plugin file
+  copied to `~/.config/opencode/plugin/`). Merges into anything already there rather than
+  overwriting it.
+- **The `obsidian` MCP connection** — registered against the Local REST API plugin's plain-HTTP
+  fallback (`http://127.0.0.1:{port}/mcp/`) rather than the HTTPS endpoint the Claude Code hook
+  uses, since neither harness has a way to trust that endpoint's self-signed cert. **Requires the
+  plugin's plain-HTTP server enabled first**: in Obsidian, **Settings → Local REST API → Enable HTTP
+  server**.
+- **Skills and commands** — the shared `npm-pkg/skills/` copied into each harness's own skill
+  directory (`~/.codex/skills/`, `~/.config/opencode/skill/`), plus, for OpenCode only, the shared
+  `npm-pkg/commands/` copied into `~/.config/opencode/command/` (its command format already matches
+  this repo's own argument convention verbatim). Codex has no equivalent positional-argument
+  mechanism, so its 8 command-equivalents are separately hand-authored under
+  `npm-pkg/harness/codex/skills/` and copied in alongside the shared skills instead.
+
+OpenCode needs no manual step at all — its plugin resolves the installed binary's path directly.
+Codex needs one: it reads the vault's bearer token from a named env var, never inline in
+`config.toml`, so `configure codex` prints the export line to add to your shell profile:
+
+```sh
+export SYNAPSE_OBSIDIAN_API_KEY="{key}"
+```
+
+Add it, restart your terminal, then restart Codex — it additionally prompts to trust the
+newly-written hooks on its next session, approve that interactively. Re-run `configure <harness>`
+any time to pick up a newer Synapse release or repair a broken install; it's idempotent and safe to
+run repeatedly.
+
 ## Synapse Vault — the notes
 
-- `plugins/synapse/synapse-claude.md` — the global memory-system instructions: when to write a note, where it
+- `npm-pkg/synapse-claude.md` — the global memory-system instructions: when to write a note, where it
   goes, and the linking rules. Injected directly by the `SessionStart` hook every session (the same
   mechanism that injects `Index.md`), not via a `CLAUDE.md` `@import` line — `~/.claude/CLAUDE.md`
   stays entirely yours, untouched.
-- `plugins/synapse/synapse.conf.template` — path config; set `OBSIDIAN_VAULT_DIR` per machine.
+- `npm-pkg/synapse.conf.template` — path config; set `OBSIDIAN_VAULT_DIR` per machine.
 - `synapse-hook session-start` — `SessionStart`: injects the Vault's index and this repo's
   Graph namespace pointer, if one exists.
 - `synapse-hook stop-nudge` — a turn-count-based `Stop` hook that nudges a "worth
@@ -123,13 +156,13 @@ documented in [`docs/synapse/cli.md`](docs/synapse/cli.md) for whoever goes look
   `SYNAPSE_VAULT_PUSH_EVERY` turns (default 5), detached so a turn never waits on the network.
 - `synapse-hook db-sync` — commits Vault changes to the Vault's own local git repo,
   if one exists.
-- `plugins/synapse/commands/synapse-note.md` — note creation (bare / `--task` / `--list` / `--search`).
-- `plugins/synapse/commands/synapse-design-note.md`, `plugins/synapse/commands/synapse-task-note.md` — a design-discussion →
+- `npm-pkg/commands/synapse-note.md` — note creation (bare / `--task` / `--list` / `--search`).
+- `npm-pkg/commands/synapse-design-note.md`, `npm-pkg/commands/synapse-task-note.md` — a design-discussion →
   compiled-checklist pipeline, cross-project by default (lives in the Vault, not a repo's gitignored
   `docs/notes/`).
-- `plugins/synapse/skills/synapse-task/` — proactive task-status tracking.
-- `plugins/synapse/skills/synapse-node-format/`, `plugins/synapse/skills/synapse-orientation/`,
-  `plugins/synapse/skills/synapse-vault/` — loadable knowledge rather than procedure: the node contract, how to
+- `npm-pkg/skills/synapse-task/` — proactive task-status tracking.
+- `npm-pkg/skills/synapse-node-format/`, `npm-pkg/skills/synapse-orientation/`,
+  `npm-pkg/skills/synapse-vault/` — loadable knowledge rather than procedure: the node contract, how to
   orient in an unfamiliar tree, and vault-editing rules (pull-only apart from `Index.md`), each shared
   across multiple components rather than owned by one.
 
@@ -138,19 +171,19 @@ documented in [`docs/synapse/cli.md`](docs/synapse/cli.md) for whoever goes look
 A few dozen LLM-authored node notes per repo, one per subsystem or concept, each carrying a
 plain-English summary, a quoted `crux`, typed links, and the exhaustive list of files it covers.
 
-- `plugins/synapse/commands/synapse-init.md` — first-time build: orientation pass, clustering into a
+- `npm-pkg/commands/synapse-init.md` — first-time build: orientation pass, clustering into a
   `manifest.tsv`, then node notes plus two derived projections. Also the manual `_unassigned`-sweep
   fallback for an already-initialized but dormant repo.
-- `plugins/synapse/commands/synapse-rebuild-diff.md` — manual repair for major same-branch drift (a pull, a
+- `npm-pkg/commands/synapse-rebuild-diff.md` — manual repair for major same-branch drift (a pull, a
   rebase, a long absence): triages each flagged node into **reseat**, **patch from the diff**, or
   **re-orient**. Refuses outright on a cross-branch mismatch.
-- `plugins/synapse/commands/synapse-rebuild-full.md` — wipes the current namespace and rebuilds it from
+- `npm-pkg/commands/synapse-rebuild-full.md` — wipes the current namespace and rebuilds it from
   scratch via `/synapse-init`, for when triage isn't the right tool. Preserves any hand-written
   `## Notes` first (`synapse graph-wipe`) and auto-merges what it can back into
   the new nodes afterward.
 - `synapse-hook staleness` — `PostToolUse` Tier 1: flags a just-edited file's nodes `stale`
   and re-verifies any evidence that file's nodes cite, via the Local REST API directly.
-- `plugins/synapse/skills/synapse-node/` — Tier 2: the lazy staleness check, regeneration and unassigned sweep
+- `npm-pkg/skills/synapse-node/` — Tier 2: the lazy staleness check, regeneration and unassigned sweep
   Claude runs itself whenever a node's body is actually read.
 
 ## What's NOT portable (per-machine, regenerated fresh each time)
@@ -207,7 +240,7 @@ The generated artefacts (each project's `cli.md`, the Mermaid diagrams under `do
 are each verified by running their generator's `--check` mode, so an edit that was never regenerated fails a
 test instead of shipping something confidently wrong.
 
-`plugins/synapse/commands/*.md` and `plugins/synapse/skills/*/SKILL.md` are natural-language procedures, so no test
+`npm-pkg/commands/*.md` and `npm-pkg/skills/*/SKILL.md` are natural-language procedures, so no test
 executes them — but `tests/legacy-commands.bats` does check the one thing about them that is
 mechanically true or false: **every command they tell Claude to run has to exist.** It cross-checks
 each `` `synapse <sub>` `` against the binary's own `--help`, and applies the same rule to the text
@@ -218,7 +251,7 @@ skill's table, with the whole suite green.
 ## Dependencies
 
 For using the plugin: the `claude` CLI itself, `tar` (the `SessionStart` hook's one-time binary fetch
-from the `dist` branch), and `curl` (the compiled binary's own calls to Obsidian's Local REST API —
+from a GitHub Release), and `curl` (the compiled binary's own calls to Obsidian's Local REST API —
 `write-node`, `doctor`). Node itself is assumed, the same way it is for Claude Code overall — every
 shipped hook (`fetch-and-run.cjs`, `obsidian-mcp-refresh.cjs`) runs on it directly, no `jq` or `curl`
 of its own. Nothing to build, nothing to install by hand — see "New machine setup".

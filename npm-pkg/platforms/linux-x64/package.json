@@ -1,0 +1,15 @@
+{
+  "name": "@imunitic/synapse-linux-x64",
+  "version": "0.1.0-experimental",
+  "description": "Compiled synapse/synapse-hook binaries for linux/x64. An optionalDependency of @imunitic/synapse -- never installed directly.",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin"
+  ],
+  "license": "SEE LICENSE IN LICENSE"
+}

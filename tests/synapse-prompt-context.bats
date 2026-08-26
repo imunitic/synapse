@@ -14,7 +14,7 @@ load 'test_helper'
 setup() {
   common_setup
   setup_fake_obsidian_plugin
-  cp "$REPO_ROOT/plugins/synapse/synapse-prompt-stopwords.conf.template" \
+  cp "$REPO_ROOT/npm-pkg/synapse-prompt-stopwords.conf.template" \
     "$HOME/.claude/synapse-prompt-stopwords.conf"
   CURL_LOG="$TEST_HOME/curl.log"
   : > "$CURL_LOG"

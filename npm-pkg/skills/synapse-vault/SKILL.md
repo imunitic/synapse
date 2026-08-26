@@ -66,8 +66,8 @@ Every item below returns success.
   frontmatter), fall back to reading the file, changing the one line, and writing the whole file
   back.
 - **Do not patch for whitespace-precise edits.** A blank line between a heading and the block
-  under it is exactly what a patch may normalise away. A disk-level `Edit` with a unique anchor is
-  more predictable; Obsidian picks up external changes automatically.
+  under it is exactly what a patch may normalise away. A disk-level file edit with a unique anchor
+  is more predictable; Obsidian picks up external changes automatically.
 - **Never hardcode the vault path.** The REST API targets whichever vault the running headless
   Obsidian has open. If you must reach disk, the path comes from `OBSIDIAN_VAULT_DIR` in
   `~/.claude/synapse.conf`.

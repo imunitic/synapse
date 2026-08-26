@@ -49,7 +49,7 @@ required:
 |---|---|---|
 | "Where does X live?" (ranked, natural-language) | `mcp__obsidian__search_simple`/`search_query` over the vault, plus a first read of `synapse/{project}/Index.md` | Full-text, relevance-ranked. Not semantic ranking, but genuinely comparable for locating a concept. |
 | Every occurrence of a pattern | native `grep`/`rg`, **scoped to a file Synapse already named** | Not a repo-wide first move — the deterred, last-resort case. See "Why this exists" above. |
-| A file's API surface | `Read` the file directly | Claude already has direct, cheap filesystem access — no separate view needed. |
+| A file's API surface | read the file directly | Claude already has direct, cheap filesystem access — no separate view needed. |
 | Who depends on a subsystem, or what it depends on | `synapse query links "{Node}" --inbound` / `--closure` | Real transitive-closure traversal over the typed relations, at node granularity. |
 | **Who calls this method/class, repo-wide** | `synapse callers <name>` | Every call site as `path:line ⇥ calling expression`, off the flat index `synapse build-refs` projects from the tags cache. Well under a second even against a multi-gigabyte index. Needs **no node and no graph** — it works in a repo `/synapse-init` has never touched, as long as the cache is filled. Still name-based rather than type-resolved, so hits are candidates with evidence: the calling expression is on the line, which usually settles the receiver without opening the file. |
 | One frontmatter scalar (`stale`, `built_at`, `commit`, ...) | `synapse query field "{Node}" <key>` | Cheap, targeted extraction — never reads the rest of the node. |
@@ -65,7 +65,7 @@ required:
 | Understanding a flow ("how does X work") | `synapse query body "{Node}"` for the node that covers it | reading every file the flow touches, cold |
 | Finding where a change belongs | `search_simple`/`Index.md` to find the owning node, then that node's `sources`/`crux_path` for the exact file(s) | a repo-wide grep for a guessed symbol name |
 | Judging blast radius before an edit | `synapse query links "{Node}" --inbound` (or `--closure` for transitive) | assuming nothing else depends on it |
-| You already know the exact file and line range | just fetch it (`sed`/`Read`) | asking Synapse a question you can already answer |
+| You already know the exact file and line range | just fetch it (`sed`, or a direct file read) | asking Synapse a question you can already answer |
 | Finding every occurrence of a literal pattern | native `grep`/`rg`, scoped to files Synapse already named | an unscoped repo-wide grep before consulting Synapse at all |
 | A node turns up `stale` | hand off to the `synapse-node` skill | trying to reason about staleness inline here |
 

@@ -319,18 +319,15 @@ syntax:
     set -euo pipefail
     n=0
     # claude/bin and claude/lib/synapse are gone -- the tooling is two
-    # binaries. plugins/synapse/hooks/ is back, for a different reason: not
-    # the old per-hook shell scripts, but the plugin's binary-fetch
-    # bootstrap (sb-019). setup.sh and setup-obsidian-mcp.sh are gone too --
-    # installing is Claude Code's own job now (marketplace add / plugin
-    # install), not a script this repo ships. What is left to parse-check
-    # beyond that is CI and the doc generators, and the `[ -f ]` guard below
-    # is what makes a removed glob harmless. docs/*/*.sh reaches each
-    # project's own generators (docs/synapse/, docs/synapse-bard/) the same
-    # way plugins/*/hooks/*.sh reaches each plugin's own hook scripts, now
-    # that both docs/ and the plugin sources hold more than one project;
-    # docs/*.sh still needed for generate-site.sh, which stays at the top
-    # level since it builds all of them into one site.
+    # binaries. Every shipped hook/setup script is .cjs now (npm-pkg/,
+    # plugins/synapse-bard/hooks/), not .sh -- nothing left for this recipe
+    # to parse-check there, but plugins/*/hooks/*.sh stays in the glob list
+    # rather than being deleted: the `[ -f ]` guard below makes an empty
+    # match harmless, and the moment a `.sh` script reappears in any
+    # plugin's hooks dir, this starts checking it again automatically.
+    # docs/*/*.sh reaches each project's own generators (docs/synapse/,
+    # docs/synapse-bard/); docs/*.sh still needed for generate-site.sh,
+    # which stays at the top level since it builds all of them into one site.
     for f in ci/*.sh docs/*.sh docs/*/*.sh plugins/*/hooks/*.sh; do
         [ -f "$f" ] || continue
         bash -n "$f"
