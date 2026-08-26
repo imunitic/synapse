@@ -17,6 +17,7 @@ const vocab_cmd = @import("vocab_cmd.zig");
 const rank_cmd = @import("rank_cmd.zig");
 const query_cmd = @import("query_cmd.zig");
 const write_node_cmd = @import("write_node_cmd.zig");
+const frontmatter_cmd = @import("frontmatter_cmd.zig");
 const refs_cmd = @import("refs_cmd.zig");
 const deps_cmd = @import("deps_cmd.zig");
 const namespaces_cmd = @import("namespaces_cmd.zig");
@@ -67,6 +68,11 @@ pub fn main(init: std.process.Init) !u8 {
 
     if (std.mem.eql(u8, sub, "write-node"))
         return write_node_cmd.run(fake.FakeExtractor, init.gpa, init.io, init.environ_map, &args);
+
+    // No grammar involved -- pure frontmatter read/write, identical dispatch
+    // to the real binary's.
+    if (std.mem.eql(u8, sub, "frontmatter"))
+        return frontmatter_cmd.run(init.gpa, init.io, init.environ_map, &args);
 
     if (std.mem.eql(u8, sub, "doctor"))
         return doctor_cmd.run(init.gpa, init.io, init.environ_map, &args);
