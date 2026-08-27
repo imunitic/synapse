@@ -23,6 +23,14 @@ pub const text =
     \\  frontmatter get <path> <key>             read one frontmatter field
     \\  frontmatter set <path> <key> <value>    set one frontmatter field, byte-preserving
     \\  frontmatter set <path> --add-tag|--remove-tag <tag>   same, for the tags field
+    \\  vault-read <path>          a note's full body
+    \\  vault-write <path>         write a note's full body, from stdin
+    \\  vault-list                 every note in the vault, recursively
+    \\  vault-search [--fields <f1,f2,...>]   JsonLogic filter from stdin, TSV rows out
+    \\  vault-search-text <query>  full-text relevance search
+    \\  vault-doc-map <path>       headings/block ids/frontmatter keys, for a vault-patch target
+    \\  vault-patch <path> --heading|--block|--frontmatter <target>
+    \\              [--append|--prepend|--replace] [--create]   content from stdin
     \\  build-refs [--cache <f>] [--out <f>]   _refs.tsv from the tags cache
     \\  build-deps [--repo <dir>] [--out <f>]  _deps.tsv, per-file declared dependencies
     \\  build-namespaces [--repo <dir>] [--out <f>]  _namespaces.tsv, per-file declared namespace

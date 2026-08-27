@@ -32,6 +32,14 @@ usage: synapse <subcommand> [args]
   frontmatter get <path> <key>             read one frontmatter field
   frontmatter set <path> <key> <value>    set one frontmatter field, byte-preserving
   frontmatter set <path> --add-tag|--remove-tag <tag>   same, for the tags field
+  vault-read <path>          a note's full body
+  vault-write <path>         write a note's full body, from stdin
+  vault-list                 every note in the vault, recursively
+  vault-search [--fields <f1,f2,...>]   JsonLogic filter from stdin, TSV rows out
+  vault-search-text <query>  full-text relevance search
+  vault-doc-map <path>       headings/block ids/frontmatter keys, for a vault-patch target
+  vault-patch <path> --heading|--block|--frontmatter <target>
+              [--append|--prepend|--replace] [--create]   content from stdin
   build-refs [--cache <f>] [--out <f>]   _refs.tsv from the tags cache
   build-deps [--repo <dir>] [--out <f>]  _deps.tsv, per-file declared dependencies
   build-namespaces [--repo <dir>] [--out <f>]  _namespaces.tsv, per-file declared namespace
@@ -148,6 +156,104 @@ usage: synapse frontmatter get <path> <key>
 
   <path>   the note's full vault-relative path, e.g. tasks/proj/foo.md
   <value>  bare sets a scalar field; comma-separated sets an array
+```
+
+### synapse vault-read
+
+```
+usage: synapse vault-read <path>
+       synapse vault-write <path>                     body on stdin
+       synapse vault-list
+       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
+       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
+       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
+                   [--append|--prepend|--replace] [--create]
+                                                       content on stdin
+```
+
+### synapse vault-write
+
+```
+usage: synapse vault-read <path>
+       synapse vault-write <path>                     body on stdin
+       synapse vault-list
+       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
+       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
+       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
+                   [--append|--prepend|--replace] [--create]
+                                                       content on stdin
+```
+
+### synapse vault-list
+
+```
+usage: synapse vault-read <path>
+       synapse vault-write <path>                     body on stdin
+       synapse vault-list
+       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
+       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
+       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
+                   [--append|--prepend|--replace] [--create]
+                                                       content on stdin
+```
+
+### synapse vault-search
+
+```
+usage: synapse vault-read <path>
+       synapse vault-write <path>                     body on stdin
+       synapse vault-list
+       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
+       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
+       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
+                   [--append|--prepend|--replace] [--create]
+                                                       content on stdin
+```
+
+### synapse vault-search-text
+
+```
+usage: synapse vault-read <path>
+       synapse vault-write <path>                     body on stdin
+       synapse vault-list
+       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
+       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
+       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
+                   [--append|--prepend|--replace] [--create]
+                                                       content on stdin
+```
+
+### synapse vault-doc-map
+
+```
+usage: synapse vault-read <path>
+       synapse vault-write <path>                     body on stdin
+       synapse vault-list
+       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
+       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
+       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
+                   [--append|--prepend|--replace] [--create]
+                                                       content on stdin
+```
+
+### synapse vault-patch
+
+```
+usage: synapse vault-read <path>
+       synapse vault-write <path>                     body on stdin
+       synapse vault-list
+       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
+       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
+       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
+                   [--append|--prepend|--replace] [--create]
+                                                       content on stdin
 ```
 
 ### synapse build-refs

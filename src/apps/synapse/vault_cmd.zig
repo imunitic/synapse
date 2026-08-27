@@ -1,0 +1,667 @@
+//! `synapse vault-read`/`vault-write`/`vault-list`/`vault-search`/
+//! `vault-search-text`/`vault-doc-map`/`vault-patch` -- the CLI door skills
+//! use to reach `ports.Store` instead of calling `mcp__obsidian__*` tools by
+//! name. See `sb — Vault store backend selection`: a skill's prose changes
+//! once (an MCP tool name to a CLI subcommand), and a future backend swap
+//! then touches only `resolveStore()` and the `Store` implementation, never
+//! skill text again.
+//!
+//! Every subcommand addresses a note by its full vault-relative path (an
+//! empty-namespace `Store`, the same convention `frontmatter get/set`
+//! already uses) -- these are whole-vault tools, not scoped to one repo's
+//! code-graph namespace.
+//!
+//!   vault-read <path>
+//!   vault-write <path>                     body on stdin
+//!   vault-list
+//!   vault-search [--fields <f1,f2,...>]    JsonLogic rule on stdin
+//!   vault-search-text <query>              full-text relevance search
+//!   vault-doc-map <path>                   headings/block ids/frontmatter keys
+//!   vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
+//!               [--append|--prepend|--replace] [--create]
+//!                                           content on stdin
+//!
+//! `--heading`'s `<h>` is a `::`-joined path (`"Notes::Sub"`), matching the
+//! nesting convention `mcp__obsidian__vault_patch` already uses. `--replace`
+//! is the default operation when none is given. `--create` only applies to
+//! `--heading` (a missing frontmatter key is always inserted, by
+//! `core.frontmatter.set`'s own existing behavior; a missing block cannot
+//! be created -- there is no content to anchor an id to).
+//!
+//! `vault-search`'s rows print as `path<TAB>field1<TAB>field2...`, one row
+//! per line -- a non-string field value is JSON-encoded so it stays one TSV
+//! field. With no `--fields`, each row is just the path. It answers
+//! `mcp__obsidian__search_query` (a structured JsonLogic filter over
+//! frontmatter/content/tags) -- for `mcp__obsidian__search_simple`'s plain
+//! full-text relevance search instead, `vault-search-text` wraps `Store`'s
+//! own `search` method directly, one `node<TAB>score<TAB>context` row per
+//! hit. `vault-doc-map` answers `mcp__obsidian__vault_get_document_map`:
+//! every heading path/block id/frontmatter key a `vault-patch` target could
+//! name, one `kind<TAB>value` row per entry, `kind` one of `heading`/
+//! `block`/`frontmatter`.
+//!
+//! Exit 1 for anything that made the operation impossible, 2 for a usage
+//! error.
+
+const std = @import("std");
+const core = @import("core");
+const adapters = @import("adapters");
+
+const Io = std.Io;
+const Allocator = std.mem.Allocator;
+
+const prog = "synapse-vault";
+
+const usage_text =
+    \\usage: synapse vault-read <path>
+    \\       synapse vault-write <path>                     body on stdin
+    \\       synapse vault-list
+    \\       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
+    \\       synapse vault-search-text <query>               full-text relevance search
+    \\       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
+    \\       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
+    \\                   [--append|--prepend|--replace] [--create]
+    \\                                                       content on stdin
+    \\
+;
+
+fn usage() u8 {
+    std.debug.print("{s}", .{usage_text});
+    return 2;
+}
+
+fn help() u8 {
+    std.debug.print("{s}", .{usage_text});
+    return 0;
+}
+
+fn isHelp(arg: []const u8) bool {
+    return std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help");
+}
+
+fn readStdin(gpa: Allocator, io: Io) ![]u8 {
+    var in_buf: [64 * 1024]u8 = undefined;
+    var in = Io.File.stdin().reader(io, &in_buf);
+    return in.interface.allocRemaining(gpa, .limited(64 << 20)) catch |e| switch (e) {
+        error.ReadFailed => return error.StdinReadFailed,
+        else => |other| return other,
+    };
+}
+
+fn openWholeVaultStore(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8) !?adapters.store_resolve.ResolvedStore {
+    return try adapters.store_resolve.resolveStore(gpa, io, env, vault, "", prog);
+}
+
+// --- Testable core, one function per subcommand -----------------------
+
+pub fn read(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, path: []const u8, result: *Io.Writer) !u8 {
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    defer resolved.deinit();
+    const store = resolved.store();
+
+    const body = (store.read(gpa, io, path) catch {
+        std.debug.print("{s}: read failed\n", .{prog});
+        return 1;
+    }) orelse {
+        std.debug.print("{s}: no such note: {s}\n", .{ prog, path });
+        return 1;
+    };
+    defer gpa.free(body);
+    try result.writeAll(body);
+    return 0;
+}
+
+pub fn write(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, path: []const u8, body: []const u8, result: *Io.Writer) !u8 {
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    defer resolved.deinit();
+    const store = resolved.store();
+
+    const wr = store.write(io, path, body) catch {
+        std.debug.print("{s}: write failed\n", .{prog});
+        return 1;
+    };
+    defer gpa.free(wr.body);
+    if (!wr.accepted) {
+        std.debug.print("{s}: write rejected ({d}): {s}\n", .{ prog, wr.status, wr.body });
+        return 1;
+    }
+    try result.print("{s}\n", .{path});
+    return 0;
+}
+
+pub fn list(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, result: *Io.Writer) !u8 {
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    defer resolved.deinit();
+    const store = resolved.store();
+
+    const names = store.list(gpa, io) catch {
+        std.debug.print("{s}: list failed\n", .{prog});
+        return 1;
+    };
+    defer {
+        for (names) |n| gpa.free(n);
+        gpa.free(names);
+    }
+    for (names) |n| try result.print("{s}\n", .{n});
+    return 0;
+}
+
+/// Plain full-text relevance search, straight over `Store.search` -- the
+/// door to `mcp__obsidian__search_simple`, distinct from `search` below
+/// (which answers `search_query`'s structured JsonLogic filter instead).
+pub fn searchText(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    vault: []const u8,
+    query: []const u8,
+    result: *Io.Writer,
+) !u8 {
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    defer resolved.deinit();
+    const store = resolved.store();
+
+    const hits = store.search(gpa, io, query) catch {
+        std.debug.print("{s}: search failed\n", .{prog});
+        return 1;
+    };
+    defer {
+        for (hits) |h| {
+            gpa.free(h.node);
+            gpa.free(h.context);
+        }
+        gpa.free(hits);
+    }
+
+    for (hits) |h| try result.print("{s}\t{d}\t{s}\n", .{ h.node, h.score, h.context });
+    return 0;
+}
+
+/// Every heading path/block id/frontmatter key `note`'s body has -- the door
+/// to `mcp__obsidian__vault_get_document_map`, so a caller can pick a real
+/// `vault-patch` target instead of guessing one.
+pub fn docMap(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    vault: []const u8,
+    path: []const u8,
+    result: *Io.Writer,
+) !u8 {
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    defer resolved.deinit();
+    const store = resolved.store();
+
+    const body = (store.read(gpa, io, path) catch {
+        std.debug.print("{s}: read failed\n", .{prog});
+        return 1;
+    }) orelse {
+        std.debug.print("{s}: no such note: {s}\n", .{ prog, path });
+        return 1;
+    };
+    defer gpa.free(body);
+
+    var map = try core.patch.documentMap(gpa, body);
+    defer map.deinit(gpa);
+
+    for (map.headings) |h| try result.print("heading\t{s}\n", .{h});
+    for (map.blocks) |b| try result.print("block\t{s}\n", .{b});
+    for (map.frontmatter_keys) |k| try result.print("frontmatter\t{s}\n", .{k});
+    return 0;
+}
+
+pub fn search(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    vault: []const u8,
+    query: std.json.Value,
+    fields: []const []const u8,
+    result: *Io.Writer,
+) !u8 {
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    defer resolved.deinit();
+    const store = resolved.store();
+
+    const rows = core.vault_query.query(gpa, io, store, query, fields) catch {
+        std.debug.print("{s}: query failed\n", .{prog});
+        return 1;
+    };
+    defer {
+        for (rows) |r| r.deinit(gpa);
+        gpa.free(rows);
+    }
+
+    for (rows) |row| {
+        try result.print("{s}", .{row.path});
+        for (row.values) |v| {
+            try result.writeByte('\t');
+            try writeFieldValue(result, v);
+        }
+        try result.writeByte('\n');
+    }
+    return 0;
+}
+
+/// A string prints bare (no quotes, no TSV escaping -- a note path or
+/// frontmatter scalar realistically never contains a tab or newline);
+/// anything else prints as compact JSON, so a `tags` array or a missing
+/// field (`null`) still lands in exactly one TSV column.
+fn writeFieldValue(w: *Io.Writer, v: std.json.Value) !void {
+    switch (v) {
+        .string => |s| try w.writeAll(s),
+        else => try std.json.Stringify.value(v, .{}, w),
+    }
+}
+
+pub fn patch(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    vault: []const u8,
+    path: []const u8,
+    target: core.patch.Target,
+    op: core.patch.Operation,
+    create_if_missing: bool,
+    content: []const u8,
+    result: *Io.Writer,
+) !u8 {
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    defer resolved.deinit();
+    const store = resolved.store();
+
+    const current = (store.read(gpa, io, path) catch {
+        std.debug.print("{s}: read failed\n", .{prog});
+        return 1;
+    }) orelse {
+        std.debug.print("{s}: no such note: {s}\n", .{ prog, path });
+        return 1;
+    };
+    defer gpa.free(current);
+
+    const updated = core.patch.apply(gpa, current, target, op, content, create_if_missing) catch |e| {
+        switch (e) {
+            error.TargetNotFound => std.debug.print("{s}: target not found in {s}\n", .{ prog, path }),
+            error.NoFrontmatter => std.debug.print("{s}: no frontmatter in {s}\n", .{ prog, path }),
+            else => std.debug.print("{s}: patch failed\n", .{prog}),
+        }
+        return 1;
+    };
+    defer gpa.free(updated);
+
+    const wr = store.write(io, path, updated) catch {
+        std.debug.print("{s}: write failed\n", .{prog});
+        return 1;
+    };
+    defer gpa.free(wr.body);
+    if (!wr.accepted) {
+        std.debug.print("{s}: write rejected ({d}): {s}\n", .{ prog, wr.status, wr.body });
+        return 1;
+    }
+    try result.print("{s}\n", .{path});
+    return 0;
+}
+
+// --- argv/stdin plumbing, called from main.zig -------------------------
+
+fn resolveVault(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !?[]u8 {
+    return (try core.conf.vaultDir(gpa, io, adapters.env.vars(env))) orelse {
+        std.debug.print("{s}: no vault\n", .{prog});
+        return null;
+    };
+}
+
+pub fn runRead(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
+    const path = args.next() orelse return usage();
+    if (isHelp(path)) return help();
+    if (args.next() != null) return usage();
+    const vault = (try resolveVault(gpa, io, env)) orelse return 1;
+    defer gpa.free(vault);
+
+    var out_buf: [8192]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try read(gpa, io, env, vault, path, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+pub fn runWrite(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
+    const path = args.next() orelse return usage();
+    if (isHelp(path)) return help();
+    if (args.next() != null) return usage();
+    const vault = (try resolveVault(gpa, io, env)) orelse return 1;
+    defer gpa.free(vault);
+
+    const body = readStdin(gpa, io) catch {
+        std.debug.print("{s}: could not read stdin\n", .{prog});
+        return 1;
+    };
+    defer gpa.free(body);
+
+    var out_buf: [512]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try write(gpa, io, env, vault, path, body, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+pub fn runList(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
+    if (args.next()) |a| {
+        if (isHelp(a)) return help();
+        return usage();
+    }
+    const vault = (try resolveVault(gpa, io, env)) orelse return 1;
+    defer gpa.free(vault);
+
+    var out_buf: [8192]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try list(gpa, io, env, vault, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+pub fn runSearchText(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
+    const query = args.next() orelse return usage();
+    if (isHelp(query)) return help();
+    if (args.next() != null) return usage();
+    const vault = (try resolveVault(gpa, io, env)) orelse return 1;
+    defer gpa.free(vault);
+
+    var out_buf: [8192]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try searchText(gpa, io, env, vault, query, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+pub fn runDocMap(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
+    const path = args.next() orelse return usage();
+    if (isHelp(path)) return help();
+    if (args.next() != null) return usage();
+    const vault = (try resolveVault(gpa, io, env)) orelse return 1;
+    defer gpa.free(vault);
+
+    var out_buf: [8192]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try docMap(gpa, io, env, vault, path, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+pub fn runSearch(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
+    var fields: std.ArrayListUnmanaged([]const u8) = .empty;
+    defer fields.deinit(gpa);
+
+    while (args.next()) |arg| {
+        if (isHelp(arg)) return help();
+        if (std.mem.eql(u8, arg, "--fields")) {
+            const raw = args.next() orelse return usage();
+            var it = std.mem.splitScalar(u8, raw, ',');
+            while (it.next()) |f| {
+                const trimmed = std.mem.trim(u8, f, " \t");
+                if (trimmed.len != 0) try fields.append(gpa, trimmed);
+            }
+            continue;
+        }
+        return usage();
+    }
+
+    const vault = (try resolveVault(gpa, io, env)) orelse return 1;
+    defer gpa.free(vault);
+
+    const query_text = readStdin(gpa, io) catch {
+        std.debug.print("{s}: could not read stdin\n", .{prog});
+        return 1;
+    };
+    defer gpa.free(query_text);
+
+    var parsed = std.json.parseFromSlice(std.json.Value, gpa, query_text, .{}) catch {
+        std.debug.print("{s}: stdin is not valid JSON\n", .{prog});
+        return 1;
+    };
+    defer parsed.deinit();
+
+    var out_buf: [8192]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try search(gpa, io, env, vault, parsed.value, fields.items, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+pub fn runPatch(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
+    const path = args.next() orelse return usage();
+    if (isHelp(path)) return help();
+
+    var target: ?core.patch.Target = null;
+    var op: core.patch.Operation = .replace;
+    var create_if_missing = false;
+    var owned_segs: ?[]const []const u8 = null;
+    defer if (owned_segs) |s| gpa.free(s);
+
+    while (args.next()) |arg| {
+        if (isHelp(arg)) return help();
+        if (std.mem.eql(u8, arg, "--heading")) {
+            if (target != null) return usage();
+            const raw = args.next() orelse return usage();
+            var segs: std.ArrayListUnmanaged([]const u8) = .empty;
+            var it = std.mem.splitSequence(u8, raw, "::");
+            while (it.next()) |s| try segs.append(gpa, s);
+            owned_segs = try segs.toOwnedSlice(gpa);
+            target = .{ .heading = owned_segs.? };
+        } else if (std.mem.eql(u8, arg, "--block")) {
+            if (target != null) return usage();
+            target = .{ .block = args.next() orelse return usage() };
+        } else if (std.mem.eql(u8, arg, "--frontmatter")) {
+            if (target != null) return usage();
+            target = .{ .frontmatter = args.next() orelse return usage() };
+        } else if (std.mem.eql(u8, arg, "--append")) {
+            op = .append;
+        } else if (std.mem.eql(u8, arg, "--prepend")) {
+            op = .prepend;
+        } else if (std.mem.eql(u8, arg, "--replace")) {
+            op = .replace;
+        } else if (std.mem.eql(u8, arg, "--create")) {
+            create_if_missing = true;
+        } else {
+            return usage();
+        }
+    }
+    const real_target = target orelse return usage();
+
+    const vault = (try resolveVault(gpa, io, env)) orelse return 1;
+    defer gpa.free(vault);
+
+    const content = readStdin(gpa, io) catch {
+        std.debug.print("{s}: could not read stdin\n", .{prog});
+        return 1;
+    };
+    defer gpa.free(content);
+
+    var out_buf: [512]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try patch(gpa, io, env, vault, path, real_target, op, create_if_missing, content, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+const testing = std.testing;
+const fixture = @import("cmd_test_support.zig");
+
+test "read prints a note's full body" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeVaultFile("tasks/synapse/x.md", "---\ntitle: X\n---\nbody\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try read(gpa, fx.io(), &fx.env, fx.vault, "tasks/synapse/x.md", &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expectEqualStrings("---\ntitle: X\n---\nbody\n", out.written());
+}
+
+test "read on a missing note fails clearly" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try read(gpa, fx.io(), &fx.env, fx.vault, "tasks/synapse/nope.md", &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+}
+
+test "write then read round-trips a note's full body" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+
+    var write_out: Io.Writer.Allocating = .init(gpa);
+    defer write_out.deinit();
+    const wcode = try write(gpa, fx.io(), &fx.env, fx.vault, "tasks/synapse/new.md", "---\ntitle: New\n---\nbody\n", &write_out.writer);
+    try testing.expectEqual(@as(u8, 0), wcode);
+    try testing.expectEqualStrings("tasks/synapse/new.md\n", write_out.written());
+
+    const written = (try fx.readVaultFile(gpa, "tasks/synapse/new.md")).?;
+    defer gpa.free(written);
+    try testing.expectEqualStrings("---\ntitle: New\n---\nbody\n", written);
+}
+
+test "list returns every note under the vault, recursively" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeVaultFile("designs/synapse/sb-001.md", "a\n");
+    try fx.writeVaultFile("tasks/eon/ecs-001.md", "b\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try list(gpa, fx.io(), &fx.env, fx.vault, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "designs/synapse/sb-001.md\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "tasks/eon/ecs-001.md\n") != null);
+}
+
+test "searchText finds a note by plain full-text substring, TSV row per hit" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeVaultFile("designs/synapse/sb-001.md", "---\ntitle: X\n---\nsomething about widgets\n");
+    try fx.writeVaultFile("designs/synapse/sb-002.md", "---\ntitle: Y\n---\nunrelated\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try searchText(gpa, fx.io(), &fx.env, fx.vault, "widgets", &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "designs/synapse/sb-001.md\t") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "sb-002") == null);
+}
+
+test "docMap reports a note's heading paths, block ids, and frontmatter keys" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeVaultFile(
+        "tasks/synapse/x.md",
+        "---\ntitle: X\nstatus: TODO\n---\n\n# X\n\n## Notes\nsee ^ref\n",
+    );
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try docMap(gpa, fx.io(), &fx.env, fx.vault, "tasks/synapse/x.md", &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "heading\tX\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "heading\tX::Notes\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "block\tref\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "frontmatter\ttitle\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "frontmatter\tstatus\n") != null);
+}
+
+test "docMap on a missing note fails clearly" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try docMap(gpa, fx.io(), &fx.env, fx.vault, "tasks/synapse/nope.md", &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+}
+
+test "search filters and projects requested fields as TSV" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeVaultFile("tasks/synapse/a.md", "---\nstatus: TODO\n---\nbody a\n");
+    try fx.writeVaultFile("tasks/synapse/b.md", "---\nstatus: DONE\n---\nbody b\n");
+
+    var q = try std.json.parseFromSlice(std.json.Value, gpa, "{\"==\": [{\"var\": \"frontmatter.status\"}, \"TODO\"]}", .{});
+    defer q.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try search(gpa, fx.io(), &fx.env, fx.vault, q.value, &.{"frontmatter.status"}, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expectEqualStrings("tasks/synapse/a.md\tTODO\n", out.written());
+}
+
+test "search with no --fields prints just the matching path" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeVaultFile("tasks/synapse/a.md", "body\n");
+
+    var q = try std.json.parseFromSlice(std.json.Value, gpa, "true", .{});
+    defer q.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try search(gpa, fx.io(), &fx.env, fx.vault, q.value, &.{}, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expectEqualStrings("tasks/synapse/a.md\n", out.written());
+}
+
+test "patch replaces a heading's content" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeVaultFile("designs/synapse/x.md", "# Title\n\n## Status\nDiscussing\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try patch(gpa, fx.io(), &fx.env, fx.vault, "designs/synapse/x.md", .{ .heading = &.{"Status"} }, .replace, false, "Ready\n", &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const written = (try fx.readVaultFile(gpa, "designs/synapse/x.md")).?;
+    defer gpa.free(written);
+    try testing.expectEqualStrings("# Title\n\n## Status\nReady\n", written);
+}
+
+test "patch on a frontmatter target delegates to the byte-preserving path" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeVaultFile("tasks/synapse/x.md", "---\ntitle: \"X\"\nstatus: TODO\n---\nbody\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try patch(gpa, fx.io(), &fx.env, fx.vault, "tasks/synapse/x.md", .{ .frontmatter = "status" }, .replace, false, "DONE", &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const written = (try fx.readVaultFile(gpa, "tasks/synapse/x.md")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "status: DONE\n") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "title: \"X\"\n") != null);
+}
+
+test "patch on a missing target fails clearly" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeVaultFile("designs/synapse/x.md", "# Title\n\nbody\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try patch(gpa, fx.io(), &fx.env, fx.vault, "designs/synapse/x.md", .{ .heading = &.{"Nope"} }, .replace, false, "x", &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+}

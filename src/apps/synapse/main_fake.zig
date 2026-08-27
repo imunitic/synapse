@@ -18,6 +18,7 @@ const rank_cmd = @import("rank_cmd.zig");
 const query_cmd = @import("query_cmd.zig");
 const write_node_cmd = @import("write_node_cmd.zig");
 const frontmatter_cmd = @import("frontmatter_cmd.zig");
+const vault_cmd = @import("vault_cmd.zig");
 const refs_cmd = @import("refs_cmd.zig");
 const deps_cmd = @import("deps_cmd.zig");
 const namespaces_cmd = @import("namespaces_cmd.zig");
@@ -73,6 +74,27 @@ pub fn main(init: std.process.Init) !u8 {
     // to the real binary's.
     if (std.mem.eql(u8, sub, "frontmatter"))
         return frontmatter_cmd.run(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "vault-read"))
+        return vault_cmd.runRead(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "vault-write"))
+        return vault_cmd.runWrite(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "vault-list"))
+        return vault_cmd.runList(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "vault-search"))
+        return vault_cmd.runSearch(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "vault-search-text"))
+        return vault_cmd.runSearchText(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "vault-doc-map"))
+        return vault_cmd.runDocMap(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "vault-patch"))
+        return vault_cmd.runPatch(init.gpa, init.io, init.environ_map, &args);
 
     if (std.mem.eql(u8, sub, "doctor"))
         return doctor_cmd.run(init.gpa, init.io, init.environ_map, &args);
