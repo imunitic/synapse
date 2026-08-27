@@ -60,7 +60,8 @@ step patches a compiled design note with a `> Compiled task: [[...]]` line right
 **3. Design notes (any status) with a non-empty `## Open Questions`.** Match the heading followed by
 at least one bullet -- a heading with nothing under it (fully pruned, per the Ready-gate convention
 `/synapse-design-note` now follows) doesn't count as open. Since this section spans every status,
-each line in the composed report also shows *which* status the note is currently in:
+each line in the composed report also shows *which* status the note is currently in, and whether it
+has a compiled task note:
 
 ```
 {"and": [
@@ -69,16 +70,17 @@ each line in the composed report also shows *which* status the note is currently
 ]}
 ```
 
-`regexp` is boolean-only (no captured groups), so getting each match's actual status needs a second
-pass. Run the same query three more times, `and`-ed with `{"regexp": ["## Status\\nDiscussing", ...]}`
-/ `Ready` / `Reference` respectively, to sort the matches from the first query into the three known
-statuses without a body read. **A design note written before `## Status` was standardized on those
-exact three words can carry free text there instead** (e.g. `Superseded by [[...]]`) -- it matches
-the first query but none of the three status-scoped ones. Whatever's left over after removing the
-Discussing/Ready/Reference matches from the first query's full result set is exactly this case:
-report those under a fourth bucket, "Other", rather than silently dropping them -- surfacing an odd
-note beats losing it, the same reasoning behind reporting a 0-unchecked task instead of hiding it
-(see Query 4 below).
+Do not chain further `and`/`regexp` conditions onto this query to sort matches by status -- compound
+`regexp` conditions against `content` have been observed to return results that are logically
+impossible (a query with strictly more AND-ed conditions returning *more* matches than one with
+fewer), so any query beyond a single `glob` + single `regexp` pair is unverified and not to be
+trusted here. Instead, `mcp__obsidian__vault_read` each match directly and take two things from the
+result, no second query needed for either: the line following `## Status` in `content` (normally
+`Discussing`/`Ready`/`Reference`, but a note written before the three-word convention can carry free
+text instead, e.g. `Superseded by [[...]]` -- report that verbatim rather than forcing it into a
+bucket, surfacing an odd note beats losing it) and, from the `links` array, any path under `tasks/`
+-- that's the compiled task, if one exists, with no separate `Compiled task:` regex needed since a
+resolved wikilink already appears in `links` regardless of where in the body it's written.
 
 **4. Open task notes with at least one unchecked item.** Task notes carry `status:` in frontmatter,
 unlike design notes -- filter there first:
@@ -104,10 +106,11 @@ note past `REVIEW` on its own:
 
 One section per category, in the order above. Each line names the note (title, or filename if no
 `title` frontmatter) plus the one identifying detail that category needs. The Open Questions section
-is the one place a note's status also belongs on the line -- every other section's heading already
-implies it (the "Discussing" section only ever holds `Discussing` notes), but Open Questions spans
-every status (`Discussing`/`Ready`/`Reference`/the "Other" catch-all from Query 3 above), so put the
-status first, before the title, so it's the first thing scanned:
+is the one place a note's status and compiled-task link also belong on the line -- every other
+section's heading already implies status (the "Discussing" section only ever holds `Discussing`
+notes) and compiled-task-ness (the "Ready, not yet compiled" section only ever holds notes without
+one), but Open Questions spans every status and both compiled and uncompiled notes, so put the status
+first, before the title, so it's the first thing scanned:
 
 ```
 ## Discussing
@@ -117,7 +120,7 @@ status first, before the title, so it's the first thing scanned:
 - {title}
 
 ## Open questions
-- **{status}** — {title}
+- **{status}** — {title} — {compiled task title, or "not compiled"}
 
 ## In progress (unchecked items)
 - {title} ({N} unchecked)
