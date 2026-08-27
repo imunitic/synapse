@@ -258,8 +258,17 @@ pub const ObsidianStore = struct {
             else => return try out.toOwnedSlice(gpa),
         };
 
-        const prefix = try std.fmt.allocPrint(gpa, "{s}/", .{self.namespace});
-        defer gpa.free(prefix);
+        // Empty namespace means "no prefix at all" -- the same
+        // full-vault-relative-path convention `nodeUrl`/`read`/`write`
+        // already use. Without this branch, `prefix` would be a bare "/"
+        // and no real filename starts with a leading slash, so a
+        // whole-vault store (the one `vault-search-text` opens) would
+        // silently filter out every result -- confirmed live: it did.
+        const prefix: ?[]u8 = if (self.namespace.len == 0)
+            null
+        else
+            try std.fmt.allocPrint(gpa, "{s}/", .{self.namespace});
+        defer if (prefix) |p| gpa.free(p);
 
         for (results.items) |item| {
             const obj = switch (item) {
@@ -270,8 +279,10 @@ pub const ObsidianStore = struct {
                 .string => |s| s,
                 else => continue,
             };
-            if (!std.mem.startsWith(u8, filename, prefix)) continue; // outside this namespace
-            const bare = filename[prefix.len..];
+            const bare = if (prefix) |p| blk: {
+                if (!std.mem.startsWith(u8, filename, p)) continue; // outside this namespace
+                break :blk filename[p.len..];
+            } else filename;
 
             const score: f32 = switch (obj.get("score") orelse .null) {
                 .float => |f| @floatCast(f),
@@ -513,6 +524,21 @@ test "an empty namespace addresses a node by its full vault-relative path, unpre
     const got = (try store.read(gpa, io, "tasks/synapse/sb-037 — Task.md")).?;
     defer gpa.free(got);
     try testing.expectEqualStrings("---\ntitle: Task\n---\nbody\n", got);
+
+    // Regression: an empty namespace used to mean a bare "/" prefix, which
+    // no real filename starts with -- every search result was silently
+    // filtered out. `vault-search-text` opens exactly this kind of
+    // whole-vault, empty-namespace store.
+    const hits = try store.search(gpa, io, "body");
+    defer {
+        for (hits) |h| {
+            gpa.free(h.node);
+            gpa.free(h.context);
+        }
+        gpa.free(hits);
+    }
+    try testing.expectEqual(@as(usize, 1), hits.len);
+    try testing.expectEqualStrings("tasks/synapse/sb-037 — Task.md", hits[0].node);
 }
 
 test "a node with a .. segment or a leading / is rejected before any request is made" {
