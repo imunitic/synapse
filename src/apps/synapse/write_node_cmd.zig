@@ -4,15 +4,19 @@
 //!
 //! Hashes every source, computes `sources_digest`, records the baseline
 //! `commit`, expands the crux directive, records and strips the groundings,
-//! builds the `## Sources` mirror, and PUTs the note through the Obsidian
-//! Local REST API.
+//! builds the `## Sources` mirror, and writes the note through whichever
+//! `Store` `SYNAPSE_VAULT_STORE`/`SYNAPSE_VAULT_DIR` resolve to
+//! (`adapters.store_resolve.resolveStore`) -- Obsidian's Local REST API by
+//! default, a plain disk write with `SYNAPSE_VAULT_STORE=disk`.
 //!
 //! Prints `<file>\t<n> files\t<digest>` on success. Exit 1 for anything
 //! that made the write impossible, 2 for a usage error.
 //!
-//! Writes go through the API so Obsidian's own view stays consistent and
-//! the vault's git hook sees the change; the three reads the script made
-//! through the same API are disk reads now (see `context.zig`).
+//! The write goes through `Store` so an Obsidian-backed vault's own view
+//! stays consistent and the vault's git hook sees the change; the three
+//! reads this command makes are plain disk reads regardless of backend
+//! (see `context.zig`) -- reading a node the compiled binary already has a
+//! local checkout of has never needed the REST API.
 //!
 //! Refuses (exit 1, not a degraded write) a crux path the node doesn't
 //! claim, a range outside the file, and a range longer than its cap -- all
@@ -365,8 +369,9 @@ pub fn write(
     });
 
     // --- PUT into the vault --------------------------------------------------
-    var store = (try openStore(gpa, io, env, ctx)) orelse return 1;
-    defer store.deinit();
+    var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, ctx.vault, ctx.dir, prog)) orelse return 1;
+    defer resolved.deinit();
+    var store = resolved.store();
     const put_result = store.write(io, node_file, note.written()) catch {
         std.debug.print("{s}: PUT failed (000): curl did not complete\n", .{prog});
         return 1;
@@ -546,64 +551,6 @@ fn nowStamp(gpa: Allocator, io: Io) ![]u8 {
     defer res.deinit(gpa);
     if (!res.ok()) return error.NoDate;
     return gpa.dupe(u8, std.mem.trim(u8, res.stdout, " \t\r\n"));
-}
-
-/// The plugin's port and API key, from the vault's own `data.json` -- read
-/// here rather than passed in `argv`, which stays visible to `ps`.
-fn openStore(
-    gpa: Allocator,
-    io: Io,
-    env: *std.process.Environ.Map,
-    ctx: *const Context,
-) !?adapters.obsidian.ObsidianStore {
-    const plugin_path = try std.fmt.allocPrint(
-        gpa,
-        "{s}/.obsidian/plugins/obsidian-local-rest-api/data.json",
-        .{ctx.vault},
-    );
-    defer gpa.free(plugin_path);
-    const text = Io.Dir.cwd().readFileAlloc(io, plugin_path, gpa, .limited(1 << 20)) catch {
-        std.debug.print("{s}: REST API not configured\n", .{prog});
-        return null;
-    };
-    defer gpa.free(text);
-
-    const parsed = std.json.parseFromSlice(std.json.Value, gpa, text, .{}) catch {
-        std.debug.print("{s}: no API key/port\n", .{prog});
-        return null;
-    };
-    defer parsed.deinit();
-    const obj = switch (parsed.value) {
-        .object => |o| o,
-        else => {
-            std.debug.print("{s}: no API key/port\n", .{prog});
-            return null;
-        },
-    };
-    const api_key = switch (obj.get("apiKey") orelse .null) {
-        .string => |s| s,
-        else => "",
-    };
-    const port: u16 = switch (obj.get("port") orelse .null) { // plugin writes a number; hand-edited may be a string
-        .integer => |i| @intCast(i),
-        .string => |s| std.fmt.parseInt(u16, s, 10) catch 0,
-        else => 0,
-    };
-    if (api_key.len == 0 or port == 0) {
-        std.debug.print("{s}: no API key/port\n", .{prog});
-        return null;
-    }
-
-    const cert = try certPath(gpa, env);
-    defer gpa.free(cert);
-    return try adapters.obsidian.ObsidianStore.init(gpa, port, cert, api_key, ctx.dir);
-}
-
-/// `~/.claude/obsidian-local-rest-api-ca.pem`, the plugin's own CA.
-fn certPath(gpa: Allocator, env: *std.process.Environ.Map) ![]const u8 {
-    return std.fmt.allocPrint(gpa, "{s}/.claude/obsidian-local-rest-api-ca.pem", .{
-        env.get("HOME") orelse "",
-    });
 }
 
 const testing = std.testing;

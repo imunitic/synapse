@@ -173,9 +173,9 @@ pub fn get(
     key: []const u8,
     result: *Io.Writer,
 ) !u8 {
-    var os_store = (try openStore(gpa, io, env, vault)) orelse return 1;
-    defer os_store.deinit();
-    var store = os_store.store();
+    var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, vault, "", prog)) orelse return 1;
+    defer resolved.deinit();
+    var store = resolved.store();
 
     const current = (store.read(gpa, io, path) catch {
         std.debug.print("{s}: GET failed: curl did not complete\n", .{prog});
@@ -199,9 +199,9 @@ pub fn set(
     op: Op,
     result: *Io.Writer,
 ) !u8 {
-    var os_store = (try openStore(gpa, io, env, vault)) orelse return 1;
-    defer os_store.deinit();
-    var store = os_store.store();
+    var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, vault, "", prog)) orelse return 1;
+    defer resolved.deinit();
+    var store = resolved.store();
 
     const current = (store.read(gpa, io, path) catch {
         std.debug.print("{s}: GET failed: curl did not complete\n", .{prog});
@@ -256,66 +256,6 @@ pub fn set(
 
     try result.print("{s}\t{s}\n", .{ path, label });
     return 0;
-}
-
-/// The plugin's port and API key, from the vault's own `data.json` -- same
-/// resolution `write_node_cmd`'s own `openStore` uses, but with an empty
-/// namespace: this command addresses any note in the vault by its full
-/// vault-relative path, not one repo's code-graph directory.
-fn openStore(
-    gpa: Allocator,
-    io: Io,
-    env: *std.process.Environ.Map,
-    vault: []const u8,
-) !?adapters.obsidian.ObsidianStore {
-    const plugin_path = try std.fmt.allocPrint(
-        gpa,
-        "{s}/.obsidian/plugins/obsidian-local-rest-api/data.json",
-        .{vault},
-    );
-    defer gpa.free(plugin_path);
-    const text = Io.Dir.cwd().readFileAlloc(io, plugin_path, gpa, .limited(1 << 20)) catch {
-        std.debug.print("{s}: REST API not configured\n", .{prog});
-        return null;
-    };
-    defer gpa.free(text);
-
-    const parsed = std.json.parseFromSlice(std.json.Value, gpa, text, .{}) catch {
-        std.debug.print("{s}: no API key/port\n", .{prog});
-        return null;
-    };
-    defer parsed.deinit();
-    const obj = switch (parsed.value) {
-        .object => |o| o,
-        else => {
-            std.debug.print("{s}: no API key/port\n", .{prog});
-            return null;
-        },
-    };
-    const api_key = switch (obj.get("apiKey") orelse .null) {
-        .string => |s| s,
-        else => "",
-    };
-    const port: u16 = switch (obj.get("port") orelse .null) { // plugin writes a number; hand-edited may be a string
-        .integer => |i| @intCast(i),
-        .string => |s| std.fmt.parseInt(u16, s, 10) catch 0,
-        else => 0,
-    };
-    if (api_key.len == 0 or port == 0) {
-        std.debug.print("{s}: no API key/port\n", .{prog});
-        return null;
-    }
-
-    const cert = try certPath(gpa, env);
-    defer gpa.free(cert);
-    return try adapters.obsidian.ObsidianStore.init(gpa, port, cert, api_key, "");
-}
-
-/// `~/.claude/obsidian-local-rest-api-ca.pem`, the plugin's own CA.
-fn certPath(gpa: Allocator, env: *std.process.Environ.Map) ![]const u8 {
-    return std.fmt.allocPrint(gpa, "{s}/.claude/obsidian-local-rest-api-ca.pem", .{
-        env.get("HOME") orelse "",
-    });
 }
 
 const testing = std.testing;

@@ -100,37 +100,16 @@ case "$method" in
       fi
       exit 22
     fi
-    case "$vault_path" in
-      */)
-        # Directory listing, for ObsidianStore.list. Flat by construction --
-        # a real namespace directory has no subdirectories -- so this only
-        # ever needs top-level `.md` names, matching the real API's shape
-        # (`{"files": [...]}`) closely enough for what list() itself reads.
-        dir="${FAKE_CURL_VAULT_DIR:-}/$vault_path"
-        if [ -n "${FAKE_CURL_VAULT_DIR:-}" ] && [ -d "$dir" ]; then
-          python3 -c '
-import json, os, sys
-names = sorted(n for n in os.listdir(sys.argv[1]) if n.endswith(".md"))
-print(json.dumps({"files": names}))
-' "$dir"
-          printf '\n200'
-        else
-          printf '{"files":[]}\n200'
-        fi
-        ;;
-      *)
-        src="${FAKE_CURL_VAULT_DIR:-}/$vault_path"
-        if [ -n "${FAKE_CURL_VAULT_DIR:-}" ] && [ -f "$src" ]; then
-          cat "$src"
-          printf '\n200'
-        elif [ -n "${FAKE_CURL_INDEX_BODY:-}" ] && [ -f "$FAKE_CURL_INDEX_BODY" ]; then
-          cat "$FAKE_CURL_INDEX_BODY"
-          printf '\n200'
-        else
-          printf '{"message":"Not Found","errorCode":40400}\n404'
-        fi
-        ;;
-    esac
+    src="${FAKE_CURL_VAULT_DIR:-}/$vault_path"
+    if [ -n "${FAKE_CURL_VAULT_DIR:-}" ] && [ -f "$src" ]; then
+      cat "$src"
+      printf '\n200'
+    elif [ -n "${FAKE_CURL_INDEX_BODY:-}" ] && [ -f "$FAKE_CURL_INDEX_BODY" ]; then
+      cat "$FAKE_CURL_INDEX_BODY"
+      printf '\n200'
+    else
+      printf '{"message":"Not Found","errorCode":40400}\n404'
+    fi
     ;;
   POST)
     # JsonLogic frontmatter search. Emulates the Local REST API's /search/ for the

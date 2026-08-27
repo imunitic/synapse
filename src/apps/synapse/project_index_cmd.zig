@@ -138,8 +138,9 @@ pub fn write(
         .bullets = bullets.items,
     });
 
-    var store = (try openStore(gpa, io, env, ctx)) orelse return 1;
-    defer store.deinit();
+    var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, ctx.vault, ctx.dir, prog)) orelse return 1;
+    defer resolved.deinit();
+    var store = resolved.store();
     const put_result = store.write(io, "Index.md", index.written()) catch {
         std.debug.print("{s}: PUT failed (000): curl did not complete\n", .{prog});
         return 1;
@@ -223,53 +224,6 @@ fn nowStamp(gpa: Allocator, io: Io) ![]u8 {
     defer res.deinit(gpa);
     if (!res.ok()) return error.NoDate;
     return gpa.dupe(u8, std.mem.trim(u8, res.stdout, " \t\r\n"));
-}
-
-fn openStore(
-    gpa: Allocator,
-    io: Io,
-    env: *std.process.Environ.Map,
-    ctx: *const Context,
-) !?adapters.obsidian.ObsidianStore {
-    const plugin_path = try std.fmt.allocPrint(
-        gpa,
-        "{s}/.obsidian/plugins/obsidian-local-rest-api/data.json",
-        .{ctx.vault},
-    );
-    defer gpa.free(plugin_path);
-    const text = Io.Dir.cwd().readFileAlloc(io, plugin_path, gpa, .limited(1 << 20)) catch {
-        std.debug.print("{s}: REST API not configured\n", .{prog});
-        return null;
-    };
-    defer gpa.free(text);
-
-    const parsed = std.json.parseFromSlice(std.json.Value, gpa, text, .{}) catch {
-        std.debug.print("{s}: no API key/port\n", .{prog});
-        return null;
-    };
-    defer parsed.deinit();
-    const obj = switch (parsed.value) {
-        .object => |o| o,
-        else => return null,
-    };
-    const api_key = switch (obj.get("apiKey") orelse .null) {
-        .string => |s| s,
-        else => "",
-    };
-    const port: u16 = switch (obj.get("port") orelse .null) {
-        .integer => |i| @intCast(i),
-        .string => |s| std.fmt.parseInt(u16, s, 10) catch 0,
-        else => 0,
-    };
-    if (api_key.len == 0 or port == 0) {
-        std.debug.print("{s}: no API key/port\n", .{prog});
-        return null;
-    }
-    const cert = try std.fmt.allocPrint(gpa, "{s}/.claude/obsidian-local-rest-api-ca.pem", .{
-        env.get("HOME") orelse "",
-    });
-    defer gpa.free(cert);
-    return try adapters.obsidian.ObsidianStore.init(gpa, port, cert, api_key, ctx.dir);
 }
 
 const testing = std.testing;

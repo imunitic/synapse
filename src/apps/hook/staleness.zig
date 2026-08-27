@@ -113,8 +113,11 @@ pub fn build(
     var findings: Io.Writer.Allocating = .init(gpa);
     defer findings.deinit();
 
-    var store = (try openStore(gpa, io, env, vault, ns)) orelse return null;
-    defer store.deinit();
+    const store_ns = try std.fmt.allocPrint(gpa, "synapse/{s}", .{ns.key});
+    defer gpa.free(store_ns);
+    var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, vault, store_ns, null)) orelse return null;
+    defer resolved.deinit();
+    var store = resolved.store();
 
     for (owned.items) |node_file| {
         const node_path = try std.fmt.allocPrint(gpa, "{s}/synapse/{s}/{s}", .{ vault, ns.key, node_file });
@@ -343,48 +346,6 @@ fn appendSeen(gpa: Allocator, io: Io, path: []const u8, key: []const u8) !void {
     if (existing.len != 0 and existing[existing.len - 1] != '\n') try out.writer.writeAll("\n");
     try out.writer.print("{s}\n", .{key});
     Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = out.written() }) catch {};
-}
-
-fn openStore(
-    gpa: Allocator,
-    io: Io,
-    env: *std.process.Environ.Map,
-    vault: []const u8,
-    ns: common.Namespace,
-) !?adapters.obsidian.ObsidianStore {
-    const plugin = try std.fmt.allocPrint(
-        gpa,
-        "{s}/.obsidian/plugins/obsidian-local-rest-api/data.json",
-        .{vault},
-    );
-    defer gpa.free(plugin);
-    const text = Io.Dir.cwd().readFileAlloc(io, plugin, gpa, .limited(1 << 20)) catch return null;
-    defer gpa.free(text);
-    const parsed = std.json.parseFromSlice(std.json.Value, gpa, text, .{}) catch return null;
-    defer parsed.deinit();
-    const obj = switch (parsed.value) {
-        .object => |o| o,
-        else => return null,
-    };
-    const api_key = switch (obj.get("apiKey") orelse .null) {
-        .string => |s| s,
-        else => "",
-    };
-    const port: u16 = switch (obj.get("port") orelse .null) {
-        .integer => |i| @intCast(i),
-        .string => |s| std.fmt.parseInt(u16, s, 10) catch 0,
-        else => 0,
-    };
-    if (api_key.len == 0 or port == 0) return null;
-    const cert = try std.fmt.allocPrint(gpa, "{s}/.claude/obsidian-local-rest-api-ca.pem", .{
-        env.get("HOME") orelse "",
-    });
-    defer gpa.free(cert);
-    _ = Io.Dir.cwd().statFile(io, cert, .{}) catch return null; // else every call fails with an unhelpful curl error
-
-    const dir = try std.fmt.allocPrint(gpa, "synapse/{s}", .{ns.key});
-    defer gpa.free(dir);
-    return try adapters.obsidian.ObsidianStore.init(gpa, port, cert, api_key, dir);
 }
 
 const testing = std.testing;

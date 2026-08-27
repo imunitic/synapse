@@ -16,6 +16,17 @@ pub const fakes = @import("fakes/root.zig");
 /// links nothing, so wanting a vault doesn't imply wanting a C compiler.
 pub const obsidian = @import("obsidian/store.zig");
 
+/// Plain markdown files directly on disk behind the Store port -- no REST
+/// API, no MCP server, no network dependency. `SYNAPSE_VAULT_STORE=disk`'s
+/// backend.
+pub const disk_store = @import("disk/store.zig");
+
+/// Picks and constructs the `Store` a caller should use, from
+/// `SYNAPSE_VAULT_STORE`/`SYNAPSE_VAULT_DIR` -- shared by every CLI
+/// subcommand and hook that needs a `Store`, so a backend swap changes only
+/// this function.
+pub const store_resolve = @import("store_resolve.zig");
+
 /// synapse-bard's real Extractor -- YAML frontmatter only, no C dependency.
 /// `pub`, unlike the conformance file below: `synapse-bard`'s own main.zig
 /// constructs and uses this directly, not just tests it.
@@ -45,6 +56,8 @@ test {
     _ = env;
     _ = fakes;
     _ = obsidian;
+    _ = disk_store;
+    _ = store_resolve;
     _ = bard_frontmatter;
     _ = bard_graph_store;
     _ = bard_cluster;

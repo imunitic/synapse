@@ -64,16 +64,20 @@ pub const Fixture = struct {
         try tmp.dir.createDirPath(testing.io, "repo");
         try tmp.dir.createDirPath(testing.io, "vault/.obsidian/plugins/obsidian-local-rest-api");
         try tmp.dir.createDirPath(testing.io, "work");
-        try tmp.dir.createDirPath(testing.io, "home");
+        try tmp.dir.createDirPath(testing.io, "home/.claude");
         try tmp.dir.writeFile(testing.io, .{
             .sub_path = "vault/.obsidian/plugins/obsidian-local-rest-api/data.json",
             .data = "{\"apiKey\":\"test-key\",\"port\":27124}",
+        });
+        try tmp.dir.writeFile(testing.io, .{
+            .sub_path = "home/.claude/obsidian-local-rest-api-ca.pem",
+            .data = "",
         });
 
         var env = try std.process.Environ.createMap(testing.environ, gpa);
         errdefer env.deinit();
         try env.put("HOME", home);
-        try env.put("OBSIDIAN_VAULT_DIR", vault);
+        try env.put("SYNAPSE_VAULT_DIR", vault);
         try env.put("SYNAPSE_NAMESPACE", "repo@main");
         try env.put("SYNAPSE_REPO_ROOT", repo);
         try env.put("SYNAPSE_BRANCH", "main");
