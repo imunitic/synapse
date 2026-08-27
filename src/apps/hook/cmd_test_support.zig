@@ -73,6 +73,17 @@ pub const Fixture = struct {
         try env.put("HOME", home);
         try env.put("OBSIDIAN_VAULT_DIR", vault);
         try env.put("SYNAPSE_WORK_DIR", work);
+        // Cleared, not inherited -- see the identical comment in
+        // `src/apps/synapse/cmd_test_support.zig`: a real install on the
+        // machine running the suite sets these, and `resolveConfPath`'s
+        // tier 3 would otherwise resolve straight through the fixture's
+        // isolated $HOME to that real machine's bundled conf/content.
+        // Individual tests that need one set still override it afterward.
+        // `swapRemove`, not an empty-string `put`: `session_start.zig`'s own
+        // `env.get("CLAUDE_PLUGIN_ROOT")` treats any present key, empty
+        // value included, as "set".
+        _ = env.swapRemove("SYNAPSE_CONTENT_ROOT");
+        _ = env.swapRemove("CLAUDE_PLUGIN_ROOT");
         try env.put("FAKE_CURL_LOG", curl_log);
         try env.put("FAKE_CURL_VAULT_DIR", vault);
         try env.put("FAKE_CURL_CAPTURE_DIR", curl_capture);

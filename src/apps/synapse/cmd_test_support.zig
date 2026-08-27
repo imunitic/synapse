@@ -80,6 +80,17 @@ pub const Fixture = struct {
         try env.put("SYNAPSE_REMOTE", "");
         try env.put("SYNAPSE_WORK_DIR", work);
         try env.put("SYNAPSE_DISABLE_SYMBOL_CACHE", "1");
+        // Cleared, not inherited: a real install on the machine running the
+        // suite (an npm-installed `synapse`, or a plugin-cache checkout) sets
+        // these, and `core.conf.resolveConfPath`'s tier 3 would otherwise
+        // resolve straight through the fixture's isolated $HOME to that real
+        // machine's bundled conf templates -- a fixture asserting "no config
+        // present" must not depend on what happens to be installed globally.
+        // `swapRemove`, not an empty-string `put`: some readers (e.g.
+        // `session_start.zig`'s own `env.get("CLAUDE_PLUGIN_ROOT")`) treat
+        // any present key, empty value included, as "set".
+        _ = env.swapRemove("SYNAPSE_CONTENT_ROOT");
+        _ = env.swapRemove("CLAUDE_PLUGIN_ROOT");
         try env.put("FAKE_CURL_LOG", curl_log);
         try env.put("FAKE_CURL_VAULT_DIR", vault);
 
