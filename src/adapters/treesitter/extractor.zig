@@ -257,10 +257,21 @@ pub fn Extractor(comptime Backend: type) type {
             paths: []const []const u8,
         ) ![]Result {
             const out = try gpa.alloc(Result, paths.len);
-            errdefer gpa.free(out);
+            // `filled` tracks how much of `out` is in a well-defined state --
+            // everything past it is still the raw memory `alloc` returned, so
+            // the errdefer below must never read past it. `out[i] = .unsupported`
+            // is unconditionally the first thing each iteration does, so it's
+            // safe to advance `filled` right there: any `try` that fails later
+            // in the same iteration still leaves `out[i]` freeable.
+            var filled: usize = 0;
+            errdefer {
+                for (out[0..filled]) |r| if (r == .tagged) tagger_mod.freeTagged(gpa, r.tagged);
+                gpa.free(out);
+            }
 
             for (paths, 0..) |path, i| {
                 out[i] = .unsupported;
+                filled = i + 1;
 
                 const ext = (try root.extensionOf(self.gpa, path)) orelse continue;
                 defer self.gpa.free(ext);
@@ -298,7 +309,19 @@ pub fn Extractor(comptime Backend: type) type {
             defer gpa.free(results);
 
             const out = try gpa.alloc(ports.Extractor.Outcome, paths.len);
-            errdefer gpa.free(out);
+            // Same reasoning as tagWithSpans' own `filled` above -- but here
+            // `out[i]` isn't set until a switch branch completes (the
+            // `.tagged` branch's own `try gpa.alloc` can fail before `out[i]`
+            // is ever touched), so `filled` only advances after the switch,
+            // never before it.
+            var filled: usize = 0;
+            errdefer {
+                for (out[0..filled]) |o| if (o == .tags) {
+                    for (o.tags) |t| tagger_mod.freeTag(gpa, t);
+                    gpa.free(o.tags);
+                };
+                gpa.free(out);
+            }
             for (results, 0..) |r, i| {
                 switch (r) {
                     .unsupported => out[i] = .unsupported,
@@ -309,6 +332,7 @@ pub fn Extractor(comptime Backend: type) type {
                         out[i] = .{ .tags = tags };
                     },
                 }
+                filled = i + 1;
             }
             return out;
         }

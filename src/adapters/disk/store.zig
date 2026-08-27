@@ -50,23 +50,9 @@ pub const DiskStore = struct {
     }
 
     fn nodePath(self: *DiskStore, gpa: Allocator, node: []const u8) ![]u8 {
-        if (!isSafeNode(node)) return error.UnsafeNodePath;
+        if (!core.node_path.isSafe(node)) return error.UnsafeNodePath;
         if (self.namespace.len == 0) return std.fs.path.join(gpa, &.{ self.vault, node });
         return std.fs.path.join(gpa, &.{ self.vault, self.namespace, node });
-    }
-
-    /// Rejects a `node` that could escape `self.vault` -- an absolute path,
-    /// or any `..` path segment. `std.fs.path.join` has no opinion on
-    /// either; the OS resolves a literal `..` in the joined path exactly as
-    /// it would anywhere else, so an unchecked `node` (a bare title in the
-    /// ordinary case, but ultimately whatever a caller of `vault-read`/
-    /// `vault-write`/`vault-patch` passes as `path`) could read or write
-    /// any file the process can reach, not just something under the vault.
-    fn isSafeNode(node: []const u8) bool {
-        if (node.len != 0 and node[0] == '/') return false;
-        var it = std.mem.splitScalar(u8, node, '/');
-        while (it.next()) |seg| if (std.mem.eql(u8, seg, "..")) return false;
-        return true;
     }
 
     pub fn read(self: *DiskStore, gpa: Allocator, io: Io, node: []const u8) anyerror!?[]u8 {

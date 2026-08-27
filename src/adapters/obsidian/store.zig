@@ -23,6 +23,7 @@
 
 const std = @import("std");
 const ports = @import("ports");
+const core = @import("core");
 const process = @import("../process.zig");
 const disk_store = @import("../disk/store.zig");
 
@@ -97,6 +98,12 @@ pub const ObsidianStore = struct {
     }
 
     fn nodeUrl(self: *ObsidianStore, gpa: Allocator, node: []const u8) ![]u8 {
+        // `encodePath` below leaves `.` and `/` unencoded (both are in RFC
+        // 3986's unreserved set), so a `..`-laden `node` would otherwise
+        // reach the REST API's URL path unchanged -- reject it here instead
+        // of trusting the plugin's own server-side path handling, the same
+        // guard `DiskStore.nodePath` enforces for the same reason.
+        if (!core.node_path.isSafe(node)) return error.UnsafeNodePath;
         const owned_path: ?[]u8 = if (self.namespace.len == 0)
             null
         else
@@ -506,6 +513,22 @@ test "an empty namespace addresses a node by its full vault-relative path, unpre
     const got = (try store.read(gpa, io, "tasks/synapse/sb-037 — Task.md")).?;
     defer gpa.free(got);
     try testing.expectEqualStrings("---\ntitle: Task\n---\nbody\n", got);
+}
+
+test "a node with a .. segment or a leading / is rejected before any request is made" {
+    const gpa = testing.allocator;
+    var io_threaded: std.Io.Threaded = .init(gpa, .{});
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    var os_store = try ObsidianStore.init(gpa, 27124, "/dev/null", "test-key", "/dev/null", "synapse/repo@main");
+    defer os_store.deinit();
+    var store = os_store.store();
+
+    // No fake-curl fixture needed here: the guard fires inside `nodeUrl`,
+    // before either call would spawn a process at all.
+    try testing.expectError(error.UnsafeNodePath, store.write(io, "../../../../etc/passwd", "pwned"));
+    try testing.expectError(error.UnsafeNodePath, store.read(gpa, io, "/etc/passwd"));
 }
 
 test "each segment is encoded and the separators survive" {

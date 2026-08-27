@@ -34,6 +34,7 @@ pub const regex_lite = @import("regex_lite.zig");
 pub const jsonlogic = @import("jsonlogic.zig");
 pub const vault_query = @import("vault_query.zig");
 pub const text_search = @import("text_search.zig");
+pub const node_path = @import("node_path.zig");
 pub const fence_languages = @import("fence_languages.zig");
 pub const refs = @import("refs.zig");
 pub const gate = @import("gate.zig");
@@ -68,6 +69,7 @@ test {
     _ = jsonlogic;
     _ = vault_query;
     _ = text_search;
+    _ = node_path;
     _ = fence_languages;
     _ = refs;
     _ = gate;
