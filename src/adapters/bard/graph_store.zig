@@ -14,6 +14,7 @@
 
 const std = @import("std");
 const ports = @import("ports");
+const core = @import("core");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -125,7 +126,10 @@ pub const BardGraphStore = struct {
 
         var out: std.ArrayListUnmanaged(Store.Hit) = .empty;
         errdefer {
-            for (out.items) |h| gpa.free(h.context);
+            for (out.items) |h| {
+                gpa.free(h.node);
+                gpa.free(h.context);
+            }
             out.deinit(gpa);
         }
 
@@ -210,33 +214,21 @@ fn unquote(value: []const u8) []const u8 {
 
 /// `pub` for the same reason as `fieldLine` above: `synapse-bard search`
 /// reuses this over real entity source files, not just this Store's own
-/// content. Case-insensitive, matching `fieldLine`/`countIgnoreCase` --
-/// a writer searching her own bible shouldn't have to remember how she
-/// capitalized a name.
-pub fn firstMatchingLine(body: []const u8, query: []const u8) ?[]const u8 {
-    var lines = std.mem.splitScalar(u8, body, '\n');
-    while (lines.next()) |line| {
-        if (std.ascii.findIgnoreCase(line, query) != null) return line;
-    }
-    return null;
-}
+/// content. Case-insensitive, matching `fieldLine` -- a writer searching her
+/// own bible shouldn't have to remember how she capitalized a name.
+///
+/// Re-exported from `core.text_search`, not defined here: the actual logic
+/// is domain-neutral (no `Store`, no bard-specific type anywhere in it), so
+/// it lives where any `Store` implementation can reach it -- `DiskStore`'s
+/// own full-text `search` uses the same function.
+pub const firstMatchingLine = core.text_search.firstMatchingLine;
 
-/// Case-insensitive occurrence count, the `std.mem.count` this Store used
-/// before values needed to be case-insensitive doesn't have an ignore-case
-/// form of. `pub` for the same reuse reason as `fieldLine`/
-/// `firstMatchingLine`: `synapse-bard search`'s full-text mode counts
-/// occurrences over real entity source files with this exact function, not
-/// a second implementation of the same loop.
-pub fn countIgnoreCase(haystack: []const u8, needle: []const u8) usize {
-    if (needle.len == 0) return 0;
-    var count: usize = 0;
-    var pos: usize = 0;
-    while (std.ascii.findIgnoreCasePos(haystack, pos, needle)) |idx| {
-        count += 1;
-        pos = idx + needle.len;
-    }
-    return count;
-}
+/// `pub` for the same reuse reason as `fieldLine`/`firstMatchingLine`:
+/// `synapse-bard search`'s full-text mode counts occurrences over real
+/// entity source files with this exact function, not a second
+/// implementation of the same loop. Re-exported from `core.text_search` --
+/// see `firstMatchingLine`'s own comment for why.
+pub const countIgnoreCase = core.text_search.countIgnoreCase;
 
 const testing = std.testing;
 

@@ -14,7 +14,7 @@
 
 const std = @import("std");
 const ports = @import("ports");
-const bard_graph_store = @import("../bard/graph_store.zig");
+const core = @import("core");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -50,8 +50,23 @@ pub const DiskStore = struct {
     }
 
     fn nodePath(self: *DiskStore, gpa: Allocator, node: []const u8) ![]u8 {
+        if (!isSafeNode(node)) return error.UnsafeNodePath;
         if (self.namespace.len == 0) return std.fs.path.join(gpa, &.{ self.vault, node });
         return std.fs.path.join(gpa, &.{ self.vault, self.namespace, node });
+    }
+
+    /// Rejects a `node` that could escape `self.vault` -- an absolute path,
+    /// or any `..` path segment. `std.fs.path.join` has no opinion on
+    /// either; the OS resolves a literal `..` in the joined path exactly as
+    /// it would anywhere else, so an unchecked `node` (a bare title in the
+    /// ordinary case, but ultimately whatever a caller of `vault-read`/
+    /// `vault-write`/`vault-patch` passes as `path`) could read or write
+    /// any file the process can reach, not just something under the vault.
+    fn isSafeNode(node: []const u8) bool {
+        if (node.len != 0 and node[0] == '/') return false;
+        var it = std.mem.splitScalar(u8, node, '/');
+        while (it.next()) |seg| if (std.mem.eql(u8, seg, "..")) return false;
+        return true;
     }
 
     pub fn read(self: *DiskStore, gpa: Allocator, io: Io, node: []const u8) anyerror!?[]u8 {
@@ -93,19 +108,22 @@ pub const DiskStore = struct {
 
         var out: std.ArrayListUnmanaged(Store.Hit) = .empty;
         errdefer {
-            for (out.items) |h| gpa.free(h.context);
+            for (out.items) |h| {
+                gpa.free(h.node);
+                gpa.free(h.context);
+            }
             out.deinit(gpa);
         }
 
         for (names) |name| {
             const body = (try self.read(gpa, io, name)) orelse continue;
             defer gpa.free(body);
-            const count = bard_graph_store.countIgnoreCase(body, query);
+            const count = core.text_search.countIgnoreCase(body, query);
             if (count == 0) continue;
             try out.append(gpa, .{
                 .node = try gpa.dupe(u8, name),
                 .score = @floatFromInt(count),
-                .context = try gpa.dupe(u8, bard_graph_store.firstMatchingLine(body, query) orelse ""),
+                .context = try gpa.dupe(u8, core.text_search.firstMatchingLine(body, query) orelse ""),
             });
         }
         return out.toOwnedSlice(gpa);
@@ -224,6 +242,37 @@ test "an empty namespace addresses a node by its full vault-relative path, unpre
     const got = (try port.read(gpa, testing.io, "tasks/synapse/sb-037 — Task.md")).?;
     defer gpa.free(got);
     try testing.expectEqualStrings("---\ntitle: Task\n---\nbody\n", got);
+}
+
+test "a node with a .. segment cannot escape the vault, on read or write" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "synapse/repo@main");
+    defer s.deinit();
+    const port = s.store();
+
+    try testing.expectError(error.UnsafeNodePath, port.write(testing.io, "../../../../etc/passwd", "pwned"));
+    try testing.expectError(error.UnsafeNodePath, port.read(gpa, testing.io, "../outside.md"));
+    // A `..` buried mid-path, not just a leading one, is caught too.
+    try testing.expectError(error.UnsafeNodePath, port.read(gpa, testing.io, "a/../../b.md"));
+}
+
+test "an absolute node path is rejected, not treated as vault-relative" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "synapse/repo@main");
+    defer s.deinit();
+    const port = s.store();
+
+    try testing.expectError(error.UnsafeNodePath, port.write(testing.io, "/etc/passwd", "pwned"));
 }
 
 test "a missing node reads as null, not as an error" {
