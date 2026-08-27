@@ -578,8 +578,8 @@ test "regression: SYNAPSE_WORK_DIR unset (the real production shape) still finds
     try sf.fx.writeRepoFile("src/foo.ml", "let x = 1\n");
     try sf.commit("init"); // resolves sf.key, needed for the default path below
 
-    try sf.fx.tmp.dir.createDirPath(sf.fx.io(), "home/.claude/synapse-work");
-    const default_link = try std.fmt.allocPrint(gpa, "home/.claude/synapse-work/{s}", .{sf.key});
+    try sf.fx.tmp.dir.createDirPath(sf.fx.io(), "home/.cache/synapse/work");
+    const default_link = try std.fmt.allocPrint(gpa, "home/.cache/synapse/work/{s}", .{sf.key});
     defer gpa.free(default_link);
     try sf.fx.tmp.dir.symLink(sf.fx.io(), sf.fx.work, default_link, .{ .is_directory = true });
 

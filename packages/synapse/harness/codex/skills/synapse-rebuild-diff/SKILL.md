@@ -85,7 +85,7 @@ this skill when it does. What no longer happens is arriving here merely because 
   because it is not this checkout's namespace to diff at all. Never conflate the two: a non-ancestor
   baseline on a branch-identity match still proceeds normally, per the "One mechanical fact about
   branches" section above.
-- The work directory (`$SYNAPSE_WORK_DIR`, default `~/.claude/synapse-work/{repo}@{branch}/`) ideally
+- The work directory (`$SYNAPSE_WORK_DIR`, default `~/.cache/synapse/work/{repo}@{branch}/`) ideally
   holds the `manifest.tsv` from the original build. Without it, new paths cannot be classified as
   auto-claimable, and clustering decisions have to be re-derived — say so rather than proceeding as if
   nothing were missing. `synapse/{repo}@{branch}/_manifest.tsv` is the fallback copy.

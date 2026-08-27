@@ -202,7 +202,7 @@ gate flag is advice about a clustering rather than a verdict on one.
 
 ### Three per-repo artifacts, in two places
 
-- **`~/.claude/synapse-work/{repo}@{branch}/`** — the work directory (`manifest.tsv`, `all.txt`,
+- **`~/.cache/synapse/work/{repo}@{branch}/`** — the work directory (`manifest.tsv`, `all.txt`,
   `lists/`, authored node bodies, coverage files). Persistent, so a later run finds
   the previous clustering. Deliberately *not* the repo — these scripts run from inside the repo, so a
   `$PWD` default would drop megabytes of working files into a user's checkout — and *not* the vault,

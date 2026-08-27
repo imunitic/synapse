@@ -261,7 +261,7 @@ write_index_bin() { # write_index_bin <work-dir> [unassigned-path...] < pairs
 # The work dir every component defaults to for $REPO's namespace, so a test can
 # stage an index where the scripts will look for it without exporting anything.
 default_work_dir() {
-  printf '%s' "$HOME/.claude/synapse-work/$(repo_name)"
+  printf '%s' "$HOME/.cache/synapse/work/$(repo_name)"
 }
 
 # Writes a Synapse per-project Index.md with the given `remote` frontmatter

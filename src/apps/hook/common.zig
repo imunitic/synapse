@@ -160,7 +160,7 @@ fn nonEmpty(env: *std.process.Environ.Map, key: []const u8) ?[]const u8 {
     return if (v.len == 0) null else v;
 }
 
-/// The work dir: `$SYNAPSE_WORK_DIR` when set, else `~/.claude/synapse-work/{key}`
+/// The work dir: `$SYNAPSE_WORK_DIR` when set, else `~/.cache/synapse/work/{key}`
 /// -- the same default `context.workDirFor` already uses for the main CLI, so a
 /// hook agrees with a bare `synapse` invocation about where the cache lives
 /// even when nothing exported the override, which nothing in `hooks.json`
@@ -168,7 +168,7 @@ fn nonEmpty(env: *std.process.Environ.Map, key: []const u8) ?[]const u8 {
 pub fn workDir(gpa: Allocator, env: *std.process.Environ.Map, key: []const u8) ?[]u8 {
     if (nonEmpty(env, "SYNAPSE_WORK_DIR")) |w| return gpa.dupe(u8, w) catch null;
     const home = env.get("HOME") orelse return null;
-    return std.fmt.allocPrint(gpa, "{s}/.claude/synapse-work/{s}", .{ home, key }) catch null;
+    return std.fmt.allocPrint(gpa, "{s}/.cache/synapse/work/{s}", .{ home, key }) catch null;
 }
 
 /// Whether the namespace's own `Index.md` agrees it belongs to this repo
@@ -370,7 +370,7 @@ test "workDir: SYNAPSE_WORK_DIR set wins outright" {
     try testing.expectEqualStrings("/explicit/work", got);
 }
 
-test "workDir: SYNAPSE_WORK_DIR unset falls back to ~/.claude/synapse-work/{key}" {
+test "workDir: SYNAPSE_WORK_DIR unset falls back to ~/.cache/synapse/work/{key}" {
     const gpa = testing.allocator;
     var env = try std.process.Environ.createMap(testing.environ, gpa);
     defer env.deinit();
@@ -379,7 +379,7 @@ test "workDir: SYNAPSE_WORK_DIR unset falls back to ~/.claude/synapse-work/{key}
 
     const got = workDir(gpa, &env, "repo@main").?;
     defer gpa.free(got);
-    try testing.expectEqualStrings("/home/nobody/.claude/synapse-work/repo@main", got);
+    try testing.expectEqualStrings("/home/nobody/.cache/synapse/work/repo@main", got);
 }
 
 test "workDir: neither SYNAPSE_WORK_DIR nor HOME set is null, not a crash" {

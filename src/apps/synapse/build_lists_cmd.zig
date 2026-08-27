@@ -518,11 +518,11 @@ test "with $SYNAPSE_WORK_DIR unset, output lands in the default work dir and nev
 
     // `context.workDirFor` derives the default from `SYNAPSE_NAMESPACE`
     // (the fixture's own env-var identity bypass) without needing real
-    // git for this call -- `$HOME/.claude/synapse-work/repo@main`, created
+    // git for this call -- `$HOME/.cache/synapse/work/repo@main`, created
     // on demand by `build()`'s own `createDirPath`.
-    try bf.fx.tmp.dir.createDirPath(testing.io, "home/.claude/synapse-work/repo@main");
+    try bf.fx.tmp.dir.createDirPath(testing.io, "home/.cache/synapse/work/repo@main");
     try bf.fx.tmp.dir.writeFile(testing.io, .{
-        .sub_path = "home/.claude/synapse-work/repo@main/manifest.tsv",
+        .sub_path = "home/.cache/synapse/work/repo@main/manifest.tsv",
         .data = "Java\t^mod-a/\t\n",
     });
 
@@ -531,7 +531,7 @@ test "with $SYNAPSE_WORK_DIR unset, output lands in the default work dir and nev
     const code = try bf.run(false, &out.writer);
     try testing.expectEqual(@as(u8, 0), code);
 
-    const list1 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "home/.claude/synapse-work/repo@main/lists/01.txt", gpa, .limited(1 << 10));
+    const list1 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "home/.cache/synapse/work/repo@main/lists/01.txt", gpa, .limited(1 << 10));
     defer gpa.free(list1);
     try testing.expect(std.mem.indexOf(u8, list1, "A.java") != null);
 

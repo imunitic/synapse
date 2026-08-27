@@ -97,7 +97,7 @@ yours and cannot be scripted because what counts as signal differs per codebase.
   (hash, digest, `## Sources` mirror, PUT), `synapse push-nodes`, `synapse build-index`,
   `synapse build-project-index`.
 
-**The work directory** defaults to `~/.claude/synapse-work/{repo}@{branch}/`, created on demand, and
+**The work directory** defaults to `~/.cache/synapse/work/{repo}@{branch}/`, created on demand, and
 holds `manifest.tsv`, `all.txt`, `lists/`, the authored `b-NN.md` bodies and the coverage files. Override with `$SYNAPSE_WORK_DIR` if you need to. Two things never to do: point it
 at the repo (`synapse` runs from inside the repo, so its working files would land in the user's
 checkout) or at the vault (Obsidian would index a file list that runs to six figures of lines).

@@ -100,7 +100,7 @@ pub fn resolve(
     var owned_work: ?[]u8 = null;
     const work_dir = nonEmpty(env, "SYNAPSE_WORK_DIR") orelse blk: {
         const home = env.get("HOME") orelse "";
-        owned_work = try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-work/{s}", .{ home, namespace });
+        owned_work = try std.fmt.allocPrint(gpa, "{s}/.cache/synapse/work/{s}", .{ home, namespace });
         break :blk owned_work.?;
     };
 
@@ -233,7 +233,7 @@ pub fn listNodeFiles(ctx: *const Context, io: Io) !std.ArrayListUnmanaged([]u8) 
 }
 
 /// The work dir, without requiring a vault: `$SYNAPSE_WORK_DIR` when set,
-/// else `~/.claude/synapse-work/{namespace}`. `enumerate`/`build-lists`/
+/// else `~/.cache/synapse/work/{namespace}`. `enumerate`/`build-lists`/
 /// `build-refs`/`callers` don't need a vault at all. Caller owns the result
 /// when `owned` is true.
 pub const WorkDir = struct {
@@ -286,7 +286,7 @@ pub fn workDirFor(
         return null;
     };
     return .{
-        .path = try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-work/{s}", .{ home, key }),
+        .path = try std.fmt.allocPrint(gpa, "{s}/.cache/synapse/work/{s}", .{ home, key }),
         .owned = true,
     };
 }
