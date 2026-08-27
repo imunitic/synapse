@@ -1,6 +1,6 @@
 # Synapse Configuration Reference
 
-Every `synapse-*.conf` file and every `SYNAPSE_*`/`OBSIDIAN_*` environment variable the compiled
+Every `synapse-*.conf` file and every `SYNAPSE_*` environment variable the compiled
 binaries and hooks read, in one place. Unlike [cli.md](cli.md), this is hand-maintained, not
 generated: a `--help` string has one canonical declaration site to generate from, an
 `env.get("SYNAPSE_...")` call does not — it's just scattered through `src/`. Treat this page as
@@ -34,7 +34,7 @@ meant to be written to.
 
 Everything else is either self-populating (discovered and cached automatically) or a plain list a
 human edits directly; this is the one file a fresh install actually requires editing, since
-`OBSIDIAN_VAULT_DIR` is inherently machine-specific and nothing can guess it. A plugin install has
+`SYNAPSE_VAULT_DIR` is inherently machine-specific and nothing can guess it. A plugin install has
 no interactive step to prompt for this — the `SessionStart` hook says so directly, every session,
 until the file exists and resolves to a real directory. Resolved via the same three-tier order
 every `synapse-*.conf` file uses (see "Where a conf file actually lives" below): typically
@@ -49,7 +49,8 @@ reinstalled since.
 
 | Key | Default if unset | What it controls |
 |---|---|---|
-| `OBSIDIAN_VAULT_DIR` | — (required) | The vault path. Also directly overridable by an `OBSIDIAN_VAULT_DIR` environment variable, which wins over the file. |
+| `SYNAPSE_VAULT_DIR` | — (required) | The vault path. Also directly overridable by a `SYNAPSE_VAULT_DIR` environment variable, which wins over the file. |
+| `SYNAPSE_VAULT_STORE` | `obsidian` | Which `Store` backend `resolveStore()` resolves to: `obsidian` (the Local REST API, the only backend today) or `disk` (plain markdown files, no REST API/MCP server involved — reads `SYNAPSE_VAULT_DIR` directly as a folder). Any other value is a hard error, not a silent fallback. |
 | `SYNAPSE_GRAMMARS_DIR` | `~/.cache/synapse/grammars` | Where tree-sitter grammar repos are cloned and their compiled `.so`/`.dylib` libraries cached — shared across every project, not per-repo. |
 | `SYNAPSE_VAULT_PUSH_EVERY` | `5` | How many `Stop`-hook turns between vault auto-pushes to its git remote. `0` disables pushing. Only acts when the vault has an upstream and is genuinely ahead of it. |
 | `SYNAPSE_AUTHOR_POOL` | `0` | How many nodes `/synapse-init`'s final step authors concurrently via the `synapse-node-authoring` skill. `0` is the original one-at-a-time, same-session procedure — the only choice that preserves cross-node authorial memory. Read directly by the orchestrating agent, not by any compiled binary. |
@@ -182,8 +183,8 @@ tier 1/2 either — a from-source checkout with nothing configured, or a hermeti
 
 ## Every environment variable, by what it touches
 
-Conf-file path overrides (`SYNAPSE_*_CONF`, `OBSIDIAN_VAULT_DIR`) are listed with their files above,
-not repeated here.
+Conf-file path overrides (`SYNAPSE_*_CONF`, `SYNAPSE_VAULT_DIR`, `SYNAPSE_VAULT_STORE`) are listed
+with their files above, not repeated here.
 
 | Variable | Read by | What it does |
 |---|---|---|

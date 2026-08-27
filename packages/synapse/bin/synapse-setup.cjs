@@ -69,7 +69,7 @@ function readObsidianPluginData() {
   const { resolveVaultDir } = require("../lib/obsidian-mcp-refresh.cjs");
   const vault = resolveVaultDir();
   if (!vault || !fs.existsSync(vault)) {
-    fail("no OBSIDIAN_VAULT_DIR resolvable (see synapse.conf) -- can't configure the obsidian MCP connection");
+    fail("no SYNAPSE_VAULT_DIR resolvable (see synapse.conf) -- can't configure the obsidian MCP connection");
   }
   const pluginDataPath = path.join(vault, ".obsidian", "plugins", "obsidian-local-rest-api", "data.json");
   if (!fs.existsSync(pluginDataPath)) {

@@ -89,7 +89,7 @@ instead of a silent edit:
   local git history to say *why* it's broken instead of leaving that to guesswork — the vault is
   usually a git repo (`db-sync` auto-commits every agent-driven edit into it, opt-in per vault, same
   precondition as that hook). Resolve the vault's filesystem path the same way `synapse.conf`
-  already does (`OBSIDIAN_VAULT_DIR`), skip this sub-step entirely if `{vault}/.git` doesn't exist,
+  already does (`SYNAPSE_VAULT_DIR`), skip this sub-step entirely if `{vault}/.git` doesn't exist,
   and never let a missing/unreachable git repo block the rest of the finding — worst case it's
   reported with no history context, same as today.
   - `git -C {vault} log --all --diff-filter=A --name-only --pretty=format: -- "**/{target}.md"` — a

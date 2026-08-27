@@ -52,7 +52,7 @@ coding side's `SessionStart` hook follows.
 
 Much simpler than [Synapse Vault's four hooks](../synapse/synapse-vault.md#the-four-hooks), and deliberately
 so: `_bard/vault/` is always repo-relative, so there's no external `synapse.conf`/
-`OBSIDIAN_VAULT_DIR` to resolve, no cross-repo namespace to catalogue, no remote to verify before a
+`SYNAPSE_VAULT_DIR` to resolve, no cross-repo namespace to catalogue, no remote to verify before a
 write. There's also, as of this writing, no `Stop`-hook nudge, no per-prompt injection, and — the
 one gap worth naming plainly — **no auto-commit hook**. `_bard/vault/` is git-tracked the same as
 any other part of the repo, but nothing commits it automatically the way the coding vault's own

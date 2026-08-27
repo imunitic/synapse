@@ -130,7 +130,7 @@ function confExpand(raw) {
 
 // Mirrors core/conf.zig's `resolveExisting` (tiers 1-2 only -- this hook,
 // like the shell script it replaces, never falls back to the plugin's own
-// bundled template: that template's OBSIDIAN_VAULT_DIR is a placeholder
+// bundled template: that template's SYNAPSE_VAULT_DIR is a placeholder
 // path, not a real vault, and silently trying it would be worse than doing
 // nothing).
 function resolveConfPath(name) {
@@ -150,7 +150,7 @@ function resolveConfPath(name) {
 // conf file name in turn (synapse.conf, then the pre-rename second-brain.conf
 // as a fallback), each resolved through the same tier order.
 function resolveVaultDir() {
-  const override = process.env.OBSIDIAN_VAULT_DIR;
+  const override = process.env.SYNAPSE_VAULT_DIR;
   if (override) return override;
 
   for (const name of ["synapse.conf", "second-brain.conf"]) {
@@ -162,7 +162,7 @@ function resolveVaultDir() {
     } catch {
       continue;
     }
-    const raw = confGet(text, "OBSIDIAN_VAULT_DIR");
+    const raw = confGet(text, "SYNAPSE_VAULT_DIR");
     if (raw === null) continue;
     const expanded = confExpand(raw);
     if (expanded) return expanded;

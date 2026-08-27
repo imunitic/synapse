@@ -8,7 +8,7 @@ variable anywhere.
 ## Why there's nothing here to tune
 
 Every piece of Synapse's own config surface exists to bridge something machine-specific or
-cross-project: `OBSIDIAN_VAULT_DIR` because the Vault lives outside any one repo,
+cross-project: `SYNAPSE_VAULT_DIR` because the Vault lives outside any one repo,
 `SYNAPSE_GRAMMARS_DIR` because tree-sitter grammars are cached once and shared across every
 project, `synapse-projects.conf` because one vault serves many repos that shouldn't share a task-ID
 sequence. None of that applies to `synapse-bard`: both its stores

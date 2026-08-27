@@ -53,7 +53,7 @@ afterward. `zig build` is only for contributing to Synapse itself; see [Dependen
 3. Point Synapse at the vault — create `~/.claude/synapse.conf` (or, on a machine that's adopted
    XDG config directories, `$XDG_CONFIG_HOME/synapse/synapse.conf`) with one line:
    ```sh
-   OBSIDIAN_VAULT_DIR="$HOME/path/to/your/vault"
+   SYNAPSE_VAULT_DIR="$HOME/path/to/your/vault"
    ```
    Nothing prompts for this during `npm install` — `synapse-setup configure claude` is the step that
    actually wires things up, and it doesn't ask for this either. Skip it and the next session's
@@ -148,7 +148,7 @@ run repeatedly.
   goes, and the linking rules. Injected directly by the `SessionStart` hook every session (the same
   mechanism that injects `Index.md`), not via a `CLAUDE.md` `@import` line — `~/.claude/CLAUDE.md`
   stays entirely yours, untouched.
-- `packages/synapse/synapse.conf.template` — path config; set `OBSIDIAN_VAULT_DIR` per machine.
+- `packages/synapse/synapse.conf.template` — path config; set `SYNAPSE_VAULT_DIR` per machine.
 - `synapse-hook session-start` — `SessionStart`: injects the Vault's index and this repo's
   Graph namespace pointer, if one exists.
 - `synapse-hook stop-nudge` — a turn-count-based `Stop` hook that nudges a "worth

@@ -22,15 +22,18 @@ The boxes name the four hooks; what each one does is here rather than crammed in
 
 ## The vault
 
-A regular Obsidian vault, running headless at login with the **Local REST API** plugin installed.
-That plugin is the only valid way anything here talks to the vault — hooks call it directly over
-HTTP (they're plain scripts, not agent turns), and Claude Code talks to it through the `obsidian`
-MCP server, which just wraps the same API. Nothing here assumes a fixed vault path; the API always
-targets whichever vault the running Obsidian instance currently has open.
+A regular Obsidian vault, running headless at login with the **Local REST API** plugin installed —
+today's only real backend behind `ports.Store` (`SYNAPSE_VAULT_STORE=obsidian`, the default; a
+plain-disk backend also exists, `SYNAPSE_VAULT_STORE=disk`, with no REST API or MCP server involved
+at all). Hooks and the `synapse vault-*` CLI subcommands (the door skills and commands use to reach
+the vault, instead of calling MCP tools by name) both go through `Store`, so neither one cares which
+backend is actually configured. The `obsidian` MCP server still exists, wrapping the same REST API,
+and is still the right tool for the one command not yet migrated onto `vault-*`
+(`/synapse-vault-tidy`, which needs whole-vault link/backlink data the CLI doesn't expose). Nothing
+here assumes a fixed vault path; the REST API always targets whichever vault the running Obsidian
+instance currently has open.
 
-`~/.claude/synapse.conf` holds the one piece of genuinely machine-local state:
-`OBSIDIAN_VAULT_DIR`, used only as a fallback for grepping the vault as plain files if the MCP
-tools are ever unreachable.
+`~/.claude/synapse.conf` holds the one piece of genuinely machine-local state: `SYNAPSE_VAULT_DIR`.
 
 ## Folder layout
 

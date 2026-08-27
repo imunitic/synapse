@@ -161,7 +161,7 @@ the Graph, but real, with no Obsidian install as its price of entry.
 
 ## Vault-freedom, measured
 
-Counting vault references (`OBSIDIAN_VAULT_DIR`, the Local REST API, its cert/key) across the
+Counting vault references (`SYNAPSE_VAULT_DIR`, the Local REST API, its cert/key) across the
 subcommands of `synapse`: most are vault-free outright — `namespace`, `build-index`,
 `build-lists`, `build-refs`, `callers`, `enumerate`, `gate`, `push-nodes`, `rank`, `vocab`, `tags`,
 `tags-cache`, `link-graph`, and `brief`. The remaining eight (`write-node`, `frontmatter`,
