@@ -1,5 +1,5 @@
 # Copy this to ~/.claude/synapse.conf and edit the path for this machine.
-OBSIDIAN_VAULT_DIR="$HOME/Obsidian/YourVault"
+SYNAPSE_VAULT_DIR="$HOME/Obsidian/YourVault"
 
 # Where Synapse clones/builds tree-sitter grammars (shared across every
 # project -- not per-repo). Safe to leave at the default.

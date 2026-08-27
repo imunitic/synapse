@@ -122,7 +122,7 @@ const Fixture = struct {
 
         var env = std.process.Environ.Map.init(gpa);
         errdefer env.deinit();
-        try env.put("OBSIDIAN_VAULT_DIR", vault);
+        try env.put("SYNAPSE_VAULT_DIR", vault);
 
         return .{ .gpa = gpa, .tmp = tmp, .vault = vault, .env = env };
     }

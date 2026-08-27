@@ -15,7 +15,7 @@
 //! `_bard/graph/` has (a sync-only repo), the seed-offer message instead.
 //! Much simpler than the coding side's version otherwise: `_bard/vault/` is
 //! always repo-relative, so there is no external `synapse.conf`/
-//! `OBSIDIAN_VAULT_DIR` to resolve, no namespace, no remote to verify. The
+//! `SYNAPSE_VAULT_DIR` to resolve, no namespace, no remote to verify. The
 //! one thing this still needs from outside the payload is the repo root --
 //! `core.identity.resolve` (already shared, already tested) finds it from
 //! `cwd`, so a session started from a subdirectory still finds `_bard/` at

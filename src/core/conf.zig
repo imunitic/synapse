@@ -1,11 +1,11 @@
 //! `~/.claude/synapse.conf`, read directly -- shell syntax, one key that matters
-//! outside a shell: `OBSIDIAN_VAULT_DIR`.
+//! outside a shell: `SYNAPSE_VAULT_DIR`.
 //!
 //! Values expand like a shell expands a path: `KEY=value`, `KEY="value"`,
 //! comments, blank lines, an `export` prefix, and inside a value a leading `~`,
 //! `$VAR`/`${VAR}` against whatever the caller's environment holds -- not just
 //! `$HOME` as a special case. Expansion is required: the shipped template
-//! writes `OBSIDIAN_VAULT_DIR="$HOME/Obsidian/YourVault"`, and a literal read
+//! writes `SYNAPSE_VAULT_DIR="$HOME/Obsidian/YourVault"`, and a literal read
 //! resolves a vault at `./$HOME/Obsidian/Claude`. An unset variable expands to
 //! nothing, as a shell does; the caller reports the resulting bad path rather
 //! than a guess being substituted.
@@ -158,40 +158,40 @@ const testing = std.testing;
 test "the shipped template's shape" {
     const text =
         "# Copy this to ~/.claude/synapse.conf\n" ++
-        "OBSIDIAN_VAULT_DIR=\"/Users/x/Obsidian/Claude\"\n";
-    try testing.expectEqualStrings("/Users/x/Obsidian/Claude", get(text, "OBSIDIAN_VAULT_DIR").?);
+        "SYNAPSE_VAULT_DIR=\"/Users/x/Obsidian/Claude\"\n";
+    try testing.expectEqualStrings("/Users/x/Obsidian/Claude", get(text, "SYNAPSE_VAULT_DIR").?);
     try testing.expectEqual(@as(?[]const u8, null), get(text, "SOMETHING_ELSE"));
 }
 
 test "quoting, comments and export all read the same" {
-    try testing.expectEqualStrings("/v", get("OBSIDIAN_VAULT_DIR=/v\n", "OBSIDIAN_VAULT_DIR").?);
-    try testing.expectEqualStrings("/v", get("OBSIDIAN_VAULT_DIR='/v'\n", "OBSIDIAN_VAULT_DIR").?);
-    try testing.expectEqualStrings("/v", get("export OBSIDIAN_VAULT_DIR=\"/v\"\n", "OBSIDIAN_VAULT_DIR").?);
-    try testing.expectEqualStrings("/v", get("OBSIDIAN_VAULT_DIR=/v  # trailing\n", "OBSIDIAN_VAULT_DIR").?);
-    try testing.expectEqualStrings("", get("OBSIDIAN_VAULT_DIR=\n", "OBSIDIAN_VAULT_DIR").?);
+    try testing.expectEqualStrings("/v", get("SYNAPSE_VAULT_DIR=/v\n", "SYNAPSE_VAULT_DIR").?);
+    try testing.expectEqualStrings("/v", get("SYNAPSE_VAULT_DIR='/v'\n", "SYNAPSE_VAULT_DIR").?);
+    try testing.expectEqualStrings("/v", get("export SYNAPSE_VAULT_DIR=\"/v\"\n", "SYNAPSE_VAULT_DIR").?);
+    try testing.expectEqualStrings("/v", get("SYNAPSE_VAULT_DIR=/v  # trailing\n", "SYNAPSE_VAULT_DIR").?);
+    try testing.expectEqualStrings("", get("SYNAPSE_VAULT_DIR=\n", "SYNAPSE_VAULT_DIR").?);
 }
 
 test "a path with a space needs its quotes, and keeps them" {
     try testing.expectEqualStrings(
         "/Users/x/My Vault",
-        get("OBSIDIAN_VAULT_DIR=\"/Users/x/My Vault\"\n", "OBSIDIAN_VAULT_DIR").?,
+        get("SYNAPSE_VAULT_DIR=\"/Users/x/My Vault\"\n", "SYNAPSE_VAULT_DIR").?,
     );
 }
 
 test "a longer key is not matched by a shorter one" {
-    const text = "OBSIDIAN_VAULT_DIR_OLD=/old\n";
-    try testing.expectEqual(@as(?[]const u8, null), get(text, "OBSIDIAN_VAULT_DIR"));
+    const text = "SYNAPSE_VAULT_DIR_OLD=/old\n";
+    try testing.expectEqual(@as(?[]const u8, null), get(text, "SYNAPSE_VAULT_DIR"));
 }
 
 test "the last assignment wins, as sourcing would" {
-    const text = "OBSIDIAN_VAULT_DIR=/first\nOBSIDIAN_VAULT_DIR=/second\n";
-    try testing.expectEqualStrings("/second", get(text, "OBSIDIAN_VAULT_DIR").?);
+    const text = "SYNAPSE_VAULT_DIR=/first\nSYNAPSE_VAULT_DIR=/second\n";
+    try testing.expectEqualStrings("/second", get(text, "SYNAPSE_VAULT_DIR").?);
 }
 
 test "a commented-out assignment is not one" {
     try testing.expectEqual(
         @as(?[]const u8, null),
-        get("# OBSIDIAN_VAULT_DIR=/nope\n", "OBSIDIAN_VAULT_DIR"),
+        get("# SYNAPSE_VAULT_DIR=/nope\n", "SYNAPSE_VAULT_DIR"),
     );
 }
 
@@ -310,13 +310,13 @@ fn existsAsDir(io: std.Io, path: []const u8) bool {
 /// wins since that's how a caller pins a vault deliberately (the bats suite
 /// does, against a fixture). Null means nothing names one.
 pub fn vaultDir(gpa: std.mem.Allocator, io: std.Io, vars: Vars) !?[]u8 {
-    if (vars.get("OBSIDIAN_VAULT_DIR")) |v| if (v.len != 0) return try gpa.dupe(u8, v);
+    if (vars.get("SYNAPSE_VAULT_DIR")) |v| if (v.len != 0) return try gpa.dupe(u8, v);
     for (file_names) |name| {
         const path = (try resolveConfPath(gpa, io, vars, name)) orelse continue;
         defer gpa.free(path);
         const text = std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 20)) catch continue;
         defer gpa.free(text);
-        const found = (try value(gpa, text, "OBSIDIAN_VAULT_DIR", vars)) orelse continue;
+        const found = (try value(gpa, text, "SYNAPSE_VAULT_DIR", vars)) orelse continue;
         if (found.len == 0) {
             gpa.free(found);
             continue;
@@ -344,8 +344,8 @@ const TestVars = struct {
 test "the real conf's shape: $HOME inside a quoted value" {
     const gpa = testing.allocator;
     const tv: TestVars = .{ .pairs = &.{.{ "HOME", "/Users/x" }} };
-    const text = "OBSIDIAN_VAULT_DIR=\"$HOME/Obsidian/YourVault\"\n";
-    const v = (try value(gpa, text, "OBSIDIAN_VAULT_DIR", tv.vars())).?;
+    const text = "SYNAPSE_VAULT_DIR=\"$HOME/Obsidian/YourVault\"\n";
+    const v = (try value(gpa, text, "SYNAPSE_VAULT_DIR", tv.vars())).?;
     defer gpa.free(v);
     try testing.expectEqualStrings("/Users/x/Obsidian/YourVault", v);
 }
@@ -711,12 +711,12 @@ test "vaultDir: synapse.conf wins when both synapse.conf and second-brain.conf e
     // The old name points somewhere useless; if it were preferred, this fails.
     const synapse_conf = try std.fmt.allocPrint(gpa, "{s}/.claude/synapse.conf", .{home});
     defer gpa.free(synapse_conf);
-    try cwd.writeFile(io, .{ .sub_path = synapse_conf, .data = "OBSIDIAN_VAULT_DIR=\"/right/vault\"\n" });
+    try cwd.writeFile(io, .{ .sub_path = synapse_conf, .data = "SYNAPSE_VAULT_DIR=\"/right/vault\"\n" });
     const brain_conf = try std.fmt.allocPrint(gpa, "{s}/.claude/second-brain.conf", .{home});
     defer gpa.free(brain_conf);
-    try cwd.writeFile(io, .{ .sub_path = brain_conf, .data = "OBSIDIAN_VAULT_DIR=\"/nope\"\n" });
+    try cwd.writeFile(io, .{ .sub_path = brain_conf, .data = "SYNAPSE_VAULT_DIR=\"/nope\"\n" });
 
-    const tv: TestVars = .{ .pairs = &.{.{ "HOME", home }} }; // no OBSIDIAN_VAULT_DIR override
+    const tv: TestVars = .{ .pairs = &.{.{ "HOME", home }} }; // no SYNAPSE_VAULT_DIR override
     const got = (try vaultDir(gpa, io, tv.vars())).?;
     defer gpa.free(got);
     try testing.expectEqualStrings("/right/vault", got);
@@ -737,7 +737,7 @@ test "vaultDir: reads the pre-rename second-brain.conf when synapse.conf is abse
     try cwd.createDirPath(io, claude_dir);
     const brain_conf = try std.fmt.allocPrint(gpa, "{s}/.claude/second-brain.conf", .{home});
     defer gpa.free(brain_conf);
-    try cwd.writeFile(io, .{ .sub_path = brain_conf, .data = "OBSIDIAN_VAULT_DIR=\"/legacy/vault\"\n" });
+    try cwd.writeFile(io, .{ .sub_path = brain_conf, .data = "SYNAPSE_VAULT_DIR=\"/legacy/vault\"\n" });
 
     // A machine whose scripts were updated ahead of setup.sh: only the old
     // name exists. Without the fallback this reports "no vault", which reads

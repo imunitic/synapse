@@ -436,7 +436,7 @@ test "sync: no vault configured is a silent no-op" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
-    _ = fx.env.swapRemove("OBSIDIAN_VAULT_DIR");
+    _ = fx.env.swapRemove("SYNAPSE_VAULT_DIR");
 
     try sync(gpa, fx.io(), &fx.env); // must not error
 }
@@ -642,7 +642,7 @@ test "pull: no vault configured is a silent no-op" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
-    _ = fx.env.swapRemove("OBSIDIAN_VAULT_DIR");
+    _ = fx.env.swapRemove("SYNAPSE_VAULT_DIR");
 
     try pull(gpa, fx.io(), &fx.env); // must not error
 }
@@ -710,7 +710,7 @@ test "vault unresolvable: the nudge still fires, naming the generic phrase" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
-    _ = fx.env.swapRemove("OBSIDIAN_VAULT_DIR");
+    _ = fx.env.swapRemove("SYNAPSE_VAULT_DIR");
 
     var i: usize = 0;
     var last: ?[]u8 = null;

@@ -104,7 +104,7 @@ pub fn build(gpa: Allocator, io: Io, env: *std.process.Environ.Map, argv0: []con
     if (vault.len == 0) {
         vault_warning = try gpa.dupe(
             u8,
-            "Synapse Vault isn't configured, or its directory isn't reachable -- code-graph and vault-note features are unavailable until synapse.conf's OBSIDIAN_VAULT_DIR points at a real directory. Create or edit synapse.conf at $XDG_CONFIG_HOME/synapse/synapse.conf (or ~/.config/synapse/synapse.conf if that variable isn't set), or ~/.claude/synapse.conf.",
+            "Synapse Vault isn't configured, or its directory isn't reachable -- code-graph and vault-note features are unavailable until synapse.conf's SYNAPSE_VAULT_DIR points at a real directory. Create or edit synapse.conf at $XDG_CONFIG_HOME/synapse/synapse.conf (or ~/.config/synapse/synapse.conf if that variable isn't set), or ~/.claude/synapse.conf.",
         );
     }
 
@@ -411,13 +411,13 @@ test "cwd outside any git repo: base index still injected, no synapse logic invo
     try testing.expect(std.mem.indexOf(u8, text, "Synapse namespace") == null);
 }
 
-test "no OBSIDIAN_VAULT_DIR configured: warns instead of staying silent, synapse check skipped" {
+test "no SYNAPSE_VAULT_DIR configured: warns instead of staying silent, synapse check skipped" {
     const gpa = testing.allocator;
     var sf = try SessionStartFixture.init(gpa);
     defer sf.deinit();
     try sf.commit();
     try sf.addRemote("git@github.com:example/repo.git");
-    _ = sf.fx.env.swapRemove("OBSIDIAN_VAULT_DIR");
+    _ = sf.fx.env.swapRemove("SYNAPSE_VAULT_DIR");
 
     const text = (try sf.inject("", sf.fx.repo)).?;
     defer gpa.free(text);

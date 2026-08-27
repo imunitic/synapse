@@ -89,7 +89,7 @@ common_setup() {
   # into cat is one more fork this function does not need for two lines of
   # static-shaped text.
   read -r -d '' _synapse_conf <<EOF || true
-OBSIDIAN_VAULT_DIR="$VAULT"
+SYNAPSE_VAULT_DIR="$VAULT"
 EOF
   printf '%s\n' "$_synapse_conf" > "$HOME/.claude/synapse.conf"
 

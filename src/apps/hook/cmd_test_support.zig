@@ -71,7 +71,7 @@ pub const Fixture = struct {
         var env = try std.process.Environ.createMap(testing.environ, gpa);
         errdefer env.deinit();
         try env.put("HOME", home);
-        try env.put("OBSIDIAN_VAULT_DIR", vault);
+        try env.put("SYNAPSE_VAULT_DIR", vault);
         try env.put("SYNAPSE_WORK_DIR", work);
         // Cleared, not inherited -- see the identical comment in
         // `src/apps/synapse/cmd_test_support.zig`: a real install on the

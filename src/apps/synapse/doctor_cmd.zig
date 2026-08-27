@@ -153,8 +153,8 @@ fn vaultChecks(ctx: *Ctx) !?[]const u8 {
     }
     if (found) |path| {
         try ctx.add("config", .ok, path);
-    } else if (ctx.env.get("OBSIDIAN_VAULT_DIR") != null) {
-        try ctx.add("config", .warn, "no synapse.conf; using $OBSIDIAN_VAULT_DIR");
+    } else if (ctx.env.get("SYNAPSE_VAULT_DIR") != null) {
+        try ctx.add("config", .warn, "no synapse.conf; using $SYNAPSE_VAULT_DIR");
     } else {
         try ctx.add("config", .fail, "no synapse.conf found -- create one at $XDG_CONFIG_HOME/synapse/synapse.conf (or ~/.config/synapse/synapse.conf), or ~/.claude/synapse.conf");
     }
@@ -173,7 +173,7 @@ fn vaultChecks(ctx: *Ctx) !?[]const u8 {
         try ctx.add("vault", .ok, v);
         return v;
     }
-    try ctx.add("vault", .fail, "OBSIDIAN_VAULT_DIR is not set anywhere");
+    try ctx.add("vault", .fail, "SYNAPSE_VAULT_DIR is not set anywhere");
     return null;
 }
 
@@ -490,14 +490,14 @@ const DoctorFixture = struct {
     }
 
     /// Matches bats' own `common_setup()` default: a real `synapse.conf` at
-    /// `$HOME/.claude/synapse.conf` pointing `OBSIDIAN_VAULT_DIR` at the
+    /// `$HOME/.claude/synapse.conf` pointing `SYNAPSE_VAULT_DIR` at the
     /// fixture vault -- the "configured machine" baseline every doctor test
     /// in bats started from. `Fixture.init()` sets the env var directly
     /// instead, which is a *different* state (`vaultChecks`' own `.warn`
-    /// "no synapse.conf; using $OBSIDIAN_VAULT_DIR" branch), so tests that
+    /// "no synapse.conf; using $SYNAPSE_VAULT_DIR" branch), so tests that
     /// want the `ok` config state need this written explicitly.
     fn writeConf(self: *DoctorFixture) !void {
-        const data = try std.fmt.allocPrint(self.fx.gpa, "OBSIDIAN_VAULT_DIR=\"{s}\"\n", .{self.fx.vault});
+        const data = try std.fmt.allocPrint(self.fx.gpa, "SYNAPSE_VAULT_DIR=\"{s}\"\n", .{self.fx.vault});
         defer self.fx.gpa.free(data);
         try self.fx.tmp.dir.createDirPath(testing.io, "home/.claude");
         try self.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "home/.claude/synapse.conf", .data = data });
@@ -550,7 +550,7 @@ test "config resolves at tier 1 (XDG), not just tier 2 -- the config check used 
     defer df.deinit();
     try df.commit();
     try df.writeCert();
-    const data = try std.fmt.allocPrint(gpa, "OBSIDIAN_VAULT_DIR=\"{s}\"\n", .{df.fx.vault});
+    const data = try std.fmt.allocPrint(gpa, "SYNAPSE_VAULT_DIR=\"{s}\"\n", .{df.fx.vault});
     defer gpa.free(data);
     try df.fx.tmp.dir.createDirPath(testing.io, "home/.config/synapse");
     try df.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "home/.config/synapse/synapse.conf", .data = data });
@@ -570,9 +570,9 @@ test "no vault configured is a failure, and says where to set it" {
     var df = try DoctorFixture.init(gpa);
     defer df.deinit();
     try df.commit();
-    // No conf file, and no OBSIDIAN_VAULT_DIR -- the state every hook treats
+    // No conf file, and no SYNAPSE_VAULT_DIR -- the state every hook treats
     // as silence and every command as a bare "no vault".
-    _ = df.fx.env.swapRemove("OBSIDIAN_VAULT_DIR");
+    _ = df.fx.env.swapRemove("SYNAPSE_VAULT_DIR");
 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
@@ -591,10 +591,10 @@ test "a vault path that does not exist is named as such, not reported as absent"
     try df.commit();
     // The env var wins over the conf file (core.conf.vaultDir's own tier
     // order), so it has to be cleared for the conf-file value to matter at all.
-    _ = df.fx.env.swapRemove("OBSIDIAN_VAULT_DIR");
+    _ = df.fx.env.swapRemove("SYNAPSE_VAULT_DIR");
     const nope = try std.fmt.allocPrint(gpa, "{s}/nope", .{df.fx.root});
     defer gpa.free(nope);
-    const data = try std.fmt.allocPrint(gpa, "OBSIDIAN_VAULT_DIR=\"{s}\"\n", .{nope});
+    const data = try std.fmt.allocPrint(gpa, "SYNAPSE_VAULT_DIR=\"{s}\"\n", .{nope});
     defer gpa.free(data);
     try df.fx.tmp.dir.createDirPath(testing.io, "home/.claude");
     try df.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "home/.claude/synapse.conf", .data = data });

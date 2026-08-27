@@ -21,7 +21,7 @@ const Allocator = std.mem.Allocator;
 /// Everything both commands need about where they are, resolved once.
 pub const Context = struct {
     gpa: Allocator,
-    /// The vault root, from `OBSIDIAN_VAULT_DIR` in `~/.claude/synapse.conf`.
+    /// The vault root, from `SYNAPSE_VAULT_DIR` in `~/.claude/synapse.conf`.
     vault: []const u8,
     /// `{repo}@{branch}` -- the namespace directory name, never a bare repo name.
     namespace: []const u8,
