@@ -237,7 +237,10 @@ pub fn writeJsonString(w: *Io.Writer, s: []const u8) !void {
 
 const testing = std.testing;
 
-fn parsedPayload(gpa: Allocator, json: []const u8) Payload {
+/// A `Payload` parsed directly from a JSON string, bypassing stdin --
+/// `pub` so any hook's own tests can build one without spawning a real
+/// process to feed it (`db_sync.zig`'s own tests are the second user).
+pub fn parsedPayload(gpa: Allocator, json: []const u8) Payload {
     return .{ .parsed = std.json.parseFromSlice(std.json.Value, gpa, json, .{}) catch unreachable };
 }
 

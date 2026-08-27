@@ -22,7 +22,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit|mcp__obsidian__vault_(write|patch|append|delete|move)",
+        "matcher": "Write|Edit|Bash|mcp__obsidian__vault_(write|patch|append|delete|move)",
         "hooks": [
           {
             "type": "command",

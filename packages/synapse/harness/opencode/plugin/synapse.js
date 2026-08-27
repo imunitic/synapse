@@ -19,12 +19,21 @@
 // edit: `write` (`args.filePath`, `args.content`) and `edit` (`args.filePath`,
 // `args.oldString`, `args.newString`) -- both share `filePath`, matching
 // Claude Code's `Write`/`Edit` sharing `tool_input.file_path`. `db_sync.zig`
-// itself reads no payload at all (a blind `git add -A && commit` against the
-// vault's own repo), so it only needs a trigger, not a translated payload --
-// fired on the same write/edit tools, plus the two vault-mutating MCP tools
-// (`obsidian_vault_write`/`obsidian_vault_patch`, the same OpenCode
+// itself is a blind `git add -A && commit` against the vault's own repo, so
+// this plugin only needs to decide *whether* to fire it, not translate a
+// payload -- fired on the same write/edit tools, the two vault-mutating MCP
+// tools (`obsidian_vault_write`/`obsidian_vault_patch`, the same OpenCode
 // tool-naming transform `mcp__obsidian__vault_write`/`vault_patch` go
-// through elsewhere in this plugin's own skill/command prose).
+// through elsewhere in this plugin's own skill/command prose), and `bash`
+// (`args.command`, confirmed against `packages/core/src/tool/bash.ts` in
+// the real `sst/opencode` source) when the command actually names `synapse
+// vault-write`/`vault-patch` -- the CLI door skills use instead of calling
+// the MCP tools directly (see `sb — Vault store backend selection`). Unlike
+// Claude Code's/Codex's `hooks.json`, which can only match a tool *name* and
+// so must widen their own matcher to `Bash` and let `db_sync.zig` filter the
+// command text itself, this plugin has the real args in hand before ever
+// spawning the hook, so it filters right here instead -- no spawn at all for
+// an unrelated `bash` call.
 //
 // `stop-nudge`'s Claude Code trigger (`Stop`, once per turn) maps to
 // `session.idle` -- live-verified as firing exactly once, after every tool
@@ -104,6 +113,15 @@ async function alreadyInjected(client, sessionID) {
 const EDIT_TOOLS = new Set(["write", "edit"])
 const VAULT_WRITE_TOOLS = new Set(["obsidian_vault_write", "obsidian_vault_patch"])
 
+// A `bash` call whose command names a `synapse vault-write`/`vault-patch`
+// invocation -- the substring check a real shell quoting/path prefix can't
+// evade in the cases that matter (`synapse vault-write ...`, `/path/to/synapse
+// vault-patch ...`), matching `db_sync.zig`'s own `shouldSkipBash` filter for
+// the harnesses that can't pre-filter on args the way this plugin can.
+function isVaultWriteCommand(command) {
+  return typeof command === "string" && (command.includes("vault-write") || command.includes("vault-patch"))
+}
+
 // sessionID -> nudge text from a `stop-nudge` call that had nowhere to land
 // yet -- delivered on that session's next `chat.message`.
 const pendingNudge = new Map()
@@ -145,6 +163,8 @@ export const Synapse = async ({ directory, client }) => {
         })
         runHook("db-sync", {});
       } else if (VAULT_WRITE_TOOLS.has(input.tool)) {
+        runHook("db-sync", {});
+      } else if (input.tool === "bash" && isVaultWriteCommand(input.args?.command)) {
         runHook("db-sync", {});
       }
     },
