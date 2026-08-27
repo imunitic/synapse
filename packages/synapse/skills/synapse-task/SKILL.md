@@ -52,10 +52,11 @@ into `status:` either — always go through this skill, which caps at
 
 ## Procedure
 
-1. Find the task note: `mcp__obsidian__search_query` with
-   `{"==": [{"var": "frontmatter.task_id"}, "<task-id>"]}`, where `<task-id>`
+1. Find the task note: `synapse vault-search --fields content` with
+   `{"==": [{"var": "frontmatter.task_id"}, "<task-id>"]}` on stdin, where `<task-id>`
    is the specific task's ID (whatever prefix it uses — `proj-035`, `sb-008`,
-   etc.), then `mcp__obsidian__vault_read` the matched file.
+   etc.) — one call returns the matched note's path and full body together, no
+   separate read needed.
 2. Inspect its checklist items (`- [ ]` / `- [x]`).
 3. Determine the new `status:` value: `IN-PROGRESS` if any unchecked,
    `REVIEW` if all checked.
@@ -67,44 +68,38 @@ into `status:` either — always go through this skill, which caps at
    changes exactly that one line and nothing else, entirely inside the
    compiled binary — the note's body never enters your context at all.
    When the command isn't available, fall back to **read-modify-write**:
-   `vault_read` the file, replace the one line in the returned content,
-   `vault_write` the whole file back — byte-preserving, because you write
+   `synapse vault-read` the file, replace the one line in the returned content,
+   `synapse vault-write` the whole file back — byte-preserving, because you write
    back what you read.
 
-   **Never use `vault_patch` with `targetType: frontmatter`.** It is *not*
-   field-local, despite reading that way: two patches
-   (one for `status`, one for `last_updated`) re-serialise the entire
-   frontmatter block — every quoted value loses its quotes (`created:
-   "2024-01-01 15:57"` → `created: 2024-01-01 15:57`) and a long `title:`
-   is folded across two lines. Both are valid YAML, so nothing breaks
-   loudly, but any tool string-matching `^title: "` stops matching, and
-   every status transition silently reformats the note. Since transitions
-   are this skill's main job, that reformatting would land on every task
-   note in the vault. `frontmatter set` exists specifically so this never
-   has to be reached for.
+   `synapse vault-patch <path> --frontmatter <key> --replace` is also byte-preserving now (it
+   delegates to the same field-local mechanism `frontmatter set` uses internally), unlike the old
+   Obsidian MCP tool of the same shape — but it only ever writes a plain scalar, and it's a full
+   read-apply-write round trip through the patch layer for one field. `frontmatter set` stays the
+   right tool for this step: narrower, and the one call that exists specifically for it.
 6. **For completion only:** append implementation bullets to the existing
-   `## Notes` section with `mcp__obsidian__vault_patch`
-   (`targetType: heading`, `target: "{H1 title}::Notes"`, `operation:
-   append`) — append is safe here too. **The target must be the full
-   nested path** (`H1::Notes`), not just `"Notes"`: since `## Notes` is
-   nested under the top-level `# {title}` heading, the
-   plugin's heading lookup fails with "target not found in document" on
-   the bare leaf name and requires the `::`-joined path from the tool's
-   own docs. If no notes section exists, same call with
-   `createTargetIfMissing: true`.
+   `## Notes` section with `synapse vault-patch`:
 
-The vault_patch hazards below are the task-note-specific instance of a general rule; the
-`synapse-vault` skill carries the full list (H1 replace, nested heading paths, frontmatter
-re-serialisation) for every note, not just task notes.
+   ```
+   printf '%s\n' "- bullet one" "- bullet two" | \
+     synapse vault-patch "{path}" --heading "{H1 title}::Notes" --append --create
+   ```
 
-**Do not use `vault_patch` with `operation: replace` on the top-level
-heading to edit checklist items.** "Content beneath
-heading" for a top-level (`#`) heading extends through *all* nested
-subheadings (including `## Notes`), not just the leading paragraph/checklist
-directly under it — a replace there silently deletes everything past the
-checklist, including the Notes section. To check off checklist items,
-instead `vault_read` the full file, edit the `- [ ]` → `- [x]` lines in the
-returned content, and `vault_write` the whole file back.
+   Append is safe here too. **The target must be the full nested path** (`H1::Notes`), not just
+   `"Notes"`: since `## Notes` is nested under the top-level `# {title}` heading, a bare leaf name
+   fails with "target not found in {path}" -- check `synapse vault-doc-map <path>` rather than
+   guessing. `--create` creates the section (and any missing parent) if it doesn't exist yet.
+
+The vault-patch hazards below are the task-note-specific instance of a general rule; the
+`synapse-vault` skill carries the full list (H1 replace, nested heading paths, frontmatter) for
+every note, not just task notes.
+
+**Do not use `vault-patch --heading "{H1 title}" --replace` to edit checklist items.** A top-level
+heading's own section extends through *all* nested subheadings (including `## Notes`), not just
+the leading paragraph/checklist directly under it — a replace there silently deletes everything
+past the checklist, including the Notes section. To check off checklist items,
+instead `synapse vault-read` the full file, edit the `- [ ]` → `- [x]` lines in the
+returned content, and `synapse vault-write` the whole file back.
 
 ## Notes format
 
@@ -245,13 +240,13 @@ repos/<owner>/<repo>/issues/<n>/comments`).
   commit/push — a prior "commit and push" is not a standing license for the
   next one, and setting `DONE` is itself a human action this skill never
   takes (see "Never write `DONE`" above).
-- **Never create a task note via a bare `vault_write`.** Always
+- **Never create a task note via a bare `vault-write`.** Always
   `/synapse-note --task`, or `/synapse-task-note` when compiling one from a
   `Ready` design note. A freeform write skips both the skeleton (checklist
   items plus a single `## Notes` section) and every guardrail in this file —
   there is no partial-credit version of following this skill.
-- **Never restructure an existing task note's shape via `vault_write`/
-  `vault_patch` outside this skill's own procedure.** Ad hoc edits that add
+- **Never restructure an existing task note's shape via `vault-write`/
+  `vault-patch` outside this skill's own procedure.** Ad hoc edits that add
   new headings, drop the checklist, or otherwise diverge from the skeleton
   are what this guardrail exists to prevent — not just wrong `status:`
   values.

@@ -26,7 +26,7 @@ If no match is found, **don't just leave it blank** — see "Resolving a missing
 
 ## List mode
 
-Use `mcp__obsidian__search_query` with the JsonLogic query `{"var": "frontmatter.task_id"}` — this returns every file that has a `task_id` set, along with that file's `task_id` value as `result`. For each match, also read the file's `status` and `title` (either via a second query `{"var": "frontmatter.status"}` / `{"var": "frontmatter.title"}`, or via `mcp__obsidian__vault_read` on the handful of matched files — whichever is fewer round-trips for the count involved).
+Run `synapse vault-search --fields frontmatter.task_id,frontmatter.status,frontmatter.title` with the JsonLogic query `{"var": "frontmatter.task_id"}` on stdin — one call returns every file that has a `task_id` set, each row already carrying `task_id`/`status`/`title` together, no second query or extra read needed.
 
 Categorize:
 - **Prefixed notes**: `task_id` matches `{prefix}-\d+`. Group by the distinct prefix found (whatever
@@ -43,8 +43,8 @@ Do not modify any files in list mode.
 
 Everything after `--search` (trimmed, quotes stripped) is the query.
 
-1. Run `mcp__obsidian__search_simple` with the query — this gives full-text relevance-ranked matches with context, the closest equivalent to a title/body search.
-2. If the query looks like it's targeting metadata specifically (a tag, a task ID, a status value) rather than free text, also run `mcp__obsidian__search_query` with an appropriate JsonLogic filter (e.g. `{"==": [{"var": "frontmatter.task_id"}, "proj-032"]}`).
+1. Run `synapse vault-search-text "{query}"` — this gives full-text relevance-ranked matches with context, the closest equivalent to a title/body search.
+2. If the query looks like it's targeting metadata specifically (a tag, a task ID, a status value) rather than free text, also run `synapse vault-search --fields frontmatter.title` with an appropriate JsonLogic filter on stdin (e.g. `{"==": [{"var": "frontmatter.task_id"}, "proj-032"]}`).
 3. Report matches as `{title} — {file path relative to vault root}`, deduped across both. If nothing matches, say so plainly — the caller (agent or user) needs a clear "no existing note" signal to proceed with `--task`-less creation.
 
 Do not modify any files in search mode.
@@ -54,8 +54,8 @@ Do not modify any files in search mode.
 Triggered when `--task` is given but the title doesn't match `{prefix}-\d+`.
 
 The known project/prefix pairs live in a plain local file named `synapse-projects.conf` (one
-`project-name=prefix` line each) — read/appended with the Read/Edit tools, not the `obsidian`
-MCP server, since it's outside the vault. It is deliberately **not** part of the portable
+`project-name=prefix` line each) — read/appended with the Read/Edit tools, not the `vault-*` subcommands,
+since it's outside the vault. It is deliberately **not** part of the portable
 Synapse package and never copied between machines, so contexts that shouldn't mix (e.g.
 personal vs. work projects) never end up in the same file. It's self-managed — this command appends
 newly resolved pairs to it — but also plain text, so the user can add, fix, or remove a line by hand
@@ -77,8 +77,8 @@ unchanged for anyone who has never touched an XDG config directory.
 2. Check the resolved `synapse-projects.conf` for a line whose project name matches (loosely —
    case/whitespace-insensitive). If found, use that prefix directly — no need to ask.
 3. If the file doesn't have it yet, fall back to deducing from the vault itself (useful the first
-   time this runs, or for a project whose notes predate this file): `search_simple` for the
-   project/repo name across existing notes, and/or `search_query` on
+   time this runs, or for a project whose notes predate this file): `synapse vault-search-text` for
+   the project/repo name across existing notes, and/or `synapse vault-search` on
    `{"var": "frontmatter.task_id"}` to see which prefixes exist, then check whether any of those
    prefixed notes reference this project. If exactly one prefix confidently matches, use it.
 4. If nothing confidently matches (new project, or an ambiguous/multiple match), ask the user
@@ -87,11 +87,10 @@ unchanged for anyone who has never touched an XDG config directory.
 5. Whenever step 3 or step 4 resolves a pair not already in the conf file (including a fresh
    `project-name=prefix` line matching what was just deduced or asked), append it — so the next task
    for this project resolves from step 2 without a search or a question.
-6. Once the prefix is known, find the next number: run
-   `mcp__obsidian__search_query` with `{"var": "frontmatter.task_id"}`,
-   filter the returned `result` values client-side for ones matching
-   `{prefix}-\d+`, take the highest number found, add 1. If none exist yet
-   for that prefix, start at 1.
+6. Once the prefix is known, find the next number: run `synapse vault-search --fields
+   frontmatter.task_id` with `{"var": "frontmatter.task_id"}` on stdin, filter the returned values
+   client-side for ones matching `{prefix}-\d+`, take the highest number found, add 1. If none exist
+   yet for that prefix, start at 1.
 7. Format the new task ID **zero-padded to 3 digits** (`{prefix}-001`, `{prefix}-030`,
    `{prefix}-037`, ...), matching the org-roam-era convention — widening
    naturally past 3 digits if a prefix ever needs it.
@@ -181,7 +180,7 @@ or supplied directly by a caller like `/synapse-task-note`):
    ## Notes
 
    ```
-4. Write it with `mcp__obsidian__vault_write`. Task mode: path
+4. Write it with `synapse vault-write <path>` (content on stdin). Task mode: path
    `tasks/{project}/{filename}.md` (project resolved in "Resolving the
    project folder" above). Bare mode: path `{category}/{filename}.md`
    (category resolved above).

@@ -3,9 +3,9 @@
 The user keeps a permanent, curated knowledge base — **Synapse Vault** —
 as a memory system separate from and complementary to the `~/.claude`
 auto-memory system: use the Vault for durable, browsable
-knowledge-base notes, not for session bookkeeping. It's an Obsidian vault,
-running headless at login with the Local REST API plugin installed — see
-"Reading and writing the vault" below for how to reach it. A SessionStart hook
+knowledge-base notes, not for session bookkeeping. Reach it through the
+`synapse` CLI's `vault-*` subcommands, never a raw file edit or an MCP tool
+call — see "Reading and writing the vault" below for why. A SessionStart hook
 already injects the vault's `Index.md` at the start of every session, so
 you shouldn't need to go read it yourself. Don't re-read it reflexively,
 but do treat its injected contents as live information, not background
@@ -94,39 +94,37 @@ a real yes/no answer, not a formality to wave past.
 
 ## Reading and writing the vault
 
-Obsidian runs headless at login (via a startup plugin) with the Claude
-vault already open, and the Local REST API plugin is installed there —
-this is the only valid way to reach the vault, for reads *and* for
-writes, and it always targets whichever vault is currently open in the
-running Obsidian instance, not a hardcoded path. The `obsidian` MCP
-server wraps that REST API. Do not resolve or care about
-`$OBSIDIAN_VAULT_DIR` (see `~/.claude/synapse.conf`) unless the MCP tools
-are erroring or unavailable and you must fall back to grepping files on
-disk directly — that path variable matters only for that fallback case,
-since the vault is also reachable as plain files on disk at that
-location.
+The vault is reached through the `synapse` CLI — `synapse vault-read`/`vault-write`/`vault-list`/
+`vault-search`/`vault-search-text`/`vault-doc-map`/`vault-patch` — for reads *and* for writes, never
+by resolving a vault path or calling an `mcp__obsidian__*` tool directly. Which concrete store the
+CLI talks to (today, an Obsidian vault via its Local REST API; potentially a plain-disk vault later)
+is resolved once, inside the compiled binary, from `SYNAPSE_VAULT_STORE`/`SYNAPSE_VAULT_DIR` — never
+something a skill or an agent turn needs to know or branch on. Today that means Obsidian running
+headless at login (via a startup plugin) with the Local REST API plugin installed, and the CLI
+reaching it over that REST API; a future disk-backed vault would need no change to any skill or to
+this document.
 
-**Every write to a note goes through `mcp__obsidian__vault_write` or
-`vault_patch`. Never the `Write`/`Edit` tools on the on-disk path** — not
-for a one-line change, and least of all when those tools are already in
-hand from editing code earlier in the same turn, because that proximity
-is precisely what causes this to be violated. The vault being an ordinary
-directory means the wrong path *works*: Obsidian's file watcher
-converges, the auto-commit hook matches `Write|Edit` as well as the MCP
-tools, and nothing visibly breaks — which is why the habit never
-self-corrects on its own. The reason is not a failure mode to dodge; it
-is that an invariant upheld only when convenient is worth nothing.
-Nothing else in the system can rely on it, and every note then has to be
-re-checked by hand instead of trusted. Synapse's own tooling holds this
-line — `synapse write-node` curls the same REST API rather than
-writing files directly — so agent writes have no reason to differ.
+**Every write to a note goes through `synapse vault-write` or `vault-patch`. Never the `Write`/`Edit`
+tools on the on-disk path, and never a raw `mcp__obsidian__*` tool call either** — not for a one-line
+change, and least of all when `Write`/`Edit` are already in hand from editing code earlier in the
+same turn, because that proximity is precisely what causes this to be violated. The vault being an
+ordinary directory means the wrong path *works*: Obsidian's file watcher converges, the auto-commit
+hook matches `Write|Edit`/`Bash` running `vault-write`/`vault-patch` as well as the MCP tools, and
+nothing visibly breaks — which is why the habit never self-corrects on its own. The reason is not a
+failure mode to dodge; it is that an invariant upheld only when convenient is worth nothing. Nothing
+else in the system can rely on it, and every note then has to be re-checked by hand instead of
+trusted. Synapse's own tooling holds this line — `synapse write-node` goes through the same `Store`
+abstraction the CLI does, rather than writing files directly — so agent writes have no reason to
+differ. If the CLI itself ever fails (not installed, no vault configured), that's a real precondition
+failure to report and stop on, never a reason to fall back to a raw file edit.
 
-If a project's `.claude.json` `mcpServers.obsidian` entry ever diverges
-from the user-scoped one (e.g. points at the wrong vault path via a stdio
-`obsidian-mcp` package instead of the REST API), that's a bug in that
-project's config, not a Synapse Vault routing choice — fix it by removing
-the project-level override so the correct user-scoped REST API server
-applies.
+The `obsidian` MCP server (wrapping the same Local REST API) still exists and is still the right
+tool for a command that hasn't been migrated onto the CLI's `vault-*` subcommands yet (`/synapse-vault-tidy`, as of
+this writing — it needs whole-vault link/backlink data the CLI doesn't expose). If a project's
+`.claude.json` `mcpServers.obsidian` entry ever diverges from the user-scoped one (e.g. points at the
+wrong vault path via a stdio `obsidian-mcp` package instead of the REST API), that's a bug in that
+project's config, not a Synapse Vault routing choice — fix it by removing the project-level override
+so the correct user-scoped REST API server applies.
 
 - You may create and edit notes in this vault **without asking for
   permission first**, as long as each note is placed in the folder
@@ -188,7 +186,7 @@ applies.
   `/synapse-note --task` (or compile one from a `Ready` design note with
   `/synapse-task-note`), and make every status transition, checklist edit,
   or `## Notes` append only through the `synapse-task` skill's own
-  procedure — never a bare `vault_write`/`vault_patch` on a task note, not
+  procedure — never a bare `vault-write`/`vault-patch` on a task note, not
   even mid-session, not even for a quick update. Bypassing the command/skill
   doesn't just risk drifting from the checklist-items-plus-`## Notes`
   skeleton every other task note shares — the skill is also where the
@@ -200,17 +198,19 @@ applies.
 
 ## Searching notes
 
-Prefer the `mcp__obsidian__` MCP tools over raw file grepping — they're
-live against the running vault and don't require re-deriving paths:
+Prefer `synapse vault-search-text`/`vault-search` over raw file grepping — they read the vault
+directly and don't require re-deriving paths:
 
-- `mcp__obsidian__search_simple` — full-text search with relevance scoring
-  and match context, for "does a note about X already exist" checks.
-- `mcp__obsidian__search_query` — JsonLogic queries over note metadata
-  (frontmatter fields, tags, links, backlinks, path globs) when you need a
-  structured filter rather than free text, e.g. finding all notes with a
-  given `task_id` or `status`.
-- `mcp__obsidian__vault_list` / `vault_read` for direct navigation when you
-  already know roughly where something is.
+- `synapse vault-search-text <query>` — full-text search with relevance scoring and match context,
+  for "does a note about X already exist" checks.
+- `synapse vault-search --fields <f1,f2,...>` — JsonLogic queries over note metadata (frontmatter
+  fields, tags, content, path globs — not `links`/`backlinks`, which no CLI subcommand exposes yet)
+  when you need a structured filter rather than free text, e.g. finding all notes with a given
+  `task_id` or `status`. `--fields` projects exactly the columns needed back in the same call, so a
+  follow-up read is rarely necessary.
+- `synapse vault-list` / `vault-read` for direct navigation when you already know roughly where
+  something is. `synapse vault-doc-map <path>` lists a note's heading paths, block ids, and
+  frontmatter keys, for picking a real `vault-patch` target instead of guessing one.
 
 # Git commits
 

@@ -38,7 +38,7 @@ needs one.
    namespace for this repo, or a `remote:` mismatch. Do not treat that as a passing verification —
    either fix the cause or proceed knowing the graph is unverified, and say which.
 
-2. **Also honour the Tier 1 flag.** `rg -m1 '^stale:' "$OBSIDIAN_VAULT_DIR/synapse/{project}/{Node}.md"`
+2. **Also honour the Tier 1 flag.** `rg -m1 '^stale:' "$SYNAPSE_VAULT_DIR/synapse/{project}/{Node}.md"`
    — one line, negligible cost. The two tiers catch different things: Tier 1 flags edits made through
    this Claude Code session the moment they happen, the script catches everything including changes
    the hook never saw (`git pull`, branch switch, rebase, an IDE edit). **Either one saying stale
@@ -55,13 +55,13 @@ needs one.
 
    That prints only what is between the generated fences — so it excludes `## Notes` as well as the
    frontmatter, which a raw offset read would not — and costs ~500 tokens whether the node covers 5
-   files or 941. **A full `mcp__obsidian__vault_read`
+   files or 941. **A full `synapse vault-read`
    of a hub node is a mistake, not merely expensive** — it spends tens of thousands of tokens on a
-   path list you are not going to use. Use `vault_read` only when you specifically need the
-   frontmatter or the links/backlinks metadata it returns.
+   path list you are not going to use. Use `vault-read` only when you specifically need the
+   frontmatter itself.
 
    Finding *which* node to read is a separate job, and search does it: because `sources` is
-   exhaustive, `mcp__obsidian__search_simple` on a class or file name locates the owning node even
+   exhaustive, `synapse vault-search-text` on a class or file name locates the owning node even
    when that name appears nowhere in any node's prose, and returns snippets rather than whole files.
 
    For the other questions about a node, use the same tool rather than reading frontmatter:

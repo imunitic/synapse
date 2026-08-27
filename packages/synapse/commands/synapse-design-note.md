@@ -17,14 +17,14 @@ Not every design discussion ends with something to build. See `Status: Reference
 ```
 /synapse-design-note "topic"           # Start or resume a design discussion
 /synapse-design-note --continue        # Resume an incomplete design note
-/synapse-design-note --list            # List every Obsidian design note, regardless of status
+/synapse-design-note --list            # List every design note in the vault, regardless of status
 ```
 
 ## Prerequisites
 
-- Requires the `obsidian` MCP server (`mcp__obsidian__*` tools). If unreachable, say so and stop —
-  there is no local-file fallback for this command.
-- If `designs/` doesn't exist in the vault yet, `mcp__obsidian__vault_write` creates it implicitly on
+- Requires the `synapse` CLI on `PATH`. If it errors (no vault configured), say so and stop —
+  there is no other fallback for this command.
+- If `designs/` doesn't exist in the vault yet, `synapse vault-write` creates it implicitly on
   first write — but add a `designs/` entry to the vault's `Index.md` folder layout in the same
   action (per the Synapse Vault folder-layout rule: a new top-level folder must never fall behind the
   index).
@@ -34,7 +34,7 @@ Not every design discussion ends with something to build. See `Status: Reference
 Every design note is tagged with the project it belongs to — both in the title
 (`{PROJECT} — {Topic}`) and as `project: {prefix}` in frontmatter (the same short prefix
 `/synapse-note --task` uses for task IDs) — so a flat `designs/` folder still reads clearly, and
-both note kinds can be filtered together via `search_query`.
+both note kinds can be filtered together via `synapse vault-search`.
 
 Same resolution `/synapse-note` uses for a missing task ID (its "Resolving a missing task ID"),
 reading the same file:
@@ -59,15 +59,22 @@ unrelated contexts (e.g. personal vs. work) never end up in the same place.
 ## Handling Arguments
 
 **No arguments:**
-1. Check for incomplete design notes: search `designs/` (via `mcp__obsidian__vault_list` +
-   `vault_read`, or `search_query` scoped to the `designs/` path) for notes whose `## Status` line
-   reads `Discussing`.
+1. Check for incomplete design notes: `synapse vault-search --fields frontmatter.title` with the
+   query below on stdin — one call, no separate read needed:
+
+   ```
+   {"and": [
+     {"glob": ["designs/*", {"var": "path"}]},
+     {"regexp": ["## Status\\nDiscussing", {"var": "content"}]}
+   ]}
+   ```
 2. If found: show a short state summary — title and current section — and offer to resume.
 3. If none: ask "What are we designing?"
 
 **With a topic:**
-1. Search first — `mcp__obsidian__search_simple` for the topic text across `designs/` (per the
-   Synapse Vault rule: link/reuse over duplicate). Also check for an obvious title match.
+1. Search first — `synapse vault-search-text "{topic}"` for the topic text, then filter matches to
+   `designs/` paths (per the Synapse Vault rule: link/reuse over duplicate). Also check for an
+   obvious title match.
 2. If found with `Status: Discussing` → ask "Resume this design?" or "Start fresh?"
 3. If found with `Status: Ready` → ask "Already marked Ready. Reopen to revise, or start a new note?"
 4. If found with `Status: Reference` → ask "This concluded as Reference (no implementation intended).
@@ -82,8 +89,9 @@ unrelated contexts (e.g. personal vs. work) never end up in the same place.
 4. None → "No incomplete design note found. Start one with `/synapse-design-note \"topic\"`."
 
 **--list:**
-1. `mcp__obsidian__vault_list` on `designs/`, then `vault_read` each (or a `search_query` scoped to
-   that path) to pull title and `## Status`.
+1. `synapse vault-search --fields frontmatter.title,content` with `{"glob": ["designs/*", {"var":
+   "path"}]}` on stdin — every design note regardless of status, title and `## Status` line both in
+   the same row.
 2. None found → "No design notes yet. Start one with `/synapse-design-note \"topic\"`."
 3. Group into **Active** (`Discussing`, `Ready`) and **Closed** (`Reference`) — active first, title
    and status in backticks, not bold.

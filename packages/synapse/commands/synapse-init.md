@@ -23,7 +23,7 @@ No arguments — always operates on the repo containing the current working dire
 
 ## Prerequisites
 
-- Requires the `obsidian` MCP server (`mcp__obsidian__*` tools). If unreachable, say so and stop.
+- Requires the `synapse` CLI on `PATH`. If it errors (no vault configured), say so and stop.
 - Must be run from inside a git repository. Synapse assumes git throughout (source hashing uses
   `git hash-object`, file enumeration uses `git ls-files`) — if `git rev-parse --show-toplevel`
   fails, stop and say this only works inside a git repo.
@@ -65,8 +65,8 @@ Every step below needs the same three facts, resolved once up front:
 
 ## Already initialized?
 
-Check whether `synapse/{repo}@{branch}/Index.md` exists (`mcp__obsidian__vault_list` on
-`synapse/{repo}@{branch}/`, or a direct `vault_read` attempt).
+Check whether `synapse/{repo}@{branch}/Index.md` exists: `synapse vault-read
+"synapse/{repo}@{branch}/Index.md"` and see whether it succeeds or reports "no such note".
 
 - **Doesn't exist** → this is a first-time build. Go to "First-time build" below.
 - **Exists, `remote` frontmatter matches** the resolved remote/path → this namespace already
