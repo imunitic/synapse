@@ -12,21 +12,29 @@
 # The first argument (e.g. "search:context", "backlinks", "links",
 # "unresolved", "orphans", "deadends") is matched against each line's first
 # space-separated field; the remainder of the matching line is printed to
-# stdout as-is and the script exits 0. No line for the invoked subcommand is
-# a test-fixture bug, not a real-world case this needs to simulate -- it
-# exits non-zero with a message on stderr instead of silently returning
-# nothing.
+# stdout, with `\n`/`\t` escapes expanded (so one script line can still stand
+# in for a multi-line real response, e.g. `obsidian vaults verbose` listing
+# more than one vault), and the script exits 0. A leading `vault=<name>`
+# argument is skipped for that match (real callers put it before the
+# subcommand, same as the real CLI) but still logged verbatim. No line for
+# the invoked subcommand is a test-fixture bug, not a real-world case this
+# needs to simulate -- it exits non-zero with a message on stderr instead of
+# silently returning nothing.
 set -euo pipefail
 
 : "${FAKE_OBSIDIAN_LOG:?FAKE_OBSIDIAN_LOG must be set}"
 : "${FAKE_OBSIDIAN_SCRIPT:?FAKE_OBSIDIAN_SCRIPT must be set}"
 printf '%s\n' "$*" >>"$FAKE_OBSIDIAN_LOG"
 
-cmd="${1:-}"
+args=("$@")
+if [[ "${args[0]:-}" == vault=* ]]; then
+  args=("${args[@]:1}")
+fi
+cmd="${args[0]:-}"
 while IFS= read -r line || [[ -n "$line" ]]; do
   key="${line%% *}"
   if [[ "$key" == "$cmd" ]]; then
-    printf '%s\n' "${line#* }"
+    printf '%b\n' "${line#* }"
     exit 0
   fi
 done <"$FAKE_OBSIDIAN_SCRIPT"

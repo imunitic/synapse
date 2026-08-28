@@ -26,6 +26,46 @@ const Allocator = std.mem.Allocator;
 const Store = ports.Store;
 const LinkGraph = ports.LinkGraph;
 
+/// Resolves `vault_path` to `vault={name}` via `obsidian vaults verbose`'s
+/// own `{name}\t{path}` listing -- explicit targeting, not whichever vault
+/// the CLI treats as "current" when more than one is open, which is
+/// unspecified behavior a live multi-vault Obsidian instance actually hits.
+/// `null` (not a missing `vault=`) only when no listed vault's path matches,
+/// so this degrades to the old unscoped behavior rather than failing an
+/// otherwise-working call over it. Caller-owned when non-null.
+fn resolveVaultArg(gpa: Allocator, io: Io, vault_path: []const u8) !?[]u8 {
+    var res = try process.run(io, gpa, &.{ "obsidian", "vaults", "verbose" }, .{});
+    defer res.deinit(gpa);
+    if (!res.ok()) return null;
+
+    var lines = std.mem.splitScalar(u8, std.mem.trimEnd(u8, res.stdout, "\n"), '\n');
+    while (lines.next()) |line| {
+        const tab = std.mem.indexOfScalar(u8, line, '\t') orelse continue;
+        const name = line[0..tab];
+        const path = line[tab + 1 ..];
+        if (std.mem.eql(u8, path, vault_path)) {
+            return try std.fmt.allocPrint(gpa, "vault={s}", .{name});
+        }
+    }
+    return null;
+}
+
+/// Every CLI-backed call goes through this, so `vault=` targeting happens
+/// exactly once, rather than once per call site with room for one to be
+/// missed. `sub_args` is everything after `obsidian` itself.
+fn runObsidian(gpa: Allocator, io: Io, vault_path: []const u8, sub_args: []const []const u8) !process.Result {
+    const vault_arg = try resolveVaultArg(gpa, io, vault_path);
+    defer if (vault_arg) |v| gpa.free(v);
+
+    var argv: std.ArrayListUnmanaged([]const u8) = .empty;
+    defer argv.deinit(gpa);
+    try argv.append(gpa, "obsidian");
+    if (vault_arg) |v| try argv.append(gpa, v);
+    try argv.appendSlice(gpa, sub_args);
+
+    return process.run(io, gpa, argv.items, .{});
+}
+
 pub const ObsidianStore = struct {
     disk: disk_store.DiskStore,
     link_graph: ObsidianLinkGraph,
@@ -35,10 +75,11 @@ pub const ObsidianStore = struct {
         errdefer disk.deinit();
         return .{
             .disk = disk,
-            // Borrows `disk.namespace`'s bytes -- same lifetime as `disk`
-            // itself (both live and die together as fields of this struct),
-            // so no separate copy or `deinit` of its own is needed.
-            .link_graph = .{ .namespace = disk.namespace },
+            // Borrows `disk.vault`/`disk.namespace`'s bytes -- same lifetime
+            // as `disk` itself (both live and die together as fields of
+            // this struct), so no separate copy or `deinit` of its own is
+            // needed.
+            .link_graph = .{ .vault = disk.vault, .namespace = disk.namespace },
         };
     }
 
@@ -83,7 +124,7 @@ pub const ObsidianStore = struct {
         const query_arg = try std.fmt.allocPrint(gpa, "query={s}", .{query});
         defer gpa.free(query_arg);
 
-        var res = try process.run(io, gpa, &.{ "obsidian", "search:context", query_arg, "format=json" }, .{});
+        var res = try runObsidian(gpa, io, self.disk.vault, &.{ "search:context", query_arg, "format=json" });
         defer res.deinit(gpa);
         if (!res.ok()) return error.VaultUnreachable;
 
@@ -164,6 +205,10 @@ pub const ObsidianStore = struct {
 /// comptime *is* the "implements" check, just structural rather than
 /// declared.
 pub const ObsidianLinkGraph = struct {
+    /// The vault's own filesystem path -- resolved to a `vault=<name>` CLI
+    /// argument on every call via `resolveVaultArg`, not left to whichever
+    /// vault the CLI treats as "current" when more than one is open.
+    vault: []const u8,
     /// `synapse/{repo}@{branch}`, same convention as `ObsidianStore`'s own
     /// namespace -- empty means a `node` passed to `backlinks`/`links` is
     /// already a full vault-relative path. `unresolved`/`orphans`/`deadends`
@@ -203,7 +248,7 @@ pub const ObsidianLinkGraph = struct {
         const path_arg = try std.fmt.allocPrint(gpa, "path={s}", .{path});
         defer gpa.free(path_arg);
 
-        var res = try process.run(io, gpa, &.{ "obsidian", "backlinks", path_arg, "format=json", "counts" }, .{});
+        var res = try runObsidian(gpa, io, self.vault, &.{ "backlinks", path_arg, "format=json", "counts" });
         defer res.deinit(gpa);
         if (!res.ok()) return error.VaultUnreachable;
 
@@ -247,7 +292,7 @@ pub const ObsidianLinkGraph = struct {
         const path_arg = try std.fmt.allocPrint(gpa, "path={s}", .{path});
         defer gpa.free(path_arg);
 
-        var res = try process.run(io, gpa, &.{ "obsidian", "links", path_arg }, .{});
+        var res = try runObsidian(gpa, io, self.vault, &.{ "links", path_arg });
         defer res.deinit(gpa);
         if (!res.ok()) return error.VaultUnreachable;
 
@@ -270,8 +315,7 @@ pub const ObsidianLinkGraph = struct {
     /// checked live: a link named from two files is one row, not two, with
     /// both source paths joined this way.
     pub fn unresolved(self: *ObsidianLinkGraph, gpa: Allocator, io: Io) anyerror![]const LinkGraph.Unresolved {
-        _ = self;
-        var res = try process.run(io, gpa, &.{ "obsidian", "unresolved", "format=json", "verbose" }, .{});
+        var res = try runObsidian(gpa, io, self.vault, &.{ "unresolved", "format=json", "verbose" });
         defer res.deinit(gpa);
         if (!res.ok()) return error.VaultUnreachable;
 
@@ -332,8 +376,7 @@ pub const ObsidianLinkGraph = struct {
     /// store), and the CLI itself has no folder-scoping flag for this
     /// command to filter with server-side.
     pub fn orphans(self: *ObsidianLinkGraph, gpa: Allocator, io: Io) anyerror![]const []const u8 {
-        _ = self;
-        var res = try process.run(io, gpa, &.{ "obsidian", "orphans" }, .{});
+        var res = try runObsidian(gpa, io, self.vault, &.{"orphans"});
         defer res.deinit(gpa);
         if (!res.ok()) return error.VaultUnreachable;
         return linesUnscoped(gpa, res.stdout);
@@ -341,8 +384,7 @@ pub const ObsidianLinkGraph = struct {
 
     /// `obsidian deadends` -- same shape as `orphans`.
     pub fn deadends(self: *ObsidianLinkGraph, gpa: Allocator, io: Io) anyerror![]const []const u8 {
-        _ = self;
-        var res = try process.run(io, gpa, &.{ "obsidian", "deadends" }, .{});
+        var res = try runObsidian(gpa, io, self.vault, &.{"deadends"});
         defer res.deinit(gpa);
         if (!res.ok()) return error.VaultUnreachable;
         return linesUnscoped(gpa, res.stdout);
@@ -602,6 +644,68 @@ test "linkGraph: backlinks/links/unresolved/orphans/deadends round-trip through 
     }
     try testing.expectEqual(@as(usize, 1), de.len);
     try testing.expectEqualStrings("synapse/repo@main/Deadend.md", de[0]);
+}
+
+test "a call is scoped with vault= when `obsidian vaults verbose` lists a matching path" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(testing.io, "vault/synapse/repo@main");
+
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const root = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+    const vault = try std.fmt.allocPrint(gpa, "{s}/vault", .{root});
+    defer gpa.free(vault);
+    const log = try std.fmt.allocPrint(gpa, "{s}/obsidian.log", .{root});
+    defer gpa.free(log);
+    const script = try std.fmt.allocPrint(gpa, "{s}/obsidian.script", .{root});
+    defer gpa.free(script);
+
+    // Two vaults listed, matching the multi-vault case this fix targets --
+    // only "devvault"'s path matches, so that name is the one that must show
+    // up as vault= on every subsequent call.
+    const script_data = try std.fmt.allocPrint(
+        gpa,
+        "vaults Default\\t/does/not/match\\ndevvault\\t{s}\nsearch:context [{{\"file\":\"synapse/repo@main/Foo.md\",\"matches\":[{{\"line\":1,\"text\":\"body\"}}]}}]\n",
+        .{vault},
+    );
+    defer gpa.free(script_data);
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "obsidian.script", .data = script_data });
+
+    var env = try fakeObsidianEnv(gpa, log, script);
+    defer env.deinit();
+
+    var block = try env.createPosixBlock(gpa, .{});
+    defer block.deinit(gpa);
+    var io_threaded: std.Io.Threaded = .init(gpa, .{ .environ = .{ .block = block } });
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    var os_store = try ObsidianStore.init(gpa, vault, "synapse/repo@main");
+    defer os_store.deinit();
+    var store = os_store.store();
+
+    const hits = try store.search(gpa, io, "body");
+    defer {
+        for (hits) |h| {
+            gpa.free(h.node);
+            gpa.free(h.context);
+        }
+        gpa.free(hits);
+    }
+    try testing.expectEqual(@as(usize, 1), hits.len);
+
+    const log_content = try tmp.dir.readFileAlloc(testing.io, "obsidian.log", gpa, .unlimited);
+    defer gpa.free(log_content);
+    var found_vaults_call = false;
+    var found_scoped_search = false;
+    var lines = std.mem.splitScalar(u8, std.mem.trimEnd(u8, log_content, "\n"), '\n');
+    while (lines.next()) |line| {
+        if (std.mem.eql(u8, line, "vaults verbose")) found_vaults_call = true;
+        if (std.mem.eql(u8, line, "vault=devvault search:context query=body format=json")) found_scoped_search = true;
+    }
+    try testing.expect(found_vaults_call);
+    try testing.expect(found_scoped_search);
 }
 
 test "a node with a .. segment or a leading / is rejected before any request is made" {
