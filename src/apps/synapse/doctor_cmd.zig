@@ -178,11 +178,20 @@ fn vaultChecks(ctx: *Ctx) !?[]const u8 {
 }
 
 /// Whether the official `obsidian` CLI is on PATH and answers for this
-/// vault. `ObsidianStore` reaches Obsidian through the CLI's own local
-/// socket -- no plugin, no cert, no API key, but the CLI itself is off by
-/// default: `Settings -> General -> Advanced -> Command line interface`.
+/// vault -- only meaningful under the `obsidian` backend. `SYNAPSE_VAULT_STORE`
+/// resolved the same way `resolveStore` does (default `disk`): under `disk`,
+/// nothing here needs Obsidian at all, so this reports that directly instead
+/// of a misleading `FAIL` for a dependency the resolved backend never uses.
+/// `ObsidianStore` reaches Obsidian through the CLI's own local socket -- no
+/// plugin, no cert, no API key, but the CLI itself is off by default:
+/// `Settings -> General -> Advanced -> Command line interface`.
 fn apiChecks(ctx: *Ctx, vault: ?[]const u8) !void {
     _ = vault;
+    const backend = ctx.env.get("SYNAPSE_VAULT_STORE") orelse "disk";
+    if (!std.mem.eql(u8, backend, "obsidian")) {
+        try ctx.add("Obsidian", .ok, "not needed -- SYNAPSE_VAULT_STORE is disk (or unset)");
+        return;
+    }
     const res = adapters.process.run(ctx.io, ctx.gpa, &.{ "obsidian", "vault", "info=path" }, .{}) catch {
         try ctx.add("Obsidian", .fail, "the obsidian CLI is not on PATH -- install/update Obsidian");
         return;
@@ -469,6 +478,9 @@ test "a configured machine reports the vault, the namespace and the API" {
     var df = try DoctorFixture.init(gpa);
     defer df.deinit();
     try df.baseline();
+    // The Obsidian check only runs under the `obsidian` backend now --
+    // `disk` is the default, and this test wants the real fake-CLI path.
+    try df.fx.env.put("SYNAPSE_VAULT_STORE", "obsidian");
 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
@@ -489,6 +501,30 @@ test "a configured machine reports the vault, the namespace and the API" {
         if (std.mem.indexOf(u8, line, "Obsidian") != null) break line;
     } else unreachable;
     try testing.expect(std.mem.indexOf(u8, obsidian_line, df.fx.vault) != null);
+}
+
+test "under the disk backend (the default), the Obsidian check reports not-needed, never FAIL" {
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.baseline();
+    // No SYNAPSE_VAULT_STORE set at all -- resolves to disk, the default.
+    // The fake-obsidian fixture answers `vault info=path`, but nothing
+    // here should call it: a real machine with no Obsidian installed must
+    // not see a FAIL for a dependency the resolved backend never uses.
+    _ = df.fx.env.swapRemove("SYNAPSE_VAULT_STORE");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try df.check(df.fx.repo, &out.writer);
+
+    const text = out.written();
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    const obsidian_line = while (lines.next()) |line| {
+        if (std.mem.indexOf(u8, line, "Obsidian") != null) break line;
+    } else unreachable;
+    try testing.expect(std.mem.indexOf(u8, obsidian_line, "FAIL") == null);
+    try testing.expect(std.mem.indexOf(u8, obsidian_line, "not needed") != null);
 }
 
 test "config resolves at tier 1 (XDG), not just tier 2 -- the config check used to hardcode ~/.claude" {

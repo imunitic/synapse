@@ -30,9 +30,11 @@ there is no argument to parse, every run produces the same one-pass sweep.
 ## Prerequisites
 
 Requires the `synapse` CLI on `PATH`, resolving a vault with a working link graph
-(`synapse vault-backlinks`/`vault-links`/`vault-unresolved`/`vault-orphans`/`vault-deadends`). If
-`SYNAPSE_VAULT_STORE` resolves to a backend with no link graph yet, these commands exit 1 saying so;
-stop and report that rather than falling back to anything else.
+(`synapse vault-backlinks`/`vault-links`/`vault-unresolved`/`vault-orphans`/`vault-deadends`). Both
+real coding-vault backends have one — `disk` (the default) always local, `obsidian` reaching a
+running app when reachable and falling back to `disk`'s own implementation otherwise. If
+`SYNAPSE_VAULT_STORE` ever resolves to a backend with no link graph at all, these commands exit 1
+saying so; stop and report that rather than falling back to anything else.
 
 This skill reaches the vault store only through the `synapse` CLI's `vault-*` subcommands, the same
 door every other skill uses — no MCP tool, no direct `ObsidianStore` call. `vault-links`/

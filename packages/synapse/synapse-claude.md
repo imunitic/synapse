@@ -96,17 +96,18 @@ a real yes/no answer, not a formality to wave past.
 
 The vault is reached through the `synapse` CLI — `synapse vault-read`/`vault-write`/`vault-list`/
 `vault-search`/`vault-search-text`/`vault-doc-map`/`vault-patch`/`vault-backlinks`/`vault-links`/
-`vault-unresolved`/`vault-orphans`/`vault-deadends` — for reads *and* for writes, never by resolving
-a vault path or calling an `mcp__obsidian__*` tool directly. Which concrete store the CLI talks to
-(today, an Obsidian vault reached through its own official CLI; also a plain-disk vault,
-`SYNAPSE_VAULT_STORE=disk`) is resolved once, inside the compiled binary, from
-`SYNAPSE_VAULT_STORE`/`SYNAPSE_VAULT_DIR` — never something a skill or an agent turn needs to know or
-branch on. Today that means Obsidian running headless at login, with no plugin, no cert, no MCP
-server needed: `read`/`write`/`list` are plain disk I/O against the vault folder, and
-`search`/the link graph go through Obsidian's own CLI over its local socket — off by default, so a
-`vault-search-text`/`vault-backlinks`/etc. failure is worth mentioning **Settings → General →
-Advanced → Command line interface** for, alongside stopping on it (see the precondition-failure
-rule below).
+`vault-unresolved`/`vault-orphans`/`vault-deadends`/`vault-ambiguous`/`vault-rename` — for reads
+*and* for writes, never by resolving a vault path or calling an `mcp__obsidian__*` tool directly.
+Which concrete store the CLI talks to (`SYNAPSE_VAULT_STORE=disk`, the default; or `obsidian`,
+opted into for a running Obsidian app's own live search relevance and graph data) is resolved once,
+inside the compiled binary, from `SYNAPSE_VAULT_STORE`/`SYNAPSE_VAULT_DIR` — never something a skill
+or an agent turn needs to know or branch on. By default that means no Obsidian dependency
+whatsoever: `read`/`write`/`list`/`search`/the link graph/rename are all plain disk I/O and direct
+computation against the vault folder. Under the opted-in `obsidian` backend, `search`/the link
+graph/rename go through Obsidian's own CLI over its local socket instead when Obsidian is running,
+falling back to the same disk-backed behavior automatically and silently (a one-line stderr note,
+nothing an agent turn needs to react to) whenever it isn't — no precondition to check or fail on
+either way.
 
 **Every write to a note goes through `synapse vault-write` or `vault-patch`. Never the `Write`/`Edit`
 tools on the on-disk path, and never a raw `mcp__obsidian__*` tool call either** — not for a one-line

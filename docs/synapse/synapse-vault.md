@@ -22,11 +22,13 @@ The boxes name the four hooks; what each one does is here rather than crammed in
 
 ## The vault
 
-A regular Obsidian vault, running headless at login, reached through Obsidian's own official CLI —
-today's default backend behind `ports.Store` (`SYNAPSE_VAULT_STORE=obsidian`; a plain-disk backend
-also exists, `SYNAPSE_VAULT_STORE=disk`, reading the same folder directly, with no Obsidian
-dependency of any kind). No plugin, no cert, no API key: `ObsidianStore`'s `read`/`write`/`list` are
-plain disk I/O against the vault folder, same as `disk`. `search` and the link graph/rename
+A regular Obsidian-format vault: plain markdown files with YAML frontmatter, read and written
+directly by `DiskStore` — today's default backend behind `ports.Store` (`SYNAPSE_VAULT_STORE=disk`,
+or unset), no Obsidian dependency of any kind. An `obsidian` backend also exists
+(`SYNAPSE_VAULT_STORE=obsidian`), reaching a running Obsidian app through its own official CLI for
+live search relevance and graph data when that's worth opting into. No plugin, no cert, no API key
+either way: `ObsidianStore`'s `read`/`write`/`list` are plain disk I/O against the vault folder,
+same as `disk`. `search` and the link graph/rename
 capabilities (`vault-backlinks`/`vault-links`/`vault-unresolved`/`vault-orphans`/`vault-deadends`/
 `vault-ambiguous`/`vault-rename`) go through the CLI's local socket *when Obsidian is reachable* —
 `ObsidianStore` falls back to `DiskStore`'s own implementation of each on `error.VaultUnreachable`

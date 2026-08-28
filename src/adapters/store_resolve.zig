@@ -1,8 +1,9 @@
 //! One place that decides which `ports.Store` backend a caller gets, from
-//! `SYNAPSE_VAULT_STORE=obsidian|disk` (default `obsidian`, so an existing
-//! install works unchanged after the `SYNAPSE_VAULT_DIR` rename alone) and
-//! `SYNAPSE_VAULT_DIR`. Every CLI subcommand and every hook that needs a
-//! `Store` calls this instead of resolving one itself.
+//! `SYNAPSE_VAULT_STORE=obsidian|disk` (default `disk` -- no Obsidian
+//! dependency unless a caller opts into the live-app-preferred `obsidian`
+//! backend explicitly) and `SYNAPSE_VAULT_DIR`. Every CLI subcommand and
+//! every hook that needs a `Store` calls this instead of resolving one
+//! itself.
 //!
 //! `ObsidianStore` reaches Obsidian through the official CLI's own local
 //! socket, which needs neither a plugin installed nor any file this
@@ -100,7 +101,7 @@ pub fn resolveStore(
     // every caller already threads it through, and a future backend (a
     // local index file, a socket probe) plausibly will.
     _ = io;
-    const backend = env.get("SYNAPSE_VAULT_STORE") orelse "obsidian";
+    const backend = env.get("SYNAPSE_VAULT_STORE") orelse "disk";
 
     if (std.mem.eql(u8, backend, "disk")) {
         var store = try disk_store.DiskStore.init(gpa, vault, namespace);
@@ -123,7 +124,7 @@ fn report(prog: ?[]const u8, comptime fmt: []const u8, args: anytype) void {
 
 const testing = std.testing;
 
-test "SYNAPSE_VAULT_STORE unset defaults to obsidian, resolving with no config file needed" {
+test "SYNAPSE_VAULT_STORE unset defaults to disk, no Obsidian dependency at all" {
     const gpa = testing.allocator;
     var env = try std.process.Environ.createMap(testing.environ, gpa);
     defer env.deinit();
@@ -138,9 +139,37 @@ test "SYNAPSE_VAULT_STORE unset defaults to obsidian, resolving with no config f
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    // Resolves straight away, `.obsidian` -- no config file to find.
-    // `read`/`write`/`list` are plain disk I/O, so this round-trips with
-    // no fake-CLI fixture.
+    // Resolves straight away, `.disk` -- no config file to find, no
+    // `obsidian` CLI needed either.
+    var resolved = (try resolveStore(gpa, io, &env, vault, "synapse/repo@main", "test")).?;
+    defer resolved.deinit();
+    try testing.expect(resolved == .disk);
+
+    var store = resolved.store();
+    const wr = try store.write(io, "Foo.md", "body\n");
+    try testing.expect(wr.accepted);
+    const got = (try store.read(gpa, io, "Foo.md")).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("body\n", got);
+}
+
+test "SYNAPSE_VAULT_STORE=obsidian resolves an ObsidianStore explicitly, no longer the default" {
+    const gpa = testing.allocator;
+    var env = try std.process.Environ.createMap(testing.environ, gpa);
+    defer env.deinit();
+    try env.put("SYNAPSE_VAULT_STORE", "obsidian");
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
+    const vault = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+
+    var io_threaded: std.Io.Threaded = .init(gpa, .{});
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    // `read`/`write`/`list` are plain disk I/O even under `.obsidian`, so
+    // this round-trips with no fake-CLI fixture.
     var resolved = (try resolveStore(gpa, io, &env, vault, "synapse/repo@main", "test")).?;
     defer resolved.deinit();
     try testing.expect(resolved == .obsidian);

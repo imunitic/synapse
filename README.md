@@ -6,8 +6,11 @@ Memory for Claude Code: durable notes that outlive a session, and a per-repo cod
 codebase does not get re-explored from scratch every time. Three components, independent enough that
 you can use one without the others:
 
-- **Synapse Vault** — an Obsidian vault holding the notes: research, decisions, project logs, design
-  discussions. Cross-project by default and searchable as ordinary Markdown.
+- **Synapse Vault** — a folder of plain Markdown notes (frontmatter + wikilinks, the Obsidian
+  format) holding research, decisions, project logs, design discussions. Cross-project by default.
+  Synapse reads and writes it directly — Obsidian is an optional, opportunistic layer on top for
+  live search/graph/rename when it's running (see [Dependencies](#dependencies)), never a
+  requirement; the folder works the same with no Obsidian installed at all.
 - **Synapse Graph** — a per-repo semantic code graph, hosted *inside* the Vault under
   `synapse/{repo}@{branch}/`, so it is stored and searched like any other note. Dormant until
   `/synapse-init` is run in a repo. Underneath it is the **Code Cache** — tags, refs and call
@@ -44,10 +47,18 @@ afterward. `zig build` is only for contributing to Synapse itself; see [Dependen
 > This needs the platform binaries built locally first (`zig build`, or `just build`) and copied
 > into `platforms/{platform}-{arch}/bin/` — see [Dependencies](#dependencies).
 
+The default (`SYNAPSE_VAULT_STORE=disk`, or nothing set at all) needs none of steps 1, 2, or 6
+below — just a plain folder of Markdown, no Obsidian installed anywhere. Do step 3 (point
+`synapse.conf` at that folder), 4 (restart), and 5 (check with `doctor`), and you're done. Steps 1-2
+and 6 are for opting into the `obsidian` backend instead (`SYNAPSE_VAULT_STORE=obsidian`) for live
+search relevance and graph data when Obsidian is running — `DiskStore`'s own equivalents are real,
+not stubs, so this is a preference, not a requirement (see [Dependencies](#dependencies)).
+
 1. Install Obsidian, open (or create) your Vault. No community plugin needed — Synapse reaches
    Obsidian through its official CLI, which ships with the app itself but is off by default:
    **Settings → General → Advanced → Command line interface**, toggle it on. Obsidian needs to be
-   running for Synapse to reach it.
+   running for Synapse to reach it — if it isn't, Synapse falls back to `disk`'s own implementation
+   automatically rather than failing.
 2. (Optional) **Settings → Community plugins → Browse**, install + enable:
    - **Headless Mode** — lets Obsidian run as a background daemon with no visible window; enable
      "Start headless" in its settings.
@@ -232,14 +243,14 @@ skill's table, with the whole suite green.
 For using it day to day: npm itself (the compiled binaries ship as ordinary per-platform
 optionalDependencies, `npm install` fetches and verifies them the same way it does any other
 package, no separate fetch script or `tar` step involved) and whichever harness's own CLI (`claude`,
-`codex`, or `opencode`). The official `obsidian` CLI is optional, not required: it's what the
-default `SYNAPSE_VAULT_STORE=obsidian` backend uses for `write-node`, `doctor`, vault search and
-link-graph queries when Obsidian is actually running (ships with Obsidian itself, no plugin to
-install, but off by default — enable it once in **Settings → General → Advanced → Command line
-interface**) — and it falls back to `SYNAPSE_VAULT_STORE=disk`'s own plain-disk implementation of
-every one of those automatically when Obsidian isn't reachable. Setting `SYNAPSE_VAULT_STORE=disk`
-outright removes the Obsidian dependency entirely; Obsidian, if still installed, keeps working
-unaffected as a plain viewer/editor over the same vault folder. Node itself is assumed, the same way
+`codex`, or `opencode`). The default backend (`SYNAPSE_VAULT_STORE=disk`, or unset) needs nothing
+else at all — the official `obsidian` CLI is entirely optional, only relevant if you opt into
+`SYNAPSE_VAULT_STORE=obsidian` for live search relevance and graph data (ships with Obsidian itself,
+no plugin to install, but off by default — enable it once in **Settings → General → Advanced →
+Command line interface**). Even opted in, it's not a hard requirement: `write-node`, `doctor`, vault
+search and link-graph queries all fall back to `disk`'s own plain-disk implementation automatically
+when Obsidian isn't reachable, so a temporarily-closed app never breaks anything. Node itself is
+assumed, the same way
 it already is for every harness here — `synapse-setup` and the shipped hooks
 (`resolve-binaries.cjs`) run on it directly, no `jq` of its own. Nothing to build, nothing to
 install by hand — see "New machine setup".
