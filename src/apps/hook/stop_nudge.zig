@@ -33,6 +33,11 @@ const Allocator = std.mem.Allocator;
 /// Turns between check-ins.
 const n = 25;
 
+/// The `synapse-claude.md` heading the nudge text points readers at -- named
+/// once so a test can confirm the heading it cites still exists, instead of
+/// two copies (nudge prose, test expectation) drifting apart silently.
+const vault_note_heading = "Synapse Vault as permanent memory";
+
 pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map, self_path: []const u8) !void {
     const home = env.get("HOME") orelse return;
 
@@ -81,8 +86,8 @@ pub fn tick(gpa: Allocator, io: Io, env: *std.process.Environ.Map, home: []const
         var text: Io.Writer.Allocating = .init(gpa);
         defer text.deinit();
         try text.writer.print(
-            "This session has grown substantial ({d} turns, re-armed at the {d}-turn mark). Before continuing: did this session produce a debugging/investigation/research finding, decision, or piece of context worth persisting to Synapse Vault ({s})? If so, write it up now (see the global CLAUDE.md \"Synapse Vault as permanent memory\" section, or use /synapse-note) while full context is still available -- do not wait for a wrap-up step. If you already wrote or updated a note earlier this session, check whether anything since then is worth folding in too.",
-            .{ total, n, location },
+            "This session has grown substantial ({d} turns, re-armed at the {d}-turn mark). Before continuing: did this session produce a debugging/investigation/research finding, decision, or piece of context worth persisting to Synapse Vault ({s})? If so, write it up now (see the global CLAUDE.md \"{s}\" section, or use /synapse-note) while full context is still available -- do not wait for a wrap-up step. If you already wrote or updated a note earlier this session, check whether anything since then is worth folding in too.",
+            .{ total, n, location, vault_note_heading },
         );
         return .{ .text = try gpa.dupe(u8, text.written()), .total = total };
     } else {
@@ -737,4 +742,27 @@ test "separate sessions count turns independently" {
     const r2 = try tick(gpa, fx.io(), &fx.env, fx.home, "s2");
     try testing.expectEqual(@as(?[]u8, null), r2.text);
     try testing.expectEqual(@as(usize, 1), r2.total);
+}
+
+test "the nudge cites a synapse-claude.md heading that actually exists" {
+    // The nudge points the reader at a section of the shipped synapse-claude.md
+    // by name -- renaming the heading without this constant (or the reverse)
+    // leaves a pointer to a section that isn't there, and nothing about reading
+    // the nudge would reveal it. `zig build test`'s working directory is the
+    // repo root, so this reads the real shipped file rather than a fixture copy.
+    const gpa = testing.allocator;
+    const heading_line = try std.fmt.allocPrint(gpa, "# {s}", .{vault_note_heading});
+    defer gpa.free(heading_line);
+    const content = try Io.Dir.cwd().readFileAlloc(
+        testing.io,
+        "packages/synapse/synapse-claude.md",
+        gpa,
+        .limited(1 << 20),
+    );
+    defer gpa.free(content);
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |line| {
+        if (std.mem.eql(u8, line, heading_line)) return;
+    }
+    try testing.expect(false);
 }

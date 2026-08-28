@@ -81,44 +81,7 @@ write_node_index() { # write_node_index <node.md> <path>...
 # `body`/`sources`/`field`'s own logic moved to native coverage --
 # `src/apps/synapse/query_cmd.zig`'s own `test` blocks, calling `cmdBody`/
 # `cmdSources`/`cmdField`/`writeField`/`cmdFieldFile` directly against a
-# fixture vault. `write_fenced_node` stays -- the two `config:` tests below
-# still need a real fenced node to read back through the actual CLI.
-
-# A node with a generated fence, real hashes, and Notes content that must never
-# leak into `body`.
-write_fenced_node() {
-  local node="$1"; shift
-  mkdir -p "$VAULT/synapse/$(repo_name)"
-  {
-    echo "---"
-    echo "title: \"${node%.md}\""
-    echo "node_type: synapse-node"
-    echo "project: $(repo_name)"
-    echo "sources:"
-    local p
-    for p in "$@"; do
-      echo "  - path: $p"
-      echo "    hash: $(git -C "$REPO" hash-object "$p")"
-    done
-    echo "sources_digest: \"$(expected_digest "$@")\""
-    echo "stale: false"
-    echo "built_at: \"2026-08-03 16:15\""
-    echo "---"
-    echo
-    echo "# ${node%.md}"
-    echo "<!-- synapse:generated:start -->"
-    echo
-    echo "## Summary"
-    echo "Prose that should be printed."
-    echo
-    echo "## Sources"
-    echo "- \`src\` (${#@})"
-    echo "<!-- synapse:generated:end -->"
-    echo
-    echo "## Notes"
-    echo "HUMAN NOTES must never appear in body output."
-  } > "$VAULT/synapse/$(repo_name)/$node"
-}
+# fixture vault.
 
 @test "unknown subcommand and no subcommand both exit 2" {
   make_repo
