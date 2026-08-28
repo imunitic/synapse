@@ -1,20 +1,14 @@
 # Configuration Reference
 
-Short, unlike [Synapse's own config reference](../synapse/synapse-config.md), because there's genuinely little
-to configure. Checked directly against the source, not assumed: neither `synapse-bard` nor
-`synapse-bard-hook` reads a single `*.conf` file or a `SYNAPSE_BARD_*`/`BARD_*` environment
-variable anywhere.
+Short, because there's genuinely little to configure. Checked directly against the source, not
+assumed: neither `synapse-bard` nor `synapse-bard-hook` reads a single `*.conf` file or a
+`SYNAPSE_BARD_*`/`BARD_*` environment variable anywhere.
 
 ## Why there's nothing here to tune
 
-Every piece of Synapse's own config surface exists to bridge something machine-specific or
-cross-project: `SYNAPSE_VAULT_DIR` because the Vault lives outside any one repo,
-`SYNAPSE_GRAMMARS_DIR` because tree-sitter grammars are cached once and shared across every
-project, `synapse-projects.conf` because one vault serves many repos that shouldn't share a task-ID
-sequence. None of that applies to `synapse-bard`: both its stores
-([Bible-graph](bard-graph.md), [Writer's notes vault](bard-vault.md)) live under `_bard/` inside the
-one repo being worked in, so there's no external location to point at and no cross-project state to
-disambiguate.
+Both of `synapse-bard`'s stores ([Bible-graph](bard-graph.md), [Writer's notes vault](bard-vault.md))
+live under `_bard/` inside the one repo being worked in: no external location to point at, no
+cross-project state to disambiguate.
 
 ## The one thing every command resolves, automatically
 
@@ -24,19 +18,17 @@ disambiguate.
 current directory to find the repo root the way git itself would, so a command run from a
 subdirectory still finds `_bard/` at the top rather than looking for it relative to wherever the
 shell happened to be. Nothing about this is configurable, and nothing needs to be: there is exactly
-one repo a `synapse-bard` invocation could mean, unlike Synapse's own per-repo-and-branch
-`{repo}@{branch}` namespace keying, which exists because one Vault can hold graphs for many repos
-side by side.
+one repo a `synapse-bard` invocation could mean, with no cross-repo namespace to key or
+disambiguate.
 
 ## `CLAUDE_PLUGIN_ROOT`: the one environment variable that matters
 
 Both `synapse-bard-claude.md` (the plugin's standing instructions) and `Index.md.template` (the
 vault's bootstrap default) are read by `synapse-bard-hook`'s `SessionStart` handler through
 `CLAUDE_PLUGIN_ROOT` — the variable Claude Code exports to every hook invocation, pointing at the
-installed plugin's own bundled files. Unlike `synapse-hook`'s equivalent resolution, there's no
-`argv0`-relative fallback for a pre-plugin install to support — `synapse-bard` has no pre-plugin
-history, so `CLAUDE_PLUGIN_ROOT` unset simply means neither file is found, reported plainly rather
-than guessed at.
+installed plugin's own bundled files. There's no `argv0`-relative fallback for a pre-plugin
+install to support — `synapse-bard` has no pre-plugin history, so `CLAUDE_PLUGIN_ROOT` unset simply
+means neither file is found, reported plainly rather than guessed at.
 
 ## What a fresh bible repo needs, and what it doesn't
 

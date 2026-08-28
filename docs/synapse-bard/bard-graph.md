@@ -1,12 +1,9 @@
 # Bible-graph: the structured half
 
-A YAML-templated fiction book bible (character/place/faction/item entries) needs the same thing a
-code repo does — a small, precise map instead of re-reading the whole corpus every session — but
-none of the reasons [Synapse Graph](../synapse/synapse-graph.md) is as mechanically elaborate as it is apply
-here. There's no orientation-then-clustering LLM pass, because a bible's own folder taxonomy
-already is the cluster hierarchy. There's no crux, no grounded summary, no staleness tiers, because
-YAML frontmatter already is the compact record — there's nothing to compress. `sync` is a
-mechanical transform with zero judgment calls, not `/synapse-init`'s mechanism.
+A YAML-templated fiction book bible (character/place/faction/item entries) needs a small, precise
+map instead of re-reading the whole corpus every session. A bible's own folder taxonomy is directly
+the cluster hierarchy, with no orientation-then-clustering LLM pass involved. YAML frontmatter is
+already the compact record on its own. `sync` is a mechanical transform with zero judgment calls.
 
 ![Sync's clustering and extraction pipeline](diagrams/bard-graph-pipeline.png)
 
@@ -25,10 +22,8 @@ time bard's been used in this repo.
 
 ### Clustering needs no LLM pass at all
 
-Synapse's own code graph needs `/synapse-init`'s vocabulary/directory-weight orientation because
-"where does meaning live in this tree" has no language-neutral answer. A bible repo doesn't have
-that problem — its author already organizes it by folder (`characters/main/`, `world/magic/`), and
-that taxonomy **is** the cluster boundary, mechanically discoverable with no interpretation step.
+A bible's author already organizes it by folder (`characters/main/`, `world/magic/`), and that
+taxonomy **is** the cluster boundary, mechanically discoverable with no interpretation step.
 
 The exact rule, settled by measurement against a real 65-file bible (see
 `findClusters`/`findBoundary` in `src/apps/bard/sync_cmd.zig`): from each top-level, non-excluded
@@ -82,8 +77,8 @@ A cluster node's body is generated content, not a copy of any entity's frontmatt
 frontmatter carries a `sources:` list, one entry per member: `slug` (the wikilink target, the
 member's filename stem) and `path` (its real repo-relative source file). The body is just an
 `## Entities` heading with a wikilinked bullet per member; a human can hand-write real prose below
-the `<!-- synapse:generated:end -->` marker and it survives every future `sync` untouched, same
-fencing convention Synapse's own `## Notes` uses.
+the `<!-- synapse:generated:end -->` marker and it survives every future `sync` untouched, the
+same fencing convention any hand-written `## Notes` section relies on.
 
 **Every read resolves *through* `sources:`, never by reading a cluster node directly as if it held
 the entity's own data.** `query`/`field`/`fields`/`search` all take a slug, scan every cluster's
@@ -107,10 +102,9 @@ parse leaves no stale cluster node behind for `--inbound`/`search` to keep surfa
 
 ## `--check`: would a real `sync` change anything?
 
-[Synapse Graph](../synapse/synapse-graph.md)'s own two-tier staleness model solves a cost problem
-`sync` doesn't have — Tier 1 flags and Tier 2 lazily regenerates specifically to avoid re-running
-*expensive, LLM-authored* prose generation, and `sync` has neither: it's a ~10ms mechanical
-extract-and-cluster pass, already a full re-ingest every time it runs.
+`sync` needs no staleness tracking at all: it's a ~10ms mechanical extract-and-cluster pass,
+already a full re-ingest every time it runs, and always idempotent — re-running it is never a
+judgment call.
 
 **`synapse-bard sync --check`** is a dry run: would a real `sync` change anything? It runs the
 exact same clustering/extraction pipeline (`adapters.bard_sync_plan.computePlan` — the one
@@ -160,21 +154,6 @@ port method (used only for the vault side's simpler shape), there's no colon-amb
 get wrong. It reads every entity's real source file through its cluster's `sources:`, same as
 `query`/`field`, and searches only the frontmatter block — never the prose body, holding to the
 same boundary every other piece of this system does.
-
-## What this deliberately doesn't have
-
-Synapse's full code-node lifecycle — LLM-authored crux and summary, `sources_digest`-based
-staleness, `grounded_in` hash-verified evidence — exists to compress a large, opaque source file
-into something that doesn't need re-reading and re-deriving every session. Structured YAML
-frontmatter doesn't have that problem: the frontmatter already *is* the compact record. A
-consequence worth naming: because a bard graph node carries no LLM-authored prose to preserve
-across drift, there's no `/synapse-rebuild-diff`/`/synapse-rebuild-full` triage split either —
-re-running `sync` is just idempotent regeneration, not a triage problem.
-
-This stays deliberately deferred rather than ruled out forever: it would earn its place if a bulkier
-prose section (world-lore essays, planning documents) ever needed scoped summarization, but nothing
-in the corpus this shipped against crossed that line: ~118,600 words across *every* markdown file
-in the repo, nowhere close to where a flat `grep`/`Grep` becomes the bottleneck.
 
 Prose-body `[[wikilinks]]` inside entity files stay out of the graph entirely too, on purpose, not
 by oversight — some entity files hold real prose-body relationships that never made it into

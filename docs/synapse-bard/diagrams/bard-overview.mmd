@@ -1,14 +1,12 @@
 ---
-title: Synapse Bard — two repo-local stores, no network dependency
+title: synapse-bard — two repo-local stores, no network dependency
 ---
-%% Two pillars, not three: unlike Synapse (Vault + Graph + Tools, one hosted
-%% store underneath both), bard's Bible-graph and Writer's notes vault are
-%% each their own Store implementation over their own directory in the SAME
-%% repo -- there is no third, externally-hosted store either depends on. The
-%% "no network dependency" badge is the single fact this diagram exists to
-%% carry: it is what makes both pillars work unmodified from the Android
-%% app's default cloud session, which has no route to anything outside the
-%% repo it cloned.
+%% Two pillars: the Bible-graph and Writer's notes vault are each their own
+%% Store implementation over their own directory in the SAME repo -- there is
+%% no third, externally-hosted store either depends on. The "no network
+%% dependency" badge is the single fact this diagram exists to carry: it is
+%% what makes both pillars work unmodified from the Android app's default
+%% cloud session, which has no route to anything outside the repo it cloned.
 flowchart TB
     classDef session fill:#d0ebff,stroke:#1971c2,color:#1e1e1e
     classDef bgraph fill:#ffd8a8,stroke:#e8590c,color:#1e1e1e

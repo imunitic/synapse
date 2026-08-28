@@ -1,12 +1,10 @@
 ---
-title: Writer's notes vault — one hook, not four
+title: Writer's notes vault — the one hook
 ---
-%% The contrast with synapse-vault-overview.mmd (four hooks: session-start,
-%% stop-nudge, prompt-context, db-sync) IS the point of this diagram. Bard's
-%% vault has exactly one -- SessionStart -- and no auto-commit, no periodic
-%% nudge, no per-prompt injection. GIT is reached by a dashed, human-labelled
-%% edge rather than a hook arrow to make that omission visible rather than
-%% silently absent.
+%% Bard's vault has exactly one hook -- SessionStart -- and deliberately no
+%% auto-commit, no periodic nudge, no per-prompt injection. GIT is reached by
+%% a dashed, human-labelled edge rather than a hook arrow to make that
+%% omission visible rather than silently absent.
 flowchart TB
     classDef hook fill:#ffd8a8,stroke:#e8590c,color:#1e1e1e
     classDef vault fill:#d3f9d8,stroke:#2f9e44,color:#1e1e1e
