@@ -44,24 +44,25 @@ afterward. `zig build` is only for contributing to Synapse itself; see [Dependen
 > This needs the platform binaries built locally first (`zig build`, or `just build`) and copied
 > into `platforms/{platform}-{arch}/bin/` — see [Dependencies](#dependencies).
 
-1. Install Obsidian, open (or create) your Vault.
-2. **Settings → Community plugins → Browse**, install + enable:
-   - **Local REST API with MCP** (required — the actual bridge)
-   - **Headless Mode** (optional but recommended — lets Obsidian run as a background daemon with no
-     visible window; enable "Start headless" in its settings)
-   - **Iconic** (optional — folder/file icons)
-3. Point Synapse at the vault — create `~/.claude/synapse.conf` (or, on a machine that's adopted
-   XDG config directories, `$XDG_CONFIG_HOME/synapse/synapse.conf`) with one line:
+1. Install Obsidian, open (or create) your Vault. No community plugin needed — Synapse reaches
+   Obsidian through its official CLI, which ships with the app itself but is off by default:
+   **Settings → General → Advanced → Command line interface**, toggle it on. Obsidian needs to be
+   running for Synapse to reach it.
+2. (Optional) **Settings → Community plugins → Browse**, install + enable:
+   - **Headless Mode** — lets Obsidian run as a background daemon with no visible window; enable
+     "Start headless" in its settings.
+   - **Iconic** — folder/file icons.
+3. Point Synapse at the vault — `synapse-setup configure claude` above already wrote a `synapse.conf`
+   for you if none existed yet (`$XDG_CONFIG_HOME/synapse/synapse.conf` if you've adopted XDG config
+   directories, else `~/.config/synapse/synapse.conf` if that directory already exists, else
+   `~/.claude/synapse.conf`), with `SYNAPSE_VAULT_DIR` still pointing at a placeholder path. Edit that
+   one line for your machine:
    ```sh
    SYNAPSE_VAULT_DIR="$HOME/path/to/your/vault"
    ```
-   Nothing prompts for this during `npm install` — `synapse-setup configure claude` is the step that
-   actually wires things up, and it doesn't ask for this either. Skip it and the next session's
-   `SessionStart` hook says so directly instead of staying silent.
-4. Restart Claude Code, or start a fresh session — `synapse-setup configure claude` already
-   registered the `obsidian` MCP server and wrote `NODE_EXTRA_CA_CERTS` for you, and a
-   `SessionStart` hook keeps that registration current on every future session (new cert and key
-   whenever the Obsidian plugin reinstalls), no script to re-run by hand.
+   If a `synapse.conf` already existed anywhere in that same lookup order, it was left alone.
+4. Restart Claude Code, or start a fresh session — `synapse-setup configure claude` already wired up
+   the hooks, no script to re-run by hand.
 5. Check the result:
    ```sh
    synapse doctor
@@ -70,8 +71,8 @@ afterward. `zig build` is only for contributing to Synapse itself; see [Dependen
    even when everything seems fine, because almost every guard in the system is *silent* by
    design — a hook that errors is worse than one that quietly does nothing, so a half-installed
    machine looks exactly like a working one with nothing to say. `doctor` is the one place that
-   speaks: a missing certificate, an Obsidian that is not running, a namespace whose recorded
-   remote no longer matches, a hook registered twice (which makes it fire twice).
+   speaks: the `obsidian` CLI missing from `PATH`, an Obsidian that is not running, a namespace whose
+   recorded remote no longer matches, a hook registered twice (which makes it fire twice).
 6. (Recommended) Set Obsidian to start automatically at login, so it is always running:
    - **macOS**:
      ```sh
@@ -117,11 +118,6 @@ synapse-setup configure codex       # or: opencode
   harness's own hook mechanism (Codex: the global `~/.codex/hooks.json`; OpenCode: a plugin file
   copied to `~/.config/opencode/plugin/`). Merges into anything already there rather than
   overwriting it.
-- **The `obsidian` MCP connection** — registered against the Local REST API plugin's plain-HTTP
-  fallback (`http://127.0.0.1:{port}/mcp/`) rather than the HTTPS endpoint the Claude Code hook
-  uses, since neither harness has a way to trust that endpoint's self-signed cert. **Requires the
-  plugin's plain-HTTP server enabled first**: in Obsidian, **Settings → Local REST API → Enable HTTP
-  server**.
 - **Skills and commands** — the shared `packages/synapse/skills/` copied into each harness's own skill
   directory (`~/.codex/skills/`, `~/.config/opencode/skill/`), plus, for OpenCode only, the shared
   `packages/synapse/commands/` copied into `~/.config/opencode/command/` (its command format already matches
@@ -129,18 +125,10 @@ synapse-setup configure codex       # or: opencode
   mechanism, so its 8 command-equivalents are separately hand-authored under
   `packages/synapse/harness/codex/skills/` and copied in alongside the shared skills instead.
 
-OpenCode needs no manual step at all — its plugin resolves the installed binary's path directly.
-Codex needs one: it reads the vault's bearer token from a named env var, never inline in
-`config.toml`, so `configure codex` prints the export line to add to your shell profile:
-
-```sh
-export SYNAPSE_OBSIDIAN_API_KEY="{key}"
-```
-
-Add it, restart your terminal, then restart Codex — it additionally prompts to trust the
-newly-written hooks on its next session, approve that interactively. Re-run `configure <harness>`
-any time to pick up a newer Synapse release or repair a broken install; it's idempotent and safe to
-run repeatedly.
+No manual step for either harness — both resolve the installed binary's path directly. Codex
+additionally prompts to trust the newly-written hooks on its next session, approve that
+interactively. Re-run `configure <harness>` any time to pick up a newer Synapse release or repair a
+broken install; it's idempotent and safe to run repeatedly.
 
 ## Synapse Vault — the notes
 
@@ -182,18 +170,9 @@ plain-English summary, a quoted `crux`, typed links, and the exhaustive list of 
   `## Notes` first (`synapse graph-wipe`) and auto-merges what it can back into
   the new nodes afterward.
 - `synapse-hook staleness` — `PostToolUse` Tier 1: flags a just-edited file's nodes `stale`
-  and re-verifies any evidence that file's nodes cite, via the Local REST API directly.
+  and re-verifies any evidence that file's nodes cite, via the resolved vault store directly.
 - `packages/synapse/skills/synapse-node/` — Tier 2: the lazy staleness check, regeneration and unassigned sweep
   Claude runs itself whenever a node's body is actually read.
-
-## What's NOT portable (per-machine, regenerated fresh each time)
-
-- The Obsidian Local REST API plugin's self-signed cert + API key — each install generates its own.
-  The `obsidian-mcp-refresh.cjs` `SessionStart` hook extracts these automatically, every session,
-  *after* you've installed the Obsidian plugin; it does not carry them over from another machine.
-- The `obsidian` MCP server registration in `~/.claude.json` (contains the bearer token —
-  machine-local, not meant to be copied or committed).
-- `NODE_EXTRA_CA_CERTS` in `~/.claude/settings.json` (the path is machine-specific anyway).
 
 ## Testing
 
@@ -253,10 +232,12 @@ skill's table, with the whole suite green.
 For using it day to day: npm itself (the compiled binaries ship as ordinary per-platform
 optionalDependencies, `npm install` fetches and verifies them the same way it does any other
 package, no separate fetch script or `tar` step involved), whichever harness's own CLI (`claude`,
-`codex`, or `opencode`), and `curl` (the compiled binary's own calls to Obsidian's Local REST API —
-`write-node`, `doctor`). Node itself is assumed, the same way it already is for every harness here —
-`synapse-setup` and the shipped hooks (`resolve-binaries.cjs`, `obsidian-mcp-refresh.cjs`) run on it
-directly, no `jq` of its own. Nothing to build, nothing to install by hand — see "New machine setup".
+`codex`, or `opencode`), and the official `obsidian` CLI (the compiled binary's own calls to Obsidian
+— `write-node`, `doctor`, vault search and link-graph queries; ships with Obsidian itself, no plugin
+to install, but off by default — enable it once in **Settings → General → Advanced → Command line
+interface**). Node itself is assumed, the same way it already is for every harness here —
+`synapse-setup` and the shipped hooks (`resolve-binaries.cjs`) run on it directly, no `jq` of its
+own. Nothing to build, nothing to install by hand — see "New machine setup".
 
 For contributing to Synapse itself: Zig 0.16 (`just build`/`zig build`), `bats-core` (tests), a C
 compiler for the Graph's tree-sitter acceleration (grammars are native libraries, built on first

@@ -31,7 +31,10 @@ symbol names on CamelCase and snake_case, drops stopwords, and aggregates per di
   path rather than the code subset — the interesting files here are usually the ones no grammar
   can read.
 - `namespaces.tsv` — `group ⇥ namespace ⇥ agree ⇥ total`, where a rule is configured (question 3,
-  below, for whichever extensions `~/.claude/synapse-namespace-rules.conf` knows about).
+  below, for whichever extensions `synapse-namespace-rules.conf` knows about -- resolved through
+  the standard tiered lookup every `synapse-*.conf` file uses, see
+  `docs/synapse/synapse-config.md`'s "Where a conf file actually lives"; read/write whichever tier
+  actually resolves, never assume `~/.claude/`).
 - `parseable.tsv` and `distinctive.tsv` feed `synapse gate` and this section's own distinctiveness
   question respectively — see immediately below.
 
@@ -75,9 +78,10 @@ is about the gap between what the code calls itself and what the *directory* cal
    family) are what a node's prose should be about.
 
 **Namespace rules are self-populating too, the same way grammar discovery below is — write one
-back when question 3 turns up a real declaration convention.** `~/.claude/synapse-namespace-rules.conf`
-starts empty and nothing seeds it, so `namespaces.tsv` stays empty forever unless something
-writes a rule into it. If you just hand-derived a namespace root for an ecosystem this repo uses
+back when question 3 turns up a real declaration convention.** `synapse-namespace-rules.conf`
+(same tiered lookup as above) starts empty and nothing seeds it, so `namespaces.tsv` stays empty
+forever unless something writes a rule into it. If you just hand-derived a namespace root for an
+ecosystem this repo uses
 and `synapse-namespace-rules.conf` has no entry for its extension yet, the derivation you just
 did *is* the rule — write it back (create the file as `{}` first if it doesn't exist) so the next
 repo in this ecosystem gets `namespaces.tsv` for free instead of a repeat of this same
@@ -219,7 +223,8 @@ contribute to a node's prose. Do not build a tally out of those warnings.
        handling covers a real, cross-grammar class, a per-grammar word substitution would not.
 
      The kind-synonym rule list both bullets above lean on is
-     `~/.claude/synapse-kind-synonyms.conf` (`SYNAPSE_KIND_SYNONYMS_CONF` overrides the path), the
+     `synapse-kind-synonyms.conf` (`SYNAPSE_KIND_SYNONYMS_CONF` overrides the path; otherwise the
+     same tiered lookup as above), the
      same shape and precedence as `synapse-grammars.conf`/`synapse-namespace-rules.conf` — ordered
      rules, first match wins, absent means no mapping rather than a guessed one. Keyed by a
      `locals.scm` capture's kind suffix (or the empty string for an unsuffixed capture) or by a
@@ -325,7 +330,7 @@ contribute to a node's prose. Do not build a tally out of those warnings.
      query file that preempts the whole cascade, not a tier to reach automatically. Name it as an
      option when reporting the outcome (step 5) rather than silently accepting a weak result or a
      bare `unsupported`.
-  4. Write the result back to `~/.claude/synapse-grammars.conf` (create it as `{}` first if it
+  4. Write the result back to `synapse-grammars.conf` (same tiered lookup as above; create it as `{}` first if it
      doesn't exist) — a positive entry (`{"repo": "...", "scope": "..."}`) for whichever tier
      verified, `{"unsupported": true}` only when both came up empty or unusable. Record which
      tier with `"queries"`: omit it (or write `"tags"`) for a real `queries/tags.scm` found in the

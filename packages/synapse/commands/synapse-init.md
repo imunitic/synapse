@@ -238,7 +238,7 @@ emit into tool calls than read into a window. Never hand-author those.
    **Do not choose which files to read by judgment, and do not decide how the writing itself
    happens by habit.** Both are decided by the `synapse-node-authoring` skill — **load it
    before writing the first node.** It resolves `SYNAPSE_AUTHOR_POOL` (env var, then
-   `~/.claude/synapse.conf`, default 0) and either walks you through authoring every node
+   `synapse.conf`, default 0) and either walks you through authoring every node
    yourself in one continuous pass (`rank --sources` per node, `## Links` candidates from
    step 6's `links.tsv`, reading order only — `sources` stays exhaustive either way), or fans
    out to a configurable pool of concurrent subagents, each handed a self-contained

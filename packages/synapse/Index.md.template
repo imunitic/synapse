@@ -3,7 +3,7 @@ title: "Index"
 ---
 
 # Index
-Map of the note folders and what each is for. This is the Obsidian second-brain vault, queried via the Local REST API plugin (see the Synapse repo's `CLAUDE.md`).
+Map of the note folders and what each is for. This is the Obsidian second-brain vault, reached through the `synapse` CLI (see the Synapse repo's `CLAUDE.md`).
 
 This index is agent-maintained: whenever an agent creates a new top-level folder (folder depth is capped at two levels, i.e. `folder/subfolder`), it must add a one-line section for it here in the same edit. Treat this file as out of date if a folder exists on disk with no matching section below -- fix the drift rather than working around it.
 

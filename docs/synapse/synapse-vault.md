@@ -22,18 +22,21 @@ The boxes name the four hooks; what each one does is here rather than crammed in
 
 ## The vault
 
-A regular Obsidian vault, running headless at login with the **Local REST API** plugin installed —
-today's only real backend behind `ports.Store` (`SYNAPSE_VAULT_STORE=obsidian`, the default; a
-plain-disk backend also exists, `SYNAPSE_VAULT_STORE=disk`, with no REST API or MCP server involved
-at all). Hooks and the `synapse vault-*` CLI subcommands (the door skills and commands use to reach
-the vault, instead of calling MCP tools by name) both go through `Store`, so neither one cares which
-backend is actually configured. The `obsidian` MCP server still exists, wrapping the same REST API,
-and is still the right tool for the one command not yet migrated onto `vault-*`
-(`/synapse-vault-tidy`, which needs whole-vault link/backlink data the CLI doesn't expose). Nothing
-here assumes a fixed vault path; the REST API always targets whichever vault the running Obsidian
-instance currently has open.
+A regular Obsidian vault, running headless at login, reached through Obsidian's own official CLI —
+today's default backend behind `ports.Store` (`SYNAPSE_VAULT_STORE=obsidian`; a plain-disk backend
+also exists, `SYNAPSE_VAULT_STORE=disk`, reading the same folder directly). No plugin, no cert, no
+API key: `ObsidianStore`'s `read`/`write`/`list` are plain disk I/O against the vault folder, same as
+`disk`, and `search`/the link graph (`vault-backlinks`/`vault-links`/`vault-unresolved`/
+`vault-orphans`/`vault-deadends`) go through the CLI's local socket. The CLI itself is off by
+default in a fresh Obsidian install: **Settings → General → Advanced → Command line interface**.
+Hooks and the `synapse` CLI's `vault-*` subcommands (the door skills and commands use to reach the
+vault, instead of naming a tool directly) both go through `Store`/`LinkGraph`, so neither one cares
+which backend is actually configured. Nothing here assumes a fixed vault path; the CLI always
+targets whichever vault the running Obsidian instance currently has open.
 
-`~/.claude/synapse.conf` holds the one piece of genuinely machine-local state: `SYNAPSE_VAULT_DIR`.
+`synapse.conf` (resolved through the tiered lookup in
+[synapse-config.md](synapse-config.md#where-a-conf-file-actually-lives)) holds the one piece of
+genuinely machine-local state: `SYNAPSE_VAULT_DIR`.
 
 ## Folder layout
 

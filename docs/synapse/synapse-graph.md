@@ -417,8 +417,8 @@ Outside any git repo there is no pointer and nothing to exclude, so the catalogu
 `SessionStart` injects a pointer once. `UserPromptSubmit` (`synapse-hook prompt-context`) repeats one short line on every prompt: this repo has a code graph, it has N nodes, read it before grepping, and the skills have the procedure. That is the whole payload — no search, no node list, no network call. ~80 tokens. Set `SYNAPSE_DISABLE_PROMPT_INJECTION` (any value) to turn it off entirely; the check is the hook's literal first line, so a disabled run costs nothing beyond that one test.
 
 A per-prompt search preceded this: tokenize the prompt, OR the surviving terms into one `regexp`
-clause, POST it to the Local REST API's `/search/` endpoint alongside a `glob` on the repo's
-namespace, and inject the matching node paths. On a repo of a few dozen nodes, a natural-language
+clause, search the vault for it alongside a `glob` on the repo's namespace, and inject the matching
+node paths. On a repo of a few dozen nodes, a natural-language
 prompt asking about one specific subsystem routinely matched nearly every node in the namespace,
 for roughly a thousand tokens on every single turn — a domain-ubiquitous substring (a common
 English word buried inside an unrelated identifier) OR'd into the query destroys precision on its

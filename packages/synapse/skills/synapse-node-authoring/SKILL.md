@@ -26,16 +26,28 @@ ever loaded.
 ```sh
 pool="${SYNAPSE_AUTHOR_POOL:-}"
 if [ -z "$pool" ]; then
-  pool="$(grep -m1 '^SYNAPSE_AUTHOR_POOL=' ~/.claude/synapse.conf 2>/dev/null | cut -d= -f2- | tr -d '"')"
+  for conf in \
+    ${XDG_CONFIG_HOME:+"$XDG_CONFIG_HOME/synapse/synapse.conf"} \
+    "$HOME/.config/synapse/synapse.conf" \
+    "$HOME/.claude/synapse.conf"
+  do
+    if [ -f "$conf" ]; then
+      pool="$(grep -m1 '^SYNAPSE_AUTHOR_POOL=' "$conf" 2>/dev/null | cut -d= -f2- | tr -d '"')"
+      break
+    fi
+  done
 fi
 pool="${pool:-0}"
 ```
 
-Environment variable wins over the conf file, same precedence every other Synapse setting
-uses. Absent, empty, or malformed all fall through to `0`. **This is read by you, the
-orchestrating agent, directly — not by any Zig binary.** Nothing compiled dispatches
-subagents, so there is nothing for a `synapse` flag to feed. The conf file is the shared home
-for the setting; the reader is markdown, not code.
+Environment variable wins over the conf file. The conf lookup is the same three-tier order
+every `synapse-*.conf` file resolves through (see `docs/synapse/synapse-config.md`, "Where a
+conf file actually lives"): the first tier with a file at all wins, whether or not that file
+sets `SYNAPSE_AUTHOR_POOL` — a `synapse.conf` at `~/.claude/` is not consulted when one already
+exists at the XDG tier, even if the XDG one is silent on this key. Absent, empty, or malformed
+all fall through to `0`. **This is read by you, the orchestrating agent, directly — not by any
+Zig binary.** Nothing compiled dispatches subagents, so there is nothing for a `synapse` flag to
+feed. The conf file is the shared home for the setting; the reader is markdown, not code.
 
 `pool = 0` is not "a pool of zero workers" — go to §2. `pool >= 1` is a real worker pool — go
 to §3.

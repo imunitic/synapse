@@ -95,22 +95,26 @@ a real yes/no answer, not a formality to wave past.
 ## Reading and writing the vault
 
 The vault is reached through the `synapse` CLI — `synapse vault-read`/`vault-write`/`vault-list`/
-`vault-search`/`vault-search-text`/`vault-doc-map`/`vault-patch` — for reads *and* for writes, never
-by resolving a vault path or calling an `mcp__obsidian__*` tool directly. Which concrete store the
-CLI talks to (today, an Obsidian vault via its Local REST API; potentially a plain-disk vault later)
-is resolved once, inside the compiled binary, from `SYNAPSE_VAULT_STORE`/`SYNAPSE_VAULT_DIR` — never
-something a skill or an agent turn needs to know or branch on. Today that means Obsidian running
-headless at login (via a startup plugin) with the Local REST API plugin installed, and the CLI
-reaching it over that REST API; a future disk-backed vault would need no change to any skill or to
-this document.
+`vault-search`/`vault-search-text`/`vault-doc-map`/`vault-patch`/`vault-backlinks`/`vault-links`/
+`vault-unresolved`/`vault-orphans`/`vault-deadends` — for reads *and* for writes, never by resolving
+a vault path or calling an `mcp__obsidian__*` tool directly. Which concrete store the CLI talks to
+(today, an Obsidian vault reached through its own official CLI; also a plain-disk vault,
+`SYNAPSE_VAULT_STORE=disk`) is resolved once, inside the compiled binary, from
+`SYNAPSE_VAULT_STORE`/`SYNAPSE_VAULT_DIR` — never something a skill or an agent turn needs to know or
+branch on. Today that means Obsidian running headless at login, with no plugin, no cert, no MCP
+server needed: `read`/`write`/`list` are plain disk I/O against the vault folder, and
+`search`/the link graph go through Obsidian's own CLI over its local socket — off by default, so a
+`vault-search-text`/`vault-backlinks`/etc. failure is worth mentioning **Settings → General →
+Advanced → Command line interface** for, alongside stopping on it (see the precondition-failure
+rule below).
 
 **Every write to a note goes through `synapse vault-write` or `vault-patch`. Never the `Write`/`Edit`
 tools on the on-disk path, and never a raw `mcp__obsidian__*` tool call either** — not for a one-line
 change, and least of all when `Write`/`Edit` are already in hand from editing code earlier in the
 same turn, because that proximity is precisely what causes this to be violated. The vault being an
 ordinary directory means the wrong path *works*: Obsidian's file watcher converges, the auto-commit
-hook matches `Write|Edit`/`Bash` running `vault-write`/`vault-patch` as well as the MCP tools, and
-nothing visibly breaks — which is why the habit never self-corrects on its own. The reason is not a
+hook matches `Write|Edit`/`Bash` running `vault-write`/`vault-patch`, and nothing visibly breaks —
+which is why the habit never self-corrects on its own. The reason is not a
 failure mode to dodge; it is that an invariant upheld only when convenient is worth nothing. Nothing
 else in the system can rely on it, and every note then has to be re-checked by hand instead of
 trusted. Synapse's own tooling holds this line — `synapse write-node` goes through the same `Store`
@@ -118,13 +122,8 @@ abstraction the CLI does, rather than writing files directly — so agent writes
 differ. If the CLI itself ever fails (not installed, no vault configured), that's a real precondition
 failure to report and stop on, never a reason to fall back to a raw file edit.
 
-The `obsidian` MCP server (wrapping the same Local REST API) still exists and is still the right
-tool for a command that hasn't been migrated onto the CLI's `vault-*` subcommands yet (`/synapse-vault-tidy`, as of
-this writing — it needs whole-vault link/backlink data the CLI doesn't expose). If a project's
-`.claude.json` `mcpServers.obsidian` entry ever diverges from the user-scoped one (e.g. points at the
-wrong vault path via a stdio `obsidian-mcp` package instead of the REST API), that's a bug in that
-project's config, not a Synapse Vault routing choice — fix it by removing the project-level override
-so the correct user-scoped REST API server applies.
+Every shipped command and skill, `/synapse-vault-tidy` included, reaches the vault only through
+the `synapse` CLI's `vault-*` subcommands — none of them calls an `mcp__obsidian__*` tool.
 
 - You may create and edit notes in this vault **without asking for
   permission first**, as long as each note is placed in the folder
