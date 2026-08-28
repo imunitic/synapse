@@ -50,8 +50,13 @@ jobs:
           ref: ${{ github.event.inputs.tag || github.ref_name }}
 
       # No version pinned here -- resolved from build.zig.zon's
-      # minimum_zig_version, same reasoning as tests.yml.
+      # minimum_zig_version, same reasoning as tests.yml. cache-size-limit
+      # raised the same way too -- see tests.yml's own comment on this,
+      # measured against its cross-compile step, the same shape of work
+      # this job's own release build does.
       - uses: mlugg/setup-zig@v2
+        with:
+          cache-size-limit: 4096
 
       - name: Resolve the release tag
         id: tag

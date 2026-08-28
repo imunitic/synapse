@@ -24,7 +24,16 @@ jobs:
       # place and CI cannot quietly build with a different toolchain than a
       # local `zig build` uses. Pinning it here too would be a second copy of a
       # number, which is a second copy that goes stale.
+      #
+      # cache-size-limit raised from the 2048 MiB default: this job's own
+      # .zig-cache (native build + test + the three-target cross-compile
+      # loop, all sharing one cache scope) measured 840 MB on a normal run --
+      # comfortably inside 2048 today, but the bats job below measured 1.9 GB
+      # on the same push, close enough to that default limit that a routine
+      # size increase would start silently skipping the cache save.
       - uses: mlugg/setup-zig@v2
+        with:
+          cache-size-limit: 4096
 
       - name: Show version
         run: zig version
@@ -97,7 +106,15 @@ jobs:
       # job that checks the Zig -- the alternative is a bats suite with no
       # tagger in it at all. Same unpinned action as the `zig` job, for the
       # same reason: `build.zig.zon` is the only place the version lives.
+      #
+      # cache-size-limit raised the same way as the `zig` job above -- this
+      # job's own cache measured 1.9 GB on a normal run (every bats test
+      # compiling and loading a real tree-sitter grammar into its own
+      # `.zig-cache`), close enough to the 2048 MiB default that it risked
+      # the save being skipped outright.
       - uses: mlugg/setup-zig@v2
+        with:
+          cache-size-limit: 4096
 
       # All three binaries, not just the fake. `zig build fake` installs only
       # `synapse-fake`, and this job needs the other two as well: every test's

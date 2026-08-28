@@ -35,7 +35,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # cache-size-limit raised the same way as tests.yml/release.yml -- see
+      # tests.yml's own comment on this, same shape of cross-compile work.
       - uses: mlugg/setup-zig@v2
+        with:
+          cache-size-limit: 4096
 
       # Reads the currently-published version.txt off `dist` (if any) to
       # decide whether this month's counter continues or resets -- `dist` is
