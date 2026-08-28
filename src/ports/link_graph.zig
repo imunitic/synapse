@@ -21,6 +21,13 @@ pub const LinkGraph = struct {
 
     pub const Backlink = struct { node: []const u8, count: usize };
     pub const Unresolved = struct { target: []const u8, count: usize, sources: []const []const u8 };
+    /// A wikilink target that resolved to more than one real file -- same
+    /// shape as `Unresolved` plus the candidate list, since it's the same
+    /// underlying question ("what does this link text mean") with a
+    /// different answer (too many, not zero). A backend with no way to
+    /// detect this (`ObsidianStore`'s CLI has no such concept) reports none,
+    /// same as it would for anything else it can't see.
+    pub const Ambiguous = struct { target: []const u8, candidates: []const []const u8, count: usize, sources: []const []const u8 };
 
     pub const VTable = struct {
         backlinks: *const fn (ptr: *anyopaque, gpa: std.mem.Allocator, io: std.Io, node: []const u8) anyerror![]const Backlink,
@@ -28,6 +35,7 @@ pub const LinkGraph = struct {
         unresolved: *const fn (ptr: *anyopaque, gpa: std.mem.Allocator, io: std.Io) anyerror![]const Unresolved,
         orphans: *const fn (ptr: *anyopaque, gpa: std.mem.Allocator, io: std.Io) anyerror![]const []const u8,
         deadends: *const fn (ptr: *anyopaque, gpa: std.mem.Allocator, io: std.Io) anyerror![]const []const u8,
+        ambiguous: *const fn (ptr: *anyopaque, gpa: std.mem.Allocator, io: std.Io) anyerror![]const Ambiguous,
     };
 
     /// Caller-owned: free every `.node` and the outer slice.
@@ -56,6 +64,12 @@ pub const LinkGraph = struct {
         return self.vtable.deadends(self.ptr, gpa, io);
     }
 
+    /// Caller-owned: free every `.target`, every entry of every `.candidates`
+    /// and `.sources` slice, both slices themselves, and the outer slice.
+    pub fn ambiguous(self: LinkGraph, gpa: std.mem.Allocator, io: std.Io) anyerror![]const Ambiguous {
+        return self.vtable.ambiguous(self.ptr, gpa, io);
+    }
+
     /// Builds a `LinkGraph` from any concrete `T` exposing all five methods
     /// with this same shape, self-first -- the wrapper idiom, identical to
     /// `Store.from`. Every real implementation gets its own `.linkGraph()`
@@ -82,6 +96,10 @@ pub const LinkGraph = struct {
                 const s: *T = @ptrCast(@alignCast(ptr));
                 return s.deadends(gpa, io);
             }
+            fn ambiguous(ptr: *anyopaque, gpa: std.mem.Allocator, io: std.Io) anyerror![]const Ambiguous {
+                const s: *T = @ptrCast(@alignCast(ptr));
+                return s.ambiguous(gpa, io);
+            }
         };
         return .{ .ptr = self, .vtable = &.{
             .backlinks = Impl.backlinks,
@@ -89,6 +107,7 @@ pub const LinkGraph = struct {
             .unresolved = Impl.unresolved,
             .orphans = Impl.orphans,
             .deadends = Impl.deadends,
+            .ambiguous = Impl.ambiguous,
         } };
     }
 };

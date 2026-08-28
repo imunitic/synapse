@@ -44,6 +44,7 @@ pub const identity = @import("identity.zig");
 pub const conf = @import("conf.zig");
 pub const doctor = @import("doctor.zig");
 pub const task_status = @import("task_status.zig");
+pub const wikilinks = @import("wikilinks.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -79,6 +80,7 @@ test {
     _ = conf;
     _ = doctor;
     _ = task_status;
+    _ = wikilinks;
     _ = @import("tags_cache/format.zig");
     _ = @import("tags_cache/payload.zig");
     _ = @import("index_map/format.zig");

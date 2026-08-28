@@ -378,7 +378,7 @@ pub fn build(
         return 0;
     }
 
-    const stopwords = try loadStopwords(arena, io, env);
+    const stopwords = try core.vocab.loadStopwords(arena, io, adapters.env.vars(env));
 
     const cache_path = try std.fmt.allocPrint(gpa, "{s}/_tags_cache.bin", .{opts.out});
     defer gpa.free(cache_path);
@@ -735,27 +735,6 @@ fn mapFromLists(
 
 fn firstLine(text: []const u8) []const u8 {
     return text[0 .. std.mem.indexOfScalar(u8, text, '\n') orelse text.len];
-}
-
-fn loadStopwords(
-    arena: Allocator,
-    io: Io,
-    env: *std.process.Environ.Map,
-) !std.StringHashMapUnmanaged(void) {
-    var set: std.StringHashMapUnmanaged(void) = .empty;
-    const home = env.get("HOME") orelse return set;
-    const path = (try core.conf.resolveConfPath(arena, io, adapters.env.vars(env), "synapse-prompt-stopwords.conf")) orelse
-        try std.fmt.allocPrint(arena, "{s}/.claude/synapse-prompt-stopwords.conf", .{home});
-    const text = Io.Dir.cwd().readFileAlloc(io, path, arena, .limited(1 << 20)) catch return set;
-    var lines = std.mem.splitScalar(u8, text, '\n');
-    while (lines.next()) |raw| {
-        const line = std.mem.trim(u8, raw, " \t\r");
-        if (line.len == 0 or line[0] == '#') continue;
-        const lowered = try arena.alloc(u8, line.len);
-        for (line, 0..) |c, i| lowered[i] = std.ascii.toLower(c);
-        try set.put(arena, lowered, {});
-    }
-    return set;
 }
 
 const CountRow = struct { group: []const u8, count: usize };

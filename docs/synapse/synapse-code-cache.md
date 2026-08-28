@@ -180,12 +180,21 @@ each script's preamble. It is now one binary whose vault access is a single func
 distinction predicted: the index it writes was derived, gitignored in the vault and never travelled,
 so the vault reference was a `PUT` with nothing behind it. `query` moved most of the way for the same
 reason — every read is a disk read. `write-node`, `build-project-index`, and `frontmatter` write
-through plain disk I/O too: only `vault-search-text` and the `LinkGraph` subcommands reach the
-`obsidian` CLI at all, and only under the `obsidian` backend.
+through plain disk I/O too: `vault-search-text` and the `LinkGraph`/`Renamer` subcommands reach the
+`obsidian` CLI only under the `obsidian` backend, and only opportunistically even then — every one of
+them falls back to `DiskStore`'s own implementation on `error.VaultUnreachable`, and under the `disk`
+backend they never touch the network at all. `DiskStore` has real `search`/`LinkGraph`/`Renamer` of
+its own now (rarity-weighted ranking, wikilink resolution, rename-with-referrer-rewrite), not stubs.
 
-The genuine Obsidian dependency in the whole system is two things, not five scripts: full-text search
-(the "where does X live" entry point) and `api_search_frontmatter`'s JsonLogic evaluation over the
-vault. Not yet decided: whether the Code Cache ships as a separate repo, given it needs only `git` and
+Full-text search and the link graph are no longer a genuine Obsidian dependency, then — Obsidian is
+an opportunistic preference for live relevance ranking and graph data when it's reachable, not a
+requirement either capability needs to function at all. `vault-search`'s structured JsonLogic
+filtering (`core.vault_query`, `search_query`'s real successor) never had one either: it's built
+as `Store.list` + `Store.read` per candidate + pure JsonLogic evaluation, the same under either
+backend, with no Obsidian-specific code path at all. There is no remaining genuine Obsidian
+dependency in the vault-facing half of this system — every one of these capabilities has a real,
+backend-agnostic Zig implementation underneath, and `obsidian` is a live-app enhancement layered
+on top, not a requirement. Not yet decided: whether the Code Cache ships as a separate repo, given it needs only `git` and
 a C compiler to stand alone as `git ls-files → tags-cache → build-refs → callers`. That list used to
 name `jq` and the `tree-sitter` CLI as well, and both are gone — libtree-sitter is linked into the
 binary and the grammar's own query (`tags.scm`, `locals.scm`, or a tier-3 generated one) runs

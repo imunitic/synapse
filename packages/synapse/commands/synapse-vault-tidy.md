@@ -30,9 +30,11 @@ of scope — foundational files, not taxonomy notes.
 
 Requires the `synapse` CLI on `PATH`, resolving a vault with a working `LinkGraph`
 (`synapse vault-backlinks`/`vault-links`/`vault-unresolved`/`vault-orphans`/`vault-deadends` — see
-`sb — Obsidian CLI as ObsidianStore's transport`). If `SYNAPSE_VAULT_STORE` resolves to a backend
-with no `LinkGraph` yet, these commands exit 1 saying so; stop and report that rather than falling
-back to anything else.
+`sb — Obsidian CLI as ObsidianStore's transport` and `sb — DiskStore's own index, Obsidian becomes
+optional`). Both real coding-vault backends have one now — `obsidian` reaching the CLI when
+reachable and falling back to `disk`'s own implementation otherwise, `disk` always local. If
+`SYNAPSE_VAULT_STORE` ever resolves to a backend with no `LinkGraph` at all, these commands exit 1
+saying so; stop and report that rather than falling back to anything else.
 
 This command reaches the vault store only through the `synapse` CLI's `vault-*` subcommands, the
 same door every other skill uses — no MCP tool, no direct `ObsidianStore` call. `vault-links`/

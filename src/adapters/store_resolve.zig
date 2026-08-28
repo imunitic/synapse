@@ -15,11 +15,13 @@ const std = @import("std");
 const ports = @import("ports");
 const obsidian = @import("obsidian/store.zig");
 const disk_store = @import("disk/store.zig");
+const env_bridge = @import("env.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const Store = ports.Store;
 const LinkGraph = ports.LinkGraph;
+const Renamer = ports.Renamer;
 
 /// Owns whichever concrete backend was resolved -- a caller holds this as a
 /// local `var`, exactly like today's `var os_store = try ObsidianStore.init(...)`,
@@ -40,14 +42,25 @@ pub const ResolvedStore = union(enum) {
 
     /// `null` when the resolved backend has no `LinkGraph` of its own --
     /// asked structurally (does this type declare a `linkGraph()` method),
-    /// never by naming a specific backend. `DiskStore` has none yet;
-    /// `?LinkGraph` means "not every `Store` is a vault-store," not
-    /// "nice-to-have" -- `DiskStore` is expected to grow its own over time.
+    /// never by naming a specific backend. Both real coding-vault backends
+    /// have one now; `?LinkGraph` means "not every `Store` is a vault-store"
+    /// (true of Bard's stores specifically), not "nice-to-have" here.
     pub fn linkGraph(self: *ResolvedStore) ?LinkGraph {
         return switch (self.*) {
             inline else => |*s| {
                 const T = @TypeOf(s.*);
                 if (@hasDecl(T, "linkGraph")) return s.linkGraph();
+                return null;
+            },
+        };
+    }
+
+    /// Same structural-duck-typing dispatch as `linkGraph`, for `Renamer`.
+    pub fn renamer(self: *ResolvedStore) ?Renamer {
+        return switch (self.*) {
+            inline else => |*s| {
+                const T = @TypeOf(s.*);
+                if (@hasDecl(T, "renamer")) return s.renamer();
                 return null;
             },
         };
@@ -90,10 +103,14 @@ pub fn resolveStore(
     const backend = env.get("SYNAPSE_VAULT_STORE") orelse "obsidian";
 
     if (std.mem.eql(u8, backend, "disk")) {
-        return .{ .disk = try disk_store.DiskStore.init(gpa, vault, namespace) };
+        var store = try disk_store.DiskStore.init(gpa, vault, namespace);
+        store.vars = env_bridge.vars(env);
+        return .{ .disk = store };
     }
     if (std.mem.eql(u8, backend, "obsidian")) {
-        return .{ .obsidian = try obsidian.ObsidianStore.init(gpa, vault, namespace) };
+        var store = try obsidian.ObsidianStore.init(gpa, vault, namespace);
+        store.disk.vars = env_bridge.vars(env);
+        return .{ .obsidian = store };
     }
     report(prog, "unknown SYNAPSE_VAULT_STORE '{s}' -- want 'obsidian' or 'disk'\n", .{backend});
     return null;

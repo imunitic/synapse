@@ -6,7 +6,6 @@
 //! old `claude/lib/synapse/` bash scripts, since `tests/*.bats` is the spec
 //! for this port. CLI improvements are a separate change, never inside it.
 
-
 const std = @import("std");
 
 const treesitter = @import("treesitter");
@@ -37,7 +36,6 @@ const doctor_cmd = @import("doctor_cmd.zig");
 comptime {
     _ = @import("test_root.zig");
 }
-
 
 pub fn main(init: std.process.Init) !u8 {
     var args = init.minimal.args.iterate();
@@ -136,6 +134,12 @@ pub fn main(init: std.process.Init) !u8 {
 
     if (std.mem.eql(u8, sub, "vault-deadends"))
         return vault_cmd.runDeadends(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "vault-ambiguous"))
+        return vault_cmd.runAmbiguous(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "vault-rename"))
+        return vault_cmd.runRename(init.gpa, init.io, init.environ_map, &args);
 
     if (std.mem.eql(u8, sub, "doctor"))
         return doctor_cmd.run(init.gpa, init.io, init.environ_map, &args);

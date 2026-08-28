@@ -15,6 +15,10 @@
 //! deleted) prompt tokenizer so the two never disagree on what's noise.
 
 const std = @import("std");
+const conf = @import("conf.zig");
+
+const Allocator = std.mem.Allocator;
+const Io = std.Io;
 
 /// Words a symbol contributes, appended to `out` in order, case-folded to
 /// lowercase. Filtering is the caller's job (`keep`) -- the stopword set
@@ -63,6 +67,39 @@ pub fn keep(word: []const u8, stopwords: *const std.StringHashMapUnmanaged(void)
 fn allDigits(word: []const u8) bool {
     for (word) |c| if (c < '0' or c > '9') return false;
     return true;
+}
+
+/// The stopword set from `synapse-prompt-stopwords.conf`, resolved the same
+/// tiered way every other `synapse-*.conf` file resolves. Takes a resolver
+/// (`vars`), not a path or a raw environment map -- a caller with no real
+/// environment to offer (`conf.Vars.none`) gets a harmless empty set back
+/// rather than needing a special case of its own. `gpa` owns every key
+/// this allocates; free with `freeStopwords`, not a bare `.deinit`.
+pub fn loadStopwords(gpa: Allocator, io: Io, vars: conf.Vars) !std.StringHashMapUnmanaged(void) {
+    var set: std.StringHashMapUnmanaged(void) = .empty;
+    const home = vars.get("HOME") orelse return set;
+    const path = (try conf.resolveConfPath(gpa, io, vars, "synapse-prompt-stopwords.conf")) orelse
+        try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-prompt-stopwords.conf", .{home});
+    defer gpa.free(path);
+    const text = Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 20)) catch return set;
+    defer gpa.free(text);
+
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trim(u8, raw, " \t\r");
+        if (line.len == 0 or line[0] == '#') continue;
+        const lowered = try gpa.alloc(u8, line.len);
+        for (line, 0..) |c, i| lowered[i] = std.ascii.toLower(c);
+        try set.put(gpa, lowered, {});
+    }
+    return set;
+}
+
+/// Frees every key `loadStopwords` allocated, then the map itself.
+pub fn freeStopwords(gpa: Allocator, set: *std.StringHashMapUnmanaged(void)) void {
+    var it = set.keyIterator();
+    while (it.next()) |k| gpa.free(k.*);
+    set.deinit(gpa);
 }
 
 /// The directory prefix a path is grouped under: the first `depth` segments.
@@ -178,6 +215,48 @@ test "keep drops short words, pure digits and stopwords" {
     try testing.expect(!keep("2026", &stop));
     try testing.expect(keep("utf8", &stop));
     try testing.expect(!keep("with", &stop));
+}
+
+const TestVars = struct {
+    pairs: []const [2][]const u8,
+
+    fn vars(self: *const TestVars) conf.Vars {
+        return .{ .ctx = @ptrCast(@constCast(self)), .getFn = lookup };
+    }
+
+    fn lookup(ctx: *anyopaque, name: []const u8) ?[]const u8 {
+        const self: *const TestVars = @ptrCast(@alignCast(ctx));
+        for (self.pairs) |p| if (std.mem.eql(u8, p[0], name)) return p[1];
+        return null;
+    }
+};
+
+test "loadStopwords reads the real conf file, lowercased, comments and blank lines skipped" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(testing.io, ".claude");
+    try tmp.dir.writeFile(testing.io, .{
+        .sub_path = ".claude/synapse-prompt-stopwords.conf",
+        .data = "# a comment\n\nTHE\nwith\n",
+    });
+
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const home = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+    const tv: TestVars = .{ .pairs = &.{.{ "HOME", home }} };
+
+    var stop = try loadStopwords(gpa, testing.io, tv.vars());
+    defer freeStopwords(gpa, &stop);
+    try testing.expect(stop.contains("the"));
+    try testing.expect(stop.contains("with"));
+    try testing.expectEqual(@as(usize, 2), stop.count());
+}
+
+test "loadStopwords with no HOME and no XDG config returns an empty set, not an error" {
+    const gpa = testing.allocator;
+    var stop = try loadStopwords(gpa, testing.io, conf.Vars.none);
+    defer freeStopwords(gpa, &stop);
+    try testing.expectEqual(@as(usize, 0), stop.count());
 }
 
 test "groupOf takes the first depth segments, and never the filename" {

@@ -24,14 +24,23 @@ The boxes name the four hooks; what each one does is here rather than crammed in
 
 A regular Obsidian vault, running headless at login, reached through Obsidian's own official CLI —
 today's default backend behind `ports.Store` (`SYNAPSE_VAULT_STORE=obsidian`; a plain-disk backend
-also exists, `SYNAPSE_VAULT_STORE=disk`, reading the same folder directly). No plugin, no cert, no
-API key: `ObsidianStore`'s `read`/`write`/`list` are plain disk I/O against the vault folder, same as
-`disk`, and `search`/the link graph (`vault-backlinks`/`vault-links`/`vault-unresolved`/
-`vault-orphans`/`vault-deadends`) go through the CLI's local socket. The CLI itself is off by
-default in a fresh Obsidian install: **Settings → General → Advanced → Command line interface**.
+also exists, `SYNAPSE_VAULT_STORE=disk`, reading the same folder directly, with no Obsidian
+dependency of any kind). No plugin, no cert, no API key: `ObsidianStore`'s `read`/`write`/`list` are
+plain disk I/O against the vault folder, same as `disk`. `search` and the link graph/rename
+capabilities (`vault-backlinks`/`vault-links`/`vault-unresolved`/`vault-orphans`/`vault-deadends`/
+`vault-ambiguous`/`vault-rename`) go through the CLI's local socket *when Obsidian is reachable* —
+`ObsidianStore` falls back to `DiskStore`'s own implementation of each on `error.VaultUnreachable`
+(CLI disabled, or the app not running), so nothing here hard-requires a live app. `DiskStore` isn't
+a stub fallback either: its `search` does real rarity-weighted ranking (word document-frequency
+measured against the vault, weighted by the same `distinctivenessScore` formula `/synapse-init`
+uses for cluster judging), its link graph resolves wikilinks case-insensitively and logs an
+ambiguous match rather than guessing, and its rename rewrites every referring wikilink. The CLI
+itself is off by default in a fresh Obsidian install: **Settings → General → Advanced → Command
+line interface**.
 Hooks and the `synapse` CLI's `vault-*` subcommands (the door skills and commands use to reach the
-vault, instead of naming a tool directly) both go through `Store`/`LinkGraph`, so neither one cares
-which backend is actually configured. Nothing here assumes a fixed vault path; the CLI always
+vault, instead of naming a tool directly) both go through `Store`/`LinkGraph`/`Renamer`, so none of
+them cares which backend is actually configured. Nothing here assumes a fixed vault path; the CLI
+always
 targets whichever vault the running Obsidian instance currently has open.
 
 `synapse.conf` (resolved through the tiered lookup in

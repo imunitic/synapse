@@ -25,6 +25,7 @@ const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const Store = ports.Store;
 const LinkGraph = ports.LinkGraph;
+const Renamer = ports.Renamer;
 
 /// Resolves `vault_path` to `vault={name}` via `obsidian vaults verbose`'s
 /// own `{name}\t{path}` listing -- explicit targeting, not whichever vault
@@ -69,6 +70,7 @@ fn runObsidian(gpa: Allocator, io: Io, vault_path: []const u8, sub_args: []const
 pub const ObsidianStore = struct {
     disk: disk_store.DiskStore,
     link_graph: ObsidianLinkGraph,
+    rename_impl: ObsidianRenamer,
 
     pub fn init(gpa: Allocator, vault: []const u8, namespace: []const u8) !ObsidianStore {
         var disk = try disk_store.DiskStore.init(gpa, vault, namespace);
@@ -80,6 +82,7 @@ pub const ObsidianStore = struct {
             // this struct), so no separate copy or `deinit` of its own is
             // needed.
             .link_graph = .{ .vault = disk.vault, .namespace = disk.namespace },
+            .rename_impl = .{ .vault = disk.vault },
         };
     }
 
@@ -100,6 +103,11 @@ pub const ObsidianStore = struct {
         return self.link_graph.linkGraph();
     }
 
+    /// One-line delegation to the composed field, same shape as `linkGraph`.
+    pub fn renamer(self: *ObsidianStore) Renamer {
+        return self.rename_impl.renamer();
+    }
+
     pub fn read(self: *ObsidianStore, gpa: Allocator, io: Io, node: []const u8) anyerror!?[]u8 {
         return self.disk.read(gpa, io, node);
     }
@@ -112,6 +120,20 @@ pub const ObsidianStore = struct {
         return self.disk.list(gpa, io);
     }
 
+    /// Falls back to the composed `DiskStore`'s own plain linear scan when
+    /// Obsidian is unreachable (CLI disabled, or the live app not up),
+    /// rather than erroring -- both backends ship as one store with an
+    /// internal fallback, not two the caller chooses between. Detected by
+    /// catching `searchViaCli`'s own `error.VaultUnreachable`, not a
+    /// pre-flight reachability check.
+    pub fn search(self: *ObsidianStore, gpa: Allocator, io: Io, query: []const u8) anyerror![]const Store.Hit {
+        return searchViaCli(self, gpa, io, query) catch |err| {
+            if (err != error.VaultUnreachable) return err;
+            warnFallback("search");
+            return self.disk.search(gpa, io, query);
+        };
+    }
+
     /// `obsidian search:context query=... format=json`, vault-wide by
     /// construction (the CLI has no namespace concept of its own) --
     /// filtered here to this store's own namespace and re-keyed to the same
@@ -120,7 +142,7 @@ pub const ObsidianStore = struct {
     /// underneath. `matches` has no relevance score of its own -- match
     /// count stands in for one, the same proxy `DiskStore.search` already
     /// uses.
-    pub fn search(self: *ObsidianStore, gpa: Allocator, io: Io, query: []const u8) anyerror![]const Store.Hit {
+    fn searchViaCli(self: *ObsidianStore, gpa: Allocator, io: Io, query: []const u8) anyerror![]const Store.Hit {
         const query_arg = try std.fmt.allocPrint(gpa, "query={s}", .{query});
         defer gpa.free(query_arg);
 
@@ -239,10 +261,24 @@ pub const ObsidianLinkGraph = struct {
         return path[self.namespace.len + 1 ..];
     }
 
+    /// Falls back to `DiskLinkGraph` on `error.VaultUnreachable`, same as
+    /// `ObsidianStore.search`. The fallback assumes vault-wide addressing
+    /// (an empty `self.namespace`) since that's the only way `linkGraph()`
+    /// is reached today (`vault_cmd.zig`'s CLI surface); `DiskLinkGraph`
+    /// itself has no namespace concept to translate a scoped `node` through.
+    pub fn backlinks(self: *ObsidianLinkGraph, gpa: Allocator, io: Io, node: []const u8) anyerror![]const LinkGraph.Backlink {
+        return backlinksViaCli(self, gpa, io, node) catch |err| {
+            if (err != error.VaultUnreachable) return err;
+            warnFallback("backlinks");
+            var fallback: disk_store.DiskLinkGraph = .{ .vault = self.vault };
+            return fallback.backlinks(gpa, io, node);
+        };
+    }
+
     /// `obsidian backlinks path=... format=json counts` -- `count` comes
     /// back as a JSON string (`"2"`, not `2`), not the integer its own name
     /// suggests, checked live against the real CLI.
-    pub fn backlinks(self: *ObsidianLinkGraph, gpa: Allocator, io: Io, node: []const u8) anyerror![]const LinkGraph.Backlink {
+    fn backlinksViaCli(self: *ObsidianLinkGraph, gpa: Allocator, io: Io, node: []const u8) anyerror![]const LinkGraph.Backlink {
         const path = try self.nodePath(gpa, node);
         defer gpa.free(path);
         const path_arg = try std.fmt.allocPrint(gpa, "path={s}", .{path});
@@ -283,10 +319,20 @@ pub const ObsidianLinkGraph = struct {
         return out.toOwnedSlice(gpa);
     }
 
+    /// Falls back to `DiskLinkGraph`, same as `backlinks`.
+    pub fn links(self: *ObsidianLinkGraph, gpa: Allocator, io: Io, node: []const u8) anyerror![]const []const u8 {
+        return linksViaCli(self, gpa, io, node) catch |err| {
+            if (err != error.VaultUnreachable) return err;
+            warnFallback("links");
+            var fallback: disk_store.DiskLinkGraph = .{ .vault = self.vault };
+            return fallback.links(gpa, io, node);
+        };
+    }
+
     /// `obsidian links path=...` -- plain newline-separated paths, no
     /// `format=json` option exists for this command (checked against the
     /// CLI's own `--help` output).
-    pub fn links(self: *ObsidianLinkGraph, gpa: Allocator, io: Io, node: []const u8) anyerror![]const []const u8 {
+    fn linksViaCli(self: *ObsidianLinkGraph, gpa: Allocator, io: Io, node: []const u8) anyerror![]const []const u8 {
         const path = try self.nodePath(gpa, node);
         defer gpa.free(path);
         const path_arg = try std.fmt.allocPrint(gpa, "path={s}", .{path});
@@ -310,11 +356,21 @@ pub const ObsidianLinkGraph = struct {
         return out.toOwnedSlice(gpa);
     }
 
+    /// Falls back to `DiskLinkGraph`, same as `backlinks`.
+    pub fn unresolved(self: *ObsidianLinkGraph, gpa: Allocator, io: Io) anyerror![]const LinkGraph.Unresolved {
+        return unresolvedViaCli(self, gpa, io) catch |err| {
+            if (err != error.VaultUnreachable) return err;
+            warnFallback("unresolved");
+            var fallback: disk_store.DiskLinkGraph = .{ .vault = self.vault };
+            return fallback.unresolved(gpa, io);
+        };
+    }
+
     /// `obsidian unresolved format=json verbose` -- `sources` comes back as
     /// one comma-space-joined string (`"a.md, b.md"`), not a JSON array,
     /// checked live: a link named from two files is one row, not two, with
     /// both source paths joined this way.
-    pub fn unresolved(self: *ObsidianLinkGraph, gpa: Allocator, io: Io) anyerror![]const LinkGraph.Unresolved {
+    fn unresolvedViaCli(self: *ObsidianLinkGraph, gpa: Allocator, io: Io) anyerror![]const LinkGraph.Unresolved {
         var res = try runObsidian(gpa, io, self.vault, &.{ "unresolved", "format=json", "verbose" });
         defer res.deinit(gpa);
         if (!res.ok()) return error.VaultUnreachable;
@@ -370,26 +426,162 @@ pub const ObsidianLinkGraph = struct {
         return out.toOwnedSlice(gpa);
     }
 
+    /// Falls back to `DiskLinkGraph`, same as `backlinks`.
+    pub fn orphans(self: *ObsidianLinkGraph, gpa: Allocator, io: Io) anyerror![]const []const u8 {
+        return orphansViaCli(self, gpa, io) catch |err| {
+            if (err != error.VaultUnreachable) return err;
+            warnFallback("orphans");
+            var fallback: disk_store.DiskLinkGraph = .{ .vault = self.vault };
+            return fallback.orphans(gpa, io);
+        };
+    }
+
     /// `obsidian orphans` -- plain newline-separated paths, vault-wide, no
     /// `format=json` option, matching `links`. Never namespace-filtered:
     /// `/synapse-vault-tidy`'s own use is vault-wide (an empty-namespace
     /// store), and the CLI itself has no folder-scoping flag for this
     /// command to filter with server-side.
-    pub fn orphans(self: *ObsidianLinkGraph, gpa: Allocator, io: Io) anyerror![]const []const u8 {
+    fn orphansViaCli(self: *ObsidianLinkGraph, gpa: Allocator, io: Io) anyerror![]const []const u8 {
         var res = try runObsidian(gpa, io, self.vault, &.{"orphans"});
         defer res.deinit(gpa);
         if (!res.ok()) return error.VaultUnreachable;
         return linesUnscoped(gpa, res.stdout);
     }
 
-    /// `obsidian deadends` -- same shape as `orphans`.
+    /// Falls back to `DiskLinkGraph`, same as `backlinks`.
     pub fn deadends(self: *ObsidianLinkGraph, gpa: Allocator, io: Io) anyerror![]const []const u8 {
+        return deadendsViaCli(self, gpa, io) catch |err| {
+            if (err != error.VaultUnreachable) return err;
+            warnFallback("deadends");
+            var fallback: disk_store.DiskLinkGraph = .{ .vault = self.vault };
+            return fallback.deadends(gpa, io);
+        };
+    }
+
+    /// `obsidian deadends` -- same shape as `orphans`.
+    fn deadendsViaCli(self: *ObsidianLinkGraph, gpa: Allocator, io: Io) anyerror![]const []const u8 {
         var res = try runObsidian(gpa, io, self.vault, &.{"deadends"});
         defer res.deinit(gpa);
         if (!res.ok()) return error.VaultUnreachable;
         return linesUnscoped(gpa, res.stdout);
     }
+
+    /// Always delegates to `DiskLinkGraph`, reachable or not -- unlike
+    /// `search`/`backlinks`/etc., this isn't a live-CLI capability that
+    /// degrades on failure, it's one the CLI never had in the first place
+    /// (Obsidian's own graph view silently picks a candidate rather than
+    /// reporting the ambiguity). `DiskLinkGraph` reads the exact same files
+    /// on disk this vault already is, so there's no reason to withhold a
+    /// working answer just because Obsidian happens to be reachable too.
+    pub fn ambiguous(self: *ObsidianLinkGraph, gpa: Allocator, io: Io) anyerror![]const LinkGraph.Ambiguous {
+        var fallback: disk_store.DiskLinkGraph = .{ .vault = self.vault };
+        return fallback.ambiguous(gpa, io);
+    }
 };
+
+/// `Renamer` backed by the `obsidian` CLI, falling back to `DiskRenamer` on
+/// `error.VaultUnreachable` -- same shape as `ObsidianLinkGraph`.
+pub const ObsidianRenamer = struct {
+    vault: []const u8,
+
+    pub fn renamer(self: *ObsidianRenamer) Renamer {
+        return Renamer.from(ObsidianRenamer, self);
+    }
+
+    pub fn rename(self: *ObsidianRenamer, gpa: Allocator, io: Io, old_path: []const u8, new_path: []const u8) anyerror!void {
+        return renameViaCli(self, gpa, io, old_path, new_path) catch |err| {
+            if (err != error.VaultUnreachable) return err;
+            warnFallback("rename");
+            var fallback: disk_store.DiskRenamer = .{ .vault = self.vault };
+            return fallback.rename(gpa, io, old_path, new_path);
+        };
+    }
+
+    /// `obsidian rename path=<old> name=<new>` -- **checked live against a
+    /// real running app**, and the CLI's own `--help` text is misleading on
+    /// its own: `name=` is documented only as "New file name," but it
+    /// actually resolves relative to `old_path`'s own directory, not the
+    /// vault root -- confirmed by the CLI's own error message on a bad
+    /// value literally string-joining the two (`scratchpad/` + the raw
+    /// vault-relative path this used to send here, producing a doubled,
+    /// nonexistent `scratchpad/scratchpad/...`). A `..`-relative value does
+    /// correctly resolve at the OS level for a genuine cross-directory move
+    /// (also confirmed live, checked directly against the filesystem after
+    /// the CLI reported success) -- `relativeToOldDir` below computes
+    /// exactly that. One residual caveat, not a correctness bug: right
+    /// after a successful cross-directory rename, the CLI's own `read`/
+    /// `list` can still lag behind seeing the file at its new location
+    /// (Obsidian's live index catching up) even though the real file is
+    /// already there -- doesn't affect this function, which never reads
+    /// the file back itself.
+    fn renameViaCli(self: *ObsidianRenamer, gpa: Allocator, io: Io, old_path: []const u8, new_path: []const u8) anyerror!void {
+        const old_dir = std.fs.path.dirname(old_path) orelse "";
+        const name_value = try relativeToOldDir(gpa, old_dir, new_path);
+        defer gpa.free(name_value);
+
+        const path_arg = try std.fmt.allocPrint(gpa, "path={s}", .{old_path});
+        defer gpa.free(path_arg);
+        const name_arg = try std.fmt.allocPrint(gpa, "name={s}", .{name_value});
+        defer gpa.free(name_arg);
+
+        var res = try runObsidian(gpa, io, self.vault, &.{ "rename", path_arg, name_arg });
+        defer res.deinit(gpa);
+        if (!res.ok()) return error.VaultUnreachable;
+    }
+};
+
+/// A pure, slash-segment relative path from `from_dir` (a vault-relative
+/// directory, `""` for the vault root) to `to_path` (a vault-relative file)
+/// -- what `obsidian rename`'s own `name=` argument needs, per
+/// `renameViaCli`'s doc comment. `from_dir == ""` returns `to_path`
+/// unchanged (already correct relative to the vault root, which is where a
+/// root-level file's own "directory" effectively is). Caller-owned.
+fn relativeToOldDir(gpa: Allocator, from_dir: []const u8, to_path: []const u8) ![]u8 {
+    if (from_dir.len == 0) return gpa.dupe(u8, to_path);
+
+    const from_segs = try splitPathSegments(gpa, from_dir);
+    defer gpa.free(from_segs);
+    const to_segs = try splitPathSegments(gpa, to_path);
+    defer gpa.free(to_segs);
+
+    var common: usize = 0;
+    while (common < from_segs.len and common < to_segs.len and
+        std.mem.eql(u8, from_segs[common], to_segs[common])) : (common += 1)
+    {}
+
+    var out: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer out.deinit(gpa);
+
+    var wrote_any = false;
+    for (common..from_segs.len) |_| {
+        if (wrote_any) try out.appendSlice(gpa, "/");
+        try out.appendSlice(gpa, "..");
+        wrote_any = true;
+    }
+    for (to_segs[common..]) |seg| {
+        if (wrote_any) try out.appendSlice(gpa, "/");
+        try out.appendSlice(gpa, seg);
+        wrote_any = true;
+    }
+    return out.toOwnedSlice(gpa);
+}
+
+/// `path` split on `/` into borrowed slices (substrings of `path` itself,
+/// never duplicated) -- only the outer slice needs freeing.
+fn splitPathSegments(gpa: Allocator, path: []const u8) ![]const []const u8 {
+    var out: std.ArrayListUnmanaged([]const u8) = .empty;
+    errdefer out.deinit(gpa);
+    var it = std.mem.splitScalar(u8, path, '/');
+    while (it.next()) |seg| try out.append(gpa, seg);
+    return out.toOwnedSlice(gpa);
+}
+
+/// One-line notice on a CLI-unreachable fallback -- stderr, not stdout, so
+/// `vault-search`/`vault-links`/etc.'s own TSV/JSON output stays clean for a
+/// machine caller while a human-invoked session still sees it.
+fn warnFallback(what: []const u8) void {
+    std.debug.print("synapse: obsidian unreachable, falling back to disk for {s}\n", .{what});
+}
 
 fn linesUnscoped(gpa: Allocator, text: []const u8) ![]const []const u8 {
     var out: std.ArrayListUnmanaged([]const u8) = .empty;
@@ -417,6 +609,41 @@ fn parseCount(v: std.json.Value) usize {
 }
 
 const testing = std.testing;
+
+test "relativeToOldDir: same directory reduces to a bare basename" {
+    const gpa = testing.allocator;
+    const out = try relativeToOldDir(gpa, "designs", "designs/Bar.md");
+    defer gpa.free(out);
+    try testing.expectEqualStrings("Bar.md", out);
+}
+
+test "relativeToOldDir: a vault-root file needs no leading .. at all" {
+    const gpa = testing.allocator;
+    const out = try relativeToOldDir(gpa, "", "research/Bar.md");
+    defer gpa.free(out);
+    try testing.expectEqualStrings("research/Bar.md", out);
+}
+
+test "relativeToOldDir: a sibling directory needs exactly one .." {
+    const gpa = testing.allocator;
+    const out = try relativeToOldDir(gpa, "designs", "research/Bar.md");
+    defer gpa.free(out);
+    try testing.expectEqualStrings("../research/Bar.md", out);
+}
+
+test "relativeToOldDir: a deeper directory needs one .. per level, then the shared ancestor's own path down" {
+    const gpa = testing.allocator;
+    const out = try relativeToOldDir(gpa, "designs/sub", "designs/other/Bar.md");
+    defer gpa.free(out);
+    try testing.expectEqualStrings("../other/Bar.md", out);
+}
+
+test "relativeToOldDir: an unrelated deep directory needs one .. per level" {
+    const gpa = testing.allocator;
+    const out = try relativeToOldDir(gpa, "a/b/c", "x/y.md");
+    defer gpa.free(out);
+    try testing.expectEqualStrings("../../../x/y.md", out);
+}
 
 fn fakeObsidianEnv(gpa: Allocator, log_path: []const u8, script_path: []const u8) !std.process.Environ.Map {
     var env = try std.process.Environ.createMap(testing.environ, gpa);
@@ -644,6 +871,172 @@ test "linkGraph: backlinks/links/unresolved/orphans/deadends round-trip through 
     }
     try testing.expectEqual(@as(usize, 1), de.len);
     try testing.expectEqualStrings("synapse/repo@main/Deadend.md", de[0]);
+}
+
+test "linkGraph.ambiguous always reads real files on disk, even though the fake obsidian script has no line for it" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(testing.io, "vault/designs");
+    try tmp.dir.createDirPath(testing.io, "vault/research");
+
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const root = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+    const vault = try std.fmt.allocPrint(gpa, "{s}/vault", .{root});
+    defer gpa.free(vault);
+    const log = try std.fmt.allocPrint(gpa, "{s}/obsidian.log", .{root});
+    defer gpa.free(log);
+    const script = try std.fmt.allocPrint(gpa, "{s}/obsidian.script", .{root});
+    defer gpa.free(script);
+    // Deliberately no "ambiguous" line -- proves `ambiguous()` never shells
+    // out to the CLI at all, unlike every other `LinkGraph` method here.
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "obsidian.script", .data = "\n" });
+
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/source.md", .data = "[[Duplicate]]\n" });
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/designs/Duplicate.md", .data = "one\n" });
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/research/Duplicate.md", .data = "two\n" });
+
+    var env = try fakeObsidianEnv(gpa, log, script);
+    defer env.deinit();
+
+    var block = try env.createPosixBlock(gpa, .{});
+    defer block.deinit(gpa);
+    var io_threaded: std.Io.Threaded = .init(gpa, .{ .environ = .{ .block = block } });
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    var os_store = try ObsidianStore.init(gpa, vault, "");
+    defer os_store.deinit();
+    var lg = os_store.linkGraph();
+
+    const amb = try lg.ambiguous(gpa, io);
+    defer {
+        for (amb) |a| {
+            gpa.free(a.target);
+            for (a.candidates) |c| gpa.free(c);
+            gpa.free(a.candidates);
+            for (a.sources) |s| gpa.free(s);
+            gpa.free(a.sources);
+        }
+        gpa.free(amb);
+    }
+    try testing.expectEqual(@as(usize, 1), amb.len);
+    try testing.expectEqualStrings("Duplicate", amb[0].target);
+    try testing.expectEqual(@as(usize, 2), amb[0].candidates.len);
+}
+
+test "renamer.rename sends path=/name= to the CLI when Obsidian is reachable" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(testing.io, "vault");
+
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const root = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+    const vault = try std.fmt.allocPrint(gpa, "{s}/vault", .{root});
+    defer gpa.free(vault);
+    const log = try std.fmt.allocPrint(gpa, "{s}/obsidian.log", .{root});
+    defer gpa.free(log);
+    const script = try std.fmt.allocPrint(gpa, "{s}/obsidian.script", .{root});
+    defer gpa.free(script);
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "obsidian.script", .data = "rename \n" });
+
+    var env = try fakeObsidianEnv(gpa, log, script);
+    defer env.deinit();
+
+    var block = try env.createPosixBlock(gpa, .{});
+    defer block.deinit(gpa);
+    var io_threaded: std.Io.Threaded = .init(gpa, .{ .environ = .{ .block = block } });
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    var os_store = try ObsidianStore.init(gpa, vault, "");
+    defer os_store.deinit();
+    const rn = os_store.renamer();
+    try rn.rename(gpa, io, "Old.md", "New.md");
+
+    const log_content = try tmp.dir.readFileAlloc(testing.io, "obsidian.log", gpa, .unlimited);
+    defer gpa.free(log_content);
+    try testing.expect(std.mem.indexOf(u8, log_content, "rename path=Old.md name=New.md") != null);
+}
+
+test "renamer.rename sends a ..-relative name= for a cross-directory move" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(testing.io, "vault");
+
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const root = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+    const vault = try std.fmt.allocPrint(gpa, "{s}/vault", .{root});
+    defer gpa.free(vault);
+    const log = try std.fmt.allocPrint(gpa, "{s}/obsidian.log", .{root});
+    defer gpa.free(log);
+    const script = try std.fmt.allocPrint(gpa, "{s}/obsidian.script", .{root});
+    defer gpa.free(script);
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "obsidian.script", .data = "rename \n" });
+
+    var env = try fakeObsidianEnv(gpa, log, script);
+    defer env.deinit();
+
+    var block = try env.createPosixBlock(gpa, .{});
+    defer block.deinit(gpa);
+    var io_threaded: std.Io.Threaded = .init(gpa, .{ .environ = .{ .block = block } });
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    var os_store = try ObsidianStore.init(gpa, vault, "");
+    defer os_store.deinit();
+    const rn = os_store.renamer();
+    try rn.rename(gpa, io, "designs/Old.md", "research/New.md");
+
+    const log_content = try tmp.dir.readFileAlloc(testing.io, "obsidian.log", gpa, .unlimited);
+    defer gpa.free(log_content);
+    try testing.expect(std.mem.indexOf(u8, log_content, "rename path=designs/Old.md name=../research/New.md") != null);
+}
+
+test "renamer.rename falls back to DiskRenamer, rewriting referrers, when Obsidian is unreachable" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(testing.io, "vault");
+
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const root = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+    const vault = try std.fmt.allocPrint(gpa, "{s}/vault", .{root});
+    defer gpa.free(vault);
+    const log = try std.fmt.allocPrint(gpa, "{s}/obsidian.log", .{root});
+    defer gpa.free(log);
+    const script = try std.fmt.allocPrint(gpa, "{s}/obsidian.script", .{root});
+    defer gpa.free(script);
+    // No "rename" line -- the fake CLI exits non-zero for it.
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "obsidian.script", .data = "\n" });
+
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/Old.md", .data = "body\n" });
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/A.md", .data = "see [[Old]]\n" });
+
+    var env = try fakeObsidianEnv(gpa, log, script);
+    defer env.deinit();
+
+    var block = try env.createPosixBlock(gpa, .{});
+    defer block.deinit(gpa);
+    var io_threaded: std.Io.Threaded = .init(gpa, .{ .environ = .{ .block = block } });
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    var os_store = try ObsidianStore.init(gpa, vault, "");
+    defer os_store.deinit();
+    const rn = os_store.renamer();
+    try rn.rename(gpa, io, "Old.md", "New.md");
+
+    var store = os_store.store();
+    try testing.expectEqual(@as(?[]u8, null), try store.read(gpa, io, "Old.md"));
+    const new_body = (try store.read(gpa, io, "New.md")).?;
+    defer gpa.free(new_body);
+    try testing.expectEqualStrings("body\n", new_body);
+    const a = (try store.read(gpa, io, "A.md")).?;
+    defer gpa.free(a);
+    try testing.expectEqualStrings("see [[New]]\n", a);
 }
 
 test "a call is scoped with vault= when `obsidian vaults verbose` lists a matching path" {

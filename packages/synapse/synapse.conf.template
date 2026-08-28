@@ -2,6 +2,13 @@
 # synapse.conf anywhere. Edit the path below for this machine.
 SYNAPSE_VAULT_DIR="$HOME/Obsidian/YourVault"
 
+# "disk" reads/writes the vault folder directly, no dependency on Obsidian
+# being open at all -- search and the link graph (backlinks/links/unresolved/
+# orphans/deadends/ambiguous) are computed by DiskStore's own scan instead of
+# the obsidian CLI. Obsidian itself, if still open, keeps working unaffected
+# as a plain viewer/editor over the same folder. Default "obsidian" if unset.
+#SYNAPSE_VAULT_STORE="disk"
+
 # Where Synapse clones/builds tree-sitter grammars (shared across every
 # project -- not per-repo). Safe to leave at the default.
 SYNAPSE_GRAMMARS_DIR="$HOME/.cache/synapse/grammars"

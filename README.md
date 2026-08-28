@@ -231,13 +231,18 @@ skill's table, with the whole suite green.
 
 For using it day to day: npm itself (the compiled binaries ship as ordinary per-platform
 optionalDependencies, `npm install` fetches and verifies them the same way it does any other
-package, no separate fetch script or `tar` step involved), whichever harness's own CLI (`claude`,
-`codex`, or `opencode`), and the official `obsidian` CLI (the compiled binary's own calls to Obsidian
-— `write-node`, `doctor`, vault search and link-graph queries; ships with Obsidian itself, no plugin
-to install, but off by default — enable it once in **Settings → General → Advanced → Command line
-interface**). Node itself is assumed, the same way it already is for every harness here —
-`synapse-setup` and the shipped hooks (`resolve-binaries.cjs`) run on it directly, no `jq` of its
-own. Nothing to build, nothing to install by hand — see "New machine setup".
+package, no separate fetch script or `tar` step involved) and whichever harness's own CLI (`claude`,
+`codex`, or `opencode`). The official `obsidian` CLI is optional, not required: it's what the
+default `SYNAPSE_VAULT_STORE=obsidian` backend uses for `write-node`, `doctor`, vault search and
+link-graph queries when Obsidian is actually running (ships with Obsidian itself, no plugin to
+install, but off by default — enable it once in **Settings → General → Advanced → Command line
+interface**) — and it falls back to `SYNAPSE_VAULT_STORE=disk`'s own plain-disk implementation of
+every one of those automatically when Obsidian isn't reachable. Setting `SYNAPSE_VAULT_STORE=disk`
+outright removes the Obsidian dependency entirely; Obsidian, if still installed, keeps working
+unaffected as a plain viewer/editor over the same vault folder. Node itself is assumed, the same way
+it already is for every harness here — `synapse-setup` and the shipped hooks
+(`resolve-binaries.cjs`) run on it directly, no `jq` of its own. Nothing to build, nothing to
+install by hand — see "New machine setup".
 
 For contributing to Synapse itself: Zig 0.16 (`just build`/`zig build`), `bats-core` (tests), a C
 compiler for the Graph's tree-sitter acceleration (grammars are native libraries, built on first

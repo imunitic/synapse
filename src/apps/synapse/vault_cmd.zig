@@ -68,6 +68,8 @@ const usage_text =
     \\       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
     \\       synapse vault-orphans                           notes with no backlinks
     \\       synapse vault-deadends                          notes with no outgoing links
+    \\       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
+    \\       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
     \\
 ;
 
@@ -217,9 +219,9 @@ pub fn docMap(
 }
 
 /// `null` from `resolved.linkGraph()` means the resolved backend has no
-/// `LinkGraph` of its own -- `DiskStore` today, until it grows one. Not a
-/// usage error: the caller asked a well-formed question, this backend just
-/// can't answer it yet.
+/// `LinkGraph` of its own -- not a usage error: the caller asked a
+/// well-formed question, this backend just can't answer it (true of Bard's
+/// stores, not either real coding-vault backend).
 fn openLinkGraph(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8) !?struct {
     resolved: adapters.store_resolve.ResolvedStore,
     link_graph: ports.LinkGraph,
@@ -231,6 +233,20 @@ fn openLinkGraph(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: [
         return null;
     };
     return .{ .resolved = resolved, .link_graph = lg };
+}
+
+/// Same shape as `openLinkGraph`, for `Renamer`.
+fn openRenamer(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8) !?struct {
+    resolved: adapters.store_resolve.ResolvedStore,
+    renamer: ports.Renamer,
+} {
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return null;
+    const rn = resolved.renamer() orelse {
+        resolved.deinit();
+        std.debug.print("{s}: this vault backend has no renamer (SYNAPSE_VAULT_STORE)\n", .{prog});
+        return null;
+    };
+    return .{ .resolved = resolved, .renamer = rn };
 }
 
 pub fn backlinks(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, path: []const u8, result: *Io.Writer) !u8 {
@@ -319,6 +335,61 @@ pub fn deadends(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []
         gpa.free(names);
     }
     for (names) |n| try result.print("{s}\n", .{n});
+    return 0;
+}
+
+/// One row per `(source, target, candidate)` triple -- `count` (the total
+/// occurrences of `target` across the vault) repeats per source, same
+/// convention `unresolved`'s own rows already use.
+pub fn ambiguous(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, result: *Io.Writer) !u8 {
+    var opened = (try openLinkGraph(gpa, io, env, vault)) orelse return 1;
+    defer opened.resolved.deinit();
+
+    const rows = opened.link_graph.ambiguous(gpa, io) catch {
+        std.debug.print("{s}: ambiguous failed\n", .{prog});
+        return 1;
+    };
+    defer {
+        for (rows) |r| {
+            gpa.free(r.target);
+            for (r.candidates) |c| gpa.free(c);
+            gpa.free(r.candidates);
+            for (r.sources) |s| gpa.free(s);
+            gpa.free(r.sources);
+        }
+        gpa.free(rows);
+    }
+    for (rows) |r| {
+        for (r.sources) |source| {
+            for (r.candidates) |candidate| {
+                try result.print("{s}\t{s}\t{s}\t{d}\n", .{ source, r.target, candidate, r.count });
+            }
+        }
+    }
+    return 0;
+}
+
+pub fn rename(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    vault: []const u8,
+    old_path: []const u8,
+    new_path: []const u8,
+    result: *Io.Writer,
+) !u8 {
+    var opened = (try openRenamer(gpa, io, env, vault)) orelse return 1;
+    defer opened.resolved.deinit();
+
+    opened.renamer.rename(gpa, io, old_path, new_path) catch |err| {
+        if (err == error.NodeNotFound) {
+            std.debug.print("{s}: no such note: {s}\n", .{ prog, old_path });
+        } else {
+            std.debug.print("{s}: rename failed\n", .{prog});
+        }
+        return 1;
+    };
+    try result.print("{s}\n", .{new_path});
     return 0;
 }
 
@@ -573,6 +644,36 @@ pub fn runDeadends(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: 
     return code;
 }
 
+pub fn runAmbiguous(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
+    if (args.next()) |a| {
+        if (isHelp(a)) return help();
+        return usage();
+    }
+    const vault = (try resolveVault(gpa, io, env)) orelse return 1;
+    defer gpa.free(vault);
+
+    var out_buf: [8192]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try ambiguous(gpa, io, env, vault, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+pub fn runRename(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
+    const old_path = args.next() orelse return usage();
+    if (isHelp(old_path)) return help();
+    const new_path = args.next() orelse return usage();
+    if (args.next() != null) return usage();
+    const vault = (try resolveVault(gpa, io, env)) orelse return 1;
+    defer gpa.free(vault);
+
+    var out_buf: [512]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try rename(gpa, io, env, vault, old_path, new_path, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
 pub fn runSearch(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
     var fields: std.ArrayListUnmanaged([]const u8) = .empty;
     defer fields.deinit(gpa);
@@ -770,6 +871,73 @@ test "docMap on a missing note fails clearly" {
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
     const code = try docMap(gpa, fx.io(), &fx.env, fx.vault, "tasks/synapse/nope.md", &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+}
+
+test "ambiguous reports a wikilink matching two real files, one row per (source, target, candidate)" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.env.put("SYNAPSE_VAULT_STORE", "disk");
+    try fx.writeVaultFile("source.md", "[[Duplicate]]\n");
+    try fx.writeVaultFile("designs/Duplicate.md", "one\n");
+    try fx.writeVaultFile("research/Duplicate.md", "two\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try ambiguous(gpa, fx.io(), &fx.env, fx.vault, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "source.md\tDuplicate\tdesigns/Duplicate.md\t1\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "source.md\tDuplicate\tresearch/Duplicate.md\t1\n") != null);
+}
+
+test "ambiguous is empty when every wikilink resolves cleanly" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.env.put("SYNAPSE_VAULT_STORE", "disk");
+    try fx.writeVaultFile("source.md", "[[Target]]\n");
+    try fx.writeVaultFile("Target.md", "body\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try ambiguous(gpa, fx.io(), &fx.env, fx.vault, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expectEqualStrings("", out.written());
+}
+
+test "rename moves a note and rewrites its referrers" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.env.put("SYNAPSE_VAULT_STORE", "disk");
+    try fx.writeVaultFile("Old.md", "body\n");
+    try fx.writeVaultFile("A.md", "see [[Old]]\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try rename(gpa, fx.io(), &fx.env, fx.vault, "Old.md", "New.md", &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expectEqualStrings("New.md\n", out.written());
+
+    try testing.expectEqual(@as(?[]u8, null), try fx.readVaultFile(gpa, "Old.md"));
+    const new_body = (try fx.readVaultFile(gpa, "New.md")).?;
+    defer gpa.free(new_body);
+    try testing.expectEqualStrings("body\n", new_body);
+    const a = (try fx.readVaultFile(gpa, "A.md")).?;
+    defer gpa.free(a);
+    try testing.expectEqualStrings("see [[New]]\n", a);
+}
+
+test "rename on a missing note fails clearly" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.env.put("SYNAPSE_VAULT_STORE", "disk");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try rename(gpa, fx.io(), &fx.env, fx.vault, "Nope.md", "New.md", &out.writer);
     try testing.expectEqual(@as(u8, 1), code);
 }
 

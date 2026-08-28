@@ -180,6 +180,8 @@ usage: synapse vault-read <path>
        synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
+       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
 ```
 
 ### synapse vault-write
@@ -199,6 +201,8 @@ usage: synapse vault-read <path>
        synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
+       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
 ```
 
 ### synapse vault-list
@@ -218,6 +222,8 @@ usage: synapse vault-read <path>
        synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
+       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
 ```
 
 ### synapse vault-search
@@ -237,6 +243,8 @@ usage: synapse vault-read <path>
        synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
+       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
 ```
 
 ### synapse vault-search-text
@@ -256,6 +264,8 @@ usage: synapse vault-read <path>
        synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
+       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
 ```
 
 ### synapse vault-doc-map
@@ -275,6 +285,8 @@ usage: synapse vault-read <path>
        synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
+       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
 ```
 
 ### synapse vault-patch
@@ -294,6 +306,8 @@ usage: synapse vault-read <path>
        synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
+       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
 ```
 
 ### synapse vault-backlinks
@@ -313,6 +327,8 @@ usage: synapse vault-read <path>
        synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
+       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
 ```
 
 ### synapse vault-links
@@ -332,6 +348,8 @@ usage: synapse vault-read <path>
        synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
+       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
 ```
 
 ### synapse vault-unresolved
@@ -351,6 +369,8 @@ usage: synapse vault-read <path>
        synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
+       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
 ```
 
 ### synapse vault-orphans
@@ -370,6 +390,8 @@ usage: synapse vault-read <path>
        synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
+       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
 ```
 
 ### synapse vault-deadends
@@ -389,6 +411,8 @@ usage: synapse vault-read <path>
        synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
+       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
 ```
 
 ### synapse build-refs
