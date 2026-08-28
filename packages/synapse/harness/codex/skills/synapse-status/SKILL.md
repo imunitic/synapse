@@ -45,7 +45,7 @@ frontmatter (unlike task notes) -- a content match, scoped to `designs/`. Needs 
 synapse vault-search --fields frontmatter.title <<'EOF'
 {"and": [
   {"glob": ["designs/*", {"var": "path"}]},
-  {"regexp": ["## Status\\nDiscussing", {"var": "content"}]}
+  {"regexp": ["## Status\nDiscussing", {"var": "content"}]}
 ]}
 EOF
 ```
@@ -59,7 +59,7 @@ title -- "`Ready` and missing that line" is a direct signal, not fuzzy title-mat
 synapse vault-search --fields frontmatter.title <<'EOF'
 {"and": [
   {"glob": ["designs/*", {"var": "path"}]},
-  {"regexp": ["## Status\\nReady", {"var": "content"}]},
+  {"regexp": ["## Status\nReady", {"var": "content"}]},
   {"!": [{"regexp": ["Compiled task:", {"var": "content"}]}]}
 ]}
 EOF
@@ -75,21 +75,23 @@ the status directly out of the returned text rather than reading the note again:
 synapse vault-search --fields frontmatter.title,content <<'EOF'
 {"and": [
   {"glob": ["designs/*", {"var": "path"}]},
-  {"regexp": ["## Open Questions\\n- ", {"var": "content"}]}
+  {"regexp": ["## Open Questions\n- ", {"var": "content"}]}
 ]}
 EOF
 ```
 
-Do not chain further `and`/`regexp` conditions onto this query to sort matches by status -- compound
-`regexp` conditions against `content` have been observed to return results that are logically
-impossible (a query with strictly more AND-ed conditions returning *more* matches than one with
-fewer), so any query beyond a single `glob` + single `regexp` pair is unverified and not to be
-trusted here. Instead, take the line following `## Status` directly out of each row's `content`
-column -- normally `Discussing`/`Ready`/`Reference`, but a design note written before that
-three-word convention was standardized can carry free text there instead (e.g. `Superseded by
-[[...]]`); report that verbatim rather than forcing it into a bucket, surfacing an odd note beats
-losing it, the same reasoning behind reporting a 0-unchecked task instead of hiding it (see Query 4
-below).
+This spans every status, so take the line following `## Status` directly out of each row's `content`
+column instead of chaining further status-specific `regexp` branches onto the query -- normally
+`Discussing`/`Ready`/`Reference`, but a design note written before that three-word convention was
+standardized can carry free text there instead (e.g. `Superseded by [[...]]`); report that verbatim
+rather than forcing it into a bucket, surfacing an odd note beats losing it, the same reasoning behind
+reporting a 0-unchecked task instead of hiding it (see Query 4 below).
+
+A `regexp` pattern containing a literal newline (`\n`) must be written with a single backslash, byte-
+for-byte, in the JSON text piped to `vault-search` -- the heredocs above are unquoted-delimiter
+(`<<'EOF'`), so nothing here re-escapes it; `\\n` would reach the JSON parser as a literal backslash
+followed by `n`, never matching a real line break, and every one of this skill's five queries would
+silently stop finding anything under a multi-line pattern.
 
 **4. Open task notes with at least one unchecked item.** Task notes carry `status:` in frontmatter,
 unlike design notes -- filter there first, and request `content` to count `- [ ]` lines directly from

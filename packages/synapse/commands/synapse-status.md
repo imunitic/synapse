@@ -43,7 +43,7 @@ frontmatter (unlike task notes) -- a content match, scoped to `designs/`. Needs 
 synapse vault-search --fields frontmatter.title <<'EOF'
 {"and": [
   {"glob": ["designs/*", {"var": "path"}]},
-  {"regexp": ["## Status\\nDiscussing", {"var": "content"}]}
+  {"regexp": ["## Status\nDiscussing", {"var": "content"}]}
 ]}
 EOF
 ```
@@ -57,7 +57,7 @@ only the title:
 synapse vault-search --fields frontmatter.title <<'EOF'
 {"and": [
   {"glob": ["designs/*", {"var": "path"}]},
-  {"regexp": ["## Status\\nReady", {"var": "content"}]},
+  {"regexp": ["## Status\nReady", {"var": "content"}]},
   {"!": [{"regexp": ["Compiled task:", {"var": "content"}]}]}
 ]}
 EOF
@@ -74,22 +74,24 @@ rather than reading the note again:
 synapse vault-search --fields frontmatter.title,content <<'EOF'
 {"and": [
   {"glob": ["designs/*", {"var": "path"}]},
-  {"regexp": ["## Open Questions\\n- ", {"var": "content"}]}
+  {"regexp": ["## Open Questions\n- ", {"var": "content"}]}
 ]}
 EOF
 ```
 
-Do not chain further `and`/`regexp` conditions onto this query to sort matches by status -- compound
-`regexp` conditions against `content` have been observed to return results that are logically
-impossible (a query with strictly more AND-ed conditions returning *more* matches than one with
-fewer), so any query beyond a single `glob` + single `regexp` pair is unverified and not to be
-trusted here. Instead, take two things from each row's `content` column directly, no second call
-needed for either: the line following `## Status` (normally `Discussing`/`Ready`/`Reference`, but a
-note written before the three-word convention can carry free text instead, e.g. `Superseded by
-[[...]]` -- report that verbatim rather than forcing it into a bucket, surfacing an odd note beats
-losing it) and the target of a `> Compiled task: [[...]]` line, if present -- that's the compiled
-task, parsed straight out of the wikilink text rather than resolved through any vault-wide link
-index.
+This spans every status, so take two things from each row's `content` column directly instead of
+chaining further status-specific `regexp` branches onto the query: the line following `## Status`
+(normally `Discussing`/`Ready`/`Reference`, but a note written before the three-word convention can
+carry free text instead, e.g. `Superseded by [[...]]` -- report that verbatim rather than forcing it
+into a bucket, surfacing an odd note beats losing it) and the target of a `> Compiled task: [[...]]`
+line, if present -- that's the compiled task, parsed straight out of the wikilink text rather than
+resolved through any vault-wide link index.
+
+A `regexp` pattern containing a literal newline (`\n`) must be written with a single backslash, byte-
+for-byte, in the JSON text piped to `vault-search` -- the heredocs above are unquoted-delimiter
+(`<<'EOF'`), so nothing here re-escapes it; `\\n` would reach the JSON parser as a literal backslash
+followed by `n`, never matching a real line break, and every one of this command's five queries would
+silently stop finding anything under a multi-line pattern.
 
 **4. Open task notes with at least one unchecked item.** Task notes carry `status:` in frontmatter,
 unlike design notes -- filter there first, and request `content` to count `- [ ]` lines directly from
