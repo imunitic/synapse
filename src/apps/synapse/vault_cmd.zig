@@ -1,10 +1,8 @@
 //! `synapse vault-read`/`vault-write`/`vault-list`/`vault-search`/
 //! `vault-search-text`/`vault-doc-map`/`vault-patch` -- the CLI door skills
-//! use to reach `ports.Store` instead of calling `mcp__obsidian__*` tools by
-//! name. See `sb — Vault store backend selection`: a skill's prose changes
-//! once (an MCP tool name to a CLI subcommand), and a future backend swap
-//! then touches only `resolveStore()` and the `Store` implementation, never
-//! skill text again.
+//! use to reach `ports.Store` instead of calling any tool by name directly.
+//! A skill's prose stays put across a backend swap, which then touches only
+//! `resolveStore()` and the `Store` implementation, never skill text.
 //!
 //! Every subcommand addresses a note by its full vault-relative path (an
 //! empty-namespace `Store`, the same convention `frontmatter get/set`
@@ -21,24 +19,23 @@
 //!               [--append|--prepend|--replace] [--create]
 //!                                           content on stdin
 //!
-//! `--heading`'s `<h>` is a `::`-joined path (`"Notes::Sub"`), matching the
-//! nesting convention `mcp__obsidian__vault_patch` already uses. `--replace`
-//! is the default operation when none is given. `--create` only applies to
+//! `--heading`'s `<h>` is a `::`-joined path (`"Notes::Sub"`), disambiguating
+//! a heading nested under a same-named parent from any other heading with
+//! that name. `--replace` is the default operation when none is given.
+//! `--create` only applies to
 //! `--heading` (a missing frontmatter key is always inserted, by
 //! `core.frontmatter.set`'s own existing behavior; a missing block cannot
 //! be created -- there is no content to anchor an id to).
 //!
 //! `vault-search`'s rows print as `path<TAB>field1<TAB>field2...`, one row
 //! per line -- a non-string field value is JSON-encoded so it stays one TSV
-//! field. With no `--fields`, each row is just the path. It answers
-//! `mcp__obsidian__search_query` (a structured JsonLogic filter over
-//! frontmatter/content/tags) -- for `mcp__obsidian__search_simple`'s plain
-//! full-text relevance search instead, `vault-search-text` wraps `Store`'s
-//! own `search` method directly, one `node<TAB>score<TAB>context` row per
-//! hit. `vault-doc-map` answers `mcp__obsidian__vault_get_document_map`:
-//! every heading path/block id/frontmatter key a `vault-patch` target could
-//! name, one `kind<TAB>value` row per entry, `kind` one of `heading`/
-//! `block`/`frontmatter`.
+//! field. With no `--fields`, each row is just the path. It's a structured
+//! JsonLogic filter over frontmatter/content/tags; for plain full-text
+//! relevance search instead, `vault-search-text` wraps `Store`'s own
+//! `search` method directly, one `node<TAB>score<TAB>context` row per hit.
+//! `vault-doc-map` lists every heading path/block id/frontmatter key a
+//! `vault-patch` target could name, one `kind<TAB>value` row per entry,
+//! `kind` one of `heading`/`block`/`frontmatter`.
 //!
 //! Exit 1 for anything that made the operation impossible, 2 for a usage
 //! error.
@@ -154,9 +151,9 @@ pub fn list(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []cons
     return 0;
 }
 
-/// Plain full-text relevance search, straight over `Store.search` -- the
-/// door to `mcp__obsidian__search_simple`, distinct from `search` below
-/// (which answers `search_query`'s structured JsonLogic filter instead).
+/// Plain full-text relevance search, straight over `Store.search` --
+/// distinct from `search` below (which answers a structured JsonLogic
+/// filter instead).
 pub fn searchText(
     gpa: Allocator,
     io: Io,
@@ -185,9 +182,8 @@ pub fn searchText(
     return 0;
 }
 
-/// Every heading path/block id/frontmatter key `note`'s body has -- the door
-/// to `mcp__obsidian__vault_get_document_map`, so a caller can pick a real
-/// `vault-patch` target instead of guessing one.
+/// Every heading path/block id/frontmatter key `note`'s body has, so a
+/// caller can pick a real `vault-patch` target instead of guessing one.
 pub fn docMap(
     gpa: Allocator,
     io: Io,

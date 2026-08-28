@@ -5,8 +5,8 @@
 //! comments, blank lines, an `export` prefix, and inside a value a leading `~`,
 //! `$VAR`/`${VAR}` against whatever the caller's environment holds -- not just
 //! `$HOME` as a special case. Expansion is required: the shipped template
-//! writes `SYNAPSE_VAULT_DIR="$HOME/Obsidian/YourVault"`, and a literal read
-//! resolves a vault at `./$HOME/Obsidian/Claude`. An unset variable expands to
+//! writes `SYNAPSE_VAULT_DIR="$HOME/Vault/YourVault"`, and a literal read
+//! resolves a vault at `./$HOME/Vault/YourVault`. An unset variable expands to
 //! nothing, as a shell does; the caller reports the resulting bad path rather
 //! than a guess being substituted.
 //!
@@ -158,8 +158,8 @@ const testing = std.testing;
 test "the shipped template's shape" {
     const text =
         "# Copy this to ~/.claude/synapse.conf\n" ++
-        "SYNAPSE_VAULT_DIR=\"/Users/x/Obsidian/Claude\"\n";
-    try testing.expectEqualStrings("/Users/x/Obsidian/Claude", get(text, "SYNAPSE_VAULT_DIR").?);
+        "SYNAPSE_VAULT_DIR=\"/Users/x/Vault/Claude\"\n";
+    try testing.expectEqualStrings("/Users/x/Vault/Claude", get(text, "SYNAPSE_VAULT_DIR").?);
     try testing.expectEqual(@as(?[]const u8, null), get(text, "SOMETHING_ELSE"));
 }
 
@@ -344,10 +344,10 @@ const TestVars = struct {
 test "the real conf's shape: $HOME inside a quoted value" {
     const gpa = testing.allocator;
     const tv: TestVars = .{ .pairs = &.{.{ "HOME", "/Users/x" }} };
-    const text = "SYNAPSE_VAULT_DIR=\"$HOME/Obsidian/YourVault\"\n";
+    const text = "SYNAPSE_VAULT_DIR=\"$HOME/Vault/YourVault\"\n";
     const v = (try value(gpa, text, "SYNAPSE_VAULT_DIR", tv.vars())).?;
     defer gpa.free(v);
-    try testing.expectEqualStrings("/Users/x/Obsidian/YourVault", v);
+    try testing.expectEqualStrings("/Users/x/Vault/YourVault", v);
 }
 
 test "any variable expands, not a hardcoded list" {
@@ -360,8 +360,8 @@ test "any variable expands, not a hardcoded list" {
     for ([_][2][]const u8{
         .{ "$CASA/vault", "/casa/vault" },
         .{ "${CASA}/vault", "/casa/vault" },
-        .{ "$XDG_DATA_HOME/obsidian", "/xdg/obsidian" },
-        .{ "~/Obsidian", "/h/Obsidian" },
+        .{ "$XDG_DATA_HOME/vault", "/xdg/vault" },
+        .{ "~/Vault", "/h/Vault" },
         .{ "~", "/h" },
         .{ "$HOME/a/$CASA", "/h/a/casa" },
     }, 0..) |case, n| {

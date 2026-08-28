@@ -93,14 +93,14 @@ test "the report puts the status first and aligns the details" {
     var out: std.Io.Writer.Allocating = .init(testing.allocator);
     defer out.deinit();
     try writeReport(&out.writer, &.{
-        .{ .name = "vault", .status = .ok, .detail = "/Users/x/Obsidian/Claude" },
+        .{ .name = "vault", .status = .ok, .detail = "/Users/x/Vault/Claude" },
         .{ .name = "namespace", .status = .warn, .detail = "none for fw-core@wip" },
-        .{ .name = "certificate", .status = .fail, .detail = "absent: run setup-obsidian-mcp.sh" },
+        .{ .name = "certificate", .status = .fail, .detail = "absent: run setup-cert.sh" },
     });
     try testing.expectEqualStrings(
-        "ok    vault        /Users/x/Obsidian/Claude\n" ++
+        "ok    vault        /Users/x/Vault/Claude\n" ++
             "warn  namespace    none for fw-core@wip\n" ++
-            "FAIL  certificate  absent: run setup-obsidian-mcp.sh\n" ++
+            "FAIL  certificate  absent: run setup-cert.sh\n" ++
             "\n1 ok, 1 warning(s), 1 failure(s)\n",
         out.written(),
     );

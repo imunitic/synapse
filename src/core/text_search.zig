@@ -1,8 +1,7 @@
 //! Small, pure, case-insensitive text-search primitives -- no `Store`, no
 //! I/O, nothing domain-specific. Shared by every `Store` implementation
 //! whose `search` is a plain full-text scan (`DiskStore`, `BardGraphStore`)
-//! rather than a backend with its own relevance search to call out to
-//! (`ObsidianStore` uses the REST API's own `/search/simple/` instead).
+//! rather than a backend with its own relevance search to call out to.
 
 const std = @import("std");
 

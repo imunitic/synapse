@@ -6,11 +6,10 @@ Memory for Claude Code: durable notes that outlive a session, and a per-repo cod
 codebase does not get re-explored from scratch every time. Three components, independent enough that
 you can use one without the others:
 
-- **Synapse Vault** — a folder of plain Markdown notes (frontmatter + wikilinks, the Obsidian
-  format) holding research, decisions, project logs, design discussions. Cross-project by default.
-  Synapse reads and writes it directly — Obsidian is an optional, opportunistic layer on top for
-  live search/graph/rename when it's running (see [Dependencies](#dependencies)), never a
-  requirement; the folder works the same with no Obsidian installed at all.
+- **Synapse Vault** — a folder of plain Markdown notes (frontmatter + wikilinks) holding research,
+  decisions, project logs, design discussions. Cross-project by default. Synapse reads and writes it
+  directly, with real search/graph/rename of its own — no extended store required (see
+  [Obsidian extended store](#obsidian-extended-store) for the optional live-app layer on top).
 - **Synapse Graph** — a per-repo semantic code graph, hosted *inside* the Vault under
   `synapse/{repo}@{branch}/`, so it is stored and searched like any other note. Dormant until
   `/synapse-init` is run in a repo. Underneath it is the **Code Cache** — tags, refs and call
@@ -47,23 +46,10 @@ afterward. `zig build` is only for contributing to Synapse itself; see [Dependen
 > This needs the platform binaries built locally first (`zig build`, or `just build`) and copied
 > into `platforms/{platform}-{arch}/bin/` — see [Dependencies](#dependencies).
 
-The default (`SYNAPSE_VAULT_STORE=disk`, or nothing set at all) needs none of steps 1, 2, or 6
-below — just a plain folder of Markdown, no Obsidian installed anywhere. Do step 3 (point
-`synapse.conf` at that folder), 4 (restart), and 5 (check with `doctor`), and you're done. Steps 1-2
-and 6 are for opting into the `obsidian` backend instead (`SYNAPSE_VAULT_STORE=obsidian`) for live
-search relevance and graph data when Obsidian is running — `DiskStore`'s own equivalents are real,
-not stubs, so this is a preference, not a requirement (see [Dependencies](#dependencies)).
+The default (`SYNAPSE_VAULT_STORE=disk`, or nothing set at all) needs just a plain folder of
+Markdown — nothing else installed anywhere.
 
-1. Install Obsidian, open (or create) your Vault. No community plugin needed — Synapse reaches
-   Obsidian through its official CLI, which ships with the app itself but is off by default:
-   **Settings → General → Advanced → Command line interface**, toggle it on. Obsidian needs to be
-   running for Synapse to reach it — if it isn't, Synapse falls back to `disk`'s own implementation
-   automatically rather than failing.
-2. (Optional) **Settings → Community plugins → Browse**, install + enable:
-   - **Headless Mode** — lets Obsidian run as a background daemon with no visible window; enable
-     "Start headless" in its settings.
-   - **Iconic** — folder/file icons.
-3. Point Synapse at the vault — `synapse-setup configure claude` above already wrote a `synapse.conf`
+1. Point Synapse at the vault — `synapse-setup configure claude` above already wrote a `synapse.conf`
    for you if none existed yet (`$XDG_CONFIG_HOME/synapse/synapse.conf` if you've adopted XDG config
    directories, else `~/.config/synapse/synapse.conf` if that directory already exists, else
    `~/.claude/synapse.conf`), with `SYNAPSE_VAULT_DIR` still pointing at a placeholder path. Edit that
@@ -72,9 +58,9 @@ not stubs, so this is a preference, not a requirement (see [Dependencies](#depen
    SYNAPSE_VAULT_DIR="$HOME/path/to/your/vault"
    ```
    If a `synapse.conf` already existed anywhere in that same lookup order, it was left alone.
-4. Restart Claude Code, or start a fresh session — `synapse-setup configure claude` already wired up
+2. Restart Claude Code, or start a fresh session — `synapse-setup configure claude` already wired up
    the hooks, no script to re-run by hand.
-5. Check the result:
+3. Check the result:
    ```sh
    synapse doctor
    ```
@@ -82,29 +68,11 @@ not stubs, so this is a preference, not a requirement (see [Dependencies](#depen
    even when everything seems fine, because almost every guard in the system is *silent* by
    design — a hook that errors is worse than one that quietly does nothing, so a half-installed
    machine looks exactly like a working one with nothing to say. `doctor` is the one place that
-   speaks: the `obsidian` CLI missing from `PATH`, an Obsidian that is not running, a namespace whose
-   recorded remote no longer matches, a hook registered twice (which makes it fire twice).
-6. (Recommended) Set Obsidian to start automatically at login, so it is always running:
-   - **macOS**:
-     ```sh
-     osascript -e 'tell application "System Events" to make login item at end with properties {path:"/Applications/Obsidian.app", hidden:false}'
-     ```
-     or **System Settings → General → Login Items → +**.
-   - **Linux**: drop an XDG autostart entry (works across GNOME/KDE/XFCE):
-     ```sh
-     mkdir -p ~/.config/autostart
-     cat > ~/.config/autostart/obsidian.desktop <<'EOF'
-     [Desktop Entry]
-     Type=Application
-     Name=Obsidian
-     Exec=obsidian
-     X-GNOME-Autostart-enabled=true
-     EOF
-     ```
-     Adjust `Exec=` to match your install (e.g. the AppImage path, or `flatpak run md.obsidian.Obsidian`
-     for a Flatpak install).
-   - **Windows**: press **Win+R**, type `shell:startup`, hit Enter, then drop a shortcut to
-     `Obsidian.exe` into the folder that opens.
+   speaks: a namespace whose recorded remote no longer matches, a hook registered twice (which makes
+   it fire twice).
+
+Preferring live search relevance and graph data from a running app over `DiskStore`'s own real
+(not stub) equivalents is optional — see [Obsidian extended store](#obsidian-extended-store).
 
 **Using it:** the human-facing entry points are `/synapse-init`, `/synapse-rebuild-diff`, and
 `/synapse-rebuild-full` — `/synapse-init` builds a repo's first Graph namespace,
@@ -164,6 +132,15 @@ broken install; it's idempotent and safe to run repeatedly.
   `packages/synapse/skills/synapse-vault/` — loadable knowledge rather than procedure: the node contract, how to
   orient in an unfamiliar tree, and vault-editing rules (pull-only apart from `Index.md`), each shared
   across multiple components rather than owned by one.
+
+## Obsidian extended store
+
+`DiskStore` — the default backend above — already has real search, link graph, and rename of its
+own. An **extended store** is an optional decorator over it that hands `search`/link-graph/rename off
+to a running external app's live capabilities instead, falling back to `DiskStore`'s own
+implementation automatically whenever that app isn't reachable. Obsidian is the only one shipped
+today. See [`docs/synapse/synapse-extended-store.md`](docs/synapse/synapse-extended-store.md) for
+setup and what other extended stores would look like.
 
 ## Synapse Graph — the per-repo code graph
 
@@ -244,13 +221,9 @@ For using it day to day: npm itself (the compiled binaries ship as ordinary per-
 optionalDependencies, `npm install` fetches and verifies them the same way it does any other
 package, no separate fetch script or `tar` step involved) and whichever harness's own CLI (`claude`,
 `codex`, or `opencode`). The default backend (`SYNAPSE_VAULT_STORE=disk`, or unset) needs nothing
-else at all — the official `obsidian` CLI is entirely optional, only relevant if you opt into
-`SYNAPSE_VAULT_STORE=obsidian` for live search relevance and graph data (ships with Obsidian itself,
-no plugin to install, but off by default — enable it once in **Settings → General → Advanced →
-Command line interface**). Even opted in, it's not a hard requirement: `write-node`, `doctor`, vault
-search and link-graph queries all fall back to `disk`'s own plain-disk implementation automatically
-when Obsidian isn't reachable, so a temporarily-closed app never breaks anything. Node itself is
-assumed, the same way
+else at all. An [extended store](#obsidian-extended-store) adds its own optional dependency — never
+a hard requirement, since every capability it covers falls back to `disk`'s own implementation
+automatically when the external app isn't reachable. Node itself is assumed, the same way
 it already is for every harness here — `synapse-setup` and the shipped hooks
 (`resolve-binaries.cjs`) run on it directly, no `jq` of its own. Nothing to build, nothing to
 install by hand — see "New machine setup".

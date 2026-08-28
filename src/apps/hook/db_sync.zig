@@ -3,14 +3,13 @@
 //! Commits any agent-driven vault change to the vault's own local git repo,
 //! if one exists -- opt-in per vault, so a vault with no `.git` is an
 //! ordinary no-op. Registered against the MCP vault tools as well as native
-//! Write/Edit, since `/synapse-note`/`synapse-task` write through
-//! `mcp__obsidian__vault_*` rather than editing files. This is the
+//! Write/Edit, for a session with an actual `mcp__obsidian__vault_*` tool
+//! connected and used directly instead of the CLI door below. This is the
 //! vault-wide undo: `git show <sha>:<path>` only works because every edit
 //! is committed, not just intentional ones.
 //!
-//! `synapse vault-write`/`vault-patch` (the CLI door skills use instead of
-//! calling `mcp__obsidian__vault_*` directly -- see `sb — Vault store
-//! backend selection`) run through the generic `Bash` tool, indistinguishable
+//! `synapse vault-write`/`vault-patch` -- the CLI door skills actually use --
+//! run through the generic `Bash` tool, indistinguishable
 //! from any other shell command at the `hooks.json` `matcher` level: `matcher`
 //! only ever sees a tool *name*, never its arguments. `hooks.json` widens the
 //! matcher to include `Bash` so this hook fires at all for those writes, and

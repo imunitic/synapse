@@ -6,13 +6,13 @@
 //! `commit`, expands the crux directive, records and strips the groundings,
 //! builds the `## Sources` mirror, and writes the note through whichever
 //! `Store` `SYNAPSE_VAULT_STORE`/`SYNAPSE_VAULT_DIR` resolve to
-//! (`adapters.store_resolve.resolveStore`) -- a plain disk write either way,
-//! `obsidian` (the default) or `disk`.
+//! (`adapters.store_resolve.resolveStore`) -- a plain disk write either
+//! way, `disk` (the default) or an extended store.
 //!
 //! Prints `<file>\t<n> files\t<digest>` on success. Exit 1 for anything
 //! that made the write impossible, 2 for a usage error.
 //!
-//! The write goes through `Store` so an Obsidian-backed vault's own view
+//! The write goes through `Store` so an extended store's own live view
 //! stays consistent and the vault's git hook sees the change; the three
 //! reads this command makes are plain disk reads regardless of backend
 //! (see `context.zig`) -- reading a node the compiled binary already has a

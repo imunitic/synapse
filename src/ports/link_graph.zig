@@ -7,7 +7,7 @@
 //! backends are expected to implement it for real over time.
 //!
 //! Attached to a concrete store via composition (a genuine field, e.g.
-//! `ObsidianStore.link_graph: ObsidianLinkGraph`), never by a store growing
+//! `DiskStore.link_graph: DiskLinkGraph`), never by a store growing
 //! a second interface's worth of methods on itself, and reached from a
 //! `ResolvedStore` through a comptime duck-typed dispatcher that asks only
 //! "does whatever's active have a `linkGraph()` method" -- never a union tag
@@ -25,8 +25,8 @@ pub const LinkGraph = struct {
     /// shape as `Unresolved` plus the candidate list, since it's the same
     /// underlying question ("what does this link text mean") with a
     /// different answer (too many, not zero). A backend with no way to
-    /// detect this (`ObsidianStore`'s CLI has no such concept) reports none,
-    /// same as it would for anything else it can't see.
+    /// detect this reports none, same as it would for anything else it
+    /// can't see.
     pub const Ambiguous = struct { target: []const u8, candidates: []const []const u8, count: usize, sources: []const []const u8 };
 
     pub const VTable = struct {

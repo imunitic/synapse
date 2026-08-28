@@ -25,7 +25,7 @@
 //! query, and `branch` stays a separate field so identity is checkable
 //! without parsing a directory name.
 //!
-//! Bullets link by filename, not title -- Obsidian resolves a wikilink by
+//! Bullets link by filename, not title -- a wikilink resolves by
 //! filename, so the writer sanitises the same way `emit.fileTitle` does.
 
 const std = @import("std");

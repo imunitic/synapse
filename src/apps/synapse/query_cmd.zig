@@ -807,7 +807,7 @@ const Graph = struct {
 fn linksCheck(gpa: Allocator, io: Io, ctx: *const Context, w: *Io.Writer) !u8 {
     var g = try Graph.build(gpa, io, ctx);
     defer g.deinit(gpa);
-    // A broken wikilink renders fine in Obsidian; nothing else notices.
+    // A broken wikilink renders as plain text; nothing else notices.
     for (g.edges.items) |e| {
         if (g.has(e.tgt)) continue;
         try w.print("{s}\t{s} -> {s} (no such node)\n", .{ e.src, e.rel, e.tgt });
@@ -1309,8 +1309,8 @@ test "links: --check names a target that resolves to no node" {
     defer gpa.free(r.out);
     try testing.expectEqual(@as(u8, 0), r.code);
     try testing.expect(std.mem.indexOf(u8, r.out, "Alpha\tuses -> Ghost (no such node)") != null);
-    // a broken wikilink is a valid link to a not-yet-existing note, so
-    // Obsidian renders it silently -- this is the only thing that reports it
+    // a broken wikilink is a valid link to a not-yet-existing note, rendered
+    // silently by any vault viewer -- this is the only thing that reports it
     try testing.expect(std.mem.indexOf(u8, r.out, "Beta") == null);
 }
 

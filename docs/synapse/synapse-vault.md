@@ -1,6 +1,6 @@
 # Synapse Vault
 
-A permanent, curated knowledge base — an Obsidian vault — that persists across every project and
+A permanent, curated knowledge base that persists across every project and
 every session, separate from (and complementary to) Claude Code's own `~/.claude` auto-memory
 system. Auto-memory is for *how to work with this user*; the Vault is for durable, browsable notes
 about the work itself.
@@ -22,28 +22,20 @@ The boxes name the four hooks; what each one does is here rather than crammed in
 
 ## The vault
 
-A regular Obsidian-format vault: plain markdown files with YAML frontmatter, read and written
-directly by `DiskStore` — today's default backend behind `ports.Store` (`SYNAPSE_VAULT_STORE=disk`,
-or unset), no Obsidian dependency of any kind. An `obsidian` backend also exists
-(`SYNAPSE_VAULT_STORE=obsidian`), reaching a running Obsidian app through its own official CLI for
-live search relevance and graph data when that's worth opting into. No plugin, no cert, no API key
-either way: `ObsidianStore`'s `read`/`write`/`list` are plain disk I/O against the vault folder,
-same as `disk`. `search` and the link graph/rename
-capabilities (`vault-backlinks`/`vault-links`/`vault-unresolved`/`vault-orphans`/`vault-deadends`/
-`vault-ambiguous`/`vault-rename`) go through the CLI's local socket *when Obsidian is reachable* —
-`ObsidianStore` falls back to `DiskStore`'s own implementation of each on `error.VaultUnreachable`
-(CLI disabled, or the app not running), so nothing here hard-requires a live app. `DiskStore` isn't
-a stub fallback either: its `search` does real rarity-weighted ranking (word document-frequency
-measured against the vault, weighted by the same `distinctivenessScore` formula `/synapse-init`
-uses for cluster judging), its link graph resolves wikilinks case-insensitively and logs an
-ambiguous match rather than guessing, and its rename rewrites every referring wikilink. The CLI
-itself is off by default in a fresh Obsidian install: **Settings → General → Advanced → Command
-line interface**.
+Plain markdown files with YAML frontmatter, read and written directly by `DiskStore` — the default
+backend behind `ports.Store` (`SYNAPSE_VAULT_STORE=disk`, or unset), no external dependency of any
+kind. Its `search` does real rarity-weighted ranking (word document-frequency measured against the
+vault, weighted by the same `distinctivenessScore` formula `/synapse-init` uses for cluster judging),
+its link graph (`vault-backlinks`/`vault-links`/`vault-unresolved`/`vault-orphans`/`vault-deadends`/
+`vault-ambiguous`) resolves wikilinks case-insensitively and logs an ambiguous match rather than
+guessing, and its rename (`vault-rename`) rewrites every referring wikilink. An optional **extended
+store** can hand `search`/link-graph/rename off to a running external app's own live capabilities
+instead, falling back to `DiskStore`'s implementation automatically whenever that app isn't reachable
+— see [synapse-extended-store.md](synapse-extended-store.md).
+
 Hooks and the `synapse` CLI's `vault-*` subcommands (the door skills and commands use to reach the
 vault, instead of naming a tool directly) both go through `Store`/`LinkGraph`/`Renamer`, so none of
-them cares which backend is actually configured. Nothing here assumes a fixed vault path; the CLI
-always
-targets whichever vault the running Obsidian instance currently has open.
+them cares which backend is actually configured.
 
 `synapse.conf` (resolved through the tiered lookup in
 [synapse-config.md](synapse-config.md#where-a-conf-file-actually-lives)) holds the one piece of
@@ -68,8 +60,8 @@ behind what's actually on disk.
 
 ## Filenames and frontmatter
 
-Filenames are the human-readable title itself — no timestamp prefix, no slug — since Obsidian's
-sidebar and graph view show the filename directly. Frontmatter carries what the filename doesn't:
+Filenames are the human-readable title itself — no timestamp prefix, no slug — since a wikilink
+resolves by filename stem, not by title or path. Frontmatter carries what the filename doesn't:
 `title`, `created`, and for task notes `task_id`/`status`.
 
 ## The four hooks

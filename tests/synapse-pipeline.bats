@@ -93,7 +93,7 @@ run_pipeline() {
 
   local ns="$VAULT/synapse/$(repo_name)" link f
   # A broken wikilink is a valid link to a not-yet-existing note, so it fails
-  # silently in Obsidian -- the only way to catch it is exactly this check.
+  # silently in any vault viewer -- the only way to catch it is exactly this check.
   while IFS= read -r link; do
     [ -f "$ns/$link.md" ]
   done < <(grep -ho '\[\[[^]]*\]\]' "$ns"/*.md | sed 's/^\[\[//; s/\]\]$//' | sort -u)

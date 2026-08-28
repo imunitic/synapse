@@ -4,7 +4,7 @@ How the pieces of Synapse fit together, for anyone (including future-you) who wa
 beyond the individual command, hook and skill files. Each doc below stands alone; read whichever one
 matches what you're trying to understand.
 
-- **[synapse-vault.md](synapse-vault.md)** — **Synapse Vault**: the Obsidian vault itself, its folder
+- **[synapse-vault.md](synapse-vault.md)** — **Synapse Vault**: the vault itself, its folder
   layout, and the three hooks that keep it alive across sessions (`SessionStart` injection, the `Stop`
   nudge, and vault→git auto-commit).
 - **[synapse-graph.md](synapse-graph.md)** — **Synapse Graph**: the per-repo semantic code graph. The
@@ -42,7 +42,7 @@ Diagrams live in [diagrams/](diagrams/). Each one is a Mermaid source file (`.mm
 up as raw source in Markview and other plain Markdown viewers, while a linked image works everywhere.
 
 - `diagrams/synapse-overview.png` — the whole system in one picture: three equally-weighted pillars
-  (permanent memory, the design→task workflow, the code graph) sharing one Obsidian Vault underneath.
+  (permanent memory, the design→task workflow, the code graph) sharing one Synapse Vault underneath.
   See "What a session actually gets" below for what this view is for and how it differs from the
   component breakdown above it.
 - `diagrams/synapse-vault-overview.png` — the Vault and its hooks.
@@ -104,7 +104,7 @@ The breakdown above describes what the three components *are* — a store, an ac
 and the scripts that build both. This is the complementary view: what a harness session actually
 *gets* out of using Synapse at all, as three capabilities rather than three components.
 
-![Three equally-weighted pillars -- permanent memory, the design-to-task workflow, and the code graph -- sharing one Obsidian Vault underneath](diagrams/synapse-overview.png)
+![Three equally-weighted pillars -- permanent memory, the design-to-task workflow, and the code graph -- sharing one Synapse Vault underneath](diagrams/synapse-overview.png)
 
 - **Permanent memory** — notes that survive past the session that wrote them, surfaced automatically
   (`SessionStart`, the `Stop` nudge) rather than left to be remembered unprompted.

@@ -35,7 +35,7 @@ const verify = @import("verify.zig");
 
 const Range = verify.Range;
 
-/// A filename Obsidian can store. Obsidian resolves wikilinks by filename,
+/// A filename the vault can store. A wikilink resolves by filename,
 /// so a sanitised title silently breaks every inbound `[[link]]` -- this
 /// returns the sanitised form for the caller to *compare* and warn on,
 /// rather than quietly renaming.

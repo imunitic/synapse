@@ -2,11 +2,11 @@
 //! `and`/`or`/`!`/`==`/`!=`/`in`/`<`/`<=`/`>`/`>=`/`var`/`glob`/`regexp` --
 //! not the full published spec. JsonLogic itself is adopted as-is (an
 //! existing, published, language-agnostic standard, not something to
-//! subset down further) because Synapse's domain is fixed and small; see
-//! `sb — Vault store backend selection` for the reasoning. `glob`/`regexp`
-//! aren't part of the official spec -- they're the same two operators
-//! `search_query`'s own Obsidian plugin already added, kept identical so a
-//! filter written against that API needs no translation to run here.
+//! subset down further) because Synapse's domain is fixed and small.
+//! `glob`/`regexp` aren't part of the official spec -- they're the same two
+//! operators a widely used vault-search plugin already added, kept
+//! identical so a filter written against that plugin's own query language
+//! needs no translation to run here.
 //!
 //! Purely a function of the two JSON trees it's given -- no allocation, no
 //! I/O. Every result is either a `bool`, or a reference into `rule`/`data`

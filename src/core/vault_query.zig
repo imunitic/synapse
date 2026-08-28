@@ -1,21 +1,20 @@
 //! Structured (JsonLogic) querying over a `ports.Store`, built once here as
 //! `list` + `read` each candidate + `core.jsonlogic.evaluate`, not a new
-//! `Store` method and not per-backend -- see `sb — Vault store backend
-//! selection`. A result row is a small, explicit projection (the note's
-//! path plus only the caller-named fields), never the full body as a side
-//! effect of filtering: `search_query`'s own `{filename, result}` shape is
-//! too thin to answer a real question without a further full read per
-//! match, and `search_simple`'s full-text mode is the opposite failure
-//! (933K characters for one plain-sentence query, measured elsewhere) --
-//! this sits between those two, field-level and bounded either way.
+//! `Store` method and not per-backend, since the filtering logic is
+//! identical regardless of what backend the rows came from. A result row is
+//! a small, explicit projection (the note's path plus only the caller-named
+//! fields), never the full body as a side effect of filtering: a thin
+//! id-plus-snippet shape is too little to answer a real question without a
+//! further full read per match, and a full-text-dump mode is the opposite
+//! failure (933K characters for one plain-sentence query, measured
+//! elsewhere) -- this sits between those two, field-level and bounded
+//! either way.
 //!
-//! Scoped to what real `search_query` calls in this vault actually filter
-//! on: `path`, `content`, `frontmatter.*`, `tags`. `stat`/`links`/
-//! `backlinks`/`unresolvedLinks` (the Obsidian MCP server's own `NoteJson`
-//! shape carries all of these) are out of scope here -- `links`/
-//! `backlinks` specifically would need a whole-vault cross-reference index,
-//! a real feature nothing in this codebase's own history of `search_query`
-//! calls has ever asked for.
+//! Scoped to what a query in this vault actually filters on: `path`,
+//! `content`, `frontmatter.*`, `tags`. `stat`/`links`/`backlinks`/
+//! `unresolvedLinks` are out of scope here -- `links`/`backlinks`
+//! specifically would need a whole-vault cross-reference index, a real
+//! feature nothing here needs yet.
 
 const std = @import("std");
 const ports = @import("ports");

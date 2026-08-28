@@ -1,10 +1,9 @@
-//! Targeted partial-update composition: the `core`-level answer to
-//! `mcp__obsidian__vault_patch`'s three `targetType`s (`heading`/`block`/
-//! `frontmatter`), built once over `ports.Store`'s plain `read`/`write` --
-//! not a new `Store` method, and not per-backend. `read` the node, splice
-//! the requested target against the fetched body in memory, `write` the
-//! whole result back. See `sb — Vault store backend selection` for why this
-//! lives here rather than growing the `Store` interface.
+//! Targeted partial-update composition over three target kinds
+//! (`heading`/`block`/`frontmatter`), built once over `ports.Store`'s plain
+//! `read`/`write` -- not a new `Store` method, and not per-backend, since
+//! the splice logic is identical no matter which backend the bytes came
+//! from. `read` the node, splice the requested target against the fetched
+//! body in memory, `write` the whole result back.
 //!
 //! The `frontmatter` target delegates entirely to `core.frontmatter.set`,
 //! already byte-preserving and already tested -- this module only adds the
@@ -17,8 +16,8 @@ const Allocator = std.mem.Allocator;
 
 pub const Target = union(enum) {
     /// The path of heading texts from the top down, e.g. `&.{"Notes"}` or
-    /// `&.{ "Notes", "Implementation" }` -- matching
-    /// `mcp__obsidian__vault_patch`'s own heading-path convention.
+    /// `&.{ "Notes", "Implementation" }` -- disambiguates a heading nested
+    /// under a same-named parent from any other heading with that name.
     heading: []const []const u8,
     /// A bare block id, without the leading `^`.
     block: []const u8,
@@ -121,8 +120,7 @@ fn sectionEnd(headings: []const Heading, from: usize, level: u8) usize {
 /// (its index range up to `sectionEnd`), so a name repeated under two
 /// different parents resolves to the right one. The first occurrence wins
 /// on a duplicate within the same scope -- disambiguating further would
-/// need the same kind of marker-suffix key the Obsidian plugin's own
-/// document map uses, out of scope here.
+/// need a marker-suffix key scheme, out of scope here.
 fn findHeadingPath(headings: []const Heading, path: []const []const u8) ?usize {
     var search_start: usize = 0;
     var search_end: usize = headings.len;
@@ -267,8 +265,8 @@ fn createHeadingPath(gpa: Allocator, body: []const u8, headings: []const Heading
 }
 
 /// A block reference is a line ending in ` ^{id}` (a space, then the caret,
-/// then the id, then end of line) -- Obsidian's own block-id syntax.
-/// Scoped to single-line blocks, the overwhelmingly common real shape (one
+/// then the id, then end of line). Scoped to single-line blocks, the
+/// overwhelmingly common real shape (one
 /// paragraph or list item); a multi-line block would need real paragraph
 /// boundary detection this doesn't attempt.
 fn findBlockLine(body: []const u8, id: []const u8) ?struct { line_start: usize, text_end: usize, line_end: usize } {
@@ -328,14 +326,13 @@ pub const DocumentMap = struct {
 };
 
 /// Every valid `--heading`/`--block`/`--frontmatter` target in `body` --
-/// the `core`-level answer to `mcp__obsidian__vault_get_document_map` for
-/// the three target kinds `Target` supports, so a caller can pick a real
-/// target instead of guessing one. No `version`/`ifMatch`-style concurrency
-/// token: that guards a window between reading the map and patching against
-/// a concurrent edit landing in between, a concern specific to a live app
-/// with its own in-memory buffer (Obsidian) -- `apply` always works from a
-/// `Store.read` taken immediately before it runs, so no such window exists
-/// here to guard against.
+/// covers the three target kinds `Target` supports, so a caller can pick a
+/// real target instead of guessing one. No `version`/`ifMatch`-style
+/// concurrency token: that guards a window between reading the map and
+/// patching against a concurrent edit landing in between, a concern
+/// specific to a live external app with its own in-memory buffer --
+/// `apply` always works from a `Store.read` taken immediately before it
+/// runs, so no such window exists here to guard against.
 pub fn documentMap(gpa: Allocator, body: []const u8) !DocumentMap {
     const headings = try scanHeadings(gpa, body);
     defer gpa.free(headings);

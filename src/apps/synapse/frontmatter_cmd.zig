@@ -4,7 +4,7 @@
 //! which re-serializes the whole YAML block and can turn an array value
 //! into a quoted string instead of a real list -- see `core/frontmatter.zig`
 //! for the primitive `set` is a thin CLI wrapper over. `get` is a thin
-//! wrapper over the same `ObsidianStore.read` plus `core.query.field` --
+//! wrapper over the same `Store.read` plus `core.query.field` --
 //! no new I/O, just the write side's read half exposed on its own.
 //!
 //!   frontmatter get <path> <key>
@@ -13,9 +13,9 @@
 //!   frontmatter set <path> --remove-tag <tag>
 //!
 //! `<path>` is the note's full vault-relative path (e.g.
-//! `tasks/synapse/sb-037 — Foo.md`), not scoped to any one repo's code-graph
+//! `tasks/widget/wg-037 — Foo.md`), not scoped to any one repo's code-graph
 //! namespace -- the store this command opens carries an empty namespace for
-//! exactly that reason (see `ObsidianStore.namespace`'s doc comment). Both
+//! exactly that reason (see `DiskStore.namespace`'s doc comment). Both
 //! subcommands share this same `<path>` meaning deliberately: it's `synapse
 //! query field --file`'s own `<path>` (a plain local filesystem path, no
 //! vault or REST involved) that stays a separate thing, not this one.
@@ -162,7 +162,7 @@ pub fn run(
 
 /// Prints one frontmatter field's value, or nothing for an absent key --
 /// `query field`'s own "absent key prints nothing, exits 0" convention, not
-/// an error. No new I/O: the same `ObsidianStore.read` `set` already uses,
+/// an error. No new I/O: the same `Store.read` `set` already uses,
 /// then `core.query.field` over the raw bytes.
 pub fn get(
     gpa: Allocator,

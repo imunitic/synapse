@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # Exercises the mechanical half of /synapse-rebuild-diff against a repo with real
 # history and real drift, using the same disk-backed vault fixture the other
-# suites use -- no real Obsidian, no network.
+# suites use -- no external app, no network.
 #
 # /synapse-rebuild-diff itself is a natural-language procedure, so what is
 # testable is everything it delegates: the drift classification it triages on,

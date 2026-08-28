@@ -30,8 +30,8 @@
 //! What's actually reusable is smaller than either: "every `[[target]]` in
 //! some text, target before any `|`" -- the same primitive
 //! `bard/frontmatter.zig`'s `scanValue` already has, just over prose instead
-//! of a YAML scalar. `backlinks` below is that primitive, plus Obsidian's
-//! own resolution rule (a wikilink resolves by filename stem, not by vault
+//! of a YAML scalar. `backlinks` below is that primitive, plus the standard
+//! resolution rule (a wikilink resolves by filename stem, not by vault
 //! path -- `core/emit.zig`'s own doc comment says the same for the coding
 //! vault).
 
@@ -42,9 +42,7 @@ const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const Store = ports.Store;
 
-/// Not a real note -- the vault's own bootstrap file, excluded from `list`
-/// the same way `ObsidianStore`'s own doc comment excludes it for the
-/// coding vault.
+/// Not a real note -- the vault's own bootstrap file, excluded from `list`.
 const index_node = "Index.md";
 
 pub const BardVaultStore = struct {
@@ -217,9 +215,9 @@ fn firstMatchingLine(body: []const u8, query: []const u8) ?[]const u8 {
 }
 
 /// Every note in `names` that links to each note in `names` -- a note that
-/// links to the same target three times contributes once, matching what
-/// "backlinks" means in Obsidian's own panel (linking notes, not raw
-/// occurrences). Both keys and the source names in each value list borrow
+/// links to the same target three times contributes once: "backlinks"
+/// counts linking notes, not raw occurrences. Both keys and the source
+/// names in each value list borrow
 /// `names`' own strings; the caller frees each value's `ArrayListUnmanaged`
 /// before deiniting the outer map.
 fn backlinks(
@@ -228,9 +226,9 @@ fn backlinks(
     root: []const u8,
     names: []const []const u8,
 ) !std.StringHashMapUnmanaged(std.ArrayListUnmanaged([]const u8)) {
-    // A wikilink resolves by filename stem, not by vault path -- Obsidian's
-    // own rule, and the one this codebase's coding-vault side already
-    // documents (`core/emit.zig`).
+    // A wikilink resolves by filename stem, not by vault path -- the same
+    // rule this codebase's coding-vault side already documents
+    // (`core/emit.zig`).
     var by_stem: std.StringHashMapUnmanaged([]const u8) = .empty;
     defer by_stem.deinit(gpa);
     for (names) |n| try by_stem.put(gpa, stemOf(n), n);

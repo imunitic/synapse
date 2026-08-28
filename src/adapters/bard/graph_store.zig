@@ -4,7 +4,7 @@
 //! notes, a separate `Store` instance over a separate directory).
 //!
 //! `node` is the bare filename including `.md` -- the same convention
-//! `ObsidianStore` and `FakeStore` already use, so a caller that resolves a
+//! every `Store` implementation uses, so a caller that resolves a
 //! wikilink target to `"gael-varis.md"` doesn't special-case which `Store`
 //! it's talking to.
 //!
@@ -64,7 +64,7 @@ pub const BardGraphStore = struct {
     /// Removes a node -- not on the shared `ports.Store` interface (`read`/
     /// `write`/`list`/`search` only, checked before adding this), so it's a
     /// method on the concrete type instead: a capability
-    /// `ObsidianStore`/`FakeStore`/`BardVaultStore` have no need for
+    /// `DiskStore`/`FakeStore`/`BardVaultStore` have no need for
     /// shouldn't become a `Store`-wide requirement. `synapse-bard sync`
     /// is the one caller -- a renamed or deleted source
     /// entity must not leave a stale node behind for `--inbound`/`search` to

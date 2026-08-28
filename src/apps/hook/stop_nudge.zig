@@ -3,9 +3,10 @@
 //! Two jobs, keyed off Stop being the only per-turn event: every `N` turns,
 //! force a "worth capturing in Synapse Vault" check-in; every
 //! `PUSH_EVERY` turns, sync the vault with its remote -- pull first, then
-//! push, so a phone-side edit (Obsidian's own git-sync plugin, say) gets
-//! folded in before this machine's auto-commits go out, rather than the two
-//! histories quietly diverging until a push finally fails.
+//! push, so an edit from elsewhere (a phone-side editor with its own
+//! git-sync, say) gets folded in before this machine's auto-commits go out,
+//! rather than the two histories quietly diverging until a push finally
+//! fails.
 //!
 //! The sync lives here, not in db-sync, because db-sync is PostToolUse
 //! (fires per tool call, several times a turn, and can't count turns) --
@@ -82,7 +83,7 @@ pub fn tick(gpa: Allocator, io: Io, env: *std.process.Environ.Map, home: []const
         // Vault path when known, the phrase when not -- a path would be a lie otherwise.
         const resolved_vault = common.vault(gpa, io, env);
         defer if (resolved_vault) |v| gpa.free(v);
-        const location = resolved_vault orelse "the Obsidian vault";
+        const location = resolved_vault orelse "the vault";
         var text: Io.Writer.Allocating = .init(gpa);
         defer text.deinit();
         try text.writer.print(
@@ -174,8 +175,8 @@ fn upstreamOf(gpa: Allocator, io: Io, cwd: std.process.Child.Cwd) !?[]u8 {
 ///
 /// A conflict is aborted immediately rather than ever left half-applied --
 /// `git rebase` writes conflict markers straight into the working-tree file,
-/// and that file is a note Obsidian (and the agent, via its MCP tools) reads
-/// as-is. Losing this round's pull to a manual-resolution log line is a far
+/// and that file is a note read as-is by whatever's viewing the vault.
+/// Losing this round's pull to a manual-resolution log line is a far
 /// smaller cost than a note silently gaining `<<<<<<<` in its body. Returns
 /// whether it's safe to continue (already up to date, or pulled cleanly).
 fn pullUpstream(gpa: Allocator, io: Io, cwd: std.process.Child.Cwd) bool {
@@ -726,7 +727,7 @@ test "vault unresolvable: the nudge still fires, naming the generic phrase" {
     }
     const text = last.?;
     defer gpa.free(text);
-    try testing.expect(std.mem.indexOf(u8, text, "the Obsidian vault") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "the vault") != null);
 }
 
 test "separate sessions count turns independently" {

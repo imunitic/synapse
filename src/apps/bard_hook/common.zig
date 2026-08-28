@@ -7,7 +7,7 @@
 //! independent, same as `synapse-hook`/`synapse-fake`), and the two files
 //! would diverge immediately anyway -- `synapse-hook`'s `Payload` also
 //! carries `tool_input.file_path`/`session_id` fields no bard hook needs,
-//! and its vault resolution reads `synapse.conf` for an external Obsidian
+//! and its vault resolution reads `synapse.conf` for an external vault
 //! directory, which `_bard/vault/` (always repo-relative, no config) has no
 //! use for at all. What's actually shared -- the JSON payload/output
 //! protocol Claude Code hooks speak -- is small and stable; if a third

@@ -19,7 +19,7 @@ pub const obsidian = @import("obsidian/store.zig");
 
 /// Plain markdown files directly on disk behind the Store port -- no
 /// network dependency at all. `SYNAPSE_VAULT_STORE=disk`'s backend, and
-/// what `obsidian`'s own `read`/`write`/`list` decorate.
+/// what an extended store's own `read`/`write`/`list` decorate.
 pub const disk_store = @import("disk/store.zig");
 
 /// Picks and constructs the `Store` a caller should use, from

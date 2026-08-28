@@ -1,6 +1,6 @@
 ---
 name: synapse-task
-description: Update Obsidian task notes' status frontmatter and Notes sections, enforcing status transitions so active work is IN-PROGRESS and completed checklists move only to REVIEW (not DONE).
+description: Update vault task notes' status frontmatter and Notes sections, enforcing status transitions so active work is IN-PROGRESS and completed checklists move only to REVIEW (not DONE).
 ---
 
 # Synapse Task Status Skill

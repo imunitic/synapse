@@ -1,8 +1,9 @@
 //! Store: where nodes and indexes are read, written, listed and searched.
 //!
-//! The Obsidian REST API for code; plain files under `_bard/graph/` for a
-//! bible. Search belongs here rather than in core, since "full-text over
-//! prose" vs. "exact symbol lookup" is an adapter-specific question.
+//! `DiskStore`'s own ranked full-text index for a vault; plain files under
+//! `_bard/graph/` for a bible. Search belongs here rather than in core,
+//! since "full-text over prose" vs. "exact symbol lookup" is an
+//! adapter-specific question.
 
 const std = @import("std");
 
@@ -92,8 +93,8 @@ pub const Store = struct {
     /// compiler generates the one `*anyopaque` -> `*T` cast, from `T` alone,
     /// so `.ptr` and the vtable's function pointers can never be built from
     /// two different concrete types the way a hand-written `.store()`
-    /// literal could. Every real implementation (`BardGraphStore`,
-    /// `BardVaultStore`, `ObsidianStore`, `FakeStore`) gets its own
+    /// literal could. Every real implementation (`DiskStore`,
+    /// `BardGraphStore`, `BardVaultStore`, `FakeStore`) gets its own
     /// `.store()` for free by calling this once with its own type -- no
     /// hand-written vtable anywhere.
     pub fn from(comptime T: type, self: *T) Store {

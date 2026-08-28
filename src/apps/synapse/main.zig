@@ -1,5 +1,5 @@
 //! The `synapse` executable: subcommand dispatch over the shared core, wired
-//! to the code profile's adapters (tree-sitter extraction, the Obsidian
+//! to the code profile's adapters (tree-sitter extraction, the vault
 //! store, inferred clustering, the full node lifecycle).
 //!
 //! CLI contract is frozen: every flag, stdout line and exit code matches the

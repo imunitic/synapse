@@ -5,11 +5,10 @@
 //!
 //! Identity resolves from `.git`/`HEAD`/`config` (no spawn); the environment
 //! still wins when set (the bats suite pins fixture repos this way). Reads
-//! (`Index.md`, a node, `_manifest.tsv`) come from disk, not the Local REST
-//! API -- fetching a known path through it meant a 4.5 MB response on a hub
-//! node to print a few hundred words. Writes (`write-node`'s PUT) still go
-//! through the API, which is what keeps Obsidian's view and the vault's git
-//! history correct -- see `adapters/obsidian/store.zig`.
+//! (`Index.md`, a node, `_manifest.tsv`) go straight to disk -- a known path
+//! never needs a search round trip. Writes (`write-node`) go through
+//! `Store`, which keeps an extended store's own live view and the vault's
+//! git history correct -- see docs/synapse/synapse-extended-store.md.
 
 const std = @import("std");
 const core = @import("core");

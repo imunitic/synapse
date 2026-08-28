@@ -1,9 +1,7 @@
 //! The on-disk reverse index: bytes in, bytes out. No files, no paths, no `Io`.
 //!
-//! Replaces `_index.json` (26 MB for syrius3's 124,837 paths, read by `jq`
-//! on every `synapse-build-index.sh`/`synapse-query.sh`/staleness-hook call,
-//! and PUT over the Obsidian REST API despite being derived and gitignored).
-//! Moves beside the tags cache in `$SYNAPSE_WORK_DIR/{repo}@{branch}/`.
+//! Derived and gitignored, so it lives beside the tags cache in
+//! `$SYNAPSE_WORK_DIR/{repo}@{branch}/`, never in the vault itself.
 //!
 //! A path maps to a *list* of nodes, not one: `synapse-build-index.sh` keeps
 //! `[.[].node] | sort` per path, since a file can be cited by more than one

@@ -1,7 +1,6 @@
 //! Pure `[[wikilink]]` target extraction -- no resolution, no I/O. Shared by
 //! any `Store`/`LinkGraph` that has to find link targets in a note's raw
-//! text itself, rather than asking a live app for them the way
-//! `ObsidianLinkGraph` does.
+//! text itself, rather than asking a live external app for them.
 
 const std = @import("std");
 

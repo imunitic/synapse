@@ -1,14 +1,14 @@
 # synapse-setup configure copies this file in automatically when it finds no
 # synapse.conf anywhere. Edit the path below for this machine.
-SYNAPSE_VAULT_DIR="$HOME/Obsidian/YourVault"
+SYNAPSE_VAULT_DIR="$HOME/Vault/YourVault"
 
 # Default "disk" if unset: reads/writes the vault folder directly, no
-# dependency on Obsidian being open at all -- search and the link graph
+# external dependency at all -- search and the link graph
 # (backlinks/links/unresolved/orphans/deadends/ambiguous) are computed by
-# DiskStore's own scan. Set to "obsidian" to prefer a running Obsidian
-# app's own live search relevance and graph data instead, falling back to
-# the same disk-backed behavior automatically whenever Obsidian isn't
-# reachable.
+# DiskStore's own scan. Set to the name of an extended store instead to
+# prefer a running external app's own live search relevance and graph data,
+# falling back to the same disk-backed behavior automatically whenever that
+# app isn't reachable -- see docs/synapse/synapse-extended-store.md.
 #SYNAPSE_VAULT_STORE="obsidian"
 
 # Where Synapse clones/builds tree-sitter grammars (shared across every

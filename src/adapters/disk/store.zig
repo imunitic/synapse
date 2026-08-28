@@ -1,17 +1,9 @@
 //! `DiskStore`: a `ports.Store` backed by plain markdown files directly on
-//! disk, no network dependency at all. Same node-addressing shape as
-//! `ObsidianStore`, which composes this exact type for its own `read`/
-//! `write`/`list`: `namespace`
-//! prefixes every node name so a caller passes a bare title, never a vault
-//! path; an empty `namespace` means `node` is already a full vault-relative
-//! path (the `frontmatter`/whole-vault case).
-//!
-//! An Obsidian vault already *is* a folder of markdown files with YAML
-//! frontmatter -- this reads and writes that exact same folder directly.
-//! Pointing `SYNAPSE_VAULT_DIR` at an existing Obsidian vault and switching
-//! `SYNAPSE_VAULT_STORE` to `disk` keeps everything working unchanged;
-//! Obsidian itself stays fully usable as a human-browsing/graph-view app on
-//! the same folder, decoupled from how this binary reads/writes it.
+//! disk, no network dependency at all. `namespace` prefixes every node name
+//! so a caller passes a bare title, never a vault path; an empty
+//! `namespace` means `node` is already a full vault-relative path (the
+//! `frontmatter`/whole-vault case). An extended store composing this exact
+//! type for its own `read`/`write`/`list` reuses the same addressing shape.
 
 const std = @import("std");
 const ports = @import("ports");
@@ -27,15 +19,12 @@ pub const DiskStore = struct {
     gpa: Allocator,
     /// The vault root -- every node path resolves under here.
     vault: []const u8,
-    /// `synapse/{repo}@{branch}`, prefixed onto every node name, same
-    /// convention as `ObsidianStore.namespace`. Empty means `node` is
-    /// already a full vault-relative path.
+    /// `synapse/{repo}@{branch}`, prefixed onto every node name. Empty
+    /// means `node` is already a full vault-relative path.
     namespace: []const u8,
     /// A link graph is a whole-vault concept, not a per-namespace one --
     /// composed from `vault` directly regardless of what namespace this
-    /// particular `DiskStore` was constructed with, same borrowed-bytes
-    /// lifetime relationship `ObsidianStore.link_graph` already has to its
-    /// own `disk` field.
+    /// particular `DiskStore` was constructed with.
     link_graph: DiskLinkGraph,
     /// Same vault-wide-always reasoning as `link_graph` -- a rename's
     /// referring-wikilink rewrite is a whole-vault concern too.
@@ -73,8 +62,7 @@ pub const DiskStore = struct {
     }
 
     /// One-line delegation to the composed field -- `DiskStore` doesn't
-    /// implement any `LinkGraph` method itself, same shape as
-    /// `ObsidianStore.linkGraph()`.
+    /// implement any `LinkGraph` method itself.
     pub fn linkGraph(self: *DiskStore) LinkGraph {
         return self.link_graph.linkGraph();
     }
@@ -108,16 +96,13 @@ pub const DiskStore = struct {
     }
 
     /// Every `.md` file anywhere under `{vault}/{namespace}`, recursively.
-    /// See `listMarkdownFiles` below -- the real implementation, shared with
-    /// `ObsidianStore.list`, since a vault's files are the same files on
-    /// disk regardless of which backend is asked for them.
+    /// See `listMarkdownFiles` below -- the real implementation.
     pub fn list(self: *DiskStore, gpa: Allocator, io: Io) anyerror![]const []const u8 {
         return listMarkdownFiles(gpa, io, self.vault, self.namespace);
     }
 
-    /// Full-text search over every node's content, matching
-    /// `ObsidianStore.search`'s own plain-string contract exactly (no
-    /// field:value heuristic -- that's `core`-level JsonLogic composition
+    /// Full-text search over every node's content, a plain-string contract
+    /// (no field:value heuristic -- that's `core`-level JsonLogic composition
     /// over `read`/`list`, not this method's job). Rarity-weighted, not
     /// just occurrence-count: a query word rare across the vault
     /// contributes more to a document's score than a word common almost
@@ -307,10 +292,10 @@ fn searchSubstring(self: *DiskStore, gpa: Allocator, io: Io, names: []const []co
 ///
 /// Resolution is case-insensitive against every real file's own title (its
 /// filename minus `.md`, kept identical to `title:` frontmatter by this
-/// vault's convention), mirroring Obsidian's own apparent default. A target
-/// matching more than one file is never silently resolved to one: every
-/// candidate is counted into `backlinks`/`links`, and the occurrence is
-/// separately reported by `ambiguous` instead of being dropped or guessed at.
+/// vault's convention). A target matching more than one file is never
+/// silently resolved to one: every candidate is counted into
+/// `backlinks`/`links`, and the occurrence is separately reported by
+/// `ambiguous` instead of being dropped or guessed at.
 pub const DiskLinkGraph = struct {
     vault: []const u8,
 
@@ -722,9 +707,8 @@ fn groupByTarget(gpa: Allocator, edges: []const Edge) ![]const LinkGraph.Unresol
 }
 
 /// Every `.md` file anywhere under `{root}/{namespace}` (or `{root}` when
-/// `namespace` is empty), recursively -- the real listing implementation,
-/// shared by `DiskStore.list` and `ObsidianStore.list` alike, since an
-/// Obsidian vault's files are the same files on disk either way.
+/// `namespace` is empty), recursively -- the real listing implementation
+/// behind `DiskStore.list`.
 ///
 /// Names are returned with `/` separators, relative to the listed root --
 /// the same shape a namespace-scoped `node` name already has, just now

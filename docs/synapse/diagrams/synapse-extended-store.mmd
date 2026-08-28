@@ -1,0 +1,22 @@
+---
+title: Synapse Extended Store — decorator with a runtime fallback
+---
+flowchart TB
+    classDef caller fill:#d0ebff,stroke:#1971c2,color:#1e1e1e
+    classDef decorator fill:#e5dbff,stroke:#6741d9,color:#1e1e1e
+    classDef live fill:#ffd8a8,stroke:#e8590c,color:#1e1e1e
+    classDef disk fill:#d3f9d8,stroke:#2f9e44,color:#1e1e1e
+
+    CALLER["a caller over ports.Store<br/>(CLI, skill, hook)"]
+    EXT["extended store<br/>e.g. ObsidianStore"]
+
+    CALLER -->|"read / write / list"| DISK1["DiskStore<br/>plain disk I/O"]
+    CALLER -->|"search / link graph / rename"| EXT
+
+    EXT -->|"app reachable"| LIVE["the live app's own<br/>search + graph data"]
+    EXT -->|"error.VaultUnreachable"| DISK2["DiskStore's own<br/>ranked search + link graph"]
+
+    class CALLER caller
+    class EXT decorator
+    class LIVE live
+    class DISK1,DISK2 disk

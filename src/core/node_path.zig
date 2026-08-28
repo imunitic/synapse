@@ -1,8 +1,8 @@
 //! Whether a `Store` node name is safe to address a file with -- shared by
 //! every `Store` implementation that turns `node` into a real path (a
-//! filesystem join for `DiskStore`, a URL path segment for `ObsidianStore`),
-//! so both backends reject the same inputs rather than each rolling its own
-//! check.
+//! filesystem join today, potentially something else for a future backend),
+//! so every implementation rejects the same inputs rather than each rolling
+//! its own check.
 
 const std = @import("std");
 
