@@ -6,8 +6,8 @@
 //! `commit`, expands the crux directive, records and strips the groundings,
 //! builds the `## Sources` mirror, and writes the note through whichever
 //! `Store` `SYNAPSE_VAULT_STORE`/`SYNAPSE_VAULT_DIR` resolve to
-//! (`adapters.store_resolve.resolveStore`) -- Obsidian's Local REST API by
-//! default, a plain disk write with `SYNAPSE_VAULT_STORE=disk`.
+//! (`adapters.store_resolve.resolveStore`) -- a plain disk write either way,
+//! `obsidian` (the default) or `disk`.
 //!
 //! Prints `<file>\t<n> files\t<digest>` on success. Exit 1 for anything
 //! that made the write impossible, 2 for a usage error.
@@ -16,7 +16,7 @@
 //! stays consistent and the vault's git hook sees the change; the three
 //! reads this command makes are plain disk reads regardless of backend
 //! (see `context.zig`) -- reading a node the compiled binary already has a
-//! local checkout of has never needed the REST API.
+//! local checkout of never needed to go through a `Store` at all.
 //!
 //! Refuses (exit 1, not a degraded write) a crux path the node doesn't
 //! claim, a range outside the file, and a range longer than its cap -- all
@@ -372,13 +372,13 @@ pub fn write(
     var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, ctx.vault, ctx.dir, prog)) orelse return 1;
     defer resolved.deinit();
     var store = resolved.store();
-    const put_result = store.write(io, node_file, note.written()) catch {
-        std.debug.print("{s}: PUT failed (000): curl did not complete\n", .{prog});
+    const put_result = store.write(io, node_file, note.written()) catch |err| {
+        std.debug.print("{s}: write failed: {s}\n", .{ prog, @errorName(err) });
         return 1;
     };
     defer gpa.free(put_result.body);
     if (!put_result.accepted) {
-        std.debug.print("{s}: PUT failed ({d:0>3}): {s}\n", .{ prog, put_result.status, put_result.body });
+        std.debug.print("{s}: write rejected ({d:0>3}): {s}\n", .{ prog, put_result.status, put_result.body });
         return 1;
     }
 
@@ -1061,11 +1061,11 @@ test "a directory in the path list fails, the way a submodule gitlink would" {
     try testing.expect(!try fx.nodeExists("Gitlink"));
 }
 
-test "a non-2xx PUT is reported as a failure and stores nothing" {
+test "a disk write failure is reported and stores nothing" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
-    try fx.setPutStatus("500");
+    try fx.forceWriteFailure("synapse/repo@main/Rejected.md");
     try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
 
     var ctx = try fx.resolveContext();
@@ -1080,7 +1080,10 @@ test "a non-2xx PUT is reported as a failure and stores nothing" {
         .body_text = "## Summary\nx\n",
     }, &out.writer);
     try testing.expectEqual(@as(u8, 1), code);
-    try testing.expect(!try fx.nodeExists("Rejected"));
+    // Not `nodeExists`: the forced failure left a *directory* at this path,
+    // which `access` alone can't tell apart from a real node -- `readNode`
+    // actually reads it as a file, `catch null`-ing any error IsDir included.
+    try testing.expectEqual(@as(?[]u8, null), try fx.readNode(gpa, "Rejected"));
 }
 
 test "records HEAD as the baseline commit, in full" {

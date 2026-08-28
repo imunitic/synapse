@@ -238,6 +238,10 @@ pub fn build(b: *std.Build) void {
                 // runs this binary, so anything a shipped script calls has to
                 // work here too.
                 .{ .name = "adapters", .module = adapters },
+                // `ports` for `vault_cmd.zig`'s `LinkGraph` subcommands, same
+                // "arrives transitively, naming it adds only the ability to
+                // import it" reasoning as `adapters` above.
+                .{ .name = "ports", .module = ports },
             },
         }),
     });

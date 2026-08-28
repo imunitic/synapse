@@ -1,12 +1,11 @@
-//! A real git repo, a real fake-vault (Obsidian REST plugin stub, matched
-//! by `tests/fixtures/fake-bin/curl`), and a real `_index.bin`, for
+//! A real git repo, a real fake-vault, and a real `_index.bin`, for
 //! `src/apps/hook/*.zig` native tests.
 //!
 //! `src/apps/synapse/cmd_test_support.zig` isn't importable here: `hook` is
 //! a separate `build.zig` module (no `ports` import, a different root file
 //! entirely), so this is its own copy of the same pattern -- established
 //! for `staleness.zig`, reusable by any later `src/apps/hook/*.zig` native
-//! test that needs a real git identity and/or a real Obsidian PUT.
+//! test that needs a real git identity and/or a real vault store.
 
 const std = @import("std");
 const core = @import("core");
@@ -55,18 +54,10 @@ pub const Fixture = struct {
         errdefer gpa.free(curl_capture);
 
         try tmp.dir.createDirPath(testing.io, "repo");
-        try tmp.dir.createDirPath(testing.io, "vault/.obsidian/plugins/obsidian-local-rest-api");
+        try tmp.dir.createDirPath(testing.io, "vault");
         try tmp.dir.createDirPath(testing.io, "work");
         try tmp.dir.createDirPath(testing.io, "home/.claude");
         try tmp.dir.createDirPath(testing.io, "curl-capture");
-        try tmp.dir.writeFile(testing.io, .{
-            .sub_path = "vault/.obsidian/plugins/obsidian-local-rest-api/data.json",
-            .data = "{\"apiKey\":\"test-key\",\"port\":27124}",
-        });
-        try tmp.dir.writeFile(testing.io, .{
-            .sub_path = "home/.claude/obsidian-local-rest-api-ca.pem",
-            .data = "",
-        });
 
         var env = try std.process.Environ.createMap(testing.environ, gpa);
         errdefer env.deinit();

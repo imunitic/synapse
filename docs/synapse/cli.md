@@ -40,6 +40,11 @@ usage: synapse <subcommand> [args]
   vault-doc-map <path>       headings/block ids/frontmatter keys, for a vault-patch target
   vault-patch <path> --heading|--block|--frontmatter <target>
               [--append|--prepend|--replace] [--create]   content from stdin
+  vault-backlinks <path>     node<TAB>count, per file linking to <path>
+  vault-links <path>         outgoing link targets from <path>
+  vault-unresolved           source<TAB>target<TAB>count, one row per broken link
+  vault-orphans              notes with no backlinks
+  vault-deadends             notes with no outgoing links
   build-refs [--cache <f>] [--out <f>]   _refs.tsv from the tags cache
   build-deps [--repo <dir>] [--out <f>]  _deps.tsv, per-file declared dependencies
   build-namespaces [--repo <dir>] [--out <f>]  _namespaces.tsv, per-file declared namespace
@@ -170,6 +175,11 @@ usage: synapse vault-read <path>
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
                    [--append|--prepend|--replace] [--create]
                                                        content on stdin
+       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
+       synapse vault-links <path>                      outgoing link targets from <path>
+       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
+       synapse vault-orphans                           notes with no backlinks
+       synapse vault-deadends                          notes with no outgoing links
 ```
 
 ### synapse vault-write
@@ -184,6 +194,11 @@ usage: synapse vault-read <path>
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
                    [--append|--prepend|--replace] [--create]
                                                        content on stdin
+       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
+       synapse vault-links <path>                      outgoing link targets from <path>
+       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
+       synapse vault-orphans                           notes with no backlinks
+       synapse vault-deadends                          notes with no outgoing links
 ```
 
 ### synapse vault-list
@@ -198,6 +213,11 @@ usage: synapse vault-read <path>
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
                    [--append|--prepend|--replace] [--create]
                                                        content on stdin
+       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
+       synapse vault-links <path>                      outgoing link targets from <path>
+       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
+       synapse vault-orphans                           notes with no backlinks
+       synapse vault-deadends                          notes with no outgoing links
 ```
 
 ### synapse vault-search
@@ -212,6 +232,11 @@ usage: synapse vault-read <path>
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
                    [--append|--prepend|--replace] [--create]
                                                        content on stdin
+       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
+       synapse vault-links <path>                      outgoing link targets from <path>
+       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
+       synapse vault-orphans                           notes with no backlinks
+       synapse vault-deadends                          notes with no outgoing links
 ```
 
 ### synapse vault-search-text
@@ -226,6 +251,11 @@ usage: synapse vault-read <path>
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
                    [--append|--prepend|--replace] [--create]
                                                        content on stdin
+       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
+       synapse vault-links <path>                      outgoing link targets from <path>
+       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
+       synapse vault-orphans                           notes with no backlinks
+       synapse vault-deadends                          notes with no outgoing links
 ```
 
 ### synapse vault-doc-map
@@ -240,6 +270,11 @@ usage: synapse vault-read <path>
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
                    [--append|--prepend|--replace] [--create]
                                                        content on stdin
+       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
+       synapse vault-links <path>                      outgoing link targets from <path>
+       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
+       synapse vault-orphans                           notes with no backlinks
+       synapse vault-deadends                          notes with no outgoing links
 ```
 
 ### synapse vault-patch
@@ -254,6 +289,106 @@ usage: synapse vault-read <path>
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
                    [--append|--prepend|--replace] [--create]
                                                        content on stdin
+       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
+       synapse vault-links <path>                      outgoing link targets from <path>
+       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
+       synapse vault-orphans                           notes with no backlinks
+       synapse vault-deadends                          notes with no outgoing links
+```
+
+### synapse vault-backlinks
+
+```
+usage: synapse vault-read <path>
+       synapse vault-write <path>                     body on stdin
+       synapse vault-list
+       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
+       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
+       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
+                   [--append|--prepend|--replace] [--create]
+                                                       content on stdin
+       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
+       synapse vault-links <path>                      outgoing link targets from <path>
+       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
+       synapse vault-orphans                           notes with no backlinks
+       synapse vault-deadends                          notes with no outgoing links
+```
+
+### synapse vault-links
+
+```
+usage: synapse vault-read <path>
+       synapse vault-write <path>                     body on stdin
+       synapse vault-list
+       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
+       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
+       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
+                   [--append|--prepend|--replace] [--create]
+                                                       content on stdin
+       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
+       synapse vault-links <path>                      outgoing link targets from <path>
+       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
+       synapse vault-orphans                           notes with no backlinks
+       synapse vault-deadends                          notes with no outgoing links
+```
+
+### synapse vault-unresolved
+
+```
+usage: synapse vault-read <path>
+       synapse vault-write <path>                     body on stdin
+       synapse vault-list
+       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
+       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
+       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
+                   [--append|--prepend|--replace] [--create]
+                                                       content on stdin
+       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
+       synapse vault-links <path>                      outgoing link targets from <path>
+       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
+       synapse vault-orphans                           notes with no backlinks
+       synapse vault-deadends                          notes with no outgoing links
+```
+
+### synapse vault-orphans
+
+```
+usage: synapse vault-read <path>
+       synapse vault-write <path>                     body on stdin
+       synapse vault-list
+       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
+       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
+       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
+                   [--append|--prepend|--replace] [--create]
+                                                       content on stdin
+       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
+       synapse vault-links <path>                      outgoing link targets from <path>
+       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
+       synapse vault-orphans                           notes with no backlinks
+       synapse vault-deadends                          notes with no outgoing links
+```
+
+### synapse vault-deadends
+
+```
+usage: synapse vault-read <path>
+       synapse vault-write <path>                     body on stdin
+       synapse vault-list
+       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
+       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
+       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
+                   [--append|--prepend|--replace] [--create]
+                                                       content on stdin
+       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
+       synapse vault-links <path>                      outgoing link targets from <path>
+       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
+       synapse vault-orphans                           notes with no backlinks
+       synapse vault-deadends                          notes with no outgoing links
 ```
 
 ### synapse build-refs

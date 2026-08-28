@@ -45,6 +45,7 @@
 
 const std = @import("std");
 const core = @import("core");
+const ports = @import("ports");
 const adapters = @import("adapters");
 
 const Io = std.Io;
@@ -62,6 +63,11 @@ const usage_text =
     \\       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
     \\                   [--append|--prepend|--replace] [--create]
     \\                                                       content on stdin
+    \\       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
+    \\       synapse vault-links <path>                      outgoing link targets from <path>
+    \\       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
+    \\       synapse vault-orphans                           notes with no backlinks
+    \\       synapse vault-deadends                          notes with no outgoing links
     \\
 ;
 
@@ -207,6 +213,112 @@ pub fn docMap(
     for (map.headings) |h| try result.print("heading\t{s}\n", .{h});
     for (map.blocks) |b| try result.print("block\t{s}\n", .{b});
     for (map.frontmatter_keys) |k| try result.print("frontmatter\t{s}\n", .{k});
+    return 0;
+}
+
+/// `null` from `resolved.linkGraph()` means the resolved backend has no
+/// `LinkGraph` of its own -- `DiskStore` today, until it grows one. Not a
+/// usage error: the caller asked a well-formed question, this backend just
+/// can't answer it yet.
+fn openLinkGraph(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8) !?struct {
+    resolved: adapters.store_resolve.ResolvedStore,
+    link_graph: ports.LinkGraph,
+} {
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return null;
+    const lg = resolved.linkGraph() orelse {
+        resolved.deinit();
+        std.debug.print("{s}: this vault backend has no link graph (SYNAPSE_VAULT_STORE)\n", .{prog});
+        return null;
+    };
+    return .{ .resolved = resolved, .link_graph = lg };
+}
+
+pub fn backlinks(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, path: []const u8, result: *Io.Writer) !u8 {
+    var opened = (try openLinkGraph(gpa, io, env, vault)) orelse return 1;
+    defer opened.resolved.deinit();
+
+    const hits = opened.link_graph.backlinks(gpa, io, path) catch {
+        std.debug.print("{s}: backlinks failed\n", .{prog});
+        return 1;
+    };
+    defer {
+        for (hits) |h| gpa.free(h.node);
+        gpa.free(hits);
+    }
+    for (hits) |h| try result.print("{s}\t{d}\n", .{ h.node, h.count });
+    return 0;
+}
+
+pub fn links(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, path: []const u8, result: *Io.Writer) !u8 {
+    var opened = (try openLinkGraph(gpa, io, env, vault)) orelse return 1;
+    defer opened.resolved.deinit();
+
+    const names = opened.link_graph.links(gpa, io, path) catch {
+        std.debug.print("{s}: links failed\n", .{prog});
+        return 1;
+    };
+    defer {
+        for (names) |n| gpa.free(n);
+        gpa.free(names);
+    }
+    for (names) |n| try result.print("{s}\n", .{n});
+    return 0;
+}
+
+/// One row per `(source, target)` pair -- the exact shape
+/// `/synapse-vault-tidy`'s own "Broken link in `{note}`: → `{target}`"
+/// finding needs, `sources` iterated rather than joined onto one row.
+pub fn unresolved(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, result: *Io.Writer) !u8 {
+    var opened = (try openLinkGraph(gpa, io, env, vault)) orelse return 1;
+    defer opened.resolved.deinit();
+
+    const rows = opened.link_graph.unresolved(gpa, io) catch {
+        std.debug.print("{s}: unresolved failed\n", .{prog});
+        return 1;
+    };
+    defer {
+        for (rows) |r| {
+            gpa.free(r.target);
+            for (r.sources) |s| gpa.free(s);
+            gpa.free(r.sources);
+        }
+        gpa.free(rows);
+    }
+    for (rows) |r| {
+        for (r.sources) |source| try result.print("{s}\t{s}\t{d}\n", .{ source, r.target, r.count });
+    }
+    return 0;
+}
+
+pub fn orphans(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, result: *Io.Writer) !u8 {
+    var opened = (try openLinkGraph(gpa, io, env, vault)) orelse return 1;
+    defer opened.resolved.deinit();
+
+    const names = opened.link_graph.orphans(gpa, io) catch {
+        std.debug.print("{s}: orphans failed\n", .{prog});
+        return 1;
+    };
+    defer {
+        for (names) |n| gpa.free(n);
+        gpa.free(names);
+    }
+    for (names) |n| try result.print("{s}\n", .{n});
+    return 0;
+}
+
+pub fn deadends(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, result: *Io.Writer) !u8 {
+    var opened = (try openLinkGraph(gpa, io, env, vault)) orelse return 1;
+    defer opened.resolved.deinit();
+
+    const names = opened.link_graph.deadends(gpa, io) catch {
+        std.debug.print("{s}: deadends failed\n", .{prog});
+        return 1;
+    };
+    defer {
+        for (names) |n| gpa.free(n);
+        gpa.free(names);
+    }
+    for (names) |n| try result.print("{s}\n", .{n});
     return 0;
 }
 
@@ -384,6 +496,79 @@ pub fn runDocMap(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *s
     var out_buf: [8192]u8 = undefined;
     var out = Io.File.stdout().writer(io, &out_buf);
     const code = try docMap(gpa, io, env, vault, path, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+pub fn runBacklinks(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
+    const path = args.next() orelse return usage();
+    if (isHelp(path)) return help();
+    if (args.next() != null) return usage();
+    const vault = (try resolveVault(gpa, io, env)) orelse return 1;
+    defer gpa.free(vault);
+
+    var out_buf: [8192]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try backlinks(gpa, io, env, vault, path, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+pub fn runLinks(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
+    const path = args.next() orelse return usage();
+    if (isHelp(path)) return help();
+    if (args.next() != null) return usage();
+    const vault = (try resolveVault(gpa, io, env)) orelse return 1;
+    defer gpa.free(vault);
+
+    var out_buf: [8192]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try links(gpa, io, env, vault, path, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+pub fn runUnresolved(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
+    if (args.next()) |a| {
+        if (isHelp(a)) return help();
+        return usage();
+    }
+    const vault = (try resolveVault(gpa, io, env)) orelse return 1;
+    defer gpa.free(vault);
+
+    var out_buf: [8192]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try unresolved(gpa, io, env, vault, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+pub fn runOrphans(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
+    if (args.next()) |a| {
+        if (isHelp(a)) return help();
+        return usage();
+    }
+    const vault = (try resolveVault(gpa, io, env)) orelse return 1;
+    defer gpa.free(vault);
+
+    var out_buf: [8192]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try orphans(gpa, io, env, vault, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+pub fn runDeadends(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
+    if (args.next()) |a| {
+        if (isHelp(a)) return help();
+        return usage();
+    }
+    const vault = (try resolveVault(gpa, io, env)) orelse return 1;
+    defer gpa.free(vault);
+
+    var out_buf: [8192]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try deadends(gpa, io, env, vault, &out.interface);
     try out.interface.flush();
     return code;
 }

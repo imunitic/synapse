@@ -1,13 +1,16 @@
-//! A real `Context` plus a real Obsidian PUT, for `*_cmd.zig` native tests
+//! A real `Context` plus a real vault store, for `*_cmd.zig` native tests
 //! that need both without a real vault, a real git repo, or a real network
 //! call.
 //!
-//! Reuses `tests/fixtures/fake-bin/curl` rather than a second, divergent
-//! fake -- one script defines what a PUT/GET/search looks like, for both
-//! the bats suite and native tests. `context.resolve`'s own env-var
-//! overrides (`SYNAPSE_NAMESPACE`/`REPO_ROOT`/`BRANCH`/`REMOTE`/`WORK_DIR`)
-//! are what let this skip real git entirely -- the same escape hatch the
-//! bats suite pins fixture repos through.
+//! `ObsidianStore`'s `read`/`write`/`list` are plain disk I/O against
+//! `vault/` directly, needing no fixture at all; `search`/`.linkGraph()` go
+//! through the `obsidian` CLI, faked here the same way `git` is --
+//! `tests/fixtures/fake-bin/obsidian`, one canned-response script per
+//! fixture instance, reused rather than a second, divergent fake.
+//! `context.resolve`'s own env-var overrides (`SYNAPSE_NAMESPACE`/
+//! `REPO_ROOT`/`BRANCH`/`REMOTE`/`WORK_DIR`) are what let this skip real git
+//! entirely -- the same escape hatch the bats suite pins fixture repos
+//! through.
 //!
 //! Established for `write_node_cmd.zig`; reusable by any future `*_cmd.zig`
 //! native-test migration that needs a Context and/or a store.
@@ -29,6 +32,8 @@ pub const Fixture = struct {
     work: []const u8,
     home: []const u8,
     curl_log: []const u8,
+    obsidian_log: []const u8,
+    obsidian_script: []const u8,
     env: std.process.Environ.Map,
     io_threaded: std.Io.Threaded,
     environ_block: std.process.Environ.PosixBlock,
@@ -60,19 +65,23 @@ pub const Fixture = struct {
         errdefer gpa.free(home);
         const curl_log = try std.fmt.allocPrint(gpa, "{s}/curl.log", .{root});
         errdefer gpa.free(curl_log);
+        const obsidian_log = try std.fmt.allocPrint(gpa, "{s}/obsidian.log", .{root});
+        errdefer gpa.free(obsidian_log);
+        const obsidian_script = try std.fmt.allocPrint(gpa, "{s}/obsidian.script", .{root});
+        errdefer gpa.free(obsidian_script);
 
         try tmp.dir.createDirPath(testing.io, "repo");
-        try tmp.dir.createDirPath(testing.io, "vault/.obsidian/plugins/obsidian-local-rest-api");
+        try tmp.dir.createDirPath(testing.io, "vault");
         try tmp.dir.createDirPath(testing.io, "work");
         try tmp.dir.createDirPath(testing.io, "home/.claude");
-        try tmp.dir.writeFile(testing.io, .{
-            .sub_path = "vault/.obsidian/plugins/obsidian-local-rest-api/data.json",
-            .data = "{\"apiKey\":\"test-key\",\"port\":27124}",
-        });
-        try tmp.dir.writeFile(testing.io, .{
-            .sub_path = "home/.claude/obsidian-local-rest-api-ca.pem",
-            .data = "",
-        });
+        // The default canned response for any `*_cmd.zig` test that reaches
+        // the `obsidian` CLI through `ObsidianStore.search`/`.linkGraph()`
+        // (doctor's own reachability check, chiefly) without setting up its
+        // own script -- one line per subcommand a default-path check might
+        // invoke; a test needing a different answer overwrites this file.
+        const default_script = try std.fmt.allocPrint(gpa, "vault {s}\n", .{vault});
+        defer gpa.free(default_script);
+        try tmp.dir.writeFile(testing.io, .{ .sub_path = "obsidian.script", .data = default_script });
 
         var env = try std.process.Environ.createMap(testing.environ, gpa);
         errdefer env.deinit();
@@ -97,6 +106,8 @@ pub const Fixture = struct {
         _ = env.swapRemove("CLAUDE_PLUGIN_ROOT");
         try env.put("FAKE_CURL_LOG", curl_log);
         try env.put("FAKE_CURL_VAULT_DIR", vault);
+        try env.put("FAKE_OBSIDIAN_LOG", obsidian_log);
+        try env.put("FAKE_OBSIDIAN_SCRIPT", obsidian_script);
 
         // Absolute, not just a resolvable relative path: `tests/fixtures/
         // fake-bin/git` strips its own directory from PATH by computing its
@@ -135,6 +146,8 @@ pub const Fixture = struct {
             .work = work,
             .home = home,
             .curl_log = curl_log,
+            .obsidian_log = obsidian_log,
+            .obsidian_script = obsidian_script,
             .env = env,
             .io_threaded = io_threaded,
             .environ_block = block,
@@ -146,6 +159,8 @@ pub const Fixture = struct {
         self.environ_block.deinit(self.gpa);
         self.env.deinit();
         self.gpa.free(self.curl_log);
+        self.gpa.free(self.obsidian_log);
+        self.gpa.free(self.obsidian_script);
         self.gpa.free(self.home);
         self.gpa.free(self.work);
         self.gpa.free(self.vault);
@@ -337,9 +352,16 @@ pub const Fixture = struct {
         self.io_threaded = .init(self.gpa, .{ .environ = .{ .block = self.environ_block } });
     }
 
-    /// `FAKE_CURL_PUT_STATUS`, for the "PUT rejected" case.
-    pub fn setPutStatus(self: *Fixture, status: []const u8) !void {
-        try self.env.put("FAKE_CURL_PUT_STATUS", status);
-        try self.refreshEnv();
+    /// Forces `store.write` to fail with a real disk error, root-proof
+    /// (unlike a permission bit, which a root-run CI container ignores): a
+    /// directory sitting where the write's target file needs to go makes
+    /// `writeFile` fail with `error.IsDir` regardless of privilege. Only
+    /// usable for a target path nothing has read yet -- once something
+    /// exists there as a file, a caller reading it first would find a
+    /// directory instead and fail differently.
+    pub fn forceWriteFailure(self: *Fixture, vault_relative_target: []const u8) !void {
+        const full = try std.fmt.allocPrint(self.gpa, "vault/{s}", .{vault_relative_target});
+        defer self.gpa.free(full);
+        try self.tmp.dir.createDirPath(testing.io, full);
     }
 };

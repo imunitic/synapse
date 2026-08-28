@@ -177,74 +177,21 @@ fn vaultChecks(ctx: *Ctx) !?[]const u8 {
     return null;
 }
 
-/// Plugin port/key, the certificate, whether anything answers. Mirrors:
-/// every `curl` failure a hook turns into silence, and `write-node`'s "REST
-/// API not configured".
+/// Whether the official `obsidian` CLI is on PATH and answers for this
+/// vault. `ObsidianStore` reaches Obsidian through the CLI's own local
+/// socket -- no plugin, no cert, no API key, but the CLI itself is off by
+/// default: `Settings -> General -> Advanced -> Command line interface`.
 fn apiChecks(ctx: *Ctx, vault: ?[]const u8) !void {
-    const v = vault orelse {
-        try ctx.add("REST API", .fail, "skipped: no vault");
-        return;
-    };
-    const plugin = try ctx.fmt("{s}/.obsidian/plugins/obsidian-local-rest-api/data.json", .{v});
-    const text = ctx.read(plugin) orelse {
-        try ctx.add("REST API", .fail, "no plugin data.json -- install \"Local REST API\" in Obsidian");
-        return;
-    };
-    const parsed = std.json.parseFromSlice(std.json.Value, ctx.gpa, text, .{}) catch {
-        try ctx.add("REST API", .fail, "plugin data.json is not readable JSON");
-        return;
-    };
-    defer parsed.deinit();
-    const obj = switch (parsed.value) {
-        .object => |o| o,
-        else => {
-            try ctx.add("REST API", .fail, "plugin data.json is not an object");
-            return;
-        },
-    };
-    const key = switch (obj.get("apiKey") orelse .null) {
-        .string => |s| s,
-        else => "",
-    };
-    const port: u16 = switch (obj.get("port") orelse .null) {
-        .integer => |i| @intCast(i),
-        .string => |s| std.fmt.parseInt(u16, s, 10) catch 0,
-        else => 0,
-    };
-    if (key.len == 0 or port == 0) {
-        try ctx.add("REST API", .fail, "plugin has no apiKey/port yet -- open Obsidian once");
-        return;
-    }
-    try ctx.add("REST API", .ok, try ctx.fmt("127.0.0.1:{d}", .{port}));
-
-    const home = ctx.env.get("HOME") orelse "";
-    const cert = try ctx.fmt("{s}/.claude/obsidian-local-rest-api-ca.pem", .{home});
-    if (ctx.exists(cert)) {
-        try ctx.add("certificate", .ok, cert);
-    } else {
-        try ctx.add("certificate", .fail, "absent -- created automatically by the obsidian-mcp-refresh.cjs SessionStart hook; start a new session");
-        return;
-    }
-
-    // The one round-trip check, not a file test: most real API failures are
-    // reachability failures (Obsidian not running, sandbox blocking loopback).
-    const url = try ctx.fmt("https://127.0.0.1:{d}/vault/", .{port});
-    const auth = try ctx.fmt("Authorization: Bearer {s}", .{key});
-    const res = adapters.process.run(ctx.io, ctx.gpa, &.{
-        "curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
-        "--max-time", "5", "--cacert", cert, "-H", auth, url,
-    }, .{}) catch {
-        try ctx.add("Obsidian", .fail, "curl did not run");
+    _ = vault;
+    const res = adapters.process.run(ctx.io, ctx.gpa, &.{ "obsidian", "vault", "info=path" }, .{}) catch {
+        try ctx.add("Obsidian", .fail, "the obsidian CLI is not on PATH -- install/update Obsidian");
         return;
     };
     defer res.deinit(ctx.gpa);
-    const status = std.mem.trim(u8, res.stdout, " \t\r\n");
-    if (res.ok() and status.len != 0 and status[0] == '2') {
-        try ctx.add("Obsidian", .ok, "answering on loopback");
-    } else if (res.ok() and std.mem.eql(u8, status, "401")) {
-        try ctx.add("Obsidian", .fail, "answered 401 -- the stored apiKey is stale");
+    if (res.ok()) {
+        try ctx.add("Obsidian", .ok, std.mem.trim(u8, res.stdout, " \t\r\n"));
     } else {
-        try ctx.add("Obsidian", .fail, "not answering -- is it running with the plugin enabled?");
+        try ctx.add("Obsidian", .fail, "not answering -- is it running, and is Settings -> General -> Advanced -> Command line interface enabled?");
     }
 }
 
@@ -503,23 +450,13 @@ const DoctorFixture = struct {
         try self.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "home/.claude/synapse.conf", .data = data });
     }
 
-    /// Matches `setup_fake_obsidian_plugin`'s own cert write -- present in
-    /// every real bats test in this file's suite via its file-level
-    /// `setup()`, so needed here too for the "Obsidian: ok" round trip.
-    fn writeCert(self: *DoctorFixture) !void {
-        try self.fx.tmp.dir.createDirPath(testing.io, "home/.claude");
-        try self.fx.tmp.dir.writeFile(testing.io, .{
-            .sub_path = "home/.claude/obsidian-local-rest-api-ca.pem",
-            .data = "",
-        });
-    }
-
-    /// `commit()` + `writeConf()` + `writeCert()` -- the "configured
-    /// machine" most tests start from.
+    /// `commit()` + `writeConf()` -- the "configured machine" most tests
+    /// start from. `Fixture.init()`'s own default `obsidian.script` already
+    /// answers `vault info=path` with the fixture vault, so no separate
+    /// Obsidian setup is needed here the way a REST plugin's cert once was.
     fn baseline(self: *DoctorFixture) !void {
         try self.commit();
         try self.writeConf();
-        try self.writeCert();
     }
 
     fn check(self: *DoctorFixture, repo: []const u8, w: *Io.Writer) !u8 {
@@ -541,7 +478,7 @@ test "a configured machine reports the vault, the namespace and the API" {
     try testing.expect(std.mem.indexOf(u8, text, "ok") != null and std.mem.indexOf(u8, text, "config") != null);
     try testing.expect(std.mem.indexOf(u8, text, df.fx.vault) != null);
     try testing.expect(std.mem.indexOf(u8, text, "repo") != null);
-    try testing.expect(std.mem.indexOf(u8, text, "127.0.0.1:") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "Obsidian") != null);
 }
 
 test "config resolves at tier 1 (XDG), not just tier 2 -- the config check used to hardcode ~/.claude" {
@@ -549,7 +486,6 @@ test "config resolves at tier 1 (XDG), not just tier 2 -- the config check used 
     var df = try DoctorFixture.init(gpa);
     defer df.deinit();
     try df.commit();
-    try df.writeCert();
     const data = try std.fmt.allocPrint(gpa, "SYNAPSE_VAULT_DIR=\"{s}\"\n", .{df.fx.vault});
     defer gpa.free(data);
     try df.fx.tmp.dir.createDirPath(testing.io, "home/.config/synapse");

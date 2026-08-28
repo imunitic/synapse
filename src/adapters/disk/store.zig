@@ -1,6 +1,7 @@
 //! `DiskStore`: a `ports.Store` backed by plain markdown files directly on
-//! disk, no Obsidian Local REST API, no MCP server, no network dependency
-//! at all. Same node-addressing shape as `ObsidianStore`: `namespace`
+//! disk, no network dependency at all. Same node-addressing shape as
+//! `ObsidianStore`, which composes this exact type for its own `read`/
+//! `write`/`list`: `namespace`
 //! prefixes every node name so a caller passes a bare title, never a vault
 //! path; an empty `namespace` means `node` is already a full vault-relative
 //! path (the `frontmatter`/whole-vault case).

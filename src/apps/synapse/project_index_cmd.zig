@@ -141,13 +141,13 @@ pub fn write(
     var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, ctx.vault, ctx.dir, prog)) orelse return 1;
     defer resolved.deinit();
     var store = resolved.store();
-    const put_result = store.write(io, "Index.md", index.written()) catch {
-        std.debug.print("{s}: PUT failed (000): curl did not complete\n", .{prog});
+    const put_result = store.write(io, "Index.md", index.written()) catch |err| {
+        std.debug.print("{s}: write failed: {s}\n", .{ prog, @errorName(err) });
         return 1;
     };
     defer gpa.free(put_result.body);
     if (!put_result.accepted) {
-        std.debug.print("{s}: PUT failed ({d:0>3}): {s}\n", .{ prog, put_result.status, put_result.body });
+        std.debug.print("{s}: write rejected ({d:0>3}): {s}\n", .{ prog, put_result.status, put_result.body });
         return 1;
     }
 
@@ -476,14 +476,14 @@ test "build-project-index: a node with no summary field exits 1" {
     try testing.expectEqual(@as(u8, 1), r.code);
 }
 
-test "build-project-index: missing lists and a failed PUT each exit 1" {
-    // "PUT failed" goes to real stderr via std.debug.print, not the result
+test "build-project-index: missing lists and a disk write failure each exit 1" {
+    // "write failed" goes to real stderr via std.debug.print, not the result
     // writer -- the same split index_cmd's own equivalent test already
     // ran into. Only the exit code is asserted here; the wording is bats'.
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
-    try fx.setPutStatus("503");
+    try fx.forceWriteFailure("synapse/repo@main/Index.md");
     try stageList(&fx, "01", "Mod A", &.{"mod-a/a.txt"});
     try stageNode(&fx, "Mod A", "Only node.");
 

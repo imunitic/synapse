@@ -1,4 +1,5 @@
-# Copy this to ~/.claude/synapse.conf and edit the path for this machine.
+# synapse-setup configure copies this file in automatically when it finds no
+# synapse.conf anywhere. Edit the path below for this machine.
 SYNAPSE_VAULT_DIR="$HOME/Obsidian/YourVault"
 
 # Where Synapse clones/builds tree-sitter grammars (shared across every

@@ -96,6 +96,21 @@ pub fn main(init: std.process.Init) !u8 {
     if (std.mem.eql(u8, sub, "vault-patch"))
         return vault_cmd.runPatch(init.gpa, init.io, init.environ_map, &args);
 
+    if (std.mem.eql(u8, sub, "vault-backlinks"))
+        return vault_cmd.runBacklinks(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "vault-links"))
+        return vault_cmd.runLinks(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "vault-unresolved"))
+        return vault_cmd.runUnresolved(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "vault-orphans"))
+        return vault_cmd.runOrphans(init.gpa, init.io, init.environ_map, &args);
+
+    if (std.mem.eql(u8, sub, "vault-deadends"))
+        return vault_cmd.runDeadends(init.gpa, init.io, init.environ_map, &args);
+
     if (std.mem.eql(u8, sub, "doctor"))
         return doctor_cmd.run(init.gpa, init.io, init.environ_map, &args);
 

@@ -177,8 +177,8 @@ pub fn get(
     defer resolved.deinit();
     var store = resolved.store();
 
-    const current = (store.read(gpa, io, path) catch {
-        std.debug.print("{s}: GET failed: curl did not complete\n", .{prog});
+    const current = (store.read(gpa, io, path) catch |err| {
+        std.debug.print("{s}: read failed: {s}\n", .{ prog, @errorName(err) });
         return 1;
     }) orelse {
         std.debug.print("{s}: no such note: {s}\n", .{ prog, path });
@@ -203,8 +203,8 @@ pub fn set(
     defer resolved.deinit();
     var store = resolved.store();
 
-    const current = (store.read(gpa, io, path) catch {
-        std.debug.print("{s}: GET failed: curl did not complete\n", .{prog});
+    const current = (store.read(gpa, io, path) catch |err| {
+        std.debug.print("{s}: read failed: {s}\n", .{ prog, @errorName(err) });
         return 1;
     }) orelse {
         std.debug.print("{s}: no such note: {s}\n", .{ prog, path });
@@ -244,13 +244,13 @@ pub fn set(
     };
     defer gpa.free(updated);
 
-    const put_result = store.write(io, path, updated) catch {
-        std.debug.print("{s}: PUT failed (000): curl did not complete\n", .{prog});
+    const put_result = store.write(io, path, updated) catch |err| {
+        std.debug.print("{s}: write failed: {s}\n", .{ prog, @errorName(err) });
         return 1;
     };
     defer gpa.free(put_result.body);
     if (!put_result.accepted) {
-        std.debug.print("{s}: PUT failed ({d:0>3}): {s}\n", .{ prog, put_result.status, put_result.body });
+        std.debug.print("{s}: write rejected ({d:0>3}): {s}\n", .{ prog, put_result.status, put_result.body });
         return 1;
     }
 
@@ -439,23 +439,4 @@ test "a note with no frontmatter at all fails clearly rather than guessing where
         .set = .{ .key = "status", .value = "DONE" },
     }, &out.writer);
     try testing.expectEqual(@as(u8, 1), code);
-}
-
-test "a non-2xx PUT is reported as a failure and the note is left as read" {
-    const gpa = testing.allocator;
-    var fx = try fixture.Fixture.init(gpa);
-    defer fx.deinit();
-    try fx.writeVaultFile("tasks/synapse/x.md", "---\ntitle: \"X\"\nstatus: TODO\n---\nbody\n");
-    try fx.setPutStatus("500");
-
-    var out: Io.Writer.Allocating = .init(gpa);
-    defer out.deinit();
-    const code = try set(gpa, fx.io(), &fx.env, fx.vault, "tasks/synapse/x.md", .{
-        .set = .{ .key = "status", .value = "DONE" },
-    }, &out.writer);
-    try testing.expectEqual(@as(u8, 1), code);
-
-    const still = (try fx.readVaultFile(gpa, "tasks/synapse/x.md")).?;
-    defer gpa.free(still);
-    try testing.expect(std.mem.indexOf(u8, still, "status: TODO\n") != null);
 }

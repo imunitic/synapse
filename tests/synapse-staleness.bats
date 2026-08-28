@@ -77,9 +77,7 @@ run_staleness_hook() {
   run run_staleness_hook "$REPO/src/foo.aa" 'Foo Node.md' src/foo.aa
   [ "$status" -eq 0 ]
 
-  grep -q "synapse/$(repo_name)/Foo Node.md" "$CURL_CAPTURE/node-puts.log"
+  # The write is plain disk I/O now -- no PUT/PATCH, no curl involved -- so
+  # the only thing to check is the node file itself, rewritten in place.
   grep -q "stale: true" "$VAULT/synapse/$(repo_name)/Foo Node.md"
-  # The frontmatter-patch call is the bug being fixed -- it must never reappear.
-  [ ! -f "$CURL_CAPTURE/patches.log" ]
-  ! grep -q "Target-Type: frontmatter" "$CURL_LOG"
 }

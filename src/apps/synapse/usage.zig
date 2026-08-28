@@ -31,6 +31,11 @@ pub const text =
     \\  vault-doc-map <path>       headings/block ids/frontmatter keys, for a vault-patch target
     \\  vault-patch <path> --heading|--block|--frontmatter <target>
     \\              [--append|--prepend|--replace] [--create]   content from stdin
+    \\  vault-backlinks <path>     node<TAB>count, per file linking to <path>
+    \\  vault-links <path>         outgoing link targets from <path>
+    \\  vault-unresolved           source<TAB>target<TAB>count, one row per broken link
+    \\  vault-orphans              notes with no backlinks
+    \\  vault-deadends             notes with no outgoing links
     \\  build-refs [--cache <f>] [--out <f>]   _refs.tsv from the tags cache
     \\  build-deps [--repo <dir>] [--out <f>]  _deps.tsv, per-file declared dependencies
     \\  build-namespaces [--repo <dir>] [--out <f>]  _namespaces.tsv, per-file declared namespace

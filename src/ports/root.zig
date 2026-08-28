@@ -10,10 +10,12 @@ const std = @import("std");
 
 pub const Extractor = @import("extractor.zig").Extractor;
 pub const Store = @import("store.zig").Store;
+pub const LinkGraph = @import("link_graph.zig").LinkGraph;
 pub const Clusterer = @import("clusterer.zig").Clusterer;
 pub const Lifecycle = @import("lifecycle.zig").Lifecycle;
 
 test {
     std.testing.refAllDecls(@This());
     _ = @import("lifecycle.zig");
+    _ = @import("link_graph.zig");
 }

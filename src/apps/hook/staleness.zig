@@ -667,7 +667,10 @@ test "edited file outside any git repo: no-op" {
     try testing.expectEqual(@as(?[]u8, null), text);
 }
 
-test "node title with special characters is percent-encoded correctly in the request URL" {
+test "a node title with special characters (spaces, an em dash) writes to the right file untouched" {
+    // `store.write` is plain disk I/O now -- no URL, so no percent-encoding
+    // concern survives; this pins that the title reaches the filesystem
+    // byte-for-byte instead.
     const gpa = testing.allocator;
     var sf = try StalenessFixture.init(gpa);
     defer sf.deinit();
@@ -681,10 +684,6 @@ test "node title with special characters is percent-encoded correctly in the req
 
     const text = try sf.edit("src/foo.ml");
     defer if (text) |t| gpa.free(t);
-
-    const log = try Io.Dir.cwd().readFileAlloc(sf.fx.io(), sf.fx.curl_log, gpa, .limited(1 << 20));
-    defer gpa.free(log);
-    try testing.expect(std.mem.indexOf(u8, log, "World%20%E2%80%94%20entity_component_resource%20core.md") != null);
 
     const written = (try sf.readNode(gpa, "World — entity_component_resource core.md")).?;
     defer gpa.free(written);

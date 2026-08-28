@@ -12,13 +12,14 @@ pub const process = @import("process.zig");
 pub const env = @import("env.zig");
 pub const fakes = @import("fakes/root.zig");
 
-/// The Obsidian Local REST API behind the Store port. Spawns `curl` and
-/// links nothing, so wanting a vault doesn't imply wanting a C compiler.
+/// Obsidian behind the Store port -- `read`/`write`/`list` are plain disk
+/// I/O, `search` and the link graph go through the official `obsidian` CLI.
+/// Links nothing, so wanting a vault doesn't imply wanting a C compiler.
 pub const obsidian = @import("obsidian/store.zig");
 
-/// Plain markdown files directly on disk behind the Store port -- no REST
-/// API, no MCP server, no network dependency. `SYNAPSE_VAULT_STORE=disk`'s
-/// backend.
+/// Plain markdown files directly on disk behind the Store port -- no
+/// network dependency at all. `SYNAPSE_VAULT_STORE=disk`'s backend, and
+/// what `obsidian`'s own `read`/`write`/`list` decorate.
 pub const disk_store = @import("disk/store.zig");
 
 /// Picks and constructs the `Store` a caller should use, from
