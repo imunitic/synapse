@@ -117,10 +117,10 @@ const Ctx = struct {
     }
 };
 
-/// `git`/`curl`. Mirrors: every subcommand that spawns one and treats a
-/// failure as "nothing found" rather than "the tool is missing".
+/// `git`. Mirrors: every subcommand that spawns it and treats a failure as
+/// "nothing found" rather than "the tool is missing".
 fn dependencies(ctx: *Ctx) !void {
-    for ([_][]const u8{ "git", "curl" }) |tool| {
+    for ([_][]const u8{"git"}) |tool| {
         const res = adapters.process.run(ctx.io, ctx.gpa, &.{ tool, "--version" }, .{}) catch {
             try ctx.add(tool, .fail, "not on PATH");
             continue;
