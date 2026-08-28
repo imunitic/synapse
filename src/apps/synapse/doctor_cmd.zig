@@ -189,7 +189,7 @@ fn apiChecks(ctx: *Ctx, vault: ?[]const u8) !void {
     };
     defer res.deinit(ctx.gpa);
     if (res.ok()) {
-        try ctx.add("Obsidian", .ok, std.mem.trim(u8, res.stdout, " \t\r\n"));
+        try ctx.add("Obsidian", .ok, try ctx.fmt("{s}", .{std.mem.trim(u8, res.stdout, " \t\r\n")}));
     } else {
         try ctx.add("Obsidian", .fail, "not answering -- is it running, and is Settings -> General -> Advanced -> Command line interface enabled?");
     }
@@ -478,7 +478,17 @@ test "a configured machine reports the vault, the namespace and the API" {
     try testing.expect(std.mem.indexOf(u8, text, "ok") != null and std.mem.indexOf(u8, text, "config") != null);
     try testing.expect(std.mem.indexOf(u8, text, df.fx.vault) != null);
     try testing.expect(std.mem.indexOf(u8, text, "repo") != null);
-    try testing.expect(std.mem.indexOf(u8, text, "Obsidian") != null);
+    // Not just "the word Obsidian appears somewhere" -- the check's own
+    // reported value (the fake CLI's `vault info=path` answer) has to
+    // survive on that exact line. `ctx.add` stores `detail` unowned, so
+    // this value must come from `ctx.fmt`'s tracked allocation, not a
+    // slice into a `process.run` result `res.deinit()` frees before the
+    // report ever prints.
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    const obsidian_line = while (lines.next()) |line| {
+        if (std.mem.indexOf(u8, line, "Obsidian") != null) break line;
+    } else unreachable;
+    try testing.expect(std.mem.indexOf(u8, obsidian_line, df.fx.vault) != null);
 }
 
 test "config resolves at tier 1 (XDG), not just tier 2 -- the config check used to hardcode ~/.claude" {
