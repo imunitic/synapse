@@ -1,9 +1,7 @@
 #!/usr/bin/env bats
-# Tests `synapse query`'s remaining process-level concerns. The Obsidian
-# Local REST API is stubbed by tests/fixtures/fake-bin/curl, which serves
-# and writes real files under $FAKE_CURL_VAULT_DIR -- so these tests
-# exercise real digest arithmetic against real git objects, not a mock of
-# it.
+# Tests `synapse query`'s remaining process-level concerns, against a real
+# disk-backed vault fixture and real digest arithmetic against real git
+# objects, not a mock of either.
 #
 # The expected digest is computed independently in python rather than by
 # reusing the binary's own formula, so a change to either implementation
@@ -25,9 +23,6 @@ load 'test_helper'
 
 setup() {
   common_setup
-  setup_fake_obsidian_plugin
-  CURL_LOG="$TEST_HOME/curl.log"
-  : > "$CURL_LOG"
 }
 
 teardown() {
@@ -37,8 +32,6 @@ teardown() {
 # The script resolves the repo from $PWD, so run it from inside $REPO.
 run_query() {
   PATH="$FAKE_BIN:$PATH" \
-    FAKE_CURL_LOG="$CURL_LOG" \
-    FAKE_CURL_VAULT_DIR="$VAULT" \
     bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" query "$@"
 }
 

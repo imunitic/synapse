@@ -5,19 +5,16 @@
 # coverage -- `src/apps/hook/prompt_context.zig`'s own `test` blocks, via the
 # `build()` entry point `run()` delegates to after reading the stdin payload.
 # This is the one case that genuinely needs a real stdin payload: proving the
-# env var check happens before the payload is ever parsed, so no API call is
-# made and nothing is printed even with a well-formed prompt on stdin.
+# env var check happens before the payload is ever parsed, so nothing is
+# printed even with a well-formed prompt on stdin.
 
 load 'test_helper'
 
 
 setup() {
   common_setup
-  setup_fake_obsidian_plugin
   cp "$REPO_ROOT/packages/synapse/synapse-prompt-stopwords.conf.template" \
     "$HOME/.claude/synapse-prompt-stopwords.conf"
-  CURL_LOG="$TEST_HOME/curl.log"
-  : > "$CURL_LOG"
 }
 
 teardown() {
@@ -27,8 +24,6 @@ teardown() {
 run_hook() {
   local prompt="$1" cwd="$2"
   export PATH="$FAKE_BIN:$PATH"
-  export FAKE_CURL_LOG="$CURL_LOG"
-  export FAKE_CURL_VAULT_DIR="$VAULT"
   # A temp file, not a pipe: the hook's disable check is its literal first
   # line, so a disabled run exits before ever reading stdin. Piping jq's
   # output straight in races the hook's exit against jq's write: on both CI
@@ -49,5 +44,4 @@ run_hook() {
   run run_hook "how does Cached_backend invalidate results" "$REPO"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
-  [ ! -s "$CURL_LOG" ]
 }

@@ -283,9 +283,9 @@ const fixture = @import("cmd_test_support.zig");
 
 /// A real git repo (`brief` needs `git rev-parse --show-toplevel` to
 /// resolve `--repo`'s root) plus real `lists`/`rank`/`links.tsv` inputs --
-/// no vault, no curl, no tagging, so most of `cmd_test_support.Fixture`
-/// goes unused, but its real-git support (`gitCommit()`) is the one thing
-/// this file genuinely needs.
+/// no vault, no tagging, so most of `cmd_test_support.Fixture` goes unused,
+/// but its real-git support (`gitCommit()`) is the one thing this file
+/// genuinely needs.
 ///
 /// `commit()` is a separate step from `init()`, called once by every test
 /// right after construction, never inside `init()` itself, because a hang

@@ -18,7 +18,8 @@ pub const Store = struct {
 
     /// What a backend said about a `write` beyond plain success -- an
     /// anticipated rejection, not the same thing as the `anyerror` a
-    /// transport failure (curl not completing, a disk error) still throws.
+    /// transport failure (a disk error, an unreachable network endpoint)
+    /// still throws.
     /// `status`/`body` are HTTP-shaped because that's the one real case
     /// with something to say beyond accepted/not: a file-backed store
     /// (`BardGraphStore`, `FakeStore`) always returns `.{ .accepted = true }`

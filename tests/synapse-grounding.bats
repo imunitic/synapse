@@ -16,9 +16,6 @@ load 'test_helper'
 
 setup() {
   common_setup
-  setup_fake_obsidian_plugin
-  CURL_LOG="$TEST_HOME/curl.log"
-  : > "$CURL_LOG"
   BODY="$TEST_HOME/body.md"
   PATHS="$TEST_HOME/paths.txt"
 }
@@ -26,7 +23,7 @@ setup() {
 teardown() { common_teardown; }
 
 in_repo() {
-  PATH="$FAKE_BIN:$PATH" FAKE_CURL_LOG="$CURL_LOG" FAKE_CURL_VAULT_DIR="$VAULT" \
+  PATH="$FAKE_BIN:$PATH" \
     bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$@"
 }
 

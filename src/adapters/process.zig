@@ -6,8 +6,8 @@
 //! spawns nothing.
 //!
 //! `argv[0]` resolves against the parent environment's PATH, so
-//! `tests/fixtures/fake-bin` prepended to PATH intercepts `git`/`curl` here
-//! too, same as it does for shell scripts.
+//! `tests/fixtures/fake-bin` prepended to PATH intercepts `git`/`obsidian`
+//! here too, same as it does for shell scripts.
 
 const std = @import("std");
 const Io = std.Io;

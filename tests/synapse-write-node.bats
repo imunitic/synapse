@@ -2,25 +2,17 @@
 # Tests `synapse write-node` -- the writer that keeps a node's
 # exhaustive `sources` out of a context window in both directions.
 #
-# The Obsidian Local REST API is stubbed by tests/fixtures/fake-bin/curl, which
-# writes PUT payloads as real files under $FAKE_CURL_VAULT_DIR, so these tests
-# assert on the actual bytes the vault would receive.
-#
 # Node-assembly logic, the real-git baseline-commit/dirty-sources fields and
 # the tags-cache wiring all moved to native `zig build test` coverage --
 # `src/apps/synapse/write_node_cmd.zig`'s own `test` blocks, calling `write()`
-# directly against `cmd_test_support.zig`'s fixture (real git, fake curl, a
-# fake extractor). What's left here are two warning pairs that only ever
-# reach real stderr via `std.debug.print`, which no in-process fixture
-# captures.
+# directly against `cmd_test_support.zig`'s fixture. What's left here are two
+# warning pairs that only ever reach real stderr via `std.debug.print`, which
+# no in-process fixture captures.
 
 load 'test_helper'
 
 setup() {
   common_setup
-  setup_fake_obsidian_plugin
-  CURL_LOG="$TEST_HOME/curl.log"
-  : > "$CURL_LOG"
   BODY="$TEST_HOME/body.md"
   PATHS="$TEST_HOME/paths.txt"
   printf '## Summary\nA node.\n\n## Links\n- part_of [[Other]]\n' > "$BODY"
@@ -50,9 +42,6 @@ run_writer_raw() {
   # SYNAPSE_DISABLE_SYMBOL_CACHE, if a test `export`ed it, is inherited by the
   # `bash -c` child below automatically -- no need to re-list it here.
   PATH="$FAKE_BIN:$PATH" \
-    FAKE_CURL_LOG="$CURL_LOG" \
-    FAKE_CURL_VAULT_DIR="$VAULT" \
-    FAKE_CURL_PUT_STATUS="${PUT_STATUS:-200}" \
     SYNAPSE_GRAMMARS_DIR="$GRAMMARS_DIR" \
     FAKE_TS_LOG="$FAKE_TS_LOG" \
     FAKE_GIT_LOG="$FAKE_GIT_LOG" \

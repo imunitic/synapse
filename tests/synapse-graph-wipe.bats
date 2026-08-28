@@ -13,9 +13,6 @@ load 'test_helper'
 
 setup() {
   common_setup
-  setup_fake_obsidian_plugin
-  CURL_LOG="$TEST_HOME/curl.log"
-  : > "$CURL_LOG"
   WORK="$TEST_HOME/work"
   mkdir -p "$WORK"
 }
@@ -28,9 +25,6 @@ run_wipe() {
 
 in_repo() {
   PATH="$FAKE_BIN:$PATH" \
-    FAKE_CURL_LOG="$CURL_LOG" \
-    FAKE_CURL_VAULT_DIR="$VAULT" \
-    FAKE_CURL_CAPTURE_DIR="$TEST_HOME/capture" \
     SYNAPSE_WORK_DIR="$WORK" \
     bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$@"
 }

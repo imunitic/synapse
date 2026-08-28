@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # Exercises the mechanical half of /synapse-rebuild-diff against a repo with real
-# history and real drift, using the same fake-curl vault the other suites use --
-# no Obsidian, no network.
+# history and real drift, using the same disk-backed vault fixture the other
+# suites use -- no real Obsidian, no network.
 #
 # /synapse-rebuild-diff itself is a natural-language procedure, so what is
 # testable is everything it delegates: the drift classification it triages on,
@@ -18,9 +18,6 @@ load 'test_helper'
 
 setup() {
   common_setup
-  setup_fake_obsidian_plugin
-  CURL_LOG="$TEST_HOME/curl.log"
-  : > "$CURL_LOG"
   WORK="$TEST_HOME/work"
   mkdir -p "$WORK"
 }
@@ -31,9 +28,6 @@ teardown() {
 
 in_repo() {
   PATH="$FAKE_BIN:$PATH" \
-    FAKE_CURL_LOG="$CURL_LOG" \
-    FAKE_CURL_VAULT_DIR="$VAULT" \
-    FAKE_CURL_CAPTURE_DIR="$TEST_HOME/capture" \
     SYNAPSE_WORK_DIR="$WORK" \
     bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$@"
 }

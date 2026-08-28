@@ -94,7 +94,7 @@ pub fn build(
     var names: [core.index_map.max_nodes_per_path][]const u8 = undefined;
     const owners = map.nodesFor(rel, &names) orelse {
         // New, unclaimed file -- queue for the _unassigned sweep. One
-        // idempotent re-encode replaces a 27 MB read-modify-write + PUT.
+        // idempotent re-encode, not a 27 MB read-modify-write.
         try addUnassigned(gpa, io, &map, index_path, rel);
         return null;
     };
@@ -420,11 +420,6 @@ const StalenessFixture = struct {
     }
 };
 
-fn expectNoHttp(sf: *StalenessFixture) !void {
-    const st = Io.Dir.cwd().statFile(testing.io, sf.fx.curl_log, .{}) catch return; // never created: no calls
-    try testing.expectEqual(@as(u64, 0), st.size);
-}
-
 /// Every frontmatter shape the old `PATCH -H "Target-Type: frontmatter"`
 /// call used to mangle: a title long enough to be line-folded, quoted
 /// values, and an all-digit `hash` that YAML happily coerces to a float.
@@ -707,7 +702,7 @@ test "node already stale: no write at all" {
     const text = try sf.edit("src/foo.ml");
     defer if (text) |t| gpa.free(t);
 
-    // Already true -> the hook must skip the PUT rather than churn the file.
+    // Already true -> the hook must skip the write rather than churn the file.
     const after = (try sf.readNode(gpa, "Foo Node.md")).?;
     defer gpa.free(after);
     try testing.expectEqualStrings(before, after);
@@ -721,13 +716,13 @@ test "node listed in the index but missing from the vault: no-op, no crash" {
     try sf.commit("init");
     try sf.writeIndex();
     try sf.writeIndexBin(&.{.{ .path = "src/foo.ml", .node = "Ghost Node.md" }});
-    // deliberately no writeNode -- the fake curl's GET -o exits 22
+    // deliberately no writeNode -- the indexed node file doesn't exist on disk
 
     const text = try sf.edit("src/foo.ml");
     try testing.expectEqual(@as(?[]u8, null), text);
 }
 
-test "namespace belongs to a different remote: no write, and no HTTP at all" {
+test "namespace belongs to a different remote: no write at all" {
     const gpa = testing.allocator;
     var sf = try StalenessFixture.init(gpa);
     defer sf.deinit();
@@ -747,8 +742,6 @@ test "namespace belongs to a different remote: no write, and no HTTP at all" {
     const written = (try sf.readNode(gpa, "Foo Node.md")).?;
     defer gpa.free(written);
     try testing.expect(std.mem.indexOf(u8, written, "stale: false") != null);
-    // The guard is ahead of any HTTP, so nothing should have been dialed at all.
-    try expectNoHttp(&sf);
 }
 
 test "namespace Index.md with no remote line: treated as a mismatch, not a match on empty" {
@@ -776,7 +769,6 @@ test "namespace Index.md with no remote line: treated as a mismatch, not a match
 
     const text = try sf.edit("src/foo.ml");
     try testing.expectEqual(@as(?[]u8, null), text);
-    try expectNoHttp(&sf);
 }
 
 test "repo with no remote at all: falls back to the repo root and still matches" {
@@ -897,7 +889,7 @@ test "correction: an already-stale node is still checked" {
     defer gpa.free(text);
     try testing.expect(std.mem.indexOf(u8, text, "grounding (lib/calc.ml:1-2)") != null);
 
-    // and no redundant PUT, since stale was already true
+    // and no redundant write, since stale was already true
     const after = (try sf.readNode(gpa, "Cited.md")).?;
     defer gpa.free(after);
     try testing.expectEqualStrings(before, after);
@@ -1014,5 +1006,4 @@ test "an absent index is the no-namespace case, and costs nothing" {
 
     const text = try sf.edit("src/foo.ml");
     try testing.expectEqual(@as(?[]u8, null), text);
-    try expectNoHttp(&sf);
 }

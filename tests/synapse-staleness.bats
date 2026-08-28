@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
-# Tests claude/hooks/synapse-staleness.sh (Tier 1 PostToolUse staleness
-# flagging). Everything but the real stdin-payload round trip moved to
+# Tests `synapse-hook staleness` (Tier 1 PostToolUse staleness flagging).
+# Everything but the real stdin-payload round trip moved to
 # native coverage -- src/apps/hook/staleness.zig's own `test` blocks, via
 # the `build()` entry point `run()` delegates to after reading `tool_input.
 # file_path`/`tool_response.filePath` and `session_id` off stdin. This is
@@ -38,21 +38,16 @@ EOF
 
 setup() {
   common_setup
-  setup_fake_obsidian_plugin
-  CURL_LOG="$TEST_HOME/curl.log"
-  CURL_CAPTURE="$TEST_HOME/curl-capture"
   WORK="$TEST_HOME/work"
-  : > "$CURL_LOG"
-  mkdir -p "$CURL_CAPTURE" "$WORK"
+  mkdir -p "$WORK"
 }
 
 teardown() {
   common_teardown
 }
 
-# Runs the hook against $1 (the edited file path) with the fake curl on PATH and
-# the index staged from $2 -- `<node.md> <path>...`, or nothing for "no namespace
-# exists".
+# Runs the hook against $1 (the edited file path), with the index staged from
+# $2 -- `<node.md> <path>...`, or nothing for "no namespace exists".
 run_staleness_hook() {
   local file="$1"; shift
   if [ "$#" -gt 0 ]; then
@@ -62,9 +57,6 @@ run_staleness_hook() {
     rm -f "$WORK/_index.bin"
   fi
   PATH="$FAKE_BIN:$PATH" \
-    FAKE_CURL_LOG="$CURL_LOG" \
-    FAKE_CURL_CAPTURE_DIR="$CURL_CAPTURE" \
-    FAKE_CURL_VAULT_DIR="$VAULT" \
     SYNAPSE_WORK_DIR="$WORK" \
     bash -c "printf '%s' \"\$2\" | jq -Rn '{tool_input:{file_path: input}}' | \"\$0\" \"\$1\"" "$SYNAPSE_HOOK_BIN" staleness "$file"
 }
@@ -76,8 +68,5 @@ run_staleness_hook() {
 
   run run_staleness_hook "$REPO/src/foo.aa" 'Foo Node.md' src/foo.aa
   [ "$status" -eq 0 ]
-
-  # The write is plain disk I/O now -- no PUT/PATCH, no curl involved -- so
-  # the only thing to check is the node file itself, rewritten in place.
   grep -q "stale: true" "$VAULT/synapse/$(repo_name)/Foo Node.md"
 }

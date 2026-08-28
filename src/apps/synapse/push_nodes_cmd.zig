@@ -7,8 +7,8 @@
 //! *union* of staged lists and authored bodies, so an un-authored node reports as a
 //! SKIP rather than vanishing.
 //!
-//! One process per push now, not a chain of `jq`/`git hash-object`/`paste`/
-//! `sed`/`awk`/`curl` -- only the `curl` (the PUT) remains.
+//! One process per push, writing straight to disk through `write_node_cmd`'s
+//! own `write()` -- no subprocess chain at all.
 //!
 //! Any failed node is exit 1. So is a run that pushed nothing at all --
 //! otherwise a no-op would read as success.

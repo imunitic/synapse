@@ -219,20 +219,6 @@ repo_remote_or_path() {
   git -C "$REPO" remote get-url origin 2>/dev/null || git -C "$REPO" rev-parse --show-toplevel
 }
 
-# Fakes just enough of the Obsidian Local REST API plugin's on-disk state
-# for synapse-staleness.sh to get past its own existence checks: the
-# plugin's data.json (apiKey + port) and a stand-in cert file. Actual HTTP
-# calls are intercepted by tests/fixtures/fake-bin/curl (prepended onto
-# PATH by run_staleness_hook below), so the port/key values themselves are
-# never really dialed.
-setup_fake_obsidian_plugin() {
-  mkdir -p "$VAULT/.obsidian/plugins/obsidian-local-rest-api"
-  cat > "$VAULT/.obsidian/plugins/obsidian-local-rest-api/data.json" <<'EOF'
-{"apiKey": "test-api-key", "port": 27124}
-EOF
-  : > "$HOME/.claude/obsidian-local-rest-api-ca.pem"
-}
-
 # Writes a work dir's `_index.bin` from `path<TAB>node` lines on stdin, with any
 # remaining arguments as the unassigned list.
 #

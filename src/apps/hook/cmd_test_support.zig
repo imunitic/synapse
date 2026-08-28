@@ -22,8 +22,6 @@ pub const Fixture = struct {
     vault: []const u8,
     work: []const u8,
     home: []const u8,
-    curl_log: []const u8,
-    curl_capture: []const u8,
     env: std.process.Environ.Map,
     io_threaded: std.Io.Threaded,
     environ_block: std.process.Environ.PosixBlock,
@@ -48,16 +46,11 @@ pub const Fixture = struct {
         errdefer gpa.free(work);
         const home = try std.fmt.allocPrint(gpa, "{s}/home", .{root});
         errdefer gpa.free(home);
-        const curl_log = try std.fmt.allocPrint(gpa, "{s}/curl.log", .{root});
-        errdefer gpa.free(curl_log);
-        const curl_capture = try std.fmt.allocPrint(gpa, "{s}/curl-capture", .{root});
-        errdefer gpa.free(curl_capture);
 
         try tmp.dir.createDirPath(testing.io, "repo");
         try tmp.dir.createDirPath(testing.io, "vault");
         try tmp.dir.createDirPath(testing.io, "work");
         try tmp.dir.createDirPath(testing.io, "home/.claude");
-        try tmp.dir.createDirPath(testing.io, "curl-capture");
 
         var env = try std.process.Environ.createMap(testing.environ, gpa);
         errdefer env.deinit();
@@ -75,9 +68,6 @@ pub const Fixture = struct {
         // value included, as "set".
         _ = env.swapRemove("SYNAPSE_CONTENT_ROOT");
         _ = env.swapRemove("CLAUDE_PLUGIN_ROOT");
-        try env.put("FAKE_CURL_LOG", curl_log);
-        try env.put("FAKE_CURL_VAULT_DIR", vault);
-        try env.put("FAKE_CURL_CAPTURE_DIR", curl_capture);
 
         // Absolute, not just a resolvable relative path -- see
         // `src/apps/synapse/cmd_test_support.zig`'s own comment on this
@@ -107,8 +97,6 @@ pub const Fixture = struct {
             .vault = vault,
             .work = work,
             .home = home,
-            .curl_log = curl_log,
-            .curl_capture = curl_capture,
             .env = env,
             .io_threaded = io_threaded,
             .environ_block = block,
@@ -119,8 +107,6 @@ pub const Fixture = struct {
         self.io_threaded.deinit();
         self.environ_block.deinit(self.gpa);
         self.env.deinit();
-        self.gpa.free(self.curl_capture);
-        self.gpa.free(self.curl_log);
         self.gpa.free(self.home);
         self.gpa.free(self.work);
         self.gpa.free(self.vault);
@@ -212,7 +198,7 @@ pub const Fixture = struct {
     }
 
     /// A node as it stands in the fixture vault right now, or null if it
-    /// was never written (or PUT). Caller frees.
+    /// was never written. Caller frees.
     pub fn readNode(self: *Fixture, gpa: Allocator, key: []const u8, name: []const u8) !?[]u8 {
         const path = try std.fmt.allocPrint(self.gpa, "vault/synapse/{s}/{s}", .{ key, name });
         defer self.gpa.free(path);

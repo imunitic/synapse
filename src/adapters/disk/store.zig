@@ -119,18 +119,8 @@ pub const DiskStore = struct {
 
 /// Every `.md` file anywhere under `{root}/{namespace}` (or `{root}` when
 /// `namespace` is empty), recursively -- the real listing implementation,
-/// shared by `DiskStore.list` and `ObsidianStore.list` alike. Obsidian's
-/// REST API has no recursive-listing endpoint at all (checked against the
-/// real `coddingtonbear/obsidian-local-rest-api` OpenAPI spec: `GET
-/// /vault/{pathToDirectory}/` takes exactly one parameter, the path itself
-/// -- one call would only ever be one directory deep, and there is no
-/// query flag to ask for more), so getting a recursive listing through it
-/// means one HTTP round trip per subdirectory. But an Obsidian vault's
-/// files are the same files on disk either way, and listing (unlike a
-/// `read`, which might miss an unsaved in-editor buffer) has no live-state
-/// risk worth paying network round trips to avoid -- so both backends read
-/// the directory tree directly, and only `read`/`write`/`search` go
-/// through Obsidian's REST API for `ObsidianStore` specifically.
+/// shared by `DiskStore.list` and `ObsidianStore.list` alike, since an
+/// Obsidian vault's files are the same files on disk either way.
 ///
 /// Names are returned with `/` separators, relative to the listed root --
 /// the same shape a namespace-scoped `node` name already has, just now

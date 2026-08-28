@@ -15,14 +15,14 @@
 //!
 //! stdout/exit codes/stderr are frozen to match the script exactly (73 tests
 //! across `tests/synapse-query.bats` plus drift/links/grounding pin it).
-//! Behind that surface: no `jq` (`_index.bin`/tags cache read directly
-//! through `core.index_map`/`core.tags_cache`), no `curl` on the read path
-//! (disk reads; see `context.zig`), no `sed`/`awk`/`comm`/`paste`/`wc`
-//! (moved into `core/query.zig`, `core/verify.zig`, `core/drift.zig`,
-//! `core/symbol.zig`). `git` and `grep -E` still spawn -- both own a
-//! format/dialect worth not reimplementing. `git hash-object`'s blob hash
-//! is computed in-process instead (`core.verify.blobHash`), since it's a
-//! documented, stable format.
+//! Behind that surface: `_index.bin`/tags cache read directly through
+//! `core.index_map`/`core.tags_cache`, the vault itself read directly from
+//! disk (see `context.zig`), and formatting/set-diffing logic in
+//! `core/query.zig`, `core/verify.zig`, `core/drift.zig`, `core/symbol.zig`.
+//! `git` and `grep -E` still spawn -- both own a format/dialect worth not
+//! reimplementing. `git hash-object`'s blob hash is computed in-process
+//! instead (`core.verify.blobHash`), since it's a documented, stable
+//! format.
 //!
 //! `stale`/`drift`/`grounding`/`links --check` print nothing when they find
 //! nothing; exit 1 means "could not run", never "clean".

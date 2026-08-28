@@ -6,8 +6,7 @@
 //!
 //! Built *from* the nodes on disk, not from anything the build kept: a
 //! missing node or a missing `summary` field is a hard error with different
-//! advice for each. Reading from disk also removes the last `curl` read
-//! outside the hooks; the PUT stays on the API like every other write.
+//! advice for each.
 
 const std = @import("std");
 const core = @import("core");

@@ -28,9 +28,6 @@ load 'test_helper'
 
 setup() {
   common_setup
-  setup_fake_obsidian_plugin
-  CURL_LOG="$TEST_HOME/curl.log"
-  : > "$CURL_LOG"
   WORK="$TEST_HOME/work"
   mkdir -p "$WORK/lists"
 }
@@ -151,15 +148,15 @@ unknown_commands() {
   local emitted=""
 
   jq -n --arg cwd "$REPO" '{prompt: "how does Query API validate", cwd: $cwd}' > "$input"
-  emitted="$emitted$(PATH="$FAKE_BIN:$PATH" FAKE_CURL_VAULT_DIR="$VAULT" \
+  emitted="$emitted$(PATH="$FAKE_BIN:$PATH" \
     "$SYNAPSE_HOOK_BIN" prompt-context < "$input" 2>&1 || true)"
 
   jq -n --arg cwd "$REPO" '{cwd: $cwd}' > "$input"
-  emitted="$emitted$(PATH="$FAKE_BIN:$PATH" FAKE_CURL_VAULT_DIR="$VAULT" \
+  emitted="$emitted$(PATH="$FAKE_BIN:$PATH" \
     "$SYNAPSE_HOOK_BIN" session-start < "$input" 2>&1 || true)"
 
   jq -n --arg p "$REPO/src/foo.aa" '{tool_input: {file_path: $p}}' > "$input"
-  emitted="$emitted$(cd "$REPO" && PATH="$FAKE_BIN:$PATH" FAKE_CURL_VAULT_DIR="$VAULT" \
+  emitted="$emitted$(cd "$REPO" && PATH="$FAKE_BIN:$PATH" \
     "$SYNAPSE_HOOK_BIN" staleness < "$input" 2>&1 || true)"
 
   [ -n "$emitted" ]
@@ -192,8 +189,7 @@ unknown_commands() {
   printf '%s\n' src/foo.aa > "$WORK/lists/01.txt"
   stage_node "Query API" "Conditions and validation."
 
-  run env PATH="$FAKE_BIN:$PATH" FAKE_CURL_LOG="$CURL_LOG" FAKE_CURL_VAULT_DIR="$VAULT" \
-    FAKE_CURL_PUT_STATUS=200 SYNAPSE_WORK_DIR="$WORK" \
+  run env PATH="$FAKE_BIN:$PATH" SYNAPSE_WORK_DIR="$WORK" \
     bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" build-project-index
   [ "$status" -eq 0 ]
 

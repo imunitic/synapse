@@ -31,18 +31,17 @@ pub const Fixture = struct {
     vault: []const u8,
     work: []const u8,
     home: []const u8,
-    curl_log: []const u8,
     obsidian_log: []const u8,
     obsidian_script: []const u8,
     env: std.process.Environ.Map,
     io_threaded: std.Io.Threaded,
     environ_block: std.process.Environ.PosixBlock,
 
-    /// Everything spawned through this (curl, git, date) sees `env`
+    /// Everything spawned through this (git, obsidian, date) sees `env`
     /// verbatim -- an `Io.Threaded` built with no `environ` option falls
     /// back to a hardcoded `default_PATH`, not the real environment, so
     /// this is the only way to make `PATH` (fake-bin prepended) and the
-    /// `FAKE_CURL_*` vars visible to a child process at all.
+    /// `FAKE_OBSIDIAN_*` vars visible to a child process at all.
     pub fn io(self: *Fixture) std.Io {
         return self.io_threaded.io();
     }
@@ -63,8 +62,6 @@ pub const Fixture = struct {
         errdefer gpa.free(work);
         const home = try std.fmt.allocPrint(gpa, "{s}/home", .{root});
         errdefer gpa.free(home);
-        const curl_log = try std.fmt.allocPrint(gpa, "{s}/curl.log", .{root});
-        errdefer gpa.free(curl_log);
         const obsidian_log = try std.fmt.allocPrint(gpa, "{s}/obsidian.log", .{root});
         errdefer gpa.free(obsidian_log);
         const obsidian_script = try std.fmt.allocPrint(gpa, "{s}/obsidian.script", .{root});
@@ -104,8 +101,6 @@ pub const Fixture = struct {
         // any present key, empty value included, as "set".
         _ = env.swapRemove("SYNAPSE_CONTENT_ROOT");
         _ = env.swapRemove("CLAUDE_PLUGIN_ROOT");
-        try env.put("FAKE_CURL_LOG", curl_log);
-        try env.put("FAKE_CURL_VAULT_DIR", vault);
         try env.put("FAKE_OBSIDIAN_LOG", obsidian_log);
         try env.put("FAKE_OBSIDIAN_SCRIPT", obsidian_script);
 
@@ -116,8 +111,7 @@ pub const Fixture = struct {
         // itself. A relative PATH entry ("tests/fixtures/fake-bin") never
         // matches that absolute string, so the strip silently no-ops and
         // the script re-execs itself as `git` forever, spinning at 100% CPU
-        // until killed. `curl` has no such self-check,
-        // so this was invisible until a test first spawned `git` for real.
+        // until killed -- invisible until a test first spawned `git` for real.
         // `Io.Dir.cwd().realPath` (the cwd sentinel itself) fails with
         // FileNotFound in this test environment. Opening
         // the relative path as a real directory handle first and resolving
@@ -145,7 +139,6 @@ pub const Fixture = struct {
             .vault = vault,
             .work = work,
             .home = home,
-            .curl_log = curl_log,
             .obsidian_log = obsidian_log,
             .obsidian_script = obsidian_script,
             .env = env,
@@ -158,7 +151,6 @@ pub const Fixture = struct {
         self.io_threaded.deinit();
         self.environ_block.deinit(self.gpa);
         self.env.deinit();
-        self.gpa.free(self.curl_log);
         self.gpa.free(self.obsidian_log);
         self.gpa.free(self.obsidian_script);
         self.gpa.free(self.home);
@@ -182,8 +174,8 @@ pub const Fixture = struct {
         try self.tmp.dir.writeFile(testing.io, .{ .sub_path = full, .data = data });
     }
 
-    /// A node as the fake-curl PUT left it in the fixture's vault, or null
-    /// if nothing was ever written there.
+    /// A node as it was written to the fixture's vault, or null if nothing
+    /// was ever written there.
     pub fn readNode(self: *Fixture, gpa: Allocator, title: []const u8) !?[]u8 {
         const sub = try std.fmt.allocPrint(self.gpa, "vault/synapse/repo@main/{s}.md", .{title});
         defer self.gpa.free(sub);
@@ -205,8 +197,8 @@ pub const Fixture = struct {
         try self.tmp.dir.writeFile(testing.io, .{ .sub_path = full, .data = data });
     }
 
-    /// The raw bytes at an arbitrary vault-relative path, as a PUT (real or
-    /// fake-curl) left it, or null if nothing is there.
+    /// The raw bytes at an arbitrary vault-relative path, as written, or
+    /// null if nothing is there.
     pub fn readVaultFile(self: *Fixture, gpa: Allocator, sub_path: []const u8) !?[]u8 {
         const full = try std.fmt.allocPrint(self.gpa, "vault/{s}", .{sub_path});
         defer self.gpa.free(full);
@@ -343,8 +335,8 @@ pub const Fixture = struct {
 
     /// Rebuilds the scoped `Io.Threaded`'s environ block from `env` as it
     /// stands right now -- call after any `env.put`/`env.swapRemove` a
-    /// spawned subprocess (git, curl, ...) needs to see, since the block is
-    /// a snapshot taken at `init`/the last call to this, not a live view.
+    /// spawned subprocess (git, obsidian, ...) needs to see, since the block
+    /// is a snapshot taken at `init`/the last call to this, not a live view.
     pub fn refreshEnv(self: *Fixture) !void {
         self.io_threaded.deinit();
         self.environ_block.deinit(self.gpa);
