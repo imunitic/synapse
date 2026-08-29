@@ -34,6 +34,17 @@ const common = @import("common.zig");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
+/// The vault's starter index, embedded at compile time -- no runtime
+/// dependency on `CLAUDE_PLUGIN_ROOT` (unset entirely for a repo where
+/// `synapse-bard`'s `.claude/` files were committed directly rather than
+/// installed through Claude Code's plugin system). A byte-identical copy of
+/// `plugins/synapse-bard/Index.md.template` (the one a marketplace plugin
+/// install actually ships) rather than that file directly -- `@embedFile`'s
+/// package boundary is this module's own root, which doesn't reach
+/// `plugins/`; the "identical copy" test below is what keeps the two from
+/// drifting apart silently.
+const vault_index_template = @embedFile("vault_index_template.md");
+
 const usage =
     \\usage: synapse-bard sync
     \\       synapse-bard sync --check
@@ -85,14 +96,14 @@ pub fn run(gpa: Allocator, io: Io, args: *std.process.Args.Iterator) !u8 {
     defer plan.deinit(gpa);
 
     if (check) return runCheck(gpa, io, store.store(), &plan);
-    return runWrite(gpa, io, &store, &plan);
+    return runWrite(gpa, io, &store, &plan, roots.vault_root);
 }
 
 /// Real sync: writes every planned cluster, then deletes whatever
 /// `_bard/graph/` node the plan didn't produce at all. Takes the concrete
 /// store, not `ports.Store` -- `reconcile` below needs `.delete`, which
 /// isn't on the shared interface.
-fn runWrite(gpa: Allocator, io: Io, store: *adapters.bard_graph_store.BardGraphStore, plan: *const adapters.bard_sync_plan.Plan) !u8 {
+fn runWrite(gpa: Allocator, io: Io, store: *adapters.bard_graph_store.BardGraphStore, plan: *const adapters.bard_sync_plan.Plan, vault_root: []const u8) !u8 {
     var buf: [4096]u8 = undefined;
     var w = Io.File.stdout().writer(io, &buf);
     for (plan.report_lines.items) |l| try w.interface.print("{s}", .{l});
@@ -104,13 +115,34 @@ fn runWrite(gpa: Allocator, io: Io, store: *adapters.bard_graph_store.BardGraphS
     for (plan.clusters.items, 0..) |pc, i| written[i] = pc.node;
     const removed = try adapters.bard_sync_plan.reconcile(gpa, io, store, written);
 
+    const seeded = try seedVaultIndex(io, vault_root);
+
     try w.interface.print("\ningested: {d}\n", .{plan.ingested});
     try w.interface.print("skipped (unsupported): {d}\n", .{plan.skipped});
     try w.interface.print("collisions: {d}\n", .{plan.collisions});
     try w.interface.print("clusters: {d}\n", .{plan.clusters.items.len});
     try w.interface.print("removed (no longer in source): {d}\n", .{removed});
+    if (seeded) try w.interface.print("seeded {s}/Index.md (first use)\n", .{vault_root});
     try w.interface.flush();
     return 0;
+}
+
+/// Seeds `{vault_root}/Index.md` from the shipped template when it doesn't
+/// exist yet, mechanically -- no confirmation step. Bringing `synapse-bard`
+/// online in a repo via `sync` already is the human's explicit signal the
+/// vault should exist; the shared, cross-project Synapse Vault's own
+/// confirm-before-seeding caution is about a vault shared across unrelated
+/// projects, which `_bard/vault/` never is. Returns whether it actually
+/// seeded anything, so the caller can report it.
+fn seedVaultIndex(io: Io, vault_root: []const u8) !bool {
+    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
+    const index_path = try std.fmt.bufPrint(&buf, "{s}/Index.md", .{vault_root});
+    Io.Dir.cwd().access(io, index_path, .{}) catch {
+        try Io.Dir.cwd().createDirPath(io, vault_root);
+        try Io.Dir.cwd().writeFile(io, .{ .sub_path = index_path, .data = vault_index_template });
+        return true;
+    };
+    return false;
 }
 
 /// `--check`: reads only, never writes. A cluster is dirty when its

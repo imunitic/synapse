@@ -17,8 +17,11 @@ seeding the vault's foundational bootstrap file warrants a confirmation
 step the way an ordinary note-write doesn't.
 
 **This is a primary, load-bearing memory system, not an optional nicety.**
-Actively use it — don't wait to be asked. You MUST create or update a note
-whenever, during a session, any of the following happens. Before deciding
+Actively use it — don't wait to be asked, and don't wait for a hook to
+remind you either: the periodic nudge below is a backstop for a session
+that runs long and drifts, not the trigger that authorizes writing in the
+first place. You MUST create or update a note whenever, during a session,
+any of the following happens. Before deciding
 which folder, check `Index.md`'s folder list for the matching category —
 don't rely on categories already in memory from earlier in the session,
 since a vault owner's own `Index.md` is the only authority on what exists

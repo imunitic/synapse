@@ -5,6 +5,7 @@
 //! the C toolchain a hook has no use for.
 //!
 //!   synapse-bard-hook session-start    SessionStart: inject _bard/vault/Index.md
+//!   synapse-bard-hook stop-nudge       Stop: periodic "worth writing to the vault" check-in
 //!
 //! Every missing precondition exits 0, same contract `synapse-hook` already
 //! follows -- a hook that errors interrupts a turn about something the user
@@ -12,11 +13,13 @@
 
 const std = @import("std");
 const session_start = @import("session_start.zig");
+const stop_nudge = @import("stop_nudge.zig");
 
 const usage =
     \\usage: synapse-bard-hook <hook>
     \\
     \\  session-start    SessionStart: inject _bard/vault/Index.md
+    \\  stop-nudge       Stop: periodic "worth writing to the vault" check-in
     \\
 ;
 
@@ -41,6 +44,8 @@ pub fn main(init: std.process.Init) !u8 {
     // hook wrote to stdout.
     if (std.mem.eql(u8, which, "session-start")) {
         session_start.run(gpa, io, env) catch {};
+    } else if (std.mem.eql(u8, which, "stop-nudge")) {
+        stop_nudge.run(gpa, io, env) catch {};
     } else {
         std.debug.print("synapse-bard-hook: unknown hook '{s}'\n{s}", .{ which, usage });
         return 2;

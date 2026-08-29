@@ -1,19 +1,27 @@
 # The Writer's notes vault as permanent memory
 
 `_bard/vault/` is a durable, browsable knowledge base — decisions, rationale, and continuity that
-outlive a session — plain markdown files, git-tracked, in this repo. A `SessionStart` hook already
-injects the vault's `Index.md` at the start of every session, so you shouldn't need to go read it
-yourself. Don't re-read it reflexively, but do treat its injected contents as live information, not
-background flavor. If the hook instead reports that the vault has no `Index.md` yet, offer to seed
-it from the shipped default (`${CLAUDE_PLUGIN_ROOT}/Index.md.template`) before creating or
-linking any note in this session — never copy it yourself without asking; seeding the vault's
-foundational bootstrap file warrants a confirmation step the way an ordinary note-write doesn't.
+outlive a session — plain markdown files, git-tracked, in this repo. `synapse-bard sync` seeds
+`_bard/vault/Index.md` from the shipped template automatically the first time it runs in a repo, so
+the vault normally already exists by the time any session starts. A `SessionStart` hook injects
+`Index.md` at the start of every session, so you shouldn't need to go read it yourself. Don't re-read
+it reflexively, but do treat its injected contents as live information, not background flavor. In the
+rare case the hook reports no `Index.md` yet (a repo synced before this existed, or `_bard/graph/`
+created some other way), seed it yourself from the shipped default
+(`${CLAUDE_PLUGIN_ROOT}/Index.md.template`) before creating or linking any note in this session —
+bringing bard online in a repo is already the author's explicit signal the vault should exist, so
+this needs no separate confirmation.
 
 **This is a primary, load-bearing memory system, not an optional nicety.** Actively use it — don't
-wait to be asked. You MUST create or update a note whenever, during a session, any of the following
-happens. Before deciding which folder, check `Index.md`'s folder list for the matching category —
-don't rely on categories already in memory from earlier in the session, since the vault's own
-`Index.md` is the only authority on what exists and what each folder means:
+wait to be asked, and don't wait for a hook to remind you either. A periodic `Stop`-hook check-in
+exists as a backstop for a session that runs long and drifts, not as the trigger that authorizes
+writing — reconsider on your own initiative, independent of whether a hook is even wired up (the
+Android app's default cloud session has none): re-ask the question below roughly every 20-30
+exchanges, and again after any milestone, whichever comes first. You MUST create or update a note
+whenever any of the following happens, self-checked at that cadence or the moment it happens,
+whichever comes first. Before deciding which folder, check `Index.md`'s folder list for the matching
+category — don't rely on categories already in memory from earlier in the session, since the vault's
+own `Index.md` is the only authority on what exists and what each folder means:
 
 - A plot, worldbuilding, or continuity decision gets settled — including a small one made in
   passing, not just a big structural call.

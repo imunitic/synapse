@@ -94,8 +94,10 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
 /// distinguishes a repo where bard has been deliberately used (a real
 /// `/synapse-bard-sync` run wrote `_bard/graph/`, or the vault side was
 /// seeded) from a repo where the plugin merely happens to be installed.
-/// Nothing in this hook ever creates `_bard/` itself.
-fn bardEnabled(gpa: Allocator, io: Io, repo_root: []const u8) bool {
+/// Nothing in this hook ever creates `_bard/` itself. Shared with
+/// `stop_nudge.zig`, which gates its own periodic check-in on the same
+/// signal.
+pub fn bardEnabled(gpa: Allocator, io: Io, repo_root: []const u8) bool {
     const path = std.fmt.allocPrint(gpa, "{s}/_bard", .{repo_root}) catch return false;
     defer gpa.free(path);
     var dir = Io.Dir.cwd().openDir(io, path, .{}) catch return false;

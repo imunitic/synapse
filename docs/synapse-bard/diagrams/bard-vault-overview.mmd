@@ -1,10 +1,13 @@
 ---
-title: Writer's notes vault — the one hook
+title: Writer's notes vault — two hooks
 ---
-%% Bard's vault has exactly one hook -- SessionStart -- and deliberately no
-%% auto-commit, no periodic nudge, no per-prompt injection. GIT is reached by
-%% a dashed, human-labelled edge rather than a hook arrow to make that
-%% omission visible rather than silently absent.
+%% Bard's vault has two hooks -- SessionStart and a periodic Stop check-in --
+%% and deliberately no auto-commit, no per-prompt injection. The Stop hook is
+%% a backstop for a session that drifts, not the trigger that authorizes a
+%% write; the standing instruction to write proactively lives in
+%% synapse-bard-claude.md, independent of whether a hook is even wired up.
+%% GIT is reached by a dashed, human-labelled edge rather than a hook arrow
+%% to make that omission visible rather than silently absent.
 flowchart TB
     classDef hook fill:#ffd8a8,stroke:#e8590c,color:#1e1e1e
     classDef vault fill:#d3f9d8,stroke:#2f9e44,color:#1e1e1e
@@ -13,6 +16,7 @@ flowchart TB
 
     BEGIN["session begins"]
     H1["<b>SessionStart</b><br/>synapse-bard-hook session-start"]
+    H2["<b>Stop</b> (every 25 turns)<br/>synapse-bard-hook stop-nudge<br/>backstop, not the authorization gate"]
     WORK["<b>Claude Code session</b><br/>writing, deciding"]
 
     IDX["Index.md"]
@@ -25,10 +29,12 @@ flowchart TB
     H1 --> WORK
     WORK -->|"Read/Write/Edit directly"| FOLDERS
     WORK -->|"or via the CLI"| CLI
+    WORK -.->|"turn count"| H2
+    H2 -.->|"check-in nudge"| WORK
     CLI -.-> FOLDERS
     FOLDERS -.->|"a human commits --<br/>no auto-commit hook yet"| GIT
 
-    class H1 hook
+    class H1,H2 hook
     class IDX,FOLDERS,CLI vault
     class BEGIN,WORK session
     class GIT store
@@ -36,7 +42,7 @@ flowchart TB
     subgraph KEY["the colours"]
         direction LR
         K1["in the vault"]
-        K2["the one hook"]
+        K2["a hook"]
         K3["the session"]
     end
     class K1 vault

@@ -140,4 +140,5 @@ any check found something.
 usage: synapse-bard-hook <hook>
 
   session-start    SessionStart: inject _bard/vault/Index.md
+  stop-nudge       Stop: periodic "worth writing to the vault" check-in
 ```

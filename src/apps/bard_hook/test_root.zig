@@ -4,8 +4,10 @@
 
 const common = @import("common.zig");
 const session_start = @import("session_start.zig");
+const stop_nudge = @import("stop_nudge.zig");
 
 comptime {
     _ = common;
     _ = session_start;
+    _ = stop_nudge;
 }

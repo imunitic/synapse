@@ -7,7 +7,7 @@ session shouldn't have to silently re-derive or lose. `_bard/vault/` is where th
 decision-level layer lives: plain markdown files, git-tracked, in the same repo and session already
 in use for everything else.
 
-![The one hook](diagrams/bard-vault-overview.png)
+![The two hooks](diagrams/bard-vault-overview.png)
 
 ## Why repo-local, and not a hosted vault on another machine
 
@@ -32,26 +32,33 @@ five-folder taxonomy mapped onto fiction writing (`projects/` → per-book/scene
 the writing agent grows the rest organically through actual use. `Index.md` at the vault root is
 the one file excluded from every listing and search — bootstrap, not a note.
 
-## The one hook: `SessionStart`
+## Two hooks: `SessionStart` and a periodic `Stop` check-in
 
-Gated on `_bard/` already existing at the repo root — nothing here creates it, so its absence means
-bard has never been deliberately used in this repo. A repo with no fiction bible at all, the plugin
-merely installed, gets no injection at all.
+Both gated on `_bard/` already existing at the repo root — nothing here creates it, so its absence
+means bard has never been deliberately used in this repo. A repo with no fiction bible at all, the
+plugin merely installed, gets no injection at all.
 
 Once `_bard/` exists, `synapse-bard-hook session-start` injects two pieces, joined with a blank
 line, nothing emitted at all if both are empty: the plugin's own standing instructions
 (`synapse-bard-claude.md`) and `_bard/vault/Index.md` itself, so its folder layout is live
-information from turn one. If no `Index.md` exists yet — a repo where `synapse-bard sync` created
-`_bard/graph/` but the vault side was never touched — the hook offers to seed one from the plugin's
-shipped `Index.md.template` rather than writing it unasked.
+information from turn one. `synapse-bard sync` seeds `Index.md` from the shipped template
+automatically the first time it runs in a repo, so this normally already exists; the rare case
+where it doesn't (a repo synced before that existed, or `_bard/graph/` created some other way) is
+what this hook's fallback message covers.
 
-Deliberately simple: `_bard/vault/` is always repo-relative, so there's no external config file to
-resolve, no cross-repo namespace to catalogue, no remote to verify before a write. There's also
-no `Stop`-hook nudge and no per-prompt injection — and the one gap worth naming plainly:
-**no auto-commit hook**. `_bard/vault/` is git-tracked the same as any other part of the repo, but
-nothing commits it automatically. An uncommitted mistake here is only as recoverable as the
-session's own file history or a human's deliberate `git commit`; a committed one is one
-`git show <sha>:<path>` away,
+`synapse-bard-hook stop-nudge` fires on `Stop`, every 25 turns, and re-raises the same question:
+did anything since the last check-in belong in the vault? This is a backstop for a session that
+runs long and drifts, not the trigger that authorizes writing in the first place — the standing
+instruction to write proactively lives in `synapse-bard-claude.md` and applies on its own
+initiative regardless of whether a hook is even wired up, since the Android app's default cloud
+session has no `Stop` hook at all.
+
+Deliberately simple otherwise: `_bard/vault/` is always repo-relative, so there's no external
+config file to resolve, no cross-repo namespace to catalogue, no remote to verify before a write.
+There's also no per-prompt injection — and the one gap worth naming plainly: **no auto-commit
+hook**. `_bard/vault/` is git-tracked the same as any other part of the repo, but nothing commits
+it automatically. An uncommitted mistake here is only as recoverable as the session's own file
+history or a human's deliberate `git commit`; a committed one is one `git show <sha>:<path>` away,
 same as any other tracked file. If a destructive edit is about to happen and nothing's been
 committed recently, that's worth saying before proceeding, not after.
 
