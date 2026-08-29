@@ -26,11 +26,11 @@ jobs:
       # number, which is a second copy that goes stale.
       #
       # cache-size-limit raised from the 2048 MiB default: this job's own
-      # .zig-cache (native build + test + the three-target cross-compile
-      # loop, all sharing one cache scope) measured 840 MB on a normal run --
-      # comfortably inside 2048 today, but the bats job below measured 1.9 GB
-      # on the same push, close enough to that default limit that a routine
-      # size increase would start silently skipping the cache save.
+      # .zig-cache (native build + test, sharing one cache scope) measured
+      # comfortably inside 2048 on a normal run, but the bats job below
+      # measured 1.9 GB on the same push, close enough to that default limit
+      # that a routine size increase would start silently skipping the cache
+      # save.
       - uses: mlugg/setup-zig@v2
         with:
           cache-size-limit: 4096
@@ -53,15 +53,36 @@ jobs:
       - name: Layering and purity
         run: ./ci/check-layering.sh
 
-      # Same script `just build-targets` runs, so the release matrix has one
-      # definition rather than one here and one in the justfile. Main only --
-      # a portability break is real work either way, but a feature branch
-      # already gets it from this same job's `Build` step failing outright on
-      # its own host target; the other two platforms only need checking
-      # before the merge that actually ships them.
-      - name: Cross-compile every release target
-        if: github.ref == 'refs/heads/main'
-        run: ./ci/build-targets.sh
+  # A separate matrix job, not a step in `zig` above: Zig's own cache is keyed
+  # per target triple, so three different targets sharing one job's cache
+  # scope never reuse each other's compiled objects regardless of cache size
+  # -- see the vault research note "CI cross-compile caching doesn't help
+  # across target triples". Splitting into one job per target trades that
+  # unavoidable compute cost for wall-clock: the three builds don't depend on
+  # each other, so running them in parallel cuts this from ~11 minutes
+  # (sequential) to whichever single target is slowest (~4 minutes). Main
+  # only -- a portability break is real work either way, but a feature branch
+  # already gets it from the `zig` job's own `Build` step failing outright on
+  # its own host target; the other two platforms only need checking before
+  # the merge that actually ships them.
+  cross-compile:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [x86_64-linux, aarch64-linux, aarch64-macos]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          cache-size-limit: 4096
+
+      # Same script `just build-targets` runs (with no argument, sequentially,
+      # for a local full check) -- one definition rather than one here and one
+      # in the justfile.
+      - name: Cross-compile ${{ matrix.target }}
+        run: ./ci/build-targets.sh ${{ matrix.target }}
 
   bats:
     # Linux only, and the asymmetry is the point rather than an economy. The two

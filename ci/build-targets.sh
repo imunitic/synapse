@@ -1,5 +1,5 @@
 #!/bin/bash
-# Compile for every release target.
+# Compile for every release target, or just one (`build-targets.sh aarch64-macos`).
 #
 # A POSIX path assumption, a `/tmp` default or a shell-out in core is a
 # portability bug that surfaces only on the platform lacking the thing --
@@ -7,9 +7,14 @@
 # rather than on ours. Compiling all three targets moves that to the moment
 # the line is written.
 #
-# `just build-targets` and the CI job both run this script, which shares its
-# target list (release-targets.sh) with the release workflow too -- one
-# definition, three consumers, rather than each keeping its own copy.
+# `just build-targets` (no argument, sequential) and CI's `cross-compile`
+# job (one argument per matrix instance, in parallel -- Zig's cache is keyed
+# per target triple, so three different targets sharing one runner's cache
+# never reuse each other's compiled objects anyway; see the vault research
+# note "CI cross-compile caching doesn't help across target triples") both
+# run this script, which shares its target list (release-targets.sh) with
+# the release workflow too -- one definition, three consumers, rather than
+# each keeping its own copy.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -18,6 +23,10 @@ cd "$(dirname "$0")/.."
 # release workflow, which needs the exact same platforms for a different
 # reason (what to ship, not just what to verify compiles).
 source ci/release-targets.sh
+
+if [ $# -gt 0 ]; then
+    targets=("$1")
+fi
 
 command -v zig >/dev/null || { echo "zig not on PATH -- brew install zig" >&2; exit 1; }
 
