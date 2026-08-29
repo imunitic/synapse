@@ -32,8 +32,9 @@ below:
 The title is whatever the user is naming or describing, minus any mode-signaling phrasing. Example:
 
 - "make a note about my idea" → bare note titled "My idea"
-- "track this as a task: implement Foo" → task note titled "Implement Foo" (before task-ID
-  resolution prepends the resolved ID, per "Resolving a missing task ID" below)
+- "track this as a task: implement Foo" → task note titled "Implement Foo"; if no task ID is
+  already present in that phrasing, "Resolving a missing task ID" below assigns one to `task_id`
+  in frontmatter only, without changing the title
 
 In task mode, also attempt to extract a task ID from the title by matching a `{prefix}-\d+` pattern
 (letters, a hyphen, then digits) — the user sometimes already names one directly (e.g. "track
@@ -105,19 +106,19 @@ unchanged for anyone who has never touched an XDG config directory.
 5. Whenever step 3 or step 4 resolves a pair not already in the conf file (including a fresh
    `project-name=prefix` line matching what was just deduced or asked), append it — so the next task
    for this project resolves from step 2 without a search or a question.
-6. Once the prefix is known, find the next number: run `synapse vault-search --fields
-   frontmatter.task_id` with `{"var": "frontmatter.task_id"}` on stdin,
-   filter the returned values client-side for ones matching
-   `{prefix}-\d+`, take the highest number found, add 1. If none exist yet
-   for that prefix, start at 1.
+6. Once the prefix is known, find the next number. `task_id` and `note_id` (the id every note gets
+   — see "Assigning a note_id" below) share one counter per prefix, so this has to check both
+   fields, not just `task_id` alone: run `synapse vault-search --fields
+   frontmatter.task_id,frontmatter.note_id` with `{"or": [{"!=": [{"var": "frontmatter.task_id"},
+   null]}, {"!=": [{"var": "frontmatter.note_id"}, null]}]}` on stdin, filter both returned columns
+   client-side for values matching `{prefix}-\d+`, take the highest number found across both, add
+   1. If none exist yet for that prefix, start at 1.
 7. Format the new task ID **zero-padded to 3 digits** (`{prefix}-001`, `{prefix}-030`,
    `{prefix}-037`, ...), matching the org-roam-era convention — widening
    naturally past 3 digits if a prefix ever needs it.
-8. **Prepend the resolved task ID to the title itself** — the final title
-   becomes `{task-id} — {original title}` (em dash). Use this same final
-   title for both the `title` frontmatter field and the `# ` heading, and
-   use the resolved task ID for `task_id`. Don't let the frontmatter task
-   ID and the visible title disagree.
+8. **The title itself is never prefixed with the task ID.** `task_id` lives in frontmatter only —
+   the same convention `note_id` already uses for bare and design notes, now consistent across all
+   three kinds. `title`, the `# ` heading, and the filename all stay exactly the given topic.
 
 The synapse-design-note and synapse-task-note skills read the same conf file directly for the same
 reason — they don't duplicate this resolution logic, just this file.
@@ -145,6 +146,25 @@ triage/priority one a vault owner might maintain by hand (e.g.
 `inbox/{high,medium,low}/`, per that folder's own index-note description);
 sorting a note into one of those, if a category has one, is never an
 agent's call to make.
+
+## Assigning a note_id (bare mode only)
+
+Task mode already gets its id via "Resolving a missing task ID" above. Bare mode needs one too —
+every note gets a `note_id`, not just tasks — but unlike task mode, this step never blocks with a
+question: a quick bare note shouldn't require an interrupt just to get an id.
+
+1. Try steps 1-3 of "Resolving a missing task ID" above (repo context, the resolved
+   `synapse-projects.conf`, then deducing from the vault itself) to resolve a project prefix. Skip
+   step 4 entirely — if none of the first three resolve one, fall through to step 2 below instead of
+   asking.
+2. If a prefix resolved: mint the next number the same shared-counter way as that section's step 6
+   (checking both `task_id` and `note_id` across the vault for that prefix). If no prefix resolved:
+   mint `note-NNN` instead — its own flat, project-less counter, found the same way (`synapse
+   vault-search --fields frontmatter.note_id`, filter for `note-\d+`, take the highest, add 1; start
+   at 1 if none exist yet).
+3. Carry the resolved `{id}` into "Creating the note" below as `note_id`. Unlike task mode, the title
+   itself is untouched — no id prefix on the visible title or the `title` frontmatter field for a bare
+   note.
 
 ## Resolving the project folder (task mode only)
 
@@ -178,6 +198,7 @@ or supplied directly by a caller like the synapse-task-note skill):
    ---
    title: "{title}"
    created: "{now}"
+   note_id: {id}
    ---
 
    ```

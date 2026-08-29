@@ -68,8 +68,9 @@ Follow the synapse-note skill's task-mode procedure exactly (its "Creating the n
 don't duplicate that scaffolding here, just supply its inputs:
 
 - **Title:** a short, plain description of the compiled plan (e.g. "Rollup direct storage
-  implementation") — the synapse-note skill's task mode resolves the project prefix and `task_id`
-  and prepends them itself.
+  implementation") — stays exactly this, never prefixed with the resolved `task_id`; the
+  synapse-note skill's task mode resolves the project prefix and `task_id` itself and puts them in
+  frontmatter only.
 - **Project:** derive from the source design note's `project:` frontmatter — that prefix is already
   resolved (the design note went through the synapse-design-note skill's resolution when it was
   created, which reads/appends the resolved `synapse-projects.conf`, per the synapse-note skill's
@@ -133,7 +134,7 @@ Codex: [reads designs/{PROJECT} — Rollup direct storage.md, Status: Ready]
 
        Project already known: {PROJECT} → {prefix}-005.
 
-       Created: tasks/{PROJECT}/{prefix}-005 — Rollup direct storage implementation.md
+       Created: tasks/{PROJECT}/Rollup direct storage implementation.md (task_id: {prefix}-005)
        Linked back from designs/{PROJECT} — Rollup direct storage.md.
 
        Status transitions happen automatically via the synapse-task skill once you start work.
