@@ -272,6 +272,7 @@ test "a write that loses the lock race still lands on disk with no commit" {
 
     const held = (try git_sync.tryAcquire(gpa, testing.io, vault)).?;
     const wr = try store.write(testing.io, "b.md", "two\n");
+    git_sync.release(testing.io, gpa, held);
     try testing.expect(wr.accepted);
 
     // The file landed even though the commit was skipped.
@@ -279,8 +280,6 @@ test "a write that loses the lock race still lands on disk with no commit" {
     defer gpa.free(got);
     try testing.expectEqualStrings("two\n", got);
     try testing.expectEqual(@as(usize, 1), try commitCount(gpa, vault));
-
-    git_sync.release(testing.io, gpa, held);
 
     // The next successful write's own `add -A` sweeps up the skipped one.
     _ = try store.write(testing.io, "c.md", "three\n");

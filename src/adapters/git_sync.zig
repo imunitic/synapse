@@ -151,6 +151,8 @@ pub fn commitIfDirty(gpa: Allocator, io: Io, vault: []const u8) !void {
     };
     defer gpa.free(staged);
 
+    try ensureIdentity(gpa, io, vault);
+
     const message = try commitMessage(gpa, staged);
     defer gpa.free(message);
 
@@ -158,6 +160,25 @@ pub fn commitIfDirty(gpa: Allocator, io: Io, vault: []const u8) !void {
         "git", "commit", "--quiet", "-m", message,
     }, .{ .cwd = cwd });
     commit.deinit(gpa);
+}
+
+/// `git commit` needs a resolved `user.name`/`user.email` from somewhere --
+/// local, global, or system config. A vault this store creates itself (or
+/// one that arrives with a bare `.git` and no identity ever configured
+/// anywhere on the machine, as on a fresh CI runner) has none of those, and
+/// `git commit` then fails outright rather than falling back to anything.
+/// Sets a local, repo-scoped identity only when nothing already resolves --
+/// never overwrites a real identity the vault or the machine already has.
+fn ensureIdentity(gpa: Allocator, io: Io, vault: []const u8) !void {
+    const cwd: std.process.Child.Cwd = .{ .path = vault };
+    const check = try process.run(io, gpa, &.{ "git", "config", "user.email" }, .{ .cwd = cwd });
+    defer check.deinit(gpa);
+    if (check.ok() and std.mem.trim(u8, check.stdout, " \t\r\n").len != 0) return;
+
+    const set_email = try process.run(io, gpa, &.{ "git", "config", "user.email", "vault@synapse.local" }, .{ .cwd = cwd });
+    set_email.deinit(gpa);
+    const set_name = try process.run(io, gpa, &.{ "git", "config", "user.name", "Synapse Vault" }, .{ .cwd = cwd });
+    set_name.deinit(gpa);
 }
 
 /// `staged` is `git diff --cached --name-only`'s trimmed output, one path
@@ -227,10 +248,10 @@ pub fn commitsAhead(gpa: Allocator, io: Io, vault: []const u8) !usize {
     return std.fmt.parseInt(usize, std.mem.trim(u8, res.stdout, " \t\r\n"), 10) catch 0;
 }
 
-/// `git init`s `vault` if it has no `.git` yet. No identity setup needed on
-/// the fresh repo -- checked directly (see the design note this implements):
-/// `git commit` with no `user.name`/`user.email` configured anywhere still
-/// succeeds, auto-deriving an identity from the OS.
+/// `git init`s `vault` if it has no `.git` yet. Identity is handled
+/// separately, by `ensureIdentity` inside `commitIfDirty`, since a repo that
+/// already existed before `GitStore` touched it can just as easily be
+/// missing one.
 pub fn ensureRepo(gpa: Allocator, io: Io, vault: []const u8) !void {
     const dot_git = try std.fmt.allocPrint(gpa, "{s}/.git", .{vault});
     defer gpa.free(dot_git);
@@ -321,6 +342,24 @@ test "commitIfDirty names every staged path up to the cap, then falls back to a 
     const many = try headSubject(gpa, vault);
     defer gpa.free(many);
     try testing.expectEqualStrings("vault: 5 files", many);
+}
+
+test "commitIfDirty still commits against a repo with no identity configured anywhere" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
+    const vault = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+    // Deliberately skips `initRepo`'s `git config user.*` calls -- this is
+    // the exact shape of a bare CI runner with no identity anywhere, local
+    // or global.
+    (try vaultGit(gpa, vault, &.{ "init", "-q", "-b", "main" })).deinit(gpa);
+
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "a.md", .data = "hello\n" });
+    try commitIfDirty(gpa, testing.io, vault);
+    const head = try headSubject(gpa, vault);
+    defer gpa.free(head);
+    try testing.expectEqualStrings("vault: a.md", head);
 }
 
 test "tryAcquire is exclusive until release, then a fresh lock is honored" {
