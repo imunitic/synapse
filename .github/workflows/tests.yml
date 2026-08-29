@@ -74,9 +74,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # `cache-key` scopes the Zig cache per matrix instance -- the action's
+      # own default key varies by runner OS, not by `matrix.target`, so
+      # without this all three parallel jobs race to save under the
+      # identical key and only the fastest one's cache actually persists;
+      # the other two always cold-start their compiled-object cache.
       - uses: mlugg/setup-zig@v2
         with:
           cache-size-limit: 4096
+          cache-key: ${{ matrix.target }}
 
       # Same script `just build-targets` runs (with no argument, sequentially,
       # for a local full check) -- one definition rather than one here and one
