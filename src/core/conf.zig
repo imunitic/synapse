@@ -310,13 +310,26 @@ fn existsAsDir(io: std.Io, path: []const u8) bool {
 /// wins since that's how a caller pins a vault deliberately (the bats suite
 /// does, against a fixture). Null means nothing names one.
 pub fn vaultDir(gpa: std.mem.Allocator, io: std.Io, vars: Vars) !?[]u8 {
-    if (vars.get("SYNAPSE_VAULT_DIR")) |v| if (v.len != 0) return try gpa.dupe(u8, v);
+    return resolve(gpa, io, vars, "SYNAPSE_VAULT_DIR");
+}
+
+/// Resolves any conf-file-documented key with the same precedence
+/// `vaultDir` already uses: a real environment variable wins if set and
+/// non-empty; otherwise the first conf file (tiered) that defines the key,
+/// in `resolveConfPath`'s own tier order. `SYNAPSE_VAULT_DIR` needs its own
+/// name (every caller already spells it) but every other key the shipped
+/// conf template documents (`SYNAPSE_VAULT_STORE`, `SYNAPSE_VAULT_PUSH_EVERY`,
+/// ...) gets the same resolution through this, rather than being real-
+/// environment-only despite the template presenting them as settable here.
+/// Null means nothing names the key at all.
+pub fn resolve(gpa: std.mem.Allocator, io: std.Io, vars: Vars, key: []const u8) !?[]u8 {
+    if (vars.get(key)) |v| if (v.len != 0) return try gpa.dupe(u8, v);
     for (file_names) |name| {
         const path = (try resolveConfPath(gpa, io, vars, name)) orelse continue;
         defer gpa.free(path);
         const text = std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 20)) catch continue;
         defer gpa.free(text);
-        const found = (try value(gpa, text, "SYNAPSE_VAULT_DIR", vars)) orelse continue;
+        const found = (try value(gpa, text, key, vars)) orelse continue;
         if (found.len == 0) {
             gpa.free(found);
             continue;
@@ -746,4 +759,63 @@ test "vaultDir: reads the pre-rename second-brain.conf when synapse.conf is abse
     const got = (try vaultDir(gpa, io, tv.vars())).?;
     defer gpa.free(got);
     try testing.expectEqualStrings("/legacy/vault", got);
+}
+
+test "resolve: any key falls back to the conf file, not just SYNAPSE_VAULT_DIR" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+    const cwd = std.Io.Dir.cwd();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const home = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    const claude_dir = try std.fmt.allocPrint(gpa, "{s}/.claude", .{home});
+    defer gpa.free(claude_dir);
+    try cwd.createDirPath(io, claude_dir);
+    const synapse_conf = try std.fmt.allocPrint(gpa, "{s}/.claude/synapse.conf", .{home});
+    defer gpa.free(synapse_conf);
+    try cwd.writeFile(io, .{ .sub_path = synapse_conf, .data = "SYNAPSE_VAULT_STORE=\"git\"\n" });
+
+    const tv: TestVars = .{ .pairs = &.{.{ "HOME", home }} }; // no real env override
+    const got = (try resolve(gpa, io, tv.vars(), "SYNAPSE_VAULT_STORE")).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("git", got);
+}
+
+test "resolve: a real environment variable overrides the conf file, same precedence as SYNAPSE_VAULT_DIR" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+    const cwd = std.Io.Dir.cwd();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const home = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    const claude_dir = try std.fmt.allocPrint(gpa, "{s}/.claude", .{home});
+    defer gpa.free(claude_dir);
+    try cwd.createDirPath(io, claude_dir);
+    const synapse_conf = try std.fmt.allocPrint(gpa, "{s}/.claude/synapse.conf", .{home});
+    defer gpa.free(synapse_conf);
+    try cwd.writeFile(io, .{ .sub_path = synapse_conf, .data = "SYNAPSE_VAULT_STORE=\"git\"\n" });
+
+    const tv: TestVars = .{ .pairs = &.{ .{ "HOME", home }, .{ "SYNAPSE_VAULT_STORE", "obsidian" } } };
+    const got = (try resolve(gpa, io, tv.vars(), "SYNAPSE_VAULT_STORE")).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("obsidian", got);
+}
+
+test "resolve: null when the key is nowhere -- no env, no conf file" {
+    const gpa = testing.allocator;
+    const io = testing.io;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const home = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    const tv: TestVars = .{ .pairs = &.{.{ "HOME", home }} };
+    try testing.expectEqual(@as(?[]u8, null), try resolve(gpa, io, tv.vars(), "SYNAPSE_VAULT_STORE"));
 }

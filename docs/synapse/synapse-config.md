@@ -49,11 +49,19 @@ reinstalled since.
 
 | Key | Default if unset | What it controls |
 |---|---|---|
-| `SYNAPSE_VAULT_DIR` | — (required) | The vault path. Also directly overridable by a `SYNAPSE_VAULT_DIR` environment variable, which wins over the file. |
+Every key below resolves through `core.conf.resolve` (`vaultDir` is that same function, fixed to
+`SYNAPSE_VAULT_DIR`): a real environment variable of the same name wins if set and non-empty;
+otherwise the first conf file in the tier order above that defines the key. Setting one in
+`synapse.conf` and exporting it as a real environment variable are both real, working ways to
+configure it — the row below just documents the value, not which of the two you used.
+
+| Key | Default if unset | What it controls |
+|---|---|---|
+| `SYNAPSE_VAULT_DIR` | — (required) | The vault path. |
 | `SYNAPSE_VAULT_STORE` | `disk` | Which `Store` backend `resolveStore()` resolves to: `disk` (plain markdown files, its own `search`/`LinkGraph`/`Renamer`, no external dependency), `git` (the same, plus owning the vault's own git lifecycle -- see [synapse-vault.md](synapse-vault.md#version-control-synapse_vault_storegit)), or the name of an extended store layered on top — see [synapse-extended-store.md](synapse-extended-store.md). Any other value is a hard error, not a silent fallback. |
 | `SYNAPSE_GRAMMARS_DIR` | `~/.cache/synapse/grammars` | Where tree-sitter grammar repos are cloned and their compiled `.so`/`.dylib` libraries cached — shared across every project, not per-repo. |
 | `SYNAPSE_VAULT_PUSH_EVERY` | `5` | Under `SYNAPSE_VAULT_STORE=git`, how many local commits pile up before `GitStore` spawns a detached push. `0` disables pushing. Only acts when the vault has an upstream and is genuinely ahead of it. |
-| `SYNAPSE_AUTHOR_POOL` | `0` | How many nodes `/synapse-init`'s final step authors concurrently via the `synapse-node-authoring` skill. `0` is the original one-at-a-time, same-session procedure — the only choice that preserves cross-node authorial memory. Read directly by the orchestrating agent, not by any compiled binary. |
+| `SYNAPSE_AUTHOR_POOL` | `0` | How many nodes `/synapse-init`'s final step authors concurrently via the `synapse-node-authoring` skill. `0` is the original one-at-a-time, same-session procedure — the only choice that preserves cross-node authorial memory. Read directly by the orchestrating agent, not by any compiled binary -- this one specifically is never a real environment variable, only ever text in the conf file an agent reads. |
 
 ## Self-populating registries (JSON)
 

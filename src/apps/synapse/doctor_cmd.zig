@@ -187,9 +187,11 @@ fn vaultChecks(ctx: *Ctx) !?[]const u8 {
 /// `Settings -> General -> Advanced -> Command line interface`.
 fn apiChecks(ctx: *Ctx, vault: ?[]const u8) !void {
     _ = vault;
-    const backend = ctx.env.get("SYNAPSE_VAULT_STORE") orelse "disk";
+    const backend_owned = try core.conf.resolve(ctx.gpa, ctx.io, adapters.env.vars(ctx.env), "SYNAPSE_VAULT_STORE");
+    defer if (backend_owned) |b| ctx.gpa.free(b);
+    const backend = backend_owned orelse "disk";
     if (!std.mem.eql(u8, backend, "obsidian")) {
-        try ctx.add("Obsidian", .ok, "not needed -- SYNAPSE_VAULT_STORE is disk (or unset)");
+        try ctx.add("Obsidian", .ok, try ctx.fmt("not needed -- SYNAPSE_VAULT_STORE is {s}", .{backend}));
         return;
     }
     const res = adapters.process.run(ctx.io, ctx.gpa, &.{ "obsidian", "vault", "info=path" }, .{}) catch {
@@ -329,7 +331,9 @@ fn workDirChecks(ctx: *Ctx, id: ?core.identity.Resolved) !void {
 /// one is not yet self-healing. An older one is reported too, as `ok` with a note,
 /// since seeing it explains a slow run that has already fixed itself.
 fn grammarLockChecks(ctx: *Ctx) !void {
-    const repos = if (ctx.env.get("SYNAPSE_GRAMMARS_DIR")) |d|
+    const resolved_dir = try core.conf.resolve(ctx.gpa, ctx.io, adapters.env.vars(ctx.env), "SYNAPSE_GRAMMARS_DIR");
+    defer if (resolved_dir) |d| ctx.gpa.free(d);
+    const repos = if (resolved_dir) |d|
         try ctx.fmt("{s}/repos", .{d})
     else if (ctx.env.get("HOME")) |home|
         try ctx.fmt("{s}/.cache/synapse/grammars/repos", .{home})

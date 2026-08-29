@@ -1,7 +1,10 @@
 //! One place that decides which `ports.Store` backend a caller gets, from
 //! `SYNAPSE_VAULT_STORE=obsidian|disk` (default `disk` -- no Obsidian
 //! dependency unless a caller opts into the live-app-preferred `obsidian`
-//! backend explicitly) and `SYNAPSE_VAULT_DIR`. Every CLI subcommand and
+//! backend explicitly) and `SYNAPSE_VAULT_DIR`. Both resolve through
+//! `core.conf.resolve`/`vaultDir` -- a real environment variable wins, then
+//! the first conf file that defines the key -- so setting either in
+//! `synapse.conf` works exactly like exporting it. Every CLI subcommand and
 //! every hook that needs a `Store` calls this instead of resolving one
 //! itself.
 //!
@@ -13,6 +16,7 @@
 //! nowhere else -- every caller already goes through this function.
 
 const std = @import("std");
+const core = @import("core");
 const ports = @import("ports");
 const obsidian = @import("obsidian/store.zig");
 const disk_store = @import("disk/store.zig");
@@ -150,11 +154,12 @@ pub fn resolveStore(
     namespace: []const u8,
     prog: ?[]const u8,
 ) !?ResolvedStore {
-    // Neither backend needs `io` to resolve. Kept in the signature anyway:
-    // every caller already threads it through, and a future backend (a
-    // local index file, a socket probe) plausibly will.
-    _ = io;
-    const backend = env.get("SYNAPSE_VAULT_STORE") orelse "disk";
+    // Same env-then-conf-file cascade `core.conf.vaultDir` already uses for
+    // `SYNAPSE_VAULT_DIR` -- the shipped conf template documents this as a
+    // settable conf-file key, not a real-environment-only one.
+    const backend_owned = try core.conf.resolve(gpa, io, env_bridge.vars(env), "SYNAPSE_VAULT_STORE");
+    defer if (backend_owned) |b| gpa.free(b);
+    const backend = backend_owned orelse "disk";
 
     if (std.mem.eql(u8, backend, "disk")) {
         var store = try disk_store.DiskStore.init(gpa, vault, namespace);
@@ -197,6 +202,16 @@ test "SYNAPSE_VAULT_STORE unset defaults to disk, no Obsidian dependency at all"
     defer tmp.cleanup();
     var buf: [Io.Dir.max_path_bytes]u8 = undefined;
     const vault = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+
+    // `SYNAPSE_VAULT_STORE` now cascades to a real conf file the same way
+    // `SYNAPSE_VAULT_DIR` already does, so "no config file to find" has to
+    // be true of the environment this test actually resolves against --
+    // the real machine's own `HOME` might have a real `synapse.conf` with
+    // a real value, which would otherwise leak into this test's result.
+    try env.put("HOME", vault);
+    _ = env.swapRemove("XDG_CONFIG_HOME");
+    _ = env.swapRemove("CLAUDE_PLUGIN_ROOT");
+    _ = env.swapRemove("SYNAPSE_CONTENT_ROOT");
 
     var io_threaded: std.Io.Threaded = .init(gpa, .{});
     defer io_threaded.deinit();

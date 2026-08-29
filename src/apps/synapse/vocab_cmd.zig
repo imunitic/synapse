@@ -168,8 +168,8 @@ pub fn run(
     };
     defer registry.deinit();
 
-    const grammars_dir = if (env.get("SYNAPSE_GRAMMARS_DIR")) |d|
-        try gpa.dupe(u8, d)
+    const grammars_dir = if (try core.conf.resolve(gpa, io, adapters.env.vars(env), "SYNAPSE_GRAMMARS_DIR")) |d|
+        d
     else
         try std.fmt.allocPrint(gpa, "{s}/.cache/synapse/grammars", .{home});
     defer gpa.free(grammars_dir);

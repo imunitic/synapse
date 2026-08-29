@@ -19,10 +19,12 @@
 //! `add -A` already does. Nothing here would change by typing it out.
 
 const std = @import("std");
+const core = @import("core");
 const ports = @import("ports");
 const disk_store = @import("../disk/store.zig");
 const git_sync = @import("../git_sync.zig");
 const process = @import("../process.zig");
+const env_bridge = @import("../env.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -36,8 +38,9 @@ const DiskStore = disk_store.DiskStore;
 /// `SYNAPSE_VAULT_PUSH_EVERY` was under `stop_nudge.zig`'s turn-based
 /// throttle, now counted in commits instead of turns, since a `Store` has
 /// writes to count but no turn concept of its own.
-fn pushEvery(vars: *std.process.Environ.Map) usize {
-    const raw = vars.get("SYNAPSE_VAULT_PUSH_EVERY") orelse return 5;
+fn pushEvery(gpa: Allocator, io: Io, vars: *std.process.Environ.Map) usize {
+    const raw = (core.conf.resolve(gpa, io, env_bridge.vars(vars), "SYNAPSE_VAULT_PUSH_EVERY") catch return 5) orelse return 5;
+    defer gpa.free(raw);
     return std.fmt.parseInt(usize, raw, 10) catch 5;
 }
 
@@ -136,7 +139,7 @@ pub const GitStore = struct {
         if (self.self_path.len == 0) return;
 
         const ahead = try git_sync.commitsAhead(gpa, io, vault);
-        if (ahead == 0 or ahead % pushEvery(env) != 0) return;
+        if (ahead == 0 or ahead % pushEvery(gpa, io, env) != 0) return;
 
         // Never waited on: this call is already inside a write, and a
         // network push has no business being on that critical path.

@@ -151,7 +151,7 @@ pub fn backfill(
 
     var registry = try loadRegistry(gpa, io, env);
     defer registry.deinit();
-    const grammars_dir = try grammarsDir(gpa, env);
+    const grammars_dir = try grammarsDir(gpa, io, env);
     defer gpa.free(grammars_dir);
     const kind_rules_path = try kindRulesPath(gpa, io, env);
     defer gpa.free(kind_rules_path);
@@ -355,8 +355,8 @@ fn loadRegistry(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !treesitt
     return treesitter.Registry.load(gpa, io, p);
 }
 
-fn grammarsDir(gpa: Allocator, env: *std.process.Environ.Map) ![]u8 {
-    if (env.get("SYNAPSE_GRAMMARS_DIR")) |d| return gpa.dupe(u8, d);
+fn grammarsDir(gpa: Allocator, io: Io, env: *std.process.Environ.Map) ![]u8 {
+    if (try core.conf.resolve(gpa, io, adapters.env.vars(env), "SYNAPSE_GRAMMARS_DIR")) |d| return d;
     const home = env.get("HOME") orelse return error.NoHome;
     return std.fmt.allocPrint(gpa, "{s}/.cache/synapse/grammars", .{home});
 }
