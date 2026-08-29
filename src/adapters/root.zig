@@ -12,6 +12,11 @@ pub const process = @import("process.zig");
 pub const env = @import("env.zig");
 pub const fakes = @import("fakes/root.zig");
 
+/// Shared git mechanics (lock, pull, commit, push) for the vault's own
+/// version control -- one implementation `GitStore` and the sync-related
+/// hooks both call into, not one per caller.
+pub const git_sync = @import("git_sync.zig");
+
 /// Obsidian behind the Store port -- `read`/`write`/`list` are plain disk
 /// I/O, `search` and the link graph go through the official `obsidian` CLI.
 /// Links nothing, so wanting a vault doesn't imply wanting a C compiler.
@@ -21,6 +26,10 @@ pub const obsidian = @import("obsidian/store.zig");
 /// network dependency at all. `SYNAPSE_VAULT_STORE=disk`'s backend, and
 /// what an extended store's own `read`/`write`/`list` decorate.
 pub const disk_store = @import("disk/store.zig");
+
+/// A `DiskStore` decorator owning the vault's own git lifecycle --
+/// `SYNAPSE_VAULT_STORE=git`'s backend.
+pub const git_store = @import("git/store.zig");
 
 /// Picks and constructs the `Store` a caller should use, from
 /// `SYNAPSE_VAULT_STORE`/`SYNAPSE_VAULT_DIR` -- shared by every CLI
@@ -56,8 +65,10 @@ test {
     _ = process;
     _ = env;
     _ = fakes;
+    _ = git_sync;
     _ = obsidian;
     _ = disk_store;
+    _ = git_store;
     _ = store_resolve;
     _ = bard_frontmatter;
     _ = bard_graph_store;

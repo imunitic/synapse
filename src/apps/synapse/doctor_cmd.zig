@@ -380,7 +380,7 @@ fn grammarLockChecks(ctx: *Ctx) !void {
     }
 }
 
-/// Whether the five hooks are registered, once each, in `settings.json` --
+/// Whether the four hooks are registered, once each, in `settings.json` --
 /// what `synapse-setup configure claude` writes there, npm's own commands
 /// merged in directly (no plugin cache, no fixed-path legacy binary to
 /// check for instead: an npm install's binary lives inside
@@ -398,7 +398,7 @@ fn hookChecks(ctx: *Ctx) !void {
         try ctx.add("hooks", .fail, "no settings.json -- run `synapse-setup configure claude`");
         return;
     };
-    const names = [_][]const u8{ "session-start", "prompt-context", "staleness", "db-sync", "stop-nudge" };
+    const names = [_][]const u8{ "session-start", "prompt-context", "staleness", "stop-nudge" };
     var missing: usize = 0;
     var duplicated: usize = 0;
     for (names) |name| {
@@ -408,7 +408,7 @@ fn hookChecks(ctx: *Ctx) !void {
         if (n > 1) duplicated += 1;
     }
     if (missing == 0 and duplicated == 0) {
-        try ctx.add("hooks", .ok, "all five registered once");
+        try ctx.add("hooks", .ok, "all four registered once");
     } else if (duplicated != 0) {
         try ctx.add("hooks", .fail, try ctx.fmt(
             "{d} registered more than once -- each fires that many times; fix ~/.claude/settings.json or re-run `synapse-setup configure claude`",
@@ -766,9 +766,6 @@ test "a hook registered twice is a failure that says it fires twice" {
     defer df.deinit();
     try df.baseline();
     try df.fx.tmp.dir.createDirPath(testing.io, "home/.claude");
-    // db-sync is deliberately absent as well, but the duplicate is the
-    // louder problem and is what the message must name -- a hook firing
-    // twice produces duplicated context nobody attributes to settings.json.
     try df.fx.tmp.dir.writeFile(testing.io, .{
         .sub_path = "home/.claude/settings.json",
         .data =
@@ -788,7 +785,7 @@ test "a hook registered twice is a failure that says it fires twice" {
     try testing.expect(std.mem.indexOf(u8, out.written(), "more than once") != null);
 }
 
-test "all five hooks registered once reports ok, whatever absolute path they were merged with" {
+test "all four hooks registered once reports ok, whatever absolute path they were merged with" {
     const gpa = testing.allocator;
     var df = try DoctorFixture.init(gpa);
     defer df.deinit();
@@ -805,7 +802,6 @@ test "all five hooks registered once reports ok, whatever absolute path they wer
         \\ "SessionStart":[{"hooks":[{"type":"command","command":"/x/node_modules/@imunitic/synapse-darwin-arm64/bin/synapse-hook session-start"}]}],
         \\ "UserPromptSubmit":[{"hooks":[{"type":"command","command":"/x/node_modules/@imunitic/synapse-darwin-arm64/bin/synapse-hook prompt-context"}]}],
         \\ "PostToolUse":[
-        \\  {"hooks":[{"type":"command","command":"/x/node_modules/@imunitic/synapse-darwin-arm64/bin/synapse-hook db-sync"}]},
         \\  {"hooks":[{"type":"command","command":"/x/node_modules/@imunitic/synapse-darwin-arm64/bin/synapse-hook staleness"}]}],
         \\ "Stop":[{"hooks":[{"type":"command","command":"/x/node_modules/@imunitic/synapse-darwin-arm64/bin/synapse-hook stop-nudge"}]}]}}
         ,
@@ -814,7 +810,7 @@ test "all five hooks registered once reports ok, whatever absolute path they wer
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
     _ = try df.check(df.fx.repo, &out.writer);
-    try testing.expect(std.mem.indexOf(u8, out.written(), "all five registered once") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "all four registered once") != null);
 }
 
 test "outside a git repo it warns rather than failing" {

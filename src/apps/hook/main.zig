@@ -1,10 +1,9 @@
-//! `synapse-hook` -- the five Claude Code hooks, in one binary that links no C.
+//! `synapse-hook` -- the four Claude Code hooks, in one binary that links no C.
 //!
 //!   synapse-hook staleness        PostToolUse (Write|Edit|MultiEdit)
 //!   synapse-hook prompt-context   UserPromptSubmit
 //!   synapse-hook session-start    SessionStart
 //!   synapse-hook stop-nudge       Stop
-//!   synapse-hook db-sync          PostToolUse (vault mutations)
 //!
 //! A separate binary, not `synapse` subcommands, since a hook runs on every
 //! edit and turn: this imports `core`/`adapters`, never `treesitter`, so it
@@ -24,7 +23,6 @@ const staleness = @import("staleness.zig");
 const prompt_context = @import("prompt_context.zig");
 const session_start = @import("session_start.zig");
 const stop_nudge = @import("stop_nudge.zig");
-const db_sync = @import("db_sync.zig");
 
 const usage =
     \\usage: synapse-hook <hook>
@@ -32,14 +30,13 @@ const usage =
     \\  staleness        PostToolUse: flag owning nodes, check cited evidence
     \\  prompt-context   UserPromptSubmit: the standing one-line pointer
     \\  session-start    SessionStart: inject the vault index and the pointer
-    \\  stop-nudge       Stop: the periodic capture check-in, and the vault sync
-    \\  db-sync          PostToolUse: commit a vault edit to the vault's own git
+    \\  stop-nudge       Stop: the periodic capture check-in
     \\
 ;
 
 pub fn main(init: std.process.Init) !u8 {
     var args = init.minimal.args.iterate();
-    const argv0 = args.next() orelse ""; // this binary's own invoked path -- stop-nudge re-invokes it for vault-push; session-start resolves synapse-claude.md relative to it
+    const argv0 = args.next() orelse ""; // this binary's own invoked path -- session-start re-invokes it for vault-pull, and resolves synapse-claude.md relative to it
 
     const which = args.next() orelse {
         std.debug.print("{s}", .{usage});
@@ -63,16 +60,10 @@ pub fn main(init: std.process.Init) !u8 {
     } else if (std.mem.eql(u8, which, "session-start")) {
         session_start.run(gpa, io, env, argv0) catch {};
     } else if (std.mem.eql(u8, which, "stop-nudge")) {
-        stop_nudge.run(gpa, io, env, argv0) catch {};
-    } else if (std.mem.eql(u8, which, "db-sync")) {
-        db_sync.run(gpa, io, env) catch {};
-    } else if (std.mem.eql(u8, which, "vault-sync")) {
-        // Not registered as a hook: stop-nudge spawns this detached so the
-        // turn never waits on the network.
-        stop_nudge.sync(gpa, io, env) catch {};
+        stop_nudge.run(gpa, io, env) catch {};
     } else if (std.mem.eql(u8, which, "vault-pull")) {
-        // Not registered as a hook either: session-start spawns this
-        // detached, same reason as vault-sync above.
+        // Not registered as a hook: session-start spawns this detached so
+        // the turn never waits on the network.
         stop_nudge.pull(gpa, io, env) catch {};
     } else {
         std.debug.print("synapse-hook: unknown hook '{s}'\n{s}", .{ which, usage });

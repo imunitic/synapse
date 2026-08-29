@@ -19,27 +19,26 @@ flowchart TB
     H1["<b>SessionStart</b><br/>synapse-hook session-start"]
     WORK["<b>harness session</b><br/>reading, editing, deciding"]
     H2["<b>Stop</b><br/>synapse-hook stop-nudge"]
-    H3["<b>PostToolUse</b><br/>synapse-hook db-sync"]
     H4["<b>UserPromptSubmit</b><br/>synapse-hook prompt-context"]
 
     IDX["Index.md"]
     FOLDERS["designs/ · tasks/ · research/<br/>inbox/ · scratchpad/"]
     SYN["synapse/{repo}@{branch}/<br/>Synapse Graph namespaces"]
-    GIT[("the Vault's own git history")]
+    GIT[("the Vault's own git history<br/>(SYNAPSE_VAULT_STORE=git)")]
 
     BEGIN --> H1
     IDX -->|"read"| H1
     H1 --> WORK
+    H1 -.->|"pull, git-backed only"| GIT
     WORK -->|"every 25 turns"| H2
     H2 -->|"nudge"| WORK
     WORK -->|"every prompt"| H4
     SYN -->|"read"| H4
     H4 -->|"standing line: tools + node count"| WORK
     WORK -->|"vault-write"| FOLDERS
-    FOLDERS --> H3
-    H3 -->|"commit"| GIT
+    FOLDERS -.->|"commit, git-backed only"| GIT
 
-    class H1,H2,H3,H4 hook
+    class H1,H2,H4 hook
     class IDX,FOLDERS,SYN vault
     class BEGIN,WORK session
     class GIT store

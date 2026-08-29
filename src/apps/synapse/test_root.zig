@@ -10,6 +10,8 @@ const ports = @import("ports");
 const adapters = @import("adapters");
 const write_node_cmd = @import("write_node_cmd.zig");
 const frontmatter_cmd = @import("frontmatter_cmd.zig");
+const vault_cmd = @import("vault_cmd.zig");
+const namespace_cmd = @import("namespace_cmd.zig");
 const gate_cmd = @import("gate_cmd.zig");
 const links_cmd = @import("links_cmd.zig");
 const refs_cmd = @import("refs_cmd.zig");
@@ -35,6 +37,8 @@ comptime {
     _ = adapters;
     _ = write_node_cmd;
     _ = frontmatter_cmd;
+    _ = vault_cmd;
+    _ = namespace_cmd;
     _ = gate_cmd;
     _ = links_cmd;
     _ = refs_cmd;

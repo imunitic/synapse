@@ -3,10 +3,11 @@
 //!   graph-clean [--dry-run]   remove namespaces whose branch was deleted upstream
 //!   graph-wipe  [--dry-run]   remove this namespace, preserving hand-written Notes
 //!
-//! One file: both `rm -rf` a directory inside a permanent vault, recoverable
-//! from the vault's own git history (`synapse-hook db-sync` commits every
-//! edit) but not harmless, so both only remove a path inside
-//! `{vault}/synapse/` whose name was just matched.
+//! One file: both `rm -rf` a directory inside a permanent vault -- on a
+//! `SYNAPSE_VAULT_STORE=git` vault, recoverable from its own git history
+//! (`GitStore` commits every edit), but not harmless regardless of backend,
+//! so both only remove a path inside `{vault}/synapse/` whose name was just
+//! matched.
 //!
 //! `graph-clean` never deletes on an ambiguous signal -- the decision tree
 //! is `core/graph_clean.zig`, and anything it can't confirm is *reported*

@@ -22,15 +22,6 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "apply_patch|Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "synapse-hook db-sync"
-          }
-        ]
-      },
-      {
         "matcher": "apply_patch",
         "hooks": [
           {

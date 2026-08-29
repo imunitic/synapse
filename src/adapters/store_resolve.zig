@@ -16,6 +16,7 @@ const std = @import("std");
 const ports = @import("ports");
 const obsidian = @import("obsidian/store.zig");
 const disk_store = @import("disk/store.zig");
+const git_store = @import("git/store.zig");
 const env_bridge = @import("env.zig");
 
 const Io = std.Io;
@@ -33,11 +34,13 @@ const Renamer = ports.Renamer;
 pub const ResolvedStore = union(enum) {
     obsidian: obsidian.ObsidianStore,
     disk: disk_store.DiskStore,
+    git: git_store.GitStore,
 
     pub fn store(self: *ResolvedStore) Store {
         return switch (self.*) {
             .obsidian => |*s| s.store(),
             .disk => |*s| s.store(),
+            .git => |*s| s.store(),
         };
     }
 
@@ -102,10 +105,25 @@ pub const ResolvedStore = union(enum) {
         };
     }
 
+    /// A no-op for every variant but `.git` -- sets the path `GitStore`
+    /// re-invokes via `argv[0]` to spawn its own detached Pusher. Called
+    /// once by a write-capable CLI entry point right after resolving,
+    /// before the store does any real work; every other caller (a read-only
+    /// command, a hook) simply never calls this, and `GitStore.write()`'s
+    /// own `self_path.len == 0` check degrades to "never spawn" exactly
+    /// like `stop_nudge.maybeSync` already does with no `self_path` known.
+    pub fn setSelfPath(self: *ResolvedStore, path: []const u8) void {
+        switch (self.*) {
+            .git => |*s| s.self_path = path,
+            else => {},
+        }
+    }
+
     pub fn deinit(self: *ResolvedStore) void {
         switch (self.*) {
             .obsidian => |*s| s.deinit(),
             .disk => |*s| s.deinit(),
+            .git => |*s| s.deinit(),
         }
     }
 };
@@ -148,7 +166,17 @@ pub fn resolveStore(
         store.disk.vars = env_bridge.vars(env);
         return .{ .obsidian = store };
     }
-    report(prog, "unknown SYNAPSE_VAULT_STORE '{s}' -- want 'obsidian' or 'disk'\n", .{backend});
+    if (std.mem.eql(u8, backend, "git")) {
+        var store = try git_store.GitStore.init(gpa, vault, namespace);
+        store.disk.vars = env_bridge.vars(env);
+        // `self_path` stays empty until a write-capable caller sets it via
+        // `ResolvedStore.setSelfPath` -- most callers (reads, hooks) never
+        // will, and `GitStore.write()` degrades to "never spawn a Pusher"
+        // exactly like `stop_nudge.maybeSync` already does with none known.
+        store.env = env;
+        return .{ .git = store };
+    }
+    report(prog, "unknown SYNAPSE_VAULT_STORE '{s}' -- want 'obsidian', 'disk', or 'git'\n", .{backend});
     return null;
 }
 
@@ -256,6 +284,59 @@ test "searchFiltered under .obsidian delegates to its own DiskStore, no live CLI
     }
     try testing.expectEqual(@as(usize, 1), hits.len);
     try testing.expectEqualStrings("designs/x.md", hits[0].node);
+}
+
+test "SYNAPSE_VAULT_STORE=git resolves a GitStore that round-trips read/write/list" {
+    const gpa = testing.allocator;
+    var env = try std.process.Environ.createMap(testing.environ, gpa);
+    defer env.deinit();
+    try env.put("SYNAPSE_VAULT_STORE", "git");
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
+    const vault = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+
+    var io_threaded: std.Io.Threaded = .init(gpa, .{});
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    var resolved = (try resolveStore(gpa, io, &env, vault, "synapse/repo@main", "test")).?;
+    defer resolved.deinit();
+    try testing.expect(resolved == .git);
+
+    var store = resolved.store();
+    const wr = try store.write(io, "Foo.md", "body\n");
+    try testing.expect(wr.accepted);
+    const got = (try store.read(gpa, io, "Foo.md")).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("body\n", got);
+
+    // The write also committed -- confirms `.git` actually reached
+    // `GitStore.write()`, not just the composed `DiskStore`'s own I/O.
+    const dot_git = try std.fmt.allocPrint(gpa, "{s}/.git", .{vault});
+    defer gpa.free(dot_git);
+    _ = try Io.Dir.cwd().statFile(io, dot_git, .{});
+}
+
+test "setSelfPath is a no-op for every backend but .git" {
+    const gpa = testing.allocator;
+    var env = try std.process.Environ.createMap(testing.environ, gpa);
+    defer env.deinit();
+    try env.put("SYNAPSE_VAULT_STORE", "disk");
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
+    const vault = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+
+    var io_threaded: std.Io.Threaded = .init(gpa, .{});
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    var resolved = (try resolveStore(gpa, io, &env, vault, "", "test")).?;
+    defer resolved.deinit();
+    resolved.setSelfPath("/some/path"); // must not crash on a non-.git variant
 }
 
 test "SYNAPSE_VAULT_STORE=disk resolves a DiskStore with no config file needed" {

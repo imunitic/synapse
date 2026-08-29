@@ -11,14 +11,13 @@ search, one sync concern.
 
 ![Synapse Vault overview](diagrams/synapse-vault-overview.png)
 
-The boxes name the four hooks; what each one does is here rather than crammed inside the box.
+The boxes name the vault-relevant hooks; what each one does is here rather than crammed inside the box.
 
 | Hook | Fires | What it does |
 |---|---|---|
-| `synapse-hook session-start` | `SessionStart` | Injects `Index.md`, this repo's Graph pointer if a namespace covers the current branch, and a catalogue of the other namespaces in the vault. A plain path lookup — never a model call, so a repo that never opted in pays nothing. |
+| `synapse-hook session-start` | `SessionStart` | Injects `Index.md`, this repo's Graph pointer if a namespace covers the current branch, and a catalogue of the other namespaces in the vault. A plain path lookup — never a model call, so a repo that never opted in pays nothing. Also spawns a detached vault pull, a no-op unless the resolved backend is `git`. |
 | `synapse-hook prompt-context` | `UserPromptSubmit` | One fixed standing line per turn naming the Graph/Code Cache tools available for a repo with a namespace -- no search, no node list, no network. Set `SYNAPSE_DISABLE_PROMPT_INJECTION` to skip it. |
-| `synapse-hook stop-nudge` | `Stop`, every 25 turns | Forces a real "did anything here belong in the vault?" check-in rather than relying on the agent to remember unprompted. Also pushes the vault to its git remote every `SYNAPSE_VAULT_PUSH_EVERY` turns (default 5), detached so the turn never waits on the network. |
-| `synapse-hook db-sync` | `PostToolUse` | Commits vault changes to the vault's own git history on any vault-modifying write. That history is what makes a destructive mistake recoverable. |
+| `synapse-hook stop-nudge` | `Stop`, every 25 turns | Forces a real "did anything here belong in the vault?" check-in rather than relying on the agent to remember unprompted. |
 
 ## The vault
 
@@ -40,6 +39,22 @@ them cares which backend is actually configured.
 `synapse.conf` (resolved through the tiered lookup in
 [synapse-config.md](synapse-config.md#where-a-conf-file-actually-lives)) holds the one piece of
 genuinely machine-local state: `SYNAPSE_VAULT_DIR`.
+
+### Version control (`SYNAPSE_VAULT_STORE=git`)
+
+A third backend, alongside `disk` and `obsidian`: `GitStore` composes `DiskStore` the same way an
+extended store does, and additionally owns the vault's own git lifecycle. Choosing it is the
+opt-in — a vault with no `.git` yet gets one initialized on its first write, and a vault with no
+remote configured just gets local-only versioned history.
+
+Every write commits under a lock shared with the push/pull steps below, so a commit and a rebase
+never interleave; a write that loses that lock to a concurrent push still lands on disk, just with
+its commit picked up by whichever operation runs next. Once enough local commits pile up
+(`SYNAPSE_VAULT_PUSH_EVERY`, default 5, now counted in commits rather than turns), a detached
+process pulls (`--rebase --autostash`, aborting on conflict) and pushes what's still ahead,
+entirely off any turn's critical path. The same pull also runs once at `SessionStart`, for
+freshness before a session's first read — the `disk`/`obsidian` backends never touch git at all,
+even if a stray `.git` directory happens to sit in the vault folder.
 
 ## Folder layout
 
@@ -64,7 +79,7 @@ Filenames are the human-readable title itself — no timestamp prefix, no slug �
 resolves by filename stem, not by title or path. Frontmatter carries what the filename doesn't:
 `title`, `created`, and for task notes `task_id`/`status`.
 
-## The four hooks
+## The vault-relevant hooks
 
 Nothing here runs on a schedule; everything is triggered by an actual session event.
 
@@ -76,6 +91,8 @@ matching Synapse namespace, if one exists and its `remote` field actually matche
 lists every *other* namespace in the vault as a `name | remote` catalogue, because one session
 routinely spans several repos and without it only the starting repo's graph is ever announced. Both
 are derived per session and stored nowhere — see [synapse-graph.md](synapse-graph.md) for the detail.
+It also spawns a detached vault pull (`synapse-hook vault-pull`) — a no-op unless the resolved
+backend is `git`, see [Version control](#version-control-synapse_vault_storegit) above.
 
 **`UserPromptSubmit` → `synapse-hook prompt-context`**
 One fixed standing line per turn, in a repo with a namespace: the graph exists, here are the tools
@@ -90,20 +107,6 @@ A turn-count-based nudge, firing every 25 turns, asking: *did anything in this s
 the Vault and not get written down?* This exists because "remember to write notes" is
 exactly the shape of standing instruction that's easy to silently forget under task pressure — a
 periodic, mechanical prompt is more reliable than trusting recall alone.
-
-The same hook also pushes the vault to its git remote every `SYNAPSE_VAULT_PUSH_EVERY` turns
-(default 5, only if the vault has a remote configured at all) — piggybacked here rather than on
-`db-sync` because `Stop` is the only one of the five events that fires once per turn rather than
-once per tool call, and because it already carries a turn counter to key the interval off. The
-push itself runs detached (`synapse-hook vault-push`, spawned and not waited on) so a turn never
-stalls on the network; a failure is logged to `.git/synapse-push.log` inside the vault rather than
-surfaced mid-turn.
-
-**`PostToolUse` → `synapse-hook db-sync`**
-Fires on every vault-modifying MCP call (`vault_write`/`patch`/`append`/`delete`/`move`) and, if
-the vault itself is a git repo, commits the change immediately. This is what makes the vault's own
-history a usable audit trail of every note ever written or edited, without anyone having to
-remember to commit it themselves.
 
 ## The standing instruction
 

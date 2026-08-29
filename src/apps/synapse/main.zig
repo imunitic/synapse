@@ -39,7 +39,11 @@ comptime {
 
 pub fn main(init: std.process.Init) !u8 {
     var args = init.minimal.args.iterate();
-    _ = args.next(); // argv[0]
+    // Kept, not discarded: `vault-write`/`vault-patch` thread this down to
+    // `GitStore` so it can spawn its own detached Pusher via `argv[0]`
+    // re-invocation, the same mechanism `synapse-hook` already uses for
+    // `vault-sync`/`vault-pull`.
+    const argv0 = args.next() orelse "";
 
     const sub = args.next() orelse {
         std.debug.print("{s}", .{usage});
@@ -103,7 +107,7 @@ pub fn main(init: std.process.Init) !u8 {
         return vault_cmd.runRead(init.gpa, init.io, init.environ_map, &args);
 
     if (std.mem.eql(u8, sub, "vault-write"))
-        return vault_cmd.runWrite(init.gpa, init.io, init.environ_map, &args);
+        return vault_cmd.runWrite(init.gpa, init.io, init.environ_map, &args, argv0);
 
     if (std.mem.eql(u8, sub, "vault-list"))
         return vault_cmd.runList(init.gpa, init.io, init.environ_map, &args);
@@ -118,7 +122,7 @@ pub fn main(init: std.process.Init) !u8 {
         return vault_cmd.runDocMap(init.gpa, init.io, init.environ_map, &args);
 
     if (std.mem.eql(u8, sub, "vault-patch"))
-        return vault_cmd.runPatch(init.gpa, init.io, init.environ_map, &args);
+        return vault_cmd.runPatch(init.gpa, init.io, init.environ_map, &args, argv0);
 
     if (std.mem.eql(u8, sub, "vault-backlinks"))
         return vault_cmd.runBacklinks(init.gpa, init.io, init.environ_map, &args);
@@ -137,6 +141,12 @@ pub fn main(init: std.process.Init) !u8 {
 
     if (std.mem.eql(u8, sub, "vault-ambiguous"))
         return vault_cmd.runAmbiguous(init.gpa, init.io, init.environ_map, &args);
+
+    // Not documented in `usage`: `GitStore.write()`'s own detached spawn
+    // target, the same "not registered as a hook" shape `synapse-hook
+    // vault-sync`/`vault-pull` already have.
+    if (std.mem.eql(u8, sub, "vault-git-pusher"))
+        return vault_cmd.runVaultGitPusher(init.gpa, init.io, &args);
 
     if (std.mem.eql(u8, sub, "vault-rename"))
         return vault_cmd.runRename(init.gpa, init.io, init.environ_map, &args);

@@ -101,11 +101,11 @@ findings for the Step 6 proposal instead of a silent edit:
 
 - **Broken links** — every `vault-unresolved` row whose `source` is in scope. Before writing the
   finding, check the vault's own local git history to say *why* it's broken instead of leaving that
-  to guesswork — the vault is usually a git repo (`db-sync` auto-commits every agent-driven edit into
-  it, opt-in per vault, same precondition as that hook). Resolve the vault's filesystem path the same
-  way `synapse.conf` already does (`SYNAPSE_VAULT_DIR`), skip this sub-step entirely if
-  `{vault}/.git` doesn't exist, and never let a missing/unreachable git repo block the rest of the
-  finding — worst case it's reported with no history context, same as today.
+  to guesswork — a `SYNAPSE_VAULT_STORE=git` vault has one, since every agent-driven edit commits
+  into it automatically. Resolve the vault's filesystem path the same way `synapse.conf` already does
+  (`SYNAPSE_VAULT_DIR`), skip this sub-step entirely if `{vault}/.git` doesn't exist, and never let a
+  missing/unreachable git repo block the rest of the finding — worst case it's reported with no
+  history context, same as today.
   - `git -C {vault} log --all --diff-filter=A --name-only --pretty=format: -- "**/{target}.md"` — a
     hit means a note by that exact title was created at some point (even if later renamed or
     deleted): report it as *"used to be a note — find what it's called now, or was deleted"*.

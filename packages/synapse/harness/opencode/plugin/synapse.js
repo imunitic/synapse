@@ -18,18 +18,11 @@
 // `tool.execute.after`'s real tool names/args, live-verified against a real
 // edit: `write` (`args.filePath`, `args.content`) and `edit` (`args.filePath`,
 // `args.oldString`, `args.newString`) -- both share `filePath`, matching
-// Claude Code's `Write`/`Edit` sharing `tool_input.file_path`. `db_sync.zig`
-// itself is a blind `git add -A && commit` against the vault's own repo, so
-// this plugin only needs to decide *whether* to fire it, not translate a
-// payload -- fired on the same write/edit tools, and on `bash` (`args.command`,
-// confirmed against `packages/core/src/tool/bash.ts` in the real
-// `sst/opencode` source) when the command actually names `synapse
-// vault-write`/`vault-patch` -- the CLI door skills use to reach the vault
-// (see `sb — Vault store backend selection`). Unlike Claude Code's/Codex's
-// `hooks.json`, which can only match a tool *name* and so must widen their
-// own matcher to `Bash` and let `db_sync.zig` filter the command text itself,
-// this plugin has the real args in hand before ever spawning the hook, so it
-// filters right here instead -- no spawn at all for an unrelated `bash` call.
+// Claude Code's `Write`/`Edit` sharing `tool_input.file_path`. Fired on
+// write/edit tools for `staleness` -- the vault's own version control
+// (`SYNAPSE_VAULT_STORE=git`) commits from inside `synapse`'s own CLI
+// (`vault-write`/`vault-patch`) itself now, needing no `PostToolUse`-style
+// hook here or on any other harness.
 //
 // `stop-nudge`'s Claude Code trigger (`Stop`, once per turn) maps to
 // `session.idle` -- live-verified as firing exactly once, after every tool
@@ -108,15 +101,6 @@ async function alreadyInjected(client, sessionID) {
 
 const EDIT_TOOLS = new Set(["write", "edit"])
 
-// A `bash` call whose command names a `synapse vault-write`/`vault-patch`
-// invocation -- the substring check a real shell quoting/path prefix can't
-// evade in the cases that matter (`synapse vault-write ...`, `/path/to/synapse
-// vault-patch ...`), matching `db_sync.zig`'s own `shouldSkipBash` filter for
-// the harnesses that can't pre-filter on args the way this plugin can.
-function isVaultWriteCommand(command) {
-  return typeof command === "string" && (command.includes("vault-write") || command.includes("vault-patch"))
-}
-
 // sessionID -> nudge text from a `stop-nudge` call that had nowhere to land
 // yet -- delivered on that session's next `chat.message`.
 const pendingNudge = new Map()
@@ -156,9 +140,6 @@ export const Synapse = async ({ directory, client }) => {
           session_id: input.sessionID,
           tool_input: { file_path: filePath },
         })
-        runHook("db-sync", {});
-      } else if (input.tool === "bash" && isVaultWriteCommand(input.args?.command)) {
-        runHook("db-sync", {});
       }
     },
 

@@ -35,7 +35,7 @@ const fake = @import("fake_grammar.zig");
 
 pub fn main(init: std.process.Init) !u8 {
     var args = init.minimal.args.iterate();
-    _ = args.next(); // argv[0]
+    const argv0 = args.next() orelse ""; // this binary's own invoked path -- vault-write/vault-patch thread it to GitStore's own Pusher spawn
 
     const sub = args.next() orelse return 2;
     const trace = init.environ_map.get("FAKE_TS_LOG");
@@ -79,7 +79,13 @@ pub fn main(init: std.process.Init) !u8 {
         return vault_cmd.runRead(init.gpa, init.io, init.environ_map, &args);
 
     if (std.mem.eql(u8, sub, "vault-write"))
-        return vault_cmd.runWrite(init.gpa, init.io, init.environ_map, &args);
+        return vault_cmd.runWrite(init.gpa, init.io, init.environ_map, &args, argv0);
+
+    // Not documented in `usage`: `GitStore.write()`'s own detached spawn
+    // target, the same "not registered as a hook" shape `synapse-hook
+    // vault-sync`/`vault-pull` already have.
+    if (std.mem.eql(u8, sub, "vault-git-pusher"))
+        return vault_cmd.runVaultGitPusher(init.gpa, init.io, &args);
 
     if (std.mem.eql(u8, sub, "vault-list"))
         return vault_cmd.runList(init.gpa, init.io, init.environ_map, &args);
@@ -94,7 +100,7 @@ pub fn main(init: std.process.Init) !u8 {
         return vault_cmd.runDocMap(init.gpa, init.io, init.environ_map, &args);
 
     if (std.mem.eql(u8, sub, "vault-patch"))
-        return vault_cmd.runPatch(init.gpa, init.io, init.environ_map, &args);
+        return vault_cmd.runPatch(init.gpa, init.io, init.environ_map, &args, argv0);
 
     if (std.mem.eql(u8, sub, "vault-backlinks"))
         return vault_cmd.runBacklinks(init.gpa, init.io, init.environ_map, &args);

@@ -1,24 +1,16 @@
-//! `synapse-hook stop-nudge` -- Stop.
+//! `synapse-hook stop-nudge` -- Stop: every `N` turns, forces a "worth
+//! capturing in Synapse Vault" check-in. A `GitStore`-backed vault
+//! (`SYNAPSE_VAULT_STORE=git`) commits from inside `Store.write()` itself
+//! and pushes on its own commit-count threshold, so no turn-keyed hook
+//! drives either half of vault sync.
 //!
-//! Two jobs, keyed off Stop being the only per-turn event: every `N` turns,
-//! force a "worth capturing in Synapse Vault" check-in; every
-//! `PUSH_EVERY` turns, sync the vault with its remote -- pull first, then
-//! push, so an edit from elsewhere (a phone-side editor with its own
-//! git-sync, say) gets folded in before this machine's auto-commits go out,
-//! rather than the two histories quietly diverging until a push finally
-//! fails.
-//!
-//! The sync lives here, not in db-sync, because db-sync is PostToolUse
-//! (fires per tool call, several times a turn, and can't count turns) --
-//! this reuses the hook's own turn counter instead of adding a second one.
-//! Piggybacking is safe since every path here falls through to the sync
-//! block, but the sync must stay silent on stdout: the nudge above may
-//! already have written this hook's JSON.
-//!
-//! `pull()` also runs standalone, undetached-throttle, spawned once at
-//! SessionStart -- freshness at the start of a session matters more than
-//! mid-session drift, so that call site skips the turn-count gate entirely
-//! and never pushes (nothing local to push yet at session start).
+//! `pull()` runs standalone, spawned once at SessionStart -- freshness at
+//! the start of a session matters more than mid-session drift, and
+//! mid-session freshness comes free from `GitStore`'s own pull-before-push.
+//! Backend-aware: only a `.git`-backed vault actually pulls anything, even
+//! if a stray `.git` directory happens to sit in a `disk`/`obsidian`
+//! vault's folder -- the opt-in is the backend choice, not `.git`'s mere
+//! presence.
 //!
 //! The nudge uses `additionalContext`, not `decision: block`, since the CLI
 //! labels the former "Stop hook feedback" rather than the alarming "Stop
@@ -39,7 +31,7 @@ const n = 25;
 /// two copies (nudge prose, test expectation) drifting apart silently.
 const vault_note_heading = "Synapse Vault as permanent memory";
 
-pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map, self_path: []const u8) !void {
+pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     const home = env.get("HOME") orelse return;
 
     var payload = common.Payload.read(gpa, io);
@@ -49,8 +41,6 @@ pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map, self_path: []c
     const result = try tick(gpa, io, env, home, sid);
     defer if (result.text) |t| gpa.free(t);
     if (result.text) |t| try common.emitContext(gpa, io, "Stop", t);
-
-    try maybeSync(gpa, io, env, result.total, self_path);
 }
 
 pub const Tick = struct {
@@ -110,168 +100,27 @@ fn writeCount(gpa: Allocator, io: Io, path: []const u8, value: usize) !void {
     Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = text }) catch {};
 }
 
-/// Hands the sync to a detached copy of this binary, at most every
-/// `PUSH_EVERY` turns. Detached so the turn never waits on the network --
-/// an unreachable remote (VPN off) is the ordinary case, not the exception
-/// -- and run via `synapse-hook vault-sync` rather than inline, since a
-/// child that outlives us has to own the lock and log itself. A vault with
-/// no remote is ordinary (local versioned undo only), so everything here
-/// is a silent no-op when anything is missing.
-fn maybeSync(gpa: Allocator, io: Io, env: *std.process.Environ.Map, total: usize, self_path: []const u8) !void {
-    const vault = common.vault(gpa, io, env) orelse return;
-    defer gpa.free(vault);
-    const dot_git = try std.fmt.allocPrint(gpa, "{s}/.git", .{vault});
-    defer gpa.free(dot_git);
-    const st = Io.Dir.cwd().statFile(io, dot_git, .{}) catch return;
-    if (st.kind != .directory) return;
-
-    const every = blk: {
-        const raw = env.get("SYNAPSE_VAULT_PUSH_EVERY") orelse break :blk 5;
-        break :blk std.fmt.parseInt(usize, raw, 10) catch 0;
-    };
-    if (every == 0 or total % every != 0) return;
-
-    // `argv[0]`, threaded from `main`, not `$SYNAPSE_HOOK_BIN`:
-    // settings.json's hook entry never sets that variable, so reading it
-    // made the sync silently a no-op on every real install. `argv[0]` is
-    // guaranteed to already be this process's own invoked path.
-    if (self_path.len == 0) return;
-    const self = self_path;
-
-    // Never waited on: this process exits immediately, the child is
-    // reparented -- `wait` here would put the network on the turn's
-    // critical path.
-    _ = std.process.spawn(io, .{
-        .argv = &.{ self, "vault-sync" },
-        .stdin = .ignore,
-        .stdout = .ignore,
-        .stderr = .ignore,
-    }) catch return;
-}
-
-/// The tracked upstream's short name (e.g. `origin/main`), or null when
-/// there isn't one -- no upstream is ordinary (a vault with no remote, or
-/// one never pushed yet), the same "everything is a silent no-op" contract
-/// every precondition here follows. Shared by `sync` and `pull`, which both
-/// need it before deciding whether there's anything to do at all.
-fn upstreamOf(gpa: Allocator, io: Io, cwd: std.process.Child.Cwd) !?[]u8 {
-    const res = try adapters.process.run(io, gpa, &.{
-        "git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}",
-    }, .{ .cwd = cwd });
-    defer res.deinit(gpa);
-    if (!res.ok()) return null;
-    const name = std.mem.trim(u8, res.stdout, " \t\r\n");
-    if (name.len == 0) return null;
-    return try gpa.dupe(u8, name);
-}
-
-/// Fetches and rebases any local, not-yet-pushed auto-commits onto the
-/// tracked upstream -- the read half of vault sync. Safe to run whenever the
-/// working tree is clean, which both call sites guarantee (`pull` runs at
-/// SessionStart, before anything this session could have touched; `sync`
-/// runs it immediately before its own push, by which point every write this
-/// turn already went through db-sync's own per-edit commit). `--autostash`
-/// is defensive insurance against that invariant, not reliance on it.
-///
-/// A conflict is aborted immediately rather than ever left half-applied --
-/// `git rebase` writes conflict markers straight into the working-tree file,
-/// and that file is a note read as-is by whatever's viewing the vault.
-/// Losing this round's pull to a manual-resolution log line is a far
-/// smaller cost than a note silently gaining `<<<<<<<` in its body. Returns
-/// whether it's safe to continue (already up to date, or pulled cleanly).
-fn pullUpstream(gpa: Allocator, io: Io, cwd: std.process.Child.Cwd) bool {
-    // Same SSH bound as the push below, for the same reason: macOS ships
-    // neither `timeout` nor `gtimeout`, and `BatchMode=yes` keeps a
-    // passphrase-locked key from waiting forever on a prompt nobody sees.
-    const res = adapters.process.run(io, gpa, &.{
-        "git",
-        "-c",
-        "core.sshCommand=ssh -o BatchMode=yes -o ConnectTimeout=10",
-        "pull",
-        "--rebase",
-        "--autostash",
-        "--quiet",
-    }, .{ .cwd = cwd }) catch return false;
-    defer res.deinit(gpa);
-    if (res.ok()) return true;
-
-    const abort = adapters.process.run(io, gpa, &.{ "git", "rebase", "--abort" }, .{ .cwd = cwd }) catch return false;
-    abort.deinit(gpa);
-    return false;
-}
-
-/// `synapse-hook vault-sync` -- the detached half of the Stop hook. Pulls
-/// first, then pushes only what's still ahead afterward -- pulling after
-/// computing `ahead` would push against a since-moved upstream.
-pub fn sync(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
-    const vault = common.vault(gpa, io, env) orelse return;
-    defer gpa.free(vault);
-    const cwd: std.process.Child.Cwd = .{ .path = vault };
-
-    const upstream = try upstreamOf(gpa, io, cwd) orelse return;
-    defer gpa.free(upstream);
-
-    const lock = try std.fmt.allocPrint(gpa, "{s}/.git/synapse-sync.lock", .{vault});
-    defer gpa.free(lock);
-    // `mkdir` is the atomic test-and-set. Left behind only by a crash, so
-    // an existing lock is honoured, and removed on the way out since this
-    // process owns it for its whole life. One lock for both halves: `pull`
-    // (SessionStart) and `sync` (Stop) mutate the same repo and must never
-    // interleave.
-    Io.Dir.cwd().createDir(io, lock, .default_dir) catch return;
-    defer Io.Dir.cwd().deleteDir(io, lock) catch {};
-
-    if (!pullUpstream(gpa, io, cwd)) {
-        appendSyncFailure(gpa, io, vault, "pull", null) catch {};
-        return; // HEAD's state is uncertain -- don't push on top of it
-    }
-
-    const ahead = blk: {
-        const spec = try std.fmt.allocPrint(gpa, "{s}..HEAD", .{upstream});
-        defer gpa.free(spec);
-        const res = try adapters.process.run(io, gpa, &.{ "git", "rev-list", "--count", spec }, .{ .cwd = cwd });
-        defer res.deinit(gpa);
-        if (!res.ok()) return;
-        break :blk std.fmt.parseInt(usize, std.mem.trim(u8, res.stdout, " \t\r\n"), 10) catch 0;
-    };
-    if (ahead == 0) return; // push only if needed
-
-    const res = adapters.process.run(io, gpa, &.{
-        "git",
-        "-c",
-        "core.sshCommand=ssh -o BatchMode=yes -o ConnectTimeout=10",
-        "push",
-        "--quiet",
-    }, .{ .cwd = cwd }) catch return;
-    defer res.deinit(gpa);
-    if (res.ok()) return;
-
-    // Failure is logged, not surfaced -- the turn says nothing, but someone
-    // debugging a vault that stopped syncing finds it here.
-    appendSyncFailure(gpa, io, vault, "push", ahead) catch {};
-}
-
 /// `synapse-hook vault-pull` -- spawned detached, once, at SessionStart.
-/// Pull only, no push: freshness for what this session is about to read
-/// matters here, not draining this machine's own not-yet-pushed commits
-/// (`sync` above already does that periodically). Shares `sync`'s lock, so
-/// the rare case of a session starting the same instant a throttled `sync`
-/// is mid-flight just skips this round rather than racing it.
+/// Backend-aware: resolves the vault's actual `Store` and does nothing
+/// unless it's `.git` -- `disk`/`obsidian` are silent no-ops here even if a
+/// stray `.git` directory happens to sit in the vault folder, since the
+/// opt-in is the backend choice now, not `.git`'s mere presence. Shares
+/// `GitStore`'s own lock (a short bounded wait, same as the Pusher), so the
+/// rare case of a session starting the same instant a write's commit or a
+/// Pusher is mid-flight just skips this round rather than racing it.
 pub fn pull(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     const vault = common.vault(gpa, io, env) orelse return;
     defer gpa.free(vault);
-    const cwd: std.process.Child.Cwd = .{ .path = vault };
 
-    const upstream = try upstreamOf(gpa, io, cwd) orelse return;
-    gpa.free(upstream);
+    var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, vault, "", null)) orelse return;
+    defer resolved.deinit();
+    if (resolved != .git) return;
 
-    const lock = try std.fmt.allocPrint(gpa, "{s}/.git/synapse-sync.lock", .{vault});
-    defer gpa.free(lock);
-    Io.Dir.cwd().createDir(io, lock, .default_dir) catch return;
-    defer Io.Dir.cwd().deleteDir(io, lock) catch {};
+    const lock = (try adapters.git_sync.acquireWithRetry(gpa, io, vault, 5)) orelse return;
+    defer adapters.git_sync.release(io, gpa, lock);
 
-    if (!pullUpstream(gpa, io, cwd)) {
-        appendSyncFailure(gpa, io, vault, "pull", null) catch {};
+    if (!adapters.git_sync.pull(gpa, io, vault)) {
+        appendSyncFailure(gpa, io, vault) catch {};
     }
 }
 
@@ -295,7 +144,10 @@ pub fn spawnPull(io: Io, self_path: []const u8) void {
 /// null for a pull failure (nothing about the local commit count is the
 /// issue there). Never surfaced to the turn, same tolerance as every other
 /// network failure in this file.
-fn appendSyncFailure(gpa: Allocator, io: Io, vault: []const u8, op: []const u8, ahead: ?usize) !void {
+/// Appends one failure line to the vault's own sync log -- never surfaced to
+/// the turn, same tolerance every other network failure here gets; someone
+/// debugging a vault that stopped pulling finds it here instead.
+fn appendSyncFailure(gpa: Allocator, io: Io, vault: []const u8) !void {
     const log_path = try std.fmt.allocPrint(gpa, "{s}/.git/synapse-sync.log", .{vault});
     defer gpa.free(log_path);
 
@@ -313,11 +165,7 @@ fn appendSyncFailure(gpa: Allocator, io: Io, vault: []const u8, op: []const u8, 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
     try out.writer.writeAll(existing);
-    if (ahead) |count| {
-        try out.writer.print("{s} {s} failed, {d} commit(s) still pending\n", .{ stamp, op, count });
-    } else {
-        try out.writer.print("{s} {s} failed, vault left as it was\n", .{ stamp, op });
-    }
+    try out.writer.print("{s} pull failed, vault left as it was\n", .{stamp});
     try Io.Dir.cwd().writeFile(io, .{ .sub_path = log_path, .data = out.written() });
 }
 
@@ -365,12 +213,6 @@ fn seedVaultWithRemote(fx: *fixture.Fixture) ![]u8 {
     return remote;
 }
 
-fn remoteHeadSubject(fx: *fixture.Fixture, gpa: Allocator, remote: []const u8) ![]u8 {
-    const res = try adapters.process.run(fx.io(), gpa, &.{ "git", "-C", remote, "log", "-1", "--format=%s", "main" }, .{});
-    defer res.deinit(gpa);
-    return gpa.dupe(u8, std.mem.trim(u8, res.stdout, " \t\r\n"));
-}
-
 /// A second working copy of `remote`, standing in for the phone in the pull
 /// tests below -- `init` + `remote add` + `pull` rather than `git clone`,
 /// which doesn't behave reliably against these tmp-rooted local paths in
@@ -404,224 +246,11 @@ fn seedOtherClone(fx: *fixture.Fixture, remote: []const u8) ![]u8 {
     return other;
 }
 
-test "sync: a real push lands on the local remote when the vault is ahead" {
-    const gpa = testing.allocator;
-    var fx = try fixture.Fixture.init(gpa);
-    defer fx.deinit();
-    const remote = try seedVaultWithRemote(&fx);
-    defer gpa.free(remote);
-
-    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/more.md", .data = "more\n" });
-    const add = try vaultGit(&fx, &.{ "add", "more.md" });
-    add.deinit(gpa);
-    const commit = try vaultGit(&fx, &.{ "-c", "user.email=t@e", "-c", "user.name=t", "commit", "-q", "-m", "more" });
-    commit.deinit(gpa);
-
-    try sync(gpa, fx.io(), &fx.env);
-
-    const head = try remoteHeadSubject(&fx, gpa, remote);
-    defer gpa.free(head);
-    try testing.expectEqualStrings("more", head);
-}
-
-test "sync: nothing to push when the vault is already up to date with its remote" {
-    const gpa = testing.allocator;
-    var fx = try fixture.Fixture.init(gpa);
-    defer fx.deinit();
-    const remote = try seedVaultWithRemote(&fx);
-    defer gpa.free(remote);
-
-    try sync(gpa, fx.io(), &fx.env);
-
-    const head = try remoteHeadSubject(&fx, gpa, remote);
-    defer gpa.free(head);
-    try testing.expectEqualStrings("seed", head);
-}
-
-test "sync: no vault configured is a silent no-op" {
-    const gpa = testing.allocator;
-    var fx = try fixture.Fixture.init(gpa);
-    defer fx.deinit();
-    _ = fx.env.swapRemove("SYNAPSE_VAULT_DIR");
-
-    try sync(gpa, fx.io(), &fx.env); // must not error
-}
-
-test "sync: a vault with no .git repo is a silent no-op" {
-    const gpa = testing.allocator;
-    var fx = try fixture.Fixture.init(gpa);
-    defer fx.deinit();
-    // Fixture's own vault dir exists but was never `git init`'d.
-
-    try sync(gpa, fx.io(), &fx.env); // must not error or crash
-}
-
-test "sync: no upstream tracking branch is a silent no-op" {
-    const gpa = testing.allocator;
-    var fx = try fixture.Fixture.init(gpa);
-    defer fx.deinit();
-    const init_vault = try vaultGit(&fx, &.{ "init", "-q", "-b", "main" });
-    init_vault.deinit(gpa);
-    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/seed.md", .data = "seed\n" });
-    const add = try vaultGit(&fx, &.{ "add", "seed.md" });
-    add.deinit(gpa);
-    const commit = try vaultGit(&fx, &.{ "-c", "user.email=t@e", "-c", "user.name=t", "commit", "-q", "-m", "seed" });
-    commit.deinit(gpa);
-    // No `git push -u` ever done, so no upstream tracking branch exists.
-
-    try sync(gpa, fx.io(), &fx.env); // must not error
-}
-
-test "sync: an existing lock is honoured, not raced -- and left in place" {
-    const gpa = testing.allocator;
-    var fx = try fixture.Fixture.init(gpa);
-    defer fx.deinit();
-    const remote = try seedVaultWithRemote(&fx);
-    defer gpa.free(remote);
-
-    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/more.md", .data = "more\n" });
-    const add = try vaultGit(&fx, &.{ "add", "more.md" });
-    add.deinit(gpa);
-    const commit = try vaultGit(&fx, &.{ "-c", "user.email=t@e", "-c", "user.name=t", "commit", "-q", "-m", "more" });
-    commit.deinit(gpa);
-
-    const lock = try std.fmt.allocPrint(gpa, "{s}/.git/synapse-sync.lock", .{fx.vault});
-    defer gpa.free(lock);
-    try Io.Dir.cwd().createDir(fx.io(), lock, .default_dir);
-
-    try sync(gpa, fx.io(), &fx.env);
-
-    // Left in place: `sync()` only ever removes a lock it created itself.
-    try Io.Dir.cwd().access(fx.io(), lock, .{});
-    const head = try remoteHeadSubject(&fx, gpa, remote);
-    defer gpa.free(head);
-    try testing.expectEqualStrings("seed", head);
-}
-
-test "sync: a failed push is logged, not surfaced" {
-    const gpa = testing.allocator;
-    var fx = try fixture.Fixture.init(gpa);
-    defer fx.deinit();
-    const remote = try seedVaultWithRemote(&fx);
-    defer gpa.free(remote);
-    // Pull now always runs before push, and both use the same remote --
-    // an unreachable remote breaks pull first (the next test covers that
-    // path), so a push-only failure needs the remote reachable for fetch
-    // but rejecting the push itself. A `pre-receive` hook that always
-    // exits nonzero does exactly that: it only ever fires on push.
-    const hooks_dir = try std.fmt.allocPrint(gpa, "{s}/hooks", .{remote});
-    defer gpa.free(hooks_dir);
-    const hook_path = try std.fmt.allocPrint(gpa, "{s}/pre-receive", .{hooks_dir});
-    defer gpa.free(hook_path);
-    try Io.Dir.cwd().writeFile(fx.io(), .{ .sub_path = hook_path, .data = "#!/bin/sh\nexit 1\n" });
-    const chmod = try adapters.process.run(fx.io(), gpa, &.{ "chmod", "+x", hook_path }, .{});
-    chmod.deinit(gpa);
-
-    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/more.md", .data = "more\n" });
-    const add = try vaultGit(&fx, &.{ "add", "more.md" });
-    add.deinit(gpa);
-    const commit = try vaultGit(&fx, &.{ "-c", "user.email=t@e", "-c", "user.name=t", "commit", "-q", "-m", "more" });
-    commit.deinit(gpa);
-
-    try sync(gpa, fx.io(), &fx.env);
-
-    const log_path = try std.fmt.allocPrint(gpa, "{s}/.git/synapse-sync.log", .{fx.vault});
-    defer gpa.free(log_path);
-    const log = try Io.Dir.cwd().readFileAlloc(fx.io(), log_path, gpa, .limited(1 << 20));
-    defer gpa.free(log);
-    try testing.expect(std.mem.indexOf(u8, log, "push failed") != null);
-    try testing.expect(std.mem.indexOf(u8, log, "1 commit(s) still pending") != null);
-}
-
-test "sync: pulls a remote-only commit before pushing, so a fast-forward push succeeds" {
-    const gpa = testing.allocator;
-    var fx = try fixture.Fixture.init(gpa);
-    defer fx.deinit();
-    const remote = try seedVaultWithRemote(&fx);
-    defer gpa.free(remote);
-
-    // A second working copy stands in for the phone: it pushes a commit the
-    // vault clone here has never seen.
-    const other = try seedOtherClone(&fx, remote);
-    defer gpa.free(other);
-    const phone_md = try std.fmt.allocPrint(gpa, "{s}/phone.md", .{other});
-    defer gpa.free(phone_md);
-    try Io.Dir.cwd().writeFile(fx.io(), .{ .sub_path = phone_md, .data = "from phone\n" });
-    const phone_add = try adapters.process.run(fx.io(), gpa, &.{ "git", "add", "phone.md" }, .{ .cwd = .{ .path = other } });
-    phone_add.deinit(gpa);
-    const phone_commit = try adapters.process.run(fx.io(), gpa, &.{ "git", "-c", "user.email=t@e", "-c", "user.name=t", "commit", "-q", "-m", "from phone" }, .{ .cwd = .{ .path = other } });
-    phone_commit.deinit(gpa);
-    const phone_push = try adapters.process.run(fx.io(), gpa, &.{ "git", "push", "-q", "origin", "main" }, .{ .cwd = .{ .path = other } });
-    phone_push.deinit(gpa);
-
-    // Meanwhile this machine made its own local, not-yet-pushed commit.
-    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/local.md", .data = "from this machine\n" });
-    const add = try vaultGit(&fx, &.{ "add", "local.md" });
-    add.deinit(gpa);
-    const commit = try vaultGit(&fx, &.{ "-c", "user.email=t@e", "-c", "user.name=t", "commit", "-q", "-m", "from this machine" });
-    commit.deinit(gpa);
-
-    try sync(gpa, fx.io(), &fx.env);
-
-    // Both ends now have both commits.
-    const head = try remoteHeadSubject(&fx, gpa, remote);
-    defer gpa.free(head);
-    try testing.expectEqualStrings("from this machine", head);
-    const vault_phone_md = try std.fmt.allocPrint(gpa, "{s}/phone.md", .{fx.vault});
-    defer gpa.free(vault_phone_md);
-    try Io.Dir.cwd().access(fx.io(), vault_phone_md, .{});
-}
-
-test "sync: a conflicting pull is aborted, never left as conflict markers in a note" {
-    const gpa = testing.allocator;
-    var fx = try fixture.Fixture.init(gpa);
-    defer fx.deinit();
-    const remote = try seedVaultWithRemote(&fx);
-    defer gpa.free(remote);
-
-    // The phone edits the same file the vault clone is about to edit too.
-    const other = try seedOtherClone(&fx, remote);
-    defer gpa.free(other);
-    const other_seed_md = try std.fmt.allocPrint(gpa, "{s}/seed.md", .{other});
-    defer gpa.free(other_seed_md);
-    try Io.Dir.cwd().writeFile(fx.io(), .{ .sub_path = other_seed_md, .data = "from phone\n" });
-    const phone_add = try adapters.process.run(fx.io(), gpa, &.{ "git", "add", "seed.md" }, .{ .cwd = .{ .path = other } });
-    phone_add.deinit(gpa);
-    const phone_commit = try adapters.process.run(fx.io(), gpa, &.{ "git", "-c", "user.email=t@e", "-c", "user.name=t", "commit", "-q", "-m", "from phone" }, .{ .cwd = .{ .path = other } });
-    phone_commit.deinit(gpa);
-    const phone_push = try adapters.process.run(fx.io(), gpa, &.{ "git", "push", "-q", "origin", "main" }, .{ .cwd = .{ .path = other } });
-    phone_push.deinit(gpa);
-
-    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/seed.md", .data = "from this machine\n" });
-    const add = try vaultGit(&fx, &.{ "add", "seed.md" });
-    add.deinit(gpa);
-    const commit = try vaultGit(&fx, &.{ "-c", "user.email=t@e", "-c", "user.name=t", "commit", "-q", "-m", "from this machine" });
-    commit.deinit(gpa);
-
-    try sync(gpa, fx.io(), &fx.env);
-
-    // The note holds exactly this machine's content -- no conflict markers,
-    // no half-applied rebase -- and nothing was pushed on top of it.
-    const seed = try fx.tmp.dir.readFileAlloc(testing.io, "vault/seed.md", gpa, .limited(4096));
-    defer gpa.free(seed);
-    try testing.expectEqualStrings("from this machine\n", seed);
-    try testing.expect(std.mem.indexOf(u8, seed, "<<<<<<<") == null);
-
-    const head = try remoteHeadSubject(&fx, gpa, remote);
-    defer gpa.free(head);
-    try testing.expectEqualStrings("from phone", head);
-
-    const log_path = try std.fmt.allocPrint(gpa, "{s}/.git/synapse-sync.log", .{fx.vault});
-    defer gpa.free(log_path);
-    const log = try Io.Dir.cwd().readFileAlloc(fx.io(), log_path, gpa, .limited(1 << 20));
-    defer gpa.free(log);
-    try testing.expect(std.mem.indexOf(u8, log, "pull failed") != null);
-}
-
 test "pull: a real pull lands the remote-only commit, with no push involved" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try fx.env.put("SYNAPSE_VAULT_STORE", "git");
     const remote = try seedVaultWithRemote(&fx);
     defer gpa.free(remote);
 
@@ -648,6 +277,7 @@ test "pull: no vault configured is a silent no-op" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try fx.env.put("SYNAPSE_VAULT_STORE", "git");
     _ = fx.env.swapRemove("SYNAPSE_VAULT_DIR");
 
     try pull(gpa, fx.io(), &fx.env); // must not error
@@ -657,6 +287,7 @@ test "pull: no upstream tracking branch is a silent no-op" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try fx.env.put("SYNAPSE_VAULT_STORE", "git");
     const init_vault = try vaultGit(&fx, &.{ "init", "-q", "-b", "main" });
     init_vault.deinit(gpa);
     try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/seed.md", .data = "seed\n" });
@@ -666,6 +297,35 @@ test "pull: no upstream tracking branch is a silent no-op" {
     commit.deinit(gpa);
 
     try pull(gpa, fx.io(), &fx.env); // must not error
+}
+
+test "pull: a disk-backed vault never pulls, even with a real .git and a real upstream ahead" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    // Default backend (`disk`) deliberately left as-is: the opt-in is the
+    // backend choice, not whatever `.git` state happens to sit in the
+    // vault folder.
+    const remote = try seedVaultWithRemote(&fx);
+    defer gpa.free(remote);
+
+    const other = try seedOtherClone(&fx, remote);
+    defer gpa.free(other);
+    const phone_md = try std.fmt.allocPrint(gpa, "{s}/phone.md", .{other});
+    defer gpa.free(phone_md);
+    try Io.Dir.cwd().writeFile(fx.io(), .{ .sub_path = phone_md, .data = "from phone\n" });
+    const phone_add = try adapters.process.run(fx.io(), gpa, &.{ "git", "add", "phone.md" }, .{ .cwd = .{ .path = other } });
+    phone_add.deinit(gpa);
+    const phone_commit = try adapters.process.run(fx.io(), gpa, &.{ "git", "-c", "user.email=t@e", "-c", "user.name=t", "commit", "-q", "-m", "from phone" }, .{ .cwd = .{ .path = other } });
+    phone_commit.deinit(gpa);
+    const phone_push = try adapters.process.run(fx.io(), gpa, &.{ "git", "push", "-q", "origin", "main" }, .{ .cwd = .{ .path = other } });
+    phone_push.deinit(gpa);
+
+    try pull(gpa, fx.io(), &fx.env);
+
+    const vault_phone_md = try std.fmt.allocPrint(gpa, "{s}/phone.md", .{fx.vault});
+    defer gpa.free(vault_phone_md);
+    try testing.expectError(error.FileNotFound, Io.Dir.cwd().access(fx.io(), vault_phone_md, .{}));
 }
 
 test "no nudge before the check-in turn" {

@@ -124,9 +124,19 @@ pub fn read(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []cons
     return 0;
 }
 
-pub fn write(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, path: []const u8, body: []const u8, result: *Io.Writer) !u8 {
+pub fn write(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    vault: []const u8,
+    path: []const u8,
+    body: []const u8,
+    self_path: []const u8,
+    result: *Io.Writer,
+) !u8 {
     var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
     defer resolved.deinit();
+    resolved.setSelfPath(self_path);
     const store = resolved.store();
 
     const wr = store.write(io, path, body) catch {
@@ -460,10 +470,12 @@ pub fn patch(
     op: core.patch.Operation,
     create_if_missing: bool,
     content: []const u8,
+    self_path: []const u8,
     result: *Io.Writer,
 ) !u8 {
     var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
     defer resolved.deinit();
+    resolved.setSelfPath(self_path);
     const store = resolved.store();
 
     const current = (store.read(gpa, io, path) catch {
@@ -521,7 +533,7 @@ pub fn runRead(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std
     return code;
 }
 
-pub fn runWrite(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
+pub fn runWrite(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator, self_path: []const u8) !u8 {
     const path = args.next() orelse return usage();
     if (isHelp(path)) return help();
     if (args.next() != null) return usage();
@@ -536,7 +548,7 @@ pub fn runWrite(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *st
 
     var out_buf: [512]u8 = undefined;
     var out = Io.File.stdout().writer(io, &out_buf);
-    const code = try write(gpa, io, env, vault, path, body, &out.interface);
+    const code = try write(gpa, io, env, vault, path, body, self_path, &out.interface);
     try out.interface.flush();
     return code;
 }
@@ -708,6 +720,18 @@ pub fn runRename(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *s
     return code;
 }
 
+/// `synapse vault-git-pusher <vault>` -- not registered as a hook or
+/// documented in usage text, the same "not registered" shape
+/// `synapse-hook vault-sync`/`vault-pull` already have. `GitStore.write()`
+/// spawns this detached, passing the vault path it already resolved rather
+/// than having this re-resolve one from the environment -- the caller
+/// already knows exactly which vault it's working against.
+pub fn runVaultGitPusher(gpa: Allocator, io: Io, args: *std.process.Args.Iterator) !u8 {
+    const vault = args.next() orelse return 2;
+    adapters.git_store.runPusher(gpa, io, vault);
+    return 0;
+}
+
 pub fn runSearch(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
     var fields: std.ArrayListUnmanaged([]const u8) = .empty;
     defer fields.deinit(gpa);
@@ -748,7 +772,7 @@ pub fn runSearch(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *s
     return code;
 }
 
-pub fn runPatch(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
+pub fn runPatch(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator, self_path: []const u8) !u8 {
     const path = args.next() orelse return usage();
     if (isHelp(path)) return help();
 
@@ -799,7 +823,7 @@ pub fn runPatch(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *st
 
     var out_buf: [512]u8 = undefined;
     var out = Io.File.stdout().writer(io, &out_buf);
-    const code = try patch(gpa, io, env, vault, path, real_target, op, create_if_missing, content, &out.interface);
+    const code = try patch(gpa, io, env, vault, path, real_target, op, create_if_missing, content, self_path, &out.interface);
     try out.interface.flush();
     return code;
 }
@@ -838,13 +862,29 @@ test "write then read round-trips a note's full body" {
 
     var write_out: Io.Writer.Allocating = .init(gpa);
     defer write_out.deinit();
-    const wcode = try write(gpa, fx.io(), &fx.env, fx.vault, "tasks/synapse/new.md", "---\ntitle: New\n---\nbody\n", &write_out.writer);
+    const wcode = try write(gpa, fx.io(), &fx.env, fx.vault, "tasks/synapse/new.md", "---\ntitle: New\n---\nbody\n", "", &write_out.writer);
     try testing.expectEqual(@as(u8, 0), wcode);
     try testing.expectEqualStrings("tasks/synapse/new.md\n", write_out.written());
 
     const written = (try fx.readVaultFile(gpa, "tasks/synapse/new.md")).?;
     defer gpa.free(written);
     try testing.expectEqualStrings("---\ntitle: New\n---\nbody\n", written);
+}
+
+test "write against SYNAPSE_VAULT_STORE=git initializes a repo and commits, end to end through the CLI function" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.env.put("SYNAPSE_VAULT_STORE", "git");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(gpa, fx.io(), &fx.env, fx.vault, "tasks/synapse/new.md", "---\ntitle: New\n---\nbody\n", "", &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const dot_git = try std.fmt.allocPrint(gpa, "{s}/.git", .{fx.vault});
+    defer gpa.free(dot_git);
+    _ = try Io.Dir.cwd().statFile(fx.io(), dot_git, .{});
 }
 
 test "list returns every note under the vault, recursively" {
@@ -1036,7 +1076,7 @@ test "patch replaces a heading's content" {
 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
-    const code = try patch(gpa, fx.io(), &fx.env, fx.vault, "designs/synapse/x.md", .{ .heading = &.{"Status"} }, .replace, false, "Ready\n", &out.writer);
+    const code = try patch(gpa, fx.io(), &fx.env, fx.vault, "designs/synapse/x.md", .{ .heading = &.{"Status"} }, .replace, false, "Ready\n", "", &out.writer);
     try testing.expectEqual(@as(u8, 0), code);
 
     const written = (try fx.readVaultFile(gpa, "designs/synapse/x.md")).?;
@@ -1052,7 +1092,7 @@ test "patch on a frontmatter target delegates to the byte-preserving path" {
 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
-    const code = try patch(gpa, fx.io(), &fx.env, fx.vault, "tasks/synapse/x.md", .{ .frontmatter = "status" }, .replace, false, "DONE", &out.writer);
+    const code = try patch(gpa, fx.io(), &fx.env, fx.vault, "tasks/synapse/x.md", .{ .frontmatter = "status" }, .replace, false, "DONE", "", &out.writer);
     try testing.expectEqual(@as(u8, 0), code);
 
     const written = (try fx.readVaultFile(gpa, "tasks/synapse/x.md")).?;
@@ -1069,6 +1109,6 @@ test "patch on a missing target fails clearly" {
 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
-    const code = try patch(gpa, fx.io(), &fx.env, fx.vault, "designs/synapse/x.md", .{ .heading = &.{"Nope"} }, .replace, false, "x", &out.writer);
+    const code = try patch(gpa, fx.io(), &fx.env, fx.vault, "designs/synapse/x.md", .{ .heading = &.{"Nope"} }, .replace, false, "x", "", &out.writer);
     try testing.expectEqual(@as(u8, 1), code);
 }

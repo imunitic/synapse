@@ -118,13 +118,14 @@ broken install; it's idempotent and safe to run repeatedly.
   mechanism that injects `Index.md`), not via a `CLAUDE.md` `@import` line — `~/.claude/CLAUDE.md`
   stays entirely yours, untouched.
 - `packages/synapse/synapse.conf.template` — path config; set `SYNAPSE_VAULT_DIR` per machine.
+- `SYNAPSE_VAULT_STORE=git` — a third `Store` backend (alongside `disk` and `obsidian`) that owns the
+  Vault's own git lifecycle: commits every write, and pushes/pulls in the background once enough
+  local commits pile up (`SYNAPSE_VAULT_PUSH_EVERY`, default 5). Choosing it is the opt-in; a Vault
+  with no `.git` yet gets one initialized on first write.
 - `synapse-hook session-start` — `SessionStart`: injects the Vault's index and this repo's
   Graph namespace pointer, if one exists.
 - `synapse-hook stop-nudge` — a turn-count-based `Stop` hook that nudges a "worth
-  capturing?" check-in every 25 turns, and pushes the Vault to its git remote every
-  `SYNAPSE_VAULT_PUSH_EVERY` turns (default 5), detached so a turn never waits on the network.
-- `synapse-hook db-sync` — commits Vault changes to the Vault's own local git repo,
-  if one exists.
+  capturing?" check-in every 25 turns.
 - `packages/synapse/commands/synapse-note.md` — note creation (bare / `--task` / `--list` / `--search`).
 - `packages/synapse/commands/synapse-design-note.md`, `packages/synapse/commands/synapse-task-note.md` — a design-discussion →
   compiled-checklist pipeline, cross-project by default (lives in the Vault, not a repo's gitignored

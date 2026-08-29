@@ -90,9 +90,10 @@ verification that cannot fail in the direction you are worried about is not a ve
 
 ## If you do destroy something
 
-`synapse-hook db-sync` auto-commits every vault edit, so the intact version is one
-`git show <sha>:<path>` away in the vault's own git history. That hook is a vault-wide undo for
-destructive tool calls, not merely a record of intentional edits.
+On a `SYNAPSE_VAULT_STORE=git` vault, every edit commits automatically, so the intact version is one
+`git show <sha>:<path>` away in the vault's own git history -- a vault-wide undo for destructive tool
+calls, not merely a record of intentional edits. The default `disk` backend keeps no history at all,
+so this safety net only exists once that backend is chosen.
 
 ## Tagging is part of writing a note, not a separate pass
 

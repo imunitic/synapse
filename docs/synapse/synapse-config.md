@@ -50,9 +50,9 @@ reinstalled since.
 | Key | Default if unset | What it controls |
 |---|---|---|
 | `SYNAPSE_VAULT_DIR` | — (required) | The vault path. Also directly overridable by a `SYNAPSE_VAULT_DIR` environment variable, which wins over the file. |
-| `SYNAPSE_VAULT_STORE` | `disk` | Which `Store` backend `resolveStore()` resolves to: `disk` (plain markdown files, its own `search`/`LinkGraph`/`Renamer`, no external dependency) or the name of an extended store layered on top — see [synapse-extended-store.md](synapse-extended-store.md). Any other value is a hard error, not a silent fallback. |
+| `SYNAPSE_VAULT_STORE` | `disk` | Which `Store` backend `resolveStore()` resolves to: `disk` (plain markdown files, its own `search`/`LinkGraph`/`Renamer`, no external dependency), `git` (the same, plus owning the vault's own git lifecycle -- see [synapse-vault.md](synapse-vault.md#version-control-synapse_vault_storegit)), or the name of an extended store layered on top — see [synapse-extended-store.md](synapse-extended-store.md). Any other value is a hard error, not a silent fallback. |
 | `SYNAPSE_GRAMMARS_DIR` | `~/.cache/synapse/grammars` | Where tree-sitter grammar repos are cloned and their compiled `.so`/`.dylib` libraries cached — shared across every project, not per-repo. |
-| `SYNAPSE_VAULT_PUSH_EVERY` | `5` | How many `Stop`-hook turns between vault auto-pushes to its git remote. `0` disables pushing. Only acts when the vault has an upstream and is genuinely ahead of it. |
+| `SYNAPSE_VAULT_PUSH_EVERY` | `5` | Under `SYNAPSE_VAULT_STORE=git`, how many local commits pile up before `GitStore` spawns a detached push. `0` disables pushing. Only acts when the vault has an upstream and is genuinely ahead of it. |
 | `SYNAPSE_AUTHOR_POOL` | `0` | How many nodes `/synapse-init`'s final step authors concurrently via the `synapse-node-authoring` skill. `0` is the original one-at-a-time, same-session procedure — the only choice that preserves cross-node authorial memory. Read directly by the orchestrating agent, not by any compiled binary. |
 
 ## Self-populating registries (JSON)
@@ -198,6 +198,6 @@ with their files above, not repeated here.
 | `SYNAPSE_MAX_FILE_BYTES` | `enumerate_cmd.zig` | Per-file size cap during enumeration, default 1,048,576 (1 MiB). A file over this is skipped and the skip is reported, never silent — a silent skip would make `enumerated` disagree with the repo. |
 | `SYNAPSE_TEST_PATH_RE` | `rank_cmd.zig` | Overrides `core.rank.isTest`'s built-in test-file heuristic with `grep -vE <re>` over the path list, for a repo whose test-path convention the built-in rule doesn't recognize. |
 | `SYNAPSE_DISABLE_PROMPT_INJECTION` | `prompt_context.zig` (hook) | Any value skips the `UserPromptSubmit` hook's one-line "this repo has a code graph" pointer entirely. |
-| `SYNAPSE_VAULT_PUSH_EVERY` | `stop_nudge.zig` (hook) | See the `synapse.conf` table above. |
+| `SYNAPSE_VAULT_PUSH_EVERY` | `git/store.zig` (`GitStore`) | See the `synapse.conf` table above. |
 | `SYNAPSE_AUTHOR_POOL` | orchestrating agent, `/synapse-init` | See the `synapse.conf` table above. |
 | `SYNAPSE_BIN`, `SYNAPSE_HOOK_BIN` | dev/CI tooling only (`tests/test_helper.bash`, `docs/generate-cli-reference.sh`) | Point the tests or the doc generator at a specific binary (e.g. a cross-compiled one for `just test-linux`) instead of `zig-out/bin/`. Not read by the running binaries themselves, and not part of the plugin install path at all -- that fetches from the `dist` branch into `~/.cache/synapse/bin/` directly. |

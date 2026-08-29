@@ -94,8 +94,7 @@ there is no separate patch operation to misuse in the first place.
 
 ## Undo
 
-`_bard/vault/` is git-tracked, but nothing auto-commits it the way the coding side's
-`synapse-hook db-sync` does — there is no `synapse-bard-hook` equivalent yet. An uncommitted mistake
+`_bard/vault/` is git-tracked, but nothing auto-commits it yet. An uncommitted mistake
 is only as recoverable as your editor's own undo or the session's own file history; a committed
 mistake is one `git show <sha>:<path>` away, same as any other tracked file. If you're about to make
 a destructive edit and the author hasn't committed recently, say so before proceeding.
