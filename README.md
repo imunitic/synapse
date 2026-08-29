@@ -9,7 +9,8 @@ you can use one without the others:
 - **Synapse Vault** — a folder of plain Markdown notes (frontmatter + wikilinks) holding research,
   decisions, project logs, design discussions. Cross-project by default. Synapse reads and writes it
   directly, with real search/graph/rename of its own — no extended store required (see
-  [Obsidian extended store](#obsidian-extended-store) for the optional live-app layer on top).
+  [Obsidian extended store](docs/synapse/synapse-extended-store.md) for the optional live-app layer
+  on top).
 - **Synapse Graph** — a per-repo semantic code graph, hosted *inside* the Vault under
   `synapse/{repo}@{branch}/`, so it is stored and searched like any other note. Dormant until
   `/synapse-init` is run in a repo. Underneath it is the **Code Cache** — tags, refs and call
@@ -72,7 +73,8 @@ Markdown — nothing else installed anywhere.
    it fire twice).
 
 Preferring live search relevance and graph data from a running app over `DiskStore`'s own real
-(not stub) equivalents is optional — see [Obsidian extended store](#obsidian-extended-store).
+(not stub) equivalents is optional — see
+[Obsidian extended store](docs/synapse/synapse-extended-store.md).
 
 **Using it:** the human-facing entry points are `/synapse-init`, `/synapse-rebuild-diff`, and
 `/synapse-rebuild-full` — `/synapse-init` builds a repo's first Graph namespace,
@@ -221,7 +223,8 @@ For using it day to day: npm itself (the compiled binaries ship as ordinary per-
 optionalDependencies, `npm install` fetches and verifies them the same way it does any other
 package, no separate fetch script or `tar` step involved) and whichever harness's own CLI (`claude`,
 `codex`, or `opencode`). The default backend (`SYNAPSE_VAULT_STORE=disk`, or unset) needs nothing
-else at all. An [extended store](#obsidian-extended-store) adds its own optional dependency — never
+else at all. An [extended store](docs/synapse/synapse-extended-store.md) adds its own optional
+dependency — never
 a hard requirement, since every capability it covers falls back to `disk`'s own implementation
 automatically when the external app isn't reachable. Node itself is assumed, the same way
 it already is for every harness here — `synapse-setup` and the shipped hooks

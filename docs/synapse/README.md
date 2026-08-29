@@ -7,6 +7,9 @@ matches what you're trying to understand.
 - **[synapse-vault.md](synapse-vault.md)** — **Synapse Vault**: the vault itself, its folder
   layout, and the three hooks that keep it alive across sessions (`SessionStart` injection, the `Stop`
   nudge, and vault→git auto-commit).
+- **[synapse-extended-store.md](synapse-extended-store.md)** — the optional decorator layer over
+  `DiskStore` (Obsidian today, the only one shipped) that hands `search`/link-graph/rename off to a
+  live external app, falling back to `DiskStore`'s own implementation automatically.
 - **[synapse-graph.md](synapse-graph.md)** — **Synapse Graph**: the per-repo semantic code graph. The
   two-tier staleness model, `/synapse-init`, the `synapse-node` Tier 2 skill, `synapse query` (projected
   reads, so a node's exhaustive `sources` never enters a context window), the unfabricable `crux`,

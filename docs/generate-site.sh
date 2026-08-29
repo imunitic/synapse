@@ -101,6 +101,7 @@ cp -r "$here/synapse/diagrams/"*.png "$out/synapse/diagrams/" 2>/dev/null || tru
 
 synapse_pages="$here/synapse/README.md|index.html|Home
 $here/synapse/synapse-vault.md|synapse-vault.html|Synapse Vault
+$here/synapse/synapse-extended-store.md|synapse-extended-store.html|Extended Store
 $here/synapse/synapse-graph.md|synapse-graph.html|Synapse Graph
 $here/synapse/design-task-workflow.md|design-task-workflow.html|Design -> Task Workflow
 $here/synapse/synapse-code-cache.md|synapse-code-cache.html|Synapse Code Cache
