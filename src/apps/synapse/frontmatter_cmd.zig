@@ -3,9 +3,10 @@
 //! agent's context. `set` replaces `vault_patch`'s `frontmatter` target,
 //! which re-serializes the whole YAML block and can turn an array value
 //! into a quoted string instead of a real list -- see `core/frontmatter.zig`
-//! for the primitive `set` is a thin CLI wrapper over. `get` is a thin
-//! wrapper over the same `Store.read` plus `core.query.field` --
-//! no new I/O, just the write side's read half exposed on its own.
+//! for the primitive `set` is a thin CLI wrapper over. `get` streams the file
+//! a line at a time (`core.query.fieldStreaming`) and stops the moment it
+//! has the key it wants; `set` still needs the whole note, so it reads
+//! through `Store.read` and writes back through `Store.write`.
 //!
 //!   frontmatter get <path> <key>
 //!   frontmatter set <path> <key> <value>
@@ -162,8 +163,17 @@ pub fn run(
 
 /// Prints one frontmatter field's value, or nothing for an absent key --
 /// `query field`'s own "absent key prints nothing, exits 0" convention, not
-/// an error. No new I/O: the same `Store.read` `set` already uses,
-/// then `core.query.field` over the raw bytes.
+/// an error.
+///
+/// Streams the file a line at a time (`core.query.fieldStreaming`) instead of
+/// going through `Store.read` -- both backends' reads are plain disk I/O
+/// against the same `{vault}/{path}` join (`DiskStore.namespace`'s doc
+/// comment; `store_resolve.zig` confirms it for `.obsidian` too), so there's
+/// no abstraction to lose by reading the file directly for a lookup that
+/// wants to stop early. `env` stays in the signature for symmetry with `set`,
+/// which still needs a real `Store.write` for an extended store's own
+/// consistency -- see `write_node_cmd.zig`'s own doc comment for why writes
+/// don't get the same shortcut.
 pub fn get(
     gpa: Allocator,
     io: Io,
@@ -173,20 +183,31 @@ pub fn get(
     key: []const u8,
     result: *Io.Writer,
 ) !u8 {
-    var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, vault, "", prog)) orelse return 1;
-    defer resolved.deinit();
-    var store = resolved.store();
-
-    const current = (store.read(gpa, io, path) catch |err| {
-        std.debug.print("{s}: read failed: {s}\n", .{ prog, @errorName(err) });
-        return 1;
-    }) orelse {
+    _ = env;
+    if (!core.node_path.isSafe(path)) {
         std.debug.print("{s}: no such note: {s}\n", .{ prog, path });
         return 1;
-    };
-    defer gpa.free(current);
+    }
+    const abs = try std.fs.path.join(gpa, &.{ vault, path });
+    defer gpa.free(abs);
 
-    if (core.query.field(current, key)) |v| try result.print("{s}\n", .{v});
+    var file = Io.Dir.cwd().openFile(io, abs, .{}) catch |err| {
+        if (err == error.FileNotFound) {
+            std.debug.print("{s}: no such note: {s}\n", .{ prog, path });
+        } else {
+            std.debug.print("{s}: read failed: {s}\n", .{ prog, @errorName(err) });
+        }
+        return 1;
+    };
+    defer file.close(io);
+
+    var buf: [4096]u8 = undefined;
+    var file_reader = file.reader(io, &buf);
+    const v = core.query.fieldStreaming(&file_reader.interface, key) catch |err| {
+        std.debug.print("{s}: read failed: {s}\n", .{ prog, @errorName(err) });
+        return 1;
+    };
+    if (v) |val| try result.print("{s}\n", .{val});
     return 0;
 }
 

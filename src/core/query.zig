@@ -62,6 +62,35 @@ pub fn field(text: []const u8, key: []const u8) ?[]const u8 {
     return null;
 }
 
+/// Same lookup as `field`, but never reads past what it has to.
+///
+/// `field` takes an already-fully-read `[]const u8` -- every caller that only
+/// has a file handle already paid for a full read before calling it. This
+/// walks `reader` a line at a time and returns the moment `key` or the
+/// closing `---` is seen, so a lookup against a node whose frontmatter runs
+/// to hundreds of lines (a code-graph node's `sources:` block, say) costs
+/// only however many lines precede the match -- restoring the old
+/// `synapse-query.sh` `cmd_field()`'s streaming-with-early-exit behavior that
+/// the awk implementation had and the whole-string version above lost.
+///
+/// Correct for any field order on its own; a caller only sees the speedup
+/// this exists for when the key it wants sits before whatever else is in the
+/// frontmatter -- see `emit.zig`'s field-order comment for where that's made
+/// a real contract for the one format this matters most for.
+pub fn fieldStreaming(reader: *std.Io.Reader, key: []const u8) !?[]const u8 {
+    const first = (try reader.takeDelimiter('\n')) orelse return null;
+    if (!std.mem.eql(u8, std.mem.trimEnd(u8, first, "\r"), "---")) return null;
+
+    while (try reader.takeDelimiter('\n')) |raw| {
+        const line = std.mem.trimEnd(u8, raw, "\r");
+        if (std.mem.eql(u8, line, "---")) return null;
+        if (!std.mem.startsWith(u8, line, key)) continue;
+        if (line.len <= key.len or line[key.len] != ':') continue;
+        return stripOneQuote(std.mem.trimStart(u8, line[key.len + 1 ..], " \t"));
+    }
+    return null;
+}
+
 /// One leading and one trailing `"`, no more.
 ///
 /// `gsub(/^"|"$/, "")` strips at most one at each end, because `^"` can only match
@@ -376,6 +405,31 @@ test "a field is never read from the body" {
 
 test "a node with no frontmatter yields no fields at all" {
     try testing.expectEqual(@as(?[]const u8, null), field("# Just prose\ntitle: nope\n", "title"));
+}
+
+test "fieldStreaming finds the same value field does, from a reader instead of a string" {
+    var r: std.Io.Reader = .fixed(sample);
+    try testing.expectEqualStrings("State machine", (try fieldStreaming(&r, "title")).?);
+}
+
+test "fieldStreaming matches a whole key, not a suffix of one" {
+    var r: std.Io.Reader = .fixed(sample);
+    try testing.expectEqual(@as(?[]const u8, null), try fieldStreaming(&r, "at"));
+}
+
+test "fieldStreaming returns null for an absent key once the closing --- is seen" {
+    var r: std.Io.Reader = .fixed(sample);
+    try testing.expectEqual(@as(?[]const u8, null), try fieldStreaming(&r, "nonsense"));
+}
+
+test "fieldStreaming never reads a key that only appears in the body" {
+    var r: std.Io.Reader = .fixed("---\ntitle: real\n---\n\n# T\ntitle: fake\n");
+    try testing.expectEqualStrings("real", (try fieldStreaming(&r, "title")).?);
+}
+
+test "fieldStreaming on a node with no frontmatter at all returns null" {
+    var r: std.Io.Reader = .fixed("# Just prose\ntitle: nope\n");
+    try testing.expectEqual(@as(?[]const u8, null), try fieldStreaming(&r, "title"));
 }
 
 test "sources takes only the sources block, never grounded_in's paths" {

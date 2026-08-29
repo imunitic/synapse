@@ -67,6 +67,41 @@ pub const ResolvedStore = union(enum) {
         };
     }
 
+    /// Full-text search, first scoped to whichever candidate paths pass
+    /// `path_filter` (`DiskStore.searchFiltered`'s own doc comment has the
+    /// exact contract: a JsonLogic rule expected to reference nothing but
+    /// `path`). `null` runs the resolved backend's ordinary `search`
+    /// (through the live app under `.obsidian`, same as `store().search(...)`
+    /// would), so a caller with no filter to apply sees no behavior change
+    /// at all.
+    ///
+    /// Same structural-duck-typing dispatch as `linkGraph`/`renamer` -- but
+    /// unlike those two, a missing `searchFiltered` is a `@compileError`,
+    /// not a `null`: a caller that explicitly asked to scope a search has
+    /// to get a scoped answer or a build failure, never a silently
+    /// unscoped one, so a future `ResolvedStore` variant is forced to add
+    /// its own `searchFiltered` (typically a one-line delegation to its own
+    /// `DiskStore` field, the same shape `ObsidianStore.searchFiltered`
+    /// already is) before it compiles, rather than degrading at runtime
+    /// with nothing to catch it.
+    pub fn searchFiltered(
+        self: *ResolvedStore,
+        gpa: Allocator,
+        io: Io,
+        query: []const u8,
+        path_filter: ?std.json.Value,
+    ) anyerror![]const Store.Hit {
+        if (path_filter == null) return self.store().search(gpa, io, query);
+        return switch (self.*) {
+            inline else => |*s| {
+                const T = @TypeOf(s.*);
+                if (!@hasDecl(T, "searchFiltered"))
+                    @compileError(@typeName(T) ++ " has no searchFiltered -- add one, e.g. a delegation to its own DiskStore field");
+                return s.searchFiltered(gpa, io, query, path_filter);
+            },
+        };
+    }
+
     pub fn deinit(self: *ResolvedStore) void {
         switch (self.*) {
             .obsidian => |*s| s.deinit(),
@@ -180,6 +215,47 @@ test "SYNAPSE_VAULT_STORE=obsidian resolves an ObsidianStore explicitly, no long
     const got = (try store.read(gpa, io, "Foo.md")).?;
     defer gpa.free(got);
     try testing.expectEqualStrings("body\n", got);
+}
+
+test "searchFiltered under .obsidian delegates to its own DiskStore, no live CLI needed" {
+    const gpa = testing.allocator;
+    var env = try std.process.Environ.createMap(testing.environ, gpa);
+    defer env.deinit();
+    try env.put("SYNAPSE_VAULT_STORE", "obsidian");
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
+    const vault = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+
+    var io_threaded: std.Io.Threaded = .init(gpa, .{});
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    var resolved = (try resolveStore(gpa, io, &env, vault, "", "test")).?;
+    defer resolved.deinit();
+
+    var store = resolved.store();
+    _ = try store.write(io, "designs/x.md", "widget prose\n");
+    _ = try store.write(io, "tasks/y.md", "widget prose too\n");
+
+    // A `path_filter` is non-null, so this must never try the (unreachable
+    // in a test) live Obsidian CLI at all -- it goes straight to disk.
+    var filter = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"glob": ["designs/*", {"var": "path"}]}
+    , .{});
+    defer filter.deinit();
+
+    const hits = try resolved.searchFiltered(gpa, io, "widget", filter.value);
+    defer {
+        for (hits) |h| {
+            gpa.free(h.node);
+            gpa.free(h.context);
+        }
+        gpa.free(hits);
+    }
+    try testing.expectEqual(@as(usize, 1), hits.len);
+    try testing.expectEqualStrings("designs/x.md", hits[0].node);
 }
 
 test "SYNAPSE_VAULT_STORE=disk resolves a DiskStore with no config file needed" {

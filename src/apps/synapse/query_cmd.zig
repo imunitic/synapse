@@ -72,7 +72,7 @@ pub fn run(
         if (rest.items.len != 3 or rest.items[1].len == 0 or rest.items[2].len == 0) return usage();
         var out_buf: [256 * 1024]u8 = undefined;
         var out = Io.File.stdout().writer(io, &out_buf);
-        const code = try cmdFieldFile(gpa, io, rest.items[1], rest.items[2], &out.interface);
+        const code = try cmdFieldFile(io, rest.items[1], rest.items[2], &out.interface);
         try out.interface.flush();
         return code;
     }
@@ -211,24 +211,34 @@ fn cmdSources(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []const
 
 fn cmdField(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []const u8, w: *Io.Writer) !u8 {
     if (rest.len != 2 or rest[0].len == 0 or rest[1].len == 0) return usage();
-    const text = (try need(ctx, io, rest[0])) orelse return 1;
-    defer gpa.free(text);
-    return writeField(text, rest[1], w);
+    const path = try context.nodePath(ctx, gpa, rest[0]);
+    defer gpa.free(path);
+
+    var file = Io.Dir.cwd().openFile(io, path, .{}) catch return 1;
+    defer file.close(io);
+    var buf: [4096]u8 = undefined;
+    var file_reader = file.reader(io, &buf);
+    return writeField(&file_reader.interface, rest[1], w);
 }
 
-/// `field --file`'s own body: same field logic (`core.query.field`) against a
-/// plain file read, for callers with no node identity yet (a pre-push
-/// `b-NN.md` draft).
-fn cmdFieldFile(gpa: Allocator, io: Io, path: []const u8, key: []const u8, w: *Io.Writer) !u8 {
-    const text = Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(256 << 20)) catch {
+/// `field --file`'s own body: same field logic against a plain file, for
+/// callers with no node identity yet (a pre-push `b-NN.md` draft).
+fn cmdFieldFile(io: Io, path: []const u8, key: []const u8, w: *Io.Writer) !u8 {
+    var file = Io.Dir.cwd().openFile(io, path, .{}) catch {
         std.debug.print("{s}: no such file: {s}\n", .{ prog, path });
         return 1;
     };
-    defer gpa.free(text);
-    return writeField(text, key, w);
+    defer file.close(io);
+    var buf: [4096]u8 = undefined;
+    var file_reader = file.reader(io, &buf);
+    return writeField(&file_reader.interface, key, w);
 }
 
-fn writeField(text: []const u8, key: []const u8, w: *Io.Writer) !u8 {
+/// Streams `reader` a line at a time (`core.query.fieldStreaming`) instead of
+/// reading the whole node first -- a lookup on a code-graph node whose
+/// `sources:` block runs to hundreds of lines no longer pays for reading any
+/// of it when the key it wants sits earlier in the frontmatter.
+fn writeField(reader: *Io.Reader, key: []const u8, w: *Io.Writer) !u8 {
     if (std.mem.eql(u8, key, "sources")) {
         std.debug.print(
             "{s}: 'sources' is a list, not a scalar field -- use: synapse query sources <node>\n",
@@ -237,7 +247,7 @@ fn writeField(text: []const u8, key: []const u8, w: *Io.Writer) !u8 {
         return 2;
     }
     // Absent key: prints nothing, exits 0 -- testable without parsing a message.
-    if (core.query.field(text, key)) |v| try w.print("{s}\n", .{v});
+    if (try core.query.fieldStreaming(reader, key)) |v| try w.print("{s}\n", .{v});
     return 0;
 }
 
@@ -1783,17 +1793,20 @@ test "field: returns unquoted scalars, empty for an absent key" {
 
     var stale_out: Io.Writer.Allocating = .init(gpa);
     defer stale_out.deinit();
-    _ = try writeField(text, "stale", &stale_out.writer);
+    var stale_r: Io.Reader = .fixed(text);
+    _ = try writeField(&stale_r, "stale", &stale_out.writer);
     try testing.expectEqualStrings("false\n", stale_out.written());
 
     var built_out: Io.Writer.Allocating = .init(gpa);
     defer built_out.deinit();
-    _ = try writeField(text, "built_at", &built_out.writer);
+    var built_r: Io.Reader = .fixed(text);
+    _ = try writeField(&built_r, "built_at", &built_out.writer);
     try testing.expectEqualStrings("2026-08-03 16:15\n", built_out.written()); // quotes stripped
 
     var absent_out: Io.Writer.Allocating = .init(gpa);
     defer absent_out.deinit();
-    const code = try writeField(text, "nonexistent_key", &absent_out.writer);
+    var absent_r: Io.Reader = .fixed(text);
+    const code = try writeField(&absent_r, "nonexistent_key", &absent_out.writer);
     try testing.expectEqual(@as(u8, 0), code);
     try testing.expectEqual(@as(usize, 0), absent_out.written().len);
 }
@@ -1803,7 +1816,8 @@ test "field: refuses 'sources' with exit 2 and points at the right subcommand" {
     const text = "---\nstale: false\n---\n\n# Foo\n";
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
-    const code = try writeField(text, "sources", &out.writer);
+    var r: Io.Reader = .fixed(text);
+    const code = try writeField(&r, "sources", &out.writer);
     try testing.expectEqual(@as(u8, 2), code);
 }
 
@@ -1822,7 +1836,7 @@ test "field --file: reads a plain file directly, no vault node or namespace need
 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
-    const code = try cmdFieldFile(gpa, testing.io, path, "summary", &out.writer);
+    const code = try cmdFieldFile(testing.io, path, "summary", &out.writer);
     try testing.expectEqual(@as(u8, 0), code);
     try testing.expectEqualStrings("A one-line draft summary.\n", out.written());
 }
@@ -1839,7 +1853,7 @@ test "field --file: an absent key prints nothing and exits 0" {
 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
-    const code = try cmdFieldFile(gpa, testing.io, path, "nonexistent_key", &out.writer);
+    const code = try cmdFieldFile(testing.io, path, "nonexistent_key", &out.writer);
     try testing.expectEqual(@as(u8, 0), code);
     try testing.expectEqual(@as(usize, 0), out.written().len);
 }
@@ -1848,7 +1862,7 @@ test "field --file: a missing file exits 1 with a clear message" {
     const gpa = testing.allocator;
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
-    const code = try cmdFieldFile(gpa, testing.io, "/nonexistent/nope.md", "summary", &out.writer);
+    const code = try cmdFieldFile(testing.io, "/nonexistent/nope.md", "summary", &out.writer);
     try testing.expectEqual(@as(u8, 1), code);
 }
 
@@ -1864,7 +1878,7 @@ test "field --file: still refuses 'sources' with exit 2" {
 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
-    const code = try cmdFieldFile(gpa, testing.io, path, "sources", &out.writer);
+    const code = try cmdFieldFile(testing.io, path, "sources", &out.writer);
     try testing.expectEqual(@as(u8, 2), code);
 }
 

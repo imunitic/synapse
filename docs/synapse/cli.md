@@ -36,7 +36,7 @@ usage: synapse <subcommand> [args]
   vault-write <path>         write a note's full body, from stdin
   vault-list                 every note in the vault, recursively
   vault-search [--fields <f1,f2,...>]   JsonLogic filter from stdin, TSV rows out
-  vault-search-text <query>  full-text relevance search
+  vault-search-text <query> [--path-filter]   full-text relevance search, optionally path-scoped
   vault-doc-map <path>       headings/block ids/frontmatter keys, for a vault-patch target
   vault-patch <path> --heading|--block|--frontmatter <target>
               [--append|--prepend|--replace] [--create]   content from stdin
@@ -170,7 +170,9 @@ usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-search-text <query> [--path-filter]
+                                                       full-text relevance search, optionally
+                                                       scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
                    [--append|--prepend|--replace] [--create]
@@ -191,7 +193,9 @@ usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-search-text <query> [--path-filter]
+                                                       full-text relevance search, optionally
+                                                       scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
                    [--append|--prepend|--replace] [--create]
@@ -212,7 +216,9 @@ usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-search-text <query> [--path-filter]
+                                                       full-text relevance search, optionally
+                                                       scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
                    [--append|--prepend|--replace] [--create]
@@ -233,7 +239,9 @@ usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-search-text <query> [--path-filter]
+                                                       full-text relevance search, optionally
+                                                       scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
                    [--append|--prepend|--replace] [--create]
@@ -254,7 +262,9 @@ usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-search-text <query> [--path-filter]
+                                                       full-text relevance search, optionally
+                                                       scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
                    [--append|--prepend|--replace] [--create]
@@ -275,7 +285,9 @@ usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-search-text <query> [--path-filter]
+                                                       full-text relevance search, optionally
+                                                       scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
                    [--append|--prepend|--replace] [--create]
@@ -296,7 +308,9 @@ usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-search-text <query> [--path-filter]
+                                                       full-text relevance search, optionally
+                                                       scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
                    [--append|--prepend|--replace] [--create]
@@ -317,7 +331,9 @@ usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-search-text <query> [--path-filter]
+                                                       full-text relevance search, optionally
+                                                       scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
                    [--append|--prepend|--replace] [--create]
@@ -338,7 +354,9 @@ usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-search-text <query> [--path-filter]
+                                                       full-text relevance search, optionally
+                                                       scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
                    [--append|--prepend|--replace] [--create]
@@ -359,7 +377,9 @@ usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-search-text <query> [--path-filter]
+                                                       full-text relevance search, optionally
+                                                       scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
                    [--append|--prepend|--replace] [--create]
@@ -380,7 +400,9 @@ usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-search-text <query> [--path-filter]
+                                                       full-text relevance search, optionally
+                                                       scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
                    [--append|--prepend|--replace] [--create]
@@ -401,7 +423,9 @@ usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query>               full-text relevance search
+       synapse vault-search-text <query> [--path-filter]
+                                                       full-text relevance search, optionally
+                                                       scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
                    [--append|--prepend|--replace] [--create]

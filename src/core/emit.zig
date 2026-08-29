@@ -459,6 +459,17 @@ pub const Note = struct {
 /// it actually is.
 const sources_path_threshold: usize = 5;
 
+/// Frontmatter field order is a deliberate invariant, not incidental:
+/// `title`/`summary`/`node_type`/`project`/`branch` -- small, and the ones a
+/// single-key lookup asks for most -- are written before `sources:`, which
+/// on a large real project can run to hundreds of `path`/`hash` pairs.
+/// `core.query.fieldStreaming` stops at the first line matching the key it
+/// wants, so a lookup for any of those five never reaches `sources:` at
+/// all; reordering them after it would silently turn every such lookup
+/// back into a near-full-file scan, with no test failure anywhere to catch
+/// it except the one below that pins this order directly. The scan itself
+/// stays correct for *any* order -- this is about keeping its good case a
+/// guarantee instead of an accident.
 pub fn writeNote(w: *std.Io.Writer, n: Note) !void {
     try w.writeAll("---\n");
     try w.print("title: \"{s}\"\n", .{n.title});
@@ -783,6 +794,31 @@ test "a fresh node gets an empty Notes section" {
         \\
         \\
     , out.written());
+}
+
+test "the small, frequently-queried scalar fields are written before the large sources list" {
+    // Not the golden-content test above's job (that pins one whole note
+    // byte-for-byte for an unrelated reason) -- this is specifically about
+    // the order `core.query.fieldStreaming` depends on for its speedup,
+    // pinned on its own so a reorder fails here with a message that says
+    // what broke, not just as collateral damage in a bigger diff.
+    var out: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+    try writeNote(&out.writer, baseNote());
+
+    const written = out.written();
+    const title_pos = std.mem.indexOf(u8, written, "title:").?;
+    const summary_pos = std.mem.indexOf(u8, written, "summary:").?;
+    const node_type_pos = std.mem.indexOf(u8, written, "node_type:").?;
+    const project_pos = std.mem.indexOf(u8, written, "project:").?;
+    const branch_pos = std.mem.indexOf(u8, written, "branch:").?;
+    const sources_pos = std.mem.indexOf(u8, written, "sources:").?;
+
+    try testing.expect(title_pos < summary_pos);
+    try testing.expect(summary_pos < node_type_pos);
+    try testing.expect(node_type_pos < project_pos);
+    try testing.expect(project_pos < branch_pos);
+    try testing.expect(branch_pos < sources_pos);
 }
 
 test "## Sources lists paths directly below the threshold, and rolls up at or above it" {

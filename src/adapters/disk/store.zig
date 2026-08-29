@@ -125,11 +125,41 @@ pub const DiskStore = struct {
     /// not assumed -- a vault bounded by what this is actually for (notes,
     /// LLM permanent memory) rather than a general document store.
     pub fn search(self: *DiskStore, gpa: Allocator, io: Io, query: []const u8) anyerror![]const Store.Hit {
-        const names = try self.list(gpa, io);
+        return self.searchFiltered(gpa, io, query, null);
+    }
+
+    /// Same ranking as `search`, first scoped to whichever candidate paths
+    /// pass `path_filter` -- a JsonLogic rule expected to reference nothing
+    /// but `path` (`core.vault_query.pathMatches`, the exact mechanism
+    /// `core.vault_query.query`'s own path-only short-circuit uses,
+    /// applied here to every candidate unconditionally rather than only a
+    /// top-level AND's direct children: a search-scoping filter has no
+    /// `content`/`frontmatter`/`tags` to combine it with in the first
+    /// place, so there's no partial-evaluation question to ask). A
+    /// disqualified path is never read at all, same as `query`'s. `null`
+    /// behaves exactly like `search` -- every node is a candidate, and
+    /// rarity is scored against the whole vault as before; with a filter,
+    /// rarity scores against the filtered candidate set instead, since
+    /// that's the corpus the caller asked to search within.
+    pub fn searchFiltered(
+        self: *DiskStore,
+        gpa: Allocator,
+        io: Io,
+        query: []const u8,
+        path_filter: ?std.json.Value,
+    ) anyerror![]const Store.Hit {
+        const all_names = try self.list(gpa, io);
         defer {
-            for (names) |n| gpa.free(n);
-            gpa.free(names);
+            for (all_names) |n| gpa.free(n);
+            gpa.free(all_names);
         }
+
+        var kept: std.ArrayListUnmanaged([]const u8) = .empty;
+        defer kept.deinit(gpa);
+        const names: []const []const u8 = if (path_filter) |pf| blk: {
+            for (all_names) |n| if (try core.vault_query.pathMatches(gpa, pf, n)) try kept.append(gpa, n);
+            break :blk kept.items;
+        } else all_names;
 
         const terms = try tokenizeQuery(gpa, io, self.vars, query);
         defer freeStrings(gpa, terms);
@@ -154,14 +184,19 @@ pub const DiskStore = struct {
         for (names, 0..) |name, i| {
             const body = (try self.read(gpa, io, name)) orelse "";
             defer gpa.free(body);
+            // Frontmatter is metadata, not prose -- a code-graph node's
+            // `sources:` block (hundreds of path/hash lines) would otherwise
+            // get scored and quoted as if it were content. Slicing it off
+            // costs nothing (a borrowed subslice of `body`, not a copy).
+            const prose = core.query.bodyAfterFrontmatter(body);
 
             counts[i] = try gpa.alloc(usize, terms.len);
             for (terms, 0..) |t, ti| {
-                const c = core.text_search.countIgnoreCase(body, t);
+                const c = core.text_search.countIgnoreCase(prose, t);
                 counts[i][ti] = c;
                 if (c > 0) df[ti] += 1;
             }
-            contexts[i] = try gpa.dupe(u8, firstMatchingLineAny(body, terms) orelse "");
+            contexts[i] = try gpa.dupe(u8, firstMatchingLineAny(prose, terms) orelse "");
         }
 
         var out: std.ArrayListUnmanaged(Store.Hit) = .empty;
@@ -269,12 +304,13 @@ fn searchSubstring(self: *DiskStore, gpa: Allocator, io: Io, names: []const []co
     for (names) |name| {
         const body = (try self.read(gpa, io, name)) orelse continue;
         defer gpa.free(body);
-        const count = core.text_search.countIgnoreCase(body, query);
+        const prose = core.query.bodyAfterFrontmatter(body);
+        const count = core.text_search.countIgnoreCase(prose, query);
         if (count == 0) continue;
         try out.append(gpa, .{
             .node = try gpa.dupe(u8, name),
             .score = @floatFromInt(count),
-            .context = try gpa.dupe(u8, core.text_search.firstMatchingLine(body, query) orelse ""),
+            .context = try gpa.dupe(u8, core.text_search.firstMatchingLine(prose, query) orelse ""),
         });
     }
     return out.toOwnedSlice(gpa);
@@ -1048,6 +1084,97 @@ test "full-text search finds a substring by content, case-insensitive" {
     defer freeHits(gpa, hits);
     try testing.expectEqual(@as(usize, 1), hits.len);
     try testing.expectEqualStrings("a.md", hits[0].node);
+}
+
+test "search ignores frontmatter content, including a query term that only appears there" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "synapse/repo@main");
+    defer s.deinit();
+    const port = s.store();
+
+    // "widget" only appears inside a.md's frontmatter (a source path) --
+    // a code-graph node's own `sources:` block is the real-world shape this
+    // guards against. b.md has it in actual prose.
+    _ = try port.write(testing.io, "a.md", "---\ntitle: A\nsources:\n  - path: src/widget.zig\n    hash: deadbeef\n---\nunrelated prose\n");
+    _ = try port.write(testing.io, "b.md", "---\ntitle: B\n---\nmentions widget directly\n");
+
+    const hits = try port.search(gpa, testing.io, "widget");
+    defer freeHits(gpa, hits);
+    try testing.expectEqual(@as(usize, 1), hits.len);
+    try testing.expectEqualStrings("b.md", hits[0].node);
+}
+
+test "searchFiltered excludes a candidate that fails the path filter, no matter what its content says" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "");
+    defer s.deinit();
+    const port = s.store();
+
+    _ = try port.write(testing.io, "designs/x.md", "widget prose here\n");
+    _ = try port.write(testing.io, "tasks/y.md", "widget prose here too\n");
+
+    var filter = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"glob": ["designs/*", {"var": "path"}]}
+    , .{});
+    defer filter.deinit();
+
+    const hits = try s.searchFiltered(gpa, testing.io, "widget", filter.value);
+    defer freeHits(gpa, hits);
+    try testing.expectEqual(@as(usize, 1), hits.len);
+    try testing.expectEqualStrings("designs/x.md", hits[0].node);
+}
+
+test "searchFiltered with a null filter behaves exactly like search" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "");
+    defer s.deinit();
+    const port = s.store();
+
+    _ = try port.write(testing.io, "a.md", "widget prose\n");
+    _ = try port.write(testing.io, "b.md", "unrelated\n");
+
+    const via_search = try port.search(gpa, testing.io, "widget");
+    defer freeHits(gpa, via_search);
+    const via_filtered = try s.searchFiltered(gpa, testing.io, "widget", null);
+    defer freeHits(gpa, via_filtered);
+
+    try testing.expectEqual(via_search.len, via_filtered.len);
+    try testing.expectEqualStrings(via_search[0].node, via_filtered[0].node);
+}
+
+test "the substring fallback also ignores frontmatter content" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "synapse/repo@main");
+    defer s.deinit();
+    const port = s.store();
+
+    // An all-digit query survives tokenization as zero terms, so this
+    // exercises `searchSubstring` specifically, not the ranked path above.
+    _ = try port.write(testing.io, "a.md", "---\ntitle: A\nsources:\n  - path: src/x.zig\n    hash: 42424242\n---\nno digits here\n");
+
+    const hits = try port.search(gpa, testing.io, "42424242");
+    defer freeHits(gpa, hits);
+    try testing.expectEqual(@as(usize, 0), hits.len);
 }
 
 test "a query matching nothing returns an empty slice, not an error" {

@@ -13,7 +13,9 @@
 //!   vault-write <path>                     body on stdin
 //!   vault-list
 //!   vault-search [--fields <f1,f2,...>]    JsonLogic rule on stdin
-//!   vault-search-text <query>              full-text relevance search
+//!   vault-search-text <query> [--path-filter]
+//!                                           full-text relevance search, optionally scoped by
+//!                                           a JsonLogic path filter (`{"var": "path"}` only) on stdin
 //!   vault-doc-map <path>                   headings/block ids/frontmatter keys
 //!   vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
 //!               [--append|--prepend|--replace] [--create]
@@ -33,6 +35,10 @@
 //! JsonLogic filter over frontmatter/content/tags; for plain full-text
 //! relevance search instead, `vault-search-text` wraps `Store`'s own
 //! `search` method directly, one `node<TAB>score<TAB>context` row per hit.
+//! `--path-filter` scopes that search to a subset of paths first -- the
+//! stdin rule is expected to reference nothing but `path` (see
+//! `ResolvedStore.searchFiltered`'s own doc comment for exactly what that
+//! means per backend), and disqualified paths are never read at all.
 //! `vault-doc-map` lists every heading path/block id/frontmatter key a
 //! `vault-patch` target could name, one `kind<TAB>value` row per entry,
 //! `kind` one of `heading`/`block`/`frontmatter`.
@@ -55,7 +61,9 @@ const usage_text =
     \\       synapse vault-write <path>                     body on stdin
     \\       synapse vault-list
     \\       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-    \\       synapse vault-search-text <query>               full-text relevance search
+    \\       synapse vault-search-text <query> [--path-filter]
+    \\                                                       full-text relevance search, optionally
+    \\                                                       scoped by a JsonLogic path filter on stdin
     \\       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
     \\       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
     \\                   [--append|--prepend|--replace] [--create]
@@ -151,22 +159,24 @@ pub fn list(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []cons
     return 0;
 }
 
-/// Plain full-text relevance search, straight over `Store.search` --
-/// distinct from `search` below (which answers a structured JsonLogic
-/// filter instead).
+/// Plain full-text relevance search, straight over `Store.search` (or, with
+/// `path_filter`, `ResolvedStore.searchFiltered` -- see its own doc comment
+/// for exactly what backends that scopes and how) -- distinct from `search`
+/// below (which answers a structured JsonLogic filter instead). `null`
+/// behaves exactly as before this parameter existed.
 pub fn searchText(
     gpa: Allocator,
     io: Io,
     env: *std.process.Environ.Map,
     vault: []const u8,
     query: []const u8,
+    path_filter: ?std.json.Value,
     result: *Io.Writer,
 ) !u8 {
     var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
     defer resolved.deinit();
-    const store = resolved.store();
 
-    const hits = store.search(gpa, io, query) catch {
+    const hits = resolved.searchFiltered(gpa, io, query, path_filter) catch {
         std.debug.print("{s}: search failed\n", .{prog});
         return 1;
     };
@@ -549,13 +559,34 @@ pub fn runList(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std
 pub fn runSearchText(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
     const query = args.next() orelse return usage();
     if (isHelp(query)) return help();
-    if (args.next() != null) return usage();
+
+    var want_path_filter = false;
+    if (args.next()) |arg| {
+        if (!std.mem.eql(u8, arg, "--path-filter")) return usage();
+        want_path_filter = true;
+        if (args.next() != null) return usage();
+    }
+
     const vault = (try resolveVault(gpa, io, env)) orelse return 1;
     defer gpa.free(vault);
 
+    var parsed: ?std.json.Parsed(std.json.Value) = null;
+    defer if (parsed) |*p| p.deinit();
+    if (want_path_filter) {
+        const filter_text = readStdin(gpa, io) catch {
+            std.debug.print("{s}: could not read stdin\n", .{prog});
+            return 1;
+        };
+        defer gpa.free(filter_text);
+        parsed = std.json.parseFromSlice(std.json.Value, gpa, filter_text, .{}) catch {
+            std.debug.print("{s}: stdin is not valid JSON\n", .{prog});
+            return 1;
+        };
+    }
+
     var out_buf: [8192]u8 = undefined;
     var out = Io.File.stdout().writer(io, &out_buf);
-    const code = try searchText(gpa, io, env, vault, query, &out.interface);
+    const code = try searchText(gpa, io, env, vault, query, if (parsed) |p| p.value else null, &out.interface);
     try out.interface.flush();
     return code;
 }
@@ -840,10 +871,30 @@ test "searchText finds a note by plain full-text substring, TSV row per hit" {
 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
-    const code = try searchText(gpa, fx.io(), &fx.env, fx.vault, "widgets", &out.writer);
+    const code = try searchText(gpa, fx.io(), &fx.env, fx.vault, "widgets", null, &out.writer);
     try testing.expectEqual(@as(u8, 0), code);
     try testing.expect(std.mem.indexOf(u8, out.written(), "designs/synapse/sb-001.md\t") != null);
     try testing.expect(std.mem.indexOf(u8, out.written(), "sb-002") == null);
+}
+
+test "searchText with a path filter excludes a matching note outside the filtered paths" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeVaultFile("designs/synapse/sb-001.md", "---\ntitle: X\n---\nsomething about widgets\n");
+    try fx.writeVaultFile("tasks/synapse/wg-001.md", "---\ntitle: Y\n---\nalso about widgets\n");
+
+    var filter = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"glob": ["designs/*", {"var": "path"}]}
+    , .{});
+    defer filter.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try searchText(gpa, fx.io(), &fx.env, fx.vault, "widgets", filter.value, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "designs/synapse/sb-001.md\t") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "wg-001") == null);
 }
 
 test "docMap reports a note's heading paths, block ids, and frontmatter keys" {

@@ -27,7 +27,7 @@ pub const text =
     \\  vault-write <path>         write a note's full body, from stdin
     \\  vault-list                 every note in the vault, recursively
     \\  vault-search [--fields <f1,f2,...>]   JsonLogic filter from stdin, TSV rows out
-    \\  vault-search-text <query>  full-text relevance search
+    \\  vault-search-text <query> [--path-filter]   full-text relevance search, optionally path-scoped
     \\  vault-doc-map <path>       headings/block ids/frontmatter keys, for a vault-patch target
     \\  vault-patch <path> --heading|--block|--frontmatter <target>
     \\              [--append|--prepend|--replace] [--create]   content from stdin

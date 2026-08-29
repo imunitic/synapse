@@ -134,6 +134,21 @@ pub const ObsidianStore = struct {
         };
     }
 
+    /// One-line delegation to the composed field, same shape as `linkGraph`/
+    /// `renamer` -- unlike plain `search`, this never tries the live app
+    /// first: the live CLI's own query language has no path-filter concept
+    /// to translate a JsonLogic rule into, so a filtered search always runs
+    /// against disk directly.
+    pub fn searchFiltered(
+        self: *ObsidianStore,
+        gpa: Allocator,
+        io: Io,
+        query: []const u8,
+        path_filter: ?std.json.Value,
+    ) anyerror![]const Store.Hit {
+        return self.disk.searchFiltered(gpa, io, query, path_filter);
+    }
+
     /// `obsidian search:context query=... format=json`, vault-wide by
     /// construction (the CLI has no namespace concept of its own) --
     /// filtered here to this store's own namespace and re-keyed to the same

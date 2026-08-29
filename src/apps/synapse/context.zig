@@ -187,14 +187,21 @@ pub fn verifyNamespace(ctx: *const Context, io: Io, prog: []const u8) !bool {
     return true;
 }
 
+/// A node's absolute path on disk, caller-owned. Accepts the title with or
+/// without `.md`. Exposed on its own for a caller that wants to open the
+/// file itself (a streaming read) rather than go through `readNode`.
+pub fn nodePath(ctx: *const Context, gpa: Allocator, name: []const u8) ![]u8 {
+    return if (std.mem.endsWith(u8, name, ".md"))
+        std.fmt.allocPrint(gpa, "{s}/{s}", .{ ctx.abs_dir, name })
+    else
+        std.fmt.allocPrint(gpa, "{s}/{s}.md", .{ ctx.abs_dir, name });
+}
+
 /// One node's text, or null when there is no such node. Accepts the title
 /// with or without `.md`.
 pub fn readNode(ctx: *const Context, io: Io, name: []const u8) !?[]u8 {
     const gpa = ctx.gpa;
-    const path = if (std.mem.endsWith(u8, name, ".md"))
-        try std.fmt.allocPrint(gpa, "{s}/{s}", .{ ctx.abs_dir, name })
-    else
-        try std.fmt.allocPrint(gpa, "{s}/{s}.md", .{ ctx.abs_dir, name });
+    const path = try nodePath(ctx, gpa, name);
     defer gpa.free(path);
     return Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(256 << 20)) catch null;
 }

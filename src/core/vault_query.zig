@@ -54,13 +54,31 @@ pub fn query(gpa: Allocator, io: Io, store: Store, filter: Value, fields: []cons
         gpa.free(names);
     }
 
+    // A failing direct child of a top-level `{"and": [...]}` filter, if it
+    // needs nothing but `path` to evaluate, proves the row can't match
+    // before `store.read()` runs at all -- checked below against a bare
+    // `{path: name}` object, once per candidate, ahead of the real read.
+    var path_only = try pathOnlyClauses(gpa, filter);
+    defer path_only.deinit(gpa);
+    var path_data: std.json.ObjectMap = .empty;
+    defer path_data.deinit(gpa);
+
     var out: std.ArrayListUnmanaged(Row) = .empty;
     errdefer {
         for (out.items) |r| r.deinit(gpa);
         out.deinit(gpa);
     }
 
-    for (names) |name| {
+    name_loop: for (names) |name| {
+        if (path_only.items.len != 0) {
+            try path_data.put(gpa, "path", .{ .string = name });
+            const path_value: Value = .{ .object = path_data };
+            for (path_only.items) |clause| {
+                const matched = jsonlogic.evaluate(clause, path_value) catch continue :name_loop;
+                if (!jsonlogic.truthy(matched)) continue :name_loop;
+            }
+        }
+
         const body_text = (try store.read(gpa, io, name)) orelse continue;
         defer gpa.free(body_text);
 
@@ -91,6 +109,86 @@ pub fn query(gpa: Allocator, io: Io, store: Store, filter: Value, fields: []cons
     }
 
     return out.toOwnedSlice(gpa);
+}
+
+/// Whether `filter` -- a JsonLogic rule expected to reference nothing but
+/// `path` -- matches `name` on its own, with no `content`/`frontmatter`/
+/// `tags` available to it. An evaluation error (an unknown operator, say)
+/// counts as no match, the same "can't tell, so it's out" rule `query`'s own
+/// full-filter evaluation already uses.
+///
+/// The exact mechanism `query`'s own path-only AND short-circuit uses
+/// (evaluate against a bare `{path: name}` object), exposed here for a
+/// caller with no note bodies loaded at all -- `DiskStore.searchFiltered`
+/// scopes full-text search to a subset of candidate paths this same way,
+/// before any file is read, not just `query`'s structured filter.
+pub fn pathMatches(gpa: Allocator, filter: Value, name: []const u8) !bool {
+    var obj: std.json.ObjectMap = .empty;
+    defer obj.deinit(gpa);
+    try obj.put(gpa, "path", .{ .string = name });
+    const matched = jsonlogic.evaluate(filter, .{ .object = obj }) catch return false;
+    return jsonlogic.truthy(matched);
+}
+
+/// The direct children of a top-level `{"and": [...]}` filter that only
+/// ever reference `{"var": "path"}` -- borrowed from `filter`, in order.
+/// Empty for any other filter shape (a bare `true`, an `or`, a single
+/// non-`and` clause): scoped to the top-level-AND case deliberately, not a
+/// general partial evaluator -- AND's short-circuit is what makes a failing
+/// path-only child a safe proof the row can't match; OR's isn't symmetric
+/// the same way, and nothing here writes that shape anyway.
+fn pathOnlyClauses(gpa: Allocator, filter: Value) !std.ArrayListUnmanaged(Value) {
+    var out: std.ArrayListUnmanaged(Value) = .empty;
+    errdefer out.deinit(gpa);
+
+    const obj = switch (filter) {
+        .object => |o| o,
+        else => return out,
+    };
+    if (obj.count() != 1) return out;
+    var it = obj.iterator();
+    const entry = it.next().?;
+    if (!std.mem.eql(u8, entry.key_ptr.*, "and")) return out;
+
+    const children: []const Value = switch (entry.value_ptr.*) {
+        .array => |a| a.items,
+        else => &.{entry.value_ptr.*},
+    };
+    for (children) |c| if (referencesOnlyPath(c)) try out.append(gpa, c);
+    return out;
+}
+
+/// True when evaluating `rule` never looks at anything but `data.path` --
+/// so it produces the same answer against a bare `{path: name}` object as
+/// it would against the full `{path, content, frontmatter, tags}` tree.
+/// Walks every object value and array item looking for a `{"var": X}`
+/// anywhere in the tree; `X` must be exactly `"path"` (a bare, string,
+/// top-level reference -- the array-with-default form and a non-string arg
+/// both fall back to "no" rather than being special-cased, since nothing
+/// this vault's own queries write needs either).
+fn referencesOnlyPath(rule: Value) bool {
+    switch (rule) {
+        .object => |o| {
+            if (o.count() == 1) {
+                var single = o.iterator();
+                const entry = single.next().?;
+                if (std.mem.eql(u8, entry.key_ptr.*, "var")) {
+                    return switch (entry.value_ptr.*) {
+                        .string => |s| std.mem.eql(u8, s, "path"),
+                        else => false,
+                    };
+                }
+            }
+            var it = o.iterator();
+            while (it.next()) |entry| if (!referencesOnlyPath(entry.value_ptr.*)) return false;
+            return true;
+        },
+        .array => |a| {
+            for (a.items) |item| if (!referencesOnlyPath(item)) return false;
+            return true;
+        },
+        else => return true,
+    }
 }
 
 /// `{path, content, frontmatter, tags}` for one note -- everything a real
@@ -212,6 +310,10 @@ const TestStore = struct {
     gpa: Allocator,
     names: std.ArrayListUnmanaged([]const u8) = .empty,
     bodies: std.ArrayListUnmanaged([]const u8) = .empty,
+    /// Every name `read` was actually called with, in order -- tests use
+    /// this to prove a path-only short-circuit skipped the read entirely,
+    /// not just that the row didn't make it into the result.
+    reads: std.ArrayListUnmanaged([]const u8) = .empty,
 
     fn init(gpa: Allocator) TestStore {
         return .{ .gpa = gpa };
@@ -220,8 +322,10 @@ const TestStore = struct {
     fn deinit(self: *TestStore) void {
         for (self.names.items) |n| self.gpa.free(n);
         for (self.bodies.items) |b| self.gpa.free(b);
+        for (self.reads.items) |r| self.gpa.free(r);
         self.names.deinit(self.gpa);
         self.bodies.deinit(self.gpa);
+        self.reads.deinit(self.gpa);
     }
 
     fn set(self: *TestStore, name: []const u8, body: []const u8) !void {
@@ -235,6 +339,7 @@ const TestStore = struct {
 
     pub fn read(self: *TestStore, gpa: Allocator, io: Io, node: []const u8) anyerror!?[]u8 {
         _ = io;
+        try self.reads.append(self.gpa, try self.gpa.dupe(u8, node));
         for (self.names.items, self.bodies.items) |n, b| {
             if (std.mem.eql(u8, n, node)) return try gpa.dupe(u8, b);
         }
@@ -375,4 +480,96 @@ test "a missing requested field projects as JSON null, not an error" {
     }
     try testing.expectEqual(@as(usize, 1), rows.len);
     try testing.expectEqual(Value.null, rows[0].values[0]);
+}
+
+test "pathMatches evaluates a bare path filter with no note body needed" {
+    const gpa = testing.allocator;
+    var filter = try std.json.parseFromSlice(Value, gpa,
+        \\{"glob": ["designs/*", {"var": "path"}]}
+    , .{});
+    defer filter.deinit();
+
+    try testing.expect(try pathMatches(gpa, filter.value, "designs/x.md"));
+    try testing.expect(!try pathMatches(gpa, filter.value, "tasks/y.md"));
+}
+
+test "pathMatches treats an evaluation error as no match" {
+    const gpa = testing.allocator;
+    var filter = try std.json.parseFromSlice(Value, gpa, "{\"nonsense-operator\": []}", .{});
+    defer filter.deinit();
+    try testing.expect(!try pathMatches(gpa, filter.value, "a.md"));
+}
+
+test "a failing path-only AND clause skips the read entirely, not just the row" {
+    const gpa = testing.allocator;
+    var fs = TestStore.init(gpa);
+    defer fs.deinit();
+    try fs.set("designs/x.md", "## Status\nReady\n");
+    try fs.set("tasks/y.md", "## Status\nReady\n");
+    const store = fs.store();
+
+    var filter = try std.json.parseFromSlice(Value, gpa,
+        \\{"and": [{"glob": ["designs/*", {"var": "path"}]}, {"regexp": ["Ready", {"var": "content"}]}]}
+    , .{});
+    defer filter.deinit();
+
+    const rows = try query(gpa, testing.io, store, filter.value, &.{"path"});
+    defer {
+        for (rows) |r| r.deinit(gpa);
+        gpa.free(rows);
+    }
+    try testing.expectEqual(@as(usize, 1), rows.len);
+    try testing.expectEqualStrings("designs/x.md", rows[0].path);
+
+    // The point of the optimization: `tasks/y.md` fails the path-only glob
+    // clause on its own, so `read` is never called for it at all -- not
+    // just filtered out after the fact.
+    try testing.expectEqual(@as(usize, 1), fs.reads.items.len);
+    try testing.expectEqualStrings("designs/x.md", fs.reads.items[0]);
+}
+
+test "a filter with no path-only AND clause still reads and matches every candidate" {
+    const gpa = testing.allocator;
+    var fs = TestStore.init(gpa);
+    defer fs.deinit();
+    try fs.set("a.md", "---\nstatus: TODO\n---\n");
+    try fs.set("b.md", "---\nstatus: DONE\n---\n");
+    const store = fs.store();
+
+    var filter = try std.json.parseFromSlice(Value, gpa, "{\"==\": [{\"var\": \"frontmatter.status\"}, \"TODO\"]}", .{});
+    defer filter.deinit();
+
+    const rows = try query(gpa, testing.io, store, filter.value, &.{});
+    defer {
+        for (rows) |r| r.deinit(gpa);
+        gpa.free(rows);
+    }
+    try testing.expectEqual(@as(usize, 1), rows.len);
+    // No top-level AND at all here, so both candidates are read as before.
+    try testing.expectEqual(@as(usize, 2), fs.reads.items.len);
+}
+
+test "an AND clause that mixes path with content is never treated as path-only" {
+    const gpa = testing.allocator;
+    var fs = TestStore.init(gpa);
+    defer fs.deinit();
+    try fs.set("a.md", "body\n");
+    const store = fs.store();
+
+    // A single clause referencing both `path` and `content` must still be
+    // fully evaluated against the real body -- it is not a case where a
+    // *direct child* of the AND is path-only, since this whole `==` clause
+    // is one child, and that child's own subtree touches `content` too.
+    var filter = try std.json.parseFromSlice(Value, gpa,
+        \\{"and": [{"==": [{"var": "path"}, {"var": "content"}]}]}
+    , .{});
+    defer filter.deinit();
+
+    const rows = try query(gpa, testing.io, store, filter.value, &.{});
+    defer {
+        for (rows) |r| r.deinit(gpa);
+        gpa.free(rows);
+    }
+    try testing.expectEqual(@as(usize, 0), rows.len);
+    try testing.expectEqual(@as(usize, 1), fs.reads.items.len);
 }
