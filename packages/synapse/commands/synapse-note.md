@@ -96,11 +96,9 @@ unchanged for anyone who has never touched an XDG config directory.
 7. Format the new task ID **zero-padded to 3 digits** (`{prefix}-001`, `{prefix}-030`,
    `{prefix}-037`, ...), matching the org-roam-era convention — widening
    naturally past 3 digits if a prefix ever needs it.
-8. **Prepend the resolved task ID to the title itself** — the final title
-   becomes `{task-id} — {original title}` (em dash). Use this same final
-   title for both the `title` frontmatter field and the `# ` heading, and
-   use the resolved task ID for `task_id`. Don't let the frontmatter task
-   ID and the visible title disagree.
+8. **The title itself is never prefixed with the task ID.** `task_id` lives in frontmatter only —
+   the same convention `note_id` already uses for bare and design notes, now consistent across all
+   three kinds. `title`, the `# ` heading, and the filename all stay exactly the given topic.
 
 `/synapse-design-note`/`/synapse-task-note` read the same conf file directly for the same reason —
 they don't duplicate this resolution logic, just this file.
