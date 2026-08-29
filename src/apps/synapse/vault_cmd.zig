@@ -218,38 +218,39 @@ pub fn docMap(
 /// `LinkGraph` of its own -- not a usage error: the caller asked a
 /// well-formed question, this backend just can't answer it (true of Bard's
 /// stores, not either real coding-vault backend).
-fn openLinkGraph(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8) !?struct {
-    resolved: adapters.store_resolve.ResolvedStore,
-    link_graph: ports.LinkGraph,
-} {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return null;
-    const lg = resolved.linkGraph() orelse {
-        resolved.deinit();
+/// The one safe way to reach a resolved store's `LinkGraph`: call
+/// `.linkGraph()` on a `ResolvedStore` that is already sitting in its final,
+/// stable location -- never on one still about to be moved. `LinkGraph.ptr`
+/// is `&resolved.<backend>.link_graph`, a pointer *into* whatever `resolved`
+/// this call receives; if that `resolved` is a local inside a helper that
+/// then returns it by value (the shape this used to be), the returned copy
+/// lives at a new address and the pointer captured before the move is left
+/// dangling -- reads whatever the old stack slot gets reused for next,
+/// which is silent right up until it isn't. Every call site below opens its
+/// own `resolved` and asks it for a `LinkGraph` in the same breath, so the
+/// address `.ptr` captures is the address `resolved` keeps for the rest of
+/// the function.
+fn openLinkGraph(resolved: *adapters.store_resolve.ResolvedStore) ?ports.LinkGraph {
+    return resolved.linkGraph() orelse {
         std.debug.print("{s}: this vault backend has no link graph (SYNAPSE_VAULT_STORE)\n", .{prog});
         return null;
     };
-    return .{ .resolved = resolved, .link_graph = lg };
 }
 
-/// Same shape as `openLinkGraph`, for `Renamer`.
-fn openRenamer(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8) !?struct {
-    resolved: adapters.store_resolve.ResolvedStore,
-    renamer: ports.Renamer,
-} {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return null;
-    const rn = resolved.renamer() orelse {
-        resolved.deinit();
+/// Same reasoning as `openLinkGraph`, for `Renamer`.
+fn openRenamer(resolved: *adapters.store_resolve.ResolvedStore) ?ports.Renamer {
+    return resolved.renamer() orelse {
         std.debug.print("{s}: this vault backend has no renamer (SYNAPSE_VAULT_STORE)\n", .{prog});
         return null;
     };
-    return .{ .resolved = resolved, .renamer = rn };
 }
 
 pub fn backlinks(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, path: []const u8, result: *Io.Writer) !u8 {
-    var opened = (try openLinkGraph(gpa, io, env, vault)) orelse return 1;
-    defer opened.resolved.deinit();
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    defer resolved.deinit();
+    const link_graph = openLinkGraph(&resolved) orelse return 1;
 
-    const hits = opened.link_graph.backlinks(gpa, io, path) catch {
+    const hits = link_graph.backlinks(gpa, io, path) catch {
         std.debug.print("{s}: backlinks failed\n", .{prog});
         return 1;
     };
@@ -262,10 +263,11 @@ pub fn backlinks(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: [
 }
 
 pub fn links(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, path: []const u8, result: *Io.Writer) !u8 {
-    var opened = (try openLinkGraph(gpa, io, env, vault)) orelse return 1;
-    defer opened.resolved.deinit();
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    defer resolved.deinit();
+    const link_graph = openLinkGraph(&resolved) orelse return 1;
 
-    const names = opened.link_graph.links(gpa, io, path) catch {
+    const names = link_graph.links(gpa, io, path) catch {
         std.debug.print("{s}: links failed\n", .{prog});
         return 1;
     };
@@ -281,10 +283,11 @@ pub fn links(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []con
 /// `/synapse-vault-tidy`'s own "Broken link in `{note}`: → `{target}`"
 /// finding needs, `sources` iterated rather than joined onto one row.
 pub fn unresolved(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, result: *Io.Writer) !u8 {
-    var opened = (try openLinkGraph(gpa, io, env, vault)) orelse return 1;
-    defer opened.resolved.deinit();
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    defer resolved.deinit();
+    const link_graph = openLinkGraph(&resolved) orelse return 1;
 
-    const rows = opened.link_graph.unresolved(gpa, io) catch {
+    const rows = link_graph.unresolved(gpa, io) catch {
         std.debug.print("{s}: unresolved failed\n", .{prog});
         return 1;
     };
@@ -303,10 +306,11 @@ pub fn unresolved(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: 
 }
 
 pub fn orphans(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, result: *Io.Writer) !u8 {
-    var opened = (try openLinkGraph(gpa, io, env, vault)) orelse return 1;
-    defer opened.resolved.deinit();
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    defer resolved.deinit();
+    const link_graph = openLinkGraph(&resolved) orelse return 1;
 
-    const names = opened.link_graph.orphans(gpa, io) catch {
+    const names = link_graph.orphans(gpa, io) catch {
         std.debug.print("{s}: orphans failed\n", .{prog});
         return 1;
     };
@@ -319,10 +323,11 @@ pub fn orphans(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []c
 }
 
 pub fn deadends(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, result: *Io.Writer) !u8 {
-    var opened = (try openLinkGraph(gpa, io, env, vault)) orelse return 1;
-    defer opened.resolved.deinit();
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    defer resolved.deinit();
+    const link_graph = openLinkGraph(&resolved) orelse return 1;
 
-    const names = opened.link_graph.deadends(gpa, io) catch {
+    const names = link_graph.deadends(gpa, io) catch {
         std.debug.print("{s}: deadends failed\n", .{prog});
         return 1;
     };
@@ -338,10 +343,11 @@ pub fn deadends(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []
 /// occurrences of `target` across the vault) repeats per source, same
 /// convention `unresolved`'s own rows already use.
 pub fn ambiguous(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, result: *Io.Writer) !u8 {
-    var opened = (try openLinkGraph(gpa, io, env, vault)) orelse return 1;
-    defer opened.resolved.deinit();
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    defer resolved.deinit();
+    const link_graph = openLinkGraph(&resolved) orelse return 1;
 
-    const rows = opened.link_graph.ambiguous(gpa, io) catch {
+    const rows = link_graph.ambiguous(gpa, io) catch {
         std.debug.print("{s}: ambiguous failed\n", .{prog});
         return 1;
     };
@@ -374,10 +380,11 @@ pub fn rename(
     new_path: []const u8,
     result: *Io.Writer,
 ) !u8 {
-    var opened = (try openRenamer(gpa, io, env, vault)) orelse return 1;
-    defer opened.resolved.deinit();
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    defer resolved.deinit();
+    const renamer = openRenamer(&resolved) orelse return 1;
 
-    opened.renamer.rename(gpa, io, old_path, new_path) catch |err| {
+    renamer.rename(gpa, io, old_path, new_path) catch |err| {
         if (err == error.NodeNotFound) {
             std.debug.print("{s}: no such note: {s}\n", .{ prog, old_path });
         } else {
