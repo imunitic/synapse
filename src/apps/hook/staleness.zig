@@ -115,7 +115,7 @@ pub fn build(
 
     const store_ns = try std.fmt.allocPrint(gpa, "synapse/{s}", .{ns.key});
     defer gpa.free(store_ns);
-    var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, vault, store_ns, null)) orelse return null;
+    var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, vault, store_ns, null, "")) orelse return null;
     defer resolved.deinit();
     var store = resolved.store();
 

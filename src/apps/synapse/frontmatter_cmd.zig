@@ -220,7 +220,7 @@ pub fn set(
     op: Op,
     result: *Io.Writer,
 ) !u8 {
-    var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, vault, "", prog)) orelse return 1;
+    var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, vault, "", prog, "")) orelse return 1;
     defer resolved.deinit();
     var store = resolved.store();
 

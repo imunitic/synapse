@@ -137,7 +137,7 @@ pub fn write(
         .bullets = bullets.items,
     });
 
-    var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, ctx.vault, ctx.dir, prog)) orelse return 1;
+    var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, ctx.vault, ctx.dir, prog, "")) orelse return 1;
     defer resolved.deinit();
     var store = resolved.store();
     const put_result = store.write(io, "Index.md", index.written()) catch |err| {

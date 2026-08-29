@@ -47,8 +47,6 @@ the way a shell does; a resulting bad path is reported, never silently substitut
 `second-brain.conf` (this file's name before 2026-08-04) is tried as a fallback, for a machine not
 reinstalled since.
 
-| Key | Default if unset | What it controls |
-|---|---|---|
 Every key below resolves through `core.conf.resolve` (`vaultDir` is that same function, fixed to
 `SYNAPSE_VAULT_DIR`): a real environment variable of the same name wins if set and non-empty;
 otherwise the first conf file in the tier order above that defines the key. Setting one in
@@ -58,9 +56,9 @@ configure it — the row below just documents the value, not which of the two yo
 | Key | Default if unset | What it controls |
 |---|---|---|
 | `SYNAPSE_VAULT_DIR` | — (required) | The vault path. |
-| `SYNAPSE_VAULT_STORE` | `disk` | Which `Store` backend `resolveStore()` resolves to: `disk` (plain markdown files, its own `search`/`LinkGraph`/`Renamer`, no external dependency), `git` (the same, plus owning the vault's own git lifecycle -- see [synapse-vault.md](synapse-vault.md#version-control-synapse_vault_storegit)), or the name of an extended store layered on top — see [synapse-extended-store.md](synapse-extended-store.md). Any other value is a hard error, not a silent fallback. |
+| `SYNAPSE_VAULT_INTEGRATIONS` | — (plain disk store) | A comma-separated, outer-to-inner list of integrations layered on the one real store, `DiskStore` -- `git` (owns the vault's own git lifecycle -- see [synapse-vault.md](synapse-vault.md#version-control-synapse_vault_integrationsgit)) and/or `obsidian` (prefers a live Obsidian app's own search/link-graph -- see [synapse-extended-store.md](synapse-extended-store.md)), in either order or combination. `git,obsidian` means `GitStore` wraps `ObsidianStore` wraps the disk store. `disk` is never named -- it's always the implicit innermost element -- and naming it, an unrecognized name, or a name repeated is each a hard error, not a silent fallback. |
 | `SYNAPSE_GRAMMARS_DIR` | `~/.cache/synapse/grammars` | Where tree-sitter grammar repos are cloned and their compiled `.so`/`.dylib` libraries cached — shared across every project, not per-repo. |
-| `SYNAPSE_VAULT_PUSH_EVERY` | `5` | Under `SYNAPSE_VAULT_STORE=git`, how many local commits pile up before `GitStore` spawns a detached push. `0` disables pushing. Only acts when the vault has an upstream and is genuinely ahead of it. |
+| `SYNAPSE_VAULT_PUSH_EVERY` | `5` | When `git` is one of the configured integrations, how many local commits pile up before `GitStore` spawns a detached push. `0` disables pushing. Only acts when the vault has an upstream and is genuinely ahead of it. |
 | `SYNAPSE_AUTHOR_POOL` | `0` | How many nodes `/synapse-init`'s final step authors concurrently via the `synapse-node-authoring` skill. `0` is the original one-at-a-time, same-session procedure — the only choice that preserves cross-node authorial memory. Read directly by the orchestrating agent, not by any compiled binary -- this one specifically is never a real environment variable, only ever text in the conf file an agent reads. |
 
 ## Self-populating registries (JSON)
@@ -191,8 +189,8 @@ tier 1/2 either — a from-source checkout with nothing configured, or a hermeti
 
 ## Every environment variable, by what it touches
 
-Conf-file path overrides (`SYNAPSE_*_CONF`, `SYNAPSE_VAULT_DIR`, `SYNAPSE_VAULT_STORE`) are listed
-with their files above, not repeated here.
+Conf-file path overrides (`SYNAPSE_*_CONF`, `SYNAPSE_VAULT_DIR`, `SYNAPSE_VAULT_INTEGRATIONS`) are
+listed with their files above, not repeated here.
 
 | Variable | Read by | What it does |
 |---|---|---|

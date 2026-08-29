@@ -12,6 +12,7 @@ pub const Extractor = @import("extractor.zig").Extractor;
 pub const Store = @import("store.zig").Store;
 pub const LinkGraph = @import("link_graph.zig").LinkGraph;
 pub const Renamer = @import("renamer.zig").Renamer;
+pub const SearchFiltered = @import("search_filtered.zig").SearchFiltered;
 pub const Clusterer = @import("clusterer.zig").Clusterer;
 pub const Lifecycle = @import("lifecycle.zig").Lifecycle;
 
@@ -20,4 +21,5 @@ test {
     _ = @import("lifecycle.zig");
     _ = @import("link_graph.zig");
     _ = @import("renamer.zig");
+    _ = @import("search_filtered.zig");
 }

@@ -318,7 +318,7 @@ pub fn vaultDir(gpa: std.mem.Allocator, io: std.Io, vars: Vars) !?[]u8 {
 /// non-empty; otherwise the first conf file (tiered) that defines the key,
 /// in `resolveConfPath`'s own tier order. `SYNAPSE_VAULT_DIR` needs its own
 /// name (every caller already spells it) but every other key the shipped
-/// conf template documents (`SYNAPSE_VAULT_STORE`, `SYNAPSE_VAULT_PUSH_EVERY`,
+/// conf template documents (`SYNAPSE_VAULT_INTEGRATIONS`, `SYNAPSE_VAULT_PUSH_EVERY`,
 /// ...) gets the same resolution through this, rather than being real-
 /// environment-only despite the template presenting them as settable here.
 /// Null means nothing names the key at all.
@@ -776,10 +776,10 @@ test "resolve: any key falls back to the conf file, not just SYNAPSE_VAULT_DIR" 
     try cwd.createDirPath(io, claude_dir);
     const synapse_conf = try std.fmt.allocPrint(gpa, "{s}/.claude/synapse.conf", .{home});
     defer gpa.free(synapse_conf);
-    try cwd.writeFile(io, .{ .sub_path = synapse_conf, .data = "SYNAPSE_VAULT_STORE=\"git\"\n" });
+    try cwd.writeFile(io, .{ .sub_path = synapse_conf, .data = "SYNAPSE_VAULT_INTEGRATIONS=\"git\"\n" });
 
     const tv: TestVars = .{ .pairs = &.{.{ "HOME", home }} }; // no real env override
-    const got = (try resolve(gpa, io, tv.vars(), "SYNAPSE_VAULT_STORE")).?;
+    const got = (try resolve(gpa, io, tv.vars(), "SYNAPSE_VAULT_INTEGRATIONS")).?;
     defer gpa.free(got);
     try testing.expectEqualStrings("git", got);
 }
@@ -799,10 +799,10 @@ test "resolve: a real environment variable overrides the conf file, same precede
     try cwd.createDirPath(io, claude_dir);
     const synapse_conf = try std.fmt.allocPrint(gpa, "{s}/.claude/synapse.conf", .{home});
     defer gpa.free(synapse_conf);
-    try cwd.writeFile(io, .{ .sub_path = synapse_conf, .data = "SYNAPSE_VAULT_STORE=\"git\"\n" });
+    try cwd.writeFile(io, .{ .sub_path = synapse_conf, .data = "SYNAPSE_VAULT_INTEGRATIONS=\"git\"\n" });
 
-    const tv: TestVars = .{ .pairs = &.{ .{ "HOME", home }, .{ "SYNAPSE_VAULT_STORE", "obsidian" } } };
-    const got = (try resolve(gpa, io, tv.vars(), "SYNAPSE_VAULT_STORE")).?;
+    const tv: TestVars = .{ .pairs = &.{ .{ "HOME", home }, .{ "SYNAPSE_VAULT_INTEGRATIONS", "obsidian" } } };
+    const got = (try resolve(gpa, io, tv.vars(), "SYNAPSE_VAULT_INTEGRATIONS")).?;
     defer gpa.free(got);
     try testing.expectEqualStrings("obsidian", got);
 }
@@ -817,5 +817,5 @@ test "resolve: null when the key is nowhere -- no env, no conf file" {
     const home = buf[0..try tmp.dir.realPath(io, &buf)];
 
     const tv: TestVars = .{ .pairs = &.{.{ "HOME", home }} };
-    try testing.expectEqual(@as(?[]u8, null), try resolve(gpa, io, tv.vars(), "SYNAPSE_VAULT_STORE"));
+    try testing.expectEqual(@as(?[]u8, null), try resolve(gpa, io, tv.vars(), "SYNAPSE_VAULT_INTEGRATIONS"));
 }

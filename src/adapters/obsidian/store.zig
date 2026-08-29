@@ -1,14 +1,14 @@
-//! `ObsidianStore`: a decorator around `DiskStore`, not a from-scratch
-//! `ports.Store` implementation. `read`/`write`/`list` are plain disk I/O --
-//! delegated straight to a composed `DiskStore`, since an Obsidian vault
-//! already *is* the same folder of markdown files `DiskStore` reads and
-//! writes directly. `search` and the composed `LinkGraph` (`link_graph`)
-//! are the two things a live Obsidian app can answer that a bare disk read
-//! can't: relevance search and the resolved wikilink graph -- both reached
-//! through the official `obsidian` CLI, a local Unix-socket binary
-//! (`/opt/homebrew/bin/obsidian` on this machine) with no REST plugin, no
-//! CA cert, and no port/API-key config file needed. Obsidian itself must
-//! still be running.
+//! `ObsidianStore`: a decorator, not a from-scratch `ports.Store`
+//! implementation. `read`/`write`/`list` delegate straight to `inner` --
+//! whatever store it was constructed with, `DiskStore` for a plain
+//! `obsidian` chain -- since an Obsidian vault already *is* the same folder
+//! of markdown files that store reads and writes directly. `search` and the
+//! composed `LinkGraph` (`link_graph`) are the two things a live Obsidian
+//! app can answer that a bare disk read can't: relevance search and the
+//! resolved wikilink graph -- both reached through the official `obsidian`
+//! CLI, a local Unix-socket binary (`/opt/homebrew/bin/obsidian` on this
+//! machine) with no REST plugin, no CA cert, and no port/API-key config
+//! file needed. Obsidian itself must still be running.
 //!
 //! `write-node`/`build-project-index` call `write` directly on the concrete
 //! type, bypassing the port -- the same pattern this file's own two Bard
@@ -68,26 +68,42 @@ fn runObsidian(gpa: Allocator, io: Io, vault_path: []const u8, sub_args: []const
 }
 
 pub const ObsidianStore = struct {
-    disk: disk_store.DiskStore,
+    /// The vault's own filesystem path -- an explicit dependency, not
+    /// derived from `inner`: the live CLI mechanics below (`vault=`
+    /// resolution, `search:context`) run against this path directly,
+    /// never through `inner`.
+    vault: []const u8,
+    /// `synapse/{repo}@{branch}`, prefixed onto every node name for the
+    /// CLI's own vault-wide addressing. Empty means `node` is already a
+    /// full vault-relative path.
+    namespace: []const u8,
+    /// What `read`/`write`/`list` actually delegate to, and what `search`
+    /// falls back to when Obsidian is unreachable -- `DiskStore` for a
+    /// plain `obsidian` chain, or another integration's own store for a
+    /// longer one.
+    inner: Store,
+    inner_search_filtered: ports.SearchFiltered,
     link_graph: ObsidianLinkGraph,
     rename_impl: ObsidianRenamer,
 
-    pub fn init(gpa: Allocator, vault: []const u8, namespace: []const u8) !ObsidianStore {
-        var disk = try disk_store.DiskStore.init(gpa, vault, namespace);
-        errdefer disk.deinit();
+    /// Every dependency named explicitly -- see `GitStore.init`'s own doc
+    /// comment for why this never derives anything from `inner` itself.
+    pub fn init(
+        vault: []const u8,
+        namespace: []const u8,
+        inner: Store,
+        inner_link_graph: LinkGraph,
+        inner_renamer: Renamer,
+        inner_search_filtered: ports.SearchFiltered,
+    ) ObsidianStore {
         return .{
-            .disk = disk,
-            // Borrows `disk.vault`/`disk.namespace`'s bytes -- same lifetime
-            // as `disk` itself (both live and die together as fields of
-            // this struct), so no separate copy or `deinit` of its own is
-            // needed.
-            .link_graph = .{ .vault = disk.vault, .namespace = disk.namespace },
-            .rename_impl = .{ .vault = disk.vault },
+            .vault = vault,
+            .namespace = namespace,
+            .inner = inner,
+            .inner_search_filtered = inner_search_filtered,
+            .link_graph = .{ .vault = vault, .namespace = namespace, .inner = inner_link_graph },
+            .rename_impl = .{ .vault = vault, .inner = inner_renamer },
         };
-    }
-
-    pub fn deinit(self: *ObsidianStore) void {
-        self.disk.deinit();
     }
 
     /// The wrapper idiom: `Store.from` generates the `*anyopaque` cast from
@@ -109,28 +125,28 @@ pub const ObsidianStore = struct {
     }
 
     pub fn read(self: *ObsidianStore, gpa: Allocator, io: Io, node: []const u8) anyerror!?[]u8 {
-        return self.disk.read(gpa, io, node);
+        return self.inner.read(gpa, io, node);
     }
 
     pub fn write(self: *ObsidianStore, io: Io, node: []const u8, body: []const u8) anyerror!Store.WriteResult {
-        return self.disk.write(io, node, body);
+        return self.inner.write(io, node, body);
     }
 
     pub fn list(self: *ObsidianStore, gpa: Allocator, io: Io) anyerror![]const []const u8 {
-        return self.disk.list(gpa, io);
+        return self.inner.list(gpa, io);
     }
 
-    /// Falls back to the composed `DiskStore`'s own plain linear scan when
-    /// Obsidian is unreachable (CLI disabled, or the live app not up),
-    /// rather than erroring -- both backends ship as one store with an
-    /// internal fallback, not two the caller chooses between. Detected by
-    /// catching `searchViaCli`'s own `error.VaultUnreachable`, not a
-    /// pre-flight reachability check.
+    /// Falls back to `inner`'s own plain linear scan when Obsidian is
+    /// unreachable (CLI disabled, or the live app not up), rather than
+    /// erroring -- both backends ship as one store with an internal
+    /// fallback, not two the caller chooses between. Detected by catching
+    /// `searchViaCli`'s own `error.VaultUnreachable`, not a pre-flight
+    /// reachability check.
     pub fn search(self: *ObsidianStore, gpa: Allocator, io: Io, query: []const u8) anyerror![]const Store.Hit {
         return searchViaCli(self, gpa, io, query) catch |err| {
             if (err != error.VaultUnreachable) return err;
             warnFallback("search");
-            return self.disk.search(gpa, io, query);
+            return self.inner.search(gpa, io, query);
         };
     }
 
@@ -138,7 +154,7 @@ pub const ObsidianStore = struct {
     /// `renamer` -- unlike plain `search`, this never tries the live app
     /// first: the live CLI's own query language has no path-filter concept
     /// to translate a JsonLogic rule into, so a filtered search always runs
-    /// against disk directly.
+    /// against whatever `inner` resolved to directly.
     pub fn searchFiltered(
         self: *ObsidianStore,
         gpa: Allocator,
@@ -146,7 +162,7 @@ pub const ObsidianStore = struct {
         query: []const u8,
         path_filter: ?std.json.Value,
     ) anyerror![]const Store.Hit {
-        return self.disk.searchFiltered(gpa, io, query, path_filter);
+        return self.inner_search_filtered.searchFiltered(gpa, io, query, path_filter);
     }
 
     /// `obsidian search:context query=... format=json`, vault-wide by
@@ -161,7 +177,7 @@ pub const ObsidianStore = struct {
         const query_arg = try std.fmt.allocPrint(gpa, "query={s}", .{query});
         defer gpa.free(query_arg);
 
-        var res = try runObsidian(gpa, io, self.disk.vault, &.{ "search:context", query_arg, "format=json" });
+        var res = try runObsidian(gpa, io, self.vault, &.{ "search:context", query_arg, "format=json" });
         defer res.deinit(gpa);
         if (!res.ok()) return error.VaultUnreachable;
 
@@ -188,10 +204,10 @@ pub const ObsidianStore = struct {
         // real filename starts with a leading slash, so a whole-vault store
         // (the one `vault-search-text` opens) would silently filter out
         // every result.
-        const prefix: ?[]u8 = if (self.disk.namespace.len == 0)
+        const prefix: ?[]u8 = if (self.namespace.len == 0)
             null
         else
-            try std.fmt.allocPrint(gpa, "{s}/", .{self.disk.namespace});
+            try std.fmt.allocPrint(gpa, "{s}/", .{self.namespace});
         defer if (prefix) |p| gpa.free(p);
 
         for (results.items) |item| {
@@ -252,6 +268,12 @@ pub const ObsidianLinkGraph = struct {
     /// are vault-wide by construction (the CLI has no scoping flag for any
     /// of them) and ignore this field entirely.
     namespace: []const u8,
+    /// What every method here falls back to on `error.VaultUnreachable` --
+    /// an explicit dependency, never hardcoded to `DiskLinkGraph`: under
+    /// `git,obsidian`, this is still just disk (nothing sits between
+    /// Obsidian and disk in that chain), but the fallback must ask for
+    /// whatever it was actually handed, not assume disk specifically.
+    inner: LinkGraph,
 
     pub fn linkGraph(self: *ObsidianLinkGraph) LinkGraph {
         return LinkGraph.from(ObsidianLinkGraph, self);
@@ -276,17 +298,16 @@ pub const ObsidianLinkGraph = struct {
         return path[self.namespace.len + 1 ..];
     }
 
-    /// Falls back to `DiskLinkGraph` on `error.VaultUnreachable`, same as
+    /// Falls back to `inner` on `error.VaultUnreachable`, same as
     /// `ObsidianStore.search`. The fallback assumes vault-wide addressing
     /// (an empty `self.namespace`) since that's the only way `linkGraph()`
-    /// is reached today (`vault_cmd.zig`'s CLI surface); `DiskLinkGraph`
-    /// itself has no namespace concept to translate a scoped `node` through.
+    /// is reached today (`vault_cmd.zig`'s CLI surface); a plain `LinkGraph`
+    /// has no namespace concept to translate a scoped `node` through.
     pub fn backlinks(self: *ObsidianLinkGraph, gpa: Allocator, io: Io, node: []const u8) anyerror![]const LinkGraph.Backlink {
         return backlinksViaCli(self, gpa, io, node) catch |err| {
             if (err != error.VaultUnreachable) return err;
             warnFallback("backlinks");
-            var fallback: disk_store.DiskLinkGraph = .{ .vault = self.vault };
-            return fallback.backlinks(gpa, io, node);
+            return self.inner.backlinks(gpa, io, node);
         };
     }
 
@@ -334,13 +355,12 @@ pub const ObsidianLinkGraph = struct {
         return out.toOwnedSlice(gpa);
     }
 
-    /// Falls back to `DiskLinkGraph`, same as `backlinks`.
+    /// Falls back to `inner`, same as `backlinks`.
     pub fn links(self: *ObsidianLinkGraph, gpa: Allocator, io: Io, node: []const u8) anyerror![]const []const u8 {
         return linksViaCli(self, gpa, io, node) catch |err| {
             if (err != error.VaultUnreachable) return err;
             warnFallback("links");
-            var fallback: disk_store.DiskLinkGraph = .{ .vault = self.vault };
-            return fallback.links(gpa, io, node);
+            return self.inner.links(gpa, io, node);
         };
     }
 
@@ -371,13 +391,12 @@ pub const ObsidianLinkGraph = struct {
         return out.toOwnedSlice(gpa);
     }
 
-    /// Falls back to `DiskLinkGraph`, same as `backlinks`.
+    /// Falls back to `inner`, same as `backlinks`.
     pub fn unresolved(self: *ObsidianLinkGraph, gpa: Allocator, io: Io) anyerror![]const LinkGraph.Unresolved {
         return unresolvedViaCli(self, gpa, io) catch |err| {
             if (err != error.VaultUnreachable) return err;
             warnFallback("unresolved");
-            var fallback: disk_store.DiskLinkGraph = .{ .vault = self.vault };
-            return fallback.unresolved(gpa, io);
+            return self.inner.unresolved(gpa, io);
         };
     }
 
@@ -441,13 +460,12 @@ pub const ObsidianLinkGraph = struct {
         return out.toOwnedSlice(gpa);
     }
 
-    /// Falls back to `DiskLinkGraph`, same as `backlinks`.
+    /// Falls back to `inner`, same as `backlinks`.
     pub fn orphans(self: *ObsidianLinkGraph, gpa: Allocator, io: Io) anyerror![]const []const u8 {
         return orphansViaCli(self, gpa, io) catch |err| {
             if (err != error.VaultUnreachable) return err;
             warnFallback("orphans");
-            var fallback: disk_store.DiskLinkGraph = .{ .vault = self.vault };
-            return fallback.orphans(gpa, io);
+            return self.inner.orphans(gpa, io);
         };
     }
 
@@ -463,13 +481,12 @@ pub const ObsidianLinkGraph = struct {
         return linesUnscoped(gpa, res.stdout);
     }
 
-    /// Falls back to `DiskLinkGraph`, same as `backlinks`.
+    /// Falls back to `inner`, same as `backlinks`.
     pub fn deadends(self: *ObsidianLinkGraph, gpa: Allocator, io: Io) anyerror![]const []const u8 {
         return deadendsViaCli(self, gpa, io) catch |err| {
             if (err != error.VaultUnreachable) return err;
             warnFallback("deadends");
-            var fallback: disk_store.DiskLinkGraph = .{ .vault = self.vault };
-            return fallback.deadends(gpa, io);
+            return self.inner.deadends(gpa, io);
         };
     }
 
@@ -481,23 +498,28 @@ pub const ObsidianLinkGraph = struct {
         return linesUnscoped(gpa, res.stdout);
     }
 
-    /// Always delegates to `DiskLinkGraph`, reachable or not -- unlike
+    /// Always delegates to `inner`, reachable or not -- unlike
     /// `search`/`backlinks`/etc., this isn't a live-CLI capability that
     /// degrades on failure, it's one the CLI never had in the first place
     /// (Obsidian's own graph view silently picks a candidate rather than
-    /// reporting the ambiguity). `DiskLinkGraph` reads the exact same files
-    /// on disk this vault already is, so there's no reason to withhold a
-    /// working answer just because Obsidian happens to be reachable too.
+    /// reporting the ambiguity). Whatever `inner` resolved to reads the
+    /// exact same files on disk this vault already is, so there's no reason
+    /// to withhold a working answer just because Obsidian happens to be
+    /// reachable too.
     pub fn ambiguous(self: *ObsidianLinkGraph, gpa: Allocator, io: Io) anyerror![]const LinkGraph.Ambiguous {
-        var fallback: disk_store.DiskLinkGraph = .{ .vault = self.vault };
-        return fallback.ambiguous(gpa, io);
+        return self.inner.ambiguous(gpa, io);
     }
 };
 
 /// `Renamer` backed by the `obsidian` CLI, falling back to `DiskRenamer` on
-/// `error.VaultUnreachable` -- same shape as `ObsidianLinkGraph`.
+/// `error.VaultUnreachable` -- same shape as `ObsidianLinkGraph`, and the
+/// same reason its fallback is an explicit `inner` dependency rather than a
+/// hardcoded `DiskRenamer`: under `git,obsidian`, this store is `git`'s own
+/// inner, so its fallback still has to be whatever `git,obsidian`'s own
+/// compose step actually resolved for the layer beneath Obsidian.
 pub const ObsidianRenamer = struct {
     vault: []const u8,
+    inner: Renamer,
 
     pub fn renamer(self: *ObsidianRenamer) Renamer {
         return Renamer.from(ObsidianRenamer, self);
@@ -507,8 +529,7 @@ pub const ObsidianRenamer = struct {
         return renameViaCli(self, gpa, io, old_path, new_path) catch |err| {
             if (err != error.VaultUnreachable) return err;
             warnFallback("rename");
-            var fallback: disk_store.DiskRenamer = .{ .vault = self.vault };
-            return fallback.rename(gpa, io, old_path, new_path);
+            return self.inner.rename(gpa, io, old_path, new_path);
         };
     }
 
@@ -625,6 +646,27 @@ fn parseCount(v: std.json.Value) usize {
 
 const testing = std.testing;
 
+/// An `ObsidianStore` composing a plain `DiskStore`, the shape every test
+/// below needs -- `disk` is heap-allocated so its address stays stable
+/// regardless of how this returned struct itself gets copied around, same
+/// reasoning `git/store.zig`'s own `initGitStore` test helper documents.
+const TestFixture = struct {
+    disk: *disk_store.DiskStore,
+    obs: ObsidianStore,
+
+    fn deinit(self: *TestFixture) void {
+        self.disk.deinit();
+        testing.allocator.destroy(self.disk);
+    }
+};
+
+fn initObsidianStore(gpa: Allocator, vault: []const u8, namespace: []const u8) !TestFixture {
+    const disk = try gpa.create(disk_store.DiskStore);
+    disk.* = try disk_store.DiskStore.init(gpa, vault, namespace);
+    const obs = ObsidianStore.init(vault, namespace, disk.store(), disk.linkGraph(), disk.renamer(), ports.SearchFiltered.from(disk_store.DiskStore, disk));
+    return .{ .disk = disk, .obs = obs };
+}
+
 test "relativeToOldDir: same directory reduces to a bare basename" {
     const gpa = testing.allocator;
     const out = try relativeToOldDir(gpa, "designs", "designs/Bar.md");
@@ -715,10 +757,10 @@ test "ObsidianStore.store() and .linkGraph() compile, and read/write/list/search
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var os_store = try ObsidianStore.init(gpa, vault, "synapse/repo@main");
-    defer os_store.deinit();
-    var store = os_store.store();
-    _ = os_store.linkGraph();
+    var fx = try initObsidianStore(gpa, vault, "synapse/repo@main");
+    defer fx.deinit();
+    var store = fx.obs.store();
+    _ = fx.obs.linkGraph();
 
     const wr = try store.write(io, "Foo.md", "---\ntitle: Foo\n---\nbody\n");
     try testing.expect(wr.accepted);
@@ -779,9 +821,9 @@ test "search: an empty namespace addresses hits by their full vault-relative pat
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var os_store = try ObsidianStore.init(gpa, vault, "");
-    defer os_store.deinit();
-    var store = os_store.store();
+    var fx = try initObsidianStore(gpa, vault, "");
+    defer fx.deinit();
+    var store = fx.obs.store();
 
     // An empty namespace means no prefix filtering at all, not a bare "/"
     // prefix -- no real filename starts with one, so every result would
@@ -833,9 +875,9 @@ test "linkGraph: backlinks/links/unresolved/orphans/deadends round-trip through 
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var os_store = try ObsidianStore.init(gpa, vault, "synapse/repo@main");
-    defer os_store.deinit();
-    var lg = os_store.linkGraph();
+    var fx = try initObsidianStore(gpa, vault, "synapse/repo@main");
+    defer fx.deinit();
+    var lg = fx.obs.linkGraph();
 
     const bl = try lg.backlinks(gpa, io, "Foo.md");
     defer {
@@ -920,9 +962,9 @@ test "linkGraph.ambiguous always reads real files on disk, even though the fake 
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var os_store = try ObsidianStore.init(gpa, vault, "");
-    defer os_store.deinit();
-    var lg = os_store.linkGraph();
+    var fx = try initObsidianStore(gpa, vault, "");
+    defer fx.deinit();
+    var lg = fx.obs.linkGraph();
 
     const amb = try lg.ambiguous(gpa, io);
     defer {
@@ -965,9 +1007,9 @@ test "renamer.rename sends path=/name= to the CLI when Obsidian is reachable" {
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var os_store = try ObsidianStore.init(gpa, vault, "");
-    defer os_store.deinit();
-    const rn = os_store.renamer();
+    var fx = try initObsidianStore(gpa, vault, "");
+    defer fx.deinit();
+    const rn = fx.obs.renamer();
     try rn.rename(gpa, io, "Old.md", "New.md");
 
     const log_content = try tmp.dir.readFileAlloc(testing.io, "obsidian.log", gpa, .unlimited);
@@ -1000,9 +1042,9 @@ test "renamer.rename sends a ..-relative name= for a cross-directory move" {
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var os_store = try ObsidianStore.init(gpa, vault, "");
-    defer os_store.deinit();
-    const rn = os_store.renamer();
+    var fx = try initObsidianStore(gpa, vault, "");
+    defer fx.deinit();
+    const rn = fx.obs.renamer();
     try rn.rename(gpa, io, "designs/Old.md", "research/New.md");
 
     const log_content = try tmp.dir.readFileAlloc(testing.io, "obsidian.log", gpa, .unlimited);
@@ -1039,12 +1081,12 @@ test "renamer.rename falls back to DiskRenamer, rewriting referrers, when Obsidi
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var os_store = try ObsidianStore.init(gpa, vault, "");
-    defer os_store.deinit();
-    const rn = os_store.renamer();
+    var fx = try initObsidianStore(gpa, vault, "");
+    defer fx.deinit();
+    const rn = fx.obs.renamer();
     try rn.rename(gpa, io, "Old.md", "New.md");
 
-    var store = os_store.store();
+    var store = fx.obs.store();
     try testing.expectEqual(@as(?[]u8, null), try store.read(gpa, io, "Old.md"));
     const new_body = (try store.read(gpa, io, "New.md")).?;
     defer gpa.free(new_body);
@@ -1089,9 +1131,9 @@ test "a call is scoped with vault= when `obsidian vaults verbose` lists a matchi
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var os_store = try ObsidianStore.init(gpa, vault, "synapse/repo@main");
-    defer os_store.deinit();
-    var store = os_store.store();
+    var fx = try initObsidianStore(gpa, vault, "synapse/repo@main");
+    defer fx.deinit();
+    var store = fx.obs.store();
 
     const hits = try store.search(gpa, io, "body");
     defer {
@@ -1122,10 +1164,10 @@ test "a node with a .. segment or a leading / is rejected before any request is 
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var os_store = try ObsidianStore.init(gpa, "/dev/null", "synapse/repo@main");
-    defer os_store.deinit();
-    var store = os_store.store();
-    var lg = os_store.linkGraph();
+    var fx = try initObsidianStore(gpa, "/dev/null", "synapse/repo@main");
+    defer fx.deinit();
+    var store = fx.obs.store();
+    var lg = fx.obs.linkGraph();
 
     // No fake-obsidian fixture needed for read/write: `DiskStore.nodePath`'s
     // guard fires first, before any I/O at all. `linkGraph`'s guard fires
@@ -1159,9 +1201,9 @@ test "list recurses into subdirectories, prefixing names, and skips dot-prefixed
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var os_store = try ObsidianStore.init(gpa, vault, "designs");
-    defer os_store.deinit();
-    var store = os_store.store();
+    var fx = try initObsidianStore(gpa, vault, "designs");
+    defer fx.deinit();
+    var store = fx.obs.store();
 
     const names = try store.list(gpa, io);
     defer {
@@ -1198,9 +1240,9 @@ test "an empty namespace addresses a node by its full vault-relative path, unpre
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var os_store = try ObsidianStore.init(gpa, vault, "");
-    defer os_store.deinit();
-    var store = os_store.store();
+    var fx = try initObsidianStore(gpa, vault, "");
+    defer fx.deinit();
+    var store = fx.obs.store();
 
     const wr = try store.write(io, "tasks/synapse/sb-037 — Task.md", "---\ntitle: Task\n---\nbody\n");
     try testing.expect(wr.accepted);

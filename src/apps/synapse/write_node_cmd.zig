@@ -5,7 +5,7 @@
 //! Hashes every source, computes `sources_digest`, records the baseline
 //! `commit`, expands the crux directive, records and strips the groundings,
 //! builds the `## Sources` mirror, and writes the note through whichever
-//! `Store` `SYNAPSE_VAULT_STORE`/`SYNAPSE_VAULT_DIR` resolve to
+//! `Store` `SYNAPSE_VAULT_INTEGRATIONS`/`SYNAPSE_VAULT_DIR` resolve to
 //! (`adapters.store_resolve.resolveStore`) -- a plain disk write either
 //! way, `disk` (the default) or an extended store.
 //!
@@ -369,7 +369,7 @@ pub fn write(
     });
 
     // --- PUT into the vault --------------------------------------------------
-    var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, ctx.vault, ctx.dir, prog)) orelse return 1;
+    var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, ctx.vault, ctx.dir, prog, "")) orelse return 1;
     defer resolved.deinit();
     var store = resolved.store();
     const put_result = store.write(io, node_file, note.written()) catch |err| {

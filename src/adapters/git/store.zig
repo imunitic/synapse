@@ -45,8 +45,22 @@ fn pushEvery(gpa: Allocator, io: Io, vars: *std.process.Environ.Map) usize {
 }
 
 pub const GitStore = struct {
-    disk: DiskStore,
+    gpa: Allocator,
+    /// The vault's own filesystem path -- an explicit dependency, not
+    /// derived from `inner`: `inner` is a type-erased `Store` value with no
+    /// `.vault` field to read, and `GitStore`'s own git mechanics (`write`'s
+    /// commit, the Pusher) operate on this path directly via subprocesses,
+    /// never through `inner` at all.
+    vault: []const u8,
+    /// What `read`/`write`/`list`/`search` actually delegate to -- `DiskStore`
+    /// for a plain `git` chain, or another integration's own store for a
+    /// longer one (`git,obsidian` composes `ObsidianStore` here).
+    inner: Store,
+    /// Never overridden by `GitStore` -- committing has nothing to add to
+    /// the link graph, so this is exactly whatever `inner` resolved to.
+    inner_link_graph: LinkGraph,
     rename_impl: GitRenamer,
+    inner_search_filtered: ports.SearchFiltered,
     /// Set by `resolveStore` the same way `DiskStore.vars` already is --
     /// needed here only to read `SYNAPSE_VAULT_PUSH_EVERY`. `null` (the
     /// default for a caller with no environment, e.g. a test) disables the
@@ -59,27 +73,39 @@ pub const GitStore = struct {
     /// same graceful-no-op `stop_nudge.maybeSync` already has.
     self_path: []const u8 = "",
 
-    pub fn init(gpa: Allocator, vault: []const u8, namespace: []const u8) !GitStore {
-        const disk = try DiskStore.init(gpa, vault, namespace);
-        // Borrows `disk.vault`'s bytes -- same lifetime as `disk` itself,
-        // the same convention `ObsidianStore`'s own composed fields use.
-        return .{ .disk = disk, .rename_impl = .{ .vault = disk.vault } };
-    }
-
-    pub fn deinit(self: *GitStore) void {
-        self.disk.deinit();
+    /// Every dependency named explicitly -- `gpa`/`vault` for `GitStore`'s
+    /// own git mechanics, `inner`/`inner_link_graph`/`inner_renamer`/
+    /// `inner_search_filtered` for whatever it's composing. Never derives
+    /// any of these from `inner` itself: relying on the thing you wrap to
+    /// also hand you your own dependencies doesn't hold once `inner` is
+    /// generic rather than always a concrete `DiskStore`.
+    pub fn init(
+        gpa: Allocator,
+        vault: []const u8,
+        inner: Store,
+        inner_link_graph: LinkGraph,
+        inner_renamer: Renamer,
+        inner_search_filtered: ports.SearchFiltered,
+    ) GitStore {
+        return .{
+            .gpa = gpa,
+            .vault = vault,
+            .inner = inner,
+            .inner_link_graph = inner_link_graph,
+            .rename_impl = .{ .vault = vault, .inner = inner_renamer },
+            .inner_search_filtered = inner_search_filtered,
+        };
     }
 
     pub fn store(self: *GitStore) Store {
         return Store.from(GitStore, self);
     }
 
-    /// One-line delegation to the composed `DiskStore` -- nothing about
-    /// git changes this answer.
+    /// A pure passthrough -- see `inner_link_graph`'s own doc comment.
     pub fn linkGraph(self: *GitStore) LinkGraph {
-        return self.disk.linkGraph();
+        return self.inner_link_graph;
     }
-    /// Not a delegation: `renamer` mutates the vault, same as `write`, so
+    /// Not a passthrough: `renamer` mutates the vault, same as `write`, so
     /// it needs its own commit -- see `GitRenamer` below.
     pub fn renamer(self: *GitStore) Renamer {
         return self.rename_impl.renamer();
@@ -91,33 +117,33 @@ pub const GitStore = struct {
         query: []const u8,
         path_filter: ?std.json.Value,
     ) anyerror![]const Store.Hit {
-        return self.disk.searchFiltered(gpa, io, query, path_filter);
+        return self.inner_search_filtered.searchFiltered(gpa, io, query, path_filter);
     }
 
     pub fn read(self: *GitStore, gpa: Allocator, io: Io, node: []const u8) anyerror!?[]u8 {
-        return self.disk.read(gpa, io, node);
+        return self.inner.read(gpa, io, node);
     }
 
     pub fn list(self: *GitStore, gpa: Allocator, io: Io) anyerror![]const []const u8 {
-        return self.disk.list(gpa, io);
+        return self.inner.list(gpa, io);
     }
 
     pub fn search(self: *GitStore, gpa: Allocator, io: Io, query: []const u8) anyerror![]const Store.Hit {
-        return self.disk.search(gpa, io, query);
+        return self.inner.search(gpa, io, query);
     }
 
-    /// Disk write first, unconditionally -- nothing here ever waits on git
-    /// or the network for the data itself to land. Then: ensure a repo
+    /// The inner write first, unconditionally -- nothing here ever waits on
+    /// git or the network for the data itself to land. Then: ensure a repo
     /// exists (init on first write), try the shared lock non-blocking, and
     /// either commit or skip -- see `git_sync.zig` and the design note for
     /// why a skip is always safe. A successful commit checks the push
     /// threshold and spawns a detached Pusher once it's crossed.
     pub fn write(self: *GitStore, io: Io, node: []const u8, body: []const u8) anyerror!Store.WriteResult {
-        const result = try self.disk.write(io, node, body);
+        const result = try self.inner.write(io, node, body);
         if (!result.accepted) return result;
 
-        const gpa = self.disk.gpa;
-        const vault = self.disk.vault;
+        const gpa = self.gpa;
+        const vault = self.vault;
 
         git_sync.ensureRepo(gpa, io, vault) catch return result;
 
@@ -171,23 +197,25 @@ pub fn runPusher(gpa: Allocator, io: Io, vault: []const u8) void {
     git_sync.pushIfAhead(gpa, io, vault) catch {};
 }
 
-/// Wraps `DiskRenamer` for the actual rewrite/move mechanics (unchanged --
-/// this reuses that logic rather than reimplementing it, `ObsidianRenamer`'s
-/// own fallback shape), then commits under the same lock-or-skip discipline
-/// `write()` uses. No push-threshold check here -- a rename that lands
-/// between two `write()` calls still gets pushed once either side's own
-/// commit count crosses the threshold; nothing is lost, just not pushed by
-/// this call specifically.
+/// Delegates the actual rewrite/move mechanics to whatever `inner` resolved
+/// to -- `DiskRenamer` for a plain `git` chain, `ObsidianRenamer` for
+/// `git,obsidian` -- an explicit dependency, never hardcoded: a rename under
+/// `git,obsidian` has to go through Obsidian's own rename mechanism, not
+/// silently bypass it with a raw file move underneath. Then commits under
+/// the same lock-or-skip discipline `write()` uses. No push-threshold check
+/// here -- a rename that lands between two `write()` calls still gets
+/// pushed once either side's own commit count crosses the threshold;
+/// nothing is lost, just not pushed by this call specifically.
 pub const GitRenamer = struct {
     vault: []const u8,
+    inner: Renamer,
 
     pub fn renamer(self: *GitRenamer) Renamer {
         return Renamer.from(GitRenamer, self);
     }
 
     pub fn rename(self: *GitRenamer, gpa: Allocator, io: Io, old_path: []const u8, new_path: []const u8) anyerror!void {
-        var inner: disk_store.DiskRenamer = .{ .vault = self.vault };
-        try inner.rename(gpa, io, old_path, new_path);
+        try self.inner.rename(gpa, io, old_path, new_path);
 
         git_sync.ensureRepo(gpa, io, self.vault) catch return;
         const lock = git_sync.tryAcquire(gpa, io, self.vault) catch return;
@@ -219,6 +247,29 @@ fn commitCount(gpa: Allocator, vault: []const u8) !usize {
     return std.fmt.parseInt(usize, std.mem.trim(u8, res.stdout, " \t\r\n"), 10) catch 0;
 }
 
+/// A `GitStore` composing a plain `DiskStore`, the shape every test below
+/// needs -- `disk` is heap-allocated so its address stays stable regardless
+/// of how this returned struct itself gets copied around (the same reason
+/// `resolveStore` heap-allocates every layer: a `Store` value embeds a
+/// pointer to the concrete instance beneath it, which has to outlive
+/// whatever moved).
+const TestFixture = struct {
+    disk: *DiskStore,
+    git: GitStore,
+
+    fn deinit(self: *TestFixture) void {
+        self.disk.deinit();
+        testing.allocator.destroy(self.disk);
+    }
+};
+
+fn initGitStore(gpa: Allocator, vault: []const u8, namespace: []const u8) !TestFixture {
+    const disk = try gpa.create(DiskStore);
+    disk.* = try DiskStore.init(gpa, vault, namespace);
+    const git = GitStore.init(gpa, vault, disk.store(), disk.linkGraph(), disk.renamer(), ports.SearchFiltered.from(DiskStore, disk));
+    return .{ .disk = disk, .git = git };
+}
+
 test "write initializes a repo on first write and commits the change" {
     const gpa = testing.allocator;
     var tmp = testing.tmpDir(.{});
@@ -226,9 +277,9 @@ test "write initializes a repo on first write and commits the change" {
     var buf: [Io.Dir.max_path_bytes]u8 = undefined;
     const vault = buf[0..try tmp.dir.realPath(testing.io, &buf)];
 
-    var s = try GitStore.init(gpa, vault, "");
-    defer s.deinit();
-    var store = s.store();
+    var fx = try initGitStore(gpa, vault, "");
+    defer fx.deinit();
+    var store = fx.git.store();
 
     const wr = try store.write(testing.io, "a.md", "hello\n");
     try testing.expect(wr.accepted);
@@ -249,9 +300,9 @@ test "a second write against an already-initialized repo commits again, not twic
     var buf: [Io.Dir.max_path_bytes]u8 = undefined;
     const vault = buf[0..try tmp.dir.realPath(testing.io, &buf)];
 
-    var s = try GitStore.init(gpa, vault, "");
-    defer s.deinit();
-    var store = s.store();
+    var fx = try initGitStore(gpa, vault, "");
+    defer fx.deinit();
+    var store = fx.git.store();
 
     _ = try store.write(testing.io, "a.md", "one\n");
     _ = try store.write(testing.io, "b.md", "two\n");
@@ -266,9 +317,9 @@ test "a write that loses the lock race still lands on disk with no commit" {
     var buf: [Io.Dir.max_path_bytes]u8 = undefined;
     const vault = buf[0..try tmp.dir.realPath(testing.io, &buf)];
 
-    var s = try GitStore.init(gpa, vault, "");
-    defer s.deinit();
-    var store = s.store();
+    var fx = try initGitStore(gpa, vault, "");
+    defer fx.deinit();
+    var store = fx.git.store();
 
     // First write establishes the repo so the lock path exists.
     _ = try store.write(testing.io, "a.md", "one\n");
@@ -289,16 +340,16 @@ test "a write that loses the lock race still lands on disk with no commit" {
     try testing.expectEqual(@as(usize, 2), try commitCount(gpa, vault));
 }
 
-test "linkGraph and searchFiltered delegate straight to the composed DiskStore" {
+test "linkGraph and searchFiltered pass straight through to the resolved inner" {
     const gpa = testing.allocator;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
     var buf: [Io.Dir.max_path_bytes]u8 = undefined;
     const vault = buf[0..try tmp.dir.realPath(testing.io, &buf)];
 
-    var s = try GitStore.init(gpa, vault, "");
-    defer s.deinit();
-    var store = s.store();
+    var fx = try initGitStore(gpa, vault, "");
+    defer fx.deinit();
+    var store = fx.git.store();
     _ = try store.write(testing.io, "designs/x.md", "widget prose\n");
     _ = try store.write(testing.io, "tasks/y.md", "widget prose too\n");
 
@@ -306,7 +357,7 @@ test "linkGraph and searchFiltered delegate straight to the composed DiskStore" 
         \\{"glob": ["designs/*", {"var": "path"}]}
     , .{});
     defer filter.deinit();
-    const hits = try s.searchFiltered(gpa, testing.io, "widget", filter.value);
+    const hits = try fx.git.searchFiltered(gpa, testing.io, "widget", filter.value);
     defer {
         for (hits) |h| {
             gpa.free(h.node);
@@ -317,7 +368,7 @@ test "linkGraph and searchFiltered delegate straight to the composed DiskStore" 
     try testing.expectEqual(@as(usize, 1), hits.len);
     try testing.expectEqualStrings("designs/x.md", hits[0].node);
 
-    _ = s.linkGraph();
+    _ = fx.git.linkGraph();
 }
 
 test "renamer moves the file and commits the result, unlike a pure delegation" {
@@ -327,16 +378,16 @@ test "renamer moves the file and commits the result, unlike a pure delegation" {
     var buf: [Io.Dir.max_path_bytes]u8 = undefined;
     const vault = buf[0..try tmp.dir.realPath(testing.io, &buf)];
 
-    var s = try GitStore.init(gpa, vault, "");
-    defer s.deinit();
-    var store = s.store();
+    var fx = try initGitStore(gpa, vault, "");
+    defer fx.deinit();
+    var store = fx.git.store();
     // No `title:`/self-link rewrite to check here -- `DiskRenamer` rewrites
     // `[[wikilink]]` occurrences, not arbitrary frontmatter fields, and
     // that behavior is already `DiskStore`'s own tests' job. This test is
     // only about whether the move commits, not re-proving the rewrite.
     _ = try store.write(testing.io, "Old Title.md", "body\n");
 
-    var renamer = s.renamer();
+    var renamer = fx.git.renamer();
     try renamer.rename(gpa, testing.io, "Old Title.md", "New Title.md");
 
     const moved = (try store.read(gpa, testing.io, "New Title.md")).?;
@@ -370,9 +421,9 @@ test "runPusher pushes what's ahead and commits anything a concurrent write skip
     defer gpa.free(vault);
     try Io.Dir.cwd().createDirPath(testing.io, vault);
 
-    var s = try GitStore.init(gpa, vault, "");
-    defer s.deinit();
-    var store = s.store();
+    var fx = try initGitStore(gpa, vault, "");
+    defer fx.deinit();
+    var store = fx.git.store();
     _ = try store.write(testing.io, "a.md", "one\n");
 
     (try vaultGit(gpa, vault, &.{ "branch", "-M", "main" })).deinit(gpa);

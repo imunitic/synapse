@@ -15,8 +15,9 @@ moment that app isn't (`error.VaultUnreachable`). Nothing built on `ports.Store`
 
 ![An extended store decorates DiskStore: read/write/list stay plain disk I/O, search/link-graph/rename go to the live app when reachable and fall back to DiskStore otherwise](diagrams/synapse-extended-store.png)
 
-Enable one with `SYNAPSE_VAULT_STORE="<name>"` in `synapse.conf`; unset (or `"disk"`) keeps
-everything local.
+Enable one by adding its name to `SYNAPSE_VAULT_INTEGRATIONS` (a comma-separated, outer-to-inner
+list) in `synapse.conf`; unset keeps everything local. `disk` is never named in the value — it's
+always the implicit innermost element.
 
 ## Obsidian
 
@@ -33,7 +34,8 @@ The only extended store shipped today. Reaches a running Obsidian app through it
    - **Headless Mode** — lets Obsidian run as a background daemon with no visible window; enable
      "Start headless" in its settings.
    - **Iconic** — folder/file icons.
-3. Set `SYNAPSE_VAULT_STORE="obsidian"` in `synapse.conf`.
+3. Set `SYNAPSE_VAULT_INTEGRATIONS="obsidian"` in `synapse.conf` — or `"git,obsidian"` to also
+   have the vault own its own git lifecycle (see [synapse-vault.md](synapse-vault.md)).
 4. (Recommended) Set Obsidian to start automatically at login, so it is always running:
    - **macOS**:
      ```sh
@@ -61,7 +63,9 @@ needed" under `disk`, never a false failure.
 
 ## Future extended stores
 
-Notion, a git-log-aware store, or anything else with its own live search/graph/rename worth
-preferring over `DiskStore`'s would document its setup in its own section here, following the same
-contract: `read`/`write`/`list` unchanged, `search`/link-graph/rename opportunistic with an automatic
-fallback to `DiskStore`, enabled via `SYNAPSE_VAULT_STORE`.
+Notion, or anything else with its own live search/graph/rename worth preferring over `DiskStore`'s,
+would document its setup in its own section here, following the same contract: `read`/`write`/`list`
+unchanged, `search`/link-graph/rename opportunistic with an automatic fallback to whatever it wraps,
+enabled by adding its name to `SYNAPSE_VAULT_INTEGRATIONS`. It would be another decorator over the
+one real store, the same shape `git`/`obsidian` already are, not a new kind of peer backend — see
+[synapse-vault.md](synapse-vault.md) for `git`'s own version-control integration.

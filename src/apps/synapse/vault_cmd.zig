@@ -101,14 +101,14 @@ fn readStdin(gpa: Allocator, io: Io) ![]u8 {
     };
 }
 
-fn openWholeVaultStore(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8) !?adapters.store_resolve.ResolvedStore {
-    return try adapters.store_resolve.resolveStore(gpa, io, env, vault, "", prog);
+fn openWholeVaultStore(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, self_path: []const u8) !?adapters.store_resolve.ResolvedStore {
+    return try adapters.store_resolve.resolveStore(gpa, io, env, vault, "", prog, self_path);
 }
 
 // --- Testable core, one function per subcommand -----------------------
 
 pub fn read(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, path: []const u8, result: *Io.Writer) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
     defer resolved.deinit();
     const store = resolved.store();
 
@@ -134,9 +134,8 @@ pub fn write(
     self_path: []const u8,
     result: *Io.Writer,
 ) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault, self_path)) orelse return 1;
     defer resolved.deinit();
-    resolved.setSelfPath(self_path);
     const store = resolved.store();
 
     const wr = store.write(io, path, body) catch {
@@ -153,7 +152,7 @@ pub fn write(
 }
 
 pub fn list(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, result: *Io.Writer) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
     defer resolved.deinit();
     const store = resolved.store();
 
@@ -183,7 +182,7 @@ pub fn searchText(
     path_filter: ?std.json.Value,
     result: *Io.Writer,
 ) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
     defer resolved.deinit();
 
     const hits = resolved.searchFiltered(gpa, io, query, path_filter) catch {
@@ -212,7 +211,7 @@ pub fn docMap(
     path: []const u8,
     result: *Io.Writer,
 ) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
     defer resolved.deinit();
     const store = resolved.store();
 
@@ -250,25 +249,19 @@ pub fn docMap(
 /// own `resolved` and asks it for a `LinkGraph` in the same breath, so the
 /// address `.ptr` captures is the address `resolved` keeps for the rest of
 /// the function.
-fn openLinkGraph(resolved: *adapters.store_resolve.ResolvedStore) ?ports.LinkGraph {
-    return resolved.linkGraph() orelse {
-        std.debug.print("{s}: this vault backend has no link graph (SYNAPSE_VAULT_STORE)\n", .{prog});
-        return null;
-    };
+fn openLinkGraph(resolved: *adapters.store_resolve.ResolvedStore) ports.LinkGraph {
+    return resolved.linkGraph();
 }
 
 /// Same reasoning as `openLinkGraph`, for `Renamer`.
-fn openRenamer(resolved: *adapters.store_resolve.ResolvedStore) ?ports.Renamer {
-    return resolved.renamer() orelse {
-        std.debug.print("{s}: this vault backend has no renamer (SYNAPSE_VAULT_STORE)\n", .{prog});
-        return null;
-    };
+fn openRenamer(resolved: *adapters.store_resolve.ResolvedStore) ports.Renamer {
+    return resolved.renamer();
 }
 
 pub fn backlinks(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, path: []const u8, result: *Io.Writer) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
     defer resolved.deinit();
-    const link_graph = openLinkGraph(&resolved) orelse return 1;
+    const link_graph = openLinkGraph(&resolved);
 
     const hits = link_graph.backlinks(gpa, io, path) catch {
         std.debug.print("{s}: backlinks failed\n", .{prog});
@@ -283,9 +276,9 @@ pub fn backlinks(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: [
 }
 
 pub fn links(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, path: []const u8, result: *Io.Writer) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
     defer resolved.deinit();
-    const link_graph = openLinkGraph(&resolved) orelse return 1;
+    const link_graph = openLinkGraph(&resolved);
 
     const names = link_graph.links(gpa, io, path) catch {
         std.debug.print("{s}: links failed\n", .{prog});
@@ -303,9 +296,9 @@ pub fn links(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []con
 /// `/synapse-vault-tidy`'s own "Broken link in `{note}`: → `{target}`"
 /// finding needs, `sources` iterated rather than joined onto one row.
 pub fn unresolved(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, result: *Io.Writer) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
     defer resolved.deinit();
-    const link_graph = openLinkGraph(&resolved) orelse return 1;
+    const link_graph = openLinkGraph(&resolved);
 
     const rows = link_graph.unresolved(gpa, io) catch {
         std.debug.print("{s}: unresolved failed\n", .{prog});
@@ -326,9 +319,9 @@ pub fn unresolved(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: 
 }
 
 pub fn orphans(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, result: *Io.Writer) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
     defer resolved.deinit();
-    const link_graph = openLinkGraph(&resolved) orelse return 1;
+    const link_graph = openLinkGraph(&resolved);
 
     const names = link_graph.orphans(gpa, io) catch {
         std.debug.print("{s}: orphans failed\n", .{prog});
@@ -343,9 +336,9 @@ pub fn orphans(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []c
 }
 
 pub fn deadends(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, result: *Io.Writer) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
     defer resolved.deinit();
-    const link_graph = openLinkGraph(&resolved) orelse return 1;
+    const link_graph = openLinkGraph(&resolved);
 
     const names = link_graph.deadends(gpa, io) catch {
         std.debug.print("{s}: deadends failed\n", .{prog});
@@ -363,9 +356,9 @@ pub fn deadends(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []
 /// occurrences of `target` across the vault) repeats per source, same
 /// convention `unresolved`'s own rows already use.
 pub fn ambiguous(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, result: *Io.Writer) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
     defer resolved.deinit();
-    const link_graph = openLinkGraph(&resolved) orelse return 1;
+    const link_graph = openLinkGraph(&resolved);
 
     const rows = link_graph.ambiguous(gpa, io) catch {
         std.debug.print("{s}: ambiguous failed\n", .{prog});
@@ -400,9 +393,9 @@ pub fn rename(
     new_path: []const u8,
     result: *Io.Writer,
 ) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
     defer resolved.deinit();
-    const renamer = openRenamer(&resolved) orelse return 1;
+    const renamer = openRenamer(&resolved);
 
     renamer.rename(gpa, io, old_path, new_path) catch |err| {
         if (err == error.NodeNotFound) {
@@ -425,7 +418,7 @@ pub fn search(
     fields: []const []const u8,
     result: *Io.Writer,
 ) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
     defer resolved.deinit();
     const store = resolved.store();
 
@@ -473,9 +466,8 @@ pub fn patch(
     self_path: []const u8,
     result: *Io.Writer,
 ) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault)) orelse return 1;
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault, self_path)) orelse return 1;
     defer resolved.deinit();
-    resolved.setSelfPath(self_path);
     const store = resolved.store();
 
     const current = (store.read(gpa, io, path) catch {
@@ -871,11 +863,11 @@ test "write then read round-trips a note's full body" {
     try testing.expectEqualStrings("---\ntitle: New\n---\nbody\n", written);
 }
 
-test "write against SYNAPSE_VAULT_STORE=git initializes a repo and commits, end to end through the CLI function" {
+test "write against SYNAPSE_VAULT_INTEGRATIONS=git initializes a repo and commits, end to end through the CLI function" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
-    try fx.env.put("SYNAPSE_VAULT_STORE", "git");
+    try fx.env.put("SYNAPSE_VAULT_INTEGRATIONS", "git");
 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
@@ -972,7 +964,7 @@ test "ambiguous reports a wikilink matching two real files, one row per (source,
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
-    try fx.env.put("SYNAPSE_VAULT_STORE", "disk");
+    _ = fx.env.swapRemove("SYNAPSE_VAULT_INTEGRATIONS"); // disk is implicit, never named
     try fx.writeVaultFile("source.md", "[[Duplicate]]\n");
     try fx.writeVaultFile("designs/Duplicate.md", "one\n");
     try fx.writeVaultFile("research/Duplicate.md", "two\n");
@@ -989,7 +981,7 @@ test "ambiguous is empty when every wikilink resolves cleanly" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
-    try fx.env.put("SYNAPSE_VAULT_STORE", "disk");
+    _ = fx.env.swapRemove("SYNAPSE_VAULT_INTEGRATIONS"); // disk is implicit, never named
     try fx.writeVaultFile("source.md", "[[Target]]\n");
     try fx.writeVaultFile("Target.md", "body\n");
 
@@ -1004,7 +996,7 @@ test "rename moves a note and rewrites its referrers" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
-    try fx.env.put("SYNAPSE_VAULT_STORE", "disk");
+    _ = fx.env.swapRemove("SYNAPSE_VAULT_INTEGRATIONS"); // disk is implicit, never named
     try fx.writeVaultFile("Old.md", "body\n");
     try fx.writeVaultFile("A.md", "see [[Old]]\n");
 
@@ -1027,7 +1019,7 @@ test "rename on a missing note fails clearly" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
-    try fx.env.put("SYNAPSE_VAULT_STORE", "disk");
+    _ = fx.env.swapRemove("SYNAPSE_VAULT_INTEGRATIONS"); // disk is implicit, never named
 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();

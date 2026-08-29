@@ -90,7 +90,7 @@ verification that cannot fail in the direction you are worried about is not a ve
 
 ## If you do destroy something
 
-On a `SYNAPSE_VAULT_STORE=git` vault, every edit commits automatically, so the intact version is one
+On a `SYNAPSE_VAULT_INTEGRATIONS=git` vault, every edit commits automatically, so the intact version is one
 `git show <sha>:<path>` away in the vault's own git history -- a vault-wide undo for destructive tool
 calls, not merely a record of intentional edits. The default `disk` backend keeps no history at all,
 so this safety net only exists once that backend is chosen.

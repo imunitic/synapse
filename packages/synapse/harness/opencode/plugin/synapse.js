@@ -20,7 +20,7 @@
 // `args.oldString`, `args.newString`) -- both share `filePath`, matching
 // Claude Code's `Write`/`Edit` sharing `tool_input.file_path`. Fired on
 // write/edit tools for `staleness` -- the vault's own version control
-// (`SYNAPSE_VAULT_STORE=git`) commits from inside `synapse`'s own CLI
+// (`SYNAPSE_VAULT_INTEGRATIONS=git`) commits from inside `synapse`'s own CLI
 // (`vault-write`/`vault-patch`) itself now, needing no `PostToolUse`-style
 // hook here or on any other harness.
 //

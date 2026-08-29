@@ -4,7 +4,7 @@
 //!   graph-wipe  [--dry-run]   remove this namespace, preserving hand-written Notes
 //!
 //! One file: both `rm -rf` a directory inside a permanent vault -- on a
-//! `SYNAPSE_VAULT_STORE=git` vault, recoverable from its own git history
+//! `SYNAPSE_VAULT_INTEGRATIONS=git` vault, recoverable from its own git history
 //! (`GitStore` commits every edit), but not harmless regardless of backend,
 //! so both only remove a path inside `{vault}/synapse/` whose name was just
 //! matched.

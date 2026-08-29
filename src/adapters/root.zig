@@ -23,16 +23,16 @@ pub const git_sync = @import("git_sync.zig");
 pub const obsidian = @import("obsidian/store.zig");
 
 /// Plain markdown files directly on disk behind the Store port -- no
-/// network dependency at all. `SYNAPSE_VAULT_STORE=disk`'s backend, and
+/// network dependency at all. `SYNAPSE_VAULT_INTEGRATIONS=disk`'s backend, and
 /// what an extended store's own `read`/`write`/`list` decorate.
 pub const disk_store = @import("disk/store.zig");
 
 /// A `DiskStore` decorator owning the vault's own git lifecycle --
-/// `SYNAPSE_VAULT_STORE=git`'s backend.
+/// `SYNAPSE_VAULT_INTEGRATIONS=git`'s backend.
 pub const git_store = @import("git/store.zig");
 
 /// Picks and constructs the `Store` a caller should use, from
-/// `SYNAPSE_VAULT_STORE`/`SYNAPSE_VAULT_DIR` -- shared by every CLI
+/// `SYNAPSE_VAULT_INTEGRATIONS`/`SYNAPSE_VAULT_DIR` -- shared by every CLI
 /// subcommand and hook that needs a `Store`, so a backend swap changes only
 /// this function.
 pub const store_resolve = @import("store_resolve.zig");

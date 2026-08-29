@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Tests GitStore's own detached Pusher spawn (SYNAPSE_VAULT_STORE=git) -- the
+# Tests GitStore's own detached Pusher spawn (SYNAPSE_VAULT_INTEGRATIONS=git) -- the
 # one thing that can't move to native coverage: src/adapters/git/store.zig's
 # own `test` blocks call `runPusher` directly, never through a real
 # self-respawn, so nothing there proves `vault-write` actually spawns
@@ -36,10 +36,10 @@ seed_vault_with_remote() {
   echo "$remote"
 }
 
-@test "vault-write under SYNAPSE_VAULT_STORE=git spawns a real Pusher that pushes to a local remote" {
+@test "vault-write under SYNAPSE_VAULT_INTEGRATIONS=git spawns a real Pusher that pushes to a local remote" {
   local remote; remote="$(seed_vault_with_remote)"
 
-  SYNAPSE_VAULT_STORE=git SYNAPSE_VAULT_PUSH_EVERY=1 run bash -c \
+  SYNAPSE_VAULT_INTEGRATIONS=git SYNAPSE_VAULT_PUSH_EVERY=1 run bash -c \
     'printf "more\n" | "$1" vault-write more.md' _ "$SYNAPSE_BIN"
   [ "$status" -eq 0 ]
 
@@ -55,10 +55,10 @@ seed_vault_with_remote() {
   [ "$got" = "vault: more.md" ]
 }
 
-@test "vault-write under SYNAPSE_VAULT_STORE=git commits but spawns no Pusher below the push-every threshold" {
+@test "vault-write under SYNAPSE_VAULT_INTEGRATIONS=git commits but spawns no Pusher below the push-every threshold" {
   local remote; remote="$(seed_vault_with_remote)"
 
-  SYNAPSE_VAULT_STORE=git SYNAPSE_VAULT_PUSH_EVERY=5 run bash -c \
+  SYNAPSE_VAULT_INTEGRATIONS=git SYNAPSE_VAULT_PUSH_EVERY=5 run bash -c \
     'printf "more\n" | "$1" vault-write more.md' _ "$SYNAPSE_BIN"
   [ "$status" -eq 0 ]
 

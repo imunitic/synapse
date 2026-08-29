@@ -21,16 +21,18 @@ The boxes name the vault-relevant hooks; what each one does is here rather than 
 
 ## The vault
 
-Plain markdown files with YAML frontmatter, read and written directly by `DiskStore` — the default
-backend behind `ports.Store` (`SYNAPSE_VAULT_STORE=disk`, or unset), no external dependency of any
+Plain markdown files with YAML frontmatter, read and written directly by `DiskStore` — the one real
+backend behind `ports.Store` (`SYNAPSE_VAULT_INTEGRATIONS` unset), no external dependency of any
 kind. Its `search` does real rarity-weighted ranking (word document-frequency measured against the
 vault, weighted by the same `distinctivenessScore` formula `/synapse-init` uses for cluster judging),
 its link graph (`vault-backlinks`/`vault-links`/`vault-unresolved`/`vault-orphans`/`vault-deadends`/
 `vault-ambiguous`) resolves wikilinks case-insensitively and logs an ambiguous match rather than
-guessing, and its rename (`vault-rename`) rewrites every referring wikilink. An optional **extended
-store** can hand `search`/link-graph/rename off to a running external app's own live capabilities
-instead, falling back to `DiskStore`'s implementation automatically whenever that app isn't reachable
-— see [synapse-extended-store.md](synapse-extended-store.md).
+guessing, and its rename (`vault-rename`) rewrites every referring wikilink. One or more optional
+**integrations** can each layer extra behavior on top -- `obsidian` hands `search`/link-graph/rename
+off to a running external app's own live capabilities, falling back to `DiskStore`'s implementation
+automatically whenever that app isn't reachable (see
+[synapse-extended-store.md](synapse-extended-store.md)); `git` owns the vault's own git lifecycle
+(below). Both can be configured together (`SYNAPSE_VAULT_INTEGRATIONS="git,obsidian"`).
 
 Hooks and the `synapse` CLI's `vault-*` subcommands (the door skills and commands use to reach the
 vault, instead of naming a tool directly) both go through `Store`/`LinkGraph`/`Renamer`, so none of
@@ -40,21 +42,22 @@ them cares which backend is actually configured.
 [synapse-config.md](synapse-config.md#where-a-conf-file-actually-lives)) holds the one piece of
 genuinely machine-local state: `SYNAPSE_VAULT_DIR`.
 
-### Version control (`SYNAPSE_VAULT_STORE=git`)
+### Version control (`SYNAPSE_VAULT_INTEGRATIONS=git`)
 
-A third backend, alongside `disk` and `obsidian`: `GitStore` composes `DiskStore` the same way an
-extended store does, and additionally owns the vault's own git lifecycle. Choosing it is the
-opt-in — a vault with no `.git` yet gets one initialized on its first write, and a vault with no
-remote configured just gets local-only versioned history.
+`git` is an integration like `obsidian` -- it composes whatever's beneath it in the configured chain
+(the disk store alone under plain `git`, or `ObsidianStore` under `git,obsidian`) and additionally
+owns the vault's own git lifecycle. Choosing it is the opt-in — a vault with no `.git` yet gets one
+initialized on its first write, and a vault with no remote configured just gets local-only versioned
+history.
 
 Every write commits under a lock shared with the push/pull steps below, so a commit and a rebase
 never interleave; a write that loses that lock to a concurrent push still lands on disk, just with
 its commit picked up by whichever operation runs next. Once enough local commits pile up
-(`SYNAPSE_VAULT_PUSH_EVERY`, default 5, now counted in commits rather than turns), a detached
-process pulls (`--rebase --autostash`, aborting on conflict) and pushes what's still ahead,
-entirely off any turn's critical path. The same pull also runs once at `SessionStart`, for
-freshness before a session's first read — the `disk`/`obsidian` backends never touch git at all,
-even if a stray `.git` directory happens to sit in the vault folder.
+(`SYNAPSE_VAULT_PUSH_EVERY`, default 5, counted in commits), a detached process pulls (`--rebase
+--autostash`, aborting on conflict) and pushes what's still ahead, entirely off any turn's critical
+path. The same pull also runs once at `SessionStart`, for freshness before a session's first read —
+a vault with no `git` in its configured integrations never touches git at all, even if a stray
+`.git` directory happens to sit in the vault folder.
 
 ## Folder layout
 

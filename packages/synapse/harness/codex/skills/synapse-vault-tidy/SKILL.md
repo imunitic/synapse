@@ -33,7 +33,7 @@ Requires the `synapse` CLI on `PATH`, resolving a vault with a working link grap
 (`synapse vault-backlinks`/`vault-links`/`vault-unresolved`/`vault-orphans`/`vault-deadends`). Both
 real coding-vault backends have one — `disk` (the default) always local, `obsidian` reaching a
 running app when reachable and falling back to `disk`'s own implementation otherwise. If
-`SYNAPSE_VAULT_STORE` ever resolves to a backend with no link graph at all, these commands exit 1
+`SYNAPSE_VAULT_INTEGRATIONS` ever resolves to a backend with no link graph at all, these commands exit 1
 saying so; stop and report that rather than falling back to anything else.
 
 This skill reaches the vault store only through the `synapse` CLI's `vault-*` subcommands, the same
@@ -101,7 +101,7 @@ findings for the Step 6 proposal instead of a silent edit:
 
 - **Broken links** — every `vault-unresolved` row whose `source` is in scope. Before writing the
   finding, check the vault's own local git history to say *why* it's broken instead of leaving that
-  to guesswork — a `SYNAPSE_VAULT_STORE=git` vault has one, since every agent-driven edit commits
+  to guesswork — a `SYNAPSE_VAULT_INTEGRATIONS=git` vault has one, since every agent-driven edit commits
   into it automatically. Resolve the vault's filesystem path the same way its own conf file already
   does (`SYNAPSE_VAULT_DIR`), skip this sub-step entirely if `{vault}/.git` doesn't exist, and never
   let a missing/unreachable git repo block the rest of the finding — worst case it's reported with no

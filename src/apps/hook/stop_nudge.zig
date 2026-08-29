@@ -1,6 +1,6 @@
 //! `synapse-hook stop-nudge` -- Stop: every `N` turns, forces a "worth
 //! capturing in Synapse Vault" check-in. A `GitStore`-backed vault
-//! (`SYNAPSE_VAULT_STORE=git`) commits from inside `Store.write()` itself
+//! (`SYNAPSE_VAULT_INTEGRATIONS=git`) commits from inside `Store.write()` itself
 //! and pushes on its own commit-count threshold, so no turn-keyed hook
 //! drives either half of vault sync.
 //!
@@ -101,20 +101,19 @@ fn writeCount(gpa: Allocator, io: Io, path: []const u8, value: usize) !void {
 }
 
 /// `synapse-hook vault-pull` -- spawned detached, once, at SessionStart.
-/// Backend-aware: resolves the vault's actual `Store` and does nothing
-/// unless it's `.git` -- `disk`/`obsidian` are silent no-ops here even if a
-/// stray `.git` directory happens to sit in the vault folder, since the
-/// opt-in is the backend choice now, not `.git`'s mere presence. Shares
-/// `GitStore`'s own lock (a short bounded wait, same as the Pusher), so the
-/// rare case of a session starting the same instant a write's commit or a
-/// Pusher is mid-flight just skips this round rather than racing it.
+/// Backend-aware: does nothing unless `git` is one of the configured
+/// integrations -- no integrations, or `obsidian` alone, are silent no-ops
+/// here even if a stray `.git` directory happens to sit in the vault
+/// folder, since the opt-in is the configured chain, not `.git`'s mere
+/// presence. Shares `GitStore`'s own lock (a short bounded wait, same as
+/// the Pusher), so the rare case of a session starting the same instant a
+/// write's commit or a Pusher is mid-flight just skips this round rather
+/// than racing it.
 pub fn pull(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     const vault = common.vault(gpa, io, env) orelse return;
     defer gpa.free(vault);
 
-    var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, vault, "", null)) orelse return;
-    defer resolved.deinit();
-    if (resolved != .git) return;
+    if (!(try adapters.store_resolve.hasIntegration(gpa, io, env, "git"))) return;
 
     const lock = (try adapters.git_sync.acquireWithRetry(gpa, io, vault, 5)) orelse return;
     defer adapters.git_sync.release(io, gpa, lock);
@@ -250,7 +249,7 @@ test "pull: a real pull lands the remote-only commit, with no push involved" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
-    try fx.env.put("SYNAPSE_VAULT_STORE", "git");
+    try fx.env.put("SYNAPSE_VAULT_INTEGRATIONS", "git");
     const remote = try seedVaultWithRemote(&fx);
     defer gpa.free(remote);
 
@@ -277,7 +276,7 @@ test "pull: no vault configured is a silent no-op" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
-    try fx.env.put("SYNAPSE_VAULT_STORE", "git");
+    try fx.env.put("SYNAPSE_VAULT_INTEGRATIONS", "git");
     _ = fx.env.swapRemove("SYNAPSE_VAULT_DIR");
 
     try pull(gpa, fx.io(), &fx.env); // must not error
@@ -287,7 +286,7 @@ test "pull: no upstream tracking branch is a silent no-op" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
-    try fx.env.put("SYNAPSE_VAULT_STORE", "git");
+    try fx.env.put("SYNAPSE_VAULT_INTEGRATIONS", "git");
     const init_vault = try vaultGit(&fx, &.{ "init", "-q", "-b", "main" });
     init_vault.deinit(gpa);
     try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/seed.md", .data = "seed\n" });

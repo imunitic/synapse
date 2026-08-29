@@ -101,11 +101,11 @@ The vault is reached through the `synapse` CLI — `synapse vault-read`/`vault-w
 `vault-search`/`vault-search-text`/`vault-doc-map`/`vault-patch`/`vault-backlinks`/`vault-links`/
 `vault-unresolved`/`vault-orphans`/`vault-deadends`/`vault-ambiguous`/`vault-rename` — for reads
 *and* for writes, never by resolving a vault path or calling an `mcp__obsidian__*` tool directly.
-Which concrete store the CLI talks to (`SYNAPSE_VAULT_STORE=disk`, the default; `obsidian`, opted
+Which concrete store the CLI talks to (`SYNAPSE_VAULT_INTEGRATIONS unset`, the default; `obsidian`, opted
 into for a running Obsidian app's own live search relevance and graph data; or `git`, opted into for
 the vault to own its own version control -- commit on every write, push/pull in the background) is
 resolved once,
-inside the compiled binary, from `SYNAPSE_VAULT_STORE`/`SYNAPSE_VAULT_DIR` — never something a skill
+inside the compiled binary, from `SYNAPSE_VAULT_INTEGRATIONS`/`SYNAPSE_VAULT_DIR` — never something a skill
 or an agent turn needs to know or branch on. By default that means no Obsidian dependency
 whatsoever: `read`/`write`/`list`/`search`/the link graph/rename are all plain disk I/O and direct
 computation against the vault folder. Under the opted-in `obsidian` backend, `search`/the link

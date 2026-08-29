@@ -2,23 +2,28 @@
 # synapse.conf anywhere. Edit the path below for this machine.
 SYNAPSE_VAULT_DIR="$HOME/Vault/YourVault"
 
-# Default "disk" if unset: reads/writes the vault folder directly, no
-# external dependency at all -- search and the link graph
+# Unset by default: reads/writes the vault folder directly, no external
+# dependency at all -- search and the link graph
 # (backlinks/links/unresolved/orphans/deadends/ambiguous) are computed by
-# DiskStore's own scan. Set to the name of an extended store instead to
-# prefer a running external app's own live search relevance and graph data,
-# falling back to the same disk-backed behavior automatically whenever that
-# app isn't reachable -- see docs/synapse/synapse-extended-store.md.
-#SYNAPSE_VAULT_STORE="obsidian"
+# DiskStore's own scan. A comma-separated, outer-to-inner list of
+# integrations layers extra behavior on top instead: "obsidian" prefers a
+# running external app's own live search relevance and graph data, falling
+# back to the same disk-backed behavior automatically whenever that app
+# isn't reachable (see docs/synapse/synapse-extended-store.md); "git" owns
+# the vault's own git lifecycle (commit on write, push once enough pile up).
+# "git,obsidian" combines both. The disk store itself is never named -- it's
+# always the implicit innermost element.
+#SYNAPSE_VAULT_INTEGRATIONS="obsidian"
 
 # Where Synapse clones/builds tree-sitter grammars (shared across every
 # project -- not per-repo). Safe to leave at the default.
 SYNAPSE_GRAMMARS_DIR="$HOME/.cache/synapse/grammars"
 
-# How often the Stop hook pushes the vault's auto-commits to its remote,
-# counted in turns. Only acts when the vault actually has an upstream and is
-# genuinely ahead of it, so a remote-less vault (local versioned undo only) is
-# unaffected either way. Set to 0 to never push. Default 5 if unset.
+# When "git" is one of the configured integrations, how many local commits
+# pile up before a detached push runs, counted in commits. Only acts when the
+# vault actually has an upstream and is genuinely ahead of it, so a
+# remote-less vault (local versioned undo only) is unaffected either way. Set
+# to 0 to never push. Default 5 if unset.
 #SYNAPSE_VAULT_PUSH_EVERY=5
 
 # How many nodes /synapse-init authors concurrently in its final step, via the

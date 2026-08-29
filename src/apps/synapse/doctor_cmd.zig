@@ -178,20 +178,20 @@ fn vaultChecks(ctx: *Ctx) !?[]const u8 {
 }
 
 /// Whether the official `obsidian` CLI is on PATH and answers for this
-/// vault -- only meaningful under the `obsidian` backend. `SYNAPSE_VAULT_STORE`
-/// resolved the same way `resolveStore` does (default `disk`): under `disk`,
-/// nothing here needs Obsidian at all, so this reports that directly instead
-/// of a misleading `FAIL` for a dependency the resolved backend never uses.
-/// `ObsidianStore` reaches Obsidian through the CLI's own local socket -- no
-/// plugin, no cert, no API key, but the CLI itself is off by default:
-/// `Settings -> General -> Advanced -> Command line interface`.
+/// vault -- only meaningful when `obsidian` is one of the configured
+/// integrations. Checked via `hasIntegration`, not a whole-value string
+/// compare: `SYNAPSE_VAULT_INTEGRATIONS` is a comma-separated list now, so
+/// `git,obsidian` still needs Obsidian even though the value isn't exactly
+/// `"obsidian"`. No integrations at all needs nothing here, so this reports
+/// that directly instead of a misleading `FAIL` for a dependency nothing
+/// configured uses. `ObsidianStore` reaches Obsidian through the CLI's own
+/// local socket -- no plugin, no cert, no API key, but the CLI itself is
+/// off by default: `Settings -> General -> Advanced -> Command line
+/// interface`.
 fn apiChecks(ctx: *Ctx, vault: ?[]const u8) !void {
     _ = vault;
-    const backend_owned = try core.conf.resolve(ctx.gpa, ctx.io, adapters.env.vars(ctx.env), "SYNAPSE_VAULT_STORE");
-    defer if (backend_owned) |b| ctx.gpa.free(b);
-    const backend = backend_owned orelse "disk";
-    if (!std.mem.eql(u8, backend, "obsidian")) {
-        try ctx.add("Obsidian", .ok, try ctx.fmt("not needed -- SYNAPSE_VAULT_STORE is {s}", .{backend}));
+    if (!(try adapters.store_resolve.hasIntegration(ctx.gpa, ctx.io, ctx.env, "obsidian"))) {
+        try ctx.add("Obsidian", .ok, "not needed -- 'obsidian' is not in SYNAPSE_VAULT_INTEGRATIONS");
         return;
     }
     const res = adapters.process.run(ctx.io, ctx.gpa, &.{ "obsidian", "vault", "info=path" }, .{}) catch {
@@ -484,7 +484,7 @@ test "a configured machine reports the vault, the namespace and the API" {
     try df.baseline();
     // The Obsidian check only runs under the `obsidian` backend now --
     // `disk` is the default, and this test wants the real fake-CLI path.
-    try df.fx.env.put("SYNAPSE_VAULT_STORE", "obsidian");
+    try df.fx.env.put("SYNAPSE_VAULT_INTEGRATIONS", "obsidian");
 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
@@ -512,11 +512,11 @@ test "under the disk backend (the default), the Obsidian check reports not-neede
     var df = try DoctorFixture.init(gpa);
     defer df.deinit();
     try df.baseline();
-    // No SYNAPSE_VAULT_STORE set at all -- resolves to disk, the default.
+    // No SYNAPSE_VAULT_INTEGRATIONS set at all -- resolves to disk, the default.
     // The fake-obsidian fixture answers `vault info=path`, but nothing
     // here should call it: a real machine with no Obsidian installed must
     // not see a FAIL for a dependency the resolved backend never uses.
-    _ = df.fx.env.swapRemove("SYNAPSE_VAULT_STORE");
+    _ = df.fx.env.swapRemove("SYNAPSE_VAULT_INTEGRATIONS");
 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
