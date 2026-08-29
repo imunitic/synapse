@@ -142,7 +142,14 @@ pub fn commitIfDirty(gpa: Allocator, io: Io, vault: []const u8) !void {
         if (!add.ok()) return;
     }
     const staged = blk: {
-        const res = try process.run(io, gpa, &.{ "git", "diff", "--cached", "--name-only" }, .{ .cwd = cwd });
+        // `-c core.quotePath=false`: without it, git C-quotes any non-ASCII
+        // byte in a path (`"designs/sb \342\200\224 Foo.md"`, an octal-
+        // escaped em dash) rather than emitting it as the UTF-8 it already
+        // is -- and that escaped text would otherwise land verbatim in the
+        // commit message below.
+        const res = try process.run(io, gpa, &.{
+            "git", "-c", "core.quotePath=false", "diff", "--cached", "--name-only",
+        }, .{ .cwd = cwd });
         defer res.deinit(gpa);
         if (!res.ok()) return;
         const trimmed = std.mem.trim(u8, res.stdout, " \t\r\n");
@@ -342,6 +349,23 @@ test "commitIfDirty names every staged path up to the cap, then falls back to a 
     const many = try headSubject(gpa, vault);
     defer gpa.free(many);
     try testing.expectEqualStrings("vault: 5 files", many);
+}
+
+test "commitIfDirty names a non-ASCII path verbatim, not git's own C-quoted escape" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
+    const vault = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+    try initRepo(gpa, vault);
+
+    // An em dash (U+2014, three UTF-8 bytes) -- exactly the kind of byte
+    // `core.quotePath`'s default would otherwise render as `\342\200\224`.
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "sb \xe2\x80\x94 Foo.md", .data = "hi\n" });
+    try commitIfDirty(gpa, testing.io, vault);
+    const head = try headSubject(gpa, vault);
+    defer gpa.free(head);
+    try testing.expectEqualStrings("vault: sb \xe2\x80\x94 Foo.md", head);
 }
 
 test "commitIfDirty still commits against a repo with no identity configured anywhere" {
