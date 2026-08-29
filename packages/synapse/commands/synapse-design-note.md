@@ -51,6 +51,12 @@ reading the same file:
 4. If nothing confidently matches, ask the user for a short project tag — plain free-text, not a
    multiple-choice list, never hinting at any other project's tag as an example — then append the
    resolved pair to the conf file.
+5. Once the prefix is known, mint the note's `note_id` the same shared-counter way `/synapse-note`'s
+   "Resolving a missing task ID" step 6 does: `task_id` and `note_id` share one counter per prefix, so
+   check both fields (`synapse vault-search --fields frontmatter.task_id,frontmatter.note_id`, filter
+   both for `{prefix}-\d+`, take the highest number found across both, add 1; start at 1 if none exist
+   yet). This is frontmatter only — unlike a task note, a design note's title and filename stay
+   exactly `{PROJECT} — {Topic}`, with no id prepended.
 
 Never hardcode a specific project/prefix pair in this command's own instructions — the conf file is
 machine-local and deliberately outside the portable Synapse package, so projects from
@@ -174,6 +180,7 @@ so the `## Status` line is the only lifecycle marker that matters. It simply sta
 title: "{PROJECT} — {Topic}"
 project: {prefix}
 created: "{now}"
+note_id: {id}
 ---
 
 # {PROJECT} — {Topic}
@@ -205,7 +212,7 @@ edit history here worth tracking separately.
 ## Filename
 
 `designs/{PROJECT} — {Topic}.md` — sanitize filesystem-illegal characters (`/ : * ? " < > |`). No
-slug, no numbering — Obsidian filenames are the title itself.
+slug, no numbering — vault filenames are the title itself.
 
 ---
 

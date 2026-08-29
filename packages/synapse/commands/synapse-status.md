@@ -27,7 +27,7 @@ periodic look on their own schedule -- this report doesn't cover it.
 ## Prerequisites
 
 Requires the `synapse` CLI on `PATH`. Backend-agnostic -- every query below goes through `synapse
-vault-search`, so it works the same whether the vault is Obsidian-backed or plain-disk-backed. If the
+vault-search`, so it works the same regardless of which `Store` backend is configured. If the
 CLI errors (no vault configured), say so and stop -- there is no other fallback.
 
 ## Producing the report
@@ -37,10 +37,11 @@ Run each query below via `synapse vault-search --fields <fields>`, with the Json
 since a matched row already carries them.
 
 **1. Design notes still `Discussing`.** Design notes carry status in-body under `## Status`, not in
-frontmatter (unlike task notes) -- a content match, scoped to `designs/`. Needs only the title:
+frontmatter (unlike task notes) -- a content match, scoped to `designs/`. Needs the title and the
+note's own `note_id` (every design note gets one, minted by `/synapse-design-note` itself):
 
 ```
-synapse vault-search --fields frontmatter.title <<'EOF'
+synapse vault-search --fields frontmatter.title,frontmatter.note_id <<'EOF'
 {"and": [
   {"glob": ["designs/*", {"var": "path"}]},
   {"regexp": ["## Status\nDiscussing", {"var": "content"}]}
@@ -51,10 +52,10 @@ EOF
 **2. `Ready` design notes with no compiled task yet.** `/synapse-task-note`'s own "Linking back"
 step patches a compiled design note with a `> Compiled task: [[...]]` line right after its title --
 "`Ready` and missing that line" is a direct signal, not fuzzy title-matching against `tasks/`. Needs
-only the title:
+the title and `note_id`:
 
 ```
-synapse vault-search --fields frontmatter.title <<'EOF'
+synapse vault-search --fields frontmatter.title,frontmatter.note_id <<'EOF'
 {"and": [
   {"glob": ["designs/*", {"var": "path"}]},
   {"regexp": ["## Status\nReady", {"var": "content"}]},
@@ -67,11 +68,11 @@ EOF
 at least one bullet -- a heading with nothing under it (fully pruned, per the Ready-gate convention
 `/synapse-design-note` now follows) doesn't count as open. Since this section spans every status,
 each line in the composed report also shows *which* status the note is currently in, and whether it
-has a compiled task note -- request `content` too, and pull both directly out of the returned text
-rather than reading the note again:
+has a compiled task note -- request `content` and `note_id` too, and pull the status/compiled-task
+target directly out of the returned text rather than reading the note again:
 
 ```
-synapse vault-search --fields frontmatter.title,content <<'EOF'
+synapse vault-search --fields frontmatter.title,frontmatter.note_id,content <<'EOF'
 {"and": [
   {"glob": ["designs/*", {"var": "path"}]},
   {"regexp": ["## Open Questions\n- ", {"var": "content"}]}
@@ -95,10 +96,11 @@ silently stop finding anything under a multi-line pattern.
 
 **4. Open task notes with at least one unchecked item.** Task notes carry `status:` in frontmatter,
 unlike design notes -- filter there first, and request `content` to count `- [ ]` lines directly from
-the row rather than reading each match again:
+the row rather than reading each match again. `task_id` is already frontmatter on every task note, no
+extra minting step needed:
 
 ```
-synapse vault-search --fields frontmatter.title,content <<'EOF'
+synapse vault-search --fields frontmatter.title,frontmatter.task_id,content <<'EOF'
 {"in": [{"var": "frontmatter.status"}, ["TODO", "IN-PROGRESS"]]}
 EOF
 ```
@@ -112,36 +114,40 @@ waiting specifically on human sign-off, since `synapse-task` deliberately never 
 `REVIEW` on its own:
 
 ```
-synapse vault-search --fields frontmatter.title <<'EOF'
+synapse vault-search --fields frontmatter.title,frontmatter.task_id <<'EOF'
 {"==": [{"var": "frontmatter.status"}, "REVIEW"]}
 EOF
 ```
 
 ## Composing the report
 
-One section per category, in the order above. Each line names the note (title, or filename if no
-`title` frontmatter) plus the one identifying detail that category needs. The Open Questions section
-is the one place a note's status and compiled-task link also belong on the line -- every other
-section's heading already implies status (the "Discussing" section only ever holds `Discussing`
-notes) and compiled-task-ness (the "Ready, not yet compiled" section only ever holds notes without
-one), but Open Questions spans every status and both compiled and uncompiled notes, so put the status
-first, before the title, so it's the first thing scanned:
+One section per category, in the order above. Each line leads with the note's own id in brackets
+(`note_id` for a design note, `task_id` for a task note) — the whole point of every note now carrying
+one is that a human can act on a line directly ("open sb-068") without the title as an intermediate
+step — followed by the title, plus whatever other identifying detail that category needs. A note
+somehow missing its id (pre-dates the field, or the backfill hasn't reached it yet) drops the bracket
+entirely rather than printing an empty one, the same graceful-degradation the title-less case already
+gets. The Open Questions section is the one place a note's status and compiled-task link also belong
+on the line -- every other section's heading already implies status (the "Discussing" section only
+ever holds `Discussing` notes) and compiled-task-ness (the "Ready, not yet compiled" section only ever
+holds notes without one), but Open Questions spans every status and both compiled and uncompiled
+notes, so put the status first, before the id, so it's the first thing scanned:
 
 ```
 ## Discussing
-- {title}
+- [{note_id}] {title}
 
 ## Ready, not yet compiled
-- {title}
+- [{note_id}] {title}
 
 ## Open questions
-- **{status}** — {title} — {compiled task title, or "not compiled"}
+- **{status}** — [{note_id}] {title} — {compiled task title, or "not compiled"}
 
 ## In progress (unchecked items)
-- {title} ({N} unchecked)
+- [{task_id}] {title} ({N} unchecked)
 
 ## Awaiting review
-- {title}
+- [{task_id}] {title}
 ```
 
 Omit a section entirely when it has zero matches -- matching `/synapse-note --list`'s own convention

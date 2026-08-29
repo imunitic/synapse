@@ -622,16 +622,84 @@ fn resolveCandidates(gpa: Allocator, all_paths: []const []const u8, target: []co
     return out.toOwnedSlice(gpa);
 }
 
+/// One `[]const u8` slice holding `path`, the shape `resolveCandidates`
+/// itself returns for a single hit -- so a target that resolves by id reads
+/// exactly like a target that resolved to exactly one name-matched file.
+fn singleCandidate(gpa: Allocator, path: []const u8) ![]const []const u8 {
+    const out = try gpa.alloc([]const u8, 1);
+    out[0] = try gpa.dupe(u8, path);
+    return out;
+}
+
+const PendingEdge = struct { source: []const u8, target_text: []const u8 };
+
+fn freePending(gpa: Allocator, pending: []const PendingEdge) void {
+    for (pending) |p| {
+        gpa.free(p.source);
+        gpa.free(p.target_text);
+    }
+}
+
 /// Every wikilink occurrence across the whole vault (`synapse/` excluded),
 /// each resolved to its candidate file(s). One full re-scan per call --
 /// see `DiskLinkGraph`'s own doc comment on why that's fine at this vault's
 /// measured size, and not yet cached.
+///
+/// Two passes, not one: the first reads every file exactly once, collecting
+/// both its outgoing link targets (resolved later) and its own `note_id`/
+/// `task_id` if it has one, into an in-memory (never persisted) id -> path
+/// map. Resolution only starts once that map is complete, in the second
+/// pass -- a target read early in the first pass can still name a note read
+/// later in it. A target matching an id resolves straight to that one path,
+/// no ambiguity handling needed (ids are unique by construction); a real
+/// duplicate id is a pre-existing data problem this doesn't try to detect,
+/// so whichever file the first pass reaches first for a given id wins.
+/// Everything else falls through unchanged to `resolveCandidates`'s
+/// existing case-insensitive title match.
 fn buildEdges(gpa: Allocator, io: Io, vault: []const u8) ![]const Edge {
     const all = try vaultPaths(gpa, io, vault);
     defer freeStrings(gpa, all);
 
     var store = try DiskStore.init(gpa, vault, "");
     defer store.deinit();
+
+    var ids: std.StringHashMapUnmanaged([]const u8) = .empty;
+    defer {
+        var it = ids.keyIterator();
+        while (it.next()) |k| gpa.free(k.*);
+        ids.deinit(gpa); // values borrow from `all`, not owned here
+    }
+
+    var pending: std.ArrayListUnmanaged(PendingEdge) = .empty;
+    defer {
+        freePending(gpa, pending.items);
+        pending.deinit(gpa);
+    }
+
+    for (all) |source| {
+        const body = (try store.read(gpa, io, source)) orelse continue;
+        defer gpa.free(body);
+
+        if (core.query.field(body, "note_id") orelse core.query.field(body, "task_id")) |id| {
+            const owned_id = try gpa.dupe(u8, id);
+            const gop = try ids.getOrPut(gpa, owned_id);
+            if (gop.found_existing) {
+                gpa.free(owned_id);
+            } else {
+                gop.value_ptr.* = source;
+            }
+        }
+
+        const targets = try core.wikilinks.extract(gpa, body);
+        defer freeStrings(gpa, targets);
+
+        for (targets) |t| {
+            try pending.append(gpa, .{
+                .source = try gpa.dupe(u8, source),
+                .target_text = try gpa.dupe(u8, t),
+            });
+        }
+    }
 
     var edges: std.ArrayListUnmanaged(Edge) = .empty;
     errdefer {
@@ -643,21 +711,16 @@ fn buildEdges(gpa: Allocator, io: Io, vault: []const u8) ![]const Edge {
         edges.deinit(gpa);
     }
 
-    for (all) |source| {
-        const body = (try store.read(gpa, io, source)) orelse continue;
-        defer gpa.free(body);
-
-        const targets = try core.wikilinks.extract(gpa, body);
-        defer freeStrings(gpa, targets);
-
-        for (targets) |t| {
-            const candidates = try resolveCandidates(gpa, all, t);
-            try edges.append(gpa, .{
-                .source = try gpa.dupe(u8, source),
-                .target_text = try gpa.dupe(u8, t),
-                .candidates = candidates,
-            });
-        }
+    for (pending.items) |p| {
+        const candidates = if (ids.get(p.target_text)) |path|
+            try singleCandidate(gpa, path)
+        else
+            try resolveCandidates(gpa, all, p.target_text);
+        try edges.append(gpa, .{
+            .source = try gpa.dupe(u8, p.source),
+            .target_text = try gpa.dupe(u8, p.target_text),
+            .candidates = candidates,
+        });
     }
     return edges.toOwnedSlice(gpa);
 }
@@ -1268,6 +1331,91 @@ test "a link matching two real files is ambiguous: both count as backlinks, and 
     try testing.expectEqual(@as(usize, 1), amb[0].count);
     try testing.expectEqual(@as(usize, 1), amb[0].sources.len);
     try testing.expectEqualStrings("source.md", amb[0].sources[0]);
+}
+
+test "a link matching a note_id resolves straight to that file, bypassing name matching entirely" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "");
+    defer s.deinit();
+    const port = s.store();
+    _ = try port.write(testing.io, "source.md", "[[wg-001|Widget design]]\n");
+    _ = try port.write(testing.io, "designs/Widget design.md", "---\nnote_id: wg-001\n---\ntarget\n");
+
+    var lg = s.linkGraph();
+    const links_out = try lg.links(gpa, testing.io, "source.md");
+    defer freeStrings(gpa, links_out);
+    try testing.expectEqual(@as(usize, 1), links_out.len);
+    try testing.expectEqualStrings("designs/Widget design.md", links_out[0]);
+}
+
+test "an id-matched link stays unambiguous even when its own display text also matches another file's title" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "");
+    defer s.deinit();
+    const port = s.store();
+    _ = try port.write(testing.io, "source.md", "[[wg-001]]\n");
+    _ = try port.write(testing.io, "designs/Real.md", "---\nnote_id: wg-001\n---\none\n");
+    _ = try port.write(testing.io, "research/wg-001.md", "a decoy file that just happens to be titled the same as the id\n");
+
+    var lg = s.linkGraph();
+    const links_out = try lg.links(gpa, testing.io, "source.md");
+    defer freeStrings(gpa, links_out);
+    try testing.expectEqual(@as(usize, 1), links_out.len);
+    try testing.expectEqualStrings("designs/Real.md", links_out[0]);
+
+    const amb = try lg.ambiguous(gpa, testing.io);
+    defer freeAmbiguous(gpa, amb);
+    try testing.expectEqual(@as(usize, 0), amb.len);
+}
+
+test "task_id resolves a link the same way note_id does" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "");
+    defer s.deinit();
+    const port = s.store();
+    _ = try port.write(testing.io, "source.md", "[[sb-047|the task]]\n");
+    _ = try port.write(testing.io, "tasks/synapse/sb-047 — Something.md", "---\ntask_id: sb-047\n---\nchecklist\n");
+
+    var lg = s.linkGraph();
+    const links_out = try lg.links(gpa, testing.io, "source.md");
+    defer freeStrings(gpa, links_out);
+    try testing.expectEqual(@as(usize, 1), links_out.len);
+    try testing.expectEqualStrings("tasks/synapse/sb-047 — Something.md", links_out[0]);
+}
+
+test "with no id match, resolution falls back unchanged to name matching" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "");
+    defer s.deinit();
+    const port = s.store();
+    _ = try port.write(testing.io, "source.md", "[[Plain Title]]\n");
+    _ = try port.write(testing.io, "designs/Plain Title.md", "---\nnote_id: wg-002\n---\nno id in the link, so this still resolves by name\n");
+
+    var lg = s.linkGraph();
+    const links_out = try lg.links(gpa, testing.io, "source.md");
+    defer freeStrings(gpa, links_out);
+    try testing.expectEqual(@as(usize, 1), links_out.len);
+    try testing.expectEqualStrings("designs/Plain Title.md", links_out[0]);
 }
 
 test "orphans lists a real file no other note links to" {
