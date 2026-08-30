@@ -1,7 +1,8 @@
 //! One place that decides which `ports.Store` chain a caller gets, from
 //! `SYNAPSE_VAULT_INTEGRATIONS` (a comma-separated list, outer-to-inner:
-//! `git,obsidian` means `GitStore` wraps `ObsidianStore` wraps the one real
-//! store, `DiskStore`) and `SYNAPSE_VAULT_DIR`. Both resolve through
+//! `git,obsidian` means `GitStore` wraps `ObsidianStore` wraps the mandatory
+//! `SchemaValidationStore`, which wraps the one real store, `DiskStore`) and
+//! `SYNAPSE_VAULT_DIR`. Both resolve through
 //! `core.conf.resolve`/`vaultDir` -- a real environment variable wins, then
 //! the first conf file that defines the key -- so setting either in
 //! `synapse.conf` works exactly like exporting it. Every CLI subcommand and
@@ -31,6 +32,7 @@ const ports = @import("ports");
 const obsidian = @import("obsidian/store.zig");
 const disk_store = @import("disk/store.zig");
 const git_store = @import("git/store.zig");
+const schema_validation_store = @import("schema_validation_store.zig");
 const env_bridge = @import("env.zig");
 const process = @import("process.zig");
 
@@ -43,6 +45,7 @@ const SearchFiltered = ports.SearchFiltered;
 const DiskStore = disk_store.DiskStore;
 const ObsidianStore = obsidian.ObsidianStore;
 const GitStore = git_store.GitStore;
+const SchemaValidationStore = schema_validation_store.SchemaValidationStore;
 
 /// One heap-allocated layer of the composed chain, plus how to destroy it --
 /// captured at construction time, when `T` is still known, since a plain
@@ -297,6 +300,14 @@ pub fn resolveStore(
     var current_renamer: Renamer = disk.renamer();
     const current_search_filtered: SearchFiltered = SearchFiltered.from(DiskStore, disk);
 
+    // Validation is a correctness boundary, not a selectable integration:
+    // every configured decorator wraps it, and it always wraps DiskStore.
+    const validation = try gpa.create(SchemaValidationStore);
+    errdefer gpa.destroy(validation);
+    validation.* = SchemaValidationStore.init(gpa, current_store, env_bridge.vars(env));
+    try layers.append(gpa, OwnedLayer.of(SchemaValidationStore, validation));
+    current_store = validation.store();
+
     // Outer-to-inner in `names`, so build innermost-first: walk in reverse.
     var i = names.len;
     while (i > 0) {
@@ -362,7 +373,7 @@ fn isolatedEnv(gpa: Allocator, vault: []const u8) !std.process.Environ.Map {
     return env;
 }
 
-test "SYNAPSE_VAULT_INTEGRATIONS unset defaults to the plain disk store" {
+test "SYNAPSE_VAULT_INTEGRATIONS unset keeps validation mandatory over the disk store" {
     const gpa = testing.allocator;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -378,6 +389,7 @@ test "SYNAPSE_VAULT_INTEGRATIONS unset defaults to the plain disk store" {
 
     var resolved = (try resolveStore(gpa, io, &env, vault, "synapse/repo@main", "test", "")).?;
     defer resolved.deinit();
+    try testing.expectEqual(@as(usize, 1), resolved.layers.items.len); // mandatory validation layer
 
     var store = resolved.store();
     const wr = try store.write(io, "Foo.md", "body\n");
@@ -606,7 +618,7 @@ fn fakeObsidianEnv(gpa: Allocator, vault: []const u8, log_path: []const u8, scri
 }
 
 // The actual point of this task: `git,obsidian` composes `GitStore`
-// wrapping `ObsidianStore` wrapping the disk store, so a write through the
+// wrapping `ObsidianStore` wrapping validation and the disk store, so a write through the
 // resolved chain both prefers Obsidian's own live search (not disk's) and
 // commits under git (not silently, the way a pure delegation would).
 test "SYNAPSE_VAULT_INTEGRATIONS=git,obsidian: a write commits, and search prefers the live app" {
@@ -640,6 +652,7 @@ test "SYNAPSE_VAULT_INTEGRATIONS=git,obsidian: a write commits, and search prefe
 
     var resolved = (try resolveStore(gpa, io, &env, vault, "", "test", "")).?;
     defer resolved.deinit();
+    try testing.expectEqual(@as(usize, 3), resolved.layers.items.len); // validation + obsidian + git
 
     var store = resolved.store();
     const wr = try store.write(io, "Foo.md", "body\n");

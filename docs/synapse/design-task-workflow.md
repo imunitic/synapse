@@ -36,6 +36,12 @@ deliberate exclusions (with the reason each was excluded). After creation, the d
 gets a one-line `> Compiled task: [[...]]` annotation — the only place the two ever cross-reference
 each other; from there, Obsidian's own backlinks panel keeps them connected.
 
+New design and task notes declare `vault-design-note/v1` and `vault-task-note/v1` respectively.
+Both carry `project`, configured `tags`, and matching second-precision local `created`/`updated`
+timestamps at creation. Task notes use `task_id` as their sole stable identity and the canonical
+status values `TODO`, `IN-PROGRESS`, `REVIEW`, `DONE`, and `CANCELED`; `last_updated` and
+`CANCELLED` remain legacy spellings, not v1 fields or values.
+
 ## Revising a design mid-implementation
 
 A design that turns out to be wrong once you start building it is the normal case, not a new task.

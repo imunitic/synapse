@@ -1,0 +1,94 @@
+schema: synapse-note-schema/v1
+id: vault-design-note/v1
+
+frontmatter:
+  fields:
+    schema:
+      type: string
+      required: true
+      const: vault-design-note/v1
+    title:
+      type: string
+      required: true
+      min_length: 1
+    project:
+      type: string
+      required: true
+      min_length: 1
+    note_id:
+      type: string
+      required: true
+      pattern: '^[a-z][a-z0-9-]*-[0-9]{3,}$'
+      mutable: false
+    created:
+      type: timestamp
+      required: true
+      format: 'YYYY-MM-dd HH:mm:ss TZ'
+      timezone: local
+      mutable: false
+    updated:
+      type: timestamp
+      required: true
+      format: 'YYYY-MM-dd HH:mm:ss TZ'
+      timezone: local
+      update_on: [vault-write, vault-patch]
+    tags:
+      type: list
+      required: true
+      items: string
+
+body:
+  h1:
+    required: true
+    count: 1
+    equals: frontmatter.title
+  preamble:
+    - type: blockquote
+      required: false
+      position: immediately_after_h1
+      pattern: '^> Compiled task: \[\[[^\]]+\]\]$'
+  sections:
+    - title: Status
+      level: 2
+      required: true
+      content:
+        type: string
+        enum: [Discussing, Ready, Reference]
+    - title: Problem
+      level: 2
+      required: true
+      non_empty: true
+    - title: Approach
+      level: 2
+      required: true
+      non_empty: true
+      children:
+        - title: Alternatives considered
+          level: 3
+          required: false
+          non_empty: true
+    - title: Constraints
+      level: 2
+      required: true
+      non_empty: true
+    - title: Open Questions
+      level: 2
+      required: false
+      non_empty: true
+  section_order: relative
+
+checks:
+  - equals: [filename.stem, frontmatter.title]
+  - unique: frontmatter.note_id
+    when: create
+  - vocabulary:
+      field: frontmatter.project
+      source: synapse-projects.conf
+      projection: values
+  - vocabulary:
+      field: frontmatter.tags
+      source: synapse-tag-vocabulary.conf
+  - not_before: [frontmatter.updated, frontmatter.created]
+  - equals:
+      values: [frontmatter.created, frontmatter.updated]
+      when: create

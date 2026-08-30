@@ -21,12 +21,12 @@ Invoke this skill **automatically** in two situations:
 
 1. **Starting work on a task** — as soon as the user confirms work is
    beginning, before writing any code. Set `status: IN-PROGRESS` and update
-   `last_updated`. No notes needed at this point.
+   `updated`. No notes needed at this point.
 
 2. **Finishing work on a task** — after all phases are committed and
    the task note's checklist has been updated. Set `status: REVIEW` (if all
    items checked) or `status: IN-PROGRESS` (if any remain), update
-   `last_updated`, and append an implementation summary to the `## Notes`
+   `updated`, and append an implementation summary to the `## Notes`
    section.
 
 Never wait to be asked — apply this skill proactively at both transitions.
@@ -35,7 +35,7 @@ Never wait to be asked — apply this skill proactively at both transitions.
 
 - Updates the `status:` frontmatter field (`TODO` → `IN-PROGRESS` or
   `REVIEW`).
-- Updates `last_updated` in frontmatter.
+- Updates `updated` in frontmatter.
 - At task completion: appends concise implementation bullets to the
   existing `## Notes` section (or creates one if none exists).
 
@@ -60,11 +60,11 @@ into `status:` either — always go through this skill, which caps at
 2. Inspect its checklist items (`- [ ]` / `- [x]`).
 3. Determine the new `status:` value: `IN-PROGRESS` if any unchecked,
    `REVIEW` if all checked.
-4. Fetch machine local time: `date '+%Y-%m-%d %H:%M'` — never use inferred
+4. Fetch machine local time: `date '+%Y-%m-%d %H:%M:%S %Z'` — never use inferred
    time.
-5. Update `status:` and `last_updated:` with two `synapse frontmatter set`
+5. Update `status:` and `updated:` with two `synapse frontmatter set`
    calls, one per field: `synapse frontmatter set <path> status <value>`
-   then `synapse frontmatter set <path> last_updated "{now}"`. Each call
+   then `synapse frontmatter set <path> updated "{now}"`. Each call
    changes exactly that one line and nothing else, entirely inside the
    compiled binary — the note's body never enters your context at all.
    When the command isn't available, fall back to **read-modify-write**:

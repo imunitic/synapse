@@ -17,6 +17,7 @@
     "skills",
     "commands",
     "harness",
+    "schema",
     "synapse-claude.md",
     "Index.md.template",
     "*.conf.template"

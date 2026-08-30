@@ -9,14 +9,17 @@ flowchart TB
 
     CALLER["a caller over ports.Store<br/>(CLI, skill, hook)"]
     EXT["extended store<br/>e.g. ObsidianStore"]
+    VALIDATE["SchemaValidationStore<br/>mandatory write boundary"]
 
-    CALLER -->|"read / write / list"| DISK1["DiskStore<br/>plain disk I/O"]
+    CALLER -->|"read / write / list"| EXT
+    EXT -->|"delegate"| VALIDATE
+    VALIDATE -->|"accepted / pass-through"| DISK1["DiskStore<br/>plain disk I/O"]
     CALLER -->|"search / link graph / rename"| EXT
 
     EXT -->|"app reachable"| LIVE["the live app's own<br/>search + graph data"]
     EXT -->|"error.VaultUnreachable"| DISK2["DiskStore's own<br/>ranked search + link graph"]
 
     class CALLER caller
-    class EXT decorator
+    class EXT,VALIDATE decorator
     class LIVE live
     class DISK1,DISK2 disk

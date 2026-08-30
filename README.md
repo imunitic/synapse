@@ -8,7 +8,8 @@ you can use one without the others:
 
 - **Synapse Vault** — a folder of plain Markdown notes (frontmatter + wikilinks) holding research,
   decisions, project logs, design discussions. Cross-project by default. Synapse reads and writes it
-  directly, with real search/graph/rename of its own — no extended store required (see
+  directly, with mandatory validation for notes that declare a shipped v1 schema and real
+  search/graph/rename of its own — no extended store required (see
   [Obsidian extended store](docs/synapse/synapse-extended-store.md) for the optional live-app layer
   on top).
 - **Synapse Graph** — a per-repo semantic code graph, hosted *inside* the Vault under

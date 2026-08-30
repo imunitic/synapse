@@ -16,8 +16,9 @@ Every `synapse-*.conf` file resolves through the same three-tier order, first ma
    — for anyone who's adopted XDG config directories.
 2. `~/.claude/{name}` — today's default location, and where every pre-plugin install already has
    its files. Survives indefinitely as a tier, not as a stopgap.
-3. The plugin's own bundled `{name}.template`, read live from `$CLAUDE_PLUGIN_ROOT` — only reached
-   when neither tier above has a file at all. Read-only by construction: this tier is never a write
+3. The installed package's bundled `{name}.template`, read live from `$SYNAPSE_CONTENT_ROOT`
+   (`$CLAUDE_PLUGIN_ROOT` remains a compatibility lookup) — only reached when neither tier above
+   has a file at all. Read-only by construction: this tier is never a write
    target, and nothing here is ever copied or seeded into `~/.claude/` on install the way a
    pre-plugin install once did. A curated-default registry (see below) effectively ships "for free"
    this way — no seeding step, no install-time copy, just the shipped file read directly until a
@@ -171,6 +172,9 @@ tier 1/2 either — a from-source checkout with nothing configured, or a hermeti
   whole-line with `grep -vxFf`. Filtered out of a raw prompt before `synapse vocab` builds a search
   pattern from it, and shared with `synapse vocab`'s own symbol-vocabulary reduction so the two
   never disagree on what counts as noise.
+- **`synapse-tag-vocabulary.conf`** — one allowed Vault-note tag per line. Newly authored v1 notes
+  carry a `tags` list (which may be empty); `SchemaValidationStore` checks every present value
+  against this file before persistence.
 - **`synapse-module-boilerplate.conf`** (`SYNAPSE_MODULE_BOILERPLATE_CONF` overrides the path) —
   hand-curated, not self-populating: one literal path-segment chain per line (e.g. `src/main/java`),
   stripped wholesale when `synapse query`/`write-node`'s `## Sources` mirror aggregates a node's
@@ -178,14 +182,15 @@ tier 1/2 either — a from-source checkout with nothing configured, or a hermeti
   collapsing it, since for most non-Java layouts that next segment is the real subsystem, not
   boilerplate.
 
-## Machine-local, not read by any compiled binary
+## Machine-local project registry
 
 - **`synapse-projects.conf`** — `project-name=prefix` pairs (e.g. `my-app=myapp`) resolving a
   repo to its task-note ID prefix for `/synapse-note --task` and friends. Deliberately outside the
   portable `packages/synapse/` package and never copied between machines, so contexts that shouldn't mix
   (personal vs. work projects) never land in the same file. Self-managed by `/synapse-note` — it
-  appends a newly resolved pair the first time it has to ask — and safe to hand-edit any time. Read
-  by the orchestrating agent running a `/synapse-*` command, never by a Zig binary.
+  appends a newly resolved pair the first time it has to ask — and safe to hand-edit any time. The
+  authoring workflow reads it to resolve IDs and folders; `SchemaValidationStore` reads the values
+  on schema-declaring writes to validate `project` frontmatter.
 
 ## Every environment variable, by what it touches
 
@@ -205,5 +210,6 @@ listed with their files above, not repeated here.
 | `SYNAPSE_TEST_PATH_RE` | `rank_cmd.zig` | Overrides `core.rank.isTest`'s built-in test-file heuristic with `grep -vE <re>` over the path list, for a repo whose test-path convention the built-in rule doesn't recognize. |
 | `SYNAPSE_DISABLE_PROMPT_INJECTION` | `prompt_context.zig` (hook) | Any value skips the `UserPromptSubmit` hook's one-line "this repo has a code graph" pointer entirely. |
 | `SYNAPSE_VAULT_PUSH_EVERY` | `git/store.zig` (`GitStore`) | See the `synapse.conf` table above. |
+| `SYNAPSE_CONTENT_ROOT` | npm shims, config resolution, `SchemaValidationStore` | Root of the installed `@imunitic/synapse` content package. Schema identifiers resolve directly beneath its `schema/` directory. The npm shims set it automatically when the caller has not supplied an override. |
 | `SYNAPSE_AUTHOR_POOL` | orchestrating agent, `/synapse-init` | See the `synapse.conf` table above. |
 | `SYNAPSE_BIN`, `SYNAPSE_HOOK_BIN` | dev/CI tooling only (`tests/test_helper.bash`, `docs/generate-cli-reference.sh`) | Point the tests or the doc generator at a specific binary (e.g. a cross-compiled one for `just test-linux`) instead of `zig-out/bin/`. Not read by the running binaries themselves, and not part of the plugin install path at all -- that fetches from the `dist` branch into `~/.cache/synapse/bin/` directly. |

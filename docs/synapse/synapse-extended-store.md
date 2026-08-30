@@ -7,13 +7,19 @@ their own — rarity-weighted ranked full-text search, case-insensitive wikilink
 rename-with-referrer-rewrite — not stubs. It is enough on its own for every `synapse` CLI subcommand
 and every skill/command that reaches the vault through `Store`.
 
-An **extended store** is an optional decorator over `DiskStore`: `read`/`write`/`list` stay identical
+An **extended store** is an optional decorator over the mandatory
+`SchemaValidationStore -> DiskStore` persistence boundary: `read`/`write`/`list` stay identical
 plain disk I/O, but `search`, the link graph, and rename are handed off to a running external app's
 own live capabilities when reachable, falling back to `DiskStore`'s implementation automatically the
 moment that app isn't (`error.VaultUnreachable`). Nothing built on `ports.Store`/`ports.LinkGraph`/
 `ports.Renamer` needs to know which one is actually configured.
 
-![An extended store decorates DiskStore: read/write/list stay plain disk I/O, search/link-graph/rename go to the live app when reachable and fall back to DiskStore otherwise](diagrams/synapse-extended-store.png)
+Schema validation is not named in `SYNAPSE_VAULT_INTEGRATIONS` and cannot be disabled there. For
+example, `git,obsidian` resolves as
+`GitStore -> ObsidianStore -> SchemaValidationStore -> DiskStore`, ensuring a rejected write has no
+outer integration side effect.
+
+![An extended store wraps mandatory schema validation and DiskStore: writes validate before disk, while search/link-graph/rename use the live app when reachable and fall back to DiskStore otherwise](diagrams/synapse-extended-store.png)
 
 Enable one by adding its name to `SYNAPSE_VAULT_INTEGRATIONS` (a comma-separated, outer-to-inner
 list) in `synapse.conf`; unset keeps everything local. `disk` is never named in the value — it's
