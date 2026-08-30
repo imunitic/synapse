@@ -49,6 +49,7 @@ task_note() {
     '---' '' \
     "# $title" '' \
     'Implement the requested change.' '' \
+    '## Checklist' '' \
     '- [ ] First implementation step' '' \
     '## Notes' '' \
     'Design context.'
@@ -148,6 +149,19 @@ task_note() {
     'printf "%s\n" "$1" | "$2" vault-write "research/Right title.md"' _ "$body" "$SYNAPSE_BIN"
   [ "$status" -eq 1 ]
   [ ! -d "$VAULT/.git" ]
+}
+
+@test "vault-patch on H1::Checklist replaces the checklist without touching Notes" {
+  task_note "Checklist scoping" sb-910 | "$SYNAPSE_BIN" vault-write "tasks/synapse/Checklist scoping.md"
+
+  run bash -c 'printf "%s\n" "- [x] Done first" "- [ ] Next step" | "$1" vault-patch "tasks/synapse/Checklist scoping.md" --heading "Checklist scoping::Checklist" --replace' _ "$SYNAPSE_BIN"
+  [ "$status" -eq 0 ]
+
+  run "$SYNAPSE_BIN" vault-read "tasks/synapse/Checklist scoping.md"
+  [[ "$output" == *"## Checklist"* ]]
+  [[ "$output" == *"- [x] Done first"* ]]
+  [[ "$output" == *"## Notes"* ]]
+  [[ "$output" == *"Design context."* ]]
 }
 
 @test "the npm package includes all shipped schema documents" {

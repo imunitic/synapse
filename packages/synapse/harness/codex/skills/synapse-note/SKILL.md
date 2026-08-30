@@ -232,6 +232,8 @@ or supplied directly by a caller like the synapse-task-note skill):
 
    {task description}
 
+   ## Checklist
+
    - [ ] {first implementation step}
 
    ## Notes

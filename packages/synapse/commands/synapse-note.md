@@ -215,6 +215,8 @@ or supplied directly by a caller like `/synapse-task-note`):
 
    {task description}
 
+   ## Checklist
+
    - [ ] {first implementation step}
 
    ## Notes

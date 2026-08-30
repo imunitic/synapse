@@ -58,6 +58,9 @@ body:
     nested_items: false
     allowed_children: [paragraph, fenced_code]
   sections:
+    - title: Checklist
+      level: 2
+      required: true
     - title: Notes
       level: 2
       required: false

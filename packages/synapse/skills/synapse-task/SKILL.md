@@ -94,12 +94,14 @@ The vault-patch hazards below are the task-note-specific instance of a general r
 `synapse-vault` skill carries the full list (H1 replace, nested heading paths, frontmatter) for
 every note, not just task notes.
 
-**Do not use `vault-patch --heading "{H1 title}" --replace` to edit checklist items.** A top-level
-heading's own section extends through *all* nested subheadings (including `## Notes`), not just
-the leading paragraph/checklist directly under it — a replace there silently deletes everything
-past the checklist, including the Notes section. To check off checklist items,
-instead `synapse vault-read` the full file, edit the `- [ ]` → `- [x]` lines in the
-returned content, and `synapse vault-write` the whole file back.
+**Edit checklist items through the `Checklist` heading, never the H1.** With `## Checklist` as its
+own H2 — a sibling of `## Notes` — `vault-patch --heading "{H1 title}::Checklist" --replace`
+(supplying the full new checklist) is the correct tool for a whole-checklist edit and leaves
+`## Notes` untouched. Never target the top-level H1 (`--heading "{H1 title}"`): its section extends
+through *all* nested subheadings (including `## Notes`), so a replace there silently deletes
+everything past the checklist. To flip a single `- [ ]` → `- [x]` in place, `synapse vault-read`
+the full file, edit that one line, and `synapse vault-write` the whole file back — there is no
+per-item toggle yet.
 
 ## Notes format
 
@@ -116,18 +118,26 @@ level. Append to the last existing notes section.
 ## Task file structure
 
 Each task note, in any project, has **exactly one top-level heading** (the
-task itself, `# {title}`). Implementation steps go as `- [ ]` checklist items
-**under that heading**, not as additional headings. Do not create `##
-Step` sub-headings for implementation steps.
+task itself, `# {title}`). Under it: lead prose describing the task, then a
+required `## Checklist` heading holding the `- [ ]` implementation items,
+then a `## Notes` section. Do not create `## Step` sub-headings for
+implementation steps, and do not put checklist items directly under the H1.
 
 Correct structure:
 ```md
 # Implement something
 
 Description of the task.
+
+## Checklist
+
 - [ ] Step one
 - [ ] Step two
 - [ ] Step three
+
+## Notes
+
+{constraints or context}
 ```
 
 Wrong structure (do not do this):

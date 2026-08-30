@@ -420,7 +420,7 @@ fn validateBody(gpa: Allocator, body_rule: *const Value, note: []const u8, path:
     };
 
     if (body_rule.get("lead") != null or body_rule.get("checklist") != null) {
-        if (try validateTaskLeadAndChecklist(gpa, body_rule, markdown, h1.?)) |message| return message;
+        if (try validateTaskLeadAndChecklist(gpa, body_rule, markdown, headings, h1.?)) |message| return message;
     }
 
     _ = path;
@@ -488,31 +488,48 @@ fn validateChildRule(
     return null;
 }
 
-fn validateTaskLeadAndChecklist(gpa: Allocator, body_rule: *const Value, markdown: []const u8, h1: Heading) !?[]u8 {
-    var lines = std.mem.splitScalar(u8, markdown[h1.content_start..h1.content_end], '\n');
+fn validateTaskLeadAndChecklist(gpa: Allocator, body_rule: *const Value, markdown: []const u8, headings: []const Heading, h1: Heading) !?[]u8 {
+    // The checklist now lives under a named `## Checklist` heading, not under
+    // "everything before the first `##`". `lead` stays as prose directly
+    // under the H1, before that heading.
+    var checklist_heading: ?Heading = null;
+    for (headings) |heading| {
+        if (heading.level == 2 and std.mem.eql(u8, heading.title, "Checklist")) {
+            checklist_heading = heading;
+            break;
+        }
+    }
+
     var have_lead = false;
-    var checklist_count: usize = 0;
-    var seen_checklist = false;
-    var in_fence = false;
-    while (lines.next()) |raw_with_cr| {
-        const raw = std.mem.trimEnd(u8, raw_with_cr, "\r");
-        const trimmed = std.mem.trimStart(u8, raw, " \t");
-        if (raw.len == trimmed.len and std.mem.startsWith(u8, raw, "## ")) break;
-        if (std.mem.startsWith(u8, trimmed, "```") or std.mem.startsWith(u8, trimmed, "~~~")) {
-            in_fence = !in_fence;
-            continue;
-        }
-        if (in_fence or trimmed.len == 0) continue;
-        const is_item = isChecklistLine(trimmed);
-        if (is_item) {
-            if (raw.len != trimmed.len)
-                return try diag(gpa, "body.checklist: nested checklist items are not allowed", .{});
-            checklist_count += 1;
-            seen_checklist = true;
-            continue;
-        }
-        if (!seen_checklist and !std.mem.startsWith(u8, trimmed, "#") and !std.mem.startsWith(u8, trimmed, ">"))
+    const lead_end = if (checklist_heading) |h| h.line_start else h1.content_end;
+    {
+        var lines = std.mem.splitScalar(u8, markdown[h1.content_start..lead_end], '\n');
+        while (lines.next()) |raw_with_cr| {
+            const raw = std.mem.trimEnd(u8, raw_with_cr, "\r");
+            const trimmed = std.mem.trimStart(u8, raw, " \t");
+            if (trimmed.len == 0 or trimmed[0] == '#' or trimmed[0] == '>') continue;
             have_lead = true;
+        }
+    }
+
+    var checklist_count: usize = 0;
+    if (checklist_heading) |h| {
+        var lines = std.mem.splitScalar(u8, markdown[h.content_start..h.content_end], '\n');
+        var in_fence = false;
+        while (lines.next()) |raw_with_cr| {
+            const raw = std.mem.trimEnd(u8, raw_with_cr, "\r");
+            const trimmed = std.mem.trimStart(u8, raw, " \t");
+            if (std.mem.startsWith(u8, trimmed, "```") or std.mem.startsWith(u8, trimmed, "~~~")) {
+                in_fence = !in_fence;
+                continue;
+            }
+            if (in_fence or trimmed.len == 0) continue;
+            if (isChecklistLine(trimmed)) {
+                if (raw.len != trimmed.len)
+                    return try diag(gpa, "body.checklist: nested checklist items are not allowed", .{});
+                checklist_count += 1;
+            }
+        }
     }
     if (body_rule.get("lead")) |lead| if ((boolAt(lead, "required") orelse false) and !have_lead)
         return try diag(gpa, "body.lead: prose before the checklist is required", .{});
@@ -1231,15 +1248,117 @@ test "checklist minimum item count is enforced" {
         "body:\n" ++
         "  h1:\n" ++
         "    required: true\n" ++
+        "  lead:\n" ++
+        "    required: true\n" ++
         "  checklist:\n" ++
         "    required: true\n" ++
         "    min_items: 2\n" ++
+        "  sections:\n" ++
+        "    - title: Checklist\n" ++
+        "      level: 2\n" ++
+        "      required: true\n" ++
+        "    - title: Notes\n" ++
+        "      level: 2\n" ++
+        "      required: false\n" ++
         "checks: []\n";
     try expectNoteMessage(source,
-        "---\ntitle: Example\n---\n# Example\n\nlead\n\n- [ ] one\n\n## Notes\nrest\n",
+        "---\ntitle: Example\n---\n# Example\n\nlead\n\n## Checklist\n\n- [ ] one\n\n## Notes\nrest\n",
         "x.md", .{ .mode = .create }, "body.checklist: expected at least 2 flat item(s), found 1");
     try expectNoteOk(source,
-        "---\ntitle: Example\n---\n# Example\n\nlead\n\n- [ ] one\n- [ ] two\n\n## Notes\nrest\n",
+        "---\ntitle: Example\n---\n# Example\n\nlead\n\n## Checklist\n\n- [ ] one\n- [ ] two\n\n## Notes\nrest\n",
+        "x.md", .{ .mode = .create });
+}
+
+test "checklist items are scoped to the Checklist heading, not parsed past Notes" {
+    const source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "      required: true\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "  lead:\n" ++
+        "    required: true\n" ++
+        "  checklist:\n" ++
+        "    required: true\n" ++
+        "    min_items: 1\n" ++
+        "  sections:\n" ++
+        "    - title: Checklist\n" ++
+        "      level: 2\n" ++
+        "      required: true\n" ++
+        "    - title: Notes\n" ++
+        "      level: 2\n" ++
+        "      required: false\n" ++
+        "checks: []\n";
+    // A `- [ ]` inside ## Notes must not count toward the checklist minimum.
+    try expectNoteMessage(source,
+        "---\ntitle: Example\n---\n# Example\n\nlead\n\n## Checklist\n\n## Notes\n\n- [ ] not a checklist item\n",
+        "x.md", .{ .mode = .create }, "body.checklist: expected at least 1 flat item(s), found 0");
+    try expectNoteOk(source,
+        "---\ntitle: Example\n---\n# Example\n\nlead\n\n## Checklist\n\n- [ ] one\n\n## Notes\n\n- [ ] not a checklist item\n",
+        "x.md", .{ .mode = .create });
+}
+
+test "nested checklist items are rejected inside the Checklist heading" {
+    const source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "      required: true\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "  lead:\n" ++
+        "    required: true\n" ++
+        "  checklist:\n" ++
+        "    required: true\n" ++
+        "    nested_items: false\n" ++
+        "  sections:\n" ++
+        "    - title: Checklist\n" ++
+        "      level: 2\n" ++
+        "      required: true\n" ++
+        "checks: []\n";
+    try expectNoteMessage(source,
+        "---\ntitle: Example\n---\n# Example\n\nlead\n\n## Checklist\n\n- [ ] one\n  - [ ] sub\n",
+        "x.md", .{ .mode = .create }, "body.checklist: nested checklist items are not allowed");
+    try expectNoteOk(source,
+        "---\ntitle: Example\n---\n# Example\n\nlead\n\n## Checklist\n\n- [ ] one\n",
+        "x.md", .{ .mode = .create });
+}
+
+test "lead prose must precede the Checklist heading when required" {
+    const source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "      required: true\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "  lead:\n" ++
+        "    required: true\n" ++
+        "  checklist:\n" ++
+        "    required: true\n" ++
+        "  sections:\n" ++
+        "    - title: Checklist\n" ++
+        "      level: 2\n" ++
+        "      required: true\n" ++
+        "checks: []\n";
+    try expectNoteMessage(source,
+        "---\ntitle: Example\n---\n# Example\n\n## Checklist\n\n- [ ] one\n",
+        "x.md", .{ .mode = .create }, "body.lead: prose before the checklist is required");
+    try expectNoteOk(source,
+        "---\ntitle: Example\n---\n# Example\n\nlead prose\n\n## Checklist\n\n- [ ] one\n",
         "x.md", .{ .mode = .create });
 }
 
