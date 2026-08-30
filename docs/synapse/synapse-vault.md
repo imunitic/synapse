@@ -21,9 +21,11 @@ The boxes name the vault-relevant hooks; what each one does is here rather than 
 
 ## The vault
 
-Plain markdown files with YAML frontmatter, read and written directly by `DiskStore` — the one real
-backend behind `ports.Store` (`SYNAPSE_VAULT_INTEGRATIONS` unset), no external dependency of any
-kind. Its `search` does real rarity-weighted ranking (word document-frequency measured against the
+Plain markdown files with YAML frontmatter, persisted by `DiskStore` — the one real backend behind
+`ports.Store` (`SYNAPSE_VAULT_INTEGRATIONS` unset), no external dependency of any kind. Every
+resolved Vault Store places the mandatory `SchemaValidationStore` immediately outside DiskStore;
+configured integrations wrap that boundary, so an invalid schema-declaring write cannot reach disk,
+Git, or Obsidian. Its `search` does real rarity-weighted ranking (word document-frequency measured against the
 vault, weighted by the same `distinctivenessScore` formula `/synapse-init` uses for cluster judging),
 its link graph (`vault-backlinks`/`vault-links`/`vault-unresolved`/`vault-orphans`/`vault-deadends`/
 `vault-ambiguous`) resolves wikilinks case-insensitively and logs an ambiguous match rather than
@@ -76,11 +78,23 @@ Folder depth is capped at two levels. A new top-level folder requires adding a m
 the vault's own `Index.md` in the same action — the index is agent-maintained and must never fall
 behind what's actually on disk.
 
-## Filenames and frontmatter
+## Filenames, frontmatter, and schemas
 
 Filenames are the human-readable title itself — no timestamp prefix, no slug — since a wikilink
-resolves by filename stem, not by title or path. Frontmatter carries what the filename doesn't:
-`title`, `created`, and for task notes `task_id`/`status`.
+resolves by filename stem, not by title or path. Newly authored notes declare one of three shipped
+contracts: `vault-note/v1`, `vault-design-note/v1`, or `vault-task-note/v1`. Their YAML schema files
+ship under `packages/synapse/schema/` and resolve at runtime from
+`$SYNAPSE_CONTENT_ROOT/schema/{schema-id}.yaml`.
+
+The validator checks required typed frontmatter, filename/title/H1 equality, the note kind's
+Markdown outline, configured project/tag vocabularies, immutable creation/identity fields, and
+creation-only identity uniqueness. Validation is open-world: undeclared frontmatter and Markdown
+sections are preserved. Existing notes without a `schema` field remain valid legacy notes; a
+declared, missing, malformed, or unsupported schema fails closed.
+
+All v1 notes use local `YYYY-MM-dd HH:mm:ss TZ` values for `created` and `updated`. Creation samples
+one value for both fields. Every successful `vault-write` update and `vault-patch` refreshes
+`updated` immediately before validation and persistence.
 
 ## The vault-relevant hooks
 

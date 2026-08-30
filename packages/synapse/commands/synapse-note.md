@@ -171,36 +171,64 @@ or supplied directly by a caller like `/synapse-task-note`):
    characters (`/ : * ? " < > |`) with `-`, collapse repeated whitespace.
    No timestamp prefix, no project-slug prefix — the filename is just the
    (sanitized) title.
-2. Fetch machine local time: `date '+%Y-%m-%d %H:%M'` — never use inferred
-   time. Use this for the `created` frontmatter field.
-3. Build the file content:
+2. Resolve tags through the `synapse-vault` skill's configured
+   `synapse-tag-vocabulary.conf` procedure. Choose only entries already in that vocabulary; an
+   empty list is valid when no tag applies, but the `tags` field itself is mandatory.
+3. Fetch machine local time once: `date '+%Y-%m-%d %H:%M:%S %Z'` — never use inferred
+   time. Use the exact same value for `created` and `updated`.
+4. Build the file content. A bare note needs a concise Summary. A task note needs lead prose and
+   at least one real flat checklist item before it can be written; never create an invalid empty
+   skeleton and promise to populate it later.
 
    **Bare mode:**
    ```
    ---
+   schema: vault-note/v1
    title: "{title}"
-   created: "{now}"
    note_id: {id}
+   created: "{now}"
+   updated: "{now}"
+   tags: [{comma-separated tags, or empty}]
    ---
 
+   # {title}
+
+   ## Summary
+
+   {essential content}
    ```
 
    **Task mode:**
    ```
    ---
+   schema: vault-task-note/v1
    title: "{title}"
-   created: "{now}"
+   project: {prefix}
    task_id: {task-id}
+   created: "{now}"
+   updated: "{now}"
+   tags: [{comma-separated tags, or empty}]
    status: TODO
-   last_updated: "{now}"
    ---
 
    # {title}
 
+   {task description}
+
+   ## Checklist
+
+   - [ ] {first implementation step}
+
    ## Notes
 
+   {constraints or context}
    ```
-4. Write it with `synapse vault-write <path>` (content on stdin). Task mode: path
+
+   Quote every scalar string value. In particular, a value that is all digits
+   (a numeric-looking `title`, or any future numeric id) must be quoted — an
+   unquoted all-digit value is parsed as an integer and fails a `type: string`
+   schema field.
+5. Write it with `synapse vault-write <path>` (content on stdin). Task mode: path
    `tasks/{project}/{filename}.md` (project resolved in "Resolving the
    project folder" above). Bare mode: path `{category}/{filename}.md`
    (category resolved above).
@@ -209,7 +237,6 @@ or supplied directly by a caller like `/synapse-task-note`):
 
 Report the file path back to the user.
 
-- Bare mode: note that the note is intentionally near-empty.
+- Bare mode: report the Summary that was captured.
 - Task mode: note the task ID extracted or resolved, and remind the user
-  to populate the `## Notes` section and checklist before starting work,
-  per the `synapse-task` skill.
+  that future status transitions are managed by the `synapse-task` skill.

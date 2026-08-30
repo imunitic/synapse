@@ -169,6 +169,7 @@ usage: synapse frontmatter get <path> <key>
 usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
+       synapse vault-check                        read-only conformance audit over schema-declaring notes
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
        synapse vault-search-text <query> [--path-filter]
                                                        full-text relevance search, optionally
@@ -192,6 +193,7 @@ usage: synapse vault-read <path>
 usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
+       synapse vault-check                        read-only conformance audit over schema-declaring notes
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
        synapse vault-search-text <query> [--path-filter]
                                                        full-text relevance search, optionally
@@ -215,6 +217,7 @@ usage: synapse vault-read <path>
 usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
+       synapse vault-check                        read-only conformance audit over schema-declaring notes
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
        synapse vault-search-text <query> [--path-filter]
                                                        full-text relevance search, optionally
@@ -238,6 +241,7 @@ usage: synapse vault-read <path>
 usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
+       synapse vault-check                        read-only conformance audit over schema-declaring notes
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
        synapse vault-search-text <query> [--path-filter]
                                                        full-text relevance search, optionally
@@ -261,6 +265,7 @@ usage: synapse vault-read <path>
 usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
+       synapse vault-check                        read-only conformance audit over schema-declaring notes
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
        synapse vault-search-text <query> [--path-filter]
                                                        full-text relevance search, optionally
@@ -284,6 +289,7 @@ usage: synapse vault-read <path>
 usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
+       synapse vault-check                        read-only conformance audit over schema-declaring notes
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
        synapse vault-search-text <query> [--path-filter]
                                                        full-text relevance search, optionally
@@ -307,6 +313,7 @@ usage: synapse vault-read <path>
 usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
+       synapse vault-check                        read-only conformance audit over schema-declaring notes
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
        synapse vault-search-text <query> [--path-filter]
                                                        full-text relevance search, optionally
@@ -330,6 +337,7 @@ usage: synapse vault-read <path>
 usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
+       synapse vault-check                        read-only conformance audit over schema-declaring notes
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
        synapse vault-search-text <query> [--path-filter]
                                                        full-text relevance search, optionally
@@ -353,6 +361,7 @@ usage: synapse vault-read <path>
 usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
+       synapse vault-check                        read-only conformance audit over schema-declaring notes
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
        synapse vault-search-text <query> [--path-filter]
                                                        full-text relevance search, optionally
@@ -376,6 +385,7 @@ usage: synapse vault-read <path>
 usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
+       synapse vault-check                        read-only conformance audit over schema-declaring notes
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
        synapse vault-search-text <query> [--path-filter]
                                                        full-text relevance search, optionally
@@ -399,6 +409,7 @@ usage: synapse vault-read <path>
 usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
+       synapse vault-check                        read-only conformance audit over schema-declaring notes
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
        synapse vault-search-text <query> [--path-filter]
                                                        full-text relevance search, optionally
@@ -422,6 +433,7 @@ usage: synapse vault-read <path>
 usage: synapse vault-read <path>
        synapse vault-write <path>                     body on stdin
        synapse vault-list
+       synapse vault-check                        read-only conformance audit over schema-declaring notes
        synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
        synapse vault-search-text <query> [--path-filter]
                                                        full-text relevance search, optionally

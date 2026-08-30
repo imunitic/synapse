@@ -8,6 +8,7 @@
 "use strict";
 
 const { spawnSync } = require("child_process");
+const path = require("path");
 const { cliPath, platformPackageName } = require("../lib/resolve-binaries.cjs");
 
 const bin = cliPath();
@@ -16,5 +17,7 @@ if (!bin) {
   process.exit(1);
 }
 
-const result = spawnSync(bin, process.argv.slice(2), { stdio: "inherit" });
+const env = { ...process.env };
+if (!env.SYNAPSE_CONTENT_ROOT) env.SYNAPSE_CONTENT_ROOT = path.join(__dirname, "..");
+const result = spawnSync(bin, process.argv.slice(2), { stdio: "inherit", env });
 process.exit(result.status ?? 1);

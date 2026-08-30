@@ -178,9 +178,13 @@ so the `## Status` line is the only lifecycle marker that matters. It simply sta
 
 ```
 ---
+schema: vault-design-note/v1
 title: "{PROJECT} — {Topic}"
 project: {prefix}
+note_id: {id}
 created: "{now}"
+updated: "{now}"
+tags: [{comma-separated configured tags, or empty}]
 ---
 
 # {PROJECT} — {Topic}
@@ -204,7 +208,9 @@ Discussing | Ready | Reference
 - {Anything deferred or unresolved}
 ```
 
-Fetch machine local time for `created` (`date '+%Y-%m-%d %H:%M'`) — never infer it.
+Resolve tags through the `synapse-vault` skill's configured vocabulary procedure. Fetch machine
+local time once (`date '+%Y-%m-%d %H:%M:%S %Z'`) — never infer it — and use the exact same value
+for `created` and `updated`.
 
 No `Notes`/changelog section — it stays a small, single-conclusion note; there's no long-running
 edit history here worth tracking separately.

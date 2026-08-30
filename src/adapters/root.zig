@@ -9,6 +9,7 @@
 const std = @import("std");
 
 pub const process = @import("process.zig");
+pub const local_timestamp = @import("local_timestamp.zig");
 pub const env = @import("env.zig");
 pub const fakes = @import("fakes/root.zig");
 
@@ -23,9 +24,13 @@ pub const git_sync = @import("git_sync.zig");
 pub const obsidian = @import("obsidian/store.zig");
 
 /// Plain markdown files directly on disk behind the Store port -- no
-/// network dependency at all. `SYNAPSE_VAULT_INTEGRATIONS=disk`'s backend, and
+/// network dependency at all. The implicit innermost backend, and
 /// what an extended store's own `read`/`write`/`list` decorate.
 pub const disk_store = @import("disk/store.zig");
+
+/// Mandatory validation decorator between DiskStore and every configured
+/// external integration. Legacy notes without a schema pass through.
+pub const schema_validation_store = @import("schema_validation_store.zig");
 
 /// A `DiskStore` decorator owning the vault's own git lifecycle --
 /// `SYNAPSE_VAULT_INTEGRATIONS=git`'s backend.

@@ -10,6 +10,8 @@ pub const FakeStore = struct {
     gpa: std.mem.Allocator,
     nodes: std.StringHashMapUnmanaged([]const u8) = .empty,
     writes: usize = 0,
+    reads: usize = 0,
+    lists: usize = 0,
     /// Set to make the next call fail -- tests that a hook stays quiet when
     /// the vault is unreachable.
     fail_next: ?anyerror = null,
@@ -38,6 +40,7 @@ pub const FakeStore = struct {
 
     pub fn read(self: *FakeStore, gpa: std.mem.Allocator, io: std.Io, node: []const u8) anyerror!?[]u8 {
         _ = io;
+        self.reads += 1;
         if (self.take()) |e| return e;
         const body = self.nodes.get(node) orelse return null;
         return try gpa.dupe(u8, body);
@@ -57,6 +60,7 @@ pub const FakeStore = struct {
 
     pub fn list(self: *FakeStore, gpa: std.mem.Allocator, io: std.Io) anyerror![]const []const u8 {
         _ = io;
+        self.lists += 1;
         if (self.take()) |e| return e;
         var out: std.ArrayListUnmanaged([]const u8) = .empty;
         errdefer {

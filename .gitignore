@@ -19,3 +19,7 @@ zig-tags.tsv
 # Personal, machine-local Claude Code instructions -- never shared, never
 # committed by anyone else working in this repo.
 CLAUDE.local.md
+# One-shot/site-local migration scripts kept outside the repo (moved to
+# ~/Development/synapse/scripts/) -- never part of a build or package.
+scripts/
+
