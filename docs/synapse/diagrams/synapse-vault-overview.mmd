@@ -24,6 +24,7 @@ flowchart TB
     IDX["Index.md"]
     FOLDERS["designs/ · tasks/ · research/<br/>inbox/ · scratchpad/"]
     SYN["synapse/{repo}@{branch}/<br/>Synapse Graph namespaces"]
+    VALIDATE["SchemaValidationStore<br/>schema-declaring writes validated"]
     GIT[("the Vault's own git history<br/>(SYNAPSE_VAULT_INTEGRATIONS=git)")]
 
     BEGIN --> H1
@@ -35,11 +36,13 @@ flowchart TB
     WORK -->|"every prompt"| H4
     SYN -->|"read"| H4
     H4 -->|"standing line: tools + node count"| WORK
-    WORK -->|"vault-write"| FOLDERS
+    WORK -->|"vault-write"| VALIDATE
+    VALIDATE -->|"valid"| FOLDERS
     FOLDERS -.->|"commit, git-backed only"| GIT
 
     class H1,H2,H4 hook
     class IDX,FOLDERS,SYN vault
+    class VALIDATE store
     class BEGIN,WORK session
     class GIT store
 

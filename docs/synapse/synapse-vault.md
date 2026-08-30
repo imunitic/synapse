@@ -96,6 +96,26 @@ All v1 notes use local `YYYY-MM-dd HH:mm:ss TZ` values for `created` and `update
 one value for both fields. Every successful `vault-write` update and `vault-patch` refreshes
 `updated` immediately before validation and persistence.
 
+The schema contract itself — the DSL, the v1 reference, how enforcement relates to the
+declared keys, and the write path — is documented in
+[synapse-note-schema.md](synapse-note-schema.md).
+
+### Checking conformance
+
+`synapse vault-check` runs a read-only audit over every schema-declaring note in one pass:
+it lists the vault, resolves the schema each note declares, validates the schema document
+and the note itself, prints one `note <TAB> message` line per violation, and exits `0`
+when all declared notes conform or `1` when any doesn't. It reports a summary like
+
+```
+244 notes: 0 schema-declaring (0 conformant, 0 violations), 244 legacy
+```
+
+and is the tool for a whole-vault check (a migration, a review) when a write-by-write
+yes isn't enough. Legacy notes — no `schema` field — are counted but never flagged: the
+audit is over the schema contract, and notes that opted out of it have nothing to
+conform to.
+
 ## The vault-relevant hooks
 
 Nothing here runs on a schedule; everything is triggered by an actual session event.

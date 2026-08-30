@@ -21,6 +21,10 @@ matches what you're trying to understand.
 - **[design-task-workflow.md](design-task-workflow.md)** — the design-note → task-note pipeline that
   runs on top of the Vault: `/synapse-design-note`, `/synapse-task-note`, the `synapse-task` status-tracking skill,
   and the optional GitHub-issue mirror.
+- **[synapse-note-schema.md](synapse-note-schema.md)** — the versioned `v1` note-schema contract: the
+  DSL (frontmatter fields, body structure, cross-field checks), the bounded YAML subset and regex
+  dialect it uses, how enforcement relates to the declared keys, the write path through
+  `SchemaValidationStore`, and `synapse vault-check`.
 - **[synapse-code-cache.md](synapse-code-cache.md)** — **Synapse Code Cache**: the vault-free
   acceleration layer underneath the Graph. Build path (`synapse tags` → `synapse tags-cache` →
   `synapse build-refs`) and query path (`symbol`, `synapse callers`), what each costs measured,
