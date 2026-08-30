@@ -18,11 +18,12 @@
 //! socket, which needs neither a plugin installed nor any file this
 //! function has to go find.
 //!
-//! A future integration (`NotionStore`, say) is one more name in
-//! `known_integrations` and one more branch in `resolveStore`'s own compose
-//! loop, nowhere else -- it would be shaped the same way `git`/`obsidian`
-//! already are, a decorator over the one real store, not a new kind of peer
-//! backend.
+//! A future integration (`NotionStore`, say) is one more entry in
+//! `integration_handlers` and one more `compose*` function, nowhere else --
+//! it would be shaped the same way `git`/`obsidian` already are, a decorator
+//! over the one real store, not a new kind of peer backend. Still by hand,
+//! in this file -- `integration_handlers` is a dispatch table, not a
+//! registration mechanism anything outside this file can add to.
 
 const std = @import("std");
 const core = @import("core");
@@ -121,7 +122,75 @@ pub const ResolvedStore = struct {
     }
 };
 
-const known_integrations = [_][]const u8{ "git", "obsidian" };
+/// What every `compose*` function needs to build its layer around whatever
+/// the chain has produced so far -- `env`/`self_path` are only meaningful to
+/// `git`, but every handler gets the same context so none of them need a
+/// bespoke signature.
+const ComposeCtx = struct {
+    gpa: Allocator,
+    vault: []const u8,
+    namespace: []const u8,
+    env: *std.process.Environ.Map,
+    self_path: []const u8,
+    inner_store: Store,
+    inner_link_graph: LinkGraph,
+    inner_renamer: Renamer,
+    inner_search_filtered: SearchFiltered,
+};
+
+/// `search_filtered` is deliberately absent -- no integration overrides it,
+/// so `resolveStore`'s own `current_search_filtered` never changes across
+/// the loop and has nothing to receive back here.
+const ComposeResult = struct {
+    layer: OwnedLayer,
+    store: Store,
+    link_graph: LinkGraph,
+    renamer: Renamer,
+};
+
+/// One integration this build knows how to compose: `name` is what
+/// `SYNAPSE_VAULT_INTEGRATIONS` spells it as, `compose` builds that layer
+/// around whatever the chain has produced so far. This table is the single
+/// source of both "which names are valid" (`parseIntegrationsImpl`) and
+/// "how to build one" (`resolveStore`'s compose loop).
+const IntegrationHandler = struct {
+    name: []const u8,
+    compose: *const fn (ctx: ComposeCtx) Allocator.Error!ComposeResult,
+};
+
+fn composeGit(ctx: ComposeCtx) Allocator.Error!ComposeResult {
+    const git = try ctx.gpa.create(GitStore);
+    git.* = GitStore.init(ctx.gpa, ctx.vault, ctx.inner_store, ctx.inner_link_graph, ctx.inner_renamer, ctx.inner_search_filtered);
+    git.env = ctx.env;
+    git.self_path = ctx.self_path;
+    return .{
+        .layer = OwnedLayer.of(GitStore, git),
+        .store = git.store(),
+        // `linkGraph`/`searchFiltered` pass straight through -- `git` never
+        // overrides either.
+        .link_graph = ctx.inner_link_graph,
+        .renamer = git.renamer(),
+    };
+}
+
+fn composeObsidian(ctx: ComposeCtx) Allocator.Error!ComposeResult {
+    const os = try ctx.gpa.create(ObsidianStore);
+    os.* = ObsidianStore.init(ctx.vault, ctx.namespace, ctx.inner_store, ctx.inner_link_graph, ctx.inner_renamer, ctx.inner_search_filtered);
+    return .{
+        .layer = OwnedLayer.of(ObsidianStore, os),
+        .store = os.store(),
+        .link_graph = os.linkGraph(),
+        .renamer = os.renamer(),
+        // `searchFiltered` passes straight through -- Obsidian's own query
+        // language has no path-filter concept to translate a JsonLogic rule
+        // into.
+    };
+}
+
+const integration_handlers = [_]IntegrationHandler{
+    .{ .name = "git", .compose = composeGit },
+    .{ .name = "obsidian", .compose = composeObsidian },
+};
 
 /// Splits `value` on `,` and validates before anything gets constructed:
 /// `disk` named anywhere, an unrecognized name, or a name repeated is each
@@ -142,8 +211,8 @@ fn parseIntegrationsImpl(value: []const u8, prog: ?[]const u8, out: *[8][]const 
             return null;
         }
         var known = false;
-        for (known_integrations) |k| {
-            if (std.mem.eql(u8, name, k)) known = true;
+        for (integration_handlers) |h| {
+            if (std.mem.eql(u8, name, h.name)) known = true;
         }
         if (!known) {
             report(prog, "unknown integration '{s}' in SYNAPSE_VAULT_INTEGRATIONS -- want 'git', 'obsidian', or a comma-separated combination\n", .{name});
@@ -233,29 +302,30 @@ pub fn resolveStore(
     while (i > 0) {
         i -= 1;
         const name = names[i];
-        if (std.mem.eql(u8, name, "git")) {
-            const git = try gpa.create(GitStore);
-            errdefer gpa.destroy(git);
-            git.* = GitStore.init(gpa, vault, current_store, current_link_graph, current_renamer, current_search_filtered);
-            git.env = env;
-            git.self_path = self_path;
-            try layers.append(gpa, OwnedLayer.of(GitStore, git));
-            current_store = git.store();
-            current_renamer = git.renamer();
-            // `linkGraph`/`searchFiltered` pass straight through -- `git`
-            // never overrides either.
-        } else if (std.mem.eql(u8, name, "obsidian")) {
-            const os = try gpa.create(ObsidianStore);
-            errdefer gpa.destroy(os);
-            os.* = ObsidianStore.init(vault, namespace, current_store, current_link_graph, current_renamer, current_search_filtered);
-            try layers.append(gpa, OwnedLayer.of(ObsidianStore, os));
-            current_store = os.store();
-            current_link_graph = os.linkGraph();
-            current_renamer = os.renamer();
-            // `searchFiltered` passes straight through -- Obsidian's own
-            // query language has no path-filter concept to translate a
-            // JsonLogic rule into.
+        const handler = for (integration_handlers) |h| {
+            if (std.mem.eql(u8, h.name, name)) break h;
         } else unreachable; // parseIntegrationsImpl already validated every name
+
+        const result = try handler.compose(.{
+            .gpa = gpa,
+            .vault = vault,
+            .namespace = namespace,
+            .env = env,
+            .self_path = self_path,
+            .inner_store = current_store,
+            .inner_link_graph = current_link_graph,
+            .inner_renamer = current_renamer,
+            .inner_search_filtered = current_search_filtered,
+        });
+        // `handler.compose` already allocated and initialized this layer;
+        // an `append` failure below must still free it, the way the old
+        // per-branch `errdefer gpa.destroy(...)` did before it was split
+        // into `compose*`.
+        errdefer result.layer.destroy(gpa, result.layer.ptr);
+        try layers.append(gpa, result.layer);
+        current_store = result.store;
+        current_link_graph = result.link_graph;
+        current_renamer = result.renamer;
     }
 
     return .{
