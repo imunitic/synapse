@@ -70,15 +70,15 @@ pub const SchemaValidationStore = struct {
         }
         const candidate = refreshed orelse body;
 
-        var schema_doc = self.loadSchema(io, schema_id) catch |err|
+        var schema_doc = loadSchemaDocument(self.gpa, io, self.vars, schema_id) catch |err|
             return self.reject("schema: {s}", .{@errorName(err)});
         defer schema_doc.deinit();
         if (try core.note_schema.validateSchema(self.gpa, schema_doc.root, schema_id)) |message|
             return .{ .accepted = false, .status = 422, .body = message };
 
-        const projects = try self.loadVocabulary(io, "synapse-projects.conf");
+        const projects = try loadVocabularyText(self.gpa, io, self.vars, "synapse-projects.conf");
         defer if (projects) |text| self.gpa.free(text);
-        const tags = try self.loadVocabulary(io, "synapse-tag-vocabulary.conf");
+        const tags = try loadVocabularyText(self.gpa, io, self.vars, "synapse-tag-vocabulary.conf");
         defer if (tags) |text| self.gpa.free(text);
 
         const duplicate = if (mode == .create or mode == .migration)
@@ -96,24 +96,6 @@ pub const SchemaValidationStore = struct {
         })) |message| return .{ .accepted = false, .status = 422, .body = message };
 
         return self.inner.write(io, node, candidate);
-    }
-
-    fn loadSchema(self: *SchemaValidationStore, io: Io, schema_id: []const u8) !core.schema_yaml.Document {
-        const root = self.vars.get("SYNAPSE_CONTENT_ROOT") orelse return error.ContentRootMissing;
-        if (root.len == 0) return error.ContentRootMissing;
-        const relative = try std.fmt.allocPrint(self.gpa, "schema/{s}.yaml", .{schema_id});
-        defer self.gpa.free(relative);
-        const path = try std.fs.path.join(self.gpa, &.{ root, relative });
-        defer self.gpa.free(path);
-        const source = try Io.Dir.cwd().readFileAlloc(io, path, self.gpa, .limited(1 << 20));
-        defer self.gpa.free(source);
-        return core.schema_yaml.parse(self.gpa, source);
-    }
-
-    fn loadVocabulary(self: *SchemaValidationStore, io: Io, name: []const u8) !?[]u8 {
-        const path = (try core.conf.resolveConfPath(self.gpa, io, self.vars, name)) orelse return null;
-        defer self.gpa.free(path);
-        return Io.Dir.cwd().readFileAlloc(io, path, self.gpa, .limited(4 << 20)) catch null;
     }
 
     /// The schema's `unique` check names the canonical identity field. Only
@@ -160,6 +142,24 @@ pub const SchemaValidationStore = struct {
         return .{ .accepted = false, .status = 422, .body = try std.fmt.allocPrint(self.gpa, fmt, args) };
     }
 };
+
+pub fn loadSchemaDocument(gpa: Allocator, io: Io, vars: core.conf.Vars, schema_id: []const u8) !core.schema_yaml.Document {
+    const root = vars.get("SYNAPSE_CONTENT_ROOT") orelse return error.ContentRootMissing;
+    if (root.len == 0) return error.ContentRootMissing;
+    const relative = try std.fmt.allocPrint(gpa, "schema/{s}.yaml", .{schema_id});
+    defer gpa.free(relative);
+    const path = try std.fs.path.join(gpa, &.{ root, relative });
+    defer gpa.free(path);
+    const source = try Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 20));
+    defer gpa.free(source);
+    return core.schema_yaml.parse(gpa, source);
+}
+
+pub fn loadVocabularyText(gpa: Allocator, io: Io, vars: core.conf.Vars, name: []const u8) !?[]u8 {
+    const path = (try core.conf.resolveConfPath(gpa, io, vars, name)) orelse return null;
+    defer gpa.free(path);
+    return Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(4 << 20)) catch null;
+}
 
 fn safeSchemaId(id: []const u8) bool {
     if (id.len == 0 or id[0] == '/' or std.mem.indexOfScalar(u8, id, '\\') != null) return false;

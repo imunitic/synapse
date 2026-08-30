@@ -112,6 +112,9 @@ pub fn main(init: std.process.Init) !u8 {
     if (std.mem.eql(u8, sub, "vault-list"))
         return vault_cmd.runList(init.gpa, init.io, init.environ_map, &args);
 
+    if (std.mem.eql(u8, sub, "vault-check"))
+        return vault_cmd.runCheck(init.gpa, init.io, init.environ_map, &args);
+
     if (std.mem.eql(u8, sub, "vault-search"))
         return vault_cmd.runSearch(init.gpa, init.io, init.environ_map, &args);
 

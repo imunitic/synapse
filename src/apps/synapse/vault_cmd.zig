@@ -60,6 +60,7 @@ const usage_text =
     \\usage: synapse vault-read <path>
     \\       synapse vault-write <path>                     body on stdin
     \\       synapse vault-list
+    \\       synapse vault-check                        read-only conformance audit over schema-declaring notes
     \\       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
     \\       synapse vault-search-text <query> [--path-filter]
     \\                                                       full-text relevance search, optionally
@@ -170,6 +171,76 @@ pub fn list(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []cons
     }
     for (names) |n| try result.print("{s}\n", .{n});
     return 0;
+}
+
+/// Read-only conformance audit of the whole vault. One note at a time:
+/// a note with no `schema` declaration is legacy and simply counted; a
+/// note that declares one is resolved, loaded, and validated exactly as
+/// `vault-write`'s persistence boundary would (`mode = .update` against its
+/// own content, so mutable/unique/creation-only rules cannot fire against
+/// a note that already exists). One `path\tmessage` row per violating
+/// schema-declaring note, then a summary line. Exit 0 when every
+/// schema-declaring note conforms, 1 when any does not -- legacy notes are
+/// never a violation, only a count.
+pub fn check(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, result: *Io.Writer) !u8 {
+    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
+    defer resolved.deinit();
+    const store = resolved.store();
+    const vars = adapters.env.vars(env);
+
+    const names = store.list(gpa, io) catch {
+        std.debug.print("{s}: list failed\n", .{prog});
+        return 1;
+    };
+    defer {
+        for (names) |n| gpa.free(n);
+        gpa.free(names);
+    }
+
+    var declared: usize = 0;
+    var conformant: usize = 0;
+    var legacy: usize = 0;
+    var violations: usize = 0;
+    for (names) |name| {
+        const body = (store.read(gpa, io, name) catch continue) orelse continue;
+        defer gpa.free(body);
+        const schema_id = core.note_schema.schemaId(body) orelse {
+            legacy += 1;
+            continue;
+        };
+        declared += 1;
+
+        var doc = adapters.schema_validation_store.loadSchemaDocument(gpa, io, vars, schema_id) catch |err| {
+            try result.print("{s}\t{any}\n", .{ name, @errorName(err) });
+            violations += 1;
+            continue;
+        };
+        defer doc.deinit();
+        if (try core.note_schema.validateSchema(gpa, doc.root, schema_id)) |message| {
+            defer gpa.free(message);
+            try result.print("{s}\t{s}\n", .{ name, message });
+            violations += 1;
+            continue;
+        }
+        const projects = try adapters.schema_validation_store.loadVocabularyText(gpa, io, vars, "synapse-projects.conf");
+        defer if (projects) |text| gpa.free(text);
+        const tags = try adapters.schema_validation_store.loadVocabularyText(gpa, io, vars, "synapse-tag-vocabulary.conf");
+        defer if (tags) |text| gpa.free(text);
+        if (try core.note_schema.validateNote(gpa, doc.root, body, name, .{
+            .mode = .update,
+            .existing = body,
+            .projects_vocabulary = projects,
+            .tags_vocabulary = tags,
+        })) |message| {
+            defer gpa.free(message);
+            try result.print("{s}\t{s}\n", .{ name, message });
+            violations += 1;
+            continue;
+        }
+        conformant += 1;
+    }
+    try result.print("{d} notes: {d} schema-declaring ({d} conformant, {d} violations), {d} legacy\n", .{ names.len, declared, conformant, violations, legacy });
+    return if (violations == 0) 0 else 1;
 }
 
 /// Plain full-text relevance search, straight over `Store.search` (or, with
@@ -560,6 +631,21 @@ pub fn runList(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std
     var out_buf: [8192]u8 = undefined;
     var out = Io.File.stdout().writer(io, &out_buf);
     const code = try list(gpa, io, env, vault, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+pub fn runCheck(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
+    if (args.next()) |arg| {
+        if (isHelp(arg)) return help();
+        return usage();
+    }
+    const vault = (try resolveVault(gpa, io, env)) orelse return 1;
+    defer gpa.free(vault);
+
+    var out_buf: [8192]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try check(gpa, io, env, vault, &out.interface);
     try out.interface.flush();
     return code;
 }
@@ -1062,6 +1148,77 @@ test "search with no --fields prints just the matching path" {
     const code = try search(gpa, fx.io(), &fx.env, fx.vault, q.value, &.{}, &out.writer);
     try testing.expectEqual(@as(u8, 0), code);
     try testing.expectEqualStrings("tasks/synapse/a.md\n", out.written());
+}
+
+const test_check_schema =
+    "schema: synapse-note-schema/v1\n" ++
+    "id: t/v1\n" ++
+    "frontmatter:\n" ++
+    "  fields:\n" ++
+    "    title:\n" ++
+    "      type: string\n" ++
+    "      required: true\n" ++
+    "body:\n" ++
+    "  h1:\n" ++
+    "    required: true\n" ++
+    "    count: 1\n" ++
+    "checks: []\n";
+
+fn writeCheckSchema(fx: *fixture.Fixture) !void {
+    try fx.tmp.dir.createDirPath(testing.io, "schema/t");
+    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "schema/t/v1.yaml", .data = test_check_schema });
+    try fx.env.put("SYNAPSE_CONTENT_ROOT", fx.root);
+}
+
+test "check reports a conformant schema note clean and counts legacy notes" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("SYNAPSE_VAULT_INTEGRATIONS"); // disk is implicit, never named
+    _ = fx.env.swapRemove("SYNAPSE_CONTENT_ROOT");
+    try writeCheckSchema(&fx);
+    try fx.writeVaultFile("research/Good.md", "---\nschema: t/v1\ntitle: Good\n---\n# Good\n\nbody\n");
+    try fx.writeVaultFile("research/Legacy.md", "---\ntitle: Legacy\n---\n# Legacy\n\nbody\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try check(gpa, fx.io(), &fx.env, fx.vault, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expectEqualStrings("2 notes: 1 schema-declaring (1 conformant, 0 violations), 1 legacy\n", out.written());
+}
+
+test "check reports a violating schema note and exits 1" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("SYNAPSE_VAULT_INTEGRATIONS"); // disk is implicit, never named
+    _ = fx.env.swapRemove("SYNAPSE_CONTENT_ROOT");
+    try writeCheckSchema(&fx);
+    try fx.writeVaultFile("research/Bad.md", "---\nschema: t/v1\n---\n# Bad\n\nbody\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try check(gpa, fx.io(), &fx.env, fx.vault, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "research/Bad.md\tfrontmatter.title: required field is missing\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "1 schema-declaring (0 conformant, 1 violations)") != null);
+}
+
+test "check reports an unresolvable schema id per note" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("SYNAPSE_VAULT_INTEGRATIONS"); // disk is implicit, never named
+    _ = fx.env.swapRemove("SYNAPSE_CONTENT_ROOT");
+    try writeCheckSchema(&fx);
+    try fx.writeVaultFile("research/Unknown.md", "---\nschema: missing/v1\n---\n# Unknown\n\nbody\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try check(gpa, fx.io(), &fx.env, fx.vault, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "research/Unknown.md\t") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "1 legacy") == null);
 }
 
 test "patch replaces a heading's content" {
