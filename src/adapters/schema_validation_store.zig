@@ -9,6 +9,7 @@
 const std = @import("std");
 const core = @import("core");
 const ports = @import("ports");
+const local_timestamp = @import("local_timestamp.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -56,6 +57,19 @@ pub const SchemaValidationStore = struct {
         else
             .update;
 
+        // An update to a schema-declaring note refreshes `updated` here, at
+        // the persistence boundary, before any validation runs -- so the
+        // caller never has to pre-read the note to own the timestamp the way
+        // `vault_cmd` used to, and no layer above this has to read twice.
+        var refreshed: ?[]u8 = null;
+        defer if (refreshed) |value| self.gpa.free(value);
+        if (existing != null) {
+            const timestamp = try local_timestamp.now(self.gpa, io);
+            defer self.gpa.free(timestamp);
+            refreshed = try core.frontmatter.set(self.gpa, body, "updated", .{ .scalar = timestamp });
+        }
+        const candidate = refreshed orelse body;
+
         var schema_doc = self.loadSchema(io, schema_id) catch |err|
             return self.reject("schema: {s}", .{@errorName(err)});
         defer schema_doc.deinit();
@@ -68,12 +82,12 @@ pub const SchemaValidationStore = struct {
         defer if (tags) |text| self.gpa.free(text);
 
         const duplicate = if (mode == .create or mode == .migration)
-            try self.findDuplicateIdentity(io, schema_doc.root, node, body)
+            try self.findDuplicateIdentity(io, schema_doc.root, node, candidate)
         else
             null;
         defer if (duplicate) |value| self.gpa.free(value);
 
-        if (try core.note_schema.validateNote(self.gpa, schema_doc.root, body, node, .{
+        if (try core.note_schema.validateNote(self.gpa, schema_doc.root, candidate, node, .{
             .mode = mode,
             .existing = existing,
             .duplicate_identity = duplicate,
@@ -81,7 +95,7 @@ pub const SchemaValidationStore = struct {
             .tags_vocabulary = tags,
         })) |message| return .{ .accepted = false, .status = 422, .body = message };
 
-        return self.inner.write(io, node, body);
+        return self.inner.write(io, node, candidate);
     }
 
     fn loadSchema(self: *SchemaValidationStore, io: Io, schema_id: []const u8) !core.schema_yaml.Document {

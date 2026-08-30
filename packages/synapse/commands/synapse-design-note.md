@@ -207,6 +207,10 @@ Discussing | Ready | Reference
 - {Anything deferred or unresolved}
 ```
 
+Any string scalar that is all digits (e.g. a numeric-looking title) must be quoted: an
+unquoted all-digit value is parsed as an integer, which fails a `type: string` schema
+field. `title`, `project`, `note_id`, and both timestamps are quoted above.
+
 Resolve tags through the `synapse-vault` skill's configured vocabulary procedure. Fetch machine
 local time once (`date '+%Y-%m-%d %H:%M:%S %Z'`) — never infer it — and use the exact same value
 for `created` and `updated`.

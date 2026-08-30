@@ -138,22 +138,11 @@ pub fn write(
     defer resolved.deinit();
     const store = resolved.store();
 
-    // Creation carries the one timestamp sampled by the authoring command.
-    // An update refreshes only `updated`, immediately before the mandatory
-    // validation decorator sees the candidate.
-    const existing = store.read(gpa, io, path) catch {
-        std.debug.print("{s}: read failed\n", .{prog});
-        return 1;
-    };
-    defer if (existing) |old| gpa.free(old);
-    const refreshed = if (existing != null) refreshUpdated(gpa, io, body) catch {
-        std.debug.print("{s}: could not refresh updated timestamp\n", .{prog});
-        return 1;
-    } else null;
-    defer if (refreshed) |candidate| gpa.free(candidate);
-    const candidate = refreshed orelse body;
-
-    const wr = store.write(io, path, candidate) catch {
+    // Creation carries the one timestamp sampled by the authoring command. An
+    // update's `updated` refresh happens inside the validation decorator, the
+    // persistence boundary that already reads the existing note -- so this
+    // command never pre-reads: no second read on an update.
+    const wr = store.write(io, path, body) catch {
         std.debug.print("{s}: write failed\n", .{prog});
         return 1;
     };
@@ -504,14 +493,7 @@ pub fn patch(
     };
     defer gpa.free(patched);
 
-    const refreshed = refreshUpdated(gpa, io, patched) catch {
-        std.debug.print("{s}: could not refresh updated timestamp\n", .{prog});
-        return 1;
-    };
-    defer if (refreshed) |candidate| gpa.free(candidate);
-    const updated = refreshed orelse patched;
-
-    const wr = store.write(io, path, updated) catch {
+    const wr = store.write(io, path, patched) catch {
         std.debug.print("{s}: write failed\n", .{prog});
         return 1;
     };
@@ -522,16 +504,6 @@ pub fn patch(
     }
     try result.print("{s}\n", .{path});
     return 0;
-}
-
-/// Null for legacy notes. Schema-declaring notes get a byte-preserving
-/// single-field replacement; validation then decides whether the rest of
-/// the candidate is valid.
-fn refreshUpdated(gpa: Allocator, io: Io, body: []const u8) !?[]u8 {
-    if (core.note_schema.schemaId(body) == null) return null;
-    const timestamp = try adapters.local_timestamp.now(gpa, io);
-    defer gpa.free(timestamp);
-    return try core.frontmatter.set(gpa, body, "updated", .{ .scalar = timestamp });
 }
 
 // --- argv/stdin plumbing, called from main.zig -------------------------

@@ -128,8 +128,12 @@ fn validateFieldRule(gpa: Allocator, field: []const u8, rule: *const Value) !?[]
         return try diag(gpa, "schema.frontmatter.fields.{s}.required: must be boolean", .{field});
     if (rule.get("mutable")) |v| if (v.asBool() == null)
         return try diag(gpa, "schema.frontmatter.fields.{s}.mutable: must be boolean", .{field});
-    if (rule.get("min_length")) |v| if (v.asInteger() == null)
-        return try diag(gpa, "schema.frontmatter.fields.{s}.min_length: must be integer", .{field});
+    if (rule.get("min_length")) |v| {
+        const bound = v.asInteger() orelse
+            return try diag(gpa, "schema.frontmatter.fields.{s}.min_length: must be integer", .{field});
+        if (bound < 1)
+            return try diag(gpa, "schema.frontmatter.fields.{s}.min_length: must be at least 1", .{field});
+    }
     if (rule.get("pattern")) |v| {
         const pattern = v.asString() orelse
             return try diag(gpa, "schema.frontmatter.fields.{s}.pattern: must be string", .{field});
@@ -154,6 +158,11 @@ fn validateBodyRules(gpa: Allocator, top: *const Value) !?[]u8 {
     const h1 = mapAt(body, "h1") orelse return try diag(gpa, "schema.body.h1: required mapping is missing", .{});
     if (unknownKey(h1, &.{ "required", "count", "equals" })) |key|
         return try diag(gpa, "schema.body.h1.{s}: unsupported v1 key", .{key});
+    if (h1.get("count")) |v| {
+        const count = v.asInteger() orelse
+            return try diag(gpa, "schema.body.h1.count: must be integer", .{});
+        if (count < 1) return try diag(gpa, "schema.body.h1.count: must be at least 1", .{});
+    }
     if (body.get("sections")) |sections| {
         const list = switch (sections.*) {
             .list => |v| v,
@@ -173,10 +182,19 @@ fn validateBodyRules(gpa: Allocator, top: *const Value) !?[]u8 {
     if (body.get("lead")) |lead| {
         if (unknownKey(lead, &.{ "type", "required", "position" })) |key|
             return try diag(gpa, "schema.body.lead.{s}: unsupported v1 key", .{key});
+        if (lead.get("required")) |v| if (v.asBool() == null)
+            return try diag(gpa, "schema.body.lead.required: must be boolean", .{});
     }
     if (body.get("checklist")) |checklist| {
         if (unknownKey(checklist, &.{ "required", "min_items", "position", "nested_items", "allowed_children" })) |key|
             return try diag(gpa, "schema.body.checklist.{s}: unsupported v1 key", .{key});
+        if (checklist.get("required")) |v| if (v.asBool() == null)
+            return try diag(gpa, "schema.body.checklist.required: must be boolean", .{});
+        if (checklist.get("min_items")) |v| {
+            const min = v.asInteger() orelse
+                return try diag(gpa, "schema.body.checklist.min_items: must be integer", .{});
+            if (min < 0) return try diag(gpa, "schema.body.checklist.min_items: must not be negative", .{});
+        }
         if (checklist.get("allowed_children")) |allowed| if (!isStringList(allowed))
             return try diag(gpa, "schema.body.checklist.allowed_children: must be a string list", .{});
     }
@@ -262,8 +280,11 @@ pub fn validateNote(
         if (scalarString(lookup.value)) |value| {
             if (stringAt(rule, "const")) |want| if (!std.mem.eql(u8, value, want))
                 return try diag(gpa, "frontmatter.{s}: expected '{s}'", .{ field.key, want });
-            if (rule.get("min_length")) |v| if (value.len < @as(usize, @intCast(v.integer)))
-                return try diag(gpa, "frontmatter.{s}: must not be empty", .{field.key});
+            if (rule.get("min_length")) |v| {
+                const bound: usize = @intCast(v.integer);
+                if (value.len < bound)
+                    return try diag(gpa, "frontmatter.{s}: must be at least {d} characters", .{ field.key, bound });
+            }
             if (stringAt(rule, "pattern")) |pattern| if (!try schema_pattern.isMatch(pattern, value))
                 return try diag(gpa, "frontmatter.{s}: does not match required pattern", .{field.key});
             if (rule.get("enum")) |v| if (!stringInValueList(value, v))
@@ -271,10 +292,6 @@ pub fn validateNote(
             if (std.mem.eql(u8, type_name, "timestamp") and !validTimestamp(value))
                 return try diag(gpa, "frontmatter.{s}: expected YYYY-MM-dd HH:mm:ss TZ in local time", .{field.key});
         }
-        if (std.mem.eql(u8, type_name, "list")) switch (lookup.value) {
-            .list => {},
-            else => unreachable,
-        };
 
         if (context.existing) |existing| if (context.mode != .create and boolAt(rule, "mutable") == false) {
             var old = try lookupField(gpa, existing, field.key);
@@ -296,8 +313,22 @@ fn validateSectionRule(gpa: Allocator, section: *const Value, index: usize) !?[]
     })) |key| return try diag(gpa, "schema.body.sections[{d}].{s}: unsupported v1 key", .{ index, key });
     if (section.get("title") == null and section.get("title_pattern") == null)
         return try diag(gpa, "schema.body.sections[{d}]: title or title_pattern is required", .{index});
-    if (section.get("level")) |v| if (v.asInteger() == null)
-        return try diag(gpa, "schema.body.sections[{d}].level: must be integer", .{index});
+    if (section.get("level")) |v| {
+        const level = v.asInteger() orelse
+            return try diag(gpa, "schema.body.sections[{d}].level: must be integer", .{index});
+        if (level < 1) return try diag(gpa, "schema.body.sections[{d}].level: must be at least 1", .{index});
+    }
+    if (section.get("max_occurs")) |v| {
+        const max = v.asInteger() orelse
+            return try diag(gpa, "schema.body.sections[{d}].max_occurs: must be integer", .{index});
+        if (max < 1) return try diag(gpa, "schema.body.sections[{d}].max_occurs: must be at least 1", .{index});
+    }
+    if (section.get("required")) |v| if (v.asBool() == null)
+        return try diag(gpa, "schema.body.sections[{d}].required: must be boolean", .{index});
+    if (section.get("non_empty")) |v| if (v.asBool() == null)
+        return try diag(gpa, "schema.body.sections[{d}].non_empty: must be boolean", .{index});
+    if (section.get("repeatable")) |v| if (v.asBool() == null)
+        return try diag(gpa, "schema.body.sections[{d}].repeatable: must be boolean", .{index});
     if (section.get("title_pattern")) |v| {
         const pattern = v.asString() orelse
             return try diag(gpa, "schema.body.sections[{d}].title_pattern: must be string", .{index});
@@ -534,7 +565,9 @@ fn validateChecks(gpa: Allocator, checks: *const Value, note: []const u8, path: 
             defer gpa.free(left);
             const right = try resolveRef(gpa, note, path, values.list[1].string);
             defer gpa.free(right);
-            if (left.len >= 19 and right.len >= 19 and std.mem.lessThan(u8, left[0..19], right[0..19]))
+            if (left.len < 19 or right.len < 19)
+                return try diag(gpa, "{s}: must not precede {s} — a value is missing or malformed", .{ values.list[0].string, values.list[1].string });
+            if (std.mem.lessThan(u8, left[0..19], right[0..19]))
                 return try diag(gpa, "{s}: must not precede {s}", .{ values.list[0].string, values.list[1].string });
             continue;
         }
@@ -986,4 +1019,335 @@ test "immutable identity changes are rejected without a vault scan" {
     })).?;
     defer testing.allocator.free(message);
     try testing.expectEqualStrings("frontmatter.note_id: field is immutable", message);
+}
+
+// --- sb-082: per-check negative coverage ----------------------------------
+
+fn expectNoteMessage(source: []const u8, note: []const u8, path: []const u8, context: Context, want: []const u8) !void {
+    var doc = try schema_yaml.parse(testing.allocator, source);
+    defer doc.deinit();
+    const message = (try validateNote(testing.allocator, doc.root, note, path, context)).?;
+    defer testing.allocator.free(message);
+    try testing.expectEqualStrings(want, message);
+}
+
+fn expectNoteOk(source: []const u8, note: []const u8, path: []const u8, context: Context) !void {
+    var doc = try schema_yaml.parse(testing.allocator, source);
+    defer doc.deinit();
+    try testing.expectEqual(@as(?[]u8, null), try validateNote(testing.allocator, doc.root, note, path, context));
+}
+
+test "min_length below 1 is rejected at schema-validation time" {
+    const source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "      min_length: -1\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "checks: []\n";
+    var doc = try schema_yaml.parse(testing.allocator, source);
+    defer doc.deinit();
+    const message = (try validateSchema(testing.allocator, doc.root, "t/v1")).?;
+    defer testing.allocator.free(message);
+    try testing.expectEqualStrings("schema.frontmatter.fields.title.min_length: must be at least 1", message);
+}
+
+test "min_length diagnostics carry the configured bound" {
+    const source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "      required: true\n" ++
+        "      min_length: 5\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "checks: []\n";
+    try expectNoteMessage(source, "---\ntitle: Hi\n---\n# Hi\n", "x.md", .{ .mode = .create }, "frontmatter.title: must be at least 5 characters");
+}
+
+test "not_before diagnoses a missing field instead of passing silently" {
+    const source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "      required: true\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "checks:\n" ++
+        "  - not_before: [frontmatter.updated, frontmatter.created]\n";
+    try expectNoteMessage(source, "---\ntitle: Example\n---\n# Example\n", "x.md", .{ .mode = .create }, "frontmatter.updated: must not precede frontmatter.created — a value is missing or malformed");
+}
+
+test "not_before rejects a timestamp that precedes its pair and accepts the reverse" {
+    const source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "      required: true\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "checks:\n" ++
+        "  - not_before: [frontmatter.updated, frontmatter.created]\n";
+    try expectNoteMessage(source,
+        "---\ntitle: Example\nupdated: '2026-08-30 01:00:00 CEST'\ncreated: '2026-08-30 02:00:00 CEST'\n---\n# Example\n",
+        "x.md", .{ .mode = .create }, "frontmatter.updated: must not precede frontmatter.created");
+    try expectNoteOk(source,
+        "---\ntitle: Example\nupdated: '2026-08-30 02:00:00 CEST'\ncreated: '2026-08-30 01:00:00 CEST'\n---\n# Example\n",
+        "x.md", .{ .mode = .create });
+}
+
+test "const check applies on creation and skips on update" {
+    const source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "      required: true\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "checks:\n" ++
+        "  - const:\n" ++
+        "      field: frontmatter.status\n" ++
+        "      value: TODO\n" ++
+        "      when: create\n";
+    const note = "---\ntitle: Example\nstatus: DONE\n---\n# Example\n";
+    try expectNoteMessage(source, note, "x.md", .{ .mode = .create }, "frontmatter.status: must equal 'TODO' on creation");
+    try expectNoteOk(source, note, "x.md", .{ .mode = .update, .existing = "---\ntitle: Example\n---\n# Example\n" });
+}
+
+test "vocabulary check rejects a value outside the configured list" {
+    const source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "      required: true\n" ++
+        "    tags:\n" ++
+        "      type: list\n" ++
+        "      required: true\n" ++
+        "      items: string\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "checks:\n" ++
+        "  - vocabulary:\n" ++
+        "      field: frontmatter.tags\n" ++
+        "      source: synapse-tag-vocabulary.conf\n";
+    try expectNoteMessage(source, "---\ntitle: Example\ntags: [synapse, nope]\n---\n# Example\n", "x.md", .{
+        .mode = .create,
+        .tags_vocabulary = "synapse\narchitecture\n",
+    }, "frontmatter.tags: 'nope' is not in synapse-tag-vocabulary.conf");
+    try expectNoteOk(source, "---\ntitle: Example\ntags: [synapse]\n---\n# Example\n", "x.md", .{
+        .mode = .create,
+        .tags_vocabulary = "synapse\narchitecture\n",
+    });
+}
+
+test "declared sections are checked for relative order" {
+    const source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "      required: true\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "  sections:\n" ++
+        "    - title: Z\n" ++
+        "      level: 2\n" ++
+        "      required: false\n" ++
+        "    - title: A\n" ++
+        "      level: 2\n" ++
+        "      required: false\n" ++
+        "checks: []\n";
+    try expectNoteMessage(source,
+        "---\ntitle: Example\n---\n# Example\n\n## A\ncontent\n\n## Z\ncontent\n",
+        "x.md", .{ .mode = .create }, "body.section.A: declared sections are out of relative order");
+    try expectNoteOk(source,
+        "---\ntitle: Example\n---\n# Example\n\n## Z\ncontent\n\n## A\ncontent\n",
+        "x.md", .{ .mode = .create });
+}
+
+test "a compiled-task backlink must immediately follow the H1" {
+    const source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "      required: true\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "  preamble:\n" ++
+        "    - type: blockquote\n" ++
+        "      required: false\n" ++
+        "      position: immediately_after_h1\n" ++
+        "      pattern: '^> Compiled task: \\[\\[[^\\]]+\\]\\]$'\n" ++
+        "checks: []\n";
+    try expectNoteMessage(source,
+        "---\ntitle: Example\n---\n# Example\n\nlead paragraph\n\n> Compiled task: [[Task title]]\n",
+        "x.md", .{ .mode = .create }, "body.preamble: compiled-task backlink must immediately follow H1");
+    try expectNoteOk(source,
+        "---\ntitle: Example\n---\n# Example\n\n> Compiled task: [[Task title]]\n\n## Summary\nrest\n",
+        "x.md", .{ .mode = .create });
+}
+
+test "checklist minimum item count is enforced" {
+    const source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "      required: true\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "  checklist:\n" ++
+        "    required: true\n" ++
+        "    min_items: 2\n" ++
+        "checks: []\n";
+    try expectNoteMessage(source,
+        "---\ntitle: Example\n---\n# Example\n\nlead\n\n- [ ] one\n\n## Notes\nrest\n",
+        "x.md", .{ .mode = .create }, "body.checklist: expected at least 2 flat item(s), found 1");
+    try expectNoteOk(source,
+        "---\ntitle: Example\n---\n# Example\n\nlead\n\n- [ ] one\n- [ ] two\n\n## Notes\nrest\n",
+        "x.md", .{ .mode = .create });
+}
+
+test "migration cannot introduce an immutable field" {
+    var doc = try schema_yaml.parse(testing.allocator, bare_schema);
+    defer doc.deinit();
+    const existing = "---\ntitle: Example\n---\n# Example\n## Summary\nOld\n";
+    const candidate =
+        "---\nschema: vault-note/v1\ntitle: Example\nnote_id: sb-081\ncreated: '2026-08-30 10:00:00 CEST'\nupdated: '2026-08-30 10:00:00 CEST'\ntags: []\n---\n# Example\n## Summary\nNew\n";
+    const message = (try validateNote(testing.allocator, doc.root, candidate, "research/Example.md", .{
+        .mode = .migration,
+        .existing = existing,
+        .tags_vocabulary = "",
+    })).?;
+    defer testing.allocator.free(message);
+    try testing.expectEqualStrings("frontmatter.note_id: field is immutable", message);
+}
+
+test "title_pattern child headings are strict; title children are lenient" {
+    const strict_source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "      required: true\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "  sections:\n" ++
+        "    - title: Notes\n" ++
+        "      level: 2\n" ++
+        "      required: false\n" ++
+        "      children:\n" ++
+        "        - level: 3\n" ++
+        "          required: false\n" ++
+        "          title_pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2} — .+$'\n" ++
+        "checks: []\n";
+    try expectNoteMessage(strict_source,
+        "---\ntitle: Example\n---\n# Example\n\n## Notes\n\n### Not dated\n\ncontent\n",
+        "x.md", .{ .mode = .create }, "body.section.Notes: child heading 'Not dated' has an invalid title");
+    try expectNoteOk(strict_source,
+        "---\ntitle: Example\n---\n# Example\n\n## Notes\n\n### 2026-08-30 — entry\n\ncontent\n",
+        "x.md", .{ .mode = .create });
+
+    const lenient_source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "      required: true\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "  sections:\n" ++
+        "    - title: Notes\n" ++
+        "      level: 2\n" ++
+        "      required: false\n" ++
+        "      children:\n" ++
+        "        - title: Wanted\n" ++
+        "          level: 3\n" ++
+        "          required: false\n" ++
+        "checks: []\n";
+    try expectNoteOk(lenient_source,
+        "---\ntitle: Example\n---\n# Example\n\n## Notes\n\n### Unrelated\n\ncontent\n",
+        "x.md", .{ .mode = .create });
+}
+
+fn expectSchemaMessage(source: []const u8, want: []const u8) !void {
+    var doc = try schema_yaml.parse(testing.allocator, source);
+    defer doc.deinit();
+    const message = (try validateSchema(testing.allocator, doc.root, "t/v1")).?;
+    defer testing.allocator.free(message);
+    try testing.expectEqualStrings(want, message);
+}
+
+test "negative and zero DSL counts are rejected at schema-validation time" {
+    try expectSchemaMessage(
+        "schema: synapse-note-schema/v1\nid: t/v1\nfrontmatter:\n  fields:\n    title:\n      type: string\nbody:\n  h1:\n    count: -1\nchecks: []\n",
+        "schema.body.h1.count: must be at least 1");
+    try expectSchemaMessage(
+        "schema: synapse-note-schema/v1\nid: t/v1\nfrontmatter:\n  fields:\n    title:\n      type: string\nbody:\n  h1:\n    required: false\n  sections:\n    - title: X\n      level: 0\nchecks: []\n",
+        "schema.body.sections[0].level: must be at least 1");
+    try expectSchemaMessage(
+        "schema: synapse-note-schema/v1\nid: t/v1\nfrontmatter:\n  fields:\n    title:\n      type: string\nbody:\n  h1:\n    required: false\n  sections:\n    - title: X\n      max_occurs: 0\nchecks: []\n",
+        "schema.body.sections[0].max_occurs: must be at least 1");
+    try expectSchemaMessage(
+        "schema: synapse-note-schema/v1\nid: t/v1\nfrontmatter:\n  fields:\n    title:\n      type: string\nbody:\n  h1:\n    required: false\n  checklist:\n    min_items: -1\nchecks: []\n",
+        "schema.body.checklist.min_items: must not be negative");
+}
+
+test "non-boolean DSL rule keys are rejected at schema-validation time" {
+    try expectSchemaMessage(
+        "schema: synapse-note-schema/v1\nid: t/v1\nfrontmatter:\n  fields:\n    title:\n      type: string\nbody:\n  h1:\n    required: false\n  sections:\n    - title: X\n      required: \"true\"\nchecks: []\n",
+        "schema.body.sections[0].required: must be boolean");
+    try expectSchemaMessage(
+        "schema: synapse-note-schema/v1\nid: t/v1\nfrontmatter:\n  fields:\n    title:\n      type: string\nbody:\n  h1:\n    required: false\n  sections:\n    - title: X\n      non_empty: 1\nchecks: []\n",
+        "schema.body.sections[0].non_empty: must be boolean");
+    try expectSchemaMessage(
+        "schema: synapse-note-schema/v1\nid: t/v1\nfrontmatter:\n  fields:\n    title:\n      type: string\nbody:\n  h1:\n    required: false\n  sections:\n    - title: X\n      repeatable: \"yes\"\nchecks: []\n",
+        "schema.body.sections[0].repeatable: must be boolean");
+    try expectSchemaMessage(
+        "schema: synapse-note-schema/v1\nid: t/v1\nfrontmatter:\n  fields:\n    title:\n      type: string\nbody:\n  h1:\n    required: false\n  lead:\n    required: \"true\"\nchecks: []\n",
+        "schema.body.lead.required: must be boolean");
+    try expectSchemaMessage(
+        "schema: synapse-note-schema/v1\nid: t/v1\nfrontmatter:\n  fields:\n    title:\n      type: string\nbody:\n  h1:\n    required: false\n  checklist:\n    required: 1\nchecks: []\n",
+        "schema.body.checklist.required: must be boolean");
 }

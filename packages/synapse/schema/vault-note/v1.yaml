@@ -1,3 +1,4 @@
+# Declared keys are the full v1 spec; enforcement is a deliberate subset — unknown note fields are ignored, never an error.
 schema: synapse-note-schema/v1
 id: vault-note/v1
 

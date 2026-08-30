@@ -221,6 +221,11 @@ or supplied directly by a caller like `/synapse-task-note`):
 
    {constraints or context}
    ```
+
+   Quote every scalar string value. In particular, a value that is all digits
+   (a numeric-looking `title`, or any future numeric id) must be quoted — an
+   unquoted all-digit value is parsed as an integer and fails a `type: string`
+   schema field.
 5. Write it with `synapse vault-write <path>` (content on stdin). Task mode: path
    `tasks/{project}/{filename}.md` (project resolved in "Resolving the
    project folder" above). Bare mode: path `{category}/{filename}.md`
