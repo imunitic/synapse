@@ -241,15 +241,21 @@ repos/<owner>/<repo>/issues/<n>/comments`).
 
 - **Never write `DONE`** — not in `status:`, not manually, not through any
   other path. The cap is always `REVIEW`.
-- **Never `git commit` or `git push` in the project repo while a task note
-  tracked by this skill is anything but `DONE`.** Work through the whole
-  checklist stays uncommitted in the working tree — do not commit after each
-  checked-off item; that fragments the history and loses the thread of what
-  the task actually did. Commit (and push) only once the task note's
-  `status` is `DONE` and the human has explicitly asked for that specific
-  commit/push — a prior "commit and push" is not a standing license for the
-  next one, and setting `DONE` is itself a human action this skill never
-  takes (see "Never write `DONE`" above).
+- **Never land work on the default branch while a task note tracked by this
+  skill is anything but `DONE`.** *Landing* means merging its pull request,
+  pushing directly to `main`/`master`, or any equivalent (fast-forward,
+  squash, rebase-onto). Committing to a feature branch, pushing that branch,
+  and opening or updating a pull request are all **allowed** at
+  `IN-PROGRESS` and `REVIEW` — a `REVIEW` task with an open PR is the normal
+  shape of work awaiting review, not a violation. `DONE` means the work has
+  landed or is cleared to land, and setting it is a human action this skill
+  never takes (see "Never write `DONE`" above).
+- **Keep the task's history coherent.** Prefer one commit per task, or a
+  small number that each stand on their own — do not commit after every
+  checked-off item, which fragments the history and loses the thread of what
+  the task actually did.
+- **Each commit, push, and merge needs its own explicit request.** A prior
+  "commit and push" is not a standing licence for the next one.
 - **Never create a task note via a bare `vault-write`.** Always
   `/synapse-note --task`, or `/synapse-task-note` when compiling one from a
   `Ready` design note. A freeform write skips both the skeleton (checklist
