@@ -14,6 +14,7 @@
 //! warning. A missing/empty `--lists` dir is fatal.
 
 const std = @import("std");
+const core = @import("core");
 const adapters = @import("adapters");
 const context = @import("context.zig");
 
@@ -137,13 +138,17 @@ pub fn build(
         return 1;
     }
 
-    const links_text = cwd.readFileAlloc(io, links_path.?, arena, .limited(1 << 30)) catch blk: {
+    // Mapped, not read whole -- `writeLinksFor` scans it once per node, so a
+    // links.tsv past the old 1 GiB read cap no longer fails outright.
+    var links_index: core.refs.Index = core.refs.Index.open(io, gpa, links_path.?) catch blk: {
         std.debug.print(
             "{s}: no link graph at {s} -- every brief's candidate links will be empty; run synapse build-refs and synapse link-graph first\n",
             .{ prog, links_path.? },
         );
-        break :blk "";
+        break :blk .{ .bytes = "" };
     };
+    defer links_index.deinit(io, gpa);
+    const links_text = links_index.bytes;
 
     const brief_dir = try std.fmt.allocPrint(arena, "{s}/brief", .{out_dir.?});
     cwd.createDirPath(io, brief_dir) catch {

@@ -78,11 +78,15 @@ pub fn write(
     all: bool,
     result: *Io.Writer,
 ) !u8 {
-    const table = Io.Dir.cwd().readFileAlloc(io, vocab, gpa, .limited(1 << 30)) catch {
+    // Mapped, not read whole -- `core.gate.judge` takes it as a `[]const
+    // u8` and only scans it once, so a vocab table past the old 1 GiB read
+    // cap (a 125k-file repo's worth of tagged symbols) no longer fails outright.
+    var vocab_index = core.refs.Index.open(io, gpa, vocab) catch {
         std.debug.print("{s}: no such vocabulary file: {s}\n", .{ prog, vocab });
         return 1;
     };
-    defer gpa.free(table);
+    defer vocab_index.deinit(io, gpa);
+    const table = vocab_index.bytes;
     if (table.len == 0) { // distinct from "no such file": nothing was tagged
         std.debug.print(
             "{s}: {s} is empty -- nothing was tagged, so cluster quality cannot be judged\n",
