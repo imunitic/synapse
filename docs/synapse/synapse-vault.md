@@ -16,7 +16,7 @@ The boxes name the vault-relevant hooks; what each one does is here rather than 
 | Hook | Fires | What it does |
 |---|---|---|
 | `synapse-hook session-start` | `SessionStart` | Injects `Index.md`, this repo's Graph pointer if a namespace covers the current branch, and a catalogue of the other namespaces in the vault. A plain path lookup — never a model call, so a repo that never opted in pays nothing. Also spawns a detached vault pull, a no-op unless the resolved backend is `git`. |
-| `synapse-hook prompt-context` | `UserPromptSubmit` | One fixed standing line per turn naming the Graph/Code Cache tools available for a repo with a namespace -- no search, no node list, no network. Set `SYNAPSE_DISABLE_PROMPT_INJECTION` to skip it. |
+| `synapse-hook prompt-context` | `UserPromptSubmit` | One fixed standing line per turn, instructing that the Graph/Code Cache be queried before any grep in a repo with a namespace -- no search, no node list, no network, and no off switch. |
 | `synapse-hook stop-nudge` | `Stop`, every 25 turns | Forces a real "did anything here belong in the vault?" check-in rather than relying on the agent to remember unprompted. |
 
 ## The vault
@@ -132,10 +132,11 @@ It also spawns a detached vault pull (`synapse-hook vault-pull`) — a no-op unl
 backend is `git`, see [Version control](#version-control-synapse_vault_storegit) above.
 
 **`UserPromptSubmit` → `synapse-hook prompt-context`**
-One fixed standing line per turn, in a repo with a namespace: the graph exists, here are the tools
-that read it. No search, no node list, no network — a per-turn nudge that survives context
+One fixed standing line per turn, in a repo with a namespace: the graph exists, query it before
+grepping. No search, no node list, no network — a per-turn nudge that survives context
 compaction, unlike a `SessionStart` injection. Names the Graph and the Code Cache separately, each
-announced only when actually present. `SYNAPSE_DISABLE_PROMPT_INJECTION` (any value) disables it.
+announced only when actually present. Worded as an instruction, not a suggestion, and with no way
+to disable it.
 See [synapse-graph.md](synapse-graph.md#what-every-prompt-is-told) for why this replaced an earlier
 per-prompt search.
 

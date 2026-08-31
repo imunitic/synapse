@@ -414,7 +414,11 @@ Outside any git repo there is no pointer and nothing to exclude, so the catalogu
 
 ## What every prompt is told
 
-`SessionStart` injects a pointer once. `UserPromptSubmit` (`synapse-hook prompt-context`) repeats one short line on every prompt: this repo has a code graph, it has N nodes, read it before grepping, and the skills have the procedure. That is the whole payload — no search, no node list, no network call. ~80 tokens. Set `SYNAPSE_DISABLE_PROMPT_INJECTION` (any value) to turn it off entirely; the check is the hook's literal first line, so a disabled run costs nothing beyond that one test.
+`SessionStart` injects a pointer once. `UserPromptSubmit` (`synapse-hook prompt-context`) repeats one short line on every prompt: this repo has a code graph, it has N nodes, query it first, and the skill has the procedure. That is the whole payload — no search, no node list, no network call. ~130 tokens, ~85 without a Code Cache present.
+
+It is phrased as an instruction rather than a suggestion, and that is deliberate. The earlier wording opened "consult Synapse before grepping or opening files", which reads as advice and was treated as advice — a real session grepped its way through a fully-indexed repo with the nudge in context on every turn. "Query it FIRST" plus an explicit ordering ("do not grep or open source files until Synapse has named the file to read") is the same information, more directive, and shorter: the previous text was ~191 tokens, most of it command signatures and caveats that the `synapse-query` skill already carries.
+
+There is no off switch. `SYNAPSE_DISABLE_PROMPT_INJECTION` existed to gate the per-prompt search described below, whose cost genuinely warranted one; once that search was removed the remaining payload was too small to justify a knob, a test and four documentation sites, so the flag went the same way as the tokenizer it shipped alongside. A repo that should not be announced is a repo that should not have a namespace: the hook is silent without one.
 
 A per-prompt search preceded this: tokenize the prompt, OR the surviving terms into one `regexp`
 clause, search the vault for it alongside a `glob` on the repo's namespace, and inject the matching

@@ -1,8 +1,16 @@
 //! `synapse-hook prompt-context` -- UserPromptSubmit.
 //!
 //! One standing line per turn, in a repo with a namespace: the graph
-//! exists, here are the tools that read it. No search, no node list, no
-//! network. `SYNAPSE_DISABLE_PROMPT_INJECTION` (any value) disables it.
+//! exists, query it before grepping. No search, no node list, no network,
+//! and no off switch -- at ~130 tokens the payload is small enough that a
+//! knob to disable it cost more than it saved. `SYNAPSE_DISABLE_PROMPT_INJECTION`
+//! gated the tokenize-and-search version below, and went with it.
+//!
+//! Phrased as an instruction, not a suggestion. "Consult Synapse before
+//! grepping" read as advice and was treated as advice -- a real session
+//! grepped its way through a fully-indexed repo with the nudge in context
+//! every turn. An imperative plus an explicit ordering ("do not grep until
+//! Synapse has named the file") is the same information at less cost.
 //!
 //! Used to tokenize the prompt into a regexp OR-pattern and search the
 //! vault instead: on a real 52-node namespace, "can you explain how
@@ -24,8 +32,6 @@ const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
 pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
-    if (env.get("SYNAPSE_DISABLE_PROMPT_INJECTION") != null) return;
-
     var payload = common.Payload.read(gpa, io);
     defer payload.deinit();
     _ = payload.str("prompt") orelse return; // an empty prompt exits silently
@@ -72,13 +78,13 @@ pub fn build(gpa: Allocator, io: Io, env: *std.process.Environ.Map, cwd: []const
     var text: Io.Writer.Allocating = .init(gpa);
     defer text.deinit();
     try text.writer.print(
-        "Synapse: this repo has a code graph at synapse/{s}/ ({d} nodes). If this turn needs to know how the codebase works, consult Synapse before grepping or opening files -- `synapse query` (body/sources/field/links), `synapse index lookup <path>` for the owning node (authoritative coverage: never infer from titles).",
+        "Synapse: this repo has a code graph at synapse/{s}/ ({d} nodes). Query it FIRST for anything about this codebase -- `synapse query` for how something works, `synapse index lookup <path>` for which node owns a file. Do not grep or open source files until Synapse has named the file to read.",
         .{ ns.key, nodes },
     );
     if (have_cache) try text.writer.writeAll(
-        " Separately, and independent of the graph, a Code Cache indexes exact names: `synapse callers <name>` gives repo-wide call sites (no graph needed), `synapse query symbol <name> <node>` scopes that lookup to one node. Prefer either over grep for \"where is X defined/used\"; their line numbers come from the index and can lag the working tree, so re-check a range before relying on it.",
+        " For an exact name, `synapse callers <name>` gives repo-wide call sites from the Code Cache -- use it, not grep. Index line numbers can lag the tree, so re-check a range before relying on it.",
     );
-    try text.writer.writeAll(" The synapse-query and synapse-node skills have the procedure.");
+    try text.writer.writeAll(" The synapse-query skill has the procedure.");
 
     return try gpa.dupe(u8, text.written());
 }
@@ -237,7 +243,10 @@ test "the nudge never lists nodes, and stays small enough to pay every turn" {
     try testing.expect(std.mem.indexOf(u8, text, "Node 1.md") == null);
     try testing.expect(std.mem.indexOf(u8, text, "Node 17.md") == null);
     // Constant regardless of namespace size: 30 nodes must not cost more than 2.
-    try testing.expect(text.len < 400);
+    // The ceiling sits close to the real length (~340) rather than round:
+    // this text is paid on every turn of every session, so a rewrite that
+    // doubles it should fail here rather than ship quietly.
+    try testing.expect(text.len < 380);
 }
 
 test "a namespace with an Index.md but no nodes says nothing" {
