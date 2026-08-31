@@ -19,6 +19,21 @@ SYNAPSE_VAULT_DIR="$HOME/Vault/YourVault"
 # project -- not per-repo). Safe to leave at the default.
 SYNAPSE_GRAMMARS_DIR="$HOME/.cache/synapse/grammars"
 
+# Hand-authored `{ext}.scm` tags queries that preempt the whole grammar tier
+# cascade for that extension -- for the rare grammar neither automatic tier
+# handles well, e.g. one shipping locals.scm and node-types.json but no
+# queries/tags.scm of its own. The same directory also holds `{ext}.locals.scm`,
+# the analogous override for local-reference filtering. Checked fresh every
+# run, never cached. Unset by default: no overrides, every extension goes
+# through the normal cascade.
+#SYNAPSE_GRAMMARS_QUERY_PATH="$HOME/.cache/synapse/grammar-queries"
+
+# How many 200ms retries a grammar clone or compile lock waits before giving
+# up -- roughly 60s at the default. Bounds the wait on a wedged lock left by a
+# crashed process, not the clone or compile itself, so raising it helps only
+# on a machine where those genuinely take longer. Default 300 if unset.
+#SYNAPSE_GRAMMAR_LOCK_TRIES=300
+
 # When "git" is one of the configured integrations, how many local commits
 # pile up before a detached push runs, counted in commits. Only acts when the
 # vault actually has an upstream and is genuinely ahead of it, so a

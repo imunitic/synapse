@@ -479,11 +479,20 @@ pub fn build(
             }
         };
 
-        const lock_tries: ?usize = if (env.get("SYNAPSE_GRAMMAR_LOCK_TRIES")) |s|
+        // Both resolve through `core.conf.resolve` like `SYNAPSE_GRAMMARS_DIR`
+        // does -- environment first, then the first conf file defining the
+        // key. Bare `env.get` here made a `synapse.conf` line silently inert.
+        const lock_tries_raw = try core.conf.resolve(gpa, io, adapters.env.vars(env), "SYNAPSE_GRAMMAR_LOCK_TRIES");
+        defer if (lock_tries_raw) |t| gpa.free(t);
+        const lock_tries: ?usize = if (lock_tries_raw) |s|
             std.fmt.parseInt(usize, s, 10) catch treesitter.grammar.default_lock_tries
         else
             null;
-        const query_override_dir = env.get("SYNAPSE_GRAMMARS_QUERY_PATH");
+        // Owned, where `env.get` returned a borrow: every worker below holds
+        // this slice for its whole run, so the free must land after the join.
+        // It does -- this `defer` runs at the end of the scope the join sits in.
+        const query_override_dir = try core.conf.resolve(gpa, io, adapters.env.vars(env), "SYNAPSE_GRAMMARS_QUERY_PATH");
+        defer if (query_override_dir) |d| gpa.free(d);
 
         const slots = try gpa.alloc(Worker, workers);
         defer gpa.free(slots);

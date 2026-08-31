@@ -160,9 +160,21 @@ pub fn backfill(
 
     var ex: Ex = .init(gpa, registry, grammars_dir, kind_rules);
     defer ex.deinit();
-    if (env.get("SYNAPSE_GRAMMAR_LOCK_TRIES")) |t|
+    // Both resolve through `core.conf.resolve` like `SYNAPSE_GRAMMARS_DIR`
+    // above -- a real environment variable wins, then the first conf file
+    // defining the key. They used to be bare `env.get`, which made a
+    // `synapse.conf` line for either one silently inert.
+    const lock_tries_raw = try core.conf.resolve(gpa, io, adapters.env.vars(env), "SYNAPSE_GRAMMAR_LOCK_TRIES");
+    defer if (lock_tries_raw) |t| gpa.free(t);
+    if (lock_tries_raw) |t|
         ex.lock_tries = std.fmt.parseInt(usize, t, 10) catch treesitter.grammar.default_lock_tries;
-    ex.query_override_dir = env.get("SYNAPSE_GRAMMARS_QUERY_PATH");
+    // Owned now, where `env.get` returned a borrow into the environment:
+    // `ex` holds this slice rather than copying it, so the free has to
+    // outlive every `ex` call below. `Extractor.deinit` never reads it, so
+    // the LIFO order against `defer ex.deinit()` is not a use-after-free.
+    const query_override_dir = try core.conf.resolve(gpa, io, adapters.env.vars(env), "SYNAPSE_GRAMMARS_QUERY_PATH");
+    defer if (query_override_dir) |d| gpa.free(d);
+    ex.query_override_dir = query_override_dir;
 
     try writeTrace(io, trace, paths);
 
