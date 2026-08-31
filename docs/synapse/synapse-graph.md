@@ -5,8 +5,12 @@ an import, back out, try again — and whatever it learns dies with the session.
 LLM-authored map of a repo's subsystems (summary + crux + typed links per concept), hosted in
 [Synapse Vault](synapse-vault.md) instead of a repo-local folder, so it's global across every project
 and searchable the same way any other note is. It's inspired by
-[NanoNets/Graft](https://github.com/NanoNets/Graft) but deliberately much smaller in scope — single
-consumer (Claude Code only), no multi-agent wiring, no standing CLI surface.
+[NanoNets/Graft](https://github.com/NanoNets/Graft) but deliberately much smaller in scope — the
+mechanics stay harness-shaped: one pair of compiled binaries (`synapse`/`synapse-hook`) serves Claude
+Code, Codex CLI and OpenCode through each harness's own hook mechanism, and nothing here is a standing
+daemon or service. Authoring runs as a single session by default; the only fan-out is the
+`SYNAPSE_AUTHOR_POOL` subagent pool `/synapse-init` can opt into. Claude Code is where it originated
+and is still the primary user.
 
 ![Every Synapse script across the build, read, detect and repair phases](diagrams/synapse-pipeline.png)
 
@@ -148,7 +152,7 @@ regeneration event to piggyback the sweep onto.
 The division that keeps Synapse language-agnostic, and the test for where any future piece belongs:
 
 - **Mechanics — fixed, language-agnostic, tested.** Enumerating and proving coverage
-  (`synapse build-lists`), hashing + `sources_digest` + the `## Sources` mirror + the PUT
+  (`synapse build-lists`), hashing + `sources_digest` + the `## Sources` mirror + the write
   (`synapse write-node`, driven by `synapse push-nodes`), the reverse index
   (`synapse build-index`), the project index (`synapse build-project-index`), and reading it
   all back (`synapse query`). These have exact contracts — the digest definition must match
@@ -241,7 +245,7 @@ command.
 Worth stating plainly, because conflating the two produces a real bug — trimming `sources` to a few
 "representative" files per node to keep the frontmatter readable:
 
-- **`sources` is exhaustive, and read by machines only.** It is what Obsidian's search index turns
+- **`sources` is exhaustive, and read by machines only.** It is what the vault store's search index turns
   into a file → node lookup: searching a class name that appears in no node's prose still finds the
   owning node, because the path is in that list. Trimming it silently destroys that lookup, leaves a
   node unable to answer "which files am I about", and reduces verification to whatever survived the

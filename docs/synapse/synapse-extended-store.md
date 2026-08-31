@@ -61,8 +61,6 @@ The only extended store shipped today. Reaches a running Obsidian app through it
      ```
      Adjust `Exec=` to match your install (e.g. the AppImage path, or `flatpak run md.obsidian.Obsidian`
      for a Flatpak install).
-   - **Windows**: press **Win+R**, type `shell:startup`, hit Enter, then drop a shortcut to
-     `Obsidian.exe` into the folder that opens.
 
 `synapse doctor` reports the CLI's own reachability only under this backend — the check reports "not
 needed" under `disk`, never a false failure.

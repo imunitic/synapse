@@ -5,8 +5,8 @@ beyond the individual command, hook and skill files. Each doc below stands alone
 matches what you're trying to understand.
 
 - **[synapse-vault.md](synapse-vault.md)** — **Synapse Vault**: the vault itself, its folder
-  layout, and the three hooks that keep it alive across sessions (`SessionStart` injection, the `Stop`
-  nudge, and vault→git auto-commit).
+  layout, and the hooks and store behaviors that keep it alive across sessions (`SessionStart`
+  injection, the `Stop` nudge, and the `git` integration's auto-commit).
 - **[synapse-extended-store.md](synapse-extended-store.md)** — the optional decorator layer over
   `DiskStore` (Obsidian today, the only one shipped) that hands `search`/link-graph/rename off to a
   live external app, falling back to `DiskStore`'s own implementation automatically.
@@ -88,8 +88,8 @@ here declares its palette with `classDef` and includes a legend.
 
 ## The three components, and why they are separate
 
-Synapse is three things sharing one host and one consumer — the Vault stores everything, and Claude
-Code is the only thing that reads it:
+Synapse is three things sharing one host and one family of consumers — the Vault stores everything,
+and the same binaries read it under Claude Code, Codex CLI and OpenCode:
 
 - **Synapse Vault** is the durable, cross-project knowledge base: notes that outlive any one session or
   repo.

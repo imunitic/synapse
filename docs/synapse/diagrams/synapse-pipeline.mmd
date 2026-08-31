@@ -85,7 +85,7 @@ flowchart TB
         WORDS["groupwords.tsv · counts.tsv"]
     end
 
-    WRITE ==>|"REST PUT"| NODE
+    WRITE ==>|"writes through Store"| NODE
     IDX ==> IDXBIN
     PIDX ==> INDEX
     VOCAB -.->|"byproduct, bulk"| TAGSCACHE

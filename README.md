@@ -48,7 +48,7 @@ afterward. `zig build` is only for contributing to Synapse itself; see [Dependen
 > This needs the platform binaries built locally first (`zig build`, or `just build`) and copied
 > into `platforms/{platform}-{arch}/bin/` — see [Dependencies](#dependencies).
 
-The default (`SYNAPSE_VAULT_STORE=disk`, or nothing set at all) needs just a plain folder of
+The default (no `SYNAPSE_VAULT_INTEGRATIONS` set at all) needs just a plain folder of
 Markdown — nothing else installed anywhere.
 
 1. Point Synapse at the vault — `synapse-setup configure claude` above already wrote a `synapse.conf`
@@ -119,7 +119,7 @@ broken install; it's idempotent and safe to run repeatedly.
   mechanism that injects `Index.md`), not via a `CLAUDE.md` `@import` line — `~/.claude/CLAUDE.md`
   stays entirely yours, untouched.
 - `packages/synapse/synapse.conf.template` — path config; set `SYNAPSE_VAULT_DIR` per machine.
-- `SYNAPSE_VAULT_STORE=git` — a third `Store` backend (alongside `disk` and `obsidian`) that owns the
+- `SYNAPSE_VAULT_INTEGRATIONS=git` — an optional integration (the default is plain `disk` alone) that
   Vault's own git lifecycle: commits every write, and pushes/pulls in the background once enough
   local commits pile up (`SYNAPSE_VAULT_PUSH_EVERY`, default 5). Choosing it is the opt-in; a Vault
   with no `.git` yet gets one initialized on first write.
@@ -194,7 +194,7 @@ upstream of them needs `just fix`, not `just docs-check`.
 correct). `just test-changed` derives its selection by grep rather than from a maintained list — a
 lower bound on coverage, which is the right trade per commit and the wrong one before a push.
 
-`just check` runs the suite in the Linux container, which is not a preference: the same ~480 tests take
+`just check` runs the suite in the Linux container, which is not a preference: the same ~440 tests take
 ~30s there against six to seven minutes on the host, because macOS `fork`/`exec` costs 6.5ms where
 Linux costs 0.24ms. That took the gate from ~8min to 2:20, and finding the same tax inside
 `ci/check-layering.sh` — two forked greps per source line, 113s — took it to ~40s. `just check-local`
@@ -224,7 +224,7 @@ skill's table, with the whole suite green.
 For using it day to day: npm itself (the compiled binaries ship as ordinary per-platform
 optionalDependencies, `npm install` fetches and verifies them the same way it does any other
 package, no separate fetch script or `tar` step involved) and whichever harness's own CLI (`claude`,
-`codex`, or `opencode`). The default backend (`SYNAPSE_VAULT_STORE=disk`, or unset) needs nothing
+`codex`, or `opencode`). The default backend (no `SYNAPSE_VAULT_INTEGRATIONS`, or unset) needs nothing
 else at all. An [extended store](docs/synapse/synapse-extended-store.md) adds its own optional
 dependency — never
 a hard requirement, since every capability it covers falls back to `disk`'s own implementation
