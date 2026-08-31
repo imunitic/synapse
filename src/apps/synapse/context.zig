@@ -129,6 +129,18 @@ fn nonEmpty(env: *std.process.Environ.Map, key: []const u8) ?[]const u8 {
     return if (v.len == 0) null else v;
 }
 
+/// Read cap for a listing that grows with the repo's file count --
+/// `manifest.tsv`, `all.txt`, tags-cache's `--paths` -- overridden by
+/// `SYNAPSE_MAX_LISTING_BYTES` for all of them at once. One knob, not one
+/// per file: they all fail the same way (too small for how many rows a
+/// large repo produces), and raising it is a deliberate per-invocation act
+/// rather than a `synapse.conf` value that would follow every future clone.
+pub fn maxListingBytes(env: *std.process.Environ.Map, default: u64) Io.Limit {
+    const raw = env.get("SYNAPSE_MAX_LISTING_BYTES") orelse return .limited(default);
+    const n = std.fmt.parseInt(u64, raw, 10) catch return .limited(default);
+    return .limited(n);
+}
+
 /// `~/.claude/synapse-module-boilerplate.conf`: one chain per line, `#`
 /// comments and blank lines ignored. An absent file means no chains known,
 /// not an error.

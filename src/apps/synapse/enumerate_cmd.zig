@@ -114,7 +114,7 @@ pub fn ensure(
 
     try reportOversize(gpa, io, env, out, oversize_path);
 
-    const kept = countLines(gpa, io, all_path) catch 0;
+    const kept = countLines(gpa, io, env, all_path) catch 0;
     try out.print("enumerated: {d}\n", .{kept});
 }
 
@@ -280,8 +280,8 @@ fn reportOversize(
         try out.print("  {d: >10}  {s}\n", .{ r.size, r.path });
 }
 
-fn countLines(gpa: Allocator, io: Io, path: []const u8) !usize {
-    const text = try Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(256 << 20));
+fn countLines(gpa: Allocator, io: Io, env: *std.process.Environ.Map, path: []const u8) !usize {
+    const text = try Io.Dir.cwd().readFileAlloc(io, path, gpa, context.maxListingBytes(env, 256 << 20));
     defer gpa.free(text);
     return std.mem.count(u8, text, "\n");
 }

@@ -81,7 +81,7 @@ pub fn build(
 
     // Checked before enumerating: a missing manifest shouldn't cost minutes
     // of work on a 125k-file repo before reporting it.
-    const manifest = cwd.readFileAlloc(io, manifest_path, gpa, .limited(16 << 20)) catch {
+    const manifest = cwd.readFileAlloc(io, manifest_path, gpa, context.maxListingBytes(env, 16 << 20)) catch {
         std.debug.print("synapse-build-lists: no manifest.tsv in {s}\n", .{work_dir});
         return 1;
     };
@@ -91,7 +91,7 @@ pub fn build(
 
     const all_path = try std.fmt.allocPrint(gpa, "{s}/all.txt", .{work_dir});
     defer gpa.free(all_path);
-    const all = try cwd.readFileAlloc(io, all_path, gpa, .limited(256 << 20));
+    const all = try cwd.readFileAlloc(io, all_path, gpa, context.maxListingBytes(env, 256 << 20));
     defer gpa.free(all);
 
     const lists_dir = try std.fmt.allocPrint(gpa, "{s}/lists", .{work_dir});

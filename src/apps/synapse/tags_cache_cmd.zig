@@ -22,6 +22,7 @@ const std = @import("std");
 const core = @import("core");
 const adapters = @import("adapters");
 const treesitter = @import("treesitter");
+const context = @import("context.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -95,7 +96,7 @@ pub fn update(
     const cwd = Io.Dir.cwd();
     cwd.access(io, repo_root, .{}) catch return 1;
 
-    const listing = cwd.readFileAlloc(io, paths_file, gpa, .limited(64 << 20)) catch return 1;
+    const listing = cwd.readFileAlloc(io, paths_file, gpa, context.maxListingBytes(env, 64 << 20)) catch return 1;
     defer gpa.free(listing);
 
     var requested: std.ArrayListUnmanaged(PathHash) = .empty;

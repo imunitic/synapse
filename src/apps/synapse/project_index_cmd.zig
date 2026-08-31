@@ -120,7 +120,7 @@ pub fn write(
         }
     }.less);
 
-    const total_files = try totalFiles(gpa, io, ctx, lists);
+    const total_files = try totalFiles(gpa, io, env, ctx, lists);
 
     const built_at = try nowStamp(gpa, io);
     defer gpa.free(built_at);
@@ -184,10 +184,10 @@ fn listTitles(gpa: Allocator, io: Io, lists: []const u8) !std.ArrayListUnmanaged
 /// `all.txt`'s line count, or the distinct union of the lists when absent --
 /// the lists only cover what a node claimed, so the union is the honest
 /// fallback rather than zero.
-fn totalFiles(gpa: Allocator, io: Io, ctx: *const Context, lists: []const u8) !usize {
+fn totalFiles(gpa: Allocator, io: Io, env: *std.process.Environ.Map, ctx: *const Context, lists: []const u8) !usize {
     const all_path = try std.fmt.allocPrint(gpa, "{s}/all.txt", .{ctx.work_dir});
     defer gpa.free(all_path);
-    if (Io.Dir.cwd().readFileAlloc(io, all_path, gpa, .limited(256 << 20))) |all| {
+    if (Io.Dir.cwd().readFileAlloc(io, all_path, gpa, context.maxListingBytes(env, 256 << 20))) |all| {
         defer gpa.free(all);
         if (all.len != 0) return std.mem.count(u8, all, "\n");
     } else |_| {}
