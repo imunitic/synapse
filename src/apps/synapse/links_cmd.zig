@@ -140,13 +140,19 @@ pub fn write(
         }
     }
 
-    const refs_table = cwd.readFileAlloc(io, refs_path.?, arena, .limited(1 << 30)) catch {
+    // Killed the 1 GiB read cap: the refs index is mapped, not read whole —
+    // `compute`/`resolveAmbiguous` both take it as a `[]const u8`, so they
+    // don't care whether it came from a mapping or an allocation. `refs_index`
+    // must outlive `edges`, whose `symbols` borrow its bytes.
+    var refs_index = core.refs.Index.open(io, gpa, refs_path.?) catch {
         std.debug.print(
             "{s}: no reference index at {s} -- run `synapse build-refs`\n",
             .{ prog, refs_path.? },
         );
         return 1;
     };
+    defer refs_index.deinit(io, gpa);
+    const refs_table = refs_index.bytes;
 
     var path_to_nodes: std.StringHashMapUnmanaged(std.ArrayListUnmanaged([]const u8)) = .empty;
     const node_count = try readLists(arena, io, lists, &path_to_nodes);
@@ -162,11 +168,13 @@ pub fn write(
     resolve_ambiguous: {
         const dp = deps_path orelse break :resolve_ambiguous;
         const nsp = namespaces_path orelse break :resolve_ambiguous;
-        const deps_table = cwd.readFileAlloc(io, dp, arena, .limited(1 << 30)) catch break :resolve_ambiguous;
-        const namespaces_table = cwd.readFileAlloc(io, nsp, arena, .limited(1 << 30)) catch break :resolve_ambiguous;
+        var deps_index = core.refs.Index.open(io, gpa, dp) catch break :resolve_ambiguous;
+        defer deps_index.deinit(io, gpa);
+        var namespaces_index = core.refs.Index.open(io, gpa, nsp) catch break :resolve_ambiguous;
+        defer namespaces_index.deinit(io, gpa);
 
-        var path_to_deps = try readPathSets(arena, deps_table);
-        var path_to_namespace = try readPathSets(arena, namespaces_table);
+        var path_to_deps = try readPathSets(arena, deps_index.bytes);
+        var path_to_namespace = try readPathSets(arena, namespaces_index.bytes);
         var extra = try core.links.resolveAmbiguous(gpa, refs_table, &path_to_nodes, &path_to_namespace, &path_to_deps, .{ .top = top });
         resolved_ambiguous = extra.items.len;
         try core.links.mergeEdges(gpa, &edges, &extra, top);

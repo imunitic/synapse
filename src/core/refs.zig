@@ -103,6 +103,58 @@ fn lineStart(index: []const u8, at: usize) usize {
     return before + 1;
 }
 
+const Io = std.Io;
+const Allocator = std.mem.Allocator;
+
+/// An index file, mapped when that works, read when it does not. `bytes` is
+/// the whole index, valid until `deinit`. Every slice `find` returns points
+/// into it.
+pub const Index = struct {
+    bytes: []const u8,
+    map: ?Io.File.MemoryMap = null,
+    /// The fallback-allocated whole file, when mapping failed or was refused.
+    owned: ?[]u8 = null,
+
+    /// Opens an index for `core.refs.find`. Maps it rather than reading:
+    /// `find` binary-searches, touching a handful of pages, but
+    /// `readFileAlloc` paid for the whole file first -- 1.4 GB of I/O to
+    /// reach twenty pages, on a large repo's index. An empty file (a
+    /// projection that ran and found nothing, exit 0 with no rows) opens to
+    /// zero bytes, not an error -- a zero-length mapping is refused by the
+    /// OS, so that case never reaches one. Mapping can fail where reading
+    /// still works (some filesystems); falling back keeps the index
+    /// answerable.
+    pub fn open(io: Io, gpa: Allocator, path: []const u8) !Index {
+        const file = try Io.Dir.cwd().openFile(io, path, .{ .mode = .read_only });
+        var close_file = true;
+        defer if (close_file) file.close(io);
+
+        const size = (try file.stat(io)).size;
+        if (size == 0) return .{ .bytes = "" };
+
+        if (file.createMemoryMap(io, .{
+            .len = @intCast(size),
+            .protection = .{ .read = true, .write = false },
+            .populate = false, // a binary search faults in only the pages it lands on
+        })) |map| {
+            close_file = false; // the mapping keeps its own reference to the file
+            return .{ .bytes = map.memory, .map = map };
+        } else |_| {}
+
+        const bytes = try Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(4 << 30));
+        return .{ .bytes = bytes, .owned = bytes };
+    }
+
+    pub fn deinit(self: *Index, io: Io, gpa: Allocator) void {
+        if (self.map) |*m| {
+            m.file.close(io);
+            m.destroy(io);
+        }
+        if (self.owned) |b| gpa.free(b);
+        self.* = .{ .bytes = "" };
+    }
+};
+
 /// `sort -u`: byte order, duplicates dropped, one trailing newline per line.
 /// Two identical tags on the same line of the same file are one fact.
 pub fn writeSorted(gpa: std.mem.Allocator, w: *std.Io.Writer, unsorted: []const u8) !Counts {

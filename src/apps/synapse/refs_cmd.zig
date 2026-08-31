@@ -215,7 +215,7 @@ pub fn callers(
 
     // Exit 1, not 0: a missing index is "could not run", distinct from zero
     // rows from a built one ("checked, not called").
-    var index = openIndex(io, gpa, refs_path.?) catch {
+    var index = core.refs.Index.open(io, gpa, refs_path.?) catch {
         std.debug.print(
             "{s}: no reference index at {s} -- run `synapse build-refs`\n",
             .{ callers_prog, refs_path.? },
@@ -238,51 +238,6 @@ pub fn callers(
 fn callersUsage() u8 {
     std.debug.print("{s}", .{callers_usage});
     return 2;
-}
-
-/// The index, mapped when that works, read when it does not.
-const Index = struct {
-    bytes: []const u8,
-    map: ?Io.File.MemoryMap = null,
-    owned: ?[]u8 = null,
-
-    fn deinit(self: *Index, io: Io, gpa: Allocator) void {
-        if (self.map) |*m| {
-            m.file.close(io);
-            m.destroy(io);
-        }
-        if (self.owned) |b| gpa.free(b);
-        self.* = .{ .bytes = "" };
-    }
-};
-
-/// Maps the index rather than reading it: `find` binary-searches, touching a
-/// handful of pages, but `readFileAlloc` paid for the whole file first --
-/// 1.4 GB of I/O to reach twenty pages, on a large repo's index.
-fn openIndex(io: Io, gpa: Allocator, path: []const u8) !Index {
-    const file = try Io.Dir.cwd().openFile(io, path, .{ .mode = .read_only });
-    var close_file = true;
-    defer if (close_file) file.close(io);
-
-    // Empty is not missing -- a projection that ran and found nothing, exit
-    // 0 with no rows. A zero-length mapping is refused by the OS, so that
-    // case never reaches one.
-    const size = (try file.stat(io)).size;
-    if (size == 0) return .{ .bytes = "" };
-
-    if (file.createMemoryMap(io, .{
-        .len = @intCast(size),
-        .protection = .{ .read = true, .write = false },
-        .populate = false, // a binary search faults in only the pages it lands on
-    })) |map| {
-        close_file = false; // the mapping keeps its own reference to the file
-        return .{ .bytes = map.memory, .map = map };
-    } else |_| {}
-
-    // Mapping can fail where reading still works (some filesystems); falling
-    // back keeps the query answerable.
-    const bytes = try Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(4 << 30));
-    return .{ .bytes = bytes, .owned = bytes };
 }
 
 const testing = std.testing;
