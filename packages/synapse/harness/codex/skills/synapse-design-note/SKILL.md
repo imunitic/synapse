@@ -58,6 +58,12 @@ ID"), reading the same file:
 4. If nothing confidently matches, ask the user for a short project tag — plain free-text, not a
    multiple-choice list, never hinting at any other project's tag as an example — then append the
    resolved pair to the conf file.
+5. Once the prefix is known, mint the note's `note_id` the same shared-counter way the synapse-note
+   skill's "Resolving a missing task ID" step 6 does: `task_id` and `note_id` share one counter per
+   prefix, so check both fields (`synapse vault-search --fields frontmatter.task_id,frontmatter.note_id`,
+   filter both for `{prefix}-\d+`, take the highest number found across both, add 1; start at 1 if none
+   exist yet). This is frontmatter only — unlike a task note, a design note's title and filename stay
+   exactly `{Topic}`, with no id and no project prefix prepended.
 
 Never hardcode a specific project/prefix pair in this skill's own instructions — the conf file is
 machine-local and deliberately outside the portable Synapse package, so projects from
