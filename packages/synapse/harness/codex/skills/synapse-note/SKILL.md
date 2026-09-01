@@ -27,7 +27,8 @@ below:
 - **Asking to create any other note** ("make a note about X", "save this as a note") → **bare
   mode**: create an empty node (title + frontmatter only). Which category folder it lands in is
   resolved from the vault's index note, per "Choosing a category (bare mode only)" below — not a
-  fixed set.
+  fixed set. The typical categories are `research/`, `scratchpad/`, or `inbox/` — any plain note
+  that isn't a task or design note.
 
 The title is whatever the user is naming or describing, minus any mode-signaling phrasing. Example:
 

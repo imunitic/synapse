@@ -95,6 +95,29 @@ On a `SYNAPSE_VAULT_INTEGRATIONS=git` vault, every edit commits automatically, s
 calls, not merely a record of intentional edits. The default `disk` backend keeps no history at all,
 so this safety net only exists once that backend is chosen.
 
+## Creating notes: authoring commands, not freeform writes
+
+Every new note is created through an authoring command, never by freeforming a file at
+`vault-write`:
+
+- `/synapse-note` (bare mode) creates plain notes in any category -- `research/`,
+  `scratchpad/`, `inbox/`, anything that is not a tracked task or a design note. It mints the
+  frontmatter (`schema`, `title`, `note_id`, `created`, `updated`, `tags`) to the note schema's
+  contract, including full-timestamp format.
+- `/synapse-note --task` creates tracked task notes under `tasks/{project}/`.
+- `/synapse-design-note` and `/synapse-task-note` handle design discussions and compiled tasks --
+  both delegate the file-minting mechanics to `/synapse-note` internally.
+
+`vault-write` is for *editing existing notes*, or the rare read-modify-write round trip. If a
+direct creation is ever genuinely unavoidable, follow bare mode's frontmatter contract exactly
+(`schema`/`title`/`note_id`/`created`/`updated`/`tags`, full `%Y-%m-%d %H:%M:%S %Z` timestamps)
+rather than improvising a shape.
+
+Schemas are opt-in by declaration: a note whose frontmatter declares `schema:` is held to that
+schema's contract on every `vault-write`/`vault-patch`; a note without the field is never
+validated or failed. Legacy notes predate the feature and stay valid as they are -- no backfill
+is wanted, and "helpfully" adding `schema:` to old notes is not a service to anyone.
+
 ## Tagging is part of writing a note, not a separate pass
 
 Every note-authoring command (`synapse-note`, `synapse-design-note`, `synapse-task-note`) applies tags as one of the steps in creating or substantially updating a note. There is no separate tagging pass or command — `/synapse-vault-tidy`'s recategorization signal reads tag data, it never writes it.

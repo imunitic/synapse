@@ -13,7 +13,7 @@ If `$ARGUMENTS` starts with `--search` → **search mode**: see "Search mode" be
 Otherwise, split `$ARGUMENTS` on `--task`:
 
 - If `--task` is present → **task mode**: scaffold the note as a tracked task, following the `synapse-task` skill's conventions. Task notes always live under `tasks/`.
-- Otherwise → **bare mode**: create an empty node (title + frontmatter only). Which category folder it lands in is resolved from `Index.md`, per "Choosing a category (bare mode only)" below — not a fixed set.
+- Otherwise → **bare mode**: create an empty node (title + frontmatter only). Which category folder it lands in is resolved from `Index.md`, per "Choosing a category (bare mode only)" below — not a fixed set. The typical categories are `research/`, `scratchpad/`, or `inbox/` — any plain note that isn't a task or design note.
 
 The title is everything before `--task` (trimmed). Example:
 
