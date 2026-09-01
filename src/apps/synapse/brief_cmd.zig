@@ -254,7 +254,7 @@ fn readLists(arena: Allocator, io: Io, dir: []const u8) ![]NodeInfo {
     const cwd = Io.Dir.cwd();
     var out: std.ArrayListUnmanaged(NodeInfo) = .empty;
     var n: usize = 1;
-    while (n <= 99) : (n += 1) {
+    while (n <= core.node.max_nodes) : (n += 1) {
         const title_path = try std.fmt.allocPrint(arena, "{s}/{d:0>2}.title", .{ dir, n });
         const title_raw = cwd.readFileAlloc(io, title_path, arena, .limited(64 << 10)) catch continue;
         const title = std.mem.trim(u8, firstLine(title_raw), " \t\r");

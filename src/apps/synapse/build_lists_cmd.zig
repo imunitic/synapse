@@ -118,6 +118,18 @@ pub fn build(
         const row = parseRow(raw) orelse continue;
 
         node_index += 1;
+        // Every reader of `lists/` iterates exactly `1..=max_nodes` -- a
+        // slug this loop would write past that point is never read back by
+        // any of them, silently. Refuse here instead, where the manifest
+        // that caused it is easy to see, rather than let it through and
+        // have node_index's own cluster vanish from every brief/ranking.
+        if (node_index > core.node.max_nodes) {
+            std.debug.print(
+                "synapse-build-lists: manifest has more than {d} nodes -- raise core.node.max_nodes\n",
+                .{core.node.max_nodes},
+            );
+            return 1;
+        }
         const slug = try std.fmt.allocPrint(gpa, "{d:0>2}", .{node_index});
         defer gpa.free(slug);
 
@@ -368,6 +380,31 @@ test "expands each manifest line into a numbered list plus its title, with per-n
 
     // Echoed per node, so a bad regex is visible immediately.
     try testing.expect(std.mem.indexOf(u8, out.written(), "01\t2\tCode — the java\n") != null);
+}
+
+test "a manifest with more nodes than max_nodes is refused, not silently truncated" {
+    // Before this refusal existed, node core.node.max_nodes + 1 would still
+    // get written (build-lists' own slug isn't capped), just under a slug
+    // wider than every reader's own 1..=max_nodes loop ever visits -- gone
+    // from every brief/ranking with nothing to say why.
+    const gpa = testing.allocator;
+    var bf = try BuildListsFixture.init(gpa);
+    defer bf.deinit();
+    try bf.fx.writeRepoFile("mod-a/src/main/java/A.java", "class A {}\n");
+    try bf.commit("mixed");
+
+    var manifest: std.Io.Writer.Allocating = .init(gpa);
+    defer manifest.deinit();
+    var i: usize = 0;
+    while (i <= core.node.max_nodes) : (i += 1) {
+        try manifest.writer.print("Node {d}\t^config$\t\n", .{i});
+    }
+    try bf.writeManifest(manifest.written());
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try bf.run(false, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
 }
 
 test "the exclude column removes paths the include column matched" {

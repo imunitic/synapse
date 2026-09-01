@@ -79,6 +79,16 @@ pub fn moduleOf(path: []const u8, chains: []const []const u8) []const u8 {
 
 pub const repo_root_module = "(repo root)";
 
+/// The highest node number `build-lists`' `lists/NN.txt`/`NN.title` naming
+/// supports. `build_lists_cmd.zig` refuses (rather than silently writing a
+/// wider slug like `100`) once a manifest would exceed it -- every reader of
+/// `lists/` (`links_cmd.zig`, `brief_cmd.zig`, `rank_cmd.zig`,
+/// `vocab_cmd.zig`, `push_nodes_cmd.zig`) iterates exactly `1..=max_nodes`,
+/// so a slug this constant doesn't cover would otherwise be written but
+/// never read back by any of them. Shared here so a future change to the
+/// cap only has one call site's worth of loops to touch, not six.
+pub const max_nodes: usize = 99;
+
 /// One source a node claims, at the content hash it was last seen with.
 pub const Source = struct {
     path: []const u8,

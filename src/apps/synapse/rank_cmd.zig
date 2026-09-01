@@ -498,7 +498,7 @@ fn runLists(
 
     var nodes: usize = 0;
     var n: usize = 1;
-    while (n <= 99) : (n += 1) {
+    while (n <= core.node.max_nodes) : (n += 1) {
         const txt_path = try std.fmt.allocPrint(node_arena, "{s}/{d:0>2}.txt", .{ lists_dir, n });
         const listing = cwd.readFileAlloc(io, txt_path, node_arena, .limited(64 << 20)) catch continue;
 

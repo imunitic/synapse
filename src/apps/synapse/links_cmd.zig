@@ -236,7 +236,7 @@ fn readLists(
     const cwd = Io.Dir.cwd();
     var titles: std.StringHashMapUnmanaged(void) = .empty;
     var n: usize = 1;
-    while (n <= 99) : (n += 1) {
+    while (n <= core.node.max_nodes) : (n += 1) {
         const txt_path = try std.fmt.allocPrint(arena, "{s}/{d:0>2}.txt", .{ dir, n });
         const title_path = try std.fmt.allocPrint(arena, "{s}/{d:0>2}.title", .{ dir, n });
         const title_raw = cwd.readFileAlloc(io, title_path, arena, .limited(64 << 10)) catch continue;

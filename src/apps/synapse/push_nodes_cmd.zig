@@ -213,7 +213,9 @@ fn discover(
 }
 
 /// Entries matching `<prefix>NN<suffix>`, yielding the `NN`. Two digits
-/// exactly -- `b-1.md`/`b-100.md` aren't node files.
+/// exactly -- `b-1.md`/`b-100.md` aren't node files. Tied to
+/// `core.node.max_nodes` (99, two digits): raising that constant past two
+/// digits means this exact-length check needs to widen too.
 fn collect(
     gpa: Allocator,
     io: Io,

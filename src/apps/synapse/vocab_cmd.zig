@@ -699,7 +699,7 @@ fn hasUsableExtension(path: []const u8, usable: []const []const u8) bool {
 fn readLists(arena: Allocator, io: Io, dir: []const u8) !usize {
     var found: usize = 0;
     var n: usize = 1;
-    while (n <= 99) : (n += 1) {
+    while (n <= core.node.max_nodes) : (n += 1) {
         const txt = try std.fmt.allocPrint(arena, "{s}/{d:0>2}.txt", .{ dir, n });
         const title = try std.fmt.allocPrint(arena, "{s}/{d:0>2}.title", .{ dir, n });
         const has_txt = Io.Dir.cwd().access(io, txt, .{}) != error.FileNotFound;
@@ -718,7 +718,7 @@ fn mapFromLists(
 ) !void {
     const cwd = Io.Dir.cwd();
     var n: usize = 1;
-    while (n <= 99) : (n += 1) {
+    while (n <= core.node.max_nodes) : (n += 1) {
         const txt_path = try std.fmt.allocPrint(arena, "{s}/{d:0>2}.txt", .{ dir, n });
         const title_path = try std.fmt.allocPrint(arena, "{s}/{d:0>2}.title", .{ dir, n });
         const title_raw = cwd.readFileAlloc(io, title_path, arena, .limited(64 << 10)) catch continue;
