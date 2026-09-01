@@ -16,7 +16,7 @@ The boxes name the vault-relevant hooks; what each one does is here rather than 
 | Hook | Fires | What it does |
 |---|---|---|
 | `synapse-hook session-start` | `SessionStart` | Injects `Index.md`, this repo's Graph pointer if a namespace covers the current branch, and a catalogue of the other namespaces in the vault. A plain path lookup — never a model call, so a repo that never opted in pays nothing. Also spawns a detached vault pull, a no-op unless the resolved backend is `git`. |
-| `synapse-hook prompt-context` | `UserPromptSubmit` | One fixed standing line per turn, instructing that the Graph/Code Cache be queried before any grep in a repo with a namespace -- no search, no node list, no network, and no off switch. |
+| `synapse-hook prompt-context` | `UserPromptSubmit` | One fixed standing line per turn, instructing that the Graph/Code Cache be queried before any grep in a repo with a namespace -- no search, no node list, no network. `SYNAPSE_DISABLE_PROMPT_INJECTION` turns it off for a session. |
 | `synapse-hook stop-nudge` | `Stop`, every 25 turns | Forces a real "did anything here belong in the vault?" check-in rather than relying on the agent to remember unprompted. |
 
 ## The vault

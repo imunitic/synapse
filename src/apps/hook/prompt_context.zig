@@ -1,10 +1,11 @@
 //! `synapse-hook prompt-context` -- UserPromptSubmit.
 //!
 //! One standing line per turn, in a repo with a namespace: the graph
-//! exists, query it before grepping. No search, no node list, no network,
-//! and no off switch -- at ~130 tokens the payload is small enough that a
-//! knob to disable it cost more than it saved. `SYNAPSE_DISABLE_PROMPT_INJECTION`
-//! gated the tokenize-and-search version below, and went with it.
+//! exists, query it before grepping. No search, no node list, no network.
+//! `SYNAPSE_DISABLE_PROMPT_INJECTION` (any value) disables it -- the coarse
+//! opt-out (no namespace, no nudge) is per-repo, not per-session, and a
+//! session that already knows to query the graph without being told every
+//! turn should be able to stop paying ~130 tokens a turn to be told anyway.
 //!
 //! Phrased as an instruction, not a suggestion. "Consult Synapse before
 //! grepping" read as advice and was treated as advice -- a real session
@@ -32,6 +33,8 @@ const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
 pub fn run(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
+    if (env.get("SYNAPSE_DISABLE_PROMPT_INJECTION") != null) return;
+
     var payload = common.Payload.read(gpa, io);
     defer payload.deinit();
     _ = payload.str("prompt") orelse return; // an empty prompt exits silently

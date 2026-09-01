@@ -4,13 +4,8 @@
 # The nudge text itself is covered natively, in
 # `src/apps/hook/prompt_context.zig`'s own `test` blocks, against the
 # `build()` entry point. What stays here is the half `build()` never sees:
-# `run()`'s stdin payload handling, which needs a real process with a real
-# JSON payload on stdin to exercise at all.
-#
-# This file used to hold one test, for a `SYNAPSE_DISABLE_PROMPT_INJECTION`
-# short-circuit that ran before the payload was parsed. That flag gated the
-# tokenize-and-search version of this hook and was removed with it, so the
-# coverage here became the payload path instead.
+# `run()`'s stdin payload handling and its `SYNAPSE_DISABLE_PROMPT_INJECTION`
+# short-circuit, both of which need a real process to exercise at all.
 
 load 'test_helper'
 
@@ -70,6 +65,16 @@ run_hook() {
   make_namespace
 
   run run_hook "" "$REPO"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "SYNAPSE_DISABLE_PROMPT_INJECTION short-circuits before the payload is even read" {
+  make_repo
+  make_namespace
+
+  export SYNAPSE_DISABLE_PROMPT_INJECTION=1
+  run run_hook "how does Cached_backend invalidate results" "$REPO"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
