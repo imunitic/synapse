@@ -549,9 +549,34 @@ pub const DiskRenamer = struct {
             _ = try store.write(io, r.node, rewritten);
         }
 
+        // A case-only rename (`Foo.md` -> `foo.md`) on a case-insensitive
+        // filesystem (APFS, NTFS) writes and deletes the same inode: the
+        // write above already landed the new content there, so deleting
+        // `old_path` now would destroy the note it just wrote. Compare
+        // inodes rather than path bytes so this holds regardless of the
+        // filesystem's case sensitivity -- a real two-file rename always
+        // has distinct inodes and deletes as before.
+        if (try sameFile(io, self.vault, old_path, new_path)) return;
         try deleteVaultFile(gpa, io, self.vault, old_path);
     }
 };
+
+/// True when `old_path` and `new_path` resolve to the same underlying file
+/// -- the case-insensitive-filesystem collision `DiskRenamer.rename` has to
+/// guard against. `old_path`'s stat failing (already gone) or the two
+/// inodes disagreeing both mean "not the same file, safe to delete".
+fn sameFile(io: Io, vault: []const u8, old_path: []const u8, new_path: []const u8) !bool {
+    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+    const old_full = std.fs.path.join(fba.allocator(), &.{ vault, old_path }) catch return false;
+    var buf2: [Io.Dir.max_path_bytes]u8 = undefined;
+    var fba2 = std.heap.FixedBufferAllocator.init(&buf2);
+    const new_full = std.fs.path.join(fba2.allocator(), &.{ vault, new_path }) catch return false;
+
+    const old_stat = Io.Dir.cwd().statFile(io, old_full, .{}) catch return false;
+    const new_stat = Io.Dir.cwd().statFile(io, new_full, .{}) catch return false;
+    return old_stat.inode == new_stat.inode;
+}
 
 /// Removes a vault-relative file directly -- not a `Store` operation (`Store`
 /// stays at exactly four methods, none of them delete), needed only by
@@ -1652,6 +1677,34 @@ test "rename moves the note to its new filename and removes the old one" {
 
     try testing.expectEqual(@as(?[]u8, null), try port.read(gpa, testing.io, "Old.md"));
     const got = (try port.read(gpa, testing.io, "New.md")).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("body\n", got);
+}
+
+test "renaming a note to a path that resolves to the same file leaves it intact" {
+    // The general form of the case-insensitive-filesystem collision
+    // (`Foo.md` -> `foo.md` writing and deleting the same inode on APFS/
+    // NTFS): old_path and new_path address the same underlying file. CI
+    // runs on case-sensitive ext4, so an actual differing-case collision
+    // can't be reproduced portably here -- the identical-path case forces
+    // the same condition (same inode) on every filesystem, exercising the
+    // same `sameFile` guard deterministically. Before that guard existed,
+    // this sequence unconditionally deleted the file it had just written.
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "");
+    defer s.deinit();
+    const port = s.store();
+    _ = try port.write(testing.io, "Same.md", "body\n");
+
+    const rn = s.renamer();
+    try rn.rename(gpa, testing.io, "Same.md", "Same.md");
+
+    const got = (try port.read(gpa, testing.io, "Same.md")).?;
     defer gpa.free(got);
     try testing.expectEqualStrings("body\n", got);
 }
