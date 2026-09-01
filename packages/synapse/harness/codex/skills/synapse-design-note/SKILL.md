@@ -204,15 +204,20 @@ Discussing | Ready | Reference
 ## Approach
 {Chosen approach}
 
-### Alternatives considered (optional)
+### Alternatives considered
 - {Option}: why not
 
 ## Constraints
 {Hard constraints, non-negotiables}
 
-## Open Questions (optional)
+## Open Questions
 - {Anything deferred or unresolved}
 ```
+
+`### Alternatives considered` and `## Open Questions` are both optional per the schema — omit
+either section entirely rather than leaving it as an empty heading, and never write it as `##
+Open Questions (optional)`: the schema and `/synapse-status`'s own query both match this exact
+heading text, and a suffixed one is invisible to both.
 
 Resolve tags through the `synapse-vault` skill's configured vocabulary procedure. Fetch machine
 local time once (`date '+%Y-%m-%d %H:%M:%S %Z'`) — never infer it — and use the exact same value
