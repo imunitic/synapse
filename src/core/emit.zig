@@ -399,11 +399,21 @@ pub fn trimBlankEdges(body: []const u8) []const u8 {
 }
 
 /// A YAML double-quoted scalar's contents. Backslash before quote, or the
-/// escaping escapes itself.
+/// escaping escapes itself. A raw `\n`/`\r` also has to go: every
+/// frontmatter reader in this codebase (`query.field`, `fieldStreaming`,
+/// ...) scans line by line with no notion of a YAML flow scalar folding
+/// across physical lines, so an unescaped line break inside a value --
+/// `--title`/`--summary` reach here verbatim from the CLI -- reads back as
+/// a new top-level `key: value` line instead of a character inside this
+/// one. A real YAML parser would still resolve the whole thing as a single
+/// folded scalar, but that's not what this codebase's own readers do, and
+/// they're what a caller actually gets back.
 pub fn writeYamlQuoted(w: *std.Io.Writer, s: []const u8) !void {
     for (s) |c| switch (c) {
         '\\' => try w.writeAll("\\\\"),
         '"' => try w.writeAll("\\\""),
+        '\n' => try w.writeAll("\\n"),
+        '\r' => try w.writeAll("\\r"),
         else => try w.writeByte(c),
     };
 }
@@ -472,7 +482,9 @@ const sources_path_threshold: usize = 5;
 /// guarantee instead of an accident.
 pub fn writeNote(w: *std.Io.Writer, n: Note) !void {
     try w.writeAll("---\n");
-    try w.print("title: \"{s}\"\n", .{n.title});
+    try w.writeAll("title: \"");
+    try writeYamlQuoted(w, n.title);
+    try w.writeAll("\"\n");
     try w.writeAll("summary: \"");
     try writeYamlQuoted(w, n.summary);
     try w.writeAll("\"\n");
@@ -794,6 +806,25 @@ test "a fresh node gets an empty Notes section" {
         \\
         \\
     , out.written());
+}
+
+test "a title with an embedded quote and newline cannot hijack a later field" {
+    // `--title` reaches here verbatim from the CLI. `query.field` and every
+    // other reader in this codebase scan frontmatter line by line with no
+    // notion of a YAML flow scalar folding across lines -- before `title`
+    // escaped `\n`/`\r`, this exact title broke `title: "..."` onto a
+    // second physical line reading `stale: true`, and because `title` is
+    // written before the real `stale: false` line, `query.field`'s
+    // first-match scan returned the injected value instead of the real one.
+    var n = baseNote();
+    n.title = "Evil\"\nstale: true";
+    var out: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+    try writeNote(&out.writer, n);
+
+    const written = out.written();
+    try testing.expect(std.mem.indexOf(u8, written, "title: \"Evil\\\"\\nstale: true\"\n") != null);
+    try testing.expectEqualStrings("false", query.field(written, "stale").?);
 }
 
 test "the small, frequently-queried scalar fields are written before the large sources list" {
