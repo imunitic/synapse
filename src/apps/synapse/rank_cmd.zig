@@ -461,7 +461,7 @@ fn rankDsl(
 }
 
 /// `--lists`: both pools for every node found in `dir`, one repo pass. A node
-/// is any `NN.txt` (01-99); no title required, since nothing here reads one.
+/// is any `NNN.txt` (001-max_nodes); no title required, since nothing here reads one.
 /// `dsl_idx` is built once and reused for every node.
 fn runLists(
     gpa: Allocator,
@@ -498,8 +498,8 @@ fn runLists(
 
     var nodes: usize = 0;
     var n: usize = 1;
-    while (n <= 99) : (n += 1) {
-        const txt_path = try std.fmt.allocPrint(node_arena, "{s}/{d:0>2}.txt", .{ lists_dir, n });
+    while (n <= core.node.max_nodes) : (n += 1) {
+        const txt_path = try std.fmt.allocPrint(node_arena, "{s}/{d:0>3}.txt", .{ lists_dir, n });
         const listing = cwd.readFileAlloc(io, txt_path, node_arena, .limited(64 << 20)) catch continue;
 
         const all = try dedupeSorted(node_arena, listing);
@@ -521,17 +521,17 @@ fn runLists(
         defer summary_buf.deinit();
         try emit(&summary_buf.writer, summary_code_rows, top, .code);
         try emit(&summary_buf.writer, summary_dsl_rows, top, .dsl);
-        const summary_path = try std.fmt.allocPrint(node_arena, "{s}/{d:0>2}.summary.tsv", .{ rank_dir, n });
+        const summary_path = try std.fmt.allocPrint(node_arena, "{s}/{d:0>3}.summary.tsv", .{ rank_dir, n });
         try cwd.writeFile(io, .{ .sub_path = summary_path, .data = summary_buf.written() });
 
         var crux_buf: std.Io.Writer.Allocating = .init(gpa);
         defer crux_buf.deinit();
         try emit(&crux_buf.writer, crux_rows, top, .code);
-        const crux_path = try std.fmt.allocPrint(node_arena, "{s}/{d:0>2}.crux.tsv", .{ rank_dir, n });
+        const crux_path = try std.fmt.allocPrint(node_arena, "{s}/{d:0>3}.crux.tsv", .{ rank_dir, n });
         try cwd.writeFile(io, .{ .sub_path = crux_path, .data = crux_buf.written() });
 
         std.debug.print(
-            "synapse-rank: node {d:0>2}, {d} sources -> code {d}, dsl-consumers {d}, unranked {d}, tests-excluded {d}\n",
+            "synapse-rank: node {d:0>3}, {d} sources -> code {d}, dsl-consumers {d}, unranked {d}, tests-excluded {d}\n",
             .{ n, all.items.len, summary_code_rows.len, summary_dsl_rows.len, noncode.items.len, tests_dropped },
         );
         nodes += 1;
@@ -1119,15 +1119,15 @@ test "rank: --lists writes both pools per node, matching what --sources produces
     try rf.src("core/src/Service.java", 0, &.{ "Alpha", "Beta" });
     try rf.src("core/src/ServiceTest.java", 0, &.{ "T1", "T2", "T3" });
     try rf.commit();
-    try stageNodeList(&rf, "01", &.{ "core/src/Service.java", "core/src/ServiceTest.java" });
+    try stageNodeList(&rf, "001", &.{ "core/src/Service.java", "core/src/ServiceTest.java" });
 
     const r = try runRankLists(&rf, 10);
     defer gpa.free(r.out);
     try testing.expectEqual(@as(u8, 0), r.code);
 
-    const summary_tsv = try rf.fx.tmp.dir.readFileAlloc(testing.io, "work/rank/01.summary.tsv", gpa, .limited(1 << 20));
+    const summary_tsv = try rf.fx.tmp.dir.readFileAlloc(testing.io, "work/rank/001.summary.tsv", gpa, .limited(1 << 20));
     defer gpa.free(summary_tsv);
-    const crux_tsv = try rf.fx.tmp.dir.readFileAlloc(testing.io, "work/rank/01.crux.tsv", gpa, .limited(1 << 20));
+    const crux_tsv = try rf.fx.tmp.dir.readFileAlloc(testing.io, "work/rank/001.crux.tsv", gpa, .limited(1 << 20));
     defer gpa.free(crux_tsv);
 
     const want_summary = try rf.run(.{ .sources = "core/src/Service.java\ncore/src/ServiceTest.java\n", .pool = "summary" });
@@ -1154,16 +1154,16 @@ test "rank: --lists: the DSL index is shared across nodes without cross-contamin
     try rf.src("shipping/src/BestellungHandler.java", 0, &.{"Beta"});
     try rf.plain("shipping/src/Bestellung.domvo", "declaration\n");
     try rf.commit();
-    try stageNodeList(&rf, "01", &.{ "billing/src/Adresse.domvo", "billing/src/AdresseHandler.java" });
-    try stageNodeList(&rf, "02", &.{ "shipping/src/Bestellung.domvo", "shipping/src/BestellungHandler.java" });
+    try stageNodeList(&rf, "001", &.{ "billing/src/Adresse.domvo", "billing/src/AdresseHandler.java" });
+    try stageNodeList(&rf, "002", &.{ "shipping/src/Bestellung.domvo", "shipping/src/BestellungHandler.java" });
 
     const r = try runRankLists(&rf, 10);
     defer gpa.free(r.out);
     try testing.expectEqual(@as(u8, 0), r.code);
 
-    const n1 = try rf.fx.tmp.dir.readFileAlloc(testing.io, "work/rank/01.summary.tsv", gpa, .limited(1 << 20));
+    const n1 = try rf.fx.tmp.dir.readFileAlloc(testing.io, "work/rank/001.summary.tsv", gpa, .limited(1 << 20));
     defer gpa.free(n1);
-    const n2 = try rf.fx.tmp.dir.readFileAlloc(testing.io, "work/rank/02.summary.tsv", gpa, .limited(1 << 20));
+    const n2 = try rf.fx.tmp.dir.readFileAlloc(testing.io, "work/rank/002.summary.tsv", gpa, .limited(1 << 20));
     defer gpa.free(n2);
     try testing.expect(std.mem.indexOf(u8, n1, "billing/src/AdresseHandler.java") != null);
     try testing.expect(std.mem.indexOf(u8, n1, "shipping/src/BestellungHandler.java") == null);
@@ -1177,14 +1177,14 @@ test "rank: --lists writes an empty pool file for a node with nothing to rank, r
     defer rf.deinit();
     try rf.plain("config.json", "x\n");
     try rf.commit();
-    try stageNodeList(&rf, "01", &.{"config.json"});
+    try stageNodeList(&rf, "001", &.{"config.json"});
 
     const r = try runRankLists(&rf, 10);
     defer gpa.free(r.out);
     try testing.expectEqual(@as(u8, 0), r.code);
-    const summary_tsv = try rf.fx.tmp.dir.readFileAlloc(testing.io, "work/rank/01.summary.tsv", gpa, .limited(1 << 20));
+    const summary_tsv = try rf.fx.tmp.dir.readFileAlloc(testing.io, "work/rank/001.summary.tsv", gpa, .limited(1 << 20));
     defer gpa.free(summary_tsv);
-    const crux_tsv = try rf.fx.tmp.dir.readFileAlloc(testing.io, "work/rank/01.crux.tsv", gpa, .limited(1 << 20));
+    const crux_tsv = try rf.fx.tmp.dir.readFileAlloc(testing.io, "work/rank/001.crux.tsv", gpa, .limited(1 << 20));
     defer gpa.free(crux_tsv);
     try testing.expectEqual(@as(usize, 0), summary_tsv.len);
     try testing.expectEqual(@as(usize, 0), crux_tsv.len);
@@ -1197,12 +1197,12 @@ test "rank: --lists honours --top per file" {
     try rf.src("core/src/A.java", 0, &.{ "A1", "A2", "A3" });
     try rf.src("core/src/B.java", 0, &.{"B1"});
     try rf.commit();
-    try stageNodeList(&rf, "01", &.{ "core/src/A.java", "core/src/B.java" });
+    try stageNodeList(&rf, "001", &.{ "core/src/A.java", "core/src/B.java" });
 
     const r = try runRankLists(&rf, 1);
     defer gpa.free(r.out);
     try testing.expectEqual(@as(u8, 0), r.code);
-    const summary_tsv = try rf.fx.tmp.dir.readFileAlloc(testing.io, "work/rank/01.summary.tsv", gpa, .limited(1 << 20));
+    const summary_tsv = try rf.fx.tmp.dir.readFileAlloc(testing.io, "work/rank/001.summary.tsv", gpa, .limited(1 << 20));
     defer gpa.free(summary_tsv);
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, summary_tsv, "code\t"));
 }
@@ -1213,13 +1213,13 @@ test "rank: --lists needs no .title file -- nothing in the ranking path reads on
     defer rf.deinit();
     try rf.src("core/src/Service.java", 0, &.{"Alpha"});
     try rf.commit();
-    try stageNodeList(&rf, "01", &.{"core/src/Service.java"});
-    try testing.expect(rf.fx.tmp.dir.access(testing.io, "work/lists/01.title", .{}) == error.FileNotFound);
+    try stageNodeList(&rf, "001", &.{"core/src/Service.java"});
+    try testing.expect(rf.fx.tmp.dir.access(testing.io, "work/lists/001.title", .{}) == error.FileNotFound);
 
     const r = try runRankLists(&rf, 10);
     defer gpa.free(r.out);
     try testing.expectEqual(@as(u8, 0), r.code);
-    const summary_tsv = try rf.fx.tmp.dir.readFileAlloc(testing.io, "work/rank/01.summary.tsv", gpa, .limited(1 << 20));
+    const summary_tsv = try rf.fx.tmp.dir.readFileAlloc(testing.io, "work/rank/001.summary.tsv", gpa, .limited(1 << 20));
     defer gpa.free(summary_tsv);
     try testing.expect(std.mem.indexOf(u8, summary_tsv, "core/src/Service.java") != null);
 }

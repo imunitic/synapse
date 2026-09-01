@@ -134,10 +134,10 @@ needs one.
      It replaces only the generated region and re-emits everything after the closing fence verbatim,
      which is what makes the `## Notes` guarantee enforceable rather than a promise.
    - **Never hand-write the frontmatter**, with `vault_patch` at `targetType: frontmatter` or
-     otherwise. Two reasons, both load-bearing: that patch re-serialises the whole YAML block and
-     YAML-coerces values (an all-digit `hash` becomes `1.1111111111111112e+39`), and
-     enumerating fields by hand is how `summary` and `commit` get silently dropped — which then breaks
-     the next `synapse build-project-index` run, far from the cause.
+     otherwise. `--frontmatter` only ever writes a single scalar value, so it can't represent
+     `sources:`/`grounded_in:` at all, and enumerating the rest of a node's fields by hand one call
+     at a time is how `summary` and `commit` get silently dropped — which then breaks the next
+     `synapse build-project-index` run, far from the cause.
    - **`## Notes` is human-authored only.** Never write into it — not at regeneration, not to record
      what you just did. (Task notes in `tasks/` are a different artifact: the `synapse-task` skill *does*
      append there. Do not carry that habit into a Synapse node.)

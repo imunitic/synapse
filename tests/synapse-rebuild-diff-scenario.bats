@@ -64,7 +64,7 @@ make_project() {
 build_namespace() {
   in_repo "$SYNAPSE_BIN" build-lists >/dev/null
   local nn title
-  for nn in 01 02 03 04; do
+  for nn in 001 002 003 004; do
     title="$(cat "$WORK/lists/$nn.title")"
     printf -- '---\nsummary: %s in one line.\n---\n\n## Summary\nProse for %s.\n\n## Crux\n```java\nclass alpha1 { int v = 1; }\n```\n' \
       "$title" "$title" > "$WORK/b-$nn.md"
@@ -145,11 +145,11 @@ drift() { in_repo "$SYNAPSE_BIN" query drift; }
   in_repo "$SYNAPSE_BIN" build-lists --reenumerate >/dev/null
   in_repo "$SYNAPSE_BIN" query body "Beta — the second module" \
     | awk '/^## Sources$/ { exit } { print }' > "$WORK/reseat.md"
-  rm -f "$WORK/b-02.md"
+  rm -f "$WORK/b-002.md"
 
   run in_repo "$SYNAPSE_BIN" write-node --title "Beta — the second module" \
     --summary "Beta — the second module in one line." \
-    --paths "$WORK/lists/02.txt" --body "$WORK/reseat.md"
+    --paths "$WORK/lists/002.txt" --body "$WORK/reseat.md"
   [ "$status" -eq 0 ]
 
   # Prose survived byte-for-byte, minus the regenerated Sources mirror.
@@ -177,14 +177,14 @@ drift() { in_repo "$SYNAPSE_BIN" query drift; }
   [[ "$output" == *"3 new paths already match a manifest pattern"* ]]
 
   in_repo "$SYNAPSE_BIN" build-lists --reenumerate >/dev/null
-  [ "$(wc -l < "$WORK/lists/03.txt" | tr -d ' ')" -eq 23 ]
+  [ "$(wc -l < "$WORK/lists/003.txt" | tr -d ' ')" -eq 23 ]
 
   # Rewriting the node with the wider list is mechanical; the prose is unchanged.
   in_repo "$SYNAPSE_BIN" query body "Gamma — the third module" \
     | awk '/^## Sources$/ { exit } { print }' > "$WORK/g.md"
   run in_repo "$SYNAPSE_BIN" write-node --title "Gamma — the third module" \
     --summary "Gamma — the third module in one line." \
-    --paths "$WORK/lists/03.txt" --body "$WORK/g.md"
+    --paths "$WORK/lists/003.txt" --body "$WORK/g.md"
   [ "$status" -eq 0 ]
   run in_repo "$SYNAPSE_BIN" query sources "Gamma — the third module" --count
   [ "$output" -eq 23 ]
@@ -215,21 +215,21 @@ drift() { in_repo "$SYNAPSE_BIN" query drift; }
 
   in_repo "$SYNAPSE_BIN" build-lists --reenumerate >/dev/null
   # The subsystem does not exist on this line at all.
-  [ ! -s "$WORK/lists/03.txt" ]
+  [ ! -s "$WORK/lists/003.txt" ]
 
   # The writer must refuse rather than emit a node with no sources, and the node
   # already in the vault must be left intact -- its ## Notes is unrecoverable.
   run in_repo "$SYNAPSE_BIN" write-node --title "Gamma — the third module" \
-    --summary "x" --paths "$WORK/lists/03.txt" --body "$WORK/b-03.md"
+    --summary "x" --paths "$WORK/lists/003.txt" --body "$WORK/b-003.md"
   [ "$status" -eq 1 ]
   [[ "$output" == *"empty path list"* ]]
   [ -f "$(ns)/Gamma — the third module.md" ]
   grep -q '^## Notes$' "$(ns)/Gamma — the third module.md"
 
   # And the driver reports it rather than aborting the whole run.
-  run in_repo "$SYNAPSE_BIN" push-nodes 03
+  run in_repo "$SYNAPSE_BIN" push-nodes 003
   [ "$status" -eq 1 ]
-  [[ "$output" == *"03	SKIP (no list/title)"* || "$output" == *"03	FAILED"* ]]
+  [[ "$output" == *"003	SKIP (no list/title)"* || "$output" == *"003	FAILED"* ]]
 }
 
 @test "the loop closes: after rebuilding every flagged node, drift goes silent" {
@@ -247,7 +247,7 @@ drift() { in_repo "$SYNAPSE_BIN" query drift; }
   # The mechanical phase, then a rewrite of each flagged node from its own prose.
   in_repo "$SYNAPSE_BIN" build-lists --reenumerate >/dev/null
   local nn title
-  for nn in 01 02 03; do
+  for nn in 001 002 003; do
     title="$(cat "$WORK/lists/$nn.title")"
     in_repo "$SYNAPSE_BIN" query body "$title" \
       | awk '/^## Sources$/ { exit } { print }' > "$WORK/r-$nn.md"

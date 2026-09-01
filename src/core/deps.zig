@@ -171,6 +171,46 @@ test "compute: a build-file rule finds the nearest ancestor build file and split
     try testing.expectEqualStrings("str", rows.items[1].library);
 }
 
+test "compute: two extensions' rules sharing a build file, but different prefixes, extract independently" {
+    // The exact hazard `namespace.buildFileMap`'s own cache key now closes:
+    // before it disambiguated by (file_name, prefix, terminator) instead of
+    // file_name alone, the second rule processed against a shared build
+    // file silently got the first rule's memoized map here too, the same
+    // as it did in namespace.computePerFile.
+    const gpa = testing.allocator;
+    const io = testing.io;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const root = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    try tmp.dir.createDirPath(io, "widget/src");
+    try tmp.dir.writeFile(io, .{ .sub_path = "widget/src/build.deps", .data = "depends gadget\nrequires thing\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "widget/src/main.xx", .data = "run\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "widget/src/main.yy", .data = "run\n" });
+
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+
+    const parsed = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"xx": {"kind": "build-file", "file": "build.deps", "prefix": "depends "},
+        \\ "yy": {"kind": "build-file", "file": "build.deps", "prefix": "requires "}}
+    , .{});
+    var reg: namespace.Registry = .{ .parsed = parsed };
+    defer reg.deinit();
+
+    const kept = [_][]const u8{ "widget/src/build.deps", "widget/src/main.xx", "widget/src/main.yy" };
+    var rows = try compute(gpa, arena_state.allocator(), io, root, &kept, reg);
+    defer rows.deinit(gpa);
+
+    try testing.expectEqual(@as(usize, 2), rows.items.len);
+    try testing.expectEqualStrings("widget/src/main.xx", rows.items[0].path);
+    try testing.expectEqualStrings("gadget", rows.items[0].library);
+    try testing.expectEqualStrings("widget/src/main.yy", rows.items[1].path);
+    try testing.expectEqualStrings("thing", rows.items[1].library);
+}
+
 test "compute: a file with no rule for its extension contributes no rows" {
     const gpa = testing.allocator;
     const io = testing.io;

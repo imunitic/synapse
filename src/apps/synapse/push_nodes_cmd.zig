@@ -27,7 +27,7 @@ const prog = "synapse-push-nodes";
 const usage_text =
     \\usage: synapse push-nodes [NN ...]
     \\
-    \\  NN   two-digit node numbers to push. Default: every b-NN.md and lists/NN.title.
+    \\  NN   three-digit node numbers to push. Default: every b-NN.md and lists/NN.title.
     \\
 ;
 
@@ -212,8 +212,10 @@ fn discover(
     out.shrinkRetainingCapacity(n);
 }
 
-/// Entries matching `<prefix>NN<suffix>`, yielding the `NN`. Two digits
-/// exactly -- `b-1.md`/`b-100.md` aren't node files.
+/// Entries matching `<prefix>NNN<suffix>`, yielding the `NNN`. Three digits
+/// exactly -- `b-1.md`/`b-1000.md` aren't node files. Tied to
+/// `core.node.max_nodes`'s own 3-digit slug width: raising that constant
+/// past 999 means this exact-length check needs to widen too.
 fn collect(
     gpa: Allocator,
     io: Io,
@@ -228,12 +230,12 @@ fn collect(
     while (try it.next(io)) |entry| {
         if (entry.kind != .file) continue;
         const name = entry.name;
-        if (name.len != prefix.len + 2 + suffix.len) continue;
+        if (name.len != prefix.len + 3 + suffix.len) continue;
         if (!std.mem.startsWith(u8, name, prefix)) continue;
         if (!std.mem.endsWith(u8, name, suffix)) continue;
-        const nn = name[prefix.len .. prefix.len + 2];
-        if (!std.ascii.isDigit(nn[0]) or !std.ascii.isDigit(nn[1])) continue;
-        try out.append(gpa, try gpa.dupe(u8, nn));
+        const nnn = name[prefix.len .. prefix.len + 3];
+        if (!std.ascii.isDigit(nnn[0]) or !std.ascii.isDigit(nnn[1]) or !std.ascii.isDigit(nnn[2])) continue;
+        try out.append(gpa, try gpa.dupe(u8, nnn));
     }
 }
 
@@ -298,8 +300,8 @@ test "pushes every node that has both a list and a body" {
     defer pf.deinit();
     try pf.fx.writeRepoFile("mod-a/a.txt", "a\n");
     try pf.fx.writeRepoFile("docs/d.md", "d\n");
-    try pf.stageNode("01", "Mod A", "mod-a/a.txt");
-    try pf.stageNode("02", "Docs", "docs/d.md");
+    try pf.stageNode("001", "Mod A", "mod-a/a.txt");
+    try pf.stageNode("002", "Docs", "docs/d.md");
 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
@@ -309,8 +311,8 @@ test "pushes every node that has both a list and a body" {
     try testing.expect(try pf.fx.nodeExists("Mod A"));
     try testing.expect(try pf.fx.nodeExists("Docs"));
     // Each line reports the node number alongside the writer's own output.
-    try testing.expect(std.mem.indexOf(u8, out.written(), "01\tMod A.md") != null);
-    try testing.expect(std.mem.indexOf(u8, out.written(), "02\tDocs.md") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "001\tMod A.md") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "002\tDocs.md") != null);
 }
 
 test "explicit node numbers restrict the push" {
@@ -319,12 +321,12 @@ test "explicit node numbers restrict the push" {
     defer pf.deinit();
     try pf.fx.writeRepoFile("mod-a/a.txt", "a\n");
     try pf.fx.writeRepoFile("docs/d.md", "d\n");
-    try pf.stageNode("01", "Mod A", "mod-a/a.txt");
-    try pf.stageNode("02", "Docs", "docs/d.md");
+    try pf.stageNode("001", "Mod A", "mod-a/a.txt");
+    try pf.stageNode("002", "Docs", "docs/d.md");
 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
-    const code = try pf.run(&.{"02"}, true, &out.writer);
+    const code = try pf.run(&.{"002"}, true, &out.writer);
     try testing.expectEqual(@as(u8, 0), code);
 
     try testing.expect(try pf.fx.nodeExists("Docs"));
@@ -337,16 +339,16 @@ test "a list with no authored body is skipped, not written empty" {
     defer pf.deinit();
     try pf.fx.writeRepoFile("mod-a/a.txt", "a\n");
     try pf.fx.writeRepoFile("docs/d.md", "d\n");
-    try pf.stageNode("01", "Mod A", "mod-a/a.txt");
+    try pf.stageNode("001", "Mod A", "mod-a/a.txt");
     try pf.fx.tmp.dir.createDirPath(testing.io, "work/lists");
-    try pf.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "work/lists/02.title", .data = "Docs\n" });
-    try pf.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "work/lists/02.txt", .data = "docs/d.md\n" });
+    try pf.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "work/lists/002.title", .data = "Docs\n" });
+    try pf.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "work/lists/002.txt", .data = "docs/d.md\n" });
 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
     const code = try pf.run(&.{}, false, &out.writer);
     try testing.expectEqual(@as(u8, 0), code);
-    try testing.expect(std.mem.indexOf(u8, out.written(), "02\tSKIP (no body)\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "002\tSKIP (no body)\n") != null);
     try testing.expect(!try pf.fx.nodeExists("Docs"));
 }
 
@@ -355,9 +357,9 @@ test "a body with no list is skipped rather than pushed with empty sources" {
     var pf = try PushNodesFixture.init(gpa);
     defer pf.deinit();
     try pf.fx.writeRepoFile("mod-a/a.txt", "a\n");
-    try pf.stageNode("01", "Mod A", "mod-a/a.txt");
+    try pf.stageNode("001", "Mod A", "mod-a/a.txt");
     try pf.fx.tmp.dir.writeFile(testing.io, .{
-        .sub_path = "work/b-07.md",
+        .sub_path = "work/b-007.md",
         .data = "---\nsummary: Orphan.\n---\n\n## Summary\nOrphan.\n",
     });
 
@@ -365,7 +367,7 @@ test "a body with no list is skipped rather than pushed with empty sources" {
     defer out.deinit();
     const code = try pf.run(&.{}, false, &out.writer);
     try testing.expectEqual(@as(u8, 0), code);
-    try testing.expect(std.mem.indexOf(u8, out.written(), "07\tSKIP (no list/title)\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "007\tSKIP (no list/title)\n") != null);
 }
 
 test "one failing node is reported and the rest still push" {
@@ -374,22 +376,22 @@ test "one failing node is reported and the rest still push" {
     defer pf.deinit();
     try pf.fx.writeRepoFile("mod-a/a.txt", "a\n");
     try pf.fx.writeRepoFile("docs/d.md", "d\n");
-    try pf.stageNode("01", "Mod A", "mod-a/a.txt");
+    try pf.stageNode("001", "Mod A", "mod-a/a.txt");
     // A list naming a path that no longer exists makes the writer refuse.
     try pf.fx.tmp.dir.createDirPath(testing.io, "work/lists");
-    try pf.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "work/lists/02.title", .data = "Broken\n" });
-    try pf.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "work/lists/02.txt", .data = "docs/gone.md\n" });
+    try pf.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "work/lists/002.title", .data = "Broken\n" });
+    try pf.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "work/lists/002.txt", .data = "docs/gone.md\n" });
     try pf.fx.tmp.dir.writeFile(testing.io, .{
-        .sub_path = "work/b-02.md",
+        .sub_path = "work/b-002.md",
         .data = "---\nsummary: Broken.\n---\n\n## Summary\nBroken.\n",
     });
-    try pf.stageNode("03", "Docs", "docs/d.md");
+    try pf.stageNode("003", "Docs", "docs/d.md");
 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
     const code = try pf.run(&.{}, false, &out.writer);
     try testing.expectEqual(@as(u8, 1), code);
-    try testing.expect(std.mem.indexOf(u8, out.written(), "02\tFAILED\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "002\tFAILED\n") != null);
     // The failure must not abort the run: 03 comes after 02 and must still exist.
     try testing.expect(try pf.fx.nodeExists("Docs"));
     try testing.expect(try pf.fx.nodeExists("Mod A"));
@@ -400,8 +402,8 @@ test "no bodies at all exits 1 instead of reporting a silent success" {
     var pf = try PushNodesFixture.init(gpa);
     defer pf.deinit();
     try pf.fx.tmp.dir.createDirPath(testing.io, "work/lists");
-    try pf.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "work/lists/01.title", .data = "Mod A\n" });
-    try pf.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "work/lists/01.txt", .data = "mod-a/a.txt\n" });
+    try pf.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "work/lists/001.title", .data = "Mod A\n" });
+    try pf.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "work/lists/001.txt", .data = "mod-a/a.txt\n" });
 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
@@ -414,7 +416,7 @@ test "the summary comes from the body's frontmatter and is stripped from the pro
     var pf = try PushNodesFixture.init(gpa);
     defer pf.deinit();
     try pf.fx.writeRepoFile("mod-a/a.txt", "a\n");
-    try pf.stageNode("01", "Mod A", "mod-a/a.txt");
+    try pf.stageNode("001", "Mod A", "mod-a/a.txt");
 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
@@ -425,11 +427,11 @@ test "the summary comes from the body's frontmatter and is stripped from the pro
     // becomes the node's `summary` field...
     const written = (try pf.fx.readNode(gpa, "Mod A")).?;
     defer gpa.free(written);
-    try testing.expect(std.mem.indexOf(u8, written, "summary: \"Node 01 in one line.\"\n") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "summary: \"Node 001 in one line.\"\n") != null);
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, written, "summary:"));
     // ...and must not be repeated inside the prose.
     try testing.expect(std.mem.indexOf(u8, written, "## Summary\n") != null);
-    try testing.expect(std.mem.indexOf(u8, written, "Node 01.\n") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "Node 001.\n") != null);
 }
 
 test "a body with no summary frontmatter fails rather than writing a node without one" {
@@ -438,10 +440,10 @@ test "a body with no summary frontmatter fails rather than writing a node withou
     defer pf.deinit();
     try pf.fx.writeRepoFile("mod-a/a.txt", "a\n");
     try pf.fx.tmp.dir.createDirPath(testing.io, "work/lists");
-    try pf.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "work/lists/01.title", .data = "Mod A\n" });
-    try pf.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "work/lists/01.txt", .data = "mod-a/a.txt\n" });
+    try pf.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "work/lists/001.title", .data = "Mod A\n" });
+    try pf.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "work/lists/001.txt", .data = "mod-a/a.txt\n" });
     try pf.fx.tmp.dir.writeFile(testing.io, .{
-        .sub_path = "work/b-01.md",
+        .sub_path = "work/b-001.md",
         .data = "## Summary\nNo frontmatter here.\n",
     });
 
@@ -451,7 +453,7 @@ test "a body with no summary frontmatter fails rather than writing a node withou
     try testing.expectEqual(@as(u8, 1), code);
     // The index is built from node summaries, so a node without one would
     // break it later; better to fail at the point the author can fix it.
-    try testing.expect(std.mem.indexOf(u8, out.written(), "01\tFAILED (no `summary:` frontmatter in b-01.md)\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "001\tFAILED (no `summary:` frontmatter in b-001.md)\n") != null);
     try testing.expect(!try pf.fx.nodeExists("Mod A"));
 }
 
@@ -461,7 +463,7 @@ test "a missing lists directory points at the step that produces it" {
     defer pf.deinit();
     // `work/lists` is never created -- Fixture.init only pre-creates `work`.
     try pf.fx.tmp.dir.writeFile(testing.io, .{
-        .sub_path = "work/b-01.md",
+        .sub_path = "work/b-001.md",
         .data = "---\nsummary: x.\n---\n\n## Summary\nx\n",
     });
 
