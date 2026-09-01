@@ -87,10 +87,9 @@ guessing:
 - Missing `created` → `stat.ctime`, formatted `YYYY-MM-DD HH:MM` to match every other note's
   convention.
 
-Apply via read-modify-write on the whole file (`synapse vault-read` → edit the one frontmatter line
-in the returned content → `synapse vault-write` the whole file back) — never `vault-patch` with
-`--frontmatter`, which re-serializes the entire YAML block and silently reformats unrelated fields,
-the same hazard `synapse-vault`/`synapse-task` already document.
+Apply with `synapse frontmatter set <path> <key> <value>` (or `vault-patch --frontmatter`, which
+delegates to the same byte-preserving mechanism) — either writes exactly this one field and leaves
+every other line untouched, the way `synapse-vault`/`synapse-task` already document.
 
 ## Step 3: Note-health findings (reported, not fixed)
 
