@@ -517,6 +517,20 @@ pub const ObsidianLinkGraph = struct {
 /// hardcoded `DiskRenamer`: under `git,obsidian`, this store is `git`'s own
 /// inner, so its fallback still has to be whatever `git,obsidian`'s own
 /// compose step actually resolved for the layer beneath Obsidian.
+///
+/// A refused rename (target already exists, source missing, ...) never
+/// falls back to `DiskRenamer` -- confirmed live against a real running
+/// app: the CLI exits 0 and reports the refusal as `"Error: ..."` on
+/// stdout, for a missing source, an occupied target, an unknown vault, and
+/// even a malformed subcommand alike. Exit code carries no signal for this
+/// CLI at all; `renameViaCli` has to read `stdout` itself to tell a refusal
+/// from a success (`"Renamed: {old} -> {new}"`), and a refusal has to
+/// return something other than `error.VaultUnreachable` or it would
+/// silently trigger the exact destructive fallback this guards against --
+/// `DiskRenamer.rename` overwriting a target that Obsidian correctly
+/// refused to touch. `error.VaultUnreachable` is reserved for whatever
+/// actually does produce a non-zero exit or a spawn failure -- a genuinely
+/// unreachable app, not a reachable one that said no.
 pub const ObsidianRenamer = struct {
     vault: []const u8,
     inner: Renamer,
@@ -563,6 +577,11 @@ pub const ObsidianRenamer = struct {
         var res = try runObsidian(gpa, io, self.vault, &.{ "rename", path_arg, name_arg });
         defer res.deinit(gpa);
         if (!res.ok()) return error.VaultUnreachable;
+        // The CLI's own failure convention: exit 0 either way, `"Error: "`
+        // on stdout for a refusal. Distinct from `VaultUnreachable` so
+        // `rename()`'s catch above never routes a refusal into the
+        // destructive `DiskRenamer` fallback.
+        if (std.mem.startsWith(u8, res.stdout, "Error:")) return error.RenameRefused;
     }
 };
 
@@ -1094,6 +1113,53 @@ test "renamer.rename falls back to DiskRenamer, rewriting referrers, when Obsidi
     const a = (try store.read(gpa, io, "A.md")).?;
     defer gpa.free(a);
     try testing.expectEqualStrings("see [[New]]\n", a);
+}
+
+test "a refused rename does not fall back to DiskRenamer, and never touches the target" {
+    // The fake CLI's stdout convention here matches the real one, checked
+    // live against a running app: exit 0, "Error: ..." on stdout, for a
+    // target that already exists. Before `renameViaCli` read stdout at
+    // all, this refusal was indistinguishable from success (`res.ok()` is
+    // true either way) and the caller believed the rename had happened.
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(testing.io, "vault");
+
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const root = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+    const vault = try std.fmt.allocPrint(gpa, "{s}/vault", .{root});
+    defer gpa.free(vault);
+    const log = try std.fmt.allocPrint(gpa, "{s}/obsidian.log", .{root});
+    defer gpa.free(log);
+    const script = try std.fmt.allocPrint(gpa, "{s}/obsidian.script", .{root});
+    defer gpa.free(script);
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "obsidian.script", .data = "rename Error: Destination file already exists!\n" });
+
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/Old.md", .data = "old body\n" });
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/New.md", .data = "target body\n" });
+
+    var env = try fakeObsidianEnv(gpa, log, script);
+    defer env.deinit();
+
+    var block = try env.createPosixBlock(gpa, .{});
+    defer block.deinit(gpa);
+    var io_threaded: std.Io.Threaded = .init(gpa, .{ .environ = .{ .block = block } });
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    var fx = try initObsidianStore(gpa, vault, "");
+    defer fx.deinit();
+    const rn = fx.obs.renamer();
+    try testing.expectError(error.RenameRefused, rn.rename(gpa, io, "Old.md", "New.md"));
+
+    var store = fx.obs.store();
+    const old_body = (try store.read(gpa, io, "Old.md")).?;
+    defer gpa.free(old_body);
+    try testing.expectEqualStrings("old body\n", old_body);
+    const new_body = (try store.read(gpa, io, "New.md")).?;
+    defer gpa.free(new_body);
+    try testing.expectEqualStrings("target body\n", new_body);
 }
 
 test "a call is scoped with vault= when `obsidian vaults verbose` lists a matching path" {
