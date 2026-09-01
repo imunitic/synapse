@@ -94,6 +94,26 @@ teardown() {
   [ "$status" -eq 2 ]
 }
 
+@test "vault-check/vault-ambiguous/vault-rename: reachable through synapse-fake" {
+  # main_fake.zig's dispatch was missing these three entirely -- every call
+  # fell through to "unknown subcommand" (exit 2), the same code a --help
+  # would already produce for an unrecognized flag, so this suite (which
+  # runs $SYNAPSE_BIN, always the fake) had zero coverage for any of them
+  # with no way to add it. --help's own exit 0 only happens once dispatch
+  # reaches the real command; the fallback path never returns 0.
+  run "$SYNAPSE_BIN" vault-check --help
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"unknown subcommand"* ]]
+
+  run "$SYNAPSE_BIN" vault-ambiguous --help
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"unknown subcommand"* ]]
+
+  run "$SYNAPSE_BIN" vault-rename --help
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"unknown subcommand"* ]]
+}
+
 @test "tags-cache: missing arguments is a usage error, exit 1" {
   run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" tags-cache --repo-root "$REPO"
   [ "$status" -eq 1 ]
