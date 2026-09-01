@@ -700,8 +700,8 @@ fn readLists(arena: Allocator, io: Io, dir: []const u8) !usize {
     var found: usize = 0;
     var n: usize = 1;
     while (n <= core.node.max_nodes) : (n += 1) {
-        const txt = try std.fmt.allocPrint(arena, "{s}/{d:0>2}.txt", .{ dir, n });
-        const title = try std.fmt.allocPrint(arena, "{s}/{d:0>2}.title", .{ dir, n });
+        const txt = try std.fmt.allocPrint(arena, "{s}/{d:0>3}.txt", .{ dir, n });
+        const title = try std.fmt.allocPrint(arena, "{s}/{d:0>3}.title", .{ dir, n });
         const has_txt = Io.Dir.cwd().access(io, txt, .{}) != error.FileNotFound;
         const has_title = Io.Dir.cwd().access(io, title, .{}) != error.FileNotFound;
         if (has_txt and has_title) found += 1;
@@ -719,8 +719,8 @@ fn mapFromLists(
     const cwd = Io.Dir.cwd();
     var n: usize = 1;
     while (n <= core.node.max_nodes) : (n += 1) {
-        const txt_path = try std.fmt.allocPrint(arena, "{s}/{d:0>2}.txt", .{ dir, n });
-        const title_path = try std.fmt.allocPrint(arena, "{s}/{d:0>2}.title", .{ dir, n });
+        const txt_path = try std.fmt.allocPrint(arena, "{s}/{d:0>3}.txt", .{ dir, n });
+        const title_path = try std.fmt.allocPrint(arena, "{s}/{d:0>3}.title", .{ dir, n });
         const title_raw = cwd.readFileAlloc(io, title_path, arena, .limited(64 << 10)) catch continue;
         const title = std.mem.trim(u8, firstLine(title_raw), " \t\r");
         if (title.len == 0) continue;
@@ -1552,8 +1552,8 @@ test "vocab: --lists keys vocabulary by node title, cutting across directories" 
     try vf.src("beta/src/ParcelRouter.java", &.{"ParcelRouter"});
     try vf.commit();
     // Deliberately not a union of directories: one node takes a file from each.
-    try vf.writeList("01", "Billing", &.{ "alpha/src/InvoiceCalculator.java", "beta/src/DunningSchedule.java" });
-    try vf.writeList("02", "Shipping", &.{"beta/src/ParcelRouter.java"});
+    try vf.writeList("001", "Billing", &.{ "alpha/src/InvoiceCalculator.java", "beta/src/DunningSchedule.java" });
+    try vf.writeList("002", "Shipping", &.{"beta/src/ParcelRouter.java"});
     const lists_dir = try vf.listsDir();
     defer gpa.free(lists_dir);
 
@@ -1591,8 +1591,8 @@ test "vocab: the --lists run against an already-warm cache tags nothing at all" 
     defer gpa.free(t1);
     try testing.expectEqual(@as(usize, 3), std.mem.count(u8, t1, "path "));
 
-    try vf.writeList("01", "Billing", &.{ "alpha/src/InvoiceCalculator.java", "beta/src/DunningSchedule.java" });
-    try vf.writeList("02", "Shipping", &.{"beta/src/ParcelRouter.java"});
+    try vf.writeList("001", "Billing", &.{ "alpha/src/InvoiceCalculator.java", "beta/src/DunningSchedule.java" });
+    try vf.writeList("002", "Shipping", &.{"beta/src/ParcelRouter.java"});
     const lists_dir = try vf.listsDir();
     defer gpa.free(lists_dir);
 
@@ -1615,8 +1615,8 @@ test "vocab: --lists a file claimed by two nodes contributes to both" {
     defer vf.deinit();
     try vf.src("core/src/Shared.java", &.{"InvoiceCalculator"});
     try vf.commit();
-    try vf.writeList("01", "Billing", &.{"core/src/Shared.java"});
-    try vf.writeList("02", "Reporting", &.{"core/src/Shared.java"});
+    try vf.writeList("001", "Billing", &.{"core/src/Shared.java"});
+    try vf.writeList("002", "Reporting", &.{"core/src/Shared.java"});
     const lists_dir = try vf.listsDir();
     defer gpa.free(lists_dir);
 
@@ -1640,7 +1640,7 @@ test "vocab: --lists a file no node claims contributes nothing" {
     try vf.src("core/src/Claimed.java", &.{"InvoiceCalculator"});
     try vf.src("core/src/Orphan.java", &.{"OrphanRegistry"});
     try vf.commit();
-    try vf.writeList("01", "Billing", &.{"core/src/Claimed.java"});
+    try vf.writeList("001", "Billing", &.{"core/src/Claimed.java"});
     const lists_dir = try vf.listsDir();
     defer gpa.free(lists_dir);
 

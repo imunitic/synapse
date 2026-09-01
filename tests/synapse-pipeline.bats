@@ -53,9 +53,9 @@ run_pipeline() {
 
   # Each authored body carries its own one-line summary in frontmatter; the driver
   # strips it and it becomes the node's `summary` field, which the index reads back.
-  printf -- '---\nsummary: The java application.\n---\n\n## Summary\nThe java application.\n\n## Links\n- uses [[Docs — the documentation]]\n' > "$WORK/b-01.md"
-  printf -- '---\nsummary: The documentation.\n---\n\n## Summary\nThe documentation.\n' > "$WORK/b-02.md"
-  printf -- '---\nsummary: The ocaml library.\n---\n\n## Summary\nThe ocaml library.\n' > "$WORK/b-03.md"
+  printf -- '---\nsummary: The java application.\n---\n\n## Summary\nThe java application.\n\n## Links\n- uses [[Docs — the documentation]]\n' > "$WORK/b-001.md"
+  printf -- '---\nsummary: The documentation.\n---\n\n## Summary\nThe documentation.\n' > "$WORK/b-002.md"
+  printf -- '---\nsummary: The ocaml library.\n---\n\n## Summary\nThe ocaml library.\n' > "$WORK/b-003.md"
 
   in_repo "$SYNAPSE_BIN" push-nodes || return 1
   in_repo "$SYNAPSE_BIN" build-index || return 1
@@ -120,7 +120,7 @@ run_pipeline() {
   # the ^src/ pattern also picks up the helper's src/foo.aa.
   run in_repo "$SYNAPSE_BIN" query sources "Java — the application" --count
   [ "$status" -eq 0 ]
-  [ "$output" -eq "$(wc -l < "$WORK/lists/01.txt" | tr -d ' ')" ]
+  [ "$output" -eq "$(wc -l < "$WORK/lists/001.txt" | tr -d ' ')" ]
   [ "$output" -eq 3 ]
 
   run in_repo "$SYNAPSE_BIN" query sources "Docs — the documentation" --modules

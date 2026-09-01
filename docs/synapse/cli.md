@@ -535,7 +535,7 @@ usage: synapse brief --lists <dir> [--rank <dir>] [--links <file>] [--repo <path
 ```
 usage: synapse push-nodes [NN ...]
 
-  NN   two-digit node numbers to push. Default: every b-NN.md and lists/NN.title.
+  NN   three-digit node numbers to push. Default: every b-NN.md and lists/NN.title.
 ```
 
 ### synapse build-project-index

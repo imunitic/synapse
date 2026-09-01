@@ -79,15 +79,23 @@ pub fn moduleOf(path: []const u8, chains: []const []const u8) []const u8 {
 
 pub const repo_root_module = "(repo root)";
 
-/// The highest node number `build-lists`' `lists/NN.txt`/`NN.title` naming
-/// supports. `build_lists_cmd.zig` refuses (rather than silently writing a
-/// wider slug like `100`) once a manifest would exceed it -- every reader of
+/// The highest node number `build-lists`' `lists/NNN.txt`/`NNN.title`
+/// naming supports. `build_lists_cmd.zig` refuses (rather than silently
+/// writing a wider slug) once a manifest would exceed it -- every reader of
 /// `lists/` (`links_cmd.zig`, `brief_cmd.zig`, `rank_cmd.zig`,
 /// `vocab_cmd.zig`, `push_nodes_cmd.zig`) iterates exactly `1..=max_nodes`,
 /// so a slug this constant doesn't cover would otherwise be written but
 /// never read back by any of them. Shared here so a future change to the
 /// cap only has one call site's worth of loops to touch, not six.
-pub const max_nodes: usize = 99;
+///
+/// 200 covers a large real namespace with headroom -- [[Parallelizing
+/// synapse-init node-prose authoring]] plans around repos of 40-100+ nodes.
+/// Tied to a 3-digit zero-padded slug width everywhere that width is
+/// hardcoded (`{d:0>3}` at each `NNN.txt`/`NNN.title`/etc. site, and the
+/// exact-width match in `push_nodes_cmd.zig`'s `collect`) -- raising this
+/// past 999 means widening those too, Zig's format spec doesn't derive the
+/// width from this value automatically.
+pub const max_nodes: usize = 200;
 
 /// One source a node claims, at the content hash it was last seen with.
 pub const Source = struct {

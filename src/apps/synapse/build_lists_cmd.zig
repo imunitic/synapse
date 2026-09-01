@@ -130,7 +130,7 @@ pub fn build(
             );
             return 1;
         }
-        const slug = try std.fmt.allocPrint(gpa, "{d:0>2}", .{node_index});
+        const slug = try std.fmt.allocPrint(gpa, "{d:0>3}", .{node_index});
         defer gpa.free(slug);
 
         const title_path = try std.fmt.allocPrint(gpa, "{s}/{s}.title", .{ lists_dir, slug });
@@ -364,22 +364,22 @@ test "expands each manifest line into a numbered list plus its title, with per-n
     const code = try bf.run(false, &out.writer);
     try testing.expectEqual(@as(u8, 0), code);
 
-    const title1 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/lists/01.title", gpa, .limited(1 << 10));
+    const title1 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/lists/001.title", gpa, .limited(1 << 10));
     defer gpa.free(title1);
     try testing.expectEqualStrings("Code — the java\n", title1);
-    const title2 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/lists/02.title", gpa, .limited(1 << 10));
+    const title2 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/lists/002.title", gpa, .limited(1 << 10));
     defer gpa.free(title2);
     try testing.expectEqualStrings("Docs — the docs\n", title2);
 
-    const list1 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/lists/01.txt", gpa, .limited(1 << 10));
+    const list1 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/lists/001.txt", gpa, .limited(1 << 10));
     defer gpa.free(list1);
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, list1, "\n"));
-    const list2 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/lists/02.txt", gpa, .limited(1 << 10));
+    const list2 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/lists/002.txt", gpa, .limited(1 << 10));
     defer gpa.free(list2);
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, list2, "\n"));
 
     // Echoed per node, so a bad regex is visible immediately.
-    try testing.expect(std.mem.indexOf(u8, out.written(), "01\t2\tCode — the java\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "001\t2\tCode — the java\n") != null);
 }
 
 test "a manifest with more nodes than max_nodes is refused, not silently truncated" {
@@ -421,7 +421,7 @@ test "the exclude column removes paths the include column matched" {
     const code = try bf.run(false, &out.writer);
     try testing.expectEqual(@as(u8, 0), code);
 
-    const list1 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/lists/01.txt", gpa, .limited(1 << 10));
+    const list1 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/lists/001.txt", gpa, .limited(1 << 10));
     defer gpa.free(list1);
     try testing.expect(std.mem.indexOf(u8, list1, "A.java") != null);
     try testing.expect(std.mem.indexOf(u8, list1, "B.java") == null);
@@ -443,7 +443,7 @@ test "an empty exclude column excludes nothing" {
     const code = try bf.run(false, &out.writer);
     try testing.expectEqual(@as(u8, 0), code);
 
-    const list1 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/lists/01.txt", gpa, .limited(1 << 10));
+    const list1 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/lists/001.txt", gpa, .limited(1 << 10));
     defer gpa.free(list1);
     try testing.expectEqual(@as(usize, 2), std.mem.count(u8, list1, "\n"));
 }
@@ -490,10 +490,10 @@ test "a pattern that matches nothing yields an empty list rather than failing" {
     const code = try bf.run(false, &out.writer);
     try testing.expectEqual(@as(u8, 0), code);
 
-    const list1 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/lists/01.txt", gpa, .limited(1 << 10));
+    const list1 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "work/lists/001.txt", gpa, .limited(1 << 10));
     defer gpa.free(list1);
     try testing.expectEqualStrings("", list1);
-    try testing.expect(std.mem.indexOf(u8, out.written(), "01\t0\tNothing\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "001\t0\tNothing\n") != null);
 }
 
 test "lists are rebuilt from scratch, so a removed manifest line leaves no stale list" {
@@ -508,13 +508,13 @@ test "lists are rebuilt from scratch, so a removed manifest line leaves no stale
     var out1: Io.Writer.Allocating = .init(gpa);
     defer out1.deinit();
     try testing.expectEqual(@as(u8, 0), try bf.run(false, &out1.writer));
-    try bf.fx.tmp.dir.access(testing.io, "work/lists/02.txt", .{});
+    try bf.fx.tmp.dir.access(testing.io, "work/lists/002.txt", .{});
 
     try bf.writeManifest("Java\t^mod-a/\t\n");
     var out2: Io.Writer.Allocating = .init(gpa);
     defer out2.deinit();
     try testing.expectEqual(@as(u8, 0), try bf.run(false, &out2.writer));
-    try testing.expectEqual(error.FileNotFound, bf.fx.tmp.dir.access(testing.io, "work/lists/02.txt", .{}));
+    try testing.expectEqual(error.FileNotFound, bf.fx.tmp.dir.access(testing.io, "work/lists/002.txt", .{}));
 }
 
 test "a missing manifest.tsv is an error, not a silent empty result" {
@@ -568,7 +568,7 @@ test "with $SYNAPSE_WORK_DIR unset, output lands in the default work dir and nev
     const code = try bf.run(false, &out.writer);
     try testing.expectEqual(@as(u8, 0), code);
 
-    const list1 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "home/.cache/synapse/work/repo@main/lists/01.txt", gpa, .limited(1 << 10));
+    const list1 = try bf.fx.tmp.dir.readFileAlloc(testing.io, "home/.cache/synapse/work/repo@main/lists/001.txt", gpa, .limited(1 << 10));
     defer gpa.free(list1);
     try testing.expect(std.mem.indexOf(u8, list1, "A.java") != null);
 

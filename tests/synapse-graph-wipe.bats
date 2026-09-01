@@ -119,7 +119,7 @@ EOF
 
   printf 'Src — the source module\t^src/\t\n' > "$WORK/manifest.tsv"
   in_repo "$SYNAPSE_BIN" build-lists >/dev/null
-  printf -- '---\nsummary: Src in one line.\n---\n\n## Summary\nProse for src.\n' > "$WORK/b-01.md"
+  printf -- '---\nsummary: Src in one line.\n---\n\n## Summary\nProse for src.\n' > "$WORK/b-001.md"
   in_repo "$SYNAPSE_BIN" push-nodes >/dev/null
   in_repo "$SYNAPSE_BIN" build-index >/dev/null
   in_repo "$SYNAPSE_BIN" build-project-index >/dev/null

@@ -158,8 +158,8 @@ pub fn build(
 
     var rank_missing: usize = 0;
     for (nodes) |n| {
-        const summary_path = try std.fmt.allocPrint(arena, "{s}/{d:0>2}.summary.tsv", .{ rank_dir.?, n.n });
-        const crux_path = try std.fmt.allocPrint(arena, "{s}/{d:0>2}.crux.tsv", .{ rank_dir.?, n.n });
+        const summary_path = try std.fmt.allocPrint(arena, "{s}/{d:0>3}.summary.tsv", .{ rank_dir.?, n.n });
+        const crux_path = try std.fmt.allocPrint(arena, "{s}/{d:0>3}.crux.tsv", .{ rank_dir.?, n.n });
         const summary = cwd.readFileAlloc(io, summary_path, arena, .limited(16 << 20)) catch blk: {
             rank_missing += 1;
             break :blk "";
@@ -186,7 +186,7 @@ pub fn build(
         try w.writeAll("\n## Every node in this namespace (for judging part_of)\n");
         for (nodes) |other| try w.print("- {s}\n", .{other.title});
 
-        const out_path = try std.fmt.allocPrint(arena, "{s}/{d:0>2}.md", .{ brief_dir, n.n });
+        const out_path = try std.fmt.allocPrint(arena, "{s}/{d:0>3}.md", .{ brief_dir, n.n });
         try cwd.writeFile(io, .{ .sub_path = out_path, .data = body.written() });
     }
 
@@ -255,12 +255,12 @@ fn readLists(arena: Allocator, io: Io, dir: []const u8) ![]NodeInfo {
     var out: std.ArrayListUnmanaged(NodeInfo) = .empty;
     var n: usize = 1;
     while (n <= core.node.max_nodes) : (n += 1) {
-        const title_path = try std.fmt.allocPrint(arena, "{s}/{d:0>2}.title", .{ dir, n });
+        const title_path = try std.fmt.allocPrint(arena, "{s}/{d:0>3}.title", .{ dir, n });
         const title_raw = cwd.readFileAlloc(io, title_path, arena, .limited(64 << 10)) catch continue;
         const title = std.mem.trim(u8, firstLine(title_raw), " \t\r");
         if (title.len == 0) continue;
 
-        const txt_path = try std.fmt.allocPrint(arena, "{s}/{d:0>2}.txt", .{ dir, n });
+        const txt_path = try std.fmt.allocPrint(arena, "{s}/{d:0>3}.txt", .{ dir, n });
         const body = cwd.readFileAlloc(io, txt_path, arena, .limited(64 << 20)) catch continue;
 
         var count: usize = 0;
@@ -416,19 +416,19 @@ test "brief: writes one brief per node, with title, source count, both pools and
     const gpa = testing.allocator;
     var bf = try BriefFixture.init(gpa);
     defer bf.deinit();
-    try bf.writeList("01", "A", &.{ "a/One.java", "a/Two.java" });
-    try bf.writeList("02", "B", &.{"b/Three.java"});
-    try bf.writePool("01", "summary", "code", "3.5", &.{"a/One.java"});
-    try bf.writePool("01", "crux", "code", "3.5", &.{"a/One.java"});
-    try bf.writePool("02", "summary", "code", "1.0", &.{"b/Three.java"});
-    try bf.writePool("02", "crux", "code", "1.0", &.{"b/Three.java"});
+    try bf.writeList("001", "A", &.{ "a/One.java", "a/Two.java" });
+    try bf.writeList("002", "B", &.{"b/Three.java"});
+    try bf.writePool("001", "summary", "code", "3.5", &.{"a/One.java"});
+    try bf.writePool("001", "crux", "code", "3.5", &.{"a/One.java"});
+    try bf.writePool("002", "summary", "code", "1.0", &.{"b/Three.java"});
+    try bf.writePool("002", "crux", "code", "1.0", &.{"b/Three.java"});
     try bf.appendLink("A", "B", "2", "Widget Gadget");
     try bf.appendLink("B", "A", "1", "Helper");
     try bf.commit();
 
     try testing.expectEqual(@as(u8, 0), try bf.run(.{}));
 
-    const a = (try bf.readBrief(gpa, "01")).?;
+    const a = (try bf.readBrief(gpa, "001")).?;
     defer gpa.free(a);
     try testing.expect(std.mem.startsWith(u8, a, "# A"));
     try testing.expect(std.mem.indexOf(u8, a, "(2 files, exhaustive") != null);
@@ -436,7 +436,7 @@ test "brief: writes one brief per node, with title, source count, both pools and
     try testing.expect(std.mem.indexOf(u8, a, "A\tB\t2\tWidget Gadget") != null);
     try testing.expect(std.mem.indexOf(u8, a, "B\tA\t1\tHelper") == null);
 
-    const b = (try bf.readBrief(gpa, "02")).?;
+    const b = (try bf.readBrief(gpa, "002")).?;
     defer gpa.free(b);
     try testing.expect(std.mem.startsWith(u8, b, "# B"));
     try testing.expect(std.mem.indexOf(u8, b, "B\tA\t1\tHelper") != null);
@@ -447,13 +447,13 @@ test "brief: every node's title is listed for judging part_of, not just the curr
     const gpa = testing.allocator;
     var bf = try BriefFixture.init(gpa);
     defer bf.deinit();
-    try bf.writeList("01", "A", &.{"a/One.java"});
-    try bf.writeList("02", "B", &.{"b/Two.java"});
-    try bf.writeList("03", "C", &.{"c/Three.java"});
+    try bf.writeList("001", "A", &.{"a/One.java"});
+    try bf.writeList("002", "B", &.{"b/Two.java"});
+    try bf.writeList("003", "C", &.{"c/Three.java"});
     try bf.commit();
 
     try testing.expectEqual(@as(u8, 0), try bf.run(.{}));
-    const a = (try bf.readBrief(gpa, "01")).?;
+    const a = (try bf.readBrief(gpa, "001")).?;
     defer gpa.free(a);
     try testing.expect(std.mem.indexOf(u8, a, "- A") != null);
     try testing.expect(std.mem.indexOf(u8, a, "- B") != null);
@@ -464,12 +464,12 @@ test "brief: a node with no candidate links gets (none), not an empty section" {
     const gpa = testing.allocator;
     var bf = try BriefFixture.init(gpa);
     defer bf.deinit();
-    try bf.writeList("01", "A", &.{"a/One.java"});
-    try bf.writeList("02", "B", &.{"b/Two.java"});
+    try bf.writeList("001", "A", &.{"a/One.java"});
+    try bf.writeList("002", "B", &.{"b/Two.java"});
     try bf.commit();
 
     try testing.expectEqual(@as(u8, 0), try bf.run(.{}));
-    const a = (try bf.readBrief(gpa, "01")).?;
+    const a = (try bf.readBrief(gpa, "001")).?;
     defer gpa.free(a);
     try testing.expect(std.mem.indexOf(u8, a, "Candidate links") != null);
     try testing.expect(std.mem.indexOf(u8, a, "\n(none)") != null);
@@ -479,11 +479,11 @@ test "brief: missing rank output is advice, not fatal: empty pools, still succee
     const gpa = testing.allocator;
     var bf = try BriefFixture.init(gpa);
     defer bf.deinit();
-    try bf.writeList("01", "A", &.{"a/One.java"});
+    try bf.writeList("001", "A", &.{"a/One.java"});
     try bf.commit();
 
     try testing.expectEqual(@as(u8, 0), try bf.run(.{}));
-    const a = (try bf.readBrief(gpa, "01")).?;
+    const a = (try bf.readBrief(gpa, "001")).?;
     defer gpa.free(a);
     try testing.expect(std.mem.indexOf(u8, a, "Summary pool") != null);
     try testing.expect(std.mem.indexOf(u8, a, "\n(none)") != null);
@@ -493,14 +493,14 @@ test "brief: missing links.tsv is advice, not fatal: every node's links are (non
     const gpa = testing.allocator;
     var bf = try BriefFixture.init(gpa);
     defer bf.deinit();
-    try bf.writeList("01", "A", &.{"a/One.java"});
-    try bf.writeList("02", "B", &.{"b/Two.java"});
+    try bf.writeList("001", "A", &.{"a/One.java"});
+    try bf.writeList("002", "B", &.{"b/Two.java"});
     try bf.commit();
     const missing = try std.fmt.allocPrint(gpa, "{s}/nope.tsv", .{bf.fx.root});
     defer gpa.free(missing);
 
     try testing.expectEqual(@as(u8, 0), try bf.run(.{ .links_path = missing }));
-    const a = (try bf.readBrief(gpa, "01")).?;
+    const a = (try bf.readBrief(gpa, "001")).?;
     defer gpa.free(a);
     try testing.expect(std.mem.indexOf(u8, a, "(none)") != null);
 }
@@ -532,21 +532,21 @@ test "brief: a --repo that is not a git repo is an error, not an empty root in a
     const gpa = testing.allocator;
     var bf = try BriefFixture.init(gpa);
     defer bf.deinit();
-    try bf.writeList("01", "A", &.{"a/One.java"});
+    try bf.writeList("001", "A", &.{"a/One.java"});
     try bf.commit();
     // Not a subdirectory of the fixture's own tmp root: that root sits
     // inside this very project's real git repo, so `git rev-parse
     // --show-toplevel` would walk up and resolve to it instead of failing.
     // `/tmp` itself is reliably outside any git repo.
     try testing.expectEqual(@as(u8, 1), try bf.run(.{ .repo = "/tmp" }));
-    try testing.expect((try bf.readBrief(gpa, "01")) == null);
+    try testing.expect((try bf.readBrief(gpa, "001")) == null);
 }
 
 test "brief: defaults to SYNAPSE_WORK_DIR for --rank/--links/--out when omitted" {
     const gpa = testing.allocator;
     var bf = try BriefFixture.init(gpa);
     defer bf.deinit();
-    try bf.writeList("01", "A", &.{"a/One.java"});
+    try bf.writeList("001", "A", &.{"a/One.java"});
     try bf.commit();
 
     const lists = try bf.listsDir();
@@ -556,6 +556,6 @@ test "brief: defaults to SYNAPSE_WORK_DIR for --rank/--links/--out when omitted"
         .repo = bf.fx.repo,
     });
     try testing.expectEqual(@as(u8, 0), code);
-    const a = (try bf.readBrief(gpa, "01")).?;
+    const a = (try bf.readBrief(gpa, "001")).?;
     defer gpa.free(a);
 }

@@ -237,8 +237,8 @@ fn readLists(
     var titles: std.StringHashMapUnmanaged(void) = .empty;
     var n: usize = 1;
     while (n <= core.node.max_nodes) : (n += 1) {
-        const txt_path = try std.fmt.allocPrint(arena, "{s}/{d:0>2}.txt", .{ dir, n });
-        const title_path = try std.fmt.allocPrint(arena, "{s}/{d:0>2}.title", .{ dir, n });
+        const txt_path = try std.fmt.allocPrint(arena, "{s}/{d:0>3}.txt", .{ dir, n });
+        const title_path = try std.fmt.allocPrint(arena, "{s}/{d:0>3}.title", .{ dir, n });
         const title_raw = cwd.readFileAlloc(io, title_path, arena, .limited(64 << 10)) catch continue;
         const title = std.mem.trim(u8, firstLine(title_raw), " \t\r");
         if (title.len == 0) continue;
@@ -345,8 +345,8 @@ test "a ref in one node to a def in another is an edge, weighted and evidenced" 
     const gpa = testing.allocator;
     var fx = try Fixture.init(gpa);
     defer fx.deinit();
-    try fx.writeList("01", "A", &.{"a/Widget.java"});
-    try fx.writeList("02", "B", &.{"b/Gadget.java"});
+    try fx.writeList("001", "A", &.{"a/Widget.java"});
+    try fx.writeList("002", "B", &.{"b/Gadget.java"});
     try fx.refline("Helper", "def", "class", "b/Gadget.java", 1, "class Helper {");
     try fx.refline("Helper", "ref", "call", "a/Widget.java", 5, "Helper.run();");
 
@@ -360,7 +360,7 @@ test "a ref and its def in the same node produce no edge" {
     const gpa = testing.allocator;
     var fx = try Fixture.init(gpa);
     defer fx.deinit();
-    try fx.writeList("01", "A", &.{ "a/One.java", "a/Two.java" });
+    try fx.writeList("001", "A", &.{ "a/One.java", "a/Two.java" });
     try fx.refline("Local", "def", "class", "a/One.java", 1, "class Local {");
     try fx.refline("Local", "ref", "call", "a/Two.java", 2, "Local.run();");
 
@@ -375,10 +375,10 @@ test "a symbol referenced from too many nodes is filtered out, not just down-wei
     const gpa = testing.allocator;
     var fx = try Fixture.init(gpa);
     defer fx.deinit();
-    try fx.writeList("01", "D", &.{"d/Def.java"});
-    try fx.writeList("02", "A", &.{"a/A.java"});
-    try fx.writeList("03", "B", &.{"b/B.java"});
-    try fx.writeList("04", "C", &.{"c/C.java"});
+    try fx.writeList("001", "D", &.{"d/Def.java"});
+    try fx.writeList("002", "A", &.{"a/A.java"});
+    try fx.writeList("003", "B", &.{"b/B.java"});
+    try fx.writeList("004", "C", &.{"c/C.java"});
     try fx.refline("Common", "def", "class", "d/Def.java", 1, "class Common {");
     try fx.refline("Common", "ref", "call", "a/A.java", 1, "Common.run();");
     try fx.refline("Common", "ref", "call", "b/B.java", 1, "Common.run();");
@@ -393,8 +393,8 @@ test "weight is distinct rare symbols, so two calls to the same one still weigh 
     const gpa = testing.allocator;
     var fx = try Fixture.init(gpa);
     defer fx.deinit();
-    try fx.writeList("01", "B", &.{"b/B.java"});
-    try fx.writeList("02", "A", &.{"a/A.java"});
+    try fx.writeList("001", "B", &.{"b/B.java"});
+    try fx.writeList("002", "A", &.{"a/A.java"});
     try fx.refline("Widget", "def", "class", "b/B.java", 1, "class Widget {");
     try fx.refline("Widget", "ref", "call", "a/A.java", 3, "Widget.run();");
     try fx.refline("Widget", "ref", "call", "a/A.java", 9, "Widget.run();");
@@ -408,10 +408,10 @@ test "--top caps edges kept per node, strongest first" {
     const gpa = testing.allocator;
     var fx = try Fixture.init(gpa);
     defer fx.deinit();
-    try fx.writeList("01", "A", &.{"a/A.java"});
-    try fx.writeList("02", "B", &.{"b/B.java"});
-    try fx.writeList("03", "C", &.{"c/C.java"});
-    try fx.writeList("04", "D", &.{"d/D.java"});
+    try fx.writeList("001", "A", &.{"a/A.java"});
+    try fx.writeList("002", "B", &.{"b/B.java"});
+    try fx.writeList("003", "C", &.{"c/C.java"});
+    try fx.writeList("004", "D", &.{"d/D.java"});
     try fx.refline("X", "def", "class", "b/B.java", 1, "class X {");
     try fx.refline("X", "ref", "call", "a/A.java", 1, "X.run();");
     try fx.refline("Y", "def", "class", "c/C.java", 1, "class Y {");
@@ -432,9 +432,9 @@ test "a path claimed by two nodes fans out an edge from each" {
     const gpa = testing.allocator;
     var fx = try Fixture.init(gpa);
     defer fx.deinit();
-    try fx.writeList("01", "B", &.{"b/B.java"});
-    try fx.writeList("02", "A", &.{"a/A.java"});
-    try fx.writeList("03", "C", &.{"a/A.java"});
+    try fx.writeList("001", "B", &.{"b/B.java"});
+    try fx.writeList("002", "A", &.{"a/A.java"});
+    try fx.writeList("003", "C", &.{"a/A.java"});
     try fx.refline("Alpha", "def", "class", "b/B.java", 1, "class Alpha {");
     try fx.refline("Alpha", "ref", "call", "a/A.java", 1, "Alpha.run();");
 
@@ -468,7 +468,7 @@ test "a missing _refs.tsv points at build-refs rather than failing opaquely" {
     const gpa = testing.allocator;
     var fx = try Fixture.init(gpa);
     defer fx.deinit();
-    try fx.writeList("01", "A", &.{"a/A.java"});
+    try fx.writeList("001", "A", &.{"a/A.java"});
     const lists_path = try fx.absPath("lists");
     defer gpa.free(lists_path);
     const out_path = try fx.absPath("out");
@@ -484,8 +484,8 @@ test "an empty refs table and a real lists dir produce an empty, present links.t
     const gpa = testing.allocator;
     var fx = try Fixture.init(gpa);
     defer fx.deinit();
-    try fx.writeList("01", "A", &.{"a/A.java"});
-    try fx.writeList("02", "B", &.{"b/B.java"});
+    try fx.writeList("001", "A", &.{"a/A.java"});
+    try fx.writeList("002", "B", &.{"b/B.java"});
 
     const r = try fx.run(8);
     defer gpa.free(r.out);
@@ -497,8 +497,8 @@ test "defaults to SYNAPSE_WORK_DIR when --refs/--out are omitted" {
     const gpa = testing.allocator;
     var fx = try Fixture.init(gpa);
     defer fx.deinit();
-    try fx.writeList("01", "A", &.{"a/A.java"});
-    try fx.writeList("02", "B", &.{"b/B.java"});
+    try fx.writeList("001", "A", &.{"a/A.java"});
+    try fx.writeList("002", "B", &.{"b/B.java"});
     try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "_refs.tsv", .data = fx.refs.written() });
 
     const work_path = try fx.absPath(".");
@@ -523,9 +523,9 @@ test "--deps/--namespaces recover an edge compute() alone would have dropped" {
 
     // `Shared` is defined in both B and C -- ambiguous, compute() drops it
     // entirely. A's own file declares a dependency on B's library only.
-    try fx.writeList("01", "A", &.{"a/A.ext"});
-    try fx.writeList("02", "B", &.{"b/B.ext"});
-    try fx.writeList("03", "C", &.{"c/C.ext"});
+    try fx.writeList("001", "A", &.{"a/A.ext"});
+    try fx.writeList("002", "B", &.{"b/B.ext"});
+    try fx.writeList("003", "C", &.{"c/C.ext"});
     try fx.refline("Shared", "def", "class", "b/B.ext", 1, "class Shared {");
     try fx.refline("Shared", "def", "class", "c/C.ext", 1, "class Shared {");
     try fx.refline("Shared", "ref", "call", "a/A.ext", 5, "Shared.run();");
@@ -568,9 +568,9 @@ test "--deps/--namespaces: a second identity row for the same file (an alias) st
     // B's file is known under two identities in _namespaces.tsv (its rule's
     // primary value plus one alias) -- A's declared dependency matches only
     // the alias.
-    try fx.writeList("01", "A", &.{"a/A.ext"});
-    try fx.writeList("02", "B", &.{"b/B.ext"});
-    try fx.writeList("03", "C", &.{"c/C.ext"});
+    try fx.writeList("001", "A", &.{"a/A.ext"});
+    try fx.writeList("002", "B", &.{"b/B.ext"});
+    try fx.writeList("003", "C", &.{"c/C.ext"});
     try fx.refline("Shared", "def", "class", "b/B.ext", 1, "class Shared {");
     try fx.refline("Shared", "def", "class", "c/C.ext", 1, "class Shared {");
     try fx.refline("Shared", "ref", "call", "a/A.ext", 5, "Shared.run();");
@@ -610,9 +610,9 @@ test "--deps/--namespaces absent leaves compute()'s own ambiguous-name drop unch
     var fx = try Fixture.init(gpa);
     defer fx.deinit();
 
-    try fx.writeList("01", "A", &.{"a/A.ext"});
-    try fx.writeList("02", "B", &.{"b/B.ext"});
-    try fx.writeList("03", "C", &.{"c/C.ext"});
+    try fx.writeList("001", "A", &.{"a/A.ext"});
+    try fx.writeList("002", "B", &.{"b/B.ext"});
+    try fx.writeList("003", "C", &.{"c/C.ext"});
     try fx.refline("Shared", "def", "class", "b/B.ext", 1, "class Shared {");
     try fx.refline("Shared", "def", "class", "c/C.ext", 1, "class Shared {");
     try fx.refline("Shared", "ref", "call", "a/A.ext", 5, "Shared.run();");
