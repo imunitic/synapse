@@ -199,13 +199,29 @@ pub fn nearestNamespace(by_dir: *const std.StringHashMapUnmanaged([]const u8), d
     }
 }
 
+/// `file_name`/`prefix`/`terminator`, joined behind NUL bytes (illegal in a
+/// filename or a conf-file prefix/terminator, so no real triple can collide
+/// with another's joined form). `buildFileMap`'s own cache key: two rules
+/// naming the same build file extract different values whenever their
+/// `prefix`/`terminator` differ, so the file name alone is never enough to
+/// address a memoized result.
+fn buildFileMapKey(arena: Allocator, file_name: []const u8, prefix: []const u8, terminator: ?[]const u8) ![]const u8 {
+    return std.fmt.allocPrint(arena, "{s}\x00{s}\x00{s}", .{ file_name, prefix, terminator orelse "" });
+}
+
 /// Dir-keyed declared-value map for one build-file rule, memoized in
 /// `cache` so a repo with many files sharing one rule (every file under a
 /// library scanning the same nearest build file) reads `kept` once per
-/// distinct filename. Shared infrastructure: any per-file extraction built
-/// on this registry's rule shape needs exactly this "nearest ancestor
-/// build file's declared value" walk -- a namespace divergence table, a
-/// dependency-edge extraction, or any future one, all the same way.
+/// distinct (filename, prefix, terminator) triple -- not per filename alone:
+/// two rules naming the same build file with different prefixes (two
+/// extensions' own rules, or one rule's primary pair against one of its
+/// aliases) extract different values from it, and a file-name-only cache
+/// key silently handed the second rule the first's memoized map. Shared
+/// infrastructure: any per-file extraction built on this registry's rule
+/// shape needs exactly this "nearest ancestor build file's declared value"
+/// walk -- a namespace divergence table, a dependency-edge extraction, or
+/// any future one, all the same way, and all safe to share one `cache`
+/// across every rule and alias they process, now that the key disambiguates.
 pub fn buildFileMap(
     arena: Allocator,
     io: Io,
@@ -216,7 +232,8 @@ pub fn buildFileMap(
     terminator: ?[]const u8,
     cache: *std.StringHashMapUnmanaged(std.StringHashMapUnmanaged([]const u8)),
 ) !*const std.StringHashMapUnmanaged([]const u8) {
-    if (cache.getPtr(file_name)) |m| return m;
+    const key = try buildFileMapKey(arena, file_name, prefix, terminator);
+    if (cache.getPtr(key)) |m| return m;
 
     var m: std.StringHashMapUnmanaged([]const u8) = .empty;
     for (kept) |p| {
@@ -226,8 +243,8 @@ pub fn buildFileMap(
         const raw = extractField(content, prefix, terminator) orelse continue;
         try m.put(arena, dirOf(p), raw);
     }
-    try cache.put(arena, file_name, m);
-    return cache.getPtr(file_name).?;
+    try cache.put(arena, key, m);
+    return cache.getPtr(key).?;
 }
 
 /// One file's declared identity -- a namespace, or (via `Rule.aliases`) one
@@ -289,12 +306,11 @@ pub fn computePerFile(
     errdefer out.deinit(gpa);
     if (registry.isEmpty()) return out;
 
+    // One cache, shared across every rule and every alias: `buildFileMap`'s
+    // own key now disambiguates by (file_name, prefix, terminator), so a
+    // second rule or alias sharing a build file with a different prefix
+    // never collides with the first's memoized map.
     var build_maps: std.StringHashMapUnmanaged(std.StringHashMapUnmanaged([]const u8)) = .empty;
-    // One cache per distinct alias *prefix* (not a fixed count): the same
-    // (file_name, prefix) pair always extracts the same value, but two
-    // different aliases must never share a cache, since `buildFileMap`'s
-    // own memoization keys only on `file_name`.
-    var alias_build_maps: std.StringHashMapUnmanaged(std.StringHashMapUnmanaged(std.StringHashMapUnmanaged([]const u8))) = .empty;
 
     for (kept) |p| {
         const base = baseOf(p);
@@ -307,9 +323,7 @@ pub fn computePerFile(
             try out.append(gpa, .{ .path = p, .namespace = v });
         }
         for (rule.aliases) |alias| {
-            const cache_gop = try alias_build_maps.getOrPut(arena, alias.prefix);
-            if (!cache_gop.found_existing) cache_gop.value_ptr.* = .empty;
-            if (try extractOne(arena, io, root, kept, p, rule.kind, rule.file, alias.prefix, alias.terminator, cache_gop.value_ptr)) |v| {
+            if (try extractOne(arena, io, root, kept, p, rule.kind, rule.file, alias.prefix, alias.terminator, &build_maps)) |v| {
                 try out.append(gpa, .{ .path = p, .namespace = v });
             }
         }
@@ -539,6 +553,45 @@ test "computePerFile: a build-file rule resolves every file under it to the near
     try testing.expectEqual(@as(usize, 1), out.items.len);
     try testing.expectEqualStrings("widget/src/main.xx", out.items[0].path);
     try testing.expectEqualStrings("widget", out.items[0].namespace);
+}
+
+test "computePerFile: two different extensions' rules sharing a build file, but different prefixes, extract independently" {
+    // Before buildFileMap's cache keyed on (file_name, prefix, terminator)
+    // instead of file_name alone, the second rule processed against a
+    // shared build file silently got the first rule's memoized map --
+    // main.yy read back "widget" (xx's value) instead of its own "gadget".
+    const gpa = testing.allocator;
+    const io = testing.io;
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const root = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    try tmp.dir.createDirPath(io, "widget/src");
+    try tmp.dir.writeFile(io, .{ .sub_path = "widget/src/build.deps", .data = "name widget\nother gadget\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "widget/src/main.xx", .data = "run\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "widget/src/main.yy", .data = "run\n" });
+
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+
+    const parsed = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"xx": {"kind": "build-file", "file": "build.deps", "prefix": "name "},
+        \\ "yy": {"kind": "build-file", "file": "build.deps", "prefix": "other "}}
+    , .{});
+    var reg: Registry = .{ .parsed = parsed };
+    defer reg.deinit();
+
+    const kept = [_][]const u8{ "widget/src/build.deps", "widget/src/main.xx", "widget/src/main.yy" };
+    var out = try computePerFile(gpa, arena_state.allocator(), io, root, &kept, reg);
+    defer out.deinit(gpa);
+
+    try testing.expectEqual(@as(usize, 2), out.items.len);
+    try testing.expectEqualStrings("widget/src/main.xx", out.items[0].path);
+    try testing.expectEqualStrings("widget", out.items[0].namespace);
+    try testing.expectEqualStrings("widget/src/main.yy", out.items[1].path);
+    try testing.expectEqualStrings("gadget", out.items[1].namespace);
 }
 
 test "computePerFile: an empty registry short-circuits to no rows without touching any file" {
