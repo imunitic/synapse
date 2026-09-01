@@ -50,6 +50,15 @@ pub const Update = struct {
     entry: Entry,
 };
 
+/// Every reason `Cache.open` didn't use the file it found: either
+/// `format.parse` rejected its content, or the mapping itself failed.
+pub const OpenIssue = format.ParseError || error{
+    /// The file exists and has a nonzero size, but `createMemoryMap` failed.
+    /// Unlike every other `OpenIssue`, this says nothing about whether the
+    /// content is good -- see `Cache.open`'s doc comment.
+    MapFailed,
+};
+
 /// A cache file, mapped. Every slice a lookup returns points into the
 /// mapping, valid until `close` or the next `commit`.
 pub const Cache = struct {
@@ -59,7 +68,7 @@ pub const Cache = struct {
     map: ?Io.File.MemoryMap = null,
     /// Why the file on disk wasn't used. Null means it was read or absent;
     /// nothing here prints, a caller reads this to say why.
-    discarded: ?format.ParseError = null,
+    discarded: ?OpenIssue = null,
 
     /// Never accessed for a zero-entry cache.
     const no_entries: format.View = .{
@@ -73,10 +82,16 @@ pub const Cache = struct {
         },
     };
 
-    /// Absent, unreadable, damaged, or from another version: all open as an
-    /// empty cache rather than an error. Recomputable by re-tagging, so no
-    /// migration path -- a non-cache file (including the shell version's
-    /// leftover JSON) is just overwritten by the next commit.
+    /// Absent, damaged, or from another version: all open as an empty cache
+    /// rather than an error. Recomputable by re-tagging, so no migration
+    /// path -- a non-cache file (including the shell version's leftover
+    /// JSON) is just overwritten by the next commit. A failed *mapping* is
+    /// not the same as those: the file may hold hundreds of MB of good,
+    /// parseable entries that simply couldn't be mapped this run (an
+    /// address-space or `mmap` limit, a filesystem that refuses it) --
+    /// `discarded` records `error.MapFailed` distinctly so `commit` can
+    /// refuse to treat "couldn't map it" as "nothing was there" and
+    /// silently replace real data with an empty merge.
     ///
     /// No allocator: the mapping is the storage, `format.parse` allocates nothing.
     pub fn open(io: Io, path: []const u8) !Cache {
@@ -93,7 +108,10 @@ pub const Cache = struct {
             .len = @intCast(size),
             .protection = .{ .read = true, .write = false },
             .populate = false, // avoid prefaulting an 800 MB mapping
-        }) catch return self;
+        }) catch {
+            self.discarded = error.MapFailed;
+            return self;
+        };
         errdefer map.destroy(io);
 
         self.view = format.parse(map.memory) catch |e| {
@@ -158,6 +176,14 @@ pub const Cache = struct {
     /// Returns rows actually removed -- a removal naming a path the cache
     /// never held is not an error, and not counted. Every previously
     /// returned slice is invalidated once the mapping is replaced.
+    ///
+    /// Refuses outright when `open` couldn't map the existing file
+    /// (`error.MapFailed`): merging `updates` onto this cache's empty view
+    /// and writing that over the original would discard however much real
+    /// data the file on disk still holds, for a failure that has nothing to
+    /// do with that data's validity. Absent, empty, damaged, or
+    /// wrong-version caches carry no such risk and commit normally -- there
+    /// was nothing recoverable to lose in those cases.
     pub fn commit(
         self: *Cache,
         gpa: Allocator,
@@ -165,6 +191,10 @@ pub const Cache = struct {
         updates: []const Update,
         removals: []const []const u8,
     ) !usize {
+        if (self.discarded) |d| {
+            if (d == error.MapFailed) return error.MapFailed;
+        }
+
         var merged: std.StringHashMapUnmanaged(Entry) = .empty;
         defer merged.deinit(gpa);
 
@@ -342,6 +372,40 @@ test "commit then reopen: what went in comes back out" {
     try testing.expect(!a.unsupported);
     try testing.expect(reopened.get("src/b.bin").?.unsupported);
     try testing.expectEqual(@as(?Entry, null), reopened.get("src/Missing.java"));
+}
+
+test "commit refuses when the file couldn't be mapped, leaving real on-disk data untouched" {
+    // Simulates what `open` leaves behind after a real mmap failure on an
+    // existing, non-empty file -- `discarded = error.MapFailed` with the
+    // empty `no_entries` view, exactly `open`'s own catch branch produces.
+    // Before `commit` checked `discarded`, this sequence would merge
+    // `updates` onto nothing and silently replace the real cache below with
+    // just those two rows.
+    const gpa = testing.allocator;
+    const io = testing.io;
+    var fx = try Fixture.init();
+    defer fx.deinit();
+    const path = try fx.cachePath(gpa, io);
+    defer gpa.free(path);
+
+    var real = try Cache.open(io, path);
+    _ = try real.commit(gpa, io, &.{
+        .{ .path = "src/A.java", .entry = .{ .hash = h("11" ** 20), .tags = "Alpha\tdef\n" } },
+        .{ .path = "src/B.java", .entry = .{ .hash = h("22" ** 20), .tags = "Beta\tdef\n" } },
+    }, &.{});
+    real.close(io);
+
+    var unmapped: Cache = .{ .path = path, .view = Cache.no_entries, .discarded = error.MapFailed };
+    try testing.expectError(error.MapFailed, unmapped.commit(gpa, io, &.{
+        .{ .path = "src/C.java", .entry = .{ .hash = h("33" ** 20), .tags = "Gamma\tdef\n" } },
+    }, &.{}));
+
+    var reopened = try Cache.open(io, path);
+    defer reopened.close(io);
+    try testing.expectEqual(@as(u32, 2), reopened.count());
+    try testing.expect(reopened.get("src/A.java") != null);
+    try testing.expect(reopened.get("src/B.java") != null);
+    try testing.expectEqual(@as(?Entry, null), reopened.get("src/C.java"));
 }
 
 test "needsTagging: only what is missing or has moved on" {
