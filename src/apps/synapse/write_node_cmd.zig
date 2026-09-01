@@ -269,7 +269,16 @@ pub fn write(
     const crux_section = emit.section(body, "Crux");
     const crux_directive = if (crux_section) |cs| emit.findDirective(cs, emit.kind_crux) else null;
     if (crux_directive) |directive| {
-        const arg = emit.directiveArg(directive[4 .. directive.len - 3], emit.kind_crux).?;
+        // Unreachable by construction: `findDirective` only ever returns a
+        // comment whose inner text it already ran through `directiveArg`
+        // itself, and `directive[4 .. directive.len - 3]` re-slices exactly
+        // that same inner text. Checked anyway rather than `.?`, so a
+        // future change to either side of that invariant fails the
+        // documented exit-1 contract instead of panicking.
+        const arg = emit.directiveArg(directive[4 .. directive.len - 3], emit.kind_crux) orelse {
+            std.debug.print("{s}: bad crux directive: {s}\n", .{ prog, directive });
+            return 1;
+        };
         var block: Io.Writer.Allocating = .init(gpa);
         defer block.deinit();
 
@@ -309,7 +318,13 @@ pub fn write(
     {
         var it = emit.directives(body, emit.kind_grounded);
         while (it.next()) |directive| {
-            const arg = emit.directiveArg(directive[4 .. directive.len - 3], emit.kind_grounded).?;
+            // Unreachable by construction -- see the matching comment on
+            // the crux directive above; `DirectiveIterator.next` carries
+            // the same invariant.
+            const arg = emit.directiveArg(directive[4 .. directive.len - 3], emit.kind_grounded) orelse {
+                std.debug.print("{s}: bad grounded_in directive: {s}\n", .{ prog, directive });
+                return 1;
+            };
             const span = emit.parseSpan(arg) orelse {
                 std.debug.print("{s}: bad grounded_in directive: {s}\n", .{ prog, directive });
                 std.debug.print("  expected: <!-- grounded_in: path/to/file.ext 10-14 -->\n", .{});

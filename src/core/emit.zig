@@ -554,6 +554,28 @@ test "a directive is found whole, so the caller can match its line again" {
     try testing.expectEqual(@as(?[]const u8, null), findDirective(body, kind_grounded));
 }
 
+test "findDirective/directives never return a comment directiveArg can't re-parse" {
+    // The invariant `write_node_cmd.zig`'s crux/grounded_in call sites lean
+    // on instead of a bare `.?`: both `findDirective` and `DirectiveIterator`
+    // only ever return a slice whose inner text already passed the same
+    // `directiveArg` check the caller re-runs, so re-slicing `directive[4
+    // .. directive.len - 3]` and re-parsing it can never come back null.
+    // Pinned directly, not just exercised through a real write-node call,
+    // so a future change to any of the three functions that broke this
+    // fails here instead of resurfacing as a panic two layers up.
+    const body = "prose\n<!-- crux: src/a.java 10-12 -->\nmore <!-- grounded_in: src/b.java 1-2 --> text\n";
+
+    const crux_directive = findDirective(body, kind_crux).?;
+    try testing.expect(directiveArg(crux_directive[4 .. crux_directive.len - 3], kind_crux) != null);
+
+    var it = directives(body, kind_grounded);
+    var n: usize = 0;
+    while (it.next()) |directive| : (n += 1) {
+        try testing.expect(directiveArg(directive[4 .. directive.len - 3], kind_grounded) != null);
+    }
+    try testing.expectEqual(@as(usize, 1), n);
+}
+
 test "a comment that is not a directive is prose" {
     try testing.expectEqual(@as(?[]const u8, null), findDirective("<!-- cruxes are nice -->", kind_crux));
     try testing.expectEqual(@as(?[]const u8, null), findDirective("<!-- TODO -->", kind_crux));
