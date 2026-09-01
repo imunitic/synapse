@@ -97,8 +97,8 @@ this skill when it does. What no longer happens is arriving here merely because 
 ### 1. Size the job before doing any of it
 
 ```sh
-~/.synapse query drift
-~/.synapse query grounding
+synapse query drift
+synapse query grounding
 ```
 
 Report what it says, in the human's terms, **before** touching anything: how far the baseline is from
@@ -118,7 +118,7 @@ Two answers change the plan:
 ### 2. Mechanical phase — always, and cheap
 
 ```sh
-~/.synapse build-lists --reenumerate
+synapse build-lists --reenumerate
 ```
 
 `--reenumerate` matters here: without it an existing `all.txt` is reused, so a branch switch would be
@@ -136,7 +136,7 @@ move a lot and some may reach zero.
 Then rebuild the reverse index so the hook and the read path agree with the new enumeration:
 
 ```sh
-~/.synapse build-index
+synapse build-index
 ```
 
 ### 3. Triage each flagged node — reseat, patch, or re-orient
@@ -193,8 +193,8 @@ straight back stores a quote of a file as it looked at the old baseline, present
 current. So rebuild the directive from the pointer the writer recorded:
 
 ```sh
-~/.synapse query field "{Node}" crux_path
-~/.synapse query field "{Node}" crux_lines
+synapse query field "{Node}" crux_path
+synapse query field "{Node}" crux_lines
 ```
 
 and replace the fenced block with `<!-- crux: <crux_path> <crux_lines> -->` so it is cut from the
@@ -208,7 +208,7 @@ its directives are stripped from the body, so a recovered body contains none —
 the node's provenance is gone with no error. Recover the pointers per node:
 
 ```sh
-~/.synapse query grounding "{Node}" --list   # path<TAB>lines
+synapse query grounding "{Node}" --list   # path<TAB>lines
 ```
 
 and re-emit a `<!-- grounded_in: <path> <lines> -->` for each. Run `synapse query grounding` before
@@ -257,7 +257,7 @@ selection. Never pipe an unbounded `git diff <commit>..HEAD` into a context wind
 ### 4. Write each rebuilt node
 
 ```sh
-~/.synapse write-node --title "{Node}" --summary "{one line}" \
+synapse write-node --title "{Node}" --summary "{one line}" \
    --paths "$W/lists/NN.txt" --body "$W/body.md"
 ```
 
@@ -268,12 +268,12 @@ not merely stale, if the subsystem's shape differs on this line.
 ### 5. Rebuild the projections and verify
 
 ```sh
-~/.synapse build-index
-~/.synapse build-project-index
-~/.synapse query drift     # expect silence
-~/.synapse query stale     # expect silence
-~/.synapse query grounding # expect silence: re-pointed, not dropped
-~/.synapse query links --check   # expect silence: no dangling targets
+synapse build-index
+synapse build-project-index
+synapse query drift     # expect silence
+synapse query stale     # expect silence
+synapse query grounding # expect silence: re-pointed, not dropped
+synapse query links --check   # expect silence: no dangling targets
 ```
 
 `links --check` covers what used to be a manual instruction here: a broken `[[wikilink]]` is a valid

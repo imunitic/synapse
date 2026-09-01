@@ -9,10 +9,10 @@ either concludes with nothing to build, or compiles into a single tracked checkl
 
 Free-form, no fixed step order — same philosophy as a private, repo-local design note, except this
 one lives in the Vault's `designs/` folder instead of a repo's gitignored `docs/notes/`, so it's
-findable from any project immediately. Every note is tagged with both a title (`{PROJECT} —
-{Topic}`) and a `project: {prefix}` frontmatter field, resolved once per project and cached in
-`~/.claude/synapse-projects.conf` (machine-local, never committed, so personal and work
-projects never end up in the same file).
+findable from any project immediately. Every note carries a `project: {prefix}` frontmatter field, resolved once per project and cached
+in the machine-local `synapse-projects.conf` (never committed, so personal and work
+projects never end up in the same file); the title is plain `{Topic}`, and the `project:` field
+decides the note's `designs/{project}/` subfolder.
 
 A design note is created on the first substantive answer and updated after every meaningful
 exchange, not batched up to the end. It concludes one of two ways:

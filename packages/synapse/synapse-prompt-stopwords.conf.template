@@ -1,5 +1,9 @@
-# Copy this to ~/.claude/synapse-prompt-stopwords.conf (setup.sh does this for
-# you). Never overwritten once installed -- edit or extend any time.
+# Read live from the Synapse package as a fallback (tier 3) -- never copied or
+# seeded anywhere, and this template file is never written to. To customize,
+# create your own synapse-prompt-stopwords.conf at $XDG_CONFIG_HOME/synapse/, else
+# ~/.config/synapse/ (the legacy ~/.claude/ also works); your own copy always
+# wins and is never touched by Synapse.
+# Edit or extend your own copy any time.
 #
 # Common English function words, filtered out by `synapse vocab` before
 # building a search pattern from a raw prompt -- without this, an ordinary

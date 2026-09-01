@@ -31,10 +31,10 @@ Not every design discussion ends with something to build. See `Status: Reference
 
 ## Determining the project
 
-Every design note is tagged with the project it belongs to — both in the title
-(`{PROJECT} — {Topic}`) and as `project: {prefix}` in frontmatter (the same short prefix
-`/synapse-note --task` uses for task IDs) — so a flat `designs/` folder still reads clearly, and
-both note kinds can be filtered together via `synapse vault-search`.
+Every design note records the project it belongs to as `project: {prefix}` in frontmatter (the
+same short prefix `/synapse-note --task` uses for task IDs) — that field also decides the note's
+`designs/{project}/` subfolder, so design notes and task notes can be filtered together via
+`synapse vault-search`. The title itself is plain `{Topic}` — no project prefix, no id.
 
 Same resolution `/synapse-note` uses for a missing task ID (its "Resolving a missing task ID"),
 reading the same file:
@@ -56,7 +56,7 @@ reading the same file:
    check both fields (`synapse vault-search --fields frontmatter.task_id,frontmatter.note_id`, filter
    both for `{prefix}-\d+`, take the highest number found across both, add 1; start at 1 if none exist
    yet). This is frontmatter only — unlike a task note, a design note's title and filename stay
-   exactly `{PROJECT} — {Topic}`, with no id prepended.
+   exactly `{Topic}`, with no id and no project prefix prepended.
 
 Never hardcode a specific project/prefix pair in this command's own instructions — the conf file is
 machine-local and deliberately outside the portable Synapse package, so projects from
@@ -156,11 +156,11 @@ judgment call, not the automatic result of an `## Approach` section existing. Be
   blocking question is fine to carry forward), but a note with a *blocking* open question is not
   `Ready`, no matter how developed the rest of it is.
 
-- **Both hold** → `Status: Ready`. Confirm: "Design note ready: `designs/{title}.md`.
+- **Both hold** → `Status: Ready`. Confirm: "Design note ready: `designs/{project}/{title}.md`.
   Whenever you're ready to implement, generate the task with
   `/synapse-task-note \"{topic}\"` — no rush, nothing here expires."
 - **Genuinely nothing to build** → `Status: Reference`. Confirm: "Design note concluded as
-  Reference: `designs/{title}.md`. No task note needed."
+  Reference: `designs/{project}/{title}.md`. No task note needed."
 - **Anything else** (the approach is still hedged, or an open question blocks it) → stays
   `Status: Discussing`. This is the default outcome, not a fallback to apologize for — most
   conversations end here, and that's fine; nothing here expires either.
@@ -178,7 +178,7 @@ so the `## Status` line is the only lifecycle marker that matters. It simply sta
 ```
 ---
 schema: vault-design-note/v1
-title: "{PROJECT} — {Topic}"
+title: "{Topic}"
 project: {prefix}
 note_id: {id}
 created: "{now}"
@@ -186,7 +186,7 @@ updated: "{now}"
 tags: [{comma-separated configured tags, or empty}]
 ---
 
-# {PROJECT} — {Topic}
+# {Topic}
 
 ## Status
 Discussing | Ready | Reference
@@ -220,8 +220,10 @@ edit history here worth tracking separately.
 
 ## Filename
 
-`designs/{PROJECT} — {Topic}.md` — sanitize filesystem-illegal characters (`/ : * ? " < > |`). No
-slug, no numbering — vault filenames are the title itself.
+`designs/{project}/{Topic}.md` — grouped one level deeper into a per-project
+subfolder named by the note's own `project:` frontmatter value (e.g. `designs/eon/`,
+`designs/synapse/`), the same mapping `tasks/{project}/` uses. Sanitize filesystem-illegal
+characters (`/ : * ? " < > |`). No slug, no numbering — vault filenames are the title itself.
 
 ---
 
@@ -242,12 +244,12 @@ Claude: [searches designs/ for existing matches — none found]
 
 User: Replacing the AggregatingMergeTree rollup resolution with direct-value storage.
 
-Claude: [creates designs/{PROJECT} — Rollup direct storage.md, Status: Discussing]
+Claude: [creates designs/{project}/Rollup direct storage.md, Status: Discussing]
 
         What's driving this over just tuning the current argMaxMerge query?
 ...
 User: The resolution cost alone dominates the query, tuning won't fix that. Mark it ready.
 
-Claude: Design note ready: designs/{PROJECT} — Rollup direct storage.md.
+Claude: Design note ready: designs/{project}/Rollup direct storage.md.
         Generate the task with /synapse-task-note "rollup direct storage" whenever you're ready.
 ```

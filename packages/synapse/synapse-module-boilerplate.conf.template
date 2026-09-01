@@ -1,6 +1,9 @@
-# Copy this to ~/.claude/synapse-module-boilerplate.conf (setup.sh does this
-# for you). Never overwritten once installed -- add your own ecosystem's
-# conventions any time.
+# Read live from the Synapse package as a fallback (tier 3) -- never copied or
+# seeded anywhere, and this template file is never written to. To customize,
+# create your own synapse-module-boilerplate.conf at $XDG_CONFIG_HOME/synapse/, else
+# ~/.config/synapse/ (the legacy ~/.claude/ also works); your own copy always
+# wins and is never touched by Synapse.
+# Add your own ecosystem's conventions any time.
 #
 # Boilerplate path-segment chains that module_of() (synapse query,
 # synapse write-node's ## Sources mirror) strips through wholesale when

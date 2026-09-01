@@ -51,7 +51,7 @@ Check whether `synapse/{repo}@{branch}/Index.md` exists.
 ### 2. Preview the wipe and get explicit confirmation
 
 ```sh
-~/.synapse graph-wipe --dry-run
+synapse graph-wipe --dry-run
 ```
 
 Report its output plainly: node count, and — the one thing this step exists to surface — how many
@@ -72,7 +72,7 @@ attached, which the human hasn't seen a number for yet.
 Once confirmed:
 
 ```sh
-~/.synapse graph-wipe
+synapse graph-wipe
 ```
 
 This deletes `synapse/{repo}@{branch}/` and, if any node had non-empty `## Notes`, first dumps that

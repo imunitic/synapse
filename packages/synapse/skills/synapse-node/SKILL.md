@@ -21,7 +21,7 @@ needs one.
 
 ## Procedure
 
-1. **Verify the whole project once, with the script.** Run `~/.synapse query stale` from
+1. **Verify the whole project once, with the script.** Run `synapse query stale` from
    inside the repo. It prints one `{node title}\t{reason}` line per stale node and nothing at all
    when everything is current, so its output is the complete stale set for the project.
 
@@ -50,7 +50,7 @@ needs one.
    So skip the frontmatter entirely:
 
    ```sh
-   ~/.synapse query body "{Node title}"
+   synapse query body "{Node title}"
    ```
 
    That prints only what is between the generated fences — so it excludes `## Notes` as well as the
@@ -81,11 +81,11 @@ needs one.
    - **Get the node's path list into a file, never into context:**
 
      ```sh
-     ~/.synapse query sources "{Node title}" > "$W/paths.txt"
+     synapse query sources "{Node title}" > "$W/paths.txt"
      ```
 
      If `$W/manifest.tsv` exists (or the namespace has `_manifest.tsv`), prefer re-running
-     `~/.synapse build-lists` instead and use the regenerated `lists/NN.txt`: it
+     `synapse build-lists` instead and use the regenerated `lists/NN.txt`: it
      re-derives every list from the clustering patterns, so files *added* since the last build are
      picked up automatically rather than sitting in `_unassigned`. `synapse query sources` can only
      return what the node already claims.
@@ -101,7 +101,7 @@ needs one.
      and discards findings the diff has nothing to say about. Project the diff as carefully as
      `sources`: names first, `--stat` to size it, hunks only for the selection.
    - Fall back to reading the files when patching cannot be justified — a large fraction changed, the
-     `crux` file is gone, or the baseline is unusable. Then try `~/.synapse tags {path}`
+     `crux` file is gone, or the baseline is unusable. Then try `synapse tags {path}`
      first (exit 0 use the tags, exit 1 fall back to reading the file, exit 2 run the discovery
      procedure `/synapse-init` documents, then retry), and read the load-bearing files in full — the
      tags signal informs regrouping, it never substitutes for reading a file before rewriting its prose.
@@ -127,7 +127,7 @@ needs one.
    - **Write it back with the script:**
 
      ```sh
-     ~/.synapse write-node --title "{Node title}" --summary "{one line}" \
+     synapse write-node --title "{Node title}" --summary "{one line}" \
         --paths "$W/paths.txt" --body "$W/body.md"
      ```
 
@@ -142,7 +142,7 @@ needs one.
      what you just did. (Task notes in `tasks/` are a different artifact: the `synapse-task` skill *does*
      append there. Do not carry that habit into a Synapse node.)
    - If the node's `summary` or title changed, rebuild the index so the map matches:
-     `~/.synapse build-project-index`.
+     `synapse build-project-index`.
    - **Say out loud that a regeneration happened** — e.g. "Node '{title}' was stale, regenerated
      before use." This has real latency and token cost, unlike Tier 1/2's detection; it must never
      be absorbed silently into the read.
@@ -150,13 +150,13 @@ needs one.
    - Read the bucket with a shell command, not into context — the index runs to tens of megabytes:
 
      ```sh
-     ~/.synapse index unassigned
+     synapse index unassigned
      ```
 
      Empty → nothing to do, skip silently (an empty sweep isn't worth announcing).
    - Otherwise read `synapse/{project}/Index.md` for the current node list (titles + summaries).
    - Tag the whole bucket in **one** call — write the paths to a list and run
-     `~/.synapse tags --paths {list}`, whose output is attributable (an unindented
+     `synapse tags --paths {list}`, whose output is attributable (an unindented
      line is a path, the tab-indented lines under it are its tags). A per-file loop costs ~33× more
      for the same answer. Fall back to a full read for ambiguous cases, then classify against that
      node list. **The judgment is which cluster a path belongs to; the bookkeeping is not yours to
@@ -167,7 +167,7 @@ needs one.
        immediately. If there is no manifest, add the path to that node's list file instead.
      - **Fits nothing** → leave it unassigned. A genuinely new subsystem wants its own manifest line
        and its own node, which is `/synapse-init` work, not a sweep.
-     - Then rebuild the projection with `~/.synapse build-index`. **Never hand-edit
+     - Then rebuild the projection with `synapse build-index`. **Never hand-edit
        `_index.bin`** — it is derived, binary, and tens of megabytes; there is nothing to
        hand-edit.
    - **Announce every outcome**, same transparency rule as regeneration: which file, and which

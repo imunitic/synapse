@@ -122,7 +122,7 @@ command doesn't set or watch that field itself.
 ```
 User: /synapse-task-note "rollup direct storage"
 
-Claude: [reads designs/{PROJECT} — Rollup direct storage.md, Status: Ready]
+Claude: [reads designs/{project}/Rollup direct storage.md, Status: Ready]
         [no existing linked task note]
 
         Compiled checklist:
@@ -133,8 +133,8 @@ Claude: [reads designs/{PROJECT} — Rollup direct storage.md, Status: Ready]
 
         Project already known: {PROJECT} → {prefix}-005.
 
-        Created: tasks/{PROJECT}/Rollup direct storage implementation.md (task_id: {prefix}-005)
-        Linked back from designs/{PROJECT} — Rollup direct storage.md.
+        Created: tasks/{project}/Rollup direct storage implementation.md (task_id: {prefix}-005)
+        Linked back from designs/{project}/Rollup direct storage.md.
 
         Status transitions happen automatically via the synapse-task skill once you start work.
 ```

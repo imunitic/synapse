@@ -38,10 +38,10 @@ There is no flag syntax here — read intent from how the user asks:
 
 ## Determining the project
 
-Every design note is tagged with the project it belongs to — both in the title
-(`{PROJECT} — {Topic}`) and as `project: {prefix}` in frontmatter (the same short prefix the
-synapse-note skill's task mode uses for task IDs) — so a flat `designs/` folder still reads clearly,
-and both note kinds can be filtered together via `synapse vault-search`.
+Every design note records the project it belongs to as `project: {prefix}` in frontmatter (the
+same short prefix the synapse-note skill's task mode uses for task IDs) — that field also decides
+the note's `designs/{project}/` subfolder, so design notes and task notes can be filtered together
+via `synapse vault-search`. The title itself is plain `{Topic}` — no project prefix, no id.
 
 Same resolution the synapse-note skill uses for a missing task ID (its "Resolving a missing task
 ID"), reading the same file:
@@ -157,11 +157,11 @@ judgment call, not the automatic result of an `## Approach` section existing. Be
   blocking question is fine to carry forward), but a note with a *blocking* open question is not
   `Ready`, no matter how developed the rest of it is.
 
-- **Both hold** → `Status: Ready`. Confirm: "Design note ready: `designs/{title}.md`.
+- **Both hold** → `Status: Ready`. Confirm: "Design note ready: `designs/{project}/{title}.md`.
   Whenever you're ready to implement, ask me to compile it into a task note — no rush, nothing
   here expires."
 - **Genuinely nothing to build** → `Status: Reference`. Confirm: "Design note concluded as
-  Reference: `designs/{title}.md`. No task note needed."
+  Reference: `designs/{project}/{title}.md`. No task note needed."
 - **Anything else** (the approach is still hedged, or an open question blocks it) → stays
   `Status: Discussing`. This is the default outcome, not a fallback to apologize for — most
   conversations end here, and that's fine; nothing here expires either.
@@ -179,7 +179,7 @@ so the `## Status` line is the only lifecycle marker that matters. It simply sta
 ```
 ---
 schema: vault-design-note/v1
-title: "{PROJECT} — {Topic}"
+title: "{Topic}"
 project: {prefix}
 note_id: {id}
 created: "{now}"
@@ -187,7 +187,7 @@ updated: "{now}"
 tags: [{comma-separated configured tags, or empty}]
 ---
 
-# {PROJECT} — {Topic}
+# {Topic}
 
 ## Status
 Discussing | Ready | Reference
@@ -217,8 +217,10 @@ edit history here worth tracking separately.
 
 ## Filename
 
-`designs/{PROJECT} — {Topic}.md` — sanitize filesystem-illegal characters (`/ : * ? " < > |`). No
-slug, no numbering — Obsidian filenames are the title itself.
+`designs/{project}/{Topic}.md` — grouped one level deeper into a per-project
+subfolder named by the note's own `project:` frontmatter value (e.g. `designs/eon/`,
+`designs/synapse/`), the same mapping tasks use. Sanitize filesystem-illegal
+characters (`/ : * ? " < > |`). No slug, no numbering — Obsidian filenames are the title itself.
 
 ---
 
@@ -239,12 +241,12 @@ Codex: [searches designs/ for existing matches — none found]
 
 User: Replacing the AggregatingMergeTree rollup resolution with direct-value storage.
 
-Codex: [creates designs/{PROJECT} — Rollup direct storage.md, Status: Discussing]
+Codex: [creates designs/{project}/Rollup direct storage.md, Status: Discussing]
 
        What's driving this over just tuning the current argMaxMerge query?
 ...
 User: The resolution cost alone dominates the query, tuning won't fix that. Mark it ready.
 
-Codex: Design note ready: designs/{PROJECT} — Rollup direct storage.md.
+Codex: Design note ready: designs/{project}/Rollup direct storage.md.
        Ask me to compile the task note whenever you're ready to implement.
 ```
