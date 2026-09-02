@@ -616,6 +616,15 @@ fn validateChecks(gpa: Allocator, checks: *const Value, note: []const u8, path: 
     return null;
 }
 
+/// Deliberately its own scan, not `query.FrontmatterIterator` plus
+/// `query.topLevelKeyValue`: schema validation needs strictly more than
+/// either gives -- trailing-comment stripping, block-style (indented `- `)
+/// list values alongside flow `[a, b]` ones, typed values (`boolean`/
+/// `integer`/`string`, not just string), explicit-invalid detection for a
+/// malformed quote or bracket, and duplicate-key detection. Nothing else in
+/// this codebase needs any of that, so folding it into the shared scanner
+/// would either weaken this or grow every other caller's surface for a
+/// capability only this one uses.
 pub fn lookupField(gpa: Allocator, note: []const u8, wanted: []const u8) !Lookup {
     const bounds = frontmatterBounds(note) orelse return .{};
     var result: Lookup = .{};

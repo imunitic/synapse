@@ -19,6 +19,7 @@
 const std = @import("std");
 const ports = @import("ports");
 const jsonlogic = @import("jsonlogic.zig");
+const core_query = @import("query.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -212,14 +213,10 @@ fn noteData(arena: Allocator, path: []const u8, body: []const u8) !Value {
 /// is skipped for that key, not guessed at.
 fn frontmatterAsJson(arena: Allocator, body: []const u8) !Value {
     var obj: std.json.ObjectMap = .empty;
-    var it = @import("query.zig").FrontmatterIterator.init(body);
+    var it = core_query.FrontmatterIterator.init(body);
     while (it.next()) |line| {
-        if (line.len == 0 or line[0] == ' ' or line[0] == '\t') continue; // a nested/continuation line
-        const colon = std.mem.indexOfScalar(u8, line, ':') orelse continue;
-        const key = std.mem.trim(u8, line[0..colon], " ");
-        if (key.len == 0) continue;
-        const raw_value = std.mem.trim(u8, line[colon + 1 ..], " ");
-        try obj.put(arena, key, try parseScalarOrList(arena, raw_value));
+        const kv = core_query.topLevelKeyValue(line) orelse continue;
+        try obj.put(arena, kv.key, try parseScalarOrList(arena, kv.value));
     }
     return .{ .object = obj };
 }

@@ -108,17 +108,11 @@ fn findKeyLine(text: []const u8, close: usize, key: []const u8) ?struct { start:
     while (idx < close) {
         const nl = std.mem.indexOfScalarPos(u8, text, idx, '\n') orelse close;
         const line_end = @min(nl, close);
-        if (matchesKey(text[idx..line_end], key)) return .{ .start = idx, .end = line_end };
+        if (query.isKeyLine(text[idx..line_end], key)) return .{ .start = idx, .end = line_end };
         if (nl >= close) break;
         idx = nl + 1;
     }
     return null;
-}
-
-/// Same anchored match `query.field` uses: a prefix match at position one,
-/// so a query for `tags` doesn't also match `built_tags`.
-fn matchesKey(line: []const u8, key: []const u8) bool {
-    return std.mem.startsWith(u8, line, key) and line.len > key.len and line[key.len] == ':';
 }
 
 fn writeValue(w: *std.Io.Writer, value: Value) !void {

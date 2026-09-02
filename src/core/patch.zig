@@ -11,6 +11,7 @@
 
 const std = @import("std");
 const frontmatter = @import("frontmatter.zig");
+const query = @import("query.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -373,13 +374,10 @@ pub fn documentMap(gpa: Allocator, body: []const u8) !DocumentMap {
         for (fm_keys.items) |k| gpa.free(k);
         fm_keys.deinit(gpa);
     }
-    var it = @import("query.zig").FrontmatterIterator.init(body);
+    var it = query.FrontmatterIterator.init(body);
     while (it.next()) |line| {
-        if (line.len == 0 or line[0] == ' ' or line[0] == '\t') continue; // nested/continuation line
-        const colon = std.mem.indexOfScalar(u8, line, ':') orelse continue;
-        const key = std.mem.trim(u8, line[0..colon], " ");
-        if (key.len == 0) continue;
-        try fm_keys.append(gpa, try gpa.dupe(u8, key));
+        const kv = query.topLevelKeyValue(line) orelse continue;
+        try fm_keys.append(gpa, try gpa.dupe(u8, kv.key));
     }
 
     return .{

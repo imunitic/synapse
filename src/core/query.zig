@@ -53,13 +53,37 @@ pub fn bodyAfterFrontmatter(text: []const u8) []const u8 {
 pub fn field(text: []const u8, key: []const u8) ?[]const u8 {
     var it = FrontmatterIterator.init(text);
     while (it.next()) |line| {
-        // `index($0, k ":") == 1` in awk -- a prefix match at position one, so
-        // `title:` matches and `built_at:` does not match a query for `at`.
-        if (!std.mem.startsWith(u8, line, key)) continue;
-        if (line.len <= key.len or line[key.len] != ':') continue;
+        if (!isKeyLine(line, key)) continue;
         return stripOneQuote(std.mem.trimStart(u8, line[key.len + 1 ..], " \t"));
     }
     return null;
+}
+
+/// Whether `line` is exactly `{key}: ...` at column zero -- `index($0, k
+/// ":") == 1` in the original awk, an anchored prefix match, so a lookup
+/// for `title` doesn't also match `subtitle:` or `titled:`. Shared by
+/// every top-level frontmatter-key lookup in this codebase (`field`,
+/// `fieldStreaming`, `scalar`, and `frontmatter.zig`'s own `findKeyLine`),
+/// so a change to what counts as "this line owns this key" can't land in
+/// only one of them and let a read and a write disagree about the same
+/// note.
+pub fn isKeyLine(line: []const u8, key: []const u8) bool {
+    return std.mem.startsWith(u8, line, key) and line.len > key.len and line[key.len] == ':';
+}
+
+/// A column-0 `key: value` line's key and raw (still-quoted) value, or
+/// null for a nested/continuation line (leading space or tab), a line
+/// with no `:`, or an empty key. For a caller that classifies every
+/// top-level line by key rather than looking up one specific key -- that's
+/// `isKeyLine`, above. Shared by `vault_query.frontmatterAsJson` and
+/// `patch.documentMap`'s frontmatter-key listing.
+pub const KeyValue = struct { key: []const u8, value: []const u8 };
+pub fn topLevelKeyValue(line: []const u8) ?KeyValue {
+    if (line.len == 0 or line[0] == ' ' or line[0] == '\t') return null;
+    const colon = std.mem.indexOfScalar(u8, line, ':') orelse return null;
+    const key = std.mem.trim(u8, line[0..colon], " ");
+    if (key.len == 0) return null;
+    return .{ .key = key, .value = std.mem.trim(u8, line[colon + 1 ..], " ") };
 }
 
 /// Same lookup as `field`, but never reads past what it has to.
@@ -84,8 +108,7 @@ pub fn fieldStreaming(reader: *std.Io.Reader, key: []const u8) !?[]const u8 {
     while (try reader.takeDelimiter('\n')) |raw| {
         const line = std.mem.trimEnd(u8, raw, "\r");
         if (std.mem.eql(u8, line, "---")) return null;
-        if (!std.mem.startsWith(u8, line, key)) continue;
-        if (line.len <= key.len or line[key.len] != ':') continue;
+        if (!isKeyLine(line, key)) continue;
         return stripOneQuote(std.mem.trimStart(u8, line[key.len + 1 ..], " \t"));
     }
     return null;
@@ -125,8 +148,7 @@ fn stripOneQuote(raw: []const u8) []const u8 {
 pub fn scalar(gpa: std.mem.Allocator, text: []const u8, key: []const u8) !?[]u8 {
     var it = FrontmatterIterator.init(text);
     while (it.next()) |line| {
-        if (!std.mem.startsWith(u8, line, key)) continue;
-        if (line.len <= key.len or line[key.len] != ':') continue;
+        if (!isKeyLine(line, key)) continue;
         const raw = std.mem.trimStart(u8, line[key.len + 1 ..], " \t");
         // Unquoted scalars carry no escapes: a bare `project: fw-core` means what
         // it says, and unescaping it would be inventing a rule.
@@ -529,4 +551,23 @@ test "an unquoted scalar is returned as written" {
     defer gpa.free(p);
     try testing.expectEqualStrings("fw-core", p);
     try testing.expectEqual(@as(?[]u8, null), try scalar(gpa, text, "absent"));
+}
+
+test "isKeyLine anchors at column zero, not a substring match anywhere in the line" {
+    try testing.expect(isKeyLine("title: State machine", "title"));
+    try testing.expect(!isKeyLine("subtitle: nope", "title"));
+    try testing.expect(!isKeyLine("built_at: 2026-08-03", "at"));
+    try testing.expect(!isKeyLine("title", "title")); // no colon at all
+    try testing.expect(!isKeyLine("titles: [a, b]", "title")); // key is a prefix, not the whole key
+}
+
+test "topLevelKeyValue splits a column-0 line, and skips nested/continuation lines" {
+    const kv = topLevelKeyValue("tags: [synapse, vault-infra]").?;
+    try testing.expectEqualStrings("tags", kv.key);
+    try testing.expectEqualStrings("[synapse, vault-infra]", kv.value);
+
+    try testing.expectEqual(@as(?KeyValue, null), topLevelKeyValue("  - path: src/main.zig"));
+    try testing.expectEqual(@as(?KeyValue, null), topLevelKeyValue("\tindented: value"));
+    try testing.expectEqual(@as(?KeyValue, null), topLevelKeyValue("no colon here"));
+    try testing.expectEqual(@as(?KeyValue, null), topLevelKeyValue(""));
 }
