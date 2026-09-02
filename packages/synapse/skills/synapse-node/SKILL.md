@@ -71,7 +71,7 @@ needs one.
 4. **Regeneration (only if step 1 or 2 found the node stale).** You re-author the prose; a script
    writes the file. **The node contract itself — frontmatter fields, the crux pointer, `## Links`,
    `grounded_in` — is the `synapse-node-format` skill**, shared with `/synapse-init` and
-   `/synapse-rebuild`. What follows here is only what differs when *re*-authoring an existing
+   `/synapse-rebuild-diff`. What follows here is only what differs when *re*-authoring an existing
    node rather than writing a new one. Everything mechanical — hashes, `sources_digest`, the `## Sources` mirror,
    `built_at`, `commit`, `stale: false`, and preserving `## Notes` — belongs to
    `synapse write-node`, because a hub node's `sources` can no more be *emitted* into a tool call
@@ -105,7 +105,7 @@ needs one.
      first (exit 0 use the tags, exit 1 fall back to reading the file, exit 2 run the discovery
      procedure `/synapse-init` documents, then retry), and read the load-bearing files in full — the
      tags signal informs regrouping, it never substitutes for reading a file before rewriting its prose.
-     If this is happening across many nodes at once, stop and run `/synapse-rebuild` instead: that is
+     If this is happening across many nodes at once, stop and run `/synapse-rebuild-diff` instead: that is
      the instrument for major drift, and it triages node by node rather than paying full cost for each.
    - Re-author `## Summary`, `## Crux` and `## Links` to match what the files contain now, into
      `$W/body.md`. Re-check the node's one-line `summary` as well; keep the existing one with

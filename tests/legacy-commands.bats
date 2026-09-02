@@ -73,6 +73,13 @@ shipped_instructions() {
   find "$REPO_ROOT/packages/synapse" -name '*.md' -type f
 }
 
+# Every real shipped `/synapse-<word>` command name -- one file per command
+# under commands/, the same directory shipped_instructions() already reads
+# from, not a second list that could drift from it.
+shipped_command_names() {
+  find "$REPO_ROOT/packages/synapse/commands" -name '*.md' -type f -exec basename {} .md \; | sort -u
+}
+
 # The shell entry points the rewrite deleted. Matched with a trailing `.sh` so this
 # never fires on the binary's own subcommands, and so a source comment recording
 # provenance ("the port of synapse-tags-cache.sh") stays legal -- comments are
@@ -80,21 +87,31 @@ shipped_instructions() {
 # name one.
 readonly LEGACY='(synapse|second-brain)[a-z-]*\.sh'
 
-# Every `synapse <sub>` and `synapse query <sub>` in the text on stdin that the
-# binary does not actually have, one per line. Empty output means clean.
+# Other identifiers a past drift already put back once -- caught by inspection
+# then, guarded mechanically now so a regression is caught the moment it
+# lands rather than rediscovered by hand a second time. `~/.synapse`: the
+# pre-npm config path, fixed once already (sb-088's finding 1).
+readonly KNOWN_DEAD='~/\.synapse\b'
+
+# Every `synapse <sub>`, `synapse query <sub>`, and `/synapse-<command>` in the
+# text on stdin that does not actually exist -- the first two against the
+# binary's own --help, the third against the real commands/ directory. One
+# per line; empty output means clean.
 #
 # Only backticked mentions count. Prose runs the two words together often enough
 # ("consult synapse query before grepping") that matching bare text would flag
 # sentences rather than commands.
 unknown_commands() {
-  local text subs qsubs bad="" cmd
+  local text subs qsubs cmds bad="" cmd
   text="$(cat)"
   subs="$("$SYNAPSE_BIN" --help 2>&1 | sed -n 's/^  \([a-z][a-z-]*\) .*/\1/p' | sort -u)"
   qsubs="$("$SYNAPSE_BIN" query --help 2>&1 | sed -n 's/^  \([a-z][a-z-]*\) .*/\1/p' | sort -u)"
+  cmds="$(shipped_command_names)"
   # A --help that parsed to nothing would make every check below vacuously pass,
   # which is the one way this guard could fail silently.
   [ -n "$subs" ] || { echo "  (synapse --help listed no subcommands)"; return; }
   [ -n "$qsubs" ] || { echo "  (synapse query --help listed no subcommands)"; return; }
+  [ -n "$cmds" ] || { echo "  (no files found under packages/synapse/commands)"; return; }
 
   while read -r cmd; do
     [ -n "$cmd" ] || continue
@@ -106,14 +123,19 @@ unknown_commands() {
     grep -qx "$cmd" <<< "$subs" || bad="$bad  synapse $cmd"$'\n'
   done <<< "$(grep -hoE '`synapse [a-z][a-z-]+' <<< "$text" | sed 's/.*`synapse //' | sort -u)"
 
+  while read -r cmd; do
+    [ -n "$cmd" ] || continue
+    grep -qx "$cmd" <<< "$cmds" || bad="$bad  /$cmd"$'\n'
+  done <<< "$(grep -hoE '`/synapse-[a-z-]+' <<< "$text" | sed 's#`/##' | sort -u)"
+
   printf '%s' "$bad"
 }
 
-@test "no shipped instruction names a deleted shell entry point" {
+@test "no shipped instruction names a deleted shell entry point or a known-dead identifier" {
   local hits
-  hits="$(shipped_instructions | xargs grep -nE "$LEGACY" || true)"
+  hits="$(shipped_instructions | xargs grep -nE "$LEGACY|$KNOWN_DEAD" || true)"
   [ -z "$hits" ] || {
-    echo "shipped instructions naming a deleted script:" >&2
+    echo "shipped instructions naming a deleted script or known-dead identifier:" >&2
     echo "$hits" >&2
     false
   }
@@ -160,9 +182,9 @@ unknown_commands() {
     "$SYNAPSE_HOOK_BIN" staleness < "$input" 2>&1 || true)"
 
   [ -n "$emitted" ]
-  ! grep -qE "$LEGACY" <<< "$emitted" || {
-    echo "a hook injected a deleted script name:" >&2
-    grep -oE "[^ ]*$LEGACY" <<< "$emitted" | sort -u >&2
+  ! grep -qE "$LEGACY|$KNOWN_DEAD" <<< "$emitted" || {
+    echo "a hook injected a deleted script name or known-dead identifier:" >&2
+    grep -oE "[^ ]*($LEGACY|$KNOWN_DEAD)" <<< "$emitted" | sort -u >&2
     false
   }
 
@@ -197,9 +219,9 @@ unknown_commands() {
   generated="$(cat "$VAULT/synapse/$(repo_name)/Index.md")"
   [[ "$generated" == *"Reading a node"* ]]
 
-  ! grep -qE "$LEGACY" <<< "$generated" || {
-    echo "a generated document names a deleted script:" >&2
-    grep -oE "[^ ]*$LEGACY" <<< "$generated" | sort -u >&2
+  ! grep -qE "$LEGACY|$KNOWN_DEAD" <<< "$generated" || {
+    echo "a generated document names a deleted script or known-dead identifier:" >&2
+    grep -oE "[^ ]*($LEGACY|$KNOWN_DEAD)" <<< "$generated" | sort -u >&2
     false
   }
 
@@ -210,6 +232,65 @@ unknown_commands() {
   bad="$(unknown_commands <<< "$generated")"
   [ -z "$bad" ] || {
     echo "a generated document names a command the binary does not have:" >&2
+    printf '%s' "$bad" >&2
+    false
+  }
+}
+
+# Every fenced ``` block containing a `schema: vault-*` line in $1, as one
+# "schema-id<TAB>field:<name>" or "schema-id<TAB>heading:<text>" line per
+# frontmatter field or Markdown heading found inside it. Leading indentation
+# is stripped per line first, since a template embedded inside a numbered
+# list step (synapse-note.md's bare/task templates) is indented, unlike a
+# top-level one (synapse-design-note.md's). Keyed by schema id, not file
+# position, so a file embedding more than one template (bare vs. task mode)
+# compares each against its own counterpart in the mirror, not whichever
+# template happens to come first in either file.
+template_fields_and_headings() {
+  awk '
+    { line = $0; sub(/^[ \t]+/, "", line) }
+    line ~ /^```/ {
+      if (in_fence) {
+        in_fence = 0
+        if (schema != "") { for (i = 1; i <= n; i++) print schema "\t" items[i] }
+      } else {
+        in_fence = 1; schema = ""; n = 0; fm = 0
+      }
+      next
+    }
+    !in_fence { next }
+    line == "---" { fm = !fm; next }
+    fm && line ~ /^schema: / { schema = line; sub(/^schema: /, "", schema); next }
+    fm && line ~ /^[a-z_]+:/ { f = line; sub(/:.*/, "", f); n++; items[n] = "field:" f; next }
+    line ~ /^#+ / { n++; items[n] = "heading:" line }
+  ' "$1"
+}
+
+@test "every canonical command's note template has every field and heading in its Codex mirror" {
+  # The class finding 4 in sb-090 was: Codex's synapse-design-note skill
+  # silently dropped a step the canonical command had. This is the same
+  # drift class caught mechanically instead of by inspection -- scoped to
+  # what's actually safe to compare structurally (the embedded note
+  # template each command produces), not the surrounding prose, which
+  # legitimately differs between a positional-argument slash command and
+  # Codex's own invocation style.
+  local bad="" f name mirror canon_out mirror_out
+  for f in "$REPO_ROOT"/packages/synapse/commands/*.md; do
+    name="$(basename "$f" .md)"
+    mirror="$REPO_ROOT/packages/synapse/harness/codex/skills/$name/SKILL.md"
+    [ -f "$mirror" ] || continue
+
+    canon_out="$(template_fields_and_headings "$f")"
+    [ -n "$canon_out" ] || continue # nothing templated in this command at all
+    mirror_out="$(template_fields_and_headings "$mirror")"
+
+    while IFS= read -r want; do
+      [ -n "$want" ] || continue
+      grep -qxF "$want" <<< "$mirror_out" || bad="$bad  $name: $mirror missing $want"$'\n'
+    done <<< "$canon_out"
+  done
+  [ -z "$bad" ] || {
+    echo "a Codex mirror's note template is missing a field/heading its canonical command has:" >&2
     printf '%s' "$bad" >&2
     false
   }

@@ -153,7 +153,7 @@ emit into tool calls than read into a window. Never hand-author those.
 
    **Load the `synapse-orientation` skill** for how to read the vocabulary, the four questions that
    cover a tree with no grammar, and the grammar-discovery procedure. It is shared with
-   `/synapse-rebuild`'s re-orient class, which needs the same technique.
+   `/synapse-rebuild-diff`'s re-orient class, which needs the same technique.
 4. **Cluster into nodes — write `manifest.tsv`, the seam.** Group what you learned into a few dozen
    readable nodes, not one per file — same density Graft aims for. A node is a subsystem or concept,
    not a file; a file may legitimately belong to more than one node's `sources` when it's genuinely
@@ -249,7 +249,7 @@ emit into tool calls than read into a window. Never hand-author those.
    **Load the `synapse-node-format` skill too, before writing the first one** — it is the
    single description of the node contract itself (summary, the crux *pointer*, `## Links`,
    `grounded_in`, what the writer adds and what it refuses), shared with the `synapse-node`
-   skill and `/synapse-rebuild`, which write the same artifact. `synapse-node-authoring`
+   skill and `/synapse-rebuild-diff`, which write the same artifact. `synapse-node-authoring`
    covers *how* nodes get written; this covers *what* one is. Do not re-derive either from an
    existing node: a node you are reading may predate a change to its format.
 8. **Write `_index.bin`** — mechanics, run `synapse build-index`. It emits
