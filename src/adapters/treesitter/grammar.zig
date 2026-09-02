@@ -6,6 +6,7 @@
 const std = @import("std");
 const root = @import("root.zig");
 const process = @import("adapters").process;
+const dir_lock = @import("adapters").dir_lock;
 
 const c = root.c;
 const Io = std.Io;
@@ -142,18 +143,16 @@ pub fn build(io: Io, gpa: Allocator, repo_dir: []const u8, out_path: []const u8,
     var got_compile_lock = false;
     var compile_tries: usize = 0;
     while (compile_tries < max_tries) : (compile_tries += 1) {
-        if (cwd.createDir(io, compile_lock_dir, .default_dir)) |_| {
+        if (try dir_lock.tryAcquire(gpa, io, compile_lock_dir, lock_stale_after_ns)) |acquired| {
+            gpa.free(acquired);
             got_compile_lock = true;
             break;
-        } else |_| {}
-        if (try upToDate(io, out_path, sources.items)) return;
-        if (lockAbandoned(io, compile_lock_dir)) {
-            cwd.deleteDir(io, compile_lock_dir) catch {};
-            if (cwd.createDir(io, compile_lock_dir, .default_dir)) |_| {
-                got_compile_lock = true;
-                break;
-            } else |_| {}
         }
+        // Re-checked every wait cycle, not just before/after the loop: another
+        // process may finish compiling while this one is still waiting, and
+        // that should end the wait immediately rather than contending for a
+        // lock this call no longer needs.
+        if (try upToDate(io, out_path, sources.items)) return;
         std.Io.sleep(io, .fromMilliseconds(200), .awake) catch {};
     }
 
@@ -253,19 +252,12 @@ pub fn ensureCloned(
     var got_lock = false;
     var tries: usize = 0;
     while (tries < max_tries) : (tries += 1) {
-        if (cwd.createDir(io, lock_dir, .default_dir)) |_| {
+        if (try dir_lock.tryAcquire(gpa, io, lock_dir, lock_stale_after_ns)) |acquired| {
+            gpa.free(acquired);
             got_lock = true;
             break;
-        } else |_| {}
-        if (cwd.access(io, repo_dir, .{})) |_| break else |_| {} // holder may have finished
-
-        if (lockAbandoned(io, lock_dir)) {
-            cwd.deleteDir(io, lock_dir) catch {};
-            if (cwd.createDir(io, lock_dir, .default_dir)) |_| {
-                got_lock = true;
-                break;
-            } else |_| {}
         }
+        if (cwd.access(io, repo_dir, .{})) |_| break else |_| {} // holder may have finished
         std.Io.sleep(io, .fromMilliseconds(200), .awake) catch {};
     }
 
@@ -296,14 +288,6 @@ pub fn ensureCloned(
 /// `--depth 1` clone is a few MB, so nothing legitimate needs 15 minutes --
 /// well past the ~60s a waiter gives up after.
 pub const lock_stale_after_ns: i96 = 15 * std.time.ns_per_min;
-
-/// Unreadable counts as not-abandoned: a lock that vanished mid-check isn't
-/// ours to reason about. Wall clock, since it's compared against an mtime.
-fn lockAbandoned(io: Io, lock_dir: []const u8) bool {
-    const st = Io.Dir.cwd().statFile(io, lock_dir, .{}) catch return false;
-    const now = Io.Timestamp.now(io, .real).nanoseconds;
-    return now - st.mtime.nanoseconds > lock_stale_after_ns;
-}
 
 /// Clones into a private staging directory and publishes with one atomic
 /// rename, so a killed clone (SIGKILL, full disk) never gets adopted as a

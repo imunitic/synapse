@@ -184,6 +184,17 @@ pub const Cache = struct {
     /// do with that data's validity. Absent, empty, damaged, or
     /// wrong-version caches carry no such risk and commit normally -- there
     /// was nothing recoverable to lose in those cases.
+    ///
+    /// Single-writer, not locked: two `commit`s racing against the same
+    /// cache file both read `self.view` before either writes, so the loser's
+    /// rename silently discards whatever the winner just added. Deliberately
+    /// undefended -- a lost update here is a handful of re-derivable tag
+    /// entries, picked back up whole the next time anything reads a stale
+    /// hash for that path, not data loss or a wrong answer that persists.
+    /// Two `synapse tags-cache`/`vocab` invocations against the same work
+    /// dir at once is the only way to hit this, and adding a lock-acquire
+    /// to a path this hot for a self-healing race nothing has actually hit
+    /// costs more than it buys.
     pub fn commit(
         self: *Cache,
         gpa: Allocator,

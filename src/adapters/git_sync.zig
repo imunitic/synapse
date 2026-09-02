@@ -10,6 +10,7 @@
 
 const std = @import("std");
 const process = @import("process.zig");
+const dir_lock = @import("dir_lock.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -26,49 +27,26 @@ fn lockPath(gpa: Allocator, vault: []const u8) ![]u8 {
     return std.fmt.allocPrint(gpa, "{s}/.git/synapse-sync.lock", .{vault});
 }
 
-/// Unreadable counts as not-abandoned: a lock that vanished mid-check isn't
-/// ours to reason about. Wall clock, since it's compared against an mtime --
-/// the lock directory's own mtime is the timestamp, no separate marker file
-/// needed (the exact mechanism `treesitter/grammar.zig`'s own fetch/compile
-/// locks already use and this one is deliberately kept identical to).
-fn lockAbandoned(io: Io, lock_dir: []const u8) bool {
-    const st = Io.Dir.cwd().statFile(io, lock_dir, .{}) catch return false;
-    const now = Io.Timestamp.now(io, .real).nanoseconds;
-    return now - st.mtime.nanoseconds > lock_stale_after_ns;
-}
-
-/// One non-blocking attempt: `mkdir` is the atomic test-and-set. Steals an
-/// abandoned lock once if the first attempt finds one, but never loops or
-/// sleeps -- a write path can't afford to wait on anything here. Caller
-/// frees the returned path via `release`.
+/// One non-blocking attempt: caller frees the returned path via `release`.
+/// See `dir_lock.tryAcquire` for the mechanism (mkdir test-and-set, steal
+/// once abandoned, no wait of its own).
 pub fn tryAcquire(gpa: Allocator, io: Io, vault: []const u8) !?[]u8 {
     const lock = try lockPath(gpa, vault);
-    errdefer gpa.free(lock);
-    if (Io.Dir.cwd().createDir(io, lock, .default_dir)) |_| return lock else |_| {}
-    if (lockAbandoned(io, lock)) {
-        Io.Dir.cwd().deleteDir(io, lock) catch {};
-        if (Io.Dir.cwd().createDir(io, lock, .default_dir)) |_| return lock else |_| {}
-    }
-    gpa.free(lock);
-    return null;
+    defer gpa.free(lock);
+    return dir_lock.tryAcquire(gpa, io, lock, lock_stale_after_ns);
 }
 
 /// Bounded retry over `tryAcquire`, for a caller that's already detached and
 /// can afford a short wait rather than losing its one attempt outright (the
-/// Pusher). 200ms between attempts, the same spacing `grammar.zig`'s own
-/// lock-wait loop uses.
+/// Pusher).
 pub fn acquireWithRetry(gpa: Allocator, io: Io, vault: []const u8, max_tries: usize) !?[]u8 {
-    var tries: usize = 0;
-    while (tries < max_tries) : (tries += 1) {
-        if (try tryAcquire(gpa, io, vault)) |lock| return lock;
-        Io.sleep(io, .fromMilliseconds(200), .awake) catch {};
-    }
-    return null;
+    const lock = try lockPath(gpa, vault);
+    defer gpa.free(lock);
+    return dir_lock.acquireWithRetry(gpa, io, lock, lock_stale_after_ns, max_tries);
 }
 
 pub fn release(io: Io, gpa: Allocator, lock: []u8) void {
-    Io.Dir.cwd().deleteDir(io, lock) catch {};
-    gpa.free(lock);
+    dir_lock.release(io, gpa, lock);
 }
 
 /// The tracked upstream's short name (e.g. `origin/main`), or null when

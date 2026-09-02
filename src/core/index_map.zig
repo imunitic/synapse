@@ -73,6 +73,13 @@ pub fn build(
 /// new unclaimed path, not per edit, and replaces what was a 27 MB `jq`
 /// read-modify-write plus HTTPS PUT. Appended, not inserted in order: the
 /// unassigned list was never sorted and its reader iterates all of it.
+///
+/// Single-writer, not locked, same tradeoff as `tags_cache.Cache.commit`:
+/// `view` is a snapshot the caller already read, so two calls racing on the
+/// same index can lose one's addition to the other's rename. Narrow window
+/// in practice (only a genuinely new unclaimed path triggers this at all,
+/// not every edit) and self-healing either way -- a missed path just isn't
+/// flagged unassigned until the next edit or `/synapse-init` run notices it.
 pub fn withUnassigned(
     gpa: Allocator,
     view: format.View,

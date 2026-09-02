@@ -13,6 +13,12 @@ pub const local_timestamp = @import("local_timestamp.zig");
 pub const env = @import("env.zig");
 pub const fakes = @import("fakes/root.zig");
 
+/// The directory-as-lock primitive (`mkdir` as atomic test-and-set,
+/// mtime-aged staleness, bounded retry) -- shared by `git_sync.zig` and
+/// `treesitter/grammar.zig`'s clone/compile locks, each supplying its own
+/// lock path and staleness window.
+pub const dir_lock = @import("dir_lock.zig");
+
 /// Shared git mechanics (lock, pull, commit, push) for the vault's own
 /// version control -- one implementation `GitStore` and the sync-related
 /// hooks both call into, not one per caller.
@@ -65,6 +71,7 @@ test {
     _ = process;
     _ = env;
     _ = fakes;
+    _ = dir_lock;
     _ = git_sync;
     _ = disk_store;
     _ = git_store;

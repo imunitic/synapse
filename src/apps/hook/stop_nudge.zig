@@ -92,11 +92,17 @@ fn readCount(gpa: Allocator, io: Io, path: []const u8) usize {
     return std.fmt.parseInt(usize, std.mem.trim(u8, text, " \t\r\n"), 10) catch 0;
 }
 
+/// Write-temp-then-rename, the same swap `tags_cache`/`index_map` already
+/// use for their own state files -- a process killed mid-write (SIGKILL,
+/// full disk) leaves the old count in place rather than a truncated one, at
+/// the cost of one extra small file per write, immediately renamed away.
 fn writeCount(gpa: Allocator, io: Io, path: []const u8, value: usize) !void {
     var buf: [32]u8 = undefined;
     const text = try std.fmt.bufPrint(&buf, "{d}\n", .{value});
-    _ = gpa;
-    Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = text }) catch {};
+    const tmp = try std.fmt.allocPrint(gpa, "{s}.tmp", .{path});
+    defer gpa.free(tmp);
+    Io.Dir.cwd().writeFile(io, .{ .sub_path = tmp, .data = text }) catch return;
+    Io.Dir.cwd().rename(tmp, Io.Dir.cwd(), path, io) catch {};
 }
 
 /// `synapse-hook vault-pull` -- spawned detached, once, at SessionStart.
