@@ -32,12 +32,26 @@ pub fn extract(gpa: std.mem.Allocator, body: []const u8) ![]const []const u8 {
     return out.toOwnedSlice(gpa);
 }
 
+/// A raw `[[...]]` target reduced to the same shape a bare title is: any
+/// leading path (`some/dir/Foo` -> `Foo`) and a trailing `.md` (`Foo.md` ->
+/// `Foo`) stripped. `[[Foo]]`, `[[Foo.md]]`, and `[[some/dir/Foo.md]]` all
+/// name the same note in Obsidian, but only the bare-title spelling used to
+/// resolve or survive a rename here -- this is the one place that gap
+/// closes, shared by every caller matching a wikilink target against a
+/// title (`resolveCandidates`, `renameTarget` below) rather than each
+/// re-implementing its own slice of the same normalization.
+pub fn normalizeTarget(target: []const u8) []const u8 {
+    const base = if (std.mem.lastIndexOfScalar(u8, target, '/')) |i| target[i + 1 ..] else target;
+    return if (std.mem.endsWith(u8, base, ".md")) base[0 .. base.len - 3] else base;
+}
+
 /// Rewrites every `[[Target]]`/`[[Target|Display]]` in `body` whose target
-/// case-insensitively equals `old_target` so its target becomes
-/// `new_target` -- an alias's `|Display` text, and everything else in
-/// `body`, is copied through untouched. An unterminated `[[` copies the
-/// remainder of `body` verbatim and stops, same "prose isn't a format this
-/// owns" rule `extract` follows. Caller-owned.
+/// case-insensitively equals `old_target` once both are normalized (see
+/// `normalizeTarget`) so its target becomes `new_target` -- an alias's
+/// `|Display` text, and everything else in `body`, is copied through
+/// untouched. An unterminated `[[` copies the remainder of `body` verbatim
+/// and stops, same "prose isn't a format this owns" rule `extract` follows.
+/// Caller-owned.
 pub fn renameTarget(gpa: std.mem.Allocator, body: []const u8, old_target: []const u8, new_target: []const u8) ![]u8 {
     var out: std.ArrayListUnmanaged(u8) = .empty;
     errdefer out.deinit(gpa);
@@ -57,7 +71,7 @@ pub fn renameTarget(gpa: std.mem.Allocator, body: []const u8, old_target: []cons
         const raw = if (bar) |b| inner[0..b] else inner;
         const target = std.mem.trim(u8, raw, " \t\r\n");
 
-        if (target.len != 0 and std.ascii.eqlIgnoreCase(target, old_target)) {
+        if (target.len != 0 and std.ascii.eqlIgnoreCase(normalizeTarget(target), normalizeTarget(old_target))) {
             try out.appendSlice(gpa, "[[");
             try out.appendSlice(gpa, new_target);
             if (bar) |b| try out.appendSlice(gpa, inner[b..]);
@@ -175,4 +189,34 @@ test "renameTarget copies an unterminated wikilink through verbatim" {
     const out = try renameTarget(gpa, "[[Old Name]] then [[broken with no close", "Old Name", "New Name");
     defer gpa.free(out);
     try testing.expectEqualStrings("[[New Name]] then [[broken with no close", out);
+}
+
+test "normalizeTarget strips a trailing .md" {
+    try testing.expectEqualStrings("Foo", normalizeTarget("Foo.md"));
+}
+
+test "normalizeTarget strips a leading path" {
+    try testing.expectEqualStrings("Foo", normalizeTarget("some/dir/Foo"));
+}
+
+test "normalizeTarget strips both a leading path and a trailing .md" {
+    try testing.expectEqualStrings("Foo", normalizeTarget("some/dir/Foo.md"));
+}
+
+test "normalizeTarget leaves a bare title untouched" {
+    try testing.expectEqualStrings("Foo", normalizeTarget("Foo"));
+}
+
+test "renameTarget rewrites a .md-suffixed wikilink" {
+    const gpa = testing.allocator;
+    const out = try renameTarget(gpa, "[[Old Name.md]]", "Old Name", "New Name");
+    defer gpa.free(out);
+    try testing.expectEqualStrings("[[New Name]]", out);
+}
+
+test "renameTarget rewrites a path-qualified wikilink" {
+    const gpa = testing.allocator;
+    const out = try renameTarget(gpa, "[[tasks/synapse/Old Name.md]]", "Old Name", "New Name");
+    defer gpa.free(out);
+    try testing.expectEqualStrings("[[New Name]]", out);
 }

@@ -724,8 +724,9 @@ fn resolveCandidates(gpa: Allocator, all_paths: []const []const u8, target: []co
         for (out.items) |n| gpa.free(n);
         out.deinit(gpa);
     }
+    const normalized = core.wikilinks.normalizeTarget(target);
     for (all_paths) |path| {
-        if (std.ascii.eqlIgnoreCase(titleOf(path), target)) {
+        if (std.ascii.eqlIgnoreCase(titleOf(path), normalized)) {
             try out.append(gpa, try gpa.dupe(u8, path));
         }
     }
@@ -822,7 +823,12 @@ fn buildEdges(gpa: Allocator, io: Io, vault: []const u8) ![]const Edge {
     }
 
     for (pending.items) |p| {
-        const candidates = if (ids.get(p.target_text)) |path|
+        // Normalized once, shared by both lookups below: an id is never
+        // written path-qualified or `.md`-suffixed in practice, so this
+        // costs nothing there, and closes the same gap for a `[[Foo.md]]`-
+        // or path-qualified id reference on the rare chance one exists.
+        const normalized = core.wikilinks.normalizeTarget(p.target_text);
+        const candidates = if (ids.get(normalized)) |path|
             try singleCandidate(gpa, path)
         else
             try resolveCandidates(gpa, all, p.target_text);
@@ -1466,6 +1472,32 @@ test "resolution is case-insensitive: [[b]] finds B.md" {
     try testing.expectEqualStrings("B.md", links_out[0]);
 }
 
+test "resolution strips a .md suffix and a leading path: [[dir/B.md]] finds B.md" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "");
+    defer s.deinit();
+    const port = s.store();
+    _ = try port.write(testing.io, "A.md", "[[B.md]]\n");
+    _ = try port.write(testing.io, "C.md", "[[dir/B.md]]\n");
+    _ = try port.write(testing.io, "B.md", "target\n");
+
+    var lg = s.linkGraph();
+    const a_links = try lg.links(gpa, testing.io, "A.md");
+    defer freeStrings(gpa, a_links);
+    try testing.expectEqual(@as(usize, 1), a_links.len);
+    try testing.expectEqualStrings("B.md", a_links[0]);
+
+    const c_links = try lg.links(gpa, testing.io, "C.md");
+    defer freeStrings(gpa, c_links);
+    try testing.expectEqual(@as(usize, 1), c_links.len);
+    try testing.expectEqualStrings("B.md", c_links[0]);
+}
+
 test "a link matching no real file is unresolved, not silently dropped" {
     const gpa = testing.allocator;
     var tmp = testing.tmpDir(.{});
@@ -1787,6 +1819,32 @@ test "rename rewrites every referring wikilink to the new title, preserving alia
     const unrelated = (try port.read(gpa, testing.io, "Unrelated.md")).?;
     defer gpa.free(unrelated);
     try testing.expectEqualStrings("no link here\n", unrelated);
+}
+
+test "rename rewrites a .md-suffixed and a path-qualified referring wikilink too" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "");
+    defer s.deinit();
+    const port = s.store();
+    _ = try port.write(testing.io, "Old.md", "target body\n");
+    _ = try port.write(testing.io, "A.md", "see [[Old.md]] for details\n");
+    _ = try port.write(testing.io, "B.md", "see [[dir/Old.md]] for details\n");
+
+    const rn = s.renamer();
+    try rn.rename(gpa, testing.io, "Old.md", "New.md");
+
+    const a = (try port.read(gpa, testing.io, "A.md")).?;
+    defer gpa.free(a);
+    try testing.expectEqualStrings("see [[New]] for details\n", a);
+
+    const b = (try port.read(gpa, testing.io, "B.md")).?;
+    defer gpa.free(b);
+    try testing.expectEqualStrings("see [[New]] for details\n", b);
 }
 
 test "renaming a note with no referrers just moves the file" {
