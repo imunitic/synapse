@@ -91,16 +91,26 @@ pub fn tick(gpa: Allocator, io: Io, home: []const u8, sid: []const u8) !Tick {
 }
 
 fn readCount(gpa: Allocator, io: Io, path: []const u8) usize {
-    const text = Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(64)) catch return 0;
+    const text = Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(64)) catch |e| {
+        // FileNotFound is the ordinary first-run case, not a failure.
+        if (e != error.FileNotFound)
+            std.debug.print("synapse-bard-hook: unreadable stop-nudge counter, restarting from 0 ({s}, {t})\n", .{ path, e });
+        return 0;
+    };
     defer gpa.free(text);
-    return std.fmt.parseInt(usize, std.mem.trim(u8, text, " \t\r\n"), 10) catch 0;
+    return std.fmt.parseInt(usize, std.mem.trim(u8, text, " \t\r\n"), 10) catch |e| {
+        std.debug.print("synapse-bard-hook: corrupt stop-nudge counter, restarting from 0 ({s}, {t})\n", .{ path, e });
+        return 0;
+    };
 }
 
 fn writeCount(gpa: Allocator, io: Io, path: []const u8, value: usize) !void {
     var buf: [32]u8 = undefined;
     const text = try std.fmt.bufPrint(&buf, "{d}\n", .{value});
     _ = gpa;
-    Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = text }) catch {};
+    Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = text }) catch |e| {
+        std.debug.print("synapse-bard-hook: could not write the stop-nudge counter, it may not fire on schedule ({s}, {t})\n", .{ path, e });
+    };
 }
 
 const testing = std.testing;

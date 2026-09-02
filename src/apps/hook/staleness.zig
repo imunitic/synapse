@@ -107,7 +107,12 @@ pub fn build(
     }
     for (owners) |o| try owned.append(gpa, try gpa.dupe(u8, o));
 
-    const content = Io.Dir.cwd().readFileAlloc(io, file, gpa, .limited(256 << 20)) catch return null;
+    const content = Io.Dir.cwd().readFileAlloc(io, file, gpa, .limited(256 << 20)) catch |e| {
+        // Already confirmed to exist and be a regular file above -- this is
+        // a genuinely unexpected failure, not the ordinary "file is gone" case.
+        std.debug.print("synapse-hook: could not read edited file, staleness check skipped ({s}, {t})\n", .{ file, e });
+        return null;
+    };
     defer gpa.free(content);
 
     var findings: Io.Writer.Allocating = .init(gpa);
@@ -182,10 +187,15 @@ fn addUnassigned(
 ) !void {
     var it = map.unassignedIter();
     while (it.next()) |p| if (std.mem.eql(u8, p, rel)) return; // already listed
-    const bytes = (core.index_map.withUnassigned(gpa, map.view, rel) catch return) orelse return; // null: already listed
+    const bytes = (core.index_map.withUnassigned(gpa, map.view, rel) catch |e| {
+        std.debug.print("synapse-hook: could not queue '{s}' as unassigned ({t})\n", .{ rel, e });
+        return;
+    }) orelse return; // null: already listed
 
     defer gpa.free(bytes);
-    core.index_map.writeFile(gpa, io, index_path, bytes) catch return;
+    core.index_map.writeFile(gpa, io, index_path, bytes) catch |e| {
+        std.debug.print("synapse-hook: could not write the index after queuing '{s}' as unassigned ({t})\n", .{ rel, e });
+    };
 }
 
 /// Cited evidence in the edited file that no longer matches what was
@@ -277,7 +287,10 @@ fn blastRadius(
     // forks -- cheap even on a hub node, ~0.04s at 4.5 MB.
     const dir_path = try std.fmt.allocPrint(gpa, "{s}/synapse/{s}", .{ vault, ns.key });
     defer gpa.free(dir_path);
-    var dir = Io.Dir.cwd().openDir(io, dir_path, .{ .iterate = true }) catch return null;
+    var dir = Io.Dir.cwd().openDir(io, dir_path, .{ .iterate = true }) catch |e| {
+        std.debug.print("synapse-hook: could not open namespace dir, blast-radius check skipped ({s}, {t})\n", .{ dir_path, e });
+        return null;
+    };
     defer dir.close(io);
 
     var dependents: std.ArrayListUnmanaged([]u8) = .empty;
@@ -337,15 +350,20 @@ fn blastRadius(
 }
 
 fn appendSeen(gpa: Allocator, io: Io, path: []const u8, key: []const u8) !void {
-    const existing = Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(16 << 20)) catch
-        try gpa.dupe(u8, "");
+    const existing = Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(16 << 20)) catch |e| blk: {
+        if (e != error.FileNotFound)
+            std.debug.print("synapse-hook: unreadable 'seen' log, rewriting from empty ({s}, {t})\n", .{ path, e });
+        break :blk try gpa.dupe(u8, "");
+    };
     defer gpa.free(existing);
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
     try out.writer.writeAll(existing);
     if (existing.len != 0 and existing[existing.len - 1] != '\n') try out.writer.writeAll("\n");
     try out.writer.print("{s}\n", .{key});
-    Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = out.written() }) catch {};
+    Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = out.written() }) catch |e| {
+        std.debug.print("synapse-hook: could not write the 'seen' log, this relation may re-nudge ({s}, {t})\n", .{ path, e });
+    };
 }
 
 const testing = std.testing;

@@ -214,7 +214,10 @@ fn cmdField(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []const u
     const path = try context.nodePath(ctx, gpa, rest[0]);
     defer gpa.free(path);
 
-    var file = Io.Dir.cwd().openFile(io, path, .{}) catch return 1;
+    var file = Io.Dir.cwd().openFile(io, path, .{}) catch {
+        std.debug.print("{s}: no such file: {s}\n", .{ prog, path });
+        return 1;
+    };
     defer file.close(io);
     var buf: [4096]u8 = undefined;
     var file_reader = file.reader(io, &buf);

@@ -156,7 +156,11 @@ fn loadChains(ctx: *Context, io: Io, env: *std.process.Environ.Map) !void {
         return;
     defer gpa.free(path);
 
-    const text = Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 20)) catch return;
+    const text = Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |e| {
+        if (e != error.FileNotFound)
+            std.debug.print("synapse: unreadable module-boilerplate conf: {s} ({t})\n", .{ path, e });
+        return;
+    };
     ctx.chains_text = text;
     var lines = std.mem.splitScalar(u8, text, '\n');
     while (lines.next()) |raw| {

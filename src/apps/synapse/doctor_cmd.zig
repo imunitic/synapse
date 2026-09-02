@@ -109,9 +109,20 @@ const Ctx = struct {
     }
 
     fn read(self: *Ctx, path: []const u8) ?[]u8 {
-        const text = Io.Dir.cwd().readFileAlloc(self.io, path, self.gpa, .limited(64 << 20)) catch
+        const text = Io.Dir.cwd().readFileAlloc(self.io, path, self.gpa, .limited(64 << 20)) catch |e| {
+            // FileNotFound reads as an ordinary "not configured" to every
+            // caller of read(), which is correct -- but any other error
+            // (permissions, OOM) would silently read the same way without
+            // this, so a genuine problem could be misreported as "missing".
+            if (e != error.FileNotFound)
+                std.debug.print("synapse-doctor: could not read {s} ({t})\n", .{ path, e });
             return null;
-        self.owned.append(self.gpa, text) catch return null;
+        };
+        self.owned.append(self.gpa, text) catch |e| {
+            std.debug.print("synapse-doctor: could not track {s} for cleanup ({t})\n", .{ path, e });
+            self.gpa.free(text);
+            return null;
+        };
         return text;
     }
 };

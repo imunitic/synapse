@@ -62,12 +62,18 @@ pub fn run(
         return 0;
     }
 
-    const home = env.get("HOME") orelse return 1;
+    const home = env.get("HOME") orelse {
+        std.debug.print("synapse-tags: $HOME is not set\n", .{});
+        return 1;
+    };
 
     const registry_path = (try core.conf.resolveConfPath(gpa, io, adapters.env.vars(env), "synapse-grammars.conf")) orelse
         try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-grammars.conf", .{home});
     defer gpa.free(registry_path);
-    var registry = treesitter.Registry.load(gpa, io, registry_path) catch return 1;
+    var registry = treesitter.Registry.load(gpa, io, registry_path) catch {
+        std.debug.print("synapse-tags: unreadable grammar registry: {s}\n", .{registry_path});
+        return 1;
+    };
     defer registry.deinit();
 
 
@@ -92,7 +98,10 @@ pub fn run(
     else
         try std.fmt.allocPrint(gpa, "{s}/.claude/synapse-kind-synonyms.conf", .{home});
     defer gpa.free(kind_rules_path);
-    var kind_rules = core.kind_synonyms.RuleList.load(gpa, io, kind_rules_path) catch return 1;
+    var kind_rules = core.kind_synonyms.RuleList.load(gpa, io, kind_rules_path) catch {
+        std.debug.print("synapse-tags: unreadable kind-synonyms conf: {s}\n", .{kind_rules_path});
+        return 1;
+    };
     defer kind_rules.deinit();
 
     var ex: Ex = .init(gpa, registry, grammars_dir, kind_rules);
@@ -142,7 +151,10 @@ pub fn single(
     trace: Trace,
     result: *Io.Writer,
 ) !u8 {
-    Io.Dir.cwd().access(io, path, .{}) catch return 1;
+    Io.Dir.cwd().access(io, path, .{}) catch {
+        std.debug.print("synapse-tags: no such file: {s}\n", .{path});
+        return 1;
+    };
 
     // Readiness asked before extraction, purely to pick 1 vs 2: the
     // extractor's `.unsupported` collapses "no entry" and "unusable" alike.
@@ -178,7 +190,10 @@ pub fn batch(
     trace: Trace,
     result: *Io.Writer,
 ) !u8 {
-    const listing = Io.Dir.cwd().readFileAlloc(io, list_file, gpa, .limited(64 << 20)) catch return 1;
+    const listing = Io.Dir.cwd().readFileAlloc(io, list_file, gpa, .limited(64 << 20)) catch {
+        std.debug.print("synapse-tags: unreadable paths file: {s}\n", .{list_file});
+        return 1;
+    };
     defer gpa.free(listing);
 
     var paths: std.ArrayListUnmanaged([]const u8) = .empty;

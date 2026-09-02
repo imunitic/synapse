@@ -135,7 +135,10 @@ fn buildIndex(
     } else {
         var in_buf: [256 * 1024]u8 = undefined;
         var in = Io.File.stdin().reader(io, &in_buf);
-        text = in.interface.allocRemaining(gpa, .limited(512 << 20)) catch return 1;
+        text = in.interface.allocRemaining(gpa, .limited(512 << 20)) catch {
+            std.debug.print("synapse-index: unreadable stdin\n", .{});
+            return 1;
+        };
 
         var lines = std.mem.splitScalar(u8, text, '\n');
         while (lines.next()) |raw| {

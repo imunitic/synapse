@@ -99,7 +99,12 @@ pub fn findDirective(body: []const u8, keyword: []const u8) ?[]const u8 {
 /// elsewhere would otherwise be indistinguishable from the real thing.
 pub fn section(body: []const u8, heading: []const u8) ?[]const u8 {
     var buf: [128]u8 = undefined;
-    const marker = std.fmt.bufPrint(&buf, "## {s}", .{heading}) catch return null;
+    // Every real heading this codebase asks for is a short literal
+    // ("Crux", "Links", ...) -- a heading that doesn't fit is a caller bug,
+    // not a legitimate "not present" result, so this must not collapse
+    // into the same null a missing heading returns.
+    const marker = std.fmt.bufPrint(&buf, "## {s}", .{heading}) catch
+        std.debug.panic("emit.section: heading too long to search for: {s}", .{heading});
 
     var offset: usize = 0;
     var content_start: ?usize = null;

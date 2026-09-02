@@ -94,9 +94,15 @@ pub fn update(
     trace: ?[]const u8,
 ) !u8 {
     const cwd = Io.Dir.cwd();
-    cwd.access(io, repo_root, .{}) catch return 1;
+    cwd.access(io, repo_root, .{}) catch {
+        std.debug.print("synapse-tags-cache: no such repo root: {s}\n", .{repo_root});
+        return 1;
+    };
 
-    const listing = cwd.readFileAlloc(io, paths_file, gpa, context.maxListingBytes(env, 64 << 20)) catch return 1;
+    const listing = cwd.readFileAlloc(io, paths_file, gpa, context.maxListingBytes(env, 64 << 20)) catch {
+        std.debug.print("synapse-tags-cache: unreadable paths file: {s}\n", .{paths_file});
+        return 1;
+    };
     defer gpa.free(listing);
 
     var requested: std.ArrayListUnmanaged(PathHash) = .empty;
@@ -272,7 +278,10 @@ fn dumpCache(io: Io, path: []const u8) !u8 {
 fn loadCache(gpa: Allocator, io: Io, path: []const u8) !u8 {
     var in_buf: [64 * 1024]u8 = undefined;
     var in = Io.File.stdin().reader(io, &in_buf);
-    const text = in.interface.allocRemaining(gpa, .limited(64 << 20)) catch return 1;
+    const text = in.interface.allocRemaining(gpa, .limited(64 << 20)) catch {
+        std.debug.print("synapse-tags-cache: unreadable stdin\n", .{});
+        return 1;
+    };
     defer gpa.free(text);
 
     // Entries accumulate in input order; `commit` sorts them.
@@ -339,7 +348,10 @@ fn loadCache(gpa: Allocator, io: Io, path: []const u8) !u8 {
 
     var cache = try Cache.open(io, path);
     defer cache.close(io);
-    _ = cache.commit(gpa, io, updates, &.{}) catch return 1;
+    _ = cache.commit(gpa, io, updates, &.{}) catch {
+        std.debug.print("synapse-tags-cache: could not write the cache: {s}\n", .{path});
+        return 1;
+    };
     return 0;
 }
 

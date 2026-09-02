@@ -87,9 +87,17 @@ pub fn tick(gpa: Allocator, io: Io, env: *std.process.Environ.Map, home: []const
 }
 
 fn readCount(gpa: Allocator, io: Io, path: []const u8) usize {
-    const text = Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(64)) catch return 0;
+    const text = Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(64)) catch |e| {
+        // FileNotFound is the ordinary first-run case, not a failure.
+        if (e != error.FileNotFound)
+            std.debug.print("synapse-hook: unreadable stop-nudge counter, restarting from 0 ({s}, {t})\n", .{ path, e });
+        return 0;
+    };
     defer gpa.free(text);
-    return std.fmt.parseInt(usize, std.mem.trim(u8, text, " \t\r\n"), 10) catch 0;
+    return std.fmt.parseInt(usize, std.mem.trim(u8, text, " \t\r\n"), 10) catch |e| {
+        std.debug.print("synapse-hook: corrupt stop-nudge counter, restarting from 0 ({s}, {t})\n", .{ path, e });
+        return 0;
+    };
 }
 
 /// Write-temp-then-rename, the same swap `tags_cache`/`index_map` already
@@ -101,8 +109,13 @@ fn writeCount(gpa: Allocator, io: Io, path: []const u8, value: usize) !void {
     const text = try std.fmt.bufPrint(&buf, "{d}\n", .{value});
     const tmp = try std.fmt.allocPrint(gpa, "{s}.tmp", .{path});
     defer gpa.free(tmp);
-    Io.Dir.cwd().writeFile(io, .{ .sub_path = tmp, .data = text }) catch return;
-    Io.Dir.cwd().rename(tmp, Io.Dir.cwd(), path, io) catch {};
+    Io.Dir.cwd().writeFile(io, .{ .sub_path = tmp, .data = text }) catch |e| {
+        std.debug.print("synapse-hook: could not write the stop-nudge counter, it may not fire on schedule ({s}, {t})\n", .{ path, e });
+        return;
+    };
+    Io.Dir.cwd().rename(tmp, Io.Dir.cwd(), path, io) catch |e| {
+        std.debug.print("synapse-hook: could not finalize the stop-nudge counter, it may not fire on schedule ({s}, {t})\n", .{ path, e });
+    };
 }
 
 /// `synapse-hook vault-pull` -- spawned detached, once, at SessionStart.
@@ -124,7 +137,9 @@ pub fn pull(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !void {
     defer adapters.git_sync.release(io, gpa, lock);
 
     if (!adapters.git_sync.pull(gpa, io, vault)) {
-        appendSyncFailure(gpa, io, vault) catch {};
+        appendSyncFailure(gpa, io, vault) catch |e| {
+            std.debug.print("synapse-hook: pull failed, and could not even log it to the sync log ({t})\n", .{e});
+        };
     }
 }
 
@@ -140,14 +155,11 @@ pub fn spawnPull(io: Io, self_path: []const u8) void {
         .stdin = .ignore,
         .stdout = .ignore,
         .stderr = .ignore,
-    }) catch return;
+    }) catch |e| {
+        std.debug.print("synapse-hook: could not spawn vault-pull ({t})\n", .{e});
+    };
 }
 
-/// Appends one failure line to the vault's own sync log -- `op` is `"pull"`
-/// or `"push"`; `ahead` is the pending-commit count for a push failure,
-/// null for a pull failure (nothing about the local commit count is the
-/// issue there). Never surfaced to the turn, same tolerance as every other
-/// network failure in this file.
 /// Appends one failure line to the vault's own sync log -- never surfaced to
 /// the turn, same tolerance every other network failure here gets; someone
 /// debugging a vault that stopped pulling finds it here instead.

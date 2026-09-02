@@ -105,6 +105,12 @@ const EDIT_TOOLS = new Set(["write", "edit"])
 // yet -- delivered on that session's next `chat.message`.
 const pendingNudge = new Map()
 
+// sessionID -> queued `staleness` output, same reason and same delivery as
+// `pendingNudge` above: `tool.execute.after` has no message `output` to push
+// a part onto, so a drift/grounding warning from it would otherwise be
+// silently discarded instead of just reaching the next turn late.
+const pendingStaleness = new Map()
+
 export const Synapse = async ({ directory, client }) => {
   return {
     "chat.message": async (input, output) => {
@@ -123,6 +129,12 @@ export const Synapse = async ({ directory, client }) => {
         newParts.push(textPart(sessionID, output, `[SYNAPSE-STOP-NUDGE]\n${queuedNudge}`))
       }
 
+      const queuedStaleness = pendingStaleness.get(sessionID)
+      if (queuedStaleness) {
+        pendingStaleness.delete(sessionID)
+        newParts.push(textPart(sessionID, output, `[SYNAPSE-STALENESS]\n${queuedStaleness}`))
+      }
+
       const promptText = (output.parts || [])
         .filter((p) => p.type === "text")
         .map((p) => p.text)
@@ -136,10 +148,11 @@ export const Synapse = async ({ directory, client }) => {
     "tool.execute.after": async (input) => {
       const filePath = input.args?.filePath
       if (EDIT_TOOLS.has(input.tool) && filePath) {
-        runHook("staleness", {
+        const text = runHook("staleness", {
           session_id: input.sessionID,
           tool_input: { file_path: filePath },
         })
+        if (text) pendingStaleness.set(input.sessionID, text)
       }
     },
 

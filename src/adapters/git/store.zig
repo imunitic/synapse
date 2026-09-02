@@ -132,13 +132,24 @@ pub const GitStore = struct {
         const gpa = self.gpa;
         const vault = self.vault;
 
-        git_sync.ensureRepo(gpa, io, vault) catch return result;
+        git_sync.ensureRepo(gpa, io, vault) catch |e| {
+            std.debug.print("synapse: git repo init failed, write kept local ({t})\n", .{e});
+            return result;
+        };
 
-        const lock = git_sync.tryAcquire(gpa, io, vault) catch return result;
+        const lock = git_sync.tryAcquire(gpa, io, vault) catch |e| {
+            std.debug.print("synapse: git lock acquisition failed, write kept local ({t})\n", .{e});
+            return result;
+        };
         if (lock) |l| {
             defer git_sync.release(io, gpa, l);
-            git_sync.commitIfDirty(gpa, io, vault) catch return result;
-            self.maybeSpawnPusher(gpa, io, vault) catch {};
+            git_sync.commitIfDirty(gpa, io, vault) catch |e| {
+                std.debug.print("synapse: git commit failed, write kept local ({t})\n", .{e});
+                return result;
+            };
+            self.maybeSpawnPusher(gpa, io, vault) catch |e| {
+                std.debug.print("synapse: could not check whether a push is due ({t})\n", .{e});
+            };
         }
         // Lock held by a Pusher: skip the commit outright. The write
         // already landed on disk; the Pusher's own final commitIfDirty, or
@@ -161,7 +172,10 @@ pub const GitStore = struct {
             .stdin = .ignore,
             .stdout = .ignore,
             .stderr = .ignore,
-        }) catch return;
+        }) catch |e| {
+            std.debug.print("synapse: could not spawn the push helper ({t})\n", .{e});
+            return;
+        };
     }
 };
 

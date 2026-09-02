@@ -158,7 +158,12 @@ pub fn loadSchemaDocument(gpa: Allocator, io: Io, vars: core.conf.Vars, schema_i
 pub fn loadVocabularyText(gpa: Allocator, io: Io, vars: core.conf.Vars, name: []const u8) !?[]u8 {
     const path = (try core.conf.resolveConfPath(gpa, io, vars, name)) orelse return null;
     defer gpa.free(path);
-    return Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(4 << 20)) catch null;
+    // resolveConfPath already confirmed this path exists -- any error here
+    // is a genuine, unexpected failure, not the ordinary "not configured".
+    return Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |e| {
+        std.debug.print("synapse: unreadable vocabulary conf: {s} ({t})\n", .{ path, e });
+        return null;
+    };
 }
 
 fn safeSchemaId(id: []const u8) bool {
