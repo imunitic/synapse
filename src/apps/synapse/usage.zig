@@ -26,6 +26,7 @@ pub const text =
     \\  vault-read <path>          a note's full body
     \\  vault-write <path>         write a note's full body, from stdin
     \\  vault-list                 every note in the vault, recursively
+    \\  vault-check                read-only conformance audit over schema-declaring notes
     \\  vault-search [--fields <f1,f2,...>]   JsonLogic filter from stdin, TSV rows out
     \\  vault-search-text <query> [--path-filter]   full-text relevance search, optionally path-scoped
     \\  vault-doc-map <path>       headings/block ids/frontmatter keys, for a vault-patch target
@@ -36,6 +37,8 @@ pub const text =
     \\  vault-unresolved           source<TAB>target<TAB>count, one row per broken link
     \\  vault-orphans              notes with no backlinks
     \\  vault-deadends             notes with no outgoing links
+    \\  vault-ambiguous            source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
+    \\  vault-rename <old-path> <new-path>   moves a note and rewrites every referring wikilink
     \\  build-refs [--cache <f>] [--out <f>]   _refs.tsv from the tags cache
     \\  build-deps [--repo <dir>] [--out <f>]  _deps.tsv, per-file declared dependencies
     \\  build-namespaces [--repo <dir>] [--out <f>]  _namespaces.tsv, per-file declared namespace

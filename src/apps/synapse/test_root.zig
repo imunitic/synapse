@@ -30,6 +30,7 @@ const vocab_cmd = @import("vocab_cmd.zig");
 const brief_cmd = @import("brief_cmd.zig");
 const graph_cmd = @import("graph_cmd.zig");
 const doctor_cmd = @import("doctor_cmd.zig");
+const dispatch = @import("dispatch.zig");
 
 comptime {
     _ = core;
@@ -57,4 +58,5 @@ comptime {
     _ = brief_cmd;
     _ = graph_cmd;
     _ = doctor_cmd;
+    _ = dispatch;
 }
