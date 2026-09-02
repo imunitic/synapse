@@ -2,11 +2,6 @@
 //! that need both without a real vault, a real git repo, or a real network
 //! call.
 //!
-//! `ObsidianStore`'s `read`/`write`/`list` are plain disk I/O against
-//! `vault/` directly, needing no fixture at all; `search`/`.linkGraph()` go
-//! through the `obsidian` CLI, faked here the same way `git` is --
-//! `tests/fixtures/fake-bin/obsidian`, one canned-response script per
-//! fixture instance, reused rather than a second, divergent fake.
 //! `context.resolve`'s own env-var overrides (`SYNAPSE_NAMESPACE`/
 //! `REPO_ROOT`/`BRANCH`/`REMOTE`/`WORK_DIR`) are what let this skip real git
 //! entirely -- the same escape hatch the bats suite pins fixture repos
@@ -31,17 +26,15 @@ pub const Fixture = struct {
     vault: []const u8,
     work: []const u8,
     home: []const u8,
-    obsidian_log: []const u8,
-    obsidian_script: []const u8,
     env: std.process.Environ.Map,
     io_threaded: std.Io.Threaded,
     environ_block: std.process.Environ.PosixBlock,
 
-    /// Everything spawned through this (git, obsidian, date) sees `env`
+    /// Everything spawned through this (git, date) sees `env`
     /// verbatim -- an `Io.Threaded` built with no `environ` option falls
     /// back to a hardcoded `default_PATH`, not the real environment, so
-    /// this is the only way to make `PATH` (fake-bin prepended) and the
-    /// `FAKE_OBSIDIAN_*` vars visible to a child process at all.
+    /// this is the only way to make `PATH` (fake-bin prepended) visible to a
+    /// child process at all.
     pub fn io(self: *Fixture) std.Io {
         return self.io_threaded.io();
     }
@@ -62,23 +55,11 @@ pub const Fixture = struct {
         errdefer gpa.free(work);
         const home = try std.fmt.allocPrint(gpa, "{s}/home", .{root});
         errdefer gpa.free(home);
-        const obsidian_log = try std.fmt.allocPrint(gpa, "{s}/obsidian.log", .{root});
-        errdefer gpa.free(obsidian_log);
-        const obsidian_script = try std.fmt.allocPrint(gpa, "{s}/obsidian.script", .{root});
-        errdefer gpa.free(obsidian_script);
 
         try tmp.dir.createDirPath(testing.io, "repo");
         try tmp.dir.createDirPath(testing.io, "vault");
         try tmp.dir.createDirPath(testing.io, "work");
         try tmp.dir.createDirPath(testing.io, "home/.claude");
-        // The default canned response for any `*_cmd.zig` test that reaches
-        // the `obsidian` CLI through `ObsidianStore.search`/`.linkGraph()`
-        // (doctor's own reachability check, chiefly) without setting up its
-        // own script -- one line per subcommand a default-path check might
-        // invoke; a test needing a different answer overwrites this file.
-        const default_script = try std.fmt.allocPrint(gpa, "vault {s}\n", .{vault});
-        defer gpa.free(default_script);
-        try tmp.dir.writeFile(testing.io, .{ .sub_path = "obsidian.script", .data = default_script });
 
         var env = try std.process.Environ.createMap(testing.environ, gpa);
         errdefer env.deinit();
@@ -96,13 +77,17 @@ pub const Fixture = struct {
         // resolve straight through the fixture's isolated $HOME to that real
         // machine's bundled conf templates -- a fixture asserting "no config
         // present" must not depend on what happens to be installed globally.
-        // `swapRemove`, not an empty-string `put`: some readers (e.g.
-        // `session_start.zig`'s own `env.get("CLAUDE_PLUGIN_ROOT")`) treat
-        // any present key, empty value included, as "set".
+        // `XDG_CONFIG_HOME` is the same hazard one tier earlier: if the host
+        // running the suite has adopted it, `resolveConfPath`'s tier 1 would
+        // resolve a vocabulary/projects conf there instead of under the
+        // fixture's own isolated `$HOME/.claude/`, silently starving a test
+        // that wrote its fixture conf to the tier-2 path. `swapRemove`, not
+        // an empty-string `put`: some readers (e.g. `session_start.zig`'s
+        // own `env.get("CLAUDE_PLUGIN_ROOT")`) treat any present key, empty
+        // value included, as "set".
         _ = env.swapRemove("SYNAPSE_CONTENT_ROOT");
         _ = env.swapRemove("CLAUDE_PLUGIN_ROOT");
-        try env.put("FAKE_OBSIDIAN_LOG", obsidian_log);
-        try env.put("FAKE_OBSIDIAN_SCRIPT", obsidian_script);
+        _ = env.swapRemove("XDG_CONFIG_HOME");
 
         // Absolute, not just a resolvable relative path: `tests/fixtures/
         // fake-bin/git` strips its own directory from PATH by computing its
@@ -139,8 +124,6 @@ pub const Fixture = struct {
             .vault = vault,
             .work = work,
             .home = home,
-            .obsidian_log = obsidian_log,
-            .obsidian_script = obsidian_script,
             .env = env,
             .io_threaded = io_threaded,
             .environ_block = block,
@@ -151,8 +134,6 @@ pub const Fixture = struct {
         self.io_threaded.deinit();
         self.environ_block.deinit(self.gpa);
         self.env.deinit();
-        self.gpa.free(self.obsidian_log);
-        self.gpa.free(self.obsidian_script);
         self.gpa.free(self.home);
         self.gpa.free(self.work);
         self.gpa.free(self.vault);
@@ -335,7 +316,7 @@ pub const Fixture = struct {
 
     /// Rebuilds the scoped `Io.Threaded`'s environ block from `env` as it
     /// stands right now -- call after any `env.put`/`env.swapRemove` a
-    /// spawned subprocess (git, obsidian, ...) needs to see, since the block
+    /// spawned subprocess (git, ...) needs to see, since the block
     /// is a snapshot taken at `init`/the last call to this, not a live view.
     pub fn refreshEnv(self: *Fixture) !void {
         self.io_threaded.deinit();

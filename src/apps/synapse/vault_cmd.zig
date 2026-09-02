@@ -913,6 +913,7 @@ pub fn runPatch(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *st
 
 const testing = std.testing;
 const fixture = @import("cmd_test_support.zig");
+const frontmatter_cmd = @import("frontmatter_cmd.zig");
 
 test "read prints a note's full body" {
     const gpa = testing.allocator;
@@ -1307,4 +1308,404 @@ test "patch on a missing target fails clearly" {
     defer out.deinit();
     const code = try patch(gpa, fx.io(), &fx.env, fx.vault, "designs/synapse/x.md", .{ .heading = &.{"Nope"} }, .replace, false, "x", "", &out.writer);
     try testing.expectEqual(@as(u8, 1), code);
+}
+
+// --- Real shipped v1 schema coverage -----------------------------------
+//
+// Migrated from tests/synapse-schema-validation.bats (kept only "the npm
+// package includes all shipped schema documents" there, since that one has
+// no Zig code behind it at all). Points SYNAPSE_CONTENT_ROOT at the real
+// packages/synapse/schema/ directory rather than a synthetic one, the same
+// way the bats suite pointed SYNAPSE_CONTENT_ROOT at $REPO_ROOT/packages/
+// synapse -- these tests are about the real shipped schema documents
+// actually validating through this CLI door, not about the DSL engine
+// (already covered with synthetic schemas by note_schema.zig's own tests
+// and this file's writeCheckSchema()-based ones above).
+
+fn withRealSchemas(fx: *fixture.Fixture) !void {
+    try fx.env.put("SYNAPSE_CONTENT_ROOT", "packages/synapse");
+    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "home/.claude/synapse-projects.conf", .data = "synapse=sb\n" });
+    try fx.tmp.dir.writeFile(testing.io, .{
+        .sub_path = "home/.claude/synapse-tag-vocabulary.conf",
+        .data = "synapse\narchitecture\nvault-infra\n",
+    });
+}
+
+const schema_fixed_timestamp = "2026-08-30 01:00:00 CEST";
+
+fn bareNoteBody(gpa: Allocator, title: []const u8, id: []const u8) ![]u8 {
+    return std.fmt.allocPrint(gpa, "---\n" ++
+        "schema: vault-note/v1\n" ++
+        "title: \"{s}\"\n" ++
+        "note_id: {s}\n" ++
+        "created: \"" ++ schema_fixed_timestamp ++ "\"\n" ++
+        "updated: \"" ++ schema_fixed_timestamp ++ "\"\n" ++
+        "tags: [synapse, architecture]\n" ++
+        "---\n\n" ++
+        "# {s}\n\n" ++
+        "## Summary\n\n" ++
+        "A useful summary.\n", .{ title, id, title });
+}
+
+fn taskNoteBody(gpa: Allocator, title: []const u8, id: []const u8) ![]u8 {
+    return std.fmt.allocPrint(gpa, "---\n" ++
+        "schema: vault-task-note/v1\n" ++
+        "title: \"{s}\"\n" ++
+        "project: sb\n" ++
+        "task_id: {s}\n" ++
+        "created: \"" ++ schema_fixed_timestamp ++ "\"\n" ++
+        "updated: \"" ++ schema_fixed_timestamp ++ "\"\n" ++
+        "tags:\n  - synapse\n  - architecture\n" ++
+        "status: TODO\n" ++
+        "---\n\n" ++
+        "# {s}\n\n" ++
+        "Implement the requested change.\n\n" ++
+        "## Checklist\n\n" ++
+        "- [ ] First implementation step\n\n" ++
+        "## Notes\n\n" ++
+        "Design context.\n", .{ title, id, title });
+}
+
+test "all three shipped v1 note schemas validate through vault-write" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try withRealSchemas(&fx);
+
+    const bare = try bareNoteBody(gpa, "Bare example", "sb-901");
+    defer gpa.free(bare);
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try write(gpa, fx.io(), &fx.env, fx.vault, "research/Bare example.md", bare, "", &out.writer);
+        try testing.expectEqual(@as(u8, 0), code);
+    }
+
+    const task = try taskNoteBody(gpa, "Task example", "sb-902");
+    defer gpa.free(task);
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try write(gpa, fx.io(), &fx.env, fx.vault, "tasks/synapse/Task example.md", task, "", &out.writer);
+        try testing.expectEqual(@as(u8, 0), code);
+    }
+
+    const design = try std.fmt.allocPrint(gpa, "---\n" ++
+        "schema: vault-design-note/v1\n" ++
+        "title: \"sb — Design example\"\n" ++
+        "project: sb\n" ++
+        "note_id: sb-903\n" ++
+        "created: \"" ++ schema_fixed_timestamp ++ "\"\n" ++
+        "updated: \"" ++ schema_fixed_timestamp ++ "\"\n" ++
+        "tags: [synapse, architecture]\n" ++
+        "---\n\n" ++
+        "# sb — Design example\n\n" ++
+        "## Status\nDiscussing\n\n" ++
+        "## Problem\nA concrete problem.\n\n" ++
+        "## Approach\nA concrete approach.\n\n" ++
+        "## Constraints\nA concrete constraint.\n", .{});
+    defer gpa.free(design);
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try write(gpa, fx.io(), &fx.env, fx.vault, "designs/synapse/sb — Design example.md", design, "", &out.writer);
+        try testing.expectEqual(@as(u8, 0), code);
+    }
+}
+
+test "invalid schema-declaring notes fail with a field diagnostic and no partial file" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try withRealSchemas(&fx);
+
+    const body = try bareNoteBody(gpa, "Wrong title", "sb-904");
+    defer gpa.free(body);
+
+    var resolved = (try openWholeVaultStore(gpa, fx.io(), &fx.env, fx.vault, "")).?;
+    defer resolved.deinit();
+    var store = resolved.store();
+    const wr = try store.write(fx.io(), "research/Right title.md", body);
+    defer gpa.free(wr.body);
+    try testing.expect(!wr.accepted);
+    try testing.expect(std.mem.indexOf(u8, wr.body, "filename.stem") != null);
+    try testing.expectEqual(@as(?[]u8, null), try fx.readVaultFile(gpa, "research/Right title.md"));
+}
+
+test "unknown and unsafe schema identifiers fail closed" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try withRealSchemas(&fx);
+
+    var resolved = (try openWholeVaultStore(gpa, fx.io(), &fx.env, fx.vault, "")).?;
+    defer resolved.deinit();
+    var store = resolved.store();
+
+    {
+        const wr = try store.write(fx.io(), "missing.md", "---\nschema: vault-missing/v1\n---\n");
+        defer gpa.free(wr.body);
+        try testing.expect(!wr.accepted);
+        try testing.expect(std.mem.indexOf(u8, wr.body, "schema:") != null);
+        try testing.expectEqual(@as(?[]u8, null), try fx.readVaultFile(gpa, "missing.md"));
+    }
+    {
+        const wr = try store.write(fx.io(), "unsafe.md", "---\nschema: ../secret\n---\n");
+        defer gpa.free(wr.body);
+        try testing.expect(!wr.accepted);
+        try testing.expect(std.mem.indexOf(u8, wr.body, "unsafe identifier") != null);
+        try testing.expectEqual(@as(?[]u8, null), try fx.readVaultFile(gpa, "unsafe.md"));
+    }
+}
+
+test "note_id and task_id share one creation-time uniqueness namespace" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try withRealSchemas(&fx);
+
+    const owner = try taskNoteBody(gpa, "Identity owner", "sb-905");
+    defer gpa.free(owner);
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try write(gpa, fx.io(), &fx.env, fx.vault, "tasks/synapse/Identity owner.md", owner, "", &out.writer);
+        try testing.expectEqual(@as(u8, 0), code);
+    }
+
+    const dup = try bareNoteBody(gpa, "Duplicate identity", "sb-905");
+    defer gpa.free(dup);
+
+    var resolved = (try openWholeVaultStore(gpa, fx.io(), &fx.env, fx.vault, "")).?;
+    defer resolved.deinit();
+    var store = resolved.store();
+    const wr = try store.write(fx.io(), "research/Duplicate identity.md", dup);
+    defer gpa.free(wr.body);
+    try testing.expect(!wr.accepted);
+    try testing.expect(std.mem.indexOf(u8, wr.body, "already exists") != null);
+    try testing.expectEqual(@as(?[]u8, null), try fx.readVaultFile(gpa, "research/Duplicate identity.md"));
+}
+
+test "vault-patch refreshes updated before validation and preserves all other frontmatter" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try withRealSchemas(&fx);
+
+    const body = try bareNoteBody(gpa, "Timestamp example", "sb-906");
+    defer gpa.free(body);
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try write(gpa, fx.io(), &fx.env, fx.vault, "research/Timestamp example.md", body, "", &out.writer);
+        try testing.expectEqual(@as(u8, 0), code);
+    }
+
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try patch(
+            gpa,
+            fx.io(),
+            &fx.env,
+            fx.vault,
+            "research/Timestamp example.md",
+            .{ .heading = &.{ "Timestamp example", "Summary" } },
+            .append,
+            false,
+            "More detail.\n",
+            "",
+            &out.writer,
+        );
+        try testing.expectEqual(@as(u8, 0), code);
+    }
+
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try frontmatter_cmd.get(gpa, fx.io(), &fx.env, fx.vault, "research/Timestamp example.md", "updated", &out.writer);
+        try testing.expectEqual(@as(u8, 0), code);
+        const updated = std.mem.trim(u8, out.written(), "\n");
+        try testing.expect(!std.mem.eql(u8, updated, schema_fixed_timestamp));
+    }
+
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        _ = try frontmatter_cmd.get(gpa, fx.io(), &fx.env, fx.vault, "research/Timestamp example.md", "note_id", &out.writer);
+        try testing.expectEqualStrings("sb-906\n", out.written());
+    }
+}
+
+test "vault-write refreshes updated on an existing schema note" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try withRealSchemas(&fx);
+
+    const body = try bareNoteBody(gpa, "Write timestamp", "sb-908");
+    defer gpa.free(body);
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try write(gpa, fx.io(), &fx.env, fx.vault, "research/Write timestamp.md", body, "", &out.writer);
+        try testing.expectEqual(@as(u8, 0), code);
+    }
+
+    const replaced = try std.mem.replaceOwned(u8, gpa, body, "A useful summary.", "A replacement summary.");
+    defer gpa.free(replaced);
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try write(gpa, fx.io(), &fx.env, fx.vault, "research/Write timestamp.md", replaced, "", &out.writer);
+        try testing.expectEqual(@as(u8, 0), code);
+    }
+
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        _ = try frontmatter_cmd.get(gpa, fx.io(), &fx.env, fx.vault, "research/Write timestamp.md", "updated", &out.writer);
+        try testing.expect(!std.mem.eql(u8, std.mem.trim(u8, out.written(), "\n"), schema_fixed_timestamp));
+    }
+
+    const written = (try fx.readVaultFile(gpa, "research/Write timestamp.md")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "A replacement summary.") != null);
+}
+
+test "a rejected write under SYNAPSE_VAULT_INTEGRATIONS=git has no Git integration side effect" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try withRealSchemas(&fx);
+    try fx.env.put("SYNAPSE_VAULT_INTEGRATIONS", "git");
+
+    const body = try bareNoteBody(gpa, "Wrong title", "sb-907");
+    defer gpa.free(body);
+
+    var resolved = (try openWholeVaultStore(gpa, fx.io(), &fx.env, fx.vault, "")).?;
+    defer resolved.deinit();
+    var store = resolved.store();
+    const wr = try store.write(fx.io(), "research/Right title.md", body);
+    defer gpa.free(wr.body);
+    try testing.expect(!wr.accepted);
+
+    const dot_git = try std.fmt.allocPrint(gpa, "{s}/.git", .{fx.vault});
+    defer gpa.free(dot_git);
+    try testing.expectError(error.FileNotFound, Io.Dir.cwd().access(fx.io(), dot_git, .{}));
+}
+
+test "vault-patch on H1::Checklist replaces the checklist without touching Notes" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try withRealSchemas(&fx);
+
+    const body = try taskNoteBody(gpa, "Checklist scoping", "sb-910");
+    defer gpa.free(body);
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try write(gpa, fx.io(), &fx.env, fx.vault, "tasks/synapse/Checklist scoping.md", body, "", &out.writer);
+        try testing.expectEqual(@as(u8, 0), code);
+    }
+
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try patch(
+            gpa,
+            fx.io(),
+            &fx.env,
+            fx.vault,
+            "tasks/synapse/Checklist scoping.md",
+            .{ .heading = &.{ "Checklist scoping", "Checklist" } },
+            .replace,
+            false,
+            "- [x] Done first\n- [ ] Next step\n",
+            "",
+            &out.writer,
+        );
+        try testing.expectEqual(@as(u8, 0), code);
+    }
+
+    const written = (try fx.readVaultFile(gpa, "tasks/synapse/Checklist scoping.md")).?;
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "## Checklist") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "- [x] Done first") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "## Notes") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "Design context.") != null);
+}
+
+test "vault-rename syncs title/H1 to the new filename, rewrites referrers, and stays vault-check clean" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try withRealSchemas(&fx);
+
+    const old = try bareNoteBody(gpa, "Old title", "sb-909");
+    defer gpa.free(old);
+    const referrer = try bareNoteBody(gpa, "Referrer", "sb-911");
+    defer gpa.free(referrer);
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try write(gpa, fx.io(), &fx.env, fx.vault, "research/Old title.md", old, "", &out.writer);
+        try testing.expectEqual(@as(u8, 0), code);
+    }
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try write(gpa, fx.io(), &fx.env, fx.vault, "research/Referrer.md", referrer, "", &out.writer);
+        try testing.expectEqual(@as(u8, 0), code);
+    }
+
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try patch(
+            gpa,
+            fx.io(),
+            &fx.env,
+            fx.vault,
+            "research/Referrer.md",
+            .{ .heading = &.{ "Referrer", "Summary" } },
+            .append,
+            false,
+            "See [[Old title]] for background.\n",
+            "",
+            &out.writer,
+        );
+        try testing.expectEqual(@as(u8, 0), code);
+    }
+
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try rename(gpa, fx.io(), &fx.env, fx.vault, "research/Old title.md", "research/New title.md", &out.writer);
+        try testing.expectEqual(@as(u8, 0), code);
+    }
+    try testing.expectEqual(@as(?[]u8, null), try fx.readVaultFile(gpa, "research/Old title.md"));
+
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        _ = try frontmatter_cmd.get(gpa, fx.io(), &fx.env, fx.vault, "research/New title.md", "title", &out.writer);
+        try testing.expectEqualStrings("New title\n", out.written());
+    }
+
+    const new_body = (try fx.readVaultFile(gpa, "research/New title.md")).?;
+    defer gpa.free(new_body);
+    try testing.expect(std.mem.indexOf(u8, new_body, "# New title") != null);
+
+    const referrer_body = (try fx.readVaultFile(gpa, "research/Referrer.md")).?;
+    defer gpa.free(referrer_body);
+    try testing.expect(std.mem.indexOf(u8, referrer_body, "[[New title]]") != null);
+
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try check(gpa, fx.io(), &fx.env, fx.vault, &out.writer);
+        try testing.expectEqual(@as(u8, 0), code);
+    }
 }
