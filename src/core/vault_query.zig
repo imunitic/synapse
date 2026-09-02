@@ -131,31 +131,40 @@ pub fn pathMatches(gpa: Allocator, filter: Value, name: []const u8) !bool {
     return jsonlogic.truthy(matched);
 }
 
-/// The direct children of a top-level `{"and": [...]}` filter that only
-/// ever reference `{"var": "path"}` -- borrowed from `filter`, in order.
-/// Empty for any other filter shape (a bare `true`, an `or`, a single
-/// non-`and` clause): scoped to the top-level-AND case deliberately, not a
-/// general partial evaluator -- AND's short-circuit is what makes a failing
-/// path-only child a safe proof the row can't match; OR's isn't symmetric
-/// the same way, and nothing here writes that shape anyway.
+/// Clauses of `filter` that only ever reference `{"var": "path"}` --
+/// borrowed from `filter`, in order. For a top-level `{"and": [...]}`, this
+/// is its direct children that qualify (AND's short-circuit is what makes a
+/// failing path-only child a safe proof the row can't match; OR's isn't
+/// symmetric the same way, and nothing here writes that shape anyway, so
+/// this stays scoped to AND rather than becoming a general partial
+/// evaluator). For any other shape, the whole filter counts as its own one
+/// clause when it qualifies on its own -- a bare `{"glob": [...]}}` with no
+/// AND wrapper is exactly as path-only as `{"and": [{"glob": [...]}]}}`,
+/// and skipping the short-circuit for it purely because a caller left the
+/// wrapper off would be the same read this whole mechanism exists to skip.
 fn pathOnlyClauses(gpa: Allocator, filter: Value) !std.ArrayListUnmanaged(Value) {
     var out: std.ArrayListUnmanaged(Value) = .empty;
     errdefer out.deinit(gpa);
 
-    const obj = switch (filter) {
-        .object => |o| o,
-        else => return out,
-    };
-    if (obj.count() != 1) return out;
-    var it = obj.iterator();
-    const entry = it.next().?;
-    if (!std.mem.eql(u8, entry.key_ptr.*, "and")) return out;
+    is_and: {
+        const obj = switch (filter) {
+            .object => |o| o,
+            else => break :is_and,
+        };
+        if (obj.count() != 1) break :is_and;
+        var it = obj.iterator();
+        const entry = it.next().?;
+        if (!std.mem.eql(u8, entry.key_ptr.*, "and")) break :is_and;
 
-    const children: []const Value = switch (entry.value_ptr.*) {
-        .array => |a| a.items,
-        else => &.{entry.value_ptr.*},
-    };
-    for (children) |c| if (referencesOnlyPath(c)) try out.append(gpa, c);
+        const children: []const Value = switch (entry.value_ptr.*) {
+            .array => |a| a.items,
+            else => &.{entry.value_ptr.*},
+        };
+        for (children) |c| if (referencesOnlyPath(c)) try out.append(gpa, c);
+        return out;
+    }
+
+    if (referencesOnlyPath(filter)) try out.append(gpa, filter);
     return out;
 }
 
@@ -521,6 +530,33 @@ test "a failing path-only AND clause skips the read entirely, not just the row" 
     // The point of the optimization: `tasks/y.md` fails the path-only glob
     // clause on its own, so `read` is never called for it at all -- not
     // just filtered out after the fact.
+    try testing.expectEqual(@as(usize, 1), fs.reads.items.len);
+    try testing.expectEqualStrings("designs/x.md", fs.reads.items[0]);
+}
+
+test "a bare path-only filter with no AND wrapper still skips the read" {
+    const gpa = testing.allocator;
+    var fs = TestStore.init(gpa);
+    defer fs.deinit();
+    try fs.set("designs/x.md", "## Status\nReady\n");
+    try fs.set("tasks/y.md", "## Status\nReady\n");
+    const store = fs.store();
+
+    var filter = try std.json.parseFromSlice(Value, gpa,
+        \\{"glob": ["designs/*", {"var": "path"}]}
+    , .{});
+    defer filter.deinit();
+
+    const rows = try query(gpa, testing.io, store, filter.value, &.{"path"});
+    defer {
+        for (rows) |r| r.deinit(gpa);
+        gpa.free(rows);
+    }
+    try testing.expectEqual(@as(usize, 1), rows.len);
+    try testing.expectEqualStrings("designs/x.md", rows[0].path);
+
+    // Same optimization as the AND-wrapped case above, just with no AND at
+    // all in the filter -- `tasks/y.md` is never read.
     try testing.expectEqual(@as(usize, 1), fs.reads.items.len);
     try testing.expectEqualStrings("designs/x.md", fs.reads.items[0]);
 }

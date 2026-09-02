@@ -718,17 +718,26 @@ fn vaultPaths(gpa: Allocator, io: Io, vault: []const u8) ![]const []const u8 {
     return out.toOwnedSlice(gpa);
 }
 
-fn resolveCandidates(gpa: Allocator, all_paths: []const []const u8, target: []const u8) ![]const []const u8 {
+/// `titles` maps a case-folded title to every path sharing it (built once
+/// by `buildEdges`, below) -- an O(1) lookup instead of a fresh linear scan
+/// of every vault path per pending edge, which made `buildEdges` overall
+/// O(edges * paths): quadratic in vault size, the one axis that actually
+/// broke at scale (unlike a node's own body size, which doesn't).
+fn resolveCandidates(
+    gpa: Allocator,
+    titles: *const std.StringHashMapUnmanaged(std.ArrayListUnmanaged([]const u8)),
+    target: []const u8,
+) ![]const []const u8 {
     var out: std.ArrayListUnmanaged([]const u8) = .empty;
     errdefer {
         for (out.items) |n| gpa.free(n);
         out.deinit(gpa);
     }
     const normalized = core.wikilinks.normalizeTarget(target);
-    for (all_paths) |path| {
-        if (std.ascii.eqlIgnoreCase(titleOf(path), normalized)) {
-            try out.append(gpa, try gpa.dupe(u8, path));
-        }
+    const lower = try std.ascii.allocLowerString(gpa, normalized);
+    defer gpa.free(lower);
+    if (titles.get(lower)) |paths| {
+        for (paths.items) |path| try out.append(gpa, try gpa.dupe(u8, path));
     }
     return out.toOwnedSlice(gpa);
 }
@@ -765,8 +774,12 @@ fn freePending(gpa: Allocator, pending: []const PendingEdge) void {
 /// no ambiguity handling needed (ids are unique by construction); a real
 /// duplicate id is a pre-existing data problem this doesn't try to detect,
 /// so whichever file the first pass reaches first for a given id wins.
-/// Everything else falls through unchanged to `resolveCandidates`'s
-/// existing case-insensitive title match.
+/// Everything else falls through to `resolveCandidates`'s case-insensitive
+/// title match, against a title -> path(s) map built once from `all` (no
+/// read needed, titles come from the path alone) -- the same shape as the
+/// id map above, and for the same reason: a fresh linear scan of every
+/// vault path per pending edge is what made this function quadratic in
+/// vault size, not the id lookup, which was already O(1).
 fn buildEdges(gpa: Allocator, io: Io, vault: []const u8) ![]const Edge {
     const all = try vaultPaths(gpa, io, vault);
     defer freeStrings(gpa, all);
@@ -779,6 +792,29 @@ fn buildEdges(gpa: Allocator, io: Io, vault: []const u8) ![]const Edge {
         var it = ids.keyIterator();
         while (it.next()) |k| gpa.free(k.*);
         ids.deinit(gpa); // values borrow from `all`, not owned here
+    }
+
+    // Every path's title, case-folded, built once from `all` alone -- pure
+    // path-string work, no read needed -- so `resolveCandidates` below never
+    // has to rescan `all` per pending edge.
+    var titles: std.StringHashMapUnmanaged(std.ArrayListUnmanaged([]const u8)) = .empty;
+    defer {
+        var it = titles.iterator();
+        while (it.next()) |entry| {
+            gpa.free(entry.key_ptr.*);
+            entry.value_ptr.deinit(gpa);
+        }
+        titles.deinit(gpa); // list entries borrow from `all`, not owned here
+    }
+    for (all) |path| {
+        const lower = try std.ascii.allocLowerString(gpa, titleOf(path));
+        const gop = try titles.getOrPut(gpa, lower);
+        if (gop.found_existing) {
+            gpa.free(lower);
+        } else {
+            gop.value_ptr.* = .empty;
+        }
+        try gop.value_ptr.append(gpa, path);
     }
 
     var pending: std.ArrayListUnmanaged(PendingEdge) = .empty;
@@ -831,7 +867,7 @@ fn buildEdges(gpa: Allocator, io: Io, vault: []const u8) ![]const Edge {
         const candidates = if (ids.get(normalized)) |path|
             try singleCandidate(gpa, path)
         else
-            try resolveCandidates(gpa, all, p.target_text);
+            try resolveCandidates(gpa, &titles, p.target_text);
         try edges.append(gpa, .{
             .source = try gpa.dupe(u8, p.source),
             .target_text = try gpa.dupe(u8, p.target_text),
@@ -914,20 +950,22 @@ pub fn listMarkdownFiles(gpa: Allocator, io: Io, root: []const u8, namespace: []
     };
     defer root_dir.close(io);
 
-    var walker = try root_dir.walk(gpa);
+    // Selective, not plain `walk`: a dot-directory (`.git`, `.obsidian`) is
+    // never entered at all, instead of being fully read and only filtered
+    // out afterward -- `.git` alone can be hundreds of subdirectories on a
+    // synced vault, all of them wasted work under the old approach.
+    var walker = try root_dir.walkSelectively(gpa);
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
-        if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".md")) continue;
-        if (hasDotSegment(entry.path)) continue;
-        try out.append(gpa, try gpa.dupe(u8, entry.path));
+        if (entry.basename.len != 0 and entry.basename[0] == '.') continue;
+        if (entry.kind == .directory) {
+            try walker.enter(io, entry);
+            continue;
+        }
+        if (entry.kind == .file and std.mem.endsWith(u8, entry.path, ".md"))
+            try out.append(gpa, try gpa.dupe(u8, entry.path));
     }
     return out.toOwnedSlice(gpa);
-}
-
-fn hasDotSegment(path: []const u8) bool {
-    var it = std.mem.splitScalar(u8, path, '/');
-    while (it.next()) |seg| if (seg.len != 0 and seg[0] == '.') return true;
-    return false;
 }
 
 const testing = std.testing;
