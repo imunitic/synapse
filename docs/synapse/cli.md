@@ -184,7 +184,8 @@ usage: synapse vault-read <path>
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
+                                                       syncing its title:/H1 to the new filename
 ```
 
 ### synapse vault-write
@@ -208,7 +209,8 @@ usage: synapse vault-read <path>
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
+                                                       syncing its title:/H1 to the new filename
 ```
 
 ### synapse vault-list
@@ -232,7 +234,8 @@ usage: synapse vault-read <path>
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
+                                                       syncing its title:/H1 to the new filename
 ```
 
 ### synapse vault-search
@@ -256,7 +259,8 @@ usage: synapse vault-read <path>
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
+                                                       syncing its title:/H1 to the new filename
 ```
 
 ### synapse vault-search-text
@@ -280,7 +284,8 @@ usage: synapse vault-read <path>
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
+                                                       syncing its title:/H1 to the new filename
 ```
 
 ### synapse vault-doc-map
@@ -304,7 +309,8 @@ usage: synapse vault-read <path>
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
+                                                       syncing its title:/H1 to the new filename
 ```
 
 ### synapse vault-patch
@@ -328,7 +334,8 @@ usage: synapse vault-read <path>
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
+                                                       syncing its title:/H1 to the new filename
 ```
 
 ### synapse vault-backlinks
@@ -352,7 +359,8 @@ usage: synapse vault-read <path>
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
+                                                       syncing its title:/H1 to the new filename
 ```
 
 ### synapse vault-links
@@ -376,7 +384,8 @@ usage: synapse vault-read <path>
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
+                                                       syncing its title:/H1 to the new filename
 ```
 
 ### synapse vault-unresolved
@@ -400,7 +409,8 @@ usage: synapse vault-read <path>
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
+                                                       syncing its title:/H1 to the new filename
 ```
 
 ### synapse vault-orphans
@@ -424,7 +434,8 @@ usage: synapse vault-read <path>
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
+                                                       syncing its title:/H1 to the new filename
 ```
 
 ### synapse vault-deadends
@@ -448,7 +459,8 @@ usage: synapse vault-read <path>
        synapse vault-orphans                           notes with no backlinks
        synapse vault-deadends                          notes with no outgoing links
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
+                                                       syncing its title:/H1 to the new filename
 ```
 
 ### synapse build-refs

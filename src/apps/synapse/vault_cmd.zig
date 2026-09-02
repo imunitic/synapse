@@ -75,7 +75,8 @@ const usage_text =
     \\       synapse vault-orphans                           notes with no backlinks
     \\       synapse vault-deadends                          notes with no outgoing links
     \\       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-    \\       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink
+    \\       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
+    \\                                                       syncing its title:/H1 to the new filename
     \\
 ;
 
@@ -1219,6 +1220,48 @@ test "check reports an unresolvable schema id per note" {
     try testing.expectEqual(@as(u8, 1), code);
     try testing.expect(std.mem.indexOf(u8, out.written(), "research/Unknown.md\t") != null);
     try testing.expect(std.mem.indexOf(u8, out.written(), "1 legacy") == null);
+}
+
+const test_check_schema_stem_equals_title =
+    "schema: synapse-note-schema/v1\n" ++
+    "id: t/v1\n" ++
+    "frontmatter:\n" ++
+    "  fields:\n" ++
+    "    title:\n" ++
+    "      type: string\n" ++
+    "      required: true\n" ++
+    "body:\n" ++
+    "  h1:\n" ++
+    "    required: true\n" ++
+    "    count: 1\n" ++
+    "checks:\n" ++
+    "  - equals: [filename.stem, frontmatter.title]\n";
+
+fn writeCheckSchemaStemEqualsTitle(fx: *fixture.Fixture) !void {
+    try fx.tmp.dir.createDirPath(testing.io, "schema/t");
+    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "schema/t/v1.yaml", .data = test_check_schema_stem_equals_title });
+    try fx.env.put("SYNAPSE_CONTENT_ROOT", fx.root);
+}
+
+test "rename keeps a schema-declaring note's stem==title check conformant" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("SYNAPSE_VAULT_INTEGRATIONS"); // disk is implicit, never named
+    _ = fx.env.swapRemove("SYNAPSE_CONTENT_ROOT");
+    try writeCheckSchemaStemEqualsTitle(&fx);
+    try fx.writeVaultFile("research/Old.md", "---\nschema: t/v1\ntitle: Old\n---\n# Old\n\nbody\n");
+
+    var rename_out: Io.Writer.Allocating = .init(gpa);
+    defer rename_out.deinit();
+    const rename_code = try rename(gpa, fx.io(), &fx.env, fx.vault, "research/Old.md", "research/New.md", &rename_out.writer);
+    try testing.expectEqual(@as(u8, 0), rename_code);
+
+    var check_out: Io.Writer.Allocating = .init(gpa);
+    defer check_out.deinit();
+    const check_code = try check(gpa, fx.io(), &fx.env, fx.vault, &check_out.writer);
+    try testing.expectEqual(@as(u8, 0), check_code);
+    try testing.expectEqualStrings("1 notes: 1 schema-declaring (1 conformant, 0 violations), 0 legacy\n", check_out.written());
 }
 
 test "patch replaces a heading's content" {

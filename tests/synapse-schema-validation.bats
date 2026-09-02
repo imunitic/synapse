@@ -164,6 +164,30 @@ task_note() {
   [[ "$output" == *"Design context."* ]]
 }
 
+@test "vault-rename syncs title/H1 to the new filename, rewrites referrers, and stays vault-check clean" {
+  bare_note "Old title" sb-909 | "$SYNAPSE_BIN" vault-write "research/Old title.md"
+  bare_note "Referrer" sb-911 | "$SYNAPSE_BIN" vault-write "research/Referrer.md"
+  run bash -c 'printf "See [[Old title]] for background.\n" | "$1" vault-patch "research/Referrer.md" --heading "Referrer::Summary" --append' _ "$SYNAPSE_BIN"
+  [ "$status" -eq 0 ]
+
+  run "$SYNAPSE_BIN" vault-rename "research/Old title.md" "research/New title.md"
+  [ "$status" -eq 0 ]
+  [ ! -e "$VAULT/research/Old title.md" ]
+  [ -e "$VAULT/research/New title.md" ]
+
+  run "$SYNAPSE_BIN" frontmatter get "research/New title.md" title
+  [ "$output" = "New title" ]
+
+  run "$SYNAPSE_BIN" vault-read "research/New title.md"
+  [[ "$output" == *"# New title"* ]]
+
+  run "$SYNAPSE_BIN" vault-read "research/Referrer.md"
+  [[ "$output" == *"[[New title]]"* ]]
+
+  run "$SYNAPSE_BIN" vault-check
+  [ "$status" -eq 0 ]
+}
+
 @test "the npm package includes all shipped schema documents" {
   run npm pack --dry-run --json "$REPO_ROOT/packages/synapse"
   [ "$status" -eq 0 ]

@@ -540,11 +540,15 @@ pub const ObsidianRenamer = struct {
     }
 
     pub fn rename(self: *ObsidianRenamer, gpa: Allocator, io: Io, old_path: []const u8, new_path: []const u8) anyerror!void {
-        return renameViaCli(self, gpa, io, old_path, new_path) catch |err| {
+        renameViaCli(self, gpa, io, old_path, new_path) catch |err| {
             if (err != error.VaultUnreachable) return err;
             warnFallback("rename");
             return self.inner.rename(gpa, io, old_path, new_path);
         };
+        // `DiskRenamer.rename` does this same sync itself, so it's only
+        // needed here on the CLI-success path -- the fallback above already
+        // went through `DiskRenamer` and is done.
+        try syncMovedNoteIdentity(gpa, io, self.vault, old_path, new_path);
     }
 
     /// `obsidian rename path=<old> name=<new>` -- **checked live against a
@@ -584,6 +588,28 @@ pub const ObsidianRenamer = struct {
         if (std.mem.startsWith(u8, res.stdout, "Error:")) return error.RenameRefused;
     }
 };
+
+/// After a successful CLI rename, brings the moved note's `title:`/H1 in
+/// line with its new filename directly on disk -- the obsidian CLI moves
+/// the file and rewrites wikilinks but has no concept of this vault's
+/// title-follows-filename convention. Reuses `DiskRenamer`'s own
+/// `syncTitleAndHeading` rather than re-deriving it, reading and writing
+/// straight through a scoped `DiskStore` over the same on-disk vault the CLI
+/// just wrote to -- the same pattern `DiskRenamer.rename` itself uses for
+/// its own read/write.
+fn syncMovedNoteIdentity(gpa: Allocator, io: Io, vault: []const u8, old_path: []const u8, new_path: []const u8) !void {
+    var store = try disk_store.DiskStore.init(gpa, vault, "");
+    defer store.deinit();
+
+    const body = (try store.read(gpa, io, new_path)) orelse return;
+    defer gpa.free(body);
+
+    const old_title = disk_store.titleOf(old_path);
+    const new_title = disk_store.titleOf(new_path);
+    const synced = try disk_store.syncTitleAndHeading(gpa, body, old_title, new_title);
+    defer gpa.free(synced);
+    _ = try store.write(io, new_path, synced);
+}
 
 /// A pure, slash-segment relative path from `from_dir` (a vault-relative
 /// directory, `""` for the vault root) to `to_path` (a vault-relative file)
@@ -1069,6 +1095,48 @@ test "renamer.rename sends a ..-relative name= for a cross-directory move" {
     const log_content = try tmp.dir.readFileAlloc(testing.io, "obsidian.log", gpa, .unlimited);
     defer gpa.free(log_content);
     try testing.expect(std.mem.indexOf(u8, log_content, "rename path=designs/Old.md name=../research/New.md") != null);
+}
+
+test "renamer.rename syncs the moved note's own title:/H1 after a successful CLI rename" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(testing.io, "vault");
+
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
+    const root = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+    const vault = try std.fmt.allocPrint(gpa, "{s}/vault", .{root});
+    defer gpa.free(vault);
+    const log = try std.fmt.allocPrint(gpa, "{s}/obsidian.log", .{root});
+    defer gpa.free(log);
+    const script = try std.fmt.allocPrint(gpa, "{s}/obsidian.script", .{root});
+    defer gpa.free(script);
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "obsidian.script", .data = "rename \n" });
+
+    // What the real `obsidian rename` CLI actually leaves behind: the file
+    // moved, but its frontmatter and H1 untouched -- exactly the gap this
+    // sync closes. The fake CLI performs no filesystem operations of its
+    // own, so the test creates that post-move state by hand.
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "vault/New.md", .data = "---\ntitle: Old\n---\n\n# Old\n\nbody\n" });
+
+    var env = try fakeObsidianEnv(gpa, log, script);
+    defer env.deinit();
+
+    var block = try env.createPosixBlock(gpa, .{});
+    defer block.deinit(gpa);
+    var io_threaded: std.Io.Threaded = .init(gpa, .{ .environ = .{ .block = block } });
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    var fx = try initObsidianStore(gpa, vault, "");
+    defer fx.deinit();
+    const rn = fx.obs.renamer();
+    try rn.rename(gpa, io, "Old.md", "New.md");
+
+    var store = fx.obs.store();
+    const got = (try store.read(gpa, io, "New.md")).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("---\ntitle: New\n---\n\n# New\n\nbody\n", got);
 }
 
 test "renamer.rename falls back to DiskRenamer, rewriting referrers, when Obsidian is unreachable" {

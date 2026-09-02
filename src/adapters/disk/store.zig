@@ -502,10 +502,11 @@ pub const DiskLinkGraph = struct {
 /// implementation every `DiskStore` composes. `old_path`/`new_path` are full
 /// vault-relative paths, the same addressing `DiskLinkGraph` already uses.
 /// Keeps title/filename identity in sync per this vault's own convention:
-/// writes the note under its new name, rewrites every referring
-/// `[[wikilink]]` to match, then removes the old file -- in that order, so
-/// every step that still needs the old name to resolve (finding its
-/// referrers) runs before the file backing that name is gone.
+/// writes the note under its new name with `title:`/H1 brought in line via
+/// `syncTitleAndHeading`, rewrites every referring `[[wikilink]]` to match,
+/// then removes the old file -- in that order, so every step that still
+/// needs the old name to resolve (finding its referrers) runs before the
+/// file backing that name is gone.
 pub const DiskRenamer = struct {
     vault: []const u8,
 
@@ -536,7 +537,9 @@ pub const DiskRenamer = struct {
         // referrer does -- a self-link is just a referrer that happens to
         // be this file, written to its new location instead of back to
         // itself.
-        const rewritten_self = try core.wikilinks.renameTarget(gpa, body, old_title, new_title);
+        const wikilinks_rewritten = try core.wikilinks.renameTarget(gpa, body, old_title, new_title);
+        defer gpa.free(wikilinks_rewritten);
+        const rewritten_self = try syncTitleAndHeading(gpa, wikilinks_rewritten, old_title, new_title);
         defer gpa.free(rewritten_self);
         _ = try store.write(io, new_path, rewritten_self);
 
@@ -646,9 +649,57 @@ fn isSynapseNamespace(path: []const u8) bool {
 /// A path's title -- its filename minus `.md` -- kept identical to `title:`
 /// frontmatter by this vault's own convention, and what a bare `[[wikilink]]`
 /// actually names.
-fn titleOf(path: []const u8) []const u8 {
+pub fn titleOf(path: []const u8) []const u8 {
     const base = std.fs.path.basename(path);
     return if (std.mem.endsWith(u8, base, ".md")) base[0 .. base.len - 3] else base;
+}
+
+/// Brings a just-moved note's own identity in line with its new filename:
+/// `title:` frontmatter becomes `new_title`, and the H1 becomes
+/// `# {new_title}` but only when it still reads `# {old_title}` -- an H1
+/// that had already diverged from the title before the rename is left
+/// alone, not force-rewritten. A note with no frontmatter block at all
+/// (`error.NoFrontmatter`) has no `title:` to sync and passes through
+/// unchanged on that half. Shared by `DiskRenamer` and `ObsidianRenamer`,
+/// since the obsidian CLI's own rename has no concept of this convention
+/// either.
+pub fn syncTitleAndHeading(gpa: Allocator, body: []const u8, old_title: []const u8, new_title: []const u8) ![]u8 {
+    const with_title = core.frontmatter.set(gpa, body, "title", .{ .scalar = new_title }) catch |err| switch (err) {
+        error.NoFrontmatter => try gpa.dupe(u8, body),
+        else => return err,
+    };
+    defer gpa.free(with_title);
+    return renameHeading(gpa, with_title, old_title, new_title);
+}
+
+/// Rewrites the first line reading exactly `# {old_title}` to `# {new_title}`
+/// -- the vault-wide "exactly one top-level heading" convention means there
+/// is only ever one real candidate, so later lines are never considered even
+/// if they happen to match. Every other line is copied through unchanged.
+fn renameHeading(gpa: Allocator, body: []const u8, old_title: []const u8, new_title: []const u8) ![]u8 {
+    var out: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer out.deinit(gpa);
+
+    var pos: usize = 0;
+    var replaced = false;
+    while (pos < body.len) {
+        const nl = std.mem.indexOfScalarPos(u8, body, pos, '\n') orelse body.len;
+        const line = body[pos..nl];
+        if (!replaced and std.mem.startsWith(u8, line, "# ") and std.mem.eql(u8, line[2..], old_title)) {
+            try out.appendSlice(gpa, "# ");
+            try out.appendSlice(gpa, new_title);
+            replaced = true;
+        } else {
+            try out.appendSlice(gpa, line);
+        }
+        if (nl < body.len) {
+            try out.append(gpa, '\n');
+            pos = nl + 1;
+        } else {
+            pos = body.len;
+        }
+    }
+    return out.toOwnedSlice(gpa);
 }
 
 /// Every real vault-relative path, `synapse/` excluded -- the candidate
@@ -1774,6 +1825,69 @@ test "renaming a note that doesn't exist fails clearly, and touches nothing" {
     const rn = s.renamer();
     try testing.expectError(error.NodeNotFound, rn.rename(gpa, testing.io, "Nope.md", "New.md"));
     try testing.expectEqual(@as(?[]u8, null), try port.read(gpa, testing.io, "New.md"));
+}
+
+test "rename syncs the moved note's own title: frontmatter and H1 to the new filename" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "");
+    defer s.deinit();
+    const port = s.store();
+    _ = try port.write(testing.io, "Old.md", "---\ntitle: \"Old\"\n---\n\n# Old\n\nbody\n");
+
+    const rn = s.renamer();
+    try rn.rename(gpa, testing.io, "Old.md", "New.md");
+
+    const got = (try port.read(gpa, testing.io, "New.md")).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("---\ntitle: New\n---\n\n# New\n\nbody\n", got);
+}
+
+test "rename leaves an H1 that already diverged from the old title alone" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "");
+    defer s.deinit();
+    const port = s.store();
+    _ = try port.write(testing.io, "Old.md", "---\ntitle: \"Old\"\n---\n\n# Something else entirely\n\nbody\n");
+
+    const rn = s.renamer();
+    try rn.rename(gpa, testing.io, "Old.md", "New.md");
+
+    const got = (try port.read(gpa, testing.io, "New.md")).?;
+    defer gpa.free(got);
+    // title: still syncs -- only the H1 rewrite is guarded.
+    try testing.expectEqualStrings("---\ntitle: New\n---\n\n# Something else entirely\n\nbody\n", got);
+}
+
+test "renaming a note with no frontmatter at all leaves its body untouched" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "");
+    defer s.deinit();
+    const port = s.store();
+    _ = try port.write(testing.io, "Old.md", "# Old\n\nbody\n");
+
+    const rn = s.renamer();
+    try rn.rename(gpa, testing.io, "Old.md", "New.md");
+
+    const got = (try port.read(gpa, testing.io, "New.md")).?;
+    defer gpa.free(got);
+    // No frontmatter block to sync a `title:` into, but the H1 sync is a
+    // pure text rule with no such dependency, so it still fires.
+    try testing.expectEqualStrings("# New\n\nbody\n", got);
 }
 
 test "a self-referencing note's own self-link is renamed too, not left pointing at the old title" {
