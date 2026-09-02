@@ -277,7 +277,7 @@ synapse query links --check   # expect silence: no dangling targets
 ```
 
 `links --check` covers what used to be a manual instruction here: a broken `[[wikilink]]` is a valid
-link to a not-yet-existing note, so Obsidian renders it without complaint and nothing else in the
+link to a not-yet-existing note, silently, and nothing else in the
 system notices. It now reports `Node<TAB>relation -> Target (no such node)` per dangling edge.
 
 One check is still yours, because no command performs it: **every node file appears in `Index.md`**. An

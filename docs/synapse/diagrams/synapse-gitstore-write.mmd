@@ -1,0 +1,24 @@
+---
+title: GitStore.write — lock, commit, push threshold
+---
+flowchart TD
+    START(["write(node, body)"]) --> INNER["delegate to inner.write()<br/>(SchemaValidationStore)"]
+    INNER --> ACCEPTED{"accepted?"}
+    ACCEPTED -->|"no"| REJECT["return the rejection unchanged<br/>-- nothing to commit"]
+    ACCEPTED -->|"yes"| ENSURE["ensureRepo:<br/>git init on the vault's<br/>first write"]
+    ENSURE --> LOCK{"tryAcquire<br/>(non-blocking)"}
+    LOCK -->|"held by another<br/>write / rename / pusher"| SKIP["skip the commit --<br/>the file already landed;<br/>the lock holder picks it up"]
+    LOCK -->|"acquired"| COMMIT["commitIfDirty"]
+    COMMIT --> THRESHOLD{"commits ahead of<br/>upstream % PUSH_EVERY == 0?"}
+    THRESHOLD -->|"no"| DONE(["return the accepted result"])
+    THRESHOLD -->|"yes"| SPAWN["spawn a detached Pusher<br/>(argv[0] vault-git-pusher)<br/>-- never inline"]
+    SPAWN --> DONE
+    SKIP --> DONE
+    REJECT --> DONE2(["return"])
+
+    classDef decision fill:#fff3bf,stroke:#e8590c,color:#1e1e1e
+    classDef action fill:#e5dbff,stroke:#6741d9,color:#1e1e1e
+    classDef terminal fill:#d3f9d8,stroke:#2f9e44,color:#1e1e1e
+    class ACCEPTED,LOCK,THRESHOLD decision
+    class INNER,ENSURE,COMMIT,SPAWN,SKIP,REJECT action
+    class START,DONE,DONE2 terminal

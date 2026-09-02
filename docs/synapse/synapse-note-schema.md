@@ -147,7 +147,7 @@ On write it:
 6. Persists through the inner store only if every check passes; otherwise returns a
    422-style rejection with the diagnostic.
 
-So a rejected write never reaches disk, Git, or Obsidian — validation is a correctness
+So a rejected write never reaches disk or Git — validation is a correctness
 boundary, not a configurable integration.
 
 ## `vault-check`

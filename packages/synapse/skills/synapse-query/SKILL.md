@@ -32,10 +32,10 @@ already named, to locate a specific detail inside it — never as an unscoped re
 instead of asking Synapse first. If you catch yourself about to grep the whole repo before checking
 `synapse/{project}/Index.md`, stop and check the index instead.
 
-**Why the cost difference is real, not just tidiness.** `synapse query body <node>` never goes
-through Obsidian's API — it's a direct disk read that extracts only the prose between the generated
-fences, skipping the node's `sources` list entirely. On a hub node, going through the API instead
-would move that node's entire frontmatter — megabytes — to print a few hundred words. On a large
+**Why the cost difference is real, not just tidiness.** `synapse query body <node>` is a direct disk
+read that extracts only the prose between the generated fences, skipping the node's `sources` list
+entirely. Reading the whole note instead would move that node's entire frontmatter — megabytes — to
+print a few hundred words. On a large
 repo (dozens to hundreds of thousands of tracked files), that difference is the entire reason a
 query stays cheap instead of dominating the turn.
 

@@ -801,10 +801,10 @@ test "resolve: a real environment variable overrides the conf file, same precede
     defer gpa.free(synapse_conf);
     try cwd.writeFile(io, .{ .sub_path = synapse_conf, .data = "SYNAPSE_VAULT_INTEGRATIONS=\"git\"\n" });
 
-    const tv: TestVars = .{ .pairs = &.{ .{ "HOME", home }, .{ "SYNAPSE_VAULT_INTEGRATIONS", "obsidian" } } };
+    const tv: TestVars = .{ .pairs = &.{ .{ "HOME", home }, .{ "SYNAPSE_VAULT_INTEGRATIONS", "override" } } };
     const got = (try resolve(gpa, io, tv.vars(), "SYNAPSE_VAULT_INTEGRATIONS")).?;
     defer gpa.free(got);
-    try testing.expectEqualStrings("obsidian", got);
+    try testing.expectEqualStrings("override", got);
 }
 
 test "resolve: null when the key is nowhere -- no env, no conf file" {

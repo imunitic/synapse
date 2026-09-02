@@ -231,7 +231,7 @@ edit history here worth tracking separately.
 `designs/{project}/{Topic}.md` — grouped one level deeper into a per-project
 subfolder named by the note's own `project:` frontmatter value (e.g. `designs/eon/`,
 `designs/synapse/`), the same mapping tasks use. Sanitize filesystem-illegal
-characters (`/ : * ? " < > |`). No slug, no numbering — Obsidian filenames are the title itself.
+characters (`/ : * ? " < > |`). No slug, no numbering — vault filenames are the title itself.
 
 ---
 

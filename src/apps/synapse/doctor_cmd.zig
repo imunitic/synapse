@@ -74,7 +74,6 @@ pub fn diagnose(
 
     try dependencies(&ctx);
     const vault = try vaultChecks(&ctx);
-    try apiChecks(&ctx, vault);
     const id = try identityChecks(&ctx, repo);
     defer if (id) |i| i.deinit(gpa);
     try namespaceChecks(&ctx, vault, id);
@@ -175,35 +174,6 @@ fn vaultChecks(ctx: *Ctx) !?[]const u8 {
     }
     try ctx.add("vault", .fail, "SYNAPSE_VAULT_DIR is not set anywhere");
     return null;
-}
-
-/// Whether the official `obsidian` CLI is on PATH and answers for this
-/// vault -- only meaningful when `obsidian` is one of the configured
-/// integrations. Checked via `hasIntegration`, not a whole-value string
-/// compare: `SYNAPSE_VAULT_INTEGRATIONS` is a comma-separated list now, so
-/// `git,obsidian` still needs Obsidian even though the value isn't exactly
-/// `"obsidian"`. No integrations at all needs nothing here, so this reports
-/// that directly instead of a misleading `FAIL` for a dependency nothing
-/// configured uses. `ObsidianStore` reaches Obsidian through the CLI's own
-/// local socket -- no plugin, no cert, no API key, but the CLI itself is
-/// off by default: `Settings -> General -> Advanced -> Command line
-/// interface`.
-fn apiChecks(ctx: *Ctx, vault: ?[]const u8) !void {
-    _ = vault;
-    if (!(try adapters.store_resolve.hasIntegration(ctx.gpa, ctx.io, ctx.env, "obsidian"))) {
-        try ctx.add("Obsidian", .ok, "not needed -- 'obsidian' is not in SYNAPSE_VAULT_INTEGRATIONS");
-        return;
-    }
-    const res = adapters.process.run(ctx.io, ctx.gpa, &.{ "obsidian", "vault", "info=path" }, .{}) catch {
-        try ctx.add("Obsidian", .fail, "the obsidian CLI is not on PATH -- install/update Obsidian");
-        return;
-    };
-    defer res.deinit(ctx.gpa);
-    if (res.ok()) {
-        try ctx.add("Obsidian", .ok, try ctx.fmt("{s}", .{std.mem.trim(u8, res.stdout, " \t\r\n")}));
-    } else {
-        try ctx.add("Obsidian", .fail, "not answering -- is it running, and is Settings -> General -> Advanced -> Command line interface enabled?");
-    }
 }
 
 /// The namespace this checkout resolves to. Mirrors: every component's silent exit on a
@@ -464,9 +434,7 @@ const DoctorFixture = struct {
     }
 
     /// `commit()` + `writeConf()` -- the "configured machine" most tests
-    /// start from. `Fixture.init()`'s own default `obsidian.script` already
-    /// answers `vault info=path` with the fixture vault, so no separate
-    /// Obsidian setup is needed here the way a REST plugin's cert once was.
+    /// start from.
     fn baseline(self: *DoctorFixture) !void {
         try self.commit();
         try self.writeConf();
@@ -476,60 +444,6 @@ const DoctorFixture = struct {
         return diagnose(self.fx.gpa, self.fx.io(), &self.fx.env, repo, w);
     }
 };
-
-test "a configured machine reports the vault, the namespace and the API" {
-    const gpa = testing.allocator;
-    var df = try DoctorFixture.init(gpa);
-    defer df.deinit();
-    try df.baseline();
-    // The Obsidian check only runs under the `obsidian` backend now --
-    // `disk` is the default, and this test wants the real fake-CLI path.
-    try df.fx.env.put("SYNAPSE_VAULT_INTEGRATIONS", "obsidian");
-
-    var out: Io.Writer.Allocating = .init(gpa);
-    defer out.deinit();
-    _ = try df.check(df.fx.repo, &out.writer);
-
-    const text = out.written();
-    try testing.expect(std.mem.indexOf(u8, text, "ok") != null and std.mem.indexOf(u8, text, "config") != null);
-    try testing.expect(std.mem.indexOf(u8, text, df.fx.vault) != null);
-    try testing.expect(std.mem.indexOf(u8, text, "repo") != null);
-    // Not just "the word Obsidian appears somewhere" -- the check's own
-    // reported value (the fake CLI's `vault info=path` answer) has to
-    // survive on that exact line. `ctx.add` stores `detail` unowned, so
-    // this value must come from `ctx.fmt`'s tracked allocation, not a
-    // slice into a `process.run` result `res.deinit()` frees before the
-    // report ever prints.
-    var lines = std.mem.splitScalar(u8, text, '\n');
-    const obsidian_line = while (lines.next()) |line| {
-        if (std.mem.indexOf(u8, line, "Obsidian") != null) break line;
-    } else unreachable;
-    try testing.expect(std.mem.indexOf(u8, obsidian_line, df.fx.vault) != null);
-}
-
-test "under the disk backend (the default), the Obsidian check reports not-needed, never FAIL" {
-    const gpa = testing.allocator;
-    var df = try DoctorFixture.init(gpa);
-    defer df.deinit();
-    try df.baseline();
-    // No SYNAPSE_VAULT_INTEGRATIONS set at all -- resolves to disk, the default.
-    // The fake-obsidian fixture answers `vault info=path`, but nothing
-    // here should call it: a real machine with no Obsidian installed must
-    // not see a FAIL for a dependency the resolved backend never uses.
-    _ = df.fx.env.swapRemove("SYNAPSE_VAULT_INTEGRATIONS");
-
-    var out: Io.Writer.Allocating = .init(gpa);
-    defer out.deinit();
-    _ = try df.check(df.fx.repo, &out.writer);
-
-    const text = out.written();
-    var lines = std.mem.splitScalar(u8, text, '\n');
-    const obsidian_line = while (lines.next()) |line| {
-        if (std.mem.indexOf(u8, line, "Obsidian") != null) break line;
-    } else unreachable;
-    try testing.expect(std.mem.indexOf(u8, obsidian_line, "FAIL") == null);
-    try testing.expect(std.mem.indexOf(u8, obsidian_line, "not needed") != null);
-}
 
 test "config resolves at tier 1 (XDG), not just tier 2 -- the config check used to hardcode ~/.claude" {
     const gpa = testing.allocator;

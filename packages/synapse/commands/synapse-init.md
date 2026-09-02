@@ -100,7 +100,7 @@ yours and cannot be scripted because what counts as signal differs per codebase.
 **The work directory** defaults to `~/.cache/synapse/work/{repo}@{branch}/`, created on demand, and
 holds `manifest.tsv`, `all.txt`, `lists/`, the authored `b-NN.md` bodies and the coverage files. Override with `$SYNAPSE_WORK_DIR` if you need to. Two things never to do: point it
 at the repo (`synapse` runs from inside the repo, so its working files would land in the user's
-checkout) or at the vault (Obsidian would index a file list that runs to six figures of lines).
+checkout) or at the vault (a file list that runs to six figures of lines has no business inside it).
 It is deliberately persistent rather than a temp dir, so a later run finds the previous manifest
 instead of re-deriving the clustering.
 - **Interpretation (only you can do this):** deciding what the nodes *are*, and writing their prose.
@@ -289,8 +289,8 @@ emit into tool calls than read into a window. Never hand-author those.
    **Then verify, before reporting success.** Three checks, all cheap:
    - `synapse query stale` must print nothing. (40s for a 125k-file namespace.)
    - Every `[[wikilink]]` in the namespace must resolve to a file that exists — extract them all and
-     test `-f "$link.md"`. Nothing else catches a broken link, since Obsidian treats it as a link to
-     a note not yet created.
+     test `-f "$link.md"`. Nothing else catches a broken link -- a wikilink to a note that does not
+     exist yet just fails silently.
    - Every node file must appear in `Index.md`. An unlisted node exists but is invisible to a reader.
 
    ```yaml

@@ -1,40 +1,33 @@
 //! One place that decides which `ports.Store` chain a caller gets, from
 //! `SYNAPSE_VAULT_INTEGRATIONS` (a comma-separated list, outer-to-inner:
-//! `git,obsidian` means `GitStore` wraps `ObsidianStore` wraps the mandatory
-//! `SchemaValidationStore`, which wraps the one real store, `DiskStore`) and
-//! `SYNAPSE_VAULT_DIR`. Both resolve through
-//! `core.conf.resolve`/`vaultDir` -- a real environment variable wins, then
-//! the first conf file that defines the key -- so setting either in
-//! `synapse.conf` works exactly like exporting it. Every CLI subcommand and
-//! every hook that needs a `Store` calls this instead of resolving one
-//! itself.
+//! `git` means `GitStore` wraps the mandatory `SchemaValidationStore`, which
+//! wraps the one real store, `DiskStore`) and `SYNAPSE_VAULT_DIR`. Both
+//! resolve through `core.conf.resolve`/`vaultDir` -- a real environment
+//! variable wins, then the first conf file that defines the key -- so
+//! setting either in `synapse.conf` works exactly like exporting it. Every
+//! CLI subcommand and every hook that needs a `Store` calls this instead of
+//! resolving one itself.
 //!
 //! `disk` is never named in the value -- it's always the implicit innermost
-//! element, whether the list is empty, one integration long, or several.
-//! Naming it, or naming any integration more than once, is a hard error,
-//! not a silent fallback -- same "report the bad value, never substitute a
-//! guess" precedent an unrecognized name already has.
-//!
-//! `ObsidianStore` reaches Obsidian through the official CLI's own local
-//! socket, which needs neither a plugin installed nor any file this
-//! function has to go find.
+//! element, whether the list is empty or `git`. Naming it, or naming `git`
+//! more than once, is a hard error, not a silent fallback -- same "report
+//! the bad value, never substitute a guess" precedent an unrecognized name
+//! already has.
 //!
 //! A future integration (`NotionStore`, say) is one more entry in
 //! `integration_handlers` and one more `compose*` function, nowhere else --
-//! it would be shaped the same way `git`/`obsidian` already are, a decorator
-//! over the one real store, not a new kind of peer backend. Still by hand,
-//! in this file -- `integration_handlers` is a dispatch table, not a
-//! registration mechanism anything outside this file can add to.
+//! it would be shaped the same way `git` already is, a decorator over the
+//! one real store, not a new kind of peer backend. Still by hand, in this
+//! file -- `integration_handlers` is a dispatch table, not a registration
+//! mechanism anything outside this file can add to.
 
 const std = @import("std");
 const core = @import("core");
 const ports = @import("ports");
-const obsidian = @import("obsidian/store.zig");
 const disk_store = @import("disk/store.zig");
 const git_store = @import("git/store.zig");
 const schema_validation_store = @import("schema_validation_store.zig");
 const env_bridge = @import("env.zig");
-const process = @import("process.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -43,7 +36,6 @@ const LinkGraph = ports.LinkGraph;
 const Renamer = ports.Renamer;
 const SearchFiltered = ports.SearchFiltered;
 const DiskStore = disk_store.DiskStore;
-const ObsidianStore = obsidian.ObsidianStore;
 const GitStore = git_store.GitStore;
 const SchemaValidationStore = schema_validation_store.SchemaValidationStore;
 
@@ -102,10 +94,9 @@ pub const ResolvedStore = struct {
     /// Full-text search, first scoped to whichever candidate paths pass
     /// `path_filter` (`DiskStore.searchFiltered`'s own doc comment has the
     /// exact contract: a JsonLogic rule expected to reference nothing but
-    /// `path`). `null` runs the resolved chain's ordinary `search` (through
-    /// the live app, if `obsidian` is anywhere in it, same as
-    /// `store().search(...)` would), so a caller with no filter to apply
-    /// sees no behavior change at all.
+    /// `path`). `null` runs the resolved chain's ordinary `search` instead
+    /// (same as `store().search(...)` would), so a caller with no filter to
+    /// apply sees no behavior change at all.
     pub fn searchFiltered(
         self: *ResolvedStore,
         gpa: Allocator,
@@ -138,12 +129,11 @@ const ComposeCtx = struct {
     inner_store: Store,
     inner_link_graph: LinkGraph,
     inner_renamer: Renamer,
-    inner_search_filtered: SearchFiltered,
 };
 
 /// `search_filtered` is deliberately absent -- no integration overrides it,
-/// so `resolveStore`'s own `current_search_filtered` never changes across
-/// the loop and has nothing to receive back here.
+/// so `resolveStore`'s own `resolved_search_filtered` is built once, straight
+/// off `disk`, and never threaded through a compose layer at all.
 const ComposeResult = struct {
     layer: OwnedLayer,
     store: Store,
@@ -163,7 +153,7 @@ const IntegrationHandler = struct {
 
 fn composeGit(ctx: ComposeCtx) Allocator.Error!ComposeResult {
     const git = try ctx.gpa.create(GitStore);
-    git.* = GitStore.init(ctx.gpa, ctx.vault, ctx.inner_store, ctx.inner_link_graph, ctx.inner_renamer, ctx.inner_search_filtered);
+    git.* = GitStore.init(ctx.gpa, ctx.vault, ctx.inner_store, ctx.inner_link_graph, ctx.inner_renamer);
     git.env = ctx.env;
     git.self_path = ctx.self_path;
     return .{
@@ -176,23 +166,8 @@ fn composeGit(ctx: ComposeCtx) Allocator.Error!ComposeResult {
     };
 }
 
-fn composeObsidian(ctx: ComposeCtx) Allocator.Error!ComposeResult {
-    const os = try ctx.gpa.create(ObsidianStore);
-    os.* = ObsidianStore.init(ctx.vault, ctx.namespace, ctx.inner_store, ctx.inner_link_graph, ctx.inner_renamer, ctx.inner_search_filtered);
-    return .{
-        .layer = OwnedLayer.of(ObsidianStore, os),
-        .store = os.store(),
-        .link_graph = os.linkGraph(),
-        .renamer = os.renamer(),
-        // `searchFiltered` passes straight through -- Obsidian's own query
-        // language has no path-filter concept to translate a JsonLogic rule
-        // into.
-    };
-}
-
 const integration_handlers = [_]IntegrationHandler{
     .{ .name = "git", .compose = composeGit },
-    .{ .name = "obsidian", .compose = composeObsidian },
 };
 
 /// Splits `value` on `,` and validates before anything gets constructed:
@@ -218,7 +193,7 @@ fn parseIntegrationsImpl(value: []const u8, prog: ?[]const u8, out: *[8][]const 
             if (std.mem.eql(u8, name, h.name)) known = true;
         }
         if (!known) {
-            report(prog, "unknown integration '{s}' in SYNAPSE_VAULT_INTEGRATIONS -- want 'git', 'obsidian', or a comma-separated combination\n", .{name});
+            report(prog, "unknown integration '{s}' in SYNAPSE_VAULT_INTEGRATIONS -- want 'git'\n", .{name});
             return null;
         }
         for (out[0..count.*]) |existing| {
@@ -298,7 +273,9 @@ pub fn resolveStore(
     var current_store: Store = disk.store();
     var current_link_graph: LinkGraph = disk.linkGraph();
     var current_renamer: Renamer = disk.renamer();
-    const current_search_filtered: SearchFiltered = SearchFiltered.from(DiskStore, disk);
+    // Never threaded through a compose layer -- no integration overrides
+    // filtered search, so this is the whole answer, resolved once.
+    const search_filtered: SearchFiltered = SearchFiltered.from(DiskStore, disk);
 
     // Validation is a correctness boundary, not a selectable integration:
     // every configured decorator wraps it, and it always wraps DiskStore.
@@ -326,7 +303,6 @@ pub fn resolveStore(
             .inner_store = current_store,
             .inner_link_graph = current_link_graph,
             .inner_renamer = current_renamer,
-            .inner_search_filtered = current_search_filtered,
         });
         // `handler.compose` already allocated and initialized this layer;
         // an `append` failure below must still free it, the way the old
@@ -343,7 +319,7 @@ pub fn resolveStore(
         .resolved_store = current_store,
         .resolved_link_graph = current_link_graph,
         .resolved_renamer = current_renamer,
-        .resolved_search_filtered = current_search_filtered,
+        .resolved_search_filtered = search_filtered,
         .gpa = gpa,
         .disk = disk,
         .layers = layers,
@@ -433,32 +409,6 @@ test "SYNAPSE_VAULT_INTEGRATIONS=git resolves a GitStore that commits on write" 
     _ = try Io.Dir.cwd().statFile(io, dot_git, .{});
 }
 
-test "SYNAPSE_VAULT_INTEGRATIONS=obsidian resolves an ObsidianStore, plain disk I/O with no live CLI needed" {
-    const gpa = testing.allocator;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
-    const vault = buf[0..try tmp.dir.realPath(testing.io, &buf)];
-
-    var env = try isolatedEnv(gpa, vault);
-    defer env.deinit();
-    try env.put("SYNAPSE_VAULT_INTEGRATIONS", "obsidian");
-
-    var io_threaded: std.Io.Threaded = .init(gpa, .{});
-    defer io_threaded.deinit();
-    const io = io_threaded.io();
-
-    var resolved = (try resolveStore(gpa, io, &env, vault, "synapse/repo@main", "test", "")).?;
-    defer resolved.deinit();
-
-    var store = resolved.store();
-    const wr = try store.write(io, "Foo.md", "body\n");
-    try testing.expect(wr.accepted);
-    const got = (try store.read(gpa, io, "Foo.md")).?;
-    defer gpa.free(got);
-    try testing.expectEqualStrings("body\n", got);
-}
-
 test "searchFiltered runs against disk directly regardless of which integrations are configured" {
     const gpa = testing.allocator;
     var tmp = testing.tmpDir(.{});
@@ -468,7 +418,7 @@ test "searchFiltered runs against disk directly regardless of which integrations
 
     var env = try isolatedEnv(gpa, vault);
     defer env.deinit();
-    try env.put("SYNAPSE_VAULT_INTEGRATIONS", "obsidian");
+    try env.put("SYNAPSE_VAULT_INTEGRATIONS", "git");
 
     var io_threaded: std.Io.Threaded = .init(gpa, .{});
     defer io_threaded.deinit();
@@ -481,8 +431,8 @@ test "searchFiltered runs against disk directly regardless of which integrations
     _ = try store.write(io, "designs/x.md", "widget prose\n");
     _ = try store.write(io, "tasks/y.md", "widget prose too\n");
 
-    // A `path_filter` is non-null, so this must never try the (unreachable
-    // in a test) live Obsidian CLI at all -- it goes straight to disk.
+    // A `path_filter` is non-null, so this must go straight to disk
+    // regardless of which integration is configured.
     var filter = try std.json.parseFromSlice(std.json.Value, gpa,
         \\{"glob": ["designs/*", {"var": "path"}]}
     , .{});
@@ -590,140 +540,12 @@ test "hasIntegration answers a plain yes/no without constructing any store" {
 
     var env = try isolatedEnv(gpa, vault);
     defer env.deinit();
-    try env.put("SYNAPSE_VAULT_INTEGRATIONS", "git,obsidian");
+    try env.put("SYNAPSE_VAULT_INTEGRATIONS", "git");
 
     var io_threaded: std.Io.Threaded = .init(gpa, .{});
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
     try testing.expect(try hasIntegration(gpa, io, &env, "git"));
-    try testing.expect(try hasIntegration(gpa, io, &env, "obsidian"));
     try testing.expect(!(try hasIntegration(gpa, io, &env, "notion")));
-}
-
-fn fakeObsidianEnv(gpa: Allocator, vault: []const u8, log_path: []const u8, script_path: []const u8) !std.process.Environ.Map {
-    var env = try isolatedEnv(gpa, vault);
-    try env.put("FAKE_OBSIDIAN_LOG", log_path);
-    try env.put("FAKE_OBSIDIAN_SCRIPT", script_path);
-
-    var fake_bin_dir = try Io.Dir.cwd().openDir(testing.io, "tests/fixtures/fake-bin", .{});
-    defer fake_bin_dir.close(testing.io);
-    var fake_bin_buf: [std.fs.max_path_bytes]u8 = undefined;
-    const fake_bin_abs = fake_bin_buf[0..try fake_bin_dir.realPath(testing.io, &fake_bin_buf)];
-    const real_path = env.get("PATH") orelse "";
-    const fake_bin = try std.fmt.allocPrint(gpa, "{s}:{s}", .{ fake_bin_abs, real_path });
-    defer gpa.free(fake_bin);
-    try env.put("PATH", fake_bin);
-    return env;
-}
-
-// The actual point of this task: `git,obsidian` composes `GitStore`
-// wrapping `ObsidianStore` wrapping validation and the disk store, so a write through the
-// resolved chain both prefers Obsidian's own live search (not disk's) and
-// commits under git (not silently, the way a pure delegation would).
-test "SYNAPSE_VAULT_INTEGRATIONS=git,obsidian: a write commits, and search prefers the live app" {
-    const gpa = testing.allocator;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const vault = buf[0..try tmp.dir.realPath(testing.io, &buf)];
-
-    const log = try std.fmt.allocPrint(gpa, "{s}/obsidian.log", .{vault});
-    defer gpa.free(log);
-    const script = try std.fmt.allocPrint(gpa, "{s}/obsidian.script", .{vault});
-    defer gpa.free(script);
-    try tmp.dir.writeFile(testing.io, .{
-        .sub_path = "obsidian.script",
-        .data =
-        \\search:context [{"file":"Foo.md","matches":[{"line":1,"text":"live hit"}]}]
-        \\
-        ,
-    });
-
-    var env = try fakeObsidianEnv(gpa, vault, log, script);
-    defer env.deinit();
-    try env.put("SYNAPSE_VAULT_INTEGRATIONS", "git,obsidian");
-
-    var block = try env.createPosixBlock(gpa, .{});
-    defer block.deinit(gpa);
-    var io_threaded: std.Io.Threaded = .init(gpa, .{ .environ = .{ .block = block } });
-    defer io_threaded.deinit();
-    const io = io_threaded.io();
-
-    var resolved = (try resolveStore(gpa, io, &env, vault, "", "test", "")).?;
-    defer resolved.deinit();
-    try testing.expectEqual(@as(usize, 3), resolved.layers.items.len); // validation + obsidian + git
-
-    var store = resolved.store();
-    const wr = try store.write(io, "Foo.md", "body\n");
-    try testing.expect(wr.accepted);
-
-    // Committed under git -- proves `GitStore` is actually the outermost
-    // layer, not bypassed.
-    const dot_git = try std.fmt.allocPrint(gpa, "{s}/.git", .{vault});
-    defer gpa.free(dot_git);
-    _ = try Io.Dir.cwd().statFile(io, dot_git, .{});
-
-    // Search answers from the fake live app, not a disk scan -- proves the
-    // chain actually reaches `ObsidianStore.search`, not skipping straight
-    // to the disk store beneath it.
-    const hits = try store.search(gpa, io, "hit");
-    defer {
-        for (hits) |h| {
-            gpa.free(h.node);
-            gpa.free(h.context);
-        }
-        gpa.free(hits);
-    }
-    try testing.expectEqual(@as(usize, 1), hits.len);
-    try testing.expectEqualStrings("live hit", hits[0].context);
-}
-
-// The other real fork this task settled: a rename under `git,obsidian` has
-// to go through Obsidian's own rename mechanism (so the CLI's live index
-// stays correct), not silently bypass it with a raw file move -- and it
-// still has to commit under git afterward.
-test "SYNAPSE_VAULT_INTEGRATIONS=git,obsidian: rename goes through Obsidian, then commits" {
-    const gpa = testing.allocator;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var buf: [std.fs.max_path_bytes]u8 = undefined;
-    const vault = buf[0..try tmp.dir.realPath(testing.io, &buf)];
-
-    const log = try std.fmt.allocPrint(gpa, "{s}/obsidian.log", .{vault});
-    defer gpa.free(log);
-    const script = try std.fmt.allocPrint(gpa, "{s}/obsidian.script", .{vault});
-    defer gpa.free(script);
-    try tmp.dir.writeFile(testing.io, .{ .sub_path = "obsidian.script", .data = "rename \n" });
-
-    var env = try fakeObsidianEnv(gpa, vault, log, script);
-    defer env.deinit();
-    try env.put("SYNAPSE_VAULT_INTEGRATIONS", "git,obsidian");
-
-    var block = try env.createPosixBlock(gpa, .{});
-    defer block.deinit(gpa);
-    var io_threaded: std.Io.Threaded = .init(gpa, .{ .environ = .{ .block = block } });
-    defer io_threaded.deinit();
-    const io = io_threaded.io();
-
-    var resolved = (try resolveStore(gpa, io, &env, vault, "", "test", "")).?;
-    defer resolved.deinit();
-
-    var store = resolved.store();
-    _ = try store.write(io, "Old.md", "body\n");
-
-    var renamer = resolved.renamer();
-    try renamer.rename(gpa, io, "Old.md", "New.md");
-
-    // The fake CLI, not a raw file move, actually did the rename -- proves
-    // `GitRenamer` delegated to Obsidian's own renamer, not a hardcoded
-    // `DiskRenamer`.
-    const log_content = try tmp.dir.readFileAlloc(testing.io, "obsidian.log", gpa, .unlimited);
-    defer gpa.free(log_content);
-    try testing.expect(std.mem.indexOf(u8, log_content, "rename path=Old.md name=New.md") != null);
-
-    // And it still committed under git afterward.
-    const head_res = try process.run(io, gpa, &.{ "git", "log", "-1", "--format=%s" }, .{ .cwd = .{ .path = vault } });
-    defer head_res.deinit(gpa);
-    try testing.expect(std.mem.startsWith(u8, std.mem.trim(u8, head_res.stdout, " \t\r\n"), "vault: "));
 }

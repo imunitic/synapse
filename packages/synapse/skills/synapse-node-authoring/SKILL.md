@@ -126,8 +126,8 @@ candidate list, not something to copy verbatim.
 Never hard-wrap. Write each paragraph as one single unbroken line and let the editor soft-wrap
 it — a newline exists only where a real break is intended (between paragraphs, list items,
 headings). This is a vault-wide rule, not specific to this node, and it is not optional: a
-hard-wrapped paragraph renders as a ragged stack of short lines in Obsidian instead of flowing
-text.
+hard-wrapped paragraph renders as a ragged stack of short lines in a soft-wrapping viewer instead of
+flowing text.
 ```
 
 Same model as the orchestrating session, no override — matches the constraint that "a

@@ -5,15 +5,12 @@ SYNAPSE_VAULT_DIR="$HOME/Vault/YourVault"
 # Unset by default: reads/writes the vault folder directly, no external
 # dependency at all -- search and the link graph
 # (backlinks/links/unresolved/orphans/deadends/ambiguous) are computed by
-# DiskStore's own scan. A comma-separated, outer-to-inner list of
-# integrations layers extra behavior on top instead: "obsidian" prefers a
-# running external app's own live search relevance and graph data, falling
-# back to the same disk-backed behavior automatically whenever that app
-# isn't reachable (see docs/synapse/synapse-extended-store.md); "git" owns
-# the vault's own git lifecycle (commit on write, push once enough pile up).
-# "git,obsidian" combines both. The disk store itself is never named -- it's
-# always the implicit innermost element.
-#SYNAPSE_VAULT_INTEGRATIONS="obsidian"
+# DiskStore's own scan. The one optional integration, "git", layers extra
+# behavior on top instead: it owns the vault's own git lifecycle (commit on
+# write, push once enough pile up) -- see
+# docs/synapse/synapse-extended-store.md. The disk store itself is never
+# named -- it's always the implicit innermost element.
+#SYNAPSE_VAULT_INTEGRATIONS="git"
 
 # Where Synapse clones/builds tree-sitter grammars (shared across every
 # project -- not per-repo). Safe to leave at the default.

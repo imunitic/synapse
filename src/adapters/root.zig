@@ -18,11 +18,6 @@ pub const fakes = @import("fakes/root.zig");
 /// hooks both call into, not one per caller.
 pub const git_sync = @import("git_sync.zig");
 
-/// Obsidian behind the Store port -- `read`/`write`/`list` are plain disk
-/// I/O, `search` and the link graph go through the official `obsidian` CLI.
-/// Links nothing, so wanting a vault doesn't imply wanting a C compiler.
-pub const obsidian = @import("obsidian/store.zig");
-
 /// Plain markdown files directly on disk behind the Store port -- no
 /// network dependency at all. The implicit innermost backend, and
 /// what an extended store's own `read`/`write`/`list` decorate.
@@ -71,7 +66,6 @@ test {
     _ = env;
     _ = fakes;
     _ = git_sync;
-    _ = obsidian;
     _ = disk_store;
     _ = git_store;
     _ = store_resolve;

@@ -42,15 +42,15 @@ to orient someone already inside. A node without one is an error, not a default.
 
 - **Filename/title:** short, senior-engineer-style description of the concept (e.g. "World —
   entity/component/resource core"). Filesystem-illegal characters (`/ : * ? " < > |`) are
-  sanitized — but **reword the title instead of relying on that**, because Obsidian resolves a
-  wikilink by *filename*, so `[[World — entity/component/resource core]]` silently resolves to
+  sanitized — but **reword the title instead of relying on that**, because a wikilink resolves
+  by *filename*, so `[[World — entity/component/resource core]]` silently resolves to
   nothing once the file becomes `...entity_component_resource core.md`. A broken wikilink is a
   valid link to a not-yet-existing note, so it fails quietly. The writer warns when a title needs
   sanitizing; treat that warning as "rename this node". Same trap when you *retitle* a node
   mid-build: inbound links already written keep pointing at the old name.
 - **`sources`:** **every** file the node covers — repo-relative path plus that file's
   `git hash-object <path>` output, run from the repo root at the moment of writing. Exhaustive,
-  not a sample: this is a **machine** field, and it is what makes Obsidian's search able to reach
+  not a sample: this is a **machine** field, and it is what makes a path-based lookup able to reach
   a node from any file it covers (searching a class name that appears in no node's prose still
   finds its node via this list). Do **not** trim it to a handful of "representative" files —
   doing so silently destroys that lookup, leaves the node unable to answer "which files am I
@@ -65,17 +65,15 @@ to orient someone already inside. A node without one is an error, not a default.
   someone through this subsystem), `crux` (the few lines that carry the actual logic — **authored
   as line numbers, stored as text**: you point, the writer slices, so composing is impossible at
   authoring time and nothing decays afterwards the way a stored line number would), `links` (typed
-  Obsidian wikilinks to other nodes in this same namespace: `depends_on`, `part_of`, `uses`, or
+  wikilinks to other nodes in this same namespace: `depends_on`, `part_of`, `uses`, or
   another type that fits better if one doesn't — for `depends_on`/`uses` specifically, `/synapse-init`
   computes candidates before any node exists via `synapse link-graph`; read that node's rows from
   `links.tsv` rather than guessing which siblings it relates to, `part_of` stays a judgement call
   with nothing mechanical behind it), a `## Sources` section, and an empty `## Notes` section.
 - **Break a "does N things" enumeration into real bullets, not inline `(1)/(2)/(3)`.** A sentence
   enumerating three or more parallel sub-points reads as a wall of text once each item carries its
-  own clause or parenthetical -- the node is read by a human skimming it in Obsidian as much as by
-  an agent (see the design note this format came from: hosting the graph as vault-readable markdown
-  was chosen specifically so it stays "just as readable by a human directly in Obsidian as it is by
-  Claude"), and a dense inline run-on defeats that. Use a markdown bullet list under the sentence
+  own clause or parenthetical -- the node is read by a human skimming it as much as by an agent,
+  and a dense inline run-on defeats that. Use a markdown bullet list under the sentence
   introducing them instead. This is narrow, not a general "prefer bullets" rule: an aside of one or
   two items, or connected causal narrative ("X, because Y, which is why Z"), stays flowing prose --
   over-bulleting ordinary narrative just trades one readability problem for another.
@@ -138,10 +136,10 @@ to orient someone already inside. A node without one is an error, not a default.
   per owning directory or module with a file count, `LC_ALL=C` sorted. A node covering 941 files
   would otherwise put 75 KB of paths in front of a reader who wants to know which modules are
   involved — and the frontmatter already carries every path for search, so the mirror doesn't
-  need to repeat them. Rewritten from `sources` on every write, never hand-edited. (Obsidian's
-  Properties panel flattens the raw `sources` field into a truncated one-line string, which is
-  why a mirror exists at all — but that is an argument for aggregating *the mirror*, not for
-  trimming the field.)
+  need to repeat them. Rewritten from `sources` on every write, never hand-edited. (A raw YAML
+  list in frontmatter renders as a flattened, truncated one-line string in typical note-viewer
+  UI, which is why a mirror exists at all — but that is an argument for aggregating *the mirror*,
+  not for trimming the field.)
 - **`## Notes` is human-authored only.** Claude never writes into it — not at build time, not at
   regeneration. It is created empty and preserved verbatim forever after.
 - **Fence the generated region.** Everything the generator owns sits between

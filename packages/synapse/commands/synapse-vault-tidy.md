@@ -29,15 +29,14 @@ of scope — foundational files, not taxonomy notes.
 ## Prerequisites
 
 Requires the `synapse` CLI on `PATH`, resolving a vault with a working `LinkGraph`
-(`synapse vault-backlinks`/`vault-links`/`vault-unresolved`/`vault-orphans`/`vault-deadends` — see
-`sb — Obsidian CLI as ObsidianStore's transport` and `sb — DiskStore's own index, Obsidian becomes
-optional`). Both real coding-vault backends have one now — `obsidian` reaching the CLI when
-reachable and falling back to `disk`'s own implementation otherwise, `disk` always local. If
-`SYNAPSE_VAULT_INTEGRATIONS` ever resolves to a backend with no `LinkGraph` at all, these commands exit 1
-saying so; stop and report that rather than falling back to anything else.
+(`synapse vault-backlinks`/`vault-links`/`vault-unresolved`/`vault-orphans`/`vault-deadends`).
+`DiskStore`, the one real backend, always has one -- case-insensitive wikilink resolution over the
+vault folder directly, no external dependency. If `SYNAPSE_VAULT_INTEGRATIONS` ever resolves to a
+backend with no `LinkGraph` at all, these commands exit 1 saying so; stop and report that rather
+than falling back to anything else.
 
 This command reaches the vault store only through the `synapse` CLI's `vault-*` subcommands, the
-same door every other skill uses — no MCP tool, no direct `ObsidianStore` call. `vault-links`/
+same door every other skill uses — no MCP tool, no direct store call. `vault-links`/
 `vault-backlinks` each answer for one note at a time, so Step 1's inventory sweep runs one pair per
 note in scope: `2N` process spawns for an `N`-note vault. Acceptable for an on-demand, rare command.
 Step 3's broken-link history check is a plain `git log` call (via Bash, not a compiled tool)
@@ -199,4 +198,4 @@ Print a short summary directly in the response, not left only in tool-call outpu
   under a `/loop` the user sets up themselves.
 - Every step above goes through the `synapse` CLI's `vault-*` subcommands, or (Step 3's broken-link
   history check only) a plain `git log` via Bash against the vault's own local repo; this command
-  never calls an `mcp__obsidian__*` tool or `ObsidianStore` directly.
+  never calls a store implementation directly.

@@ -34,7 +34,7 @@ The task note gets a `task_id` — the same short project prefix, zero-padded an
 begins: a link back to the design note, the key constraints an implementor must not miss, and any
 deliberate exclusions (with the reason each was excluded). After creation, the design note itself
 gets a one-line `> Compiled task: [[...]]` annotation — the only place the two ever cross-reference
-each other; from there, Obsidian's own backlinks panel keeps them connected.
+each other; from there, the wikilink itself (or `synapse vault-backlinks`) keeps them connected.
 
 New design and task notes declare `vault-design-note/v1` and `vault-task-note/v1` respectively.
 Both carry `project`, configured `tags`, and matching second-precision local `created`/`updated`

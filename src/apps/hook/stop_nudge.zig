@@ -8,9 +8,8 @@
 //! the start of a session matters more than mid-session drift, and
 //! mid-session freshness comes free from `GitStore`'s own pull-before-push.
 //! Backend-aware: only a `.git`-backed vault actually pulls anything, even
-//! if a stray `.git` directory happens to sit in a `disk`/`obsidian`
-//! vault's folder -- the opt-in is the backend choice, not `.git`'s mere
-//! presence.
+//! if a stray `.git` directory happens to sit in a plain `disk` vault's
+//! folder -- the opt-in is the backend choice, not `.git`'s mere presence.
 //!
 //! The nudge uses `additionalContext`, not `decision: block`, since the CLI
 //! labels the former "Stop hook feedback" rather than the alarming "Stop
@@ -101,11 +100,11 @@ fn writeCount(gpa: Allocator, io: Io, path: []const u8, value: usize) !void {
 }
 
 /// `synapse-hook vault-pull` -- spawned detached, once, at SessionStart.
-/// Backend-aware: does nothing unless `git` is one of the configured
-/// integrations -- no integrations, or `obsidian` alone, are silent no-ops
-/// here even if a stray `.git` directory happens to sit in the vault
-/// folder, since the opt-in is the configured chain, not `.git`'s mere
-/// presence. Shares `GitStore`'s own lock (a short bounded wait, same as
+/// Backend-aware: does nothing unless `git` is the configured integration --
+/// no integrations configured is a silent no-op here even if a stray `.git`
+/// directory happens to sit in the vault folder, since the opt-in is the
+/// configured chain, not `.git`'s mere presence. Shares `GitStore`'s own
+/// lock (a short bounded wait, same as
 /// the Pusher), so the rare case of a session starting the same instant a
 /// write's commit or a Pusher is mid-flight just skips this round rather
 /// than racing it.

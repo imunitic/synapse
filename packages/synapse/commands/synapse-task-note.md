@@ -26,7 +26,7 @@ Use those instead of reinventing a parallel view.
 
 ## Prerequisites
 
-- Requires a matching Obsidian design note (`designs/`) with `Status: Ready`.
+- Requires a matching design note (`designs/`) with `Status: Ready`.
 - No matching note → "No Ready design note found for '{topic}'. Run
   `/synapse-design-note \"{topic}\"` first." Never generate a checklist from scratch.
 - Matching note but `Status: Discussing` → "Design note for '{topic}' is still in Discussing. Finish
@@ -99,8 +99,8 @@ printf '> Compiled task: [[%s]]\n\n' "{task note title}" | \
 
 A small annotation line, same idea as any other cross-reference you'd drop near a note's title. This
 is a one-time link; the design note's `Status` itself does not change and does not need to track the
-task's progress — Obsidian's own backlinks panel (or a plain `synapse vault-search-text` for the task
-note's title, on a disk-backed vault) already surfaces the live task note from the design note, and
+task's progress — a plain `synapse vault-search-text` for the task
+note's title already surfaces the live task note from the design note, and
 the task's `status:` frontmatter is the authoritative progress signal from here on.
 
 ## Confirm

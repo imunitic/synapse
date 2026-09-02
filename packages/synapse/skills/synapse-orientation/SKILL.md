@@ -116,8 +116,8 @@ script fetched from a notes vault. Begin any re-run by reading it, and improve i
 re-deriving from scratch. Nothing like it ships, because which aggregations carry signal depends
 on the codebase — a distributed one would encode the wrong ecosystem's conventions.
 
-`.txt`, with markdown formatting inside, for a measured reason: Obsidian indexes `.md` files as
-notes, so a `_profile.md` turns up in search, Quick Switcher and the graph, where it is pure noise
+`.txt`, with markdown formatting inside, for a measured reason: a vault viewer indexes `.md` files
+as notes, so a `_profile.md` would turn up in search and note-browsing UI, where it is pure noise
 to a human reading notes. A non-`.md` extension is invisible to all of those and still perfectly
 readable. Note the `_` prefix does *nothing* mechanically — it is only a hint to a human who sees
 the file, matching `_manifest.tsv`. Record **negative results** here too ("this abbreviation has no

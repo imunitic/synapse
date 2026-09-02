@@ -166,11 +166,11 @@ pub fn run(
 /// an error.
 ///
 /// Streams the file a line at a time (`core.query.fieldStreaming`) instead of
-/// going through `Store.read` -- both backends' reads are plain disk I/O
+/// going through `Store.read` -- every backend's reads are plain disk I/O
 /// against the same `{vault}/{path}` join (`DiskStore.namespace`'s doc
-/// comment; `store_resolve.zig` confirms it for `.obsidian` too), so there's
-/// no abstraction to lose by reading the file directly for a lookup that
-/// wants to stop early. `env` stays in the signature for symmetry with `set`,
+/// comment), so there's no abstraction to lose by reading the file directly
+/// for a lookup that wants to stop early. `env` stays in the signature for
+/// symmetry with `set`,
 /// which still needs a real `Store.write` for an extended store's own
 /// consistency -- see `write_node_cmd.zig`'s own doc comment for why writes
 /// don't get the same shortcut.

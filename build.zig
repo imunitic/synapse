@@ -285,10 +285,9 @@ pub fn build(b: *std.Build) void {
     // tests and the installed copy all do anyway.
 
     // Zig tests cover internals -- format round-trips, binary search, scoring
-    // -- plus a `*_cmd.zig`'s own assembly logic where a real `Context` and
-    // a real Obsidian PUT are reachable without a real git repo or network
-    // call (`cmd_test_support.zig`'s fixture, reusing the bats suite's own
-    // `tests/fixtures/fake-bin/curl`). The CLI contract itself -- argument
+    // -- plus a `*_cmd.zig`'s own assembly logic where a real `Context` and a
+    // real `Store` are reachable without a real git repo or network call
+    // (`cmd_test_support.zig`'s fixture). The CLI contract itself -- argument
     // parsing, exit codes, real git/process integration -- stays
     // tests/*.bats: if an assertion can be written against stdout or an exit
     // code with no `*_cmd.zig` logic behind it, duplicating it here would

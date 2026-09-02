@@ -1,25 +1,24 @@
 ---
-title: Synapse Extended Store — decorator with a runtime fallback
+title: Synapse Extended Store — a decorator over DiskStore
 ---
 flowchart TB
     classDef caller fill:#d0ebff,stroke:#1971c2,color:#1e1e1e
     classDef decorator fill:#e5dbff,stroke:#6741d9,color:#1e1e1e
-    classDef live fill:#ffd8a8,stroke:#e8590c,color:#1e1e1e
     classDef disk fill:#d3f9d8,stroke:#2f9e44,color:#1e1e1e
 
     CALLER["a caller over ports.Store<br/>(CLI, skill, hook)"]
-    EXT["extended store<br/>e.g. ObsidianStore"]
+    EXT["extended store<br/>e.g. GitStore"]
     VALIDATE["SchemaValidationStore<br/>mandatory write boundary"]
+    DISK["DiskStore<br/>plain disk I/O, search,<br/>link graph, rename"]
 
     CALLER -->|"read / write / list"| EXT
-    EXT -->|"delegate"| VALIDATE
-    VALIDATE -->|"accepted / pass-through"| DISK1["DiskStore<br/>plain disk I/O"]
-    CALLER -->|"search / link graph / rename"| EXT
-
-    EXT -->|"app reachable"| LIVE["the live app's own<br/>search + graph data"]
-    EXT -->|"error.VaultUnreachable"| DISK2["DiskStore's own<br/>ranked search + link graph"]
+    EXT -->|"write: commit under a<br/>shared lock, then delegate"| VALIDATE
+    VALIDATE -->|"accepted / pass-through"| DISK
+    CALLER -->|"search / link graph"| EXT
+    EXT -->|"pass straight through"| DISK
+    CALLER -->|"rename"| EXT
+    EXT -->|"commit under the same<br/>lock, then delegate"| DISK
 
     class CALLER caller
     class EXT,VALIDATE decorator
-    class LIVE live
-    class DISK1,DISK2 disk
+    class DISK disk

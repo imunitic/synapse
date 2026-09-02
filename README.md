@@ -10,8 +10,8 @@ you can use one without the others:
   decisions, project logs, design discussions. Cross-project by default. Synapse reads and writes it
   directly, with mandatory validation for notes that declare a shipped v1 schema and real
   search/graph/rename of its own — no extended store required (see
-  [Obsidian extended store](docs/synapse/synapse-extended-store.md) for the optional live-app layer
-  on top).
+  [extended store](docs/synapse/synapse-extended-store.md) for the optional `git`-owned version
+  control on top).
 - **Synapse Graph** — a per-repo semantic code graph, hosted *inside* the Vault under
   `synapse/{repo}@{branch}/`, so it is stored and searched like any other note. Dormant until
   `/synapse-init` is run in a repo. Underneath it is the **Code Cache** — tags, refs and call
@@ -21,7 +21,7 @@ you can use one without the others:
 - **Synapse Tools** — the scripts, commands, skills and hooks that build and maintain both.
 
 This repository packages the **Tools**, plus the templates and config they need. It does not contain
-your notes: the Vault's content is a separate sync concern (git, Obsidian Sync, iCloud, manual copy —
+your notes: the Vault's content is a separate sync concern (git, iCloud, Dropbox, manual copy —
 your call).
 
 ## New machine setup
@@ -73,9 +73,8 @@ Markdown — nothing else installed anywhere.
    speaks: a namespace whose recorded remote no longer matches, a hook registered twice (which makes
    it fire twice).
 
-Preferring live search relevance and graph data from a running app over `DiskStore`'s own real
-(not stub) equivalents is optional — see
-[Obsidian extended store](docs/synapse/synapse-extended-store.md).
+Giving the vault its own git lifecycle — commit on every write, push/pull in the background — is
+optional too; see [extended store](docs/synapse/synapse-extended-store.md).
 
 **Using it:** the human-facing entry points are `/synapse-init`, `/synapse-rebuild-diff`, and
 `/synapse-rebuild-full` — `/synapse-init` builds a repo's first Graph namespace,
@@ -137,14 +136,15 @@ broken install; it's idempotent and safe to run repeatedly.
   orient in an unfamiliar tree, and vault-editing rules (pull-only apart from `Index.md`), each shared
   across multiple components rather than owned by one.
 
-## Obsidian extended store
+## Extended store
 
 `DiskStore` — the default backend above — already has real search, link graph, and rename of its
-own. An **extended store** is an optional decorator over it that hands `search`/link-graph/rename off
-to a running external app's live capabilities instead, falling back to `DiskStore`'s own
-implementation automatically whenever that app isn't reachable. Obsidian is the only one shipped
-today. See [`docs/synapse/synapse-extended-store.md`](docs/synapse/synapse-extended-store.md) for
-setup and what other extended stores would look like.
+own. An **extended store** is an optional decorator over it that layers its own behavior around the
+operations it actually cares about, leaving the rest as plain delegation. `git` is the only one
+shipped today: it owns the vault's own version control, committing on every write and pushing/
+pulling in the background. See
+[`docs/synapse/synapse-extended-store.md`](docs/synapse/synapse-extended-store.md) for setup and
+what other extended stores would look like.
 
 ## Synapse Graph — the per-repo code graph
 
@@ -225,10 +225,8 @@ For using it day to day: npm itself (the compiled binaries ship as ordinary per-
 optionalDependencies, `npm install` fetches and verifies them the same way it does any other
 package, no separate fetch script or `tar` step involved) and whichever harness's own CLI (`claude`,
 `codex`, or `opencode`). The default backend (no `SYNAPSE_VAULT_INTEGRATIONS`, or unset) needs nothing
-else at all. An [extended store](docs/synapse/synapse-extended-store.md) adds its own optional
-dependency — never
-a hard requirement, since every capability it covers falls back to `disk`'s own implementation
-automatically when the external app isn't reachable. Node itself is assumed, the same way
+else at all. Opting into the [`git` extended store](docs/synapse/synapse-extended-store.md) needs
+`git` on `PATH` — never a hard requirement, since it's opt-in. Node itself is assumed, the same way
 it already is for every harness here — `synapse-setup` and the shipped hooks
 (`resolve-binaries.cjs`) run on it directly, no `jq` of its own. Nothing to build, nothing to
 install by hand — see "New machine setup".

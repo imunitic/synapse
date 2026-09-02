@@ -3,8 +3,8 @@
 #
 # Every test gets an isolated $HOME (so hooks/setup.sh never touch the
 # real ~/.claude) plus a scratch git repo and a scratch "vault" directory
-# standing in for the Obsidian vault. Nothing here touches real Obsidian,
-# real git remotes, or the network.
+# standing in for the Synapse Vault. Nothing here touches real git remotes
+# or the network.
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FAKE_BIN="$REPO_ROOT/tests/fixtures/fake-bin"

@@ -1,7 +1,6 @@
-//! `GitStore`: a decorator around `DiskStore`, same idea as `ObsidianStore`
-//! but for the vault's own version control instead of a live app. `read`/
-//! `list`/`linkGraph`/`searchFiltered` are pure delegations -- nothing
-//! about git changes what those answer. `write` and `renamer` are the two
+//! `GitStore`: a decorator around `DiskStore`, owning the vault's own
+//! version control. `read`/`list`/`linkGraph` are pure delegations --
+//! nothing about git changes what those answer. `write` and `renamer` are the two
 //! real differences: both mutate the vault, so both own the vault's git
 //! lifecycle themselves (init a repo on first write, commit under a shared
 //! lock, push once enough commits pile up) rather than a separate mechanism
@@ -52,15 +51,14 @@ pub const GitStore = struct {
     /// commit, the Pusher) operate on this path directly via subprocesses,
     /// never through `inner` at all.
     vault: []const u8,
-    /// What `read`/`write`/`list`/`search` actually delegate to -- `DiskStore`
-    /// for a plain `git` chain, or another integration's own store for a
-    /// longer one (`git,obsidian` composes `ObsidianStore` here).
+    /// What `read`/`write`/`list`/`search` actually delegate to -- `DiskStore`,
+    /// since `git` is the only configurable integration today; a future one
+    /// composed inside it would take this same slot.
     inner: Store,
     /// Never overridden by `GitStore` -- committing has nothing to add to
     /// the link graph, so this is exactly whatever `inner` resolved to.
     inner_link_graph: LinkGraph,
     rename_impl: GitRenamer,
-    inner_search_filtered: ports.SearchFiltered,
     /// Set by `resolveStore` the same way `DiskStore.vars` already is --
     /// needed here only to read `SYNAPSE_VAULT_PUSH_EVERY`. `null` (the
     /// default for a caller with no environment, e.g. a test) disables the
@@ -74,18 +72,17 @@ pub const GitStore = struct {
     self_path: []const u8 = "",
 
     /// Every dependency named explicitly -- `gpa`/`vault` for `GitStore`'s
-    /// own git mechanics, `inner`/`inner_link_graph`/`inner_renamer`/
-    /// `inner_search_filtered` for whatever it's composing. Never derives
-    /// any of these from `inner` itself: relying on the thing you wrap to
-    /// also hand you your own dependencies doesn't hold once `inner` is
-    /// generic rather than always a concrete `DiskStore`.
+    /// own git mechanics, `inner`/`inner_link_graph`/`inner_renamer` for
+    /// whatever it's composing. Never derives any of these from `inner`
+    /// itself: relying on the thing you wrap to also hand you your own
+    /// dependencies doesn't hold once `inner` is generic rather than always
+    /// a concrete `DiskStore`.
     pub fn init(
         gpa: Allocator,
         vault: []const u8,
         inner: Store,
         inner_link_graph: LinkGraph,
         inner_renamer: Renamer,
-        inner_search_filtered: ports.SearchFiltered,
     ) GitStore {
         return .{
             .gpa = gpa,
@@ -93,7 +90,6 @@ pub const GitStore = struct {
             .inner = inner,
             .inner_link_graph = inner_link_graph,
             .rename_impl = .{ .vault = vault, .inner = inner_renamer },
-            .inner_search_filtered = inner_search_filtered,
         };
     }
 
@@ -109,15 +105,6 @@ pub const GitStore = struct {
     /// it needs its own commit -- see `GitRenamer` below.
     pub fn renamer(self: *GitStore) Renamer {
         return self.rename_impl.renamer();
-    }
-    pub fn searchFiltered(
-        self: *GitStore,
-        gpa: Allocator,
-        io: Io,
-        query: []const u8,
-        path_filter: ?std.json.Value,
-    ) anyerror![]const Store.Hit {
-        return self.inner_search_filtered.searchFiltered(gpa, io, query, path_filter);
     }
 
     pub fn read(self: *GitStore, gpa: Allocator, io: Io, node: []const u8) anyerror!?[]u8 {
@@ -198,10 +185,8 @@ pub fn runPusher(gpa: Allocator, io: Io, vault: []const u8) void {
 }
 
 /// Delegates the actual rewrite/move mechanics to whatever `inner` resolved
-/// to -- `DiskRenamer` for a plain `git` chain, `ObsidianRenamer` for
-/// `git,obsidian` -- an explicit dependency, never hardcoded: a rename under
-/// `git,obsidian` has to go through Obsidian's own rename mechanism, not
-/// silently bypass it with a raw file move underneath. Then commits under
+/// to -- `DiskRenamer` today, since `git` is the only integration composed
+/// over it -- an explicit dependency, never hardcoded. Then commits under
 /// the same lock-or-skip discipline `write()` uses. No push-threshold check
 /// here -- a rename that lands between two `write()` calls still gets
 /// pushed once either side's own commit count crosses the threshold;
@@ -266,7 +251,7 @@ const TestFixture = struct {
 fn initGitStore(gpa: Allocator, vault: []const u8, namespace: []const u8) !TestFixture {
     const disk = try gpa.create(DiskStore);
     disk.* = try DiskStore.init(gpa, vault, namespace);
-    const git = GitStore.init(gpa, vault, disk.store(), disk.linkGraph(), disk.renamer(), ports.SearchFiltered.from(DiskStore, disk));
+    const git = GitStore.init(gpa, vault, disk.store(), disk.linkGraph(), disk.renamer());
     return .{ .disk = disk, .git = git };
 }
 
@@ -340,7 +325,7 @@ test "a write that loses the lock race still lands on disk with no commit" {
     try testing.expectEqual(@as(usize, 2), try commitCount(gpa, vault));
 }
 
-test "linkGraph and searchFiltered pass straight through to the resolved inner" {
+test "linkGraph passes straight through to the resolved inner" {
     const gpa = testing.allocator;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -349,24 +334,6 @@ test "linkGraph and searchFiltered pass straight through to the resolved inner" 
 
     var fx = try initGitStore(gpa, vault, "");
     defer fx.deinit();
-    var store = fx.git.store();
-    _ = try store.write(testing.io, "designs/x.md", "widget prose\n");
-    _ = try store.write(testing.io, "tasks/y.md", "widget prose too\n");
-
-    var filter = try std.json.parseFromSlice(std.json.Value, gpa,
-        \\{"glob": ["designs/*", {"var": "path"}]}
-    , .{});
-    defer filter.deinit();
-    const hits = try fx.git.searchFiltered(gpa, testing.io, "widget", filter.value);
-    defer {
-        for (hits) |h| {
-            gpa.free(h.node);
-            gpa.free(h.context);
-        }
-        gpa.free(hits);
-    }
-    try testing.expectEqual(@as(usize, 1), hits.len);
-    try testing.expectEqualStrings("designs/x.md", hits[0].node);
 
     _ = fx.git.linkGraph();
 }

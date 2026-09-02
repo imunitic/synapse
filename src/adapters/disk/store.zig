@@ -660,9 +660,7 @@ pub fn titleOf(path: []const u8) []const u8 {
 /// that had already diverged from the title before the rename is left
 /// alone, not force-rewritten. A note with no frontmatter block at all
 /// (`error.NoFrontmatter`) has no `title:` to sync and passes through
-/// unchanged on that half. Shared by `DiskRenamer` and `ObsidianRenamer`,
-/// since the obsidian CLI's own rename has no concept of this convention
-/// either.
+/// unchanged on that half. Used by `DiskRenamer`.
 pub fn syncTitleAndHeading(gpa: Allocator, body: []const u8, old_title: []const u8, new_title: []const u8) ![]u8 {
     const with_title = core.frontmatter.set(gpa, body, "title", .{ .scalar = new_title }) catch |err| switch (err) {
         error.NoFrontmatter => try gpa.dupe(u8, body),
@@ -888,9 +886,9 @@ fn groupByTarget(gpa: Allocator, edges: []const Edge) ![]const LinkGraph.Unresol
 /// Names are returned with `/` separators, relative to the listed root --
 /// the same shape a namespace-scoped `node` name already has, just now
 /// possibly with path segments in it. Any path component starting with `.`
-/// (`.git`, `.obsidian`) is skipped -- vault tooling directories, never
-/// content. A namespace directory that doesn't exist yet lists as empty,
-/// not an error, matching `read`'s own "absence is ordinary" rule.
+/// (`.git` and the like) is skipped -- tooling directories, never content.
+/// A namespace directory that doesn't exist yet lists as empty, not an
+/// error, matching `read`'s own "absence is ordinary" rule.
 pub fn listMarkdownFiles(gpa: Allocator, io: Io, root: []const u8, namespace: []const u8) anyerror![]const []const u8 {
     const dir_path = if (namespace.len == 0)
         try gpa.dupe(u8, root)
@@ -1070,7 +1068,7 @@ test "list walks nested subdirectories, not just the top level" {
     try testing.expect(saw_task);
 }
 
-test "list skips dot-prefixed directories like .obsidian and .git" {
+test "list skips dot-prefixed directories like .git" {
     const gpa = testing.allocator;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -1081,7 +1079,7 @@ test "list skips dot-prefixed directories like .obsidian and .git" {
     defer s.deinit();
     const port = s.store();
     _ = try port.write(testing.io, "designs/x.md", "real content\n");
-    _ = try port.write(testing.io, ".obsidian/plugins/foo/data.md", "not vault content\n");
+    _ = try port.write(testing.io, ".config/plugins/foo/data.md", "not vault content\n");
 
     const names = try port.list(gpa, testing.io);
     defer {

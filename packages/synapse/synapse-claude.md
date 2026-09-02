@@ -100,27 +100,20 @@ a real yes/no answer, not a formality to wave past.
 The vault is reached through the `synapse` CLI — `synapse vault-read`/`vault-write`/`vault-list`/
 `vault-search`/`vault-search-text`/`vault-doc-map`/`vault-patch`/`vault-backlinks`/`vault-links`/
 `vault-unresolved`/`vault-orphans`/`vault-deadends`/`vault-ambiguous`/`vault-rename` — for reads
-*and* for writes, never by resolving a vault path or calling an `mcp__obsidian__*` tool directly.
-Which concrete store the CLI talks to (`SYNAPSE_VAULT_INTEGRATIONS unset`, the default; `obsidian`, opted
-into for a running Obsidian app's own live search relevance and graph data; or `git`, opted into for
-the vault to own its own version control -- commit on every write, push/pull in the background) is
-resolved once,
-inside the compiled binary, from `SYNAPSE_VAULT_INTEGRATIONS`/`SYNAPSE_VAULT_DIR` — never something a skill
-or an agent turn needs to know or branch on. By default that means no Obsidian dependency
-whatsoever: `read`/`write`/`list`/`search`/the link graph/rename are all plain disk I/O and direct
-computation against the vault folder. Under the opted-in `obsidian` backend, `search`/the link
-graph/rename go through Obsidian's own CLI over its local socket instead when Obsidian is running,
-falling back to the same disk-backed behavior automatically and silently (a one-line stderr note,
-nothing an agent turn needs to react to) whenever it isn't — no precondition to check or fail on
-either way.
+*and* for writes, never by resolving a vault path and reading or writing the note file directly.
+Which concrete store the CLI talks to (`SYNAPSE_VAULT_INTEGRATIONS unset`, the default; or `git`,
+opted into for the vault to own its own version control -- commit on every write, push/pull in the
+background) is resolved once, inside the compiled binary, from `SYNAPSE_VAULT_INTEGRATIONS`/
+`SYNAPSE_VAULT_DIR` — never something a skill or an agent turn needs to know or branch on. `read`/
+`write`/`list`/`search`/the link graph/rename are all plain disk I/O and direct computation against
+the vault folder, in every configuration.
 
 **Every write to a note goes through `synapse vault-write` or `vault-patch`. Never the `Write`/`Edit`
-tools on the on-disk path, and never a raw `mcp__obsidian__*` tool call either** — not for a one-line
-change, and least of all when `Write`/`Edit` are already in hand from editing code earlier in the
-same turn, because that proximity is precisely what causes this to be violated. The vault being an
-ordinary directory means the wrong path *works*: Obsidian's file watcher converges, the auto-commit
-hook matches `Write|Edit`/`Bash` running `vault-write`/`vault-patch`, and nothing visibly breaks —
-which is why the habit never self-corrects on its own. The reason is not a
+tools on the on-disk path** — not for a one-line change, and least of all when `Write`/`Edit` are
+already in hand from editing code earlier in the same turn, because that proximity is precisely
+what causes this to be violated. The vault being an ordinary directory means the wrong path
+*works*: the auto-commit hook matches `Write|Edit`/`Bash` running `vault-write`/`vault-patch`, and
+nothing visibly breaks — which is why the habit never self-corrects on its own. The reason is not a
 failure mode to dodge; it is that an invariant upheld only when convenient is worth nothing. Nothing
 else in the system can rely on it, and every note then has to be re-checked by hand instead of
 trusted. Synapse's own tooling holds this line — `synapse write-node` goes through the same `Store`
@@ -129,19 +122,18 @@ differ. If the CLI itself ever fails (not installed, no vault configured), that'
 failure to report and stop on, never a reason to fall back to a raw file edit.
 
 Every shipped command and skill, `/synapse-vault-tidy` included, reaches the vault only through
-the `synapse` CLI's `vault-*` subcommands — none of them calls an `mcp__obsidian__*` tool.
+the `synapse` CLI's `vault-*` subcommands — none of them writes to the vault folder directly.
 
 - You may create and edit notes in this vault **without asking for
   permission first**, as long as each note is placed in the folder
   matching its category per `Index.md`.
-- Filenames are human-readable titles (not timestamp-prefixed — Obsidian's
-  sidebar/graph display the filename directly, so a timestamp prefix reads
-  poorly there). Sanitize filesystem-illegal characters (`/ : * ? " < > |`)
+- Filenames are human-readable titles (not timestamp-prefixed — the filename is the display title,
+  so a timestamp prefix reads poorly). Sanitize filesystem-illegal characters (`/ : * ? " < > |`)
   but otherwise keep the title as-is.
 - Frontmatter carries what the filename no longer does: `title`, `created`
   (real timestamp at creation time), and for task notes `task_id` /
   `status` (`TODO`/`IN-PROGRESS`/`REVIEW`/`DONE`/`CANCELED`).
-- Link with Obsidian wikilinks: `[[filename]]` or `[[filename|display
+- Link with wikilinks: `[[filename]]` or `[[filename|display
   text]]` (no extension, exact filename minus `.md`).
 - **Never hard-wrap note bodies. A newline exists if and only if a break is
   intended in the output** — source line structure mirrors the output's block
@@ -156,16 +148,16 @@ the `synapse` CLI's `vault-*` subcommands — none of them calls an `mcp__obsidi
   makes the text **renderer-independent**: if a newline never appears where
   no break is wanted, then "does a single newline render as `<br>` or as a
   space?" never arises, and strict CommonMark, non-strict CommonMark,
-  Obsidian, pandoc and GitHub all produce the same result — the ambiguous
+  pandoc and GitHub all produce the same result — the ambiguous
   input case is simply gone. This is HTML's content model applied to plain
   text: a newline is markup meaning "break here", not cosmetic formatting of
   the source file.
 
   It also keeps **line length a view decision rather than a content one**.
   Hard-wrapping is the author asserting a measure, baking one viewport into
-  the text; unwrapped, the same bytes are correct at every width — Obsidian's
-  "Readable line length" on or off, a narrow split pane, a wide monitor,
-  mobile, print. Hard-wrapped prose fails both ways and is unfixable at read
+  the text; unwrapped, the same bytes are correct at every width — any
+  reader's readable-line-length setting on or off, a narrow split pane, a
+  wide monitor, mobile, print. Hard-wrapped prose fails both ways and is unfixable at read
   time: at 80 columns it double-wraps raggedly in a narrow pane, and sits as a
   fixed narrow ribbon in a wide one. Wanting a ~66-character measure is right
   (it's a real typographic optimum, which is why that setting exists) — put it

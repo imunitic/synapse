@@ -210,7 +210,7 @@ gate flag is advice about a clustering rather than a verdict on one.
   `lists/`, authored node bodies, coverage files). Persistent, so a later run finds
   the previous clustering. Deliberately *not* the repo — these scripts run from inside the repo, so a
   `$PWD` default would drop megabytes of working files into a user's checkout — and *not* the vault,
-  which would put a six-figure-line file list into Obsidian's search index.
+  which would put a six-figure-line file list into a vault viewer's search index.
 - **`synapse/{repo}@{branch}/_manifest.tsv`** — the clustering, copied into the vault because it is inert
   data describing the graph, and a second machine should be able to extend the namespace without
   re-deriving it.
@@ -222,10 +222,10 @@ gate flag is advice about a clustering rather than a verdict on one.
   The knowledge worth keeping was never the bash — it was which aggregation to run and what it showed.
 
 Two conventions in those names, and only one of them does anything. The **extension** is load-bearing:
-Obsidian indexes `.md` as notes, so anything ending `.md` shows up in search, Quick Switcher and the
-graph, while a `.txt`/`.tsv`/`.json` sibling is invisible to all three and still fully readable by the
+a vault viewer indexes `.md` as notes, so anything ending `.md` shows up in search and note-browsing
+UI, while a `.txt`/`.tsv`/`.json` sibling is invisible to all of that and still fully readable by the
 tooling. The **`_` prefix does
-nothing mechanically** — Obsidian has no notion of it; it is purely a signal to a human who sees the
+nothing mechanically** — it is purely a signal to a human who sees the
 file in the explorer that nothing here is hand-edited. Dotfiles would hide these from the file
 explorer too, but that hides them from *you* as well, and some sync tools skip them — a poor trade for
 a file whose whole purpose is surviving to another machine.
@@ -249,8 +249,8 @@ Worth stating plainly, because conflating the two produces a real bug — trimmi
   into a file → node lookup: searching a class name that appears in no node's prose still finds the
   owning node, because the path is in that list. Trimming it silently destroys that lookup, leaves a
   node unable to answer "which files am I about", and reduces verification to whatever survived the
-  trim. Its unreadability in Obsidian's Properties panel is not a reason to trim it — that is what
-  the mirror is for.
+  trim. Its unreadability as a raw flattened frontmatter list in a viewer's UI is not a reason to
+  trim it — that is what the mirror is for.
 - **`## Sources` is aggregated, not enumerated**: one line per owning directory/module with a file
   count. A node covering 941 files would otherwise put 75 KB of paths in front of a reader who wants
   to know which modules are involved. The aggregation key (`module_of()` in `synapse query`,
@@ -378,7 +378,7 @@ When both checks have something to say about the same edit, they're merged into 
 ### Relations between nodes, derived rather than stored
 
 A node's `## Links` section records typed relations — `- depends_on [[Other Node]]`, `uses`, `part_of`.
-Obsidian's own link graph is untyped: it knows Alpha links to Beta, not *why*, because the relation word
+A plain wikilink graph is untyped: it knows Alpha links to Beta, not *why*, because the relation word
 is prose on the line. So `synapse query links` derives the typed graph from the node files:
 
     links <node>              outbound, relation<TAB>target
@@ -393,7 +393,7 @@ once stale, in exchange for a saving of nothing. Caching earns its keep when der
 this is the case where it does not.
 
 `--check` is the one that pays for itself. A broken `[[wikilink]]` is a valid link to a not-yet-existing
-note, so Obsidian renders it without complaint and no other check notices — it used to be a manual
+note, silently, and no other check notices — it used to be a manual
 instruction in `/synapse-rebuild-diff` and is now a command.
 
 The API can answer the single-hop question exactly, with `{"in": ["depends_on [[Target]]", {"var":

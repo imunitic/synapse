@@ -8,8 +8,8 @@ matches what you're trying to understand.
   layout, and the hooks and store behaviors that keep it alive across sessions (`SessionStart`
   injection, the `Stop` nudge, and the `git` integration's auto-commit).
 - **[synapse-extended-store.md](synapse-extended-store.md)** — the optional decorator layer over
-  `DiskStore` (Obsidian today, the only one shipped) that hands `search`/link-graph/rename off to a
-  live external app, falling back to `DiskStore`'s own implementation automatically.
+  `DiskStore` (`git`, the only one shipped, layering its own commit/push lifecycle over `write`/
+  `renamer` while everything else passes straight through).
 - **[synapse-graph.md](synapse-graph.md)** — **Synapse Graph**: the per-repo semantic code graph. The
   two-tier staleness model, `/synapse-init`, the `synapse-node` Tier 2 skill, `synapse query` (projected
   reads, so a node's exhaustive `sources` never enters a context window), the unfabricable `crux`,
@@ -28,7 +28,7 @@ matches what you're trying to understand.
 - **[synapse-code-cache.md](synapse-code-cache.md)** — **Synapse Code Cache**: the vault-free
   acceleration layer underneath the Graph. Build path (`synapse tags` → `synapse tags-cache` →
   `synapse build-refs`) and query path (`symbol`, `synapse callers`), what each costs measured,
-  and how much of the whole system turns out not to need Obsidian at all.
+  and how much of the whole system turns out to need no vault or network dependency at all.
 - **[cli.md](cli.md)** — reference for every subcommand of `synapse` and every hook of
   `synapse-hook`: usage, arguments and exit codes. **Generated**, by
   `generate-cli-reference.sh`, from what the binaries print for `--help` — so it cannot
@@ -41,7 +41,7 @@ matches what you're trying to understand.
   the move, because the source is now the exact bytes a user sees rather than a comment
   that had to match them.
 - **[synapse-config.md](synapse-config.md)** — every conf file under `~/.claude/` and every
-  `SYNAPSE_*`/`OBSIDIAN_*` environment variable, in one place. Hand-maintained, unlike `cli.md` —
+  `SYNAPSE_*` environment variable, in one place. Hand-maintained, unlike `cli.md` —
   env vars have no single declaration site to generate a reference from.
 
 Diagrams live in [diagrams/](diagrams/). Each one is a Mermaid source file (`.mmd`) plus a rendered

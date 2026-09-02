@@ -30,14 +30,14 @@ there is no argument to parse, every run produces the same one-pass sweep.
 ## Prerequisites
 
 Requires the `synapse` CLI on `PATH`, resolving a vault with a working link graph
-(`synapse vault-backlinks`/`vault-links`/`vault-unresolved`/`vault-orphans`/`vault-deadends`). Both
-real coding-vault backends have one — `disk` (the default) always local, `obsidian` reaching a
-running app when reachable and falling back to `disk`'s own implementation otherwise. If
-`SYNAPSE_VAULT_INTEGRATIONS` ever resolves to a backend with no link graph at all, these commands exit 1
-saying so; stop and report that rather than falling back to anything else.
+(`synapse vault-backlinks`/`vault-links`/`vault-unresolved`/`vault-orphans`/`vault-deadends`).
+`disk`, the one real backend, always has one -- case-insensitive wikilink resolution over the vault
+folder directly, no external dependency. If `SYNAPSE_VAULT_INTEGRATIONS` ever resolves to a backend
+with no link graph at all, these commands exit 1 saying so; stop and report that rather than
+falling back to anything else.
 
 This skill reaches the vault store only through the `synapse` CLI's `vault-*` subcommands, the same
-door every other skill uses — no MCP tool, no direct `ObsidianStore` call. `vault-links`/
+door every other skill uses — no MCP tool, no direct store call. `vault-links`/
 `vault-backlinks` each answer for one note at a time, so Step 1's inventory sweep runs one pair per
 note in scope: `2N` process spawns for an `N`-note vault. Acceptable for an on-demand, rare command.
 Step 3's broken-link history check is a plain `git log` call (via the shell, not a compiled tool)
@@ -198,4 +198,4 @@ Print a short summary directly in the response, not left only in tool-call outpu
   asked, or on a recurring cadence the user sets up themselves.
 - Every step above goes through the `synapse` CLI's `vault-*` subcommands, or (Step 3's broken-link
   history check only) a plain `git log` via the shell against the vault's own local repo; this skill
-  never calls an `mcp__obsidian__*` tool or `ObsidianStore` directly.
+  never calls a store implementation directly.

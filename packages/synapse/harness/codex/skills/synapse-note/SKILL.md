@@ -139,7 +139,7 @@ offered.
 
 Resolve this to a `category` matching the folder name exactly as
 the index note currently spells it, before moving on to the creation steps
-below. No project-slug question is needed here — Obsidian filenames are
+below. No project-slug question is needed here — vault filenames are
 the title itself, not a slug-prefixed timestamp, so there's no separate
 namespacing concern to resolve. The note always lands flat at
 `{category}/{filename}.md` — never inferred into a subfolder such as a

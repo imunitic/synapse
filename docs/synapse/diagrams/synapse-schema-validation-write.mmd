@@ -1,0 +1,32 @@
+---
+title: SchemaValidationStore.write — the mandatory boundary
+---
+flowchart TD
+    START(["write(node, body)"]) --> HASSCHEMA{"body declares<br/>frontmatter.schema?"}
+    HASSCHEMA -->|"no, and none existed before"| PASS["pass straight through --<br/>a legacy note"]
+    HASSCHEMA -->|"no, but one existed before"| REJECT1["reject: schema cannot<br/>be removed from a note"]
+    HASSCHEMA -->|"yes"| MODE["classify: create / update / migration<br/>(existing note's schema id, if any, vs. this one)"]
+    MODE --> REFRESH["refresh frontmatter.updated<br/>to now, before validation"]
+    REFRESH --> LOADSCHEMA{"schema document<br/>resolves and parses?"}
+    LOADSCHEMA -->|"no"| REJECT2["reject: named error"]
+    LOADSCHEMA -->|"yes"| DUP{"create/migration:<br/>duplicate identity<br/>elsewhere in the vault?"}
+    DUP -->|"yes"| REJECT3["reject: duplicate identity"]
+    DUP -->|"no / not checked on update"| VALIDATE{"candidate validates:<br/>required fields, filename/<br/>title/H1 equality, vocab,<br/>immutable fields?"}
+    VALIDATE -->|"no"| REJECT4["reject: 422, validation message"]
+    VALIDATE -->|"yes"| INNER["delegate to inner.write()<br/>(DiskStore)"]
+
+    PASS --> DONE(["accepted"])
+    INNER --> DONE
+    REJECT1 --> DONE2(["rejected -- inner.write<br/>never called"])
+    REJECT2 --> DONE2
+    REJECT3 --> DONE2
+    REJECT4 --> DONE2
+
+    classDef decision fill:#fff3bf,stroke:#e8590c,color:#1e1e1e
+    classDef action fill:#e5dbff,stroke:#6741d9,color:#1e1e1e
+    classDef reject fill:#ffc9c9,stroke:#c92a2a,color:#1e1e1e
+    classDef terminal fill:#d3f9d8,stroke:#2f9e44,color:#1e1e1e
+    class HASSCHEMA,LOADSCHEMA,DUP,VALIDATE decision
+    class MODE,REFRESH,PASS,INNER action
+    class REJECT1,REJECT2,REJECT3,REJECT4 reject
+    class START,DONE,DONE2 terminal

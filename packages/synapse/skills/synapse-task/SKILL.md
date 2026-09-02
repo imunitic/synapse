@@ -73,9 +73,9 @@ into `status:` either — always go through this skill, which caps at
    back what you read.
 
    `synapse vault-patch <path> --frontmatter <key> --replace` is also byte-preserving now (it
-   delegates to the same field-local mechanism `frontmatter set` uses internally), unlike the old
-   Obsidian MCP tool of the same shape — but it only ever writes a plain scalar, and it's a full
-   read-apply-write round trip through the patch layer for one field. `frontmatter set` stays the
+   delegates to the same field-local mechanism `frontmatter set` uses internally) — but it only ever
+   writes a plain scalar, and it's a full read-apply-write round trip through the patch layer for
+   one field. `frontmatter set` stays the
    right tool for this step: narrower, and the one call that exists specifically for it.
 6. **For completion only:** append implementation bullets to the existing
    `## Notes` section with `synapse vault-patch`:

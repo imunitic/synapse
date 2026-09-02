@@ -1,9 +1,9 @@
 name: tests
 
 # Every push and pull request. The suite is fast (a couple of minutes) and needs
-# no secrets: the Obsidian Local REST API is stubbed by tests/fixtures/fake-bin/curl,
-# tree-sitter and its grammar cloning by the fake tree-sitter and git in the same
-# folder, so nothing here touches a network, a real vault, or a real ~/.claude.
+# no secrets: git is stubbed by tests/fixtures/fake-bin/git, tree-sitter and its
+# grammar cloning by the fake tree-sitter in the same folder, so nothing here
+# touches a network, a real vault, or a real ~/.claude.
 on:
   push:
   pull_request:

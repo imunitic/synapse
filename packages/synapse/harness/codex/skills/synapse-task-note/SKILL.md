@@ -27,7 +27,7 @@ reinventing a parallel view — this skill has no separate list/continue mode of
 
 ## Prerequisites
 
-- Requires a matching Obsidian design note (`designs/`) with `Status: Ready`.
+- Requires a matching design note (`designs/`) with `Status: Ready`.
 - No matching note → "No Ready design note found for '{topic}'. Start or continue that design note
   first." Never generate a checklist from scratch.
 - Matching note but `Status: Discussing` → "Design note for '{topic}' is still in Discussing. Finish

@@ -4,7 +4,7 @@ A layer underneath the Graph, not a fourth component beside the Vault, the Graph
 work directory has always accumulated it quietly — `_tags_cache.bin`, `_refs.tsv`, plus the
 vocabulary/list artifacts clustering uses — but it was previously documented only as a footnote inside
 [synapse-graph.md](synapse-graph.md). Naming it here states plainly what was already true: nothing in
-this chain needs Obsidian, a vault, the REST API, a cert, or an API key.
+this chain needs a vault or any network dependency at all.
 
 That independence is worth being precise about, because it is a fact about *dependencies* rather than
 about structure. The binary on its own is enough to build and query this cache — `synapse callers`
@@ -157,7 +157,7 @@ then open ~5 files to disambiguate" (the realistic baseline), a `callers` query 
 
 What it honestly does not have: no summaries, no typed relations, no staleness tracking, no "explain
 this subsystem." A fast exact-name index — `grep` with the noise removed, no tree walk — narrower than
-the Graph, but real, with no Obsidian install as its price of entry.
+the Graph, but real, with nothing but this binary as its price of entry.
 
 ## Vault-freedom, measured
 
@@ -168,8 +168,8 @@ subcommands of `synapse`: most are vault-free outright — `namespace`, `build-i
 `query`, `build-project-index`, `graph-clean`, `graph-wipe`, `index`, `doctor`) are *path*-bound,
 not *network*-bound at all: every write is plain disk I/O (`frontmatter` a plain disk read first
 too, for the one field it's changing) under either `Store` backend, `links` parses a node's own
-`## Links` section directly rather than asking Obsidian, and `doctor`'s only live-reachability
-check is whether the `obsidian` CLI answers, not a read or write through it.
+`## Links` section directly, and `doctor` has no live-reachability check at all -- every check it
+runs is a local file or config read.
 
 The counting is easier than it was, and that is the point of the port rather than a side effect:
 this was fifteen shell scripts plus a compiled binary, so "is this piece vault-free" meant reading
@@ -180,21 +180,13 @@ each script's preamble. It is now one binary whose vault access is a single func
 distinction predicted: the index it writes was derived, gitignored in the vault and never travelled,
 so the vault reference was a `PUT` with nothing behind it. `query` moved most of the way for the same
 reason — every read is a disk read. `write-node`, `build-project-index`, and `frontmatter` write
-through plain disk I/O too: `vault-search-text` and the `LinkGraph`/`Renamer` subcommands reach the
-`obsidian` CLI only under the `obsidian` backend, and only opportunistically even then — every one of
-them falls back to `DiskStore`'s own implementation on `error.VaultUnreachable`, and under the `disk`
-backend they never touch the network at all. `DiskStore` has real `search`/`LinkGraph`/`Renamer` of
-its own now (rarity-weighted ranking, wikilink resolution, rename-with-referrer-rewrite), not stubs.
-
-Full-text search and the link graph are no longer a genuine Obsidian dependency, then — Obsidian is
-an opportunistic preference for live relevance ranking and graph data when it's reachable, not a
-requirement either capability needs to function at all. `vault-search`'s structured JsonLogic
-filtering (`core.vault_query`, `search_query`'s real successor) never had one either: it's built
-as `Store.list` + `Store.read` per candidate + pure JsonLogic evaluation, the same under either
-backend, with no Obsidian-specific code path at all. There is no remaining genuine Obsidian
-dependency in the vault-facing half of this system — every one of these capabilities has a real,
-backend-agnostic Zig implementation underneath, and `obsidian` is a live-app enhancement layered
-on top, not a requirement. Not yet decided: whether the Code Cache ships as a separate repo, given it needs only `git` and
+through plain disk I/O too, and so do `vault-search-text` and the `LinkGraph`/`Renamer`
+subcommands: `DiskStore` has real `search`/`LinkGraph`/`Renamer` of its own (rarity-weighted
+ranking, wikilink resolution, rename-with-referrer-rewrite), not stubs, and it is the only backend
+these ever reach -- `git`, the one optional integration, layers a commit lifecycle over `write`/
+`renamer` without touching how any of this resolves. `vault-search`'s structured JsonLogic filtering
+(`core.vault_query`, `search_query`'s real successor) is built the same way: `Store.list` +
+`Store.read` per candidate + pure JsonLogic evaluation, one code path under every backend. Not yet decided: whether the Code Cache ships as a separate repo, given it needs only `git` and
 a C compiler to stand alone as `git ls-files → tags-cache → build-refs → callers`. That list used to
 name `jq` and the `tree-sitter` CLI as well, and both are gone — libtree-sitter is linked into the
 binary and the grammar's own query (`tags.scm`, `locals.scm`, or a tier-3 generated one) runs
