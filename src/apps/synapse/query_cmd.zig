@@ -16,8 +16,10 @@
 //! `--namespace <repo>@<branch>`, given before the subcommand, names the
 //! namespace directly instead of deriving it from the cwd's git identity --
 //! how a query reaches another checkout's graph without being inside it.
-//! `stale`/`drift`/`symbol` still need real source files on disk, so they
-//! gain nothing from it unless `SYNAPSE_REPO_ROOT` also points somewhere real.
+//! `stale`/`drift`/`grounding`/`symbol` still need real source files on
+//! disk, so `requireRepoRoot` refuses them outright under an explicit
+//! namespace with no `SYNAPSE_REPO_ROOT` -- reading through an empty root
+//! would otherwise misreport (every source "missing") rather than fail.
 //!
 //! stdout/exit codes/stderr are frozen to match the script exactly (73 tests
 //! across `tests/synapse-query.bats` plus drift/links/grounding pin it).
@@ -303,6 +305,7 @@ const NodeList = struct {
 
 fn cmdStale(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []const u8, w: *Io.Writer) !u8 {
     if (rest.len != 0) return usage();
+    if (!requireRepoRoot(ctx, "stale")) return 1;
     var list = (try NodeList.open(gpa, io, ctx)) orelse return 1;
     defer list.close(gpa, io);
 
@@ -362,6 +365,21 @@ fn readRepoFile(gpa: Allocator, io: Io, ctx: *const Context, rel: []const u8) !?
     return Io.Dir.cwd().readFileAlloc(io, full, gpa, .limited(256 << 20)) catch null;
 }
 
+/// `stale`/`drift`/`grounding`/`symbol` all read the target checkout's real
+/// files, not just the vault -- an explicit `--namespace` with no
+/// `SYNAPSE_REPO_ROOT` can't honor that, and reading through an empty root
+/// would misreport rather than fail loudly (every source "missing", every
+/// grounding "gone", `git` spawned with no cwd). Caught once, before any of
+/// that runs, rather than surfacing as a confusing per-file error.
+fn requireRepoRoot(ctx: *const Context, sub: []const u8) bool {
+    if (!ctx.namespace_explicit or ctx.repo_root.len != 0) return true;
+    std.debug.print(
+        "{s}: '{s}' needs {s}'s real files on disk -- set SYNAPSE_REPO_ROOT to its working tree\n",
+        .{ prog, sub, ctx.namespace },
+    );
+    return false;
+}
+
 // --- drift ------------------------------------------------------------------
 
 /// One baseline commit and what's derived from it, keyed per distinct
@@ -379,6 +397,7 @@ const Baseline = struct {
 
 fn cmdDrift(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []const u8, w: *Io.Writer) !u8 {
     if (rest.len != 0) return usage();
+    if (!requireRepoRoot(ctx, "drift")) return 1;
     var list = (try NodeList.open(gpa, io, ctx)) orelse return 1;
     defer list.close(gpa, io);
 
@@ -701,6 +720,7 @@ fn cmdGrounding(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []con
         return 0;
     }
     if (rest.len != 0) return usage();
+    if (!requireRepoRoot(ctx, "grounding")) return 1;
 
     // Every node with a grounding -- walked from disk, same reads `stale`/`links`
     // already use, no HTTP.
@@ -910,6 +930,7 @@ fn cmdSymbol(
     // Disabled: no cache I/O, no tagging -- matches the prompt-injection hook's own knob.
     if (env.get("SYNAPSE_DISABLE_SYMBOL_CACHE") != null) return 0;
     if (rest.len != 2 or rest[0].len == 0 or rest[1].len == 0) return usage();
+    if (!requireRepoRoot(ctx, "symbol")) return 1;
     const name = rest[0];
 
     const text = (try need(ctx, io, rest[1])) orelse return 1;
@@ -1669,6 +1690,51 @@ test "resolveExplicit: a namespace with no @ is a usage error, not a silent misr
 
     const ctx = try context.resolveExplicit(gpa, fx.io(), &fx.env, "test", "bogus");
     try testing.expect(ctx == null);
+}
+
+test "requireRepoRoot: stale/drift/grounding/symbol refuse under --namespace with no SYNAPSE_REPO_ROOT" {
+    // Without this, each would misreport instead of failing: `stale` calls
+    // every source "missing", `grounding` calls every grounding "gone",
+    // `drift` spawns `git` with an empty cwd, `symbol` prints a per-file
+    // hash error that never says why.
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("SYNAPSE_REPO_ROOT");
+    _ = fx.env.swapRemove("SYNAPSE_DISABLE_SYMBOL_CACHE");
+
+    var ctx = (try context.resolveExplicit(gpa, fx.io(), &fx.env, "test", "repo@main")).?;
+    defer ctx.deinit();
+    try testing.expectEqual(@as(usize, 0), ctx.repo_root.len);
+
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try cmdStale(gpa, fx.io(), &ctx, &.{}, &out.writer);
+        try testing.expectEqual(@as(u8, 1), code);
+        try testing.expectEqual(@as(usize, 0), out.written().len);
+    }
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try cmdDrift(gpa, fx.io(), &ctx, &.{}, &out.writer);
+        try testing.expectEqual(@as(u8, 1), code);
+        try testing.expectEqual(@as(usize, 0), out.written().len);
+    }
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try cmdGrounding(gpa, fx.io(), &ctx, &.{}, &out.writer);
+        try testing.expectEqual(@as(u8, 1), code);
+        try testing.expectEqual(@as(usize, 0), out.written().len);
+    }
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try cmdSymbol(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, &.{ "X", "Foo Node" }, &out.writer);
+        try testing.expectEqual(@as(u8, 1), code);
+        try testing.expectEqual(@as(usize, 0), out.written().len);
+    }
 }
 
 test "body: unfenced node falls back to post-frontmatter and warns on stderr" {

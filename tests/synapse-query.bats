@@ -124,6 +124,38 @@ EOF
   [[ "$output" == *"expects <repo>@<branch>"* ]]
 }
 
+@test "--namespace with no SYNAPSE_REPO_ROOT refuses stale/drift/grounding/symbol rather than misreporting" {
+  make_repo
+  mkdir -p "$VAULT/synapse/other@main"
+  cat > "$VAULT/synapse/other@main/Index.md" <<'EOF'
+---
+title: "other@main -- Synapse index"
+node_type: synapse-index
+project: other
+branch: main
+remote: "ssh://git@example.com/OTHER.git"
+built_at: "test"
+---
+# other@main -- Synapse index
+EOF
+
+  run run_query --namespace other@main stale
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"stale"*"SYNAPSE_REPO_ROOT"* ]]
+
+  run run_query --namespace other@main drift
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"drift"*"SYNAPSE_REPO_ROOT"* ]]
+
+  run run_query --namespace other@main grounding
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"grounding"*"SYNAPSE_REPO_ROOT"* ]]
+
+  run run_query --namespace other@main symbol X 'Foo Node'
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"symbol"*"SYNAPSE_REPO_ROOT"* ]]
+}
+
 # --- body / sources / field ------------------------------------------------
 # `body`/`sources`/`field`'s own logic moved to native coverage --
 # `src/apps/synapse/query_cmd.zig`'s own `test` blocks, calling `cmdBody`/

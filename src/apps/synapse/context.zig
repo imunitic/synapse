@@ -136,8 +136,9 @@ pub fn resolve(
 /// (`query --namespace`), bypassing git identity resolution entirely --
 /// this is how a query addresses another checkout's graph without being
 /// inside it. `repo_root` stays empty unless `SYNAPSE_REPO_ROOT` supplies
-/// one, so subcommands that need real source files (`stale`, `drift`,
-/// `symbol`) still fail honestly rather than reading the wrong checkout.
+/// one -- `query_cmd.zig`'s `requireRepoRoot` refuses outright, rather than
+/// reading through it, the subcommands (`stale`, `drift`, `grounding`,
+/// `symbol`) that need real source files on disk.
 pub fn resolveExplicit(
     gpa: Allocator,
     io: Io,
