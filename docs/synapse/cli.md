@@ -123,8 +123,9 @@ usage: synapse rank --sources <file> [--repo <path>] [--out <dir>] [--top N] [--
 ### synapse query
 
 ```
-usage: synapse query <subcommand> [args]
+usage: synapse query [--namespace <repo>@<branch>] <subcommand> [args]
 
+  --namespace <repo>@<branch>        address another checkout's graph, not the cwd's
   body    <node>                     fenced prose only, no frontmatter
   sources <node>                     every path the node covers
   sources <node> --count             just the number

@@ -13,6 +13,12 @@
 //! subcommand (`synapse callers`, in `refs_cmd.zig`) rather than one of
 //! these eight.
 //!
+//! `--namespace <repo>@<branch>`, given before the subcommand, names the
+//! namespace directly instead of deriving it from the cwd's git identity --
+//! how a query reaches another checkout's graph without being inside it.
+//! `stale`/`drift`/`symbol` still need real source files on disk, so they
+//! gain nothing from it unless `SYNAPSE_REPO_ROOT` also points somewhere real.
+//!
 //! stdout/exit codes/stderr are frozen to match the script exactly (73 tests
 //! across `tests/synapse-query.bats` plus drift/links/grounding pin it).
 //! Behind that surface: `_index.bin`/tags cache read directly through
@@ -47,7 +53,12 @@ pub fn run(
     env: *std.process.Environ.Map,
     args: *std.process.Args.Iterator,
 ) !u8 {
-    const sub = args.next() orelse return usage();
+    var sub = args.next() orelse return usage();
+    var explicit_namespace: ?[]const u8 = null;
+    if (std.mem.eql(u8, sub, "--namespace")) {
+        explicit_namespace = args.next() orelse return usage();
+        sub = args.next() orelse return usage();
+    }
     if (std.mem.eql(u8, sub, "-h") or std.mem.eql(u8, sub, "--help")) {
         std.debug.print("{s}", .{usage_text});
         return 0;
@@ -77,7 +88,10 @@ pub fn run(
         return code;
     }
 
-    var ctx = (try context.resolve(gpa, io, env, prog)) orelse return 1;
+    var ctx = if (explicit_namespace) |ns|
+        (try context.resolveExplicit(gpa, io, env, prog, ns)) orelse return 1
+    else
+        (try context.resolve(gpa, io, env, prog)) orelse return 1;
     defer ctx.deinit();
     if (!try context.verifyNamespace(&ctx, io, prog)) return 1;
 
@@ -111,8 +125,9 @@ fn dispatch(
 }
 
 const usage_text =
-    \\usage: synapse query <subcommand> [args]
+    \\usage: synapse query [--namespace <repo>@<branch>] <subcommand> [args]
     \\
+    \\  --namespace <repo>@<branch>        address another checkout's graph, not the cwd's
     \\  body    <node>                     fenced prose only, no frontmatter
     \\  sources <node>                     every path the node covers
     \\  sources <node> --count             just the number
@@ -1620,6 +1635,40 @@ test "body: accepts the node name with or without .md" {
     defer gpa.free(r.out);
     try testing.expectEqual(@as(u8, 0), r.code);
     try testing.expect(std.mem.indexOf(u8, r.out, "Prose that should be printed.") != null);
+}
+
+test "resolveExplicit: verifyNamespace skips the remote check, unlike an implicit resolve" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+    const node = try fencedNode(gpa, &.{.{ .path = "src/foo.ml", .content = "let x = 1\n" }});
+    defer gpa.free(node);
+    try fx.writeNodeFile("Foo Node", node);
+    // A remote that disagrees with the fixture's own ("" via SYNAPSE_REMOTE) --
+    // an implicit resolve would reject this; an explicit one has no cwd
+    // remote to compare against, so it must not.
+    try fx.writeIndex("ssh://git@example.com/SOMEONE-ELSE.git", "main");
+
+    var ctx = (try context.resolveExplicit(gpa, fx.io(), &fx.env, "test", "repo@main")).?;
+    defer ctx.deinit();
+    try testing.expect(ctx.namespace_explicit);
+    try testing.expect(try context.verifyNamespace(&ctx, fx.io(), "test"));
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try cmdBody(gpa, fx.io(), &ctx, &.{"Foo Node"}, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "Prose that should be printed.") != null);
+}
+
+test "resolveExplicit: a namespace with no @ is a usage error, not a silent misread" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+
+    const ctx = try context.resolveExplicit(gpa, fx.io(), &fx.env, "test", "bogus");
+    try testing.expect(ctx == null);
 }
 
 test "body: unfenced node falls back to post-frontmatter and warns on stderr" {

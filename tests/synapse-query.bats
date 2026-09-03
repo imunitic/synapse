@@ -77,6 +77,53 @@ write_node_index() { # write_node_index <node.md> <path>...
   [[ "$output" == *"no namespace covers"* ]]
 }
 
+# --- --namespace --------------------------------------------------------
+# Addresses a namespace directly instead of deriving it from $REPO's own
+# git identity -- the escape hatch for reading another checkout's graph
+# without being inside it.
+
+@test "--namespace reads another namespace's node, ignoring the cwd's own identity and remote" {
+  make_repo "ssh://git@example.com/mine.git"
+  mkdir -p "$VAULT/synapse/other@main"
+  cat > "$VAULT/synapse/other@main/Index.md" <<'EOF'
+---
+title: "other@main -- Synapse index"
+node_type: synapse-index
+project: other
+branch: main
+remote: "ssh://git@example.com/OTHER.git"
+built_at: "test"
+---
+# other@main -- Synapse index
+EOF
+  cat > "$VAULT/synapse/other@main/Foo Node.md" <<'EOF'
+---
+title: "Foo Node"
+node_type: synapse-node
+---
+
+# Foo Node
+<!-- synapse:generated:start -->
+
+## Summary
+Cross-repo prose.
+<!-- synapse:generated:end -->
+
+## Notes
+EOF
+
+  run run_query --namespace other@main body 'Foo Node'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Cross-repo prose."* ]]
+}
+
+@test "--namespace with no @ is a usage error, not a silent misread" {
+  make_repo
+  run run_query --namespace bogus body 'Foo Node'
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"expects <repo>@<branch>"* ]]
+}
+
 # --- body / sources / field ------------------------------------------------
 # `body`/`sources`/`field`'s own logic moved to native coverage --
 # `src/apps/synapse/query_cmd.zig`'s own `test` blocks, calling `cmdBody`/

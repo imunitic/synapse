@@ -9,6 +9,10 @@
 //! never needs a search round trip. Writes (`write-node`) go through
 //! `Store`, which keeps an extended store's own live view and the vault's
 //! git history correct -- see docs/synapse/synapse-extended-store.md.
+//!
+//! `resolveExplicit` is the third way in: `query --namespace <repo>@<branch>`
+//! names a namespace directly rather than deriving it from the cwd, so a
+//! query can address another checkout's graph without being inside it.
 
 const std = @import("std");
 const core = @import("core");
@@ -29,6 +33,10 @@ pub const Context = struct {
     work_dir: []const u8,
     branch: []const u8,
     remote: []const u8,
+    /// Set by `resolveExplicit`: the namespace was named directly (`query
+    /// --namespace`), not derived from the cwd's git identity, so there is
+    /// no cwd remote to compare it against -- `verifyNamespace` skips that check.
+    namespace_explicit: bool = false,
     /// Boilerplate path-segment chains for `node.moduleOf`. Empty just stops
     /// collapsing an ecosystem's `src/` scaffolding, not a failure.
     chains: []const []const u8,
@@ -124,6 +132,59 @@ pub fn resolve(
     return ctx;
 }
 
+/// Build a `Context` for a `{repo}@{branch}` namespace named directly
+/// (`query --namespace`), bypassing git identity resolution entirely --
+/// this is how a query addresses another checkout's graph without being
+/// inside it. `repo_root` stays empty unless `SYNAPSE_REPO_ROOT` supplies
+/// one, so subcommands that need real source files (`stale`, `drift`,
+/// `symbol`) still fail honestly rather than reading the wrong checkout.
+pub fn resolveExplicit(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    prog: []const u8,
+    namespace: []const u8,
+) !?Context {
+    const vault = (try core.conf.vaultDir(gpa, io, adapters.env.vars(env))) orelse {
+        std.debug.print("{s}: no vault\n", .{prog});
+        return null;
+    };
+    const at = std.mem.indexOfScalar(u8, namespace, '@') orelse {
+        gpa.free(vault);
+        std.debug.print("{s}: --namespace expects <repo>@<branch>, got '{s}'\n", .{ prog, namespace });
+        return null;
+    };
+    const branch = namespace[at + 1 ..];
+
+    var owned_work: ?[]u8 = null;
+    const work_dir = nonEmpty(env, "SYNAPSE_WORK_DIR") orelse blk: {
+        const home = env.get("HOME") orelse "";
+        owned_work = try std.fmt.allocPrint(gpa, "{s}/.cache/synapse/work/{s}", .{ home, namespace });
+        break :blk owned_work.?;
+    };
+
+    var ctx: Context = .{
+        .gpa = gpa,
+        .vault = vault,
+        .namespace = namespace,
+        .repo_root = nonEmpty(env, "SYNAPSE_REPO_ROOT") orelse "",
+        .work_dir = work_dir,
+        .branch = branch,
+        .remote = "",
+        .namespace_explicit = true,
+        .chains = &.{},
+        .dir = try std.fmt.allocPrint(gpa, "synapse/{s}", .{namespace}),
+        .abs_dir = try std.fmt.allocPrint(gpa, "{s}/synapse/{s}", .{ vault, namespace }),
+        .chains_text = null,
+        .chains_list = .empty,
+        .resolved = null,
+        .owned_work = owned_work,
+        .owned_vault = vault,
+    };
+    try loadChains(&ctx, io, env);
+    return ctx;
+}
+
 fn nonEmpty(env: *std.process.Environ.Map, key: []const u8) ?[]const u8 {
     const v = env.get(key) orelse return null;
     return if (v.len == 0) null else v;
@@ -190,8 +251,11 @@ pub fn verifyNamespace(ctx: *const Context, io: Io, prog: []const u8) !bool {
     };
     defer gpa.free(text);
 
-    const existing_remote = core.query.field(text, "remote") orelse "";
-    if (!std.mem.eql(u8, existing_remote, ctx.remote)) return false; // caller reports the mismatch
+    // An explicit --namespace has no cwd remote to agree with; skip that check.
+    if (!ctx.namespace_explicit) {
+        const existing_remote = core.query.field(text, "remote") orelse "";
+        if (!std.mem.eql(u8, existing_remote, ctx.remote)) return false; // caller reports the mismatch
+    }
     const existing_branch = core.query.field(text, "branch") orelse "";
     if (!std.mem.eql(u8, existing_branch, ctx.branch)) {
         std.debug.print(
