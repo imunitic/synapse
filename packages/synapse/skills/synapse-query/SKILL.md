@@ -1,6 +1,6 @@
 ---
 name: synapse-query
-description: This repo has a Synapse code graph. For ANY task here — understanding how something works, finding where code lives, tracing what depends on a file, or scoping an edit — consult synapse/{project}/Index.md and synapse query before grepping or reading source files. Grep only after Synapse has named the exact file(s) to read.
+description: This repo has a Synapse code graph. For ANY task here — understanding how something works, finding where code lives, tracing what depends on a file, or scoping an edit — consult synapse/{project}/Index.md and synapse query before grepping or reading source files. Grep only after Synapse has named the exact file(s) to read. Also applies when this repo has no graph of its own but the task concerns another checkout that does — synapse query --namespace <repo>@<branch> reaches that graph without switching directories.
 ---
 
 # Synapse Query: Day-to-Day Use of the Code Graph
@@ -56,6 +56,7 @@ required:
 | A node's prose, without its (possibly huge) `sources` list | `synapse query body "{Node}"` | Disk read, never the API; skips frontmatter and `## Notes`. See the cost note above. |
 | Every file a node covers | `synapse query sources "{Node}" [--count\|--modules\|--filter <p>]` | Filtered/counted/grouped, never the raw megabyte-scale list. |
 | Is this node's understanding still accurate? | `synapse query stale` / `drift` / `grounding` | Hand off to the `synapse-node` skill's procedure — this skill doesn't re-explain that. |
+| A node in a *different* checkout's graph, from a repo with no namespace of its own (or the wrong one) | `synapse query --namespace <repo>@<branch> body "{Node}"` (any subcommand takes it) | Names the target namespace directly instead of deriving it from cwd. `stale`/`drift`/`grounding`/`symbol` still need that checkout's real files on disk and refuse without `SYNAPSE_REPO_ROOT` set to it — `body`/`sources`/`field`/`links` don't. |
 
 ## Usage scenarios
 
@@ -87,12 +88,17 @@ resolve the specific symbol-level question:
 ## Guardrails
 
 - **Never grep the whole repo before checking `synapse/{project}/Index.md`**, unless this repo has
-  no Synapse namespace at all (`vault_list` on `synapse/{project}/` comes back empty — in that case
-  there's nothing to consult, say so and proceed normally).
+  no Synapse namespace at all (`vault_list` on `synapse/{project}/` comes back empty). Before
+  concluding there's nothing to consult, check whether the task actually concerns a *different*
+  checkout — `synapse query --namespace <repo>@<branch> body "{Node}"` reaches that repo's graph
+  without switching directories or checking it out. Only when no namespace anywhere covers the task
+  is there truly nothing to consult; say so and proceed normally.
 - **Never treat a node's summary as ground truth for a symbol-level claim** it wasn't built to make
   precisely — see "When a node isn't enough" above.
-- **Never `vault_read` a node just to read its prose.** That pulls the full frontmatter, which can
-  run to megabytes on a hub node. Use `synapse query body` (see the cost note above).
+- **Never `vault_read` a node just to read its prose — including a node in another checkout's
+  namespace.** That pulls the full frontmatter, which can run to megabytes on a hub node. Use
+  `synapse query body` (add `--namespace <repo>@<branch>` for a graph outside this checkout) — see
+  the cost note above.
 - **Never reason about a node's staleness inline in this skill.** Hand off to `synapse-node`'s
   procedure — that's its job, not this skill's.
 - **Never treat `synapse query`'s exit 1 as "clean."** It means the check could not run (no

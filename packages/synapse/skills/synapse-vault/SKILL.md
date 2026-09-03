@@ -30,7 +30,7 @@ Search before you answer when the question is about:
 synapse vault-search-text <query>          full-text, relevance-ranked, with match context
 synapse vault-search --fields <f1,f2,...>  JsonLogic over frontmatter, tags, content, path globs
 synapse vault-list                         when you already know roughly where it is
-synapse vault-read <path>                  the whole note -- no partial/targeted read exists
+synapse vault-read <path>                  the whole note -- no partial/targeted read, except one path shape below
 ```
 
 `vault-search`'s JsonLogic filter and `--fields` projection both stop at frontmatter/tags/content/
@@ -38,6 +38,13 @@ path -- there is no `links`/`backlinks`/`unresolvedLinks` equivalent (no whole-v
 exists yet), and `vault-read` always returns the full body, never one section on its own -- request
 exactly what you need with `--fields` instead of over-fetching, and pull a specific section out of
 `vault-read`'s output locally when that's all you actually need.
+
+**The one exception is a `synapse/{project}/*.md` code-graph node.** `vault-read` on one of those
+returns the same whole-note body as any other path — frontmatter included, which on a hub node can
+run to megabytes just to reach a few hundred words of prose. `synapse query body <node>` (add
+`--namespace <repo>@<branch>` to reach a different checkout's graph) is the targeted read for that
+one path shape: prose only, no frontmatter. Reach for it instead of `vault-read` for anything under
+`synapse/` — see the `synapse-query` skill for the rest of its subcommands.
 
 A search that returns nothing is a real result and worth one line in the note you then write —
 a negative result cannot be rediscovered by searching for it.
