@@ -29,6 +29,10 @@ matches what you're trying to understand.
   acceleration layer underneath the Graph. Build path (`synapse tags` → `synapse tags-cache` →
   `synapse build-refs`) and query path (`symbol`, `synapse callers`), what each costs measured,
   and how much of the whole system turns out to need no vault or network dependency at all.
+- **[synapse-code-cache-format.md](synapse-code-cache-format.md)** — the Code Cache's on-disk
+  format reference: `_tags_cache.bin`'s header/record-table/path-region/payload-region byte
+  layout, the payload codec each entry's tags are stored in, `format.parse`'s validation order,
+  the `_refs.tsv` row format, and the `tag_line.zig` codec at the tagging boundary.
 - **[cli.md](cli.md)** — reference for every subcommand of `synapse` and every hook of
   `synapse-hook`: usage, arguments and exit codes. **Generated**, by
   `generate-cli-reference.sh`, from what the binaries print for `--help` — so it cannot
@@ -56,6 +60,9 @@ up as raw source in Markview and other plain Markdown viewers, while a linked im
 - `diagrams/synapse-graph-tiers.png` — the Graph's two staleness tiers and the tree-sitter layer.
 - `diagrams/synapse-code-cache.png` — the Code Cache's build path (tags → tags-cache → build-refs)
   and query path (`symbol`, `callers`) in one picture.
+- `diagrams/synapse-code-cache-layout.png`, `-header.png`, `-record.png`, `-tag-record.png` — the
+  Code Cache's on-disk byte layout: file regions, the header, the record table, and the payload
+  codec's per-tag record.
 - `diagrams/design-task-workflow.png` — the design-note → task-note pipeline.
 - `diagrams/synapse-pipeline.png` — every script that owns a build or repair step, in one picture: which step each one owns,
   what it writes, and where the model's two contributions enter. Laid out as three lanes (model

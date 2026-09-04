@@ -1,0 +1,16 @@
+---
+title: "_tags_cache.bin: four regions, offsets computed at encode time"
+---
+flowchart TB
+    classDef fixed fill:#d0ebff,stroke:#1971c2,color:#1e1e1e
+    classDef region fill:#d3f9d8,stroke:#2f9e44,color:#1e1e1e
+
+    HEADER["Header — 40 bytes, offset 0<br/>magic · version · entry_count · paths_off · blob_off · crc32 · reserved"]
+    TABLE["Record table — entry_count × 43 bytes, offset 40<br/>fixed-width, sorted by path bytes"]
+    PATHS["Path region — offset paths_off<br/>every path's bytes, concatenated, no separators"]
+    BLOB["Payload region — offset blob_off<br/>every entry's tag-codec bytes, concatenated"]
+
+    HEADER --> TABLE --> PATHS --> BLOB
+
+    class HEADER,TABLE fixed
+    class PATHS,BLOB region

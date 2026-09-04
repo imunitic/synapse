@@ -106,6 +106,7 @@ $here/synapse/synapse-graph.md|synapse-graph.html|Synapse Graph
 $here/synapse/design-task-workflow.md|design-task-workflow.html|Design -> Task Workflow
 $here/synapse/synapse-note-schema.md|synapse-note-schema.html|Note Schemas
 $here/synapse/synapse-code-cache.md|synapse-code-cache.html|Synapse Code Cache
+$here/synapse/synapse-code-cache-format.md|synapse-code-cache-format.html|Code Cache On-Disk Format
 $here/synapse/cli.md|cli.html|CLI Reference
 $here/synapse/synapse-config.md|synapse-config.html|Configuration Reference
 |diagrams/|Diagrams"

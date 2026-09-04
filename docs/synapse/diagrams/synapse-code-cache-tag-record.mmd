@@ -1,0 +1,20 @@
+---
+title: "Payload codec — one Tag record (tags_cache/payload.zig)"
+---
+flowchart LR
+    classDef fixed fill:#d0ebff,stroke:#1971c2,color:#1e1e1e
+    classDef variable fill:#fff3bf,stroke:#e8590c,color:#1e1e1e
+
+    ROLE["role<br/>u8<br/>0=def 1=ref"]
+    LINE["line<br/>u32"]
+    NAMELEN["name_len<br/>u16"]
+    NAME["name<br/>name_len bytes"]
+    KINDLEN["kind_len<br/>u16"]
+    KIND["kind<br/>kind_len bytes"]
+    EXPRLEN["expression_len<br/>u32"]
+    EXPR["expression<br/>expression_len bytes"]
+
+    ROLE --> LINE --> NAMELEN --> NAME --> KINDLEN --> KIND --> EXPRLEN --> EXPR
+
+    class ROLE,LINE,NAMELEN,KINDLEN,EXPRLEN fixed
+    class NAME,KIND,EXPR variable

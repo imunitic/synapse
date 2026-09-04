@@ -1,0 +1,14 @@
+---
+title: "Header — 40 bytes"
+config:
+  packet:
+    bitsPerRow: 64
+---
+packet-beta
+0-63: "magic \"SYNTAGS\\0\" (8 bytes)"
+64-95: "version (u32)"
+96-127: "entry_count (u32)"
+128-191: "paths_off (u64)"
+192-255: "blob_off (u64)"
+256-287: "crc32 (u32) — covers bytes[40..blob_off)"
+288-319: "reserved (u32, written zero)"

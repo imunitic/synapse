@@ -1,0 +1,13 @@
+---
+title: "Record — 43 bytes, one per cached path"
+config:
+  packet:
+    bitsPerRow: 64
+---
+packet-beta
+0-63: "path_off (u64) — into the path region"
+64-79: "path_len (u16)"
+80-239: "hash — raw SHA-1 (20 bytes)"
+240-303: "tags_off (u64) — into the payload region"
+304-335: "tags_len (u32)"
+336-343: "flags (u8) — bit 0: unsupported"

@@ -12,6 +12,10 @@ answers with no graph, no vault and no nodes — and it is still a layer of the 
 matters for how the project is described: it exists to make the Graph's per-symbol questions cheap,
 and the Graph is what gives its answers somewhere to live.
 
+For the exact byte layout of `_tags_cache.bin` and `_refs.tsv` — header and record-table fields, the
+payload codec, and `format.parse`'s validation order — see
+[synapse-code-cache-format.md](synapse-code-cache-format.md).
+
 ![Build path (tags → tags-cache → build-refs) and query path (symbol, callers) over the Code Cache](diagrams/synapse-code-cache.png)
 
 ## Build path
