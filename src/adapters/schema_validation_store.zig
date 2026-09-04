@@ -95,6 +95,18 @@ pub const SchemaValidationStore = struct {
             .tags_vocabulary = tags,
         })) |message| return .{ .accepted = false, .status = 422, .body = message };
 
+        // Advisory only, and only reached once validation has already
+        // passed -- a rejected write never reaches lint. Findings go to
+        // stderr, never `WriteResult`/the exit code/stdout: `vault-write`'s
+        // stdout stays byte-identical for a machine caller regardless of
+        // what this prints.
+        const findings = try core.note_schema.lintNote(self.gpa, schema_doc.root, candidate, node);
+        defer {
+            for (findings) |f| self.gpa.free(f);
+            self.gpa.free(findings);
+        }
+        for (findings) |finding| std.debug.print("synapse: {s}: {s}\n", .{ node, finding });
+
         return self.inner.write(io, node, candidate);
     }
 
@@ -267,7 +279,10 @@ const test_schema =
     "  - equals: [filename.stem, frontmatter.title]\n" ++
     "  - unique: frontmatter.note_id\n" ++
     "    when: create\n" ++
-    "  - not_before: [frontmatter.updated, frontmatter.created]\n";
+    "  - not_before: [frontmatter.updated, frontmatter.created]\n" ++
+    "lints:\n" ++
+    "  - no_hard_wrap: body.prose\n" ++
+    "    severity: warn\n";
 
 const existing_note =
     "---\n" ++
@@ -349,4 +364,30 @@ test "a schema rejection never calls the inner write" {
     defer testing.allocator.free(result.body);
     try testing.expect(!result.accepted);
     try testing.expectEqual(@as(usize, 0), fake.writes);
+}
+
+test "a lint finding is advisory: the write still succeeds and WriteResult is unaffected" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try writeTestSchema(&tmp, testing.io);
+    defer testing.allocator.free(root);
+    const vars: TestVars = .{ .pairs = &.{.{ "SYNAPSE_CONTENT_ROOT", root }} };
+
+    var fake = FakeStore.init(testing.allocator);
+    defer fake.deinit();
+    var validation = SchemaValidationStore.init(testing.allocator, fake.port(), vars.vars());
+    // A valid note by every `checks:` rule, but its `## Summary` is a
+    // paragraph hard-wrapped across two lines -- exactly what `no_hard_wrap`
+    // exists to catch, and nothing this rule catches is a contract
+    // violation, so `validateNote` has nothing to say about it.
+    const wrapped =
+        "---\nschema: vault-note/v1\ntitle: Example\nnote_id: sb-081\n" ++
+        "created: '2026-08-30 01:00:00 CEST'\nupdated: '2026-08-30 01:00:00 CEST'\ntags: []\n" ++
+        "---\n\n# Example\n\n## Summary\nThis sentence got\nhard-wrapped across two lines.\n";
+    const result = try validation.store().write(testing.io, "Example.md", wrapped);
+    defer testing.allocator.free(result.body);
+    try testing.expect(result.accepted);
+    try testing.expectEqual(@as(u16, 0), result.status);
+    try testing.expectEqual(@as(usize, 0), result.body.len);
+    try testing.expectEqual(@as(usize, 1), fake.writes);
 }

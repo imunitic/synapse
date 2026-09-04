@@ -86,6 +86,7 @@ pub fn validateSchema(gpa: Allocator, root: *const Value, expected_id: []const u
     if (try validateFrontmatterRules(gpa, top)) |message| return message;
     if (try validateBodyRules(gpa, top)) |message| return message;
     if (try validateChecksRules(gpa, top)) |message| return message;
+    if (try validateLintsRules(gpa, top)) |message| return message;
     return null;
 }
 
@@ -260,6 +261,64 @@ fn validateCheckRule(gpa: Allocator, check: *const Value, index: usize) !?[]u8 {
     return null;
 }
 
+/// Unlike `checks`, optional: a schema with nothing worth linting declares
+/// no `lints:` key at all, rather than an empty list.
+fn validateLintsRules(gpa: Allocator, top: *const Value) !?[]u8 {
+    const lints = top.get("lints") orelse return null;
+    const list = switch (lints.*) {
+        .list => |v| v,
+        else => return try diag(gpa, "schema.lints: must be a list", .{}),
+    };
+    for (list, 0..) |rule, i| {
+        if (try validateLintRule(gpa, rule, i)) |message| return message;
+    }
+    return null;
+}
+
+/// Only the two field references this v1 lint pass actually knows how to
+/// read (`body.prose`, and `frontmatter.title`/`frontmatter.task_id`/
+/// `frontmatter.note_id` for the id-prefix check) are accepted -- an
+/// unsupported reference is refused at schema-load time rather than
+/// silently matching nothing at lint time.
+fn validateLintRule(gpa: Allocator, rule: *const Value, index: usize) !?[]u8 {
+    if (unknownKey(rule, &.{ "no_hard_wrap", "no_id_prefix_in_title", "severity" })) |key|
+        return try diag(gpa, "schema.lints[{d}].{s}: unsupported v1 key", .{ index, key });
+    var operators: usize = 0;
+    for ([_][]const u8{ "no_hard_wrap", "no_id_prefix_in_title" }) |name| {
+        if (rule.get(name) != null) operators += 1;
+    }
+    if (operators != 1) return try diag(gpa, "schema.lints[{d}]: exactly one lint operator is required", .{index});
+    const severity = stringAt(rule, "severity") orelse
+        return try diag(gpa, "schema.lints[{d}].severity: required string is missing", .{index});
+    // `error` is a real future value per the design (a rule promoted off
+    // `warn` once real use shows zero false positives), but that promotion
+    // moves a rule into the blocking `checks:` path entirely rather than
+    // changing what this lint pass itself does with it -- accepting `error`
+    // here today would silently do nothing differently, which is worse than
+    // refusing it until the promotion mechanism actually exists.
+    if (!std.mem.eql(u8, severity, "warn"))
+        return try diag(gpa, "schema.lints[{d}].severity: unsupported value '{s}'", .{ index, severity });
+    if (rule.get("no_hard_wrap")) |v| {
+        const ref = v.asString() orelse
+            return try diag(gpa, "schema.lints[{d}].no_hard_wrap: must be a field reference", .{index});
+        if (!std.mem.eql(u8, ref, "body.prose"))
+            return try diag(gpa, "schema.lints[{d}].no_hard_wrap: unsupported field reference '{s}'", .{ index, ref });
+    }
+    if (rule.get("no_id_prefix_in_title")) |cfg| {
+        if (unknownKey(cfg, &.{ "title", "id" })) |key|
+            return try diag(gpa, "schema.lints[{d}].no_id_prefix_in_title.{s}: unsupported v1 key", .{ index, key });
+        const title_ref = stringAt(cfg, "title") orelse
+            return try diag(gpa, "schema.lints[{d}].no_id_prefix_in_title.title: required field reference is missing", .{index});
+        if (!std.mem.eql(u8, title_ref, "frontmatter.title"))
+            return try diag(gpa, "schema.lints[{d}].no_id_prefix_in_title.title: unsupported field reference '{s}'", .{ index, title_ref });
+        const id_ref = stringAt(cfg, "id") orelse
+            return try diag(gpa, "schema.lints[{d}].no_id_prefix_in_title.id: required field reference is missing", .{index});
+        if (!std.mem.eql(u8, id_ref, "frontmatter.task_id") and !std.mem.eql(u8, id_ref, "frontmatter.note_id"))
+            return try diag(gpa, "schema.lints[{d}].no_id_prefix_in_title.id: unsupported field reference '{s}'", .{ index, id_ref });
+    }
+    return null;
+}
+
 pub fn validateNote(
     gpa: Allocator,
     schema: *const Value,
@@ -331,6 +390,140 @@ pub fn validateNote(
     if (try validateBody(gpa, schema.get("body").?, note, path)) |message| return message;
     if (try validateChecks(gpa, schema.get("checks").?, note, path, context)) |message| return message;
     return null;
+}
+
+/// Advisory only: unlike `validateNote`, never returns an error that blocks
+/// a write -- every finding is collected, none stop the pass early. Called
+/// only after `validateNote` has already passed (a rejected write never
+/// reaches lint), and only for a schema that declares `lints:` at all -- a
+/// schema with none returns an empty slice, the same "nothing to say" shape
+/// as a clean note.
+pub fn lintNote(gpa: Allocator, schema: *const Value, note: []const u8, path: []const u8) ![]const []u8 {
+    _ = path; // no rule needs it yet; kept for parity with validateNote and any future rule that does
+    var findings: std.ArrayListUnmanaged([]u8) = .empty;
+    errdefer {
+        for (findings.items) |f| gpa.free(f);
+        findings.deinit(gpa);
+    }
+
+    const lints = schema.get("lints") orelse return findings.toOwnedSlice(gpa);
+    const bounds = frontmatterBounds(note) orelse return findings.toOwnedSlice(gpa);
+
+    for (lints.list) |rule| {
+        if (rule.get("no_hard_wrap")) |_| {
+            const wrap_findings = try lintNoHardWrap(gpa, note, bounds.after);
+            defer gpa.free(wrap_findings);
+            for (wrap_findings) |f| try findings.append(gpa, f);
+        }
+        if (rule.get("no_id_prefix_in_title")) |cfg| {
+            const id_ref = stringAt(cfg, "id").?;
+            const id_field = id_ref["frontmatter.".len..];
+            if (try lintNoIdPrefixInTitle(gpa, note, id_field)) |msg| try findings.append(gpa, msg);
+        }
+    }
+    return findings.toOwnedSlice(gpa);
+}
+
+/// 1-based line number of `offset` within `note` -- a plain newline count,
+/// cheap enough at lint-pass scale (one note, once per write) to not need
+/// caching the way a hot path would.
+fn lineNumber(note: []const u8, offset: usize) usize {
+    var n: usize = 1;
+    for (note[0..offset]) |c| if (c == '\n') {
+        n += 1;
+    };
+    return n;
+}
+
+/// A line that never counts toward a hard-wrapped-paragraph run: blank, a
+/// heading, a blockquote, a table row, a list item (ordered or unordered),
+/// or indented (a list item's own continuation paragraph, or anything else
+/// deliberately nested). Excludes exactly what the design's own
+/// paragraph-boundary caveat names -- table rows, list continuations --
+/// plus headings and blockquotes, which are single-line by construction and
+/// would otherwise flush a run right before this line starts a wrong one.
+fn isExcludedProseLine(raw_line: []const u8) bool {
+    const line = std.mem.trimEnd(u8, raw_line, "\r");
+    if (line.len == 0) return true;
+    if (line[0] == ' ' or line[0] == '\t') return true; // indented: nested/continuation content
+    const trimmed = std.mem.trimStart(u8, line, " \t");
+    if (trimmed[0] == '#' or trimmed[0] == '>' or trimmed[0] == '|') return true;
+    if (std.mem.startsWith(u8, trimmed, "- ") or std.mem.startsWith(u8, trimmed, "* ") or std.mem.startsWith(u8, trimmed, "+ "))
+        return true;
+    if (std.mem.startsWith(u8, trimmed, "```") or std.mem.startsWith(u8, trimmed, "~~~")) return true;
+    var i: usize = 0;
+    while (i < trimmed.len and std.ascii.isDigit(trimmed[i])) : (i += 1) {}
+    if (i > 0 and i < trimmed.len and (trimmed[i] == '.' or trimmed[i] == ')') and
+        i + 1 < trimmed.len and trimmed[i + 1] == ' ') return true; // ordered list item
+    return false;
+}
+
+/// Closes the currently-open prose run, if any: a run of 2+ consecutive
+/// non-excluded lines is exactly one paragraph split across lines -- the
+/// hard-wrap shape this rule exists to catch. A run of exactly 1 line is
+/// the correct, unwrapped shape and produces nothing.
+fn flushProseRun(gpa: Allocator, findings: *std.ArrayListUnmanaged([]u8), note: []const u8, run_start: *?usize, run_lines: *usize) !void {
+    if (run_lines.* > 1) {
+        const msg = try std.fmt.allocPrint(
+            gpa,
+            "no_hard_wrap: paragraph wrapped across {d} lines starting at line {d}",
+            .{ run_lines.*, lineNumber(note, run_start.*.?) },
+        );
+        try findings.append(gpa, msg);
+    }
+    run_start.* = null;
+    run_lines.* = 0;
+}
+
+fn lintNoHardWrap(gpa: Allocator, note: []const u8, body_start: usize) ![]const []u8 {
+    var findings: std.ArrayListUnmanaged([]u8) = .empty;
+    errdefer {
+        for (findings.items) |f| gpa.free(f);
+        findings.deinit(gpa);
+    }
+
+    var in_fence = false;
+    var run_start: ?usize = null;
+    var run_lines: usize = 0;
+
+    var offset = body_start;
+    while (offset <= note.len) {
+        const end = std.mem.indexOfScalarPos(u8, note, offset, '\n') orelse note.len;
+        const line = note[offset..end];
+        const trimmed = std.mem.trimStart(u8, std.mem.trimEnd(u8, line, "\r"), " \t");
+        const is_fence_delimiter = std.mem.startsWith(u8, trimmed, "```") or std.mem.startsWith(u8, trimmed, "~~~");
+
+        if (is_fence_delimiter) {
+            try flushProseRun(gpa, &findings, note, &run_start, &run_lines);
+            in_fence = !in_fence;
+        } else if (in_fence) {
+            try flushProseRun(gpa, &findings, note, &run_start, &run_lines);
+        } else if (isExcludedProseLine(line)) {
+            try flushProseRun(gpa, &findings, note, &run_start, &run_lines);
+        } else {
+            if (run_start == null) run_start = offset;
+            run_lines += 1;
+        }
+
+        if (end == note.len) break;
+        offset = end + 1;
+    }
+    try flushProseRun(gpa, &findings, note, &run_start, &run_lines);
+    return findings.toOwnedSlice(gpa);
+}
+
+fn lintNoIdPrefixInTitle(gpa: Allocator, note: []const u8, id_field: []const u8) !?[]u8 {
+    var title_lookup = try lookupField(gpa, note, "title");
+    defer title_lookup.deinit(gpa);
+    const title = scalarString(title_lookup.value) orelse return null;
+
+    var id_lookup = try lookupField(gpa, note, id_field);
+    defer id_lookup.deinit(gpa);
+    const id = scalarString(id_lookup.value) orelse return null;
+    if (id.len == 0) return null;
+
+    if (!std.mem.startsWith(u8, title, id)) return null;
+    return try std.fmt.allocPrint(gpa, "no_id_prefix_in_title: title starts with its own id '{s}'", .{id});
 }
 
 fn validateSectionRule(gpa: Allocator, section: *const Value, index: usize) !?[]u8 {
@@ -1384,6 +1577,151 @@ test "field_order is unset by default, so any frontmatter order passes" {
     try expectNoteOk(source,
         "---\nsources: x\ntitle: Example\n---\n# Example\n",
         "x.md", .{ .mode = .create });
+}
+
+fn lintFindings(gpa: Allocator, source: []const u8, note: []const u8, path: []const u8) ![]const []u8 {
+    var doc = try schema_yaml.parse(gpa, source);
+    defer doc.deinit();
+    return lintNote(gpa, doc.root, note, path);
+}
+
+fn freeLintFindings(gpa: Allocator, findings: []const []const u8) void {
+    for (findings) |f| gpa.free(f);
+    gpa.free(findings);
+}
+
+const lint_test_frontmatter =
+    "frontmatter:\n  fields:\n    title:\n      type: string\n    task_id:\n      type: string\n";
+
+test "schema.lints rejects an unknown key" {
+    const source = "schema: synapse-note-schema/v1\nid: t/v1\n" ++
+        lint_test_frontmatter ++
+        "body:\n  h1:\n    required: false\n" ++
+        "checks: []\n" ++
+        "lints:\n  - no_hard_wrap: body.prose\n    severity: warn\n    extra: 1\n";
+    var doc = try schema_yaml.parse(testing.allocator, source);
+    defer doc.deinit();
+    const message = (try validateSchema(testing.allocator, doc.root, "t/v1")).?;
+    defer testing.allocator.free(message);
+    try testing.expectEqualStrings("schema.lints[0].extra: unsupported v1 key", message);
+}
+
+test "schema.lints requires exactly one operator" {
+    const source = "schema: synapse-note-schema/v1\nid: t/v1\n" ++
+        lint_test_frontmatter ++
+        "body:\n  h1:\n    required: false\n" ++
+        "checks: []\n" ++
+        "lints:\n  - severity: warn\n";
+    var doc = try schema_yaml.parse(testing.allocator, source);
+    defer doc.deinit();
+    const message = (try validateSchema(testing.allocator, doc.root, "t/v1")).?;
+    defer testing.allocator.free(message);
+    try testing.expectEqualStrings("schema.lints[0]: exactly one lint operator is required", message);
+}
+
+test "schema.lints.no_hard_wrap only accepts body.prose" {
+    const source = "schema: synapse-note-schema/v1\nid: t/v1\n" ++
+        lint_test_frontmatter ++
+        "body:\n  h1:\n    required: false\n" ++
+        "checks: []\n" ++
+        "lints:\n  - no_hard_wrap: body.other\n    severity: warn\n";
+    var doc = try schema_yaml.parse(testing.allocator, source);
+    defer doc.deinit();
+    const message = (try validateSchema(testing.allocator, doc.root, "t/v1")).?;
+    defer testing.allocator.free(message);
+    try testing.expectEqualStrings("schema.lints[0].no_hard_wrap: unsupported field reference 'body.other'", message);
+}
+
+test "schema.lints.severity only accepts warn for now" {
+    const source = "schema: synapse-note-schema/v1\nid: t/v1\n" ++
+        lint_test_frontmatter ++
+        "body:\n  h1:\n    required: false\n" ++
+        "checks: []\n" ++
+        "lints:\n  - no_hard_wrap: body.prose\n    severity: error\n";
+    var doc = try schema_yaml.parse(testing.allocator, source);
+    defer doc.deinit();
+    const message = (try validateSchema(testing.allocator, doc.root, "t/v1")).?;
+    defer testing.allocator.free(message);
+    try testing.expectEqualStrings("schema.lints[0].severity: unsupported value 'error'", message);
+}
+
+test "schema.lints.no_id_prefix_in_title only accepts a known id reference" {
+    const source = "schema: synapse-note-schema/v1\nid: t/v1\n" ++
+        lint_test_frontmatter ++
+        "body:\n  h1:\n    required: false\n" ++
+        "checks: []\n" ++
+        "lints:\n  - no_id_prefix_in_title:\n      title: frontmatter.title\n      id: frontmatter.other\n    severity: warn\n";
+    var doc = try schema_yaml.parse(testing.allocator, source);
+    defer doc.deinit();
+    const message = (try validateSchema(testing.allocator, doc.root, "t/v1")).?;
+    defer testing.allocator.free(message);
+    try testing.expectEqualStrings("schema.lints[0].no_id_prefix_in_title.id: unsupported field reference 'frontmatter.other'", message);
+}
+
+test "a schema with no lints: key lints nothing, even on an obviously wrapped note" {
+    const source = "schema: synapse-note-schema/v1\nid: t/v1\n" ++
+        lint_test_frontmatter ++
+        "body:\n  h1:\n    required: false\n" ++
+        "checks: []\n";
+    const note = "---\ntitle: X\n---\n# X\n\n## Summary\nwrapped line one\nwrapped line two\n";
+    const findings = try lintFindings(testing.allocator, source, note, "x.md");
+    defer testing.allocator.free(findings);
+    try testing.expectEqual(@as(usize, 0), findings.len);
+}
+
+test "no_hard_wrap fires on a wrapped paragraph and stays silent on a clean one" {
+    const source = "schema: synapse-note-schema/v1\nid: t/v1\n" ++
+        lint_test_frontmatter ++
+        "body:\n  h1:\n    required: false\n" ++
+        "checks: []\n" ++
+        "lints:\n  - no_hard_wrap: body.prose\n    severity: warn\n";
+
+    const wrapped = "---\ntitle: X\n---\n# X\n\n## Summary\nThis is a sentence that got\nhard-wrapped across two lines.\n";
+    const findings = try lintFindings(testing.allocator, source, wrapped, "x.md");
+    defer freeLintFindings(testing.allocator, findings);
+    try testing.expectEqual(@as(usize, 1), findings.len);
+    try testing.expect(std.mem.indexOf(u8, findings[0], "no_hard_wrap") != null);
+    try testing.expect(std.mem.indexOf(u8, findings[0], "line 7") != null);
+
+    const clean = "---\ntitle: X\n---\n# X\n\n## Summary\nThis is one continuous line, exactly as the convention wants.\n";
+    const clean_findings = try lintFindings(testing.allocator, source, clean, "x.md");
+    defer testing.allocator.free(clean_findings);
+    try testing.expectEqual(@as(usize, 0), clean_findings.len);
+}
+
+test "no_hard_wrap excludes table rows, list continuations, and fenced code" {
+    const source = "schema: synapse-note-schema/v1\nid: t/v1\n" ++
+        lint_test_frontmatter ++
+        "body:\n  h1:\n    required: false\n" ++
+        "checks: []\n" ++
+        "lints:\n  - no_hard_wrap: body.prose\n    severity: warn\n";
+
+    const note = "---\ntitle: X\n---\n# X\n\n## Summary\n" ++
+        "| a | b |\n| c | d |\n\n" ++
+        "- item one\n  a continuation paragraph under it\n  and another line of it\n\n" ++
+        "```\ncode line one\ncode line two\n```\n";
+    const findings = try lintFindings(testing.allocator, source, note, "x.md");
+    defer testing.allocator.free(findings);
+    try testing.expectEqual(@as(usize, 0), findings.len);
+}
+
+test "no_id_prefix_in_title fires when the title starts with its own id" {
+    const source = "schema: synapse-note-schema/v1\nid: t/v1\n" ++
+        lint_test_frontmatter ++
+        "body:\n  h1:\n    required: false\n" ++
+        "checks: []\n" ++
+        "lints:\n  - no_id_prefix_in_title:\n      title: frontmatter.title\n      id: frontmatter.task_id\n    severity: warn\n";
+
+    const prefixed = "---\ntitle: \"sb-102 — Something\"\ntask_id: sb-102\n---\n# X\n";
+    const findings = try lintFindings(testing.allocator, source, prefixed, "x.md");
+    defer freeLintFindings(testing.allocator, findings);
+    try testing.expectEqual(@as(usize, 1), findings.len);
+    try testing.expect(std.mem.indexOf(u8, findings[0], "sb-102") != null);
+
+    const clean = "---\ntitle: Something\ntask_id: sb-102\n---\n# X\n";
+    const clean_findings = try lintFindings(testing.allocator, source, clean, "x.md");
+    defer testing.allocator.free(clean_findings);
+    try testing.expectEqual(@as(usize, 0), clean_findings.len);
 }
 
 test "a compiled-task backlink must immediately follow the H1" {

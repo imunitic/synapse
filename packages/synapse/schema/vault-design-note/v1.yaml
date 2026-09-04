@@ -93,3 +93,9 @@ checks:
   - equals:
       values: [frontmatter.created, frontmatter.updated]
       when: create
+
+lints:
+  - no_id_prefix_in_title:
+      title: frontmatter.title
+      id: frontmatter.note_id
+    severity: warn

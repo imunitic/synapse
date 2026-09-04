@@ -65,3 +65,7 @@ checks:
   - equals:
       values: [frontmatter.created, frontmatter.updated]
       when: create
+
+lints:
+  - no_hard_wrap: body.prose
+    severity: warn

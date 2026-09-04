@@ -202,6 +202,10 @@ pub fn check(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []con
     var conformant: usize = 0;
     var legacy: usize = 0;
     var violations: usize = 0;
+    var lint_notes: usize = 0;
+    var lint_findings_total: usize = 0;
+    var lint_buf: Io.Writer.Allocating = .init(gpa);
+    defer lint_buf.deinit();
     for (names) |name| {
         const body = (store.read(gpa, io, name) catch continue) orelse continue;
         defer gpa.free(body);
@@ -239,8 +243,29 @@ pub fn check(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []con
             continue;
         }
         conformant += 1;
+
+        // Advisory only, and swept read-only exactly like the validation
+        // pass above -- never folded into or confused with the
+        // conformant/violation counts, and never affects this command's
+        // exit code either.
+        const findings = try core.note_schema.lintNote(gpa, doc.root, body, name);
+        defer {
+            for (findings) |f| gpa.free(f);
+            gpa.free(findings);
+        }
+        if (findings.len > 0) {
+            lint_notes += 1;
+            for (findings) |finding| {
+                try lint_buf.writer.print("{s}\t{s}\n", .{ name, finding });
+                lint_findings_total += 1;
+            }
+        }
     }
     try result.print("{d} notes: {d} schema-declaring ({d} conformant, {d} violations), {d} legacy\n", .{ names.len, declared, conformant, violations, legacy });
+    if (lint_findings_total > 0) {
+        try result.print("\nLint (advisory, {d} finding(s) across {d} note(s)):\n", .{ lint_findings_total, lint_notes });
+        try result.writeAll(lint_buf.written());
+    }
     return if (violations == 0) 0 else 1;
 }
 
@@ -1172,6 +1197,29 @@ fn writeCheckSchema(fx: *fixture.Fixture) !void {
     try fx.env.put("SYNAPSE_CONTENT_ROOT", fx.root);
 }
 
+const test_check_schema_with_lint =
+    "schema: synapse-note-schema/v1\n" ++
+    "id: t/v1\n" ++
+    "frontmatter:\n" ++
+    "  fields:\n" ++
+    "    title:\n" ++
+    "      type: string\n" ++
+    "      required: true\n" ++
+    "body:\n" ++
+    "  h1:\n" ++
+    "    required: true\n" ++
+    "    count: 1\n" ++
+    "checks: []\n" ++
+    "lints:\n" ++
+    "  - no_hard_wrap: body.prose\n" ++
+    "    severity: warn\n";
+
+fn writeCheckSchemaWithLint(fx: *fixture.Fixture) !void {
+    try fx.tmp.dir.createDirPath(testing.io, "schema/t");
+    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "schema/t/v1.yaml", .data = test_check_schema_with_lint });
+    try fx.env.put("SYNAPSE_CONTENT_ROOT", fx.root);
+}
+
 test "check reports a conformant schema note clean and counts legacy notes" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
@@ -1204,6 +1252,27 @@ test "check reports a violating schema note and exits 1" {
     try testing.expectEqual(@as(u8, 1), code);
     try testing.expect(std.mem.indexOf(u8, out.written(), "research/Bad.md\tfrontmatter.title: required field is missing\n") != null);
     try testing.expect(std.mem.indexOf(u8, out.written(), "1 schema-declaring (0 conformant, 1 violations)") != null);
+}
+
+test "check reports lint findings as a distinct advisory section, not counted as a violation" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("SYNAPSE_VAULT_INTEGRATIONS");
+    _ = fx.env.swapRemove("SYNAPSE_CONTENT_ROOT");
+    try writeCheckSchemaWithLint(&fx);
+    try fx.writeVaultFile("research/Wrapped.md",
+        "---\nschema: t/v1\ntitle: Wrapped\n---\n# Wrapped\n\nThis sentence got\nhard-wrapped across two lines.\n");
+    try fx.writeVaultFile("research/Clean.md", "---\nschema: t/v1\ntitle: Clean\n---\n# Clean\n\nOne line, as it should be.\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try check(gpa, fx.io(), &fx.env, fx.vault, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "2 schema-declaring (2 conformant, 0 violations)") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "Lint (advisory, 1 finding(s) across 1 note(s)):\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "research/Wrapped.md\tno_hard_wrap:") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "Clean.md\tno_hard_wrap") == null);
 }
 
 test "check reports an unresolvable schema id per note" {
@@ -1364,6 +1433,61 @@ fn taskNoteBody(gpa: Allocator, title: []const u8, id: []const u8) ![]u8 {
         "- [ ] First implementation step\n\n" ++
         "## Notes\n\n" ++
         "Design context.\n", .{ title, id, title });
+}
+
+test "no_hard_wrap fires against the real shipped vault-note/v1 schema, on a hard-wrapped Summary" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try withRealSchemas(&fx);
+
+    const note = try std.fmt.allocPrint(gpa, "---\n" ++
+        "schema: vault-note/v1\n" ++
+        "title: \"Wrapped example\"\n" ++
+        "note_id: sb-907\n" ++
+        "created: \"" ++ schema_fixed_timestamp ++ "\"\n" ++
+        "updated: \"" ++ schema_fixed_timestamp ++ "\"\n" ++
+        "tags: [synapse]\n" ++
+        "---\n\n" ++
+        "# Wrapped example\n\n" ++
+        "## Summary\n" ++
+        "This sentence got manually\n" ++
+        "wrapped at roughly seventy columns.\n", .{});
+    defer gpa.free(note);
+
+    const vars = adapters.env.vars(&fx.env);
+    var doc = try adapters.schema_validation_store.loadSchemaDocument(gpa, fx.io(), vars, "vault-note/v1");
+    defer doc.deinit();
+    const findings = try core.note_schema.lintNote(gpa, doc.root, note, "research/Wrapped example.md");
+    defer {
+        for (findings) |f| gpa.free(f);
+        gpa.free(findings);
+    }
+    try testing.expectEqual(@as(usize, 1), findings.len);
+    try testing.expect(std.mem.indexOf(u8, findings[0], "no_hard_wrap") != null);
+}
+
+test "no_id_prefix_in_title fires against the real shipped vault-task-note/v1 schema, on the exact motivating shape" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try withRealSchemas(&fx);
+
+    // The real originating incident: a title carrying its own task_id
+    // prefix, the form every actual task note omits.
+    const note = try taskNoteBody(gpa, "sb-908 — Prefixed example", "sb-908");
+    defer gpa.free(note);
+
+    const vars = adapters.env.vars(&fx.env);
+    var doc = try adapters.schema_validation_store.loadSchemaDocument(gpa, fx.io(), vars, "vault-task-note/v1");
+    defer doc.deinit();
+    const findings = try core.note_schema.lintNote(gpa, doc.root, note, "tasks/synapse/sb-908 — Prefixed example.md");
+    defer {
+        for (findings) |f| gpa.free(f);
+        gpa.free(findings);
+    }
+    try testing.expectEqual(@as(usize, 1), findings.len);
+    try testing.expect(std.mem.indexOf(u8, findings[0], "sb-908") != null);
 }
 
 test "all three shipped v1 note schemas validate through vault-write" {

@@ -91,3 +91,9 @@ checks:
       field: frontmatter.status
       value: TODO
       when: create
+
+lints:
+  - no_id_prefix_in_title:
+      title: frontmatter.title
+      id: frontmatter.task_id
+    severity: warn
