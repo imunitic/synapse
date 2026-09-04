@@ -29,6 +29,7 @@ teardown() {
 in_repo() {
   PATH="$FAKE_BIN:$PATH" \
     SYNAPSE_WORK_DIR="$WORK" \
+    SYNAPSE_CONTENT_ROOT="$SCHEMA_CONTENT_ROOT" \
     bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$@"
 }
 

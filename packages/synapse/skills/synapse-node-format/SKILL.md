@@ -55,7 +55,11 @@ to orient someone already inside. A node without one is an error, not a default.
   finds its node via this list). Do **not** trim it to a handful of "representative" files —
   doing so silently destroys that lookup, leaves the node unable to answer "which files am I
   about", and reduces hash verification to whatever survived the trim. Readability pressure
-  belongs on `## Sources` below, never here.
+  belongs on `## Sources` below, never here. Always the *last* frontmatter field — on a large
+  project it can run to hundreds of `path`/`hash` pairs, and every other field stays ahead of it so
+  a single-key lookup never has to scan past it. `graph-node/v1`'s schema enforces this order
+  directly (`field_order: relative`); this document and `synapse write-node`'s own emission order
+  agree with it, not the other way around.
 - **`sources_digest`:** `sha256` over the sorted `path:hash` lines of `sources` (see "Computing
   `sources_digest`" below). Lets a staleness check answer "has this node changed" by reading one
   field instead of every hash.
@@ -149,18 +153,19 @@ to orient someone already inside. A node without one is an error, not a default.
 
 ```yaml
 ---
+schema: graph-node/v1
 title: "World — entity/component/resource core"
 node_type: synapse-node
 project: acme
+sources_digest: <sha256 over the sorted "path:hash" lines>
+stale: false
+built_at: "<now>"
 sources:
   - path: acme_ecs/world.ml
     hash: <git hash-object output>
   - path: acme_ecs/world.mli
     hash: <git hash-object output>
   # ... every file the node covers, not a selection
-sources_digest: <sha256 over the sorted "path:hash" lines>
-stale: false
-built_at: "<now>"
 ---
 
 # World — entity/component/resource core

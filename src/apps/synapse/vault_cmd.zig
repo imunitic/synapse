@@ -1413,6 +1413,80 @@ test "all three shipped v1 note schemas validate through vault-write" {
     }
 }
 
+fn graphNodeBody(gpa: Allocator, title: []const u8, sources_tail: []const u8) ![]u8 {
+    return std.fmt.allocPrint(gpa, "---\n" ++
+        "schema: graph-node/v1\n" ++
+        "title: \"{s}\"\n" ++
+        "summary: \"One line differentiating this node from its siblings.\"\n" ++
+        "node_type: synapse-node\n" ++
+        "project: acme\n" ++
+        "branch: main\n" ++
+        "sources_digest: " ++ ("df91a067" ** 8) ++ "\n" ++
+        "stale: false\n" ++
+        "built_at: \"" ++ schema_fixed_timestamp[0..16] ++ "\"\n" ++
+        "{s}" ++
+        "---\n\n" ++
+        "# {s}\n\n" ++
+        "## Summary\n\nPlain-English explanation.\n\n" ++
+        "## Crux\n<!-- crux: none -->\n\n" ++
+        "## Links\n\n" ++
+        "## Sources\n- `acme_ecs` (1)\n\n" ++
+        "## Notes\n", .{ title, sources_tail, title });
+}
+
+test "the shipped graph-node/v1 schema validates a realistic node through vault-write" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try withRealSchemas(&fx);
+
+    const node = try graphNodeBody(gpa, "Widget core",
+        "sources:\n  - path: acme_ecs/world.ml\n    hash: aa\n");
+    defer gpa.free(node);
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(gpa, fx.io(), &fx.env, fx.vault, "synapse/acme@main/Widget core.md", node, "", &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+}
+
+test "the shipped graph-node/v1 schema refuses sources ahead of another declared field" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try withRealSchemas(&fx);
+
+    // `sources:` moved ahead of `built_at:` -- the whole point of `field_order: relative`.
+    const node = try std.fmt.allocPrint(gpa, "---\n" ++
+        "schema: graph-node/v1\n" ++
+        "title: \"Widget core\"\n" ++
+        "summary: \"One line differentiating this node from its siblings.\"\n" ++
+        "node_type: synapse-node\n" ++
+        "project: acme\n" ++
+        "branch: main\n" ++
+        "sources:\n  - path: acme_ecs/world.ml\n    hash: aa\n" ++
+        "sources_digest: " ++ ("df91a067" ** 8) ++ "\n" ++
+        "stale: false\n" ++
+        "built_at: \"" ++ schema_fixed_timestamp[0..16] ++ "\"\n" ++
+        "---\n\n" ++
+        "# Widget core\n\n" ++
+        "## Summary\n\nPlain-English explanation.\n\n" ++
+        "## Crux\n<!-- crux: none -->\n\n" ++
+        "## Links\n\n" ++
+        "## Sources\n- `acme_ecs` (1)\n\n" ++
+        "## Notes\n", .{});
+    defer gpa.free(node);
+
+    var resolved = (try openWholeVaultStore(gpa, fx.io(), &fx.env, fx.vault, "")).?;
+    defer resolved.deinit();
+    var store = resolved.store();
+    const wr = try store.write(fx.io(), "synapse/acme@main/Widget core.md", node);
+    defer gpa.free(wr.body);
+    try testing.expect(!wr.accepted);
+    try testing.expect(std.mem.indexOf(u8, wr.body, "out of relative order") != null);
+    try testing.expectEqual(@as(?[]u8, null), try fx.readVaultFile(gpa, "synapse/acme@main/Widget core.md"));
+}
+
 test "invalid schema-declaring notes fail with a field diagnostic and no partial file" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);

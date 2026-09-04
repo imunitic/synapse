@@ -62,6 +62,22 @@ common_setup() {
   # missing parents on its own.
   mkdir -p "$TEST_HOME/.claude" "$VAULT"
 
+  # A synthetic content root holding only the shipped `graph-node/v1.yaml`,
+  # not this checkout's real packages/synapse -- a test that needs a
+  # schema-declaring write (e.g. `write-node`, since `graph-node/v1`) to
+  # resolve exports `SYNAPSE_CONTENT_ROOT="$SCHEMA_CONTENT_ROOT"` itself
+  # rather than this being on by default for the whole suite. The real
+  # packages/synapse also serves as `core.conf.resolveConfPath`'s tier-3
+  # fallback for every other `.conf.template` (namespace-rules, grammars,
+  # ...), so pointing every test at it here would make those newly
+  # resolvable suite-wide and silently change any test asserting "no config
+  # present" -- caught live, a module-grouping assertion (`## Sources`
+  # rollup naming) changed shape once a real namespace-rules template
+  # started applying in a test that never asked for one.
+  mkdir -p "$TEST_HOME/content/schema/graph-node"
+  cp "$REPO_ROOT/packages/synapse/schema/graph-node/v1.yaml" "$TEST_HOME/content/schema/graph-node/v1.yaml"
+  SCHEMA_CONTENT_ROOT="$TEST_HOME/content"
+
   # Captured before the swap. Only for tests that must reach a real, machine-wide
   # cache they cannot reasonably fake -- currently just puppeteer's Chromium, which
   # mermaid-cli needs and which lives under the real $HOME. Never a general escape

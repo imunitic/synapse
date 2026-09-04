@@ -45,6 +45,7 @@ run_writer_raw() {
     SYNAPSE_GRAMMARS_DIR="$GRAMMARS_DIR" \
     FAKE_TS_LOG="$FAKE_TS_LOG" \
     FAKE_GIT_LOG="$FAKE_GIT_LOG" \
+    SYNAPSE_CONTENT_ROOT="$SCHEMA_CONTENT_ROOT" \
     bash -c 'cd "$1" && shift && exec "$@"' _ "$REPO" "$SYNAPSE_BIN" write-node "$@"
 }
 

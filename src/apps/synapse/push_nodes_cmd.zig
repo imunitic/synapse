@@ -253,6 +253,21 @@ const PushNodesFixture = struct {
     fn init(gpa: Allocator) !PushNodesFixture {
         var fx = try fixture.Fixture.init(gpa);
         errdefer fx.deinit();
+        // Every node `write-node` writes now declares `schema: graph-node/v1`
+        // -- point this fixture at a synthetic content root holding only
+        // that one schema file, the same isolated shape
+        // `write_node_cmd.zig`'s own `withRealSchema` uses and for the same
+        // reason: the real `packages/synapse` content root also resolves
+        // namespace-rules/boilerplate-chain config, which would silently
+        // change `## Sources` module-grouping behavior in tests whose point
+        // is "no such config present".
+        const schema = try Io.Dir.cwd().readFileAlloc(testing.io, "packages/synapse/schema/graph-node/v1.yaml", gpa, .limited(1 << 16));
+        defer gpa.free(schema);
+        try fx.tmp.dir.createDirPath(testing.io, "content/schema/graph-node");
+        try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "content/schema/graph-node/v1.yaml", .data = schema });
+        const content_root = try std.fmt.allocPrint(gpa, "{s}/content", .{fx.root});
+        defer gpa.free(content_root);
+        try fx.env.put("SYNAPSE_CONTENT_ROOT", content_root);
         const ctx = try fx.resolveContext();
         return .{ .fx = fx, .ctx = ctx };
     }

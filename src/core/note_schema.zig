@@ -103,8 +103,14 @@ fn validateHeader(gpa: Allocator, top: *const Value, expected_id: []const u8) !?
 fn validateFrontmatterRules(gpa: Allocator, top: *const Value) !?[]u8 {
     const frontmatter = mapAt(top, "frontmatter") orelse
         return try diag(gpa, "schema.frontmatter: required mapping is missing", .{});
-    if (unknownKey(frontmatter, &.{"fields"})) |key|
+    if (unknownKey(frontmatter, &.{ "fields", "field_order" })) |key|
         return try diag(gpa, "schema.frontmatter.{s}: unsupported v1 key", .{key});
+    if (frontmatter.get("field_order")) |v| {
+        const order = v.asString() orelse
+            return try diag(gpa, "schema.frontmatter.field_order: must be string", .{});
+        if (!std.mem.eql(u8, order, "relative"))
+            return try diag(gpa, "schema.frontmatter.field_order: unsupported value '{s}'", .{order});
+    }
     const fields = mapAt(frontmatter, "fields") orelse
         return try diag(gpa, "schema.frontmatter.fields: required mapping is missing", .{});
     for (fields.map) |field| {
@@ -122,7 +128,7 @@ fn validateFieldRule(gpa: Allocator, field: []const u8, rule: *const Value) !?[]
     })) |key| return try diag(gpa, "schema.frontmatter.fields.{s}.{s}: unsupported v1 key", .{ field, key });
     const type_name = stringAt(rule, "type") orelse
         return try diag(gpa, "schema.frontmatter.fields.{s}.type: required string is missing", .{field});
-    if (!oneOf(type_name, &.{ "string", "timestamp", "list", "integer", "boolean" }))
+    if (!oneOf(type_name, &.{ "string", "timestamp", "list", "integer", "boolean", "any" }))
         return try diag(gpa, "schema.frontmatter.fields.{s}.type: unsupported type '{s}'", .{ field, type_name });
     if (rule.get("required")) |v| if (v.asBool() == null)
         return try diag(gpa, "schema.frontmatter.fields.{s}.required: must be boolean", .{field});
@@ -261,8 +267,19 @@ pub fn validateNote(
     path: []const u8,
     context: Context,
 ) !?[]u8 {
-    if (frontmatterBounds(note) == null) return try diag(gpa, "frontmatter: opening and closing delimiters are required", .{});
-    const fields = schema.get("frontmatter").?.get("fields").?;
+    const bounds = frontmatterBounds(note) orelse
+        return try diag(gpa, "frontmatter: opening and closing delimiters are required", .{});
+    const frontmatter_rule = schema.get("frontmatter").?;
+    const fields = frontmatter_rule.get("fields").?;
+    const field_order_relative = if (frontmatter_rule.get("field_order")) |v|
+        if (v.asString()) |s| std.mem.eql(u8, s, "relative") else false
+    else
+        false;
+
+    var positions: ?[]FieldPos = null;
+    defer if (positions) |p| gpa.free(p);
+    var prev_line: usize = 0;
+    var have_prev = false;
 
     for (fields.map) |field| {
         const rule = field.value;
@@ -299,6 +316,16 @@ pub fn validateNote(
             if (!old.found or !fieldValuesEqual(old.value, lookup.value))
                 return try diag(gpa, "frontmatter.{s}: field is immutable", .{field.key});
         };
+
+        if (field_order_relative) {
+            if (positions == null) positions = try collectFrontmatterFields(gpa, note, bounds);
+            if (findFieldLine(positions.?, field.key)) |line_start| {
+                if (have_prev and line_start < prev_line)
+                    return try diag(gpa, "frontmatter.{s}: declared fields are out of relative order", .{field.key});
+                prev_line = line_start;
+                have_prev = true;
+            }
+        }
     }
 
     if (try validateBody(gpa, schema.get("body").?, note, path)) |message| return message;
@@ -649,6 +676,12 @@ pub fn lookupField(gpa: Allocator, note: []const u8, wanted: []const u8) !Lookup
                 if (child_raw[0] != ' ' and child_raw[0] != '\t') break;
                 const child = std.mem.trim(u8, child_raw, " ");
                 if (!std.mem.startsWith(u8, child, "- ")) {
+                    // A nested mapping under a list item (`- path: x` then an
+                    // indented `hash: y`) lands here -- every item already
+                    // duped into `items` up to this point must be freed, not
+                    // just the list spine, or the invalid return leaks them.
+                    for (items.items) |it| gpa.free(it);
+                    items.deinit(gpa);
                     result.value = .invalid;
                     return result;
                 }
@@ -682,6 +715,43 @@ pub fn lookupField(gpa: Allocator, note: []const u8, wanted: []const u8) !Lookup
         }
     }
     return result;
+}
+
+const FieldPos = struct { key: []const u8, line_start: usize };
+
+/// Every top-level frontmatter key in file order, first occurrence only --
+/// `lookupField`'s own duplicate detection already covers a repeated key, so
+/// a second occurrence here would only ever be redundant with that error.
+/// Byte offset (`line_start`), not a line number: enough to order two keys
+/// against each other, and cheaper than counting newlines.
+fn collectFrontmatterFields(gpa: Allocator, note: []const u8, bounds: Bounds) ![]FieldPos {
+    var out: std.ArrayListUnmanaged(FieldPos) = .empty;
+    errdefer out.deinit(gpa);
+    var offset = bounds.start;
+    while (offset < bounds.end) {
+        const end = std.mem.indexOfScalarPos(u8, note, offset, '\n') orelse bounds.end;
+        const raw = std.mem.trimEnd(u8, note[offset..end], "\r");
+        if (raw.len != 0 and raw[0] != ' ' and raw[0] != '\t' and raw[0] != '#') {
+            if (std.mem.indexOfScalar(u8, raw, ':')) |colon| {
+                const key = std.mem.trim(u8, raw[0..colon], " ");
+                var seen = false;
+                for (out.items) |f| {
+                    if (std.mem.eql(u8, f.key, key)) {
+                        seen = true;
+                        break;
+                    }
+                }
+                if (!seen) try out.append(gpa, .{ .key = key, .line_start = offset });
+            }
+        }
+        offset = end + 1;
+    }
+    return out.toOwnedSlice(gpa);
+}
+
+fn findFieldLine(positions: []const FieldPos, key: []const u8) ?usize {
+    for (positions) |p| if (std.mem.eql(u8, p.key, key)) return p.line_start;
+    return null;
 }
 
 const Bounds = struct { start: usize, end: usize, after: usize };
@@ -850,6 +920,11 @@ fn fieldHasType(value: FieldValue, type_name: []const u8) bool {
     if (std.mem.eql(u8, type_name, "list")) return value == .list;
     if (std.mem.eql(u8, type_name, "integer")) return value == .integer;
     if (std.mem.eql(u8, type_name, "boolean")) return value == .boolean;
+    // Present and required/order-checkable, but its content is outside what v1's other four
+    // types can express -- a list of mappings (`sources: [{path, hash}, ...]`), for instance.
+    // No scalar check (`const`/`pattern`/`enum`/...) ever fires for one: `scalarString` returns
+    // null for anything but `.string`, `any` included.
+    if (std.mem.eql(u8, type_name, "any")) return true;
     return false;
 }
 
@@ -1216,6 +1291,98 @@ test "declared sections are checked for relative order" {
         "x.md", .{ .mode = .create }, "body.section.A: declared sections are out of relative order");
     try expectNoteOk(source,
         "---\ntitle: Example\n---\n# Example\n\n## Z\ncontent\n\n## A\ncontent\n",
+        "x.md", .{ .mode = .create });
+}
+
+test "schema.frontmatter.field_order rejects a value other than relative" {
+    const source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  field_order: strict\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "checks: []\n";
+    var doc = try schema_yaml.parse(testing.allocator, source);
+    defer doc.deinit();
+    const message = (try validateSchema(testing.allocator, doc.root, "t/v1")).?;
+    defer testing.allocator.free(message);
+    try testing.expectEqualStrings("schema.frontmatter.field_order: unsupported value 'strict'", message);
+}
+
+test "declared frontmatter fields are checked for relative order when field_order: relative" {
+    const source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  field_order: relative\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "      required: true\n" ++
+        "    sources:\n" ++
+        "      type: string\n" ++
+        "      required: false\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "checks: []\n";
+    try expectNoteMessage(source,
+        "---\nsources: x\ntitle: Example\n---\n# Example\n",
+        "x.md", .{ .mode = .create }, "frontmatter.sources: declared fields are out of relative order");
+    try expectNoteOk(source,
+        "---\ntitle: Example\nsources: x\n---\n# Example\n",
+        "x.md", .{ .mode = .create });
+    // A missing optional field is simply skipped, not treated as a position of 0.
+    try expectNoteOk(source, "---\ntitle: Example\n---\n# Example\n", "x.md", .{ .mode = .create });
+}
+
+test "type: any accepts a field whose value is a list of mappings, no other v1 type can" {
+    const source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "      required: true\n" ++
+        "    sources:\n" ++
+        "      type: any\n" ++
+        "      required: true\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "checks: []\n";
+    try expectNoteOk(source,
+        "---\ntitle: Example\nsources:\n  - path: a.zig\n    hash: aa\n  - path: b.zig\n    hash: bb\n---\n# Example\n",
+        "x.md", .{ .mode = .create });
+    try expectNoteMessage(source,
+        "---\ntitle: Example\n---\n# Example\n",
+        "x.md", .{ .mode = .create }, "frontmatter.sources: required field is missing");
+}
+
+test "field_order is unset by default, so any frontmatter order passes" {
+    const source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "      required: true\n" ++
+        "    sources:\n" ++
+        "      type: string\n" ++
+        "      required: false\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "checks: []\n";
+    try expectNoteOk(source,
+        "---\nsources: x\ntitle: Example\n---\n# Example\n",
         "x.md", .{ .mode = .create });
 }
 

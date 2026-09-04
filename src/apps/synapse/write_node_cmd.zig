@@ -572,10 +572,34 @@ const testing = std.testing;
 const fixture = @import("cmd_test_support.zig");
 const fake_grammar = @import("fake_grammar.zig");
 
+/// Every node `write-node` writes now declares `schema: graph-node/v1`, so
+/// `SchemaValidationStore` needs a resolvable schema document or every write
+/// in this file fails closed with `ContentRootMissing`. Deliberately *not*
+/// `vault_cmd.zig`'s `withRealSchemas`-style `SYNAPSE_CONTENT_ROOT=packages/
+/// synapse`: this command also resolves namespace-rules/boilerplate-chain
+/// config from that same content root for `## Sources` module grouping, and
+/// pointing at the real one silently pulled real boilerplate-chain rules
+/// into tests whose whole point is "no config present" -- caught live, one
+/// module-grouping test expected `mod-a/src/main` and got `mod-a` once a
+/// real rule started stripping the segment. A synthetic content root holding
+/// only the one schema file this command needs keeps every other config
+/// surface exactly as absent as it already was.
+fn withRealSchema(fx: *fixture.Fixture) !void {
+    const gpa = fx.gpa;
+    const schema = try Io.Dir.cwd().readFileAlloc(testing.io, "packages/synapse/schema/graph-node/v1.yaml", gpa, .limited(1 << 16));
+    defer gpa.free(schema);
+    try fx.tmp.dir.createDirPath(testing.io, "content/schema/graph-node");
+    try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "content/schema/graph-node/v1.yaml", .data = schema });
+    const content_root = try std.fmt.allocPrint(gpa, "{s}/content", .{fx.root});
+    defer gpa.free(content_root);
+    try fx.env.put("SYNAPSE_CONTENT_ROOT", content_root);
+}
+
 test "writes frontmatter, a fenced body, and an empty ## Notes section" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
 
     var ctx = try fx.resolveContext();
@@ -614,6 +638,7 @@ test "a summary containing quotes and backslashes stays valid YAML" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
 
     var ctx = try fx.resolveContext();
@@ -642,6 +667,7 @@ test "body is reproduced verbatim between the fences" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
 
     var ctx = try fx.resolveContext();
@@ -667,6 +693,7 @@ test "sources_digest is independent of input order and of duplicate lines" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.writeRepoFile("a/A.ml", "a\n");
     try fx.writeRepoFile("b/B.ml", "b\n");
 
@@ -707,10 +734,70 @@ test "sources_digest is independent of input order and of duplicate lines" {
     );
 }
 
+test "a legacy node with no schema: field and the old field order rebuilds cleanly" {
+    // A node written by a build from before `graph-node/v1` existed: no
+    // `schema:` field at all, and `sources:` sitting ahead of
+    // `sources_digest:`/`stale:`/`built_at:` -- the exact old order this
+    // task moved away from. `SchemaValidationStore`'s additive-adoption rule
+    // means this file was never validated or reordered on its own (nothing
+    // ever rewrites a note nobody asked to rewrite) -- what this test
+    // confirms is that `write-node` rebuilding it (the only thing that ever
+    // touches a node file again) succeeds and produces a schema-declaring,
+    // new-order file, with the human-authored ## Notes carried forward.
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try withRealSchema(&fx);
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+
+    const legacy =
+        "---\n" ++
+        "title: \"Legacy\"\n" ++
+        "summary: \"one line\"\n" ++
+        "node_type: synapse-node\n" ++
+        "project: repo\n" ++
+        "branch: main\n" ++
+        "sources:\n" ++
+        "  - path: src/foo.ml\n" ++
+        "    hash: 0123456789abcdef0123456789abcdef01234567\n" ++
+        "sources_digest: " ++ ("aabbccdd" ** 8) ++ "\n" ++
+        "stale: false\n" ++
+        "built_at: \"2026-01-01 00:00\"\n" ++
+        "---\n\n" ++
+        "# Legacy\n" ++
+        core.node.generated_start ++ "\n\n" ++
+        "## Summary\nOriginal.\n\n" ++
+        "## Sources\n- `src/foo.ml`\n" ++
+        core.node.generated_end ++ "\n\n" ++
+        "## Notes\n\nHand-written: predates schema support entirely.\n";
+    try fx.writeNodeFile("Legacy", legacy);
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Legacy",
+        .summary = "one line",
+        .paths_text = "src/foo.ml\n",
+        .body_text = "## Summary\nOriginal.\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+
+    const rebuilt = (try fx.readNode(gpa, "Legacy")).?;
+    defer gpa.free(rebuilt);
+    try testing.expectEqualStrings("graph-node/v1", core.query.field(rebuilt, "schema").?);
+    try testing.expect(std.mem.indexOf(u8, rebuilt, "Hand-written: predates schema support entirely.") != null);
+    // The new order, not the legacy one: sources_digest ahead of sources.
+    try testing.expect(std.mem.indexOf(u8, rebuilt, "sources_digest:").? < std.mem.indexOf(u8, rebuilt, "sources:").?);
+}
+
 test "a rebuild preserves human-authored ## Notes instead of resetting them" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
 
     var ctx = try fx.resolveContext();
@@ -764,6 +851,7 @@ test "writing a node from its own recovered body is idempotent" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
 
     var ctx = try fx.resolveContext();
@@ -837,6 +925,7 @@ test "sources lists every path with its real blob hash, not a sample" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.writeRepoFile("mod-a/src/main/java/com/example/A.java", "class A {}\n");
     try fx.writeRepoFile("mod-a/src/main/java/com/example/B.java", "class B {}\n");
     try fx.writeRepoFile("mod-b/src/main/java/C.java", "class C {}\n");
@@ -878,6 +967,7 @@ test "sources_digest is wired from the same real sources" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.writeRepoFile("a.java", "a\n");
     try fx.writeRepoFile("b.java", "b\n");
 
@@ -910,6 +1000,7 @@ test "## Sources mirror groups exactly like core.query.moduleCounts" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.writeRepoFile("mod-a/src/main/java/com/example/A.java", "class A {}\n");
     try fx.writeRepoFile("mod-a/src/main/java/com/example/B.java", "class B {}\n");
     try fx.writeRepoFile("mod-b/src/main/java/C.java", "class C {}\n");
@@ -945,6 +1036,7 @@ test "a sanitised title keeps the original in frontmatter, only the filename cha
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
 
     var ctx = try fx.resolveContext();
@@ -969,6 +1061,7 @@ test "refuses to write when the namespace records a different remote" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.writeRepoFile("rootfile.txt", "root\n");
     try fx.writeIndex("ssh://git@example.com/y/theirs.git", "main");
     try fx.env.put("SYNAPSE_REMOTE", "ssh://git@example.com/x/mine.git");
@@ -992,6 +1085,7 @@ test "writes when the namespace remote matches" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.writeRepoFile("rootfile.txt", "root\n");
     try fx.writeIndex("ssh://git@example.com/x/mine.git", "main");
     try fx.env.put("SYNAPSE_REMOTE", "ssh://git@example.com/x/mine.git");
@@ -1015,6 +1109,7 @@ test "writes when no Index.md exists yet, since that is a first-time build" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
 
     var ctx = try fx.resolveContext();
@@ -1036,6 +1131,7 @@ test "a listed path that no longer exists fails loudly instead of writing a shor
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
     // src/deleted.ml deliberately not written.
 
@@ -1058,6 +1154,7 @@ test "a directory in the path list fails, the way a submodule gitlink would" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.writeRepoFile("rootfile.txt", "root\n");
     try fx.writeRepoFile("docs/guide.md", "# doc\n"); // makes "docs" a real directory
 
@@ -1080,6 +1177,7 @@ test "a disk write failure is reported and stores nothing" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.forceWriteFailure("synapse/repo@main/Rejected.md");
     try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
 
@@ -1105,6 +1203,7 @@ test "records HEAD as the baseline commit, in full" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
     try fx.gitCommit("init");
 
@@ -1139,6 +1238,7 @@ test "the commit field is omitted when HEAD does not resolve yet" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
     (try fx.git(&.{ "init", "-q" })).deinit(fx.gpa);
     (try fx.git(&.{ "add", "-A" })).deinit(fx.gpa);
@@ -1167,6 +1267,7 @@ test "writing a node populates the tags cache for its sources, in the work dir a
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
     _ = fx.env.swapRemove("SYNAPSE_DISABLE_SYMBOL_CACHE");
 
@@ -1202,6 +1303,7 @@ test "the tags cache honours SYNAPSE_WORK_DIR" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
     _ = fx.env.swapRemove("SYNAPSE_DISABLE_SYMBOL_CACHE");
     const elsewhere = try std.fmt.allocPrint(gpa, "{s}/elsewhere", .{fx.root});
@@ -1238,6 +1340,7 @@ test "rewriting a node with an unchanged source re-tags nothing" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
     _ = fx.env.swapRemove("SYNAPSE_DISABLE_SYMBOL_CACHE");
 
@@ -1280,6 +1383,7 @@ test "disabled via env var: node write still succeeds, no cache file created" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
     // `Fixture.init` already sets this by default; asserted explicitly here
     // so a future change to that default doesn't silently drop the case.
@@ -1327,6 +1431,7 @@ test "crux: the pointed-at lines are sliced from the file, verbatim" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try cruxFixture(gpa, &fx);
 
     var ctx = try fx.resolveContext();
@@ -1357,6 +1462,7 @@ test "crux: the pointer is recorded in frontmatter, not just the sliced text" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try cruxFixture(gpa, &fx);
 
     var ctx = try fx.resolveContext();
@@ -1386,6 +1492,7 @@ test "crux: a directive quoted as a prose example elsewhere is not mistaken for 
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try cruxFixture(gpa, &fx);
 
     var ctx = try fx.resolveContext();
@@ -1412,6 +1519,7 @@ test "crux: 'none' is an honest answer, not a missing field" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try cruxFixture(gpa, &fx);
 
     var ctx = try fx.resolveContext();
@@ -1437,6 +1545,7 @@ test "crux: a path the node does not claim is refused" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try cruxFixture(gpa, &fx);
     try fx.writeRepoFile("lib/other.ml", "let z = 1\n"); // real, but not in paths_text
 
@@ -1459,6 +1568,7 @@ test "crux: a range past the end of the file is refused, not clamped" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try cruxFixture(gpa, &fx);
 
     var ctx = try fx.resolveContext();
@@ -1480,6 +1590,7 @@ test "crux: a range longer than ~20 lines is refused" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try cruxFixture(gpa, &fx);
 
     var ctx = try fx.resolveContext();
@@ -1501,6 +1612,7 @@ test "crux: a malformed directive is refused rather than silently ignored" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try cruxFixture(gpa, &fx);
 
     var ctx = try fx.resolveContext();
@@ -1522,6 +1634,7 @@ test "crux: a body with no directive is written unchanged" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try cruxFixture(gpa, &fx);
 
     var ctx = try fx.resolveContext();
@@ -1546,6 +1659,7 @@ test "crux: re-pointing after the file changed re-slices, rather than keeping th
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try cruxFixture(gpa, &fx);
 
     var ctx = try fx.resolveContext();
@@ -1638,6 +1752,7 @@ test "grounded_in: records path, lines and a digest of the slice" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try groundedFixture(gpa, &fx);
 
     var ctx = try fx.resolveContext();
@@ -1669,6 +1784,7 @@ test "grounded_in: multiple groundings are all recorded" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try groundedFixture(gpa, &fx);
 
     var ctx = try fx.resolveContext();
@@ -1699,6 +1815,7 @@ test "grounded_in: directives are stripped from the body, not rendered" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try groundedFixture(gpa, &fx);
 
     var ctx = try fx.resolveContext();
@@ -1725,6 +1842,7 @@ test "grounded_in: a digest over the slice, not the whole file" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try groundedFixture(gpa, &fx);
 
     var ctx = try fx.resolveContext();
@@ -1774,6 +1892,7 @@ test "grounded_in: a path outside the node's sources is refused" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try groundedFixture(gpa, &fx);
     try fx.writeRepoFile("lib/other.ml", "let z = 1\n");
 
@@ -1796,6 +1915,7 @@ test "grounded_in: a bad range or malformed directive is refused" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try groundedFixture(gpa, &fx);
 
     var ctx = try fx.resolveContext();
@@ -1825,6 +1945,7 @@ test "grounded_in: absent means no field, not an empty one" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try groundedFixture(gpa, &fx);
 
     var ctx = try fx.resolveContext();
@@ -1848,6 +1969,7 @@ test "grounded_in: coexists with a crux directive" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
+    try withRealSchema(&fx);
     try groundedFixture(gpa, &fx);
 
     var ctx = try fx.resolveContext();

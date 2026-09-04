@@ -474,19 +474,19 @@ pub const Note = struct {
 /// it actually is.
 const sources_path_threshold: usize = 5;
 
-/// Frontmatter field order is a deliberate invariant, not incidental:
-/// `title`/`summary`/`node_type`/`project`/`branch` -- small, and the ones a
-/// single-key lookup asks for most -- are written before `sources:`, which
-/// on a large real project can run to hundreds of `path`/`hash` pairs.
-/// `core.query.fieldStreaming` stops at the first line matching the key it
-/// wants, so a lookup for any of those five never reaches `sources:` at
-/// all; reordering them after it would silently turn every such lookup
-/// back into a near-full-file scan, with no test failure anywhere to catch
-/// it except the one below that pins this order directly. The scan itself
-/// stays correct for *any* order -- this is about keeping its good case a
-/// guarantee instead of an accident.
+/// Frontmatter field order is a deliberate invariant, not incidental, and
+/// `packages/synapse/schema/graph-node/v1.yaml` is its source of truth --
+/// `field_order: relative` there requires exactly this order, checked by
+/// `core.note_schema` on every write through `SchemaValidationStore`. The
+/// short scalar fields all precede `sources:`, and `sources` itself is
+/// always last: on a large real project `sources:` can run to hundreds of
+/// `path`/`hash` pairs, and `core.query.fieldStreaming`'s single-key lookup
+/// stops at the first line matching the key it wants, so no other field is
+/// ever behind it. A byte-exact test below pins this order directly against
+/// the code; the schema pins it against every node this build ever writes.
 pub fn writeNote(w: *std.Io.Writer, n: Note) !void {
     try w.writeAll("---\n");
+    try w.writeAll("schema: graph-node/v1\n");
     try w.writeAll("title: \"");
     try writeYamlQuoted(w, n.title);
     try w.writeAll("\"\n");
@@ -498,8 +498,6 @@ pub fn writeNote(w: *std.Io.Writer, n: Note) !void {
     // query can ask for every branch's copy of one node.
     try w.print("project: {s}\n", .{n.project});
     try w.print("branch: {s}\n", .{n.branch});
-    try w.writeAll("sources:\n");
-    for (n.sources) |s| try w.print("  - path: {s}\n    hash: {s}\n", .{ s.path, s.hash });
     try w.print("sources_digest: {s}\n", .{n.digest});
     try w.writeAll("stale: false\n");
     try w.print("built_at: \"{s}\"\n", .{n.built_at});
@@ -513,6 +511,8 @@ pub fn writeNote(w: *std.Io.Writer, n: Note) !void {
         for (n.grounded) |g|
             try w.print("  - path: {s}\n    lines: \"{s}\"\n    digest: {s}\n", .{ g.path, g.lines, g.digest });
     }
+    try w.writeAll("sources:\n");
+    for (n.sources) |s| try w.print("  - path: {s}\n    hash: {s}\n", .{ s.path, s.hash });
     try w.writeAll("---\n\n");
 
     try w.print("# {s}\n", .{n.title});
@@ -802,20 +802,21 @@ test "a fresh node gets an empty Notes section" {
     try writeNote(&out.writer, baseNote());
     try testing.expectEqualStrings(
         \\---
+        \\schema: graph-node/v1
         \\title: "State machine"
         \\summary: "How states advance"
         \\node_type: synapse-node
         \\project: fw-core
         \\branch: master
+        \\sources_digest: df91a067
+        \\stale: false
+        \\built_at: "2026-08-12 18:00"
+        \\commit: 0123456789abcdef0123456789abcdef01234567
         \\sources:
         \\  - path: a/A.java
         \\    hash: 1111111111111111111111111111111111111111
         \\  - path: b/B.java
         \\    hash: 2222222222222222222222222222222222222222
-        \\sources_digest: df91a067
-        \\stale: false
-        \\built_at: "2026-08-12 18:00"
-        \\commit: 0123456789abcdef0123456789abcdef01234567
         \\---
         \\
         \\# State machine
@@ -854,29 +855,66 @@ test "a title with an embedded quote and newline cannot hijack a later field" {
     try testing.expectEqualStrings("false", query.field(written, "stale").?);
 }
 
-test "the small, frequently-queried scalar fields are written before the large sources list" {
+test "every scalar field is written before the large sources list, which is always last" {
     // Not the golden-content test above's job (that pins one whole note
     // byte-for-byte for an unrelated reason) -- this is specifically about
-    // the order `core.query.fieldStreaming` depends on for its speedup,
-    // pinned on its own so a reorder fails here with a message that says
-    // what broke, not just as collateral damage in a bigger diff.
+    // the order `core.query.fieldStreaming` depends on for its speedup and
+    // `graph-node/v1.yaml`'s `field_order: relative` now enforces on every
+    // write, pinned on its own so a reorder fails here with a message that
+    // says what broke, not just as collateral damage in a bigger diff.
     var out: std.Io.Writer.Allocating = .init(testing.allocator);
     defer out.deinit();
     try writeNote(&out.writer, baseNote());
 
     const written = out.written();
+    const schema_pos = std.mem.indexOf(u8, written, "schema:").?;
     const title_pos = std.mem.indexOf(u8, written, "title:").?;
     const summary_pos = std.mem.indexOf(u8, written, "summary:").?;
     const node_type_pos = std.mem.indexOf(u8, written, "node_type:").?;
     const project_pos = std.mem.indexOf(u8, written, "project:").?;
     const branch_pos = std.mem.indexOf(u8, written, "branch:").?;
+    const digest_pos = std.mem.indexOf(u8, written, "sources_digest:").?;
+    const stale_pos = std.mem.indexOf(u8, written, "stale:").?;
+    const built_at_pos = std.mem.indexOf(u8, written, "built_at:").?;
+    const commit_pos = std.mem.indexOf(u8, written, "commit:").?;
     const sources_pos = std.mem.indexOf(u8, written, "sources:").?;
 
+    try testing.expect(schema_pos < title_pos);
     try testing.expect(title_pos < summary_pos);
     try testing.expect(summary_pos < node_type_pos);
     try testing.expect(node_type_pos < project_pos);
     try testing.expect(project_pos < branch_pos);
-    try testing.expect(branch_pos < sources_pos);
+    try testing.expect(branch_pos < digest_pos);
+    try testing.expect(digest_pos < stale_pos);
+    try testing.expect(stale_pos < built_at_pos);
+    try testing.expect(built_at_pos < commit_pos);
+    try testing.expect(commit_pos < sources_pos);
+}
+
+test "core.query.field/fieldStreaming still resolve every field correctly once sources moves last" {
+    // The fields that moved the most -- sources_digest/stale/built_at/commit
+    // used to sit *after* `sources:`, now they're all ahead of it. `field`
+    // and `fieldStreaming` are a linear scan that stops at the wanted key or
+    // the closing `---`, so correctness never depended on position in the
+    // first place -- this pins that claim against the real, new-order bytes
+    // rather than leaving it as an inference from reading the scan's code.
+    var out: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+    try writeNote(&out.writer, baseNote());
+    const written = out.written();
+
+    try testing.expectEqualStrings("graph-node/v1", query.field(written, "schema").?);
+    try testing.expectEqualStrings("false", query.field(written, "stale").?);
+    try testing.expectEqualStrings("df91a067", query.field(written, "sources_digest").?);
+    try testing.expectEqualStrings("2026-08-12 18:00", query.field(written, "built_at").?);
+    try testing.expectEqualStrings("0123456789abcdef0123456789abcdef01234567", query.field(written, "commit").?);
+    // Still absent for a note that has none -- `sources:` moving doesn't
+    // make a missing optional field spuriously "found" the way an off-by-one
+    // in the reorder could.
+    try testing.expectEqual(@as(?[]const u8, null), query.field(written, "crux_path"));
+
+    var reader: std.Io.Reader = .fixed(written);
+    try testing.expectEqualStrings("false", (try query.fieldStreaming(&reader, "stale")).?);
 }
 
 test "## Sources lists paths directly below the threshold, and rolls up at or above it" {

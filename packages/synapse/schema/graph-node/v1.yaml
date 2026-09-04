@@ -1,0 +1,96 @@
+# Declared keys are the full v1 spec; enforcement is a deliberate subset -- unknown note fields are ignored, never an error.
+# `sources` is declared last on purpose: `field_order: relative` requires every other declared
+# field to sit ahead of it in the actual file, so a small, frequently-looked-up scalar is never
+# behind a `sources:` block that can run to hundreds of `path`/`hash` pairs on a large repo.
+schema: synapse-note-schema/v1
+id: graph-node/v1
+
+frontmatter:
+  field_order: relative
+  fields:
+    schema:
+      type: string
+      required: true
+      const: graph-node/v1
+    title:
+      type: string
+      required: true
+      min_length: 1
+    summary:
+      type: string
+      required: true
+      min_length: 1
+    node_type:
+      type: string
+      required: true
+      const: synapse-node
+    project:
+      type: string
+      required: true
+      min_length: 1
+    branch:
+      type: string
+      required: true
+      min_length: 1
+    sources_digest:
+      type: string
+      required: true
+      pattern: '^[0-9a-f]{64}$'
+    stale:
+      type: boolean
+      required: true
+    built_at:
+      type: string
+      required: true
+      pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}$'
+    commit:
+      type: string
+      required: false
+    crux_path:
+      type: string
+      required: false
+    crux_lines:
+      type: string
+      required: false
+    grounded_in:
+      type: any
+      required: false
+    sources:
+      type: any
+      required: true
+
+body:
+  h1:
+    required: true
+    count: 1
+    equals: frontmatter.title
+  # Crux and Links are `synapse-node-format`'s documented convention for every
+  # authored node, but nothing has ever structurally required either heading
+  # to exist -- `write-node`'s own crux/grounded_in extraction is scoped to
+  # `## Crux` only when present, never required. Required here would be a new
+  # constraint this schema doesn't need to introduce to do its actual job
+  # (field order, schema identity); Summary/Sources/Notes are required because
+  # `write-node` always emits all three unconditionally today, so requiring
+  # them adds no new constraint at all.
+  sections:
+    - title: Summary
+      level: 2
+      required: true
+      non_empty: true
+    - title: Crux
+      level: 2
+      required: false
+      non_empty: true
+    - title: Links
+      level: 2
+      required: false
+    - title: Sources
+      level: 2
+      required: true
+      non_empty: true
+    - title: Notes
+      level: 2
+      required: true
+  section_order: relative
+
+checks: []
