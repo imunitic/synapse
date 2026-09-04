@@ -319,6 +319,12 @@ fn validateLintRule(gpa: Allocator, rule: *const Value, index: usize) !?[]u8 {
     return null;
 }
 
+/// `schema` must already have passed `validateSchema` -- this reads
+/// `schema.get("frontmatter"/"body"/"checks").?` unconditionally, so an
+/// unvalidated document (one of those keys missing or malformed) panics
+/// here instead of failing cleanly. Every real caller in this codebase
+/// (`SchemaValidationStore.write`, `vault-check`) already validates first;
+/// this is a caller contract, not a check this function makes itself.
 pub fn validateNote(
     gpa: Allocator,
     schema: *const Value,
@@ -799,12 +805,12 @@ fn validateChecks(gpa: Allocator, checks: *const Value, note: []const u8, path: 
         }
         if (check.get("not_before")) |values| {
             const left = try resolveRef(gpa, note, path, values.list[0].string);
-            defer gpa.free(left);
+            defer if (left) |l| gpa.free(l);
             const right = try resolveRef(gpa, note, path, values.list[1].string);
-            defer gpa.free(right);
-            if (left.len < 19 or right.len < 19)
+            defer if (right) |r| gpa.free(r);
+            if (left == null or right == null or left.?.len < 19 or right.?.len < 19)
                 return try diag(gpa, "{s}: must not precede {s} — a value is missing or malformed", .{ values.list[0].string, values.list[1].string });
-            if (std.mem.lessThan(u8, left[0..19], right[0..19]))
+            if (std.mem.lessThan(u8, left.?[0..19], right.?[0..19]))
                 return try diag(gpa, "{s}: must not precede {s}", .{ values.list[0].string, values.list[1].string });
             continue;
         }
@@ -814,11 +820,15 @@ fn validateChecks(gpa: Allocator, checks: *const Value, note: []const u8, path: 
             const values = if (equals.* == .list) equals else equals.get("values") orelse continue;
             if (values.list.len < 2) continue;
             const first = try resolveRef(gpa, note, path, values.list[0].string);
-            defer gpa.free(first);
+            defer if (first) |f| gpa.free(f);
+            // A missing field is refused, not silently allowed to compare
+            // equal to another missing field -- two absent fields are not
+            // meaningfully "equal" to each other.
+            if (first == null) return try diag(gpa, "{s}: field is missing", .{values.list[0].string});
             for (values.list[1..]) |ref| {
                 const other = try resolveRef(gpa, note, path, ref.string);
-                defer gpa.free(other);
-                if (!std.mem.eql(u8, first, other))
+                defer if (other) |o| gpa.free(o);
+                if (other == null or !std.mem.eql(u8, first.?, other.?))
                     return try diag(gpa, "{s}: must equal {s}", .{ values.list[0].string, ref.string });
             }
             continue;
@@ -829,8 +839,8 @@ fn validateChecks(gpa: Allocator, checks: *const Value, note: []const u8, path: 
             const field_ref = stringAt(constant, "field") orelse continue;
             const want = stringAt(constant, "value") orelse continue;
             const got = try resolveRef(gpa, note, path, field_ref);
-            defer gpa.free(got);
-            if (!std.mem.eql(u8, got, want)) return try diag(gpa, "{s}: must equal '{s}' on creation", .{ field_ref, want });
+            defer if (got) |g| gpa.free(g);
+            if (got == null or !std.mem.eql(u8, got.?, want)) return try diag(gpa, "{s}: must equal '{s}' on creation", .{ field_ref, want });
         }
     }
     return null;
@@ -1002,15 +1012,19 @@ fn collectHeadings(gpa: Allocator, markdown: []const u8) ![]Heading {
     return headings.toOwnedSlice(gpa);
 }
 
-fn resolveRef(gpa: Allocator, note: []const u8, path: []const u8, ref: []const u8) ![]u8 {
-    if (std.mem.eql(u8, ref, "filename.stem")) return gpa.dupe(u8, filenameStem(path));
-    if (!std.mem.startsWith(u8, ref, "frontmatter.")) return gpa.dupe(u8, "");
+/// Null means unresolvable -- the field is absent, not a string, or `ref`
+/// itself isn't a reference form this v1 language knows. Distinct from a
+/// resolved-but-empty string on purpose: a check comparing two absent
+/// fields must refuse, not silently treat "" as equal to itself.
+fn resolveRef(gpa: Allocator, note: []const u8, path: []const u8, ref: []const u8) !?[]u8 {
+    if (std.mem.eql(u8, ref, "filename.stem")) return try gpa.dupe(u8, filenameStem(path));
+    if (!std.mem.startsWith(u8, ref, "frontmatter.")) return null;
     const field = ref["frontmatter.".len..];
     var lookup = try lookupField(gpa, note, field);
     defer lookup.deinit(gpa);
     return switch (lookup.value) {
-        .string => |s| gpa.dupe(u8, s),
-        else => gpa.dupe(u8, ""),
+        .string => |s| try gpa.dupe(u8, s),
+        else => null,
     };
 }
 
@@ -1383,6 +1397,34 @@ test "not_before diagnoses a missing field instead of passing silently" {
         "checks:\n" ++
         "  - not_before: [frontmatter.updated, frontmatter.created]\n";
     try expectNoteMessage(source, "---\ntitle: Example\n---\n# Example\n", "x.md", .{ .mode = .create }, "frontmatter.updated: must not precede frontmatter.created — a value is missing or malformed");
+}
+
+test "equals refuses two missing fields instead of treating them as equal" {
+    const source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "      required: true\n" ++
+        "    a:\n" ++
+        "      type: string\n" ++
+        "      required: false\n" ++
+        "    b:\n" ++
+        "      type: string\n" ++
+        "      required: false\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "checks:\n" ++
+        "  - equals: [frontmatter.a, frontmatter.b]\n";
+    // Both absent: refused, not silently "" == "".
+    try expectNoteMessage(source, "---\ntitle: Example\n---\n# Example\n", "x.md", .{ .mode = .create }, "frontmatter.a: field is missing");
+    // Present and equal: passes.
+    try expectNoteOk(source, "---\ntitle: Example\na: x\nb: x\n---\n# Example\n", "x.md", .{ .mode = .create });
+    // One present, one missing: refused, not compared as equal strings.
+    try expectNoteMessage(source, "---\ntitle: Example\na: x\n---\n# Example\n", "x.md", .{ .mode = .create }, "frontmatter.a: must equal frontmatter.b");
 }
 
 test "not_before rejects a timestamp that precedes its pair and accepts the reverse" {

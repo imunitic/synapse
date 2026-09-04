@@ -19,6 +19,8 @@ const core = @import("core");
 const context = @import("context.zig");
 const adapters = @import("adapters");
 const enumerate_cmd = @import("enumerate_cmd.zig");
+const cli_args = @import("cli_args.zig");
+const repo_root = @import("repo_root.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -53,13 +55,13 @@ pub fn run(
                 std.debug.print("{s}", .{usage_text});
                 return 2;
             };
-        dest.* = args.next() orelse {
+        dest.* = cli_args.takenValue(args.next()) orelse {
             std.debug.print("{s}", .{usage_text});
             return 2;
         };
     }
 
-    const root = try repoRoot(gpa, io, repo);
+    const root = try repo_root.resolve(gpa, io, repo);
     defer gpa.free(root);
     if (root.len == 0) {
         std.debug.print("{s}: not inside a git repo\n", .{prog});
@@ -134,15 +136,6 @@ pub fn buildNamespaces(
 
     std.debug.print("{s}: {d} row(s) -> {s}\n", .{ prog, rows.items.len, out_path.? });
     return 0;
-}
-
-fn repoRoot(gpa: Allocator, io: Io, repo: ?[]const u8) ![]u8 {
-    const res = adapters.process.run(io, gpa, &.{ "git", "rev-parse", "--show-toplevel" }, .{
-        .cwd = if (repo) |r| .{ .path = r } else .inherit,
-    }) catch return gpa.dupe(u8, "");
-    defer res.deinit(gpa);
-    if (!res.ok()) return gpa.dupe(u8, "");
-    return gpa.dupe(u8, std.mem.trim(u8, res.stdout, " \t\r\n"));
 }
 
 const testing = std.testing;

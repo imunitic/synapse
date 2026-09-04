@@ -151,7 +151,15 @@ fn needsQuoting(s: []const u8) bool {
     }
     if (std.mem.eql(u8, s, "true") or std.mem.eql(u8, s, "false") or
         std.mem.eql(u8, s, "null") or std.mem.eql(u8, s, "~")) return true;
+    // An all-digit scalar reads back as a YAML integer, not a string, once
+    // unquoted -- a numeric-looking title or id round-trips as the wrong type.
+    if (isAllDigits(s)) return true;
     return false;
+}
+
+fn isAllDigits(s: []const u8) bool {
+    for (s) |c| if (!std.ascii.isDigit(c)) return false;
+    return true;
 }
 
 /// The current `tags: [a, b]` flow sequence, unquoted and split. Empty when
@@ -237,6 +245,12 @@ test "a value needing quotes is quoted, and only that value" {
     const got = try set(testing.allocator, note, "title", .{ .scalar = "a: title with a colon" });
     defer testing.allocator.free(got);
     try testing.expect(std.mem.indexOf(u8, got, "title: \"a: title with a colon\"\n") != null);
+}
+
+test "an all-digit scalar is quoted, so it round-trips as a string not an integer" {
+    const got = try set(testing.allocator, note, "title", .{ .scalar = "123" });
+    defer testing.allocator.free(got);
+    try testing.expect(std.mem.indexOf(u8, got, "title: \"123\"\n") != null);
 }
 
 test "no frontmatter at all is an error, not a guess" {

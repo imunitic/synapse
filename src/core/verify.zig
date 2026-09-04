@@ -203,9 +203,22 @@ pub fn sha256Hex(content: []const u8) [64]u8 {
     return hex;
 }
 
+/// Byte offset where the line beginning at `at` ends -- one past its own
+/// trailing newline, or `content.len` if it has none (the last line).
+fn nextLineStart(content: []const u8, at: usize) usize {
+    const nl = std.mem.indexOfScalarPos(u8, content, at, '\n') orelse return content.len;
+    return nl + 1;
+}
+
 /// Where a recorded range's content is now, if anywhere -- a same-length
 /// window slid through the file until a candidate span's hash matches.
 /// O(lines), and only run after the direct check already failed.
+///
+/// The window is two byte cursors, each advanced by exactly one line per
+/// step, rather than a fresh `slice()` call (itself O(lines) from byte 0)
+/// per candidate -- that shape made this function O(lines²) despite its own
+/// claim otherwise, since every one of the up-to-`lines` candidates paid
+/// for a full rescan.
 pub fn findMoved(content: []const u8, span: usize, digest: []const u8) ?Range {
     if (span == 0) return null;
     var total: usize = 0;
@@ -213,12 +226,19 @@ pub fn findMoved(content: []const u8, span: usize, digest: []const u8) ?Range {
     while (it.next()) |_| total += 1;
     // A trailing newline doesn't add a line (matches `wc -l`).
     if (content.len != 0 and content[content.len - 1] == '\n') total -= 1;
+    if (span > total) return null;
+
+    var window_start: usize = 0;
+    var window_end: usize = 0;
+    var line: usize = 0;
+    while (line < span) : (line += 1) window_end = nextLineStart(content, window_end);
 
     var start: usize = 1;
     while (start + span - 1 <= total) : (start += 1) {
-        const candidate = slice(content, start, start + span - 1) orelse continue;
-        if (std.mem.eql(u8, &sha256Hex(candidate), digest))
+        if (std.mem.eql(u8, &sha256Hex(content[window_start..window_end]), digest))
             return .{ .start = start, .end = start + span - 1 };
+        window_start = nextLineStart(content, window_start);
+        window_end = nextLineStart(content, window_end);
     }
     return null;
 }
@@ -372,4 +392,12 @@ test "findMoved finds a range still in place" {
     const digest = sha256Hex("b\n");
     const found = findMoved(content, 1, &digest).?;
     try testing.expectEqual(@as(usize, 2), found.start);
+}
+
+test "findMoved finds a match on the file's last line, which has no trailing newline" {
+    const content = "a\nb\nc";
+    const digest = sha256Hex("c");
+    const found = findMoved(content, 1, &digest).?;
+    try testing.expectEqual(@as(usize, 3), found.start);
+    try testing.expectEqual(@as(usize, 3), found.end);
 }

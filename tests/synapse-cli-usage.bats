@@ -114,7 +114,7 @@ teardown() {
   [[ "$output" != *"unknown subcommand"* ]]
 }
 
-@test "tags-cache: missing arguments is a usage error, exit 1" {
+@test "tags-cache: missing arguments is a usage error, exit 2" {
   run env PATH="$FAKE_BIN:$PATH" "$SYNAPSE_BIN" tags-cache --repo-root "$REPO"
-  [ "$status" -eq 1 ]
+  [ "$status" -eq 2 ]
 }

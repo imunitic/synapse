@@ -180,7 +180,7 @@ pub fn judge(gpa: Allocator, table: []const u8, opts: Options) !std.ArrayListUnm
 /// groups is half-distinctive whether there are 46 groups or 500 -- `k` is a
 /// repo-*shape* knob, not a per-scale threshold to re-derive.
 pub fn distinctivenessScore(df: usize, n: usize, k: usize) f64 {
-    const d: f64 = @floatFromInt(@max(@as(usize, 2), n / k));
+    const d: f64 = @floatFromInt(@max(@as(usize, 2), n / @max(@as(usize, 1), k)));
     return d / (d + @as(f64, @floatFromInt(df)));
 }
 
@@ -474,6 +474,12 @@ test "distinctivenessScore floors D at 2, same floor judge uses" {
     // N=10, K=20: N/K=0, floored to 2 -- not zero, or every word would be
     // maximally distinctive regardless of df.
     try testing.expectApproxEqAbs(@as(f64, 0.5), distinctivenessScore(2, 10, 20), 1e-9);
+}
+
+test "distinctivenessScore: k = 0 is safe, not a division by zero" {
+    // k = 0 clamps to 1, so d = max(2, n/1) = n here; df = n makes the
+    // midpoint land on a round number instead of just checking "no panic".
+    try testing.expectApproxEqAbs(@as(f64, 0.5), distinctivenessScore(10, 10, 0), 1e-9);
 }
 
 test "judgeDistinctiveness: a word shared by every group scores low and is not counted" {

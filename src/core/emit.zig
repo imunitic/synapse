@@ -1026,41 +1026,49 @@ test "a recovered body written back produces the same bytes" {
 /// `sources_digest`. Rewriting one line leaves every other byte -- including
 /// a megabyte `sources` list on a hub node -- untouched.
 pub fn setStaleTrue(w: *std.Io.Writer, text: []const u8) !bool {
-    if (!std.mem.startsWith(u8, text, "---\n")) return false; // no frontmatter, nothing to flag
+    const crlf = std.mem.startsWith(u8, text, "---\r\n");
+    if (!crlf and !std.mem.startsWith(u8, text, "---\n")) return false; // no frontmatter, nothing to flag
+    // An injected/replaced `stale:` line has no original `\r` to carry
+    // forward the way every echoed line's own does -- give it one to match
+    // when the rest of the file is CRLF.
+    const nl: []const u8 = if (crlf) "\r\n" else "\n";
 
     var changed = false;
     var done = false;
     var in_fm = false;
     var first = true;
     var lines = std.mem.splitScalar(u8, text, '\n');
-    while (lines.next()) |line| {
+    while (lines.next()) |raw_line| {
+        // Compared with any trailing `\r` stripped, but re-emitted as
+        // `raw_line` -- a CRLF file's line endings survive untouched.
+        const line = std.mem.trimEnd(u8, raw_line, "\r");
         if (first) {
             first = false;
             in_fm = true;
-            try w.print("{s}\n", .{line});
+            try w.print("{s}\n", .{raw_line});
             continue;
         }
         if (in_fm and std.mem.eql(u8, line, "---")) {
             // Absent `stale:` is added just before the closing marker, so a
             // node built before the field existed is still flaggable.
             if (!done) {
-                try w.writeAll("stale: true\n");
+                try w.print("stale: true{s}", .{nl});
                 done = true;
                 changed = true;
             }
             in_fm = false;
-            try w.print("{s}\n", .{line});
+            try w.print("{s}\n", .{raw_line});
             continue;
         }
         if (in_fm and !done and std.mem.startsWith(u8, line, "stale:")) {
-            try w.writeAll("stale: true\n");
+            try w.print("stale: true{s}", .{nl});
             done = true;
             if (!std.mem.eql(u8, std.mem.trim(u8, line["stale:".len..], " \t"), "true"))
                 changed = true;
             continue;
         }
-        if (lines.index == null and line.len == 0) break; // trailing split piece, not an extra line
-        try w.print("{s}\n", .{line});
+        if (lines.index == null and raw_line.len == 0) break; // trailing split piece, not an extra line
+        try w.print("{s}\n", .{raw_line});
     }
     return changed;
 }
@@ -1094,6 +1102,18 @@ test "setStaleTrue rewrites one line and leaves every other byte alone" {
     try testing.expect(try setStaleTrue(&out.writer, text));
     try testing.expectEqualStrings(
         "---\ntitle: \"T\"\nsources:\n  - path: a\n    hash: 1111111111\nstale: true\n---\n\n# T\nbody\n",
+        out.written(),
+    );
+}
+
+test "setStaleTrue handles a CRLF-fenced file instead of no-oping on it" {
+    const gpa = testing.allocator;
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const text = "---\r\ntitle: \"T\"\r\nstale: false\r\n---\r\n\r\n# T\r\nbody\r\n";
+    try testing.expect(try setStaleTrue(&out.writer, text));
+    try testing.expectEqualStrings(
+        "---\r\ntitle: \"T\"\r\nstale: true\r\n---\r\n\r\n# T\r\nbody\r\n",
         out.written(),
     );
 }

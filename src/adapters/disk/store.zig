@@ -90,8 +90,27 @@ pub const DiskStore = struct {
     pub fn write(self: *DiskStore, io: Io, node: []const u8, body: []const u8) anyerror!Store.WriteResult {
         const path = try self.nodePath(self.gpa, node);
         defer self.gpa.free(path);
-        if (std.fs.path.dirname(path)) |dir| try Io.Dir.cwd().createDirPath(io, dir);
-        try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = body });
+        const cwd = Io.Dir.cwd();
+        if (std.fs.path.dirname(path)) |dir| try cwd.createDirPath(io, dir);
+
+        // Temp file + rename, not a plain in-place write: a reader must
+        // never observe a partially-written note. Same pattern
+        // `core.tags_cache.Cache.replaceFile` already uses for the Code
+        // Cache's own writes.
+        const tmp = try std.fmt.allocPrint(self.gpa, "{s}.tmp", .{path});
+        defer self.gpa.free(tmp);
+        {
+            const file = try cwd.createFile(io, tmp, .{});
+            defer file.close(io);
+            errdefer cwd.deleteFile(io, tmp) catch {};
+            var buf: [64 * 1024]u8 = undefined;
+            var writer = file.writer(io, &buf);
+            try writer.interface.writeAll(body);
+            try writer.interface.flush();
+        }
+        errdefer cwd.deleteFile(io, tmp) catch {};
+        try cwd.rename(tmp, cwd, path, io);
+
         return .{ .accepted = true };
     }
 
@@ -1003,6 +1022,29 @@ test "write then read round-trips through the port, namespace-scoped" {
     const on_disk = try tmp.dir.readFileAlloc(testing.io, "vault/synapse/repo@main/Foo.md", gpa, .limited(1 << 20));
     defer gpa.free(on_disk);
     try testing.expectEqualStrings("---\ntitle: Foo\n---\nbody\n", on_disk);
+}
+
+test "a write is atomic: no .tmp sibling survives, and an overwrite leaves no partial file" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "synapse/repo@main");
+    defer s.deinit();
+    const port = s.store();
+
+    _ = try port.write(testing.io, "Foo.md", "---\ntitle: Foo\n---\nfirst\n");
+    _ = try port.write(testing.io, "Foo.md", "---\ntitle: Foo\n---\nsecond\n");
+
+    try testing.expectError(
+        error.FileNotFound,
+        tmp.dir.access(testing.io, "vault/synapse/repo@main/Foo.md.tmp", .{}),
+    );
+    const on_disk = try tmp.dir.readFileAlloc(testing.io, "vault/synapse/repo@main/Foo.md", gpa, .limited(1 << 20));
+    defer gpa.free(on_disk);
+    try testing.expectEqualStrings("---\ntitle: Foo\n---\nsecond\n", on_disk);
 }
 
 test "an empty namespace addresses a node by its full vault-relative path, unprefixed" {

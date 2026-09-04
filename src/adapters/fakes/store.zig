@@ -81,11 +81,25 @@ pub const FakeStore = struct {
         _ = io;
         if (self.take()) |e| return e;
         var out: std.ArrayListUnmanaged(Store.Hit) = .empty;
-        errdefer out.deinit(gpa);
+        errdefer {
+            for (out.items) |h| {
+                gpa.free(h.node);
+                gpa.free(h.context);
+            }
+            out.deinit(gpa);
+        }
         var it = self.nodes.iterator();
         while (it.next()) |e| {
             if (std.mem.indexOf(u8, e.value_ptr.*, query) != null) {
-                try out.append(gpa, .{ .node = e.key_ptr.*, .score = 1.0, .context = e.value_ptr.* });
+                // Duped, not borrowed from this map's own storage -- every
+                // real `Store.search` implementation dupes per-hit, and a
+                // caller that frees a `Hit` the way that real contract
+                // requires must not free memory this fake never owned.
+                try out.append(gpa, .{
+                    .node = try gpa.dupe(u8, e.key_ptr.*),
+                    .score = 1.0,
+                    .context = try gpa.dupe(u8, e.value_ptr.*),
+                });
             }
         }
         return out.toOwnedSlice(gpa);
@@ -151,7 +165,13 @@ test "search finds by content" {
     _ = try store.write(undefined, "b.md", "mentions nothing");
 
     const hits = try store.search(testing.allocator, undefined, "tree-sitter");
-    defer testing.allocator.free(hits);
+    defer {
+        for (hits) |h| {
+            testing.allocator.free(h.node);
+            testing.allocator.free(h.context);
+        }
+        testing.allocator.free(hits);
+    }
     try testing.expectEqual(@as(usize, 1), hits.len);
     try testing.expectEqualStrings("a.md", hits[0].node);
 }

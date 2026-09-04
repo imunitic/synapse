@@ -253,6 +253,11 @@ fn evalPatternMatch(args: []const Value, data: Value, kind: PatternKind) Error!V
 /// `"designs/synapse/sb-001.md"`, a path two segments deeper), not
 /// shell-style single-segment globbing.
 pub fn globMatch(pattern: []const u8, text: []const u8) bool {
+    // Without this, `lastNonEmptySegment("")` resolves to `""`, and
+    // `endsWith(text, "")` is true for any `text` -- an empty pattern
+    // matched every string. An empty pattern matches only empty text, same
+    // as a literal-string comparison would.
+    if (pattern.len == 0) return text.len == 0;
     var p_it = std.mem.splitScalar(u8, pattern, '*');
     var pos: usize = 0;
     var first = true;
@@ -422,6 +427,11 @@ test "glob matches a wildcard pattern against a path" {
     defer data.deinit();
     const got = try evaluate(rule.value, data.value);
     try testing.expect(got.bool);
+}
+
+test "an empty glob pattern matches only empty text, not everything" {
+    try testing.expect(!globMatch("", "anything"));
+    try testing.expect(globMatch("", ""));
 }
 
 test "glob rejects a path outside the pattern's prefix" {

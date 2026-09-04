@@ -67,6 +67,9 @@ const context = @import("context.zig");
 const treesitter = @import("treesitter");
 const adapters = @import("adapters");
 const enumerate_cmd = @import("enumerate_cmd.zig");
+const cli_args = @import("cli_args.zig");
+const trace_file = @import("trace.zig");
+const repo_root = @import("repo_root.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -95,30 +98,25 @@ pub fn run(
             _ = usage();
             return 0;
         }
-        const value = struct {
-            fn next(it: *std.process.Args.Iterator) ?[]const u8 {
-                return it.next();
-            }
-        };
         if (std.mem.eql(u8, arg, "--repo")) {
-            repo = value.next(args) orelse return usage();
+            repo = cli_args.takenValue(args.next()) orelse return usage();
         } else if (std.mem.eql(u8, arg, "--out")) {
-            out_dir = value.next(args) orelse return usage();
+            out_dir = cli_args.takenValue(args.next()) orelse return usage();
         } else if (std.mem.eql(u8, arg, "--lists")) {
-            lists = value.next(args) orelse return usage();
+            lists = cli_args.takenValue(args.next()) orelse return usage();
         } else if (std.mem.eql(u8, arg, "--depth")) {
-            const raw = value.next(args) orelse return usage();
+            const raw = cli_args.takenValue(args.next()) orelse return usage();
             depth = std.fmt.parseInt(usize, raw, 10) catch return usage();
             if (depth < 1) return usage();
         } else if (std.mem.eql(u8, arg, "--chunk")) {
-            const raw = value.next(args) orelse return usage();
+            const raw = cli_args.takenValue(args.next()) orelse return usage();
             chunk = std.fmt.parseInt(usize, raw, 10) catch return usage();
         } else if (std.mem.eql(u8, arg, "--distinctive-top")) {
-            const raw = value.next(args) orelse return usage();
+            const raw = cli_args.takenValue(args.next()) orelse return usage();
             distinctive_top = std.fmt.parseInt(usize, raw, 10) catch return usage();
             if (distinctive_top < 1) return usage();
         } else if (std.mem.eql(u8, arg, "--distinctive-k")) {
-            const raw = value.next(args) orelse return usage();
+            const raw = cli_args.takenValue(args.next()) orelse return usage();
             distinctive_k = std.fmt.parseInt(usize, raw, 10) catch return usage();
             if (distinctive_k < 1) return usage();
         } else return usage();
@@ -151,7 +149,7 @@ pub fn run(
 
     // `--repo` is a directory to work in, not a prefix to join -- every list
     // path is repo-relative.
-    const root = try repoRoot(gpa, io, repo);
+    const root = try repo_root.resolve(gpa, io, repo);
     defer gpa.free(root);
     if (root.len == 0) {
         std.debug.print("synapse-vocab: not inside a git repo\n", .{});
@@ -238,15 +236,6 @@ pub const Options = struct {
     distinctive_top: usize,
     distinctive_k: usize,
 };
-
-fn repoRoot(gpa: Allocator, io: Io, repo: ?[]const u8) ![]u8 {
-    const res = adapters.process.run(io, gpa, &.{ "git", "rev-parse", "--show-toplevel" }, .{
-        .cwd = if (repo) |r| .{ .path = r } else .inherit,
-    }) catch return gpa.dupe(u8, "");
-    defer res.deinit(gpa);
-    if (!res.ok()) return gpa.dupe(u8, "");
-    return gpa.dupe(u8, std.mem.trim(u8, res.stdout, " \t\r\n"));
-}
 
 /// `group <TAB> word` counted, and the file counts alongside it. A path
 /// claimed by two node lists counts under both -- a manifest may
@@ -404,7 +393,10 @@ pub fn build(
     defer gpa.free(need);
 
     if (need.len != 0) {
-        try writeTrace(io, trace, need);
+        const need_paths = try gpa.alloc([]const u8, need.len);
+        defer gpa.free(need_paths);
+        for (need, 0..) |n, i| need_paths[i] = n.path;
+        try trace_file.write(io, trace, need_paths);
 
         const cores = std.Thread.getCpuCount() catch 4;
         // One chunk per core, floor 500: sized off the shortfall, not the
@@ -608,22 +600,6 @@ pub fn build(
     return 0;
 }
 
-/// The record `synapse-fake` writes so a test can assert N files, no more,
-/// reached the extractor -- shared shape with `tags`/`tags-cache`'s own
-/// `writeTrace`, not shared code.
-fn writeTrace(io: Io, trace: ?[]const u8, items: []const PathHash) !void {
-    const path = trace orelse return;
-    var f = try Io.Dir.cwd().createFile(io, path, .{ .truncate = false });
-    defer f.close(io);
-    var buf: [16 * 1024]u8 = undefined;
-    var w = f.writer(io, &buf);
-    w.pos = (try f.stat(io)).size;
-    try w.interface.writeAll("tags");
-    for (items) |it| try w.interface.print(" {s}", .{it.path});
-    try w.interface.writeAll("\n");
-    for (items) |it| try w.interface.print("path {s}\n", .{it.path});
-    try w.interface.flush();
-}
 
 /// Every path's current blob hash, computed in parallel -- a plain read and
 /// SHA1, not a tree-sitter parse, needed by pass one to ask the cache

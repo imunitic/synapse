@@ -24,6 +24,7 @@ const model = @import("model");
 const core = @import("core");
 const adapters = @import("adapters");
 const treesitter = @import("treesitter");
+const trace_file = @import("trace.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -167,7 +168,7 @@ pub fn single(
     };
     if (readiness != 0) return readiness;
 
-    try writeTrace(io, trace, &.{path});
+    try trace_file.write(io, trace, &.{path});
 
     const results = try ex.tagWithSpans(gpa, io, ".", &.{path});
     defer gpa.free(results);
@@ -205,7 +206,7 @@ pub fn batch(
     }
     if (paths.items.len == 0) return 1;
 
-    try writeTrace(io, trace, paths.items);
+    try trace_file.write(io, trace, paths.items);
 
     const results = try ex.tagWithSpans(gpa, io, ".", paths.items);
     defer {
@@ -235,25 +236,6 @@ pub fn batch(
     return 0;
 }
 
-/// One `tags <paths...>` line, then one `path <p>` line per path -- the
-/// format the old fake tree-sitter binary wrote, kept byte-compatible.
-/// Appended, not truncated: a test may run the binary more than once.
-fn writeTrace(io: Io, trace: Trace, paths: []const []const u8) !void {
-    const path = trace orelse return;
-
-    var f = try Io.Dir.cwd().createFile(io, path, .{ .truncate = false });
-    defer f.close(io);
-
-    var buf: [16 * 1024]u8 = undefined;
-    var w = f.writer(io, &buf);
-    w.pos = (try f.stat(io)).size;
-
-    try w.interface.writeAll("tags");
-    for (paths) |p| try w.interface.print(" {s}", .{p});
-    try w.interface.writeAll("\n");
-    for (paths) |p| try w.interface.print("path {s}\n", .{p});
-    try w.interface.flush();
-}
 
 const testing = std.testing;
 const fixture = @import("cmd_test_support.zig");

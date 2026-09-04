@@ -13,6 +13,7 @@ const core = @import("core");
 const adapters = @import("adapters");
 const treesitter = @import("treesitter"); // for the staleness-window constant only
 const context = @import("context.zig");
+const cli_args = @import("cli_args.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -37,7 +38,7 @@ pub fn run(
             std.debug.print("{s}", .{usage_text});
             return 0;
         } else if (std.mem.eql(u8, arg, "--repo")) {
-            repo = args.next() orelse {
+            repo = cli_args.takenValue(args.next()) orelse {
                 std.debug.print("{s}", .{usage_text});
                 return 2;
             };
@@ -400,7 +401,7 @@ fn hookChecks(ctx: *Ctx) !void {
             .{duplicated},
         ));
     } else {
-        try ctx.add("hooks", .fail, try ctx.fmt("{d} of 5 not registered -- run `synapse-setup configure claude`", .{missing}));
+        try ctx.add("hooks", .fail, try ctx.fmt("{d} of 4 not registered -- run `synapse-setup configure claude`", .{missing}));
     }
 
     // A wrapper still referenced would silently take precedence over the binary for
@@ -740,6 +741,29 @@ test "all four hooks registered once reports ok, whatever absolute path they wer
     defer out.deinit();
     _ = try df.check(df.fx.repo, &out.writer);
     try testing.expect(std.mem.indexOf(u8, out.written(), "all four registered once") != null);
+}
+
+test "hooks missing from settings.json are counted correctly, out of 4" {
+    const gpa = testing.allocator;
+    var df = try DoctorFixture.init(gpa);
+    defer df.deinit();
+    try df.baseline();
+    try df.fx.tmp.dir.createDirPath(testing.io, "home/.claude");
+    // Only two of the four registered -- the failure message's own count
+    // must reflect the real hook list length (4), not a stale one.
+    try df.fx.tmp.dir.writeFile(testing.io, .{
+        .sub_path = "home/.claude/settings.json",
+        .data =
+        \\{"hooks":{
+        \\ "SessionStart":[{"hooks":[{"type":"command","command":"/x/synapse-hook session-start"}]}],
+        \\ "Stop":[{"hooks":[{"type":"command","command":"/x/synapse-hook stop-nudge"}]}]}}
+        ,
+    });
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    _ = try df.check(df.fx.repo, &out.writer);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "2 of 4 not registered") != null);
 }
 
 test "outside a git repo it warns rather than failing" {

@@ -28,6 +28,8 @@ const core = @import("core");
 const treesitter = @import("treesitter");
 const adapters = @import("adapters");
 const context = @import("context.zig");
+const cli_args = @import("cli_args.zig");
+const repo_root = @import("repo_root.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -53,19 +55,19 @@ pub fn run(
             return 0;
         }
         if (std.mem.eql(u8, arg, "--sources")) {
-            sources = args.next() orelse return usage();
+            sources = cli_args.takenValue(args.next()) orelse return usage();
         } else if (std.mem.eql(u8, arg, "--lists")) {
-            lists = args.next() orelse return usage();
+            lists = cli_args.takenValue(args.next()) orelse return usage();
         } else if (std.mem.eql(u8, arg, "--repo")) {
-            repo = args.next() orelse return usage();
+            repo = cli_args.takenValue(args.next()) orelse return usage();
         } else if (std.mem.eql(u8, arg, "--out")) {
-            out_dir = args.next() orelse return usage();
+            out_dir = cli_args.takenValue(args.next()) orelse return usage();
         } else if (std.mem.eql(u8, arg, "--top")) {
-            top = std.fmt.parseInt(usize, args.next() orelse return usage(), 10) catch return usage();
+            top = std.fmt.parseInt(usize, cli_args.takenValue(args.next()) orelse return usage(), 10) catch return usage();
         } else if (std.mem.eql(u8, arg, "--tier")) {
-            tier = args.next() orelse return usage();
+            tier = cli_args.takenValue(args.next()) orelse return usage();
         } else if (std.mem.eql(u8, arg, "--pool")) {
-            pool = args.next() orelse return usage();
+            pool = cli_args.takenValue(args.next()) orelse return usage();
         } else return usage();
     }
 
@@ -117,7 +119,7 @@ pub fn rank(gpa: Allocator, io: Io, env: *std.process.Environ.Map, opts: Options
     const pool = opts.pool;
 
     const cwd = Io.Dir.cwd();
-    const root = try repoRoot(gpa, io, repo);
+    const root = try repo_root.resolve(gpa, io, repo);
     defer gpa.free(root);
     if (root.len == 0) {
         std.debug.print("synapse-rank: not inside a git repo\n", .{});
@@ -264,15 +266,6 @@ fn hasUsableExtension(path: []const u8, usable: []const []const u8) bool {
     if (dot == 0) return false;
     for (usable) |u| if (std.mem.eql(u8, name[dot + 1 ..], u)) return true;
     return false;
-}
-
-fn repoRoot(gpa: Allocator, io: Io, repo: ?[]const u8) ![]u8 {
-    const res = adapters.process.run(io, gpa, &.{ "git", "rev-parse", "--show-toplevel" }, .{
-        .cwd = if (repo) |r| .{ .path = r } else .inherit,
-    }) catch return gpa.dupe(u8, "");
-    defer res.deinit(gpa);
-    if (!res.ok()) return gpa.dupe(u8, "");
-    return gpa.dupe(u8, std.mem.trim(u8, res.stdout, " \t\r\n"));
 }
 
 /// `sort -u` then drop blanks; duplicates must not double-count a file.

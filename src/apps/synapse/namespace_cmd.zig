@@ -13,6 +13,7 @@
 
 const std = @import("std");
 const core = @import("core");
+const cli_args = @import("cli_args.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -43,7 +44,7 @@ pub fn run(
             std.debug.print("{s}", .{usage_text});
             return 0;
         } else if (std.mem.eql(u8, arg, "--repo")) {
-            repo = args.next() orelse return usage();
+            repo = cli_args.takenValue(args.next()) orelse return usage();
         } else if (std.mem.eql(u8, arg, "--branch")) {
             want = .branch;
         } else if (std.mem.eql(u8, arg, "--repo-name")) {

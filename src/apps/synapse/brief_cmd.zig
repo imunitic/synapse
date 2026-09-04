@@ -17,6 +17,8 @@ const std = @import("std");
 const core = @import("core");
 const adapters = @import("adapters");
 const context = @import("context.zig");
+const cli_args = @import("cli_args.zig");
+const repo_root = @import("repo_root.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -58,15 +60,15 @@ pub fn run(
             return 0;
         }
         if (std.mem.eql(u8, arg, "--lists")) {
-            lists_dir = args.next() orelse return usage();
+            lists_dir = cli_args.takenValue(args.next()) orelse return usage();
         } else if (std.mem.eql(u8, arg, "--rank")) {
-            rank_dir = args.next() orelse return usage();
+            rank_dir = cli_args.takenValue(args.next()) orelse return usage();
         } else if (std.mem.eql(u8, arg, "--links")) {
-            links_path = args.next() orelse return usage();
+            links_path = cli_args.takenValue(args.next()) orelse return usage();
         } else if (std.mem.eql(u8, arg, "--repo")) {
-            repo = args.next() orelse return usage();
+            repo = cli_args.takenValue(args.next()) orelse return usage();
         } else if (std.mem.eql(u8, arg, "--out")) {
-            out_dir = args.next() orelse return usage();
+            out_dir = cli_args.takenValue(args.next()) orelse return usage();
         } else return usage();
     }
     const lists = lists_dir orelse return usage();
@@ -125,7 +127,7 @@ pub fn build(
     // `gpa`, not `arena`: `process.run` drains a spawned child's stdout
     // inline while draining stderr concurrently on another thread, and
     // `ArenaAllocator` isn't safe for that concurrent use.
-    const root = try repoRoot(gpa, io, repo);
+    const root = try repo_root.resolve(gpa, io, repo);
     defer gpa.free(root);
     if (root.len == 0) {
         std.debug.print("{s}: not inside a git repo: {s}\n", .{ prog, repo orelse "." });
@@ -238,15 +240,6 @@ const NodeInfo = struct {
     txt_path: []const u8,
     count: usize,
 };
-
-fn repoRoot(gpa: Allocator, io: Io, repo: ?[]const u8) ![]u8 {
-    const res = adapters.process.run(io, gpa, &.{ "git", "rev-parse", "--show-toplevel" }, .{
-        .cwd = if (repo) |r| .{ .path = r } else .inherit,
-    }) catch return gpa.dupe(u8, "");
-    defer res.deinit(gpa);
-    if (!res.ok()) return gpa.dupe(u8, "");
-    return gpa.dupe(u8, std.mem.trim(u8, res.stdout, " \t\r\n"));
-}
 
 /// Every `NN.txt`/`NN.title` pair in `dir`, ascending. A node missing either
 /// half is skipped.

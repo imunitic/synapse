@@ -174,9 +174,8 @@ Omit either section if Steps 3–5 found nothing for it. If both are empty, don'
 all — say so directly instead of creating an empty note.
 
 This command never edits `Index.md` itself beyond the `inbox/` bootstrap case above — creating or
-renaming a category is the vault owner's call, made by hand using
-[[sb — Make vault folder taxonomy user-customizable via Index.md.template]]'s already-shipped
-mechanism, not something this command does on its own.
+renaming a category is the vault owner's call, made by hand by editing `Index.md`'s folder list
+directly, not something this command does on its own.
 
 ## Step 7: Report
 

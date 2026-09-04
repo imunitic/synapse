@@ -305,9 +305,16 @@ pub fn parse(bytes: []const u8) ParseError!View {
     var i: u32 = 0;
     while (i < header.entry_count) : (i += 1) {
         const r = view.record(i);
-        if (r.path_off + r.path_len > header.blob_off - header.paths_off)
+        // `std.math.add`, not plain `+`: every field summed here is read
+        // straight from untrusted file bytes, and this build is
+        // ReleaseSafe -- a crafted offset near u64's max would otherwise
+        // panic the process instead of failing this check cleanly.
+        const path_end = std.math.add(u64, r.path_off, @as(u64, r.path_len)) catch return error.OffsetOutOfRange;
+        if (path_end > header.blob_off - header.paths_off)
             return error.OffsetOutOfRange;
-        if (header.blob_off + r.tags_off + r.tags_len > bytes.len)
+        const tags_start = std.math.add(u64, header.blob_off, r.tags_off) catch return error.OffsetOutOfRange;
+        const tags_end = std.math.add(u64, tags_start, @as(u64, r.tags_len)) catch return error.OffsetOutOfRange;
+        if (tags_end > bytes.len)
             return error.OffsetOutOfRange;
         const p = view.path(r); // find() rests on this order
         if (prev) |q| if (std.mem.order(u8, q, p) != .lt) return error.OffsetOutOfRange;
@@ -478,6 +485,20 @@ test "a record pointing outside its region is refused, not followed" {
 
     // tags_len past the end of the file -- unchecked, an out-of-bounds read.
     std.mem.writeInt(u32, bytes[40 + 38 ..][0..4], 9999, .little);
+    const blob_off = std.mem.readInt(u64, bytes[24..32], .little);
+    std.mem.writeInt(u32, bytes[32..36], std.hash.Crc32.hash(bytes[40..@intCast(blob_off)]), .little);
+    try testing.expectError(error.OffsetOutOfRange, parse(bytes));
+}
+
+test "a path_off crafted to overflow the offset arithmetic is refused, not a panic" {
+    const gpa = testing.allocator;
+    const bytes = try encode(gpa, &.{.{ .path = "a.ml", .hash = h("00" ** 20), .tags = "xyz" }});
+    defer gpa.free(bytes);
+
+    // path_off near u64::MAX, path_len > 1 -- their sum wraps past u64
+    // under plain `+`. Recompute the checksum after corrupting the field,
+    // same as the sibling test above.
+    std.mem.writeInt(u64, bytes[40..48], std.math.maxInt(u64) - 1, .little);
     const blob_off = std.mem.readInt(u64, bytes[24..32], .little);
     std.mem.writeInt(u32, bytes[32..36], std.hash.Crc32.hash(bytes[40..@intCast(blob_off)]), .little);
     try testing.expectError(error.OffsetOutOfRange, parse(bytes));

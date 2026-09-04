@@ -479,7 +479,12 @@ pub fn parse(bytes: []const u8) ParseError!View {
     while (i < header.entry_count) : (i += 1) {
         const r = view.record(i);
         if (r.ids_len == 0) return error.OffsetOutOfRange;
-        if (r.path_off + r.path_len > paths_len) return error.OffsetOutOfRange;
+        // `std.math.add`, not plain `+`: `path_off` is a raw u64 read
+        // straight from untrusted file bytes, and this build is
+        // ReleaseSafe -- a crafted offset near u64's max would otherwise
+        // panic the process instead of failing this check cleanly.
+        const path_end = std.math.add(u64, r.path_off, @as(u64, r.path_len)) catch return error.OffsetOutOfRange;
+        if (path_end > paths_len) return error.OffsetOutOfRange;
         if (@as(u64, r.ids_at) + r.ids_len > ids_capacity) return error.OffsetOutOfRange;
         var k: u8 = 0;
         while (k < r.ids_len) : (k += 1) {
@@ -727,6 +732,19 @@ test "a record pointing outside its region is refused, not followed" {
     // ids_at past the end of the id region -- unchecked, an out-of-bounds
     // read on a mapping any process can write to.
     std.mem.writeInt(u32, bytes[64 + 10 ..][0..4], 9999, .little);
+    std.mem.writeInt(u32, bytes[56..60], std.hash.Crc32.hash(bytes[64..]), .little);
+    try testing.expectError(error.OffsetOutOfRange, parse(bytes));
+}
+
+test "a path_off crafted to overflow the offset arithmetic is refused, not a panic" {
+    const gpa = testing.allocator;
+    const bytes = try encode(gpa, &.{.{ .path = "a.ml", .nodes = &.{"N.md"} }}, &.{});
+    defer gpa.free(bytes);
+
+    // path_off near u64::MAX, path_len > 1 -- their sum wraps past u64
+    // under plain `+`. Recompute the checksum after corrupting the field,
+    // same as the sibling test above.
+    std.mem.writeInt(u64, bytes[64..72], std.math.maxInt(u64) - 1, .little);
     std.mem.writeInt(u32, bytes[56..60], std.hash.Crc32.hash(bytes[64..]), .little);
     try testing.expectError(error.OffsetOutOfRange, parse(bytes));
 }

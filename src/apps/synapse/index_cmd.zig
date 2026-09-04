@@ -90,7 +90,7 @@ fn usage() u8 {
         \\       synapse index add-unassigned <path> [--file <file>]
         \\
     , .{});
-    return 1;
+    return 2;
 }
 
 fn noWorkDir() u8 {

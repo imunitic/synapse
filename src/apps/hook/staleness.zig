@@ -268,6 +268,7 @@ fn blastRadius(
     const state_dir = try std.fmt.allocPrint(gpa, "{s}/.claude/state", .{home});
     defer gpa.free(state_dir);
     Io.Dir.cwd().createDirPath(io, state_dir) catch {};
+    pruneOldSeenFiles(io, state_dir);
     const seen_path = try std.fmt.allocPrint(
         gpa,
         "{s}/synapse-blast-radius-seen-{s}",
@@ -347,6 +348,26 @@ fn blastRadius(
         "\nNot necessarily a reason to change anything else — just worth knowing before you finish, in case this edit changes behavior those nodes describe.",
     );
     return try out.toOwnedSlice();
+}
+
+const seen_file_max_age_ns: i96 = 7 * std.time.ns_per_day;
+
+/// Deletes any `synapse-blast-radius-seen-*` file in `state_dir` older than a
+/// week -- one per session, and a session ends without ever coming back to
+/// clean up after itself.
+fn pruneOldSeenFiles(io: Io, state_dir: []const u8) void {
+    var dir = Io.Dir.cwd().openDir(io, state_dir, .{ .iterate = true }) catch return;
+    defer dir.close(io);
+
+    const now = Io.Timestamp.now(io, .real).nanoseconds;
+    var it = dir.iterate();
+    while (it.next(io) catch null) |entry| {
+        if (entry.kind != .file or !std.mem.startsWith(u8, entry.name, "synapse-blast-radius-seen-")) continue;
+        var buf: [std.fs.max_path_bytes]u8 = undefined;
+        const path = std.fmt.bufPrint(&buf, "{s}/{s}", .{ state_dir, entry.name }) catch continue;
+        const st = Io.Dir.cwd().statFile(io, path, .{}) catch continue;
+        if (now - st.mtime.nanoseconds > seen_file_max_age_ns) dir.deleteFile(io, entry.name) catch {};
+    }
 }
 
 fn appendSeen(gpa: Allocator, io: Io, path: []const u8, key: []const u8) !void {
@@ -1012,6 +1033,30 @@ test "a malformed index is left alone, not overwritten with nothing" {
     const after = try Io.Dir.cwd().readFileAlloc(sf.fx.io(), path, gpa, .limited(1 << 20));
     defer gpa.free(after);
     try testing.expectEqualStrings(before, after);
+}
+
+test "pruneOldSeenFiles deletes a week-old seen file but leaves a fresh one and unrelated files alone" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const io = testing.io;
+    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
+    const state_dir = buf[0..try tmp.dir.realPath(io, &buf)];
+
+    try tmp.dir.writeFile(io, .{ .sub_path = "synapse-blast-radius-seen-old", .data = "x\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "synapse-blast-radius-seen-fresh", .data = "y\n" });
+    try tmp.dir.writeFile(io, .{ .sub_path = "unrelated-file", .data = "z\n" });
+
+    const old_path = try std.fmt.allocPrint(gpa, "{s}/synapse-blast-radius-seen-old", .{state_dir});
+    defer gpa.free(old_path);
+    const long_ago = Io.Timestamp.now(io, .real).nanoseconds - seen_file_max_age_ns - std.time.ns_per_s;
+    try Io.Dir.cwd().setTimestamps(io, old_path, .{ .modify_timestamp = .{ .new = .{ .nanoseconds = long_ago } } });
+
+    pruneOldSeenFiles(io, state_dir);
+
+    try testing.expectError(error.FileNotFound, tmp.dir.statFile(io, "synapse-blast-radius-seen-old", .{}));
+    _ = try tmp.dir.statFile(io, "synapse-blast-radius-seen-fresh", .{});
+    _ = try tmp.dir.statFile(io, "unrelated-file", .{});
 }
 
 test "an absent index is the no-namespace case, and costs nothing" {

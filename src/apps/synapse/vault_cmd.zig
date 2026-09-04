@@ -198,6 +198,14 @@ pub fn check(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []con
         gpa.free(names);
     }
 
+    // Loaded once for the whole run, not per note: on a real vault (20
+    // schema-declaring notes) that was 20 redundant reads of the same 2
+    // files instead of 2 total.
+    const projects = try adapters.schema_validation_store.loadVocabularyText(gpa, io, vars, "synapse-projects.conf");
+    defer if (projects) |text| gpa.free(text);
+    const tags = try adapters.schema_validation_store.loadVocabularyText(gpa, io, vars, "synapse-tag-vocabulary.conf");
+    defer if (tags) |text| gpa.free(text);
+
     var declared: usize = 0;
     var conformant: usize = 0;
     var legacy: usize = 0;
@@ -227,10 +235,6 @@ pub fn check(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []con
             violations += 1;
             continue;
         }
-        const projects = try adapters.schema_validation_store.loadVocabularyText(gpa, io, vars, "synapse-projects.conf");
-        defer if (projects) |text| gpa.free(text);
-        const tags = try adapters.schema_validation_store.loadVocabularyText(gpa, io, vars, "synapse-tag-vocabulary.conf");
-        defer if (tags) |text| gpa.free(text);
         if (try core.note_schema.validateNote(gpa, doc.root, body, name, .{
             .mode = .update,
             .existing = body,

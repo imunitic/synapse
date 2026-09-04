@@ -23,6 +23,7 @@ const core = @import("core");
 const adapters = @import("adapters");
 const treesitter = @import("treesitter");
 const context = @import("context.zig");
+const trace_file = @import("trace.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -80,7 +81,7 @@ fn usage() u8 {
         \\       synapse tags-cache --refs <file>
         \\
     , .{});
-    return 1;
+    return 2;
 }
 
 pub fn update(
@@ -183,7 +184,7 @@ pub fn backfill(
     defer if (query_override_dir) |d| gpa.free(d);
     ex.query_override_dir = query_override_dir;
 
-    try writeTrace(io, trace, paths);
+    try trace_file.write(io, trace, paths);
 
     const results = try ex.tagWithSpans(gpa, io, repo_root, paths);
     defer {
@@ -393,22 +394,6 @@ fn kindRulesPath(gpa: Allocator, io: Io, env: *std.process.Environ.Map) ![]u8 {
     if (try core.conf.resolveConfPath(gpa, io, adapters.env.vars(env), "synapse-kind-synonyms.conf")) |p| return p;
     const home = env.get("HOME") orelse return error.NoHome;
     return std.fmt.allocPrint(gpa, "{s}/.claude/synapse-kind-synonyms.conf", .{home});
-}
-
-/// Shared with `tags`: the record `synapse-fake` writes so a test can
-/// assert N files cost one extraction. See `tags.zig`'s `Trace`.
-fn writeTrace(io: Io, trace: ?[]const u8, paths: []const []const u8) !void {
-    const path = trace orelse return;
-    var f = try Io.Dir.cwd().createFile(io, path, .{ .truncate = false });
-    defer f.close(io);
-    var buf: [16 * 1024]u8 = undefined;
-    var w = f.writer(io, &buf);
-    w.pos = (try f.stat(io)).size;
-    try w.interface.writeAll("tags");
-    for (paths) |p| try w.interface.print(" {s}", .{p});
-    try w.interface.writeAll("\n");
-    for (paths) |p| try w.interface.print("path {s}\n", .{p});
-    try w.interface.flush();
 }
 
 const testing = std.testing;

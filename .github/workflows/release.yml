@@ -35,11 +35,12 @@ jobs:
   release:
     runs-on: ubuntu-latest
 
-    # Two tags pushed close together could still both reach the "Publish
-    # binaries to the dist branch" step concurrently; that step force-pushes
-    # a fresh orphan history, so two overlapping runs could race and one's
-    # publish could stomp the other's. Queue, don't cancel -- a cancelled
-    # run would silently drop a real tag's release rather than just delay it.
+    # Two tags pushed close together could still both reach "Publish npm
+    # packages in lock-step" concurrently; that step publishes platform
+    # packages before the main package in a specific order, so two
+    # overlapping runs could interleave and break that ordering. Queue,
+    # don't cancel -- a cancelled run would silently drop a real tag's
+    # release rather than just delay it.
     concurrency:
       group: release-tag
       cancel-in-progress: false

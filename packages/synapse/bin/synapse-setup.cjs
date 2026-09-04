@@ -174,18 +174,28 @@ function renderHooksTemplate(templatePath, hookBin) {
   return template;
 }
 
+// "Ours" by the resolved binary's own basename, not the absolute path it's
+// resolved to today -- an install-location change (a different platform
+// package version, a different global npm prefix) would otherwise leave a
+// previously-written entry unrecognized as ours, appending a second,
+// duplicate hook group instead of replacing the first.
+function isOurHookCommand(command) {
+  if (typeof command !== "string") return false;
+  const binToken = command.split(" ", 1)[0];
+  return path.basename(binToken) === HOOK_NAME;
+}
+
 // Merges a rendered hooks.json-shaped template into an existing hooks.json
 // (Codex) or into settings.json's own `hooks` key (Claude Code) -- same
 // merge either way: drop only the groups a previous run of this script
-// itself wrote (every hook in the group calling the resolved hookBin path),
-// append the freshly rendered ones, leave anything else untouched. Re-running
-// this is therefore idempotent instead of accumulating duplicate entries.
-function mergeHooksInto(existingHooks, rendered, hookBin) {
+// itself wrote (every hook in the group is one of ours, per
+// `isOurHookCommand`), append the freshly rendered ones, leave anything else
+// untouched. Re-running this is therefore idempotent instead of
+// accumulating duplicate entries.
+function mergeHooksInto(existingHooks, rendered) {
   const hooks = existingHooks || {};
   for (const [event, groups] of Object.entries(rendered.hooks)) {
-    const kept = (hooks[event] || []).filter(
-      (group) => !group.hooks.every((h) => typeof h.command === "string" && h.command.startsWith(hookBin))
-    );
+    const kept = (hooks[event] || []).filter((group) => !group.hooks.every((h) => isOurHookCommand(h.command)));
     hooks[event] = [...kept, ...groups];
   }
   return hooks;
@@ -227,7 +237,7 @@ function configureClaude() {
   }
 
   const rendered = renderHooksTemplate(path.join(PKG_ROOT, "harness", "claude", "hooks.json"), hookBin);
-  settings.hooks = mergeHooksInto(settings.hooks, rendered, hookBin);
+  settings.hooks = mergeHooksInto(settings.hooks, rendered);
 
   // The npm-install counterpart to $CLAUDE_PLUGIN_ROOT -- conf.zig's own
   // resolveConfPath and session_start.zig's synapse-claude.md/Index.md.template
@@ -264,7 +274,7 @@ function configureCodex() {
       fail(`${hooksPath} has invalid JSON (${err.message}) -- fix or back it up manually before re-running`);
     }
   }
-  existing.hooks = mergeHooksInto(existing.hooks, rendered, hookBin);
+  existing.hooks = mergeHooksInto(existing.hooks, rendered);
   fs.mkdirSync(path.dirname(hooksPath), { recursive: true });
   backupIfExists(hooksPath);
   fs.writeFileSync(hooksPath, JSON.stringify(existing, null, 2) + "\n");
