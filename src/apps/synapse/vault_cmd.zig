@@ -1081,6 +1081,104 @@ test "docMap on a missing note fails clearly" {
     try testing.expectEqual(@as(u8, 1), code);
 }
 
+test "backlinks reports one row per file linking to a target, with its resolved-link count" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("SYNAPSE_VAULT_INTEGRATIONS"); // disk is implicit, never named
+    try fx.writeVaultFile("Target.md", "body\n");
+    try fx.writeVaultFile("a.md", "[[Target]]\n");
+    try fx.writeVaultFile("b.md", "no link here\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try backlinks(gpa, fx.io(), &fx.env, fx.vault, "Target.md", &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "a.md\t1\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "b.md") == null);
+}
+
+test "links reports every resolved outgoing target from a path, deduped" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("SYNAPSE_VAULT_INTEGRATIONS"); // disk is implicit, never named
+    try fx.writeVaultFile("A.md", "body\n");
+    try fx.writeVaultFile("B.md", "body\n");
+    try fx.writeVaultFile("source.md", "[[A]] and [[A]] again and [[B]]\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try links(gpa, fx.io(), &fx.env, fx.vault, "source.md", &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "A.md\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "B.md\n") != null);
+    try testing.expectEqual(@as(usize, 2), std.mem.count(u8, out.written(), "\n"));
+}
+
+test "unresolved reports a broken wikilink as source, target text, and count" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("SYNAPSE_VAULT_INTEGRATIONS"); // disk is implicit, never named
+    try fx.writeVaultFile("source.md", "[[Nope]]\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try unresolved(gpa, fx.io(), &fx.env, fx.vault, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "source.md\tNope\t1\n") != null);
+}
+
+test "unresolved is empty when every wikilink resolves cleanly" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("SYNAPSE_VAULT_INTEGRATIONS"); // disk is implicit, never named
+    try fx.writeVaultFile("source.md", "[[Target]]\n");
+    try fx.writeVaultFile("Target.md", "body\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try unresolved(gpa, fx.io(), &fx.env, fx.vault, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expectEqualStrings("", out.written());
+}
+
+test "orphans reports a file with no resolved backlink, and excludes one that has one" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("SYNAPSE_VAULT_INTEGRATIONS"); // disk is implicit, never named
+    try fx.writeVaultFile("Linked.md", "body\n");
+    try fx.writeVaultFile("Hub.md", "[[Linked]]\n");
+    try fx.writeVaultFile("Alone.md", "nothing links here\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try orphans(gpa, fx.io(), &fx.env, fx.vault, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "Alone.md\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "Linked.md\n") == null);
+}
+
+test "deadends reports a file with no resolved outgoing link, and excludes one that has one" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    _ = fx.env.swapRemove("SYNAPSE_VAULT_INTEGRATIONS"); // disk is implicit, never named
+    try fx.writeVaultFile("Target.md", "body\n");
+    try fx.writeVaultFile("WithLink.md", "[[Target]]\n");
+    try fx.writeVaultFile("NoLinks.md", "nothing outgoing\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try deadends(gpa, fx.io(), &fx.env, fx.vault, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "NoLinks.md\n") != null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "WithLink.md\n") == null);
+}
+
 test "ambiguous reports a wikilink matching two real files, one row per (source, target, candidate)" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
