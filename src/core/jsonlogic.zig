@@ -141,9 +141,14 @@ fn deepEqual(a: Value, b: Value) bool {
         .float => |x| numEqual(x, b),
         .number_string => |x| switch (b) {
             .number_string => |y| std.mem.eql(u8, x, y),
+            .integer, .float => if (digitsToNumber(x)) |nx| numEqual(nx, b) else false,
             else => false,
         },
-        .string => |x| b == .string and std.mem.eql(u8, b.string, x),
+        .string => |x| switch (b) {
+            .string => |y| std.mem.eql(u8, x, y),
+            .integer, .float => if (digitsToNumber(x)) |nx| numEqual(nx, b) else false,
+            else => false,
+        },
         .array => |x| switch (b) {
             .array => |y| blk: {
                 if (x.items.len != y.items.len) break :blk false;
@@ -171,8 +176,22 @@ fn numEqual(x: f64, b: Value) bool {
     return switch (b) {
         .integer => |i| x == @as(f64, @floatFromInt(i)),
         .float => |f| x == f,
+        .string => |s| if (digitsToNumber(s)) |n| x == n else false,
+        .number_string => |s| if (digitsToNumber(s)) |n| x == n else false,
         else => false,
     };
+}
+
+/// `s` coerces to a number only when every byte is an ASCII digit --
+/// deliberately narrower than JsonLogic's own spec-mandated coercion
+/// (which also accepts leading/trailing whitespace, a sign, a decimal
+/// point, and treats `""` as `0`). A digit-only string has one obvious
+/// numeric reading; anything looser imports the spec's own well-known
+/// coercion quirks for a case nothing here has needed yet.
+fn digitsToNumber(s: []const u8) ?f64 {
+    if (s.len == 0) return null;
+    for (s) |c| if (!std.ascii.isDigit(c)) return null;
+    return std.fmt.parseFloat(f64, s) catch null;
 }
 
 fn evalIn(args: []const Value, data: Value) Error!Value {
@@ -202,8 +221,11 @@ fn evalCompare(args: []const Value, data: Value, op: CompareOp) Error!Value {
     const a = try evaluate(args[0], data);
     const b = try evaluate(args[1], data);
 
-    if (asNumber(a)) |na| if (asNumber(b)) |nb| return .{ .bool = compareOrder(f64, na, nb, op) };
+    // Checked before numeric coercion: two plain strings compare
+    // lexicographically even when both happen to be digit-only ("9" < "10"
+    // stays false) -- coercion is only for a genuinely mixed pair.
     if (a == .string and b == .string) return .{ .bool = compareOrder([]const u8, a.string, b.string, op) };
+    if (asNumber(a)) |na| if (asNumber(b)) |nb| return .{ .bool = compareOrder(f64, na, nb, op) };
     return .{ .bool = false };
 }
 
@@ -211,6 +233,8 @@ fn asNumber(v: Value) ?f64 {
     return switch (v) {
         .integer => |i| @floatFromInt(i),
         .float => |f| f,
+        .string => |s| digitsToNumber(s),
+        .number_string => |s| digitsToNumber(s),
         else => null,
     };
 }
@@ -417,6 +441,32 @@ test "numeric comparisons" {
     defer rule2.deinit();
     const got2 = try evaluate(rule2.value, .null);
     try testing.expect(got2.bool);
+}
+
+test "a digit-only string coerces to a number against a real number, both for compare and equality" {
+    const gpa = testing.allocator;
+    var lt = try parse(gpa, "{\"<\": [1, \"2\"]}");
+    defer lt.deinit();
+    try testing.expect((try evaluate(lt.value, .null)).bool);
+
+    var eq = try parse(gpa, "{\"==\": [1, \"1\"]}");
+    defer eq.deinit();
+    try testing.expect((try evaluate(eq.value, .null)).bool);
+}
+
+test "a non-digit-only string never coerces, even one that starts with digits" {
+    const gpa = testing.allocator;
+    var rule = try parse(gpa, "{\"<\": [1, \"2px\"]}");
+    defer rule.deinit();
+    try testing.expect(!(try evaluate(rule.value, .null)).bool);
+}
+
+test "two digit-only strings still compare lexicographically, not numerically" {
+    const gpa = testing.allocator;
+    var rule = try parse(gpa, "{\"<\": [\"9\", \"10\"]}");
+    defer rule.deinit();
+    // Lexicographic: "9" > "10" (byte '9' > byte '1'), so "9" < "10" is false.
+    try testing.expect(!(try evaluate(rule.value, .null)).bool);
 }
 
 test "glob matches a wildcard pattern against a path" {

@@ -224,6 +224,13 @@ pub fn compute(
 /// Same `Edge` shape as `compute`'s own output, sorted and (if `opts.top
 /// != 0`) capped the same way -- concatenate the two results with
 /// `mergeEdges` rather than treating this as a second, parallel graph.
+///
+/// Deliberately no rarity ceiling on the name itself, unlike `compute`: the
+/// discriminating signal here is a referencing file's own declared
+/// dependency, not how many nodes share the name, so a common utility name
+/// resolved through a real per-file dependency declaration is still a
+/// meaningful edge. Gating it on name rarity would drop exactly the cases
+/// this function exists to recover.
 pub fn resolveAmbiguous(
     gpa: Allocator,
     refs_table: []const u8,

@@ -5,7 +5,15 @@
 //! and allocation-free while covering the v1 schema language: literals,
 //! `.`, character classes (including ranges and negation), `*`/`+`/`?`,
 //! `{n}`/`{n,}`/`{n,m}`, and `^`/`$` anchors. Groups, alternation, captures,
-//! and backreferences are intentionally unsupported.
+//! and backreferences are intentionally unsupported. An escape (`\x`) is
+//! only valid for a character that's otherwise special in this grammar --
+//! there are no shorthand classes like `\d`/`\w`/`\s`.
+//!
+//! `matchHere`'s backtracking (greedy match then back off one at a time,
+//! chainable across quantifiers) can blow up exponentially on a
+//! pathological pattern. Left unbounded: only schema authors write
+//! `pattern:` values, not vault content, so this isn't attacker-controlled
+//! input the way a public-facing regex field would be.
 
 const std = @import("std");
 
@@ -104,12 +112,25 @@ fn parseAtom(pattern: []const u8, index: usize) Error!ParsedAtom {
     return switch (pattern[index]) {
         '\\' => blk: {
             if (index + 1 >= pattern.len) return error.InvalidEscape;
-            break :blk .{ .atom = .{ .literal = pattern[index + 1] }, .next = index + 2 };
+            const escaped = pattern[index + 1];
+            if (!isEscapable(escaped)) return error.InvalidEscape;
+            break :blk .{ .atom = .{ .literal = escaped }, .next = index + 2 };
         },
         '.' => .{ .atom = .any, .next = index + 1 },
         '[' => parseClass(pattern, index),
         '*', '+', '?', '{', '}' => error.InvalidQuantifier,
         else => |c| .{ .atom = .{ .literal = c }, .next = index + 1 },
+    };
+}
+
+/// Every character that means something else unescaped in this grammar --
+/// the only ones a schema author can legitimately need a literal instance
+/// of. Anything else (`\d`, `\w`, `\s`, `\n`, ...) has no defined meaning
+/// here, so it's refused rather than silently matching the escaped letter.
+fn isEscapable(c: u8) bool {
+    return switch (c) {
+        '.', '*', '+', '?', '{', '}', '[', ']', '^', '$', '\\', '(', ')', '|' => true,
+        else => false,
     };
 }
 
@@ -219,6 +240,18 @@ test "compiled-task backlink pattern" {
     const p = "^> Compiled task: \\[\\[[^\\]]+\\]\\]$";
     try testing.expect(try isMatch(p, "> Compiled task: [[Task title]]"));
     try testing.expect(!try isMatch(p, "> Compiled task: Task title"));
+}
+
+test "an unrecognized escape like \\d is refused, not matched as a literal letter" {
+    try testing.expectError(error.InvalidEscape, validate("\\d"));
+    try testing.expectError(error.InvalidEscape, validate("\\w"));
+    try testing.expectError(error.InvalidEscape, validate("\\s"));
+}
+
+test "every escape this grammar's own special characters need still works" {
+    try testing.expect(try isMatch("\\.", "."));
+    try testing.expect(try isMatch("\\*", "*"));
+    try testing.expect(try isMatch("\\\\", "\\"));
 }
 
 test "dated task summary pattern" {

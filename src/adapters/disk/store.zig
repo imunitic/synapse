@@ -526,6 +526,14 @@ pub const DiskLinkGraph = struct {
 /// then removes the old file -- in that order, so every step that still
 /// needs the old name to resolve (finding its referrers) runs before the
 /// file backing that name is gone.
+///
+/// Not atomic across files, and deliberately not: `old_path` is deleted
+/// only after every referrer's rewrite succeeds, so a crash mid-sequence
+/// leaves some referrers pointing at the new title and some still at the
+/// old one, but never deletes anything. Re-running the same `rename` call
+/// finishes the job -- it recomputes referrers from `old_path` (still on
+/// disk), which by then only matches the stragglers still pointing at the
+/// old title. Recovery is "call rename again," not a rollback.
 pub const DiskRenamer = struct {
     vault: []const u8,
 
