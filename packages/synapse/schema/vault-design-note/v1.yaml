@@ -95,6 +95,8 @@ checks:
       when: create
 
 lints:
+  - no_hard_wrap: body.prose
+    severity: warn
   - no_id_prefix_in_title:
       title: frontmatter.title
       id: frontmatter.note_id

@@ -1490,6 +1490,43 @@ test "no_id_prefix_in_title fires against the real shipped vault-task-note/v1 sc
     try testing.expect(std.mem.indexOf(u8, findings[0], "sb-908") != null);
 }
 
+test "no_hard_wrap fires against the real shipped vault-task-note/v1 schema, on the exact motivating shape" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try withRealSchemas(&fx);
+
+    // The other half of the real originating incident: a task note's own
+    // lead description, hard-wrapped at roughly seventy columns.
+    const note = try std.fmt.allocPrint(gpa, "---\n" ++
+        "schema: vault-task-note/v1\n" ++
+        "title: \"Wrapped task example\"\n" ++
+        "project: sb\n" ++
+        "task_id: sb-909\n" ++
+        "created: \"" ++ schema_fixed_timestamp ++ "\"\n" ++
+        "updated: \"" ++ schema_fixed_timestamp ++ "\"\n" ++
+        "tags: [synapse]\n" ++
+        "status: TODO\n" ++
+        "---\n\n" ++
+        "# Wrapped task example\n\n" ++
+        "This description got manually\n" ++
+        "wrapped across two lines.\n\n" ++
+        "## Checklist\n\n" ++
+        "- [ ] First implementation step\n", .{});
+    defer gpa.free(note);
+
+    const vars = adapters.env.vars(&fx.env);
+    var doc = try adapters.schema_validation_store.loadSchemaDocument(gpa, fx.io(), vars, "vault-task-note/v1");
+    defer doc.deinit();
+    const findings = try core.note_schema.lintNote(gpa, doc.root, note, "tasks/synapse/Wrapped task example.md");
+    defer {
+        for (findings) |f| gpa.free(f);
+        gpa.free(findings);
+    }
+    try testing.expectEqual(@as(usize, 1), findings.len);
+    try testing.expect(std.mem.indexOf(u8, findings[0], "no_hard_wrap") != null);
+}
+
 test "all three shipped v1 note schemas validate through vault-write" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
