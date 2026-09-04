@@ -3,6 +3,7 @@
 //! text itself, rather than asking a live external app for them.
 
 const std = @import("std");
+const unicode_norm = @import("unicode_norm.zig");
 
 /// Every `[[...]]` occurrence in `body`, in order, each reduced to its raw
 /// target text -- the part before a `|` alias if present, trimmed of
@@ -45,13 +46,28 @@ pub fn normalizeTarget(target: []const u8) []const u8 {
     return if (std.mem.endsWith(u8, base, ".md")) base[0 .. base.len - 3] else base;
 }
 
+/// Whether a raw wikilink `target` names the same note as `old_target`:
+/// both stripped to a bare title (`normalizeTarget`), both NFC-normalized
+/// (a precomposed vs. decomposed spelling of the same text must still
+/// match), then compared by Unicode simple case fold rather than
+/// `std.ascii.eqlIgnoreCase` -- a non-Latin title deserves the same
+/// case-insensitive match an ASCII one already gets. An empty `target`
+/// never matches, regardless of `old_target`.
+fn targetMatches(gpa: std.mem.Allocator, target: []const u8, old_target: []const u8) !bool {
+    if (target.len == 0) return false;
+    const a = try unicode_norm.normalizeNfc(gpa, normalizeTarget(target));
+    defer gpa.free(a);
+    const b = try unicode_norm.normalizeNfc(gpa, normalizeTarget(old_target));
+    defer gpa.free(b);
+    return unicode_norm.eqlCaseFold(a, b);
+}
+
 /// Rewrites every `[[Target]]`/`[[Target|Display]]` in `body` whose target
-/// case-insensitively equals `old_target` once both are normalized (see
-/// `normalizeTarget`) so its target becomes `new_target` -- an alias's
-/// `|Display` text, and everything else in `body`, is copied through
-/// untouched. An unterminated `[[` copies the remainder of `body` verbatim
-/// and stops, same "prose isn't a format this owns" rule `extract` follows.
-/// Caller-owned.
+/// matches `old_target` (see `targetMatches`) so its target becomes
+/// `new_target` -- an alias's `|Display` text, and everything else in
+/// `body`, is copied through untouched. An unterminated `[[` copies the
+/// remainder of `body` verbatim and stops, same "prose isn't a format this
+/// owns" rule `extract` follows. Caller-owned.
 pub fn renameTarget(gpa: std.mem.Allocator, body: []const u8, old_target: []const u8, new_target: []const u8) ![]u8 {
     var out: std.ArrayListUnmanaged(u8) = .empty;
     errdefer out.deinit(gpa);
@@ -71,7 +87,8 @@ pub fn renameTarget(gpa: std.mem.Allocator, body: []const u8, old_target: []cons
         const raw = if (bar) |b| inner[0..b] else inner;
         const target = std.mem.trim(u8, raw, " \t\r\n");
 
-        if (target.len != 0 and std.ascii.eqlIgnoreCase(normalizeTarget(target), normalizeTarget(old_target))) {
+        const matches = try targetMatches(gpa, target, old_target);
+        if (matches) {
             try out.appendSlice(gpa, "[[");
             try out.appendSlice(gpa, new_target);
             if (bar) |b| try out.appendSlice(gpa, inner[b..]);
@@ -189,6 +206,22 @@ test "renameTarget copies an unterminated wikilink through verbatim" {
     const out = try renameTarget(gpa, "[[Old Name]] then [[broken with no close", "Old Name", "New Name");
     defer gpa.free(out);
     try testing.expectEqualStrings("[[New Name]] then [[broken with no close", out);
+}
+
+test "renameTarget matches a non-Latin title regardless of case" {
+    const gpa = testing.allocator;
+    const out = try renameTarget(gpa, "see [[МОСКВА]] here", "Москва", "Санкт-Петербург");
+    defer gpa.free(out);
+    try testing.expectEqualStrings("see [[Санкт-Петербург]] here", out);
+}
+
+test "renameTarget matches a target regardless of NFC composition" {
+    const gpa = testing.allocator;
+    // か (U+304B) + combining dakuten (U+3099), decomposed -- names the
+    // same title as precomposed が (U+304C).
+    const out = try renameTarget(gpa, "see [[\u{304B}\u{3099}]] here", "\u{304C}", "New Name");
+    defer gpa.free(out);
+    try testing.expectEqualStrings("see [[New Name]] here", out);
 }
 
 test "normalizeTarget strips a trailing .md" {

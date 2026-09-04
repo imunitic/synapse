@@ -38,6 +38,12 @@ pub fn splitWords(
             while (i < symbol.len and isLowerOrDigit(symbol[i])) i += 1;
         } else if (isLowerOrDigit(symbol[i])) {
             while (i < symbol.len and isLowerOrDigit(symbol[i])) i += 1;
+        } else if (symbol[i] >= 0x80) {
+            // A run of non-ASCII bytes is one word -- without this, every
+            // byte of a non-Latin script (CJK, Arabic, Hebrew, Cyrillic,
+            // Greek, accented Latin) is treated as a separator like `_`/`-`,
+            // dropping the whole term from evidence/query tokenization.
+            while (i < symbol.len and symbol[i] >= 0x80) i += 1;
         } else {
             i += 1; // separator: `_`, `-`, `.`, punctuation
             continue;
@@ -56,9 +62,13 @@ fn isLowerOrDigit(c: u8) bool {
     return (c >= 'a' and c <= 'z') or (c >= '0' and c <= '9');
 }
 
-/// Whether a split word becomes evidence: >= 4 chars, not all digits, not a stopword.
+/// Whether a split word becomes evidence: >= 4 codepoints, not all digits,
+/// not a stopword. Codepoints, not bytes -- a single CJK character is
+/// already 3 bytes and can be a complete, meaningful term, where a byte
+/// count would filter it out at a precision an equivalent-length ASCII
+/// word never hits.
 pub fn keep(word: []const u8, stopwords: *const std.StringHashMapUnmanaged(void)) bool {
-    if (word.len < 4) return false;
+    if ((std.unicode.utf8CountCodepoints(word) catch word.len) < 4) return false;
     if (allDigits(word)) return false;
     if (stopwords.contains(word)) return false;
     return true;
@@ -215,6 +225,24 @@ test "keep drops short words, pure digits and stopwords" {
     try testing.expect(!keep("2026", &stop));
     try testing.expect(keep("utf8", &stop));
     try testing.expect(!keep("with", &stop));
+}
+
+test "a run of non-ASCII bytes is one word, not one separator per byte" {
+    try expectWords("widget 日本語", &.{ "widget", "日本語" });
+    // `std.ascii.toLower` only touches ASCII bytes, so a non-Latin script
+    // passes through unchanged here -- real case-folding is a separate step.
+    try expectWords("Москва", &.{"Москва"});
+}
+
+test "keep counts codepoints, not bytes -- a single multi-byte character isn't kept just because it's 4+ bytes" {
+    const gpa = testing.allocator;
+    var stop: std.StringHashMapUnmanaged(void) = .empty;
+    defer stop.deinit(gpa);
+    // U+20000, a single codepoint that's 4 bytes in UTF-8 -- the old
+    // byte-length check would have kept this; codepoint counting doesn't.
+    try testing.expect(!keep("\u{20000}", &stop));
+    // Four real CJK characters (12 bytes, 4 codepoints) still clears the bar.
+    try testing.expect(keep("日本語学", &stop));
 }
 
 const TestVars = struct {

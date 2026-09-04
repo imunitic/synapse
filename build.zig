@@ -277,6 +277,23 @@ pub fn build(b: *std.Build) void {
     b.step("bench", "Build the tags-cache timing tool")
         .dependOn(&b.addInstallArtifact(bench, .{}).step);
 
+    // Fetches the Unicode Character Database fresh from unicode.org and
+    // regenerates `src/core/unicode_tables.zig`, committed like any other
+    // source file. Host-only (needs real network access, and runs once on
+    // a maintainer's own machine, never cross-compiled) -- unlike `fake`/
+    // `differential`/`bench` above, this one is a Run step, not just an
+    // install: a fetch/parse failure is a real, reportable build failure,
+    // not a tool whose non-zero exit is itself the interesting result.
+    const gen_unicode_tables = b.addExecutable(.{
+        .name = "gen-unicode-tables",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/tools/gen_unicode_tables.zig"),
+            .target = b.graph.host,
+        }),
+    });
+    b.step("gen-unicode-tables", "Fetch the UCD and regenerate the vendored NFC/case-fold tables")
+        .dependOn(&b.addRunArtifact(gen_unicode_tables).step);
+
     // Deliberately no `run` step. A Run step treats a non-zero exit as a build
     // failure, and non-zero is a normal, contractual result for this binary --
     // `2` for a usage error, `1` for a refusal, all of them asserted by the

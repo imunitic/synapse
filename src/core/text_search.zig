@@ -4,13 +4,14 @@
 //! rather than a backend with its own relevance search to call out to.
 
 const std = @import("std");
+const unicode_norm = @import("unicode_norm.zig");
 
 /// The first line in `body` containing `query`, case-insensitive -- the
 /// one-line-of-context a search hit shows alongside its score.
 pub fn firstMatchingLine(body: []const u8, query: []const u8) ?[]const u8 {
     var lines = std.mem.splitScalar(u8, body, '\n');
     while (lines.next()) |line| {
-        if (std.ascii.findIgnoreCase(line, query) != null) return line;
+        if (unicode_norm.containsCaseFold(line, query)) return line;
     }
     return null;
 }
@@ -18,14 +19,7 @@ pub fn firstMatchingLine(body: []const u8, query: []const u8) ?[]const u8 {
 /// Case-insensitive occurrence count -- `std.mem.count` has no ignore-case
 /// form of its own, and a search score needs one.
 pub fn countIgnoreCase(haystack: []const u8, needle: []const u8) usize {
-    if (needle.len == 0) return 0;
-    var count: usize = 0;
-    var pos: usize = 0;
-    while (std.ascii.findIgnoreCasePos(haystack, pos, needle)) |idx| {
-        count += 1;
-        pos = idx + needle.len;
-    }
-    return count;
+    return unicode_norm.countCaseFold(haystack, needle);
 }
 
 const testing = std.testing;
@@ -45,4 +39,10 @@ test "countIgnoreCase counts every occurrence regardless of case" {
 
 test "countIgnoreCase with an empty needle is zero, not every position" {
     try testing.expectEqual(@as(usize, 0), countIgnoreCase("anything", ""));
+}
+
+test "firstMatchingLine and countIgnoreCase work on non-Latin text too" {
+    const body = "one\nгород МОСКВА\nтри\n";
+    try testing.expectEqualStrings("город МОСКВА", firstMatchingLine(body, "москва").?);
+    try testing.expectEqual(@as(usize, 2), countIgnoreCase("Москва москва", "МОСКВА"));
 }

@@ -301,7 +301,7 @@ fn firstMatchingLineAny(body: []const u8, terms: []const []const u8) ?[]const u8
     var lines = std.mem.splitScalar(u8, body, '\n');
     while (lines.next()) |line| {
         for (terms) |t| {
-            if (std.ascii.findIgnoreCase(line, t) != null) return line;
+            if (core.unicode_norm.containsCaseFold(line, t)) return line;
         }
     }
     return null;
@@ -761,7 +761,7 @@ fn resolveCandidates(
         out.deinit(gpa);
     }
     const normalized = core.wikilinks.normalizeTarget(target);
-    const lower = try std.ascii.allocLowerString(gpa, normalized);
+    const lower = try core.unicode_norm.normalizeKeyAlloc(gpa, normalized);
     defer gpa.free(lower);
     if (titles.get(lower)) |paths| {
         for (paths.items) |path| try out.append(gpa, try gpa.dupe(u8, path));
@@ -834,7 +834,7 @@ fn buildEdges(gpa: Allocator, io: Io, vault: []const u8) ![]const Edge {
         titles.deinit(gpa); // list entries borrow from `all`, not owned here
     }
     for (all) |path| {
-        const lower = try std.ascii.allocLowerString(gpa, titleOf(path));
+        const lower = try core.unicode_norm.normalizeKeyAlloc(gpa, titleOf(path));
         const gop = try titles.getOrPut(gpa, lower);
         if (gop.found_existing) {
             gpa.free(lower);
@@ -1652,6 +1652,27 @@ test "a link matching two real files is ambiguous: both count as backlinks, and 
     try testing.expectEqual(@as(usize, 1), amb[0].count);
     try testing.expectEqual(@as(usize, 1), amb[0].sources.len);
     try testing.expectEqualStrings("source.md", amb[0].sources[0]);
+}
+
+test "a wikilink resolves against a real title regardless of case or NFC composition" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "");
+    defer s.deinit();
+    const port = s.store();
+    // Uppercase Cyrillic link against a real title in mixed case.
+    _ = try port.write(testing.io, "source.md", "[[МОСКВА]]\n");
+    _ = try port.write(testing.io, "Москва.md", "body\n");
+
+    var lg = s.linkGraph();
+    const bl = try lg.backlinks(gpa, testing.io, "Москва.md");
+    defer freeBacklinks(gpa, bl);
+    try testing.expectEqual(@as(usize, 1), bl.len);
+    try testing.expectEqualStrings("source.md", bl[0].node);
 }
 
 test "a link matching a note_id resolves straight to that file, bypassing name matching entirely" {

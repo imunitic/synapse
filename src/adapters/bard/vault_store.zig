@@ -36,6 +36,7 @@
 //! vault).
 
 const std = @import("std");
+const core = @import("core");
 const ports = @import("ports");
 
 const Io = std.Io;
@@ -142,12 +143,12 @@ pub const BardVaultStore = struct {
         for (names) |name| {
             const body = (try self.read(gpa, io, name)) orelse continue;
             defer gpa.free(body);
-            if (std.ascii.findIgnoreCase(body, query) == null) continue;
+            if (!core.unicode_norm.containsCaseFold(body, query)) continue;
             const count = if (links.get(name)) |l| l.items.len else 0;
             try out.append(gpa, .{
                 .node = try gpa.dupe(u8, name),
                 .score = @floatFromInt(count),
-                .context = try gpa.dupe(u8, firstMatchingLine(body, query) orelse ""),
+                .context = try gpa.dupe(u8, core.text_search.firstMatchingLine(body, query) orelse ""),
             });
         }
 
@@ -206,13 +207,6 @@ fn hitRank(_: void, a: Store.Hit, b: Store.Hit) bool {
     return std.mem.order(u8, a.node, b.node) == .lt;
 }
 
-fn firstMatchingLine(body: []const u8, query: []const u8) ?[]const u8 {
-    var lines = std.mem.splitScalar(u8, body, '\n');
-    while (lines.next()) |line| {
-        if (std.ascii.findIgnoreCase(line, query) != null) return line;
-    }
-    return null;
-}
 
 /// Every note in `names` that links to each note in `names` -- a note that
 /// links to the same target three times contributes once: "backlinks"
