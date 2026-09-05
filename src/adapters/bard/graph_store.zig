@@ -15,6 +15,7 @@
 const std = @import("std");
 const ports = @import("ports");
 const core = @import("core");
+const disk_store = @import("../disk/store.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -25,13 +26,25 @@ pub const BardGraphStore = struct {
     /// Directory nodes live under, e.g. `"_bard/graph"` -- resolved once by
     /// the constructor, so every call agrees on where "the graph" is.
     root: []const u8,
+    /// `read`/`write`/`list` delegate straight to this -- `_bard/graph/` is
+    /// flat (`root` is the whole vault-relative base, no subdirectory
+    /// prefix), the same shape `DiskStore`'s own empty-namespace mode
+    /// already exists for. Reusing it gets `write`'s atomic temp-file-plus-
+    /// rename for free, instead of this store's own direct-write, which
+    /// could leave a reader observing a partially-written entity file.
+    disk: disk_store.DiskStore,
 
     pub fn init(gpa: Allocator, root: []const u8) !BardGraphStore {
-        return .{ .gpa = gpa, .root = try gpa.dupe(u8, root) };
+        return .{
+            .gpa = gpa,
+            .root = try gpa.dupe(u8, root),
+            .disk = try disk_store.DiskStore.init(gpa, root, ""),
+        };
     }
 
     pub fn deinit(self: *BardGraphStore) void {
         self.gpa.free(self.root);
+        self.disk.deinit();
     }
 
     /// The wrapper idiom: `Store.from` generates the `*anyopaque`
@@ -42,23 +55,11 @@ pub const BardGraphStore = struct {
     }
 
     pub fn read(self: *BardGraphStore, gpa: Allocator, io: Io, node: []const u8) anyerror!?[]u8 {
-        const path = try std.fs.path.join(gpa, &.{ self.root, node });
-        defer gpa.free(path);
-        return Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |e| {
-            if (e == error.FileNotFound) return null;
-            return e;
-        };
+        return self.disk.read(gpa, io, node);
     }
 
     pub fn write(self: *BardGraphStore, io: Io, node: []const u8, body: []const u8) anyerror!Store.WriteResult {
-        // `_bard/graph/` may not exist yet on a repo's first write -- create
-        // it same as any other git-tracked-once-something-lands-in-it
-        // directory. Idempotent: does nothing when it's already there.
-        try Io.Dir.cwd().createDirPath(io, self.root);
-        const path = try std.fs.path.join(self.gpa, &.{ self.root, node });
-        defer self.gpa.free(path);
-        try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = body });
-        return .{ .accepted = true };
+        return self.disk.write(io, node, body);
     }
 
     /// Removes a node -- not on the shared `ports.Store` interface (`read`/
@@ -80,28 +81,12 @@ pub const BardGraphStore = struct {
     }
 
     /// Every `.md` file directly under `root`, flat -- `_bard/graph/` is
-    /// file-per-entity, no subdirectories. A `root` that doesn't exist yet
-    /// (nothing has been written) lists as empty, not an error -- the same
-    /// "absence is ordinary" rule `read` follows.
+    /// file-per-entity, no subdirectories. `DiskStore.list`'s recursive walk
+    /// is harmless here (there's nothing to recurse into); a `root` that
+    /// doesn't exist yet (nothing has been written) lists as empty, not an
+    /// error -- the same "absence is ordinary" rule `read` follows.
     pub fn list(self: *BardGraphStore, gpa: Allocator, io: Io) anyerror![]const []const u8 {
-        var out: std.ArrayListUnmanaged([]const u8) = .empty;
-        errdefer {
-            for (out.items) |n| gpa.free(n);
-            out.deinit(gpa);
-        }
-
-        if (Io.Dir.cwd().openDir(io, self.root, .{ .iterate = true })) |dir| {
-            var d = dir;
-            defer d.close(io);
-            var it = d.iterate();
-            while (try it.next(io)) |entry| {
-                if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".md")) continue;
-                try out.append(gpa, try gpa.dupe(u8, entry.name));
-            }
-        } else |e| {
-            if (e != error.FileNotFound) return e;
-        }
-        return out.toOwnedSlice(gpa);
+        return self.disk.list(gpa, io);
     }
 
     /// `key:value` (exactly one colon, no spaces around it) matches nodes
@@ -461,4 +446,27 @@ test "port.search()'s key:value heuristic can misread a colon in ordinary text -
     const via_port = try port.search(gpa, testing.io, "The Knife: Book One");
     defer freeHits(gpa, via_port);
     try testing.expectEqual(@as(usize, 0), via_port.len);
+}
+
+test "a write is atomic: no .tmp sibling survives, and an overwrite leaves no partial file" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try graphRoot(gpa, &tmp);
+    defer gpa.free(root);
+
+    var s = try BardGraphStore.init(gpa, root);
+    defer s.deinit();
+    const port = s.store();
+
+    _ = try port.write(testing.io, "gael.md", "first\n");
+    _ = try port.write(testing.io, "gael.md", "second\n");
+
+    try testing.expectError(
+        error.FileNotFound,
+        tmp.dir.access(testing.io, "graph/gael.md.tmp", .{}),
+    );
+    const on_disk = try tmp.dir.readFileAlloc(testing.io, "graph/gael.md", gpa, .limited(1 << 20));
+    defer gpa.free(on_disk);
+    try testing.expectEqualStrings("second\n", on_disk);
 }

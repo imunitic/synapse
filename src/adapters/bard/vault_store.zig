@@ -10,38 +10,31 @@
 //! walks recursively and `write` creates whatever parent directories `node`
 //! implies.
 //!
-//! ## The backlink graph isn't reused from `core`, and here's why
+//! ## The backlink graph is `DiskStore`'s own `DiskLinkGraph`, self-links
+//! ## filtered
 //!
-//! The task note that specified this store said graph traversal "reuses
-//! whatever link-graph logic `core` already has for code-graph node links."
-//! Neither of the two candidates actually fits, checked before writing a
-//! line of this file:
-//!
-//! - `core/links.zig` *infers* implicit code edges from rare-symbol
-//!   co-occurrence across `_refs.tsv` -- solving "which files are probably
-//!   related, given no one said so." A vault wikilink is never implicit; the
-//!   author already said so. Wrong problem.
-//! - `core/query.zig`'s `edges`/`parseEdge` parses `- <relation> [[Target]]`
-//!   lines, scoped to a node's `## Links` section specifically. Bard vault
-//!   notes (this file's own module docs included) put
-//!   `[[wikilinks]]` inline in prose anywhere, with no relation prefix and
-//!   no reserved section. Wrong shape.
-//!
-//! What's actually reusable is smaller than either: "every `[[target]]` in
-//! some text, target before any `|`" -- the same primitive
-//! `bard/frontmatter.zig`'s `scanValue` already has, just over prose instead
-//! of a YAML scalar. `backlinks` below is that primitive, plus the standard
-//! resolution rule (a wikilink resolves by filename stem, not by vault
-//! path -- `core/emit.zig`'s own doc comment says the same for the coding
-//! vault).
+//! A wikilink resolves by filename stem, not by vault path -- the same rule
+//! `DiskLinkGraph` (`../disk/store.zig`) already implements, Unicode
+//! case-fold aware, for the coding vault's own notes. Bard vault notes put
+//! `[[wikilinks]]` inline in prose anywhere, with no relation prefix and no
+//! reserved section -- exactly what `DiskLinkGraph.backlinks` already
+//! resolves against a note's whole body, not the `## Links`-scoped shape
+//! `core/query.zig`'s `edges`/`parseEdge` expects. The one gap:
+//! `DiskLinkGraph.backlinks` doesn't exclude a note linking to itself (a
+//! reasonable default for the coding vault, where a self-link is rare and
+//! not specially meaningful) -- `filterSelf` below is the one place that
+//! matters, so both `search`'s ranking and `linkingNotes` stay consistent
+//! with each other without re-implementing extraction to get there.
 
 const std = @import("std");
 const core = @import("core");
 const ports = @import("ports");
+const disk_store = @import("../disk/store.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const Store = ports.Store;
+const LinkGraph = ports.LinkGraph;
 
 /// Not a real note -- the vault's own bootstrap file, excluded from `list`.
 const index_node = "Index.md";
@@ -50,13 +43,25 @@ pub const BardVaultStore = struct {
     gpa: Allocator,
     /// Directory notes live under, e.g. `"_bard/vault"` -- resolved once.
     root: []const u8,
+    /// `read`/`write` delegate straight to this -- `root` is the whole
+    /// vault-relative base, the same shape `DiskStore`'s own empty-namespace
+    /// mode already exists for. Reusing it gets `write`'s atomic
+    /// temp-file-plus-rename for free, instead of this store's own
+    /// direct-write, which could leave a reader observing a
+    /// partially-written note.
+    disk: disk_store.DiskStore,
 
     pub fn init(gpa: Allocator, root: []const u8) !BardVaultStore {
-        return .{ .gpa = gpa, .root = try gpa.dupe(u8, root) };
+        return .{
+            .gpa = gpa,
+            .root = try gpa.dupe(u8, root),
+            .disk = try disk_store.DiskStore.init(gpa, root, ""),
+        };
     }
 
     pub fn deinit(self: *BardVaultStore) void {
         self.gpa.free(self.root);
+        self.disk.deinit();
     }
 
     /// The wrapper idiom: `Store.from` generates the `*anyopaque`
@@ -67,48 +72,33 @@ pub const BardVaultStore = struct {
     }
 
     pub fn read(self: *BardVaultStore, gpa: Allocator, io: Io, node: []const u8) anyerror!?[]u8 {
-        const path = try std.fs.path.join(gpa, &.{ self.root, node });
-        defer gpa.free(path);
-        return Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |e| {
-            if (e == error.FileNotFound) return null;
-            return e;
-        };
+        return self.disk.read(gpa, io, node);
     }
 
     pub fn write(self: *BardVaultStore, io: Io, node: []const u8, body: []const u8) anyerror!Store.WriteResult {
-        const path = try std.fs.path.join(self.gpa, &.{ self.root, node });
-        defer self.gpa.free(path);
-        // Unlike the graph store's flat namespace, `node` here routinely
-        // implies subdirectories (`designs/synapse-bard/...`) that may not
-        // exist yet -- create the whole parent chain, idempotently.
-        if (std.fs.path.dirname(path)) |parent| try Io.Dir.cwd().createDirPath(io, parent);
-        try Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = body });
-        return .{ .accepted = true };
+        return self.disk.write(io, node, body);
     }
 
     /// Every `.md` file under `root`, recursive -- notes live in
-    /// subdirectories, unlike the graph store's flat layout. `Index.md` at
-    /// the vault root is excluded (bootstrap, not a note). A `root` that
-    /// doesn't exist yet lists as empty, not an error.
+    /// subdirectories, unlike the graph store's flat layout. `DiskStore.list`
+    /// has no equivalent exclusion concept, so `Index.md` (the vault's own
+    /// bootstrap file, not a note) is filtered out of its result here rather
+    /// than pushed into `DiskStore` itself.
     pub fn list(self: *BardVaultStore, gpa: Allocator, io: Io) anyerror![]const []const u8 {
+        const all = try self.disk.list(gpa, io);
+        defer {
+            for (all) |n| gpa.free(n);
+            gpa.free(all);
+        }
+
         var out: std.ArrayListUnmanaged([]const u8) = .empty;
         errdefer {
             for (out.items) |n| gpa.free(n);
             out.deinit(gpa);
         }
-
-        if (Io.Dir.cwd().openDir(io, self.root, .{ .iterate = true })) |dir| {
-            var d = dir;
-            defer d.close(io);
-            var walker = try d.walk(gpa);
-            defer walker.deinit();
-            while (try walker.next(io)) |entry| {
-                if (entry.kind != .file or !std.mem.endsWith(u8, entry.path, ".md")) continue;
-                if (std.mem.eql(u8, entry.path, index_node)) continue;
-                try out.append(gpa, try gpa.dupe(u8, entry.path));
-            }
-        } else |e| {
-            if (e != error.FileNotFound) return e;
+        for (all) |n| {
+            if (std.mem.eql(u8, n, index_node)) continue;
+            try out.append(gpa, try gpa.dupe(u8, n));
         }
         return out.toOwnedSlice(gpa);
     }
@@ -124,13 +114,6 @@ pub const BardVaultStore = struct {
             gpa.free(names);
         }
 
-        var links = try backlinks(gpa, io, self.root, names);
-        defer {
-            var it = links.valueIterator();
-            while (it.next()) |v| v.deinit(gpa);
-            links.deinit(gpa);
-        }
-
         var out: std.ArrayListUnmanaged(Store.Hit) = .empty;
         errdefer {
             for (out.items) |h| {
@@ -140,11 +123,19 @@ pub const BardVaultStore = struct {
             out.deinit(gpa);
         }
 
+        var lg: disk_store.DiskLinkGraph = .{ .vault = self.root };
         for (names) |name| {
             const body = (try self.read(gpa, io, name)) orelse continue;
             defer gpa.free(body);
             if (!core.unicode_norm.containsCaseFold(body, query)) continue;
-            const count = if (links.get(name)) |l| l.items.len else 0;
+
+            const links = try lg.backlinks(gpa, io, name);
+            defer {
+                for (links) |l| gpa.free(l.node);
+                gpa.free(links);
+            }
+            const count = countExcludingSelf(links, name);
+
             try out.append(gpa, .{
                 .node = try gpa.dupe(u8, name),
                 .score = @floatFromInt(count),
@@ -179,22 +170,25 @@ pub const BardVaultStore = struct {
         for (names) |n| try by_stem.put(gpa, stemOf(n), n);
         const resolved = by_stem.get(stemOf(target)) orelse return null;
 
-        var links = try backlinks(gpa, io, self.root, names);
+        var lg: disk_store.DiskLinkGraph = .{ .vault = self.root };
+        const links = try lg.backlinks(gpa, io, resolved);
         defer {
-            var it = links.valueIterator();
-            while (it.next()) |v| v.deinit(gpa);
-            links.deinit(gpa);
+            for (links) |l| gpa.free(l.node);
+            gpa.free(links);
         }
 
-        // A real, gpa-allocated empty slice when `resolved` has no
-        // backlinks -- not a literal `&.{}`, which isn't allocator-owned
-        // memory and would crash the caller's unconditional `gpa.free()`.
-        const source_names = if (links.get(resolved)) |l| l.items else &.{};
-        var out = try gpa.alloc([]const u8, source_names.len);
-        errdefer gpa.free(out);
-        for (source_names, 0..) |n, i| out[i] = try gpa.dupe(u8, n);
-        std.mem.sort([]const u8, out, {}, lessThan);
-        return out;
+        var out: std.ArrayListUnmanaged([]const u8) = .empty;
+        errdefer {
+            for (out.items) |n| gpa.free(n);
+            out.deinit(gpa);
+        }
+        for (links) |l| {
+            if (std.mem.eql(u8, l.node, resolved)) continue; // no self-backlink
+            try out.append(gpa, try gpa.dupe(u8, l.node));
+        }
+        const owned = try out.toOwnedSlice(gpa);
+        std.mem.sort([]const u8, owned, {}, lessThan);
+        return owned;
     }
 };
 
@@ -207,65 +201,16 @@ fn hitRank(_: void, a: Store.Hit, b: Store.Hit) bool {
     return std.mem.order(u8, a.node, b.node) == .lt;
 }
 
-
-/// Every note in `names` that links to each note in `names` -- a note that
-/// links to the same target three times contributes once: "backlinks"
-/// counts linking notes, not raw occurrences. Both keys and the source
-/// names in each value list borrow
-/// `names`' own strings; the caller frees each value's `ArrayListUnmanaged`
-/// before deiniting the outer map.
-fn backlinks(
-    gpa: Allocator,
-    io: Io,
-    root: []const u8,
-    names: []const []const u8,
-) !std.StringHashMapUnmanaged(std.ArrayListUnmanaged([]const u8)) {
-    // A wikilink resolves by filename stem, not by vault path -- the same
-    // rule this codebase's coding-vault side already documents
-    // (`core/emit.zig`).
-    var by_stem: std.StringHashMapUnmanaged([]const u8) = .empty;
-    defer by_stem.deinit(gpa);
-    for (names) |n| try by_stem.put(gpa, stemOf(n), n);
-
-    var out: std.StringHashMapUnmanaged(std.ArrayListUnmanaged([]const u8)) = .empty;
-    errdefer {
-        var it = out.valueIterator();
-        while (it.next()) |v| v.deinit(gpa);
-        out.deinit(gpa);
+/// `DiskLinkGraph.backlinks` doesn't exclude a note linking to itself (see
+/// this file's own module doc) -- this is the one place that matters,
+/// shared by `search`'s ranking here.
+fn countExcludingSelf(links: []const LinkGraph.Backlink, self_name: []const u8) usize {
+    var n: usize = 0;
+    for (links) |l| {
+        if (std.mem.eql(u8, l.node, self_name)) continue;
+        n += 1;
     }
-
-    for (names) |from| {
-        const path = try std.fs.path.join(gpa, &.{ root, from });
-        defer gpa.free(path);
-        const body = Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 20)) catch continue;
-        defer gpa.free(body);
-
-        // Per-source dedup: this note's own multiple links to the same
-        // target must not list `from` more than once against that target.
-        var seen: std.StringHashMapUnmanaged(void) = .empty;
-        defer seen.deinit(gpa);
-
-        var rest: []const u8 = body;
-        while (std.mem.indexOf(u8, rest, "[[")) |start| {
-            const after = rest[start + 2 ..];
-            const end = std.mem.indexOf(u8, after, "]]") orelse break;
-            const inner = after[0..end];
-            rest = after[end + 2 ..];
-
-            const pipe = std.mem.indexOfScalar(u8, inner, '|') orelse inner.len;
-            const target_text = std.mem.trim(u8, inner[0..pipe], " ");
-            if (target_text.len == 0) continue;
-            const resolved = by_stem.get(stripMdSuffix(target_text)) orelse continue;
-            if (std.mem.eql(u8, resolved, from)) continue; // no self-backlink
-            if (seen.contains(resolved)) continue;
-            try seen.put(gpa, resolved, {});
-
-            const slot = try out.getOrPut(gpa, resolved);
-            if (!slot.found_existing) slot.value_ptr.* = .empty;
-            try slot.value_ptr.append(gpa, from);
-        }
-    }
-    return out;
+    return n;
 }
 
 /// The filename stem a wikilink resolves against: the last path segment,
@@ -478,4 +423,57 @@ test "a note does not count as its own backlink" {
     defer freeHits(gpa, hits);
     try testing.expectEqual(@as(usize, 1), hits.len);
     try testing.expectEqual(@as(f32, 0.0), hits[0].score);
+}
+
+test "a wikilink resolves to its target despite differing case, via DiskLinkGraph's Unicode case-fold matching" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try vaultRoot(gpa, &tmp);
+    defer gpa.free(root);
+
+    var s = try BardVaultStore.init(gpa, root);
+    defer s.deinit();
+    const port = s.store();
+
+    _ = try port.write(testing.io, "designs/Bible-graph.md", "# Bible-graph\nmentions the flame hilt\n");
+    // The wikilink spells the title with different casing than the real
+    // file -- the old hand-rolled `by_stem` lookup (plain `std.mem.eql`)
+    // would have missed this; `DiskLinkGraph`'s case-fold resolution
+    // doesn't.
+    _ = try port.write(testing.io, "a.md", "links to [[Bible-Graph]]\n");
+
+    const hits = try port.search(gpa, testing.io, "flame hilt");
+    defer freeHits(gpa, hits);
+    try testing.expectEqual(@as(usize, 1), hits.len);
+    try testing.expectEqualStrings("designs/Bible-graph.md", hits[0].node);
+    try testing.expectEqual(@as(f32, 1.0), hits[0].score);
+
+    const notes = (try s.linkingNotes(gpa, testing.io, "Bible-graph")).?;
+    defer freeLinkingNotes(gpa, notes);
+    try testing.expectEqual(@as(usize, 1), notes.len);
+    try testing.expectEqualStrings("a.md", notes[0]);
+}
+
+test "a write is atomic: no .tmp sibling survives, and an overwrite leaves no partial file" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try vaultRoot(gpa, &tmp);
+    defer gpa.free(root);
+
+    var s = try BardVaultStore.init(gpa, root);
+    defer s.deinit();
+    const port = s.store();
+
+    _ = try port.write(testing.io, "designs/a.md", "first\n");
+    _ = try port.write(testing.io, "designs/a.md", "second\n");
+
+    try testing.expectError(
+        error.FileNotFound,
+        tmp.dir.access(testing.io, "vault/designs/a.md.tmp", .{}),
+    );
+    const on_disk = try tmp.dir.readFileAlloc(testing.io, "vault/designs/a.md", gpa, .limited(1 << 20));
+    defer gpa.free(on_disk);
+    try testing.expectEqualStrings("second\n", on_disk);
 }
