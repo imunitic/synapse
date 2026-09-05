@@ -22,10 +22,8 @@ permissions:
   contents: write
   # OIDC for npm's Trusted Publishing -- lets `npm publish` mint a
   # short-lived token itself instead of reading a stored NPM_TOKEN secret.
-  # Requires Trusted Publisher configured per-package on npmjs.com first
-  # (pointing at this workflow file), which only becomes possible after a
-  # package's first publish -- see the release job's own publish step for
-  # the NODE_AUTH_TOKEN bootstrap this repeats until that's done.
+  # Each of the four @imunitic/synapse-bard* packages has a Trusted
+  # Publisher configured on npmjs.com pointing at this exact workflow file.
   id-token: write
 
 jobs:
@@ -73,25 +71,18 @@ jobs:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
 
-      # Same Node/npm bump release.yml's own job makes, so this workflow is
-      # already OIDC-ready the moment the NODE_AUTH_TOKEN bootstrap below is
-      # removed -- no second workflow edit needed once Trusted Publisher is
-      # configured.
+      # Same Node/npm bump release.yml's own job makes -- Trusted Publishing
+      # needs a recent npm CLI, same reasoning as that file's own comment.
       - name: Upgrade npm for OIDC trusted-publishing support
         run: npm install -g npm@latest
 
-      # None of the four @imunitic/synapse-bard* package names have ever
-      # been published, so npm Trusted Publisher can't be configured for any
-      # of them until each exists -- same bootstrap problem release.yml's
-      # own comments document for synapse. This authenticates with the
-      # NPM_TOKEN secret already configured on this repo instead of OIDC,
-      # temporarily: once all four packages exist, configure a Trusted
-      # Publisher for each on npmjs.com pointed at this workflow, then
-      # delete this env block -- id-token: write above already makes npm
-      # fall through to OIDC once no NODE_AUTH_TOKEN is set.
+      # No NODE_AUTH_TOKEN -- OIDC trusted publishing (id-token: write
+      # above, plus each package's Trusted Publisher configured on
+      # npmjs.com to trust this exact workflow file) is what authenticates
+      # instead, same shape release.yml already uses for synapse. npm
+      # detects the GitHub Actions OIDC environment automatically; nothing
+      # here has to request or pass a token by hand.
       - name: Publish npm packages in lock-step
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           source ci/release-targets.sh
           v="${{ steps.tag.outputs.tag }}"

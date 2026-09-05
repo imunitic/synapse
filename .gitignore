@@ -4,10 +4,12 @@ zig-out/
 # Scratch cross-compile output -- release.yml's own per-target build dir
 # (out/$target/bin/...), also used locally when testing a release by hand.
 out/
-# The compiled synapse/synapse-hook binaries each platform package ships --
-# release.yml's own publish step copies them in fresh from out/ at publish
-# time (or a local hand-test does the same); never checked into source.
+# The compiled synapse/synapse-hook (and synapse-bard/synapse-bard-hook)
+# binaries each platform package ships -- release.yml's/bard-release.yml's
+# own publish step copies them in fresh from out/ at publish time (or a
+# local hand-test does the same); never checked into source.
 packages/synapse/platforms/*/bin/
+packages/synapse-bard/platforms/*/bin/
 # Where zig 0.16 unpacks fetched dependencies -- the global cache under
 # ~/.cache/zig/p holds only the tarballs. Build output like the two above,
 # not vendored source: `zig build --fetch` refills it from the hash pinned in
