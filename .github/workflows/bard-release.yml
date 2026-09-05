@@ -2,13 +2,12 @@ name: bard-release
 
 # A bard release is cut by pushing a `bard-vX.Y.Z` tag, kept in its own
 # namespace so it can never collide with or cross-trigger release.yml's own
-# `v*`-tagged synapse release (`bard-v1.0.0` doesn't start with `v`).
-# Bard keeps its own release cadence, independent of synapse's -- the same
-# separation bard-dist.yml/release.yml already had, just both now real npm
-# releases. workflow_dispatch takes an explicit `tag` input for a manual
-# re-run and checks out that tag rather than whatever ref triggered the
-# dispatch, so a manual run can never accidentally build off an untagged
-# commit.
+# `v*`-tagged synapse release (`bard-v1.0.0` doesn't start with `v`). Bard
+# keeps its own release cadence, independent of synapse's, rather than
+# folding into that lock-step publish. workflow_dispatch takes an explicit
+# `tag` input for a manual re-run and checks out that tag rather than
+# whatever ref triggered the dispatch, so a manual run can never
+# accidentally build off an untagged commit.
 on:
   push:
     tags: ["bard-v*"]
