@@ -245,15 +245,25 @@ function configureCodex() {
   fs.writeFileSync(hooksPath, JSON.stringify(existing, null, 2) + "\n");
   console.log(`configured ${hooksPath}`);
 
-  // Unlike synapse (whose Codex skills diverge from the shared copies for
-  // some skills), bard has no Codex-specific skill variants yet -- both of
-  // its skills work unmodified under Codex, so this just reuses the same
-  // shared copySkills() Claude and OpenCode already use, no separate
-  // harness/codex/skills merge step.
+  // Same shape as synapse's own configureCodex: the shared skills copy first,
+  // then bard's own commands/*.md ported to Codex-specific skills under
+  // harness/codex/skills/ -- Codex's own custom-prompt mechanism
+  // (~/.codex/prompts/*.md) is deprecated in favor of skills, so a command's
+  // functionality has to be reachable as a skill there, not as a separate
+  // commands tree the way Claude/OpenCode get one.
   const skillsDestRoot = path.join(os.homedir(), ".codex", "skills");
-  const skillNames = copySkills(skillsDestRoot);
-  pruneStale(skillsDestRoot, skillNames);
-  console.log(`installed ${skillNames.length} skills to ${skillsDestRoot}`);
+  const sharedNames = copySkills(skillsDestRoot);
+  const codexSkillsSrc = path.join(PKG_ROOT, "harness", "codex", "skills");
+  const codexNames = fs
+    .readdirSync(codexSkillsSrc, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name);
+  fs.mkdirSync(skillsDestRoot, { recursive: true });
+  for (const name of codexNames) {
+    fs.cpSync(path.join(codexSkillsSrc, name), path.join(skillsDestRoot, name), { recursive: true, force: true });
+  }
+  pruneStale(skillsDestRoot, [...sharedNames, ...codexNames]);
+  console.log(`installed ${sharedNames.length + codexNames.length} skills to ${skillsDestRoot}`);
 
   console.log("");
   console.log("No manual steps -- the next real `codex` session will prompt to trust the");
