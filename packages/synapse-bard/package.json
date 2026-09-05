@@ -1,0 +1,29 @@
+{
+  "name": "@imunitic/synapse-bard",
+  "version": "0.0.0-unreleased",
+  "description": "Repo-local memory for a fiction bible: a durable markdown vault plus a story graph, for Claude Code, Codex CLI, and OpenCode.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/imunitic/synapse"
+  },
+  "bin": {
+    "synapse-bard-setup": "bin/synapse-bard-setup.cjs",
+    "synapse-bard": "bin/synapse-bard.cjs",
+    "synapse-bard-hook": "bin/synapse-bard-hook.cjs"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "skills",
+    "commands",
+    "harness",
+    "synapse-bard-claude.md",
+    "Index.md.template"
+  ],
+  "optionalDependencies": {
+    "@imunitic/synapse-bard-darwin-arm64": "0.0.0-unreleased",
+    "@imunitic/synapse-bard-linux-x64": "0.0.0-unreleased",
+    "@imunitic/synapse-bard-linux-arm64": "0.0.0-unreleased"
+  },
+  "license": "SEE LICENSE IN LICENSE"
+}

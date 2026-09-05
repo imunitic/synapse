@@ -197,7 +197,7 @@ test "the nudge cites a synapse-bard-claude.md heading that actually exists" {
     defer gpa.free(heading_line);
     const content = try Io.Dir.cwd().readFileAlloc(
         testing.io,
-        "plugins/synapse-bard/synapse-bard-claude.md",
+        "packages/synapse-bard/synapse-bard-claude.md",
         gpa,
         .limited(1 << 20),
     );

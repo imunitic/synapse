@@ -1,0 +1,23 @@
+#!/usr/bin/env node
+// Same shim as synapse-bard.cjs, for the hook binary -- see that file's
+// header. Not what hooks.json's own entries invoke (those call the resolved
+// platform-package path directly, per synapse-bard-setup.cjs's
+// renderHooksTemplate), only here so `synapse-bard-hook` also resolves on
+// PATH for manual/debugging use.
+
+"use strict";
+
+const { spawnSync } = require("child_process");
+const path = require("path");
+const { hookPath, platformPackageName } = require("../lib/resolve-binaries.cjs");
+
+const bin = hookPath();
+if (!bin) {
+  console.error(`synapse-bard-hook: ${platformPackageName()} isn't installed for this platform`);
+  process.exit(1);
+}
+
+const env = { ...process.env };
+if (!env.SYNAPSE_BARD_CONTENT_ROOT) env.SYNAPSE_BARD_CONTENT_ROOT = path.join(__dirname, "..");
+const result = spawnSync(bin, process.argv.slice(2), { stdio: "inherit", env });
+process.exit(result.status ?? 1);

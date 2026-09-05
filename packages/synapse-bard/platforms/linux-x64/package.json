@@ -1,0 +1,19 @@
+{
+  "name": "@imunitic/synapse-bard-linux-x64",
+  "version": "0.0.0-unreleased",
+  "description": "Compiled synapse-bard/synapse-bard-hook binaries for linux/x64. An optionalDependency of @imunitic/synapse-bard -- never installed directly.",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin"
+  ],
+  "license": "SEE LICENSE IN LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/imunitic/synapse"
+  }
+}

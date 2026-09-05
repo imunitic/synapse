@@ -69,8 +69,8 @@ jobs:
       # ci/release-targets.sh for the one shared definition of the list. No
       # tarring, no SHA256SUMS: those existed only for the old dist-branch
       # fetch-and-run download path, which npm's own package integrity
-      # replaces for synapse -- see bard-dist.yml for that mechanism's
-      # surviving use (bard hasn't moved to npm distribution).
+      # replaces here -- bard-release.yml does the same cross-compile for
+      # its own npm packages, on its own `bard-vX.Y.Z` tag namespace.
       - name: Cross-compile each target
         run: |
           source ci/release-targets.sh

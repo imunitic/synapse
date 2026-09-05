@@ -1,0 +1,150 @@
+name: bard-release
+
+# A bard release is cut by pushing a `bard-vX.Y.Z` tag, kept in its own
+# namespace so it can never collide with or cross-trigger release.yml's own
+# `v*`-tagged synapse release (`bard-v1.0.0` doesn't start with `v`).
+# Bard keeps its own release cadence, independent of synapse's -- the same
+# separation bard-dist.yml/release.yml already had, just both now real npm
+# releases. workflow_dispatch takes an explicit `tag` input for a manual
+# re-run and checks out that tag rather than whatever ref triggered the
+# dispatch, so a manual run can never accidentally build off an untagged
+# commit.
+on:
+  push:
+    tags: ["bard-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (must already exist, e.g. bard-v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+  # OIDC for npm's Trusted Publishing -- lets `npm publish` mint a
+  # short-lived token itself instead of reading a stored NPM_TOKEN secret.
+  # Requires Trusted Publisher configured per-package on npmjs.com first
+  # (pointing at this workflow file), which only becomes possible after a
+  # package's first publish -- see the release job's own publish step for
+  # the NODE_AUTH_TOKEN bootstrap this repeats until that's done.
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    # Same reasoning as release.yml's own concurrency group, scoped to
+    # bard's own tag namespace so a synapse release and a bard release
+    # queued at the same time don't block each other.
+    concurrency:
+      group: bard-release-tag
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+
+      # No version pinned here -- resolved from build.zig.zon's
+      # minimum_zig_version, same reasoning as tests.yml/release.yml.
+      # cache-size-limit raised the same way too.
+      - uses: mlugg/setup-zig@v2
+        with:
+          cache-size-limit: 4096
+
+      - name: Resolve the release tag
+        id: tag
+        run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      # Same targets ci/release-targets.sh gives synapse's own release.yml.
+      # `zig build` with no step name builds every installed artifact for
+      # the target in one invocation (synapse's own binaries included,
+      # since build.zig registers them unconditionally); only synapse-bard's
+      # two get published below, the rest of the build's output is unused
+      # here.
+      - name: Cross-compile each target
+        run: |
+          source ci/release-targets.sh
+          for t in "${targets[@]}"; do
+            zig build -Dtarget="$t" -Doptimize=ReleaseSafe -p "out/$t"
+          done
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+
+      # Same Node/npm bump release.yml's own job makes, so this workflow is
+      # already OIDC-ready the moment the NODE_AUTH_TOKEN bootstrap below is
+      # removed -- no second workflow edit needed once Trusted Publisher is
+      # configured.
+      - name: Upgrade npm for OIDC trusted-publishing support
+        run: npm install -g npm@latest
+
+      # None of the four @imunitic/synapse-bard* package names have ever
+      # been published, so npm Trusted Publisher can't be configured for any
+      # of them until each exists -- same bootstrap problem release.yml's
+      # own comments document for synapse. This authenticates with the
+      # NPM_TOKEN secret already configured on this repo instead of OIDC,
+      # temporarily: once all four packages exist, configure a Trusted
+      # Publisher for each on npmjs.com pointed at this workflow, then
+      # delete this env block -- id-token: write above already makes npm
+      # fall through to OIDC once no NODE_AUTH_TOKEN is set.
+      - name: Publish npm packages in lock-step
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          source ci/release-targets.sh
+          v="${{ steps.tag.outputs.tag }}"
+          v="${v#bard-v}"
+
+          # Same prerelease dist-tag derivation as release.yml's own publish
+          # step -- see that file's comment for the reasoning.
+          dist_tag="latest"
+          case "$v" in
+            *-*)
+              pre="${v#*-}"
+              dist_tag="${pre%%.*}"
+              ;;
+          esac
+
+          # Same Zig-triple-to-npm-platform mapping as release.yml's own
+          # publish step -- see that file's comment for the reasoning.
+          npm_platform_for() {
+            case "$1" in
+              x86_64-linux) echo linux-x64 ;;
+              aarch64-linux) echo linux-arm64 ;;
+              aarch64-macos) echo darwin-arm64 ;;
+              *)
+                echo "no npm platform package mapped for target: $1" >&2
+                exit 1
+                ;;
+            esac
+          }
+
+          # Same re-run safety as release.yml's own publish step -- see that
+          # file's comment for the reasoning.
+          publish_if_new() {
+            local dir="$1" name="$2"
+            if npm view "$name@$v" version >/dev/null 2>&1; then
+              echo "$name@$v already published -- skipping"
+            else
+              npm publish "./$dir" --access public --tag "$dist_tag"
+            fi
+          }
+
+          for t in "${targets[@]}"; do
+            plat="$(npm_platform_for "$t")"
+            dest="packages/synapse-bard/platforms/$plat/bin"
+            mkdir -p "$dest"
+            cp "out/$t/bin/synapse-bard" "out/$t/bin/synapse-bard-hook" "$dest/"
+            tmp=$(mktemp)
+            jq --arg v "$v" '.version = $v' "packages/synapse-bard/platforms/$plat/package.json" > "$tmp"
+            mv "$tmp" "packages/synapse-bard/platforms/$plat/package.json"
+            publish_if_new "packages/synapse-bard/platforms/$plat" "@imunitic/synapse-bard-$plat"
+          done
+
+          tmp=$(mktemp)
+          jq --arg v "$v" '.version = $v | .optionalDependencies |= map_values($v)' \
+            packages/synapse-bard/package.json > "$tmp"
+          mv "$tmp" packages/synapse-bard/package.json
+          publish_if_new "packages/synapse-bard" "@imunitic/synapse-bard"

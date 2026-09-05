@@ -35,14 +35,13 @@ const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
 /// The vault's starter index, embedded at compile time -- no runtime
-/// dependency on `CLAUDE_PLUGIN_ROOT` (unset entirely for a repo where
-/// `synapse-bard`'s `.claude/` files were committed directly rather than
-/// installed through Claude Code's plugin system). A byte-identical copy of
-/// `plugins/synapse-bard/Index.md.template` (the one a marketplace plugin
-/// install actually ships) rather than that file directly -- `@embedFile`'s
-/// package boundary is this module's own root, which doesn't reach
-/// `plugins/`; the "identical copy" test below is what keeps the two from
-/// drifting apart silently.
+/// dependency on `CLAUDE_PLUGIN_ROOT`/`SYNAPSE_BARD_CONTENT_ROOT` (both
+/// unset entirely for a repo where `synapse-bard`'s `.claude/` files were
+/// committed directly rather than installed through Claude Code's plugin
+/// system or npm). A byte-identical copy of
+/// `packages/synapse-bard/Index.md.template` (the one the npm package
+/// actually ships) rather than that file directly -- `@embedFile`'s package
+/// boundary is this module's own root, which doesn't reach `packages/`.
 const vault_index_template = @embedFile("vault_index_template.md");
 
 const usage =

@@ -21,9 +21,10 @@
 //! `cwd`, so a session started from a subdirectory still finds `_bard/` at
 //! the repo's top, not wherever the shell happened to be.
 //!
-//! `synapse-bard-claude.md` resolves via `CLAUDE_PLUGIN_ROOT` only --
-//! unlike `synapse-hook`'s own version, bard has no legacy pre-plugin
-//! install to support an argv0-relative fallback for.
+//! `synapse-bard-claude.md` resolves via `CLAUDE_PLUGIN_ROOT` (a real plugin
+//! install) or `SYNAPSE_BARD_CONTENT_ROOT` (the npm-install counterpart,
+//! set by `synapse-bard-setup configure claude`), same two-source lookup
+//! `synapse-hook`'s own version uses for `SYNAPSE_CONTENT_ROOT`.
 
 const std = @import("std");
 const core = @import("core");
@@ -108,20 +109,23 @@ pub fn bardEnabled(gpa: Allocator, io: Io, repo_root: []const u8) bool {
 /// `CLAUDE_PLUGIN_ROOT/Index.md.template` when running as an installed
 /// plugin -- the env var Claude Code exports on every hook invocation
 /// regardless of launch method, same one `synapse-hook`'s own SessionStart
-/// resolves `synapse-claude.md` against.
+/// resolves `synapse-claude.md` against. Falls back to
+/// `SYNAPSE_BARD_CONTENT_ROOT`, the npm-install counterpart
+/// `synapse-bard-setup configure claude` sets, since npm never sets
+/// `CLAUDE_PLUGIN_ROOT`.
 fn templatePath(gpa: Allocator, env: *std.process.Environ.Map) !?[]u8 {
-    const root = env.get("CLAUDE_PLUGIN_ROOT") orelse return null;
+    const root = env.get("CLAUDE_PLUGIN_ROOT") orelse env.get("SYNAPSE_BARD_CONTENT_ROOT") orelse return null;
     return try std.fmt.allocPrint(gpa, "{s}/Index.md.template", .{root});
 }
 
 fn claudeMdPath(gpa: Allocator, env: *std.process.Environ.Map) !?[]u8 {
-    const root = env.get("CLAUDE_PLUGIN_ROOT") orelse return null;
+    const root = env.get("CLAUDE_PLUGIN_ROOT") orelse env.get("SYNAPSE_BARD_CONTENT_ROOT") orelse return null;
     return try std.fmt.allocPrint(gpa, "{s}/synapse-bard-claude.md", .{root});
 }
 
 const testing = std.testing;
 
-test "templatePath is null with no CLAUDE_PLUGIN_ROOT, so the fallback message is used" {
+test "templatePath is null with neither CLAUDE_PLUGIN_ROOT nor SYNAPSE_BARD_CONTENT_ROOT, so the fallback message is used" {
     var env = std.process.Environ.Map.init(testing.allocator);
     defer env.deinit();
     try testing.expectEqual(@as(?[]u8, null), try templatePath(testing.allocator, &env));
@@ -136,7 +140,16 @@ test "templatePath joins CLAUDE_PLUGIN_ROOT onto Index.md.template" {
     try testing.expectEqualStrings("/plugins/synapse-bard/Index.md.template", got);
 }
 
-test "claudeMdPath is null with no CLAUDE_PLUGIN_ROOT" {
+test "templatePath joins SYNAPSE_BARD_CONTENT_ROOT onto Index.md.template when CLAUDE_PLUGIN_ROOT is unset" {
+    var env = std.process.Environ.Map.init(testing.allocator);
+    defer env.deinit();
+    try env.put("SYNAPSE_BARD_CONTENT_ROOT", "/npm/synapse-bard");
+    const got = (try templatePath(testing.allocator, &env)).?;
+    defer testing.allocator.free(got);
+    try testing.expectEqualStrings("/npm/synapse-bard/Index.md.template", got);
+}
+
+test "claudeMdPath is null with neither CLAUDE_PLUGIN_ROOT nor SYNAPSE_BARD_CONTENT_ROOT" {
     var env = std.process.Environ.Map.init(testing.allocator);
     defer env.deinit();
     try testing.expectEqual(@as(?[]u8, null), try claudeMdPath(testing.allocator, &env));
@@ -149,6 +162,15 @@ test "claudeMdPath joins CLAUDE_PLUGIN_ROOT onto synapse-bard-claude.md" {
     const got = (try claudeMdPath(testing.allocator, &env)).?;
     defer testing.allocator.free(got);
     try testing.expectEqualStrings("/plugins/synapse-bard/synapse-bard-claude.md", got);
+}
+
+test "claudeMdPath joins SYNAPSE_BARD_CONTENT_ROOT onto synapse-bard-claude.md when CLAUDE_PLUGIN_ROOT is unset" {
+    var env = std.process.Environ.Map.init(testing.allocator);
+    defer env.deinit();
+    try env.put("SYNAPSE_BARD_CONTENT_ROOT", "/npm/synapse-bard");
+    const got = (try claudeMdPath(testing.allocator, &env)).?;
+    defer testing.allocator.free(got);
+    try testing.expectEqualStrings("/npm/synapse-bard/synapse-bard-claude.md", got);
 }
 
 test "bardEnabled is false when _bard doesn't exist" {
