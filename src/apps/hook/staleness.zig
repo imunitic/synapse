@@ -446,8 +446,7 @@ const StalenessFixture = struct {
 
     /// Drives `build()` against a repo-relative edited path, session
     /// `"default"` -- the value every real payload gets when `session_id`
-    /// is absent, and what every bats fixture this was ported from left
-    /// unset too.
+    /// is absent.
     fn edit(self: *StalenessFixture, rel_path: []const u8) !?[]u8 {
         return self.editSession(rel_path, "default");
     }

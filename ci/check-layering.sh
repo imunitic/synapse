@@ -20,11 +20,11 @@
 #
 # ONE AWK PASS, AND THAT IS THE WHOLE POINT OF THE SHAPE. This ran a `grep -o`
 # and a `grep -qE` per *line* of every source file: ~20k lines, two forks each,
-# which on macOS is 113 seconds of almost pure fork/exec -- the same 6.5ms-per-exec
-# tax this project measured when it moved the bats suite into a Linux container,
-# paid here by the fastest-sounding step in the gate. In awk it is one process for
-# the whole tree and 0.1s, and a gate nobody minds running is the difference
-# between a check and a formality.
+# which on macOS is 113 seconds of almost pure fork/exec -- the same
+# 6.5ms-per-exec tax that makes `just test-linux` run the CLI-contract suite
+# in a container rather than natively, paid here by the fastest-sounding step
+# in the gate. In awk it is one process for the whole tree and 0.1s, and a
+# gate nobody minds running is the difference between a check and a formality.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

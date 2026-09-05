@@ -1,8 +1,8 @@
 //! `synapse tags` -- the port of `claude/lib/synapse/synapse-tags.sh`.
 //!
 //! Same three forms, same output bytes, same exit codes, because
-//! `tests/synapse-tags.bats` is the specification and four bash scripts still
-//! parse this output during the transition:
+//! `tests/integration/tags_lock_test.zig` is the specification and four bash
+//! scripts still parse this output during the transition:
 //!
 //!   0  tags printed. In `--paths` mode this is the outcome whenever the batch
 //!      ran, even if some extensions had no grammar -- a mixed repo nearly
@@ -31,9 +31,9 @@ const Allocator = std.mem.Allocator;
 const render = treesitter.tagger.renderCliLine;
 
 /// Where to append a record of what was tagged, or null for none. Exists
-/// for `synapse-fake`: bats tests assert N files cost ONE invocation, and
-/// with nothing spawned there's no process to count. The real binary always
-/// passes null.
+/// for `synapse-fake`: a test asserting N files cost ONE invocation has no
+/// process to count otherwise, since nothing is spawned in-process. The
+/// real binary always passes null.
 pub const Trace = ?[]const u8;
 
 const usage_text =

@@ -3,8 +3,8 @@
 # different things. If you change the gate, change it in both places.
 #
 #   just              list the recipes
-#   just test-changed the tests covering what you changed -- the per-commit run
-#   just test-linux   the whole suite in the container, ~30s -- for a broad change
+#   just test         the CLI-contract suite (zig build test-integration)
+#   just test-linux   the whole suite in the container -- for a broad change
 #   just check        the full gate -- before PUSHING, not before every commit
 #   just fix          regenerate whatever `check` verifies
 #   just ci-local     what CI actually runs, locally, via act
@@ -13,18 +13,18 @@
 # answer to every change, and reaching for it reflexively trains the habit of not
 # thinking about what a change can actually break:
 #
-#   changed a .zig file         just test-changed
-#   changed a hook               just test-for <the file>
+#   changed a .zig file         just test-zig && just test
 #   changed docs/ or README     nothing -- prose has no test to fail
-#   changed plugins/*/**/*.md   just test tests/legacy-commands.bats
+#   changed plugins/*/**/*.md   just test-zig && just test -- both suites carry a
+#                               "shipped instruction names a real command" check
 #   changed a lot, or unsure    just test-linux
 #   about to push               just check
 #
-# Two of those deserve their reason stated. Shipped instructions under `plugins/*/`
-# LOOK like documentation and are not: they install into ~/.claude and are covered
-# by tests, which is how a skill telling Claude to run a command that does not exist
-# got caught. And each project's `cli.md` plus the rendered diagrams are generated, so
-# editing what they are generated *from* means `just fix`, not `just docs-check`.
+# Shipped instructions under `plugins/*/` LOOK like documentation and are not: they
+# install into ~/.claude and are covered by tests, which is how a skill telling
+# Claude to run a command that does not exist got caught. And each project's `cli.md`
+# plus the rendered diagrams are generated, so editing what they are generated *from*
+# means `just fix`, not `just docs-check`.
 #
 # Note on comments below: `just --list` shows the comment line immediately above a
 # recipe, so each one gets a single short line there and any longer explanation
@@ -35,92 +35,22 @@ set shell := ["bash", "-uc"]
 _default:
     @just --list --unsorted
 
-# --jobs parallelises within each file as well as across them, which is where the
-# win is: one file is a quarter of the suite, so across-files-only would leave it
-# as the critical path. Measured on 12 cores: 2m37s against roughly 5m serial.
-#
-# The `parallel` guard is why this is a recipe rather than a README line. `bats
-# --jobs` shells out to GNU parallel and, when it is missing, does not fail -- it
-# silently runs serially and produces an identical-looking log. A silent 2x is
-# exactly what nobody notices, so here it is an error.
+# The CLI contract: real subprocess/git-integration behavior, spawning the
+# real compiled binaries -- `zig build`'s own compile-order dependency (via
+# `addOptionPath`) rebuilds whatever changed, so this never silently tests
+# yesterday's binary.
 
-# The binary the suite actually runs -- `synapse tags` with the grammar
-# compile-and-load step stubbed, standing in for the fake `tree-sitter` that
-# linking libtree-sitter retired. A dependency of every bats recipe rather than
-# a note in the README: `zig build` is a no-op when nothing changed, and the
-# failure mode it prevents is a suite silently testing yesterday's binary.
-_fake:
+# The CLI-contract suite. Pass a substring to narrow to matching test names.
+test FILTER="":
     #!/usr/bin/env bash
     set -euo pipefail
     command -v zig >/dev/null || { echo "zig not on PATH -- brew install zig" >&2; exit 1; }
-    zig build fake
-
-# Run the suite in parallel; pass file paths to narrow it.
-test *FILES: _fake
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if ! command -v parallel >/dev/null; then
-        echo "GNU parallel not on PATH -- 'bats --jobs' would silently run serially." >&2
-        echo "  macOS: brew install parallel      Debian/Ubuntu: apt-get install parallel" >&2
-        exit 1
+    filter="{{ FILTER }}"
+    if [ -n "$filter" ]; then
+        zig build test-integration --summary all -Dtest-filter="$filter"
+    else
+        zig build test-integration --summary all
     fi
-    targets="{{ FILES }}"
-    [ -n "$targets" ] || targets="tests/"
-    bats --jobs "$(getconf _NPROCESSORS_ONLN)" $targets
-
-# Run the suite serially, for unreadable parallel failures or a missing parallel.
-test-serial *FILES: _fake
-    bats {{ if FILES == "" { "tests/" } else { FILES } }}
-
-# THE PER-COMMIT RUN. It runs the tests that name the files you give it, and coverage
-# by grep is a lower bound: a test can exercise a script without ever spelling its
-# path, through an installed copy that another script invokes. So this narrows, it
-# does not verify -- which is the right trade for a commit and the wrong one for a
-# push, where `just check` covers what this cannot see.
-#
-# No always-run file anymore. `setup.bats` used to fill that role -- cheap, and
-# it caught the install breaking, which nothing else did -- but installing is
-# now Claude Code's own job (marketplace add / plugin install), not a script
-# this repo ships and can unit-test cheaply. What actually verifies the
-# plugin install path is the sb-019 podman-style end-to-end test, run by hand
-# when the install mechanics themselves change, not on every commit.
-# `synapse-pipeline` and `synapse-rebuild-scenario` were also once in this set
-# and have been taken out, on measurement -- they are 12 tests but 21% of the
-# suite's CPU, and rebuild-scenario's slowest single test is 50s, so together
-# they were 35s of a 42s narrowed run. Keeping them made the inner loop 6x
-# slower to re-cover ground `check` covers anyway, which is a bad trade for a
-# loop whose whole value is being fast enough to actually run.
-#
-# Groups are derived rather than listed on purpose. A hand-maintained group list is
-# one more thing that silently stops matching reality, and the coupling here is dense
-# enough to guarantee it: synapse tags alone is exercised by seven files.
-
-# Run only the tests covering the given source files, plus the integration ones.
-test-for +PATHS:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    picked=""
-    for p in {{ PATHS }}; do
-        b="$(basename "$p")"
-        # A test file given directly is itself the target.
-        case "$p" in tests/*.bats) picked="$picked $p"; continue ;; esac
-        hits="$(grep -l -- "$b" tests/*.bats 2>/dev/null || true)"
-        [ -n "$hits" ] || echo "no test names '$b' -- relying on the integration files" >&2
-        picked="$picked $hits"
-    done
-    files="$(printf '%s' "$picked" | tr ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ')"
-    echo "running: $(printf '%s' "$files" | wc -w | tr -d ' ') files" >&2
-    just test $files
-
-# Same, for whatever you have changed against the upstream branch.
-test-changed:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    changed="$(git diff --name-only @{u}.. 2>/dev/null; git diff --name-only; git diff --name-only --cached)"
-    changed="$(printf '%s' "$changed" | sort -u | grep -v '^$' || true)"
-    if [ -z "$changed" ]; then echo "nothing changed"; exit 0; fi
-    echo "changed:"; printf '  %s\n' $changed
-    just test-for $changed
 
 # The suite is fork/exec-bound, and macOS pays a real tax on every process
 # spawn (Gatekeeper/codesign checks, sandbox policy evaluation) that Linux does
@@ -194,26 +124,21 @@ test-linux:
     set -euo pipefail
     machine="$(just _podman-machine)"
     just _podman-ready "$machine"
-    # The container has no Zig in it, and the host's native `synapse-fake` is a
-    # macOS binary. Cross-compile a Linux one into its own prefix -- under
-    # zig-out/ so .gitignore already covers it, and separate so it never
-    # overwrites the native build a `just test` on the host would then run.
-    command -v zig >/dev/null || { echo "zig not on PATH -- brew install zig" >&2; exit 1; }
-    zig build fake -Dtarget=x86_64-linux --prefix zig-out/linux
-    # The hook binary needs no stub -- it links no grammar -- but it does need to
-    # be a Linux binary, so it is cross-compiled the same way. `install` rather
-    # than `fake`, since that step is what carries it.
-    zig build -Dtarget=x86_64-linux --prefix zig-out/linux
-    podman --connection "$machine" run --rm -v "$(pwd):/repo:Z" -w /repo \
-      -e SYNAPSE_FAKE_BIN=/repo/zig-out/linux/bin/synapse-fake \
-      -e SYNAPSE_HOOK_BIN=/repo/zig-out/linux/bin/synapse-hook synapse-test \
-      bats --jobs "$(getconf _NPROCESSORS_ONLN)" tests/
+    # Compiled and run natively inside the container via ci/Containerfile's
+    # baked-in, architecture-matched Zig toolchain and `libc6-dev` -- see
+    # that file's own comment for why both matter. `--cache-dir` points at
+    # its own tree rather than the shared `.zig-cache` the host uses: the
+    # worktree is bind-mounted, not copied, and a Linux object cache mixed
+    # into the host's would thrash every native build on both sides.
+    podman --connection "$machine" run --rm -v "$(pwd):/repo:Z" -w /repo synapse-test \
+      bash -c 'zig build test --cache-dir zig-out/linux-cache --summary all \
+        && zig build test-integration --cache-dir zig-out/linux-cache --summary all'
 
 # Needs `brew install act` once -- podman-ready's Podman machine is reused.
 # Tests committed HEAD, same as a real push would -- see the recipe body for
 # why (a worktree's own .git is a pointer act cannot resolve on its own).
 # Scoped to tests.yml (-W, not -j -- act's -j takes one job ID, not a list)
-# so both its jobs (zig, bats) run without also pulling in release.yml.
+# so both its jobs (zig, integration) run without also pulling in release.yml.
 
 # What CI actually runs, locally, via act -- the pre-push check.
 ci-local:
@@ -245,7 +170,7 @@ ci-local:
       -P ubuntu-latest=catthehacker/ubuntu:act-latest)
 
 # `just` stays the task runner and calls `zig build`, never the other way round:
-# the gate also has to launch bats, podman, act and mermaid-cli, none of which
+# the gate also has to launch podman, act and mermaid-cli, none of which
 # `std.Build.Step.Run` would express better than a recipe does.
 #
 # No version guard here beyond the `command -v`. `build.zig.zon` pins
@@ -346,6 +271,19 @@ docs-check:
     ./docs/synapse-bard/generate-cli-reference.sh --check
     ./docs/synapse-bard/generate-diagrams.sh --check
 
+# An npm packaging concern, not a synapse/Zig one -- kept as its own recipe
+# rather than a Zig test so it stays decoupled from both test suites.
+
+# Verify the npm package actually includes every shipped schema document.
+npm-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out="$(npm pack --dry-run --json ./packages/synapse)"
+    for f in schema/vault-note/v1.yaml schema/vault-design-note/v1.yaml schema/vault-task-note/v1.yaml; do
+        grep -qF "$f" <<< "$out" || { echo "npm package is missing $f" >&2; exit 1; }
+    done
+    echo "npm-check ok"
+
 # Regenerate all generated artefacts; diagrams need mermaid-cli and its Chromium.
 fix:
     ./docs/synapse/generate-cli-reference.sh
@@ -355,29 +293,21 @@ fix:
 
 # What CI runs, in the same order, plus a syntax pass CI gets for free by
 # executing the scripts. `build` comes first because a compile error should not
-# cost a full bats run to discover, and because everything after it will
+# cost a full suite run to discover, and because everything after it will
 # eventually be exercising the binary it produces.
 #
-# The bats step is `test-linux`, not `test`, and the difference is not small:
-# measured on the same commit and the same 443 tests, the container is ~30s where
-# the host is six to seven minutes. Both parallelise, so the gap is macOS
-# fork/exec cost -- 6.5ms against 0.24ms per exec on the same M3, 27x.
+# The CLI-contract step is `test-linux`, not `test`: the container pays no macOS
+# fork/exec tax on the tests that spawn real subprocesses, and running the same
+# suite under Linux's DebugAllocator catches a real leak the native build stays
+# silent about that a Mach-O build alone would not.
 #
-# End to end that took this whole gate from ~8min to 2:20, and then to 26s: the
-# remaining 2:20 turned out to be almost entirely `layering`, which forked two greps
-# per source line and paid the same macOS fork/exec tax measured above -- 113s, in
-# the step that sounded like the cheapest in the gate. One awk pass, 0.06s. What is
-# left, measured: test-linux ~30s, build-targets 5s, test-zig 2s, docs-check 2s,
-# syntax and layering under a second between them.
-#
-# A gate that takes eight minutes gets run less often than one that takes half a
-# minute, and a gate nobody runs is worth nothing. That is also the answer to why
-# `build-targets` is in here rather than CI-only: at 5s it cannot be the reason
-# anyone skips the gate, and leaving it out would mean a green local run can still
-# fail the push.
+# `build-targets` earns its place in the local gate, not CI-only, at a few
+# seconds -- cheap enough that leaving it out would mean a green local run can
+# still fail the push, and expensive enough that nobody would think to run it
+# by hand otherwise.
 #
 # The full gate -- run before pushing (see WHAT TO RUN WHEN at the top).
-check: build build-targets test-zig layering syntax test-linux docs-check
+check: build build-targets test-zig layering syntax test-linux docs-check npm-check
     @echo "all green"
 
 # For when podman is not available, and as the answer to "is this a container
@@ -385,9 +315,9 @@ check: build build-targets test-zig layering syntax test-linux docs-check
 # the native build stays silent about, so a failure there and not here is a real
 # finding rather than a flake. It found two.
 #
-# The full gate with the bats suite on the host instead of in the container.
-check-local: build build-targets test-zig layering syntax test docs-check
-    @echo "all green (host bats)"
+# The full gate with the CLI-contract suite on the host instead of in the container.
+check-local: build build-targets test-zig layering syntax test docs-check npm-check
+    @echo "all green (host)"
 
 # Show what changed against the pushed branch.
 diff:

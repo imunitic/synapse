@@ -242,9 +242,8 @@ fn stageList(fx: *fixture.Fixture, nn: []const u8, title: []const u8, paths: []c
     try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = txt_path, .data = body.written() });
 }
 
-/// A node the builder reads its summary back from, matching the bats
-/// fixture's own `stage_node` -- filename sanitized like the real writer,
-/// summary escaped for a double-quoted YAML scalar.
+/// A node the builder reads its summary back from -- filename sanitized
+/// like the real writer, summary escaped for a double-quoted YAML scalar.
 fn stageNode(fx: *fixture.Fixture, title: []const u8, summary: []const u8) !void {
     const link = try core.emit.fileTitle(fx.gpa, title);
     defer fx.gpa.free(link);
@@ -478,7 +477,8 @@ test "build-project-index: a node with no summary field exits 1" {
 test "build-project-index: missing lists and a disk write failure each exit 1" {
     // "write failed" goes to real stderr via std.debug.print, not the result
     // writer -- the same split index_cmd's own equivalent test already
-    // ran into. Only the exit code is asserted here; the wording is bats'.
+    // ran into. Only the exit code is asserted here; a message-text check
+    // would need a real spawn, in `tests/integration/` instead.
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();

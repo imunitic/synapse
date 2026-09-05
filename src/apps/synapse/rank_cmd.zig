@@ -554,9 +554,8 @@ const RankFixture = struct {
     fn init(gpa: Allocator) !RankFixture {
         var fx = try fixture.Fixture.init(gpa);
         errdefer fx.deinit();
-        // java/py/ts, matching the bats fixture's own registry -- any
-        // extension a test uses as "code" must be registered here or it
-        // falls out of the code tier entirely.
+        // java/py/ts: any extension a test uses as "code" must be
+        // registered here or it falls out of the code tier entirely.
         try fx.tmp.dir.createDirPath(testing.io, "home/.claude");
         try fx.tmp.dir.writeFile(testing.io, .{
             .sub_path = "home/.claude/synapse-grammars.conf",
@@ -583,10 +582,10 @@ const RankFixture = struct {
         self.updates.clearRetainingCapacity();
     }
 
-    /// A real file (`defs` lines of `symbol:NAME` plus `pad` filler bytes,
-    /// matching the bats fixture's own byte shape) and a queued cache entry
-    /// with one real "def" tag line per symbol -- `rankCode` never tags
-    /// anything itself, only reads what's already in the cache.
+    /// A real file (`defs` lines of `symbol:NAME` plus `pad` filler bytes)
+    /// and a queued cache entry with one real "def" tag line per symbol --
+    /// `rankCode` never tags anything itself, only reads what's already in
+    /// the cache.
     fn src(self: *RankFixture, path: []const u8, pad: usize, defs: []const []const u8) !void {
         try self.srcWithRefs(path, pad, defs, &.{});
     }
@@ -666,9 +665,9 @@ const RankFixture = struct {
 
 const RunResult = struct { code: u8, out: []u8 };
 
-/// Every `code`/`dsl` row, stripped of the summary line on stderr (which
-/// never reaches the captured writer in the first place -- unlike bats,
-/// which merges stdout and stderr, this fixture only ever captures stdout).
+/// Every `code`/`dsl` row, stripped of the summary line on stderr -- this
+/// fixture only ever captures stdout, so it never reaches the captured
+/// writer in the first place.
 fn rankOf(gpa: Allocator, path: []const u8, out: []const u8) !?usize {
     var n: usize = 0;
     var lines = std.mem.splitScalar(u8, out, '\n');

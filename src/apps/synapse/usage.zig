@@ -1,6 +1,7 @@
 //! The subcommand listing, shared by `synapse` and `synapse-fake` -- one
 //! text, two binaries, so the dispatch tables can't describe themselves
-//! differently (`tests/cli-reference.bats` catches it if they ever do).
+//! differently (`tests/integration/cli_reference_test.zig` catches it if
+//! they ever do).
 
 pub const text =
     \\usage: synapse <subcommand> [args]

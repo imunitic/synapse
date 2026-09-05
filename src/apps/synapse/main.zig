@@ -2,9 +2,9 @@
 //! to the code profile's adapters (tree-sitter extraction, the vault
 //! store, inferred clustering, the full node lifecycle).
 //!
-//! CLI contract is frozen: `tests/*.bats` is the spec for every flag, stdout
-//! line and exit code. CLI improvements are a separate change, never inside
-//! one that isn't about the CLI itself.
+//! CLI contract is frozen: `tests/integration/` is the spec for every flag,
+//! stdout line and exit code. CLI improvements are a separate change, never
+//! inside one that isn't about the CLI itself.
 //!
 //! The subcommand table itself lives in `dispatch.zig`, shared with
 //! `main_fake.zig` -- this file only supplies what's genuinely specific to

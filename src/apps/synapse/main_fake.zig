@@ -1,12 +1,12 @@
 //! `synapse-fake`: the `synapse` binary with the grammar backend stubbed out.
-//! Built by `zig build fake`; the binary `tests/*.bats` actually runs, since
-//! the suite must work with no network, C toolchain or real grammar repo.
+//! Built by `zig build fake`; the binary the integration suite mostly runs,
+//! since it must work with no network, C toolchain or real grammar repo.
 //!
 //! Thin by design: everything but the one stubbed step (`fake_grammar.zig`)
 //! is the same code the real binary runs -- including the subcommand table
 //! itself, shared with `main.zig` via `dispatch.zig`. Compiling/loading a
-//! grammar and running its `tags.scm` stay uncovered by bats -- see the Zig
-//! unit tests and `ci/differential-tags.sh` instead.
+//! grammar and running its `tags.scm` stay uncovered by this suite -- see
+//! the Zig unit tests and `ci/differential-tags.sh` instead.
 
 const std = @import("std");
 const dispatch = @import("dispatch.zig");

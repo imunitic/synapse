@@ -1,13 +1,12 @@
 #!/bin/bash
-# Fake `git` for synapse-tags.sh tests -- intercepts only `clone` (creating
+# Fake `git` for `synapse tags`: intercepts only `clone` (creating
 # the destination directory instead of touching the network) and delegates
 # every other subcommand to the real `git`, stripping this directory from
 # PATH first so it doesn't recurse into itself. This matters because other
-# test files (e.g. synapse-staleness.bats) also prepend this fake-bin
-# directory onto PATH and rely on *real* `git rev-parse`/`git hash-object`
-# working inside the hook they're testing -- a git stub that only handled
-# `clone` and errored on everything else would silently break those tests
-# too, since they share this same fixtures directory.
+# tests also prepend this fake-bin directory onto PATH and rely on *real*
+# `git rev-parse`/`git hash-object` working inside the hook they're testing --
+# a git stub that only handled `clone` and errored on everything else would
+# silently break those tests too, since they share this same fixtures directory.
 set -euo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

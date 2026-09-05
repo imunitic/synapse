@@ -1,6 +1,6 @@
 //! The grammar backend behind `synapse-fake`: scripted tags, no grammar.
-//! Reproduces `tests/fixtures/fake-bin/tree-sitter`'s old behaviour, which
-//! the bats fixtures are written against:
+//! Reproduces `tests/fixtures/fake-bin/tree-sitter`'s own behavior, which
+//! every test fixture that tags a file is written against:
 //!
 //!   * `.ml`/`.java`/`.py` are taggable; anything else yields no grammar
 //!     silently (distinct from a registry "no", which warns).

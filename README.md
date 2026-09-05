@@ -169,55 +169,48 @@ plain-English summary, a quoted `crux`, typed links, and the exhaustive list of 
 ## Testing
 
 ```sh
-brew install bats-core parallel just     # if not already installed
-just test-changed                        # per commit: only the tests covering what you edited
-just test tests/synapse-query.bats       # one file
-just test-linux                          # the whole suite in the container, ~30s
-just check                               # the full gate, ~26s -- before pushing
-just check-local                         # same, bats on the host instead -- no podman needed
-bats --jobs "$(getconf _NPROCESSORS_ONLN)" tests/   # the suite directly, what `just test` wraps
+brew install zig just                    # if not already installed
+just test-zig                            # internals: format round-trips, parsing, doc/text lint
+just test                                # the CLI contract: real subprocesses, real git
+just test "query drift"                  # narrow to matching test names
+just test-linux                          # the whole suite in the container
+just check                               # the full gate -- before pushing
+just check-local                         # same, on the host instead -- no podman needed
 ```
 
 **What to run when.** `just check` is the pre-push gate, not a per-commit ritual — running it
 reflexively is a way of not thinking about what a change can break, and the thinking is the part that
-catches things. Per commit, run what the change touches; `just test-changed` picks that automatically
-from your diff, and `just test-linux` is the honest answer whenever a change is broad or you are
+catches things. Per commit, `just test-zig && just test` covers a changed `.zig` file in a few
+seconds combined; `just test-linux` is the honest answer whenever a change is broad or you are
 unsure. A change to prose in `docs/` or this README has no test to fail and needs neither.
 
 Two traps in that. Shipped instructions under `plugins/*/` **look** like documentation and are not: they
-install as a Claude Code plugin, and `tests/legacy-commands.bats` covers them — that
-is how a skill telling Claude to run a nonexistent command got caught. And each project's `cli.md`
-(under `docs/synapse/`, `docs/synapse-bard/`) plus the diagrams are *generated*, so a change
-upstream of them needs `just fix`, not `just docs-check`.
+install as a Claude Code plugin, and `tests/integration/legacy_commands_test.zig` plus
+`tests/lint_test.zig` cover them — that is how a skill telling Claude to run a nonexistent command
+got caught. And each project's `cli.md` (under `docs/synapse/`, `docs/synapse-bard/`) plus the
+diagrams are *generated*, so a change upstream of them needs `just fix`, not `just docs-check`.
 
-`--jobs` needs GNU `parallel` on `PATH`; without it `bats` falls back to running serially (slower but
-correct). `just test-changed` derives its selection by grep rather than from a maintained list — a
-lower bound on coverage, which is the right trade per commit and the wrong one before a push.
+`just check` runs the CLI-contract suite in the Linux container, which is not a preference: the same
+suite spawns real subprocesses, and macOS `fork`/`exec` costs 6.5ms where Linux costs 0.24ms. `just
+check-local` is the same gate on the host instead, for a machine without podman — and it is also how
+you tell a container artefact from a real finding, since the container's `DebugAllocator` reports
+leaks the native build stays silent about.
 
-`just check` runs the suite in the Linux container, which is not a preference: the same ~440 tests take
-~30s there against six to seven minutes on the host, because macOS `fork`/`exec` costs 6.5ms where
-Linux costs 0.24ms. That took the gate from ~8min to 2:20, and finding the same tax inside
-`ci/check-layering.sh` — two forked greps per source line, 113s — took it to ~40s. `just check-local`
-is the same gate with host bats, for a machine without podman — and it is also how you tell a
-container artefact from a real finding, since the container's `DebugAllocator` reports leaks the
-native build stays silent about.
-
-Every test runs against a throwaway `$HOME`, git repo and Vault created in `tests/test_helper.bash` —
-nothing touches your real `~/.claude` or Vault, and tests share no state, which is what makes
-`--jobs` safe. The same suite runs in CI on **Linux** (`.github/workflows/tests.yml`); macOS is
-covered by development itself.
+Every test runs against a throwaway `$HOME`, git repo and Vault built fresh per test — nothing
+touches your real `~/.claude` or Vault, and tests share no state. The same suite runs in CI on
+**Linux** (`.github/workflows/tests.yml`); macOS is covered by development itself.
 
 The generated artefacts (each project's `cli.md`, the Mermaid diagrams under `docs/synapse/diagrams/`)
 are each verified by running their generator's `--check` mode, so an edit that was never regenerated fails a
 test instead of shipping something confidently wrong.
 
 `packages/synapse/commands/*.md` and `packages/synapse/skills/*/SKILL.md` are natural-language procedures, so no test
-executes them — but `tests/legacy-commands.bats` does check the one thing about them that is
-mechanically true or false: **every command they tell Claude to run has to exist.** It cross-checks
-each `` `synapse <sub>` `` against the binary's own `--help`, and applies the same rule to the text
-the hooks inject and to the `Index.md` the builder writes. That guard exists because the Zig rewrite
-left three deleted wrappers in the per-turn nudge and a never-existing `synapse query callers` in a
-skill's table, with the whole suite green.
+executes them — but `tests/integration/legacy_commands_test.zig` does check the one thing about them
+that is mechanically true or false: **every command they tell Claude to run has to exist.** It
+cross-checks each `` `synapse <sub>` `` against the binary's own `--help`, and applies the same rule
+to the text the hooks inject and to the `Index.md` the builder writes. That guard exists because the
+Zig rewrite left three deleted wrappers in the per-turn nudge and a never-existing `synapse query
+callers` in a skill's table, with the whole suite green.
 
 ## Dependencies
 
@@ -231,10 +224,10 @@ it already is for every harness here — `synapse-setup` and the shipped hooks
 (`resolve-binaries.cjs`) run on it directly, no `jq` of its own. Nothing to build, nothing to
 install by hand — see "New machine setup".
 
-For contributing to Synapse itself: Zig 0.16 (`just build`/`zig build`), `bats-core` (tests), a C
-compiler for the Graph's tree-sitter acceleration (grammars are native libraries, built on first
-use), GNU `parallel` for `bats --jobs`, and Node (for `npx`) to re-render the diagrams — everything
-except Zig degrades gracefully if missing.
+For contributing to Synapse itself: Zig 0.16 (`just build`/`zig build`, which also builds and runs
+every test — no separate test runner to install), a C compiler for the Graph's tree-sitter
+acceleration (grammars are native libraries, built on first use), and Node (for `npx`) to re-render
+the diagrams — everything except Zig degrades gracefully if missing.
 
 The `tree-sitter` CLI is no longer among them: libtree-sitter is linked into the binary and the
 grammar's own `queries/tags.scm` is run in-process.

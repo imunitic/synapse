@@ -21,8 +21,8 @@
 //! namespace with no `SYNAPSE_REPO_ROOT` -- reading through an empty root
 //! would otherwise misreport (every source "missing") rather than fail.
 //!
-//! stdout/exit codes/stderr are frozen to match the script exactly (73 tests
-//! across `tests/synapse-query.bats` plus drift/links/grounding pin it).
+//! stdout/exit codes/stderr are a frozen contract, pinned by this file's own
+//! tests plus `tests/integration/query_test.zig`.
 //! Behind that surface: `_index.bin`/tags cache read directly through
 //! `core.index_map`/`core.tags_cache`, the vault itself read directly from
 //! disk (see `context.zig`), and formatting/set-diffing logic in
@@ -1003,9 +1003,8 @@ fn calcMl(gpa: Allocator, from: u32, to: u32) ![]u8 {
 }
 
 /// A node grounded in a two-line doc comment at the top of `lib/calc.ml`,
-/// matching the bats fixture's own `build_grounded_node` -- built directly
-/// as a node file and a repo file, not through `write-node`, since
-/// `cmdGrounding` only cares what's on disk, not how it got there.
+/// built directly as a node file and a repo file, not through `write-node`,
+/// since `cmdGrounding` only cares what's on disk, not how it got there.
 fn buildGroundedNode(gpa: Allocator, fx: *fixture.Fixture) !void {
     const header = "(* Computes the premium for a contract.\n   Rounds half-up at two decimals. *)\n";
     const body_lines = try calcMl(gpa, 3, 12);
@@ -1239,8 +1238,7 @@ test "grounding --list: an unknown node exits 1" {
 
 // --- links --------------------------------------------------------------
 
-/// A node carrying only a Links section -- enough for `cmdLinks`, matching
-/// the bats fixture's own `node()` helper.
+/// A node carrying only a Links section -- enough for `cmdLinks`.
 fn linksNode(gpa: Allocator, fx: *fixture.Fixture, title: []const u8, links: []const []const u8) !void {
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
@@ -1422,8 +1420,7 @@ test "links: usage errors exit 2" {
 // --- stale ----------------------------------------------------------------
 
 /// A node covering `sources` (each a real repo file already written), with
-/// a digest correct by construction unless `force_digest` overrides it --
-/// matching the bats fixture's own `write_node` helper.
+/// a digest correct by construction unless `force_digest` overrides it.
 fn staleNode(gpa: Allocator, sources: []const struct { path: []const u8, content: []const u8 }, force_digest: ?[]const u8) ![]u8 {
     var node_sources = try gpa.alloc(core.node.Source, sources.len);
     defer {
@@ -1448,6 +1445,20 @@ fn runStale(gpa: Allocator, fx: *fixture.Fixture) !struct { code: u8, out: []u8 
     defer ctx.deinit();
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
+    const code = try cmdStale(gpa, fx.io(), &ctx, &.{}, &out.writer);
+    return .{ .code = code, .out = try gpa.dupe(u8, out.written()) };
+}
+
+/// Like `runStale`, but goes through `context.verifyNamespace` first --
+/// the real dispatch path (`run`, above) always does, but most `runStale`
+/// callers skip straight to `cmdStale` since they never write an `Index.md`
+/// marker for the namespace to verify against.
+fn runStaleVerified(gpa: Allocator, fx: *fixture.Fixture) !struct { code: u8, out: []u8 } {
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    if (!try context.verifyNamespace(&ctx, fx.io(), "test")) return .{ .code = 1, .out = try gpa.dupe(u8, out.written()) };
     const code = try cmdStale(gpa, fx.io(), &ctx, &.{}, &out.writer);
     return .{ .code = code, .out = try gpa.dupe(u8, out.written()) };
 }
@@ -1583,14 +1594,40 @@ test "stale: node in the index but missing from the vault: reported" {
     try testing.expect(std.mem.indexOf(u8, r.out, "node file missing") != null);
 }
 
+// An implicit (non---namespace) resolve, unlike `resolveExplicit`, goes
+// through `verifyNamespace` -- this exercises that path via
+// `runStaleVerified` rather than the plain `runStale` most tests above use.
+// `SYNAPSE_NAMESPACE`/`SYNAPSE_BRANCH`/`SYNAPSE_REPO_ROOT`/`SYNAPSE_REMOTE`
+// all stay at the fixture's own defaults, so `context.resolve` never calls
+// `identity.resolve` at all here -- the real-remote-mismatch case needs
+// that call to actually run, which needs a real spawned process with its
+// own real cwd to be meaningful; it lives in
+// `tests/integration/query_test.zig` instead.
+
+test "stale (implicit resolve): no namespace for this repo exits 1" {
+    // `verifyNamespace` explains why on stderr via `std.debug.print`, which
+    // this fixture's `out` writer can't capture -- only the exit code is
+    // checked here.
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.aa", "let x = 1\n");
+    try fx.gitCommit("init");
+    // No writeIndex call at all -- no namespace exists for "repo@main".
+
+    const r = try runStaleVerified(gpa, &fx);
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 1), r.code);
+    try testing.expectEqualStrings("", r.out);
+}
+
 // --- body / sources / field ------------------------------------------------
 // The point of these subcommands is that they read the expensive parts
 // internally and print only a projection, so the assertions are mostly
 // about what is *absent* from the output.
 
 /// A node with a generated fence, real hashes, and Notes content that must
-/// never leak into `body` -- matching the bats fixture's own
-/// `write_fenced_node` helper.
+/// never leak into `body`.
 fn fencedNode(gpa: Allocator, sources: []const struct { path: []const u8, content: []const u8 }) ![]u8 {
     var node_sources = try gpa.alloc(core.node.Source, sources.len);
     defer {
@@ -1827,8 +1864,8 @@ test "sources: --modules groups by module root with counts" {
     try fx.writeNodeFile("Foo Node", node);
 
     // "src/main/java" is Maven boilerplate per the shipped default
-    // `synapse-module-boilerplate.conf` -- a real bats run gets it from
-    // $HOME, so the fixture needs its own copy of that one line.
+    // `synapse-module-boilerplate.conf`, normally read from `$HOME` -- the
+    // fixture needs its own copy of that one line since `$HOME` is isolated.
     try fx.tmp.dir.writeFile(testing.io, .{ .sub_path = "boilerplate.conf", .data = "src/main/java\n" });
     var conf_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const root = conf_buf[0..try fx.tmp.dir.realPath(testing.io, &conf_buf)];
@@ -2009,9 +2046,8 @@ fn makeTwoAreaRepo(fx: *fixture.Fixture) !void {
     try fx.gitCommit("two-areas");
 }
 
-/// Writes a node with an explicit baseline commit and source list --
-/// matching the bats fixture's own `stage_node`. `commit` null omits the
-/// field entirely.
+/// Writes a node with an explicit baseline commit and source list.
+/// `commit` null omits the field entirely.
 fn driftNode(gpa: Allocator, fx: *fixture.Fixture, title: []const u8, commit: ?[]const u8, sources: []const []const u8) !void {
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();

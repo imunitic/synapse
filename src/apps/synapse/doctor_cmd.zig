@@ -431,13 +431,12 @@ const DoctorFixture = struct {
         try self.fx.gitCommit("init");
     }
 
-    /// Matches bats' own `common_setup()` default: a real `synapse.conf` at
-    /// `$HOME/.claude/synapse.conf` pointing `SYNAPSE_VAULT_DIR` at the
-    /// fixture vault -- the "configured machine" baseline every doctor test
-    /// in bats started from. `Fixture.init()` sets the env var directly
-    /// instead, which is a *different* state (`vaultChecks`' own `.warn`
-    /// "no synapse.conf; using $SYNAPSE_VAULT_DIR" branch), so tests that
-    /// want the `ok` config state need this written explicitly.
+    /// A real `synapse.conf` at `$HOME/.claude/synapse.conf` pointing
+    /// `SYNAPSE_VAULT_DIR` at the fixture vault -- the "configured machine"
+    /// baseline. `Fixture.init()` sets the env var directly instead, which
+    /// is a *different* state (`vaultChecks`' own `.warn` "no synapse.conf;
+    /// using $SYNAPSE_VAULT_DIR" branch), so tests that want the `ok`
+    /// config state need this written explicitly.
     fn writeConf(self: *DoctorFixture) !void {
         const data = try std.fmt.allocPrint(self.fx.gpa, "SYNAPSE_VAULT_DIR=\"{s}\"\n", .{self.fx.vault});
         defer self.fx.gpa.free(data);

@@ -160,8 +160,7 @@ const Vocab = struct {
     }
 
     /// One cluster's terms, highest count first -- `n` starts at
-    /// `words.len + 10` and counts down, matching the bats fixture's own
-    /// `cluster()` helper exactly.
+    /// `words.len + 10` and counts down.
     fn cluster(self: *Vocab, name: []const u8, words: []const []const u8) !void {
         var n = words.len + 10;
         for (words) |w| {

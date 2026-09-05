@@ -6,8 +6,8 @@
 #
 # en_US.UTF-8 is installed and set explicitly: a bare ubuntu:24.04 has no
 # locale at all (LC_CTYPE=POSIX), unlike GitHub's own ubuntu-latest runners,
-# and three synapse-vocab.bats assertions about CamelCase-splitting fail
-# under plain C for exactly that reason.
+# and `core/vocab.zig`'s CamelCase-splitting tests fail under plain C for
+# exactly that reason.
 #
 # gcc is required, not incidental: synapse tags refuses to run at all
 # without a C compiler on PATH (`command -v cc || gcc || clang || exit 1`) --
@@ -18,13 +18,36 @@
 # also why tests.yml itself never installs it: GitHub's ubuntu-latest ships a
 # full build toolchain already, so the gap only shows up on a bare image like
 # this one.
+#
+# `FROM ubuntu:24.04` resolves to whatever architecture the machine building
+# this image actually is (arm64 on Apple Silicon's own podman machine, amd64
+# on an Intel Mac or a CI runner) -- Zig's own download is picked to match at
+# build time below, native the whole way through. Getting this wrong once
+# (a hardcoded amd64 Zig pulled into an arm64 image) meant every invocation
+# ran under qemu-user emulation: several real minutes per compile, plus two
+# knock-on failures neither obviously about emulation at the time --
+# "LibCStdLibHeaderNotFound" for a plain native build with no libc6-dev
+# installed, then "unknown target CPU 'athlon-xp'" once that was added,
+# from CPUID coming back garbage under emulation. Both vanish with the
+# toolchain's real architecture and `libc6-dev` present -- see below.
 FROM ubuntu:24.04
+
+# Pinned to build.zig.zon's `minimum_zig_version` -- the same number CI's own
+# `mlugg/setup-zig` action resolves automatically, kept in sync here by hand
+# since a Containerfile has no equivalent of that action to read the pin for it.
+ARG ZIG_VERSION=0.16.0
 
 RUN apt-get update -qq \
     && apt-get install -y -qq --no-install-recommends \
-       ca-certificates curl gcc git jq locales nodejs npm parallel python3 \
+       ca-certificates curl gcc libc6-dev git jq locales nodejs npm xz-utils \
     && locale-gen en_US.UTF-8 \
-    && npm install -g --prefix /usr/local bats \
+    && zig_arch="$(dpkg --print-architecture)" \
+    && case "$zig_arch" in arm64) zig_arch=aarch64 ;; amd64) zig_arch=x86_64 ;; \
+       *) echo "unsupported architecture: $zig_arch" >&2; exit 1 ;; esac \
+    && curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-${zig_arch}-linux-${ZIG_VERSION}.tar.xz" -o /tmp/zig.tar.xz \
+    && tar -xJf /tmp/zig.tar.xz -C /usr/local \
+    && ln -s "/usr/local/zig-${zig_arch}-linux-${ZIG_VERSION}/zig" /usr/local/bin/zig \
+    && rm /tmp/zig.tar.xz \
     && git config --system user.email ci@example.com \
     && git config --system user.name CI \
     && apt-get clean && rm -rf /var/lib/apt/lists/*

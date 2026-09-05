@@ -469,7 +469,7 @@ const TagsFixture = struct {
     }
 
     /// Count of lines starting with `prefix` (` ` included) in the trace
-    /// file -- the native equivalent of bats' `grep -c '^path '`.
+    /// file.
     fn traceCount(self: *TagsFixture, prefix: []const u8) !usize {
         const text = self.fx.tmp.dir.readFileAlloc(testing.io, "work/trace.log", self.fx.gpa, .limited(1 << 20)) catch |e| {
             if (e == error.FileNotFound) return 0;

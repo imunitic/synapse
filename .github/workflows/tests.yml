@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  # A separate job rather than steps bolted onto `bats`: the two fail for
+  # A separate job rather than steps bolted onto `integration`: the two fail for
   # unrelated reasons and neither orders the other, so running them in parallel
   # costs nothing and keeps a red X pointing at the half that actually broke.
   zig:
@@ -27,10 +27,10 @@ jobs:
       #
       # cache-size-limit raised from the 2048 MiB default: this job's own
       # .zig-cache (native build + test, sharing one cache scope) measured
-      # comfortably inside 2048 on a normal run, but the bats job below
-      # measured 1.9 GB on the same push, close enough to that default limit
-      # that a routine size increase would start silently skipping the cache
-      # save.
+      # comfortably inside 2048 on a normal run, but the `integration` job
+      # below (every test compiling and loading a real tree-sitter grammar)
+      # measured close enough to that default limit that a routine size
+      # increase would start silently skipping the cache save.
       - uses: mlugg/setup-zig@v2
         with:
           cache-size-limit: 4096
@@ -41,9 +41,9 @@ jobs:
       - name: Build
         run: zig build
 
-      # Internals only -- format round-trips, parsing, the process helper. The
-      # CLI contract belongs to the bats job, and duplicating it here would
-      # retire that suite as the specification without anyone deciding to.
+      # Internals only -- format round-trips, parsing, the process helper,
+      # plus the static doc/text consistency checks in `tests/lint_test.zig`.
+      # The CLI contract belongs to the `integration` job below.
       - name: Unit tests
         run: zig build test --summary all
 
@@ -90,7 +90,7 @@ jobs:
       - name: Cross-compile ${{ matrix.target }}
         run: ./ci/build-targets.sh ${{ matrix.target }}
 
-  bats:
+  integration:
     # Linux only, and the asymmetry is the point rather than an economy. The two
     # shells disagree in ways that pass silently on one of them -- BSD vs GNU
     # `sed -i`, macOS `mktemp` ignoring TMPDIR without an explicit template -- so
@@ -107,60 +107,20 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # npm rather than apt: it pins one bats version regardless of runner image,
-      # and the distro package lags far enough behind to differ. Into a user prefix
-      # because a plain `npm install -g` is EACCES on the Linux runner, and reaching
-      # for sudo to work around that is how a CI setup starts diverging from how
-      # anyone actually installs the thing.
-      - name: Install bats
-        run: |
-          npm install -g --prefix "$HOME/.npm-global" bats
-          echo "$HOME/.npm-global/bin" >> "$GITHUB_PATH"
-
-      # GNU parallel is what `bats --jobs` shells out to. Without it bats does not
-      # fail, it silently runs serially -- so this step existing is the only thing
-      # separating a parallel run from a slow one that looks identical in the log.
-      # Restoring macos-latest means restoring a `brew install parallel` branch here
-      # too. Left as apt-only rather than keeping a dead $RUNNER_OS conditional: an
-      # unreachable branch is not a spare tyre, it is a thing that rots unnoticed.
-      - name: Install GNU parallel
-        run: sudo apt-get update -qq && sudo apt-get install -y parallel
-
-      # The suite runs `synapse-fake`: `synapse tags` with the grammar
-      # compile-and-load step stubbed, which is what replaced the fake
-      # `tree-sitter` on PATH once libtree-sitter was linked instead of
-      # spawned. This job therefore needs a toolchain even though it is not the
-      # job that checks the Zig -- the alternative is a bats suite with no
-      # tagger in it at all. Same unpinned action as the `zig` job, for the
-      # same reason: `build.zig.zon` is the only place the version lives.
-      #
-      # cache-size-limit raised the same way as the `zig` job above -- this
-      # job's own cache measured 1.9 GB on a normal run (every bats test
-      # compiling and loading a real tree-sitter grammar into its own
-      # `.zig-cache`), close enough to the 2048 MiB default that it risked
-      # the save being skipped outright.
+      # Same unpinned action as the `zig` job, for the same reason:
+      # `build.zig.zon` is the only place the version lives. This job spawns
+      # the real binaries as real subprocesses, which is why it needs its
+      # own toolchain rather than depending on the `zig` job's artifacts --
+      # jobs run in separate, disposable runners with no shared filesystem.
       - uses: mlugg/setup-zig@v2
         with:
           cache-size-limit: 4096
 
-      # All three binaries, not just the fake. `zig build fake` installs only
-      # `synapse-fake`, and this job needs the other two as well: every test's
-      # common_setup requires `synapse-hook` (the hooks link no grammar, so a test
-      # exercises the real one), and the docs check below runs the real `synapse`
-      # for its `--help`. Both were absent when this said `zig build fake` alone.
-      - name: Build the binaries the suite runs
-        run: |
-          zig build
-          zig build fake
-
       - name: Show versions
         run: |
-          bats --version
+          zig version
           bash --version | head -1
           jq --version
-          sed --version 2>/dev/null | head -1 || true
-          sed --version >/dev/null 2>&1 || echo "sed: BSD (no --version)"
-          python3 --version
 
       # git config is required: several tests commit to a scratch repo, and a
       # runner has no global identity, so the commit would fail rather than the
@@ -170,23 +130,30 @@ jobs:
           git config --global user.email ci@example.com
           git config --global user.name CI
 
-      # --jobs parallelises within each file as well as across them, which is where
-      # the win is: one file is a quarter of the suite, so across-files-only would
-      # leave it as the critical path. Safe because every test builds its own
-      # $HOME/repo/vault under mktemp and tears it down; see README's Testing
-      # section for the invariant this depends on.
+      # Builds every binary it spawns as part of the same step, via each
+      # binary's own `Step.Compile` wired in through `addOptionPath` --
+      # no separate `zig build`/`zig build fake` needed first.
       - name: Run the suite
-        run: bats --jobs "$(getconf _NPROCESSORS_ONLN)" tests/
+        run: zig build test-integration --summary all
 
       # Both generated artefacts are already verified inside the suite, by their
       # own --check mode. Repeated here only so a failure names itself in the log
-      # rather than arriving as one line inside a 238-test run.
+      # rather than arriving as one line inside a large test run.
       - name: Generated docs are in sync
         if: always()
         run: |
+          zig build
           ./docs/synapse/generate-cli-reference.sh --check
           ./docs/synapse-bard/generate-cli-reference.sh --check
 
       - name: Rendered diagrams are in sync
         if: always()
         run: ./docs/synapse/generate-diagrams.sh --check
+
+      - name: npm package includes every shipped schema document
+        if: always()
+        run: |
+          out="$(npm pack --dry-run --json ./packages/synapse)"
+          for f in schema/vault-note/v1.yaml schema/vault-design-note/v1.yaml schema/vault-task-note/v1.yaml; do
+            grep -qF "$f" <<< "$out" || { echo "npm package is missing $f" >&2; exit 1; }
+          done

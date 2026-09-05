@@ -4,8 +4,8 @@
 //!
 //! `context.resolve`'s own env-var overrides (`SYNAPSE_NAMESPACE`/
 //! `REPO_ROOT`/`BRANCH`/`REMOTE`/`WORK_DIR`) are what let this skip real git
-//! entirely -- the same escape hatch the bats suite pins fixture repos
-//! through.
+//! entirely -- unlike `tests/integration/support.zig`'s own `Fixture`, which
+//! deliberately leaves them unset to exercise real detection instead.
 //!
 //! Established for `write_node_cmd.zig`; reusable by any future `*_cmd.zig`
 //! native-test migration that needs a Context and/or a store.

@@ -4,7 +4,8 @@
 //! One resolution chain, not two that could disagree.
 //!
 //! Identity resolves from `.git`/`HEAD`/`config` (no spawn); the environment
-//! still wins when set (the bats suite pins fixture repos this way). Reads
+//! still wins when set, which is how a test fixture pins a namespace/repo
+//! deliberately without needing a real git remote. Reads
 //! (`Index.md`, a node, `_manifest.tsv`) go straight to disk -- a known path
 //! never needs a search round trip. Writes (`write-node`) go through
 //! `Store`, which keeps an extended store's own live view and the vault's
@@ -67,7 +68,7 @@ pub const Context = struct {
 };
 
 /// Resolve the environment, or explain what is missing and return null.
-/// `prog` prefixes the diagnostics (`synapse-query:`, etc.) -- the bats suite matches on it.
+/// `prog` prefixes the diagnostics (`synapse-query:`, etc.) -- callers match on it.
 pub fn resolve(
     gpa: Allocator,
     io: Io,

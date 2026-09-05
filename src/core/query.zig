@@ -138,8 +138,8 @@ fn stripOneQuote(raw: []const u8) []const u8 {
 /// `build-project-index` reads each node's `summary` and writes it into the index's
 /// prose. It used to get it from the API's JsonLogic search, which parses the YAML,
 /// so the round trip was already lossless -- reading from disk instead means doing
-/// the unescaping here or silently regressing it. `tests/synapse-build-project-index.bats`
-/// pins the case: `Handles "quoted" input and a C:\path.`
+/// the unescaping here or silently regressing it: `project_index_cmd.zig`'s
+/// own tests pin the case `Handles "quoted" input and a C:\path.`
 ///
 /// Only what the writer produces is undone (`\\` and `\"`), because that is the
 /// only escaping any of these files contain -- `emit.writeYamlQuoted` is the sole
@@ -419,8 +419,8 @@ test "a field lookup matches a whole key, not a suffix of one" {
 
 test "a field is never read from the body" {
     // The frontmatter ends at the closing `---`, so prose that happens to look
-    // like a key is not one. `stale: false` also appears as a decoy in the real
-    // fixture the bats suite uses.
+    // like a key is not one. `stale: false` appears as the same decoy in
+    // several node fixtures elsewhere in this test suite.
     const decoy = "---\ntitle: real\n---\n\n# T\ntitle: fake\n";
     try testing.expectEqualStrings("real", field(decoy, "title").?);
 }
@@ -533,8 +533,8 @@ test "field strips one quote at each end, not every quote" {
 
 test "scalar resolves the escaping field deliberately leaves alone" {
     const gpa = testing.allocator;
-    // The case `tests/synapse-build-project-index.bats` pins: a summary with a
-    // quoted phrase and a Windows path, stored escaped by the writer.
+    // The same case `project_index_cmd.zig`'s own tests pin: a summary with
+    // a quoted phrase and a Windows path, stored escaped by the writer.
     const text = "---\nsummary: \"Handles \\\"quoted\\\" input and a C:\\\\path.\"\n---\n";
     const got = (try scalar(gpa, text, "summary")).?;
     defer gpa.free(got);

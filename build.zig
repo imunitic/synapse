@@ -214,11 +214,12 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(bard_hook);
 
-    // The binary the bats suite runs: the same app with the grammar
-    // compile-and-load step stubbed. Its own step rather than part of the
-    // default install, because it must never reach `~/.claude/bin` -- but
-    // `just test` and the CI bats job both build it first, since without it
-    // the suite has no tagger at all. See `src/apps/synapse/main_fake.zig`.
+    // The binary the integration suite mostly runs: the same app with the
+    // grammar compile-and-load step stubbed. Its own step rather than part
+    // of the default install, because it must never reach `~/.claude/bin` --
+    // but `test-integration`'s own compile-order dependency (via
+    // `addOptionPath` below) builds it first, since without it the suite
+    // has no tagger at all. See `src/apps/synapse/main_fake.zig`.
     const fake = b.addExecutable(.{
         .name = "synapse-fake",
         .root_module = b.createModule(.{
@@ -234,9 +235,9 @@ pub fn build(b: *std.Build) void {
                 // transitively through `treesitter` either way; naming it adds
                 // no dependency, only the ability to import it. What this
                 // binary's narrower set is about is the *grammar* stub, not
-                // denying it the ability to run a subprocess -- the bats suite
-                // runs this binary, so anything a shipped script calls has to
-                // work here too.
+                // denying it the ability to run a subprocess -- the integration
+                // suite runs this binary, so anything a shipped script calls
+                // has to work here too.
                 .{ .name = "adapters", .module = adapters },
                 // `ports` for `vault_cmd.zig`'s `LinkGraph` subcommands, same
                 // "arrives transitively, naming it adds only the ability to
@@ -245,7 +246,7 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
-    b.step("fake", "Build the stubbed-grammar binary the bats suite runs")
+    b.step("fake", "Build the stubbed-grammar binary the integration suite mostly runs")
         .dependOn(&b.addInstallArtifact(fake, .{}).step);
 
     // The acceptance check for the tree-sitter port: not installed, not part
@@ -297,19 +298,18 @@ pub fn build(b: *std.Build) void {
     // Deliberately no `run` step. A Run step treats a non-zero exit as a build
     // failure, and non-zero is a normal, contractual result for this binary --
     // `2` for a usage error, `1` for a refusal, all of them asserted by the
-    // bats suite. A step that reports those as broken builds would be lying.
-    // Invoke `zig-out/bin/synapse` directly, which is what the hooks, the
-    // tests and the installed copy all do anyway.
+    // integration suite. A step that reports those as broken builds would be
+    // lying. Invoke `zig-out/bin/synapse` directly, which is what the hooks,
+    // the tests and the installed copy all do anyway.
 
     // Zig tests cover internals -- format round-trips, binary search, scoring
     // -- plus a `*_cmd.zig`'s own assembly logic where a real `Context` and a
     // real `Store` are reachable without a real git repo or network call
-    // (`cmd_test_support.zig`'s fixture). The CLI contract itself -- argument
-    // parsing, exit codes, real git/process integration -- stays
-    // tests/*.bats: if an assertion can be written against stdout or an exit
-    // code with no `*_cmd.zig` logic behind it, duplicating it here would
-    // quietly retire bats as the specification.
-    const test_step = b.step("test", "Run Zig unit tests (bats owns the CLI contract)");
+    // (`cmd_test_support.zig`'s fixture), plus static doc/text consistency
+    // checks (`tests/lint_test.zig`) that need no process spawn at all. Real
+    // subprocess/git-integration behavior is `zig build test-integration`'s
+    // job instead, kept out of this fast in-process suite.
+    const test_step = b.step("test", "Run Zig unit tests");
 
     // Compile the same tests without running them, so a cross-target build can
     // check code the executable does not reach. Zig analyses declarations
@@ -330,4 +330,45 @@ pub fn build(b: *std.Build) void {
         test_step.dependOn(&b.addRunArtifact(unit).step);
         test_build_step.dependOn(&unit.step);
     }
+
+    // Doc/text consistency checks with no binary to spawn and no Zig
+    // function to call -- reads the shipped docs and scripts directly, so
+    // it needs no imports from the rest of the module graph.
+    const lint_mod = b.createModule(.{
+        .root_source_file = b.path("tests/lint_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const lint_tests = b.addTest(.{ .root_module = lint_mod, .filters = test_filters });
+    test_step.dependOn(&b.addRunArtifact(lint_tests).step);
+    test_build_step.dependOn(&lint_tests.step);
+
+    // Spawns the real compiled binaries as real subprocesses -- a slower,
+    // genuinely different layer than the unit tests above, so it stays out
+    // of `test`/`test-build` entirely rather than folded in. `addOptionPath`
+    // wires the compile-order dependency on each binary automatically; no
+    // manual `.dependOn` is needed for those.
+    const it_opts = b.addOptions();
+    it_opts.addOptionPath("synapse_bin", exe.getEmittedBin());
+    it_opts.addOptionPath("synapse_fake_bin", fake.getEmittedBin());
+    it_opts.addOptionPath("hook_bin", hook.getEmittedBin());
+    it_opts.addOptionPath("bard_bin", bard.getEmittedBin());
+    it_opts.addOptionPath("bard_hook_bin", bard_hook.getEmittedBin());
+    it_opts.addOption([]const u8, "fake_bin_dir", "tests/fixtures/fake-bin");
+
+    const integration_mod = b.createModule(.{
+        .root_source_file = b.path("tests/integration/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "adapters", .module = adapters }},
+    });
+    integration_mod.addOptions("build_options", it_opts);
+
+    const integration_tests = b.addTest(.{
+        .name = "integration-tests",
+        .root_module = integration_mod,
+        .filters = test_filters,
+    });
+    b.step("test-integration", "Run the Zig-native subprocess integration suite (spawns the real binaries)")
+        .dependOn(&b.addRunArtifact(integration_tests).step);
 }

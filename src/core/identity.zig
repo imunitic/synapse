@@ -454,3 +454,34 @@ test "comments, quotes and the deprecated subsection form" {
         "origin",
     ));
 }
+
+test "resolveRemote falls back to the first configured remote when there is no origin" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(testing.io, .{
+        .sub_path = "config",
+        .data = "[core]\n\tbare = false\n[remote \"upstream\"]\n\turl = ssh://git@example.com/x/up.git\n",
+    });
+    var buf: [Dir.max_path_bytes]u8 = undefined;
+    const dir_path = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+    const layout: Layout = .{ .repo_root = dir_path, .git_dir = dir_path, .common_dir = dir_path };
+
+    const remote = try resolveRemote(gpa, testing.io, layout);
+    defer gpa.free(remote);
+    try testing.expectEqualStrings("ssh://git@example.com/x/up.git", remote);
+}
+
+test "resolveRemote falls back to the repo root when there is no remote at all" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "config", .data = "[core]\n\tbare = false\n" });
+    var buf: [Dir.max_path_bytes]u8 = undefined;
+    const dir_path = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+    const layout: Layout = .{ .repo_root = dir_path, .git_dir = dir_path, .common_dir = dir_path };
+
+    const remote = try resolveRemote(gpa, testing.io, layout);
+    defer gpa.free(remote);
+    try testing.expectEqualStrings(dir_path, remote);
+}

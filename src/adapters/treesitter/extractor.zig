@@ -5,8 +5,8 @@
 //!
 //! Generic over the grammar backend: `TsBackend` compiles a real grammar;
 //! the fake backend behind `synapse-fake` returns scripted tags with no C
-//! compiler or real grammar -- so `tests/*.bats` exercises the same shared
-//! code either way.
+//! compiler or real grammar -- so the integration suite exercises the same
+//! shared code either way.
 
 const std = @import("std");
 const model = @import("model");

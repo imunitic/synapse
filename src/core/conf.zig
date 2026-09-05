@@ -307,8 +307,8 @@ fn existsAsDir(io: std.Io, path: []const u8) bool {
 
 /// The vault directory: the override first, then each conf file in turn,
 /// each resolved through `resolveConfPath`'s tier order. The environment
-/// wins since that's how a caller pins a vault deliberately (the bats suite
-/// does, against a fixture). Null means nothing names one.
+/// wins since that's how a caller pins a vault deliberately, e.g. a test
+/// fixture. Null means nothing names one.
 pub fn vaultDir(gpa: std.mem.Allocator, io: std.Io, vars: Vars) !?[]u8 {
     return resolve(gpa, io, vars, "SYNAPSE_VAULT_DIR");
 }

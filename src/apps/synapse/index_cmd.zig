@@ -655,7 +655,8 @@ test "build-index: missing lists, missing unassigned.txt and an empty lists dir 
     // `std.debug.print`, not through `result` -- deliberately, the same
     // split every other command in this codebase draws between error
     // output and success output. Not capturable here, so only the exit
-    // code is asserted; the message text stays bats' job if ever revisited.
+    // code is asserted; a message-text check would need a real spawn, in
+    // `tests/integration/` instead.
     const gpa = testing.allocator;
     var fx = try Fixture.init(gpa);
     defer fx.deinit();

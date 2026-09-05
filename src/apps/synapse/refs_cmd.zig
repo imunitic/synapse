@@ -262,7 +262,7 @@ fn tagline(gpa: Allocator, padded_name: []const u8, kind: []const u8, role: []co
 /// A real `_tags_cache.bin` in a real temp dir, built directly through
 /// `core.tags_cache.Cache.commit` -- the same call `tags-cache --load`
 /// makes, minus that command's own dump-text round trip, which exists so a
-/// *bats* test can author a cache without a bespoke fixture format. A
+/// shell-driven test can author a cache without a bespoke fixture format. A
 /// native test doesn't need the round trip: it can hand `Entry` values
 /// straight to `commit`.
 const CacheFixture = struct {

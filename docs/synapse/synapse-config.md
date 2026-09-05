@@ -6,7 +6,7 @@ generated: a `--help` string has one canonical declaration site to generate from
 `env.get("SYNAPSE_...")` call does not — it's just scattered through `src/`. Treat this page as
 best-effort-current rather than push-button-verified — before it existed, documentation coverage
 was bimodal: vault- and work-dir-adjacent settings were documented, while grammar/cache/identity-
-adjacent ones existed only in source comments and the bats suite. This page closes that gap.
+adjacent ones existed only in source comments and the test suite. This page closes that gap.
 
 ## Where a conf file actually lives
 

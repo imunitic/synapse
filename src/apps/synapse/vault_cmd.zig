@@ -1483,15 +1483,13 @@ test "patch on a missing target fails clearly" {
 
 // --- Real shipped v1 schema coverage -----------------------------------
 //
-// Migrated from tests/synapse-schema-validation.bats (kept only "the npm
-// package includes all shipped schema documents" there, since that one has
-// no Zig code behind it at all). Points SYNAPSE_CONTENT_ROOT at the real
-// packages/synapse/schema/ directory rather than a synthetic one, the same
-// way the bats suite pointed SYNAPSE_CONTENT_ROOT at $REPO_ROOT/packages/
-// synapse -- these tests are about the real shipped schema documents
-// actually validating through this CLI door, not about the DSL engine
-// (already covered with synthetic schemas by note_schema.zig's own tests
-// and this file's writeCheckSchema()-based ones above).
+// Points SYNAPSE_CONTENT_ROOT at the real packages/synapse/schema/
+// directory rather than a synthetic one -- these tests are about the real
+// shipped schema documents actually validating through this CLI door, not
+// about the DSL engine (already covered with synthetic schemas by
+// note_schema.zig's own tests and this file's writeCheckSchema()-based ones
+// above). The npm package's own file manifest (does it actually ship these
+// documents) is a separate, non-Zig concern -- see `just npm-check`.
 
 fn withRealSchemas(fx: *fixture.Fixture) !void {
     try fx.env.put("SYNAPSE_CONTENT_ROOT", "packages/synapse");

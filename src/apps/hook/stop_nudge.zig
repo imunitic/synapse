@@ -196,9 +196,8 @@ fn vaultGit(fx: *fixture.Fixture, args: []const []const u8) !adapters.process.Re
 }
 
 /// A bare "remote" and a vault repo tracking it, both local paths -- so a
-/// push in these tests is real git plumbing with no network involved, same
-/// as the bats fixture this was ported from. Caller frees the returned
-/// remote path.
+/// push in these tests is real git plumbing with no network involved.
+/// Caller frees the returned remote path.
 fn seedVaultWithRemote(fx: *fixture.Fixture) ![]u8 {
     const remote = try std.fmt.allocPrint(fx.gpa, "{s}/vault-remote.git", .{fx.root});
     errdefer fx.gpa.free(remote);

@@ -11,8 +11,8 @@ name: release
 # would there (both run the identical `zig build -Dtarget=...` per release
 # target), so there is no real gap in the common case, and chaining this
 # workflow behind tests.yml's own success would only add latency to every
-# release for a case (compiles fine, fails a unit/bats test) a maintainer
-# tagging a known-good commit has already accepted responsibility for.
+# release for a case (compiles fine, fails a unit/integration test) a
+# maintainer tagging a known-good commit has already accepted responsibility for.
 on:
   push:
     tags: ["v*"]

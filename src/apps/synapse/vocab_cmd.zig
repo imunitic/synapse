@@ -922,8 +922,7 @@ const fixture = @import("cmd_test_support.zig");
 const fake_grammar = @import("fake_grammar.zig");
 const tags_cache_cmd = @import("tags_cache_cmd.zig");
 
-/// A real git repo (`.java`/`.py`/`.ml` registered, matching the bats
-/// fixture's own registry) plus `build()`, called directly with
+/// A real git repo (`.java`/`.py`/`.ml` registered) plus `build()`, called directly with
 /// `fake_grammar.FakeExtractor` -- avoids the real thread pool's only real
 /// dependency, a usable `comptime Ex: type`, without needing a shelled-out
 /// tree-sitter at all.
@@ -946,8 +945,7 @@ const VocabFixture = struct {
     }
 
     /// A file with one `symbol:<Name>` line per symbol -- `FakeBackend`
-    /// tags FAKE_NAME plus one tag per such line, matching the bats
-    /// fixture's own `src` helper.
+    /// tags FAKE_NAME plus one tag per such line.
     fn src(self: *VocabFixture, path: []const u8, symbols: []const []const u8) !void {
         var body: Io.Writer.Allocating = .init(self.fx.gpa);
         defer body.deinit();
