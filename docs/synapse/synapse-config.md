@@ -59,10 +59,11 @@ configure it — the row below just documents the value, not which of the two yo
 | `SYNAPSE_VAULT_DIR` | — (required) | The vault path. |
 | `SYNAPSE_VAULT_INTEGRATIONS` | — (plain disk store) | A comma-separated, outer-to-inner list of integrations layered on the one real store, `DiskStore` -- today just `git` (owns the vault's own git lifecycle -- see [synapse-vault.md](synapse-vault.md#version-control-synapse_vault_integrationsgit)). `disk` is never named -- it's always the implicit innermost element -- and naming it, an unrecognized name, or a name repeated is each a hard error, not a silent fallback. |
 | `SYNAPSE_GRAMMARS_DIR` | `~/.cache/synapse/grammars` | Where tree-sitter grammar repos are cloned and their compiled `.so`/`.dylib` libraries cached — shared across every project, not per-repo. |
-| `SYNAPSE_GRAMMARS_QUERY_PATH` | — (no overrides) | Directory of hand-authored `{ext}.scm` tags queries that preempt the entire grammar tier cascade for that extension, for the rare grammar neither automatic tier handles well (one shipping `locals.scm` and `node-types.json` but no `queries/tags.scm`, say). The same directory holds `{ext}.locals.scm`, the analogous override for local-reference filtering (see [synapse-code-cache.md](synapse-code-cache.md)). Checked fresh every run, never cached. |
+| `SYNAPSE_GRAMMARS_QUERY_PATH` | — (no overrides) | Directory of hand-authored `{ext}.scm` tags queries that preempt the entire grammar tier cascade for that extension, for the rare grammar neither automatic tier handles well (one shipping `locals.scm` and `node-types.json` but no `queries/tags.scm`, say). The same directory holds `{ext}.locals.scm`, the analogous override for local-reference filtering, and, for docstring staleness detection, `{ext}.comments.scm` (which node type is a comment) and `{ext}.declarations.scm` (additional node kinds to treat as declarations even without a tree-sitter `name` field) — see [synapse-code-cache.md](synapse-code-cache.md) and [synapse-docstring-staleness.md](synapse-docstring-staleness.md). Checked fresh every run, never cached. |
 | `SYNAPSE_GRAMMAR_LOCK_TRIES` | `300` (~60s) | How many 200ms retries a grammar clone or compile lock waits before giving up. Bounds the wait on a wedged lock left by a crashed process, not the clone or compile itself. |
 | `SYNAPSE_VAULT_PUSH_EVERY` | `5` | When `git` is one of the configured integrations, how many local commits pile up before `GitStore` spawns a detached push. `0` disables pushing. Only acts when the vault has an upstream and is genuinely ahead of it. |
 | `SYNAPSE_AUTHOR_POOL` | `0` | How many nodes `/synapse-init`'s final step authors concurrently via the `synapse-node-authoring` skill. `0` is the original one-at-a-time, same-session procedure — the only choice that preserves cross-node authorial memory. Read directly by the orchestrating agent, not by any compiled binary -- this one specifically is never a real environment variable, only ever text in the conf file an agent reads. |
+| `SYNAPSE_DOCSTRING_STALENESS_DETECTION` | — (disabled) | Opt-in gate for docstring staleness detection (see [synapse-docstring-staleness.md](synapse-docstring-staleness.md)): any non-empty value enables both the edit-time hook check and the read-time `comments-check`/`comments-sweep` commands, no boolean parsing. Absent or empty is disabled. |
 
 ## Self-populating registries (JSON)
 
@@ -183,6 +184,13 @@ tier 1/2 either — a from-source checkout with nothing configured, or a hermeti
   sources into module buckets. Anything *not* listed keeps one path segment past `src/` instead of
   collapsing it, since for most non-Java layouts that next segment is the real subsystem, not
   boilerplate.
+- **`synapse-comment-style-rules.conf`** — not itemized like the files above: read whole, as one
+  free-form rubric a docstring's actual text is judged against by inference, not parsed line by
+  line. Ships empty, the same "ship empty, earn every rule" shape as the curated-default registries
+  below, just for stylistic taste instead of ecosystem convention — see
+  [synapse-docstring-staleness.md](synapse-docstring-staleness.md). Self-populated the same way
+  `synapse-tag-vocabulary.conf` is: appended to whenever a human flags a style problem the
+  inference check missed.
 
 ## Machine-local project registry
 
@@ -212,4 +220,5 @@ listed with their files above, not repeated here.
 | `SYNAPSE_VAULT_PUSH_EVERY` | `git/store.zig` (`GitStore`) | See the `synapse.conf` table above. |
 | `SYNAPSE_CONTENT_ROOT` | npm shims, config resolution, `SchemaValidationStore` | Root of the installed `@imunitic/synapse` content package. Schema identifiers resolve directly beneath its `schema/` directory. The npm shims set it automatically when the caller has not supplied an override. |
 | `SYNAPSE_AUTHOR_POOL` | orchestrating agent, `/synapse-init` | See the `synapse.conf` table above. |
+| `SYNAPSE_DOCSTRING_STALENESS_DETECTION` | `core/docstring_index.zig`, read from both `apps/hook/staleness.zig` (Tier 1) and `apps/synapse/docstring_check.zig` (Tier 2) | See the `synapse.conf` table above. |
 | `SYNAPSE_BIN`, `SYNAPSE_HOOK_BIN` | dev/CI tooling only (`tests/test_helper.bash`, `docs/generate-cli-reference.sh`) | Point the tests or the doc generator at a specific binary (e.g. a cross-compiled one for `just test-linux`) instead of `zig-out/bin/`. Not read by the running binaries themselves, and not part of the plugin install path at all -- that fetches from the `dist` branch into `~/.cache/synapse/bin/` directly. |

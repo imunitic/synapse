@@ -48,3 +48,11 @@ SYNAPSE_GRAMMARS_DIR="$HOME/.cache/synapse/grammars"
 # dispatches subagents.
 #SYNAPSE_AUTHOR_POOL=0
 
+# Docstring staleness detection: flags a docstring or its declaration when
+# either drifts from the other, at edit time (the PostToolUse hook) and at
+# read time (`synapse comments-check`/`comments-sweep`). Unset by default --
+# an automated code-flagging feature this invasive opts in deliberately, not
+# by default. Any non-empty value enables it; see
+# docs/synapse/synapse-docstring-staleness.md.
+#SYNAPSE_DOCSTRING_STALENESS_DETECTION=1
+
