@@ -13,6 +13,8 @@ pub const model = @import("model");
 pub const tag_line = @import("tag_line.zig");
 
 pub const tags_cache = @import("tags_cache.zig");
+pub const docstring_index = @import("docstring_index.zig");
+pub const comment_style_rules = @import("comment_style_rules.zig");
 pub const index_map = @import("index_map.zig");
 pub const enumerate = @import("enumerate.zig");
 pub const vocab = @import("vocab.zig");
@@ -56,6 +58,8 @@ test {
     _ = model;
     _ = tag_line;
     _ = tags_cache;
+    _ = docstring_index;
+    _ = comment_style_rules;
     _ = index_map;
     _ = enumerate;
     _ = vocab;
@@ -92,4 +96,5 @@ test {
     _ = @import("tags_cache/format.zig");
     _ = @import("tags_cache/payload.zig");
     _ = @import("index_map/format.zig");
+    _ = @import("docstring_index/format.zig");
 }

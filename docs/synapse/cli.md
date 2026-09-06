@@ -63,6 +63,8 @@ usage: synapse <subcommand> [args]
   build-index                _index.bin from the work dir's lists
   graph-clean [--dry-run]    drop namespaces whose branch is gone upstream
   graph-wipe [--dry-run]     drop this namespace, preserving hand Notes
+  comments-check <path>      docstring staleness for one file, Tier 2 (read-time)
+  comments-sweep [--reenumerate]   docstring staleness, every tracked file, on demand
 ```
 
 ### synapse tags
@@ -669,6 +671,29 @@ usage: synapse graph-clean [--dry-run]
 
 ```
 usage: synapse graph-wipe [--dry-run]
+```
+
+### synapse comments-check
+
+```
+usage: synapse comments-check <path>
+
+  Checks one file's docstrings against the docstring index, refreshing
+  it with what a fresh parse finds. Silent to stdout when nothing is
+  new or changed. Requires SYNAPSE_DOCSTRING_STALENESS_DETECTION (see
+  synapse.conf) -- a no-op otherwise.
+```
+
+### synapse comments-sweep
+
+```
+usage: synapse comments-sweep [--reenumerate]
+
+  Checks every tracked file's docstrings against the docstring index,
+  refreshing it with what a fresh parse finds -- the whole-repo sweep
+  counterpart to `comments-check <path>`. Requires
+  SYNAPSE_DOCSTRING_STALENESS_DETECTION (see synapse.conf) -- a no-op
+  otherwise.
 ```
 
 ## synapse-hook

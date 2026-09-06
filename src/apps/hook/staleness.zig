@@ -79,24 +79,33 @@ pub fn build(
 
     const work = common.workDir(gpa, env, ns.key) orelse return null;
     defer gpa.free(work);
+
+    // Docstring staleness is deliberately independent of code-graph node
+    // coverage (see the design note) -- computed before any of the
+    // node-mapping gates below, and every early return past this point
+    // must hand it back rather than discarding it with a bare `null`, or
+    // an unmapped file (a very ordinary case) would silently swallow a
+    // real finding.
+    const docstring_note = try checkDocstrings(gpa, io, env, work, rel, file);
+
     const index_path = try std.fmt.allocPrint(gpa, "{s}/_index.bin", .{work});
     defer gpa.free(index_path);
 
     // Checked before opening -- Map.open answers a missing file with an empty
     // map (deliberate elsewhere), but here that would write out an index
     // nobody built.
-    _ = Io.Dir.cwd().statFile(io, index_path, .{}) catch return null;
+    _ = Io.Dir.cwd().statFile(io, index_path, .{}) catch return docstring_note;
 
-    var map = core.index_map.Map.open(io, index_path) catch return null;
+    var map = core.index_map.Map.open(io, index_path) catch return docstring_note;
     defer map.close(io);
-    if (map.discarded != null) return null; // an unreadable index is silence too
+    if (map.discarded != null) return docstring_note; // an unreadable index is silence too
 
     var names: [core.index_map.max_nodes_per_path][]const u8 = undefined;
     const owners = map.nodesFor(rel, &names) orelse {
         // New, unclaimed file -- queue for the _unassigned sweep. One
         // idempotent re-encode, not a 27 MB read-modify-write.
         try addUnassigned(gpa, io, &map, index_path, rel);
-        return null;
+        return docstring_note;
     };
     // Copied out: the blast-radius pass and per-node loop outlive assumptions
     // about the mapping staying put.
@@ -111,7 +120,7 @@ pub fn build(
         // Already confirmed to exist and be a regular file above -- this is
         // a genuinely unexpected failure, not the ordinary "file is gone" case.
         std.debug.print("synapse-hook: could not read edited file, staleness check skipped ({s}, {t})\n", .{ file, e });
-        return null;
+        return docstring_note;
     };
     defer gpa.free(content);
 
@@ -120,7 +129,7 @@ pub fn build(
 
     const store_ns = try std.fmt.allocPrint(gpa, "synapse/{s}", .{ns.key});
     defer gpa.free(store_ns);
-    var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, vault, store_ns, null, "")) orelse return null;
+    var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, vault, store_ns, null, "")) orelse return docstring_note;
     defer resolved.deinit();
     var store = resolved.store();
 
@@ -144,6 +153,11 @@ pub fn build(
 
     const blast = try blastRadius(gpa, io, env, vault, ns, owned.items, rel, sid);
     defer if (blast) |b| gpa.free(b);
+    // Every earlier return past `checkDocstrings` handed `docstring_note`
+    // back directly (ownership transferred, nothing to free here); reaching
+    // this point instead means it's about to be copied into `text` below,
+    // so it's this function's own memory to free from here on.
+    defer if (docstring_note) |n| gpa.free(n);
 
     // Silence by design: an edit with no dependents and no broken citation
     // produces no output.
@@ -163,8 +177,109 @@ pub fn build(
         if (findings.written().len != 0) try text.writer.writeAll("\n\n---\n\n");
         try text.writer.writeAll(b);
     }
+    if (docstring_note) |n| {
+        if (text.written().len != 0) try text.writer.writeAll("\n\n---\n\n");
+        try text.writer.writeAll(n);
+    }
     if (text.written().len == 0) return null;
     return try gpa.dupe(u8, text.written());
+}
+
+/// Tier 1 of docstring staleness detection: re-hashes the *stored* line
+/// range for every tracked triple in the just-edited file, never a fresh
+/// parse -- this binary deliberately never links libtree-sitter (see the
+/// module doc comment), so it cannot call `docstring_pairs.findPairs`
+/// itself. Silent (null) when the feature is disabled, the index doesn't
+/// exist or is unreadable, or nothing tracked for this file has changed.
+fn checkDocstrings(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    work: []const u8,
+    rel: []const u8,
+    file: []const u8,
+) !?[]u8 {
+    const vars = adapters.env.vars(env);
+    if (!try core.docstring_index.enabled(gpa, io, vars)) return null;
+
+    const index_path = try std.fmt.allocPrint(gpa, "{s}/_docstring_index.bin", .{work});
+    defer gpa.free(index_path);
+
+    var cache = core.docstring_index.Cache.open(io, index_path) catch return null;
+    defer cache.close(io);
+    if (cache.discarded != null) return null; // an unreadable index is silence too
+
+    const entries = try cache.entriesForPath(gpa, rel);
+    defer gpa.free(entries);
+    if (entries.len == 0) return null;
+
+    const content = Io.Dir.cwd().readFileAlloc(io, file, gpa, .limited(256 << 20)) catch return null;
+    defer gpa.free(content);
+
+    var findings: Io.Writer.Allocating = .init(gpa);
+    defer findings.deinit();
+
+    for (entries) |fe| {
+        const docstring_changed = rangeChanged(
+            content,
+            fe.entry.docstring_start_line,
+            fe.entry.docstring_end_line,
+            fe.entry.docstring_hash,
+        );
+        const decl_changed = rangeChanged(
+            content,
+            fe.entry.decl_start_line,
+            fe.entry.decl_end_line,
+            fe.entry.decl_hash,
+        );
+        if (!docstring_changed and !decl_changed) continue;
+
+        const what = if (docstring_changed and decl_changed)
+            "the docstring and the declaration both"
+        else if (docstring_changed)
+            "the docstring"
+        else
+            "the declaration";
+        try findings.writer.print("- `{s}` ({s}): {s} changed since last checked\n", .{ fe.name, fe.kind, what });
+
+        if (core.verify.slice(content, fe.entry.docstring_start_line, fe.entry.docstring_end_line)) |current| {
+            if (core.comment_style_rules.historianPlaguePhrase(current)) |phrase| {
+                try findings.writer.print("  historian-plague tell: \"{s}\"\n", .{phrase});
+            }
+        }
+    }
+    if (findings.written().len == 0) return null;
+
+    const style_rubric = try core.comment_style_rules.read(gpa, io, vars);
+    defer gpa.free(style_rubric);
+
+    var text: Io.Writer.Allocating = .init(gpa);
+    defer text.deinit();
+    try text.writer.writeAll(
+        "Docstring staleness: these declarations' docstrings or bodies changed since they were last checked:\n",
+    );
+    try text.writer.writeAll(findings.written());
+    if (style_rubric.len != 0) {
+        try text.writer.writeAll("\nStyle rubric to judge the affected docstring(s) against:\n");
+        try text.writer.writeAll(style_rubric);
+    }
+    return try gpa.dupe(u8, text.written());
+}
+
+/// Whether the content at `[start_line, end_line]` no longer hashes to
+/// `want_hash` -- checked at the exact stored range first, then via
+/// `core.verify.findMoved` (same trick `checkCitedEvidence` uses for
+/// `grounded_in`) in case it only shifted. True only when neither finds a
+/// match, meaning the content genuinely changed or is gone.
+fn rangeChanged(content: []const u8, start_line: u32, end_line: u32, want_hash: [32]u8) bool {
+    if (core.verify.slice(content, start_line, end_line)) |current| {
+        if (std.mem.eql(u8, &core.verify.sha256Raw(current), &want_hash)) return false;
+    }
+    var hex: [64]u8 = undefined;
+    _ = std.fmt.bufPrint(&hex, "{x}", .{&want_hash}) catch unreachable;
+    const span = end_line - start_line + 1;
+    if (core.verify.findMoved(content, span, &hex)) |_| return false;
+    return true;
 }
 
 /// The physical path of `path`'s directory, plus its basename.
@@ -1068,4 +1183,165 @@ test "an absent index is the no-namespace case, and costs nothing" {
 
     const text = try sf.edit("src/foo.ml");
     try testing.expectEqual(@as(?[]u8, null), text);
+}
+
+/// Writes `content` at `rel_path`, resolves the docstring/declaration hash
+/// pair straight from it via `core.verify.slice`, and commits a docstring
+/// index entry for `key` recording exactly what's currently on disk --
+/// the "last checked, matches" baseline every docstring test starts from.
+fn seedDocstringEntry(
+    sf: *StalenessFixture,
+    rel_path: []const u8,
+    content: []const u8,
+    key: core.docstring_index.Key,
+    docstring_line: u32,
+    decl_line: u32,
+) !void {
+    try sf.fx.writeRepoFile(rel_path, content);
+    try sf.commit("init");
+    try sf.writeIndex();
+    try sf.fx.env.put("SYNAPSE_DOCSTRING_STALENESS_DETECTION", "1");
+
+    const gpa = sf.fx.gpa;
+    const index_path = try std.fmt.allocPrint(gpa, "{s}/_docstring_index.bin", .{sf.fx.work});
+    defer gpa.free(index_path);
+    var cache = try core.docstring_index.Cache.open(sf.fx.io(), index_path);
+    defer cache.close(sf.fx.io());
+    _ = try cache.commit(gpa, sf.fx.io(), &.{.{
+        .key = key,
+        .entry = .{
+            .docstring_hash = core.verify.sha256Raw(core.verify.slice(content, docstring_line, docstring_line).?),
+            .decl_hash = core.verify.sha256Raw(core.verify.slice(content, decl_line, decl_line).?),
+            .docstring_start_line = docstring_line,
+            .docstring_end_line = docstring_line,
+            .decl_start_line = decl_line,
+            .decl_end_line = decl_line,
+        },
+    }}, &.{});
+}
+
+test "docstring staleness: a changed declaration is flagged, an unchanged docstring line is not" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+
+    const original = "// Rounds half-up.\nlet calc x = x + 1\n";
+    try seedDocstringEntry(&sf, "lib/calc.ml", original, .{
+        .path = "lib/calc.ml",
+        .name = "let calc x = x + 1",
+        .kind = "value_binding",
+    }, 1, 2);
+
+    try sf.fx.writeRepoFile("lib/calc.ml", "// Rounds half-up.\nlet calc x = x + 2\n");
+
+    const text = (try sf.edit("lib/calc.ml")).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "Docstring staleness") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "the declaration changed since last checked") != null);
+    // The docstring line itself didn't move -- not reported as changed too.
+    try testing.expect(std.mem.indexOf(u8, text, "the docstring and the declaration both") == null);
+}
+
+test "docstring staleness: unchanged content is silent, and costs no write" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+
+    const original = "// Rounds half-up.\nlet calc x = x + 1\n";
+    try seedDocstringEntry(&sf, "lib/calc.ml", original, .{
+        .path = "lib/calc.ml",
+        .name = "let calc x = x + 1",
+        .kind = "value_binding",
+    }, 1, 2);
+
+    // No edit to the file's content at all.
+    const text = try sf.edit("lib/calc.ml");
+    try testing.expectEqual(@as(?[]u8, null), text);
+}
+
+test "docstring staleness: disabled by default, even with a genuinely stale entry" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+
+    const original = "// Rounds half-up.\nlet calc x = x + 1\n";
+    try seedDocstringEntry(&sf, "lib/calc.ml", original, .{
+        .path = "lib/calc.ml",
+        .name = "let calc x = x + 1",
+        .kind = "value_binding",
+    }, 1, 2);
+    // Seeded with the flag on; explicitly turn it back off to test the
+    // opt-in default rather than relying on it never having been set.
+    _ = sf.fx.env.swapRemove("SYNAPSE_DOCSTRING_STALENESS_DETECTION");
+
+    try sf.fx.writeRepoFile("lib/calc.ml", "// Rounds half-up.\nlet calc x = x + 2\n");
+
+    const text = try sf.edit("lib/calc.ml");
+    try testing.expectEqual(@as(?[]u8, null), text);
+}
+
+test "docstring staleness: a moved-but-unchanged declaration is not flagged" {
+    // core.verify.findMoved's job: content inserted above the declaration
+    // shifts its line number without changing its bytes, which must not
+    // read as a change.
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+
+    const original = "// Rounds half-up.\nlet calc x = x + 1\n";
+    try seedDocstringEntry(&sf, "lib/calc.ml", original, .{
+        .path = "lib/calc.ml",
+        .name = "let calc x = x + 1",
+        .kind = "value_binding",
+    }, 1, 2);
+
+    // Two lines inserted above the docstring: the same pair now sits at
+    // lines 3-4 instead of 1-2.
+    try sf.fx.writeRepoFile("lib/calc.ml", "let unrelated = 1\nlet other = 2\n// Rounds half-up.\nlet calc x = x + 1\n");
+
+    const text = try sf.edit("lib/calc.ml");
+    try testing.expectEqual(@as(?[]u8, null), text);
+}
+
+test "docstring staleness: independent of code-graph node coverage -- flags even with no _index.bin at all" {
+    // The whole point of computing this before the node-mapping gates:
+    // an unmapped file (the ordinary case for most files in a repo) must
+    // not silently swallow a real finding.
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+
+    const original = "// Rounds half-up.\nlet calc x = x + 1\n";
+    try seedDocstringEntry(&sf, "lib/calc.ml", original, .{
+        .path = "lib/calc.ml",
+        .name = "let calc x = x + 1",
+        .kind = "value_binding",
+    }, 1, 2);
+    // No writeIndexBin call at all -- deliberately no _index.bin.
+
+    try sf.fx.writeRepoFile("lib/calc.ml", "// Rounds half-up.\nlet calc x = x + 2\n");
+
+    const text = (try sf.edit("lib/calc.ml")).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "Docstring staleness") != null);
+}
+
+test "docstring staleness: a historian-plague phrase in the still-current docstring is called out" {
+    const gpa = testing.allocator;
+    var sf = try StalenessFixture.init(gpa);
+    defer sf.deinit();
+
+    const original = "// no longer used elsewhere.\nlet calc x = x + 1\n";
+    try seedDocstringEntry(&sf, "lib/calc.ml", original, .{
+        .path = "lib/calc.ml",
+        .name = "let calc x = x + 1",
+        .kind = "value_binding",
+    }, 1, 2);
+
+    try sf.fx.writeRepoFile("lib/calc.ml", "// no longer used elsewhere.\nlet calc x = x + 2\n");
+
+    const text = (try sf.edit("lib/calc.ml")).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "historian-plague tell") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "no longer") != null);
 }

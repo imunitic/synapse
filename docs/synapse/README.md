@@ -33,6 +33,12 @@ matches what you're trying to understand.
   format reference: `_tags_cache.bin`'s header/record-table/path-region/payload-region byte
   layout, the payload codec each entry's tags are stored in, `format.parse`'s validation order,
   the `_refs.tsv` row format, and the `tag_line.zig` codec at the tagging boundary.
+- **[synapse-docstring-staleness.md](synapse-docstring-staleness.md)** — **Docstring Staleness
+  Detection**: an opt-in check that a docstring and its declaration still agree, using the same
+  two-tier model as code-graph node staleness. Comment/declaration pairing (independent of the
+  tags.scm cascade), the `_docstring_index.bin` on-disk format, the edit-time hook (pure byte
+  re-hashing, no tree-sitter) and the read-time `comments-check`/`comments-sweep` commands (the
+  only place a real parse happens), and the shared historian-plague/style-rubric inspection pass.
 - **[cli.md](cli.md)** — reference for every subcommand of `synapse` and every hook of
   `synapse-hook`: usage, arguments and exit codes. **Generated**, by
   `generate-cli-reference.sh`, from what the binaries print for `--help` — so it cannot
@@ -63,6 +69,9 @@ up as raw source in Markview and other plain Markdown viewers, while a linked im
 - `diagrams/synapse-code-cache-layout.png`, `-header.png`, `-record.png`, `-tag-record.png` — the
   Code Cache's on-disk byte layout: file regions, the header, the record table, and the payload
   codec's per-tag record.
+- `diagrams/synapse-docstring-staleness.png` — Docstring Staleness Detection's two tiers over one
+  shared `_docstring_index.bin`: the edit-time hook's pure byte re-hashing versus the read-time
+  CLI's real parse, and where the style rubric enters.
 - `diagrams/design-task-workflow.png` — the design-note → task-note pipeline.
 - `diagrams/synapse-pipeline.png` — every script that owns a build or repair step, in one picture: which step each one owns,
   what it writes, and where the model's two contributions enter. Laid out as three lanes (model

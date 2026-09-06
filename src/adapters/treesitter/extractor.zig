@@ -79,17 +79,6 @@ pub const TsBackend = struct {
         /// This extension's tree-sitter scope, passed straight to `Tagger.init`.
         scope: []const u8,
     ) !Grammar {
-        const symbol = if (sub_symbol) |s| try gpa.dupe(u8, s) else try grammar.symbolFor(gpa, name);
-        defer gpa.free(symbol);
-
-        // Keyed by symbol, not repo name: one repo can ship several grammars
-        // (tree_sitter_ocaml / tree_sitter_ocaml_interface), and two
-        // extensions resolving to one language (kt/kts) share a library.
-        const lib_path = try std.fmt.allocPrint(gpa, "{s}/lib/{s}.{s}", .{
-            grammars_dir, symbol, grammar.sharedLibExt(),
-        });
-        defer gpa.free(lib_path);
-
         // Parser may live under a sub-directory; the tags query stays at the
         // repo root, shared by every sub-grammar.
         const src_root = if (sub_path) |p|
@@ -98,9 +87,7 @@ pub const TsBackend = struct {
             try gpa.dupe(u8, repo_dir);
         defer gpa.free(src_root);
 
-        try grammar.build(io, gpa, src_root, lib_path, grammar.default_lock_tries);
-
-        const lang = try grammar.load(gpa, lib_path, symbol);
+        const lang = try grammar.resolveAndLoad(gpa, io, repo_dir, grammars_dir, name, sub_path, sub_symbol, grammar.default_lock_tries);
 
         // Override: checked first, wins over every tier.
         // FileNotFound means no override; anything else propagates.

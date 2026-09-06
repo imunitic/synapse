@@ -40,6 +40,8 @@ const project_index_cmd = @import("project_index_cmd.zig");
 const graph_cmd = @import("graph_cmd.zig");
 const namespace_cmd = @import("namespace_cmd.zig");
 const doctor_cmd = @import("doctor_cmd.zig");
+const comments_check_cmd = @import("comments_check_cmd.zig");
+const comments_sweep_cmd = @import("comments_sweep_cmd.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -230,6 +232,14 @@ pub fn Table(comptime Extractor: type) type {
             _ = .{ argv0, trace };
             return brief_cmd.run(gpa, io, env, args);
         }
+        fn commentsCheck(gpa: Allocator, io: Io, env: *EnvironMap, args: *ArgsIterator, argv0: []const u8, trace: ?[]const u8) anyerror!u8 {
+            _ = .{ argv0, trace };
+            return comments_check_cmd.run(gpa, io, env, args);
+        }
+        fn commentsSweep(gpa: Allocator, io: Io, env: *EnvironMap, args: *ArgsIterator, argv0: []const u8, trace: ?[]const u8) anyerror!u8 {
+            _ = .{ argv0, trace };
+            return comments_sweep_cmd.run(gpa, io, env, args);
+        }
 
         // Order matches the old cascade's, purely so a diff against it reads
         // as a rename rather than a reshuffle -- dispatch itself is a linear
@@ -278,6 +288,8 @@ pub fn Table(comptime Extractor: type) type {
             .{ .name = "build-namespaces", .run = buildNamespaces },
             .{ .name = "link-graph", .run = linkGraph },
             .{ .name = "brief", .run = brief },
+            .{ .name = "comments-check", .run = commentsCheck },
+            .{ .name = "comments-sweep", .run = commentsSweep },
         };
     };
 }

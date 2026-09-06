@@ -196,11 +196,18 @@ pub fn slice(content: []const u8, start: usize, end: usize) ?[]const u8 {
 }
 
 pub fn sha256Hex(content: []const u8) [64]u8 {
-    var raw: [32]u8 = undefined;
-    std.crypto.hash.sha2.Sha256.hash(content, &raw, .{});
+    const raw = sha256Raw(content);
     var hex: [64]u8 = undefined;
     _ = std.fmt.bufPrint(&hex, "{x}", .{&raw}) catch unreachable;
     return hex;
+}
+
+/// The same hash as 32 raw bytes, for a caller storing it rather than
+/// printing it -- the `sha256Hex`/`blobHashRaw` pairing, applied here.
+pub fn sha256Raw(content: []const u8) [32]u8 {
+    var raw: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(content, &raw, .{});
+    return raw;
 }
 
 /// Byte offset where the line beginning at `at` ends -- one past its own
@@ -256,6 +263,14 @@ test "blobHash is git's object hash, header included" {
         "3b18e512dba79e4c8300dd08aeb37f8e728b8dad",
         &blobHash("hello world\n"),
     );
+}
+
+test "sha256Raw is sha256Hex's own 32 raw bytes, not a git blob hash" {
+    const hex = sha256Hex("hello world\n");
+    const raw = sha256Raw("hello world\n");
+    var raw_as_hex: [64]u8 = undefined;
+    _ = std.fmt.bufPrint(&raw_as_hex, "{x}", .{&raw}) catch unreachable;
+    try testing.expectEqualStrings(&hex, &raw_as_hex);
 }
 
 test "staleness checks in the order that makes each answer meaningful" {

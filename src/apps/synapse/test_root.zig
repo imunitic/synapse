@@ -31,6 +31,9 @@ const brief_cmd = @import("brief_cmd.zig");
 const graph_cmd = @import("graph_cmd.zig");
 const doctor_cmd = @import("doctor_cmd.zig");
 const dispatch = @import("dispatch.zig");
+const docstring_check = @import("docstring_check.zig");
+const comments_check_cmd = @import("comments_check_cmd.zig");
+const comments_sweep_cmd = @import("comments_sweep_cmd.zig");
 
 comptime {
     _ = core;
@@ -59,4 +62,7 @@ comptime {
     _ = graph_cmd;
     _ = doctor_cmd;
     _ = dispatch;
+    _ = docstring_check;
+    _ = comments_check_cmd;
+    _ = comments_sweep_cmd;
 }

@@ -1,0 +1,65 @@
+---
+title: Docstring Staleness Detection — two tiers over one shared index
+---
+flowchart TB
+    classDef trigger fill:#d0ebff,stroke:#1971c2,color:#1e1e1e
+    classDef hook fill:#ffd8a8,stroke:#e8590c,color:#1e1e1e
+    classDef cli fill:#e5dbff,stroke:#6741d9,color:#1e1e1e
+    classDef artifact fill:#d3f9d8,stroke:#2f9e44,color:#1e1e1e
+    classDef gate fill:#f1f3f5,stroke:#868e96,color:#1e1e1e
+
+    GATE{"SYNAPSE_DOCSTRING_STALENESS_DETECTION<br/>set?"}
+    EDIT["a source file is edited"]
+    READ["a file is about to be read/trusted<br/>or an on-demand sweep runs"]
+
+    subgraph T1["Tier 1 · hook, on edit"]
+        direction TB
+        H["synapse-hook staleness<br/>PostToolUse: Write / Edit / MultiEdit<br/>never links libtree-sitter"]
+        ENTRIES["entriesForPath: every tracked<br/>(name, kind) triple for this file"]
+        REHASH["re-hash the STORED line range<br/>core.verify.slice + sha256Raw"]
+        MOVED{"exact range mismatch?"}
+        FINDMOVED["core.verify.findMoved:<br/>shifted but still present?"]
+        HIT["finding: docstring and/or<br/>declaration changed"]
+        H --> ENTRIES --> REHASH --> MOVED
+        MOVED -->|"yes"| FINDMOVED
+        MOVED -->|"no"| SILENT1["say nothing"]
+        FINDMOVED -->|"found nearby"| SILENT1
+        FINDMOVED -->|"not found"| HIT
+    end
+
+    subgraph T2["Tier 2 · synapse CLI, at read time"]
+        direction TB
+        PARSE["docstring_pairs.findPairs<br/>real tree-sitter parse"]
+        PAIR["comment run + has_name_field<br/>or a .declarations.scm override"]
+        DIFF["diff fresh pairs vs the index:<br/>new, changed, or evicted"]
+        COMMIT["commit: only place<br/>index entries get written"]
+        CMD1["synapse comments-check &lt;path&gt;"]
+        CMD2["synapse comments-sweep<br/>every tracked file"]
+        CMD1 --> PARSE
+        CMD2 --> PARSE
+        PARSE --> PAIR --> DIFF --> COMMIT
+    end
+
+    INDEX[("_docstring_index.bin<br/>(path, name, kind) → two hashes,<br/>two line ranges")]
+    STYLE["historian-plague phrase-grep<br/>+ synapse-comment-style-rules.conf rubric"]
+
+    GATE -->|"off"| SILENT2["Tier 1 and Tier 2 both no-op"]
+    GATE -->|"on"| EDIT
+    GATE -->|"on"| READ
+    EDIT --> H
+    READ --> CMD1
+    READ --> CMD2
+
+    ENTRIES -.->|"reads"| INDEX
+    COMMIT -.->|"writes"| INDEX
+    HIT --> STYLE
+    DIFF -.->|"a hit also runs"| STYLE
+
+    class GATE gate
+    class EDIT,READ trigger
+    class H,ENTRIES,REHASH,MOVED,FINDMOVED,HIT,SILENT1 hook
+    class PARSE,PAIR,DIFF,COMMIT,CMD1,CMD2 cli
+    class INDEX,STYLE artifact
+
+    style T1 fill:#ffffff,stroke:#adb5bd,stroke-dasharray:4 4
+    style T2 fill:#ffffff,stroke:#adb5bd,stroke-dasharray:4 4

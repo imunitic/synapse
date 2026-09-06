@@ -1,0 +1,18 @@
+# Read live from the Synapse package as a fallback (tier 3) -- never copied or
+# seeded anywhere, and this template file is never written to. To customize,
+# create your own synapse-comment-style-rules.conf at $XDG_CONFIG_HOME/synapse/,
+# else ~/.config/synapse/ (the legacy ~/.claude/ also works); your own copy
+# always wins and is never touched by Synapse.
+#
+# Ships empty: no rule here presumes one team's stylistic taste is universal.
+# Self-managed by the docstring staleness inspection pass -- whenever a human
+# flags a docstring's phrasing or a stale claim the inference check missed,
+# the agent fixes the instance and appends the rule that would have caught
+# it, the same self-populating shape synapse-tag-vocabulary.conf and
+# synapse-projects.conf already use. Also safe to edit or seed by hand any
+# time -- this repo's own CLAUDE.local.md comment rules are one natural
+# first manual seed, not something Synapse bakes in as anyone's default.
+#
+# Format: one rule per line, plain English, judged by inference against a
+# docstring's actual text -- not a regex, not machine-parsed. Blank lines and
+# `#` comments are ignored.

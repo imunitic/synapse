@@ -24,6 +24,7 @@ pub const grammar = @import("grammar.zig");
 pub const tagger = @import("tagger.zig");
 pub const extractor = @import("extractor.zig");
 pub const node_types = @import("node_types.zig");
+pub const docstring_pairs = @import("docstring_pairs.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -232,6 +233,7 @@ test {
     _ = tagger;
     _ = extractor;
     _ = node_types;
+    _ = docstring_pairs;
 }
 
 test "libtree-sitter is linked, and its ABI range covers the grammars in use" {

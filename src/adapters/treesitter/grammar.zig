@@ -333,6 +333,49 @@ pub fn load(gpa: Allocator, lib_path: []const u8, symbol: []const u8) !*const c.
     return lang;
 }
 
+/// Compile (if not already up to date) and load the language for a grammar
+/// already cloned at `repo_dir` -- symbol resolution, lib-path construction,
+/// `build`, then `load`, exactly what `TsBackend.load`'s own tags.scm-aware
+/// wrapper used to inline before its query-reading and `Tagger` construction.
+/// Shared because every caller that needs a parseable grammar needs this
+/// same sequence regardless of what it then does with the tree: the
+/// `tags.scm`/`locals.scm`/generated cascade calls it here, and an
+/// independent, non-tagger consumer (docstring/declaration pairing) calls
+/// it too, deliberately without pulling in anything past this point --
+/// see `docstring_pairs.zig`.
+pub fn resolveAndLoad(
+    gpa: Allocator,
+    io: Io,
+    repo_dir: []const u8,
+    grammars_dir: []const u8,
+    name: []const u8,
+    /// Sub-directory holding `src/parser.c`, or null for the repo root.
+    sub_path: ?[]const u8,
+    /// Explicit `tree_sitter_*` symbol, or null to derive from `name`.
+    sub_symbol: ?[]const u8,
+    max_tries: usize,
+) !*const c.TSLanguage {
+    const symbol = if (sub_symbol) |s| try gpa.dupe(u8, s) else try symbolFor(gpa, name);
+    defer gpa.free(symbol);
+
+    // Keyed by symbol, not repo name: one repo can ship several grammars
+    // (tree_sitter_ocaml / tree_sitter_ocaml_interface), and two extensions
+    // resolving to one language (kt/kts) share a library.
+    const lib_path = try std.fmt.allocPrint(gpa, "{s}/lib/{s}.{s}", .{
+        grammars_dir, symbol, sharedLibExt(),
+    });
+    defer gpa.free(lib_path);
+
+    const src_root = if (sub_path) |p|
+        try std.fs.path.join(gpa, &.{ repo_dir, p })
+    else
+        try gpa.dupe(u8, repo_dir);
+    defer gpa.free(src_root);
+
+    try build(io, gpa, src_root, lib_path, max_tries);
+    return load(gpa, lib_path, symbol);
+}
+
 const testing = std.testing;
 
 test "symbol names are derived the way the CLI derives them" {

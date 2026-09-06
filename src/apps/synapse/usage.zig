@@ -55,5 +55,7 @@ pub const text =
     \\  build-index                _index.bin from the work dir's lists
     \\  graph-clean [--dry-run]    drop namespaces whose branch is gone upstream
     \\  graph-wipe [--dry-run]     drop this namespace, preserving hand Notes
+    \\  comments-check <path>      docstring staleness for one file, Tier 2 (read-time)
+    \\  comments-sweep [--reenumerate]   docstring staleness, every tracked file, on demand
     \\
 ;
