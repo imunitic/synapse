@@ -381,11 +381,7 @@ fn stagePreserved(gpa: Allocator, io: Io, ctx: *const Context, body: []const u8)
     const full = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ ctx.vault, rel });
     defer gpa.free(full);
 
-    const stamp = blk: {
-        const res = try adapters.process.run(io, gpa, &.{ "date", "+%Y-%m-%d %H:%M" }, .{});
-        defer res.deinit(gpa);
-        break :blk try gpa.dupe(u8, if (res.ok()) std.mem.trim(u8, res.stdout, " \t\r\n") else "");
-    };
+    const stamp = adapters.local_timestamp.now(gpa, io) catch try gpa.dupe(u8, "");
     defer gpa.free(stamp);
 
     var note: Io.Writer.Allocating = .init(gpa);

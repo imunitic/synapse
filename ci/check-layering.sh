@@ -36,13 +36,18 @@ cd "$(dirname "$0")/.."
 # reach back, or it acquires libtree-sitter by the side door. Apps are the wiring
 # layer: they may reach every adapter module, including the ones that are separate
 # modules precisely so a different app can leave them out.
+#
+# `zeit` is a real third-party dependency (build.zig.zon), not a sibling module,
+# but the allowlist below is closed either way -- listed here for plain
+# `adapters/` files only (`local_timestamp.zig`), since it's pure Zig with zero
+# dependencies of its own and never links libc, unlike `treesitter`'s C library.
 find src -name '*.zig' | sort | xargs awk '
 function allowed_for(f) {
     if (f ~ /^src\/model\//)                 return " ";
     if (f ~ /^src\/ports\//)                 return " model ";
     if (f ~ /^src\/core\//)                  return " model ports ";
     if (f ~ /^src\/adapters\/treesitter\//)  return " model ports core adapters ";
-    if (f ~ /^src\/adapters\//)              return " model ports core ";
+    if (f ~ /^src\/adapters\//)              return " model ports core zeit ";
     return " model ports core adapters treesitter ";
 }
 

@@ -1500,7 +1500,12 @@ fn withRealSchemas(fx: *fixture.Fixture) !void {
     });
 }
 
-const schema_fixed_timestamp = "2026-08-30 01:00:00 CEST";
+const schema_fixed_timestamp = "2026-08-30T01:00:00+02:00";
+// `built_at` (graph-node/v1) keeps its own coarser, unrelated shape --
+// `type: string` with a `YYYY-MM-DD HH:MM` pattern, not `type: timestamp`
+// -- so it can no longer be sliced out of `schema_fixed_timestamp` now that
+// the two shapes have diverged.
+const schema_fixed_built_at = "2026-08-30 01:00";
 
 fn bareNoteBody(gpa: Allocator, title: []const u8, id: []const u8) ![]u8 {
     return std.fmt.allocPrint(gpa, "---\n" ++
@@ -1684,7 +1689,7 @@ fn graphNodeBody(gpa: Allocator, title: []const u8, sources_tail: []const u8) ![
         "branch: main\n" ++
         "sources_digest: " ++ ("df91a067" ** 8) ++ "\n" ++
         "stale: false\n" ++
-        "built_at: \"" ++ schema_fixed_timestamp[0..16] ++ "\"\n" ++
+        "built_at: \"" ++ schema_fixed_built_at ++ "\"\n" ++
         "{s}" ++
         "---\n\n" ++
         "# {s}\n\n" ++
@@ -1728,7 +1733,7 @@ test "the shipped graph-node/v1 schema refuses sources ahead of another declared
         "sources:\n  - path: acme_ecs/world.ml\n    hash: aa\n" ++
         "sources_digest: " ++ ("df91a067" ** 8) ++ "\n" ++
         "stale: false\n" ++
-        "built_at: \"" ++ schema_fixed_timestamp[0..16] ++ "\"\n" ++
+        "built_at: \"" ++ schema_fixed_built_at ++ "\"\n" ++
         "---\n\n" ++
         "# Widget core\n\n" ++
         "## Summary\n\nPlain-English explanation.\n\n" ++

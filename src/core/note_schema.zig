@@ -372,7 +372,7 @@ pub fn validateNote(
             if (rule.get("enum")) |v| if (!stringInValueList(value, v))
                 return try diag(gpa, "frontmatter.{s}: value '{s}' is not allowed", .{ field.key, value });
             if (std.mem.eql(u8, type_name, "timestamp") and !validTimestamp(value))
-                return try diag(gpa, "frontmatter.{s}: expected YYYY-MM-dd HH:mm:ss TZ in local time", .{field.key});
+                return try diag(gpa, "frontmatter.{s}: expected RFC3339, YYYY-MM-DDTHH:MM:SS then Z or a colon-separated numeric offset", .{field.key});
         }
 
         if (context.existing) |existing| if (context.mode != .create and boolAt(rule, "mutable") == false) {
@@ -808,9 +808,15 @@ fn validateChecks(gpa: Allocator, checks: *const Value, note: []const u8, path: 
             defer if (left) |l| gpa.free(l);
             const right = try resolveRef(gpa, note, path, values.list[1].string);
             defer if (right) |r| gpa.free(r);
-            if (left == null or right == null or left.?.len < 19 or right.?.len < 19)
+            // Parsed into real, offset-normalized instants rather than
+            // compared as raw text -- two RFC3339 strings can share the
+            // same local wall-clock reading with different offsets (DST's
+            // "fall back" transition), which sorts backwards as plain text.
+            const left_secs = if (left) |l| parseInstantSeconds(l) else null;
+            const right_secs = if (right) |r| parseInstantSeconds(r) else null;
+            if (left_secs == null or right_secs == null)
                 return try diag(gpa, "{s}: must not precede {s} — a value is missing or malformed", .{ values.list[0].string, values.list[1].string });
-            if (std.mem.lessThan(u8, left.?[0..19], right.?[0..19]))
+            if (left_secs.? < right_secs.?)
                 return try diag(gpa, "{s}: must not precede {s}", .{ values.list[0].string, values.list[1].string });
             continue;
         }
@@ -1092,19 +1098,77 @@ fn parseDecimal(raw: []const u8) ?i64 {
     return std.fmt.parseInt(i64, raw, 10) catch null;
 }
 
+/// RFC3339: `YYYY-MM-DDTHH:MM:SS` then either `Z` or a colon-separated
+/// numeric offset (`+02:00`/`-05:00`) -- the exact shape `zeit`'s own
+/// `"2006-01-02T15:04:05Z07:00"` gofmt writes. A bare numeric offset with no
+/// colon (`+0200`, what `strftime`'s `%z` would write) is deliberately not
+/// accepted: nothing in this codebase ever writes that shape, and accepting
+/// it too would just be an unused second way to spell the same thing.
 fn validTimestamp(value: []const u8) bool {
-    if (value.len < 23) return false;
+    if (value.len < 20) return false;
     const digits = [_]usize{ 0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18 };
     for (digits) |i| if (!std.ascii.isDigit(value[i])) return false;
-    if (value[4] != '-' or value[7] != '-' or value[10] != ' ' or value[13] != ':' or value[16] != ':' or value[19] != ' ') return false;
+    if (value[4] != '-' or value[7] != '-' or value[10] != 'T' or value[13] != ':' or value[16] != ':') return false;
     const month = std.fmt.parseInt(u8, value[5..7], 10) catch return false;
     const day = std.fmt.parseInt(u8, value[8..10], 10) catch return false;
     const hour = std.fmt.parseInt(u8, value[11..13], 10) catch return false;
     const minute = std.fmt.parseInt(u8, value[14..16], 10) catch return false;
     const second = std.fmt.parseInt(u8, value[17..19], 10) catch return false;
     if (month < 1 or month > 12 or day < 1 or day > 31 or hour > 23 or minute > 59 or second > 59) return false;
-    for (value[20..]) |c| if (!std.ascii.isAlphabetic(c) and c != '+' and c != '-' and !std.ascii.isDigit(c)) return false;
-    return true;
+
+    const zone = value[19..];
+    if (std.mem.eql(u8, zone, "Z")) return true;
+    if (zone.len != 6 or (zone[0] != '+' and zone[0] != '-') or zone[3] != ':') return false;
+    if (!std.ascii.isDigit(zone[1]) or !std.ascii.isDigit(zone[2])) return false;
+    if (!std.ascii.isDigit(zone[4]) or !std.ascii.isDigit(zone[5])) return false;
+    const off_hour = std.fmt.parseInt(u8, zone[1..3], 10) catch return false;
+    const off_minute = std.fmt.parseInt(u8, zone[4..6], 10) catch return false;
+    return off_hour <= 23 and off_minute <= 59;
+}
+
+/// Days since 1970-01-01 for a civil (year, month, day) date -- Howard
+/// Hinnant's `days_from_civil`, pure integer arithmetic. Written out here
+/// rather than reached through `std.time` or a date library: `core` may
+/// only reach the system through an injected `Io` (`ci/check-layering.sh`
+/// rejects a bare `std.time`, and `zeit` itself lives in `adapters`, which
+/// `core` has no import edge to at all) -- and this needs no such reach in
+/// the first place, since it is 100% closed-form arithmetic.
+fn daysFromCivil(year: i64, month: u8, day: u8) i64 {
+    const y: i64 = if (month <= 2) year - 1 else year;
+    const era = @divFloor(if (y >= 0) y else y - 399, 400);
+    const yoe = y - era * 400; // [0, 399]
+    const mp = @mod(@as(i64, month) + 9, 12); // [0, 11], Mar=0 .. Feb=11
+    const doy = @divFloor(153 * mp + 2, 5) + day - 1; // [0, 365]
+    const doe = yoe * 365 + @divFloor(yoe, 4) - @divFloor(yoe, 100) + doy; // [0, 146096]
+    return era * 146097 + doe - 719468;
+}
+
+/// Seconds since an arbitrary but fixed reference point (not necessarily
+/// the real Unix epoch -- self-consistent is all a comparison needs), from
+/// an RFC3339 string already known to satisfy `validTimestamp`. Offset-aware,
+/// so two values with different offsets compare correctly by real elapsed
+/// time rather than by local wall-clock digits -- the DST "fall back" case
+/// two RFC3339 strings can share the same local reading with different
+/// offsets, sorting backwards if compared as raw text instead.
+fn parseInstantSeconds(value: []const u8) ?i64 {
+    if (!validTimestamp(value)) return null;
+    const year = std.fmt.parseInt(i64, value[0..4], 10) catch return null;
+    const month = std.fmt.parseInt(u8, value[5..7], 10) catch return null;
+    const day = std.fmt.parseInt(u8, value[8..10], 10) catch return null;
+    const hour = std.fmt.parseInt(i64, value[11..13], 10) catch return null;
+    const minute = std.fmt.parseInt(i64, value[14..16], 10) catch return null;
+    const second = std.fmt.parseInt(i64, value[17..19], 10) catch return null;
+
+    const zone = value[19..];
+    const offset_seconds: i64 = if (std.mem.eql(u8, zone, "Z")) 0 else blk: {
+        const sign: i64 = if (zone[0] == '+') 1 else -1;
+        const off_hour = std.fmt.parseInt(i64, zone[1..3], 10) catch return null;
+        const off_minute = std.fmt.parseInt(i64, zone[4..6], 10) catch return null;
+        break :blk sign * (off_hour * 3600 + off_minute * 60);
+    };
+
+    const days = daysFromCivil(year, month, day);
+    return days * 86400 + hour * 3600 + minute * 60 + second - offset_seconds;
 }
 
 fn vocabularyContains(text: []const u8, wanted: []const u8, projection_values: bool) bool {
@@ -1285,8 +1349,8 @@ test "validates a bare note with flow-style tags" {
         "schema: vault-note/v1\n" ++
         "title: Example\n" ++
         "note_id: sb-081\n" ++
-        "created: '2026-08-30 10:00:00 CEST'\n" ++
-        "updated: '2026-08-30 10:00:00 CEST'\n" ++
+        "created: '2026-08-30T10:00:00+02:00'\n" ++
+        "updated: '2026-08-30T10:00:00+02:00'\n" ++
         "tags: [synapse, architecture]\n" ++
         "extra: preserved\n" ++
         "---\n\n# Example\n\n## Summary\nUseful.\n";
@@ -1317,9 +1381,9 @@ test "immutable identity changes are rejected without a vault scan" {
     var doc = try schema_yaml.parse(testing.allocator, bare_schema);
     defer doc.deinit();
     const existing =
-        "---\nschema: vault-note/v1\ntitle: Example\nnote_id: sb-081\ncreated: '2026-08-30 10:00:00 CEST'\nupdated: '2026-08-30 10:00:00 CEST'\ntags: []\n---\n# Example\n## Summary\nOld\n";
+        "---\nschema: vault-note/v1\ntitle: Example\nnote_id: sb-081\ncreated: '2026-08-30T10:00:00+02:00'\nupdated: '2026-08-30T10:00:00+02:00'\ntags: []\n---\n# Example\n## Summary\nOld\n";
     const changed =
-        "---\nschema: vault-note/v1\ntitle: Example\nnote_id: sb-999\ncreated: '2026-08-30 10:00:00 CEST'\nupdated: '2026-08-30 11:00:00 CEST'\ntags: []\n---\n# Example\n## Summary\nNew\n";
+        "---\nschema: vault-note/v1\ntitle: Example\nnote_id: sb-999\ncreated: '2026-08-30T10:00:00+02:00'\nupdated: '2026-08-30T11:00:00+02:00'\ntags: []\n---\n# Example\n## Summary\nNew\n";
     const message = (try validateNote(testing.allocator, doc.root, changed, "research/Example.md", .{
         .mode = .update,
         .existing = existing,
@@ -1382,6 +1446,27 @@ test "min_length diagnostics carry the configured bound" {
     try expectNoteMessage(source, "---\ntitle: Hi\n---\n# Hi\n", "x.md", .{ .mode = .create }, "frontmatter.title: must be at least 5 characters");
 }
 
+test "validTimestamp accepts RFC3339 with Z or a colon offset, rejects the old shape and a bare numeric offset" {
+    try testing.expect(validTimestamp("2026-09-06T21:29:16Z"));
+    try testing.expect(validTimestamp("2026-09-06T21:29:16+02:00"));
+    try testing.expect(validTimestamp("2026-09-06T21:29:16-05:30"));
+    try testing.expect(!validTimestamp("2026-09-06 21:29:16 CEST")); // the old shape
+    try testing.expect(!validTimestamp("2026-09-06T21:29:16+0200")); // no colon (strftime %z's shape)
+    try testing.expect(!validTimestamp("2026-09-06T25:00:00Z")); // hour out of range
+    try testing.expect(!validTimestamp("2026-09-06T21:29:16+24:00")); // offset hour out of range
+    try testing.expect(!validTimestamp("2026-09-06T21:29:16")); // no zone at all
+}
+
+test "parseInstantSeconds agrees across equivalent offsets and rejects a malformed value" {
+    // Same real instant, two different offsets -- must parse to the same
+    // total, the property `not_before`'s comparison actually depends on.
+    try testing.expectEqual(
+        parseInstantSeconds("2026-09-06T21:29:16Z").?,
+        parseInstantSeconds("2026-09-06T23:29:16+02:00").?,
+    );
+    try testing.expectEqual(@as(?i64, null), parseInstantSeconds("not a timestamp"));
+}
+
 test "not_before diagnoses a missing field instead of passing silently" {
     const source =
         "schema: synapse-note-schema/v1\n" ++
@@ -1442,11 +1527,41 @@ test "not_before rejects a timestamp that precedes its pair and accepts the reve
         "checks:\n" ++
         "  - not_before: [frontmatter.updated, frontmatter.created]\n";
     try expectNoteMessage(source,
-        "---\ntitle: Example\nupdated: '2026-08-30 01:00:00 CEST'\ncreated: '2026-08-30 02:00:00 CEST'\n---\n# Example\n",
+        "---\ntitle: Example\nupdated: '2026-08-30T01:00:00+02:00'\ncreated: '2026-08-30T02:00:00+02:00'\n---\n# Example\n",
         "x.md", .{ .mode = .create }, "frontmatter.updated: must not precede frontmatter.created");
     try expectNoteOk(source,
-        "---\ntitle: Example\nupdated: '2026-08-30 02:00:00 CEST'\ncreated: '2026-08-30 01:00:00 CEST'\n---\n# Example\n",
+        "---\ntitle: Example\nupdated: '2026-08-30T02:00:00+02:00'\ncreated: '2026-08-30T01:00:00+02:00'\n---\n# Example\n",
         "x.md", .{ .mode = .create });
+}
+
+test "not_before compares real instants across a DST fall-back, not raw text" {
+    // 2026-10-25T02:30:00+02:00 and 2026-10-25T02:30:00+01:00 share the
+    // same local wall-clock reading but are an hour apart in real terms
+    // (the EU's fall-back transition) -- "+01:00" < "+02:00" lexically, so
+    // a plain string compare would get this backwards.
+    const source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "      required: true\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "checks:\n" ++
+        "  - not_before: [frontmatter.updated, frontmatter.created]\n";
+    // created before the transition, updated an hour later (after it) --
+    // genuinely later in real terms, so this must pass.
+    try expectNoteOk(source,
+        "---\ntitle: Example\nupdated: '2026-10-25T02:30:00+01:00'\ncreated: '2026-10-25T02:30:00+02:00'\n---\n# Example\n",
+        "x.md", .{ .mode = .create });
+    // Reversed: updated is genuinely earlier in real terms now, so this
+    // must be rejected -- a byte-prefix compare would have accepted it.
+    try expectNoteMessage(source,
+        "---\ntitle: Example\nupdated: '2026-10-25T02:30:00+02:00'\ncreated: '2026-10-25T02:30:00+01:00'\n---\n# Example\n",
+        "x.md", .{ .mode = .create }, "frontmatter.updated: must not precede frontmatter.created");
 }
 
 test "const check applies on creation and skips on update" {
@@ -1923,7 +2038,7 @@ test "migration cannot introduce an immutable field" {
     defer doc.deinit();
     const existing = "---\ntitle: Example\n---\n# Example\n## Summary\nOld\n";
     const candidate =
-        "---\nschema: vault-note/v1\ntitle: Example\nnote_id: sb-081\ncreated: '2026-08-30 10:00:00 CEST'\nupdated: '2026-08-30 10:00:00 CEST'\ntags: []\n---\n# Example\n## Summary\nNew\n";
+        "---\nschema: vault-note/v1\ntitle: Example\nnote_id: sb-081\ncreated: '2026-08-30T10:00:00+02:00'\nupdated: '2026-08-30T10:00:00+02:00'\ntags: []\n---\n# Example\n## Summary\nNew\n";
     const message = (try validateNote(testing.allocator, doc.root, candidate, "research/Example.md", .{
         .mode = .migration,
         .existing = existing,

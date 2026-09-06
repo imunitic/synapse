@@ -103,6 +103,16 @@ pub fn build(b: *std.Build) void {
     adapters.addImport("core", core);
     adapters.addImport("ports", ports);
 
+    // Pure Zig, zero dependencies of its own, no `.link_libc` -- confirmed
+    // directly in its own build.zig.zon/build.zig before adopting it.
+    // Belongs in `adapters` alongside `local_timestamp.zig`, the one place
+    // that owns real-clock/timezone concerns; both `synapse` and
+    // `synapse-hook` import `adapters`, so this reaches the hook binary's
+    // own timestamp call sites (`stop_nudge.zig`) too, without pulling in
+    // libc or tree-sitter for either binary.
+    const zeit_dep = b.dependency("zeit", .{ .target = target, .optimize = optimize });
+    adapters.addImport("zeit", zeit_dep.module("zeit"));
+
     // libtree-sitter, pinned by commit hash in build.zig.zon. Upstream ships
     // its own build.zig and we use its artifact rather than compiling the C
     // ourselves -- but the pin is a master commit, not a release tag, and that

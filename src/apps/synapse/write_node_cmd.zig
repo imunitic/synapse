@@ -362,7 +362,7 @@ pub fn write(
     const modules = try core.query.moduleCounts(gpa, paths.items, ctx.chains);
     defer gpa.free(modules);
 
-    const built_at = try nowStamp(gpa, io);
+    const built_at = try adapters.local_timestamp.builtAt(gpa, io);
     defer gpa.free(built_at);
 
     var note: Io.Writer.Allocating = .init(gpa);
@@ -557,15 +557,6 @@ fn refreshTagsCache(
     defer cache.close(io);
     tags_cache_cmd.backfill(Extractor, gpa, io, env, ctx.repo_root, &cache, pairs, trace) catch
         std.debug.print("{s}: tags cache refresh failed (non-fatal)\n", .{prog});
-}
-
-/// `date '+%Y-%m-%d %H:%M'`, spawned for local time -- the timezone
-/// database `date` reads has no Zig stdlib equivalent.
-fn nowStamp(gpa: Allocator, io: Io) ![]u8 {
-    const res = try adapters.process.run(io, gpa, &.{ "date", "+%Y-%m-%d %H:%M" }, .{});
-    defer res.deinit(gpa);
-    if (!res.ok()) return error.NoDate;
-    return gpa.dupe(u8, std.mem.trim(u8, res.stdout, " \t\r\n"));
 }
 
 const testing = std.testing;
@@ -900,7 +891,13 @@ test "writing a node from its own recovered body is idempotent" {
     const pass2 = (try fx.readNode(gpa, "Roundtrip")).?;
     defer gpa.free(pass2);
 
-    // Identical but for `built_at:`, which moves by design.
+    // Identical but for `built_at:` (moves by design) and `updated:`
+    // (`SchemaValidationStore.write` unconditionally refreshes it on every
+    // update to an existing schema-declaring note, graph nodes included,
+    // regardless of whether the schema itself even declares that field --
+    // graph-node/v1 doesn't). Both are real clock reads, not fixture-fed,
+    // so comparing them directly is what made this test genuinely flaky
+    // whenever the two writes landed a second apart.
     const strip = struct {
         fn call(a: Allocator, text: []const u8) ![]u8 {
             var out2: std.ArrayListUnmanaged(u8) = .empty;
@@ -908,6 +905,7 @@ test "writing a node from its own recovered body is idempotent" {
             var lines = std.mem.splitScalar(u8, text, '\n');
             while (lines.next()) |line| {
                 if (std.mem.startsWith(u8, line, "built_at:")) continue;
+                if (std.mem.startsWith(u8, line, "updated:")) continue;
                 try out2.appendSlice(a, line);
                 try out2.append(a, '\n');
             }

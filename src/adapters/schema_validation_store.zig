@@ -289,8 +289,8 @@ const existing_note =
     "schema: vault-note/v1\n" ++
     "title: Example\n" ++
     "note_id: sb-081\n" ++
-    "created: '2026-08-30 01:00:00 CEST'\n" ++
-    "updated: '2026-08-30 01:00:00 CEST'\n" ++
+    "created: '2026-08-30T01:00:00+02:00'\n" ++
+    "updated: '2026-08-30T01:00:00+02:00'\n" ++
     "tags: []\n" ++
     "---\n\n# Example\n\n## Summary\nOld.\n";
 
@@ -319,7 +319,7 @@ test "ordinary schema updates read the persisted note but never list the vault" 
     var validation = SchemaValidationStore.init(testing.allocator, fake.port(), vars.vars());
     const updated =
         "---\nschema: vault-note/v1\ntitle: Example\nnote_id: sb-081\n" ++
-        "created: '2026-08-30 01:00:00 CEST'\nupdated: '2026-08-30 02:00:00 CEST'\ntags: []\n" ++
+        "created: '2026-08-30T01:00:00+02:00'\nupdated: '2026-08-30T02:00:00+02:00'\ntags: []\n" ++
         "---\n\n# Example\n\n## Summary\nUpdated.\n";
     const result = try validation.store().write(testing.io, "Example.md", updated);
     defer testing.allocator.free(result.body);
@@ -358,7 +358,7 @@ test "a schema rejection never calls the inner write" {
     var validation = SchemaValidationStore.init(testing.allocator, fake.port(), vars.vars());
     const invalid =
         "---\nschema: vault-note/v1\ntitle: Wrong\nnote_id: sb-081\n" ++
-        "created: '2026-08-30 01:00:00 CEST'\nupdated: '2026-08-30 01:00:00 CEST'\ntags: []\n" ++
+        "created: '2026-08-30T01:00:00+02:00'\nupdated: '2026-08-30T01:00:00+02:00'\ntags: []\n" ++
         "---\n\n# Wrong\n\n## Summary\nInvalid filename.\n";
     const result = try validation.store().write(testing.io, "Example.md", invalid);
     defer testing.allocator.free(result.body);
@@ -382,7 +382,7 @@ test "a lint finding is advisory: the write still succeeds and WriteResult is un
     // violation, so `validateNote` has nothing to say about it.
     const wrapped =
         "---\nschema: vault-note/v1\ntitle: Example\nnote_id: sb-081\n" ++
-        "created: '2026-08-30 01:00:00 CEST'\nupdated: '2026-08-30 01:00:00 CEST'\ntags: []\n" ++
+        "created: '2026-08-30T01:00:00+02:00'\nupdated: '2026-08-30T01:00:00+02:00'\ntags: []\n" ++
         "---\n\n# Example\n\n## Summary\nThis sentence got\nhard-wrapped across two lines.\n";
     const result = try validation.store().write(testing.io, "Example.md", wrapped);
     defer testing.allocator.free(result.body);

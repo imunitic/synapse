@@ -122,7 +122,7 @@ pub fn write(
 
     const total_files = try totalFiles(gpa, io, env, ctx, lists);
 
-    const built_at = try nowStamp(gpa, io);
+    const built_at = try adapters.local_timestamp.builtAt(gpa, io);
     defer gpa.free(built_at);
 
     var index: Io.Writer.Allocating = .init(gpa);
@@ -215,14 +215,6 @@ fn totalFiles(gpa: Allocator, io: Io, env: *std.process.Environ.Map, ctx: *const
         }
     }
     return seen.count();
-}
-
-/// `date '+%Y-%m-%d %H:%M'`, spawned -- see `write_node_cmd.nowStamp`.
-fn nowStamp(gpa: Allocator, io: Io) ![]u8 {
-    const res = try adapters.process.run(io, gpa, &.{ "date", "+%Y-%m-%d %H:%M" }, .{});
-    defer res.deinit(gpa);
-    if (!res.ok()) return error.NoDate;
-    return gpa.dupe(u8, std.mem.trim(u8, res.stdout, " \t\r\n"));
 }
 
 const testing = std.testing;

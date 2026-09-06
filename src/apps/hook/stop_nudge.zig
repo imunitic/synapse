@@ -167,12 +167,7 @@ fn appendSyncFailure(gpa: Allocator, io: Io, vault: []const u8) !void {
     const log_path = try std.fmt.allocPrint(gpa, "{s}/.git/synapse-sync.log", .{vault});
     defer gpa.free(log_path);
 
-    const stamp = blk: {
-        const res = try adapters.process.run(io, gpa, &.{ "date", "+%Y-%m-%d %H:%M" }, .{});
-        defer res.deinit(gpa);
-        if (!res.ok()) break :blk try gpa.dupe(u8, "");
-        break :blk try gpa.dupe(u8, std.mem.trim(u8, res.stdout, " \t\r\n"));
-    };
+    const stamp = adapters.local_timestamp.builtAt(gpa, io) catch try gpa.dupe(u8, "");
     defer gpa.free(stamp);
 
     const existing = Io.Dir.cwd().readFileAlloc(io, log_path, gpa, .limited(16 << 20)) catch

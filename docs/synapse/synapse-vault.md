@@ -89,7 +89,7 @@ creation-only identity uniqueness. Validation is open-world: undeclared frontmat
 sections are preserved. Existing notes without a `schema` field remain valid legacy notes; a
 declared, missing, malformed, or unsupported schema fails closed.
 
-All v1 notes use local `YYYY-MM-dd HH:mm:ss TZ` values for `created` and `updated`. Creation samples
+All v1 notes use local RFC3339 values (`YYYY-MM-DDTHH:MM:SS` then `Z` or a colon-separated numeric offset) for `created` and `updated`. Creation samples
 one value for both fields. Every successful `vault-write` update and `vault-patch` refreshes
 `updated` immediately before validation and persistence.
 

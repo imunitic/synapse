@@ -24,13 +24,13 @@ frontmatter:
     created:
       type: timestamp
       required: true
-      format: 'YYYY-MM-dd HH:mm:ss TZ'
+      format: 'YYYY-MM-DDTHH:MM:SSZ07:00'
       timezone: local
       mutable: false
     updated:
       type: timestamp
       required: true
-      format: 'YYYY-MM-dd HH:mm:ss TZ'
+      format: 'YYYY-MM-DDTHH:MM:SSZ07:00'
       timezone: local
       update_on: [vault-write, vault-patch]
     tags:
