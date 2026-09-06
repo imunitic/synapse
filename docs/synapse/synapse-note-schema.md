@@ -112,6 +112,67 @@ also carry `when: create` to apply only on creation.
 References are `frontmatter.<field>` (that field's string value) or `filename.stem`
 (the note's filename without the `.md`).
 
+## `lints`
+
+A list of advisory rules; each entry has **exactly one** operator plus a required `severity`.
+Unlike `checks`, a lint never blocks a write on its own — what happens depends entirely on its
+`severity`:
+
+| Severity | Behavior |
+|---|---|
+| `ignore` | The rule is skipped entirely — not run, not silently discarded output, just never evaluated. |
+| `warn` | The rule runs; a finding is printed to stderr (`synapse: {path}: {message}`), never surfaced in `WriteResult`, the exit code, or stdout. The write proceeds regardless. |
+| `error` | The rule runs; a finding blocks the write the same way a `checks:` violation does — a 422-style rejection, the candidate never reaches the inner store. |
+
+| Operator | Meaning |
+|---|---|
+| `no_hard_wrap` | A field reference (only `body.prose` is supported in v1) — flags a paragraph split across two or more consecutive lines instead of written as one long line Obsidian soft-wraps for display. |
+| `no_id_prefix_in_title` | `title`/`id` field references — flags a title that redundantly repeats its own task-id prefix. |
+
+`synapse vault-check` always reports every lint finding regardless of severity — a read-only sweep
+over already-persisted notes has nothing to block, so `error` there means "flag prominently," not
+"refuse."
+
+## Schema overrides
+
+A shipped schema (`schema/{kind}/{version}.yaml`) can be corrected locally without forking the
+whole file: a `schema-overrides/{kind}/{version}.yaml` file, resolved through the standard tiered
+config cascade (see [synapse-config.md](synapse-config.md#where-a-conf-file-actually-lives)) —
+`$XDG_CONFIG_HOME/synapse/schema-overrides/{kind}/{version}.yaml` if set, else
+`~/.config/synapse/schema-overrides/{kind}/{version}.yaml`, else
+`~/.claude/schema-overrides/{kind}/{version}.yaml`. No separate opt-in: the override file's own
+presence is the opt-in, the same way a `{ext}.scm` grammar override works. Absent entirely, schema
+loading is byte-identical to not having this feature at all.
+
+When an override resolves, it's parsed with the same strict YAML subset as the base schema and
+deep-merged onto it before validation runs:
+
+- **Maps merge key by key, recursively, at every depth** — an override can touch
+  `frontmatter.fields`, `body`, or any other nested map exactly the same way it touches the
+  top level. A key the override doesn't mention is left exactly as the base schema declared it.
+- **A literal `null` at a map key deletes that key from the merged result** — the way to remove a
+  field from `frontmatter.fields` (or any other map-valued key) entirely, rather than restating
+  everything else around it.
+- **Anything else — a list, a scalar, or a key where the two sides disagree on map-ness — is
+  replaced wholesale**, never merged item-by-item. `lints`, `checks`, and `body.sections` are all
+  lists: removing one entry means restating the list without it; adding one means including it.
+
+Example — promote `no_hard_wrap` to a blocking error and drop the `tags` field's own rule entirely,
+for `vault-note/v1` only:
+
+```yaml
+# schema-overrides/vault-note/v1.yaml
+lints:
+  - no_hard_wrap: body.prose
+    severity: error
+frontmatter:
+  fields:
+    tags: null
+```
+
+`vault-task-note/v1` and `vault-design-note/v1` are completely unaffected — an override always
+targets exactly the one schema id its own path names.
+
 ## Declared keys vs. enforcement
 
 `validateSchema`'s allow-lists accept a **superset** of what a note is checked against,

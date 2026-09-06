@@ -254,13 +254,13 @@ pub fn check(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []con
         // exit code either.
         const findings = try core.note_schema.lintNote(gpa, doc.root, body, name);
         defer {
-            for (findings) |f| gpa.free(f);
+            for (findings) |f| gpa.free(f.message);
             gpa.free(findings);
         }
         if (findings.len > 0) {
             lint_notes += 1;
             for (findings) |finding| {
-                try lint_buf.writer.print("{s}\t{s}\n", .{ name, finding });
+                try lint_buf.writer.print("{s}\t{s}\n", .{ name, finding.message });
                 lint_findings_total += 1;
             }
         }
@@ -1565,11 +1565,11 @@ test "no_hard_wrap fires against the real shipped vault-note/v1 schema, on a har
     defer doc.deinit();
     const findings = try core.note_schema.lintNote(gpa, doc.root, note, "research/Wrapped example.md");
     defer {
-        for (findings) |f| gpa.free(f);
+        for (findings) |f| gpa.free(f.message);
         gpa.free(findings);
     }
     try testing.expectEqual(@as(usize, 1), findings.len);
-    try testing.expect(std.mem.indexOf(u8, findings[0], "no_hard_wrap") != null);
+    try testing.expect(std.mem.indexOf(u8, findings[0].message, "no_hard_wrap") != null);
 }
 
 test "no_id_prefix_in_title fires against the real shipped vault-task-note/v1 schema, on the exact motivating shape" {
@@ -1588,11 +1588,11 @@ test "no_id_prefix_in_title fires against the real shipped vault-task-note/v1 sc
     defer doc.deinit();
     const findings = try core.note_schema.lintNote(gpa, doc.root, note, "tasks/synapse/sb-908 — Prefixed example.md");
     defer {
-        for (findings) |f| gpa.free(f);
+        for (findings) |f| gpa.free(f.message);
         gpa.free(findings);
     }
     try testing.expectEqual(@as(usize, 1), findings.len);
-    try testing.expect(std.mem.indexOf(u8, findings[0], "sb-908") != null);
+    try testing.expect(std.mem.indexOf(u8, findings[0].message, "sb-908") != null);
 }
 
 test "no_hard_wrap fires against the real shipped vault-task-note/v1 schema, on the exact motivating shape" {
@@ -1625,11 +1625,11 @@ test "no_hard_wrap fires against the real shipped vault-task-note/v1 schema, on 
     defer doc.deinit();
     const findings = try core.note_schema.lintNote(gpa, doc.root, note, "tasks/synapse/Wrapped task example.md");
     defer {
-        for (findings) |f| gpa.free(f);
+        for (findings) |f| gpa.free(f.message);
         gpa.free(findings);
     }
     try testing.expectEqual(@as(usize, 1), findings.len);
-    try testing.expect(std.mem.indexOf(u8, findings[0], "no_hard_wrap") != null);
+    try testing.expect(std.mem.indexOf(u8, findings[0].message, "no_hard_wrap") != null);
 }
 
 test "all three shipped v1 note schemas validate through vault-write" {

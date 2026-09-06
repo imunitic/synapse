@@ -19,6 +19,11 @@ pub const Value = union(enum) {
     string: []const u8,
     integer: i64,
     boolean: bool,
+    /// A literal `null`. Only meaningful inside a schema override document,
+    /// where it deletes the key it's attached to from the merged result
+    /// (`merge` below) -- never valid in a base schema or a real note, and
+    /// nothing downstream of `merge` ever needs to recognize it.
+    tombstone,
     list: []const *Value,
     map: []const Entry,
 
@@ -190,6 +195,7 @@ const Parser = struct {
             return error.AnchorOrAlias;
         if (std.mem.eql(u8, text, "true")) return self.value(.{ .boolean = true });
         if (std.mem.eql(u8, text, "false")) return self.value(.{ .boolean = false });
+        if (std.mem.eql(u8, text, "null")) return self.value(.tombstone);
         if (isAmbiguousImplicit(text)) return error.ImplicitType;
         if (looksNumeric(text)) {
             if (text.len > 1 and (text[0] == '0' or (text[0] == '-' and text.len > 2 and text[1] == '0')))
@@ -275,6 +281,88 @@ pub fn parse(gpa: Allocator, source: []const u8) Error!Document {
     const root = try parser.parseBlock(0);
     if (parser.index != parser.lines.len) return error.UnexpectedIndent;
     return .{ .arena = arena, .root = root };
+}
+
+/// Deep-merges `override` onto `base` -- a schema-override document (sb-119)
+/// applied to a shipped schema, but generic over any two `Value` trees.
+///
+/// Maps merge key by key, recursively, at every depth: a key only in `base`
+/// is kept, a key only in `override` is added, a key in both recurses.
+/// `.tombstone` (a literal `null` in the override) deletes the key it's
+/// attached to from the result instead of being copied through -- the one
+/// exception to "override always wins". Anything else -- a list, a scalar,
+/// or a type mismatch between the two sides (one is a map, the other isn't)
+/// -- is replaced wholesale by `override`'s own value; lists are never
+/// merged item-by-item.
+///
+/// Every node in the result is freshly allocated into the returned
+/// `Document`'s own arena, so neither `base` nor `override` needs to
+/// outlive this call -- both are safe to `deinit` right after.
+pub fn merge(gpa: Allocator, base: *const Value, override: *const Value) Allocator.Error!Document {
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    errdefer arena.deinit();
+    const allocator = arena.allocator();
+    const root = try mergeValue(allocator, base, override);
+    return .{ .arena = arena, .root = root };
+}
+
+fn mergeValue(allocator: Allocator, base: *const Value, override: *const Value) Allocator.Error!*Value {
+    if (base.* == .map and override.* == .map) return mergeMaps(allocator, base.map, override.map);
+    return copyValue(allocator, override);
+}
+
+fn mergeMaps(allocator: Allocator, base: []const Entry, override: []const Entry) Allocator.Error!*Value {
+    var entries: std.ArrayListUnmanaged(Entry) = .empty;
+    for (base) |entry| {
+        if (findEntry(override, entry.key)) |i| {
+            const ov = override[i].value;
+            if (ov.* == .tombstone) continue;
+            try entries.append(allocator, .{
+                .key = try allocator.dupe(u8, entry.key),
+                .value = try mergeValue(allocator, entry.value, ov),
+            });
+        } else {
+            try entries.append(allocator, .{
+                .key = try allocator.dupe(u8, entry.key),
+                .value = try copyValue(allocator, entry.value),
+            });
+        }
+    }
+    for (override) |entry| {
+        if (findEntry(base, entry.key) == null and entry.value.* != .tombstone) {
+            try entries.append(allocator, .{
+                .key = try allocator.dupe(u8, entry.key),
+                .value = try copyValue(allocator, entry.value),
+            });
+        }
+    }
+    const out = try allocator.create(Value);
+    out.* = .{ .map = try entries.toOwnedSlice(allocator) };
+    return out;
+}
+
+fn copyValue(allocator: Allocator, v: *const Value) Allocator.Error!*Value {
+    const out = try allocator.create(Value);
+    out.* = switch (v.*) {
+        .string => |s| .{ .string = try allocator.dupe(u8, s) },
+        .integer => |n| .{ .integer = n },
+        .boolean => |b| .{ .boolean = b },
+        .tombstone => .tombstone,
+        .list => |items| blk: {
+            const copied = try allocator.alloc(*Value, items.len);
+            for (items, 0..) |item, i| copied[i] = try copyValue(allocator, item);
+            break :blk .{ .list = copied };
+        },
+        .map => |map_entries| blk: {
+            const copied = try allocator.alloc(Entry, map_entries.len);
+            for (map_entries, 0..) |entry, i| copied[i] = .{
+                .key = try allocator.dupe(u8, entry.key),
+                .value = try copyValue(allocator, entry.value),
+            };
+            break :blk .{ .map = copied };
+        },
+    };
+    return out;
 }
 
 fn splitPair(text: []const u8) Error!Pair {
@@ -375,10 +463,13 @@ fn parseQuoted(allocator: Allocator, text: []const u8) Error![]const u8 {
 }
 
 fn isAmbiguousImplicit(text: []const u8) bool {
+    // "null" itself is handled explicitly above, as a real value (the merge
+    // tombstone) -- its alternate spellings stay rejected like every other
+    // implicit type this parser refuses to guess at.
     const values = [_][]const u8{
-        "null", "Null", "NULL", "~",   "yes", "Yes", "YES",  "no",   "No",   "NO",
-        "on",   "On",   "ON",   "off", "Off", "OFF", ".inf", ".Inf", ".INF", ".nan",
-        ".NaN", ".NAN",
+        "Null", "NULL", "~",    "yes", "Yes", "YES",  "no",   "No",   "NO",
+        "on",   "On",   "ON",   "off", "Off", "OFF",  ".inf", ".Inf", ".INF",
+        ".nan", ".NaN", ".NAN",
     };
     for (values) |v| if (std.mem.eql(u8, text, v)) return true;
     return false;
@@ -429,4 +520,123 @@ test "refuses YAML features outside the schema subset" {
 
 test "duplicate keys fail closed" {
     try testing.expectError(error.DuplicateKey, parse(testing.allocator, "x: one\nx: two\n"));
+}
+
+test "a literal null parses as tombstone; alternate spellings stay rejected" {
+    var doc = try parse(testing.allocator, "x: null\n");
+    defer doc.deinit();
+    try testing.expect(doc.root.get("x").?.* == .tombstone);
+
+    try testing.expectError(error.ImplicitType, parse(testing.allocator, "x: Null\n"));
+    try testing.expectError(error.ImplicitType, parse(testing.allocator, "x: NULL\n"));
+    try testing.expectError(error.ImplicitType, parse(testing.allocator, "x: ~\n"));
+}
+
+test "merge: an override's scalar replaces the base's, an unmentioned key is untouched" {
+    var base = try parse(testing.allocator, "a: one\nb: two\n");
+    defer base.deinit();
+    var override = try parse(testing.allocator, "a: ONE\n");
+    defer override.deinit();
+
+    var merged = try merge(testing.allocator, base.root, override.root);
+    defer merged.deinit();
+    try testing.expectEqualStrings("ONE", merged.root.get("a").?.asString().?);
+    try testing.expectEqualStrings("two", merged.root.get("b").?.asString().?);
+}
+
+test "merge: a key only the override declares is added" {
+    var base = try parse(testing.allocator, "a: one\n");
+    defer base.deinit();
+    var override = try parse(testing.allocator, "b: two\n");
+    defer override.deinit();
+
+    var merged = try merge(testing.allocator, base.root, override.root);
+    defer merged.deinit();
+    try testing.expectEqualStrings("one", merged.root.get("a").?.asString().?);
+    try testing.expectEqualStrings("two", merged.root.get("b").?.asString().?);
+}
+
+test "merge: a null in the override deletes that key from the result entirely" {
+    var base = try parse(testing.allocator, "a: one\nb: two\n");
+    defer base.deinit();
+    var override = try parse(testing.allocator, "a: null\n");
+    defer override.deinit();
+
+    var merged = try merge(testing.allocator, base.root, override.root);
+    defer merged.deinit();
+    try testing.expectEqual(@as(?*const Value, null), merged.root.get("a"));
+    try testing.expectEqualStrings("two", merged.root.get("b").?.asString().?);
+}
+
+test "merge: nested maps recurse (frontmatter.fields shape) -- override, add, and leave siblings alone" {
+    var base = try parse(testing.allocator,
+        \\fields:
+        \\  title:
+        \\    type: string
+        \\    required: true
+        \\  tags:
+        \\    type: list
+        \\
+    );
+    defer base.deinit();
+    var override = try parse(testing.allocator,
+        \\fields:
+        \\  title:
+        \\    required: false
+        \\  note_id:
+        \\    type: string
+        \\
+    );
+    defer override.deinit();
+
+    var merged = try merge(testing.allocator, base.root, override.root);
+    defer merged.deinit();
+    const fields = merged.root.get("fields").?;
+    // title: type kept from base, required overridden.
+    try testing.expectEqualStrings("string", fields.get("title").?.get("type").?.asString().?);
+    try testing.expectEqual(false, fields.get("title").?.get("required").?.asBool().?);
+    // tags: untouched sibling, base's own value survives.
+    try testing.expectEqualStrings("list", fields.get("tags").?.get("type").?.asString().?);
+    // note_id: a field the base never declared, added whole.
+    try testing.expectEqualStrings("string", fields.get("note_id").?.get("type").?.asString().?);
+}
+
+test "merge: a list-valued key is replaced wholesale -- omission removes, inclusion adds" {
+    var base = try parse(testing.allocator,
+        \\lints:
+        \\  - a: one
+        \\  - a: two
+        \\
+    );
+    defer base.deinit();
+    var override = try parse(testing.allocator,
+        \\lints:
+        \\  - a: two
+        \\  - a: three
+        \\
+    );
+    defer override.deinit();
+
+    var merged = try merge(testing.allocator, base.root, override.root);
+    defer merged.deinit();
+    const lints = merged.root.get("lints").?.list;
+    try testing.expectEqual(@as(usize, 2), lints.len);
+    try testing.expectEqualStrings("two", lints[0].get("a").?.asString().?);
+    try testing.expectEqualStrings("three", lints[1].get("a").?.asString().?);
+}
+
+test "merge: the result outlives both inputs -- every node is freshly copied, not borrowed" {
+    var merged = blk: {
+        var base = try parse(testing.allocator, "a: one\nb:\n  c: two\n");
+        defer base.deinit();
+        var override = try parse(testing.allocator, "b:\n  d: three\n");
+        defer override.deinit();
+        break :blk try merge(testing.allocator, base.root, override.root);
+    };
+    defer merged.deinit();
+    // base/override are already deinit'd here -- if merge had borrowed
+    // rather than copied, this would be a use-after-free.
+    try testing.expectEqualStrings("one", merged.root.get("a").?.asString().?);
+    try testing.expectEqualStrings("two", merged.root.get("b").?.get("c").?.asString().?);
+    try testing.expectEqualStrings("three", merged.root.get("b").?.get("d").?.asString().?);
 }

@@ -15,6 +15,22 @@ const Value = schema_yaml.Value;
 
 pub const Mode = enum { create, update, migration };
 
+/// A `lints:` rule's own `severity:` value. `ignore` skips the rule
+/// entirely (never even runs it, not just discards its finding); `warn` is
+/// today's existing advisory-only behavior (`lintNote`'s finding never
+/// blocks a write); `error` blocks the write the same way `checks:`
+/// already does, checked by `SchemaValidationStore.write` after `lintNote`
+/// returns.
+pub const Severity = enum {
+    ignore,
+    warn,
+    @"error",
+
+    fn parse(text: []const u8) ?Severity {
+        return std.meta.stringToEnum(Severity, text);
+    }
+};
+
 pub const Context = struct {
     mode: Mode,
     existing: ?[]const u8 = null,
@@ -290,13 +306,7 @@ fn validateLintRule(gpa: Allocator, rule: *const Value, index: usize) !?[]u8 {
     if (operators != 1) return try diag(gpa, "schema.lints[{d}]: exactly one lint operator is required", .{index});
     const severity = stringAt(rule, "severity") orelse
         return try diag(gpa, "schema.lints[{d}].severity: required string is missing", .{index});
-    // `error` is a real future value per the design (a rule promoted off
-    // `warn` once real use shows zero false positives), but that promotion
-    // moves a rule into the blocking `checks:` path entirely rather than
-    // changing what this lint pass itself does with it -- accepting `error`
-    // here today would silently do nothing differently, which is worse than
-    // refusing it until the promotion mechanism actually exists.
-    if (!std.mem.eql(u8, severity, "warn"))
+    if (Severity.parse(severity) == null)
         return try diag(gpa, "schema.lints[{d}].severity: unsupported value '{s}'", .{ index, severity });
     if (rule.get("no_hard_wrap")) |v| {
         const ref = v.asString() orelse
@@ -398,17 +408,27 @@ pub fn validateNote(
     return null;
 }
 
-/// Advisory only: unlike `validateNote`, never returns an error that blocks
-/// a write -- every finding is collected, none stop the pass early. Called
-/// only after `validateNote` has already passed (a rejected write never
-/// reaches lint), and only for a schema that declares `lints:` at all -- a
-/// schema with none returns an empty slice, the same "nothing to say" shape
-/// as a clean note.
-pub fn lintNote(gpa: Allocator, schema: *const Value, note: []const u8, path: []const u8) ![]const []u8 {
+pub const Finding = struct {
+    message: []u8,
+    severity: Severity,
+};
+
+/// Never blocks a write itself -- every finding is collected, none stop the
+/// pass early -- but it does tag each with the rule's own `severity:`, and
+/// it is the caller's job to act on an `.error` one (`SchemaValidationStore
+/// .write` refuses the write outright when any finding is `.error`; a
+/// read-only sweep like `vault-check` can report every severity the same
+/// way instead). An `.ignore`-severity rule never runs at all -- not "runs
+/// and its finding is discarded", the rule itself is skipped. Called only
+/// after `validateNote` has already passed (a rejected write never reaches
+/// lint), and only for a schema that declares `lints:` at all -- a schema
+/// with none returns an empty slice, the same "nothing to say" shape as a
+/// clean note.
+pub fn lintNote(gpa: Allocator, schema: *const Value, note: []const u8, path: []const u8) ![]const Finding {
     _ = path; // no rule needs it yet; kept for parity with validateNote and any future rule that does
-    var findings: std.ArrayListUnmanaged([]u8) = .empty;
+    var findings: std.ArrayListUnmanaged(Finding) = .empty;
     errdefer {
-        for (findings.items) |f| gpa.free(f);
+        for (findings.items) |f| gpa.free(f.message);
         findings.deinit(gpa);
     }
 
@@ -416,15 +436,20 @@ pub fn lintNote(gpa: Allocator, schema: *const Value, note: []const u8, path: []
     const bounds = frontmatterBounds(note) orelse return findings.toOwnedSlice(gpa);
 
     for (lints.list) |rule| {
+        // Schema validation already confirmed `severity` is present and
+        // one of the recognized values before any note is ever linted.
+        const severity = Severity.parse(stringAt(rule, "severity").?).?;
+        if (severity == .ignore) continue;
         if (rule.get("no_hard_wrap")) |_| {
             const wrap_findings = try lintNoHardWrap(gpa, note, bounds.after);
             defer gpa.free(wrap_findings);
-            for (wrap_findings) |f| try findings.append(gpa, f);
+            for (wrap_findings) |f| try findings.append(gpa, .{ .message = f, .severity = severity });
         }
         if (rule.get("no_id_prefix_in_title")) |cfg| {
             const id_ref = stringAt(cfg, "id").?;
             const id_field = id_ref["frontmatter.".len..];
-            if (try lintNoIdPrefixInTitle(gpa, note, id_field)) |msg| try findings.append(gpa, msg);
+            if (try lintNoIdPrefixInTitle(gpa, note, id_field)) |msg|
+                try findings.append(gpa, .{ .message = msg, .severity = severity });
         }
     }
     return findings.toOwnedSlice(gpa);
@@ -1739,7 +1764,11 @@ test "field_order is unset by default, so any frontmatter order passes" {
 fn lintFindings(gpa: Allocator, source: []const u8, note: []const u8, path: []const u8) ![]const []u8 {
     var doc = try schema_yaml.parse(gpa, source);
     defer doc.deinit();
-    return lintNote(gpa, doc.root, note, path);
+    const findings = try lintNote(gpa, doc.root, note, path);
+    defer gpa.free(findings);
+    const messages = try gpa.alloc([]u8, findings.len);
+    for (findings, 0..) |f, i| messages[i] = f.message;
+    return messages;
 }
 
 fn freeLintFindings(gpa: Allocator, findings: []const []const u8) void {
@@ -1789,17 +1818,29 @@ test "schema.lints.no_hard_wrap only accepts body.prose" {
     try testing.expectEqualStrings("schema.lints[0].no_hard_wrap: unsupported field reference 'body.other'", message);
 }
 
-test "schema.lints.severity only accepts warn for now" {
+test "schema.lints.severity accepts ignore, warn, and error; rejects anything else" {
+    for ([_][]const u8{ "ignore", "warn", "error" }) |severity| {
+        const source = try std.fmt.allocPrint(testing.allocator, "schema: synapse-note-schema/v1\nid: t/v1\n" ++
+            lint_test_frontmatter ++
+            "body:\n  h1:\n    required: false\n" ++
+            "checks: []\n" ++
+            "lints:\n  - no_hard_wrap: body.prose\n    severity: {s}\n", .{severity});
+        defer testing.allocator.free(source);
+        var doc = try schema_yaml.parse(testing.allocator, source);
+        defer doc.deinit();
+        try testing.expectEqual(@as(?[]u8, null), try validateSchema(testing.allocator, doc.root, "t/v1"));
+    }
+
     const source = "schema: synapse-note-schema/v1\nid: t/v1\n" ++
         lint_test_frontmatter ++
         "body:\n  h1:\n    required: false\n" ++
         "checks: []\n" ++
-        "lints:\n  - no_hard_wrap: body.prose\n    severity: error\n";
+        "lints:\n  - no_hard_wrap: body.prose\n    severity: critical\n";
     var doc = try schema_yaml.parse(testing.allocator, source);
     defer doc.deinit();
     const message = (try validateSchema(testing.allocator, doc.root, "t/v1")).?;
     defer testing.allocator.free(message);
-    try testing.expectEqualStrings("schema.lints[0].severity: unsupported value 'error'", message);
+    try testing.expectEqualStrings("schema.lints[0].severity: unsupported value 'critical'", message);
 }
 
 test "schema.lints.no_id_prefix_in_title only accepts a known id reference" {
@@ -1844,6 +1885,35 @@ test "no_hard_wrap fires on a wrapped paragraph and stays silent on a clean one"
     const clean_findings = try lintFindings(testing.allocator, source, clean, "x.md");
     defer testing.allocator.free(clean_findings);
     try testing.expectEqual(@as(usize, 0), clean_findings.len);
+}
+
+test "severity: ignore skips the rule entirely, not just discards its finding" {
+    const source = "schema: synapse-note-schema/v1\nid: t/v1\n" ++
+        lint_test_frontmatter ++
+        "body:\n  h1:\n    required: false\n" ++
+        "checks: []\n" ++
+        "lints:\n  - no_hard_wrap: body.prose\n    severity: ignore\n";
+    const wrapped = "---\ntitle: X\n---\n# X\n\n## Summary\nThis is a sentence that got\nhard-wrapped across two lines.\n";
+    const findings = try lintFindings(testing.allocator, source, wrapped, "x.md");
+    defer freeLintFindings(testing.allocator, findings);
+    try testing.expectEqual(@as(usize, 0), findings.len);
+}
+
+test "lintNote tags each finding with its own rule's severity" {
+    var doc = try schema_yaml.parse(testing.allocator, "schema: synapse-note-schema/v1\nid: t/v1\n" ++
+        lint_test_frontmatter ++
+        "body:\n  h1:\n    required: false\n" ++
+        "checks: []\n" ++
+        "lints:\n  - no_hard_wrap: body.prose\n    severity: error\n");
+    defer doc.deinit();
+    const wrapped = "---\ntitle: X\n---\n# X\n\n## Summary\nThis is a sentence that got\nhard-wrapped across two lines.\n";
+    const findings = try lintNote(testing.allocator, doc.root, wrapped, "x.md");
+    defer {
+        for (findings) |f| testing.allocator.free(f.message);
+        testing.allocator.free(findings);
+    }
+    try testing.expectEqual(@as(usize, 1), findings.len);
+    try testing.expectEqual(Severity.@"error", findings[0].severity);
 }
 
 test "no_hard_wrap excludes table rows, list continuations, and fenced code" {

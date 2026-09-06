@@ -31,6 +31,13 @@ tier 1's `~/.config/synapse/` if that directory already exists, else `~/.claude/
 fallback — never tier 3, which is read-only by construction and was never a real option for a file
 meant to be written to.
 
+Schema overrides (`schema-overrides/{kind}/{version}.yaml`, see
+[synapse-note-schema.md](synapse-note-schema.md#schema-overrides)) resolve through this exact same
+three-tier lookup, `{name}` being the nested `schema-overrides/{kind}/{version}.yaml` path rather
+than a flat filename — not a bespoke resolution mechanism, even though the file isn't literally a
+`synapse-*.conf`. Tier 3 (the bundled template) never matters for it in practice, since no override
+is ever shipped.
+
 ## `synapse.conf` — the one hand-edited file
 
 Everything else is either self-populating (discovered and cached automatically) or a plain list a

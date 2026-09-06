@@ -95,17 +95,31 @@ pub const SchemaValidationStore = struct {
             .tags_vocabulary = tags,
         })) |message| return .{ .accepted = false, .status = 422, .body = message };
 
-        // Advisory only, and only reached once validation has already
-        // passed -- a rejected write never reaches lint. Findings go to
-        // stderr, never `WriteResult`/the exit code/stdout: `vault-write`'s
-        // stdout stays byte-identical for a machine caller regardless of
-        // what this prints.
+        // Only reached once validation has already passed -- a rejected
+        // write never reaches lint. A `warn`-severity finding is advisory
+        // only: printed to stderr, never `WriteResult`/the exit code/
+        // stdout, so `vault-write`'s stdout stays byte-identical for a
+        // machine caller regardless of what this prints. An `.error`-
+        // severity finding is not advisory -- it blocks the write the same
+        // way `validateNote`'s own checks do, checked here rather than
+        // inside `lintNote` itself, which never blocks anything on its own.
         const findings = try core.note_schema.lintNote(self.gpa, schema_doc.root, candidate, node);
         defer {
-            for (findings) |f| self.gpa.free(f);
+            for (findings) |f| self.gpa.free(f.message);
             self.gpa.free(findings);
         }
-        for (findings) |finding| std.debug.print("synapse: {s}: {s}\n", .{ node, finding });
+        var blocking: Io.Writer.Allocating = .init(self.gpa);
+        defer blocking.deinit();
+        for (findings) |finding| {
+            if (finding.severity == .@"error") {
+                if (blocking.written().len != 0) try blocking.writer.writeAll("\n");
+                try blocking.writer.writeAll(finding.message);
+            } else {
+                std.debug.print("synapse: {s}: {s}\n", .{ node, finding.message });
+            }
+        }
+        if (blocking.written().len != 0)
+            return .{ .accepted = false, .status = 422, .body = try self.gpa.dupe(u8, blocking.written()) };
 
         return self.inner.write(io, node, candidate);
     }
@@ -164,7 +178,28 @@ pub fn loadSchemaDocument(gpa: Allocator, io: Io, vars: core.conf.Vars, schema_i
     defer gpa.free(path);
     const source = try Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 20));
     defer gpa.free(source);
-    return core.schema_yaml.parse(gpa, source);
+    var base = try core.schema_yaml.parse(gpa, source);
+    errdefer base.deinit();
+
+    // One override file per schema id (sb-119/sb-120), same nesting as the
+    // shipped schema itself -- resolved through the standard tiered config
+    // cascade, not a bespoke lookup: `resolveConfPath` already handles a
+    // nested relative name with no changes, and its own tier-3
+    // (bundled-template) fallback naturally never matches here, since no
+    // override is ever shipped. Absent is always a no-op -- `base` returned
+    // completely unchanged, so nothing here can regress an existing schema.
+    const override_relative = try std.fmt.allocPrint(gpa, "schema-overrides/{s}.yaml", .{schema_id});
+    defer gpa.free(override_relative);
+    const override_path = (try core.conf.resolveConfPath(gpa, io, vars, override_relative)) orelse return base;
+    defer gpa.free(override_path);
+    const override_source = try Io.Dir.cwd().readFileAlloc(io, override_path, gpa, .limited(1 << 20));
+    defer gpa.free(override_source);
+    var override = try core.schema_yaml.parse(gpa, override_source);
+    defer override.deinit();
+
+    const merged = try core.schema_yaml.merge(gpa, base.root, override.root);
+    base.deinit();
+    return merged;
 }
 
 pub fn loadVocabularyText(gpa: Allocator, io: Io, vars: core.conf.Vars, name: []const u8) !?[]u8 {
@@ -302,6 +337,21 @@ fn writeTestSchema(tmp: *testing.TmpDir, io: Io) ![]u8 {
     return testing.allocator.dupe(u8, root);
 }
 
+/// Writes a `schema-overrides/{schema_id}.yaml` under `{root}/synapse/`,
+/// the exact shape `resolveConfPath`'s tier-1 (`$XDG_CONFIG_HOME`) lookup
+/// resolves -- `root` doubles as both `SYNAPSE_CONTENT_ROOT` (the base
+/// schema) and `XDG_CONFIG_HOME` (the override) in these tests, same as a
+/// real machine where both happen to be configured, never a requirement
+/// the code itself imposes.
+fn writeOverride(tmp: *testing.TmpDir, io: Io, schema_id: []const u8, content: []const u8) !void {
+    const dir = try std.fmt.allocPrint(testing.allocator, "synapse/schema-overrides/{s}", .{std.fs.path.dirname(schema_id).?});
+    defer testing.allocator.free(dir);
+    try tmp.dir.createDirPath(io, dir);
+    const sub_path = try std.fmt.allocPrint(testing.allocator, "synapse/schema-overrides/{s}.yaml", .{schema_id});
+    defer testing.allocator.free(sub_path);
+    try tmp.dir.writeFile(io, .{ .sub_path = sub_path, .data = content });
+}
+
 test "ordinary schema updates read the persisted note but never list the vault" {
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -390,4 +440,106 @@ test "a lint finding is advisory: the write still succeeds and WriteResult is un
     try testing.expectEqual(@as(u16, 0), result.status);
     try testing.expectEqual(@as(usize, 0), result.body.len);
     try testing.expectEqual(@as(usize, 1), fake.writes);
+}
+
+test "an error-severity lint finding blocks the write, the same way a checks: violation does" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const error_severity_schema = try std.mem.replaceOwned(u8, testing.allocator, test_schema, "severity: warn", "severity: error");
+    defer testing.allocator.free(error_severity_schema);
+    try tmp.dir.createDirPath(testing.io, "schema/vault-note");
+    try tmp.dir.writeFile(testing.io, .{ .sub_path = "schema/vault-note/v1.yaml", .data = error_severity_schema });
+    var buffer: [std.fs.max_path_bytes]u8 = undefined;
+    const root = try testing.allocator.dupe(u8, buffer[0..try tmp.dir.realPath(testing.io, &buffer)]);
+    defer testing.allocator.free(root);
+    const vars: TestVars = .{ .pairs = &.{.{ "SYNAPSE_CONTENT_ROOT", root }} };
+
+    var fake = FakeStore.init(testing.allocator);
+    defer fake.deinit();
+    var validation = SchemaValidationStore.init(testing.allocator, fake.port(), vars.vars());
+    const wrapped =
+        "---\nschema: vault-note/v1\ntitle: Example\nnote_id: sb-081\n" ++
+        "created: '2026-08-30T01:00:00+02:00'\nupdated: '2026-08-30T01:00:00+02:00'\ntags: []\n" ++
+        "---\n\n# Example\n\n## Summary\nThis sentence got\nhard-wrapped across two lines.\n";
+    const result = try validation.store().write(testing.io, "Example.md", wrapped);
+    defer testing.allocator.free(result.body);
+    try testing.expect(!result.accepted);
+    try testing.expectEqual(@as(u16, 422), result.status);
+    try testing.expect(std.mem.indexOf(u8, result.body, "no_hard_wrap") != null);
+    try testing.expectEqual(@as(usize, 0), fake.writes);
+}
+
+test "schema-overrides: a severity override turns a lint that used to only warn into a blocking write" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try writeTestSchema(&tmp, testing.io);
+    defer testing.allocator.free(root);
+    try writeOverride(&tmp, testing.io, "vault-note/v1", "lints:\n  - no_hard_wrap: body.prose\n    severity: error\n");
+    const vars: TestVars = .{ .pairs = &.{ .{ "SYNAPSE_CONTENT_ROOT", root }, .{ "XDG_CONFIG_HOME", root } } };
+
+    var fake = FakeStore.init(testing.allocator);
+    defer fake.deinit();
+    var validation = SchemaValidationStore.init(testing.allocator, fake.port(), vars.vars());
+    const wrapped =
+        "---\nschema: vault-note/v1\ntitle: Example\nnote_id: sb-081\n" ++
+        "created: '2026-08-30T01:00:00+02:00'\nupdated: '2026-08-30T01:00:00+02:00'\ntags: []\n" ++
+        "---\n\n# Example\n\n## Summary\nThis sentence got\nhard-wrapped across two lines.\n";
+    const result = try validation.store().write(testing.io, "Example.md", wrapped);
+    defer testing.allocator.free(result.body);
+    try testing.expect(!result.accepted);
+    try testing.expectEqual(@as(u16, 422), result.status);
+    try testing.expectEqual(@as(usize, 0), fake.writes);
+}
+
+test "schema-overrides: a null on a required field removes it, a note missing that field now validates" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try writeTestSchema(&tmp, testing.io);
+    defer testing.allocator.free(root);
+    try writeOverride(&tmp, testing.io, "vault-note/v1", "frontmatter:\n  fields:\n    tags: null\n");
+    const vars: TestVars = .{ .pairs = &.{ .{ "SYNAPSE_CONTENT_ROOT", root }, .{ "XDG_CONFIG_HOME", root } } };
+
+    var fake = FakeStore.init(testing.allocator);
+    defer fake.deinit();
+    var validation = SchemaValidationStore.init(testing.allocator, fake.port(), vars.vars());
+    // No `tags:` field at all -- the base schema requires it; the override
+    // removes the field's own rule entirely, so its absence is no longer a
+    // violation.
+    const no_tags =
+        "---\nschema: vault-note/v1\ntitle: Example\nnote_id: sb-081\n" ++
+        "created: '2026-08-30T01:00:00+02:00'\nupdated: '2026-08-30T01:00:00+02:00'\n" ++
+        "---\n\n# Example\n\n## Summary\nFine.\n";
+    const result = try validation.store().write(testing.io, "Example.md", no_tags);
+    defer testing.allocator.free(result.body);
+    try testing.expect(result.accepted);
+    try testing.expectEqual(@as(usize, 1), fake.writes);
+}
+
+test "schema-overrides: an override for one schema id never affects another" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try writeTestSchema(&tmp, testing.io);
+    defer testing.allocator.free(root);
+    // A second, minimal real schema id, unrelated to the override below.
+    try tmp.dir.createDirPath(testing.io, "schema/vault-task-note");
+    try tmp.dir.writeFile(testing.io, .{
+        .sub_path = "schema/vault-task-note/v1.yaml",
+        .data = "schema: synapse-note-schema/v1\nid: vault-task-note/v1\n" ++
+            "frontmatter:\n  fields:\n    tags:\n      type: list\n      required: true\n" ++
+            "body:\n  h1:\n    required: false\nchecks: []\n",
+    });
+    try writeOverride(&tmp, testing.io, "vault-note/v1", "frontmatter:\n  fields:\n    tags: null\n");
+    const vars: TestVars = .{ .pairs = &.{ .{ "SYNAPSE_CONTENT_ROOT", root }, .{ "XDG_CONFIG_HOME", root } } };
+
+    // vault-note/v1: the override applies, `tags` is gone, so its own
+    // schema document has no `tags` field to enforce at all.
+    var vault_note_doc = try loadSchemaDocument(testing.allocator, testing.io, vars.vars(), "vault-note/v1");
+    defer vault_note_doc.deinit();
+    try testing.expectEqual(@as(?*const core.schema_yaml.Value, null), vault_note_doc.root.get("frontmatter").?.get("fields").?.get("tags"));
+
+    // vault-task-note/v1: no override targets it, so it's completely
+    // unaffected -- `tags` is still there, required, exactly as declared.
+    var task_note_doc = try loadSchemaDocument(testing.allocator, testing.io, vars.vars(), "vault-task-note/v1");
+    defer task_note_doc.deinit();
+    try testing.expect(task_note_doc.root.get("frontmatter").?.get("fields").?.get("tags") != null);
 }
