@@ -1,6 +1,6 @@
 ---
 name: synapse-status
-description: Print a read-only report of what in Synapse Vault currently needs a human decision -- design notes still Discussing, design notes marked Ready with no compiled task yet, design notes with open questions, task notes with unchecked items, and task notes stuck in REVIEW. Use whenever the user wants a status check on the vault ("what's outstanding", "what needs my attention", "vault status", "what did we leave open"). Never modifies anything -- a report only, not a task-management action. Not for creating, continuing, or listing a specific note kind (that's the synapse-note/synapse-design-note/synapse-task-note skills' own --list modes) -- this is the one cross-cutting view over all of them at once.
+description: Print a read-only report of what in Synapse Vault currently needs a human decision -- design notes still Discussing, design notes marked Ready with no compiled task yet, Ready design notes with open questions still outstanding, task notes with unchecked items, and task notes stuck in REVIEW. Use whenever the user wants a status check on the vault ("what's outstanding", "what needs my attention", "vault status", "what did we leave open"). Never modifies anything -- a report only, not a task-management action. Not for creating, continuing, or listing a specific note kind (that's the synapse-note/synapse-design-note/synapse-task-note skills' own --list modes) -- this is the one cross-cutting view over all of them at once.
 ---
 
 # Synapse Status: Vault-Wide Attention Report
@@ -66,35 +66,52 @@ synapse vault-search --fields frontmatter.title,frontmatter.note_id <<'EOF'
 EOF
 ```
 
-**3. Design notes (any status) with a non-empty `## Open Questions`.** Match the heading followed by
-at least one bullet -- a heading with nothing under it (fully pruned, per the design-note skill's own
-Ready-gate convention) doesn't count as open. Since this section spans every status, each line in the
-composed report also shows *which* status the note is currently in, and whether it has a compiled task
-note -- request `content` and `note_id` too, and pull both directly out of the returned text rather
-than reading the note again:
+**3. `Ready` design notes with a non-empty `## Open Questions`, excluding ones whose compiled task is
+already `DONE`.** Match the heading followed by at least one bullet -- a heading with nothing under
+it (fully pruned, per the design-note skill's own Ready-gate convention) doesn't count as open. A
+`Discussing` note with open questions isn't actionable yet (it's still being worked out in
+conversation, surfaced already by query 1), and a note whose compiled task has already shipped is
+stale noise -- so this query narrows to the two states that actually need a human decision: `Ready`
+with open questions and no compiled task, or `Ready` with open questions and a compiled task that
+hasn't reached `DONE`. `vault-search` has no cross-note join, so this takes two queries: the first
+finds `Ready`-with-open-questions design notes and pulls each one's compiled-task title (if any)
+straight out of its own `content`; the second resolves those titles' status against `tasks/`.
 
 ```
 synapse vault-search --fields frontmatter.title,frontmatter.note_id,content <<'EOF'
 {"and": [
   {"glob": ["designs/*", {"var": "path"}]},
+  {"regexp": ["## Status\nReady", {"var": "content"}]},
   {"regexp": ["## Open Questions\n- ", {"var": "content"}]}
 ]}
 EOF
 ```
 
-This spans every status, so take two things from each row's `content` column directly instead of
-chaining further status-specific `regexp` branches onto the query: the line following `## Status`
-(normally `Discussing`/`Ready`/`Reference`, but a design note written before that three-word convention
-was standardized can carry free text there instead, e.g. `Superseded by [[...]]` -- report that
-verbatim rather than forcing it into a bucket, surfacing an odd note beats losing it, the same
-reasoning behind reporting a 0-unchecked task instead of hiding it, see Query 4 below) and the target
-of a `> Compiled task: [[...]]` line, if present -- that's the compiled task, parsed straight out of
-the wikilink text rather than resolved through any vault-wide link index.
+For each match, pull the target of a `> Compiled task: [[...]]` line out of its `content`, if present
+-- parsed straight out of the wikilink text rather than resolved through any vault-wide link index.
+Collect the distinct compiled-task titles found across all matches. If none of the matches have a
+`Compiled task:` line, skip the second query entirely -- every match stays in (no compiled task means
+the "either" branch is already satisfied). Otherwise, resolve those titles' status in one follow-up
+call:
+
+```
+synapse vault-search --fields frontmatter.title,frontmatter.status <<'EOF'
+{"and": [
+  {"glob": ["tasks/*", {"var": "path"}]},
+  {"in": [{"var": "frontmatter.title"}, ["{title one}", "{title two}"]]}
+]}
+EOF
+```
+
+Keep a match from the first query only if it has no `Compiled task:` line, or its compiled task's
+title isn't found in the second query's results with `frontmatter.status` equal to `DONE` -- a title
+the second query didn't return at all (a stale or broken link) counts as "not `DONE`" and stays in,
+since a broken link is itself worth a human noticing rather than a reason to drop the note silently.
 
 A `regexp` pattern containing a literal newline (`\n`) must be written with a single backslash, byte-
 for-byte, in the JSON text piped to `vault-search` -- the heredocs above are unquoted-delimiter
 (`<<'EOF'`), so nothing here re-escapes it; `\\n` would reach the JSON parser as a literal backslash
-followed by `n`, never matching a real line break, and every one of this skill's five queries would
+followed by `n`, never matching a real line break, and every `regexp` query in this skill would
 silently stop finding anything under a multi-line pattern.
 
 **4. Open task notes with at least one unchecked item.** Task notes carry `status:` in frontmatter,
@@ -129,11 +146,10 @@ One section per category, in the order above. Each line leads with the note's ow
 one is that a human can act on a line directly ("open sb-068") without the title as an intermediate
 step — followed by the title. A note somehow missing its id (pre-dates the field) drops the bracket
 entirely rather than printing an empty one, the same graceful-degradation the title-less case already
-gets. The Open Questions section is the one place a note's status and compiled-task link also belong
-on the line -- every other section's heading already implies status (the "Discussing" section only
-ever holds `Discussing` notes) and compiled-task-ness (the "Ready, not yet compiled" section only ever
-holds notes without one), but Open Questions spans every status and both compiled and uncompiled
-notes, so put the status first, before the id, so it's the first thing scanned:
+gets. Every section's heading already implies status now (the "Discussing" section only ever holds
+`Discussing` notes, "Open questions" only ever holds `Ready` ones per query 3 above), but Open
+questions still spans both compiled and uncompiled notes, so its line also names the compiled task
+(or says there isn't one) -- the one piece of state that section doesn't already imply:
 
 ```
 ## Discussing
@@ -143,7 +159,7 @@ notes, so put the status first, before the id, so it's the first thing scanned:
 - [{note_id}] {title}
 
 ## Open questions
-- **{status}** — [{note_id}] {title} — {compiled task title, or "not compiled"}
+- [{note_id}] {title} — {compiled task title, or "not compiled"}
 
 ## In progress (unchecked items)
 - [{task_id}] {title} ({N} unchecked)
