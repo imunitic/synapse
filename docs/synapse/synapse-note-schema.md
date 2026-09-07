@@ -165,23 +165,57 @@ deep-merged onto it before validation runs:
 - **A literal `null` at a map key deletes that key from the merged result** — the way to remove a
   field from `frontmatter.fields` (or any other map-valued key) entirely, rather than restating
   everything else around it.
-- **Anything else — a list, a scalar, or a key where the two sides disagree on map-ness — is
-  replaced wholesale**, never merged item-by-item. `lints`, `checks`, and `body.sections` are all
-  lists: removing one entry means restating the list without it; adding one means including it.
+- **A scalar, or a key where the two sides disagree on map-ness, is replaced wholesale.**
+- **A list is either a literal replacement or a set of `match`-shaped patches, never both.** A
+  plain list (today's only shape, still the default) replaces the base's list wholesale — omitting
+  an entry removes it, including one adds it. A list whose entries are *all* shaped `{match, ...}`
+  is patch mode instead: `match` is a partial pattern naming only the fields needed to find an
+  entry already in the base list (regardless of what other fields that entry also has), and every
+  other key in the same patch entry merges onto every entry `match` finds, using the same
+  key-by-key rules above. A `match` that finds nothing is a schema-load error, not a silent no-op;
+  finding more than one entry is not an error — the merge applies to each one independently. A
+  patch entry with `match` and nothing else removes every entry it finds. Adding a wholly new
+  entry that doesn't already exist in the base list is not patch mode's job — that stays the plain
+  list's wholesale-replace, the same as it always has been. Mixing `match`-shaped and plain entries
+  in the same list is a schema-load error.
 
-Example — promote `no_hard_wrap` to a blocking error and drop the `tags` field's own rule entirely,
-for `vault-note/v1` only:
+Example — promote `no_hard_wrap` to a blocking error, naming only its operator and argument rather
+than restating the whole entry, and drop the `tags` field's own rule entirely, for `vault-note/v1`
+only:
 
 ```yaml
 # schema-overrides/vault-note/v1.yaml
 lints:
-  - no_hard_wrap:
-      var: body.prose
+  - match:
+      no_hard_wrap:
+        var: body.prose
     severity: error
-    message: 'body: no_hard_wrap paragraph is wrapped'
 frontmatter:
   fields:
     tags: null
+```
+
+`match` also composes into a bulk edit — every entry `match` finds gets the delta, not just the
+first one:
+
+```yaml
+# schema-overrides/vault-task-note/v1.yaml
+lints:
+  - match:
+      severity: warn
+    severity: error
+```
+
+And a `match` entry with nothing beside it removes every entry it finds, rather than being read as
+a no-op:
+
+```yaml
+# schema-overrides/vault-note/v1.yaml
+lints:
+  - match:
+      no_id_prefix_in_title:
+        - var: frontmatter.title
+        - var: frontmatter.note_id
 ```
 
 `vault-task-note/v1` and `vault-design-note/v1` are completely unaffected — an override always

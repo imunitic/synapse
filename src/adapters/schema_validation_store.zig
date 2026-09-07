@@ -508,6 +508,28 @@ test "schema-overrides: a severity override turns a lint that used to only warn 
     try testing.expectEqual(@as(usize, 0), fake.writes);
 }
 
+test "schema-overrides: a match-mode override bumps one lint's severity without restating the whole list" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const root = try writeTestSchema(&tmp, testing.io);
+    defer testing.allocator.free(root);
+    try writeOverride(&tmp, testing.io, "vault-note/v1", "lints:\n  - match:\n      no_hard_wrap:\n        var: body.prose\n    severity: error\n");
+    const vars: TestVars = .{ .pairs = &.{ .{ "SYNAPSE_CONTENT_ROOT", root }, .{ "XDG_CONFIG_HOME", root } } };
+
+    var fake = FakeStore.init(testing.allocator);
+    defer fake.deinit();
+    var validation = SchemaValidationStore.init(testing.allocator, fake.port(), vars.vars());
+    const wrapped =
+        "---\nschema: vault-note/v1\ntitle: Example\nnote_id: sb-081\n" ++
+        "created: '2026-08-30T01:00:00+02:00'\nupdated: '2026-08-30T01:00:00+02:00'\ntags: []\n" ++
+        "---\n\n# Example\n\n## Summary\nThis sentence got\nhard-wrapped across two lines.\n";
+    const result = try validation.store().write(testing.io, "Example.md", wrapped);
+    defer testing.allocator.free(result.body);
+    try testing.expect(!result.accepted);
+    try testing.expectEqual(@as(u16, 422), result.status);
+    try testing.expectEqual(@as(usize, 0), fake.writes);
+}
+
 test "schema-overrides: a null on a required field removes it, a note missing that field now validates" {
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();

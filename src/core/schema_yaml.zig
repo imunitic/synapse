@@ -86,6 +86,19 @@ pub const Error = error{
     InvalidEscape,
     InvalidInteger,
     InvalidFlowList,
+    /// A patch-mode list entry's own `match` value isn't a map -- there is
+    /// nothing to test a base entry's fields against.
+    PatchMatchNotMap,
+    /// A patch-mode list's `match` pattern matched no entry in the base
+    /// list -- the override no longer applies to anything, worth failing
+    /// loudly on rather than silently doing nothing.
+    PatchMatchNotFound,
+    /// A list mixes `match`-shaped entries with plain ones -- patch mode is
+    /// all-or-nothing per list, so this is refused rather than guessed at.
+    MixedPatchList,
+    /// A patch-mode list (the override side) targets a base value that
+    /// isn't itself a list -- there is nothing for `match` to search.
+    PatchOnNonList,
 } || Allocator.Error;
 
 const SourceLine = struct {
@@ -290,15 +303,16 @@ pub fn parse(gpa: Allocator, source: []const u8) Error!Document {
 /// is kept, a key only in `override` is added, a key in both recurses.
 /// `.tombstone` (a literal `null` in the override) deletes the key it's
 /// attached to from the result instead of being copied through -- the one
-/// exception to "override always wins". Anything else -- a list, a scalar,
-/// or a type mismatch between the two sides (one is a map, the other isn't)
-/// -- is replaced wholesale by `override`'s own value; lists are never
-/// merged item-by-item.
+/// exception to "override always wins". A list whose entries are all
+/// shaped `{match, ...}` is patch mode (sb-126) instead of wholesale
+/// replacement -- see `mergeListPatch`. Anything else -- an ordinary list,
+/// a scalar, or a type mismatch between the two sides (one is a map, the
+/// other isn't) -- is replaced wholesale by `override`'s own value.
 ///
 /// Every node in the result is freshly allocated into the returned
 /// `Document`'s own arena, so neither `base` nor `override` needs to
 /// outlive this call -- both are safe to `deinit` right after.
-pub fn merge(gpa: Allocator, base: *const Value, override: *const Value) Allocator.Error!Document {
+pub fn merge(gpa: Allocator, base: *const Value, override: *const Value) Error!Document {
     var arena = std.heap.ArenaAllocator.init(gpa);
     errdefer arena.deinit();
     const allocator = arena.allocator();
@@ -306,12 +320,113 @@ pub fn merge(gpa: Allocator, base: *const Value, override: *const Value) Allocat
     return .{ .arena = arena, .root = root };
 }
 
-fn mergeValue(allocator: Allocator, base: *const Value, override: *const Value) Allocator.Error!*Value {
+fn mergeValue(allocator: Allocator, base: *const Value, override: *const Value) Error!*Value {
     if (base.* == .map and override.* == .map) return mergeMaps(allocator, base.map, override.map);
+    if (override.* == .list and isPatchList(override.list)) return mergeListPatch(allocator, base, override.list);
     return copyValue(allocator, override);
 }
 
-fn mergeMaps(allocator: Allocator, base: []const Entry, override: []const Entry) Allocator.Error!*Value {
+/// True iff at least one entry in `list` is a map carrying a `match` key --
+/// the signal that this list's override value is patch mode rather than a
+/// literal replacement. Every entry must then have `match` too (checked in
+/// `mergeListPatch` itself, as `Error.MixedPatchList`); a list with none of
+/// them shaped this way is an ordinary literal list, wholesale-replacing
+/// `base` exactly as it always has.
+fn isPatchList(list: []const *Value) bool {
+    for (list) |entry| if (entry.get("match") != null) return true;
+    return false;
+}
+
+/// True iff `entry` (a map) contains every key/value pair `pattern` states,
+/// deep-equal per key -- `entry` may carry other keys `pattern` doesn't
+/// mention, and those are ignored. A non-map `entry`, or a non-map
+/// `pattern`, never matches: patch mode only ever targets map-shaped list
+/// entries (every real `checks:`/`lints:`/`body.sections` entry is one).
+fn matchesPattern(entry: *const Value, pattern: *const Value) bool {
+    if (entry.* != .map) return false;
+    const pattern_entries = switch (pattern.*) {
+        .map => |m| m,
+        else => return false,
+    };
+    for (pattern_entries) |pe| {
+        const found = entry.get(pe.key) orelse return false;
+        if (!deepEqual(found, pe.value)) return false;
+    }
+    return true;
+}
+
+fn deepEqual(a: *const Value, b: *const Value) bool {
+    return switch (a.*) {
+        .string => |s| b.* == .string and std.mem.eql(u8, s, b.string),
+        .integer => |n| b.* == .integer and n == b.integer,
+        .boolean => |bo| b.* == .boolean and bo == b.boolean,
+        .tombstone => b.* == .tombstone,
+        .list => |items| b.* == .list and items.len == b.list.len and blk: {
+            for (items, b.list) |x, y| {
+                if (!deepEqual(x, y)) break :blk false;
+            }
+            break :blk true;
+        },
+        .map => |entries| b.* == .map and entries.len == b.map.len and blk: {
+            for (entries) |e| {
+                const bv = b.get(e.key) orelse break :blk false;
+                if (!deepEqual(e.value, bv)) break :blk false;
+            }
+            break :blk true;
+        },
+    };
+}
+
+/// Applies every `{match, ...delta}` entry in `patches` against `base`, in
+/// order -- each instruction sees the effect of every earlier one in the
+/// same list, the same way a sequence of edits normally composes. `match`
+/// is a partial pattern (see `matchesPattern`): every base entry it finds
+/// gets `delta` (everything in the patch entry besides `match` itself)
+/// merged onto it via `mergeMaps`, the same key-by-key rules an override
+/// already applies everywhere else. A patch entry with no delta at all
+/// removes every entry it finds instead of merging nothing onto it -- that
+/// shape has no other legitimate meaning. Finding zero entries for any one
+/// `match` is `Error.PatchMatchNotFound`, not a silent no-op.
+fn mergeListPatch(allocator: Allocator, base: *const Value, patches: []const *Value) Error!*Value {
+    if (base.* != .list) return Error.PatchOnNonList;
+
+    var working: std.ArrayListUnmanaged(*Value) = .empty;
+    for (base.list) |entry| try working.append(allocator, try copyValue(allocator, entry));
+
+    for (patches) |patch_entry| {
+        const match_value = patch_entry.get("match") orelse return Error.MixedPatchList;
+        if (match_value.* != .map) return Error.PatchMatchNotMap;
+
+        var delta: std.ArrayListUnmanaged(Entry) = .empty;
+        for (patch_entry.map) |pe| {
+            if (std.mem.eql(u8, pe.key, "match")) continue;
+            try delta.append(allocator, pe);
+        }
+
+        var found: usize = 0;
+        var i: usize = 0;
+        while (i < working.items.len) {
+            if (!matchesPattern(working.items[i], match_value)) {
+                i += 1;
+                continue;
+            }
+            found += 1;
+            if (delta.items.len == 0) {
+                _ = working.orderedRemove(i);
+            } else {
+                working.items[i] = try mergeMaps(allocator, working.items[i].map, delta.items);
+                i += 1;
+            }
+        }
+        if (found == 0) return Error.PatchMatchNotFound;
+    }
+
+    const out = try allocator.create(Value);
+    out.* = .{ .list = try working.toOwnedSlice(allocator) };
+    return out;
+}
+
+fn mergeMaps(allocator: Allocator, base: []const Entry, override: []const Entry) Error!*Value {
     var entries: std.ArrayListUnmanaged(Entry) = .empty;
     for (base) |entry| {
         if (findEntry(override, entry.key)) |i| {
@@ -623,6 +738,132 @@ test "merge: a list-valued key is replaced wholesale -- omission removes, inclus
     try testing.expectEqual(@as(usize, 2), lints.len);
     try testing.expectEqualStrings("two", lints[0].get("a").?.asString().?);
     try testing.expectEqualStrings("three", lints[1].get("a").?.asString().?);
+}
+
+test "merge: a patch-mode list entry (match + delta) edits exactly the matched entry, in place" {
+    var base = try parse(testing.allocator,
+        \\lints:
+        \\  - no_hard_wrap:
+        \\      var: body.prose
+        \\    severity: warn
+        \\  - no_id_prefix_in_title:
+        \\      - var: frontmatter.title
+        \\      - var: frontmatter.note_id
+        \\    severity: warn
+        \\
+    );
+    defer base.deinit();
+    var override = try parse(testing.allocator,
+        \\lints:
+        \\  - match:
+        \\      no_hard_wrap:
+        \\        var: body.prose
+        \\    severity: error
+        \\
+    );
+    defer override.deinit();
+
+    var merged = try merge(testing.allocator, base.root, override.root);
+    defer merged.deinit();
+    const lints = merged.root.get("lints").?.list;
+    try testing.expectEqual(@as(usize, 2), lints.len);
+    try testing.expectEqualStrings("error", lints[0].get("severity").?.asString().?);
+    // Untouched sibling entry keeps its own severity and stays in position.
+    try testing.expectEqualStrings("warn", lints[1].get("severity").?.asString().?);
+}
+
+test "merge: a match finding more than one entry applies the delta to each, independently" {
+    var base = try parse(testing.allocator,
+        \\lints:
+        \\  - a: one
+        \\    severity: warn
+        \\  - a: two
+        \\    severity: warn
+        \\  - a: three
+        \\    severity: ignore
+        \\
+    );
+    defer base.deinit();
+    var override = try parse(testing.allocator,
+        \\lints:
+        \\  - match:
+        \\      severity: warn
+        \\    severity: error
+        \\
+    );
+    defer override.deinit();
+
+    var merged = try merge(testing.allocator, base.root, override.root);
+    defer merged.deinit();
+    const lints = merged.root.get("lints").?.list;
+    try testing.expectEqual(@as(usize, 3), lints.len);
+    try testing.expectEqualStrings("error", lints[0].get("severity").?.asString().?);
+    try testing.expectEqualStrings("error", lints[1].get("severity").?.asString().?);
+    // Never matched `severity: warn`, so left exactly as the base declared it.
+    try testing.expectEqualStrings("ignore", lints[2].get("severity").?.asString().?);
+}
+
+test "merge: a match finding nothing in the base list is a schema-load error, not a silent no-op" {
+    var base = try parse(testing.allocator,
+        \\lints:
+        \\  - a: one
+        \\    severity: warn
+        \\
+    );
+    defer base.deinit();
+    var override = try parse(testing.allocator,
+        \\lints:
+        \\  - match:
+        \\      a: nope
+        \\    severity: error
+        \\
+    );
+    defer override.deinit();
+
+    try testing.expectError(error.PatchMatchNotFound, merge(testing.allocator, base.root, override.root));
+}
+
+test "merge: a match entry with no delta removes every entry it finds; removing all leaves an empty list" {
+    var base = try parse(testing.allocator,
+        \\lints:
+        \\  - a: one
+        \\    severity: warn
+        \\
+    );
+    defer base.deinit();
+    var override = try parse(testing.allocator,
+        \\lints:
+        \\  - match:
+        \\      a: one
+        \\
+    );
+    defer override.deinit();
+
+    var merged = try merge(testing.allocator, base.root, override.root);
+    defer merged.deinit();
+    try testing.expectEqual(@as(usize, 0), merged.root.get("lints").?.list.len);
+}
+
+test "merge: a list mixing match-shaped and plain entries is a schema-load error" {
+    var base = try parse(testing.allocator,
+        \\lints:
+        \\  - a: one
+        \\    severity: warn
+        \\
+    );
+    defer base.deinit();
+    var override = try parse(testing.allocator,
+        \\lints:
+        \\  - match:
+        \\      a: one
+        \\    severity: error
+        \\  - a: two
+        \\    severity: warn
+        \\
+    );
+    defer override.deinit();
+
+    try testing.expectError(error.MixedPatchList, merge(testing.allocator, base.root, override.root));
 }
 
 test "merge: the result outlives both inputs -- every node is freshly copied, not borrowed" {
