@@ -1,18 +1,29 @@
 //! A JsonLogic evaluator scoped to `search_query`'s own operator set --
-//! `and`/`or`/`!`/`==`/`!=`/`in`/`<`/`<=`/`>`/`>=`/`var`/`glob`/`regexp` --
-//! not the full published spec. JsonLogic itself is adopted as-is (an
-//! existing, published, language-agnostic standard, not something to
-//! subset down further) because Synapse's domain is fixed and small.
-//! `glob`/`regexp` aren't part of the official spec -- they're the same two
-//! operators a widely used vault-search plugin already added, kept
-//! identical so a filter written against that plugin's own query language
-//! needs no translation to run here.
+//! `and`/`or`/`!`/`==`/`!=`/`in`/`<`/`<=`/`>`/`>=`/`var`/`glob`/`regexp`/
+//! `all`/`xor` -- not the full published spec. JsonLogic itself is adopted
+//! as-is (an existing, published, language-agnostic standard, not
+//! something to subset down further) because Synapse's domain is fixed and
+//! small. `glob`/`regexp` aren't part of the official spec -- they're the
+//! same two operators a widely used vault-search plugin already added,
+//! kept identical so a filter written against that plugin's own query
+//! language needs no translation to run here. `all` deviates from the spec
+//! in one place -- an empty array is `true` here, not the spec's
+//! documented `false` -- see `evalAll`'s own doc comment for why. `xor`
+//! isn't a spec operator at all; it's this codebase's own addition,
+//! needed for schema/lint rule composition.
 //!
-//! Purely a function of the two JSON trees it's given -- no allocation, no
-//! I/O. Every result is either a `bool`, or a reference into `rule`/`data`
-//! that already existed (a `var` lookup, an `and`/`or` operand) -- nothing
-//! here ever constructs a new `std.json.Value`, so there's nothing for a
-//! caller to free beyond what it already owned.
+//! Purely a function of its inputs -- no allocation, no I/O. Every result is
+//! either a `bool`, or a reference into `rule`/`data`/`current_item` that
+//! already existed (a `var` lookup, an `and`/`or` operand) -- nothing here
+//! ever constructs a new `std.json.Value`, so there's nothing for a caller
+//! to free beyond what it already owned.
+//!
+//! `current_item` is a third, optional value threaded alongside `data`
+//! rather than merged into it -- the seam `all` (added alongside this) uses
+//! to expose the element currently being tested via `{"var": ""}` without
+//! replacing `data` and losing the rest of the tree out from under whatever
+//! condition is running. Every caller outside this file passes `null`, and
+//! nothing about their behavior changes.
 
 const std = @import("std");
 const regex_lite = @import("regex_lite.zig");
@@ -27,11 +38,34 @@ pub const Error = error{
     InvalidArguments,
 };
 
+/// Every built-in operator name `evaluate()`'s own dispatch recognizes --
+/// kept as one list next to the dispatch itself, so a caller validating an
+/// operator name at load time (before any note exists to actually run the
+/// rule against) has one place to check rather than a second, hand-copied
+/// list that could drift from the real dispatch.
+pub const built_in_names = [_][]const u8{
+    "var", "and", "or", "!", "==", "!=", "in", "<", "<=", ">", ">=", "glob", "regexp", "all", "xor",
+};
+
+/// One name-keyed extension-point entry -- the whole shape a caller needs
+/// to add an operator beyond the built-in set, without touching this file.
+/// Same signature as every built-in `eval*` function, no allocator: none of
+/// this codebase's own custom operators need to allocate to produce their
+/// boolean result (see the schema/lint rule-engine design note for why).
+pub const CustomOp = struct {
+    name: []const u8,
+    func: *const fn (args: []const Value, data: Value, current_item: ?Value, custom_ops: ?[]const CustomOp) Error!Value,
+};
+
 /// Evaluates `rule` against `data`. A rule is a single-key object naming a
 /// known operator (`{"==": [a, b]}`); anything else -- a string, number,
 /// bool, null, array, or a multi-key/unknown-key object -- is a literal,
 /// returned as itself.
-pub fn evaluate(rule: Value, data: Value) Error!Value {
+///
+/// `current_item` is `null` for every ordinary call; only `all`'s own
+/// recursion into its condition sets it, to the element currently being
+/// tested. `evalVar`'s empty-path case is the only place it's ever read.
+pub fn evaluate(rule: Value, data: Value, current_item: ?Value, custom_ops: ?[]const CustomOp) Error!Value {
     const obj = switch (rule) {
         .object => |o| o,
         else => return rule,
@@ -49,19 +83,26 @@ pub fn evaluate(rule: Value, data: Value) Error!Value {
         else => &.{raw_args},
     };
 
-    if (std.mem.eql(u8, op, "var")) return evalVar(args, data);
-    if (std.mem.eql(u8, op, "and")) return evalAnd(args, data);
-    if (std.mem.eql(u8, op, "or")) return evalOr(args, data);
-    if (std.mem.eql(u8, op, "!")) return evalNot(args, data);
-    if (std.mem.eql(u8, op, "==")) return evalEq(args, data, true);
-    if (std.mem.eql(u8, op, "!=")) return evalEq(args, data, false);
-    if (std.mem.eql(u8, op, "in")) return evalIn(args, data);
-    if (std.mem.eql(u8, op, "<")) return evalCompare(args, data, .lt);
-    if (std.mem.eql(u8, op, "<=")) return evalCompare(args, data, .le);
-    if (std.mem.eql(u8, op, ">")) return evalCompare(args, data, .gt);
-    if (std.mem.eql(u8, op, ">=")) return evalCompare(args, data, .ge);
-    if (std.mem.eql(u8, op, "glob")) return evalPatternMatch(args, data, .glob);
-    if (std.mem.eql(u8, op, "regexp")) return evalPatternMatch(args, data, .regexp);
+    if (std.mem.eql(u8, op, "var")) return evalVar(args, data, current_item, custom_ops);
+    if (std.mem.eql(u8, op, "and")) return evalAnd(args, data, current_item, custom_ops);
+    if (std.mem.eql(u8, op, "or")) return evalOr(args, data, current_item, custom_ops);
+    if (std.mem.eql(u8, op, "!")) return evalNot(args, data, current_item, custom_ops);
+    if (std.mem.eql(u8, op, "==")) return evalEq(args, data, current_item, custom_ops, true);
+    if (std.mem.eql(u8, op, "!=")) return evalEq(args, data, current_item, custom_ops, false);
+    if (std.mem.eql(u8, op, "in")) return evalIn(args, data, current_item, custom_ops);
+    if (std.mem.eql(u8, op, "<")) return evalCompare(args, data, current_item, custom_ops, .lt);
+    if (std.mem.eql(u8, op, "<=")) return evalCompare(args, data, current_item, custom_ops, .le);
+    if (std.mem.eql(u8, op, ">")) return evalCompare(args, data, current_item, custom_ops, .gt);
+    if (std.mem.eql(u8, op, ">=")) return evalCompare(args, data, current_item, custom_ops, .ge);
+    if (std.mem.eql(u8, op, "glob")) return evalPatternMatch(args, data, current_item, custom_ops, .glob);
+    if (std.mem.eql(u8, op, "regexp")) return evalPatternMatch(args, data, current_item, custom_ops, .regexp);
+    if (std.mem.eql(u8, op, "all")) return evalAll(args, data, current_item, custom_ops);
+    if (std.mem.eql(u8, op, "xor")) return evalXor(args, data, current_item, custom_ops);
+    if (custom_ops) |ops| {
+        for (ops) |custom| {
+            if (std.mem.eql(u8, custom.name, op)) return custom.func(args, data, current_item, custom_ops);
+        }
+    }
     return Error.UnknownOperator;
 }
 
@@ -80,13 +121,14 @@ pub fn truthy(v: Value) bool {
     };
 }
 
-fn evalVar(args: []const Value, data: Value) Error!Value {
+fn evalVar(args: []const Value, data: Value, current_item: ?Value, custom_ops: ?[]const CustomOp) Error!Value {
+    _ = custom_ops; // var never recurses into evaluate() -- nothing here needs the operator table
     const path: []const u8 = switch (if (args.len != 0) args[0] else Value.null) {
         .string => |s| s,
-        else => return data, // no path (or a non-string path): the whole data tree
+        else => return current_item orelse data, // no path (or a non-string path): the current context
     };
     const default: Value = if (args.len >= 2) args[1] else .null;
-    if (path.len == 0) return data;
+    if (path.len == 0) return current_item orelse data;
 
     var current = data;
     var segments = std.mem.splitScalar(u8, path, '.');
@@ -100,35 +142,79 @@ fn evalVar(args: []const Value, data: Value) Error!Value {
     return current;
 }
 
-fn evalAnd(args: []const Value, data: Value) Error!Value {
+/// `all`'s own array argument evaluates against whatever `current_item` is
+/// already in scope (matters only if `all` is itself nested inside another
+/// `all`'s condition); its condition then re-evaluates once per element,
+/// with `current_item` rebound to that element -- `data` is never touched,
+/// so anything the condition needs from the outer tree (`{"var":
+/// "vocabularies..."}`) stays reachable alongside `{"var": ""}` for the
+/// element itself.
+///
+/// An empty array returns `true` (vacuous truth, matching `evalAnd`'s own
+/// no-operand convention) rather than the published JsonLogic spec's
+/// documented `false` -- for a validation rule ("every tag is in the
+/// vocabulary"), an empty list has nothing invalid in it, so it should
+/// pass. A non-array first argument returns `false`, the same defensive
+/// "can't tell, so it doesn't match" convention `evalIn`'s haystack
+/// handling already uses.
+fn evalAll(args: []const Value, data: Value, current_item: ?Value, custom_ops: ?[]const CustomOp) Error!Value {
+    if (args.len < 2) return Error.InvalidArguments;
+    const arr = try evaluate(args[0], data, current_item, custom_ops);
+    const items: []const Value = switch (arr) {
+        .array => |a| a.items,
+        else => return .{ .bool = false },
+    };
+    for (items) |item| {
+        const result = try evaluate(args[1], data, item, custom_ops);
+        if (!truthy(result)) return .{ .bool = false };
+    }
+    return .{ .bool = true };
+}
+
+fn evalAnd(args: []const Value, data: Value, current_item: ?Value, custom_ops: ?[]const CustomOp) Error!Value {
     if (args.len == 0) return .{ .bool = true };
     var last: Value = .{ .bool = true };
     for (args) |a| {
-        last = try evaluate(a, data);
+        last = try evaluate(a, data, current_item, custom_ops);
         if (!truthy(last)) return last;
     }
     return last;
 }
 
-fn evalOr(args: []const Value, data: Value) Error!Value {
+fn evalOr(args: []const Value, data: Value, current_item: ?Value, custom_ops: ?[]const CustomOp) Error!Value {
     var last: Value = .{ .bool = false };
     for (args) |a| {
-        last = try evaluate(a, data);
+        last = try evaluate(a, data, current_item, custom_ops);
         if (truthy(last)) return last;
     }
     return last;
 }
 
-fn evalNot(args: []const Value, data: Value) Error!Value {
+fn evalNot(args: []const Value, data: Value, current_item: ?Value, custom_ops: ?[]const CustomOp) Error!Value {
     if (args.len == 0) return .{ .bool = true };
-    const v = try evaluate(args[0], data);
+    const v = try evaluate(args[0], data, current_item, custom_ops);
     return .{ .bool = !truthy(v) };
 }
 
-fn evalEq(args: []const Value, data: Value, want_equal: bool) Error!Value {
+/// True iff exactly one operand is truthy -- not spec, not published
+/// anywhere; a general boolean primitive this codebase's own rule
+/// composition needs, same footing as `and`/`or`/`!`. Deliberately "exactly
+/// one," not "an odd count truthy": the two conventions only diverge at
+/// three or more operands, and "exactly one" is what the name promises for
+/// the common two-operand case without needing a second word to describe
+/// what happens beyond it.
+fn evalXor(args: []const Value, data: Value, current_item: ?Value, custom_ops: ?[]const CustomOp) Error!Value {
+    var truthy_count: usize = 0;
+    for (args) |a| {
+        if (truthy(try evaluate(a, data, current_item, custom_ops))) truthy_count += 1;
+    }
+    return .{ .bool = truthy_count == 1 };
+}
+
+fn evalEq(args: []const Value, data: Value, current_item: ?Value, custom_ops: ?[]const CustomOp, want_equal: bool) Error!Value {
     if (args.len < 2) return Error.InvalidArguments;
-    const a = try evaluate(args[0], data);
-    const b = try evaluate(args[1], data);
+    const a = try evaluate(args[0], data, current_item, custom_ops);
+    const b = try evaluate(args[1], data, current_item, custom_ops);
     const eq = deepEqual(a, b);
     return .{ .bool = if (want_equal) eq else !eq };
 }
@@ -194,10 +280,10 @@ fn digitsToNumber(s: []const u8) ?f64 {
     return std.fmt.parseFloat(f64, s) catch null;
 }
 
-fn evalIn(args: []const Value, data: Value) Error!Value {
+fn evalIn(args: []const Value, data: Value, current_item: ?Value, custom_ops: ?[]const CustomOp) Error!Value {
     if (args.len < 2) return Error.InvalidArguments;
-    const needle = try evaluate(args[0], data);
-    const haystack = try evaluate(args[1], data);
+    const needle = try evaluate(args[0], data, current_item, custom_ops);
+    const haystack = try evaluate(args[1], data, current_item, custom_ops);
     switch (haystack) {
         .array => |items| {
             for (items.items) |item| if (deepEqual(needle, item)) return .{ .bool = true };
@@ -216,10 +302,10 @@ fn evalIn(args: []const Value, data: Value) Error!Value {
 
 const CompareOp = enum { lt, le, gt, ge };
 
-fn evalCompare(args: []const Value, data: Value, op: CompareOp) Error!Value {
+fn evalCompare(args: []const Value, data: Value, current_item: ?Value, custom_ops: ?[]const CustomOp, op: CompareOp) Error!Value {
     if (args.len < 2) return Error.InvalidArguments;
-    const a = try evaluate(args[0], data);
-    const b = try evaluate(args[1], data);
+    const a = try evaluate(args[0], data, current_item, custom_ops);
+    const b = try evaluate(args[1], data, current_item, custom_ops);
 
     // Checked before numeric coercion: two plain strings compare
     // lexicographically even when both happen to be digit-only ("9" < "10"
@@ -254,10 +340,10 @@ fn compareOrder(comptime T: type, a: T, b: T, op: CompareOp) bool {
 
 const PatternKind = enum { glob, regexp };
 
-fn evalPatternMatch(args: []const Value, data: Value, kind: PatternKind) Error!Value {
+fn evalPatternMatch(args: []const Value, data: Value, current_item: ?Value, custom_ops: ?[]const CustomOp, kind: PatternKind) Error!Value {
     if (args.len < 2) return Error.InvalidArguments;
-    const pattern_v = try evaluate(args[0], data);
-    const value_v = try evaluate(args[1], data);
+    const pattern_v = try evaluate(args[0], data, current_item, custom_ops);
+    const value_v = try evaluate(args[1], data, current_item, custom_ops);
     const pattern = switch (pattern_v) {
         .string => |s| s,
         else => return .{ .bool = false },
@@ -328,7 +414,7 @@ test "a literal value evaluates to itself" {
     const gpa = testing.allocator;
     var rule = try parse(gpa, "42");
     defer rule.deinit();
-    const got = try evaluate(rule.value, .null);
+    const got = try evaluate(rule.value, .null, null, null);
     try testing.expectEqual(@as(i64, 42), got.integer);
 }
 
@@ -338,7 +424,7 @@ test "var looks up a dotted path in the data" {
     defer rule.deinit();
     var data = try parse(gpa, "{\"frontmatter\": {\"status\": \"TODO\"}}");
     defer data.deinit();
-    const got = try evaluate(rule.value, data.value);
+    const got = try evaluate(rule.value, data.value, null, null);
     try testing.expectEqualStrings("TODO", got.string);
 }
 
@@ -348,7 +434,7 @@ test "var with a missing path and a default returns the default" {
     defer rule.deinit();
     var data = try parse(gpa, "{\"frontmatter\": {}}");
     defer data.deinit();
-    const got = try evaluate(rule.value, data.value);
+    const got = try evaluate(rule.value, data.value, null, null);
     try testing.expectEqualStrings("fallback", got.string);
 }
 
@@ -358,8 +444,173 @@ test "var with a missing path and no default returns null" {
     defer rule.deinit();
     var data = try parse(gpa, "{}");
     defer data.deinit();
-    const got = try evaluate(rule.value, data.value);
+    const got = try evaluate(rule.value, data.value, null, null);
     try testing.expectEqual(Value.null, got);
+}
+
+test "var with an empty path resolves against current_item when set, not data" {
+    const gpa = testing.allocator;
+    var rule = try parse(gpa, "{\"var\": \"\"}");
+    defer rule.deinit();
+    var data = try parse(gpa, "{\"frontmatter\": {\"tags\": []}}");
+    defer data.deinit();
+    var item = try parse(gpa, "\"synapse\"");
+    defer item.deinit();
+    const got = try evaluate(rule.value, data.value, item.value, null);
+    try testing.expectEqualStrings("synapse", got.string);
+}
+
+test "var with an empty path and no current_item falls back to data, exactly as before" {
+    const gpa = testing.allocator;
+    var rule = try parse(gpa, "{\"var\": \"\"}");
+    defer rule.deinit();
+    var data = try parse(gpa, "{\"frontmatter\": {\"status\": \"TODO\"}}");
+    defer data.deinit();
+    const got = try evaluate(rule.value, data.value, null, null);
+    try testing.expectEqualStrings("TODO", got.object.get("frontmatter").?.object.get("status").?.string);
+}
+
+test "an outer data path stays reachable alongside current_item, unlike a full data replacement" {
+    const gpa = testing.allocator;
+    var rule = try parse(gpa,
+        \\{"in": [{"var": ""}, {"var": "vocabulary"}]}
+    );
+    defer rule.deinit();
+    var data = try parse(gpa,
+        \\{"vocabulary": ["synapse", "vault-infra"]}
+    );
+    defer data.deinit();
+    var item = try parse(gpa, "\"synapse\"");
+    defer item.deinit();
+    const got = try evaluate(rule.value, data.value, item.value, null);
+    try testing.expect(got.bool);
+}
+
+test "all is true when the condition holds for every element" {
+    const gpa = testing.allocator;
+    var rule = try parse(gpa,
+        \\{"all": [[1, 2, 3], {">": [{"var": ""}, 0]}]}
+    );
+    defer rule.deinit();
+    const got = try evaluate(rule.value, .null, null, null);
+    try testing.expect(got.bool);
+}
+
+test "all is false as soon as one element fails the condition" {
+    const gpa = testing.allocator;
+    var rule = try parse(gpa,
+        \\{"all": [[1, -2, 3], {">": [{"var": ""}, 0]}]}
+    );
+    defer rule.deinit();
+    const got = try evaluate(rule.value, .null, null, null);
+    try testing.expect(!got.bool);
+}
+
+test "all on an empty array is true -- vacuous truth, not the spec's documented false" {
+    const gpa = testing.allocator;
+    var rule = try parse(gpa,
+        \\{"all": [[], {">": [{"var": ""}, 0]}]}
+    );
+    defer rule.deinit();
+    const got = try evaluate(rule.value, .null, null, null);
+    try testing.expect(got.bool);
+}
+
+test "all on a non-array first argument is false" {
+    const gpa = testing.allocator;
+    var rule = try parse(gpa,
+        \\{"all": ["not-an-array", {">": [{"var": ""}, 0]}]}
+    );
+    defer rule.deinit();
+    const got = try evaluate(rule.value, .null, null, null);
+    try testing.expect(!got.bool);
+}
+
+test "all's condition sees both the current element and the outer data tree at once -- the real vocabulary-check shape" {
+    const gpa = testing.allocator;
+    var rule = try parse(gpa,
+        \\{"all": [
+        \\  {"var": "frontmatter.tags"},
+        \\  {"in": [{"var": ""}, {"var": "vocabularies.synapse-tag-vocabulary"}]}
+        \\]}
+    );
+    defer rule.deinit();
+    var data = try parse(gpa,
+        \\{
+        \\  "frontmatter": {"tags": ["synapse", "vault-infra"]},
+        \\  "vocabularies": {"synapse-tag-vocabulary": ["synapse", "vault-infra", "architecture"]}
+        \\}
+    );
+    defer data.deinit();
+    const got = try evaluate(rule.value, data.value, null, null);
+    try testing.expect(got.bool);
+}
+
+test "all's condition correctly rejects a tag that isn't in the vocabulary" {
+    const gpa = testing.allocator;
+    var rule = try parse(gpa,
+        \\{"all": [
+        \\  {"var": "frontmatter.tags"},
+        \\  {"in": [{"var": ""}, {"var": "vocabularies.synapse-tag-vocabulary"}]}
+        \\]}
+    );
+    defer rule.deinit();
+    var data = try parse(gpa,
+        \\{
+        \\  "frontmatter": {"tags": ["synapse", "bogus-tag"]},
+        \\  "vocabularies": {"synapse-tag-vocabulary": ["synapse", "vault-infra", "architecture"]}
+        \\}
+    );
+    defer data.deinit();
+    const got = try evaluate(rule.value, data.value, null, null);
+    try testing.expect(!got.bool);
+}
+
+test "regression: a dot inside a map key splits into an extra path segment and silently misses -- why vocabularies must be keyed by a dot-free stem, not a literal filename" {
+    const gpa = testing.allocator;
+    var rule = try parse(gpa, "{\"var\": \"vocabularies.synapse-tag-vocabulary.conf\"}");
+    defer rule.deinit();
+    var data = try parse(gpa,
+        \\{"vocabularies": {"synapse-tag-vocabulary.conf": ["synapse"]}}
+    );
+    defer data.deinit();
+    // Splits into three segments (vocabularies -> "synapse-tag-vocabulary" ->
+    // "conf"), not the two hops the real one-level map actually has -- the
+    // middle segment is never a key on anything, so this returns null, not
+    // the array. Keying the map by the extension-stripped stem instead
+    // (see the tests above) is what avoids this trap, not a smarter var.
+    const got = try evaluate(rule.value, data.value, null, null);
+    try testing.expectEqual(Value.null, got);
+}
+
+test "xor: two-operand truth table" {
+    const gpa = testing.allocator;
+
+    var both = try parse(gpa, "{\"xor\": [true, true]}");
+    defer both.deinit();
+    try testing.expect(!(try evaluate(both.value, .null, null, null)).bool);
+
+    var one = try parse(gpa, "{\"xor\": [true, false]}");
+    defer one.deinit();
+    try testing.expect((try evaluate(one.value, .null, null, null)).bool);
+
+    var neither = try parse(gpa, "{\"xor\": [false, false]}");
+    defer neither.deinit();
+    try testing.expect(!(try evaluate(neither.value, .null, null, null)).bool);
+}
+
+test "xor with three operands is true only when exactly one is truthy, not on an odd count" {
+    const gpa = testing.allocator;
+
+    var one = try parse(gpa, "{\"xor\": [true, false, false]}");
+    defer one.deinit();
+    try testing.expect((try evaluate(one.value, .null, null, null)).bool);
+
+    // Three truthy operands is an odd count but not "exactly one" --
+    // the distinction the doc comment on evalXor calls out explicitly.
+    var three = try parse(gpa, "{\"xor\": [true, true, true]}");
+    defer three.deinit();
+    try testing.expect(!(try evaluate(three.value, .null, null, null)).bool);
 }
 
 test "== compares two evaluated values" {
@@ -368,7 +619,7 @@ test "== compares two evaluated values" {
     defer rule.deinit();
     var data = try parse(gpa, "{\"status\": \"REVIEW\"}");
     defer data.deinit();
-    const got = try evaluate(rule.value, data.value);
+    const got = try evaluate(rule.value, data.value, null, null);
     try testing.expect(got.bool);
 }
 
@@ -376,7 +627,7 @@ test "!= is the negation of ==" {
     const gpa = testing.allocator;
     var rule = try parse(gpa, "{\"!=\": [1, 2]}");
     defer rule.deinit();
-    const got = try evaluate(rule.value, .null);
+    const got = try evaluate(rule.value, .null, null, null);
     try testing.expect(got.bool);
 }
 
@@ -384,7 +635,7 @@ test "and short-circuits on the first falsy value" {
     const gpa = testing.allocator;
     var rule = try parse(gpa, "{\"and\": [true, false, true]}");
     defer rule.deinit();
-    const got = try evaluate(rule.value, .null);
+    const got = try evaluate(rule.value, .null, null, null);
     try testing.expect(!got.bool);
 }
 
@@ -392,7 +643,7 @@ test "and returns the last value when every operand is truthy" {
     const gpa = testing.allocator;
     var rule = try parse(gpa, "{\"and\": [1, 2, 3]}");
     defer rule.deinit();
-    const got = try evaluate(rule.value, .null);
+    const got = try evaluate(rule.value, .null, null, null);
     try testing.expectEqual(@as(i64, 3), got.integer);
 }
 
@@ -400,7 +651,7 @@ test "or returns the first truthy value" {
     const gpa = testing.allocator;
     var rule = try parse(gpa, "{\"or\": [false, 0, \"found\", \"unreached\"]}");
     defer rule.deinit();
-    const got = try evaluate(rule.value, .null);
+    const got = try evaluate(rule.value, .null, null, null);
     try testing.expectEqualStrings("found", got.string);
 }
 
@@ -408,7 +659,7 @@ test "! negates truthiness, bare-value form" {
     const gpa = testing.allocator;
     var rule = try parse(gpa, "{\"!\": true}");
     defer rule.deinit();
-    const got = try evaluate(rule.value, .null);
+    const got = try evaluate(rule.value, .null, null, null);
     try testing.expect(!got.bool);
 }
 
@@ -418,7 +669,7 @@ test "in checks array membership" {
     defer rule.deinit();
     var data = try parse(gpa, "{\"status\": \"IN-PROGRESS\"}");
     defer data.deinit();
-    const got = try evaluate(rule.value, data.value);
+    const got = try evaluate(rule.value, data.value, null, null);
     try testing.expect(got.bool);
 }
 
@@ -426,7 +677,7 @@ test "in checks substring containment on a string haystack" {
     const gpa = testing.allocator;
     var rule = try parse(gpa, "{\"in\": [\"log\", \"catalog\"]}");
     defer rule.deinit();
-    const got = try evaluate(rule.value, .null);
+    const got = try evaluate(rule.value, .null, null, null);
     try testing.expect(got.bool);
 }
 
@@ -434,12 +685,12 @@ test "numeric comparisons" {
     const gpa = testing.allocator;
     var rule = try parse(gpa, "{\"<\": [1, 2]}");
     defer rule.deinit();
-    const got = try evaluate(rule.value, .null);
+    const got = try evaluate(rule.value, .null, null, null);
     try testing.expect(got.bool);
 
     var rule2 = try parse(gpa, "{\">=\": [2, 2]}");
     defer rule2.deinit();
-    const got2 = try evaluate(rule2.value, .null);
+    const got2 = try evaluate(rule2.value, .null, null, null);
     try testing.expect(got2.bool);
 }
 
@@ -447,18 +698,18 @@ test "a digit-only string coerces to a number against a real number, both for co
     const gpa = testing.allocator;
     var lt = try parse(gpa, "{\"<\": [1, \"2\"]}");
     defer lt.deinit();
-    try testing.expect((try evaluate(lt.value, .null)).bool);
+    try testing.expect((try evaluate(lt.value, .null, null, null)).bool);
 
     var eq = try parse(gpa, "{\"==\": [1, \"1\"]}");
     defer eq.deinit();
-    try testing.expect((try evaluate(eq.value, .null)).bool);
+    try testing.expect((try evaluate(eq.value, .null, null, null)).bool);
 }
 
 test "a non-digit-only string never coerces, even one that starts with digits" {
     const gpa = testing.allocator;
     var rule = try parse(gpa, "{\"<\": [1, \"2px\"]}");
     defer rule.deinit();
-    try testing.expect(!(try evaluate(rule.value, .null)).bool);
+    try testing.expect(!(try evaluate(rule.value, .null, null, null)).bool);
 }
 
 test "two digit-only strings still compare lexicographically, not numerically" {
@@ -466,7 +717,7 @@ test "two digit-only strings still compare lexicographically, not numerically" {
     var rule = try parse(gpa, "{\"<\": [\"9\", \"10\"]}");
     defer rule.deinit();
     // Lexicographic: "9" > "10" (byte '9' > byte '1'), so "9" < "10" is false.
-    try testing.expect(!(try evaluate(rule.value, .null)).bool);
+    try testing.expect(!(try evaluate(rule.value, .null, null, null)).bool);
 }
 
 test "glob matches a wildcard pattern against a path" {
@@ -475,7 +726,7 @@ test "glob matches a wildcard pattern against a path" {
     defer rule.deinit();
     var data = try parse(gpa, "{\"path\": \"designs/synapse/sb-001.md\"}");
     defer data.deinit();
-    const got = try evaluate(rule.value, data.value);
+    const got = try evaluate(rule.value, data.value, null, null);
     try testing.expect(got.bool);
 }
 
@@ -490,7 +741,7 @@ test "glob rejects a path outside the pattern's prefix" {
     defer rule.deinit();
     var data = try parse(gpa, "{\"path\": \"tasks/synapse/sb-001.md\"}");
     defer data.deinit();
-    const got = try evaluate(rule.value, data.value);
+    const got = try evaluate(rule.value, data.value, null, null);
     try testing.expect(!got.bool);
 }
 
@@ -500,7 +751,7 @@ test "regexp matches a literal substring in the content field" {
     defer rule.deinit();
     var data = try parse(gpa, "{\"content\": \"# Title\\n\\n## Status\\nReady\\n\"}");
     defer data.deinit();
-    const got = try evaluate(rule.value, data.value);
+    const got = try evaluate(rule.value, data.value, null, null);
     try testing.expect(got.bool);
 }
 
@@ -517,7 +768,7 @@ test "a full and/glob/regexp compound rule, matching the vault's own real synaps
         \\{"path": "designs/synapse/sb-001.md", "content": "# Title\n\n## Status\nDiscussing\n"}
     );
     defer data.deinit();
-    const got = try evaluate(rule.value, data.value);
+    const got = try evaluate(rule.value, data.value, null, null);
     try testing.expect(got.bool);
 }
 
@@ -525,7 +776,72 @@ test "an unknown operator key errors rather than silently matching or not" {
     const gpa = testing.allocator;
     var rule = try parse(gpa, "{\"whatever\": [1, 2]}");
     defer rule.deinit();
-    try testing.expectError(Error.UnknownOperator, evaluate(rule.value, .null));
+    try testing.expectError(Error.UnknownOperator, evaluate(rule.value, .null, null, null));
+}
+
+test "built_in_names matches the real dispatch -- every listed name actually resolves, nothing extra" {
+    for (built_in_names) |name| {
+        var buf: [64]u8 = undefined;
+        const text = try std.fmt.bufPrint(&buf, "{{\"{s}\": [1]}}", .{name});
+        var rule = try parse(testing.allocator, text);
+        defer rule.deinit();
+        // Any error other than UnknownOperator (e.g. InvalidArguments from
+        // a real operator given the wrong shape of dummy args) still
+        // proves the name dispatched -- only UnknownOperator means the
+        // list named something the dispatch doesn't actually recognize.
+        _ = evaluate(rule.value, .null, null, null) catch |err| {
+            try testing.expect(err != Error.UnknownOperator);
+        };
+    }
+}
+
+fn testCustomIsPositive(args: []const Value, data: Value, current_item: ?Value, custom_ops: ?[]const CustomOp) Error!Value {
+    if (args.len < 1) return Error.InvalidArguments;
+    const v = try evaluate(args[0], data, current_item, custom_ops);
+    return .{ .bool = switch (v) {
+        .integer => |i| i > 0,
+        .float => |f| f > 0,
+        else => false,
+    } };
+}
+
+test "a custom operator resolves through custom_ops when its name isn't a built-in" {
+    const gpa = testing.allocator;
+    var rule = try parse(gpa, "{\"is_positive\": {\"var\": \"n\"}}");
+    defer rule.deinit();
+    var data = try parse(gpa, "{\"n\": 5}");
+    defer data.deinit();
+    const ops = [_]CustomOp{.{ .name = "is_positive", .func = testCustomIsPositive }};
+    const got = try evaluate(rule.value, data.value, null, &ops);
+    try testing.expect(got.bool);
+}
+
+test "a custom operator composes with a built-in in both directions" {
+    const gpa = testing.allocator;
+    var rule = try parse(gpa,
+        \\{"and": [{"is_positive": {"var": "n"}}, {"<": [{"var": "n"}, 10]}]}
+    );
+    defer rule.deinit();
+    var data = try parse(gpa, "{\"n\": 5}");
+    defer data.deinit();
+    const ops = [_]CustomOp{.{ .name = "is_positive", .func = testCustomIsPositive }};
+    const got = try evaluate(rule.value, data.value, null, &ops);
+    try testing.expect(got.bool);
+}
+
+test "an operator name not in the built-ins or custom_ops still errors" {
+    const gpa = testing.allocator;
+    var rule = try parse(gpa, "{\"whatever_else\": 1}");
+    defer rule.deinit();
+    const ops = [_]CustomOp{.{ .name = "is_positive", .func = testCustomIsPositive }};
+    try testing.expectError(Error.UnknownOperator, evaluate(rule.value, .null, null, &ops));
+}
+
+test "custom_ops is null for every existing built-in-only caller, and behavior is unchanged" {
+    const gpa = testing.allocator;
+    var rule = try parse(gpa, "{\"is_positive\": 1}");
+    defer rule.deinit();
+    try testing.expectError(Error.UnknownOperator, evaluate(rule.value, .null, null, null));
 }
 
 test "truthy: JsonLogic's own falsy set -- false, 0, empty string, null, empty array" {

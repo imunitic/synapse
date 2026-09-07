@@ -75,7 +75,7 @@ pub fn query(gpa: Allocator, io: Io, store: Store, filter: Value, fields: []cons
             try path_data.put(gpa, "path", .{ .string = name });
             const path_value: Value = .{ .object = path_data };
             for (path_only.items) |clause| {
-                const matched = jsonlogic.evaluate(clause, path_value) catch continue :name_loop;
+                const matched = jsonlogic.evaluate(clause, path_value, null, null) catch continue :name_loop;
                 if (!jsonlogic.truthy(matched)) continue :name_loop;
             }
         }
@@ -88,7 +88,7 @@ pub fn query(gpa: Allocator, io: Io, store: Store, filter: Value, fields: []cons
         const arena = arena_state.allocator();
 
         const data = try noteData(arena, name, body_text);
-        const matched = jsonlogic.evaluate(filter, data) catch continue; // an unknown operator: this row just doesn't match
+        const matched = jsonlogic.evaluate(filter, data, null, null) catch continue; // an unknown operator: this row just doesn't match
         if (!jsonlogic.truthy(matched)) continue;
 
         const values = try gpa.alloc(Value, fields.len);
@@ -101,7 +101,7 @@ pub fn query(gpa: Allocator, io: Io, store: Store, filter: Value, fields: []cons
                 try m.put(arena, "var", .{ .string = f });
                 break :blk m;
             } };
-            const field_value = jsonlogic.evaluate(var_rule, data) catch .null;
+            const field_value = jsonlogic.evaluate(var_rule, data, null, null) catch .null;
             values[filled] = try deepCopyValue(gpa, field_value);
             filled += 1;
         }
@@ -127,7 +127,7 @@ pub fn pathMatches(gpa: Allocator, filter: Value, name: []const u8) !bool {
     var obj: std.json.ObjectMap = .empty;
     defer obj.deinit(gpa);
     try obj.put(gpa, "path", .{ .string = name });
-    const matched = jsonlogic.evaluate(filter, .{ .object = obj }) catch return false;
+    const matched = jsonlogic.evaluate(filter, .{ .object = obj }, null, null) catch return false;
     return jsonlogic.truthy(matched);
 }
 
@@ -220,14 +220,55 @@ fn noteData(arena: Allocator, path: []const u8, body: []const u8) !Value {
 /// codebase's own limit on what it treats as structured frontmatter. A
 /// nested block-style value (`sources:` with indented `- path:` entries)
 /// is skipped for that key, not guessed at.
-fn frontmatterAsJson(arena: Allocator, body: []const u8) !Value {
+///
+/// `pub`: also `note_schema.zig`'s own `checks:`/`lints:` data-tree
+/// builder reuses this directly, rather than re-deriving the same
+/// conversion through `lookupField`/`FieldValue`.
+pub fn frontmatterAsJson(arena: Allocator, body: []const u8) !Value {
     var obj: std.json.ObjectMap = .empty;
-    var it = core_query.FrontmatterIterator.init(body);
-    while (it.next()) |line| {
+    if (!std.mem.startsWith(u8, body, "---\n")) return .{ .object = obj };
+    var lines = std.mem.splitScalar(u8, body[4..], '\n');
+    while (lines.next()) |raw_with_cr| {
+        const line = std.mem.trimEnd(u8, raw_with_cr, "\r");
+        if (std.mem.eql(u8, line, "---")) break;
         const kv = core_query.topLevelKeyValue(line) orelse continue;
-        try obj.put(arena, kv.key, try parseScalarOrList(arena, kv.value));
+        // An empty value on a top-level key is either genuinely empty or a
+        // block-style YAML list (`tags:` with `  - a`/`  - b` on the lines
+        // that follow) -- `parseBlockList` distinguishes the two by looking
+        // at what actually follows, not by the empty value alone.
+        try obj.put(arena, kv.key, if (kv.value.len == 0)
+            try parseBlockList(arena, &lines)
+        else
+            try parseScalarOrList(arena, kv.value));
     }
     return .{ .object = obj };
+}
+
+/// Consumes every immediately-following indented `- item` line as one flat
+/// list -- the same block-list shape `note_schema.zig`'s own `lookupField`
+/// already parses for schema validation, extended here to `vault-search`'s
+/// JsonLogic data tree so a `checks:`/`lints:` rule sees identical list
+/// values regardless of which YAML style a note's frontmatter happens to
+/// use. Stops at the first line that isn't a plain list item (blank lines
+/// are skipped, not treated as the end) -- a nested mapping under a list
+/// item, or any other non-`- ` shape, ends the list exactly where it
+/// starts, leaving an empty list rather than misreading structure this
+/// isn't meant to represent.
+fn parseBlockList(arena: Allocator, lines: *std.mem.SplitIterator(u8, .scalar)) !Value {
+    var items: std.json.Array = .init(arena);
+    while (lines.peek()) |child_raw_with_cr| {
+        const child_raw = std.mem.trimEnd(u8, child_raw_with_cr, "\r");
+        if (child_raw.len == 0) {
+            _ = lines.next();
+            continue;
+        }
+        if (child_raw[0] != ' ' and child_raw[0] != '\t') break;
+        const child = std.mem.trim(u8, child_raw, " \t");
+        if (!std.mem.startsWith(u8, child, "- ")) break;
+        _ = lines.next();
+        try items.append(.{ .string = unquote(std.mem.trim(u8, child[2..], " ")) });
+    }
+    return .{ .array = items };
 }
 
 fn parseScalarOrList(arena: Allocator, raw: []const u8) !Value {

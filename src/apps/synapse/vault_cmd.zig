@@ -198,13 +198,19 @@ pub fn check(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []con
         gpa.free(names);
     }
 
-    // Loaded once for the whole run, not per note: on a real vault (20
-    // schema-declaring notes) that was 20 redundant reads of the same 2
-    // files instead of 2 total.
-    const projects = try adapters.schema_validation_store.loadVocabularyText(gpa, io, vars, "synapse-projects.conf");
-    defer if (projects) |text| gpa.free(text);
-    const tags = try adapters.schema_validation_store.loadVocabularyText(gpa, io, vars, "synapse-tag-vocabulary.conf");
-    defer if (tags) |text| gpa.free(text);
+    // Cached across the whole run, keyed by stem, not reloaded per note:
+    // on a real vault (20 schema-declaring notes, a handful of distinct
+    // schemas) this keeps each distinct conf file to one real read instead
+    // of one per note that happens to need it.
+    var vocab_cache: std.StringHashMapUnmanaged([]const u8) = .empty;
+    defer {
+        var it = vocab_cache.iterator();
+        while (it.next()) |entry| {
+            gpa.free(entry.key_ptr.*);
+            gpa.free(entry.value_ptr.*);
+        }
+        vocab_cache.deinit(gpa);
+    }
 
     var declared: usize = 0;
     var conformant: usize = 0;
@@ -235,12 +241,34 @@ pub fn check(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []con
             violations += 1;
             continue;
         }
-        if (try core.note_schema.validateNote(gpa, doc.root, body, name, .{
+        const stems = try core.note_schema.neededVocabularyStems(gpa, doc.root);
+        defer gpa.free(stems);
+        var vocabularies: std.ArrayListUnmanaged(core.note_schema.VocabularySource) = .empty;
+        defer vocabularies.deinit(gpa);
+        for (stems) |stem| {
+            if (!vocab_cache.contains(stem)) {
+                const filename = try std.fmt.allocPrint(gpa, "{s}.conf", .{stem});
+                defer gpa.free(filename);
+                const content = try adapters.schema_validation_store.loadVocabularyText(gpa, io, vars, filename) orelse continue;
+                try vocab_cache.put(gpa, try gpa.dupe(u8, stem), content);
+            }
+            try vocabularies.append(gpa, .{ .stem = stem, .content = vocab_cache.get(stem).? });
+        }
+
+        // A malformed rule (a known operator called with the wrong argument
+        // shape, most likely from a stale schema-override file predating a
+        // schema change) reports as a per-note violation the same way a
+        // load error does, instead of aborting this whole sweep over one
+        // bad note -- caught for real against a live vault, not assumed.
+        if (core.note_schema.validateNote(gpa, doc.root, body, name, .{
             .mode = .update,
             .existing = body,
-            .projects_vocabulary = projects,
-            .tags_vocabulary = tags,
-        })) |message| {
+            .vocabularies = vocabularies.items,
+        }) catch |err| {
+            try result.print("{s}\t{t}\n", .{ name, err });
+            violations += 1;
+            continue;
+        }) |message| {
             defer gpa.free(message);
             try result.print("{s}\t{s}\n", .{ name, message });
             violations += 1;
@@ -251,8 +279,15 @@ pub fn check(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []con
         // Advisory only, and swept read-only exactly like the validation
         // pass above -- never folded into or confused with the
         // conformant/violation counts, and never affects this command's
-        // exit code either.
-        const findings = try core.note_schema.lintNote(gpa, doc.root, body, name);
+        // exit code either. A rule-evaluation error here is reported the
+        // same way (never counted, never blocking) rather than aborting
+        // the sweep.
+        const findings = core.note_schema.lintNote(gpa, doc.root, body, name) catch |err| {
+            try lint_buf.writer.print("{s}\t{t}\n", .{ name, err });
+            lint_notes += 1;
+            lint_findings_total += 1;
+            continue;
+        };
         defer {
             for (findings) |f| gpa.free(f.message);
             gpa.free(findings);
@@ -1313,8 +1348,10 @@ const test_check_schema_with_lint =
     "    count: 1\n" ++
     "checks: []\n" ++
     "lints:\n" ++
-    "  - no_hard_wrap: body.prose\n" ++
-    "    severity: warn\n";
+    "  - no_hard_wrap:\n" ++
+    "      var: body.prose\n" ++
+    "    severity: warn\n" ++
+    "    message: 'no_hard_wrap: paragraph is wrapped'\n";
 
 fn writeCheckSchemaWithLint(fx: *fixture.Fixture) !void {
     try fx.tmp.dir.createDirPath(testing.io, "schema/t");
@@ -1407,7 +1444,10 @@ const test_check_schema_stem_equals_title =
     "    required: true\n" ++
     "    count: 1\n" ++
     "checks:\n" ++
-    "  - equals: [filename.stem, frontmatter.title]\n";
+    "  - eq:\n" ++
+    "      - var: filename.stem\n" ++
+    "      - var: frontmatter.title\n" ++
+    "    message: 'filename.stem: must equal frontmatter.title'\n";
 
 fn writeCheckSchemaStemEqualsTitle(fx: *fixture.Fixture) !void {
     try fx.tmp.dir.createDirPath(testing.io, "schema/t");
@@ -1592,7 +1632,7 @@ test "no_id_prefix_in_title fires against the real shipped vault-task-note/v1 sc
         gpa.free(findings);
     }
     try testing.expectEqual(@as(usize, 1), findings.len);
-    try testing.expect(std.mem.indexOf(u8, findings[0].message, "sb-908") != null);
+    try testing.expect(std.mem.indexOf(u8, findings[0].message, "no_id_prefix_in_title") != null);
 }
 
 test "no_hard_wrap fires against the real shipped vault-task-note/v1 schema, on the exact motivating shape" {

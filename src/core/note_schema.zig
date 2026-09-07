@@ -9,6 +9,10 @@
 const std = @import("std");
 const schema_yaml = @import("schema_yaml.zig");
 const schema_pattern = @import("schema_pattern.zig");
+const vault_query = @import("vault_query.zig");
+const jsonlogic = @import("jsonlogic.zig");
+const core_query = @import("query.zig");
+const schema_rules = @import("schema_rules.zig");
 
 const Allocator = std.mem.Allocator;
 const Value = schema_yaml.Value;
@@ -37,8 +41,20 @@ pub const Context = struct {
     /// The already-existing identity found by the adapter's creation or
     /// migration-only vault scan, or null when the identity is unique.
     duplicate_identity: ?[]const u8 = null,
-    projects_vocabulary: ?[]const u8 = null,
-    tags_vocabulary: ?[]const u8 = null,
+    /// Conf-file content for `checks:`/`lints:`'s `vocabularies.<stem>`
+    /// data-tree map. The caller populates this from whichever files
+    /// `neededVocabularyStems` says a schema's `checks:`/`lints:` actually
+    /// reference -- not every conf file that exists, and not a fixed pair.
+    vocabularies: []const VocabularySource = &.{},
+};
+
+pub const VocabularySource = struct {
+    /// The conf file's own stem, no extension -- `synapse-tag-vocabulary`,
+    /// not `synapse-tag-vocabulary.conf`. `var`'s dotted-path resolution
+    /// has no way to escape a `.` inside a key, so a literal extension in
+    /// the key would split into an extra, wrong path segment.
+    stem: []const u8,
+    content: []const u8,
 };
 
 pub const FieldValue = union(enum) {
@@ -235,45 +251,100 @@ fn validateChecksRules(gpa: Allocator, top: *const Value) !?[]u8 {
     return null;
 }
 
-fn validateCheckRule(gpa: Allocator, check: *const Value, index: usize) !?[]u8 {
-    if (unknownKey(check, &.{ "equals", "unique", "when", "vocabulary", "not_before", "const" })) |key|
-        return try diag(gpa, "schema.checks[{d}].{s}: unsupported v1 key", .{ index, key });
-    var operators: usize = 0;
-    for ([_][]const u8{ "equals", "unique", "vocabulary", "not_before", "const" }) |name| {
-        if (check.get(name) != null) operators += 1;
+/// A `checks:`/`lints:` list entry's shape: exactly one rule-defining key
+/// (any operator name -- built-in, custom, or a word alias), plus the
+/// optional siblings every entry may carry alongside it. Shared by
+/// schema-load-time validation (`validateCheckRule`/`validateLintRule`)
+/// and note-time evaluation (`validateChecks`/`lintNote`), so the two
+/// never drift on what counts as "the rule" versus "a sibling".
+const CheckShape = struct {
+    key: []const u8,
+    value: *Value,
+    message: ?[]const u8,
+    /// `message:` was present but wasn't a string -- schema-load-time
+    /// validation rejects this; note-time evaluation never sees it (a
+    /// malformed schema never gets this far).
+    message_present_but_invalid: bool,
+};
+
+fn checkShape(entry: *const Value) ?CheckShape {
+    if (entry.* != .map) return null;
+    var rule_entry: ?schema_yaml.Entry = null;
+    var message: ?[]const u8 = null;
+    var message_invalid = false;
+    for (entry.map) |e| {
+        if (std.mem.eql(u8, e.key, "message")) {
+            switch (e.value.*) {
+                .string => |s| message = s,
+                else => message_invalid = true,
+            }
+            continue;
+        }
+        if (std.mem.eql(u8, e.key, "severity")) continue;
+        if (rule_entry != null) return null; // more than one rule-shaped key -- ambiguous
+        rule_entry = e;
     }
-    if (operators != 1) return try diag(gpa, "schema.checks[{d}]: exactly one check operator is required", .{index});
-    if (check.get("when")) |when| if (when.asString() == null)
-        return try diag(gpa, "schema.checks[{d}].when: must be string", .{index});
-    if (check.get("unique")) |unique| if (unique.asString() == null)
-        return try diag(gpa, "schema.checks[{d}].unique: must be a field reference", .{index});
-    if (check.get("not_before")) |refs| if (!isStringList(refs) or refs.list.len != 2)
-        return try diag(gpa, "schema.checks[{d}].not_before: must contain two field references", .{index});
-    if (check.get("vocabulary")) |vocabulary| {
-        if (unknownKey(vocabulary, &.{ "field", "source", "projection" })) |key|
-            return try diag(gpa, "schema.checks[{d}].vocabulary.{s}: unsupported v1 key", .{ index, key });
-        if (stringAt(vocabulary, "field") == null or stringAt(vocabulary, "source") == null)
-            return try diag(gpa, "schema.checks[{d}].vocabulary: field and source strings are required", .{index});
-    }
-    if (check.get("equals")) |equals| switch (equals.*) {
-        .list => if (!isStringList(equals) or equals.list.len < 2)
-            return try diag(gpa, "schema.checks[{d}].equals: must contain at least two references", .{index}),
-        .map => {
-            if (unknownKey(equals, &.{ "values", "when" })) |key|
-                return try diag(gpa, "schema.checks[{d}].equals.{s}: unsupported v1 key", .{ index, key });
-            const values = equals.get("values") orelse
-                return try diag(gpa, "schema.checks[{d}].equals.values: required list is missing", .{index});
-            if (!isStringList(values) or values.list.len < 2)
-                return try diag(gpa, "schema.checks[{d}].equals.values: must contain at least two references", .{index});
+    const found = rule_entry orelse return null;
+    return .{ .key = found.key, .value = found.value, .message = message, .message_present_but_invalid = message_invalid };
+}
+
+/// Every operator name used anywhere in `rule` (built-in, or in
+/// `custom_ops`) -- the first *unrecognized* name found, or `null` if
+/// every name checks out. Catches a typo'd operator at schema-load time,
+/// before any note exists to actually run the rule against and turn the
+/// same mistake into a raw `UnknownOperator` error on someone's real write.
+fn firstUnknownOperator(rule: std.json.Value) ?[]const u8 {
+    switch (rule) {
+        .object => |obj| {
+            if (obj.count() == 1) {
+                var it = obj.iterator();
+                const entry = it.next().?;
+                const name = entry.key_ptr.*;
+                var known = false;
+                for (jsonlogic.built_in_names) |b| {
+                    if (std.mem.eql(u8, b, name)) {
+                        known = true;
+                        break;
+                    }
+                }
+                if (!known) for (custom_ops) |c| {
+                    if (std.mem.eql(u8, c.name, name)) {
+                        known = true;
+                        break;
+                    }
+                };
+                if (!known) return name;
+                return firstUnknownOperator(entry.value_ptr.*);
+            }
+            var it = obj.iterator();
+            while (it.next()) |entry| if (firstUnknownOperator(entry.value_ptr.*)) |bad| return bad;
+            return null;
         },
-        else => return try diag(gpa, "schema.checks[{d}].equals: must be a list or mapping", .{index}),
-    };
-    if (check.get("const")) |constant| {
-        if (unknownKey(constant, &.{ "field", "value", "when" })) |key|
-            return try diag(gpa, "schema.checks[{d}].const.{s}: unsupported v1 key", .{ index, key });
-        if (stringAt(constant, "field") == null or stringAt(constant, "value") == null)
-            return try diag(gpa, "schema.checks[{d}].const: field and value strings are required", .{index});
+        .array => |arr| {
+            for (arr.items) |item| if (firstUnknownOperator(item)) |bad| return bad;
+            return null;
+        },
+        else => return null,
     }
+}
+
+fn validateCheckRule(gpa: Allocator, check: *const Value, index: usize) !?[]u8 {
+    const shape = checkShape(check) orelse
+        return try diag(gpa, "schema.checks[{d}]: exactly one rule operator is required", .{index});
+    if (shape.message_present_but_invalid)
+        return try diag(gpa, "schema.checks[{d}].message: must be string", .{index});
+    // The converted rule tree is throwaway -- read once by
+    // firstUnknownOperator below and discarded, never returned -- so its
+    // container allocations live in their own arena, not the caller's gpa.
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    var synthetic = Value{ .map = &.{.{ .key = shape.key, .value = shape.value }} };
+    const rule = schema_rules.toRule(arena_state.allocator(), &synthetic) catch |err| switch (err) {
+        error.StrayTombstone => return try diag(gpa, "schema.checks[{d}].{s}: a bare null is not valid here", .{ index, shape.key }),
+        else => return err,
+    };
+    if (firstUnknownOperator(rule)) |bad|
+        return try diag(gpa, "schema.checks[{d}]: unknown operator '{s}'", .{ index, bad });
     return null;
 }
 
@@ -291,41 +362,26 @@ fn validateLintsRules(gpa: Allocator, top: *const Value) !?[]u8 {
     return null;
 }
 
-/// Only the two field references this v1 lint pass actually knows how to
-/// read (`body.prose`, and `frontmatter.title`/`frontmatter.task_id`/
-/// `frontmatter.note_id` for the id-prefix check) are accepted -- an
-/// unsupported reference is refused at schema-load time rather than
-/// silently matching nothing at lint time.
 fn validateLintRule(gpa: Allocator, rule: *const Value, index: usize) !?[]u8 {
-    if (unknownKey(rule, &.{ "no_hard_wrap", "no_id_prefix_in_title", "severity" })) |key|
-        return try diag(gpa, "schema.lints[{d}].{s}: unsupported v1 key", .{ index, key });
-    var operators: usize = 0;
-    for ([_][]const u8{ "no_hard_wrap", "no_id_prefix_in_title" }) |name| {
-        if (rule.get(name) != null) operators += 1;
-    }
-    if (operators != 1) return try diag(gpa, "schema.lints[{d}]: exactly one lint operator is required", .{index});
+    const shape = checkShape(rule) orelse
+        return try diag(gpa, "schema.lints[{d}]: exactly one rule operator is required", .{index});
+    if (shape.message_present_but_invalid)
+        return try diag(gpa, "schema.lints[{d}].message: must be string", .{index});
     const severity = stringAt(rule, "severity") orelse
         return try diag(gpa, "schema.lints[{d}].severity: required string is missing", .{index});
     if (Severity.parse(severity) == null)
         return try diag(gpa, "schema.lints[{d}].severity: unsupported value '{s}'", .{ index, severity });
-    if (rule.get("no_hard_wrap")) |v| {
-        const ref = v.asString() orelse
-            return try diag(gpa, "schema.lints[{d}].no_hard_wrap: must be a field reference", .{index});
-        if (!std.mem.eql(u8, ref, "body.prose"))
-            return try diag(gpa, "schema.lints[{d}].no_hard_wrap: unsupported field reference '{s}'", .{ index, ref });
-    }
-    if (rule.get("no_id_prefix_in_title")) |cfg| {
-        if (unknownKey(cfg, &.{ "title", "id" })) |key|
-            return try diag(gpa, "schema.lints[{d}].no_id_prefix_in_title.{s}: unsupported v1 key", .{ index, key });
-        const title_ref = stringAt(cfg, "title") orelse
-            return try diag(gpa, "schema.lints[{d}].no_id_prefix_in_title.title: required field reference is missing", .{index});
-        if (!std.mem.eql(u8, title_ref, "frontmatter.title"))
-            return try diag(gpa, "schema.lints[{d}].no_id_prefix_in_title.title: unsupported field reference '{s}'", .{ index, title_ref });
-        const id_ref = stringAt(cfg, "id") orelse
-            return try diag(gpa, "schema.lints[{d}].no_id_prefix_in_title.id: required field reference is missing", .{index});
-        if (!std.mem.eql(u8, id_ref, "frontmatter.task_id") and !std.mem.eql(u8, id_ref, "frontmatter.note_id"))
-            return try diag(gpa, "schema.lints[{d}].no_id_prefix_in_title.id: unsupported field reference '{s}'", .{ index, id_ref });
-    }
+    // Same throwaway-tree reasoning as validateCheckRule -- read once, then
+    // discarded, so its own arena rather than the caller's gpa.
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    var synthetic = Value{ .map = &.{.{ .key = shape.key, .value = shape.value }} };
+    const converted = schema_rules.toRule(arena_state.allocator(), &synthetic) catch |err| switch (err) {
+        error.StrayTombstone => return try diag(gpa, "schema.lints[{d}].{s}: a bare null is not valid here", .{ index, shape.key }),
+        else => return err,
+    };
+    if (firstUnknownOperator(converted)) |bad|
+        return try diag(gpa, "schema.lints[{d}]: unknown operator '{s}'", .{ index, bad });
     return null;
 }
 
@@ -425,7 +481,6 @@ pub const Finding = struct {
 /// with none returns an empty slice, the same "nothing to say" shape as a
 /// clean note.
 pub fn lintNote(gpa: Allocator, schema: *const Value, note: []const u8, path: []const u8) ![]const Finding {
-    _ = path; // no rule needs it yet; kept for parity with validateNote and any future rule that does
     var findings: std.ArrayListUnmanaged(Finding) = .empty;
     errdefer {
         for (findings.items) |f| gpa.free(f.message);
@@ -433,37 +488,32 @@ pub fn lintNote(gpa: Allocator, schema: *const Value, note: []const u8, path: []
     }
 
     const lints = schema.get("lints") orelse return findings.toOwnedSlice(gpa);
-    const bounds = frontmatterBounds(note) orelse return findings.toOwnedSlice(gpa);
+    // Lint is purely advisory and never itself distinguishes create from
+    // update -- none of the five real operators need is_create/vocabularies
+    // to run, so a neutral Context is the right input here, not a second
+    // way for a caller to thread one through.
+    //
+    // The data tree and every converted rule are throwaway, same reasoning
+    // as validateChecks -- one arena, with each finding's own message
+    // duplicated into gpa before it's kept, so it outlives the arena.
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const tree = try dataTree(arena, path, note, .{ .mode = .update });
 
     for (lints.list) |rule| {
         // Schema validation already confirmed `severity` is present and
         // one of the recognized values before any note is ever linted.
         const severity = Severity.parse(stringAt(rule, "severity").?).?;
         if (severity == .ignore) continue;
-        if (rule.get("no_hard_wrap")) |_| {
-            const wrap_findings = try lintNoHardWrap(gpa, note, bounds.after);
-            defer gpa.free(wrap_findings);
-            for (wrap_findings) |f| try findings.append(gpa, .{ .message = f, .severity = severity });
-        }
-        if (rule.get("no_id_prefix_in_title")) |cfg| {
-            const id_ref = stringAt(cfg, "id").?;
-            const id_field = id_ref["frontmatter.".len..];
-            if (try lintNoIdPrefixInTitle(gpa, note, id_field)) |msg|
-                try findings.append(gpa, .{ .message = msg, .severity = severity });
+        const result = try evalEntry(arena, rule, tree) orelse continue;
+        if (!jsonlogic.truthy(result)) {
+            const msg = try ruleFailureMessage(arena, rule);
+            const message = try gpa.dupe(u8, msg);
+            try findings.append(gpa, .{ .message = message, .severity = severity });
         }
     }
     return findings.toOwnedSlice(gpa);
-}
-
-/// 1-based line number of `offset` within `note` -- a plain newline count,
-/// cheap enough at lint-pass scale (one note, once per write) to not need
-/// caching the way a hot path would.
-fn lineNumber(note: []const u8, offset: usize) usize {
-    var n: usize = 1;
-    for (note[0..offset]) |c| if (c == '\n') {
-        n += 1;
-    };
-    return n;
 }
 
 /// A line that never counts toward a hard-wrapped-paragraph run: blank, a
@@ -487,74 +537,6 @@ fn isExcludedProseLine(raw_line: []const u8) bool {
     if (i > 0 and i < trimmed.len and (trimmed[i] == '.' or trimmed[i] == ')') and
         i + 1 < trimmed.len and trimmed[i + 1] == ' ') return true; // ordered list item
     return false;
-}
-
-/// Closes the currently-open prose run, if any: a run of 2+ consecutive
-/// non-excluded lines is exactly one paragraph split across lines -- the
-/// hard-wrap shape this rule exists to catch. A run of exactly 1 line is
-/// the correct, unwrapped shape and produces nothing.
-fn flushProseRun(gpa: Allocator, findings: *std.ArrayListUnmanaged([]u8), note: []const u8, run_start: *?usize, run_lines: *usize) !void {
-    if (run_lines.* > 1) {
-        const msg = try std.fmt.allocPrint(
-            gpa,
-            "no_hard_wrap: paragraph wrapped across {d} lines starting at line {d}",
-            .{ run_lines.*, lineNumber(note, run_start.*.?) },
-        );
-        try findings.append(gpa, msg);
-    }
-    run_start.* = null;
-    run_lines.* = 0;
-}
-
-fn lintNoHardWrap(gpa: Allocator, note: []const u8, body_start: usize) ![]const []u8 {
-    var findings: std.ArrayListUnmanaged([]u8) = .empty;
-    errdefer {
-        for (findings.items) |f| gpa.free(f);
-        findings.deinit(gpa);
-    }
-
-    var in_fence = false;
-    var run_start: ?usize = null;
-    var run_lines: usize = 0;
-
-    var offset = body_start;
-    while (offset <= note.len) {
-        const end = std.mem.indexOfScalarPos(u8, note, offset, '\n') orelse note.len;
-        const line = note[offset..end];
-        const trimmed = std.mem.trimStart(u8, std.mem.trimEnd(u8, line, "\r"), " \t");
-        const is_fence_delimiter = std.mem.startsWith(u8, trimmed, "```") or std.mem.startsWith(u8, trimmed, "~~~");
-
-        if (is_fence_delimiter) {
-            try flushProseRun(gpa, &findings, note, &run_start, &run_lines);
-            in_fence = !in_fence;
-        } else if (in_fence) {
-            try flushProseRun(gpa, &findings, note, &run_start, &run_lines);
-        } else if (isExcludedProseLine(line)) {
-            try flushProseRun(gpa, &findings, note, &run_start, &run_lines);
-        } else {
-            if (run_start == null) run_start = offset;
-            run_lines += 1;
-        }
-
-        if (end == note.len) break;
-        offset = end + 1;
-    }
-    try flushProseRun(gpa, &findings, note, &run_start, &run_lines);
-    return findings.toOwnedSlice(gpa);
-}
-
-fn lintNoIdPrefixInTitle(gpa: Allocator, note: []const u8, id_field: []const u8) !?[]u8 {
-    var title_lookup = try lookupField(gpa, note, "title");
-    defer title_lookup.deinit(gpa);
-    const title = scalarString(title_lookup.value) orelse return null;
-
-    var id_lookup = try lookupField(gpa, note, id_field);
-    defer id_lookup.deinit(gpa);
-    const id = scalarString(id_lookup.value) orelse return null;
-    if (id.len == 0) return null;
-
-    if (!std.mem.startsWith(u8, title, id)) return null;
-    return try std.fmt.allocPrint(gpa, "no_id_prefix_in_title: title starts with its own id '{s}'", .{id});
 }
 
 fn validateSectionRule(gpa: Allocator, section: *const Value, index: usize) !?[]u8 {
@@ -797,81 +779,103 @@ fn validateTaskLeadAndChecklist(gpa: Allocator, body_rule: *const Value, markdow
     return null;
 }
 
-fn validateChecks(gpa: Allocator, checks: *const Value, note: []const u8, path: []const u8, context: Context) !?[]u8 {
+/// A `checks:`/`lints:` list entry with no recognizable rule-defining key
+/// left after schema validation has already run should never reach here --
+/// `validateCheckRule`/`validateLintRule` reject that at load time. Reached
+/// only if a caller skipped schema validation first, which is already this
+/// file's standing caller contract (see `validateNote`'s own doc comment).
+fn evalEntry(gpa: Allocator, entry: *const Value, tree: std.json.Value) !?std.json.Value {
+    const shape = checkShape(entry) orelse return null;
+    var synthetic = Value{ .map = &.{.{ .key = shape.key, .value = shape.value }} };
+    const rule = try schema_rules.toRule(gpa, &synthetic);
+    return try jsonlogic.evaluate(rule, tree, null, &custom_ops);
+}
+
+fn ruleFailureMessage(gpa: Allocator, entry: *const Value) ![]u8 {
+    const shape = checkShape(entry).?; // evalEntry already confirmed this
+    if (shape.message) |msg| return try gpa.dupe(u8, msg);
+    var synthetic = Value{ .map = &.{.{ .key = shape.key, .value = shape.value }} };
+    const rule = try schema_rules.toRule(gpa, &synthetic);
+    return try failureDiag(gpa, rule);
+}
+
+/// One `[]u8` fallback message for a failing rule with no `message:`
+/// sibling of its own -- the rule's own JSON representation, truncated if
+/// pathologically long. Worse than a hand-written sentence, but always
+/// available without any operator having to produce text itself (every
+/// operator, built-in or custom, returns only a bool).
+fn failureDiag(gpa: Allocator, rule: std.json.Value) ![]u8 {
+    var buf: [512]u8 = undefined;
+    var writer: std.Io.Writer = .fixed(&buf);
+    std.json.Stringify.value(rule, .{}, &writer) catch {}; // truncation is fine for a fallback
+    return try std.fmt.allocPrint(gpa, "rule failed: {s}", .{writer.buffered()});
+}
+
+/// Every distinct `vocabularies.<stem>` a schema's `checks:` and `lints:`
+/// together reference -- what a caller needs to know before it can build
+/// `Context.vocabularies`, since the actual file *read* is the caller's
+/// job, not this file's (no `std.fs` here, only `schema_yaml`/
+/// `schema_rules`/`jsonlogic` trees). `<stem>.conf` is the file to load for
+/// each name returned -- only the files a schema actually references, not
+/// every conf file that happens to exist.
+pub fn neededVocabularyStems(gpa: Allocator, schema: *const Value) ![]const []const u8 {
+    // The stems themselves (strings) end up borrowed straight from
+    // `schema`'s own tree either way -- `toRule` never copies a scalar's
+    // bytes, only builds new container structures around it -- so only
+    // those throwaway containers need their own arena; `out`'s own slice
+    // of borrowed string headers is real, gpa-owned, and outlives this call.
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var out: std.ArrayListUnmanaged([]const u8) = .empty;
+    for ([_][]const u8{ "checks", "lints" }) |key| {
+        const list = schema.get(key) orelse continue;
+        for (list.list) |entry| {
+            const shape = checkShape(entry) orelse continue;
+            var synthetic = Value{ .map = &.{.{ .key = shape.key, .value = shape.value }} };
+            const rule = try schema_rules.toRule(arena, &synthetic);
+            try schema_rules.scanVocabularyStems(gpa, rule, &out);
+        }
+    }
+    return out.toOwnedSlice(gpa);
+}
+
+/// True iff `schema`'s own `checks:` actually consults `id_is_unique`
+/// (via `on_create: {var: id_is_unique}` or any composition containing it)
+/// -- lets the caller skip its vault-wide identity scan entirely for a
+/// schema that never uses the field (`graph-node/v1` has no identity
+/// check at all), the same "only scan when the concept is used" property
+/// the old `unique:`/`when: create` check shape gave for free.
+pub fn needsIdentityScan(gpa: Allocator, schema: *const Value) !bool {
+    const checks = schema.get("checks") orelse return false;
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
     for (checks.list) |check| {
-        if (check.get("unique")) |unique| {
-            if ((context.mode == .create or context.mode == .migration) and context.duplicate_identity != null)
-                return try diag(gpa, "{s}: identity '{s}' already exists", .{ unique.string, context.duplicate_identity.? });
-            continue;
-        }
-        if (check.get("vocabulary")) |vocab| {
-            const field_ref = stringAt(vocab, "field") orelse continue;
-            const source = stringAt(vocab, "source") orelse continue;
-            if (!std.mem.startsWith(u8, field_ref, "frontmatter.")) continue;
-            const field_name = field_ref["frontmatter.".len..];
-            var lookup = try lookupField(gpa, note, field_name);
-            defer lookup.deinit(gpa);
-            const vocabulary = if (std.mem.eql(u8, source, "synapse-projects.conf"))
-                context.projects_vocabulary
-            else if (std.mem.eql(u8, source, "synapse-tag-vocabulary.conf"))
-                context.tags_vocabulary
-            else
-                null;
-            if (vocabulary == null) return try diag(gpa, "{s}: vocabulary source '{s}' is unavailable", .{ field_ref, source });
-            const projection_values = std.mem.eql(u8, stringAt(vocab, "projection") orelse "", "values");
-            switch (lookup.value) {
-                .string => |value| if (!vocabularyContains(vocabulary.?, value, projection_values))
-                    return try diag(gpa, "{s}: '{s}' is not in {s}", .{ field_ref, value, source }),
-                .list => |items| for (items) |item| if (!vocabularyContains(vocabulary.?, item, projection_values))
-                    return try diag(gpa, "{s}: '{s}' is not in {s}", .{ field_ref, item, source }),
-                else => {},
-            }
-            continue;
-        }
-        if (check.get("not_before")) |values| {
-            const left = try resolveRef(gpa, note, path, values.list[0].string);
-            defer if (left) |l| gpa.free(l);
-            const right = try resolveRef(gpa, note, path, values.list[1].string);
-            defer if (right) |r| gpa.free(r);
-            // Parsed into real, offset-normalized instants rather than
-            // compared as raw text -- two RFC3339 strings can share the
-            // same local wall-clock reading with different offsets (DST's
-            // "fall back" transition), which sorts backwards as plain text.
-            const left_secs = if (left) |l| parseInstantSeconds(l) else null;
-            const right_secs = if (right) |r| parseInstantSeconds(r) else null;
-            if (left_secs == null or right_secs == null)
-                return try diag(gpa, "{s}: must not precede {s} — a value is missing or malformed", .{ values.list[0].string, values.list[1].string });
-            if (left_secs.? < right_secs.?)
-                return try diag(gpa, "{s}: must not precede {s}", .{ values.list[0].string, values.list[1].string });
-            continue;
-        }
-        if (check.get("equals")) |equals| {
-            const when = stringAt(check, "when") orelse if (equals.* == .map) stringAt(equals, "when") else null;
-            if (when != null and std.mem.eql(u8, when.?, "create") and context.mode != .create) continue;
-            const values = if (equals.* == .list) equals else equals.get("values") orelse continue;
-            if (values.list.len < 2) continue;
-            const first = try resolveRef(gpa, note, path, values.list[0].string);
-            defer if (first) |f| gpa.free(f);
-            // A missing field is refused, not silently allowed to compare
-            // equal to another missing field -- two absent fields are not
-            // meaningfully "equal" to each other.
-            if (first == null) return try diag(gpa, "{s}: field is missing", .{values.list[0].string});
-            for (values.list[1..]) |ref| {
-                const other = try resolveRef(gpa, note, path, ref.string);
-                defer if (other) |o| gpa.free(o);
-                if (other == null or !std.mem.eql(u8, first.?, other.?))
-                    return try diag(gpa, "{s}: must equal {s}", .{ values.list[0].string, ref.string });
-            }
-            continue;
-        }
-        if (check.get("const")) |constant| {
-            const when = stringAt(check, "when") orelse stringAt(constant, "when");
-            if (when != null and std.mem.eql(u8, when.?, "create") and context.mode != .create) continue;
-            const field_ref = stringAt(constant, "field") orelse continue;
-            const want = stringAt(constant, "value") orelse continue;
-            const got = try resolveRef(gpa, note, path, field_ref);
-            defer if (got) |g| gpa.free(g);
-            if (got == null or !std.mem.eql(u8, got.?, want)) return try diag(gpa, "{s}: must equal '{s}' on creation", .{ field_ref, want });
+        const shape = checkShape(check) orelse continue;
+        var synthetic = Value{ .map = &.{.{ .key = shape.key, .value = shape.value }} };
+        const rule = try schema_rules.toRule(arena, &synthetic);
+        if (schema_rules.referencesVar(rule, "id_is_unique")) return true;
+    }
+    return false;
+}
+
+fn validateChecks(gpa: Allocator, checks: *const Value, note: []const u8, path: []const u8, context: Context) !?[]u8 {
+    if (checks.list.len == 0) return null;
+    // The data tree and every converted rule are throwaway -- built once,
+    // read a few times, discarded -- so they live in one arena rather than
+    // the caller's own gpa; only the final diagnostic (if any) gets
+    // duplicated into gpa right before returning, so it outlives the arena.
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    const tree = try dataTree(arena, path, note, context);
+    for (checks.list) |check| {
+        const result = try evalEntry(arena, check, tree) orelse continue;
+        if (!jsonlogic.truthy(result)) {
+            const msg = try ruleFailureMessage(arena, check);
+            return try gpa.dupe(u8, msg);
         }
     }
     return null;
@@ -1041,6 +1045,350 @@ fn collectHeadings(gpa: Allocator, markdown: []const u8) ![]Heading {
         };
     }
     return headings.toOwnedSlice(gpa);
+}
+
+/// The `std.json.Value` tree a `checks:`/`lints:` rule evaluates against --
+/// reuses `vault_query.zig`'s own `frontmatterAsJson` for the frontmatter
+/// half (the same conversion `vault-search` already trusts) and this
+/// file's own `collectHeadings` for section presence, rather than pulling
+/// fields one at a time through `lookupField`/`FieldValue` the way
+/// `validateChecks`/`lintNote` do today.
+///
+/// `body.prose`/`body.section_names` are both scoped to the body only --
+/// everything after the frontmatter's closing `---`, or the whole note
+/// when there's no frontmatter block at all (a legacy note, the same
+/// graceful fallback every other reader in this file already gives that
+/// case).
+///
+/// `is_create`/`id_is_unique`/`created_epoch`/`updated_epoch` are derived
+/// from `context` -- the same `Context` `validateChecks` already receives,
+/// not a second source of truth about the write in progress.
+/// `id_is_unique` stays `null` (not `false`) on an ordinary update: the
+/// adapter's vault-wide scan only ever runs `when: create`
+/// (`context.duplicate_identity` is simply never populated on an update),
+/// so `null` here means "not computed," never "computed, and not unique."
+/// `created_epoch`/`updated_epoch` are `null` when the field is missing or
+/// fails `parseInstantSeconds` -- the same value `not_before` already
+/// treats as "must not precede" failing outright, not silently passing.
+///
+/// `vocabularies` isn't built here yet -- a later addition to this same
+/// tree, not this function's job on its own.
+fn dataTree(gpa: Allocator, path: []const u8, note: []const u8, context: Context) !std.json.Value {
+    const body = if (frontmatterBounds(note)) |b| note[b.after..] else note;
+
+    const headings = try collectHeadings(gpa, body);
+    defer gpa.free(headings);
+    var section_names: std.json.Array = .init(gpa);
+    for (headings) |h| try section_names.append(.{ .string = h.title });
+
+    var body_obj: std.json.ObjectMap = .empty;
+    try body_obj.put(gpa, "prose", .{ .string = body });
+    try body_obj.put(gpa, "section_names", .{ .array = section_names });
+
+    var filename_obj: std.json.ObjectMap = .empty;
+    try filename_obj.put(gpa, "stem", .{ .string = filenameStem(path) });
+
+    var root: std.json.ObjectMap = .empty;
+    try root.put(gpa, "path", .{ .string = path });
+    try root.put(gpa, "filename", .{ .object = filename_obj });
+    try root.put(gpa, "frontmatter", try vault_query.frontmatterAsJson(gpa, note));
+    try root.put(gpa, "body", .{ .object = body_obj });
+
+    const is_create = context.mode == .create or context.mode == .migration;
+    try root.put(gpa, "is_create", .{ .bool = is_create });
+    try root.put(gpa, "id_is_unique", if (is_create) .{ .bool = context.duplicate_identity == null } else .null);
+    try root.put(gpa, "created_epoch", try epochField(gpa, note, path, "frontmatter.created"));
+    try root.put(gpa, "updated_epoch", try epochField(gpa, note, path, "frontmatter.updated"));
+
+    var vocabularies: std.json.ObjectMap = .empty;
+    for (context.vocabularies) |v| try vocabularies.put(gpa, v.stem, try vocabularyItems(gpa, v.content));
+    try root.put(gpa, "vocabularies", .{ .object = vocabularies });
+
+    return .{ .object = root };
+}
+
+fn epochField(gpa: Allocator, note: []const u8, path: []const u8, ref: []const u8) !std.json.Value {
+    const resolved = try resolveRef(gpa, note, path, ref) orelse return .null;
+    defer gpa.free(resolved);
+    const secs = parseInstantSeconds(resolved) orelse return .null;
+    return .{ .integer = secs };
+}
+
+/// One conf file's content, one line per entry, into a plain list of the
+/// values a `var`/`in` rule can check membership against. A `key=value`
+/// line (`synapse-projects.conf`'s own shape) contributes just the value;
+/// a plain line (`synapse-tag-vocabulary.conf`'s shape) contributes
+/// itself whole -- the same two shapes `vocabularyContains`'s `projection`
+/// flag already distinguishes, unified here into one rule instead of a
+/// per-rule flag, since a real vocabulary line never contains `=` unless
+/// it's genuinely a `key=value` entry. This is what lets the old
+/// `vocabulary: {..., projection: values}` config disappear entirely: the
+/// distinction is now inherent to the file's own content, not something a
+/// schema author has to declare per rule.
+fn vocabularyItems(gpa: Allocator, content: []const u8) !std.json.Value {
+    var items: std.json.Array = .init(gpa);
+    var lines = std.mem.splitScalar(u8, content, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trim(u8, stripTrailingComment(raw), " \t\r");
+        if (line.len == 0) continue;
+        const value = if (std.mem.indexOfScalar(u8, line, '=')) |eq|
+            std.mem.trim(u8, line[eq + 1 ..], " \t")
+        else
+            line;
+        try items.append(.{ .string = value });
+    }
+    return .{ .array = items };
+}
+
+/// `checks:`/`lints:`'s own custom-operator table -- covers the create-only
+/// short-circuit and, as later checklist items land, the structural checks
+/// no composition of `jsonlogic.zig`'s built-ins can express
+/// (`no_hard_wrap`, `no_id_prefix_in_title`, `hard_wrap`,
+/// `no_stray_frontmatter_block`). `unique`/`not_before`/`const`/`equals`
+/// never get an entry here at all -- they already collapse into plain
+/// built-in compositions once `dataTree`'s precomputed fields exist.
+pub const custom_ops = [_]jsonlogic.CustomOp{
+    .{ .name = "on_create", .func = evalOnCreate },
+    .{ .name = "no_hard_wrap", .func = evalNoHardWrap },
+    .{ .name = "no_id_prefix_in_title", .func = evalNoIdPrefixInTitle },
+    .{ .name = "hard_wrap", .func = evalHardWrap },
+    .{ .name = "no_stray_frontmatter", .func = evalNoStrayFrontmatter },
+};
+
+/// Short-circuits to truthy without evaluating its argument when
+/// `data.is_create` is false or absent -- the create-only guard `unique`/
+/// `equals {when: create}`/`const {when: create}` used to need a
+/// special-cased `when:` sibling key for. Now it's just another operator
+/// in the same table, composing like any other: `on_create` wraps one
+/// whole sub-rule the same way `!` wraps one operand.
+fn evalOnCreate(args: []const std.json.Value, data: std.json.Value, current_item: ?std.json.Value, ops: ?[]const jsonlogic.CustomOp) jsonlogic.Error!std.json.Value {
+    if (args.len < 1) return jsonlogic.Error.InvalidArguments;
+    const is_create = switch (data) {
+        .object => |obj| if (obj.get("is_create")) |v| jsonlogic.truthy(v) else false,
+        else => false,
+    };
+    if (!is_create) return .{ .bool = true };
+    return jsonlogic.evaluate(args[0], data, current_item, ops);
+}
+
+/// `no_hard_wrap: {var: body.prose}` -- true (passes) unless some paragraph
+/// in the resolved text is wrapped across 2+ consecutive lines. Fence
+/// tracking plus `isExcludedProseLine`'s own exclusions (blank/heading/
+/// blockquote/table/list/indented lines never count toward a run) decide
+/// what counts as one paragraph run; this returns only a bool, the same as
+/// every built-in -- the diagnostic text for a failing standalone lint
+/// entry is `ruleFailureMessage`'s job, not this operator's.
+fn evalNoHardWrap(args: []const std.json.Value, data: std.json.Value, current_item: ?std.json.Value, ops: ?[]const jsonlogic.CustomOp) jsonlogic.Error!std.json.Value {
+    if (args.len < 1) return jsonlogic.Error.InvalidArguments;
+    const prose_v = try jsonlogic.evaluate(args[0], data, current_item, ops);
+    const prose = switch (prose_v) {
+        .string => |s| s,
+        else => return .{ .bool = true }, // nothing to scan: vacuously fine
+    };
+
+    var in_fence = false;
+    var run_lines: usize = 0;
+    var offset: usize = 0;
+    while (offset <= prose.len) {
+        const end = std.mem.indexOfScalarPos(u8, prose, offset, '\n') orelse prose.len;
+        const line = prose[offset..end];
+        const trimmed = std.mem.trimStart(u8, std.mem.trimEnd(u8, line, "\r"), " \t");
+        const is_fence_delimiter = std.mem.startsWith(u8, trimmed, "```") or std.mem.startsWith(u8, trimmed, "~~~");
+
+        if (is_fence_delimiter) {
+            if (flushRun(&run_lines)) return .{ .bool = false };
+            in_fence = !in_fence;
+        } else if (in_fence or isExcludedProseLine(line)) {
+            if (flushRun(&run_lines)) return .{ .bool = false };
+        } else {
+            run_lines += 1;
+        }
+
+        if (end == prose.len) break;
+        offset = end + 1;
+    }
+    return .{ .bool = !flushRun(&run_lines) };
+}
+
+/// Closes the currently-open run, reporting whether it was a violation
+/// (2+ lines).
+fn flushRun(run_lines: *usize) bool {
+    const violated = run_lines.* > 1;
+    run_lines.* = 0;
+    return violated;
+}
+
+/// `no_id_prefix_in_title: [{var: frontmatter.title}, {var: frontmatter.task_id}]`
+/// -- true (passes) unless the title starts with its own id. A missing or
+/// non-string title or id, or an empty id, passes vacuously -- nothing to
+/// flag when either side of the comparison isn't really there.
+fn evalNoIdPrefixInTitle(args: []const std.json.Value, data: std.json.Value, current_item: ?std.json.Value, ops: ?[]const jsonlogic.CustomOp) jsonlogic.Error!std.json.Value {
+    if (args.len < 2) return jsonlogic.Error.InvalidArguments;
+    const title_v = try jsonlogic.evaluate(args[0], data, current_item, ops);
+    const id_v = try jsonlogic.evaluate(args[1], data, current_item, ops);
+    const title = switch (title_v) {
+        .string => |s| s,
+        else => return .{ .bool = true },
+    };
+    const id = switch (id_v) {
+        .string => |s| s,
+        else => return .{ .bool = true },
+    };
+    if (id.len == 0) return .{ .bool = true };
+    return .{ .bool = !std.mem.startsWith(u8, title, id) };
+}
+
+/// `hard_wrap: [{var: body.prose}, 100]` -- the opposite check from
+/// `no_hard_wrap`: true (passes) only if every prose run in the resolved
+/// text is *actually* filled toward `max_chars` the way a greedy
+/// nearest-fit word-wrap would produce it, not merely "no line exceeds
+/// it". Ported from sb-121's own proposed algorithm; its calling
+/// convention changed from three sibling YAML keys (`hard_wrap: ...` /
+/// `max_chars: ...` / `severity: ...`, meaningful under the old
+/// one-operator-per-entry model) to two positional args, matching every
+/// other multi-argument operator (`eq`, `in`, comparisons) now that a
+/// `checks:`/`lints:` entry is a real expression, not a fixed slot for one
+/// named check's own parameters.
+fn evalHardWrap(args: []const std.json.Value, data: std.json.Value, current_item: ?std.json.Value, ops: ?[]const jsonlogic.CustomOp) jsonlogic.Error!std.json.Value {
+    if (args.len < 2) return jsonlogic.Error.InvalidArguments;
+    const text_v = try jsonlogic.evaluate(args[0], data, current_item, ops);
+    const max_v = try jsonlogic.evaluate(args[1], data, current_item, ops);
+    const text = switch (text_v) {
+        .string => |s| s,
+        else => return .{ .bool = true }, // nothing to scan: vacuously fine
+    };
+    const max_chars: usize = switch (max_v) {
+        .integer => |i| if (i > 0) @intCast(i) else return jsonlogic.Error.InvalidArguments,
+        else => return jsonlogic.Error.InvalidArguments,
+    };
+
+    var in_fence = false;
+    var run_start: ?usize = null;
+    var run_end: usize = 0;
+    var offset: usize = 0;
+    while (offset <= text.len) {
+        const end = std.mem.indexOfScalarPos(u8, text, offset, '\n') orelse text.len;
+        const line = text[offset..end];
+        const trimmed = std.mem.trimStart(u8, std.mem.trimEnd(u8, line, "\r"), " \t");
+        const is_fence_delimiter = std.mem.startsWith(u8, trimmed, "```") or std.mem.startsWith(u8, trimmed, "~~~");
+
+        if (is_fence_delimiter) {
+            if (run_start) |s| if (!matchesGreedyWrap(text[s..run_end], max_chars)) return .{ .bool = false };
+            run_start = null;
+            in_fence = !in_fence;
+        } else if (in_fence or isExcludedProseLine(line)) {
+            if (run_start) |s| if (!matchesGreedyWrap(text[s..run_end], max_chars)) return .{ .bool = false };
+            run_start = null;
+        } else {
+            if (run_start == null) run_start = offset;
+            run_end = end;
+        }
+
+        if (end == text.len) break;
+        offset = end + 1;
+    }
+    if (run_start) |s| if (!matchesGreedyWrap(text[s..run_end], max_chars)) return .{ .bool = false };
+    return .{ .bool = true };
+}
+
+/// True iff greedily reflowing `run_text`'s own word stream at target
+/// width `max_chars` -- "whichever landing is closer to `max_chars`, over
+/// or under; an exact tie starts the next line" -- reproduces exactly the
+/// line breaks `run_text` already has. Allocation-free: `words`/`pending`
+/// walk the run's flat word stream (newlines and spaces are equally word
+/// separators, so which original line a word came from doesn't matter to
+/// the simulation), and each actual line is compared word-by-word against
+/// the words the simulation places on it, never materializing a
+/// reconstructed line to compare as a string.
+fn matchesGreedyWrap(run_text: []const u8, max_chars: usize) bool {
+    var lines = std.mem.splitScalar(u8, run_text, '\n');
+    var words = std.mem.tokenizeAny(u8, run_text, " \t\r\n");
+    var pending: ?[]const u8 = words.next();
+
+    while (lines.next()) |raw_line| {
+        const line = std.mem.trim(u8, std.mem.trimEnd(u8, raw_line, "\r"), " \t");
+        if (line.len == 0) continue;
+
+        var line_words = std.mem.tokenizeAny(u8, line, " \t");
+
+        const first = pending orelse return false;
+        const actual_first = line_words.next() orelse return false;
+        if (!std.mem.eql(u8, first, actual_first)) return false;
+        var line_len: usize = first.len;
+        pending = words.next();
+
+        while (pending) |next_word| {
+            const candidate_len = line_len + 1 + next_word.len;
+            // The overshoot decision is final for this line: whichever way
+            // it goes, no further word is considered after it -- spec is
+            // "that word belongs on the line" (singular), not a license to
+            // keep piling on past the target once one overshoot is allowed.
+            var stop_after_this_word = false;
+            if (candidate_len > max_chars) {
+                const overshoot = candidate_len - max_chars;
+                const undershoot = max_chars - line_len;
+                if (overshoot >= undershoot) break; // strictly nearer only -- a tie excludes
+                stop_after_this_word = true;
+            }
+            const actual_next = line_words.next() orelse return false;
+            if (!std.mem.eql(u8, next_word, actual_next)) return false;
+            line_len = candidate_len;
+            pending = words.next();
+            if (stop_after_this_word) break;
+        }
+
+        if (line_words.next() != null) return false; // actual line has extra words
+    }
+    return pending == null; // no leftover words after the last actual line
+}
+
+/// `no_stray_frontmatter: {var: body.prose}` -- true (passes) unless the
+/// body contains a `---`...`---` pair, outside fenced code, whose lines in
+/// between include at least one real `key: value` line (reusing
+/// `core_query.topLevelKeyValue`, the same column-0 shape every other
+/// frontmatter-line reader in this codebase already agrees on). That
+/// combination -- not a lone `---` prose divider, not a fenced block
+/// quoting YAML as an example -- is the corruption this rule exists to
+/// catch: a bogus frontmatter-shaped fragment pasted into the body, past
+/// the real one. `body.prose` is already everything *after* the real
+/// frontmatter block by construction (`dataTree` strips it before this
+/// operator ever sees the text), so nothing here has to re-exclude it.
+fn evalNoStrayFrontmatter(args: []const std.json.Value, data: std.json.Value, current_item: ?std.json.Value, ops: ?[]const jsonlogic.CustomOp) jsonlogic.Error!std.json.Value {
+    if (args.len < 1) return jsonlogic.Error.InvalidArguments;
+    const text_v = try jsonlogic.evaluate(args[0], data, current_item, ops);
+    const text = switch (text_v) {
+        .string => |s| s,
+        else => return .{ .bool = true },
+    };
+
+    var in_fence = false;
+    var block_open = false;
+    var saw_kv = false;
+    var offset: usize = 0;
+    while (offset <= text.len) {
+        const end = std.mem.indexOfScalarPos(u8, text, offset, '\n') orelse text.len;
+        const line = std.mem.trimEnd(u8, text[offset..end], "\r");
+        const trimmed = std.mem.trimStart(u8, line, " \t");
+        const is_fence_delimiter = std.mem.startsWith(u8, trimmed, "```") or std.mem.startsWith(u8, trimmed, "~~~");
+
+        if (is_fence_delimiter) {
+            in_fence = !in_fence;
+        } else if (!in_fence) {
+            if (std.mem.eql(u8, line, "---")) {
+                if (block_open and saw_kv) return .{ .bool = false };
+                block_open = !block_open;
+                saw_kv = false;
+            } else if (block_open) {
+                if (core_query.topLevelKeyValue(line)) |kv| {
+                    if (kv.value.len > 0) saw_kv = true;
+                }
+            }
+        }
+
+        if (end == text.len) break;
+        offset = end + 1;
+    }
+    return .{ .bool = true };
 }
 
 /// Null means unresolvable -- the field is absent, not a string, or `ref`
@@ -1354,16 +1702,23 @@ const bare_schema =
     "      required: true\n" ++
     "  section_order: relative\n" ++
     "checks:\n" ++
-    "  - equals: [filename.stem, frontmatter.title]\n" ++
-    "  - unique: frontmatter.note_id\n" ++
-    "    when: create\n" ++
-    "  - vocabulary:\n" ++
-    "      field: frontmatter.tags\n" ++
-    "      source: synapse-tag-vocabulary.conf\n" ++
-    "  - not_before: [frontmatter.updated, frontmatter.created]\n" ++
-    "  - equals:\n" ++
-    "      values: [frontmatter.created, frontmatter.updated]\n" ++
-    "      when: create\n";
+    "  - eq:\n" ++
+    "      - var: filename.stem\n" ++
+    "      - var: frontmatter.title\n" ++
+    "  - on_create:\n" ++
+    "      var: id_is_unique\n" ++
+    "  - all:\n" ++
+    "      - var: frontmatter.tags\n" ++
+    "      - in:\n" ++
+    "          - var: ''\n" ++
+    "          - var: vocabularies.synapse-tag-vocabulary\n" ++
+    "  - lte:\n" ++
+    "      - var: created_epoch\n" ++
+    "      - var: updated_epoch\n" ++
+    "  - on_create:\n" ++
+    "      eq:\n" ++
+    "        - var: created_epoch\n" ++
+    "        - var: updated_epoch\n";
 
 test "validates a bare note with flow-style tags" {
     var doc = try schema_yaml.parse(testing.allocator, bare_schema);
@@ -1381,7 +1736,7 @@ test "validates a bare note with flow-style tags" {
         "---\n\n# Example\n\n## Summary\nUseful.\n";
     try testing.expectEqual(@as(?[]u8, null), try validateNote(testing.allocator, doc.root, note, "research/Example.md", .{
         .mode = .create,
-        .tags_vocabulary = "synapse\narchitecture\n",
+        .vocabularies = &.{.{ .stem = "synapse-tag-vocabulary", .content = "synapse\narchitecture\n" }},
     }));
 }
 
@@ -1412,7 +1767,6 @@ test "immutable identity changes are rejected without a vault scan" {
     const message = (try validateNote(testing.allocator, doc.root, changed, "research/Example.md", .{
         .mode = .update,
         .existing = existing,
-        .tags_vocabulary = "",
     })).?;
     defer testing.allocator.free(message);
     try testing.expectEqualStrings("frontmatter.note_id: field is immutable", message);
@@ -1492,7 +1846,7 @@ test "parseInstantSeconds agrees across equivalent offsets and rejects a malform
     try testing.expectEqual(@as(?i64, null), parseInstantSeconds("not a timestamp"));
 }
 
-test "not_before diagnoses a missing field instead of passing silently" {
+test "lte on created_epoch/updated_epoch fails when a timestamp field is missing, not silently passing" {
     const source =
         "schema: synapse-note-schema/v1\n" ++
         "id: t/v1\n" ++
@@ -1505,11 +1859,14 @@ test "not_before diagnoses a missing field instead of passing silently" {
         "  h1:\n" ++
         "    required: true\n" ++
         "checks:\n" ++
-        "  - not_before: [frontmatter.updated, frontmatter.created]\n";
-    try expectNoteMessage(source, "---\ntitle: Example\n---\n# Example\n", "x.md", .{ .mode = .create }, "frontmatter.updated: must not precede frontmatter.created — a value is missing or malformed");
+        "  - lte:\n" ++
+        "      - var: created_epoch\n" ++
+        "      - var: updated_epoch\n" ++
+        "    message: 'frontmatter.updated: must not precede frontmatter.created'\n";
+    try expectNoteMessage(source, "---\ntitle: Example\n---\n# Example\n", "x.md", .{ .mode = .create }, "frontmatter.updated: must not precede frontmatter.created");
 }
 
-test "equals refuses two missing fields instead of treating them as equal" {
+test "eq on two missing fields returns true, matching JsonLogic null semantics -- presence must be composed explicitly" {
     const source =
         "schema: synapse-note-schema/v1\n" ++
         "id: t/v1\n" ++
@@ -1528,16 +1885,21 @@ test "equals refuses two missing fields instead of treating them as equal" {
         "  h1:\n" ++
         "    required: true\n" ++
         "checks:\n" ++
-        "  - equals: [frontmatter.a, frontmatter.b]\n";
-    // Both absent: refused, not silently "" == "".
-    try expectNoteMessage(source, "---\ntitle: Example\n---\n# Example\n", "x.md", .{ .mode = .create }, "frontmatter.a: field is missing");
+        "  - eq:\n" ++
+        "      - var: frontmatter.a\n" ++
+        "      - var: frontmatter.b\n" ++
+        "    message: 'frontmatter.a: must equal frontmatter.b'\n";
+    // Both absent: null == null, so this passes -- a schema wanting to
+    // require presence first composes that explicitly (e.g. `ne: [{var:
+    // frontmatter.a}, null]`), it isn't implied by `eq` alone.
+    try expectNoteOk(source, "---\ntitle: Example\n---\n# Example\n", "x.md", .{ .mode = .create });
     // Present and equal: passes.
     try expectNoteOk(source, "---\ntitle: Example\na: x\nb: x\n---\n# Example\n", "x.md", .{ .mode = .create });
-    // One present, one missing: refused, not compared as equal strings.
+    // One present, one missing: refused, null does not equal "x".
     try expectNoteMessage(source, "---\ntitle: Example\na: x\n---\n# Example\n", "x.md", .{ .mode = .create }, "frontmatter.a: must equal frontmatter.b");
 }
 
-test "not_before rejects a timestamp that precedes its pair and accepts the reverse" {
+test "lte on created_epoch/updated_epoch rejects an updated timestamp that precedes created, and accepts the reverse" {
     const source =
         "schema: synapse-note-schema/v1\n" ++
         "id: t/v1\n" ++
@@ -1550,7 +1912,10 @@ test "not_before rejects a timestamp that precedes its pair and accepts the reve
         "  h1:\n" ++
         "    required: true\n" ++
         "checks:\n" ++
-        "  - not_before: [frontmatter.updated, frontmatter.created]\n";
+        "  - lte:\n" ++
+        "      - var: created_epoch\n" ++
+        "      - var: updated_epoch\n" ++
+        "    message: 'frontmatter.updated: must not precede frontmatter.created'\n";
     try expectNoteMessage(source,
         "---\ntitle: Example\nupdated: '2026-08-30T01:00:00+02:00'\ncreated: '2026-08-30T02:00:00+02:00'\n---\n# Example\n",
         "x.md", .{ .mode = .create }, "frontmatter.updated: must not precede frontmatter.created");
@@ -1559,7 +1924,7 @@ test "not_before rejects a timestamp that precedes its pair and accepts the reve
         "x.md", .{ .mode = .create });
 }
 
-test "not_before compares real instants across a DST fall-back, not raw text" {
+test "lte on created_epoch/updated_epoch compares real instants across a DST fall-back, not raw text" {
     // 2026-10-25T02:30:00+02:00 and 2026-10-25T02:30:00+01:00 share the
     // same local wall-clock reading but are an hour apart in real terms
     // (the EU's fall-back transition) -- "+01:00" < "+02:00" lexically, so
@@ -1576,7 +1941,10 @@ test "not_before compares real instants across a DST fall-back, not raw text" {
         "  h1:\n" ++
         "    required: true\n" ++
         "checks:\n" ++
-        "  - not_before: [frontmatter.updated, frontmatter.created]\n";
+        "  - lte:\n" ++
+        "      - var: created_epoch\n" ++
+        "      - var: updated_epoch\n" ++
+        "    message: 'frontmatter.updated: must not precede frontmatter.created'\n";
     // created before the transition, updated an hour later (after it) --
     // genuinely later in real terms, so this must pass.
     try expectNoteOk(source,
@@ -1602,10 +1970,11 @@ test "const check applies on creation and skips on update" {
         "  h1:\n" ++
         "    required: true\n" ++
         "checks:\n" ++
-        "  - const:\n" ++
-        "      field: frontmatter.status\n" ++
-        "      value: TODO\n" ++
-        "      when: create\n";
+        "  - on_create:\n" ++
+        "      eq:\n" ++
+        "        - var: frontmatter.status\n" ++
+        "        - TODO\n" ++
+        "    message: \"frontmatter.status: must equal 'TODO' on creation\"\n";
     const note = "---\ntitle: Example\nstatus: DONE\n---\n# Example\n";
     try expectNoteMessage(source, note, "x.md", .{ .mode = .create }, "frontmatter.status: must equal 'TODO' on creation");
     try expectNoteOk(source, note, "x.md", .{ .mode = .update, .existing = "---\ntitle: Example\n---\n# Example\n" });
@@ -1628,16 +1997,19 @@ test "vocabulary check rejects a value outside the configured list" {
         "  h1:\n" ++
         "    required: true\n" ++
         "checks:\n" ++
-        "  - vocabulary:\n" ++
-        "      field: frontmatter.tags\n" ++
-        "      source: synapse-tag-vocabulary.conf\n";
+        "  - all:\n" ++
+        "      - var: frontmatter.tags\n" ++
+        "      - in:\n" ++
+        "          - var: ''\n" ++
+        "          - var: vocabularies.synapse-tag-vocabulary\n" ++
+        "    message: \"frontmatter.tags: not in synapse-tag-vocabulary.conf\"\n";
     try expectNoteMessage(source, "---\ntitle: Example\ntags: [synapse, nope]\n---\n# Example\n", "x.md", .{
         .mode = .create,
-        .tags_vocabulary = "synapse\narchitecture\n",
-    }, "frontmatter.tags: 'nope' is not in synapse-tag-vocabulary.conf");
+        .vocabularies = &.{.{ .stem = "synapse-tag-vocabulary", .content = "synapse\narchitecture\n" }},
+    }, "frontmatter.tags: not in synapse-tag-vocabulary.conf");
     try expectNoteOk(source, "---\ntitle: Example\ntags: [synapse]\n---\n# Example\n", "x.md", .{
         .mode = .create,
-        .tags_vocabulary = "synapse\narchitecture\n",
+        .vocabularies = &.{.{ .stem = "synapse-tag-vocabulary", .content = "synapse\narchitecture\n" }},
     });
 }
 
@@ -1779,17 +2151,17 @@ fn freeLintFindings(gpa: Allocator, findings: []const []const u8) void {
 const lint_test_frontmatter =
     "frontmatter:\n  fields:\n    title:\n      type: string\n    task_id:\n      type: string\n";
 
-test "schema.lints rejects an unknown key" {
+test "schema.lints rejects a second rule-shaped key as ambiguous" {
     const source = "schema: synapse-note-schema/v1\nid: t/v1\n" ++
         lint_test_frontmatter ++
         "body:\n  h1:\n    required: false\n" ++
         "checks: []\n" ++
-        "lints:\n  - no_hard_wrap: body.prose\n    severity: warn\n    extra: 1\n";
+        "lints:\n  - no_hard_wrap:\n      var: body.prose\n    severity: warn\n    extra: 1\n";
     var doc = try schema_yaml.parse(testing.allocator, source);
     defer doc.deinit();
     const message = (try validateSchema(testing.allocator, doc.root, "t/v1")).?;
     defer testing.allocator.free(message);
-    try testing.expectEqualStrings("schema.lints[0].extra: unsupported v1 key", message);
+    try testing.expectEqualStrings("schema.lints[0]: exactly one rule operator is required", message);
 }
 
 test "schema.lints requires exactly one operator" {
@@ -1802,20 +2174,20 @@ test "schema.lints requires exactly one operator" {
     defer doc.deinit();
     const message = (try validateSchema(testing.allocator, doc.root, "t/v1")).?;
     defer testing.allocator.free(message);
-    try testing.expectEqualStrings("schema.lints[0]: exactly one lint operator is required", message);
+    try testing.expectEqualStrings("schema.lints[0]: exactly one rule operator is required", message);
 }
 
-test "schema.lints.no_hard_wrap only accepts body.prose" {
+test "schema.lints rejects an unknown operator name at load time" {
     const source = "schema: synapse-note-schema/v1\nid: t/v1\n" ++
         lint_test_frontmatter ++
         "body:\n  h1:\n    required: false\n" ++
         "checks: []\n" ++
-        "lints:\n  - no_hard_wrap: body.other\n    severity: warn\n";
+        "lints:\n  - not_a_real_operator:\n      var: body.prose\n    severity: warn\n";
     var doc = try schema_yaml.parse(testing.allocator, source);
     defer doc.deinit();
     const message = (try validateSchema(testing.allocator, doc.root, "t/v1")).?;
     defer testing.allocator.free(message);
-    try testing.expectEqualStrings("schema.lints[0].no_hard_wrap: unsupported field reference 'body.other'", message);
+    try testing.expectEqualStrings("schema.lints[0]: unknown operator 'not_a_real_operator'", message);
 }
 
 test "schema.lints.severity accepts ignore, warn, and error; rejects anything else" {
@@ -1824,7 +2196,7 @@ test "schema.lints.severity accepts ignore, warn, and error; rejects anything el
             lint_test_frontmatter ++
             "body:\n  h1:\n    required: false\n" ++
             "checks: []\n" ++
-            "lints:\n  - no_hard_wrap: body.prose\n    severity: {s}\n", .{severity});
+            "lints:\n  - no_hard_wrap:\n      var: body.prose\n    severity: {s}\n", .{severity});
         defer testing.allocator.free(source);
         var doc = try schema_yaml.parse(testing.allocator, source);
         defer doc.deinit();
@@ -1835,25 +2207,12 @@ test "schema.lints.severity accepts ignore, warn, and error; rejects anything el
         lint_test_frontmatter ++
         "body:\n  h1:\n    required: false\n" ++
         "checks: []\n" ++
-        "lints:\n  - no_hard_wrap: body.prose\n    severity: critical\n";
+        "lints:\n  - no_hard_wrap:\n      var: body.prose\n    severity: critical\n";
     var doc = try schema_yaml.parse(testing.allocator, source);
     defer doc.deinit();
     const message = (try validateSchema(testing.allocator, doc.root, "t/v1")).?;
     defer testing.allocator.free(message);
     try testing.expectEqualStrings("schema.lints[0].severity: unsupported value 'critical'", message);
-}
-
-test "schema.lints.no_id_prefix_in_title only accepts a known id reference" {
-    const source = "schema: synapse-note-schema/v1\nid: t/v1\n" ++
-        lint_test_frontmatter ++
-        "body:\n  h1:\n    required: false\n" ++
-        "checks: []\n" ++
-        "lints:\n  - no_id_prefix_in_title:\n      title: frontmatter.title\n      id: frontmatter.other\n    severity: warn\n";
-    var doc = try schema_yaml.parse(testing.allocator, source);
-    defer doc.deinit();
-    const message = (try validateSchema(testing.allocator, doc.root, "t/v1")).?;
-    defer testing.allocator.free(message);
-    try testing.expectEqualStrings("schema.lints[0].no_id_prefix_in_title.id: unsupported field reference 'frontmatter.other'", message);
 }
 
 test "a schema with no lints: key lints nothing, even on an obviously wrapped note" {
@@ -1872,14 +2231,13 @@ test "no_hard_wrap fires on a wrapped paragraph and stays silent on a clean one"
         lint_test_frontmatter ++
         "body:\n  h1:\n    required: false\n" ++
         "checks: []\n" ++
-        "lints:\n  - no_hard_wrap: body.prose\n    severity: warn\n";
+        "lints:\n  - no_hard_wrap:\n      var: body.prose\n    severity: warn\n";
 
     const wrapped = "---\ntitle: X\n---\n# X\n\n## Summary\nThis is a sentence that got\nhard-wrapped across two lines.\n";
     const findings = try lintFindings(testing.allocator, source, wrapped, "x.md");
     defer freeLintFindings(testing.allocator, findings);
     try testing.expectEqual(@as(usize, 1), findings.len);
     try testing.expect(std.mem.indexOf(u8, findings[0], "no_hard_wrap") != null);
-    try testing.expect(std.mem.indexOf(u8, findings[0], "line 7") != null);
 
     const clean = "---\ntitle: X\n---\n# X\n\n## Summary\nThis is one continuous line, exactly as the convention wants.\n";
     const clean_findings = try lintFindings(testing.allocator, source, clean, "x.md");
@@ -1892,7 +2250,7 @@ test "severity: ignore skips the rule entirely, not just discards its finding" {
         lint_test_frontmatter ++
         "body:\n  h1:\n    required: false\n" ++
         "checks: []\n" ++
-        "lints:\n  - no_hard_wrap: body.prose\n    severity: ignore\n";
+        "lints:\n  - no_hard_wrap:\n      var: body.prose\n    severity: ignore\n";
     const wrapped = "---\ntitle: X\n---\n# X\n\n## Summary\nThis is a sentence that got\nhard-wrapped across two lines.\n";
     const findings = try lintFindings(testing.allocator, source, wrapped, "x.md");
     defer freeLintFindings(testing.allocator, findings);
@@ -1904,7 +2262,7 @@ test "lintNote tags each finding with its own rule's severity" {
         lint_test_frontmatter ++
         "body:\n  h1:\n    required: false\n" ++
         "checks: []\n" ++
-        "lints:\n  - no_hard_wrap: body.prose\n    severity: error\n");
+        "lints:\n  - no_hard_wrap:\n      var: body.prose\n    severity: error\n");
     defer doc.deinit();
     const wrapped = "---\ntitle: X\n---\n# X\n\n## Summary\nThis is a sentence that got\nhard-wrapped across two lines.\n";
     const findings = try lintNote(testing.allocator, doc.root, wrapped, "x.md");
@@ -1921,7 +2279,7 @@ test "no_hard_wrap excludes table rows, list continuations, and fenced code" {
         lint_test_frontmatter ++
         "body:\n  h1:\n    required: false\n" ++
         "checks: []\n" ++
-        "lints:\n  - no_hard_wrap: body.prose\n    severity: warn\n";
+        "lints:\n  - no_hard_wrap:\n      var: body.prose\n    severity: warn\n";
 
     const note = "---\ntitle: X\n---\n# X\n\n## Summary\n" ++
         "| a | b |\n| c | d |\n\n" ++
@@ -1937,13 +2295,13 @@ test "no_id_prefix_in_title fires when the title starts with its own id" {
         lint_test_frontmatter ++
         "body:\n  h1:\n    required: false\n" ++
         "checks: []\n" ++
-        "lints:\n  - no_id_prefix_in_title:\n      title: frontmatter.title\n      id: frontmatter.task_id\n    severity: warn\n";
+        "lints:\n  - no_id_prefix_in_title:\n      - var: frontmatter.title\n      - var: frontmatter.task_id\n    severity: warn\n";
 
     const prefixed = "---\ntitle: \"sb-102 — Something\"\ntask_id: sb-102\n---\n# X\n";
     const findings = try lintFindings(testing.allocator, source, prefixed, "x.md");
     defer freeLintFindings(testing.allocator, findings);
     try testing.expectEqual(@as(usize, 1), findings.len);
-    try testing.expect(std.mem.indexOf(u8, findings[0], "sb-102") != null);
+    try testing.expect(std.mem.indexOf(u8, findings[0], "no_id_prefix_in_title") != null);
 
     const clean = "---\ntitle: Something\ntask_id: sb-102\n---\n# X\n";
     const clean_findings = try lintFindings(testing.allocator, source, clean, "x.md");
@@ -2112,7 +2470,6 @@ test "migration cannot introduce an immutable field" {
     const message = (try validateNote(testing.allocator, doc.root, candidate, "research/Example.md", .{
         .mode = .migration,
         .existing = existing,
-        .tags_vocabulary = "",
     })).?;
     defer testing.allocator.free(message);
     try testing.expectEqualStrings("frontmatter.note_id: field is immutable", message);
@@ -2210,4 +2567,522 @@ test "non-boolean DSL rule keys are rejected at schema-validation time" {
     try expectSchemaMessage(
         "schema: synapse-note-schema/v1\nid: t/v1\nfrontmatter:\n  fields:\n    title:\n      type: string\nbody:\n  h1:\n    required: false\n  checklist:\n    required: 1\nchecks: []\n",
         "schema.body.checklist.required: must be boolean");
+}
+
+test "dataTree: path, frontmatter, body.prose, and body.section_names all come through" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    const note = "---\ntitle: X\nstatus: REVIEW\n---\n# X\n\n## Summary\nSome prose.\n\n## Notes\nMore prose.\n";
+    const tree = try dataTree(gpa, "tasks/synapse/X.md", note, .{ .mode = .update });
+
+    try testing.expectEqualStrings("tasks/synapse/X.md", tree.object.get("path").?.string);
+    try testing.expectEqualStrings("REVIEW", tree.object.get("frontmatter").?.object.get("status").?.string);
+
+    const body = tree.object.get("body").?.object;
+    try testing.expect(std.mem.startsWith(u8, body.get("prose").?.string, "# X\n"));
+    try testing.expect(std.mem.indexOf(u8, body.get("prose").?.string, "title: X") == null);
+
+    const sections = body.get("section_names").?.array.items;
+    try testing.expectEqual(@as(usize, 3), sections.len);
+    try testing.expectEqualStrings("X", sections[0].string);
+    try testing.expectEqualStrings("Summary", sections[1].string);
+    try testing.expectEqualStrings("Notes", sections[2].string);
+}
+
+test "dataTree: a legacy note with no frontmatter block treats the whole note as body.prose" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    const note = "# Just a heading\n\nNo frontmatter here at all.\n";
+    const tree = try dataTree(gpa, "notes/legacy.md", note, .{ .mode = .update });
+
+    try testing.expectEqualStrings(note, tree.object.get("body").?.object.get("prose").?.string);
+    const sections = tree.object.get("body").?.object.get("section_names").?.array.items;
+    try testing.expectEqual(@as(usize, 1), sections.len);
+    try testing.expectEqualStrings("Just a heading", sections[0].string);
+}
+
+test "dataTree: output evaluates directly through jsonlogic, the whole point of building it" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    const note = "---\ntitle: X\nstatus: REVIEW\n---\n# X\n\n## Notes\nDone.\n";
+    const tree = try dataTree(gpa, "tasks/synapse/X.md", note, .{ .mode = .update });
+
+    var rule = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"or": [{"!=": [{"var": "frontmatter.status"}, "REVIEW"]}, {"in": ["Notes", {"var": "body.section_names"}]}]}
+    , .{});
+    defer rule.deinit();
+
+    const result = try jsonlogic.evaluate(rule.value, tree, null, null);
+    try testing.expect(result.bool);
+}
+
+test "dataTree: is_create is true for create and migration, false for update" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+    const note = "---\ntitle: X\n---\n# X\n";
+
+    const created = try dataTree(gpa, "x.md", note, .{ .mode = .create });
+    try testing.expect(created.object.get("is_create").?.bool);
+
+    const migrated = try dataTree(gpa, "x.md", note, .{ .mode = .migration });
+    try testing.expect(migrated.object.get("is_create").?.bool);
+
+    const updated = try dataTree(gpa, "x.md", note, .{ .mode = .update });
+    try testing.expect(!updated.object.get("is_create").?.bool);
+}
+
+test "dataTree: id_is_unique is a real bool on create, and null (not false) on an ordinary update" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+    const note = "---\ntitle: X\n---\n# X\n";
+
+    const unique = try dataTree(gpa, "x.md", note, .{ .mode = .create, .duplicate_identity = null });
+    try testing.expect(unique.object.get("id_is_unique").?.bool);
+
+    const dup = try dataTree(gpa, "x.md", note, .{ .mode = .create, .duplicate_identity = "sb-001" });
+    try testing.expect(!dup.object.get("id_is_unique").?.bool);
+
+    // Not computed on a plain update -- null, never a stale/reused false.
+    const not_computed = try dataTree(gpa, "x.md", note, .{ .mode = .update, .duplicate_identity = null });
+    try testing.expectEqual(std.json.Value.null, not_computed.object.get("id_is_unique").?);
+}
+
+test "dataTree: created_epoch/updated_epoch parse real timestamps, and stay null when missing or malformed" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    const good = "---\ntitle: X\ncreated: \"2026-09-07T15:00:00Z\"\nupdated: \"2026-09-07T15:05:00Z\"\n---\n# X\n";
+    const tree = try dataTree(gpa, "x.md", good, .{ .mode = .update });
+    const created_epoch = tree.object.get("created_epoch").?.integer;
+    const updated_epoch = tree.object.get("updated_epoch").?.integer;
+    try testing.expect(updated_epoch > created_epoch);
+
+    const missing = "---\ntitle: X\n---\n# X\n";
+    const missing_tree = try dataTree(gpa, "x.md", missing, .{ .mode = .update });
+    try testing.expectEqual(std.json.Value.null, missing_tree.object.get("created_epoch").?);
+
+    const malformed = "---\ntitle: X\ncreated: not-a-timestamp\n---\n# X\n";
+    const malformed_tree = try dataTree(gpa, "x.md", malformed, .{ .mode = .update });
+    try testing.expectEqual(std.json.Value.null, malformed_tree.object.get("created_epoch").?);
+}
+
+test "dataTree: not_before composes directly from created_epoch/updated_epoch with lte, no operator needed" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    const note = "---\ntitle: X\ncreated: \"2026-09-07T15:00:00Z\"\nupdated: \"2026-09-07T15:05:00Z\"\n---\n# X\n";
+    const tree = try dataTree(gpa, "x.md", note, .{ .mode = .update });
+
+    var rule = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"<=": [{"var": "created_epoch"}, {"var": "updated_epoch"}]}
+    , .{});
+    defer rule.deinit();
+
+    const result = try jsonlogic.evaluate(rule.value, tree, null, null);
+    try testing.expect(result.bool);
+}
+
+test "dataTree: vocabularies is keyed by stem, one plain-line file and one key=value file" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    const note = "---\ntitle: X\n---\n# X\n";
+    const context = Context{
+        .mode = .update,
+        .vocabularies = &.{
+            .{ .stem = "synapse-tag-vocabulary", .content = "synapse\nvault-infra\n# a comment\n\narchitecture\n" },
+            .{ .stem = "synapse-projects", .content = "synapse=sb\neon=eon\n" },
+        },
+    };
+    const tree = try dataTree(gpa, "x.md", note, context);
+
+    const vocabs = tree.object.get("vocabularies").?.object;
+    const tags = vocabs.get("synapse-tag-vocabulary").?.array.items;
+    try testing.expectEqual(@as(usize, 3), tags.len);
+    try testing.expectEqualStrings("synapse", tags[0].string);
+    try testing.expectEqualStrings("vault-infra", tags[1].string);
+    try testing.expectEqualStrings("architecture", tags[2].string);
+
+    // key=value lines contribute only the value, the same distinction
+    // vocabularyContains's own `projection: values` flag used to need a
+    // schema author to declare per rule.
+    const projects = vocabs.get("synapse-projects").?.array.items;
+    try testing.expectEqual(@as(usize, 2), projects.len);
+    try testing.expectEqualStrings("sb", projects[0].string);
+    try testing.expectEqualStrings("eon", projects[1].string);
+}
+
+test "dataTree: vocabularies is an empty object when the context supplies none" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    const note = "---\ntitle: X\n---\n# X\n";
+    const tree = try dataTree(gpa, "x.md", note, .{ .mode = .update });
+    try testing.expectEqual(@as(usize, 0), tree.object.get("vocabularies").?.object.count());
+}
+
+test "dataTree: vocabularies composes directly through all/in, the real end-to-end shape" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    const note = "---\ntitle: X\ntags: [synapse, vault-infra]\n---\n# X\n";
+    const context = Context{
+        .mode = .update,
+        .vocabularies = &.{
+            .{ .stem = "synapse-tag-vocabulary", .content = "synapse\nvault-infra\narchitecture\n" },
+        },
+    };
+    const tree = try dataTree(gpa, "x.md", note, context);
+
+    var rule2 = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"all": [{"var": "frontmatter.tags"}, {"in": [{"var": ""}, {"var": "vocabularies.synapse-tag-vocabulary"}]}]}
+    , .{});
+    defer rule2.deinit();
+
+    const result = try jsonlogic.evaluate(rule2.value, tree, null, null);
+    try testing.expect(result.bool);
+}
+
+test "on_create delegates to its argument when is_create is true" {
+    var pass = try std.json.parseFromSlice(std.json.Value, testing.allocator,
+        \\{"on_create": {"var": "n"}}
+    , .{});
+    defer pass.deinit();
+    var data = try std.json.parseFromSlice(std.json.Value, testing.allocator,
+        \\{"is_create": true, "n": true}
+    , .{});
+    defer data.deinit();
+    const got = try jsonlogic.evaluate(pass.value, data.value, null, &custom_ops);
+    try testing.expect(got.bool);
+
+    var fail = try std.json.parseFromSlice(std.json.Value, testing.allocator,
+        \\{"on_create": {"var": "n"}}
+    , .{});
+    defer fail.deinit();
+    var fail_data = try std.json.parseFromSlice(std.json.Value, testing.allocator,
+        \\{"is_create": true, "n": false}
+    , .{});
+    defer fail_data.deinit();
+    const got_fail = try jsonlogic.evaluate(fail.value, fail_data.value, null, &custom_ops);
+    try testing.expect(!got_fail.bool);
+}
+
+test "on_create short-circuits to truthy without evaluating its argument when is_create is false" {
+    // The wrapped rule names an unknown operator -- if on_create ever
+    // evaluated it, this would error instead of passing.
+    var rule = try std.json.parseFromSlice(std.json.Value, testing.allocator,
+        \\{"on_create": {"this_operator_does_not_exist": 1}}
+    , .{});
+    defer rule.deinit();
+    var data = try std.json.parseFromSlice(std.json.Value, testing.allocator,
+        \\{"is_create": false}
+    , .{});
+    defer data.deinit();
+    const got = try jsonlogic.evaluate(rule.value, data.value, null, &custom_ops);
+    try testing.expect(got.bool);
+}
+
+test "on_create short-circuits the same way when is_create is absent from data entirely" {
+    var rule = try std.json.parseFromSlice(std.json.Value, testing.allocator,
+        \\{"on_create": {"this_operator_does_not_exist": 1}}
+    , .{});
+    defer rule.deinit();
+    const got = try jsonlogic.evaluate(rule.value, .{ .object = .empty }, null, &custom_ops);
+    try testing.expect(got.bool);
+}
+
+test "on_create composes through the real data tree: unique-note-id and created==updated shapes" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    const note = "---\ntitle: X\ncreated: \"2026-09-07T15:00:00Z\"\nupdated: \"2026-09-07T15:00:00Z\"\n---\n# X\n";
+
+    // A duplicate id on create: on_create: {var: id_is_unique} must fail.
+    const dup_tree = try dataTree(gpa, "x.md", note, .{ .mode = .create, .duplicate_identity = "sb-001" });
+    var unique_rule = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"on_create": {"var": "id_is_unique"}}
+    , .{});
+    defer unique_rule.deinit();
+    const dup_result = try jsonlogic.evaluate(unique_rule.value, dup_tree, null, &custom_ops);
+    try testing.expect(!dup_result.bool);
+
+    // Unique on create: same rule must pass.
+    const ok_tree = try dataTree(gpa, "x.md", note, .{ .mode = .create, .duplicate_identity = null });
+    const ok_result = try jsonlogic.evaluate(unique_rule.value, ok_tree, null, &custom_ops);
+    try testing.expect(ok_result.bool);
+
+    // created == updated on create: on_create: {eq: [created_epoch, updated_epoch]}.
+    var eq_rule = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"on_create": {"==": [{"var": "created_epoch"}, {"var": "updated_epoch"}]}}
+    , .{});
+    defer eq_rule.deinit();
+    const eq_result = try jsonlogic.evaluate(eq_rule.value, ok_tree, null, &custom_ops);
+    try testing.expect(eq_result.bool);
+
+    // Same rule on an ordinary update: created != updated is fine now,
+    // since on_create never evaluates it at all.
+    const updated_note = "---\ntitle: X\ncreated: \"2026-09-07T15:00:00Z\"\nupdated: \"2026-09-07T16:00:00Z\"\n---\n# X\n";
+    const update_tree = try dataTree(gpa, "x.md", updated_note, .{ .mode = .update });
+    const update_result = try jsonlogic.evaluate(eq_rule.value, update_tree, null, &custom_ops);
+    try testing.expect(update_result.bool);
+}
+
+test "no_hard_wrap custom operator: fires on a wrapped paragraph, stays silent on a clean one" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    var rule = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"no_hard_wrap": {"var": "body.prose"}}
+    , .{});
+    defer rule.deinit();
+
+    const wrapped = "---\ntitle: X\n---\n# X\n\n## Summary\nThis is a sentence that got\nhard-wrapped across two lines.\n";
+    const wrapped_tree = try dataTree(gpa, "x.md", wrapped, .{ .mode = .update });
+    const wrapped_result = try jsonlogic.evaluate(rule.value, wrapped_tree, null, &custom_ops);
+    try testing.expect(!wrapped_result.bool);
+
+    const clean = "---\ntitle: X\n---\n# X\n\n## Summary\nThis is one continuous line, exactly as the convention wants.\n";
+    const clean_tree = try dataTree(gpa, "x.md", clean, .{ .mode = .update });
+    const clean_result = try jsonlogic.evaluate(rule.value, clean_tree, null, &custom_ops);
+    try testing.expect(clean_result.bool);
+}
+
+test "no_hard_wrap custom operator: excludes fenced code, matching the old function exactly" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    var rule = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"no_hard_wrap": {"var": "body.prose"}}
+    , .{});
+    defer rule.deinit();
+
+    const fenced = "---\ntitle: X\n---\n# X\n\n## Summary\n```\ntwo\nlines\n```\n";
+    const tree = try dataTree(gpa, "x.md", fenced, .{ .mode = .update });
+    const result = try jsonlogic.evaluate(rule.value, tree, null, &custom_ops);
+    try testing.expect(result.bool);
+}
+
+test "no_hard_wrap custom operator composes with and/or, unlike the old standalone-only lint entry" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    var rule = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"and": [{"no_hard_wrap": {"var": "body.prose"}}, {"==": [{"var": "frontmatter.status"}, "Ready"]}]}
+    , .{});
+    defer rule.deinit();
+
+    const note = "---\ntitle: X\nstatus: Ready\n---\n# X\n\n## Summary\nOne continuous line.\n";
+    const tree = try dataTree(gpa, "x.md", note, .{ .mode = .update });
+    const result = try jsonlogic.evaluate(rule.value, tree, null, &custom_ops);
+    try testing.expect(result.bool);
+}
+
+test "no_id_prefix_in_title custom operator: fires when the title starts with its own id, silent otherwise" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    var rule = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"no_id_prefix_in_title": [{"var": "frontmatter.title"}, {"var": "frontmatter.task_id"}]}
+    , .{});
+    defer rule.deinit();
+
+    const prefixed = "---\ntitle: \"sb-102 — Something\"\ntask_id: sb-102\n---\n# X\n";
+    const prefixed_tree = try dataTree(gpa, "x.md", prefixed, .{ .mode = .update });
+    const prefixed_result = try jsonlogic.evaluate(rule.value, prefixed_tree, null, &custom_ops);
+    try testing.expect(!prefixed_result.bool);
+
+    const clean = "---\ntitle: Something\ntask_id: sb-102\n---\n# X\n";
+    const clean_tree = try dataTree(gpa, "x.md", clean, .{ .mode = .update });
+    const clean_result = try jsonlogic.evaluate(rule.value, clean_tree, null, &custom_ops);
+    try testing.expect(clean_result.bool);
+}
+
+test "no_id_prefix_in_title custom operator passes vacuously when the id field is empty or missing" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    var rule = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"no_id_prefix_in_title": [{"var": "frontmatter.title"}, {"var": "frontmatter.task_id"}]}
+    , .{});
+    defer rule.deinit();
+
+    const no_id = "---\ntitle: Something\n---\n# X\n";
+    const tree = try dataTree(gpa, "x.md", no_id, .{ .mode = .update });
+    const result = try jsonlogic.evaluate(rule.value, tree, null, &custom_ops);
+    try testing.expect(result.bool);
+}
+
+test "hard_wrap custom operator: passes a correctly greedy-wrapped paragraph" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    var rule = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"hard_wrap": [{"var": "body.prose"}, 20]}
+    , .{});
+    defer rule.deinit();
+
+    // Greedy-nearest-fit at width 20: "This is a test of hard" (22, the
+    // boundary word "hard" overshoots by 2 but landed nearer than the 3
+    // it would have undershot by stopping at "of") / "wrap logic here."
+    const note = "---\ntitle: X\n---\n# X\n\n## Summary\nThis is a test of hard\nwrap logic here.\n";
+    const tree = try dataTree(gpa, "x.md", note, .{ .mode = .update });
+    const result = try jsonlogic.evaluate(rule.value, tree, null, &custom_ops);
+    try testing.expect(result.bool);
+}
+
+test "hard_wrap custom operator: fails a paragraph reflowed too early (stopped before the nearer boundary word)" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    var rule = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"hard_wrap": [{"var": "body.prose"}, 20]}
+    , .{});
+    defer rule.deinit();
+
+    // "hard" belongs on line 1 (nearer at 22 than stopping at 17) but was
+    // pushed to line 2 instead.
+    const note = "---\ntitle: X\n---\n# X\n\n## Summary\nThis is a test of\nhard wrap logic here.\n";
+    const tree = try dataTree(gpa, "x.md", note, .{ .mode = .update });
+    const result = try jsonlogic.evaluate(rule.value, tree, null, &custom_ops);
+    try testing.expect(!result.bool);
+}
+
+test "hard_wrap custom operator: fails a paragraph padded past the boundary word" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    var rule = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"hard_wrap": [{"var": "body.prose"}, 20]}
+    , .{});
+    defer rule.deinit();
+
+    // "wrap" was also packed onto line 1, past where the boundary-word
+    // decision should have stopped it.
+    const note = "---\ntitle: X\n---\n# X\n\n## Summary\nThis is a test of hard wrap\nlogic here.\n";
+    const tree = try dataTree(gpa, "x.md", note, .{ .mode = .update });
+    const result = try jsonlogic.evaluate(rule.value, tree, null, &custom_ops);
+    try testing.expect(!result.bool);
+}
+
+test "hard_wrap custom operator: excludes fenced code, matching no_hard_wrap's own exclusions" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    var rule = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"hard_wrap": [{"var": "body.prose"}, 20]}
+    , .{});
+    defer rule.deinit();
+
+    const note = "---\ntitle: X\n---\n# X\n\n## Summary\n```\nnot wrapped\nat all\n```\n";
+    const tree = try dataTree(gpa, "x.md", note, .{ .mode = .update });
+    const result = try jsonlogic.evaluate(rule.value, tree, null, &custom_ops);
+    try testing.expect(result.bool);
+}
+
+test "hard_wrap custom operator: max_chars must be a positive integer" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    const note = "---\ntitle: X\n---\n# X\n\n## Summary\nShort.\n";
+    const tree = try dataTree(gpa, "x.md", note, .{ .mode = .update });
+
+    var missing = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"hard_wrap": [{"var": "body.prose"}]}
+    , .{});
+    defer missing.deinit();
+    try testing.expectError(jsonlogic.Error.InvalidArguments, jsonlogic.evaluate(missing.value, tree, null, &custom_ops));
+
+    var zero = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"hard_wrap": [{"var": "body.prose"}, 0]}
+    , .{});
+    defer zero.deinit();
+    try testing.expectError(jsonlogic.Error.InvalidArguments, jsonlogic.evaluate(zero.value, tree, null, &custom_ops));
+}
+
+test "no_stray_frontmatter custom operator: fails on a bogus frontmatter-shaped block pasted into the body" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    var rule = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"no_stray_frontmatter": {"var": "body.prose"}}
+    , .{});
+    defer rule.deinit();
+
+    const note = "---\ntitle: X\n---\n# X\n\nSome prose.\n\n---\nleftover: fragment\n---\n\nMore prose.\n";
+    const tree = try dataTree(gpa, "x.md", note, .{ .mode = .update });
+    const result = try jsonlogic.evaluate(rule.value, tree, null, &custom_ops);
+    try testing.expect(!result.bool);
+}
+
+test "no_stray_frontmatter custom operator: a lone --- prose divider never triggers it" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    var rule = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"no_stray_frontmatter": {"var": "body.prose"}}
+    , .{});
+    defer rule.deinit();
+
+    const note = "---\ntitle: X\n---\n# X\n\nAbove the divider.\n\n---\n\nBelow the divider.\n";
+    const tree = try dataTree(gpa, "x.md", note, .{ .mode = .update });
+    const result = try jsonlogic.evaluate(rule.value, tree, null, &custom_ops);
+    try testing.expect(result.bool);
+}
+
+test "no_stray_frontmatter custom operator: a fenced block quoting frontmatter as an example is excluded" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    var rule = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"no_stray_frontmatter": {"var": "body.prose"}}
+    , .{});
+    defer rule.deinit();
+
+    const note = "---\ntitle: X\n---\n# X\n\nExample:\n\n```\n---\nkey: value\n---\n```\n";
+    const tree = try dataTree(gpa, "x.md", note, .{ .mode = .update });
+    const result = try jsonlogic.evaluate(rule.value, tree, null, &custom_ops);
+    try testing.expect(result.bool);
+}
+
+test "no_stray_frontmatter custom operator: a clean note with no stray block at all passes" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    const gpa = arena.allocator();
+
+    var rule = try std.json.parseFromSlice(std.json.Value, gpa,
+        \\{"no_stray_frontmatter": {"var": "body.prose"}}
+    , .{});
+    defer rule.deinit();
+
+    const note = "---\ntitle: X\n---\n# X\n\nJust ordinary prose, nothing stray.\n";
+    const tree = try dataTree(gpa, "x.md", note, .{ .mode = .update });
+    const result = try jsonlogic.evaluate(rule.value, tree, null, &custom_ops);
+    try testing.expect(result.bool);
 }

@@ -39,6 +39,7 @@ pub const schema_pattern = @import("schema_pattern.zig");
 pub const schema_yaml = @import("schema_yaml.zig");
 pub const note_schema = @import("note_schema.zig");
 pub const jsonlogic = @import("jsonlogic.zig");
+pub const schema_rules = @import("schema_rules.zig");
 pub const vault_query = @import("vault_query.zig");
 pub const text_search = @import("text_search.zig");
 pub const node_path = @import("node_path.zig");
@@ -80,6 +81,7 @@ test {
     _ = schema_yaml;
     _ = note_schema;
     _ = jsonlogic;
+    _ = schema_rules;
     _ = vault_query;
     _ = text_search;
     _ = node_path;

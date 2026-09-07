@@ -55,17 +55,30 @@ body:
   section_order: relative
 
 checks:
-  - equals: [filename.stem, frontmatter.title]
-  - unique: frontmatter.note_id
-    when: create
-  - vocabulary:
-      field: frontmatter.tags
-      source: synapse-tag-vocabulary.conf
-  - not_before: [frontmatter.updated, frontmatter.created]
-  - equals:
-      values: [frontmatter.created, frontmatter.updated]
-      when: create
+  - eq:
+      - var: filename.stem
+      - var: frontmatter.title
+    message: 'filename.stem: must equal frontmatter.title'
+  - on_create:
+      var: id_is_unique
+    message: 'frontmatter.note_id: identity already exists'
+  - all:
+      - var: frontmatter.tags
+      - in:
+          - var: ''
+          - var: vocabularies.synapse-tag-vocabulary
+    message: 'frontmatter.tags: every tag must be in synapse-tag-vocabulary.conf'
+  - lte:
+      - var: created_epoch
+      - var: updated_epoch
+    message: 'frontmatter.updated: must not precede frontmatter.created'
+  - on_create:
+      eq:
+        - var: created_epoch
+        - var: updated_epoch
+    message: 'frontmatter.created: must equal frontmatter.updated on creation'
 
 lints:
-  - no_hard_wrap: body.prose
+  - no_hard_wrap:
+      var: body.prose
     severity: warn

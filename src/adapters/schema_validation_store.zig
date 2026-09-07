@@ -76,10 +76,19 @@ pub const SchemaValidationStore = struct {
         if (try core.note_schema.validateSchema(self.gpa, schema_doc.root, schema_id)) |message|
             return .{ .accepted = false, .status = 422, .body = message };
 
-        const projects = try loadVocabularyText(self.gpa, io, self.vars, "synapse-projects.conf");
-        defer if (projects) |text| self.gpa.free(text);
-        const tags = try loadVocabularyText(self.gpa, io, self.vars, "synapse-tag-vocabulary.conf");
-        defer if (tags) |text| self.gpa.free(text);
+        const stems = try core.note_schema.neededVocabularyStems(self.gpa, schema_doc.root);
+        defer self.gpa.free(stems);
+        var vocabularies: std.ArrayListUnmanaged(core.note_schema.VocabularySource) = .empty;
+        defer {
+            for (vocabularies.items) |v| self.gpa.free(v.content);
+            vocabularies.deinit(self.gpa);
+        }
+        for (stems) |stem| {
+            const filename = try std.fmt.allocPrint(self.gpa, "{s}.conf", .{stem});
+            defer self.gpa.free(filename);
+            const content = try loadVocabularyText(self.gpa, io, self.vars, filename) orelse continue;
+            try vocabularies.append(self.gpa, .{ .stem = stem, .content = content });
+        }
 
         const duplicate = if (mode == .create or mode == .migration)
             try self.findDuplicateIdentity(io, schema_doc.root, node, candidate)
@@ -87,13 +96,19 @@ pub const SchemaValidationStore = struct {
             null;
         defer if (duplicate) |value| self.gpa.free(value);
 
-        if (try core.note_schema.validateNote(self.gpa, schema_doc.root, candidate, node, .{
+        // A malformed rule (a known operator called with the wrong
+        // argument shape, most likely from a stale schema-override file
+        // predating a schema change) rejects the write the same way an
+        // ordinary `checks:` violation does, instead of crashing the whole
+        // process -- caught for real against a live schema-override file,
+        // not assumed.
+        if (core.note_schema.validateNote(self.gpa, schema_doc.root, candidate, node, .{
             .mode = mode,
             .existing = existing,
             .duplicate_identity = duplicate,
-            .projects_vocabulary = projects,
-            .tags_vocabulary = tags,
-        })) |message| return .{ .accepted = false, .status = 422, .body = message };
+            .vocabularies = vocabularies.items,
+        }) catch |err| return self.reject("checks: {s}", .{@errorName(err)})) |message|
+            return .{ .accepted = false, .status = 422, .body = message };
 
         // Only reached once validation has already passed -- a rejected
         // write never reaches lint. A `warn`-severity finding is advisory
@@ -103,7 +118,8 @@ pub const SchemaValidationStore = struct {
         // severity finding is not advisory -- it blocks the write the same
         // way `validateNote`'s own checks do, checked here rather than
         // inside `lintNote` itself, which never blocks anything on its own.
-        const findings = try core.note_schema.lintNote(self.gpa, schema_doc.root, candidate, node);
+        const findings = core.note_schema.lintNote(self.gpa, schema_doc.root, candidate, node) catch |err|
+            return self.reject("lints: {s}", .{@errorName(err)});
         defer {
             for (findings) |f| self.gpa.free(f.message);
             self.gpa.free(findings);
@@ -124,7 +140,10 @@ pub const SchemaValidationStore = struct {
         return self.inner.write(io, node, candidate);
     }
 
-    /// The schema's `unique` check names the canonical identity field. Only
+    /// `note_id`/`task_id` are the only two identity-field names any
+    /// shipped schema uses (mirroring the same convention the scan loop
+    /// below already checks on every *other* note) -- only run at all when
+    /// the schema's own `checks:` actually consults `id_is_unique`. Only
     /// creation and explicit schema migration call this; ordinary updates
     /// never list or scan the vault.
     fn findDuplicateIdentity(
@@ -134,14 +153,16 @@ pub const SchemaValidationStore = struct {
         candidate_path: []const u8,
         candidate: []const u8,
     ) !?[]u8 {
-        const identity_ref = uniqueField(schema) orelse return null;
-        const identity_name = identity_ref["frontmatter.".len..];
-        var wanted_lookup = try core.note_schema.lookupField(self.gpa, candidate, identity_name);
-        defer wanted_lookup.deinit(self.gpa);
-        const wanted = switch (wanted_lookup.value) {
-            .string => |value| value,
-            else => return null,
-        };
+        if (!try core.note_schema.needsIdentityScan(self.gpa, schema)) return null;
+        const wanted = for ([_][]const u8{ "note_id", "task_id" }) |field| {
+            var found = try core.note_schema.lookupField(self.gpa, candidate, field);
+            defer found.deinit(self.gpa);
+            switch (found.value) {
+                .string => |value| if (value.len != 0) break try self.gpa.dupe(u8, value),
+                else => {},
+            }
+        } else return null;
+        defer self.gpa.free(wanted);
 
         const names = try self.inner.list(self.gpa, io);
         defer {
@@ -225,16 +246,6 @@ fn safeSchemaId(id: []const u8) bool {
     return count >= 2;
 }
 
-fn uniqueField(schema: *const core.schema_yaml.Value) ?[]const u8 {
-    const checks = schema.get("checks") orelse return null;
-    return switch (checks.*) {
-        .list => |items| for (items) |item| {
-            if (item.get("unique")) |value| break value.asString();
-        } else null,
-        else => null,
-    };
-}
-
 const testing = std.testing;
 const FakeStore = @import("fakes/store.zig").FakeStore;
 
@@ -311,13 +322,19 @@ const test_schema =
     "      level: 2\n" ++
     "      required: true\n" ++
     "checks:\n" ++
-    "  - equals: [filename.stem, frontmatter.title]\n" ++
-    "  - unique: frontmatter.note_id\n" ++
-    "    when: create\n" ++
-    "  - not_before: [frontmatter.updated, frontmatter.created]\n" ++
+    "  - eq:\n" ++
+    "      - var: filename.stem\n" ++
+    "      - var: frontmatter.title\n" ++
+    "  - on_create:\n" ++
+    "      var: id_is_unique\n" ++
+    "  - lte:\n" ++
+    "      - var: created_epoch\n" ++
+    "      - var: updated_epoch\n" ++
     "lints:\n" ++
-    "  - no_hard_wrap: body.prose\n" ++
-    "    severity: warn\n";
+    "  - no_hard_wrap:\n" ++
+    "      var: body.prose\n" ++
+    "    severity: warn\n" ++
+    "    message: 'body: no_hard_wrap paragraph is wrapped'\n";
 
 const existing_note =
     "---\n" ++
@@ -474,7 +491,7 @@ test "schema-overrides: a severity override turns a lint that used to only warn 
     defer tmp.cleanup();
     const root = try writeTestSchema(&tmp, testing.io);
     defer testing.allocator.free(root);
-    try writeOverride(&tmp, testing.io, "vault-note/v1", "lints:\n  - no_hard_wrap: body.prose\n    severity: error\n");
+    try writeOverride(&tmp, testing.io, "vault-note/v1", "lints:\n  - no_hard_wrap:\n      var: body.prose\n    severity: error\n");
     const vars: TestVars = .{ .pairs = &.{ .{ "SYNAPSE_CONTENT_ROOT", root }, .{ "XDG_CONFIG_HOME", root } } };
 
     var fake = FakeStore.init(testing.allocator);
