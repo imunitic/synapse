@@ -230,7 +230,7 @@ pub fn check(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []con
         declared += 1;
 
         var doc = adapters.schema_validation_store.loadSchemaDocument(gpa, io, vars, schema_id) catch |err| {
-            try result.print("{s}\t{any}\n", .{ name, @errorName(err) });
+            try result.print("{s}\t{t}\n", .{ name, err });
             violations += 1;
             continue;
         };
