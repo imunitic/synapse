@@ -54,11 +54,17 @@ body:
   lead:                            # prose directly under the H1
     type: prose
     required: true
-checks:                            # cross-field invariants
-  - unique: frontmatter.task_id
-    when: create
-  - not_before: [frontmatter.updated, frontmatter.created]
+checks:                            # cross-field invariants, JsonLogic expressions
+  - on_create:
+      var: id_is_unique
+    message: 'frontmatter.task_id: identity already exists'
+  - lte:
+      - var: created_epoch
+      - var: updated_epoch
+    message: 'frontmatter.updated: must not precede frontmatter.created'
 ```
+
+See [Schema rule language](synapse-schema-rules.md) for the full `checks:`/`lints:` syntax.
 
 ## `frontmatter.fields`
 
@@ -98,25 +104,28 @@ rather than body-text freeform validation.
 
 ## `checks`
 
-A list of cross-field invariants; each entry has **exactly one** operator. An entry can
-also carry `when: create` to apply only on creation.
+A list of cross-field invariants; each entry is a JsonLogic expression plus an optional `message:`
+sibling carrying its diagnostic text. See [Schema rule language](synapse-schema-rules.md) for the
+full operator reference, the data tree a rule evaluates against, and worked examples — this
+section covers only what's specific to `checks:` itself.
 
-| Operator | Meaning |
-|---|---|
-| `equals` | Two or more references must all be equal. A list form (`equals: [filename.stem, frontmatter.title]`) or a mapping form (`equals: {values: [...], when: create}`). |
-| `unique` | The referenced identity field must not collide with any other note's. Runs a vault scan on create/migration only. `when: create` in every shipped schema. |
-| `vocabulary` | The referenced field's value must appear in a vocabulary file. `field` (a `frontmatter.X` reference), `source` (`synapse-projects.conf` or `synapse-tag-vocabulary.conf`), optional `projection: values` (for `key=value` conf files, matches the value side). |
-| `not_before` | Two timestamp references with a strict ordering (the second must not precede the first). Waits until both are at least 19 characters, so a missing field is itself diagnosed rather than silently passing. |
-| `const` | A field must equal a fixed value — with `when: create`, only at creation. Used to force task notes to start `status: TODO`. |
+Every entry in `checks:` blocks the write outright when it fails; there's no severity choice the
+way `lints:` has one. A create-only invariant wraps its condition in `on_create` rather than
+carrying a separate `when:` key:
 
-References are `frontmatter.<field>` (that field's string value) or `filename.stem`
-(the note's filename without the `.md`).
+```yaml
+checks:
+  - on_create:
+      var: id_is_unique
+    message: 'frontmatter.note_id: identity already exists'
+```
 
 ## `lints`
 
-A list of advisory rules; each entry has **exactly one** operator plus a required `severity`.
-Unlike `checks`, a lint never blocks a write on its own — what happens depends entirely on its
-`severity`:
+A list of advisory rules; each entry is a JsonLogic expression plus a required `severity` and an
+optional `message:`, same as `checks:` — see [Schema rule language](synapse-schema-rules.md) for
+the operator reference. Unlike `checks:`, a lint never blocks a write on its own — what happens
+depends entirely on its `severity`:
 
 | Severity | Behavior |
 |---|---|
@@ -124,10 +133,13 @@ Unlike `checks`, a lint never blocks a write on its own — what happens depends
 | `warn` | The rule runs; a finding is printed to stderr (`synapse: {path}: {message}`), never surfaced in `WriteResult`, the exit code, or stdout. The write proceeds regardless. |
 | `error` | The rule runs; a finding blocks the write the same way a `checks:` violation does — a 422-style rejection, the candidate never reaches the inner store. |
 
-| Operator | Meaning |
-|---|---|
-| `no_hard_wrap` | A field reference (only `body.prose` is supported in v1) — flags a paragraph split across two or more consecutive lines instead of written as one long line Obsidian soft-wraps for display. |
-| `no_id_prefix_in_title` | `title`/`id` field references — flags a title that redundantly repeats its own task-id prefix. |
+```yaml
+lints:
+  - no_hard_wrap:
+      var: body.prose
+    severity: warn
+    message: 'body: no_hard_wrap paragraph is wrapped'
+```
 
 `synapse vault-check` always reports every lint finding regardless of severity — a read-only sweep
 over already-persisted notes has nothing to block, so `error` there means "flag prominently," not
@@ -163,8 +175,10 @@ for `vault-note/v1` only:
 ```yaml
 # schema-overrides/vault-note/v1.yaml
 lints:
-  - no_hard_wrap: body.prose
+  - no_hard_wrap:
+      var: body.prose
     severity: error
+    message: 'body: no_hard_wrap paragraph is wrapped'
 frontmatter:
   fields:
     tags: null
@@ -179,7 +193,7 @@ targets exactly the one schema id its own path names.
 deliberately: the shipped schema files are the full v1 spec, while enforcement is a
 subset. A key that is declared but not enforced (`format`, `timezone`, `update_on`,
 `body.preamble.*`, `body.lead.*`, `body.checklist.nested_items`/`allowed_children`/
-`position`, `body.section_order`, `body.h1.equals`, `checks.unique.when`) documents
+`position`, `body.section_order`, `body.h1.equals`) documents
 intent without adding a rule the validator doesn't run. This is option A of the v1
 contract — the validator guarantees that declared fields are present and correctly
 formatted, and that's all. Note frontmatter stays open-world on top of that.
@@ -202,9 +216,11 @@ On write it:
 3. Determines the mode — `create` (no existing note), `migration` (existing note that had
    no schema, or a different one), or `update`.
 4. Refreshes `updated` to the current local time on any update, before validation.
-5. Loads and validates the schema document, then validates the note against it (loading
-   `synapse-projects.conf`/`synapse-tag-vocabulary.conf` for `vocabulary` checks and
-   scanning the vault for `unique` on create/migration).
+5. Loads and validates the schema document, then validates the note against it — loading
+   whichever `<stem>.conf` vocabulary files the schema's own rules actually reference (see
+   [Schema rule language](synapse-schema-rules.md#vocabularies-resolved-by-reference-not-declared))
+   and scanning the vault for a colliding identity on create/migration, only when the schema
+   references `id_is_unique` in the first place.
 6. Persists through the inner store only if every check passes; otherwise returns a
    422-style rejection with the diagnostic.
 

@@ -105,6 +105,7 @@ $here/synapse/synapse-extended-store.md|synapse-extended-store.html|Extended Sto
 $here/synapse/synapse-graph.md|synapse-graph.html|Synapse Graph
 $here/synapse/design-task-workflow.md|design-task-workflow.html|Design -> Task Workflow
 $here/synapse/synapse-note-schema.md|synapse-note-schema.html|Note Schemas
+$here/synapse/synapse-schema-rules.md|synapse-schema-rules.html|Schema Rule Language
 $here/synapse/synapse-code-cache.md|synapse-code-cache.html|Synapse Code Cache
 $here/synapse/synapse-code-cache-format.md|synapse-code-cache-format.html|Code Cache On-Disk Format
 $here/synapse/synapse-docstring-staleness.md|synapse-docstring-staleness.html|Docstring Staleness Detection
