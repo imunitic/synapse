@@ -445,6 +445,12 @@ fn mergeMaps(allocator: Allocator, base: []const Entry, override: []const Entry)
     }
     for (override) |entry| {
         if (findEntry(base, entry.key) == null and entry.value.* != .tombstone) {
+            // A patch-shaped list targeting a key the base doesn't declare
+            // at all has nothing to patch against, the same as a key whose
+            // base value isn't a list -- refused rather than silently
+            // copying unresolved `match:` directives through into the
+            // merged result.
+            if (entry.value.* == .list and isPatchList(entry.value.list)) return Error.PatchOnNonList;
             try entries.append(allocator, .{
                 .key = try allocator.dupe(u8, entry.key),
                 .value = try copyValue(allocator, entry.value),
@@ -864,6 +870,25 @@ test "merge: a list mixing match-shaped and plain entries is a schema-load error
     defer override.deinit();
 
     try testing.expectError(error.MixedPatchList, merge(testing.allocator, base.root, override.root));
+}
+
+test "merge: a patch-mode list targeting a key the base doesn't declare at all is a schema-load error" {
+    var base = try parse(testing.allocator, "checks: []\n");
+    defer base.deinit();
+    var override = try parse(testing.allocator,
+        \\lints:
+        \\  - match:
+        \\      no_hard_wrap:
+        \\        var: body.prose
+        \\    severity: error
+        \\
+    );
+    defer override.deinit();
+
+    // The base schema has no `lints:` key at all -- there is nothing for
+    // `match` to patch against, so this must fail loudly rather than copy
+    // the unresolved `match:` directive straight into the merged result.
+    try testing.expectError(error.PatchOnNonList, merge(testing.allocator, base.root, override.root));
 }
 
 test "merge: the result outlives both inputs -- every node is freshly copied, not borrowed" {
