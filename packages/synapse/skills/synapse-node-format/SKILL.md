@@ -63,7 +63,7 @@ to orient someone already inside. A node without one is an error, not a default.
 - **`sources_digest`:** `sha256` over the sorted `path:hash` lines of `sources` (see "Computing
   `sources_digest`" below). Lets a staleness check answer "has this node changed" by reading one
   field instead of every hash.
-- **`built_at`:** machine local time (`date '+%Y-%m-%d %H:%M'`) — never inferred.
+- **`built_at`:** machine local time (`synapse now --built-at`) — never inferred.
 - **`stale`:** `false` — freshly built.
 - **Body:** `summary` (plain-English, the explanation a senior engineer would give walking
   someone through this subsystem), `crux` (the few lines that carry the actual logic — **authored

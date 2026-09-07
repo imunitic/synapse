@@ -220,8 +220,8 @@ Open Questions (optional)`: the schema and `/synapse-status`'s own query both ma
 heading text, and a suffixed one is invisible to both.
 
 Resolve tags through the `synapse-vault` skill's configured vocabulary procedure. Fetch machine
-local time once (`date '+%Y-%m-%d %H:%M:%S %Z'`) — never infer it — and use the exact same value
-for `created` and `updated`.
+local time once (`synapse now`) — never infer it — and use the exact same value for `created` and
+`updated`.
 
 No `Notes`/changelog section — it stays a small, single-conclusion note; there's no long-running
 edit history here worth tracking separately.

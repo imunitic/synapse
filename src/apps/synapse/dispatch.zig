@@ -39,6 +39,7 @@ const push_nodes_cmd = @import("push_nodes_cmd.zig");
 const project_index_cmd = @import("project_index_cmd.zig");
 const graph_cmd = @import("graph_cmd.zig");
 const namespace_cmd = @import("namespace_cmd.zig");
+const now_cmd = @import("now_cmd.zig");
 const doctor_cmd = @import("doctor_cmd.zig");
 const comments_check_cmd = @import("comments_check_cmd.zig");
 const comments_sweep_cmd = @import("comments_sweep_cmd.zig");
@@ -184,6 +185,10 @@ pub fn Table(comptime Extractor: type) type {
             _ = .{ argv0, trace };
             return namespace_cmd.run(gpa, io, env, args);
         }
+        fn now(gpa: Allocator, io: Io, env: *EnvironMap, args: *ArgsIterator, argv0: []const u8, trace: ?[]const u8) anyerror!u8 {
+            _ = .{ argv0, trace };
+            return now_cmd.run(gpa, io, env, args);
+        }
         fn buildIndex(gpa: Allocator, io: Io, env: *EnvironMap, args: *ArgsIterator, argv0: []const u8, trace: ?[]const u8) anyerror!u8 {
             _ = .{ argv0, trace };
             return index_cmd.runBuildIndex(gpa, io, env, args);
@@ -276,6 +281,7 @@ pub fn Table(comptime Extractor: type) type {
             .{ .name = "vault-rename", .run = vaultRename },
             .{ .name = "doctor", .run = doctor },
             .{ .name = "namespace", .run = namespace },
+            .{ .name = "now", .run = now },
             .{ .name = "build-index", .run = buildIndex },
             .{ .name = "graph-clean", .run = graphClean },
             .{ .name = "graph-wipe", .run = graphWipe },

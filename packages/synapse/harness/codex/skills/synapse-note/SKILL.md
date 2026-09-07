@@ -193,8 +193,8 @@ or supplied directly by a caller like the synapse-task-note skill):
 2. Resolve tags through the `synapse-vault` skill's configured
    `synapse-tag-vocabulary.conf` procedure. Choose only configured entries; an empty list is valid
    when no tag applies, but the field itself is mandatory.
-3. Fetch machine local time once: `date '+%Y-%m-%d %H:%M:%S %Z'` — never use inferred
-   time. Use the exact same value for `created` and `updated`.
+3. Fetch machine local time once: `synapse now` — never use inferred time. Use the
+   exact same value for `created` and `updated`.
 4. Build the file content. Bare notes require a concise Summary. Task notes require lead prose and
    at least one real flat checklist item before the first write.
 

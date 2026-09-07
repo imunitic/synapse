@@ -60,8 +60,7 @@ into `status:` either — always go through this skill, which caps at
 2. Inspect its checklist items (`- [ ]` / `- [x]`).
 3. Determine the new `status:` value: `IN-PROGRESS` if any unchecked,
    `REVIEW` if all checked.
-4. Fetch machine local time: `date '+%Y-%m-%d %H:%M:%S %Z'` — never use inferred
-   time.
+4. Fetch machine local time: `synapse now` — never use inferred time.
 5. Update `status:` and `updated:` with two `synapse frontmatter set`
    calls, one per field: `synapse frontmatter set <path> status <value>`
    then `synapse frontmatter set <path> updated "{now}"`. Each call

@@ -217,8 +217,8 @@ unquoted all-digit value is parsed as an integer, which fails a `type: string` s
 field. `title`, `project`, `note_id`, and both timestamps are quoted above.
 
 Resolve tags through the `synapse-vault` skill's configured vocabulary procedure. Fetch machine
-local time once (`date '+%Y-%m-%d %H:%M:%S %Z'`) — never infer it — and use the exact same value
-for `created` and `updated`.
+local time once (`synapse now`) — never infer it — and use the exact same value for `created` and
+`updated`.
 
 No `Notes`/changelog section — it stays a small, single-conclusion note; there's no long-running
 edit history here worth tracking separately.

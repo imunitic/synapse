@@ -58,6 +58,7 @@ usage: synapse <subcommand> [args]
   push-nodes [NN ...]        write one node per authored body
   build-project-index        the namespace's Index.md node map
   namespace [--repo <dir>]   the {repo}@{branch} key for a checkout
+  now [--built-at]           machine-local timestamp, RFC3339 or built_at's shape
   doctor [--repo <dir>]      check every precondition the rest of the system
                              tolerates silently
   build-index                _index.bin from the work dir's lists
@@ -645,6 +646,15 @@ usage: synapse namespace [--repo <dir>] [--branch|--repo-name]
   --repo       the checkout to resolve. Default: the one containing $PWD.
   --branch     print only the branch half, sanitised for a directory name
   --repo-name  print only the repo half
+```
+
+### synapse now
+
+```
+usage: synapse now [--built-at]
+
+  (default)    RFC3339 with a numeric offset -- `created`/`updated`'s shape
+  --built-at   `YYYY-MM-DD HH:MM`, no seconds or offset -- `built_at`'s shape
 ```
 
 ### synapse doctor
