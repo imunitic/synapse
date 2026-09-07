@@ -72,31 +72,37 @@ const Heading = struct {
     content_start: usize,
 };
 
-/// Every `#`-`######` heading in `body`, in document order. A line inside a
-/// fenced code block would be misread as a heading by this scan -- an
-/// accepted simplification, matching the same "no fenced-code awareness"
-/// scope every other line-oriented scan in this codebase already has
-/// (`core.query.field`, `frontmatter.zig`'s own `findKeyLine`).
+/// Every `#`-`######` heading in `body`, in document order. A fenced code
+/// block (` ``` `/`~~~`) never contributes a heading, even when a line
+/// inside it starts with `#` (a YAML/shell comment, or Markdown syntax
+/// shown as an example) -- the same fence-toggle `note_schema.zig`'s own
+/// `collectHeadings` already uses for body structural validation.
 fn scanHeadings(gpa: Allocator, body: []const u8) ![]Heading {
     var out: std.ArrayListUnmanaged(Heading) = .empty;
     errdefer out.deinit(gpa);
 
     var idx: usize = 0;
+    var in_fence = false;
     while (idx < body.len) {
         const nl = std.mem.indexOfScalarPos(u8, body, idx, '\n');
         const line_end = nl orelse body.len;
         const line = body[idx..line_end];
+        const trimmed = std.mem.trimStart(u8, line, " \t");
 
-        var level: u8 = 0;
-        while (level < line.len and level < 6 and line[level] == '#') level += 1;
-        if (level > 0 and level < line.len and line[level] == ' ') {
-            const text = std.mem.trim(u8, line[level + 1 ..], " \t\r");
-            try out.append(gpa, .{
-                .level = level,
-                .text = text,
-                .line_start = idx,
-                .content_start = if (nl) |n| n + 1 else body.len,
-            });
+        if (std.mem.startsWith(u8, trimmed, "```") or std.mem.startsWith(u8, trimmed, "~~~")) {
+            in_fence = !in_fence;
+        } else if (!in_fence) {
+            var level: u8 = 0;
+            while (level < line.len and level < 6 and line[level] == '#') level += 1;
+            if (level > 0 and level < line.len and line[level] == ' ') {
+                const text = std.mem.trim(u8, line[level + 1 ..], " \t\r");
+                try out.append(gpa, .{
+                    .level = level,
+                    .text = text,
+                    .line_start = idx,
+                    .content_start = if (nl) |n| n + 1 else body.len,
+                });
+            }
         }
 
         if (nl == null) break;
@@ -494,6 +500,13 @@ test "a missing nested segment is created under the matching parent, one level d
     try testing.expectEqualStrings("# Title\n\n## Notes\nexisting\n### Sub\nnew\n", got);
 }
 
+test "a `#`-prefixed line inside a fenced code block is never read as a heading" {
+    const body = "# Title\n\n## Approach\ntext\n\n```yaml\n# not.a.heading: value\nkey: value\n```\n\n## Constraints\nc\n";
+    const got = try apply(testing.allocator, body, .{ .heading = &.{"Approach"} }, .replace, "new\n", false);
+    defer testing.allocator.free(got);
+    try testing.expectEqualStrings("# Title\n\n## Approach\nnew\n\n## Constraints\nc\n", got);
+}
+
 test "block replace swaps the line's text, keeping the ^id suffix" {
     const body = "# Title\n\nOld text ^my-block\n\nMore.\n";
     const got = try apply(testing.allocator, body, .{ .block = "my-block" }, .replace, "New text", false);
@@ -562,4 +575,15 @@ test "documentMap on a note with no headings, blocks, or frontmatter reports all
     try testing.expectEqual(@as(usize, 0), map.headings.len);
     try testing.expectEqual(@as(usize, 0), map.blocks.len);
     try testing.expectEqual(@as(usize, 0), map.frontmatter_keys.len);
+}
+
+test "documentMap never reports a fenced comment line as a heading" {
+    const body = "# Title\n\n## Approach\ntext\n\n```yaml\n# schema-overrides/vault-note/v1.yaml\nkey: value\n```\n\n## Constraints\nc\n";
+    var map = try documentMap(testing.allocator, body);
+    defer map.deinit(testing.allocator);
+
+    try testing.expectEqual(@as(usize, 3), map.headings.len);
+    try testing.expectEqualStrings("Title", map.headings[0]);
+    try testing.expectEqualStrings("Title::Approach", map.headings[1]);
+    try testing.expectEqualStrings("Title::Constraints", map.headings[2]);
 }
