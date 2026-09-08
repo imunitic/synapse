@@ -1,16 +1,16 @@
 //! A JsonLogic evaluator scoped to `search_query`'s own operator set --
 //! `and`/`or`/`!`/`==`/`!=`/`in`/`<`/`<=`/`>`/`>=`/`var`/`glob`/`regexp`/
-//! `all`/`xor` -- not the full published spec. JsonLogic itself is adopted
-//! as-is (an existing, published, language-agnostic standard, not
-//! something to subset down further) because Synapse's domain is fixed and
-//! small. `glob`/`regexp` aren't part of the official spec -- they're the
-//! same two operators a widely used vault-search plugin already added,
-//! kept identical so a filter written against that plugin's own query
-//! language needs no translation to run here. `all` deviates from the spec
-//! in one place -- an empty array is `true` here, not the spec's
-//! documented `false` -- see `evalAll`'s own doc comment for why. `xor`
-//! isn't a spec operator at all; it's this codebase's own addition,
-//! needed for schema/lint rule composition.
+//! `all`/`xor`/`starts_with` -- not the full published spec. JsonLogic
+//! itself is adopted as-is (an existing, published, language-agnostic
+//! standard, not something to subset down further) because Synapse's
+//! domain is fixed and small. `glob`/`regexp` aren't part of the official
+//! spec -- they're the same two operators a widely used vault-search
+//! plugin already added, kept identical so a filter written against that
+//! plugin's own query language needs no translation to run here. `all`
+//! deviates from the spec in one place -- an empty array is `true` here,
+//! not the spec's documented `false` -- see `evalAll`'s own doc comment
+//! for why. `xor`/`starts_with` aren't spec operators at all; they're this
+//! codebase's own additions, needed for schema/lint rule composition.
 //!
 //! Purely a function of its inputs -- no allocation, no I/O. Every result is
 //! either a `bool`, or a reference into `rule`/`data`/`current_item` that
@@ -44,7 +44,7 @@ pub const Error = error{
 /// rule against) has one place to check rather than a second, hand-copied
 /// list that could drift from the real dispatch.
 pub const built_in_names = [_][]const u8{
-    "var", "and", "or", "!", "==", "!=", "in", "<", "<=", ">", ">=", "glob", "regexp", "all", "xor",
+    "var", "and", "or", "!", "==", "!=", "in", "<", "<=", ">", ">=", "glob", "regexp", "all", "xor", "starts_with",
 };
 
 /// One name-keyed extension-point entry -- the whole shape a caller needs
@@ -98,6 +98,7 @@ pub fn evaluate(rule: Value, data: Value, current_item: ?Value, custom_ops: ?[]c
     if (std.mem.eql(u8, op, "regexp")) return evalPatternMatch(args, data, current_item, custom_ops, .regexp);
     if (std.mem.eql(u8, op, "all")) return evalAll(args, data, current_item, custom_ops);
     if (std.mem.eql(u8, op, "xor")) return evalXor(args, data, current_item, custom_ops);
+    if (std.mem.eql(u8, op, "starts_with")) return evalStartsWith(args, data, current_item, custom_ops);
     if (custom_ops) |ops| {
         for (ops) |custom| {
             if (std.mem.eql(u8, custom.name, op)) return custom.func(args, data, current_item, custom_ops);
@@ -356,6 +357,28 @@ fn evalPatternMatch(args: []const Value, data: Value, current_item: ?Value, cust
         .glob => globMatch(pattern, value),
         .regexp => regex_lite.isMatch(pattern, value),
     } };
+}
+
+/// `starts_with: [value, prefix]` -- true iff `value` starts with `prefix`.
+/// Argument order matches `in: [needle, haystack]`'s own convention: the
+/// thing being checked comes first. Structural errors only (`args.len < 2`)
+/// -- a non-string `value` or `prefix` returns `false` rather than erroring,
+/// the same precedent `evalPatternMatch` sets above. No special case for an
+/// empty `prefix`: `std.mem.startsWith` already returns `true` for one on
+/// its own, so `starts_with: [x, ""]` is `true` without any extra code path.
+fn evalStartsWith(args: []const Value, data: Value, current_item: ?Value, custom_ops: ?[]const CustomOp) Error!Value {
+    if (args.len < 2) return Error.InvalidArguments;
+    const value_v = try evaluate(args[0], data, current_item, custom_ops);
+    const prefix_v = try evaluate(args[1], data, current_item, custom_ops);
+    const value = switch (value_v) {
+        .string => |s| s,
+        else => return .{ .bool = false },
+    };
+    const prefix = switch (prefix_v) {
+        .string => |s| s,
+        else => return .{ .bool = false },
+    };
+    return .{ .bool = std.mem.startsWith(u8, value, prefix) };
 }
 
 /// `*` matches any run of characters, slashes included -- matching how this
@@ -753,6 +776,54 @@ test "regexp matches a literal substring in the content field" {
     defer data.deinit();
     const got = try evaluate(rule.value, data.value, null, null);
     try testing.expect(got.bool);
+}
+
+test "starts_with is true when value starts with prefix" {
+    const gpa = testing.allocator;
+    var rule = try parse(gpa, "{\"starts_with\": [{\"var\": \"title\"}, {\"var\": \"id\"}]}");
+    defer rule.deinit();
+    var data = try parse(gpa, "{\"title\": \"sb-102 -- Something\", \"id\": \"sb-102\"}");
+    defer data.deinit();
+    const got = try evaluate(rule.value, data.value, null, null);
+    try testing.expect(got.bool);
+}
+
+test "starts_with is false when value doesn't start with prefix" {
+    const gpa = testing.allocator;
+    var rule = try parse(gpa, "{\"starts_with\": [{\"var\": \"title\"}, {\"var\": \"id\"}]}");
+    defer rule.deinit();
+    var data = try parse(gpa, "{\"title\": \"Something\", \"id\": \"sb-102\"}");
+    defer data.deinit();
+    const got = try evaluate(rule.value, data.value, null, null);
+    try testing.expect(!got.bool);
+}
+
+test "starts_with against an empty prefix is true, no special case needed" {
+    const gpa = testing.allocator;
+    var rule = try parse(gpa, "{\"starts_with\": [\"anything\", \"\"]}");
+    defer rule.deinit();
+    const got = try evaluate(rule.value, .null, null, null);
+    try testing.expect(got.bool);
+}
+
+test "starts_with is false, not an error, against a non-string value or prefix" {
+    const gpa = testing.allocator;
+    var non_string_value = try parse(gpa, "{\"starts_with\": [123, \"1\"]}");
+    defer non_string_value.deinit();
+    const got_value = try evaluate(non_string_value.value, .null, null, null);
+    try testing.expect(!got_value.bool);
+
+    var non_string_prefix = try parse(gpa, "{\"starts_with\": [\"123\", null]}");
+    defer non_string_prefix.deinit();
+    const got_prefix = try evaluate(non_string_prefix.value, .null, null, null);
+    try testing.expect(!got_prefix.bool);
+}
+
+test "starts_with with fewer than two arguments is a structural error" {
+    const gpa = testing.allocator;
+    var rule = try parse(gpa, "{\"starts_with\": [\"only-one\"]}");
+    defer rule.deinit();
+    try testing.expectError(Error.InvalidArguments, evaluate(rule.value, .null, null, null));
 }
 
 test "a full and/glob/regexp compound rule, matching the vault's own real synapse-status shape" {

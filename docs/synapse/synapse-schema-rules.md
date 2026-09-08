@@ -72,6 +72,7 @@ exactly as named below.
 | `glob` / `regexp` | Pattern-match a string value: `[pattern, value]`. |
 | `all` | `[array, condition]` — true iff `condition` holds for every element of `array` (vacuously true on an empty array). Inside `condition`, `{var: ""}` is the current element; every other `var` path still resolves against the full data tree, not the element — see [Iterating a list](#iterating-a-list-all). |
 | `xor` | True iff exactly one operand is truthy (not "an odd count truthy"). |
+| `starts_with` | `[value, prefix]` — true iff `value` starts with `prefix`. A non-string `value` or `prefix` is `false`, not an error; an empty `prefix` is `true` with no special case. |
 
 ## Custom operators
 
@@ -83,7 +84,6 @@ mechanism of any kind):
 |---|---|---|
 | `on_create` | one sub-expression | Short-circuits to `true` without evaluating its argument when the note isn't being created (`is_create` is `false`); otherwise evaluates and returns its argument. The way every create-only rule in the shipped schemas is written. |
 | `no_hard_wrap` | `[text]` | True unless some paragraph in `text` is wrapped across two or more consecutive lines instead of written as one line for Obsidian to soft-wrap. Table rows, list continuations, and fenced code never count toward a wrapped run. |
-| `no_id_prefix_in_title` | `[title, id]` | True unless `title` starts with `id` — flags a title that redundantly repeats its own identity prefix (e.g. `sb-908 — Something` when `task_id: sb-908`). |
 | `hard_wrap` | `[text, max_chars]` | True only if every paragraph in `text` is filled toward `max_chars` the way a greedy nearest-fit word-wrap would produce it — the positive check, for a schema that wants to *require* wrapping rather than forbid it. |
 | `no_stray_frontmatter` | `[text]` | True unless `text` contains a line shaped like a stray frontmatter key (`key: value` at column zero) outside the note's real frontmatter block — catches a copy-pasted block that looks like it belongs in the header. |
 
@@ -243,12 +243,14 @@ since `frontmatter.project` is one scalar, not a list):
   message: 'frontmatter.project: not in synapse-projects.conf'
 ```
 
-A positional-argument custom operator as a lint:
+A composed built-in as a lint, flagging a title that redundantly repeats its own identity prefix
+(e.g. `sb-908 — Something` when `task_id: sb-908`):
 
 ```yaml
 lints:
-  - no_id_prefix_in_title:
-      - var: frontmatter.title
-      - var: frontmatter.task_id
+  - not:
+      starts_with:
+        - var: frontmatter.title
+        - var: frontmatter.task_id
     severity: warn
 ```

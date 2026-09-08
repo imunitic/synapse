@@ -109,7 +109,8 @@ lints:
   - no_hard_wrap:
       var: body.prose
     severity: warn
-  - no_id_prefix_in_title:
-      - var: frontmatter.title
-      - var: frontmatter.task_id
+  - not:
+      starts_with:
+        - var: frontmatter.title
+        - var: frontmatter.task_id
     severity: warn

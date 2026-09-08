@@ -1143,14 +1143,15 @@ fn vocabularyItems(gpa: Allocator, content: []const u8) !std.json.Value {
 /// `checks:`/`lints:`'s own custom-operator table -- covers the create-only
 /// short-circuit and, as later checklist items land, the structural checks
 /// no composition of `jsonlogic.zig`'s built-ins can express
-/// (`no_hard_wrap`, `no_id_prefix_in_title`, `hard_wrap`,
-/// `no_stray_frontmatter_block`). `unique`/`not_before`/`const`/`equals`
-/// never get an entry here at all -- they already collapse into plain
-/// built-in compositions once `dataTree`'s precomputed fields exist.
+/// (`no_hard_wrap`, `hard_wrap`, `no_stray_frontmatter_block`). A title
+/// starting with its own id -- `no_id_prefix_in_title`'s old job -- is now
+/// `not: {starts_with: [...]}`, a plain built-in composition, not a custom
+/// op. `unique`/`not_before`/`const`/`equals` never get an entry here at
+/// all -- they already collapse into plain built-in compositions once
+/// `dataTree`'s precomputed fields exist.
 pub const custom_ops = [_]jsonlogic.CustomOp{
     .{ .name = "on_create", .func = evalOnCreate },
     .{ .name = "no_hard_wrap", .func = evalNoHardWrap },
-    .{ .name = "no_id_prefix_in_title", .func = evalNoIdPrefixInTitle },
     .{ .name = "hard_wrap", .func = evalHardWrap },
     .{ .name = "no_stray_frontmatter", .func = evalNoStrayFrontmatter },
 };
@@ -1216,26 +1217,6 @@ fn flushRun(run_lines: *usize) bool {
     const violated = run_lines.* > 1;
     run_lines.* = 0;
     return violated;
-}
-
-/// `no_id_prefix_in_title: [{var: frontmatter.title}, {var: frontmatter.task_id}]`
-/// -- true (passes) unless the title starts with its own id. A missing or
-/// non-string title or id, or an empty id, passes vacuously -- nothing to
-/// flag when either side of the comparison isn't really there.
-fn evalNoIdPrefixInTitle(args: []const std.json.Value, data: std.json.Value, current_item: ?std.json.Value, ops: ?[]const jsonlogic.CustomOp) jsonlogic.Error!std.json.Value {
-    if (args.len < 2) return jsonlogic.Error.InvalidArguments;
-    const title_v = try jsonlogic.evaluate(args[0], data, current_item, ops);
-    const id_v = try jsonlogic.evaluate(args[1], data, current_item, ops);
-    const title = switch (title_v) {
-        .string => |s| s,
-        else => return .{ .bool = true },
-    };
-    const id = switch (id_v) {
-        .string => |s| s,
-        else => return .{ .bool = true },
-    };
-    if (id.len == 0) return .{ .bool = true };
-    return .{ .bool = !std.mem.startsWith(u8, title, id) };
 }
 
 /// `hard_wrap: [{var: body.prose}, 100]` -- the opposite check from
@@ -2290,18 +2271,18 @@ test "no_hard_wrap excludes table rows, list continuations, and fenced code" {
     try testing.expectEqual(@as(usize, 0), findings.len);
 }
 
-test "no_id_prefix_in_title fires when the title starts with its own id" {
+test "a title starting with its own id fires the composed starts_with lint" {
     const source = "schema: synapse-note-schema/v1\nid: t/v1\n" ++
         lint_test_frontmatter ++
         "body:\n  h1:\n    required: false\n" ++
         "checks: []\n" ++
-        "lints:\n  - no_id_prefix_in_title:\n      - var: frontmatter.title\n      - var: frontmatter.task_id\n    severity: warn\n";
+        "lints:\n  - not:\n      starts_with:\n        - var: frontmatter.title\n        - var: frontmatter.task_id\n    severity: warn\n";
 
     const prefixed = "---\ntitle: \"sb-102 — Something\"\ntask_id: sb-102\n---\n# X\n";
     const findings = try lintFindings(testing.allocator, source, prefixed, "x.md");
     defer freeLintFindings(testing.allocator, findings);
     try testing.expectEqual(@as(usize, 1), findings.len);
-    try testing.expect(std.mem.indexOf(u8, findings[0], "no_id_prefix_in_title") != null);
+    try testing.expect(std.mem.indexOf(u8, findings[0], "starts_with") != null);
 
     const clean = "---\ntitle: Something\ntask_id: sb-102\n---\n# X\n";
     const clean_findings = try lintFindings(testing.allocator, source, clean, "x.md");
@@ -2894,13 +2875,13 @@ test "no_hard_wrap custom operator composes with and/or, unlike the old standalo
     try testing.expect(result.bool);
 }
 
-test "no_id_prefix_in_title custom operator: fires when the title starts with its own id, silent otherwise" {
+test "not/starts_with against dataTree: fires when the title starts with its own id, silent otherwise or when the id is missing" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     const gpa = arena.allocator();
 
     var rule = try std.json.parseFromSlice(std.json.Value, gpa,
-        \\{"no_id_prefix_in_title": [{"var": "frontmatter.title"}, {"var": "frontmatter.task_id"}]}
+        \\{"!": {"starts_with": [{"var": "frontmatter.title"}, {"var": "frontmatter.task_id"}]}}
     , .{});
     defer rule.deinit();
 
@@ -2913,22 +2894,11 @@ test "no_id_prefix_in_title custom operator: fires when the title starts with it
     const clean_tree = try dataTree(gpa, "x.md", clean, .{ .mode = .update });
     const clean_result = try jsonlogic.evaluate(rule.value, clean_tree, null, &custom_ops);
     try testing.expect(clean_result.bool);
-}
-
-test "no_id_prefix_in_title custom operator passes vacuously when the id field is empty or missing" {
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const gpa = arena.allocator();
-
-    var rule = try std.json.parseFromSlice(std.json.Value, gpa,
-        \\{"no_id_prefix_in_title": [{"var": "frontmatter.title"}, {"var": "frontmatter.task_id"}]}
-    , .{});
-    defer rule.deinit();
 
     const no_id = "---\ntitle: Something\n---\n# X\n";
-    const tree = try dataTree(gpa, "x.md", no_id, .{ .mode = .update });
-    const result = try jsonlogic.evaluate(rule.value, tree, null, &custom_ops);
-    try testing.expect(result.bool);
+    const no_id_tree = try dataTree(gpa, "x.md", no_id, .{ .mode = .update });
+    const no_id_result = try jsonlogic.evaluate(rule.value, no_id_tree, null, &custom_ops);
+    try testing.expect(no_id_result.bool);
 }
 
 test "hard_wrap custom operator: passes a correctly greedy-wrapped paragraph" {

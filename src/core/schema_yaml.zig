@@ -752,9 +752,10 @@ test "merge: a patch-mode list entry (match + delta) edits exactly the matched e
         \\  - no_hard_wrap:
         \\      var: body.prose
         \\    severity: warn
-        \\  - no_id_prefix_in_title:
-        \\      - var: frontmatter.title
-        \\      - var: frontmatter.note_id
+        \\  - not:
+        \\      starts_with:
+        \\        - var: frontmatter.title
+        \\        - var: frontmatter.note_id
         \\    severity: warn
         \\
     );

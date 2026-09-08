@@ -1653,7 +1653,7 @@ test "no_hard_wrap fires against the real shipped vault-note/v1 schema, on a har
     try testing.expect(std.mem.indexOf(u8, findings[0].message, "no_hard_wrap") != null);
 }
 
-test "no_id_prefix_in_title fires against the real shipped vault-task-note/v1 schema, on the exact motivating shape" {
+test "the composed starts_with title-prefix lint fires against the real shipped vault-task-note/v1 schema, on the exact motivating shape" {
     const gpa = testing.allocator;
     var fx = try fixture.Fixture.init(gpa);
     defer fx.deinit();
@@ -1673,7 +1673,7 @@ test "no_id_prefix_in_title fires against the real shipped vault-task-note/v1 sc
         gpa.free(findings);
     }
     try testing.expectEqual(@as(usize, 1), findings.len);
-    try testing.expect(std.mem.indexOf(u8, findings[0].message, "no_id_prefix_in_title") != null);
+    try testing.expect(std.mem.indexOf(u8, findings[0].message, "starts_with") != null);
 }
 
 test "no_hard_wrap fires against the real shipped vault-task-note/v1 schema, on the exact motivating shape" {

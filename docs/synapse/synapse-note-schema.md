@@ -213,9 +213,10 @@ a no-op:
 # schema-overrides/vault-note/v1.yaml
 lints:
   - match:
-      no_id_prefix_in_title:
-        - var: frontmatter.title
-        - var: frontmatter.note_id
+      not:
+        starts_with:
+          - var: frontmatter.title
+          - var: frontmatter.note_id
 ```
 
 `vault-task-note/v1` and `vault-design-note/v1` are completely unaffected — an override always
