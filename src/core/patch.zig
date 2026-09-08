@@ -26,13 +26,22 @@ pub const Target = union(enum) {
     frontmatter: []const u8,
 };
 
-pub const Operation = enum { append, prepend, replace };
+/// `rename` only ever applies to a `heading` target -- it relabels the
+/// heading line itself rather than touching section content, so it has no
+/// append/prepend variant the way content operations do.
+pub const Operation = enum { append, prepend, replace, rename };
 
 pub const Error = error{
     /// The target wasn't found and `create_if_missing` was false.
     TargetNotFound,
     /// A `frontmatter` target on a note with no frontmatter block at all.
     NoFrontmatter,
+    /// `rename` against a `block` or `frontmatter` target -- there is no
+    /// separate title to relabel on either.
+    InvalidOperationForTarget,
+    /// `rename`'s new text spans more than one line -- a heading is always
+    /// exactly one line, so this can never be spliced in.
+    MultilineHeadingText,
     /// Surfaced from `core.frontmatter.set`'s internal `std.Io.Writer` use.
     WriteFailed,
 } || Allocator.Error;
@@ -51,6 +60,12 @@ pub fn apply(
     content: []const u8,
     create_if_missing: bool,
 ) Error![]u8 {
+    if (op == .rename) {
+        return switch (target) {
+            .heading => |path| applyHeadingRename(gpa, body, path, content),
+            .block, .frontmatter => Error.InvalidOperationForTarget,
+        };
+    }
     return switch (target) {
         .frontmatter => |key| frontmatter.set(gpa, body, key, .{ .scalar = content }) catch |e| switch (e) {
             error.NoFrontmatter => Error.NoFrontmatter,
@@ -173,6 +188,31 @@ fn applyHeading(
     return createHeadingPath(gpa, body, headings, path, content);
 }
 
+/// Relabels the heading at `path` to `new_text`, splicing only the text
+/// span within the heading's own line -- `h.text`'s exact byte range inside
+/// `body`, computed from its pointer since `scanHeadings` never copies --
+/// leaving the `#` run, the section's content, and every nested heading
+/// underneath untouched. Unlike `applyHeading`, there is no
+/// `create_if_missing`: a rename with nothing to find is always an error,
+/// never an implicit creation.
+fn applyHeadingRename(gpa: Allocator, body: []const u8, path: []const []const u8, new_text: []const u8) Error![]u8 {
+    if (std.mem.indexOfScalar(u8, new_text, '\n') != null) return Error.MultilineHeadingText;
+
+    const headings = try scanHeadings(gpa, body);
+    defer gpa.free(headings);
+
+    const h = headings[findHeadingPath(headings, path) orelse return Error.TargetNotFound];
+    const text_start = @intFromPtr(h.text.ptr) - @intFromPtr(body.ptr);
+    const text_end = text_start + h.text.len;
+
+    var out: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer out.deinit(gpa);
+    try out.appendSlice(gpa, body[0..text_start]);
+    try out.appendSlice(gpa, new_text);
+    try out.appendSlice(gpa, body[text_end..]);
+    return out.toOwnedSlice(gpa);
+}
+
 /// A section's own blank-line separator from the next heading (e.g. the
 /// empty line between `Discussing\n` and `## Problem`) is part of the
 /// document's structure, not part of the section's content -- `replace`ing
@@ -209,6 +249,9 @@ fn spliceRange(gpa: Allocator, body: []const u8, start: usize, end: usize, op: O
             try out.appendSlice(gpa, content);
             try out.appendSlice(gpa, body[end..]);
         },
+        // `apply` routes `.rename` to `applyHeadingRename` before either of
+        // this function's callers ever run.
+        .rename => unreachable,
     }
     return out.toOwnedSlice(gpa);
 }
@@ -310,6 +353,8 @@ fn applyBlock(gpa: Allocator, body: []const u8, id: []const u8, op: Operation, c
         },
         .prepend => spliceRange(gpa, body, found.line_start, found.line_start, .append, content),
         .append => spliceRange(gpa, body, found.text_end, found.text_end, .append, content),
+        // `apply` rejects `.rename` against a `block` target outright.
+        .rename => unreachable,
     };
 }
 
@@ -498,6 +543,47 @@ test "a missing nested segment is created under the matching parent, one level d
     const got = try apply(testing.allocator, body, .{ .heading = &.{ "Notes", "Sub" } }, .replace, "new\n", true);
     defer testing.allocator.free(got);
     try testing.expectEqualStrings("# Title\n\n## Notes\nexisting\n### Sub\nnew\n", got);
+}
+
+test "heading rename swaps only the title text, leaving the `#` run and section content untouched" {
+    const body = "# Title\n\n## Old Name\ncontent stays\n\n## Other\nx\n";
+    const got = try apply(testing.allocator, body, .{ .heading = &.{"Old Name"} }, .rename, "New Name", false);
+    defer testing.allocator.free(got);
+    try testing.expectEqualStrings("# Title\n\n## New Name\ncontent stays\n\n## Other\nx\n", got);
+}
+
+test "heading rename on a nested path only relabels that segment's own heading" {
+    const body = "# Title\n\n## Notes\n### Sub\nold\n";
+    const got = try apply(testing.allocator, body, .{ .heading = &.{ "Notes", "Sub" } }, .rename, "Renamed", false);
+    defer testing.allocator.free(got);
+    try testing.expectEqualStrings("# Title\n\n## Notes\n### Renamed\nold\n", got);
+}
+
+test "heading rename on a missing heading errors, same as any other missing target" {
+    const body = "# Title\n\nbody\n";
+    try testing.expectError(
+        error.TargetNotFound,
+        apply(testing.allocator, body, .{ .heading = &.{"Nope"} }, .rename, "x", false),
+    );
+}
+
+test "heading rename refuses new text spanning more than one line" {
+    const body = "# Title\n\n## Notes\nx\n";
+    try testing.expectError(
+        error.MultilineHeadingText,
+        apply(testing.allocator, body, .{ .heading = &.{"Notes"} }, .rename, "a\nb", false),
+    );
+}
+
+test "rename against a block or frontmatter target is rejected, not silently ignored" {
+    try testing.expectError(
+        error.InvalidOperationForTarget,
+        apply(testing.allocator, "text ^abc123\n", .{ .block = "abc123" }, .rename, "new", false),
+    );
+    try testing.expectError(
+        error.InvalidOperationForTarget,
+        apply(testing.allocator, "---\nstatus: TODO\n---\nbody\n", .{ .frontmatter = "status" }, .rename, "new", false),
+    );
 }
 
 test "a `#`-prefixed line inside a fenced code block is never read as a heading" {

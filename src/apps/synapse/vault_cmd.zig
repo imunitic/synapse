@@ -18,7 +18,7 @@
 //!                                           a JsonLogic path filter (`{"var": "path"}` only) on stdin
 //!   vault-doc-map <path>                   headings/block ids/frontmatter keys
 //!   vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-//!               [--append|--prepend|--replace] [--create]
+//!               [--append|--prepend|--replace|--rename-heading] [--create]
 //!                                           content on stdin
 //!
 //! `--heading`'s `<h>` is a `::`-joined path (`"Notes::Sub"`), disambiguating
@@ -28,6 +28,14 @@
 //! `--heading` (a missing frontmatter key is always inserted, by
 //! `core.frontmatter.set`'s own existing behavior; a missing block cannot
 //! be created -- there is no content to anchor an id to).
+//!
+//! `--rename-heading` only applies to `--heading`: it relabels the heading
+//! line itself (the stdin content becomes the new heading text, exactly one
+//! line) without touching its section's content or any heading nested
+//! underneath, unlike `--replace`, which only ever reaches past the heading
+//! line. On success it prints the note path as usual, then a second line
+//! with the heading's new `::`-joined path -- everything nested under the
+//! renamed heading now lives under that new path too.
 //!
 //! `vault-search`'s rows print as `path<TAB>field1<TAB>field2...`, one row
 //! per line -- a non-string field value is JSON-encoded so it stays one TSV
@@ -67,7 +75,7 @@ const usage_text =
     \\                                                       scoped by a JsonLogic path filter on stdin
     \\       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
     \\       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-    \\                   [--append|--prepend|--replace] [--create]
+    \\                   [--append|--prepend|--replace|--rename-heading] [--create]
     \\                                                       content on stdin
     \\       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
     \\       synapse vault-links <path>                      outgoing link targets from <path>
@@ -623,6 +631,8 @@ pub fn patch(
         switch (e) {
             error.TargetNotFound => std.debug.print("{s}: target not found in {s}\n", .{ prog, path }),
             error.NoFrontmatter => std.debug.print("{s}: no frontmatter in {s}\n", .{ prog, path }),
+            error.InvalidOperationForTarget => std.debug.print("{s}: --rename-heading only applies to --heading\n", .{prog}),
+            error.MultilineHeadingText => std.debug.print("{s}: a heading's new text must be a single line\n", .{prog}),
             else => std.debug.print("{s}: patch failed\n", .{prog}),
         }
         return 1;
@@ -639,6 +649,18 @@ pub fn patch(
         return 1;
     }
     try result.print("{s}\n", .{path});
+    if (op == .rename) {
+        // Renaming shifts the address of the heading and everything nested
+        // under it -- print the new one so a caller holding the old path
+        // doesn't next see a misleading "target not found".
+        switch (target) {
+            .heading => |segs| {
+                for (segs[0 .. segs.len - 1]) |seg| try result.print("{s}::", .{seg});
+                try result.print("{s}\n", .{content});
+            },
+            .block, .frontmatter => unreachable,
+        }
+    }
     return 0;
 }
 
@@ -951,6 +973,8 @@ pub fn runPatch(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *st
             op = .prepend;
         } else if (std.mem.eql(u8, arg, "--replace")) {
             op = .replace;
+        } else if (std.mem.eql(u8, arg, "--rename-heading")) {
+            op = .rename;
         } else if (std.mem.eql(u8, arg, "--create")) {
             create_if_missing = true;
         } else {
@@ -1490,6 +1514,23 @@ test "patch replaces a heading's content" {
     const written = (try fx.readVaultFile(gpa, "designs/synapse/x.md")).?;
     defer gpa.free(written);
     try testing.expectEqualStrings("# Title\n\n## Status\nReady\n", written);
+}
+
+test "patch --rename-heading relabels the heading and prints the new heading path" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeVaultFile("designs/synapse/x.md", "# Title\n\n## Notes\n### Old Name\nbody\n");
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try patch(gpa, fx.io(), &fx.env, fx.vault, "designs/synapse/x.md", .{ .heading = &.{ "Notes", "Old Name" } }, .rename, false, "New Name", "", &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expectEqualStrings("designs/synapse/x.md\nNotes::New Name\n", out.written());
+
+    const written = (try fx.readVaultFile(gpa, "designs/synapse/x.md")).?;
+    defer gpa.free(written);
+    try testing.expectEqualStrings("# Title\n\n## Notes\n### New Name\nbody\n", written);
 }
 
 test "patch on a frontmatter target delegates to the byte-preserving path" {

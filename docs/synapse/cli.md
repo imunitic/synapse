@@ -183,7 +183,7 @@ usage: synapse vault-read <path>
                                                        scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace] [--create]
+                   [--append|--prepend|--replace|--rename-heading] [--create]
                                                        content on stdin
        synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
        synapse vault-links <path>                      outgoing link targets from <path>
@@ -208,7 +208,7 @@ usage: synapse vault-read <path>
                                                        scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace] [--create]
+                   [--append|--prepend|--replace|--rename-heading] [--create]
                                                        content on stdin
        synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
        synapse vault-links <path>                      outgoing link targets from <path>
@@ -233,7 +233,7 @@ usage: synapse vault-read <path>
                                                        scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace] [--create]
+                   [--append|--prepend|--replace|--rename-heading] [--create]
                                                        content on stdin
        synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
        synapse vault-links <path>                      outgoing link targets from <path>
@@ -258,7 +258,7 @@ usage: synapse vault-read <path>
                                                        scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace] [--create]
+                   [--append|--prepend|--replace|--rename-heading] [--create]
                                                        content on stdin
        synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
        synapse vault-links <path>                      outgoing link targets from <path>
@@ -283,7 +283,7 @@ usage: synapse vault-read <path>
                                                        scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace] [--create]
+                   [--append|--prepend|--replace|--rename-heading] [--create]
                                                        content on stdin
        synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
        synapse vault-links <path>                      outgoing link targets from <path>
@@ -308,7 +308,7 @@ usage: synapse vault-read <path>
                                                        scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace] [--create]
+                   [--append|--prepend|--replace|--rename-heading] [--create]
                                                        content on stdin
        synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
        synapse vault-links <path>                      outgoing link targets from <path>
@@ -333,7 +333,7 @@ usage: synapse vault-read <path>
                                                        scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace] [--create]
+                   [--append|--prepend|--replace|--rename-heading] [--create]
                                                        content on stdin
        synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
        synapse vault-links <path>                      outgoing link targets from <path>
@@ -358,7 +358,7 @@ usage: synapse vault-read <path>
                                                        scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace] [--create]
+                   [--append|--prepend|--replace|--rename-heading] [--create]
                                                        content on stdin
        synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
        synapse vault-links <path>                      outgoing link targets from <path>
@@ -383,7 +383,7 @@ usage: synapse vault-read <path>
                                                        scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace] [--create]
+                   [--append|--prepend|--replace|--rename-heading] [--create]
                                                        content on stdin
        synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
        synapse vault-links <path>                      outgoing link targets from <path>
@@ -408,7 +408,7 @@ usage: synapse vault-read <path>
                                                        scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace] [--create]
+                   [--append|--prepend|--replace|--rename-heading] [--create]
                                                        content on stdin
        synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
        synapse vault-links <path>                      outgoing link targets from <path>
@@ -433,7 +433,7 @@ usage: synapse vault-read <path>
                                                        scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace] [--create]
+                   [--append|--prepend|--replace|--rename-heading] [--create]
                                                        content on stdin
        synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
        synapse vault-links <path>                      outgoing link targets from <path>
@@ -458,7 +458,7 @@ usage: synapse vault-read <path>
                                                        scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace] [--create]
+                   [--append|--prepend|--replace|--rename-heading] [--create]
                                                        content on stdin
        synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
        synapse vault-links <path>                      outgoing link targets from <path>
@@ -483,7 +483,7 @@ usage: synapse vault-read <path>
                                                        scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace] [--create]
+                   [--append|--prepend|--replace|--rename-heading] [--create]
                                                        content on stdin
        synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
        synapse vault-links <path>                      outgoing link targets from <path>
@@ -508,7 +508,7 @@ usage: synapse vault-read <path>
                                                        scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace] [--create]
+                   [--append|--prepend|--replace|--rename-heading] [--create]
                                                        content on stdin
        synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
        synapse vault-links <path>                      outgoing link targets from <path>
@@ -533,7 +533,7 @@ usage: synapse vault-read <path>
                                                        scoped by a JsonLogic path filter on stdin
        synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
        synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace] [--create]
+                   [--append|--prepend|--replace|--rename-heading] [--create]
                                                        content on stdin
        synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
        synapse vault-links <path>                      outgoing link targets from <path>

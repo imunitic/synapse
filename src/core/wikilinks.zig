@@ -33,17 +33,30 @@ pub fn extract(gpa: std.mem.Allocator, body: []const u8) ![]const []const u8 {
     return out.toOwnedSlice(gpa);
 }
 
+/// Splits a raw wikilink target into the note-identifying part and an
+/// optional `#`-anchor suffix (the leading `#` included). `[[Note#Heading]]`
+/// names the same note as `[[Note]]`, scoped to one of its headings -- the
+/// anchor plays no part in which note the link resolves to, only in
+/// `renameTarget`'s job of carrying it through a rewrite unchanged.
+fn splitAnchor(target: []const u8) struct { base: []const u8, anchor: []const u8 } {
+    const i = std.mem.indexOfScalar(u8, target, '#') orelse return .{ .base = target, .anchor = "" };
+    return .{ .base = target[0..i], .anchor = target[i..] };
+}
+
 /// A raw `[[...]]` target reduced to the same shape a bare title is: any
-/// leading path (`some/dir/Foo` -> `Foo`) and a trailing `.md` (`Foo.md` ->
-/// `Foo`) stripped. `[[Foo]]`, `[[Foo.md]]`, and `[[some/dir/Foo.md]]` all
-/// name the same note in Obsidian, but only the bare-title spelling used to
-/// resolve or survive a rename here -- this is the one place that gap
-/// closes, shared by every caller matching a wikilink target against a
-/// title (`resolveCandidates`, `renameTarget` below) rather than each
-/// re-implementing its own slice of the same normalization.
+/// leading path (`some/dir/Foo` -> `Foo`), a `#`-anchor suffix
+/// (`Foo#Heading` -> `Foo`), and a trailing `.md` (`Foo.md` -> `Foo`)
+/// stripped. `[[Foo]]`, `[[Foo.md]]`, `[[some/dir/Foo.md]]`, and
+/// `[[Foo#Heading]]` all name the same note in Obsidian, but only the
+/// bare-title spelling used to resolve or survive a rename here -- this is
+/// the one place that gap closes, shared by every caller matching a
+/// wikilink target against a title (`resolveCandidates`, `renameTarget`
+/// below) rather than each re-implementing its own slice of the same
+/// normalization.
 pub fn normalizeTarget(target: []const u8) []const u8 {
     const base = if (std.mem.lastIndexOfScalar(u8, target, '/')) |i| target[i + 1 ..] else target;
-    return if (std.mem.endsWith(u8, base, ".md")) base[0 .. base.len - 3] else base;
+    const without_anchor = splitAnchor(base).base;
+    return if (std.mem.endsWith(u8, without_anchor, ".md")) without_anchor[0 .. without_anchor.len - 3] else without_anchor;
 }
 
 /// Whether a raw wikilink `target` names the same note as `old_target`:
@@ -62,10 +75,11 @@ fn targetMatches(gpa: std.mem.Allocator, target: []const u8, old_target: []const
     return unicode_norm.eqlCaseFold(a, b);
 }
 
-/// Rewrites every `[[Target]]`/`[[Target|Display]]` in `body` whose target
-/// matches `old_target` (see `targetMatches`) so its target becomes
-/// `new_target` -- an alias's `|Display` text, and everything else in
-/// `body`, is copied through untouched. An unterminated `[[` copies the
+/// Rewrites every `[[Target]]`/`[[Target#Heading]]`/`[[Target|Display]]` in
+/// `body` whose target matches `old_target` (see `targetMatches`) so its
+/// target becomes `new_target` -- a `#`-anchor suffix and an alias's
+/// `|Display` text both carry through unchanged, and everything else in
+/// `body` is copied through untouched. An unterminated `[[` copies the
 /// remainder of `body` verbatim and stops, same "prose isn't a format this
 /// owns" rule `extract` follows. Caller-owned.
 pub fn renameTarget(gpa: std.mem.Allocator, body: []const u8, old_target: []const u8, new_target: []const u8) ![]u8 {
@@ -91,6 +105,7 @@ pub fn renameTarget(gpa: std.mem.Allocator, body: []const u8, old_target: []cons
         if (matches) {
             try out.appendSlice(gpa, "[[");
             try out.appendSlice(gpa, new_target);
+            try out.appendSlice(gpa, splitAnchor(target).anchor);
             if (bar) |b| try out.appendSlice(gpa, inner[b..]);
             try out.appendSlice(gpa, "]]");
         } else {
@@ -159,6 +174,14 @@ test "extract skips an empty target" {
     try testing.expectEqualStrings("A", out[0]);
 }
 
+test "extract keeps a heading anchor as part of the raw target" {
+    const gpa = testing.allocator;
+    const out = try extract(gpa, "see [[Some Note#A Heading]] for details");
+    defer freeAll(gpa, out);
+    try testing.expectEqual(@as(usize, 1), out.len);
+    try testing.expectEqualStrings("Some Note#A Heading", out[0]);
+}
+
 test "extract on text with no wikilinks returns an empty slice" {
     const gpa = testing.allocator;
     const out = try extract(gpa, "plain prose, nothing bracketed");
@@ -185,6 +208,25 @@ test "renameTarget matches case-insensitively" {
     const out = try renameTarget(gpa, "[[old name]]", "Old Name", "New Name");
     defer gpa.free(out);
     try testing.expectEqualStrings("[[New Name]]", out);
+}
+
+test "renameTarget matches a heading-anchored link and carries the anchor through" {
+    const gpa = testing.allocator;
+    const out = try renameTarget(gpa, "see [[Old Name#Some Heading]] here", "Old Name", "New Name");
+    defer gpa.free(out);
+    try testing.expectEqualStrings("see [[New Name#Some Heading]] here", out);
+}
+
+test "renameTarget carries a heading anchor through alongside an alias" {
+    const gpa = testing.allocator;
+    const out = try renameTarget(gpa, "[[Old Name#Some Heading|a nicer label]]", "Old Name", "New Name");
+    defer gpa.free(out);
+    try testing.expectEqualStrings("[[New Name#Some Heading|a nicer label]]", out);
+}
+
+test "normalizeTarget strips a heading anchor alongside path and extension" {
+    try testing.expectEqualStrings("Foo", normalizeTarget("Foo#Heading"));
+    try testing.expectEqualStrings("Foo", normalizeTarget("some/dir/Foo.md#Heading"));
 }
 
 test "renameTarget leaves a non-matching wikilink untouched" {
