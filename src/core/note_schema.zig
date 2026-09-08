@@ -212,7 +212,7 @@ fn validateBodyRules(gpa: Allocator, top: *const Value) !?[]u8 {
     if (body.get("preamble")) |preamble| {
         if (!isMapList(preamble)) return try diag(gpa, "schema.body.preamble: must be a list of mappings", .{});
         for (preamble.list, 0..) |rule, i| {
-            if (unknownKey(rule, &.{ "type", "required", "position", "pattern" })) |key|
+            if (unknownKey(rule, &.{ "type", "required", "position", "marker", "pattern" })) |key|
                 return try diag(gpa, "schema.body.preamble[{d}].{s}: unsupported v1 key", .{ i, key });
             if (stringAt(rule, "pattern")) |pattern| schema_pattern.validate(pattern) catch |err|
                 return try diag(gpa, "schema.body.preamble[{d}].pattern: {s}", .{ i, @errorName(err) });
@@ -660,8 +660,14 @@ fn validateBody(gpa: Allocator, body_rule: *const Value, note: []const u8, path:
     return null;
 }
 
+/// `marker` is the literal blockquote prefix identifying a candidate line
+/// (e.g. `"> Compiled task:"`) -- schema-declared rather than hardcoded, so
+/// more than one preamble shape (a design note's own backlink, a task
+/// note's `> Design note:` backlink) can share this one function instead of
+/// each needing its own copy.
 fn validatePreamble(gpa: Allocator, rule: *const Value, markdown: []const u8, h1: Heading) !?[]u8 {
     const pattern = stringAt(rule, "pattern") orelse return null;
+    const marker = stringAt(rule, "marker") orelse return null;
     var first_nonempty: ?[]const u8 = null;
     var offset = h1.content_start;
     while (offset < h1.content_end) {
@@ -676,11 +682,11 @@ fn validatePreamble(gpa: Allocator, rule: *const Value, markdown: []const u8, h1
     var lines = std.mem.splitScalar(u8, markdown, '\n');
     while (lines.next()) |raw| {
         const line = std.mem.trim(u8, raw, " \t\r");
-        if (!std.mem.startsWith(u8, line, "> Compiled task:")) continue;
+        if (!std.mem.startsWith(u8, line, marker)) continue;
         if (first_nonempty == null or !std.mem.eql(u8, line, first_nonempty.?))
-            return try diag(gpa, "body.preamble: compiled-task backlink must immediately follow H1", .{});
+            return try diag(gpa, "body.preamble: '{s}' annotation must immediately follow H1", .{marker});
         if (!try schema_pattern.isMatch(pattern, line))
-            return try diag(gpa, "body.preamble: compiled-task backlink is malformed", .{});
+            return try diag(gpa, "body.preamble: '{s}' annotation is malformed", .{marker});
     }
     return null;
 }
@@ -2306,13 +2312,61 @@ test "a compiled-task backlink must immediately follow the H1" {
         "    - type: blockquote\n" ++
         "      required: false\n" ++
         "      position: immediately_after_h1\n" ++
+        "      marker: '> Compiled task:'\n" ++
         "      pattern: '^> Compiled task: \\[\\[[^\\]]+\\]\\]$'\n" ++
         "checks: []\n";
     try expectNoteMessage(source,
         "---\ntitle: Example\n---\n# Example\n\nlead paragraph\n\n> Compiled task: [[Task title]]\n",
-        "x.md", .{ .mode = .create }, "body.preamble: compiled-task backlink must immediately follow H1");
+        "x.md", .{ .mode = .create }, "body.preamble: '> Compiled task:' annotation must immediately follow H1");
     try expectNoteOk(source,
         "---\ntitle: Example\n---\n# Example\n\n> Compiled task: [[Task title]]\n\n## Summary\nrest\n",
+        "x.md", .{ .mode = .create });
+}
+
+test "a compiled-task backlink in the right position but the wrong shape is malformed" {
+    const source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "      required: true\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "  preamble:\n" ++
+        "    - type: blockquote\n" ++
+        "      required: false\n" ++
+        "      position: immediately_after_h1\n" ++
+        "      marker: '> Compiled task:'\n" ++
+        "      pattern: '^> Compiled task: \\[\\[[^\\]]+\\]\\]$'\n" ++
+        "checks: []\n";
+    try expectNoteMessage(source,
+        "---\ntitle: Example\n---\n# Example\n\n> Compiled task: Task title (no wikilink)\n\n## Summary\nrest\n",
+        "x.md", .{ .mode = .create }, "body.preamble: '> Compiled task:' annotation is malformed");
+}
+
+test "a preamble rule with no marker is never checked, same as one with no pattern" {
+    const source =
+        "schema: synapse-note-schema/v1\n" ++
+        "id: t/v1\n" ++
+        "frontmatter:\n" ++
+        "  fields:\n" ++
+        "    title:\n" ++
+        "      type: string\n" ++
+        "      required: true\n" ++
+        "body:\n" ++
+        "  h1:\n" ++
+        "    required: true\n" ++
+        "  preamble:\n" ++
+        "    - type: blockquote\n" ++
+        "      required: false\n" ++
+        "      position: immediately_after_h1\n" ++
+        "      pattern: '^> Compiled task: \\[\\[[^\\]]+\\]\\]$'\n" ++
+        "checks: []\n";
+    try expectNoteOk(source,
+        "---\ntitle: Example\n---\n# Example\n\nlead paragraph\n\n> Compiled task: [[Task title]]\n",
         "x.md", .{ .mode = .create });
 }
 

@@ -83,9 +83,25 @@ duplicate that scaffolding here, just supply its inputs:
 - **Body:** the checklist from "Compiling the checklist" above, under the single top-level heading —
   exactly the structure `synapse-task`'s "Task file structure" requires (no `## Step` sub-headings).
 - **`## Notes` (pre-implementation):** populate per `synapse-task`'s own convention —
-  - Design reference: `[[{design note title}]]`
   - Key constraints the implementor must not miss
   - Deliberate exclusions (from step 4 above) and why
+
+  No separate "Design reference" bullet here — `## Linking forward` below already puts that pointer
+  right after the task note's own title, not buried after the checklist.
+
+## Linking forward
+
+Immediately after creation, patch the new task note: add `> Design note: [[{design note title}]]`
+right after its own `# {title}` heading, before the lead description:
+
+```
+printf '> Design note: [[%s]]\n\n' "{design note title}" | \
+  synapse vault-patch "{task note path}" --heading "{task note title}" --prepend
+```
+
+The task note's mirror of `## Linking back` below — a compiled task's design is now visible in the
+first line, the same way the design note's own compiled-task backlink already is, instead of
+requiring a scroll past the whole checklist to find it.
 
 ## Linking back
 
@@ -134,7 +150,8 @@ Claude: [reads designs/{project}/Rollup direct storage.md, Status: Ready]
         Project already known: {PROJECT} → {prefix}-005.
 
         Created: tasks/{project}/Rollup direct storage implementation.md (task_id: {prefix}-005)
-        Linked back from designs/{project}/Rollup direct storage.md.
+        Linked forward to the design note, and linked back from
+        designs/{project}/Rollup direct storage.md.
 
         Status transitions happen automatically via the synapse-task skill once you start work.
 ```

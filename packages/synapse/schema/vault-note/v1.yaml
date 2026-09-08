@@ -46,7 +46,7 @@ body:
     - title: Details
       level: 2
       required: false
-    - title: Sources
+    - title: References
       level: 2
       required: false
     - title: Open Questions

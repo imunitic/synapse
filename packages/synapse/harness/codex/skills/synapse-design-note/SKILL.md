@@ -212,12 +212,24 @@ Discussing | Ready | Reference
 
 ## Open Questions
 - {Anything deferred or unresolved}
+
+## References
+- [[Wikilink]] mentioned above
 ```
 
-`### Alternatives considered` and `## Open Questions` are both optional per the schema — omit
-either section entirely rather than leaving it as an empty heading, and never write it as `##
-Open Questions (optional)`: the schema and `/synapse-status`'s own query both match this exact
-heading text, and a suffixed one is invisible to both.
+`### Alternatives considered`, `## Open Questions`, and `## References` are all optional per the
+schema — omit any of them entirely rather than leaving it as an empty heading, and never write one
+as `## Open Questions (optional)`: the schema and `/synapse-status`'s own query both match this
+exact heading text, and a suffixed one is invisible to both.
+
+`## References` is a plain list of every `[[wikilink]]` already used somewhere else in the body —
+not a new link, a mirror of ones already there, so a reader can see everything the note points to
+in one place instead of re-reading 500+ words of prose to find one. Add to it every time a new
+wikilink is added to the body, the same "touch it every time" discipline `## Open Questions`
+already follows above, just additive instead of pruned. Named `References` rather than
+`Links`/`Sources` specifically because the Synapse Graph node format already reserves `## Sources`/
+`## Links` for something unrelated (source files, typed relations) in that other kind of note
+sharing the same vault.
 
 Resolve tags through the `synapse-vault` skill's configured vocabulary procedure. Fetch machine
 local time once (`synapse now`) — never infer it — and use the exact same value for `created` and

@@ -196,7 +196,16 @@ or supplied directly by a caller like `/synapse-task-note`):
    ## Summary
 
    {essential content}
+
+   ## References
+
+   - [[Wikilink]] mentioned above
    ```
+
+   `## References` is optional — omit it entirely on a note with no wikilinks yet rather than
+   leaving it as an empty heading. Add it (or add to it) the moment the note's first `[[wikilink]]`
+   is written, and keep it a plain mirror of every wikilink already used elsewhere in the body —
+   not a place to introduce a new one.
 
    **Task mode:**
    ```

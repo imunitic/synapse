@@ -94,7 +94,7 @@ ignored, never an error. Both flow (`tags: [a, b]`) and block
 | Key | Meaning |
 |---|---|
 | `h1` | The first `#` heading. `required`, `count` (default 1), and `equals` (must match a scalar, e.g. `frontmatter.title`). |
-| `preamble` | A list of blockquotes/glue directly under the H1 (`type`, `required`, `position`, `pattern`). Used by the design-note schema for the `> Compiled task:` backlink. |
+| `preamble` | A list of blockquotes/glue directly under the H1 (`type`, `required`, `position`, `marker`, `pattern`) — `marker` is the literal blockquote prefix a candidate line must start with (e.g. `'> Compiled task:'`), so more than one preamble shape can share the same validation logic. Used by the design-note schema for the `> Compiled task:` backlink, and the task-note schema for its `> Design note:` backlink back. |
 | `sections` | Named headings below the H1, in `section_order` (`relative` in every v1 schema). Each entry: `title` (or `title_pattern`), `level`, `required`, `non_empty`, `max_occurs`, `content` (`type`/`enum`), `children` (recursive section rules). |
 | `lead` | Prose directly under the H1 (`type: prose`, `required`, `position`). Task notes hold their lead this way. |
 | `checklist` | Task-note checklist: `required`, `min_items`, `nested_items`, `allowed_children`, `position`. The checklist must sit under a named `## Checklist` H2 (a sibling of `## Notes`, not nested under it) — which is also what lets `vault-patch` scope a checklist edit without touching the body around it. |

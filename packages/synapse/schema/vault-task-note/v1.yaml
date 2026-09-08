@@ -47,6 +47,12 @@ body:
     required: true
     count: 1
     equals: frontmatter.title
+  preamble:
+    - type: blockquote
+      required: false
+      position: immediately_after_h1
+      marker: '> Design note:'
+      pattern: '^> Design note: \[\[[^\]]+\]\]$'
   lead:
     type: prose
     required: true

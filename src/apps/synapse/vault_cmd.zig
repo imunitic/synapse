@@ -1760,6 +1760,112 @@ test "all three shipped v1 note schemas validate through vault-write" {
     }
 }
 
+test "the design note's compiled-task preamble is enforced against the real shipped vault-design-note/v1 schema" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try withRealSchemas(&fx);
+
+    const well_formed = try std.fmt.allocPrint(gpa, "---\n" ++
+        "schema: vault-design-note/v1\n" ++
+        "title: \"sb — Preamble example\"\n" ++
+        "project: sb\n" ++
+        "note_id: sb-904\n" ++
+        "created: \"" ++ schema_fixed_timestamp ++ "\"\n" ++
+        "updated: \"" ++ schema_fixed_timestamp ++ "\"\n" ++
+        "tags: [synapse, architecture]\n" ++
+        "---\n\n" ++
+        "# sb — Preamble example\n\n" ++
+        "> Compiled task: [[Some task]]\n\n" ++
+        "## Status\nDiscussing\n\n" ++
+        "## Problem\nA concrete problem.\n\n" ++
+        "## Approach\nA concrete approach.\n\n" ++
+        "## Constraints\nA concrete constraint.\n", .{});
+    defer gpa.free(well_formed);
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try write(gpa, fx.io(), &fx.env, fx.vault, "designs/synapse/sb — Preamble example.md", well_formed, "", &out.writer);
+        try testing.expectEqual(@as(u8, 0), code);
+    }
+
+    const malformed = try std.fmt.allocPrint(gpa, "---\n" ++
+        "schema: vault-design-note/v1\n" ++
+        "title: \"sb — Malformed preamble example\"\n" ++
+        "project: sb\n" ++
+        "note_id: sb-905\n" ++
+        "created: \"" ++ schema_fixed_timestamp ++ "\"\n" ++
+        "updated: \"" ++ schema_fixed_timestamp ++ "\"\n" ++
+        "tags: [synapse, architecture]\n" ++
+        "---\n\n" ++
+        "# sb — Malformed preamble example\n\n" ++
+        "> Compiled task: Some task (no wikilink)\n\n" ++
+        "## Status\nDiscussing\n\n" ++
+        "## Problem\nA concrete problem.\n\n" ++
+        "## Approach\nA concrete approach.\n\n" ++
+        "## Constraints\nA concrete constraint.\n", .{});
+    defer gpa.free(malformed);
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try write(gpa, fx.io(), &fx.env, fx.vault, "designs/synapse/sb — Malformed preamble example.md", malformed, "", &out.writer);
+        try testing.expectEqual(@as(u8, 1), code);
+    }
+}
+
+test "the task note's design-note preamble is enforced against the real shipped vault-task-note/v1 schema" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try withRealSchemas(&fx);
+
+    const well_formed = try std.fmt.allocPrint(gpa, "---\n" ++
+        "schema: vault-task-note/v1\n" ++
+        "title: \"Preamble example\"\n" ++
+        "project: sb\n" ++
+        "task_id: sb-906\n" ++
+        "created: \"" ++ schema_fixed_timestamp ++ "\"\n" ++
+        "updated: \"" ++ schema_fixed_timestamp ++ "\"\n" ++
+        "tags: [synapse, architecture]\n" ++
+        "status: TODO\n" ++
+        "---\n\n" ++
+        "# Preamble example\n\n" ++
+        "> Design note: [[Some design]]\n\n" ++
+        "Implement the requested change.\n\n" ++
+        "## Checklist\n\n" ++
+        "- [ ] First implementation step\n", .{});
+    defer gpa.free(well_formed);
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try write(gpa, fx.io(), &fx.env, fx.vault, "tasks/synapse/Preamble example.md", well_formed, "", &out.writer);
+        try testing.expectEqual(@as(u8, 0), code);
+    }
+
+    const malformed = try std.fmt.allocPrint(gpa, "---\n" ++
+        "schema: vault-task-note/v1\n" ++
+        "title: \"Malformed preamble example\"\n" ++
+        "project: sb\n" ++
+        "task_id: sb-907\n" ++
+        "created: \"" ++ schema_fixed_timestamp ++ "\"\n" ++
+        "updated: \"" ++ schema_fixed_timestamp ++ "\"\n" ++
+        "tags: [synapse, architecture]\n" ++
+        "status: TODO\n" ++
+        "---\n\n" ++
+        "# Malformed preamble example\n\n" ++
+        "> Design note: Some design (no wikilink)\n\n" ++
+        "Implement the requested change.\n\n" ++
+        "## Checklist\n\n" ++
+        "- [ ] First implementation step\n", .{});
+    defer gpa.free(malformed);
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try write(gpa, fx.io(), &fx.env, fx.vault, "tasks/synapse/Malformed preamble example.md", malformed, "", &out.writer);
+        try testing.expectEqual(@as(u8, 1), code);
+    }
+}
+
 fn graphNodeBody(gpa: Allocator, title: []const u8, sources_tail: []const u8) ![]u8 {
     return std.fmt.allocPrint(gpa, "---\n" ++
         "schema: graph-node/v1\n" ++

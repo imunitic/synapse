@@ -47,6 +47,7 @@ body:
     - type: blockquote
       required: false
       position: immediately_after_h1
+      marker: '> Compiled task:'
       pattern: '^> Compiled task: \[\[[^\]]+\]\]$'
   sections:
     - title: Status
@@ -73,6 +74,10 @@ body:
       required: true
       non_empty: true
     - title: Open Questions
+      level: 2
+      required: false
+      non_empty: true
+    - title: References
       level: 2
       required: false
       non_empty: true
