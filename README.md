@@ -2,9 +2,9 @@
 
 [![tests](https://github.com/imunitic/synapse/actions/workflows/tests.yml/badge.svg)](https://github.com/imunitic/synapse/actions/workflows/tests.yml)
 
-Memory for Claude Code: durable notes that outlive a session, and a per-repo code graph so a
-codebase does not get re-explored from scratch every time. Three components, independent enough that
-you can use one without the others:
+Memory for Claude Code, Codex CLI, and OpenCode: durable notes that outlive a session, and a
+per-repo code graph so a codebase does not get re-explored from scratch every time. Three
+components, independent enough that you can use one without the others:
 
 - **Synapse Vault** — a folder of plain Markdown notes (frontmatter + wikilinks) holding research,
   decisions, project logs, design discussions. Cross-project by default. Synapse reads and writes it
@@ -39,7 +39,8 @@ synapse-setup configure claude       # or: codex / opencode
 npm resolves automatically for the machine it's running on, so there's nothing to fetch or build
 afterward. `zig build` is only for contributing to Synapse itself; see [Dependencies](#dependencies).
 
-> Not yet published to the npm registry. Until then, run from a checkout instead:
+> To run from a checkout instead of the published package (for contributing, or to test an
+> unreleased change):
 > ```sh
 > git clone https://github.com/imunitic/synapse
 > cd synapse/packages/synapse
