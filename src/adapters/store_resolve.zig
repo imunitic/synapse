@@ -39,41 +39,24 @@ const DiskStore = disk_store.DiskStore;
 const GitStore = git_store.GitStore;
 const SchemaValidationStore = schema_validation_store.SchemaValidationStore;
 
-/// One heap-allocated layer of the composed chain, plus how to destroy it --
-/// captured at construction time, when `T` is still known, since a plain
-/// `*anyopaque` alone can't tell `gpa.destroy` its own size and alignment.
-const OwnedLayer = struct {
-    ptr: *anyopaque,
-    destroy: *const fn (gpa: Allocator, ptr: *anyopaque) void,
-
-    fn of(comptime T: type, ptr: *T) OwnedLayer {
-        const Impl = struct {
-            fn destroy(g: Allocator, p: *anyopaque) void {
-                g.destroy(@as(*T, @ptrCast(@alignCast(p))));
-            }
-        };
-        return .{ .ptr = ptr, .destroy = Impl.destroy };
-    }
-};
-
-/// Owns the whole composed chain -- every layer is heap-allocated (a
-/// `Store`/`LinkGraph`/`Renamer` value embeds a pointer into the concrete
-/// instance beneath it, which has to outlive this struct, not just the
-/// function that built it) and freed together in `deinit`. Holds the
-/// already-resolved `Store`/`LinkGraph`/`Renamer`/`SearchFiltered` values
-/// directly rather than a tagged union of concrete outer types: capability
-/// resolution happens once, during compose, while every layer is still a
-/// concrete type -- see the design note (`sb — Generic Store decorator
-/// stacking`) for why that's sufficient and nothing needs rediscovering
-/// from an already-erased value later.
+/// The four capabilities resolved from composing `SYNAPSE_VAULT_INTEGRATIONS`
+/// over `DiskStore` -- a plain value, not an owner. Every concrete instance
+/// behind these `{ptr, vtable}` values (`DiskStore`, `SchemaValidationStore`,
+/// `GitStore`) is allocated through the arena `resolveStore`'s caller passes
+/// in, so nothing here needs freeing on its own: the caller's own eventual
+/// `arena.deinit()` reclaims all of it in one shot, whenever it's done using
+/// this value and everything derived from it. Holds the already-resolved
+/// `Store`/`LinkGraph`/`Renamer`/`SearchFiltered` values directly rather than
+/// a tagged union of concrete outer types: capability resolution happens
+/// once, during compose, while every layer is still a concrete type -- see
+/// the design note (`sb — Generic Store decorator stacking`) for why that's
+/// sufficient and nothing needs rediscovering from an already-erased value
+/// later.
 pub const ResolvedStore = struct {
     resolved_store: Store,
     resolved_link_graph: LinkGraph,
     resolved_renamer: Renamer,
     resolved_search_filtered: SearchFiltered,
-    gpa: Allocator,
-    disk: *DiskStore,
-    layers: std.ArrayListUnmanaged(OwnedLayer),
 
     pub fn store(self: *ResolvedStore) Store {
         return self.resolved_store;
@@ -107,21 +90,17 @@ pub const ResolvedStore = struct {
         if (path_filter == null) return self.resolved_store.search(gpa, io, query);
         return self.resolved_search_filtered.searchFiltered(gpa, io, query, path_filter);
     }
-
-    pub fn deinit(self: *ResolvedStore) void {
-        self.disk.deinit();
-        self.gpa.destroy(self.disk);
-        for (self.layers.items) |l| l.destroy(self.gpa, l.ptr);
-        self.layers.deinit(self.gpa);
-    }
 };
 
 /// What every `compose*` function needs to build its layer around whatever
 /// the chain has produced so far -- `env`/`self_path` are only meaningful to
 /// `git`, but every handler gets the same context so none of them need a
-/// bespoke signature.
+/// bespoke signature. `arena` is expected to live at least as long as
+/// whatever `resolveStore` eventually returns -- every concrete instance a
+/// `compose*` function creates is allocated through it, never freed
+/// individually.
 const ComposeCtx = struct {
-    gpa: Allocator,
+    arena: Allocator,
     vault: []const u8,
     namespace: []const u8,
     env: *std.process.Environ.Map,
@@ -135,7 +114,6 @@ const ComposeCtx = struct {
 /// so `resolveStore`'s own `resolved_search_filtered` is built once, straight
 /// off `disk`, and never threaded through a compose layer at all.
 const ComposeResult = struct {
-    layer: OwnedLayer,
     store: Store,
     link_graph: LinkGraph,
     renamer: Renamer,
@@ -152,12 +130,11 @@ const IntegrationHandler = struct {
 };
 
 fn composeGit(ctx: ComposeCtx) Allocator.Error!ComposeResult {
-    const git = try ctx.gpa.create(GitStore);
-    git.* = GitStore.init(ctx.gpa, ctx.vault, ctx.inner_store, ctx.inner_link_graph, ctx.inner_renamer);
+    const git = try ctx.arena.create(GitStore);
+    git.* = GitStore.init(ctx.arena, ctx.vault, ctx.inner_store, ctx.inner_link_graph, ctx.inner_renamer);
     git.env = ctx.env;
     git.self_path = ctx.self_path;
     return .{
-        .layer = OwnedLayer.of(GitStore, git),
         .store = git.store(),
         // `linkGraph`/`searchFiltered` pass straight through -- `git` never
         // overrides either.
@@ -244,8 +221,18 @@ pub fn hasIntegration(gpa: Allocator, io: Io, env: *std.process.Environ.Map, nam
 /// stay silent, the contract every hook here already relies on. Null return
 /// is an unrecoverable config problem, reported to stderr only when `prog`
 /// is non-null.
+///
+/// `arena` is expected to be an arena-backed allocator scoped to the whole
+/// caller invocation (`var arena_state: std.heap.ArenaAllocator = .init(gpa);
+/// defer arena_state.deinit();`), not the process's raw general-purpose one.
+/// Every concrete instance behind the returned `ResolvedStore`'s capabilities
+/// is allocated through it and never freed individually -- `DiskStore` is
+/// the only one with any real `deinit` work today, and it only frees two
+/// small strings, so there is nothing here that benefits from matched
+/// alloc/free discipline. The caller's own eventual `arena.deinit()` reclaims
+/// all of it in one shot, on every exit path, success or error alike.
 pub fn resolveStore(
-    gpa: Allocator,
+    arena: Allocator,
     io: Io,
     env: *std.process.Environ.Map,
     vault: []const u8,
@@ -253,22 +240,16 @@ pub fn resolveStore(
     prog: ?[]const u8,
     self_path: []const u8,
 ) !?ResolvedStore {
-    const value_owned = try core.conf.resolve(gpa, io, env_bridge.vars(env), "SYNAPSE_VAULT_INTEGRATIONS");
-    defer if (value_owned) |v| gpa.free(v);
+    const value_owned = try core.conf.resolve(arena, io, env_bridge.vars(env), "SYNAPSE_VAULT_INTEGRATIONS");
 
     var count: usize = 0;
     var buf: [8][]const u8 = undefined;
     _ = parseIntegrationsImpl(value_owned orelse "", prog, &buf, &count) orelse return null;
     const names = buf[0..count];
 
-    const disk = try gpa.create(DiskStore);
-    errdefer gpa.destroy(disk);
-    disk.* = try DiskStore.init(gpa, vault, namespace);
-    errdefer disk.deinit();
+    const disk = try arena.create(DiskStore);
+    disk.* = try DiskStore.init(arena, vault, namespace);
     disk.vars = env_bridge.vars(env);
-
-    var layers: std.ArrayListUnmanaged(OwnedLayer) = .empty;
-    errdefer layers.deinit(gpa);
 
     var current_store: Store = disk.store();
     var current_link_graph: LinkGraph = disk.linkGraph();
@@ -279,10 +260,8 @@ pub fn resolveStore(
 
     // Validation is a correctness boundary, not a selectable integration:
     // every configured decorator wraps it, and it always wraps DiskStore.
-    const validation = try gpa.create(SchemaValidationStore);
-    errdefer gpa.destroy(validation);
-    validation.* = SchemaValidationStore.init(gpa, current_store, env_bridge.vars(env));
-    try layers.append(gpa, OwnedLayer.of(SchemaValidationStore, validation));
+    const validation = try arena.create(SchemaValidationStore);
+    validation.* = SchemaValidationStore.init(arena, current_store, env_bridge.vars(env));
     current_store = validation.store();
 
     // Outer-to-inner in `names`, so build innermost-first: walk in reverse.
@@ -295,7 +274,7 @@ pub fn resolveStore(
         } else unreachable; // parseIntegrationsImpl already validated every name
 
         const result = try handler.compose(.{
-            .gpa = gpa,
+            .arena = arena,
             .vault = vault,
             .namespace = namespace,
             .env = env,
@@ -304,12 +283,6 @@ pub fn resolveStore(
             .inner_link_graph = current_link_graph,
             .inner_renamer = current_renamer,
         });
-        // `handler.compose` already allocated and initialized this layer;
-        // an `append` failure below must still free it, the way the old
-        // per-branch `errdefer gpa.destroy(...)` did before it was split
-        // into `compose*`.
-        errdefer result.layer.destroy(gpa, result.layer.ptr);
-        try layers.append(gpa, result.layer);
         current_store = result.store;
         current_link_graph = result.link_graph;
         current_renamer = result.renamer;
@@ -320,9 +293,6 @@ pub fn resolveStore(
         .resolved_link_graph = current_link_graph,
         .resolved_renamer = current_renamer,
         .resolved_search_filtered = search_filtered,
-        .gpa = gpa,
-        .disk = disk,
-        .layers = layers,
     };
 }
 
@@ -363,9 +333,11 @@ test "SYNAPSE_VAULT_INTEGRATIONS unset keeps validation mandatory over the disk 
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var resolved = (try resolveStore(gpa, io, &env, vault, "synapse/repo@main", "test", "")).?;
-    defer resolved.deinit();
-    try testing.expectEqual(@as(usize, 1), resolved.layers.items.len); // mandatory validation layer
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try resolveStore(arena, io, &env, vault, "synapse/repo@main", "test", "")).?;
 
     var store = resolved.store();
     const wr = try store.write(io, "Foo.md", "body\n");
@@ -395,8 +367,11 @@ test "SYNAPSE_VAULT_INTEGRATIONS=git resolves a GitStore that commits on write" 
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var resolved = (try resolveStore(gpa, io, &env, vault, "synapse/repo@main", "test", "")).?;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try resolveStore(arena, io, &env, vault, "synapse/repo@main", "test", "")).?;
 
     var store = resolved.store();
     const wr = try store.write(io, "Foo.md", "body\n");
@@ -424,8 +399,11 @@ test "searchFiltered runs against disk directly regardless of which integrations
     defer io_threaded.deinit();
     const io = io_threaded.io();
 
-    var resolved = (try resolveStore(gpa, io, &env, vault, "", "test", "")).?;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try resolveStore(arena, io, &env, vault, "", "test", "")).?;
 
     var store = resolved.store();
     _ = try store.write(io, "designs/x.md", "widget prose\n");
@@ -470,8 +448,11 @@ test "self_path threads through to GitStore even when git is not the outermost i
     // `std.process.spawn`, whose own failure is swallowed, if the push
     // threshold trips, which it won't on a single write. This just confirms
     // `resolveStore` doesn't drop `self_path` on the floor.
-    var resolved = (try resolveStore(gpa, io, &env, vault, "", "test", "/does/not/matter")).?;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try resolveStore(arena, io, &env, vault, "", "test", "/does/not/matter")).?;
     var store = resolved.store();
     const wr = try store.write(io, "Foo.md", "body\n");
     try testing.expect(wr.accepted);
@@ -491,7 +472,11 @@ test "disk named explicitly in SYNAPSE_VAULT_INTEGRATIONS is a hard error" {
     var io_threaded: std.Io.Threaded = .init(gpa, .{});
     defer io_threaded.deinit();
 
-    const resolved = try resolveStore(gpa, io_threaded.io(), &env, vault, "", null, "");
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const resolved = try resolveStore(arena, io_threaded.io(), &env, vault, "", null, "");
     try testing.expectEqual(@as(?ResolvedStore, null), resolved);
 }
 
@@ -509,7 +494,11 @@ test "an unrecognized integration name resolves null, not a crash or a silent fa
     var io_threaded: std.Io.Threaded = .init(gpa, .{});
     defer io_threaded.deinit();
 
-    const resolved = try resolveStore(gpa, io_threaded.io(), &env, vault, "", null, "");
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const resolved = try resolveStore(arena, io_threaded.io(), &env, vault, "", null, "");
     try testing.expectEqual(@as(?ResolvedStore, null), resolved);
 }
 
@@ -527,7 +516,11 @@ test "an integration named twice is a hard error" {
     var io_threaded: std.Io.Threaded = .init(gpa, .{});
     defer io_threaded.deinit();
 
-    const resolved = try resolveStore(gpa, io_threaded.io(), &env, vault, "", null, "");
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const resolved = try resolveStore(arena, io_threaded.io(), &env, vault, "", null, "");
     try testing.expectEqual(@as(?ResolvedStore, null), resolved);
 }
 

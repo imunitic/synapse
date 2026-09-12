@@ -69,11 +69,7 @@ pub fn run(
             return 0;
         }
         const dest: *[]const u8 =
-            if (std.mem.eql(u8, arg, "--title")) &title
-            else if (std.mem.eql(u8, arg, "--summary")) &summary
-            else if (std.mem.eql(u8, arg, "--paths")) &paths_file
-            else if (std.mem.eql(u8, arg, "--body")) &body_file
-            else return usage();
+            if (std.mem.eql(u8, arg, "--title")) &title else if (std.mem.eql(u8, arg, "--summary")) &summary else if (std.mem.eql(u8, arg, "--paths")) &paths_file else if (std.mem.eql(u8, arg, "--body")) &body_file else return usage();
         dest.* = args.next() orelse return usage();
     }
     if (title.len == 0 or summary.len == 0 or paths_file.len == 0 or body_file.len == 0)
@@ -384,14 +380,17 @@ pub fn write(
     });
 
     // --- PUT into the vault --------------------------------------------------
-    var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, ctx.vault, ctx.dir, prog, "")) orelse return 1;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try adapters.store_resolve.resolveStore(arena, io, env, ctx.vault, ctx.dir, prog, "")) orelse return 1;
     var store = resolved.store();
     const put_result = store.write(io, node_file, note.written()) catch |err| {
         std.debug.print("{s}: write failed: {s}\n", .{ prog, @errorName(err) });
         return 1;
     };
-    defer gpa.free(put_result.body);
+    defer arena.free(put_result.body);
     if (!put_result.accepted) {
         std.debug.print("{s}: write rejected ({d:0>3}): {s}\n", .{ prog, put_result.status, put_result.body });
         return 1;

@@ -118,8 +118,11 @@ fn openWholeVaultStore(gpa: Allocator, io: Io, env: *std.process.Environ.Map, va
 // --- Testable core, one function per subcommand -----------------------
 
 pub fn read(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, path: []const u8, result: *Io.Writer) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try openWholeVaultStore(arena, io, env, vault, "")) orelse return 1;
     const store = resolved.store();
 
     const body = (store.read(gpa, io, path) catch {
@@ -144,8 +147,11 @@ pub fn write(
     self_path: []const u8,
     result: *Io.Writer,
 ) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault, self_path)) orelse return 1;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try openWholeVaultStore(arena, io, env, vault, self_path)) orelse return 1;
     const store = resolved.store();
 
     // Creation carries the one timestamp sampled by the authoring command. An
@@ -156,7 +162,7 @@ pub fn write(
         std.debug.print("{s}: write failed\n", .{prog});
         return 1;
     };
-    defer gpa.free(wr.body);
+    defer arena.free(wr.body);
     if (!wr.accepted) {
         std.debug.print("{s}: write rejected ({d}): {s}\n", .{ prog, wr.status, wr.body });
         return 1;
@@ -166,8 +172,11 @@ pub fn write(
 }
 
 pub fn list(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, result: *Io.Writer) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try openWholeVaultStore(arena, io, env, vault, "")) orelse return 1;
     const store = resolved.store();
 
     const names = store.list(gpa, io) catch {
@@ -192,8 +201,11 @@ pub fn list(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []cons
 /// schema-declaring note conforms, 1 when any does not -- legacy notes are
 /// never a violation, only a count.
 pub fn check(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, result: *Io.Writer) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try openWholeVaultStore(arena, io, env, vault, "")) orelse return 1;
     const store = resolved.store();
     const vars = adapters.env.vars(env);
 
@@ -330,8 +342,11 @@ pub fn searchText(
     path_filter: ?std.json.Value,
     result: *Io.Writer,
 ) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try openWholeVaultStore(arena, io, env, vault, "")) orelse return 1;
 
     const hits = resolved.searchFiltered(gpa, io, query, path_filter) catch {
         std.debug.print("{s}: search failed\n", .{prog});
@@ -359,8 +374,11 @@ pub fn docMap(
     path: []const u8,
     result: *Io.Writer,
 ) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try openWholeVaultStore(arena, io, env, vault, "")) orelse return 1;
     const store = resolved.store();
 
     const body = (store.read(gpa, io, path) catch {
@@ -407,8 +425,11 @@ fn openRenamer(resolved: *adapters.store_resolve.ResolvedStore) ports.Renamer {
 }
 
 pub fn backlinks(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, path: []const u8, result: *Io.Writer) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try openWholeVaultStore(arena, io, env, vault, "")) orelse return 1;
     const link_graph = openLinkGraph(&resolved);
 
     const hits = link_graph.backlinks(gpa, io, path) catch {
@@ -424,8 +445,11 @@ pub fn backlinks(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: [
 }
 
 pub fn links(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, path: []const u8, result: *Io.Writer) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try openWholeVaultStore(arena, io, env, vault, "")) orelse return 1;
     const link_graph = openLinkGraph(&resolved);
 
     const names = link_graph.links(gpa, io, path) catch {
@@ -444,8 +468,11 @@ pub fn links(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []con
 /// `/synapse-vault-tidy`'s own "Broken link in `{note}`: → `{target}`"
 /// finding needs, `sources` iterated rather than joined onto one row.
 pub fn unresolved(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, result: *Io.Writer) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try openWholeVaultStore(arena, io, env, vault, "")) orelse return 1;
     const link_graph = openLinkGraph(&resolved);
 
     const rows = link_graph.unresolved(gpa, io) catch {
@@ -467,8 +494,11 @@ pub fn unresolved(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: 
 }
 
 pub fn orphans(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, result: *Io.Writer) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try openWholeVaultStore(arena, io, env, vault, "")) orelse return 1;
     const link_graph = openLinkGraph(&resolved);
 
     const names = link_graph.orphans(gpa, io) catch {
@@ -484,8 +514,11 @@ pub fn orphans(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []c
 }
 
 pub fn deadends(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, result: *Io.Writer) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try openWholeVaultStore(arena, io, env, vault, "")) orelse return 1;
     const link_graph = openLinkGraph(&resolved);
 
     const names = link_graph.deadends(gpa, io) catch {
@@ -504,8 +537,11 @@ pub fn deadends(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []
 /// occurrences of `target` across the vault) repeats per source, same
 /// convention `unresolved`'s own rows already use.
 pub fn ambiguous(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, result: *Io.Writer) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try openWholeVaultStore(arena, io, env, vault, "")) orelse return 1;
     const link_graph = openLinkGraph(&resolved);
 
     const rows = link_graph.ambiguous(gpa, io) catch {
@@ -541,8 +577,11 @@ pub fn rename(
     new_path: []const u8,
     result: *Io.Writer,
 ) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try openWholeVaultStore(arena, io, env, vault, "")) orelse return 1;
     const renamer = openRenamer(&resolved);
 
     renamer.rename(gpa, io, old_path, new_path) catch |err| {
@@ -566,8 +605,11 @@ pub fn search(
     fields: []const []const u8,
     result: *Io.Writer,
 ) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault, "")) orelse return 1;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try openWholeVaultStore(arena, io, env, vault, "")) orelse return 1;
     const store = resolved.store();
 
     const rows = core.vault_query.query(gpa, io, store, query, fields) catch {
@@ -614,8 +656,11 @@ pub fn patch(
     self_path: []const u8,
     result: *Io.Writer,
 ) !u8 {
-    var resolved = (try openWholeVaultStore(gpa, io, env, vault, self_path)) orelse return 1;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try openWholeVaultStore(arena, io, env, vault, self_path)) orelse return 1;
     const store = resolved.store();
 
     const current = (store.read(gpa, io, path) catch {
@@ -643,7 +688,7 @@ pub fn patch(
         std.debug.print("{s}: write failed\n", .{prog});
         return 1;
     };
-    defer gpa.free(wr.body);
+    defer arena.free(wr.body);
     if (!wr.accepted) {
         std.debug.print("{s}: write rejected ({d}): {s}\n", .{ prog, wr.status, wr.body });
         return 1;
@@ -1424,8 +1469,7 @@ test "check reports lint findings as a distinct advisory section, not counted as
     _ = fx.env.swapRemove("SYNAPSE_VAULT_INTEGRATIONS");
     _ = fx.env.swapRemove("SYNAPSE_CONTENT_ROOT");
     try writeCheckSchemaWithLint(&fx);
-    try fx.writeVaultFile("research/Wrapped.md",
-        "---\nschema: t/v1\ntitle: Wrapped\n---\n# Wrapped\n\nThis sentence got\nhard-wrapped across two lines.\n");
+    try fx.writeVaultFile("research/Wrapped.md", "---\nschema: t/v1\ntitle: Wrapped\n---\n# Wrapped\n\nThis sentence got\nhard-wrapped across two lines.\n");
     try fx.writeVaultFile("research/Clean.md", "---\nschema: t/v1\ntitle: Clean\n---\n# Clean\n\nOne line, as it should be.\n");
 
     var out: Io.Writer.Allocating = .init(gpa);
@@ -1893,8 +1937,7 @@ test "the shipped graph-node/v1 schema validates a realistic node through vault-
     defer fx.deinit();
     try withRealSchemas(&fx);
 
-    const node = try graphNodeBody(gpa, "Widget core",
-        "sources:\n  - path: acme_ecs/world.ml\n    hash: aa\n");
+    const node = try graphNodeBody(gpa, "Widget core", "sources:\n  - path: acme_ecs/world.ml\n    hash: aa\n");
     defer gpa.free(node);
 
     var out: Io.Writer.Allocating = .init(gpa);
@@ -1930,11 +1973,14 @@ test "the shipped graph-node/v1 schema refuses sources ahead of another declared
         "## Notes\n", .{});
     defer gpa.free(node);
 
-    var resolved = (try openWholeVaultStore(gpa, fx.io(), &fx.env, fx.vault, "")).?;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try openWholeVaultStore(arena, fx.io(), &fx.env, fx.vault, "")).?;
     var store = resolved.store();
     const wr = try store.write(fx.io(), "synapse/acme@main/Widget core.md", node);
-    defer gpa.free(wr.body);
+    defer arena.free(wr.body);
     try testing.expect(!wr.accepted);
     try testing.expect(std.mem.indexOf(u8, wr.body, "out of relative order") != null);
     try testing.expectEqual(@as(?[]u8, null), try fx.readVaultFile(gpa, "synapse/acme@main/Widget core.md"));
@@ -1949,11 +1995,14 @@ test "invalid schema-declaring notes fail with a field diagnostic and no partial
     const body = try bareNoteBody(gpa, "Wrong title", "sb-904");
     defer gpa.free(body);
 
-    var resolved = (try openWholeVaultStore(gpa, fx.io(), &fx.env, fx.vault, "")).?;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try openWholeVaultStore(arena, fx.io(), &fx.env, fx.vault, "")).?;
     var store = resolved.store();
     const wr = try store.write(fx.io(), "research/Right title.md", body);
-    defer gpa.free(wr.body);
+    defer arena.free(wr.body);
     try testing.expect(!wr.accepted);
     try testing.expect(std.mem.indexOf(u8, wr.body, "filename.stem") != null);
     try testing.expectEqual(@as(?[]u8, null), try fx.readVaultFile(gpa, "research/Right title.md"));
@@ -1965,20 +2014,23 @@ test "unknown and unsafe schema identifiers fail closed" {
     defer fx.deinit();
     try withRealSchemas(&fx);
 
-    var resolved = (try openWholeVaultStore(gpa, fx.io(), &fx.env, fx.vault, "")).?;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try openWholeVaultStore(arena, fx.io(), &fx.env, fx.vault, "")).?;
     var store = resolved.store();
 
     {
         const wr = try store.write(fx.io(), "missing.md", "---\nschema: vault-missing/v1\n---\n");
-        defer gpa.free(wr.body);
+        defer arena.free(wr.body);
         try testing.expect(!wr.accepted);
         try testing.expect(std.mem.indexOf(u8, wr.body, "schema:") != null);
         try testing.expectEqual(@as(?[]u8, null), try fx.readVaultFile(gpa, "missing.md"));
     }
     {
         const wr = try store.write(fx.io(), "unsafe.md", "---\nschema: ../secret\n---\n");
-        defer gpa.free(wr.body);
+        defer arena.free(wr.body);
         try testing.expect(!wr.accepted);
         try testing.expect(std.mem.indexOf(u8, wr.body, "unsafe identifier") != null);
         try testing.expectEqual(@as(?[]u8, null), try fx.readVaultFile(gpa, "unsafe.md"));
@@ -2003,11 +2055,14 @@ test "note_id and task_id share one creation-time uniqueness namespace" {
     const dup = try bareNoteBody(gpa, "Duplicate identity", "sb-905");
     defer gpa.free(dup);
 
-    var resolved = (try openWholeVaultStore(gpa, fx.io(), &fx.env, fx.vault, "")).?;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try openWholeVaultStore(arena, fx.io(), &fx.env, fx.vault, "")).?;
     var store = resolved.store();
     const wr = try store.write(fx.io(), "research/Duplicate identity.md", dup);
-    defer gpa.free(wr.body);
+    defer arena.free(wr.body);
     try testing.expect(!wr.accepted);
     try testing.expect(std.mem.indexOf(u8, wr.body, "already exists") != null);
     try testing.expectEqual(@as(?[]u8, null), try fx.readVaultFile(gpa, "research/Duplicate identity.md"));
@@ -2110,11 +2165,14 @@ test "a rejected write under SYNAPSE_VAULT_INTEGRATIONS=git has no Git integrati
     const body = try bareNoteBody(gpa, "Wrong title", "sb-907");
     defer gpa.free(body);
 
-    var resolved = (try openWholeVaultStore(gpa, fx.io(), &fx.env, fx.vault, "")).?;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try openWholeVaultStore(arena, fx.io(), &fx.env, fx.vault, "")).?;
     var store = resolved.store();
     const wr = try store.write(fx.io(), "research/Right title.md", body);
-    defer gpa.free(wr.body);
+    defer arena.free(wr.body);
     try testing.expect(!wr.accepted);
 
     const dot_git = try std.fmt.allocPrint(gpa, "{s}/.git", .{fx.vault});

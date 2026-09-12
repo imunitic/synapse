@@ -129,8 +129,11 @@ pub fn build(
 
     const store_ns = try std.fmt.allocPrint(gpa, "synapse/{s}", .{ns.key});
     defer gpa.free(store_ns);
-    var resolved = (try adapters.store_resolve.resolveStore(gpa, io, env, vault, store_ns, null, "")) orelse return docstring_note;
-    defer resolved.deinit();
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try adapters.store_resolve.resolveStore(arena, io, env, vault, store_ns, null, "")) orelse return docstring_note;
     var store = resolved.store();
 
     for (owned.items) |node_file| {
