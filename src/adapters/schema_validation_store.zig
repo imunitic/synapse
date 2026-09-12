@@ -10,6 +10,7 @@ const std = @import("std");
 const core = @import("core");
 const ports = @import("ports");
 const local_timestamp = @import("local_timestamp.zig");
+const store_resolve = @import("store_resolve.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -22,6 +23,13 @@ pub const SchemaValidationStore = struct {
 
     pub fn init(gpa: Allocator, inner: Store, vars: core.conf.Vars) SchemaValidationStore {
         return .{ .gpa = gpa, .inner = inner, .vars = vars };
+    }
+
+    /// `initCtx` alongside `init`, not instead of it -- `init` keeps its own
+    /// narrow signature so the ten existing direct-call tests below stay
+    /// untouched.
+    pub fn initCtx(ctx: store_resolve.ComposeCtx) Allocator.Error!SchemaValidationStore {
+        return init(ctx.arena, ctx.inner_store, ctx.vars);
     }
 
     pub fn store(self: *SchemaValidationStore) Store {

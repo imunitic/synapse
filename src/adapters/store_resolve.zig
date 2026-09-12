@@ -92,36 +92,39 @@ pub const ResolvedStore = struct {
     }
 };
 
-/// What every `compose*` function needs to build its layer around whatever
-/// the chain has produced so far -- `env`/`self_path` are only meaningful to
-/// `git`, but every handler gets the same context so none of them need a
-/// bespoke signature. `arena` is expected to live at least as long as
-/// whatever `resolveStore` eventually returns -- every concrete instance a
-/// `compose*` function creates is allocated through it, never freed
-/// individually.
-const ComposeCtx = struct {
+/// What every layer needs to construct itself around whatever the chain has
+/// produced so far -- `env`/`self_path` are only meaningful to `git`, but
+/// every `initCtx` gets the same context so none of them need a bespoke
+/// signature. `arena` is expected to live at least as long as whatever
+/// `resolveStore` eventually returns -- every concrete instance built from
+/// this context is allocated through it, never freed individually. `vars`
+/// is `env` pre-wrapped as `core.conf.Vars`, computed once by `resolveStore`,
+/// so a decorator that needs it (`DiskStore`, `SchemaValidationStore`)
+/// doesn't need its own dependency on `env.zig` just to derive it again.
+pub const ComposeCtx = struct {
     arena: Allocator,
     vault: []const u8,
     namespace: []const u8,
     env: *std.process.Environ.Map,
+    vars: core.conf.Vars,
     self_path: []const u8,
     inner_store: Store,
     inner_link_graph: LinkGraph,
     inner_renamer: Renamer,
+    inner_search_filtered: SearchFiltered,
 };
 
-/// `search_filtered` is deliberately absent -- no integration overrides it,
-/// so `resolveStore`'s own `resolved_search_filtered` is built once, straight
-/// off `disk`, and never threaded through a compose layer at all.
 const ComposeResult = struct {
     store: Store,
     link_graph: LinkGraph,
     renamer: Renamer,
+    search_filtered: SearchFiltered,
 };
 
 /// One integration this build knows how to compose: `name` is what
 /// `SYNAPSE_VAULT_INTEGRATIONS` spells it as, `compose` builds that layer
-/// around whatever the chain has produced so far. This table is the single
+/// around whatever the chain has produced so far -- always
+/// `composeLayerFn(SomeType)`, never hand-written. This table is the single
 /// source of both "which names are valid" (`parseIntegrationsImpl`) and
 /// "how to build one" (`resolveStore`'s compose loop).
 const IntegrationHandler = struct {
@@ -129,22 +132,48 @@ const IntegrationHandler = struct {
     compose: *const fn (ctx: ComposeCtx) Allocator.Error!ComposeResult,
 };
 
-fn composeGit(ctx: ComposeCtx) Allocator.Error!ComposeResult {
-    const git = try ctx.arena.create(GitStore);
-    git.* = GitStore.init(ctx.arena, ctx.vault, ctx.inner_store, ctx.inner_link_graph, ctx.inner_renamer);
-    git.env = ctx.env;
-    git.self_path = ctx.self_path;
+/// Resolves one already-constructed layer's capabilities: `T`'s own
+/// `linkGraph()`/`renamer()`/`searchFiltered()` override the running value
+/// when `T` declares one (checked via `@hasDecl`, decided once per `T` at
+/// comptime -- the untaken branch is never even generated), otherwise the
+/// value carried in from whatever was built one step further in passes
+/// through unchanged. `store()` is the one capability every layer always
+/// has its own answer for, decorator or not.
+fn resolveCapabilities(comptime T: type, ptr: *T, ctx: ComposeCtx) ComposeResult {
     return .{
-        .store = git.store(),
-        // `linkGraph`/`searchFiltered` pass straight through -- `git` never
-        // overrides either.
-        .link_graph = ctx.inner_link_graph,
-        .renamer = git.renamer(),
+        .store = ptr.store(),
+        .link_graph = if (@hasDecl(T, "linkGraph")) ptr.linkGraph() else ctx.inner_link_graph,
+        .renamer = if (@hasDecl(T, "renamer")) ptr.renamer() else ctx.inner_renamer,
+        .search_filtered = if (@hasDecl(T, "searchFiltered")) SearchFiltered.from(T, ptr) else ctx.inner_search_filtered,
     };
 }
 
+/// Builds one layer of any type `T`: allocates it through the context's
+/// arena, constructs it via `T.initCtx` (every decorator's own adapter over
+/// its narrower `init(...)`), then resolves its capabilities. The one
+/// function every layer -- `DiskStore`, `SchemaValidationStore`, or any
+/// configured integration -- goes through, whether called directly (the two
+/// mandatory layers, below) or via `composeLayerFn` (the dispatch table).
+fn composeLayer(comptime T: type, ctx: ComposeCtx) Allocator.Error!ComposeResult {
+    const ptr = try ctx.arena.create(T);
+    ptr.* = try T.initCtx(ctx);
+    return resolveCapabilities(T, ptr, ctx);
+}
+
+/// Generates the one function pointer `integration_handlers` needs for `T`,
+/// the same "comptime `T` known here, plain runtime closure out" idiom
+/// `Store.from` already uses -- a new integration is one more type named at
+/// one more table row, never a hand-written function.
+fn composeLayerFn(comptime T: type) *const fn (ctx: ComposeCtx) Allocator.Error!ComposeResult {
+    return struct {
+        fn compose(ctx: ComposeCtx) Allocator.Error!ComposeResult {
+            return composeLayer(T, ctx);
+        }
+    }.compose;
+}
+
 const integration_handlers = [_]IntegrationHandler{
-    .{ .name = "git", .compose = composeGit },
+    .{ .name = "git", .compose = composeLayerFn(GitStore) },
 };
 
 /// Splits `value` on `,` and validates before anything gets constructed:
@@ -240,29 +269,45 @@ pub fn resolveStore(
     prog: ?[]const u8,
     self_path: []const u8,
 ) !?ResolvedStore {
-    const value_owned = try core.conf.resolve(arena, io, env_bridge.vars(env), "SYNAPSE_VAULT_INTEGRATIONS");
+    const vars = env_bridge.vars(env);
+    const value_owned = try core.conf.resolve(arena, io, vars, "SYNAPSE_VAULT_INTEGRATIONS");
 
     var count: usize = 0;
     var buf: [8][]const u8 = undefined;
     _ = parseIntegrationsImpl(value_owned orelse "", prog, &buf, &count) orelse return null;
     const names = buf[0..count];
 
-    const disk = try arena.create(DiskStore);
-    disk.* = try DiskStore.init(arena, vault, namespace);
-    disk.vars = env_bridge.vars(env);
-
-    var current_store: Store = disk.store();
-    var current_link_graph: LinkGraph = disk.linkGraph();
-    var current_renamer: Renamer = disk.renamer();
-    // Never threaded through a compose layer -- no integration overrides
-    // filtered search, so this is the whole answer, resolved once.
-    const search_filtered: SearchFiltered = SearchFiltered.from(DiskStore, disk);
+    // `DiskStore` seeds the fold: it has no inner layer, so every `@hasDecl`
+    // check in `resolveCapabilities` is true for it and the `inner_*` fields
+    // below are structurally unreachable, comptime-elided dead branches --
+    // never generated, never read, for this one call.
+    var result = try composeLayer(DiskStore, .{
+        .arena = arena,
+        .vault = vault,
+        .namespace = namespace,
+        .env = env,
+        .vars = vars,
+        .self_path = self_path,
+        .inner_store = undefined,
+        .inner_link_graph = undefined,
+        .inner_renamer = undefined,
+        .inner_search_filtered = undefined,
+    });
 
     // Validation is a correctness boundary, not a selectable integration:
     // every configured decorator wraps it, and it always wraps DiskStore.
-    const validation = try arena.create(SchemaValidationStore);
-    validation.* = SchemaValidationStore.init(arena, current_store, env_bridge.vars(env));
-    current_store = validation.store();
+    result = try composeLayer(SchemaValidationStore, .{
+        .arena = arena,
+        .vault = vault,
+        .namespace = namespace,
+        .env = env,
+        .vars = vars,
+        .self_path = self_path,
+        .inner_store = result.store,
+        .inner_link_graph = result.link_graph,
+        .inner_renamer = result.renamer,
+        .inner_search_filtered = result.search_filtered,
+    });
 
     // Outer-to-inner in `names`, so build innermost-first: walk in reverse.
     var i = names.len;
@@ -273,26 +318,25 @@ pub fn resolveStore(
             if (std.mem.eql(u8, h.name, name)) break h;
         } else unreachable; // parseIntegrationsImpl already validated every name
 
-        const result = try handler.compose(.{
+        result = try handler.compose(.{
             .arena = arena,
             .vault = vault,
             .namespace = namespace,
             .env = env,
+            .vars = vars,
             .self_path = self_path,
-            .inner_store = current_store,
-            .inner_link_graph = current_link_graph,
-            .inner_renamer = current_renamer,
+            .inner_store = result.store,
+            .inner_link_graph = result.link_graph,
+            .inner_renamer = result.renamer,
+            .inner_search_filtered = result.search_filtered,
         });
-        current_store = result.store;
-        current_link_graph = result.link_graph;
-        current_renamer = result.renamer;
     }
 
     return .{
-        .resolved_store = current_store,
-        .resolved_link_graph = current_link_graph,
-        .resolved_renamer = current_renamer,
-        .resolved_search_filtered = search_filtered,
+        .resolved_store = result.store,
+        .resolved_link_graph = result.link_graph,
+        .resolved_renamer = result.renamer,
+        .resolved_search_filtered = result.search_filtered,
     };
 }
 
@@ -426,6 +470,104 @@ test "searchFiltered runs against disk directly regardless of which integrations
     }
     try testing.expectEqual(@as(usize, 1), hits.len);
     try testing.expectEqualStrings("designs/x.md", hits[0].node);
+}
+
+/// A minimal decorator that overrides only `searchFiltered`, leaving
+/// `linkGraph`/`renamer` undeclared -- neither `SchemaValidationStore` nor
+/// `GitStore` overrides `searchFiltered` today, so nothing in the real
+/// chain exercises that branch of `resolveCapabilities`. `read`/`write`/
+/// `list`/`search` are plain passthroughs, needed only because `Store.from`
+/// requires all four.
+const FakeSearchOverride = struct {
+    inner: Store,
+
+    pub fn store(self: *FakeSearchOverride) Store {
+        return Store.from(FakeSearchOverride, self);
+    }
+    pub fn read(self: *FakeSearchOverride, gpa: Allocator, io: Io, node: []const u8) anyerror!?[]u8 {
+        return self.inner.read(gpa, io, node);
+    }
+    pub fn write(self: *FakeSearchOverride, io: Io, node: []const u8, body: []const u8) anyerror!Store.WriteResult {
+        return self.inner.write(io, node, body);
+    }
+    pub fn list(self: *FakeSearchOverride, gpa: Allocator, io: Io) anyerror![]const []const u8 {
+        return self.inner.list(gpa, io);
+    }
+    pub fn search(self: *FakeSearchOverride, gpa: Allocator, io: Io, query: []const u8) anyerror![]const Store.Hit {
+        return self.inner.search(gpa, io, query);
+    }
+    pub fn searchFiltered(self: *FakeSearchOverride, gpa: Allocator, io: Io, query: []const u8, path_filter: ?std.json.Value) anyerror![]const Store.Hit {
+        _ = self;
+        _ = io;
+        _ = query;
+        _ = path_filter;
+        const hits = try gpa.alloc(Store.Hit, 1);
+        hits[0] = .{ .node = try gpa.dupe(u8, "overridden.md"), .score = 1.0, .context = try gpa.dupe(u8, "") };
+        return hits;
+    }
+};
+
+test "resolveCapabilities lets a decorator override searchFiltered while linkGraph/renamer still fall through" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
+    const vault = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+
+    var env = try isolatedEnv(gpa, vault);
+    defer env.deinit();
+
+    var io_threaded: std.Io.Threaded = .init(gpa, .{});
+    defer io_threaded.deinit();
+    const io = io_threaded.io();
+
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const vars = env_bridge.vars(&env);
+    const disk_result = try composeLayer(DiskStore, .{
+        .arena = arena,
+        .vault = vault,
+        .namespace = "",
+        .env = &env,
+        .vars = vars,
+        .self_path = "",
+        .inner_store = undefined,
+        .inner_link_graph = undefined,
+        .inner_renamer = undefined,
+        .inner_search_filtered = undefined,
+    });
+
+    var fake: FakeSearchOverride = .{ .inner = disk_result.store };
+    const result = resolveCapabilities(FakeSearchOverride, &fake, .{
+        .arena = arena,
+        .vault = vault,
+        .namespace = "",
+        .env = &env,
+        .vars = vars,
+        .self_path = "",
+        .inner_store = disk_result.store,
+        .inner_link_graph = disk_result.link_graph,
+        .inner_renamer = disk_result.renamer,
+        .inner_search_filtered = disk_result.search_filtered,
+    });
+
+    // Not declared on FakeSearchOverride -- fall through to disk's, unchanged.
+    try testing.expectEqual(disk_result.link_graph.ptr, result.link_graph.ptr);
+    try testing.expectEqual(disk_result.renamer.ptr, result.renamer.ptr);
+
+    // Declared on FakeSearchOverride -- overridden, not inherited from disk.
+    const hits = try result.search_filtered.searchFiltered(gpa, io, "anything", null);
+    defer {
+        for (hits) |h| {
+            gpa.free(h.node);
+            gpa.free(h.context);
+        }
+        gpa.free(hits);
+    }
+    try testing.expectEqual(@as(usize, 1), hits.len);
+    try testing.expectEqualStrings("overridden.md", hits[0].node);
 }
 
 test "self_path threads through to GitStore even when git is not the outermost integration" {

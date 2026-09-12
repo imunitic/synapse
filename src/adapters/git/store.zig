@@ -24,6 +24,7 @@ const disk_store = @import("../disk/store.zig");
 const git_sync = @import("../git_sync.zig");
 const process = @import("../process.zig");
 const env_bridge = @import("../env.zig");
+const store_resolve = @import("../store_resolve.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -31,6 +32,7 @@ const Store = ports.Store;
 const LinkGraph = ports.LinkGraph;
 const Renamer = ports.Renamer;
 const DiskStore = disk_store.DiskStore;
+const ComposeCtx = store_resolve.ComposeCtx;
 
 /// Past this many local commits ahead of upstream, `write` spawns a
 /// detached Pusher instead of leaving them to pile up -- the same knob
@@ -91,6 +93,17 @@ pub const GitStore = struct {
             .inner_link_graph = inner_link_graph,
             .rename_impl = .{ .vault = vault, .inner = inner_renamer },
         };
+    }
+
+    /// `initCtx` alongside `init`, not instead of it -- `init` keeps its own
+    /// narrow signature so the one existing direct-call test below stays
+    /// untouched. Sets `env`/`self_path` itself before returning, replacing
+    /// what used to be `composeGit`'s post-construction field mutation.
+    pub fn initCtx(ctx: ComposeCtx) Allocator.Error!GitStore {
+        var git = init(ctx.arena, ctx.vault, ctx.inner_store, ctx.inner_link_graph, ctx.inner_renamer);
+        git.env = ctx.env;
+        git.self_path = ctx.self_path;
+        return git;
     }
 
     pub fn store(self: *GitStore) Store {

@@ -8,6 +8,7 @@
 const std = @import("std");
 const ports = @import("ports");
 const core = @import("core");
+const store_resolve = @import("../store_resolve.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -47,6 +48,15 @@ pub const DiskStore = struct {
             .link_graph = .{ .vault = owned_vault },
             .rename_impl = .{ .vault = owned_vault },
         };
+    }
+
+    /// `initCtx` alongside `init`, not instead of it -- `init` keeps its own
+    /// narrow signature so nothing outside `resolveStore`'s composition path
+    /// needs to know `ComposeCtx` exists.
+    pub fn initCtx(ctx: store_resolve.ComposeCtx) Allocator.Error!DiskStore {
+        var disk = try init(ctx.arena, ctx.vault, ctx.namespace);
+        disk.vars = ctx.vars;
+        return disk;
     }
 
     pub fn deinit(self: *DiskStore) void {
