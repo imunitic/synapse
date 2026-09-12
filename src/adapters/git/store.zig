@@ -24,7 +24,7 @@ const disk_store = @import("../disk/store.zig");
 const git_sync = @import("../git_sync.zig");
 const process = @import("../process.zig");
 const env_bridge = @import("../env.zig");
-const store_resolve = @import("../store_resolve.zig");
+const compose_ctx = @import("../compose_ctx.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -32,7 +32,7 @@ const Store = ports.Store;
 const LinkGraph = ports.LinkGraph;
 const Renamer = ports.Renamer;
 const DiskStore = disk_store.DiskStore;
-const ComposeCtx = store_resolve.ComposeCtx;
+const ComposeCtx = compose_ctx.ComposeCtx;
 
 /// Past this many local commits ahead of upstream, `write` spawns a
 /// detached Pusher instead of leaving them to pile up -- the same knob

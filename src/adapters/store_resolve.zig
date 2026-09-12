@@ -28,6 +28,7 @@ const disk_store = @import("disk/store.zig");
 const git_store = @import("git/store.zig");
 const schema_validation_store = @import("schema_validation_store.zig");
 const env_bridge = @import("env.zig");
+const compose_ctx = @import("compose_ctx.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -92,27 +93,7 @@ pub const ResolvedStore = struct {
     }
 };
 
-/// What every layer needs to construct itself around whatever the chain has
-/// produced so far -- `env`/`self_path` are only meaningful to `git`, but
-/// every `initCtx` gets the same context so none of them need a bespoke
-/// signature. `arena` is expected to live at least as long as whatever
-/// `resolveStore` eventually returns -- every concrete instance built from
-/// this context is allocated through it, never freed individually. `vars`
-/// is `env` pre-wrapped as `core.conf.Vars`, computed once by `resolveStore`,
-/// so a decorator that needs it (`DiskStore`, `SchemaValidationStore`)
-/// doesn't need its own dependency on `env.zig` just to derive it again.
-pub const ComposeCtx = struct {
-    arena: Allocator,
-    vault: []const u8,
-    namespace: []const u8,
-    env: *std.process.Environ.Map,
-    vars: core.conf.Vars,
-    self_path: []const u8,
-    inner_store: Store,
-    inner_link_graph: LinkGraph,
-    inner_renamer: Renamer,
-    inner_search_filtered: SearchFiltered,
-};
+const ComposeCtx = compose_ctx.ComposeCtx;
 
 const ComposeResult = struct {
     store: Store,
