@@ -110,15 +110,15 @@ Every new note is created through an authoring command, never by freeforming a f
 - `/synapse-note` (bare mode) creates plain notes in any category -- `research/`,
   `scratchpad/`, `inbox/`, anything that is not a tracked task or a design note. It mints the
   frontmatter (`schema`, `title`, `note_id`, `created`, `updated`, `tags`) to the note schema's
-  contract, including full-timestamp format.
+  contract, sampling `created`/`updated` from `synapse now`.
 - `/synapse-note --task` creates tracked task notes under `tasks/{project}/`.
 - `/synapse-design-note` and `/synapse-task-note` handle design discussions and compiled tasks --
   both delegate the file-minting mechanics to `/synapse-note` internally.
 
 `vault-write` is for *editing existing notes*, or the rare read-modify-write round trip. If a
 direct creation is ever genuinely unavoidable, follow bare mode's frontmatter contract exactly
-(`schema`/`title`/`note_id`/`created`/`updated`/`tags`, full `%Y-%m-%d %H:%M:%S %Z` timestamps)
-rather than improvising a shape.
+(`schema`/`title`/`note_id`/`created`/`updated`/`tags`, with `created`/`updated` taken from
+`synapse now` -- never hand-typed) rather than improvising a shape.
 
 Schemas are opt-in by declaration: a note whose frontmatter declares `schema:` is held to that
 schema's contract on every `vault-write`/`vault-patch`; a note without the field is never
