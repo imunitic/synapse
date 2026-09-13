@@ -238,7 +238,7 @@ edit history here worth tracking separately.
 ## Filename
 
 `designs/{project}/{Topic}.md` — grouped one level deeper into a per-project
-subfolder named by the note's own `project:` frontmatter value (e.g. `designs/eon/`,
+subfolder named by the note's own `project:` frontmatter value (e.g. `designs/widget/`,
 `designs/synapse/`), the same mapping `tasks/{project}/` uses. Sanitize filesystem-illegal
 characters (`/ : * ? " < > |`). No slug, no numbering — vault filenames are the title itself.
 

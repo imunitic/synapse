@@ -78,8 +78,9 @@ behind what's actually on disk.
 ## Filenames, frontmatter, and schemas
 
 Filenames are the human-readable title itself — no timestamp prefix, no slug — since a wikilink
-resolves by filename stem, not by title or path. Newly authored notes declare one of three shipped
-contracts: `vault-note/v1`, `vault-design-note/v1`, or `vault-task-note/v1`. Their YAML schema files
+resolves by filename stem, not by title or path. Newly authored notes declare one of four shipped
+contracts: `vault-note/v1`, `vault-design-note/v1`, `vault-task-note/v1`, or `graph-node/v1`
+(code-graph node files, written by `synapse write-node`). Their YAML schema files
 ship under `packages/synapse/schema/` and resolve at runtime from
 `$SYNAPSE_CONTENT_ROOT/schema/{schema-id}.yaml`.
 

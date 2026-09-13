@@ -83,8 +83,9 @@ just two fields (`title`, `created` — see `synapse-note`'s bare-mode format), 
 guessing:
 
 - Missing `title` → the filename with its `.md` extension stripped.
-- Missing `created` → `stat.ctime`, formatted `YYYY-MM-DD HH:MM` to match every other note's
-  convention.
+- Missing `created` → `stat.ctime`, formatted as RFC3339 with a numeric offset (`synapse now`'s
+  own shape) to match every other note's real `created`/`updated` convention — not `built_at`'s
+  coarser `YYYY-MM-DD HH:MM`, which is graph-node-only.
 
 Apply with `synapse frontmatter set <path> <key> <value>` (or `vault-patch --frontmatter`, which
 delegates to the same byte-preserving mechanism) — either writes exactly this one field and leaves
@@ -154,7 +155,7 @@ proposal, for the vault owner to act on.
 ## Step 6: Compose the proposal
 
 One note, `inbox/Vault tidy — {YYYY-MM-DD}.md` (fetch machine local time, never infer it), written
-via `vault_write` (creates `inbox/` automatically if it doesn't exist yet; if `inbox/` isn't already
+via `vault-write` (creates `inbox/` automatically if it doesn't exist yet; if `inbox/` isn't already
 in `Index.md`'s folder list, add it there in the same pass, matching the folder-layout rule every
 other command that can create a top-level folder already follows). Two sections:
 

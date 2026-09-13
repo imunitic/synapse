@@ -12,7 +12,7 @@ plain **legacy** note, always valid, and validation never runs on it. A note tha
 (see [Writes](#writes)), and a `vault-check` run audits every schema-declaring note in one
 pass (see [vault-check](#vault-check)).
 
-Three schemas ship in the `@imunitic/synapse` package, under
+Four schemas ship in the `@imunitic/synapse` package, under
 `$SYNAPSE_CONTENT_ROOT/schema/`:
 
 | Schema id | Note kind | Shipped file |
@@ -20,6 +20,7 @@ Three schemas ship in the `@imunitic/synapse` package, under
 | `vault-note/v1` | a general research/decision note | `schema/vault-note/v1.yaml` |
 | `vault-design-note/v1` | a design note (`/synapse-design-note`) | `schema/vault-design-note/v1.yaml` |
 | `vault-task-note/v1` | a task note (`/synapse-task-note`) | `schema/vault-task-note/v1.yaml` |
+| `graph-node/v1` | a code-graph node, written by `synapse write-node` | `schema/graph-node/v1.yaml` |
 
 A schema id has the form `{kind}/{version}` and always resolves to
 `$SYNAPSE_CONTENT_ROOT/schema/{kind}/{version}.yaml` — it must stay safely inside that
@@ -68,11 +69,12 @@ See [Schema rule language](synapse-schema-rules.md) for the full `checks:`/`lint
 
 ## `frontmatter.fields`
 
-The only keys under `frontmatter` in v1. Each field is a mapping of rules:
+`fields` and `field_order` are the only keys under `frontmatter` in v1. Each field under `fields`
+is a mapping of rules:
 
 | Rule | Meaning |
 |---|---|
-| `type` | `string`, `timestamp`, `list`, `integer`, or `boolean`. For `list`, `items` says the element type — v1 supports only `string` elements. |
+| `type` | `string`, `timestamp`, `list`, `integer`, `boolean`, or `any` (no shape constraint — used by `graph-node/v1`'s `sources`/`grounded_in` list-of-mappings fields). For `list`, `items` says the element type — v1 supports only `string` elements. |
 | `required` | The field must be present. |
 | `min_length` | String/timestamp length floor, **at least 1**. |
 | `const` | The field must equal this exact string. |
@@ -84,6 +86,12 @@ The only keys under `frontmatter` in v1. Each field is a mapping of rules:
 Known-but-unenforced flags appear in the shipped schemas today (`format`,
 `timezone`, `update_on`) — they document intent without adding a rule the validator
 doesn't implement.
+
+`field_order: relative` (a sibling of `fields`, only value currently accepted) requires every pair
+of declared fields to appear in the real note in the same relative order the schema declares
+them — `graph-node/v1` declares `sources` last specifically to force it last in the real file,
+since that field alone can run to hundreds of `path`/`hash` pairs on a large repo and would
+otherwise sit ahead of small, frequently-looked-up scalars like `stale`.
 
 Frontmatter stays **open-world**: a field not declared by the schema is preserved and
 ignored, never an error. Both flow (`tags: [a, b]`) and block

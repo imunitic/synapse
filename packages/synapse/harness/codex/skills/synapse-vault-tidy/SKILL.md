@@ -155,7 +155,7 @@ proposal, for the vault owner to act on.
 ## Step 6: Compose the proposal
 
 One note, `inbox/Vault tidy — {YYYY-MM-DD}.md` (fetch machine local time, never infer it), written
-via `vault_write` (creates `inbox/` automatically if it doesn't exist yet; if `inbox/` isn't already
+via `vault-write` (creates `inbox/` automatically if it doesn't exist yet; if `inbox/` isn't already
 in the index note's folder list, add it there in the same pass, matching the folder-layout rule every
 other skill that can create a top-level folder already follows). Two sections:
 

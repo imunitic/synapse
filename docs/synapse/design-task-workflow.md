@@ -71,7 +71,7 @@ done" always stays a decision a person makes, not one the automation reaches on 
 When asked to create a GitHub issue from a task note, the mapping is direct, not reinterpreted:
 
 - **Title** — `<task-id> — <description>`, derived straight from the note's own heading.
-- **Body** — the checklist section, unchanged, straight into `gh issue create --body-file`.
+- **Body** — the top-level heading's full content (lead description plus the checklist), unchanged, straight into `gh issue create --body-file`.
 - **First comment** — the `## Notes` section, unchanged, straight into `gh issue comment
   --body-file`.
 - **State** — every issue is created open, then closed as a separate step only for `DONE`

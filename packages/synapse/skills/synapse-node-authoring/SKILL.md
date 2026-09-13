@@ -9,11 +9,9 @@ Loaded wherever a *batch* of nodes needs prose written, not a single lazy regene
 is the `synapse-node` skill's job, one node, triggered by a stale read). Today's caller is
 `/synapse-init`'s node-authoring step. `/synapse-rebuild-full` inherits this for free — it
 delegates to `/synapse-init`'s procedure by reference rather than repeating it.
-`/synapse-rebuild-diff`'s *re-orient* class is a natural second caller (see the design's own
-Open Questions and the vault's `inbox/wire synapse-rebuild-diff's re-orient class onto the
-parallel-authoring skill` note) but is not wired to this skill yet — it still
-gathers its facts ad hoc rather than through `rank --lists`/`link-graph`, and needs that fixed
-first.
+`/synapse-rebuild-diff`'s *re-orient* class is a natural second caller but is not wired to this
+skill yet — it still gathers its facts ad hoc rather than through `rank --lists`/`link-graph`,
+and needs that fixed first.
 
 This skill owns two things: **deciding how many authors run at once**, and **the standing
 contract every author works under**, whichever pool size is in play. Which nodes need
@@ -132,23 +130,22 @@ flowing text.
 
 Same model as the orchestrating session, no override — matches the constraint that "a
 parallel author produces exactly what a sequential one does," and keeps the quality
-comparison in the design's own checklist item to one variable (isolation/concurrency) rather
-than two (that, plus a cheaper model).
+comparison to one variable (isolation/concurrency) rather than two (that, plus a cheaper model).
 
 **Why this is spelled out explicitly rather than assumed inherited:** a prior pooled run shipped
-hard-wrapped nodes despite the vault's no-hard-wrap rule living in global `CLAUDE.md`
-instructions — evidently not reliably carried into a fresh subagent's behavior on its own.
-Loading `synapse-node-format` does not cover it either, since that skill is about the node's
-structure, not the vault's prose-formatting convention. State it here, every time, rather than
-assuming it travels for free.
+hard-wrapped nodes despite the vault's own no-hard-wrap convention (every paragraph is one
+continuous line in the source, letting the viewer soft-wrap it) — evidently not reliably carried
+into a fresh subagent's behavior on its own. Loading `synapse-node-format` does not cover it
+either, since that skill is about the node's structure, not the vault's prose-formatting
+convention. State it here, every time, rather than assuming it travels for free.
 
 ### 3d. Verify on completion, retry once, then fall back
 
 When a completion notification arrives, read `b-NN.md` yourself — this is a check you read the
-file for, same as the section check next to it, not a shell one-liner (this codebase's own
-frontmatter reader deliberately avoids `grep`/`sed`/`awk` for exactly this field, per
-`core/query.zig`'s docstring — a hand-rolled pattern here would drift from it the same way the
-gap this section exists to close first happened). Confirm the file exists, opens with
+file for, same as the section check next to it, not a shell one-liner (`core/query.zig` is this
+codebase's own tested, compiled frontmatter reader — a fresh hand-rolled `grep`/`sed`/`awk`
+pattern here would drift from it the same way the gap this section exists to close first
+happened). Confirm the file exists, opens with
 frontmatter carrying a non-empty `summary:` field (`synapse-node-format`'s own contract — see
 its "Each `b-NN.md` opens with its own one-line summary in frontmatter" line), and has
 `## Summary`, `## Crux`, and `## Links` sections. Pass → dispatch the next queued node (§3b) and
@@ -177,9 +174,8 @@ Not a synonym for §2. It still bundles a brief, dispatches to an isolated subag
 and retries-then-falls-back — only the concurrency is 1. Useful on its own terms: it isolates
 whether a quality difference against the sequential baseline comes from *isolation* (no
 author sees another's output or memory — present even at pool 1) or from *concurrency*
-itself (only present at pool ≥ 2). Reach for it specifically when running the design's
-still-open "compare prose quality against a sequential build" checklist item, before
-committing to a higher pool size.
+itself (only present at pool ≥ 2). Reach for it specifically when comparing prose quality
+against a sequential build, before committing to a higher pool size.
 
 ## Guardrails
 
@@ -188,13 +184,12 @@ committing to a higher pool size.
   read-only during it — this is what removes the concurrent-writer problem rather than merely
   managing it.
 - **No author reads another node's brief or body.** Overlap in *source* reads (two nodes'
-  file lists sharing a path) is expected and accepted — see the design's Open Questions — but
-  an author's own inputs are its brief and nothing else.
+  file lists sharing a path) is expected and accepted, but an author's own inputs are its
+  brief and nothing else.
 - **Never grow the pool mid-run.** The size is resolved once at the start (§1); do not read
   `synapse.conf` again partway through a build.
 - **A retry gets the same brief, not a rewritten one.** If the brief itself was the problem,
   fixing it is a §3a-level fix (regenerate every brief and restart), not something to
   improvise per-node inside the retry.
 - **`part_of` is never computed, at any pool size.** It is containment, not reference, and
-  deriving it from directory nesting would turn a folder layout into a claim about concepts —
-  the same reasoning the design's own Alternatives section already rejected this on.
+  deriving it from directory nesting would turn a folder layout into a claim about concepts.

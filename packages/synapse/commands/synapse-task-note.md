@@ -35,7 +35,7 @@ Use those instead of reinventing a parallel view.
   nothing to compile. Reopen it with `/synapse-design-note \"{topic}\"` and mark it Ready if that's
   changed."
 - A task note already exists for this design (check the design note's `> Compiled task:` annotation,
-  or `search_query` for a `tasks/` note linking to it) → show its current state (title, `status:`,
+  or `synapse vault-search-text` for a `tasks/` note linking to it) → show its current state (title, `status:`,
   checked/total) and ask: view it, or recompile (only on explicit confirmation — recompiling rewrites
   the checklist, so any progress on items that no longer exist is lost).
 

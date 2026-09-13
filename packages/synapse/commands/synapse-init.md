@@ -40,8 +40,8 @@ No arguments — always operates on the repo containing the current working dire
 Every step below needs the same three facts, resolved once up front:
 
 1. **Repo root:** `git rev-parse --show-toplevel`.
-2. **Namespace key:** `{repo}@{branch}`, resolved by `synapse_namespace` in
-   `synapse namespace` — never derived by hand here, since every component resolves it the same way
+2. **Namespace key:** `{repo}@{branch}`, resolved by `synapse namespace`
+   (`core.identity.namespace`) — never derived by hand here, since every component resolves it the same way
    from that one place and a second derivation is how they start disagreeing. The repo half comes
    from the *remote's* basename, not the directory: a linked worktree's directory name differs from
    its parent's, and that difference is exactly what must not matter. The branch half is
@@ -51,8 +51,8 @@ Every step below needs the same three facts, resolved once up front:
    and `stale` describing a single tree, and it means a branch switch leaves the old graph intact
    rather than invalidating it wholesale.
 
-   **On a detached HEAD, stop.** There is no branch, so there is no key — `synapse_namespace` exits
-   1 and says so. Do not invent one, and do not fall back to the directory name: every detached
+   **On a detached HEAD, stop.** There is no branch, so there is no key — `synapse namespace` exits
+   1 with `core.identity.detached_message`. Do not invent one, and do not fall back to the directory name: every detached
    checkout everywhere would collide on the same value. Tell the user to check out a branch first.
 
    Distinct from the short task-prefix scheme (`project-name=prefix`) used by

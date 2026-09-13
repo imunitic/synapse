@@ -14,7 +14,7 @@ speculatively.
 
 Whenever a `synapse/{project}/{Node}.md` file is about to be read **for its content to actually be
 used** (orienting on a subsystem, answering a question about it, deciding where to make a change)
-— not for a `vault_list`/title-only skim. Run this procedure *before* trusting what comes back from
+— not for a `vault-list`/title-only skim. Run this procedure *before* trusting what comes back from
 that read. This is the one Synapse mechanism that isn't a hook: a hook is compiled code with no
 reasoning, and classifying whether a file "fits" a node is exactly the kind of judgment call that
 needs one.
@@ -133,7 +133,7 @@ needs one.
 
      It replaces only the generated region and re-emits everything after the closing fence verbatim,
      which is what makes the `## Notes` guarantee enforceable rather than a promise.
-   - **Never hand-write the frontmatter**, with `vault_patch` at `targetType: frontmatter` or
+   - **Never hand-write the frontmatter**, with `vault-patch --frontmatter <key>` or
      otherwise. `--frontmatter` only ever writes a single scalar value, so it can't represent
      `sources:`/`grounded_in:` at all, and enumerating the rest of a node's fields by hand one call
      at a time is how `summary` and `commit` get silently dropped — which then breaks the next
@@ -195,7 +195,7 @@ needs one.
 - Never treat the script's exit 1 as a clean result. It means the check could not run.
 - Never regenerate a node that neither the script nor its `stale:` flag named — regeneration is real
   cost, reserved for actual staleness.
-- Never `vault_read` a hub node just to read its summary. Offset past the frontmatter (step 3).
+- Never `vault-read` a hub node just to read its summary. Offset past the frontmatter (step 3).
 - Never silently fold a regeneration or an unassigned-file attachment into normal output — both
   get an explicit, visible announcement line.
 - `## Notes` content is sacrosanct across regeneration — if a rewrite would touch it, that's a bug

@@ -98,7 +98,7 @@ the heuristic missed outright.
 Every case is checked against real source before being trusted — a candidate matching zero
 definitions is an automatic reject, everything past that zero-cost floor is read and judged by eye
 — the same standard tier 1 already applies, extended rather than relaxed for material with less to
-work with. The registry (`~/.claude/synapse-grammars.conf`) records which tier won per extension
+work with. The registry (`synapse-grammars.conf`, resolved through the same `$XDG_CONFIG_HOME`/`~/.config/synapse/` tiering every other conf file gets, falling back to `~/.claude/synapse-grammars.conf` last) records which tier won per extension
 (`"queries": "tags" | "locals" | "generated"`, absent meaning `"tags"` so every entry predating
 this addition stays valid); `"locals"`/`"generated"` mean generation was attempted from that source
 material and its output didn't verify well enough to write, not that the tier won without an attempt
@@ -165,15 +165,20 @@ the Graph, but real, with nothing but this binary as its price of entry.
 
 ## Vault-freedom, measured
 
-Counting vault references (`SYNAPSE_VAULT_DIR`, `ports.Store`, `ports.LinkGraph`) across the
-subcommands of `synapse`: most are vault-free outright — `namespace`, `build-index`,
-`build-lists`, `build-refs`, `callers`, `enumerate`, `gate`, `push-nodes`, `rank`, `vocab`, `tags`,
-`tags-cache`, `link-graph`, and `brief`. The remaining eight (`write-node`, `frontmatter`,
-`query`, `build-project-index`, `graph-clean`, `graph-wipe`, `index`, `doctor`) are *path*-bound,
-not *network*-bound at all: every write is plain disk I/O (`frontmatter` a plain disk read first
-too, for the one field it's changing) under either `Store` backend, `links` parses a node's own
-`## Links` section directly, and `doctor` has no live-reachability check at all -- every check it
-runs is a local file or config read.
+Counting vault references (`SYNAPSE_VAULT_DIR`, `ports.Store`, `ports.LinkGraph`, or a
+vault-resident path resolved from either) across all 43 of `synapse`'s subcommands: the
+code-graph/cache side is vault-free outright — `namespace`, `build-index`, `build-lists`,
+`build-refs`, `build-deps`, `build-namespaces`, `callers`, `enumerate`, `gate`, `push-nodes`,
+`rank`, `vocab`, `tags`, `tags-cache`, `link-graph`, `brief`, `index` (its own `_index.bin` lives
+in the work dir, never the vault), `comments-check`, `comments-sweep`, and `now` -- 20 in total.
+Seven more are *path*-bound, not *network*-bound at all: `write-node`, `frontmatter`, `query`,
+`build-project-index`, `graph-clean`, `graph-wipe`, and `doctor` -- every write among these is
+plain disk I/O (`frontmatter` a plain disk read first too, for the one field it's changing) under
+either `Store` backend, `query`/`links` read a node's file or its `## Links` section directly off
+a resolved path, and `doctor` has no live-reachability check at all -- every check it runs is a
+local file or config read. The remaining 16 are the `vault-*` family itself (`vault-read` through
+`vault-rename`, plus the internal `vault-git-pusher`) -- obviously and entirely vault-bound, since
+being the vault's own read/write/search/link-graph surface is their whole reason to exist.
 
 The counting is easier than it was, and that is the point of the port rather than a side effect:
 this was fifteen shell scripts plus a compiled binary, so "is this piece vault-free" meant reading

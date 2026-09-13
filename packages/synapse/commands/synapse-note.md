@@ -32,7 +32,7 @@ Categorize:
 - **Prefixed notes**: `task_id` matches `{prefix}-\d+`. Group by the distinct prefix found (whatever
   prefixes actually appear — don't assume a fixed set). Within each prefix, split further into:
   - **Open**: `status` is `TODO`, `IN-PROGRESS`, or `REVIEW` (or missing — treat as open)
-  - **Closed**: `status` is `DONE`, `CANCELED`, or `CANCELLED`
+  - **Closed**: `status` is `DONE` or `CANCELED`
 - **Other notes**: no `task_id`, or one that doesn't match `{prefix}-\d+`
 
 Sort each prefix group's notes numerically by task id (`{prefix}-9` before `{prefix}-10`); sort other notes alphabetically by title. Report one section per prefix found — "{prefix} notes — open", "{prefix} notes — closed" — plus "Other notes", each line as `{task-id or filename} — {title} [{status}]`. Omit a section header if it has zero entries. End with a total count.

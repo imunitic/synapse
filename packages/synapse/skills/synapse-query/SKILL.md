@@ -88,14 +88,14 @@ resolve the specific symbol-level question:
 ## Guardrails
 
 - **Never grep the whole repo before checking `synapse/{project}/Index.md`**, unless this repo has
-  no Synapse namespace at all (`vault_list` on `synapse/{project}/` comes back empty). Before
+  no Synapse namespace at all (`vault-list` on `synapse/{project}/` comes back empty). Before
   concluding there's nothing to consult, check whether the task actually concerns a *different*
   checkout — `synapse query --namespace <repo>@<branch> body "{Node}"` reaches that repo's graph
   without switching directories or checking it out. Only when no namespace anywhere covers the task
   is there truly nothing to consult; say so and proceed normally.
 - **Never treat a node's summary as ground truth for a symbol-level claim** it wasn't built to make
   precisely — see "When a node isn't enough" above.
-- **Never `vault_read` a node just to read its prose — including a node in another checkout's
+- **Never `vault-read` a node just to read its prose — including a node in another checkout's
   namespace.** That pulls the full frontmatter, which can run to megabytes on a hub node. Use
   `synapse query body` (add `--namespace <repo>@<branch>` for a graph outside this checkout) — see
   the cost note above.

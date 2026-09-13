@@ -79,7 +79,7 @@ up as raw source in Markview and other plain Markdown viewers, while a linked im
   from the first lane into the second. It opens `synapse-graph.md` as that doc's overview, with
   `synapse-graph-tiers.png` sitting further down in the staleness section it illustrates.
 
-**To change a diagram, edit its `.mmd` and run `docs/generate-diagrams.sh`.** It re-renders only the
+**To change a diagram, edit its `.mmd` and run `docs/synapse/generate-diagrams.sh`.** It re-renders only the
 sources whose hash has moved and records each one in `diagrams/.rendered`, so `--check` — which the test
 suite runs — fails if a `.mmd` was edited and never re-rendered. That matters more than it sounds: a
 stale diagram is worse than a missing one, because it is confidently wrong and nothing about looking at

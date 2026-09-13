@@ -231,6 +231,10 @@ already follows above, just additive instead of pruned. Named `References` rathe
 `## Links` for something unrelated (source files, typed relations) in that other kind of note
 sharing the same vault.
 
+Any string scalar that is all digits (e.g. a numeric-looking title) must be quoted: an
+unquoted all-digit value is parsed as an integer, which fails a `type: string` schema
+field. `title`, `project`, `note_id`, and both timestamps are quoted above.
+
 Resolve tags through the `synapse-vault` skill's configured vocabulary procedure. Fetch machine
 local time once (`synapse now`) — never infer it — and use the exact same value for `created` and
 `updated`.
@@ -241,7 +245,7 @@ edit history here worth tracking separately.
 ## Filename
 
 `designs/{project}/{Topic}.md` — grouped one level deeper into a per-project
-subfolder named by the note's own `project:` frontmatter value (e.g. `designs/eon/`,
+subfolder named by the note's own `project:` frontmatter value (e.g. `designs/widget/`,
 `designs/synapse/`), the same mapping tasks use. Sanitize filesystem-illegal
 characters (`/ : * ? " < > |`). No slug, no numbering — vault filenames are the title itself.
 

@@ -32,7 +32,7 @@ No arguments — always operates on the repo and branch containing the current w
 - Requires the `synapse` CLI on `PATH`. If it errors (no vault configured), say so and stop —
   same requirement `/synapse-init` has.
 - Must be run from inside a git repository, on a named branch (not detached `HEAD`) — same
-  requirement `/synapse-init` has, since `synapse_namespace` needs a branch to key on.
+  requirement `/synapse-init` has, since `synapse namespace` needs a branch to key on.
 
 ## Procedure
 

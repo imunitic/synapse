@@ -60,6 +60,8 @@ to orient someone already inside. A node without one is an error, not a default.
   a single-key lookup never has to scan past it. `graph-node/v1`'s schema enforces this order
   directly (`field_order: relative`); this document and `synapse write-node`'s own emission order
   agree with it, not the other way around.
+- **`branch`:** the branch half of the namespace key (`synapse namespace --branch`), filled in by
+  the writer — never hand-authored.
 - **`sources_digest`:** `sha256` over the sorted `path:hash` lines of `sources` (see "Computing
   `sources_digest`" below). Lets a staleness check answer "has this node changed" by reading one
   field instead of every hash.
@@ -157,6 +159,7 @@ schema: graph-node/v1
 title: "World — entity/component/resource core"
 node_type: synapse-node
 project: acme
+branch: main
 sources_digest: <sha256 over the sorted "path:hash" lines>
 stale: false
 built_at: "<now>"

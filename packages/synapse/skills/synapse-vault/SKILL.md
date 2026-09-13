@@ -34,8 +34,11 @@ synapse vault-read <path>                  the whole note -- no partial/targeted
 ```
 
 `vault-search`'s JsonLogic filter and `--fields` projection both stop at frontmatter/tags/content/
-path -- there is no `links`/`backlinks`/`unresolvedLinks` equivalent (no whole-vault wikilink index
-exists yet), and `vault-read` always returns the full body, never one section on its own -- request
+path -- links aren't filterable through search itself, though a dedicated whole-vault wikilink
+index does exist as its own set of subcommands (`vault-backlinks`/`vault-links`/`vault-unresolved`/
+`vault-orphans`/`vault-deadends`/`vault-ambiguous`/`vault-rename`), reach for one of those directly
+instead of trying to express a link query through `vault-search`. `vault-read` always returns the
+full body, never one section on its own -- request
 exactly what you need with `--fields` instead of over-fetching, and pull a specific section out of
 `vault-read`'s output locally when that's all you actually need.
 
