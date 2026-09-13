@@ -372,7 +372,12 @@ test "linkGraph passes straight through to the resolved inner" {
     var fx = try initGitStore(gpa, vault, "");
     defer fx.deinit();
 
-    _ = fx.git.linkGraph();
+    // `DiskStore.linkGraph()` deterministically returns
+    // `LinkGraph.from(DiskLinkGraph, &self.link_graph)`, so its `.ptr` is
+    // `&fx.disk.link_graph` every call -- identical `.ptr` values here means
+    // `GitStore` genuinely returned the same resolved inner, not some other
+    // value that merely type-checks.
+    try testing.expectEqual(fx.disk.linkGraph().ptr, fx.git.linkGraph().ptr);
 }
 
 test "renamer moves the file and commits the result, unlike a pure delegation" {

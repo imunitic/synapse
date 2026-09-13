@@ -327,6 +327,7 @@ fn report(prog: ?[]const u8, comptime fmt: []const u8, args: anytype) void {
 }
 
 const testing = std.testing;
+const compose_ctx_test_support = @import("compose_ctx_test_support.zig");
 
 /// `HOME` pointed at `vault` (an isolated tmp dir with no real conf file in
 /// it) and every real-conf-file discovery var stripped -- `resolveStore`
@@ -551,34 +552,27 @@ test "resolveCapabilities lets a decorator override searchFiltered while linkGra
     try testing.expectEqualStrings("overridden.md", hits[0].node);
 }
 
-test "self_path threads through to GitStore even when git is not the outermost integration" {
-    const gpa = testing.allocator;
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
-    const vault = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+test "GitStore.initCtx threads self_path through from the context" {
+    // The previous version of this test tried to prove `self_path` was
+    // threaded through by going through the full `resolveStore` chain and
+    // asserting `wr.accepted` -- but `maybeSpawnPusher` (the only place
+    // `self_path` is ever read) is gated behind a push-threshold check a
+    // single write never crosses, so that assertion never touched
+    // `self_path` at all. Its name also claimed a "git is not the outermost
+    // integration" scenario `SYNAPSE_VAULT_INTEGRATIONS=git` alone can't
+    // construct -- there's only one real integration today. Testing
+    // `GitStore.initCtx` directly, the same way `DiskStore.initCtx`'s own
+    // `.vars`-identity test does, is the right layer for this specific
+    // claim and needs no subprocess spawn, push threshold, or git repo at
+    // all -- `resolveStore`'s other tests already cover real end-to-end
+    // resolution.
+    var base = try compose_ctx_test_support.BaseCtx.init(testing.allocator);
+    defer base.deinit();
+    var ctx = base.ctx(testing.allocator);
+    ctx.self_path = "/does/not/matter";
 
-    var env = try isolatedEnv(gpa, vault);
-    defer env.deinit();
-    try env.put("SYNAPSE_VAULT_INTEGRATIONS", "git");
-
-    var io_threaded: std.Io.Threaded = .init(gpa, .{});
-    defer io_threaded.deinit();
-    const io = io_threaded.io();
-
-    // A real self_path with an unreachable target is enough to prove it was
-    // threaded through and used -- `maybeSpawnPusher` only ever reaches
-    // `std.process.spawn`, whose own failure is swallowed, if the push
-    // threshold trips, which it won't on a single write. This just confirms
-    // `resolveStore` doesn't drop `self_path` on the floor.
-    var arena_state: std.heap.ArenaAllocator = .init(gpa);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    var resolved = (try resolveStore(arena, io, &env, vault, "", "test", "/does/not/matter")).?;
-    var store = resolved.store();
-    const wr = try store.write(io, "Foo.md", "body\n");
-    try testing.expect(wr.accepted);
+    const git = try GitStore.initCtx(ctx);
+    try testing.expectEqualStrings("/does/not/matter", git.self_path);
 }
 
 test "disk named explicitly in SYNAPSE_VAULT_INTEGRATIONS is a hard error" {

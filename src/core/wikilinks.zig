@@ -189,81 +189,37 @@ test "extract on text with no wikilinks returns an empty slice" {
     try testing.expectEqual(@as(usize, 0), out.len);
 }
 
-test "renameTarget rewrites a bare matching wikilink" {
+test "renameTarget" {
     const gpa = testing.allocator;
-    const out = try renameTarget(gpa, "see [[Old Name]] here", "Old Name", "New Name");
-    defer gpa.free(out);
-    try testing.expectEqualStrings("see [[New Name]] here", out);
-}
-
-test "renameTarget preserves an alias's display text" {
-    const gpa = testing.allocator;
-    const out = try renameTarget(gpa, "see [[Old Name|a nicer label]] here", "Old Name", "New Name");
-    defer gpa.free(out);
-    try testing.expectEqualStrings("see [[New Name|a nicer label]] here", out);
-}
-
-test "renameTarget matches case-insensitively" {
-    const gpa = testing.allocator;
-    const out = try renameTarget(gpa, "[[old name]]", "Old Name", "New Name");
-    defer gpa.free(out);
-    try testing.expectEqualStrings("[[New Name]]", out);
-}
-
-test "renameTarget matches a heading-anchored link and carries the anchor through" {
-    const gpa = testing.allocator;
-    const out = try renameTarget(gpa, "see [[Old Name#Some Heading]] here", "Old Name", "New Name");
-    defer gpa.free(out);
-    try testing.expectEqualStrings("see [[New Name#Some Heading]] here", out);
-}
-
-test "renameTarget carries a heading anchor through alongside an alias" {
-    const gpa = testing.allocator;
-    const out = try renameTarget(gpa, "[[Old Name#Some Heading|a nicer label]]", "Old Name", "New Name");
-    defer gpa.free(out);
-    try testing.expectEqualStrings("[[New Name#Some Heading|a nicer label]]", out);
+    const cases = [_]struct { name: []const u8, in: []const u8, old: []const u8, new: []const u8, want: []const u8 }{
+        .{ .name = "rewrites a bare matching wikilink", .in = "see [[Old Name]] here", .old = "Old Name", .new = "New Name", .want = "see [[New Name]] here" },
+        .{ .name = "preserves an alias's display text", .in = "see [[Old Name|a nicer label]] here", .old = "Old Name", .new = "New Name", .want = "see [[New Name|a nicer label]] here" },
+        .{ .name = "matches case-insensitively", .in = "[[old name]]", .old = "Old Name", .new = "New Name", .want = "[[New Name]]" },
+        .{ .name = "matches a heading-anchored link and carries the anchor through", .in = "see [[Old Name#Some Heading]] here", .old = "Old Name", .new = "New Name", .want = "see [[New Name#Some Heading]] here" },
+        .{ .name = "carries a heading anchor through alongside an alias", .in = "[[Old Name#Some Heading|a nicer label]]", .old = "Old Name", .new = "New Name", .want = "[[New Name#Some Heading|a nicer label]]" },
+        .{ .name = "leaves a non-matching wikilink untouched", .in = "[[Something Else]]", .old = "Old Name", .new = "New Name", .want = "[[Something Else]]" },
+        .{ .name = "rewrites every matching occurrence, leaving others alone", .in = "[[Old Name]] and [[Other]] and [[Old Name|again]]", .old = "Old Name", .new = "New Name", .want = "[[New Name]] and [[Other]] and [[New Name|again]]" },
+        .{ .name = "copies an unterminated wikilink through verbatim", .in = "[[Old Name]] then [[broken with no close", .old = "Old Name", .new = "New Name", .want = "[[New Name]] then [[broken with no close" },
+        .{ .name = "matches a non-Latin title regardless of case", .in = "see [[МОСКВА]] here", .old = "Москва", .new = "Санкт-Петербург", .want = "see [[Санкт-Петербург]] here" },
+        // か (U+304B) + combining dakuten (U+3099), decomposed -- names the
+        // same title as precomposed が (U+304C).
+        .{ .name = "matches a target regardless of NFC composition", .in = "see [[\u{304B}\u{3099}]] here", .old = "\u{304C}", .new = "New Name", .want = "see [[New Name]] here" },
+        .{ .name = "rewrites a .md-suffixed wikilink", .in = "[[Old Name.md]]", .old = "Old Name", .new = "New Name", .want = "[[New Name]]" },
+        .{ .name = "rewrites a path-qualified wikilink", .in = "[[tasks/synapse/Old Name.md]]", .old = "Old Name", .new = "New Name", .want = "[[New Name]]" },
+    };
+    for (cases) |c| {
+        const out = try renameTarget(gpa, c.in, c.old, c.new);
+        defer gpa.free(out);
+        testing.expectEqualStrings(c.want, out) catch |err| {
+            std.debug.print("renameTarget case failed: {s}\n", .{c.name});
+            return err;
+        };
+    }
 }
 
 test "normalizeTarget strips a heading anchor alongside path and extension" {
     try testing.expectEqualStrings("Foo", normalizeTarget("Foo#Heading"));
     try testing.expectEqualStrings("Foo", normalizeTarget("some/dir/Foo.md#Heading"));
-}
-
-test "renameTarget leaves a non-matching wikilink untouched" {
-    const gpa = testing.allocator;
-    const out = try renameTarget(gpa, "[[Something Else]]", "Old Name", "New Name");
-    defer gpa.free(out);
-    try testing.expectEqualStrings("[[Something Else]]", out);
-}
-
-test "renameTarget rewrites every matching occurrence, leaving others alone" {
-    const gpa = testing.allocator;
-    const out = try renameTarget(gpa, "[[Old Name]] and [[Other]] and [[Old Name|again]]", "Old Name", "New Name");
-    defer gpa.free(out);
-    try testing.expectEqualStrings("[[New Name]] and [[Other]] and [[New Name|again]]", out);
-}
-
-test "renameTarget copies an unterminated wikilink through verbatim" {
-    const gpa = testing.allocator;
-    const out = try renameTarget(gpa, "[[Old Name]] then [[broken with no close", "Old Name", "New Name");
-    defer gpa.free(out);
-    try testing.expectEqualStrings("[[New Name]] then [[broken with no close", out);
-}
-
-test "renameTarget matches a non-Latin title regardless of case" {
-    const gpa = testing.allocator;
-    const out = try renameTarget(gpa, "see [[МОСКВА]] here", "Москва", "Санкт-Петербург");
-    defer gpa.free(out);
-    try testing.expectEqualStrings("see [[Санкт-Петербург]] here", out);
-}
-
-test "renameTarget matches a target regardless of NFC composition" {
-    const gpa = testing.allocator;
-    // か (U+304B) + combining dakuten (U+3099), decomposed -- names the
-    // same title as precomposed が (U+304C).
-    const out = try renameTarget(gpa, "see [[\u{304B}\u{3099}]] here", "\u{304C}", "New Name");
-    defer gpa.free(out);
-    try testing.expectEqualStrings("see [[New Name]] here", out);
 }
 
 test "normalizeTarget strips a trailing .md" {
@@ -280,18 +236,4 @@ test "normalizeTarget strips both a leading path and a trailing .md" {
 
 test "normalizeTarget leaves a bare title untouched" {
     try testing.expectEqualStrings("Foo", normalizeTarget("Foo"));
-}
-
-test "renameTarget rewrites a .md-suffixed wikilink" {
-    const gpa = testing.allocator;
-    const out = try renameTarget(gpa, "[[Old Name.md]]", "Old Name", "New Name");
-    defer gpa.free(out);
-    try testing.expectEqualStrings("[[New Name]]", out);
-}
-
-test "renameTarget rewrites a path-qualified wikilink" {
-    const gpa = testing.allocator;
-    const out = try renameTarget(gpa, "[[tasks/synapse/Old Name.md]]", "Old Name", "New Name");
-    defer gpa.free(out);
-    try testing.expectEqualStrings("[[New Name]]", out);
 }
