@@ -190,14 +190,15 @@ test "the nudge cites a synapse-bard-claude.md heading that actually exists" {
     // Same self-check `synapse-hook stop-nudge`'s own test runs: renaming
     // the heading without this constant (or the reverse) leaves a pointer
     // to a section that isn't there, and nothing about reading the nudge
-    // would reveal it. `zig build test`'s working directory is the repo
-    // root, so this reads the real shipped file rather than a fixture copy.
+    // would reveal it. `zig build test`'s working directory is `bard/`
+    // (this package's own build root, one level below the repo root), so
+    // this reads the real shipped file rather than a fixture copy.
     const gpa = testing.allocator;
     const heading_line = try std.fmt.allocPrint(gpa, "# {s}", .{vault_note_heading});
     defer gpa.free(heading_line);
     const content = try Io.Dir.cwd().readFileAlloc(
         testing.io,
-        "packages/synapse-bard/synapse-bard-claude.md",
+        "../packages/synapse-bard/synapse-bard-claude.md",
         gpa,
         .limited(1 << 20),
     );

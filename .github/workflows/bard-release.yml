@@ -53,16 +53,16 @@ jobs:
         run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
 
       # Same targets ci/release-targets.sh gives synapse's own release.yml.
-      # `zig build` with no step name builds every installed artifact for
-      # the target in one invocation (synapse's own binaries included,
-      # since build.zig registers them unconditionally); only synapse-bard's
-      # two get published below, the rest of the build's output is unused
-      # here.
+      # `bard/` is its own build tree (a path dependency on this checkout's
+      # root), so this compiles only synapse-bard's two binaries -- none of
+      # synapse's own treesitter-linked ones. `-p "../out/$t"` writes back
+      # out to the repo root so the publish step below finds them at the
+      # same `out/$t/bin/...` path it always has.
       - name: Cross-compile each target
         run: |
           source ci/release-targets.sh
           for t in "${targets[@]}"; do
-            zig build -Dtarget="$t" -Doptimize=ReleaseSafe -p "out/$t"
+            (cd bard && zig build -Dtarget="$t" -Doptimize=ReleaseSafe -p "../out/$t")
           done
 
       - uses: actions/setup-node@v4

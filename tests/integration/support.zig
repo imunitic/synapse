@@ -39,8 +39,6 @@ pub const Fixture = struct {
     synapse_bin: []const u8,
     synapse_fake_bin: []const u8,
     hook_bin: []const u8,
-    bard_bin: []const u8,
-    bard_hook_bin: []const u8,
 
     /// Everything spawned through this sees `env` verbatim -- an
     /// `Io.Threaded` built with no `environ` option falls back to a
@@ -133,10 +131,6 @@ pub const Fixture = struct {
         errdefer gpa.free(synapse_fake_bin);
         const hook_bin = try absolutePath(gpa, build_options.hook_bin);
         errdefer gpa.free(hook_bin);
-        const bard_bin = try absolutePath(gpa, build_options.bard_bin);
-        errdefer gpa.free(bard_bin);
-        const bard_hook_bin = try absolutePath(gpa, build_options.bard_hook_bin);
-        errdefer gpa.free(bard_hook_bin);
 
         return .{
             .gpa = gpa,
@@ -152,8 +146,6 @@ pub const Fixture = struct {
             .synapse_bin = synapse_bin,
             .synapse_fake_bin = synapse_fake_bin,
             .hook_bin = hook_bin,
-            .bard_bin = bard_bin,
-            .bard_hook_bin = bard_hook_bin,
         };
     }
 
@@ -161,8 +153,6 @@ pub const Fixture = struct {
         self.gpa.free(self.synapse_bin);
         self.gpa.free(self.synapse_fake_bin);
         self.gpa.free(self.hook_bin);
-        self.gpa.free(self.bard_bin);
-        self.gpa.free(self.bard_hook_bin);
         self.io_threaded.deinit();
         self.environ_block.deinit(self.gpa);
         self.env.deinit();
@@ -357,14 +347,6 @@ pub const Fixture = struct {
 
     pub fn runHook(self: *Fixture, argv: []const []const u8) !adapters.process.Result {
         return self.runBin(self.hook_bin, argv);
-    }
-
-    pub fn runBard(self: *Fixture, argv: []const []const u8) !adapters.process.Result {
-        return self.runBin(self.bard_bin, argv);
-    }
-
-    pub fn runBardHook(self: *Fixture, argv: []const []const u8) !adapters.process.Result {
-        return self.runBin(self.bard_hook_bin, argv);
     }
 
     fn runBin(self: *Fixture, bin: []const u8, argv: []const []const u8) !adapters.process.Result {

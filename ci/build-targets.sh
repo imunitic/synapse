@@ -40,6 +40,7 @@ for t in "${targets[@]}"; do
     printf '  %-16s' "$t"
     zig build -Dtarget="$t"
     zig build test-build -Dtarget="$t"
+    (cd bard && zig build -Dtarget="$t" && zig build test-build -Dtarget="$t")
     echo ok
 done
 

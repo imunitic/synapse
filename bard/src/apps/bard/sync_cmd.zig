@@ -18,7 +18,7 @@
 //! is cheaper than the bookkeeping a "what changed" system would cost.
 //!
 //! `--check` is a dry-run mode answering "would a real `sync` change
-//! anything", reusing `adapters.bard_sync_plan.computePlan`
+//! anything", reusing `bard_adapters.sync_plan.computePlan`
 //! -- the exact same clustering/extraction pipeline the write path below
 //! uses -- so there is never a second, parallel notion of what `sync` would
 //! produce. `--check` never calls `port.write`/`store.delete`; it only
@@ -28,7 +28,7 @@ const std = @import("std");
 const core = @import("core");
 const model = @import("model");
 const ports = @import("ports");
-const adapters = @import("adapters");
+const bard_adapters = @import("bard_adapters");
 const common = @import("common.zig");
 
 const Io = std.Io;
@@ -88,10 +88,10 @@ pub fn run(gpa: Allocator, io: Io, args: *std.process.Args.Iterator) !u8 {
     };
     defer roots.deinit(gpa);
 
-    var store: adapters.bard_graph_store.BardGraphStore = try .init(gpa, roots.graph_root);
+    var store: bard_adapters.graph_store.BardGraphStore = try .init(gpa, roots.graph_root);
     defer store.deinit();
 
-    var plan = try adapters.bard_sync_plan.computePlan(gpa, io, roots.repo_root, store.store());
+    var plan = try bard_adapters.sync_plan.computePlan(gpa, io, roots.repo_root, store.store());
     defer plan.deinit(gpa);
 
     if (check) return runCheck(gpa, io, store.store(), &plan);
@@ -102,7 +102,7 @@ pub fn run(gpa: Allocator, io: Io, args: *std.process.Args.Iterator) !u8 {
 /// `_bard/graph/` node the plan didn't produce at all. Takes the concrete
 /// store, not `ports.Store` -- `reconcile` below needs `.delete`, which
 /// isn't on the shared interface.
-fn runWrite(gpa: Allocator, io: Io, store: *adapters.bard_graph_store.BardGraphStore, plan: *const adapters.bard_sync_plan.Plan, vault_root: []const u8) !u8 {
+fn runWrite(gpa: Allocator, io: Io, store: *bard_adapters.graph_store.BardGraphStore, plan: *const bard_adapters.sync_plan.Plan, vault_root: []const u8) !u8 {
     var buf: [4096]u8 = undefined;
     var w = Io.File.stdout().writer(io, &buf);
     for (plan.report_lines.items) |l| try w.interface.print("{s}", .{l});
@@ -112,7 +112,7 @@ fn runWrite(gpa: Allocator, io: Io, store: *adapters.bard_graph_store.BardGraphS
     const written = try gpa.alloc([]const u8, plan.clusters.items.len);
     defer gpa.free(written); // the names themselves are borrowed from `plan`, not owned here
     for (plan.clusters.items, 0..) |pc, i| written[i] = pc.node;
-    const removed = try adapters.bard_sync_plan.reconcile(gpa, io, store, written);
+    const removed = try bard_adapters.sync_plan.reconcile(gpa, io, store, written);
 
     const seeded = try seedVaultIndex(io, vault_root);
 
@@ -151,13 +151,13 @@ fn seedVaultIndex(io: Io, vault_root: []const u8) !bool {
 /// yet at all. Separately, any `_bard/graph/` node the plan doesn't produce
 /// at all is what a real sync's `reconcile` would delete -- reported, not
 /// deleted.
-fn runCheck(gpa: Allocator, io: Io, store: ports.Store, plan: *const adapters.bard_sync_plan.Plan) !u8 {
+fn runCheck(gpa: Allocator, io: Io, store: ports.Store, plan: *const bard_adapters.sync_plan.Plan) !u8 {
     var dirty: std.ArrayListUnmanaged([]const u8) = .empty; // node names, borrowed from `plan`
     defer dirty.deinit(gpa);
     for (plan.clusters.items) |pc| {
         const existing = try store.read(gpa, io, pc.node);
         defer if (existing) |e| gpa.free(e);
-        if (adapters.bard_cluster.isDirty(existing, pc.body)) try dirty.append(gpa, pc.node);
+        if (bard_adapters.cluster.isDirty(existing, pc.body)) try dirty.append(gpa, pc.node);
     }
 
     const existing_nodes = try store.list(gpa, io);
@@ -165,7 +165,7 @@ fn runCheck(gpa: Allocator, io: Io, store: ports.Store, plan: *const adapters.ba
     const planned_nodes = try gpa.alloc([]const u8, plan.clusters.items.len);
     defer gpa.free(planned_nodes);
     for (plan.clusters.items, 0..) |pc, i| planned_nodes[i] = pc.node;
-    const would_remove = try adapters.bard_cluster.wouldRemove(gpa, existing_nodes, planned_nodes);
+    const would_remove = try bard_adapters.cluster.wouldRemove(gpa, existing_nodes, planned_nodes);
     defer gpa.free(would_remove);
 
     var buf: [4096]u8 = undefined;

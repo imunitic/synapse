@@ -14,7 +14,7 @@
 //! `sync_plan.zig`'s own tests use); `run` is a thin CLI door onto it.
 
 const std = @import("std");
-const adapters = @import("adapters");
+const bard_adapters = @import("bard_adapters");
 const ports = @import("ports");
 const common = @import("common.zig");
 
@@ -56,7 +56,7 @@ pub fn run(gpa: Allocator, io: Io, args: *std.process.Args.Iterator) !u8 {
     };
     defer roots.deinit(gpa);
 
-    var store: adapters.bard_graph_store.BardGraphStore = try .init(gpa, roots.graph_root);
+    var store: bard_adapters.graph_store.BardGraphStore = try .init(gpa, roots.graph_root);
     defer store.deinit();
 
     var report = try computeReport(gpa, io, roots.repo_root, store.store());
@@ -129,8 +129,8 @@ fn freeMisses(gpa: Allocator, list: *std.ArrayListUnmanaged(Miss)) void {
 /// The three checks, sharing one slug set built from `store` once. `store`
 /// is read from only, matching `verify`'s read-only contract.
 pub fn computeReport(gpa: Allocator, io: Io, repo_root: []const u8, store: ports.Store) !Report {
-    const entries = try adapters.bard_cluster.allEntities(gpa, io, store);
-    defer adapters.bard_cluster.freeSourceEntries(gpa, entries);
+    const entries = try bard_adapters.cluster.allEntities(gpa, io, store);
+    defer bard_adapters.cluster.freeSourceEntries(gpa, entries);
 
     var slugs: std.StringHashMapUnmanaged(void) = .empty;
     defer slugs.deinit(gpa);
@@ -150,7 +150,7 @@ pub fn computeReport(gpa: Allocator, io: Io, repo_root: []const u8, store: ports
     defer gpa.free(paths);
     for (entries, 0..) |e, i| paths[i] = e.path;
 
-    var ex: adapters.bard_frontmatter.BardFrontmatterExtractor = .{};
+    var ex: bard_adapters.frontmatter.BardFrontmatterExtractor = .{};
     defer ex.deinit(gpa);
     const outcomes = try ex.port().extract(gpa, io, repo_root, paths);
     defer common.freeOutcomes(gpa, outcomes);
@@ -179,7 +179,7 @@ pub fn computeReport(gpa: Allocator, io: Io, repo_root: []const u8, store: ports
         // tally over resolved targets (near-free: already walking every
         // one to verify it resolves).
         if (proseBody(src)) |body| {
-            const targets = try adapters.bard_frontmatter.wikilinkTargets(gpa, body);
+            const targets = try bard_adapters.frontmatter.wikilinkTargets(gpa, body);
             defer {
                 for (targets) |t| gpa.free(t);
                 gpa.free(targets);
@@ -214,7 +214,7 @@ pub fn computeReport(gpa: Allocator, io: Io, repo_root: []const u8, store: ports
         // same as `field_cmd.zig`'s own read; absent for anything that
         // isn't a character entity, which is exactly the files with no
         // `kinds:` field at all.
-        if (try adapters.bard_frontmatter.rawField(gpa, src, "kinds")) |raw| {
+        if (try bard_adapters.frontmatter.rawField(gpa, src, "kinds")) |raw| {
             defer gpa.free(raw);
             const values = try kindsValues(gpa, raw);
             defer {
@@ -253,7 +253,7 @@ fn tallyGreaterThan(_: void, a: Tally, b: Tally) bool {
 /// `null` when `src` has no frontmatter at all (extraction would have
 /// already refused it).
 fn proseBody(src: []const u8) ?[]const u8 {
-    const fm = adapters.bard_frontmatter.frontmatterBlock(src) orelse return null;
+    const fm = bard_adapters.frontmatter.frontmatterBlock(src) orelse return null;
     return src[fm.len..];
 }
 
@@ -309,8 +309,8 @@ fn isSettledKind(v: []const u8) bool {
 
 const testing = std.testing;
 
-fn writeCluster(gpa: Allocator, store: *adapters.bard_graph_store.BardGraphStore, node: []const u8, title: []const u8, entries: []const adapters.bard_cluster.WriteEntry) !void {
-    const body = try adapters.bard_cluster.renderClusterBody(gpa, title, entries, "");
+fn writeCluster(gpa: Allocator, store: *bard_adapters.graph_store.BardGraphStore, node: []const u8, title: []const u8, entries: []const bard_adapters.cluster.WriteEntry) !void {
+    const body = try bard_adapters.cluster.renderClusterBody(gpa, title, entries, "");
     defer gpa.free(body);
     _ = try store.store().write(testing.io, node, body);
 }
@@ -330,7 +330,7 @@ test "computeReport reports a dangling frontmatter ref" {
 
     const graph_root = try std.fmt.allocPrint(gpa, "{s}/_bard/graph", .{root});
     defer gpa.free(graph_root);
-    var store: adapters.bard_graph_store.BardGraphStore = try .init(gpa, graph_root);
+    var store: bard_adapters.graph_store.BardGraphStore = try .init(gpa, graph_root);
     defer store.deinit();
     try writeCluster(gpa, &store, "Characters.md", "Characters", &.{.{ .slug = "a", .path = "characters/a.md", .name = "A" }});
 
@@ -360,7 +360,7 @@ test "computeReport reports a dangling prose-body wikilink" {
 
     const graph_root = try std.fmt.allocPrint(gpa, "{s}/_bard/graph", .{root});
     defer gpa.free(graph_root);
-    var store: adapters.bard_graph_store.BardGraphStore = try .init(gpa, graph_root);
+    var store: bard_adapters.graph_store.BardGraphStore = try .init(gpa, graph_root);
     defer store.deinit();
     try writeCluster(gpa, &store, "Characters.md", "Characters", &.{.{ .slug = "a", .path = "characters/a.md", .name = "A" }});
 
@@ -388,7 +388,7 @@ test "computeReport reports an unknown kinds value" {
 
     const graph_root = try std.fmt.allocPrint(gpa, "{s}/_bard/graph", .{root});
     defer gpa.free(graph_root);
-    var store: adapters.bard_graph_store.BardGraphStore = try .init(gpa, graph_root);
+    var store: bard_adapters.graph_store.BardGraphStore = try .init(gpa, graph_root);
     defer store.deinit();
     try writeCluster(gpa, &store, "Characters.md", "Characters", &.{.{ .slug = "a", .path = "characters/a.md", .name = "A" }});
 
@@ -419,7 +419,7 @@ test "computeReport finds nothing for a fully-resolving fixture -- zero findings
 
     const graph_root = try std.fmt.allocPrint(gpa, "{s}/_bard/graph", .{root});
     defer gpa.free(graph_root);
-    var store: adapters.bard_graph_store.BardGraphStore = try .init(gpa, graph_root);
+    var store: bard_adapters.graph_store.BardGraphStore = try .init(gpa, graph_root);
     defer store.deinit();
     try writeCluster(gpa, &store, "Characters.md", "Characters", &.{
         .{ .slug = "a", .path = "characters/a.md", .name = "A" },
@@ -455,7 +455,7 @@ test "computeReport's mention tally counts distinct entities, not raw occurrence
 
     const graph_root = try std.fmt.allocPrint(gpa, "{s}/_bard/graph", .{root});
     defer gpa.free(graph_root);
-    var store: adapters.bard_graph_store.BardGraphStore = try .init(gpa, graph_root);
+    var store: bard_adapters.graph_store.BardGraphStore = try .init(gpa, graph_root);
     defer store.deinit();
     try writeCluster(gpa, &store, "Characters.md", "Characters", &.{
         .{ .slug = "a", .path = "characters/a.md", .name = "A" },

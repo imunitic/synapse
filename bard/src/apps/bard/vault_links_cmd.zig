@@ -7,7 +7,7 @@
 //! and has no notion of "which notes" versus "how many".
 
 const std = @import("std");
-const adapters = @import("adapters");
+const bard_adapters = @import("bard_adapters");
 const common = @import("common.zig");
 
 const Io = std.Io;
@@ -45,7 +45,7 @@ pub fn run(gpa: Allocator, io: Io, args: *std.process.Args.Iterator) !u8 {
     };
     defer roots.deinit(gpa);
 
-    var store: adapters.bard_vault_store.BardVaultStore = try .init(gpa, roots.vault_root);
+    var store: bard_adapters.vault_store.BardVaultStore = try .init(gpa, roots.vault_root);
     defer store.deinit();
 
     const linking = (try store.linkingNotes(gpa, io, note)) orelse {

@@ -15,7 +15,7 @@
 const std = @import("std");
 const ports = @import("ports");
 const core = @import("core");
-const disk_store = @import("../disk/store.zig");
+const disk_store = @import("adapters").disk_store;
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;

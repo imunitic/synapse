@@ -10,7 +10,7 @@
 //! no longer has one file per entity to read directly.
 
 const std = @import("std");
-const adapters = @import("adapters");
+const bard_adapters = @import("bard_adapters");
 const common = @import("common.zig");
 
 const Io = std.Io;
@@ -46,10 +46,10 @@ pub fn run(gpa: Allocator, io: Io, args: *std.process.Args.Iterator) !u8 {
     };
     defer roots.deinit(gpa);
 
-    var store: adapters.bard_graph_store.BardGraphStore = try .init(gpa, roots.graph_root);
+    var store: bard_adapters.graph_store.BardGraphStore = try .init(gpa, roots.graph_root);
     defer store.deinit();
 
-    const resolved = (try adapters.bard_cluster.resolveSlug(gpa, io, store.store(), node_arg)) orelse {
+    const resolved = (try bard_adapters.cluster.resolveSlug(gpa, io, store.store(), node_arg)) orelse {
         std.debug.print("{s}: not found\n", .{node_arg});
         return 1;
     };
@@ -66,7 +66,7 @@ pub fn run(gpa: Allocator, io: Io, args: *std.process.Args.Iterator) !u8 {
     };
     defer gpa.free(src);
 
-    const raw = (try adapters.bard_frontmatter.rawField(gpa, src, key)) orelse {
+    const raw = (try bard_adapters.frontmatter.rawField(gpa, src, key)) orelse {
         std.debug.print("{s}: no root-level field '{s}'\n", .{ node_arg, key });
         return 1;
     };

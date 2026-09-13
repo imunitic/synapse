@@ -21,7 +21,7 @@
 //! there's no colon-ambiguity heuristic needed here at all.
 
 const std = @import("std");
-const adapters = @import("adapters");
+const bard_adapters = @import("bard_adapters");
 const common = @import("common.zig");
 
 const Io = std.Io;
@@ -92,11 +92,11 @@ pub fn run(gpa: Allocator, io: Io, args: *std.process.Args.Iterator) !u8 {
     };
     defer roots.deinit(gpa);
 
-    var store: adapters.bard_graph_store.BardGraphStore = try .init(gpa, roots.graph_root);
+    var store: bard_adapters.graph_store.BardGraphStore = try .init(gpa, roots.graph_root);
     defer store.deinit();
 
-    const entries = try adapters.bard_cluster.allEntities(gpa, io, store.store());
-    defer adapters.bard_cluster.freeSourceEntries(gpa, entries);
+    const entries = try bard_adapters.cluster.allEntities(gpa, io, store.store());
+    defer bard_adapters.cluster.freeSourceEntries(gpa, entries);
 
     var buf: [4096]u8 = undefined;
     var w = Io.File.stdout().writer(io, &buf);
@@ -112,18 +112,18 @@ pub fn run(gpa: Allocator, io: Io, args: *std.process.Args.Iterator) !u8 {
         // prose body included, and searching that would let full-text
         // search leak into content `query`/`field`/`sync` all deliberately
         // never touch.
-        const body = adapters.bard_frontmatter.frontmatterBlock(src) orelse continue;
+        const body = bard_adapters.frontmatter.frontmatterBlock(src) orelse continue;
 
         if (field) |f| {
-            const line = adapters.bard_graph_store.fieldLine(body, f.key, f.value) orelse continue;
+            const line = bard_adapters.graph_store.fieldLine(body, f.key, f.value) orelse continue;
             try w.interface.print("{s} (1)  {s}\n", .{ e.slug, line });
             any = true;
             continue;
         }
 
-        const count = adapters.bard_graph_store.countIgnoreCase(body, query);
+        const count = bard_adapters.graph_store.countIgnoreCase(body, query);
         if (count == 0) continue;
-        const line = adapters.bard_graph_store.firstMatchingLine(body, query) orelse "";
+        const line = bard_adapters.graph_store.firstMatchingLine(body, query) orelse "";
         try w.interface.print("{s} ({d})  {s}\n", .{ e.slug, count, line });
         any = true;
     }

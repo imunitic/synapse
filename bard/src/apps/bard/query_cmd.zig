@@ -11,7 +11,7 @@ const std = @import("std");
 const core = @import("core");
 const model = @import("model");
 const ports = @import("ports");
-const adapters = @import("adapters");
+const bard_adapters = @import("bard_adapters");
 const common = @import("common.zig");
 
 const Io = std.Io;
@@ -56,10 +56,10 @@ pub fn run(gpa: Allocator, io: Io, args: *std.process.Args.Iterator) !u8 {
 }
 
 fn runOutbound(gpa: Allocator, io: Io, roots: common.Roots, node_arg: []const u8) !u8 {
-    var store: adapters.bard_graph_store.BardGraphStore = try .init(gpa, roots.graph_root);
+    var store: bard_adapters.graph_store.BardGraphStore = try .init(gpa, roots.graph_root);
     defer store.deinit();
 
-    const resolved = (try adapters.bard_cluster.resolveSlug(gpa, io, store.store(), node_arg)) orelse {
+    const resolved = (try bard_adapters.cluster.resolveSlug(gpa, io, store.store(), node_arg)) orelse {
         std.debug.print("{s}: not found\n", .{node_arg});
         return 1;
     };
@@ -68,7 +68,7 @@ fn runOutbound(gpa: Allocator, io: Io, roots: common.Roots, node_arg: []const u8
         gpa.free(resolved.path);
     }
 
-    var ex: adapters.bard_frontmatter.BardFrontmatterExtractor = .{};
+    var ex: bard_adapters.frontmatter.BardFrontmatterExtractor = .{};
     defer ex.deinit(gpa);
     const out = try ex.port().extract(gpa, io, roots.repo_root, &.{resolved.path});
     defer common.freeOutcomes(gpa, out);
@@ -94,14 +94,14 @@ fn runOutbound(gpa: Allocator, io: Io, roots: common.Roots, node_arg: []const u8
 }
 
 fn runInbound(gpa: Allocator, io: Io, roots: common.Roots, node_slug: []const u8) !u8 {
-    var store: adapters.bard_graph_store.BardGraphStore = try .init(gpa, roots.graph_root);
+    var store: bard_adapters.graph_store.BardGraphStore = try .init(gpa, roots.graph_root);
     defer store.deinit();
 
     // Backlinks require looking at every entity's outbound refs, so this
     // resolves the whole graph rather than one slug -- same data
     // `search`'s new implementation needs, for the same reason.
-    const entries = try adapters.bard_cluster.allEntities(gpa, io, store.store());
-    defer adapters.bard_cluster.freeSourceEntries(gpa, entries);
+    const entries = try bard_adapters.cluster.allEntities(gpa, io, store.store());
+    defer bard_adapters.cluster.freeSourceEntries(gpa, entries);
 
     var target_found = false;
     for (entries) |e| if (std.mem.eql(u8, e.slug, node_slug)) {
@@ -117,7 +117,7 @@ fn runInbound(gpa: Allocator, io: Io, roots: common.Roots, node_slug: []const u8
     defer gpa.free(paths);
     for (entries, 0..) |e, i| paths[i] = e.path;
 
-    var ex: adapters.bard_frontmatter.BardFrontmatterExtractor = .{};
+    var ex: bard_adapters.frontmatter.BardFrontmatterExtractor = .{};
     defer ex.deinit(gpa);
     const out = try ex.port().extract(gpa, io, roots.repo_root, paths);
     defer common.freeOutcomes(gpa, out);

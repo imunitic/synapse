@@ -12,7 +12,7 @@
 //! human familiar with the schema already would.
 
 const std = @import("std");
-const adapters = @import("adapters");
+const bard_adapters = @import("bard_adapters");
 const common = @import("common.zig");
 
 const Io = std.Io;
@@ -68,10 +68,10 @@ pub fn run(gpa: Allocator, io: Io, args: *std.process.Args.Iterator) !u8 {
             return 2;
         }
 
-        var store: adapters.bard_graph_store.BardGraphStore = try .init(gpa, roots.graph_root);
+        var store: bard_adapters.graph_store.BardGraphStore = try .init(gpa, roots.graph_root);
         defer store.deinit();
 
-        const resolved = (try adapters.bard_cluster.resolveSlug(gpa, io, store.store(), first)) orelse {
+        const resolved = (try bard_adapters.cluster.resolveSlug(gpa, io, store.store(), first)) orelse {
             std.debug.print("{s}: not found\n", .{first});
             return 1;
         };
@@ -83,7 +83,7 @@ pub fn run(gpa: Allocator, io: Io, args: *std.process.Args.Iterator) !u8 {
         // Same extraction call `query` already makes -- reuses its already-
         // correct kind/unquoting logic rather than re-deriving a second way
         // to read `template:` out of raw YAML.
-        var ex: adapters.bard_frontmatter.BardFrontmatterExtractor = .{};
+        var ex: bard_adapters.frontmatter.BardFrontmatterExtractor = .{};
         defer ex.deinit(gpa);
         const out = try ex.port().extract(gpa, io, roots.repo_root, &.{resolved.path});
         defer common.freeOutcomes(gpa, out);
@@ -113,7 +113,7 @@ pub fn run(gpa: Allocator, io: Io, args: *std.process.Args.Iterator) !u8 {
     };
     defer gpa.free(template_src);
 
-    const keys = (try adapters.bard_frontmatter.rootKeys(gpa, template_src)) orelse {
+    const keys = (try bard_adapters.frontmatter.rootKeys(gpa, template_src)) orelse {
         std.debug.print("synapse-bard fields: '{s}_template.md' has no frontmatter\n", .{template_name});
         return 1;
     };

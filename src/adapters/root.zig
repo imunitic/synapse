@@ -43,29 +43,6 @@ pub const git_store = @import("git/store.zig");
 /// this function.
 pub const store_resolve = @import("store_resolve.zig");
 
-/// synapse-bard's real Extractor -- YAML frontmatter only, no C dependency.
-/// `pub`, unlike the conformance file below: `synapse-bard`'s own main.zig
-/// constructs and uses this directly, not just tests it.
-pub const bard_frontmatter = @import("bard/frontmatter.zig");
-
-/// `_bard/graph/`'s `Store` -- plain files, no daemon, no network.
-pub const bard_graph_store = @import("bard/graph_store.zig");
-
-/// `_bard/graph/` cluster nodes: `sources:` manifest parsing/rendering and
-/// slug resolution -- built on `bard_graph_store` and
-/// `bard_frontmatter`, not a `Store`/`Extractor` implementation itself.
-pub const bard_cluster = @import("bard/cluster.zig");
-
-/// `_bard/vault/`'s `Store` -- design/task notes, subdirectories, backlink-
-/// ranked search.
-pub const bard_vault_store = @import("bard/vault_store.zig");
-
-/// The clustering/extraction plan `sync` computes, factored out here so
-/// `synapse-bard-hook`'s `SessionStart` can compute
-/// the same plan in-process for drift detection, without shelling out to
-/// the `synapse-bard` binary.
-pub const bard_sync_plan = @import("bard/sync_plan.zig");
-
 test {
     std.testing.refAllDecls(@This());
     _ = process;
@@ -76,11 +53,6 @@ test {
     _ = disk_store;
     _ = git_store;
     _ = store_resolve;
-    _ = bard_frontmatter;
-    _ = bard_graph_store;
-    _ = bard_cluster;
-    _ = bard_vault_store;
-    _ = bard_sync_plan;
     // Not `pub`: a conformance check on the port, compiled for tests only.
     _ = @import("frontmatter_conformance.zig");
 }

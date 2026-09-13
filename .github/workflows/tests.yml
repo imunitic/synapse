@@ -39,13 +39,17 @@ jobs:
         run: zig version
 
       - name: Build
-        run: zig build
+        run: |
+          zig build
+          (cd bard && zig build)
 
       # Internals only -- format round-trips, parsing, the process helper,
       # plus the static doc/text consistency checks in `tests/lint_test.zig`.
       # The CLI contract belongs to the `integration` job below.
       - name: Unit tests
-        run: zig build test --summary all
+        run: |
+          zig build test --summary all
+          (cd bard && zig build test --summary all)
 
       # The half of the layering the compiler cannot enforce: Zig analyses
       # declarations lazily, so a wrong-direction import nothing references
@@ -143,8 +147,11 @@ jobs:
         if: always()
         run: |
           zig build
+          (cd bard && zig build)
           ./docs/synapse/generate-cli-reference.sh --check
-          ./docs/synapse-bard/generate-cli-reference.sh --check
+          SYNAPSE_BARD_BIN="$PWD/bard/zig-out/bin/synapse-bard" \
+          SYNAPSE_BARD_HOOK_BIN="$PWD/bard/zig-out/bin/synapse-bard-hook" \
+            ./docs/synapse-bard/generate-cli-reference.sh --check
 
       - name: Rendered diagrams are in sync
         if: always()
