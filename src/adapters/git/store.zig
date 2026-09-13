@@ -25,6 +25,7 @@ const git_sync = @import("../git_sync.zig");
 const process = @import("../process.zig");
 const env_bridge = @import("../env.zig");
 const compose_ctx = @import("../compose_ctx.zig");
+const fakes = @import("../fakes/root.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -73,37 +74,25 @@ pub const GitStore = struct {
     /// same graceful-no-op `stop_nudge.maybeSync` already has.
     self_path: []const u8 = "",
 
+    /// `init(...)` removed -- nothing but this file's own tests and
+    /// `store_resolve.zig`'s composition path ever constructed one, so
+    /// there is no second real caller to keep a narrower signature for.
     /// Every dependency named explicitly -- `gpa`/`vault` for `GitStore`'s
     /// own git mechanics, `inner`/`inner_link_graph`/`inner_renamer` for
     /// whatever it's composing. Never derives any of these from `inner`
     /// itself: relying on the thing you wrap to also hand you your own
     /// dependencies doesn't hold once `inner` is generic rather than always
     /// a concrete `DiskStore`.
-    pub fn init(
-        gpa: Allocator,
-        vault: []const u8,
-        inner: Store,
-        inner_link_graph: LinkGraph,
-        inner_renamer: Renamer,
-    ) GitStore {
-        return .{
-            .gpa = gpa,
-            .vault = vault,
-            .inner = inner,
-            .inner_link_graph = inner_link_graph,
-            .rename_impl = .{ .vault = vault, .inner = inner_renamer },
-        };
-    }
-
-    /// `initCtx` alongside `init`, not instead of it -- `init` keeps its own
-    /// narrow signature so the one existing direct-call test below stays
-    /// untouched. Sets `env`/`self_path` itself before returning, replacing
-    /// what used to be `composeGit`'s post-construction field mutation.
     pub fn initCtx(ctx: ComposeCtx) Allocator.Error!GitStore {
-        var git = init(ctx.arena, ctx.vault, ctx.inner_store, ctx.inner_link_graph, ctx.inner_renamer);
-        git.env = ctx.env;
-        git.self_path = ctx.self_path;
-        return git;
+        return .{
+            .gpa = ctx.arena,
+            .vault = ctx.vault,
+            .inner = ctx.inner_store,
+            .inner_link_graph = ctx.inner_link_graph,
+            .rename_impl = .{ .vault = ctx.vault, .inner = ctx.inner_renamer },
+            .env = ctx.env,
+            .self_path = ctx.self_path,
+        };
     }
 
     pub fn store(self: *GitStore) Store {
@@ -260,26 +249,47 @@ fn commitCount(gpa: Allocator, vault: []const u8) !usize {
 }
 
 /// A `GitStore` composing a plain `DiskStore`, the shape every test below
-/// needs -- `disk` is heap-allocated so its address stays stable regardless
-/// of how this returned struct itself gets copied around (the same reason
-/// `resolveStore` heap-allocates every layer: a `Store` value embeds a
-/// pointer to the concrete instance beneath it, which has to outlive
-/// whatever moved).
+/// needs -- `disk`/`env` are heap-allocated so their addresses stay stable
+/// regardless of how this returned struct itself gets copied around (the
+/// same reason `resolveStore` heap-allocates every layer: a `Store` value
+/// embeds a pointer to the concrete instance beneath it, which has to
+/// outlive whatever moved -- `GitStore.env` is exactly such a pointer).
 const TestFixture = struct {
     disk: *DiskStore,
+    env: *std.process.Environ.Map,
     git: GitStore,
 
     fn deinit(self: *TestFixture) void {
         self.disk.deinit();
         testing.allocator.destroy(self.disk);
+        self.env.deinit();
+        testing.allocator.destroy(self.env);
     }
 };
 
 fn initGitStore(gpa: Allocator, vault: []const u8, namespace: []const u8) !TestFixture {
     const disk = try gpa.create(DiskStore);
     disk.* = try DiskStore.init(gpa, vault, namespace);
-    const git = GitStore.init(gpa, vault, disk.store(), disk.linkGraph(), disk.renamer());
-    return .{ .disk = disk, .git = git };
+    const env = try gpa.create(std.process.Environ.Map);
+    env.* = try std.process.Environ.createMap(testing.environ, gpa);
+    // Transient, never stored: `GitStore.initCtx` never reads
+    // `ctx.inner_search_filtered` (`GitStore` doesn't override
+    // `searchFiltered`), so nothing keeps a reference to this past the call
+    // below -- unlike `env`, it needs no heap allocation of its own.
+    var search_filtered: fakes.SearchFiltered = .{};
+    const git = try GitStore.initCtx(.{
+        .arena = gpa,
+        .vault = vault,
+        .namespace = namespace,
+        .env = env,
+        .vars = .none,
+        .self_path = "",
+        .inner_store = disk.store(),
+        .inner_link_graph = disk.linkGraph(),
+        .inner_renamer = disk.renamer(),
+        .inner_search_filtered = search_filtered.searchFiltered_(),
+    });
+    return .{ .disk = disk, .env = env, .git = git };
 }
 
 test "write initializes a repo on first write and commits the change" {

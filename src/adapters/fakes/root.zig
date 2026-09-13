@@ -12,10 +12,16 @@ const std = @import("std");
 pub const Extractor = @import("extractor.zig").FakeExtractor;
 pub const Store = @import("store.zig").FakeStore;
 pub const Clusterer = @import("clusterer.zig").FakeClusterer;
+pub const LinkGraph = @import("link_graph.zig").FakeLinkGraph;
+pub const Renamer = @import("renamer.zig").FakeRenamer;
+pub const SearchFiltered = @import("search_filtered.zig").FakeSearchFiltered;
 
 test {
     std.testing.refAllDecls(@This());
     _ = @import("extractor.zig");
     _ = @import("store.zig");
     _ = @import("clusterer.zig");
+    _ = @import("link_graph.zig");
+    _ = @import("renamer.zig");
+    _ = @import("search_filtered.zig");
 }

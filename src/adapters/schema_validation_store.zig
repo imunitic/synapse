@@ -21,15 +21,11 @@ pub const SchemaValidationStore = struct {
     inner: Store,
     vars: core.conf.Vars,
 
-    pub fn init(gpa: Allocator, inner: Store, vars: core.conf.Vars) SchemaValidationStore {
-        return .{ .gpa = gpa, .inner = inner, .vars = vars };
-    }
-
-    /// `initCtx` alongside `init`, not instead of it -- `init` keeps its own
-    /// narrow signature so the ten existing direct-call tests below stay
-    /// untouched.
+    /// `init(...)` removed -- nothing but this file's own tests and
+    /// `store_resolve.zig`'s composition path ever constructed one, so
+    /// there is no second real caller to keep a narrower signature for.
     pub fn initCtx(ctx: compose_ctx.ComposeCtx) Allocator.Error!SchemaValidationStore {
-        return init(ctx.arena, ctx.inner_store, ctx.vars);
+        return .{ .gpa = ctx.arena, .inner = ctx.inner_store, .vars = ctx.vars };
     }
 
     pub fn store(self: *SchemaValidationStore) Store {
@@ -256,6 +252,18 @@ fn safeSchemaId(id: []const u8) bool {
 
 const testing = std.testing;
 const FakeStore = @import("fakes/store.zig").FakeStore;
+const compose_ctx_test_support = @import("compose_ctx_test_support.zig");
+const ComposeCtx = compose_ctx.ComposeCtx;
+
+/// Every test below needs a `ComposeCtx` but cares about only two fields
+/// (`inner_store`, `vars`) -- clone the shared base and override just those,
+/// rather than hand-filling the other eight at every call site.
+fn ctxWith(base: *compose_ctx_test_support.BaseCtx, gpa: Allocator, inner_store: Store, vars: core.conf.Vars) ComposeCtx {
+    var ctx = base.ctx(gpa);
+    ctx.inner_store = inner_store;
+    ctx.vars = vars;
+    return ctx;
+}
 
 const TestVars = struct {
     pairs: []const [2][]const u8,
@@ -275,7 +283,9 @@ test "unsafe schema identifiers fail before touching the inner Store" {
     var fake = FakeStore.init(testing.allocator);
     defer fake.deinit();
     const vars: TestVars = .{ .pairs = &.{} };
-    var validation = SchemaValidationStore.init(testing.allocator, fake.port(), vars.vars());
+    var base = try compose_ctx_test_support.BaseCtx.init(testing.allocator);
+    defer base.deinit();
+    var validation = try SchemaValidationStore.initCtx(ctxWith(&base, testing.allocator, fake.port(), vars.vars()));
     const result = try validation.store().write(testing.io, "x.md", "---\nschema: ../secret\n---\n");
     defer testing.allocator.free(result.body);
     try testing.expect(!result.accepted);
@@ -286,7 +296,9 @@ test "legacy notes pass through without schema resolution" {
     var fake = FakeStore.init(testing.allocator);
     defer fake.deinit();
     const vars: TestVars = .{ .pairs = &.{} };
-    var validation = SchemaValidationStore.init(testing.allocator, fake.port(), vars.vars());
+    var base = try compose_ctx_test_support.BaseCtx.init(testing.allocator);
+    defer base.deinit();
+    var validation = try SchemaValidationStore.initCtx(ctxWith(&base, testing.allocator, fake.port(), vars.vars()));
     const result = try validation.store().write(testing.io, "legacy.md", "---\ntitle: Legacy\n---\n");
     defer testing.allocator.free(result.body);
     try testing.expect(result.accepted);
@@ -391,7 +403,9 @@ test "ordinary schema updates read the persisted note but never list the vault" 
     fake.lists = 0;
     fake.writes = 0;
 
-    var validation = SchemaValidationStore.init(testing.allocator, fake.port(), vars.vars());
+    var base = try compose_ctx_test_support.BaseCtx.init(testing.allocator);
+    defer base.deinit();
+    var validation = try SchemaValidationStore.initCtx(ctxWith(&base, testing.allocator, fake.port(), vars.vars()));
     const updated =
         "---\nschema: vault-note/v1\ntitle: Example\nnote_id: sb-081\n" ++
         "created: '2026-08-30T01:00:00+02:00'\nupdated: '2026-08-30T02:00:00+02:00'\ntags: []\n" ++
@@ -413,7 +427,9 @@ test "schema creation performs the one lifecycle-scoped uniqueness scan" {
 
     var fake = FakeStore.init(testing.allocator);
     defer fake.deinit();
-    var validation = SchemaValidationStore.init(testing.allocator, fake.port(), vars.vars());
+    var base = try compose_ctx_test_support.BaseCtx.init(testing.allocator);
+    defer base.deinit();
+    var validation = try SchemaValidationStore.initCtx(ctxWith(&base, testing.allocator, fake.port(), vars.vars()));
     const result = try validation.store().write(testing.io, "Example.md", existing_note);
     defer testing.allocator.free(result.body);
     try testing.expect(result.accepted);
@@ -430,7 +446,9 @@ test "a schema rejection never calls the inner write" {
 
     var fake = FakeStore.init(testing.allocator);
     defer fake.deinit();
-    var validation = SchemaValidationStore.init(testing.allocator, fake.port(), vars.vars());
+    var base = try compose_ctx_test_support.BaseCtx.init(testing.allocator);
+    defer base.deinit();
+    var validation = try SchemaValidationStore.initCtx(ctxWith(&base, testing.allocator, fake.port(), vars.vars()));
     const invalid =
         "---\nschema: vault-note/v1\ntitle: Wrong\nnote_id: sb-081\n" ++
         "created: '2026-08-30T01:00:00+02:00'\nupdated: '2026-08-30T01:00:00+02:00'\ntags: []\n" ++
@@ -450,7 +468,9 @@ test "a lint finding is advisory: the write still succeeds and WriteResult is un
 
     var fake = FakeStore.init(testing.allocator);
     defer fake.deinit();
-    var validation = SchemaValidationStore.init(testing.allocator, fake.port(), vars.vars());
+    var base = try compose_ctx_test_support.BaseCtx.init(testing.allocator);
+    defer base.deinit();
+    var validation = try SchemaValidationStore.initCtx(ctxWith(&base, testing.allocator, fake.port(), vars.vars()));
     // A valid note by every `checks:` rule, but its `## Summary` is a
     // paragraph hard-wrapped across two lines -- exactly what `no_hard_wrap`
     // exists to catch, and nothing this rule catches is a contract
@@ -481,7 +501,9 @@ test "an error-severity lint finding blocks the write, the same way a checks: vi
 
     var fake = FakeStore.init(testing.allocator);
     defer fake.deinit();
-    var validation = SchemaValidationStore.init(testing.allocator, fake.port(), vars.vars());
+    var base = try compose_ctx_test_support.BaseCtx.init(testing.allocator);
+    defer base.deinit();
+    var validation = try SchemaValidationStore.initCtx(ctxWith(&base, testing.allocator, fake.port(), vars.vars()));
     const wrapped =
         "---\nschema: vault-note/v1\ntitle: Example\nnote_id: sb-081\n" ++
         "created: '2026-08-30T01:00:00+02:00'\nupdated: '2026-08-30T01:00:00+02:00'\ntags: []\n" ++
@@ -504,7 +526,9 @@ test "schema-overrides: a severity override turns a lint that used to only warn 
 
     var fake = FakeStore.init(testing.allocator);
     defer fake.deinit();
-    var validation = SchemaValidationStore.init(testing.allocator, fake.port(), vars.vars());
+    var base = try compose_ctx_test_support.BaseCtx.init(testing.allocator);
+    defer base.deinit();
+    var validation = try SchemaValidationStore.initCtx(ctxWith(&base, testing.allocator, fake.port(), vars.vars()));
     const wrapped =
         "---\nschema: vault-note/v1\ntitle: Example\nnote_id: sb-081\n" ++
         "created: '2026-08-30T01:00:00+02:00'\nupdated: '2026-08-30T01:00:00+02:00'\ntags: []\n" ++
@@ -526,7 +550,9 @@ test "schema-overrides: a match-mode override bumps one lint's severity without 
 
     var fake = FakeStore.init(testing.allocator);
     defer fake.deinit();
-    var validation = SchemaValidationStore.init(testing.allocator, fake.port(), vars.vars());
+    var base = try compose_ctx_test_support.BaseCtx.init(testing.allocator);
+    defer base.deinit();
+    var validation = try SchemaValidationStore.initCtx(ctxWith(&base, testing.allocator, fake.port(), vars.vars()));
     const wrapped =
         "---\nschema: vault-note/v1\ntitle: Example\nnote_id: sb-081\n" ++
         "created: '2026-08-30T01:00:00+02:00'\nupdated: '2026-08-30T01:00:00+02:00'\ntags: []\n" ++
@@ -548,7 +574,9 @@ test "schema-overrides: a null on a required field removes it, a note missing th
 
     var fake = FakeStore.init(testing.allocator);
     defer fake.deinit();
-    var validation = SchemaValidationStore.init(testing.allocator, fake.port(), vars.vars());
+    var base = try compose_ctx_test_support.BaseCtx.init(testing.allocator);
+    defer base.deinit();
+    var validation = try SchemaValidationStore.initCtx(ctxWith(&base, testing.allocator, fake.port(), vars.vars()));
     // No `tags:` field at all -- the base schema requires it; the override
     // removes the field's own rule entirely, so its absence is no longer a
     // violation.

@@ -39,7 +39,10 @@ pub const DiskStore = struct {
     /// one real construction site that sets this to the real environment.
     vars: core.conf.Vars = core.conf.Vars.none,
 
-    pub fn init(gpa: Allocator, vault: []const u8, namespace: []const u8) !DiskStore {
+    /// The real construction logic, shared by `init` and `initCtx` below --
+    /// neither calls the other, both call this. Not `pub`: an implementation
+    /// detail, not a second public constructor.
+    fn build(gpa: Allocator, vault: []const u8, namespace: []const u8) !DiskStore {
         const owned_vault = try gpa.dupe(u8, vault);
         return .{
             .gpa = gpa,
@@ -50,11 +53,17 @@ pub const DiskStore = struct {
         };
     }
 
-    /// `initCtx` alongside `init`, not instead of it -- `init` keeps its own
-    /// narrow signature so nothing outside `resolveStore`'s composition path
-    /// needs to know `ComposeCtx` exists.
+    /// `init` keeps its own narrow signature so nothing outside
+    /// `resolveStore`'s composition path needs to know `ComposeCtx` exists
+    /// -- `DiskRenamer.rename`/`buildEdges` below construct a plain,
+    /// unnamespaced `DiskStore` for their own internal bookkeeping, with no
+    /// relationship to `ComposeCtx` at all.
+    pub fn init(gpa: Allocator, vault: []const u8, namespace: []const u8) !DiskStore {
+        return build(gpa, vault, namespace);
+    }
+
     pub fn initCtx(ctx: compose_ctx.ComposeCtx) Allocator.Error!DiskStore {
-        var disk = try init(ctx.arena, ctx.vault, ctx.namespace);
+        var disk = try build(ctx.arena, ctx.vault, ctx.namespace);
         disk.vars = ctx.vars;
         return disk;
     }
@@ -1019,6 +1028,39 @@ fn vaultRoot(gpa: Allocator, tmp: *testing.TmpDir) ![]u8 {
     var buf: [Io.Dir.max_path_bytes]u8 = undefined;
     const base = buf[0..try tmp.dir.realPath(testing.io, &buf)];
     return std.fmt.allocPrint(gpa, "{s}/vault", .{base});
+}
+
+const compose_ctx_test_support = @import("../compose_ctx_test_support.zig");
+
+test "initCtx threads vars through from the context -- the one thing it does that init doesn't" {
+    const gpa = testing.allocator;
+    var base = try compose_ctx_test_support.BaseCtx.init(gpa);
+    defer base.deinit();
+
+    // A distinguishable, non-`.none` Vars -- checked by identity below, so
+    // its `get` never actually needs to run.
+    var marker: u8 = 0;
+    const vars: core.conf.Vars = .{
+        .ctx = &marker,
+        .getFn = struct {
+            fn get(ctx: *anyopaque, name: []const u8) ?[]const u8 {
+                _ = ctx;
+                _ = name;
+                return null;
+            }
+        }.get,
+    };
+
+    var ctx = base.ctx(gpa);
+    ctx.vault = "vault";
+    ctx.namespace = "";
+    ctx.vars = vars;
+
+    var s = try DiskStore.initCtx(ctx);
+    defer s.deinit();
+
+    try testing.expectEqual(vars.ctx, s.vars.ctx);
+    try testing.expectEqual(vars.getFn, s.vars.getFn);
 }
 
 test "write then read round-trips through the port, namespace-scoped" {
