@@ -117,6 +117,51 @@ pub fn renameTarget(gpa: std.mem.Allocator, body: []const u8, old_target: []cons
     return out.toOwnedSlice(gpa);
 }
 
+/// Rewrites every `[[Target]]`/`[[Target#Heading]]`/`[[Target|Display]]` in
+/// `body` whose target matches `old_target` (see `targetMatches`) into plain
+/// text, so the sentence around it stays readable once the note it pointed
+/// to is gone rather than losing those words outright: an alias's
+/// `|Display` text when present, otherwise `old_target`'s bare title with
+/// any `#`-anchor/leading path/`.md` suffix dropped -- they named a place
+/// inside a note that no longer exists, so carrying them into plain prose
+/// would misquote it rather than describe it. Everything else in `body` is
+/// copied through untouched, same "prose isn't a format this owns" rule
+/// `renameTarget` follows for an unterminated `[[`. Caller-owned.
+pub fn unlinkTarget(gpa: std.mem.Allocator, body: []const u8, old_target: []const u8) ![]u8 {
+    var out: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer out.deinit(gpa);
+
+    var pos: usize = 0;
+    while (std.mem.indexOfPos(u8, body, pos, "[[")) |start| {
+        try out.appendSlice(gpa, body[pos..start]);
+
+        const inner_start = start + 2;
+        const end = std.mem.indexOfPos(u8, body, inner_start, "]]") orelse {
+            try out.appendSlice(gpa, body[start..]);
+            pos = body.len;
+            break;
+        };
+        const inner = body[inner_start..end];
+        const bar = std.mem.indexOfScalar(u8, inner, '|');
+        const raw = if (bar) |b| inner[0..b] else inner;
+        const target = std.mem.trim(u8, raw, " \t\r\n");
+
+        const matches = try targetMatches(gpa, target, old_target);
+        if (matches) {
+            if (bar) |b| {
+                try out.appendSlice(gpa, std.mem.trim(u8, inner[b + 1 ..], " \t\r\n"));
+            } else {
+                try out.appendSlice(gpa, normalizeTarget(target));
+            }
+        } else {
+            try out.appendSlice(gpa, body[start .. end + 2]);
+        }
+        pos = end + 2;
+    }
+    try out.appendSlice(gpa, body[pos..]);
+    return out.toOwnedSlice(gpa);
+}
+
 const testing = std.testing;
 
 fn freeAll(gpa: std.mem.Allocator, s: []const []const u8) void {
@@ -212,6 +257,30 @@ test "renameTarget" {
         defer gpa.free(out);
         testing.expectEqualStrings(c.want, out) catch |err| {
             std.debug.print("renameTarget case failed: {s}\n", .{c.name});
+            return err;
+        };
+    }
+}
+
+test "unlinkTarget" {
+    const gpa = testing.allocator;
+    const cases = [_]struct { name: []const u8, in: []const u8, old: []const u8, want: []const u8 }{
+        .{ .name = "replaces a bare matching wikilink with its bare title", .in = "see [[Old Name]] here", .old = "Old Name", .want = "see Old Name here" },
+        .{ .name = "replaces an aliased wikilink with its display text", .in = "see [[Old Name|a nicer label]] here", .old = "Old Name", .want = "see a nicer label here" },
+        .{ .name = "matches case-insensitively, keeping the case as typed", .in = "[[old name]]", .old = "Old Name", .want = "old name" },
+        .{ .name = "drops a heading anchor from the unlinked bare title", .in = "see [[Old Name#Some Heading]] here", .old = "Old Name", .want = "see Old Name here" },
+        .{ .name = "drops a heading anchor even alongside an alias, keeping only the display text", .in = "[[Old Name#Some Heading|a nicer label]]", .old = "Old Name", .want = "a nicer label" },
+        .{ .name = "leaves a non-matching wikilink untouched", .in = "[[Something Else]]", .old = "Old Name", .want = "[[Something Else]]" },
+        .{ .name = "unlinks every matching occurrence, leaving others alone", .in = "[[Old Name]] and [[Other]] and [[Old Name|again]]", .old = "Old Name", .want = "Old Name and [[Other]] and again" },
+        .{ .name = "copies an unterminated wikilink through verbatim", .in = "[[Old Name]] then [[broken with no close", .old = "Old Name", .want = "Old Name then [[broken with no close" },
+        .{ .name = "unlinks a .md-suffixed wikilink to its bare title", .in = "[[Old Name.md]]", .old = "Old Name", .want = "Old Name" },
+        .{ .name = "unlinks a path-qualified wikilink to its bare title", .in = "[[tasks/synapse/Old Name.md]]", .old = "Old Name", .want = "Old Name" },
+    };
+    for (cases) |c| {
+        const out = try unlinkTarget(gpa, c.in, c.old);
+        defer gpa.free(out);
+        testing.expectEqualStrings(c.want, out) catch |err| {
+            std.debug.print("unlinkTarget case failed: {s}\n", .{c.name});
             return err;
         };
     }

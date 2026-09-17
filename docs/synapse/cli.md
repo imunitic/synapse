@@ -48,6 +48,7 @@ usage: synapse <subcommand> [args]
   vault-deadends             notes with no outgoing links
   vault-ambiguous            source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
   vault-rename <old-path> <new-path>   moves a note and rewrites every referring wikilink
+  vault-delete <path>        removes a note, unlinking every referring wikilink to plain text
   build-refs [--cache <f>] [--out <f>]   _refs.tsv from the tags cache
   build-deps [--repo <dir>] [--out <f>]  _deps.tsv, per-file declared dependencies
   build-namespaces [--repo <dir>] [--out <f>]  _namespaces.tsv, per-file declared namespace
@@ -193,6 +194,7 @@ usage: synapse vault-read <path>
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
        synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
                                                        syncing its title:/H1 to the new filename
+       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
 ```
 
 ### synapse vault-write
@@ -218,6 +220,7 @@ usage: synapse vault-read <path>
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
        synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
                                                        syncing its title:/H1 to the new filename
+       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
 ```
 
 ### synapse vault-list
@@ -243,6 +246,7 @@ usage: synapse vault-read <path>
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
        synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
                                                        syncing its title:/H1 to the new filename
+       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
 ```
 
 ### synapse vault-check
@@ -268,6 +272,7 @@ usage: synapse vault-read <path>
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
        synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
                                                        syncing its title:/H1 to the new filename
+       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
 ```
 
 ### synapse vault-search
@@ -293,6 +298,7 @@ usage: synapse vault-read <path>
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
        synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
                                                        syncing its title:/H1 to the new filename
+       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
 ```
 
 ### synapse vault-search-text
@@ -318,6 +324,7 @@ usage: synapse vault-read <path>
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
        synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
                                                        syncing its title:/H1 to the new filename
+       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
 ```
 
 ### synapse vault-doc-map
@@ -343,6 +350,7 @@ usage: synapse vault-read <path>
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
        synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
                                                        syncing its title:/H1 to the new filename
+       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
 ```
 
 ### synapse vault-patch
@@ -368,6 +376,7 @@ usage: synapse vault-read <path>
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
        synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
                                                        syncing its title:/H1 to the new filename
+       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
 ```
 
 ### synapse vault-backlinks
@@ -393,6 +402,7 @@ usage: synapse vault-read <path>
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
        synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
                                                        syncing its title:/H1 to the new filename
+       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
 ```
 
 ### synapse vault-links
@@ -418,6 +428,7 @@ usage: synapse vault-read <path>
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
        synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
                                                        syncing its title:/H1 to the new filename
+       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
 ```
 
 ### synapse vault-unresolved
@@ -443,6 +454,7 @@ usage: synapse vault-read <path>
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
        synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
                                                        syncing its title:/H1 to the new filename
+       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
 ```
 
 ### synapse vault-orphans
@@ -468,6 +480,7 @@ usage: synapse vault-read <path>
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
        synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
                                                        syncing its title:/H1 to the new filename
+       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
 ```
 
 ### synapse vault-deadends
@@ -493,6 +506,7 @@ usage: synapse vault-read <path>
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
        synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
                                                        syncing its title:/H1 to the new filename
+       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
 ```
 
 ### synapse vault-ambiguous
@@ -518,6 +532,7 @@ usage: synapse vault-read <path>
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
        synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
                                                        syncing its title:/H1 to the new filename
+       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
 ```
 
 ### synapse vault-rename
@@ -543,6 +558,33 @@ usage: synapse vault-read <path>
        synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
        synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
                                                        syncing its title:/H1 to the new filename
+       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
+```
+
+### synapse vault-delete
+
+```
+usage: synapse vault-read <path>
+       synapse vault-write <path>                     body on stdin
+       synapse vault-list
+       synapse vault-check                        read-only conformance audit over schema-declaring notes
+       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
+       synapse vault-search-text <query> [--path-filter]
+                                                       full-text relevance search, optionally
+                                                       scoped by a JsonLogic path filter on stdin
+       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
+       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
+                   [--append|--prepend|--replace|--rename-heading] [--create]
+                                                       content on stdin
+       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
+       synapse vault-links <path>                      outgoing link targets from <path>
+       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
+       synapse vault-orphans                           notes with no backlinks
+       synapse vault-deadends                          notes with no outgoing links
+       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
+       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
+                                                       syncing its title:/H1 to the new filename
+       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
 ```
 
 ### synapse build-refs

@@ -15,6 +15,7 @@ const Allocator = std.mem.Allocator;
 const Store = ports.Store;
 const LinkGraph = ports.LinkGraph;
 const Renamer = ports.Renamer;
+const Deleter = ports.Deleter;
 
 pub const DiskStore = struct {
     gpa: Allocator,
@@ -30,6 +31,9 @@ pub const DiskStore = struct {
     /// Same vault-wide-always reasoning as `link_graph` -- a rename's
     /// referring-wikilink rewrite is a whole-vault concern too.
     rename_impl: DiskRenamer,
+    /// Same vault-wide-always reasoning again -- a delete addresses a note
+    /// by its full vault-relative path, same as rename.
+    delete_impl: DiskDeleter,
     /// The resolver for finding conf files (`synapse-prompt-stopwords.conf`
     /// for `search`'s own ranking), not a path or a raw environment map --
     /// propagated in, resolved lazily only when actually needed. Defaults
@@ -50,6 +54,7 @@ pub const DiskStore = struct {
             .namespace = try gpa.dupe(u8, namespace),
             .link_graph = .{ .vault = owned_vault },
             .rename_impl = .{ .vault = owned_vault },
+            .delete_impl = .{ .vault = owned_vault },
         };
     }
 
@@ -89,6 +94,11 @@ pub const DiskStore = struct {
     /// Same one-line delegation, for the composed `DiskRenamer`.
     pub fn renamer(self: *DiskStore) Renamer {
         return self.rename_impl.renamer();
+    }
+
+    /// Same one-line delegation, for the composed `DiskDeleter`.
+    pub fn deleter(self: *DiskStore) Deleter {
+        return self.delete_impl.deleter();
     }
 
     fn nodePath(self: *DiskStore, gpa: Allocator, node: []const u8) ![]u8 {
@@ -610,6 +620,55 @@ pub const DiskRenamer = struct {
     }
 };
 
+/// `Deleter` backed by nothing but the files on disk -- the default
+/// implementation every `DiskStore` composes. Removes a note outright, and
+/// unlinks (see `core.wikilinks.unlinkTarget`) every referring `[[wikilink]]`
+/// to plain text first, so a referrer never keeps pointing at a note that no
+/// longer exists -- the same "keep the vault internally consistent" job
+/// `DiskRenamer` does for a move, done here for a removal instead.
+/// `error.NodeNotFound` when `path` isn't a real note -- the explicit check
+/// `deleteVaultFile` itself skips (its own "absence is ordinary" contract
+/// exists for `DiskRenamer`'s cleanup step, where a second attempt at an
+/// already-gone file is expected, not for a caller-facing delete that should
+/// say clearly there was nothing there).
+pub const DiskDeleter = struct {
+    vault: []const u8,
+
+    pub fn deleter(self: *DiskDeleter) Deleter {
+        return Deleter.from(DiskDeleter, self);
+    }
+
+    pub fn delete(self: *DiskDeleter, gpa: Allocator, io: Io, path: []const u8) anyerror!void {
+        var store = try DiskStore.init(gpa, self.vault, "");
+        defer store.deinit();
+
+        const body = (try store.read(gpa, io, path)) orelse return error.NodeNotFound;
+        gpa.free(body);
+
+        // Computed before the file is gone -- a referrer's own resolution
+        // depends on `path` still existing as a real candidate, the same
+        // ordering `DiskRenamer.rename` relies on for its own referrers.
+        var lg: DiskLinkGraph = .{ .vault = self.vault };
+        const referrers = try lg.backlinks(gpa, io, path);
+        defer {
+            for (referrers) |r| gpa.free(r.node);
+            gpa.free(referrers);
+        }
+
+        const title = titleOf(path);
+        for (referrers) |r| {
+            if (std.mem.eql(u8, r.node, path)) continue; // being deleted anyway
+            const referrer_body = (try store.read(gpa, io, r.node)) orelse continue;
+            defer gpa.free(referrer_body);
+            const unlinked = try core.wikilinks.unlinkTarget(gpa, referrer_body, title);
+            defer gpa.free(unlinked);
+            _ = try store.write(io, r.node, unlinked);
+        }
+
+        try deleteVaultFile(gpa, io, self.vault, path);
+    }
+};
+
 /// True when `old_path` and `new_path` resolve to the same underlying file
 /// -- the case-insensitive-filesystem collision `DiskRenamer.rename` has to
 /// guard against. `old_path`'s stat failing (already gone) or the two
@@ -628,10 +687,12 @@ fn sameFile(io: Io, vault: []const u8, old_path: []const u8, new_path: []const u
 }
 
 /// Removes a vault-relative file directly -- not a `Store` operation (`Store`
-/// stays at exactly four methods, none of them delete), needed only by
-/// `DiskRenamer`'s own cleanup step. Absence is ordinary, matching `read`'s
-/// own rule: a file already gone (a second rename attempt, a manual delete)
-/// is not an error.
+/// stays at exactly four methods, none of them delete). Used by
+/// `DiskRenamer`'s own cleanup step and by `DiskDeleter`. Absence is
+/// ordinary, matching `read`'s own rule: a file already gone (a second
+/// rename attempt, a second delete attempt) is not an error -- `DiskDeleter`
+/// itself is what turns a first-time absence into `error.NodeNotFound`, by
+/// checking existence before ever calling this.
 fn deleteVaultFile(gpa: Allocator, io: Io, vault: []const u8, path: []const u8) !void {
     if (!core.node_path.isSafe(path)) return error.UnsafeNodePath;
     const full = try std.fs.path.join(gpa, &.{ vault, path });
@@ -2125,4 +2186,85 @@ test "a self-referencing note's own self-link is renamed too, not left pointing 
     const got = (try port.read(gpa, testing.io, "New.md")).?;
     defer gpa.free(got);
     try testing.expectEqualStrings("see also [[New]] itself\n", got);
+}
+
+test "delete removes the note; a subsequent read sees it gone" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "");
+    defer s.deinit();
+    const port = s.store();
+    _ = try port.write(testing.io, "Gone.md", "body\n");
+
+    const dl = s.deleter();
+    try dl.delete(gpa, testing.io, "Gone.md");
+
+    try testing.expectEqual(@as(?[]u8, null), try port.read(gpa, testing.io, "Gone.md"));
+}
+
+test "deleting a note that doesn't exist fails clearly, and touches nothing" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "");
+    defer s.deinit();
+    const port = s.store();
+    _ = try port.write(testing.io, "Real.md", "body\n");
+
+    const dl = s.deleter();
+    try testing.expectError(error.NodeNotFound, dl.delete(gpa, testing.io, "Missing.md"));
+
+    // Untouched: still there, unmodified.
+    const got = (try port.read(gpa, testing.io, "Real.md")).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("body\n", got);
+}
+
+test "delete unlinks every referring wikilink to plain text" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "");
+    defer s.deinit();
+    const port = s.store();
+    _ = try port.write(testing.io, "Gone.md", "body\n");
+    _ = try port.write(testing.io, "Referrer.md", "see [[Gone]] and [[Gone|the doc]] for details\n");
+
+    const dl = s.deleter();
+    try dl.delete(gpa, testing.io, "Gone.md");
+
+    try testing.expectEqual(@as(?[]u8, null), try port.read(gpa, testing.io, "Gone.md"));
+    const got = (try port.read(gpa, testing.io, "Referrer.md")).?;
+    defer gpa.free(got);
+    try testing.expectEqualStrings("see Gone and the doc for details\n", got);
+}
+
+test "deleting a note with no referrers just removes the file" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const vault = try vaultRoot(gpa, &tmp);
+    defer gpa.free(vault);
+
+    var s = try DiskStore.init(gpa, vault, "");
+    defer s.deinit();
+    const port = s.store();
+    _ = try port.write(testing.io, "Gone.md", "see also [[Gone]] itself\n");
+
+    const dl = s.deleter();
+    try dl.delete(gpa, testing.io, "Gone.md");
+
+    // The deleted note's own self-link is never rewritten -- there's nothing
+    // left to write it back to.
+    try testing.expectEqual(@as(?[]u8, null), try port.read(gpa, testing.io, "Gone.md"));
 }

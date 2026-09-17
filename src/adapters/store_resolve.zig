@@ -35,6 +35,7 @@ const Allocator = std.mem.Allocator;
 const Store = ports.Store;
 const LinkGraph = ports.LinkGraph;
 const Renamer = ports.Renamer;
+const Deleter = ports.Deleter;
 const SearchFiltered = ports.SearchFiltered;
 const DiskStore = disk_store.DiskStore;
 const GitStore = git_store.GitStore;
@@ -57,6 +58,7 @@ pub const ResolvedStore = struct {
     resolved_store: Store,
     resolved_link_graph: LinkGraph,
     resolved_renamer: Renamer,
+    resolved_deleter: Deleter,
     resolved_search_filtered: SearchFiltered,
 
     pub fn store(self: *ResolvedStore) Store {
@@ -73,6 +75,10 @@ pub const ResolvedStore = struct {
 
     pub fn renamer(self: *ResolvedStore) Renamer {
         return self.resolved_renamer;
+    }
+
+    pub fn deleter(self: *ResolvedStore) Deleter {
+        return self.resolved_deleter;
     }
 
     /// Full-text search, first scoped to whichever candidate paths pass
@@ -99,6 +105,7 @@ const ComposeResult = struct {
     store: Store,
     link_graph: LinkGraph,
     renamer: Renamer,
+    deleter: Deleter,
     search_filtered: SearchFiltered,
 };
 
@@ -125,6 +132,7 @@ fn resolveCapabilities(comptime T: type, ptr: *T, ctx: ComposeCtx) ComposeResult
         .store = ptr.store(),
         .link_graph = if (@hasDecl(T, "linkGraph")) ptr.linkGraph() else ctx.inner_link_graph,
         .renamer = if (@hasDecl(T, "renamer")) ptr.renamer() else ctx.inner_renamer,
+        .deleter = if (@hasDecl(T, "deleter")) ptr.deleter() else ctx.inner_deleter,
         .search_filtered = if (@hasDecl(T, "searchFiltered")) SearchFiltered.from(T, ptr) else ctx.inner_search_filtered,
     };
 }
@@ -272,6 +280,7 @@ pub fn resolveStore(
         .inner_store = undefined,
         .inner_link_graph = undefined,
         .inner_renamer = undefined,
+        .inner_deleter = undefined,
         .inner_search_filtered = undefined,
     });
 
@@ -287,6 +296,7 @@ pub fn resolveStore(
         .inner_store = result.store,
         .inner_link_graph = result.link_graph,
         .inner_renamer = result.renamer,
+        .inner_deleter = result.deleter,
         .inner_search_filtered = result.search_filtered,
     });
 
@@ -309,6 +319,7 @@ pub fn resolveStore(
             .inner_store = result.store,
             .inner_link_graph = result.link_graph,
             .inner_renamer = result.renamer,
+            .inner_deleter = result.deleter,
             .inner_search_filtered = result.search_filtered,
         });
     }
@@ -317,6 +328,7 @@ pub fn resolveStore(
         .resolved_store = result.store,
         .resolved_link_graph = result.link_graph,
         .resolved_renamer = result.renamer,
+        .resolved_deleter = result.deleter,
         .resolved_search_filtered = result.search_filtered,
     };
 }
@@ -489,7 +501,7 @@ const FakeSearchOverride = struct {
     }
 };
 
-test "resolveCapabilities lets a decorator override searchFiltered while linkGraph/renamer still fall through" {
+test "resolveCapabilities lets a decorator override searchFiltered while linkGraph/renamer/deleter still fall through" {
     const gpa = testing.allocator;
     var tmp = testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -518,6 +530,7 @@ test "resolveCapabilities lets a decorator override searchFiltered while linkGra
         .inner_store = undefined,
         .inner_link_graph = undefined,
         .inner_renamer = undefined,
+        .inner_deleter = undefined,
         .inner_search_filtered = undefined,
     });
 
@@ -532,12 +545,14 @@ test "resolveCapabilities lets a decorator override searchFiltered while linkGra
         .inner_store = disk_result.store,
         .inner_link_graph = disk_result.link_graph,
         .inner_renamer = disk_result.renamer,
+        .inner_deleter = disk_result.deleter,
         .inner_search_filtered = disk_result.search_filtered,
     });
 
     // Not declared on FakeSearchOverride -- fall through to disk's, unchanged.
     try testing.expectEqual(disk_result.link_graph.ptr, result.link_graph.ptr);
     try testing.expectEqual(disk_result.renamer.ptr, result.renamer.ptr);
+    try testing.expectEqual(disk_result.deleter.ptr, result.deleter.ptr);
 
     // Declared on FakeSearchOverride -- overridden, not inherited from disk.
     const hits = try result.search_filtered.searchFiltered(gpa, io, "anything", null);

@@ -32,6 +32,7 @@ const Allocator = std.mem.Allocator;
 const Store = ports.Store;
 const LinkGraph = ports.LinkGraph;
 const Renamer = ports.Renamer;
+const Deleter = ports.Deleter;
 const DiskStore = disk_store.DiskStore;
 const ComposeCtx = compose_ctx.ComposeCtx;
 
@@ -62,6 +63,7 @@ pub const GitStore = struct {
     /// the link graph, so this is exactly whatever `inner` resolved to.
     inner_link_graph: LinkGraph,
     rename_impl: GitRenamer,
+    delete_impl: GitDeleter,
     /// Set by `resolveStore` the same way `DiskStore.vars` already is --
     /// needed here only to read `SYNAPSE_VAULT_PUSH_EVERY`. `null` (the
     /// default for a caller with no environment, e.g. a test) disables the
@@ -78,7 +80,8 @@ pub const GitStore = struct {
     /// `store_resolve.zig`'s composition path ever constructed one, so
     /// there is no second real caller to keep a narrower signature for.
     /// Every dependency named explicitly -- `gpa`/`vault` for `GitStore`'s
-    /// own git mechanics, `inner`/`inner_link_graph`/`inner_renamer` for
+    /// own git mechanics, `inner`/`inner_link_graph`/`inner_renamer`/
+    /// `inner_deleter` for
     /// whatever it's composing. Never derives any of these from `inner`
     /// itself: relying on the thing you wrap to also hand you your own
     /// dependencies doesn't hold once `inner` is generic rather than always
@@ -90,6 +93,7 @@ pub const GitStore = struct {
             .inner = ctx.inner_store,
             .inner_link_graph = ctx.inner_link_graph,
             .rename_impl = .{ .vault = ctx.vault, .inner = ctx.inner_renamer },
+            .delete_impl = .{ .vault = ctx.vault, .inner = ctx.inner_deleter },
             .env = ctx.env,
             .self_path = ctx.self_path,
         };
@@ -107,6 +111,10 @@ pub const GitStore = struct {
     /// it needs its own commit -- see `GitRenamer` below.
     pub fn renamer(self: *GitStore) Renamer {
         return self.rename_impl.renamer();
+    }
+    /// Not a passthrough either, same reasoning as `renamer`.
+    pub fn deleter(self: *GitStore) Deleter {
+        return self.delete_impl.deleter();
     }
 
     pub fn read(self: *GitStore, gpa: Allocator, io: Io, node: []const u8) anyerror!?[]u8 {
@@ -226,6 +234,29 @@ pub const GitRenamer = struct {
     }
 };
 
+/// Same shape as `GitRenamer`: delegates the actual removal to whatever
+/// `inner` resolved to (`DiskDeleter` today), then commits under the same
+/// lock-or-skip discipline. No push-threshold check here either, for the
+/// same reason `GitRenamer` has none.
+pub const GitDeleter = struct {
+    vault: []const u8,
+    inner: Deleter,
+
+    pub fn deleter(self: *GitDeleter) Deleter {
+        return Deleter.from(GitDeleter, self);
+    }
+
+    pub fn delete(self: *GitDeleter, gpa: Allocator, io: Io, path: []const u8) anyerror!void {
+        try self.inner.delete(gpa, io, path);
+
+        git_sync.ensureRepo(gpa, io, self.vault) catch return;
+        const lock = git_sync.tryAcquire(gpa, io, self.vault) catch return;
+        const l = lock orelse return;
+        defer git_sync.release(io, gpa, l);
+        git_sync.commitIfDirty(gpa, io, self.vault) catch {};
+    }
+};
+
 const testing = std.testing;
 
 fn vaultGit(gpa: Allocator, vault: []const u8, args: []const []const u8) !process.Result {
@@ -287,6 +318,7 @@ fn initGitStore(gpa: Allocator, vault: []const u8, namespace: []const u8) !TestF
         .inner_store = disk.store(),
         .inner_link_graph = disk.linkGraph(),
         .inner_renamer = disk.renamer(),
+        .inner_deleter = disk.deleter(),
         .inner_search_filtered = search_filtered.searchFiltered_(),
     });
     return .{ .disk = disk, .env = env, .git = git };
@@ -406,6 +438,30 @@ test "renamer moves the file and commits the result, unlike a pure delegation" {
 
     // Two real commits: the write, then the rename -- not just the file
     // moved on disk with nothing recording it.
+    try testing.expectEqual(@as(usize, 2), try commitCount(gpa, vault));
+    const head = try headSubject(gpa, vault);
+    defer gpa.free(head);
+    try testing.expect(std.mem.startsWith(u8, head, "vault: "));
+}
+
+test "deleter removes the file and commits the result, unlike a pure delegation" {
+    const gpa = testing.allocator;
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var buf: [Io.Dir.max_path_bytes]u8 = undefined;
+    const vault = buf[0..try tmp.dir.realPath(testing.io, &buf)];
+
+    var fx = try initGitStore(gpa, vault, "");
+    defer fx.deinit();
+    var store = fx.git.store();
+    _ = try store.write(testing.io, "Gone.md", "body\n");
+
+    var deleter = fx.git.deleter();
+    try deleter.delete(gpa, testing.io, "Gone.md");
+
+    try testing.expectEqual(@as(?[]u8, null), try store.read(gpa, testing.io, "Gone.md"));
+
+    // Two real commits: the write, then the delete.
     try testing.expectEqual(@as(usize, 2), try commitCount(gpa, vault));
     const head = try headSubject(gpa, vault);
     defer gpa.free(head);

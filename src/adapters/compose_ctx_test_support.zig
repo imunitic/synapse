@@ -15,6 +15,7 @@ pub const BaseCtx = struct {
     store: fakes.Store,
     link_graph: fakes.LinkGraph,
     renamer: fakes.Renamer,
+    deleter: fakes.Deleter,
     search_filtered: fakes.SearchFiltered,
     env: std.process.Environ.Map,
 
@@ -23,6 +24,7 @@ pub const BaseCtx = struct {
             .store = .init(gpa),
             .link_graph = .{},
             .renamer = .{},
+            .deleter = .{},
             .search_filtered = .{},
             .env = try std.process.Environ.createMap(std.testing.environ, gpa),
         };
@@ -46,6 +48,7 @@ pub const BaseCtx = struct {
             .inner_store = self.store.port(),
             .inner_link_graph = self.link_graph.linkGraph(),
             .inner_renamer = self.renamer.renamer(),
+            .inner_deleter = self.deleter.deleter(),
             .inner_search_filtered = self.search_filtered.searchFiltered_(),
         };
     }
@@ -68,5 +71,6 @@ test "the base fixture's port fields are wired to their fake's documented behavi
     // assertion to catch.
     try testing.expectEqual(@as(usize, 0), (try ctx.inner_link_graph.orphans(testing.allocator, undefined)).len);
     try ctx.inner_renamer.rename(testing.allocator, undefined, "a.md", "b.md");
+    try ctx.inner_deleter.delete(testing.allocator, undefined, "a.md");
     try testing.expectEqual(@as(usize, 0), (try ctx.inner_search_filtered.searchFiltered(testing.allocator, undefined, "q", null)).len);
 }

@@ -85,6 +85,7 @@ const usage_text =
     \\       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
     \\       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
     \\                                                       syncing its title:/H1 to the new filename
+    \\       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
     \\
 ;
 
@@ -424,6 +425,11 @@ fn openRenamer(resolved: *adapters.store_resolve.ResolvedStore) ports.Renamer {
     return resolved.renamer();
 }
 
+/// Same reasoning as `openLinkGraph`, for `Deleter`.
+fn openDeleter(resolved: *adapters.store_resolve.ResolvedStore) ports.Deleter {
+    return resolved.deleter();
+}
+
 pub fn backlinks(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []const u8, path: []const u8, result: *Io.Writer) !u8 {
     var arena_state: std.heap.ArenaAllocator = .init(gpa);
     defer arena_state.deinit();
@@ -593,6 +599,33 @@ pub fn rename(
         return 1;
     };
     try result.print("{s}\n", .{new_path});
+    return 0;
+}
+
+pub fn delete(
+    gpa: Allocator,
+    io: Io,
+    env: *std.process.Environ.Map,
+    vault: []const u8,
+    path: []const u8,
+    result: *Io.Writer,
+) !u8 {
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var resolved = (try openWholeVaultStore(arena, io, env, vault, "")) orelse return 1;
+    const deleter = openDeleter(&resolved);
+
+    deleter.delete(gpa, io, path) catch |err| {
+        if (err == error.NodeNotFound) {
+            std.debug.print("{s}: no such note: {s}\n", .{ prog, path });
+        } else {
+            std.debug.print("{s}: delete failed\n", .{prog});
+        }
+        return 1;
+    };
+    try result.print("{s}\n", .{path});
     return 0;
 }
 
@@ -930,6 +963,20 @@ pub fn runRename(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *s
     var out_buf: [512]u8 = undefined;
     var out = Io.File.stdout().writer(io, &out_buf);
     const code = try rename(gpa, io, env, vault, old_path, new_path, &out.interface);
+    try out.interface.flush();
+    return code;
+}
+
+pub fn runDelete(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
+    const path = args.next() orelse return usage();
+    if (isHelp(path)) return help();
+    if (args.next() != null) return usage();
+    const vault = (try resolveVault(gpa, io, env)) orelse return 1;
+    defer gpa.free(vault);
+
+    var out_buf: [512]u8 = undefined;
+    var out = Io.File.stdout().writer(io, &out_buf);
+    const code = try delete(gpa, io, env, vault, path, &out.interface);
     try out.interface.flush();
     return code;
 }
@@ -2293,4 +2340,78 @@ test "vault-rename syncs title/H1 to the new filename, rewrites referrers, and s
         const code = try check(gpa, fx.io(), &fx.env, fx.vault, &out.writer);
         try testing.expectEqual(@as(u8, 0), code);
     }
+}
+
+test "vault-delete removes a note, unlinks referrers to plain text, and stays vault-check clean" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try withRealSchemas(&fx);
+
+    const gone = try bareNoteBody(gpa, "Gone note", "sb-921");
+    defer gpa.free(gone);
+    const referrer = try bareNoteBody(gpa, "Referrer", "sb-923");
+    defer gpa.free(referrer);
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try write(gpa, fx.io(), &fx.env, fx.vault, "research/Gone note.md", gone, "", &out.writer);
+        try testing.expectEqual(@as(u8, 0), code);
+    }
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try write(gpa, fx.io(), &fx.env, fx.vault, "research/Referrer.md", referrer, "", &out.writer);
+        try testing.expectEqual(@as(u8, 0), code);
+    }
+
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try patch(
+            gpa,
+            fx.io(),
+            &fx.env,
+            fx.vault,
+            "research/Referrer.md",
+            .{ .heading = &.{ "Referrer", "Summary" } },
+            .append,
+            false,
+            "See [[Gone note]] for background.\n",
+            "",
+            &out.writer,
+        );
+        try testing.expectEqual(@as(u8, 0), code);
+    }
+
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try delete(gpa, fx.io(), &fx.env, fx.vault, "research/Gone note.md", &out.writer);
+        try testing.expectEqual(@as(u8, 0), code);
+    }
+    try testing.expectEqual(@as(?[]u8, null), try fx.readVaultFile(gpa, "research/Gone note.md"));
+
+    const referrer_body = (try fx.readVaultFile(gpa, "research/Referrer.md")).?;
+    defer gpa.free(referrer_body);
+    try testing.expect(std.mem.indexOf(u8, referrer_body, "[[Gone note]]") == null);
+    try testing.expect(std.mem.indexOf(u8, referrer_body, "See Gone note for background.") != null);
+
+    {
+        var out: Io.Writer.Allocating = .init(gpa);
+        defer out.deinit();
+        const code = try check(gpa, fx.io(), &fx.env, fx.vault, &out.writer);
+        try testing.expectEqual(@as(u8, 0), code);
+    }
+}
+
+test "vault-delete on a note that doesn't exist fails clearly" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try delete(gpa, fx.io(), &fx.env, fx.vault, "research/Missing.md", &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
 }

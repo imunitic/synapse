@@ -14,6 +14,7 @@ pub const Store = @import("store.zig").FakeStore;
 pub const Clusterer = @import("clusterer.zig").FakeClusterer;
 pub const LinkGraph = @import("link_graph.zig").FakeLinkGraph;
 pub const Renamer = @import("renamer.zig").FakeRenamer;
+pub const Deleter = @import("deleter.zig").FakeDeleter;
 pub const SearchFiltered = @import("search_filtered.zig").FakeSearchFiltered;
 
 test {
@@ -23,5 +24,6 @@ test {
     _ = @import("clusterer.zig");
     _ = @import("link_graph.zig");
     _ = @import("renamer.zig");
+    _ = @import("deleter.zig");
     _ = @import("search_filtered.zig");
 }

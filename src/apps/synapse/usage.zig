@@ -40,6 +40,7 @@ pub const text =
     \\  vault-deadends             notes with no outgoing links
     \\  vault-ambiguous            source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
     \\  vault-rename <old-path> <new-path>   moves a note and rewrites every referring wikilink
+    \\  vault-delete <path>        removes a note, unlinking every referring wikilink to plain text
     \\  build-refs [--cache <f>] [--out <f>]   _refs.tsv from the tags cache
     \\  build-deps [--repo <dir>] [--out <f>]  _deps.tsv, per-file declared dependencies
     \\  build-namespaces [--repo <dir>] [--out <f>]  _namespaces.tsv, per-file declared namespace

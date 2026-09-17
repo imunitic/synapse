@@ -18,6 +18,7 @@ const Allocator = std.mem.Allocator;
 const Store = ports.Store;
 const LinkGraph = ports.LinkGraph;
 const Renamer = ports.Renamer;
+const Deleter = ports.Deleter;
 const SearchFiltered = ports.SearchFiltered;
 
 /// What every layer needs to construct itself around whatever the chain has
@@ -39,5 +40,6 @@ pub const ComposeCtx = struct {
     inner_store: Store,
     inner_link_graph: LinkGraph,
     inner_renamer: Renamer,
+    inner_deleter: Deleter,
     inner_search_filtered: SearchFiltered,
 };

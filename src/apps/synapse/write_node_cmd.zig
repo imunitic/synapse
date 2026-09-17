@@ -178,6 +178,33 @@ pub fn write(
             else
                 after_marker;
             tail = std.mem.trimEnd(u8, cut, "\n");
+
+            // `core.node.split` cuts at the *first* end marker it finds, so a
+            // second start/end marker somewhere in what's about to become the
+            // preserved tail means an earlier write already left this node
+            // structurally malformed (most likely: a still-fenced `##
+            // Sources` mirror stuck past that first marker from before this
+            // file's fence was in its current single-marker shape). Silently
+            // carrying that forward re-emits a stale `## Sources`/`## Links`
+            // alongside the freshly generated ones, which then fails far
+            // downstream as an opaque "occurs 2 times" schema violation with
+            // nothing pointing back at the real cause. Caught here instead,
+            // named plainly, before any of that is built.
+            if (tail) |t| {
+                if (std.mem.indexOf(u8, t, core.node.generated_start) != null or
+                    std.mem.indexOf(u8, t, core.node.generated_end) != null)
+                {
+                    std.debug.print(
+                        "{s}: {s} already has a stray generated-region marker past its first `{s}` -- refusing to write\n",
+                        .{ prog, node_file, core.node.generated_end },
+                    );
+                    std.debug.print(
+                        "  the note is structurally malformed (likely a duplicate marker left by an old write); repair it by hand before regenerating\n",
+                        .{},
+                    );
+                    return 1;
+                }
+            }
         }
     }
 
@@ -835,6 +862,48 @@ test "a rebuild preserves human-authored ## Notes instead of resetting them" {
     // Exactly one ## Notes heading -- the tail is re-emitted, not appended
     // to a fresh one.
     try testing.expectEqual(@as(usize, 1), std.mem.count(u8, second, "## Notes\n"));
+}
+
+test "a node with a stray generated-region marker past the first refuses to write, naming the file" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try withRealSchema(&fx);
+    try fx.writeRepoFile("src/foo.ml", "let x = 1\n");
+
+    var ctx = try fx.resolveContext();
+    defer ctx.deinit();
+
+    // Simulates the exact real-world shape this guards against: an earlier
+    // (now-historical) write left a second `<!-- synapse:generated:end -->`
+    // past the first, with a real `## Sources` sandwiched between them --
+    // `core.node.split` cuts at the first marker it finds, so everything
+    // from there on (including that stray `## Sources`) reads as the
+    // preserved human tail.
+    const malformed = "---\ntitle: Malformed\n---\n\n# Malformed\n" ++
+        core.node.generated_start ++ "\n\n## Summary\nOld.\n\n## Links\n" ++
+        core.node.generated_end ++ "\n\n## Sources\n- `src` (1)\n" ++
+        core.node.generated_end ++ "\n\n## Notes\nhand-written\n";
+    try fx.tmp.dir.createDirPath(testing.io, "vault/synapse/repo@main");
+    try fx.tmp.dir.writeFile(testing.io, .{
+        .sub_path = "vault/synapse/repo@main/Malformed.md",
+        .data = malformed,
+    });
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try write(fake_grammar.FakeExtractor, gpa, fx.io(), &fx.env, &ctx, .{
+        .title = "Malformed",
+        .summary = "one line",
+        .paths_text = "src/foo.ml\n",
+        .body_text = "## Summary\nNew.\n",
+    }, &out.writer);
+    try testing.expectEqual(@as(u8, 1), code);
+
+    // Refused before anything was rebuilt -- the file on disk is untouched.
+    const still_there = (try fx.readNode(gpa, "Malformed")).?;
+    defer gpa.free(still_there);
+    try testing.expectEqualStrings(malformed, still_there);
 }
 
 test "writing a node from its own recovered body is idempotent" {

@@ -177,6 +177,10 @@ pub fn Table(comptime Extractor: type) type {
             _ = .{ argv0, trace };
             return vault_cmd.runRename(gpa, io, env, args);
         }
+        fn vaultDelete(gpa: Allocator, io: Io, env: *EnvironMap, args: *ArgsIterator, argv0: []const u8, trace: ?[]const u8) anyerror!u8 {
+            _ = .{ argv0, trace };
+            return vault_cmd.runDelete(gpa, io, env, args);
+        }
         fn doctor(gpa: Allocator, io: Io, env: *EnvironMap, args: *ArgsIterator, argv0: []const u8, trace: ?[]const u8) anyerror!u8 {
             _ = .{ argv0, trace };
             return doctor_cmd.run(gpa, io, env, args);
@@ -279,6 +283,7 @@ pub fn Table(comptime Extractor: type) type {
             // `synapse-hook vault-sync`/`vault-pull` already have.
             .{ .name = "vault-git-pusher", .run = vaultGitPusher },
             .{ .name = "vault-rename", .run = vaultRename },
+            .{ .name = "vault-delete", .run = vaultDelete },
             .{ .name = "doctor", .run = doctor },
             .{ .name = "namespace", .run = namespace },
             .{ .name = "now", .run = now },
