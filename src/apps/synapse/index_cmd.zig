@@ -3,10 +3,10 @@
 //!   index build --unassigned <file> [--out <file>]   pairs on stdin
 //!   index build --lists <dir> --unassigned <file>    pairs from lists/NN.txt
 //!   build-index                                      the whole step, work dir derived
-//!   index unassigned [--file <file>]                 every unclaimed path
-//!   index lookup <path> [--file <file>]              the nodes claiming it
-//!   index nodes [--file <file>]                      every node that claims anything
-//!   index paths [--file <file>]                      every claimed path
+//!   index unassigned [--file <file>|--namespace <ns>]  every unclaimed path
+//!   index lookup <path> [--file <file>|--namespace <ns>]  the nodes claiming it
+//!   index nodes [--file <file>|--namespace <ns>]      every node that claims anything
+//!   index paths [--file <file>|--namespace <ns>]      every claimed path
 //!   index add-unassigned <path> [--file <file>]      queue one path for the sweep
 //!
 //! New because the storage changed: `synapse-build-index.sh` authored
@@ -14,11 +14,11 @@
 //! each `jq` block that read it back, one at a time, with no CLI contract
 //! moving.
 //!
-//! The default path comes from `SYNAPSE_WORK_DIR` and nowhere else -- the
-//! (still-bash) scripts already resolve the namespace and export the work
-//! dir with it baked in; guessing it here again would be a second
-//! implementation of the one thing that must not disagree. Unset, `--out`/
-//! `--file` is required.
+//! The default path comes from `SYNAPSE_WORK_DIR`, or, for a read form only,
+//! `--namespace <repo>@<branch>` naming another checkout's index directly
+//! (`context.workDirForNamespace`) -- read-only, since a write has to land
+//! in the namespace cwd's git identity actually names, never one picked by
+//! hand. With neither, `--out`/`--file` is required.
 
 const std = @import("std");
 const core = @import("core");
@@ -45,6 +45,7 @@ pub fn run(
     var unassigned_file: ?[]const u8 = null;
     var lists_dir: ?[]const u8 = null;
     var positional: ?[]const u8 = null;
+    var namespace: ?[]const u8 = null;
 
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "--out") or std.mem.eql(u8, arg, "--file")) {
@@ -53,6 +54,8 @@ pub fn run(
             unassigned_file = args.next() orelse return usage();
         } else if (std.mem.eql(u8, arg, "--lists")) {
             lists_dir = args.next() orelse return usage();
+        } else if (std.mem.eql(u8, arg, "--namespace")) {
+            namespace = args.next() orelse return usage();
         } else if (std.mem.startsWith(u8, arg, "--")) {
             return usage();
         } else if (positional == null) {
@@ -60,7 +63,24 @@ pub fn run(
         } else return usage();
     }
 
-    const path = file orelse (defaultPath(gpa, io, env) catch return noWorkDir()) orelse return noWorkDir();
+    // Read-only: `build`/`add-unassigned` mutate the index, and a mutation
+    // has to land in the namespace cwd's git identity actually names, never
+    // one picked by hand -- the same reasoning `query`'s own `--namespace`
+    // never applies to a write.
+    if (namespace != null and (std.mem.eql(u8, form, "build") or std.mem.eql(u8, form, "add-unassigned"))) {
+        std.debug.print("synapse-index: --namespace only applies to a read form (unassigned/lookup/nodes/paths)\n", .{});
+        return 2;
+    }
+    if (namespace != null and file != null) {
+        std.debug.print("synapse-index: --file/--out already names the index directly -- --namespace has nothing to do\n", .{});
+        return 2;
+    }
+
+    const path = file orelse
+        (if (namespace) |ns|
+            defaultPathForNamespace(gpa, env, ns) catch return noWorkDir()
+        else
+            defaultPath(gpa, io, env) catch return noWorkDir()) orelse return noWorkDir();
     defer if (file == null) gpa.free(@constCast(path));
 
     var out_buf: [256 * 1024]u8 = undefined;
@@ -83,11 +103,14 @@ fn usage() u8 {
     std.debug.print(
         \\usage: synapse index build --unassigned <file> [--out <file>] [--lists <dir>]
         \\       (pairs on stdin unless --lists names the lists directory)
-        \\       synapse index unassigned [--file <file>]
-        \\       synapse index lookup <path> [--file <file>]
-        \\       synapse index nodes [--file <file>]
-        \\       synapse index paths [--file <file>]
+        \\       synapse index unassigned [--file <file>|--namespace <repo>@<branch>]
+        \\       synapse index lookup <path> [--file <file>|--namespace <repo>@<branch>]
+        \\       synapse index nodes [--file <file>|--namespace <repo>@<branch>]
+        \\       synapse index paths [--file <file>|--namespace <repo>@<branch>]
         \\       synapse index add-unassigned <path> [--file <file>]
+        \\
+        \\  --namespace  read forms only -- another checkout's already-built index,
+        \\               not the cwd's; read-only, no checkout of it needs to exist
         \\
     , .{});
     return 2;
@@ -102,6 +125,16 @@ fn noWorkDir() u8 {
 /// already baked into that variable, so nothing here joins repo to branch.
 fn defaultPath(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !?[]const u8 {
     const work = (try context.workDir(gpa, io, env, "synapse-index")) orelse return null;
+    defer work.deinit(gpa);
+    return try std.fmt.allocPrint(gpa, "{s}/_index.bin", .{work.path});
+}
+
+/// Same as `defaultPath`, but for a namespace named directly (`index lookup
+/// --namespace <repo>@<branch>`) rather than derived from cwd's git identity
+/// -- how a read form addresses another checkout's already-built index
+/// without that checkout existing on disk at all.
+fn defaultPathForNamespace(gpa: Allocator, env: *std.process.Environ.Map, namespace: []const u8) !?[]const u8 {
+    const work = (try context.workDirForNamespace(gpa, env, namespace, "synapse-index")) orelse return null;
     defer work.deinit(gpa);
     return try std.fmt.allocPrint(gpa, "{s}/_index.bin", .{work.path});
 }

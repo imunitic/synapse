@@ -14,6 +14,7 @@ comptime {
     _ = @import("grounding_test.zig");
     _ = @import("graph_wipe_test.zig");
     _ = @import("callers_test.zig");
+    _ = @import("index_namespace_test.zig");
     _ = @import("query_test.zig");
     _ = @import("legacy_commands_test.zig");
     _ = @import("tags_lock_test.zig");

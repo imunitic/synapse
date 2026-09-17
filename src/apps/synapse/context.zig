@@ -378,3 +378,35 @@ pub fn workDirFor(
         .owned = true,
     };
 }
+
+/// Same as `workDir`, but the namespace is named directly (`--namespace
+/// <repo>@<branch>`) instead of derived from cwd's git identity -- how a
+/// read-only lookup (`index lookup`, `callers`) addresses another
+/// checkout's already-built cache without that checkout existing on disk at
+/// all, the same idea `query --namespace`/`resolveExplicit` already apply to
+/// a full `Context`. `SYNAPSE_WORK_DIR` still wins when set, same override
+/// precedence `workDir`/`workDirFor` already have. Validates `namespace` has
+/// the `<repo>@<branch>` shape `resolveExplicit` requires, so a malformed
+/// value is reported here rather than silently producing a work dir path
+/// that can never match a real one.
+pub fn workDirForNamespace(
+    gpa: Allocator,
+    env: *std.process.Environ.Map,
+    namespace: []const u8,
+    prog: []const u8,
+) !?WorkDir {
+    if (std.mem.indexOfScalar(u8, namespace, '@') == null) {
+        std.debug.print("{s}: --namespace expects <repo>@<branch>, got '{s}'\n", .{ prog, namespace });
+        return null;
+    }
+    if (nonEmpty(env, "SYNAPSE_WORK_DIR")) |w| return .{ .path = w, .owned = false };
+
+    const home = env.get("HOME") orelse {
+        std.debug.print("{s}: no HOME, so no default work dir\n", .{prog});
+        return null;
+    };
+    return .{
+        .path = try std.fmt.allocPrint(gpa, "{s}/.cache/synapse/work/{s}", .{ home, namespace }),
+        .owned = true,
+    };
+}

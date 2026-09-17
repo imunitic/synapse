@@ -91,11 +91,14 @@ usage: synapse tags-cache --repo-root <dir> --cache <file> --paths <tsv>
 ```
 usage: synapse index build --unassigned <file> [--out <file>] [--lists <dir>]
        (pairs on stdin unless --lists names the lists directory)
-       synapse index unassigned [--file <file>]
-       synapse index lookup <path> [--file <file>]
-       synapse index nodes [--file <file>]
-       synapse index paths [--file <file>]
+       synapse index unassigned [--file <file>|--namespace <repo>@<branch>]
+       synapse index lookup <path> [--file <file>|--namespace <repo>@<branch>]
+       synapse index nodes [--file <file>|--namespace <repo>@<branch>]
+       synapse index paths [--file <file>|--namespace <repo>@<branch>]
        synapse index add-unassigned <path> [--file <file>]
+
+  --namespace  read forms only -- another checkout's already-built index,
+               not the cwd's; read-only, no checkout of it needs to exist
 ```
 
 ### synapse enumerate
@@ -617,11 +620,13 @@ usage: synapse build-namespaces [--repo <path>] [--out <path>]
 ### synapse callers
 
 ```
-usage: synapse callers <name> [--all]
+usage: synapse callers <name> [--all] [--namespace <repo>@<branch>]
 
-  <name>     exact symbol name (not a prefix, not a regex)
-  (default)  calls only, as path:line<TAB>calling expression
-  --all      every def and ref, as def|ref<TAB>kind<TAB>path:line<TAB>expression
+  <name>       exact symbol name (not a prefix, not a regex)
+  (default)    calls only, as path:line<TAB>calling expression
+  --all        every def and ref, as def|ref<TAB>kind<TAB>path:line<TAB>expression
+  --namespace  read another checkout's already-built index, not the cwd's --
+               read-only, no checkout of it needs to exist on disk
 ```
 
 ### synapse gate

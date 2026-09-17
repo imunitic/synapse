@@ -149,11 +149,13 @@ pub fn buildRefs(
 const callers_prog = "synapse-callers";
 
 const callers_usage =
-    \\usage: synapse callers <name> [--all]
+    \\usage: synapse callers <name> [--all] [--namespace <repo>@<branch>]
     \\
-    \\  <name>     exact symbol name (not a prefix, not a regex)
-    \\  (default)  calls only, as path:line<TAB>calling expression
-    \\  --all      every def and ref, as def|ref<TAB>kind<TAB>path:line<TAB>expression
+    \\  <name>       exact symbol name (not a prefix, not a regex)
+    \\  (default)    calls only, as path:line<TAB>calling expression
+    \\  --all        every def and ref, as def|ref<TAB>kind<TAB>path:line<TAB>expression
+    \\  --namespace  read another checkout's already-built index, not the cwd's --
+    \\               read-only, no checkout of it needs to exist on disk
     \\
 ;
 
@@ -166,6 +168,7 @@ pub fn runCallers(
     var name: []const u8 = "";
     var all = false;
     var refs_path: ?[]const u8 = null;
+    var namespace: ?[]const u8 = null;
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "-h") or std.mem.eql(u8, arg, "--help")) {
             std.debug.print("{s}", .{callers_usage});
@@ -175,6 +178,8 @@ pub fn runCallers(
             all = true;
         } else if (std.mem.eql(u8, arg, "--refs")) {
             refs_path = args.next() orelse return callersUsage();
+        } else if (std.mem.eql(u8, arg, "--namespace")) {
+            namespace = args.next() orelse return callersUsage();
         } else if (arg.len != 0 and arg[0] == '-') {
             return callersUsage();
         } else if (name.len == 0) {
@@ -182,10 +187,14 @@ pub fn runCallers(
         } else return callersUsage();
     }
     if (name.len == 0) return callersUsage();
+    if (refs_path != null and namespace != null) {
+        std.debug.print("{s}: --refs already names the index directly -- --namespace has nothing to do\n", .{callers_prog});
+        return 2;
+    }
 
     var buf: [256 * 1024]u8 = undefined;
     var out = Io.File.stdout().writer(io, &buf);
-    const code = try callers(gpa, io, env, name, all, refs_path, &out.interface);
+    const code = try callers(gpa, io, env, name, all, refs_path, namespace, &out.interface);
     try out.interface.flush();
     return code;
 }
@@ -193,7 +202,10 @@ pub fn runCallers(
 /// The lookup itself, minus argument parsing -- separated so a test can
 /// drive it against a real index without going through the CLI or
 /// capturing stdout. `refs_path` still resolves against
-/// `$SYNAPSE_WORK_DIR` when null, same as `runCallers`'s own default.
+/// `$SYNAPSE_WORK_DIR` when null, same as `runCallers`'s own default;
+/// `namespace`, when given (and `refs_path` isn't), addresses another
+/// checkout's index directly rather than deriving one from cwd's git
+/// identity.
 pub fn callers(
     gpa: Allocator,
     io: Io,
@@ -201,13 +213,17 @@ pub fn callers(
     name: []const u8,
     all: bool,
     refs_path_in: ?[]const u8,
+    namespace: ?[]const u8,
     result: *Io.Writer,
 ) !u8 {
     var refs_path = refs_path_in;
     var owned: ?[]u8 = null;
     defer if (owned) |p| gpa.free(p);
     if (refs_path == null) {
-        const resolved = (try context.workDir(gpa, io, env, callers_prog)) orelse return 1;
+        const resolved = if (namespace) |ns|
+            (try context.workDirForNamespace(gpa, env, ns, callers_prog)) orelse return 1
+        else
+            (try context.workDir(gpa, io, env, callers_prog)) orelse return 1;
         defer resolved.deinit(gpa);
         owned = try std.fmt.allocPrint(gpa, "{s}/_refs.tsv", .{resolved.path});
         refs_path = owned.?;
@@ -547,7 +563,7 @@ fn callersHelper(gpa: Allocator, refs_path: ?[]const u8, name: []const u8, all: 
     defer env.deinit();
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
-    const code = try callers(gpa, testing.io, &env, name, all, refs_path, &out.writer);
+    const code = try callers(gpa, testing.io, &env, name, all, refs_path, null, &out.writer);
     return .{ .code = code, .out = try gpa.dupe(u8, out.written()) };
 }
 
