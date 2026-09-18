@@ -64,38 +64,146 @@ const Allocator = std.mem.Allocator;
 
 const prog = "synapse-vault";
 
-const usage_text =
+// ONE USAGE PER SUBCOMMAND, not one for the family. These are top-level
+// siblings under `synapse`, not a `synapse vault <sub>` group, so `--help`
+// on any one of them has to answer for that one alone; the listing of the
+// whole family belongs to `synapse --help` (usage.zig), which already
+// carries it. While all sixteen shared a single block, every one of them
+// printed all sixteen -- and `docs/synapse/cli.md`, which is generated from
+// exactly these bytes, rendered the same block under all sixteen headings.
+const u_read =
     \\usage: synapse vault-read <path>
-    \\       synapse vault-write <path>                     body on stdin
-    \\       synapse vault-list
-    \\       synapse vault-check                        read-only conformance audit over schema-declaring notes
-    \\       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-    \\       synapse vault-search-text <query> [--path-filter]
-    \\                                                       full-text relevance search, optionally
-    \\                                                       scoped by a JsonLogic path filter on stdin
-    \\       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
-    \\       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-    \\                   [--append|--prepend|--replace|--rename-heading] [--create]
-    \\                                                       content on stdin
-    \\       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
-    \\       synapse vault-links <path>                      outgoing link targets from <path>
-    \\       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
-    \\       synapse vault-orphans                           notes with no backlinks
-    \\       synapse vault-deadends                          notes with no outgoing links
-    \\       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-    \\       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
-    \\                                                       syncing its title:/H1 to the new filename
-    \\       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
+    \\
+    \\  <path>  the note's full vault-relative path, e.g. tasks/proj/foo.md
     \\
 ;
 
-fn usage() u8 {
-    std.debug.print("{s}", .{usage_text});
+const u_write =
+    \\usage: synapse vault-write <path>
+    \\
+    \\  <path>  the note's full vault-relative path, e.g. tasks/proj/foo.md
+    \\  stdin   the note's whole new body, frontmatter included
+    \\
+;
+
+const u_list =
+    \\usage: synapse vault-list
+    \\
+    \\  every note in the vault, recursively, one path per line
+    \\
+;
+
+const u_check =
+    \\usage: synapse vault-check
+    \\
+    \\  read-only conformance audit over every schema-declaring note
+    \\
+;
+
+const u_search =
+    \\usage: synapse vault-search [--fields <f1,f2,...>]
+    \\
+    \\  --fields  frontmatter keys to print after the path, comma-separated
+    \\  stdin     a JsonLogic rule over frontmatter/content/tags
+    \\  rows print as path<TAB>field1<TAB>field2..., or bare paths with no --fields
+    \\
+;
+
+const u_search_text =
+    \\usage: synapse vault-search-text <query> [--path-filter]
+    \\
+    \\  <query>        full-text relevance search, node<TAB>score<TAB>context per hit
+    \\  --path-filter  scope it first by a JsonLogic path filter on stdin
+    \\
+;
+
+const u_doc_map =
+    \\usage: synapse vault-doc-map <path>
+    \\
+    \\  every target a vault-patch could name, as kind<TAB>value --
+    \\  kind one of heading/block/frontmatter
+    \\
+;
+
+const u_patch =
+    \\usage: synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
+    \\            [--append|--prepend|--replace|--rename-heading] [--create]
+    \\
+    \\  --heading          a ::-joined heading path, e.g. "Notes::Sub"
+    \\  --block            a block id
+    \\  --frontmatter      a frontmatter key
+    \\  --replace          the default when no operation is given
+    \\  --rename-heading   relabel the heading line itself, --heading only
+    \\  --create           create a missing section, --heading only
+    \\  stdin              the content to write
+    \\
+;
+
+const u_backlinks =
+    \\usage: synapse vault-backlinks <path>
+    \\
+    \\  node<TAB>count, one row per file linking to <path>
+    \\
+;
+
+const u_links =
+    \\usage: synapse vault-links <path>
+    \\
+    \\  outgoing link targets from <path>, one per line
+    \\
+;
+
+const u_unresolved =
+    \\usage: synapse vault-unresolved
+    \\
+    \\  source<TAB>target<TAB>count, one row per broken link
+    \\
+;
+
+const u_orphans =
+    \\usage: synapse vault-orphans
+    \\
+    \\  notes with no backlinks, one path per line
+    \\
+;
+
+const u_deadends =
+    \\usage: synapse vault-deadends
+    \\
+    \\  notes with no outgoing links, one path per line
+    \\
+;
+
+const u_ambiguous =
+    \\usage: synapse vault-ambiguous
+    \\
+    \\  source<TAB>target<TAB>candidate<TAB>count, one row per
+    \\  (source, target, candidate)
+    \\
+;
+
+const u_rename =
+    \\usage: synapse vault-rename <old-path> <new-path>
+    \\
+    \\  moves a note and rewrites every referring wikilink, syncing its
+    \\  title:/H1 to the new filename
+    \\
+;
+
+const u_delete =
+    \\usage: synapse vault-delete <path>
+    \\
+    \\  removes a note, unlinking every referring wikilink to plain text
+    \\
+;
+
+fn usage(text: []const u8) u8 {
+    std.debug.print("{s}", .{text});
     return 2;
 }
 
-fn help() u8 {
-    std.debug.print("{s}", .{usage_text});
+fn help(text: []const u8) u8 {
+    std.debug.print("{s}", .{text});
     return 0;
 }
 
@@ -752,9 +860,9 @@ fn resolveVault(gpa: Allocator, io: Io, env: *std.process.Environ.Map) !?[]u8 {
 }
 
 pub fn runRead(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
-    const path = args.next() orelse return usage();
-    if (isHelp(path)) return help();
-    if (args.next() != null) return usage();
+    const path = args.next() orelse return usage(u_read);
+    if (isHelp(path)) return help(u_read);
+    if (args.next() != null) return usage(u_read);
     const vault = (try resolveVault(gpa, io, env)) orelse return 1;
     defer gpa.free(vault);
 
@@ -766,9 +874,9 @@ pub fn runRead(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std
 }
 
 pub fn runWrite(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator, self_path: []const u8) !u8 {
-    const path = args.next() orelse return usage();
-    if (isHelp(path)) return help();
-    if (args.next() != null) return usage();
+    const path = args.next() orelse return usage(u_write);
+    if (isHelp(path)) return help(u_write);
+    if (args.next() != null) return usage(u_write);
     const vault = (try resolveVault(gpa, io, env)) orelse return 1;
     defer gpa.free(vault);
 
@@ -787,8 +895,8 @@ pub fn runWrite(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *st
 
 pub fn runList(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
     if (args.next()) |a| {
-        if (isHelp(a)) return help();
-        return usage();
+        if (isHelp(a)) return help(u_list);
+        return usage(u_list);
     }
     const vault = (try resolveVault(gpa, io, env)) orelse return 1;
     defer gpa.free(vault);
@@ -802,8 +910,8 @@ pub fn runList(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std
 
 pub fn runCheck(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
     if (args.next()) |arg| {
-        if (isHelp(arg)) return help();
-        return usage();
+        if (isHelp(arg)) return help(u_check);
+        return usage(u_check);
     }
     const vault = (try resolveVault(gpa, io, env)) orelse return 1;
     defer gpa.free(vault);
@@ -816,14 +924,14 @@ pub fn runCheck(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *st
 }
 
 pub fn runSearchText(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
-    const query = args.next() orelse return usage();
-    if (isHelp(query)) return help();
+    const query = args.next() orelse return usage(u_search_text);
+    if (isHelp(query)) return help(u_search_text);
 
     var want_path_filter = false;
     if (args.next()) |arg| {
-        if (!std.mem.eql(u8, arg, "--path-filter")) return usage();
+        if (!std.mem.eql(u8, arg, "--path-filter")) return usage(u_search_text);
         want_path_filter = true;
-        if (args.next() != null) return usage();
+        if (args.next() != null) return usage(u_search_text);
     }
 
     const vault = (try resolveVault(gpa, io, env)) orelse return 1;
@@ -851,9 +959,9 @@ pub fn runSearchText(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args
 }
 
 pub fn runDocMap(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
-    const path = args.next() orelse return usage();
-    if (isHelp(path)) return help();
-    if (args.next() != null) return usage();
+    const path = args.next() orelse return usage(u_doc_map);
+    if (isHelp(path)) return help(u_doc_map);
+    if (args.next() != null) return usage(u_doc_map);
     const vault = (try resolveVault(gpa, io, env)) orelse return 1;
     defer gpa.free(vault);
 
@@ -865,9 +973,9 @@ pub fn runDocMap(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *s
 }
 
 pub fn runBacklinks(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
-    const path = args.next() orelse return usage();
-    if (isHelp(path)) return help();
-    if (args.next() != null) return usage();
+    const path = args.next() orelse return usage(u_backlinks);
+    if (isHelp(path)) return help(u_backlinks);
+    if (args.next() != null) return usage(u_backlinks);
     const vault = (try resolveVault(gpa, io, env)) orelse return 1;
     defer gpa.free(vault);
 
@@ -879,9 +987,9 @@ pub fn runBacklinks(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args:
 }
 
 pub fn runLinks(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
-    const path = args.next() orelse return usage();
-    if (isHelp(path)) return help();
-    if (args.next() != null) return usage();
+    const path = args.next() orelse return usage(u_links);
+    if (isHelp(path)) return help(u_links);
+    if (args.next() != null) return usage(u_links);
     const vault = (try resolveVault(gpa, io, env)) orelse return 1;
     defer gpa.free(vault);
 
@@ -894,8 +1002,8 @@ pub fn runLinks(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *st
 
 pub fn runUnresolved(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
     if (args.next()) |a| {
-        if (isHelp(a)) return help();
-        return usage();
+        if (isHelp(a)) return help(u_unresolved);
+        return usage(u_unresolved);
     }
     const vault = (try resolveVault(gpa, io, env)) orelse return 1;
     defer gpa.free(vault);
@@ -909,8 +1017,8 @@ pub fn runUnresolved(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args
 
 pub fn runOrphans(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
     if (args.next()) |a| {
-        if (isHelp(a)) return help();
-        return usage();
+        if (isHelp(a)) return help(u_orphans);
+        return usage(u_orphans);
     }
     const vault = (try resolveVault(gpa, io, env)) orelse return 1;
     defer gpa.free(vault);
@@ -924,8 +1032,8 @@ pub fn runOrphans(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *
 
 pub fn runDeadends(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
     if (args.next()) |a| {
-        if (isHelp(a)) return help();
-        return usage();
+        if (isHelp(a)) return help(u_deadends);
+        return usage(u_deadends);
     }
     const vault = (try resolveVault(gpa, io, env)) orelse return 1;
     defer gpa.free(vault);
@@ -939,8 +1047,8 @@ pub fn runDeadends(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: 
 
 pub fn runAmbiguous(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
     if (args.next()) |a| {
-        if (isHelp(a)) return help();
-        return usage();
+        if (isHelp(a)) return help(u_ambiguous);
+        return usage(u_ambiguous);
     }
     const vault = (try resolveVault(gpa, io, env)) orelse return 1;
     defer gpa.free(vault);
@@ -953,10 +1061,10 @@ pub fn runAmbiguous(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args:
 }
 
 pub fn runRename(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
-    const old_path = args.next() orelse return usage();
-    if (isHelp(old_path)) return help();
-    const new_path = args.next() orelse return usage();
-    if (args.next() != null) return usage();
+    const old_path = args.next() orelse return usage(u_rename);
+    if (isHelp(old_path)) return help(u_rename);
+    const new_path = args.next() orelse return usage(u_rename);
+    if (args.next() != null) return usage(u_rename);
     const vault = (try resolveVault(gpa, io, env)) orelse return 1;
     defer gpa.free(vault);
 
@@ -968,9 +1076,9 @@ pub fn runRename(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *s
 }
 
 pub fn runDelete(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator) !u8 {
-    const path = args.next() orelse return usage();
-    if (isHelp(path)) return help();
-    if (args.next() != null) return usage();
+    const path = args.next() orelse return usage(u_delete);
+    if (isHelp(path)) return help(u_delete);
+    if (args.next() != null) return usage(u_delete);
     const vault = (try resolveVault(gpa, io, env)) orelse return 1;
     defer gpa.free(vault);
 
@@ -998,9 +1106,9 @@ pub fn runSearch(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *s
     defer fields.deinit(gpa);
 
     while (args.next()) |arg| {
-        if (isHelp(arg)) return help();
+        if (isHelp(arg)) return help(u_search);
         if (std.mem.eql(u8, arg, "--fields")) {
-            const raw = args.next() orelse return usage();
+            const raw = args.next() orelse return usage(u_search);
             var it = std.mem.splitScalar(u8, raw, ',');
             while (it.next()) |f| {
                 const trimmed = std.mem.trim(u8, f, " \t");
@@ -1008,7 +1116,7 @@ pub fn runSearch(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *s
             }
             continue;
         }
-        return usage();
+        return usage(u_search);
     }
 
     const vault = (try resolveVault(gpa, io, env)) orelse return 1;
@@ -1034,8 +1142,8 @@ pub fn runSearch(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *s
 }
 
 pub fn runPatch(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *std.process.Args.Iterator, self_path: []const u8) !u8 {
-    const path = args.next() orelse return usage();
-    if (isHelp(path)) return help();
+    const path = args.next() orelse return usage(u_patch);
+    if (isHelp(path)) return help(u_patch);
 
     var target: ?core.patch.Target = null;
     var op: core.patch.Operation = .replace;
@@ -1044,21 +1152,21 @@ pub fn runPatch(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *st
     defer if (owned_segs) |s| gpa.free(s);
 
     while (args.next()) |arg| {
-        if (isHelp(arg)) return help();
+        if (isHelp(arg)) return help(u_patch);
         if (std.mem.eql(u8, arg, "--heading")) {
-            if (target != null) return usage();
-            const raw = args.next() orelse return usage();
+            if (target != null) return usage(u_patch);
+            const raw = args.next() orelse return usage(u_patch);
             var segs: std.ArrayListUnmanaged([]const u8) = .empty;
             var it = std.mem.splitSequence(u8, raw, "::");
             while (it.next()) |s| try segs.append(gpa, s);
             owned_segs = try segs.toOwnedSlice(gpa);
             target = .{ .heading = owned_segs.? };
         } else if (std.mem.eql(u8, arg, "--block")) {
-            if (target != null) return usage();
-            target = .{ .block = args.next() orelse return usage() };
+            if (target != null) return usage(u_patch);
+            target = .{ .block = args.next() orelse return usage(u_patch) };
         } else if (std.mem.eql(u8, arg, "--frontmatter")) {
-            if (target != null) return usage();
-            target = .{ .frontmatter = args.next() orelse return usage() };
+            if (target != null) return usage(u_patch);
+            target = .{ .frontmatter = args.next() orelse return usage(u_patch) };
         } else if (std.mem.eql(u8, arg, "--append")) {
             op = .append;
         } else if (std.mem.eql(u8, arg, "--prepend")) {
@@ -1070,10 +1178,10 @@ pub fn runPatch(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args: *st
         } else if (std.mem.eql(u8, arg, "--create")) {
             create_if_missing = true;
         } else {
-            return usage();
+            return usage(u_patch);
         }
     }
-    const real_target = target orelse return usage();
+    const real_target = target orelse return usage(u_patch);
 
     const vault = (try resolveVault(gpa, io, env)) orelse return 1;
     defer gpa.free(vault);

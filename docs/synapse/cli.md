@@ -178,416 +178,142 @@ usage: synapse frontmatter get <path> <key>
 
 ```
 usage: synapse vault-read <path>
-       synapse vault-write <path>                     body on stdin
-       synapse vault-list
-       synapse vault-check                        read-only conformance audit over schema-declaring notes
-       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query> [--path-filter]
-                                                       full-text relevance search, optionally
-                                                       scoped by a JsonLogic path filter on stdin
-       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
-       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace|--rename-heading] [--create]
-                                                       content on stdin
-       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
-       synapse vault-links <path>                      outgoing link targets from <path>
-       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
-       synapse vault-orphans                           notes with no backlinks
-       synapse vault-deadends                          notes with no outgoing links
-       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
-                                                       syncing its title:/H1 to the new filename
-       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
+
+  <path>  the note's full vault-relative path, e.g. tasks/proj/foo.md
 ```
 
 ### synapse vault-write
 
 ```
-usage: synapse vault-read <path>
-       synapse vault-write <path>                     body on stdin
-       synapse vault-list
-       synapse vault-check                        read-only conformance audit over schema-declaring notes
-       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query> [--path-filter]
-                                                       full-text relevance search, optionally
-                                                       scoped by a JsonLogic path filter on stdin
-       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
-       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace|--rename-heading] [--create]
-                                                       content on stdin
-       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
-       synapse vault-links <path>                      outgoing link targets from <path>
-       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
-       synapse vault-orphans                           notes with no backlinks
-       synapse vault-deadends                          notes with no outgoing links
-       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
-                                                       syncing its title:/H1 to the new filename
-       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
+usage: synapse vault-write <path>
+
+  <path>  the note's full vault-relative path, e.g. tasks/proj/foo.md
+  stdin   the note's whole new body, frontmatter included
 ```
 
 ### synapse vault-list
 
 ```
-usage: synapse vault-read <path>
-       synapse vault-write <path>                     body on stdin
-       synapse vault-list
-       synapse vault-check                        read-only conformance audit over schema-declaring notes
-       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query> [--path-filter]
-                                                       full-text relevance search, optionally
-                                                       scoped by a JsonLogic path filter on stdin
-       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
-       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace|--rename-heading] [--create]
-                                                       content on stdin
-       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
-       synapse vault-links <path>                      outgoing link targets from <path>
-       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
-       synapse vault-orphans                           notes with no backlinks
-       synapse vault-deadends                          notes with no outgoing links
-       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
-                                                       syncing its title:/H1 to the new filename
-       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
+usage: synapse vault-list
+
+  every note in the vault, recursively, one path per line
 ```
 
 ### synapse vault-check
 
 ```
-usage: synapse vault-read <path>
-       synapse vault-write <path>                     body on stdin
-       synapse vault-list
-       synapse vault-check                        read-only conformance audit over schema-declaring notes
-       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query> [--path-filter]
-                                                       full-text relevance search, optionally
-                                                       scoped by a JsonLogic path filter on stdin
-       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
-       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace|--rename-heading] [--create]
-                                                       content on stdin
-       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
-       synapse vault-links <path>                      outgoing link targets from <path>
-       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
-       synapse vault-orphans                           notes with no backlinks
-       synapse vault-deadends                          notes with no outgoing links
-       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
-                                                       syncing its title:/H1 to the new filename
-       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
+usage: synapse vault-check
+
+  read-only conformance audit over every schema-declaring note
 ```
 
 ### synapse vault-search
 
 ```
-usage: synapse vault-read <path>
-       synapse vault-write <path>                     body on stdin
-       synapse vault-list
-       synapse vault-check                        read-only conformance audit over schema-declaring notes
-       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query> [--path-filter]
-                                                       full-text relevance search, optionally
-                                                       scoped by a JsonLogic path filter on stdin
-       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
-       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace|--rename-heading] [--create]
-                                                       content on stdin
-       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
-       synapse vault-links <path>                      outgoing link targets from <path>
-       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
-       synapse vault-orphans                           notes with no backlinks
-       synapse vault-deadends                          notes with no outgoing links
-       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
-                                                       syncing its title:/H1 to the new filename
-       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
+usage: synapse vault-search [--fields <f1,f2,...>]
+
+  --fields  frontmatter keys to print after the path, comma-separated
+  stdin     a JsonLogic rule over frontmatter/content/tags
+  rows print as path<TAB>field1<TAB>field2..., or bare paths with no --fields
 ```
 
 ### synapse vault-search-text
 
 ```
-usage: synapse vault-read <path>
-       synapse vault-write <path>                     body on stdin
-       synapse vault-list
-       synapse vault-check                        read-only conformance audit over schema-declaring notes
-       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query> [--path-filter]
-                                                       full-text relevance search, optionally
-                                                       scoped by a JsonLogic path filter on stdin
-       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
-       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace|--rename-heading] [--create]
-                                                       content on stdin
-       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
-       synapse vault-links <path>                      outgoing link targets from <path>
-       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
-       synapse vault-orphans                           notes with no backlinks
-       synapse vault-deadends                          notes with no outgoing links
-       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
-                                                       syncing its title:/H1 to the new filename
-       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
+usage: synapse vault-search-text <query> [--path-filter]
+
+  <query>        full-text relevance search, node<TAB>score<TAB>context per hit
+  --path-filter  scope it first by a JsonLogic path filter on stdin
 ```
 
 ### synapse vault-doc-map
 
 ```
-usage: synapse vault-read <path>
-       synapse vault-write <path>                     body on stdin
-       synapse vault-list
-       synapse vault-check                        read-only conformance audit over schema-declaring notes
-       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query> [--path-filter]
-                                                       full-text relevance search, optionally
-                                                       scoped by a JsonLogic path filter on stdin
-       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
-       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace|--rename-heading] [--create]
-                                                       content on stdin
-       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
-       synapse vault-links <path>                      outgoing link targets from <path>
-       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
-       synapse vault-orphans                           notes with no backlinks
-       synapse vault-deadends                          notes with no outgoing links
-       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
-                                                       syncing its title:/H1 to the new filename
-       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
+usage: synapse vault-doc-map <path>
+
+  every target a vault-patch could name, as kind<TAB>value --
+  kind one of heading/block/frontmatter
 ```
 
 ### synapse vault-patch
 
 ```
-usage: synapse vault-read <path>
-       synapse vault-write <path>                     body on stdin
-       synapse vault-list
-       synapse vault-check                        read-only conformance audit over schema-declaring notes
-       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query> [--path-filter]
-                                                       full-text relevance search, optionally
-                                                       scoped by a JsonLogic path filter on stdin
-       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
-       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace|--rename-heading] [--create]
-                                                       content on stdin
-       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
-       synapse vault-links <path>                      outgoing link targets from <path>
-       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
-       synapse vault-orphans                           notes with no backlinks
-       synapse vault-deadends                          notes with no outgoing links
-       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
-                                                       syncing its title:/H1 to the new filename
-       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
+usage: synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
+            [--append|--prepend|--replace|--rename-heading] [--create]
+
+  --heading          a ::-joined heading path, e.g. "Notes::Sub"
+  --block            a block id
+  --frontmatter      a frontmatter key
+  --replace          the default when no operation is given
+  --rename-heading   relabel the heading line itself, --heading only
+  --create           create a missing section, --heading only
+  stdin              the content to write
 ```
 
 ### synapse vault-backlinks
 
 ```
-usage: synapse vault-read <path>
-       synapse vault-write <path>                     body on stdin
-       synapse vault-list
-       synapse vault-check                        read-only conformance audit over schema-declaring notes
-       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query> [--path-filter]
-                                                       full-text relevance search, optionally
-                                                       scoped by a JsonLogic path filter on stdin
-       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
-       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace|--rename-heading] [--create]
-                                                       content on stdin
-       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
-       synapse vault-links <path>                      outgoing link targets from <path>
-       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
-       synapse vault-orphans                           notes with no backlinks
-       synapse vault-deadends                          notes with no outgoing links
-       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
-                                                       syncing its title:/H1 to the new filename
-       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
+usage: synapse vault-backlinks <path>
+
+  node<TAB>count, one row per file linking to <path>
 ```
 
 ### synapse vault-links
 
 ```
-usage: synapse vault-read <path>
-       synapse vault-write <path>                     body on stdin
-       synapse vault-list
-       synapse vault-check                        read-only conformance audit over schema-declaring notes
-       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query> [--path-filter]
-                                                       full-text relevance search, optionally
-                                                       scoped by a JsonLogic path filter on stdin
-       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
-       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace|--rename-heading] [--create]
-                                                       content on stdin
-       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
-       synapse vault-links <path>                      outgoing link targets from <path>
-       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
-       synapse vault-orphans                           notes with no backlinks
-       synapse vault-deadends                          notes with no outgoing links
-       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
-                                                       syncing its title:/H1 to the new filename
-       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
+usage: synapse vault-links <path>
+
+  outgoing link targets from <path>, one per line
 ```
 
 ### synapse vault-unresolved
 
 ```
-usage: synapse vault-read <path>
-       synapse vault-write <path>                     body on stdin
-       synapse vault-list
-       synapse vault-check                        read-only conformance audit over schema-declaring notes
-       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query> [--path-filter]
-                                                       full-text relevance search, optionally
-                                                       scoped by a JsonLogic path filter on stdin
-       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
-       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace|--rename-heading] [--create]
-                                                       content on stdin
-       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
-       synapse vault-links <path>                      outgoing link targets from <path>
-       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
-       synapse vault-orphans                           notes with no backlinks
-       synapse vault-deadends                          notes with no outgoing links
-       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
-                                                       syncing its title:/H1 to the new filename
-       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
+usage: synapse vault-unresolved
+
+  source<TAB>target<TAB>count, one row per broken link
 ```
 
 ### synapse vault-orphans
 
 ```
-usage: synapse vault-read <path>
-       synapse vault-write <path>                     body on stdin
-       synapse vault-list
-       synapse vault-check                        read-only conformance audit over schema-declaring notes
-       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query> [--path-filter]
-                                                       full-text relevance search, optionally
-                                                       scoped by a JsonLogic path filter on stdin
-       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
-       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace|--rename-heading] [--create]
-                                                       content on stdin
-       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
-       synapse vault-links <path>                      outgoing link targets from <path>
-       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
-       synapse vault-orphans                           notes with no backlinks
-       synapse vault-deadends                          notes with no outgoing links
-       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
-                                                       syncing its title:/H1 to the new filename
-       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
+usage: synapse vault-orphans
+
+  notes with no backlinks, one path per line
 ```
 
 ### synapse vault-deadends
 
 ```
-usage: synapse vault-read <path>
-       synapse vault-write <path>                     body on stdin
-       synapse vault-list
-       synapse vault-check                        read-only conformance audit over schema-declaring notes
-       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query> [--path-filter]
-                                                       full-text relevance search, optionally
-                                                       scoped by a JsonLogic path filter on stdin
-       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
-       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace|--rename-heading] [--create]
-                                                       content on stdin
-       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
-       synapse vault-links <path>                      outgoing link targets from <path>
-       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
-       synapse vault-orphans                           notes with no backlinks
-       synapse vault-deadends                          notes with no outgoing links
-       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
-                                                       syncing its title:/H1 to the new filename
-       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
+usage: synapse vault-deadends
+
+  notes with no outgoing links, one path per line
 ```
 
 ### synapse vault-ambiguous
 
 ```
-usage: synapse vault-read <path>
-       synapse vault-write <path>                     body on stdin
-       synapse vault-list
-       synapse vault-check                        read-only conformance audit over schema-declaring notes
-       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query> [--path-filter]
-                                                       full-text relevance search, optionally
-                                                       scoped by a JsonLogic path filter on stdin
-       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
-       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace|--rename-heading] [--create]
-                                                       content on stdin
-       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
-       synapse vault-links <path>                      outgoing link targets from <path>
-       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
-       synapse vault-orphans                           notes with no backlinks
-       synapse vault-deadends                          notes with no outgoing links
-       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
-                                                       syncing its title:/H1 to the new filename
-       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
+usage: synapse vault-ambiguous
+
+  source<TAB>target<TAB>candidate<TAB>count, one row per
+  (source, target, candidate)
 ```
 
 ### synapse vault-rename
 
 ```
-usage: synapse vault-read <path>
-       synapse vault-write <path>                     body on stdin
-       synapse vault-list
-       synapse vault-check                        read-only conformance audit over schema-declaring notes
-       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query> [--path-filter]
-                                                       full-text relevance search, optionally
-                                                       scoped by a JsonLogic path filter on stdin
-       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
-       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace|--rename-heading] [--create]
-                                                       content on stdin
-       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
-       synapse vault-links <path>                      outgoing link targets from <path>
-       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
-       synapse vault-orphans                           notes with no backlinks
-       synapse vault-deadends                          notes with no outgoing links
-       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
-                                                       syncing its title:/H1 to the new filename
-       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
+usage: synapse vault-rename <old-path> <new-path>
+
+  moves a note and rewrites every referring wikilink, syncing its
+  title:/H1 to the new filename
 ```
 
 ### synapse vault-delete
 
 ```
-usage: synapse vault-read <path>
-       synapse vault-write <path>                     body on stdin
-       synapse vault-list
-       synapse vault-check                        read-only conformance audit over schema-declaring notes
-       synapse vault-search [--fields <f1,f2,...>]     JsonLogic rule on stdin
-       synapse vault-search-text <query> [--path-filter]
-                                                       full-text relevance search, optionally
-                                                       scoped by a JsonLogic path filter on stdin
-       synapse vault-doc-map <path>                    headings/block ids/frontmatter keys
-       synapse vault-patch <path> --heading <h>|--block <id>|--frontmatter <key>
-                   [--append|--prepend|--replace|--rename-heading] [--create]
-                                                       content on stdin
-       synapse vault-backlinks <path>                  node<TAB>count, per file linking to <path>
-       synapse vault-links <path>                      outgoing link targets from <path>
-       synapse vault-unresolved                        source<TAB>target<TAB>count, one row per broken link
-       synapse vault-orphans                           notes with no backlinks
-       synapse vault-deadends                          notes with no outgoing links
-       synapse vault-ambiguous                         source<TAB>target<TAB>candidate<TAB>count, one row per (source, target, candidate)
-       synapse vault-rename <old-path> <new-path>      moves a note and rewrites every referring wikilink,
-                                                       syncing its title:/H1 to the new filename
-       synapse vault-delete <path>                     removes a note, unlinking every referring wikilink to plain text
+usage: synapse vault-delete <path>
+
+  removes a note, unlinking every referring wikilink to plain text
 ```
 
 ### synapse build-refs
