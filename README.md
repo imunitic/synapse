@@ -188,8 +188,8 @@ unsure. A change to prose in `docs/` or this README has no test to fail and need
 Two traps in that. Shipped instructions under `plugins/*/` **look** like documentation and are not: they
 install as a Claude Code plugin, and `tests/integration/legacy_commands_test.zig` plus
 `tests/lint_test.zig` cover them — that is how a skill telling Claude to run a nonexistent command
-got caught. And each project's `cli.md` (under `docs/synapse/`, `docs/synapse-bard/`) plus the
-diagrams are *generated*, so a change upstream of them needs `just fix`, not `just docs-check`.
+got caught. And `docs/synapse/`'s `cli.md` plus the diagrams are *generated*, so a change upstream
+of them needs `just fix`, not `just docs-check`.
 
 `just check` runs the CLI-contract suite in the Linux container, which is not a preference: the same
 suite spawns real subprocesses, and macOS `fork`/`exec` costs 6.5ms where Linux costs 0.24ms. `just

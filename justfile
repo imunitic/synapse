@@ -132,8 +132,7 @@ test-linux:
     # into the host's would thrash every native build on both sides.
     podman --connection "$machine" run --rm -v "$(pwd):/repo:Z" -w /repo synapse-test \
       bash -c 'zig build test --cache-dir zig-out/linux-cache --summary all \
-        && zig build test-integration --cache-dir zig-out/linux-cache --summary all \
-        && (cd bard && zig build test --cache-dir zig-out/linux-cache --summary all)'
+        && zig build test-integration --cache-dir zig-out/linux-cache --summary all'
 
 # Needs `brew install act` once -- podman-ready's Podman machine is reused.
 # Tests committed HEAD, same as a real push would -- see the recipe body for
@@ -179,9 +178,7 @@ ci-local:
 # with a better message than this recipe could produce, and a second check
 # would be one more place to forget when the pin moves.
 
-# Compile the Zig binary. `bard/` is its own build tree (a path dependency on
-# this one), so it's a second, separate `zig build` invocation, not a target
-# the root graph reaches.
+# Compile the Zig binary.
 build:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -190,8 +187,7 @@ build:
     # one, so the directory accumulates other platforms' artefacts and listing
     # it would report them as though this build had produced them.
     zig build
-    (cd bard && zig build)
-    echo "zig build ok: zig-out/bin/synapse, bard/zig-out/bin/synapse-bard"
+    echo "zig build ok: zig-out/bin/synapse"
 
 # Zig unit tests -- internals only; `just test` owns the CLI contract.
 test-zig:
@@ -199,7 +195,6 @@ test-zig:
     set -euo pipefail
     command -v zig >/dev/null || { echo "zig not on PATH -- brew install zig" >&2; exit 1; }
     zig build test
-    (cd bard && zig build test)
     echo "zig tests ok"
 
 # Deliberately not part of `check`/CI: under a plain `zig build test`, a
@@ -248,16 +243,15 @@ syntax:
     #!/usr/bin/env bash
     set -euo pipefail
     n=0
-    # claude/bin and claude/lib/synapse are gone -- the tooling is two
-    # binaries. Every shipped hook/setup script is .cjs now (packages/synapse/,
-    # plugins/synapse-bard/hooks/), not .sh -- nothing left for this recipe
-    # to parse-check there, but plugins/*/hooks/*.sh stays in the glob list
-    # rather than being deleted: the `[ -f ]` guard below makes an empty
-    # match harmless, and the moment a `.sh` script reappears in any
-    # plugin's hooks dir, this starts checking it again automatically.
-    # docs/*/*.sh reaches each project's own generators (docs/synapse/,
-    # docs/synapse-bard/); docs/*.sh still needed for generate-site.sh,
-    # which stays at the top level since it builds all of them into one site.
+    # claude/bin and claude/lib/synapse are gone -- the tooling is one
+    # binary. Every shipped hook/setup script is .cjs now (packages/synapse/),
+    # not .sh -- nothing left for this recipe to parse-check there, but
+    # plugins/*/hooks/*.sh stays in the glob list rather than being deleted:
+    # the `[ -f ]` guard below makes an empty match harmless, and the moment
+    # a `.sh` script reappears in any plugin's hooks dir, this starts
+    # checking it again automatically.
+    # docs/*/*.sh reaches synapse's own generators (docs/synapse/); docs/*.sh
+    # still needed for generate-site.sh, which stays at the top level.
     for f in ci/*.sh docs/*.sh docs/*/*.sh plugins/*/hooks/*.sh; do
         [ -f "$f" ] || continue
         bash -n "$f"
@@ -269,14 +263,10 @@ syntax:
 # cannot fail, and the point is to catch a script edit committed without the
 # regeneration that follows from it.
 
-# Verify each project's generated cli.md and rendered diagrams match their sources.
+# Verify the generated cli.md and rendered diagrams match their sources.
 docs-check:
     ./docs/synapse/generate-cli-reference.sh --check
     ./docs/synapse/generate-diagrams.sh --check
-    SYNAPSE_BARD_BIN="{{ justfile_directory() }}/bard/zig-out/bin/synapse-bard" \
-    SYNAPSE_BARD_HOOK_BIN="{{ justfile_directory() }}/bard/zig-out/bin/synapse-bard-hook" \
-      ./docs/synapse-bard/generate-cli-reference.sh --check
-    ./docs/synapse-bard/generate-diagrams.sh --check
 
 # An npm packaging concern, not a synapse/Zig one -- kept as its own recipe
 # rather than a Zig test so it stays decoupled from both test suites.
@@ -295,10 +285,6 @@ npm-check:
 fix:
     ./docs/synapse/generate-cli-reference.sh
     ./docs/synapse/generate-diagrams.sh
-    SYNAPSE_BARD_BIN="{{ justfile_directory() }}/bard/zig-out/bin/synapse-bard" \
-    SYNAPSE_BARD_HOOK_BIN="{{ justfile_directory() }}/bard/zig-out/bin/synapse-bard-hook" \
-      ./docs/synapse-bard/generate-cli-reference.sh
-    ./docs/synapse-bard/generate-diagrams.sh
 
 # What CI runs, in the same order, plus a syntax pass CI gets for free by
 # executing the scripts. `build` comes first because a compile error should not

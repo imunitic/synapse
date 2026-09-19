@@ -111,8 +111,7 @@ const testing = std.testing;
 
 /// No `Io.Threaded` needed anywhere in this file's tests: `build()` spawns
 /// no subprocess (no git, no curl), so plain `testing.io` and a bare
-/// `std.process.Environ.Map.init` (the pattern `bard_hook/session_start.zig`
-/// already established for this same app) are enough.
+/// `std.process.Environ.Map.init` are enough.
 const Fixture = struct {
     gpa: Allocator,
     tmp: testing.TmpDir,

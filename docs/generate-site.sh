@@ -1,11 +1,9 @@
 #!/bin/bash
-# Builds the GitHub Pages docs site: converts every project's docs/*.md to
-# HTML via pandoc, rewriting the internal .md links pandoc itself never
-# touches, and wraps every page in the same left-sidebar nav (site.css
-# positions it; this script only emits the markup). Two projects now
-# (`docs/synapse/`, `docs/synapse-bard/`), each rendered into its own
-# subdirectory of the output with its own sidebar, plus one top-level
-# landing page linking into both.
+# Builds the GitHub Pages docs site: converts docs/synapse/*.md to HTML via
+# pandoc, rewriting the internal .md links pandoc itself never touches, and
+# wraps every page in the same left-sidebar nav (site.css positions it; this
+# script only emits the markup), rendered into its own subdirectory of the
+# output with its own sidebar, plus one top-level landing page.
 #
 #   docs/generate-site.sh <output-dir>
 #
@@ -13,10 +11,9 @@
 # verbatim: the repo's own README.md stays exactly as it is (a GitHub
 # visitor's entry point) -- this script only pulls its intro pitch plus
 # "New machine setup" into the site's own landing page, followed by a short,
-# generated-here list of the two projects' doc sections. Nothing writes back
-# to README.md.
+# generated-here list of its doc sections. Nothing writes back to README.md.
 #
-# Not covered by `just docs-check`, unlike each project's own cli.md/rendered
+# Not covered by `just docs-check`, unlike synapse's own cli.md/rendered
 # diagrams: those are generated *and committed*, so staleness is a real drift
 # to catch. This script's output is never committed -- built fresh in CI and
 # deployed directly -- so there is nothing checked-in to compare against.
@@ -78,9 +75,8 @@ render_project() { # render_project <dir> <label> <newline-joined pages>
 
     # Sibling .md files (optionally #fragment) resolve to the .html this
     # loop produces; a link to this project's own README.md means its Home;
-    # a cross-project "../other-project/name.md" link (each project links
-    # into the other's docs, e.g. bard-vault.md -> ../synapse/synapse-vault.md)
-    # resolves the same way, one directory up from where this page lands.
+    # a "../other-project/name.md" link resolves the same way, one directory
+    # up from where this page lands.
     sed -E \
       -e "s/\\]\\((README\\.md|$dir\\/README\\.md)(#[a-zA-Z0-9_-]*)?\\)/](index.html\\2)/g" \
       -e 's/\]\(\.\.\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)\.md(#[a-zA-Z0-9_-]*)?\)/](..\/\1\/\2.html\3)/g' \
@@ -128,31 +124,6 @@ render_project synapse "Synapse" "$synapse_pages"
   echo '</ul></main></body></html>'
 } > "$out/synapse/diagrams/index.html"
 
-# --- Synapse Bard ------------------------------------------------------------
-mkdir -p "$out/synapse-bard/diagrams"
-cp -r "$here/synapse-bard/diagrams/"*.png "$out/synapse-bard/diagrams/" 2>/dev/null || true
-
-synapse_bard_pages="$here/synapse-bard/README.md|index.html|Home
-$here/synapse-bard/bard-graph.md|bard-graph.html|Bible-graph
-$here/synapse-bard/bard-vault.md|bard-vault.html|Writer's notes vault
-$here/synapse-bard/cli.md|cli.html|CLI Reference
-$here/synapse-bard/bard-config.md|bard-config.html|Configuration Reference
-|diagrams/|Diagrams"
-render_project synapse-bard "Synapse Bard" "$synapse_bard_pages"
-
-# Same "diagrams/ has no index of its own" fix as Synapse's own block above.
-{
-  echo '<!doctype html><html><head><meta charset="utf-8">'
-  echo '<title>Diagrams — Synapse Bard</title><link rel="stylesheet" href="../../site.css">'
-  echo '<link rel="icon" href="../../logo.svg" type="image/svg+xml"></head><body>'
-  echo '<main><h1>Diagrams</h1><ul>'
-  for png in "$here"/synapse-bard/diagrams/*.png; do
-    name="$(basename "$png")"
-    echo "<li><a href=\"$name\"><img src=\"$name\" alt=\"$name\" style=\"max-width:100%\"></a><br>$name</li>"
-  done
-  echo '</ul></main></body></html>'
-} > "$out/synapse-bard/diagrams/index.html"
-
 # --- Top-level landing page --------------------------------------------------
 # README.md from the start through the end of "## New machine setup" -- stops
 # at the next ## heading, a pattern match rather than a hardcoded line number
@@ -165,12 +136,7 @@ awk '/^## Synapse Vault/{exit} {print}' "$root/README.md" > "$work/home.md"
   echo
   echo '## Documentation'
   echo
-  echo 'This repository packages two Claude Code plugins, each with its own docs section:'
-  echo
-  echo '- **[Synapse](synapse/index.html)** -- durable memory and the per-repo code graph, the'
-  echo '  original component this repo was built around.'
-  echo '- **[Synapse Bard](synapse-bard/index.html)** -- the same underlying approach, retargeted at a'
-  echo '  YAML-templated fiction book bible instead of a code repo.'
+  echo 'See the [full documentation](synapse/index.html): durable memory and the per-repo code graph.'
 } >> "$work/home.md"
 
 # The landing page needs the same #sidebar/#content wrapper every other
@@ -182,7 +148,6 @@ awk '/^## Synapse Vault/{exit} {print}' "$root/README.md" > "$work/home.md"
 top_nav='<nav id="sidebar"><div class="sidebar-title">Synapse</div><ul>'
 top_nav="$top_nav<li><a href=\"index.html\">Home</a></li>"
 top_nav="$top_nav<li><a href=\"synapse/index.html\">Synapse</a></li>"
-top_nav="$top_nav<li><a href=\"synapse-bard/index.html\">Synapse Bard</a></li>"
 top_nav="$top_nav</ul></nav><div id=\"content\">"
 top_nav_file="$work/top-nav.html"
 top_close_file="$work/top-close.html"

@@ -8,8 +8,8 @@
 // surviving until someone notices it in review. Per-app dependency sets fall
 // out of the same mechanism -- `synapse-hook` simply never lists the
 // tree-sitter adapter, so no libtree-sitter and no C compiler enter its
-// build at all. `bard/build.zig` follows the identical rule one level up,
-// for the two binaries built there.
+// build at all. A downstream consumer's own build (synapse-bard, over a
+// `b.dependency` on this package) follows the identical rule.
 //
 // `std.Io` is the system boundary rather than a bespoke Fs/Clock/Http trio, so
 // there is nothing here to wire for those: core functions take an `Io`
