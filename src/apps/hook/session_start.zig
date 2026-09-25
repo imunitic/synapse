@@ -9,6 +9,12 @@
 //! *other* namespaces, so a session that later `cd`s elsewhere knows that
 //! repo's graph exists too.
 //!
+//! A branch with no namespace of its own is usually a short-lived one off
+//! a trunk that has one. The "no namespace" line then names the namespaces
+//! recorded against this same remote and how to read them with
+//! `--namespace`. Saying only "nothing to consult" sent sessions to grep a
+//! repo whose trunk graph was one flag away.
+//!
 //! `run()` also spawns `stop_nudge.zig`'s detached vault pull -- the one
 //! network call this hook makes, kept out of `build()` so nothing here
 //! blocks on it and so `build()`'s own tests stay pure reads.
@@ -62,6 +68,8 @@ pub fn build(gpa: Allocator, io: Io, env: *std.process.Environ.Map, argv0: []con
     defer if (absent) |s| gpa.free(s);
     var catalogue: ?[]u8 = null;
     defer if (catalogue) |s| gpa.free(s);
+    var siblings: ?[]u8 = null;
+    defer if (siblings) |s| gpa.free(s);
 
     // Independent of vault configuration entirely -- this is Synapse's own
     // standing instructions, not vault content. `CLAUDE_PLUGIN_ROOT` is a
@@ -142,7 +150,13 @@ pub fn build(gpa: Allocator, io: Io, env: *std.process.Environ.Map, argv0: []con
                 absent = try std.fmt.allocPrint(gpa, "synapse/{s}/", .{ns.key});
             }
         }
-        catalogue = try buildCatalogue(gpa, io, vault, if (maybe_ns) |ns| ns.key else null);
+        const namespaces = try listNamespaces(gpa, io, vault);
+        defer freeNamespaces(gpa, namespaces);
+        // Siblings are only looked for when this branch has no namespace:
+        // with one, the pointer above already names the graph to read.
+        const own_remote: ?[]const u8 = if (absent != null) if (maybe_ns) |ns| ns.remote else null else null;
+        if (own_remote) |r| siblings = try siblingLine(gpa, namespaces, r);
+        catalogue = try buildCatalogue(gpa, namespaces, if (maybe_ns) |ns| ns.key else null, if (siblings != null) own_remote else null);
     }
 
     var base: ?[]u8 = null;
@@ -190,9 +204,16 @@ pub fn build(gpa: Allocator, io: Io, env: *std.process.Environ.Map, argv0: []con
     }
 
     // Only worth saying alongside something else -- alone it's a hook
-    // announcing it has nothing to announce.
+    // announcing it has nothing to announce. A sibling to point at is
+    // always worth saying.
     if (absent) |a| {
-        if (base != null or catalogue != null) {
+        if (siblings) |sib| {
+            synapse_line = try std.fmt.allocPrint(
+                gpa,
+                "No Synapse namespace covers {s} -- this branch has no code graph of its own, and a short-lived branch does not need one. {s}",
+                .{ a, sib },
+            );
+        } else if (base != null or catalogue != null) {
             synapse_line = try std.fmt.allocPrint(
                 gpa,
                 "No Synapse namespace covers {s} -- this branch has no code graph. That is normal; /synapse-init builds one if it is worth it. Nothing here is stale, there is simply nothing to consult.",
@@ -219,43 +240,97 @@ pub fn build(gpa: Allocator, io: Io, env: *std.process.Environ.Map, argv0: []con
 /// repo's own is dropped -- it already got the stronger verified pointer
 /// above). Byte-sorted, not locale-collated, so the text is identical
 /// across machines.
-fn buildCatalogue(gpa: Allocator, io: Io, vault: []const u8, own: ?[]const u8) !?[]u8 {
-    const root = try std.fmt.allocPrint(gpa, "{s}/synapse", .{vault});
-    defer gpa.free(root);
-    var dir = Io.Dir.cwd().openDir(io, root, .{ .iterate = true }) catch return null;
-    defer dir.close(io);
+/// One `synapse/*/` namespace: its directory name and recorded `remote:`.
+const NamespaceEntry = struct { name: []u8, remote: []u8 };
 
-    var entries: std.ArrayListUnmanaged([]u8) = .empty;
-    defer {
-        for (entries.items) |e| gpa.free(e);
+/// Every namespace in the vault with a readable `Index.md` and a `remote:`
+/// field, byte-sorted by name. Caller frees with `freeNamespaces`.
+fn listNamespaces(gpa: Allocator, io: Io, vault: []const u8) ![]NamespaceEntry {
+    var entries: std.ArrayListUnmanaged(NamespaceEntry) = .empty;
+    errdefer {
+        for (entries.items) |e| {
+            gpa.free(e.name);
+            gpa.free(e.remote);
+        }
         entries.deinit(gpa);
     }
+    const root = try std.fmt.allocPrint(gpa, "{s}/synapse", .{vault});
+    defer gpa.free(root);
+    var dir = Io.Dir.cwd().openDir(io, root, .{ .iterate = true }) catch return entries.toOwnedSlice(gpa);
+    defer dir.close(io);
+
     var it = dir.iterate();
     while (try it.next(io)) |entry| {
         if (entry.kind != .directory) continue;
-        if (own) |o| if (std.mem.eql(u8, entry.name, o)) continue;
         const index_path = try std.fmt.allocPrint(gpa, "{s}/{s}/Index.md", .{ root, entry.name });
         defer gpa.free(index_path);
         const text = Io.Dir.cwd().readFileAlloc(io, index_path, gpa, .limited(64 << 20)) catch continue;
         defer gpa.free(text);
         const remote = core.query.field(text, "remote") orelse continue;
-        try entries.append(gpa, try std.fmt.allocPrint(gpa, "{s}|{s}", .{ entry.name, remote }));
+        const name = try gpa.dupe(u8, entry.name);
+        errdefer gpa.free(name);
+        try entries.append(gpa, .{ .name = name, .remote = try gpa.dupe(u8, remote) });
     }
-    if (entries.items.len == 0) return null;
-    std.mem.sort([]u8, entries.items, {}, struct {
-        fn less(_: void, a: []u8, b: []u8) bool {
-            return std.mem.order(u8, a, b) == .lt;
+    std.mem.sort(NamespaceEntry, entries.items, {}, struct {
+        fn less(_: void, a: NamespaceEntry, b: NamespaceEntry) bool {
+            return std.mem.order(u8, a.name, b.name) == .lt;
         }
     }.less);
+    return entries.toOwnedSlice(gpa);
+}
 
+fn freeNamespaces(gpa: Allocator, entries: []NamespaceEntry) void {
+    for (entries) |e| {
+        gpa.free(e.name);
+        gpa.free(e.remote);
+    }
+    gpa.free(entries);
+}
+
+/// The namespaces recorded against `remote` -- this same repo, built on
+/// another branch -- and how to read one without switching branches. Null
+/// when there are none. An empty remote never matches: it identifies
+/// nothing.
+fn siblingLine(gpa: Allocator, entries: []const NamespaceEntry, remote: []const u8) !?[]u8 {
+    if (remote.len == 0) return null;
+    var names: Io.Writer.Allocating = .init(gpa);
+    defer names.deinit();
+    var first: ?[]const u8 = null;
+    for (entries) |e| {
+        if (!std.mem.eql(u8, e.remote, remote)) continue;
+        if (first != null) try names.writer.writeAll(", ");
+        try names.writer.print("synapse/{s}/", .{e.name});
+        if (first == null) first = e.name;
+    }
+    const ns = first orelse return null;
+    return try std.fmt.allocPrint(
+        gpa,
+        "This repo does have a graph on another branch: {s}. Consult it before grepping -- `synapse query --namespace {s} body \"<Node>\"`, `synapse index lookup <path> --namespace {s}`, `synapse callers <name> --namespace {s}` (Index.md: synapse/{s}/Index.md). It describes that branch, so read code this branch changed from the working tree; `stale`/`drift` against this checkout also need SYNAPSE_REPO_ROOT set to it.",
+        .{ names.written(), ns, ns, ns, ns },
+    );
+}
+
+/// Every namespace but `own` and, when set, those recorded against
+/// `skip_remote` (already named by the sibling line). Null when nothing is
+/// left to list.
+fn buildCatalogue(gpa: Allocator, entries: []const NamespaceEntry, own: ?[]const u8, skip_remote: ?[]const u8) !?[]u8 {
     var out: Io.Writer.Allocating = .init(gpa);
     errdefer out.deinit();
-    try out.writer.writeAll(
-        "Other Synapse namespaces in this vault (name | remote). A session that moves into one of these repos can consult synapse/{name}/Index.md for its code graph -- but verify the listed remote against that repo's own `git remote get-url origin` first, since a namespace is keyed by repo and branch and names only the branch it was built from:\n",
-    );
-    for (entries.items, 0..) |e, i| {
-        if (i > 0) try out.writer.writeAll("\n");
-        try out.writer.writeAll(e);
+    var wrote = false;
+    for (entries) |e| {
+        if (own) |o| if (std.mem.eql(u8, e.name, o)) continue;
+        if (skip_remote) |r| if (std.mem.eql(u8, e.remote, r)) continue;
+        if (!wrote) {
+            try out.writer.writeAll(
+                "Other Synapse namespaces in this vault (name | remote). A session that moves into one of these repos can consult synapse/{name}/Index.md for its code graph -- but verify the listed remote against that repo's own `git remote get-url origin` first, since a namespace is keyed by repo and branch and names only the branch it was built from:\n",
+            );
+        } else try out.writer.writeAll("\n");
+        try out.writer.print("{s}|{s}", .{ e.name, e.remote });
+        wrote = true;
+    }
+    if (!wrote) {
+        out.deinit();
+        return null;
     }
     return try out.toOwnedSlice();
 }
@@ -584,4 +659,60 @@ test "catalogue: emitted even when the vault has no Index.md to inject" {
     const text = (try sf.inject("", sf.fx.repo)).?;
     defer gpa.free(text);
     try testing.expect(std.mem.indexOf(u8, text, "mono-repo|") != null);
+}
+
+test "branch with no namespace, trunk has one: names the trunk and how to read it" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.writeVaultIndex();
+    try sf.commit();
+    try sf.addRemote("git@github.com:example/repo.git");
+    try sf.writeNamespace("repo@main", "git@github.com:example/repo.git");
+    try sf.writeNamespace("shared-lib", "ssh://git@example.com/shared-lib.git");
+    const res = try sf.fx.git(&.{ "checkout", "-q", "-b", "feat" });
+    res.deinit(gpa);
+
+    const text = (try sf.inject("", sf.fx.repo)).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "No Synapse namespace covers synapse/repo@feat/") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "synapse query --namespace repo@main body") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "nothing to consult") == null);
+    // Named once, as this repo -- not again in the catalogue as another repo.
+    try testing.expect(std.mem.indexOf(u8, text, "repo@main|") == null);
+    try testing.expect(std.mem.indexOf(u8, text, "shared-lib|ssh://git@example.com/shared-lib.git") != null);
+}
+
+test "branch with no namespace, only other repos have one: no sibling is claimed" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.writeVaultIndex();
+    try sf.commit();
+    try sf.addRemote("git@github.com:example/repo.git");
+    try sf.writeNamespace("other@main", "ssh://git@example.com/other.git");
+    const res = try sf.fx.git(&.{ "checkout", "-q", "-b", "feat" });
+    res.deinit(gpa);
+
+    const text = (try sf.inject("", sf.fx.repo)).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "nothing to consult") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "--namespace") == null);
+    try testing.expect(std.mem.indexOf(u8, text, "other@main|ssh://git@example.com/other.git") != null);
+}
+
+test "sibling line alone is still said, with no vault index and no catalogue" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.commit();
+    try sf.addRemote("git@github.com:example/repo.git");
+    try sf.writeNamespace("repo@main", "git@github.com:example/repo.git");
+    const res = try sf.fx.git(&.{ "checkout", "-q", "-b", "feat" });
+    res.deinit(gpa);
+
+    const text = (try sf.inject("", sf.fx.repo)).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "synapse query --namespace repo@main body") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "Other Synapse namespaces") == null);
 }

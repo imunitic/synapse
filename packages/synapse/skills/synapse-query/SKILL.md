@@ -68,6 +68,7 @@ required:
 | Judging blast radius before an edit | `synapse query links "{Node}" --inbound` (or `--closure` for transitive) | assuming nothing else depends on it |
 | You already know the exact file and line range | just fetch it (`sed`, or a direct file read) | asking Synapse a question you can already answer |
 | Finding every occurrence of a literal pattern | native `grep`/`rg`, scoped to files Synapse already named | an unscoped repo-wide grep before consulting Synapse at all |
+| On a branch with no graph of its own, when the repo's trunk has one | the trunk's namespace via `--namespace <repo>@<trunk>` on `query`/`index`/`callers` (SessionStart names it). Read code the branch changed from the working tree | running `/synapse-init` for a short-lived branch, or grepping because "this branch has no graph" |
 | A node turns up `stale` | hand off to the `synapse-node` skill | trying to reason about staleness inline here |
 
 ## When a node isn't enough
@@ -89,9 +90,12 @@ resolve the specific symbol-level question:
 
 - **Never grep the whole repo before checking `synapse/{project}/Index.md`**, unless this repo has
   no Synapse namespace at all (`vault-list` on `synapse/{project}/` comes back empty). Before
-  concluding there's nothing to consult, check whether the task actually concerns a *different*
-  checkout — `synapse query --namespace <repo>@<branch> body "{Node}"` reaches that repo's graph
-  without switching directories or checking it out. Only when no namespace anywhere covers the task
+  concluding there's nothing to consult, check two things. First, whether this same repo has a
+  namespace on another branch, usually the trunk: a short-lived branch has no graph of its own and
+  does not need one, so read the trunk's with `--namespace <repo>@<trunk>`. Second, whether the task
+  actually concerns a *different* checkout — `synapse query --namespace <repo>@<branch> body
+  "{Node}"` reaches that repo's graph without switching directories or checking it out. Only when
+  no namespace anywhere covers the task
   is there truly nothing to consult; say so and proceed normally.
 - **Never treat a node's summary as ground truth for a symbol-level claim** it wasn't built to make
   precisely — see "When a node isn't enough" above.
