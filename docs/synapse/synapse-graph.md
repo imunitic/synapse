@@ -87,7 +87,9 @@ A detached HEAD has no branch and so gets no namespace, stated rather than silen
 literal string `HEAD`, which every detached checkout everywhere would share.
 
 The cost of that choice is paid at creation and nowhere else: each branch worth a graph pays a full
-cold build, and a branch not worth one simply has no namespace. What it buys is that `commit`, the
+cold build, and a branch not worth one simply has no namespace. Such a branch still reads the trunk's
+graph with `--namespace <repo>@<trunk>`, and the `SessionStart` hook names it (see [What a session is
+told at startup](#what-a-session-is-told-at-startup)). What the choice buys is that `commit`, the
 per-file hashes and `stale` all describe a single tree, so a branch switch invalidates nothing — the
 graph you built on the mainline keeps describing the mainline.
 
@@ -410,9 +412,11 @@ The `SessionStart` hook injects two things, and neither is stored anywhere:
 - **A verified pointer to the cwd repo's own namespace**, emitted only when that namespace's `remote:` matches the repo's actual remote. On a mismatch it says so instead, rather than risk pointing at a different repo's graph.
 - **A catalogue of every *other* namespace in the vault** (`name | remote`), because one session routinely spans several repos — a change in one landing in another — and without it only the starting repo is ever announced. A session that moves into a listed repo can consult its graph, after verifying the listed remote against that repo's own.
 
+When the current branch has no namespace, the pointer is replaced by a line saying so. If other namespaces carry this repo's remote — usually the trunk, seen from a short-lived branch — that line names them and gives the `--namespace <repo>@<branch>` form of `query`, `index lookup` and `callers` to read them. Those namespaces are then left out of the catalogue, which lists other repos. The trunk's graph describes the trunk, so code the branch changed is read from the working tree. With no namespace on this remote, the line says there is nothing to consult, as before.
+
 The catalogue is derived, never stored: the source of truth is the directory listing plus each namespace `Index.md`'s existing `remote:` field, so there is nothing to invalidate and it cannot drift from reality. A stored copy could be *wrong*; a derived one can only be absent. It also keeps this hook read-only against the vault — only `synapse-hook staleness` writes.
 
-Cost is one `grep` fork regardless of namespace count (`-m1` stops inside each file's frontmatter), then `LC_ALL=C sort` so the injected text is byte-identical across runs and machines — collation is locale-dependent and the glob's order isn't reliably sorted, and non-deterministic context defeats prompt caching. Deliberately `grep` rather than `rg`: this ships to machines that may not have ripgrep, and rg measured ~2.9x slower on this workload anyway, being pure process-startup cost.
+Cost is one read of each namespace's `Index.md` for its `remote:` field, with no process spawned. Entries are byte-sorted by name so the injected text is identical across runs and machines — directory order isn't stable, and non-deterministic context defeats prompt caching.
 
 Outside any git repo there is no pointer and nothing to exclude, so the catalogue lists everything. With no namespaces at all, nothing is emitted — the zero-cost path for repos that never opted in.
 

@@ -15,7 +15,7 @@ The boxes name the vault-relevant hooks; what each one does is here rather than 
 
 | Hook | Fires | What it does |
 |---|---|---|
-| `synapse-hook session-start` | `SessionStart` | Injects `Index.md`, this repo's Graph pointer if a namespace covers the current branch, and a catalogue of the other namespaces in the vault. A plain path lookup — never a model call, so a repo that never opted in pays nothing. Also spawns a detached vault pull, a no-op unless the resolved backend is `git`. |
+| `synapse-hook session-start` | `SessionStart` | Injects `Index.md`, this repo's Graph pointer if a namespace covers the current branch (or, if not, this repo's namespaces on other branches and how to read them), and a catalogue of the other namespaces in the vault. A plain path lookup — never a model call, so a repo that never opted in pays nothing. Also spawns a detached vault pull, a no-op unless the resolved backend is `git`. |
 | `synapse-hook prompt-context` | `UserPromptSubmit` | One fixed standing line per turn, instructing that the Graph/Code Cache be queried before any grep in a repo with a namespace -- no search, no node list, no network. `SYNAPSE_DISABLE_PROMPT_INJECTION` turns it off for a session. |
 | `synapse-hook stop-nudge` | `Stop`, every 25 turns | Forces a real "did anything here belong in the vault?" check-in rather than relying on the agent to remember unprompted. |
 
@@ -122,7 +122,9 @@ Nothing here runs on a schedule; everything is triggered by an actual session ev
 Injects the vault's top-level `Index.md` into context at the start of every session, so its
 contents are live information from turn one rather than something Claude has to remember to go
 read. Also does two extra cheap checks. It resolves the current repo (if any) and appends a pointer to a
-matching Synapse namespace, if one exists and its `remote` field actually matches this repo. And it
+matching Synapse namespace, if one exists and its `remote` field actually matches this repo. On a
+branch with no namespace, it instead names the namespaces recorded for this repo's remote on other
+branches, with the `--namespace` commands to read them. And it
 lists every *other* namespace in the vault as a `name | remote` catalogue, because one session
 routinely spans several repos and without it only the starting repo's graph is ever announced. Both
 are derived per session and stored nowhere — see [synapse-graph.md](synapse-graph.md) for the detail.

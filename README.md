@@ -124,7 +124,8 @@ broken install; it's idempotent and safe to run repeatedly.
   local commits pile up (`SYNAPSE_VAULT_PUSH_EVERY`, default 5). Choosing it is the opt-in; a Vault
   with no `.git` yet gets one initialized on first write.
 - `synapse-hook session-start` — `SessionStart`: injects the Vault's index and this repo's
-  Graph namespace pointer, if one exists.
+  Graph namespace pointer, if one exists. On a branch without one, it names the repo's graph on
+  another branch instead.
 - `synapse-hook stop-nudge` — a turn-count-based `Stop` hook that nudges a "worth
   capturing?" check-in every 25 turns.
 - `packages/synapse/commands/synapse-note.md` — note creation (bare / `--task` / `--list` / `--search`).
