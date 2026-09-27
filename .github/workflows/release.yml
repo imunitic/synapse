@@ -137,8 +137,8 @@ jobs:
           # can't ship without a matching npm platform package.
           npm_platform_for() {
             case "$1" in
-              x86_64-linux) echo linux-x64 ;;
-              aarch64-linux) echo linux-arm64 ;;
+              x86_64-linux-gnu*) echo linux-x64 ;;
+              aarch64-linux-gnu*) echo linux-arm64 ;;
               aarch64-macos) echo darwin-arm64 ;;
               *)
                 echo "no npm platform package mapped for target: $1" >&2

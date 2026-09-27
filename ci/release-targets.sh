@@ -27,4 +27,9 @@
 # note). Bard ships the same platform set as synapse -- this same list,
 # nothing narrower -- not just the one architecture her own session
 # happens to run today.
-targets=(x86_64-linux aarch64-linux aarch64-macos)
+# The Linux targets name glibc explicitly. A bare `x86_64-linux` builds a static
+# musl binary, and in a static binary `std.DynLib` is Zig's own ELF loader,
+# which applies no relocations: a grammar loaded through it hands back an
+# unusable `TSLanguage`. Linking glibc dynamically gets the system `dlopen`.
+# The version suffix is the oldest glibc the binaries run on.
+targets=(x86_64-linux-gnu.2.28 aarch64-linux-gnu.2.28 aarch64-macos)

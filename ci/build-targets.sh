@@ -40,6 +40,12 @@ for t in "${targets[@]}"; do
     printf '  %-16s' "$t"
     zig build -Dtarget="$t"
     zig build test-build -Dtarget="$t"
+    # A Linux binary must go through the system dynamic loader to load a
+    # grammar (see release-targets.sh).
+    if [[ "$t" == *linux* ]] && ! file zig-out/bin/synapse | grep -q "dynamically linked"; then
+        echo "FAIL: zig-out/bin/synapse for $t is not dynamically linked" >&2
+        exit 1
+    fi
     echo ok
 done
 
