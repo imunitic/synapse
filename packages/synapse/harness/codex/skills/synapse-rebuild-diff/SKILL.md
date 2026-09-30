@@ -38,8 +38,8 @@ Manually, when you already expect major drift:
   at once — renames *and* new paths), a `sed -i`, generated code that the build rewrote from a
   schema, a dependency bump, or a moved submodule pointer.
 
-Run it whenever the graph has fallen behind: the SessionStart line reports how many commits HEAD is
-past it, and `synapse query drift` shows what changed. A small drift after an ordinary pull is an
+Run it whenever the graph has fallen behind: the SessionStart line reports how many nodes claim
+files changed since they were built, and `synapse query drift` shows what changed. A small drift after an ordinary pull is an
 ordinary run, with a few nodes in the *patch-from-diff* class. Between runs, Tier 1 flags what a
 session edits and the `synapse-node` skill regenerates a stale node lazily when its body is needed.
 

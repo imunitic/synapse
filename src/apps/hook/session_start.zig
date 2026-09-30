@@ -143,10 +143,10 @@ pub fn build(gpa: Allocator, io: Io, env: *std.process.Environ.Map, argv0: []con
                         .{ns_index},
                     );
                     const ns_dir = std.fs.path.dirname(ns_index).?;
-                    const behind = commitsBehind(gpa, io, ns_dir, ns.repo_root) catch 0;
-                    if (behind > 0) try line.writer.print(
-                        "The graph is {d} commit{s} behind HEAD -- /synapse-rebuild-diff brings it up to date.\n",
-                        .{ behind, if (behind == 1) "" else "s" },
+                    const changed = changedNodes(gpa, io, ns_dir, ns.repo_root) catch 0;
+                    if (changed > 0) try line.writer.print(
+                        "{d} graph node{s} cover{s} files changed since {s} built -- /synapse-rebuild-diff brings the graph up to date.\n",
+                        .{ changed, if (changed == 1) "" else "s", if (changed == 1) "s" else "", if (changed == 1) "it was" else "they were" },
                     );
                     try core.command_map.render(&line.writer);
                     synapse_line = try gpa.dupe(u8, line.written());
@@ -301,48 +301,77 @@ fn freeNamespaces(gpa: Allocator, entries: []NamespaceEntry) void {
     gpa.free(entries);
 }
 
-/// How far HEAD has moved past the graph: the largest `git rev-list --count
-/// <commit>..HEAD` over the distinct `commit:` baselines the namespace's
-/// nodes record (the same per-node baselines `synapse query drift` diffs
-/// from). A baseline missing from local history is skipped -- `drift`
-/// reports that case. Reads node frontmatter only; no source file is hashed,
-/// so it stays cheap on a repo of thousands of files.
-fn commitsBehind(gpa: Allocator, io: Io, ns_dir: []const u8, repo_root: []const u8) !usize {
-    var baselines: std.ArrayListUnmanaged([]u8) = .empty;
+/// How many nodes claim a file that changed since the node was built: for
+/// each distinct `commit:` baseline the namespace's nodes record, one `git
+/// diff --name-only <commit>..HEAD`, checked against each node's own
+/// `sources`. A commit that touches no file a node claims leaves it current,
+/// so a correct `/synapse-rebuild-diff` (which rewrites only the nodes whose
+/// files changed) leaves this at 0 even when other nodes keep older
+/// baselines. A baseline missing from local history is skipped -- `synapse
+/// query drift` reports that case. Reads node frontmatter only; no source
+/// file is hashed.
+fn changedNodes(gpa: Allocator, io: Io, ns_dir: []const u8, repo_root: []const u8) !usize {
+    const Baseline = struct {
+        commit: []u8,
+        /// Owns the `git diff` output `paths` slices into; null when the
+        /// baseline could not be diffed.
+        out: ?[]u8,
+        paths: std.StringHashMapUnmanaged(void) = .empty,
+    };
+    var baselines: std.ArrayListUnmanaged(Baseline) = .empty;
     defer {
-        for (baselines.items) |b| gpa.free(b);
+        for (baselines.items) |*b| {
+            b.paths.deinit(gpa);
+            if (b.out) |o| gpa.free(o);
+            gpa.free(b.commit);
+        }
         baselines.deinit(gpa);
     }
 
     var dir = Io.Dir.cwd().openDir(io, ns_dir, .{ .iterate = true }) catch return 0;
     defer dir.close(io);
+    var changed: usize = 0;
     var it = dir.iterate();
     while (try it.next(io)) |entry| {
         if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".md")) continue;
         if (std.mem.eql(u8, entry.name, "Index.md")) continue;
-        const text = dir.readFileAlloc(io, entry.name, gpa, .limited(4 << 20)) catch continue;
+        const text = dir.readFileAlloc(io, entry.name, gpa, .limited(64 << 20)) catch continue;
         defer gpa.free(text);
         const commit = core.query.field(text, "commit") orelse continue;
         if (commit.len == 0) continue;
-        const seen = for (baselines.items) |b| {
-            if (std.mem.eql(u8, b, commit)) break true;
-        } else false;
-        if (!seen) try baselines.append(gpa, try gpa.dupe(u8, commit));
-    }
 
-    var most: usize = 0;
-    for (baselines.items) |b| {
-        const range = try std.fmt.allocPrint(gpa, "{s}..HEAD", .{b});
-        defer gpa.free(range);
-        const res = adapters.process.run(io, gpa, &.{ "git", "rev-list", "--count", range }, .{
-            .cwd = .{ .path = repo_root },
-        }) catch continue;
-        defer res.deinit(gpa);
-        if (!res.ok()) continue;
-        const n = std.fmt.parseInt(usize, std.mem.trim(u8, res.stdout, " \t\r\n"), 10) catch continue;
-        most = @max(most, n);
+        const base = for (baselines.items) |*b| {
+            if (std.mem.eql(u8, b.commit, commit)) break b;
+        } else blk: {
+            try baselines.append(gpa, .{ .commit = try gpa.dupe(u8, commit), .out = null });
+            const b = &baselines.items[baselines.items.len - 1];
+            const range = try std.fmt.allocPrint(gpa, "{s}..HEAD", .{commit});
+            defer gpa.free(range);
+            const res = adapters.process.run(io, gpa, &.{ "git", "diff", "--name-only", range }, .{
+                .cwd = .{ .path = repo_root },
+            }) catch break :blk b;
+            gpa.free(res.stderr);
+            if (!res.ok()) {
+                gpa.free(res.stdout);
+                break :blk b;
+            }
+            b.out = res.stdout;
+            var lines = std.mem.tokenizeScalar(u8, res.stdout, '\n');
+            while (lines.next()) |path| try b.paths.put(gpa, path, {});
+            break :blk b;
+        };
+        if (base.out == null or base.paths.count() == 0) continue;
+
+        var srcs = try core.query.sources(gpa, text);
+        defer srcs.deinit(gpa);
+        for (srcs.items) |path| {
+            if (base.paths.contains(path)) {
+                changed += 1;
+                break;
+            }
+        }
     }
-    return most;
+    return changed;
 }
 
 /// The namespaces recorded against `remote` -- this same repo, built on
@@ -483,11 +512,12 @@ test "vault index present, no synapse namespace: says so rather than staying sil
     try testing.expect(std.mem.indexOf(u8, text, "That is normal") != null);
 }
 
-/// A node file in the fixture's namespace recording `commit` as its baseline.
-fn writeNodeAt(sf: *SessionStartFixture, key: []const u8, title: []const u8, commit: []const u8) !void {
+/// A node file in the fixture's namespace recording `commit` as its baseline
+/// and claiming the one repo file `source`.
+fn writeNodeAt(sf: *SessionStartFixture, key: []const u8, title: []const u8, commit: []const u8, source: []const u8) !void {
     const path = try std.fmt.allocPrint(testing.allocator, "vault/synapse/{s}/{s}.md", .{ key, title });
     defer testing.allocator.free(path);
-    const data = try std.fmt.allocPrint(testing.allocator, "---\ntitle: \"{s}\"\ncommit: {s}\n---\nbody\n", .{ title, commit });
+    const data = try std.fmt.allocPrint(testing.allocator, "---\ntitle: \"{s}\"\ncommit: {s}\nsources:\n  - path: {s}\n    hash: x\n---\nbody\n", .{ title, commit, source });
     defer testing.allocator.free(data);
     try sf.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = path, .data = data });
 }
@@ -498,7 +528,7 @@ fn headSha(sf: *SessionStartFixture) ![]u8 {
     return testing.allocator.dupe(u8, std.mem.trim(u8, res.stdout, " \t\r\n"));
 }
 
-test "graph two commits behind HEAD: one line naming the count and /synapse-rebuild-diff" {
+test "a node's file changed since its baseline: one line naming the node count and /synapse-rebuild-diff" {
     const gpa = testing.allocator;
     var sf = try SessionStartFixture.init(gpa);
     defer sf.deinit();
@@ -508,15 +538,36 @@ test "graph two commits behind HEAD: one line naming the count and /synapse-rebu
     try sf.writeNamespace("repo@main", "git@github.com:example/repo.git");
     const base = try headSha(&sf);
     defer gpa.free(base);
-    try writeNodeAt(&sf, "repo@main", "Core", base);
-    try sf.fx.writeRepoFile("a.txt", "1\n");
+    try writeNodeAt(&sf, "repo@main", "Core", base, "README.md");
+    try sf.fx.writeRepoFile("README.md", "changed\n");
     try sf.fx.gitCommit("second");
-    try sf.fx.writeRepoFile("a.txt", "2\n");
+
+    const text = (try sf.inject("", sf.fx.repo)).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "1 graph node covers files changed since it was built -- /synapse-rebuild-diff") != null);
+}
+
+test "commits past a node's baseline that touch none of its files: no freshness line" {
+    // The state a correct /synapse-rebuild-diff leaves: nodes whose files did
+    // not change keep their older baseline.
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.writeVaultIndex();
+    try sf.commit();
+    try sf.addRemote("git@github.com:example/repo.git");
+    try sf.writeNamespace("repo@main", "git@github.com:example/repo.git");
+    const base = try headSha(&sf);
+    defer gpa.free(base);
+    try writeNodeAt(&sf, "repo@main", "Core", base, "README.md");
+    try sf.fx.writeRepoFile("other.txt", "1\n");
+    try sf.fx.gitCommit("second");
+    try sf.fx.writeRepoFile("other.txt", "2\n");
     try sf.fx.gitCommit("third");
 
     const text = (try sf.inject("", sf.fx.repo)).?;
     defer gpa.free(text);
-    try testing.expect(std.mem.indexOf(u8, text, "The graph is 2 commits behind HEAD -- /synapse-rebuild-diff") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "built -- /synapse-rebuild-diff") == null);
 }
 
 test "graph at HEAD: no freshness line" {
@@ -529,11 +580,11 @@ test "graph at HEAD: no freshness line" {
     try sf.writeNamespace("repo@main", "git@github.com:example/repo.git");
     const head = try headSha(&sf);
     defer gpa.free(head);
-    try writeNodeAt(&sf, "repo@main", "Core", head);
+    try writeNodeAt(&sf, "repo@main", "Core", head, "README.md");
 
     const text = (try sf.inject("", sf.fx.repo)).?;
     defer gpa.free(text);
-    try testing.expect(std.mem.indexOf(u8, text, "behind HEAD") == null);
+    try testing.expect(std.mem.indexOf(u8, text, "built -- /synapse-rebuild-diff") == null);
 }
 
 test "synapse namespace with matching remote: appends pointer line" {
