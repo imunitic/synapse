@@ -1,7 +1,6 @@
 ---
 name: synapse-rebuild-diff
-description: Manually bring a repo's Synapse namespace back in line after major same-branch drift — a pull, a rebase, or a long absence. Triages each drifted node into reseat / patch-from-diff / re-orient rather than rebuilding everything. Refuses outright on a cross-branch mismatch; for a full rebuild from scratch, use /synapse-rebuild-full instead.
-disable-model-invocation: true
+description: Bring this repo's Synapse namespace back in line after same-branch drift: a pull, a rebase, or a long absence.
 ---
 
 # Synapse Rebuild Diff: Reconcile a Namespace After Same-Branch Drift
