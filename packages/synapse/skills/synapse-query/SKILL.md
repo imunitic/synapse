@@ -1,6 +1,6 @@
 ---
 name: synapse-query
-description: This repo has a Synapse code graph. For ANY task here — understanding how something works, finding where code lives, tracing what depends on a file, or scoping an edit — consult synapse/{project}/Index.md and synapse query before grepping or reading source files. Grep only after Synapse has named the exact file(s) to read. Also applies when this repo has no graph of its own but the task concerns another checkout that does — synapse query --namespace <repo>@<branch> reaches that graph without switching directories.
+description: This repo has a Synapse code graph. For any task here (how something works, where code lives, what depends on a file, scoping an edit), query the graph before grepping or reading source, and grep only inside files it named. Another checkout's graph: --namespace <repo>@<branch>.
 ---
 
 # Synapse Query: Day-to-Day Use of the Code Graph
@@ -52,6 +52,7 @@ required:
 | A file's API surface | read the file directly | Claude already has direct, cheap filesystem access — no separate view needed. |
 | Who depends on a subsystem, or what it depends on | `synapse query links "{Node}" --inbound` / `--closure` | Real transitive-closure traversal over the typed relations, at node granularity. |
 | **Who calls this method/class, repo-wide** | `synapse callers <name>` | Every call site as `path:line ⇥ calling expression`, off the flat index `synapse build-refs` projects from the tags cache. Well under a second even against a multi-gigabyte index. Needs **no node and no graph** — it works in a repo `/synapse-init` has never touched, as long as the cache is filled. Still name-based rather than type-resolved, so hits are candidates with evidence: the calling expression is on the line, which usually settles the receiver without opening the file. |
+| **Where a symbol is defined, or every definition and reference of a name** | `synapse query symbol <name> "{Node}"`, or repo-wide `synapse callers <name> --all` | `symbol` gives `path:line` plus the defining expression inside one node's files. `callers --all` needs no node: every def and ref repo-wide from the Code Cache, the first move when you don't know the owning node yet. |
 | One frontmatter scalar (`stale`, `built_at`, `commit`, ...) | `synapse query field "{Node}" <key>` | Cheap, targeted extraction — never reads the rest of the node. |
 | A node's prose, without its (possibly huge) `sources` list | `synapse query body "{Node}"` | Disk read, never the API; skips frontmatter and `## Notes`. See the cost note above. |
 | Every file a node covers | `synapse query sources "{Node}" [--count\|--modules\|--filter <p>]` | Filtered/counted/grouped, never the raw megabyte-scale list. |
@@ -72,6 +73,12 @@ required:
 | A node turns up `stale` | hand off to the `synapse-node` skill | trying to reason about staleness inline here |
 
 ## When a node isn't enough
+
+A query's answer scopes the work: open the files it names at the ranges it gives, and do not grep
+the repo to re-derive what it already answered. Line ranges come from the last graph build and can
+drift after edits. When the lines you open don't match what the query described, re-locate the
+symbol within that same file (the file is the truth, the range is a pointer), and only widen the
+search if the file no longer contains it at all, which means the graph is stale for that node.
 
 Synapse has no exact per-symbol call graph — a node's answer is a concept-level summary, not a
 parse. This matters more here than it would for a tool that does have one: short, reused names

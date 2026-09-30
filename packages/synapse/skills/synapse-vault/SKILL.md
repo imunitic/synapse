@@ -1,6 +1,6 @@
 ---
 name: synapse-vault
-description: Synapse Vault is durable memory, and only its Index.md is ever auto-injected — every other note is pull-only. Load this BEFORE answering from your own reasoning about tooling behaviour, a past decision, a convention, a gotcha, or anything a previous session might have written down; and before creating or editing any note in the vault. Covers what to search with, and the vault-patch operations that silently destroy a note.
+description: Synapse Vault is durable memory; only its Index.md is auto-injected. Load before answering from your own reasoning about tooling, a past decision, a convention or a gotcha a previous session may have recorded, and before creating or editing any vault note.
 ---
 
 # Synapse Vault: search it first, and do not destroy it

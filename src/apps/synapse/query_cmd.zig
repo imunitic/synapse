@@ -39,6 +39,7 @@ const std = @import("std");
 const core = @import("core");
 const adapters = @import("adapters");
 const context = @import("context.zig");
+const cli_args = @import("cli_args.zig");
 const build_lists_cmd = @import("build_lists_cmd.zig");
 const tags_cache_cmd = @import("tags_cache_cmd.zig");
 
@@ -151,6 +152,7 @@ const usage_text =
 
 fn usage() u8 {
     std.debug.print("{s}", .{usage_text});
+    cli_args.printMapFor("query");
     return 2;
 }
 
@@ -929,6 +931,11 @@ fn cmdSymbol(
 ) !u8 {
     // Disabled: no cache I/O, no tagging -- matches the prompt-injection hook's own knob.
     if (env.get("SYNAPSE_DISABLE_SYMBOL_CACHE") != null) return 0;
+    if (rest.len == 1 and rest[0].len != 0) {
+        // The node is what a session reaching for `symbol` first usually lacks.
+        std.debug.print("{s}: symbol needs a node; without one, `synapse callers {s} --all` lists every definition and reference repo-wide\n", .{ prog, rest[0] });
+        return 2;
+    }
     if (rest.len != 2 or rest[0].len == 0 or rest[1].len == 0) return usage();
     if (!requireRepoRoot(ctx, "symbol")) return 1;
     const name = rest[0];

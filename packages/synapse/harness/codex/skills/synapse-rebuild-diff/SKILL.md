@@ -1,6 +1,6 @@
 ---
 name: synapse-rebuild-diff
-description: Manually bring a repo's Synapse namespace back in line after major same-branch drift — a pull, a rebase, or a long absence. Triages each drifted node into reseat / patch-from-diff / re-orient rather than rebuilding everything. Refuses outright on a cross-branch mismatch; for a full rebuild from scratch, use the synapse-rebuild-full skill instead.
+description: Bring this repo's Synapse namespace back in line after same-branch drift: a pull, a rebase, or a long absence.
 ---
 
 # Synapse Rebuild Diff: Reconcile a Namespace After Same-Branch Drift
@@ -38,10 +38,10 @@ Manually, when you already expect major drift:
   at once — renames *and* new paths), a `sed -i`, generated code that the build rewrote from a
   schema, a dependency bump, or a moved submodule pointer.
 
-Do **not** run it after an ordinary pull. Tier 1 flags what this session edited, the `synapse-node`
-skill regenerates a node lazily when its body is actually needed, and `synapse query drift` is the
-cheap check that tells you whether anything more is warranted. This skill exists for when the answer
-is clearly yes.
+Run it whenever the graph has fallen behind: the SessionStart line reports how many commits HEAD is
+past it, and `synapse query drift` shows what changed. A small drift after an ordinary pull is an
+ordinary run, with a few nodes in the *patch-from-diff* class. Between runs, Tier 1 flags what a
+session edits and the `synapse-node` skill regenerates a stale node lazily when its body is needed.
 
 **A large job is the expected outcome, not a warning sign.** On a monorepo with a hundred thousand
 files and heavy traffic, most of the graph moving at once is simply what the situation looks like, and

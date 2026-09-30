@@ -1,6 +1,6 @@
 ---
 name: synapse-design-note
-description: Start or continue a free-form, cross-project design discussion, written to Synapse Vault rather than tied to one repo — thinking through a problem/approach/tradeoffs out loud before anything is built. Use whenever the user wants to open, resume, or reason through a design ("let's create/write a design note", "let's think through X", "let's design this", "let's talk this through"). Not for a note that's already ready to become tracked work (that's the synapse-task-note skill), or a plain vault note with no design framing (that's the synapse-note skill, whose project-resolution logic this skill reuses).
+description: Start or continue a design discussion as a Synapse Vault design note.
 ---
 
 # Synapse Design Note: Cross-Project Personal Design Discussion

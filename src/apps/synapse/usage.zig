@@ -52,6 +52,7 @@ pub const text =
     \\  build-project-index        the namespace's Index.md node map
     \\  namespace [--repo <dir>]   the {repo}@{branch} key for a checkout
     \\  now [--built-at]           machine-local timestamp, RFC3339 or built_at's shape
+    \\  context                    this checkout's graph path and the question-to-command map
     \\  doctor [--repo <dir>]      check every precondition the rest of the system
     \\                             tolerates silently
     \\  build-index                _index.bin from the work dir's lists

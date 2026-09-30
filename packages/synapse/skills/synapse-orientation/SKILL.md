@@ -1,6 +1,6 @@
 ---
 name: synapse-orientation
-description: How to work out where meaning lives in a codebase you have not seen before — first mechanically, from the repo's own symbol vocabulary, and where no grammar exists, by four questions in order with the cheap commands that answer each. Includes tree-sitter grammar discovery. Use when clustering a repo into Synapse graph nodes for the first time, when re-deriving a node's premises in /synapse-rebuild-diff's re-orient class, or any time you need to orient in an unfamiliar tree before making claims about it.
+description: Orienting in an unfamiliar codebase before clustering it into graph nodes, including tree-sitter grammar discovery.
 ---
 
 # Orienting in an unfamiliar repo

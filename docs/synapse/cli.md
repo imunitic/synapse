@@ -60,6 +60,7 @@ usage: synapse <subcommand> [args]
   build-project-index        the namespace's Index.md node map
   namespace [--repo <dir>]   the {repo}@{branch} key for a checkout
   now [--built-at]           machine-local timestamp, RFC3339 or built_at's shape
+  context                    this checkout's graph path and the question-to-command map
   doctor [--repo <dir>]      check every precondition the rest of the system
                              tolerates silently
   build-index                _index.bin from the work dir's lists
@@ -99,6 +100,9 @@ usage: synapse index build --unassigned <file> [--out <file>] [--lists <dir>]
 
   --namespace  read forms only -- another checkout's already-built index,
                not the cwd's; read-only, no checkout of it needs to exist
+
+Synapse commands by question:
+- which node owns a file: `synapse index lookup <path>`
 ```
 
 ### synapse enumerate
@@ -428,6 +432,15 @@ usage: synapse now [--built-at]
 
   (default)    RFC3339 with a numeric offset -- `created`/`updated`'s shape
   --built-at   `YYYY-MM-DD HH:MM`, no seconds or offset -- `built_at`'s shape
+```
+
+### synapse context
+
+```
+usage: synapse context
+
+  Prints this checkout's graph directory and the question-to-command map
+  the SessionStart hook injects.
 ```
 
 ### synapse doctor

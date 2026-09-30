@@ -1,6 +1,6 @@
 ---
 name: synapse-task-note
-description: Compile a Ready design note into a single tracked, checklist-based task note in Synapse Vault — delegates the actual note creation to the synapse-note skill's task mode under the hood. Use whenever the user wants to turn a settled design discussion into actionable, tracked work ("let's compile a task note", "let's turn this into a task", "make this a task now") — not for starting or continuing the design discussion itself (that's the synapse-design-note skill).
+description: Compile a Ready design note into one tracked task note in Synapse Vault.
 ---
 
 # Synapse Task Note: Compile a Design into a Tracked Checklist

@@ -1,5 +1,6 @@
 ---
 description: Run one on-demand vault-tidy pass over Synapse Vault -- surface recategorization candidates (notes that no longer fit their folder, clusters that deserve a new top-level category, categories that have gone stale) into a single inbox/ proposal, silently fill in the one class of missing-frontmatter default that has an unambiguous fix, and fold the rest of note health (broken links, orphaned notes, duplicate titles) into that same proposal since none of them has a safe mechanical repair either. Use whenever the user wants the vault's own organization checked or tidied ("tidy the vault", "check vault health", "any notes drifted out of their folder", "find orphaned/duplicate notes"). Never invoked automatically -- no SessionStart wiring, no autonomous scheduling; run it yourself, or under your own /loop if you want a cadence. Scoped to everything except designs/, tasks/, and synapse/ (the code graph's own generated namespace), which stay entirely /synapse-status's (the first two) or /synapse-init's (the third) territory.
+disable-model-invocation: true
 ---
 
 # Synapse Vault Tidy: Recategorization Proposals and Note-Health Fixes

@@ -21,6 +21,7 @@
 //! hand. With neither, `--out`/`--file` is required.
 
 const std = @import("std");
+const cli_args = @import("cli_args.zig");
 const core = @import("core");
 const context = @import("context.zig");
 
@@ -113,6 +114,7 @@ fn usage() u8 {
         \\               not the cwd's; read-only, no checkout of it needs to exist
         \\
     , .{});
+    cli_args.printMapFor("index");
     return 2;
 }
 

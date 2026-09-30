@@ -1,5 +1,6 @@
 ---
 description: Print a read-only report of what in Synapse Vault currently needs a human decision -- design notes still Discussing, design notes marked Ready with no compiled task yet, Ready design notes with open questions still outstanding, task notes with unchecked items, and task notes stuck in REVIEW. Use whenever the user wants a status check on the vault ("what's outstanding", "what needs my attention", "vault status", "what did we leave open"). Never modifies anything -- a report only, not a task-management action. Not for creating, continuing, or listing a specific note kind (that's synapse-note/synapse-design-note/synapse-task-note's own --list modes) -- this is the one cross-cutting view over all of them at once.
+disable-model-invocation: true
 ---
 
 # Synapse Status: Vault-Wide Attention Report

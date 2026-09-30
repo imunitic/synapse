@@ -49,6 +49,7 @@ pub const gate = @import("gate.zig");
 pub const project_index = @import("project_index.zig");
 pub const graph_clean = @import("graph_clean.zig");
 pub const identity = @import("identity.zig");
+pub const command_map = @import("command_map.zig");
 pub const conf = @import("conf.zig");
 pub const doctor = @import("doctor.zig");
 pub const task_status = @import("task_status.zig");

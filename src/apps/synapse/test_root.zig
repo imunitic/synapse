@@ -17,6 +17,7 @@ const links_cmd = @import("links_cmd.zig");
 const refs_cmd = @import("refs_cmd.zig");
 const deps_cmd = @import("deps_cmd.zig");
 const namespaces_cmd = @import("namespaces_cmd.zig");
+const context_cmd = @import("context_cmd.zig");
 const query_cmd = @import("query_cmd.zig");
 const index_cmd = @import("index_cmd.zig");
 const enumerate_cmd = @import("enumerate_cmd.zig");
@@ -48,6 +49,7 @@ comptime {
     _ = refs_cmd;
     _ = deps_cmd;
     _ = namespaces_cmd;
+    _ = context_cmd;
     _ = query_cmd;
     _ = index_cmd;
     _ = enumerate_cmd;

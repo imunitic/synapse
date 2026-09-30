@@ -195,3 +195,13 @@ test "tags-cache: missing arguments is a usage error, exit 2" {
     defer r.deinit(testing.allocator);
     try testing.expectEqual(@as(?u8, 2), r.exitCode());
 }
+
+test "callers with no name exits 2 and prints its question-to-command entries" {
+    var fx = try support.Fixture.init(testing.allocator);
+    defer fx.deinit();
+
+    const r = try fx.runFake(&.{"callers"});
+    defer r.deinit(testing.allocator);
+    try testing.expectEqual(@as(?u8, 2), r.exitCode());
+    try testing.expect(std.mem.indexOf(u8, r.stderr, "`synapse callers <name> --all`") != null);
+}

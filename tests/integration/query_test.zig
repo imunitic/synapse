@@ -124,3 +124,24 @@ test "stale (implicit resolve): a namespace belonging to a different remote exit
     try testing.expectEqual(@as(?u8, 1), r.exitCode());
     try testing.expectEqualStrings("", r.stdout);
 }
+
+test "symbol with no node exits 2 and points at callers --all" {
+    // A session reaching for `symbol` usually lacks the node; the error names
+    // the node-less command instead of leaving it to find through --help.
+    const gpa = testing.allocator;
+    var fx = try Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeRepoFile("src/foo.aa", "let x = 1\n");
+    (try fx.git(&.{ "remote", "add", "origin", "ssh://git@example.com/mine.git" })).deinit(gpa);
+    try fx.gitCommit("init");
+
+    const ns = try fx.repoName();
+    defer gpa.free(ns);
+    try fx.writeSynapseIndex(ns, "ssh://git@example.com/mine.git");
+    try fx.setEnv("SYNAPSE_WORK_DIR", fx.work);
+
+    const r = try fx.runSynapse(&.{ "query", "--namespace", ns, "symbol", "Foo" });
+    defer r.deinit(gpa);
+    try testing.expectEqual(@as(?u8, 2), r.exitCode());
+    try testing.expect(std.mem.indexOf(u8, r.stderr, "`synapse callers Foo --all`") != null);
+}

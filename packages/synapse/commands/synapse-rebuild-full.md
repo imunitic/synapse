@@ -1,6 +1,7 @@
 ---
 name: synapse-rebuild-full
 description: Wipe a repo's Synapse namespace and rebuild it from scratch via /synapse-init, for the case where diff-driven triage isn't the right tool — the graph has drifted too far, or a clean rebuild is just wanted directly. Preserves any hand-written `## Notes` content first and auto-merges what it can back into the new nodes. For ordinary same-branch drift, use /synapse-rebuild-diff instead — it's cheaper and never deletes a node outright.
+disable-model-invocation: true
 ---
 
 # Synapse Rebuild Full: Wipe and Rebuild a Namespace From Scratch

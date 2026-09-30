@@ -32,6 +32,7 @@
 
 const std = @import("std");
 const core = @import("core");
+const adapters = @import("adapters");
 const common = @import("common.zig");
 const stop_nudge = @import("stop_nudge.zig");
 
@@ -131,11 +132,24 @@ pub fn build(gpa: Allocator, io: Io, env: *std.process.Environ.Map, argv0: []con
                 defer gpa.free(text);
                 const existing = core.query.field(text, "remote") orelse "";
                 if (std.mem.eql(u8, existing, ns.remote)) {
-                    synapse_line = try std.fmt.allocPrint(
-                        gpa,
-                        "Synapse namespace for this repo and branch: synapse/{s}/Index.md -- consult it for existing code-graph nodes before re-exploring from scratch.",
-                        .{ns.key},
+                    // The question-to-command map rides along once per session
+                    // here, not per prompt: a per-prompt line is re-billed on
+                    // every turn, and a command a session does not know about
+                    // costs a `--help` discovery turn instead.
+                    var line: Io.Writer.Allocating = .init(gpa);
+                    defer line.deinit();
+                    try line.writer.print(
+                        "Synapse namespace for this repo and branch: {s} -- consult it for existing code-graph nodes before re-exploring from scratch.\n",
+                        .{ns_index},
                     );
+                    const ns_dir = std.fs.path.dirname(ns_index).?;
+                    const behind = commitsBehind(gpa, io, ns_dir, ns.repo_root) catch 0;
+                    if (behind > 0) try line.writer.print(
+                        "The graph is {d} commit{s} behind HEAD -- /synapse-rebuild-diff brings it up to date.\n",
+                        .{ behind, if (behind == 1) "" else "s" },
+                    );
+                    try core.command_map.render(&line.writer);
+                    synapse_line = try gpa.dupe(u8, line.written());
                 } else {
                     synapse_line = try std.fmt.allocPrint(
                         gpa,
@@ -155,8 +169,8 @@ pub fn build(gpa: Allocator, io: Io, env: *std.process.Environ.Map, argv0: []con
         // Siblings are only looked for when this branch has no namespace:
         // with one, the pointer above already names the graph to read.
         const own_remote: ?[]const u8 = if (absent != null) if (maybe_ns) |ns| ns.remote else null else null;
-        if (own_remote) |r| siblings = try siblingLine(gpa, namespaces, r);
-        catalogue = try buildCatalogue(gpa, namespaces, if (maybe_ns) |ns| ns.key else null, if (siblings != null) own_remote else null);
+        if (own_remote) |r| siblings = try siblingLine(gpa, vault, namespaces, r);
+        catalogue = try buildCatalogue(gpa, vault, namespaces, if (maybe_ns) |ns| ns.key else null, if (siblings != null) own_remote else null);
     }
 
     var base: ?[]u8 = null;
@@ -287,11 +301,55 @@ fn freeNamespaces(gpa: Allocator, entries: []NamespaceEntry) void {
     gpa.free(entries);
 }
 
+/// How far HEAD has moved past the graph: the largest `git rev-list --count
+/// <commit>..HEAD` over the distinct `commit:` baselines the namespace's
+/// nodes record (the same per-node baselines `synapse query drift` diffs
+/// from). A baseline missing from local history is skipped -- `drift`
+/// reports that case. Reads node frontmatter only; no source file is hashed,
+/// so it stays cheap on a repo of thousands of files.
+fn commitsBehind(gpa: Allocator, io: Io, ns_dir: []const u8, repo_root: []const u8) !usize {
+    var baselines: std.ArrayListUnmanaged([]u8) = .empty;
+    defer {
+        for (baselines.items) |b| gpa.free(b);
+        baselines.deinit(gpa);
+    }
+
+    var dir = Io.Dir.cwd().openDir(io, ns_dir, .{ .iterate = true }) catch return 0;
+    defer dir.close(io);
+    var it = dir.iterate();
+    while (try it.next(io)) |entry| {
+        if (entry.kind != .file or !std.mem.endsWith(u8, entry.name, ".md")) continue;
+        if (std.mem.eql(u8, entry.name, "Index.md")) continue;
+        const text = dir.readFileAlloc(io, entry.name, gpa, .limited(4 << 20)) catch continue;
+        defer gpa.free(text);
+        const commit = core.query.field(text, "commit") orelse continue;
+        if (commit.len == 0) continue;
+        const seen = for (baselines.items) |b| {
+            if (std.mem.eql(u8, b, commit)) break true;
+        } else false;
+        if (!seen) try baselines.append(gpa, try gpa.dupe(u8, commit));
+    }
+
+    var most: usize = 0;
+    for (baselines.items) |b| {
+        const range = try std.fmt.allocPrint(gpa, "{s}..HEAD", .{b});
+        defer gpa.free(range);
+        const res = adapters.process.run(io, gpa, &.{ "git", "rev-list", "--count", range }, .{
+            .cwd = .{ .path = repo_root },
+        }) catch continue;
+        defer res.deinit(gpa);
+        if (!res.ok()) continue;
+        const n = std.fmt.parseInt(usize, std.mem.trim(u8, res.stdout, " \t\r\n"), 10) catch continue;
+        most = @max(most, n);
+    }
+    return most;
+}
+
 /// The namespaces recorded against `remote` -- this same repo, built on
 /// another branch -- and how to read one without switching branches. Null
 /// when there are none. An empty remote never matches: it identifies
 /// nothing.
-fn siblingLine(gpa: Allocator, entries: []const NamespaceEntry, remote: []const u8) !?[]u8 {
+fn siblingLine(gpa: Allocator, vault: []const u8, entries: []const NamespaceEntry, remote: []const u8) !?[]u8 {
     if (remote.len == 0) return null;
     var names: Io.Writer.Allocating = .init(gpa);
     defer names.deinit();
@@ -299,21 +357,21 @@ fn siblingLine(gpa: Allocator, entries: []const NamespaceEntry, remote: []const 
     for (entries) |e| {
         if (!std.mem.eql(u8, e.remote, remote)) continue;
         if (first != null) try names.writer.writeAll(", ");
-        try names.writer.print("synapse/{s}/", .{e.name});
+        try names.writer.print("{s}/synapse/{s}/", .{ vault, e.name });
         if (first == null) first = e.name;
     }
     const ns = first orelse return null;
     return try std.fmt.allocPrint(
         gpa,
-        "This repo does have a graph on another branch: {s}. Consult it before grepping -- `synapse query --namespace {s} body \"<Node>\"`, `synapse index lookup <path> --namespace {s}`, `synapse callers <name> --namespace {s}` (Index.md: synapse/{s}/Index.md). It describes that branch, so read code this branch changed from the working tree; `stale`/`drift` against this checkout also need SYNAPSE_REPO_ROOT set to it.",
-        .{ names.written(), ns, ns, ns, ns },
+        "This repo does have a graph on another branch: {s}. Consult it before grepping -- `synapse query --namespace {s} body \"<Node>\"`, `synapse index lookup <path> --namespace {s}`, `synapse callers <name> --namespace {s}` (Index.md: {s}/synapse/{s}/Index.md). It describes that branch, so read code this branch changed from the working tree; `stale`/`drift` against this checkout also need SYNAPSE_REPO_ROOT set to it.",
+        .{ names.written(), ns, ns, ns, vault, ns },
     );
 }
 
 /// Every namespace but `own` and, when set, those recorded against
 /// `skip_remote` (already named by the sibling line). Null when nothing is
 /// left to list.
-fn buildCatalogue(gpa: Allocator, entries: []const NamespaceEntry, own: ?[]const u8, skip_remote: ?[]const u8) !?[]u8 {
+fn buildCatalogue(gpa: Allocator, vault: []const u8, entries: []const NamespaceEntry, own: ?[]const u8, skip_remote: ?[]const u8) !?[]u8 {
     var out: Io.Writer.Allocating = .init(gpa);
     errdefer out.deinit();
     var wrote = false;
@@ -321,8 +379,9 @@ fn buildCatalogue(gpa: Allocator, entries: []const NamespaceEntry, own: ?[]const
         if (own) |o| if (std.mem.eql(u8, e.name, o)) continue;
         if (skip_remote) |r| if (std.mem.eql(u8, e.remote, r)) continue;
         if (!wrote) {
-            try out.writer.writeAll(
-                "Other Synapse namespaces in this vault (name | remote). A session that moves into one of these repos can consult synapse/{name}/Index.md for its code graph -- but verify the listed remote against that repo's own `git remote get-url origin` first, since a namespace is keyed by repo and branch and names only the branch it was built from:\n",
+            try out.writer.print(
+                "Other Synapse namespaces in this vault (name | remote). A session that moves into one of these repos can consult {s}/synapse/{{name}}/Index.md for its code graph -- but verify the listed remote against that repo's own `git remote get-url origin` first, since a namespace is keyed by repo and branch and names only the branch it was built from:\n",
+                .{vault},
             );
         } else try out.writer.writeAll("\n");
         try out.writer.print("{s}|{s}", .{ e.name, e.remote });
@@ -424,6 +483,59 @@ test "vault index present, no synapse namespace: says so rather than staying sil
     try testing.expect(std.mem.indexOf(u8, text, "That is normal") != null);
 }
 
+/// A node file in the fixture's namespace recording `commit` as its baseline.
+fn writeNodeAt(sf: *SessionStartFixture, key: []const u8, title: []const u8, commit: []const u8) !void {
+    const path = try std.fmt.allocPrint(testing.allocator, "vault/synapse/{s}/{s}.md", .{ key, title });
+    defer testing.allocator.free(path);
+    const data = try std.fmt.allocPrint(testing.allocator, "---\ntitle: \"{s}\"\ncommit: {s}\n---\nbody\n", .{ title, commit });
+    defer testing.allocator.free(data);
+    try sf.fx.tmp.dir.writeFile(testing.io, .{ .sub_path = path, .data = data });
+}
+
+fn headSha(sf: *SessionStartFixture) ![]u8 {
+    const res = try sf.fx.git(&.{ "rev-parse", "HEAD" });
+    defer res.deinit(testing.allocator);
+    return testing.allocator.dupe(u8, std.mem.trim(u8, res.stdout, " \t\r\n"));
+}
+
+test "graph two commits behind HEAD: one line naming the count and /synapse-rebuild-diff" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.writeVaultIndex();
+    try sf.commit();
+    try sf.addRemote("git@github.com:example/repo.git");
+    try sf.writeNamespace("repo@main", "git@github.com:example/repo.git");
+    const base = try headSha(&sf);
+    defer gpa.free(base);
+    try writeNodeAt(&sf, "repo@main", "Core", base);
+    try sf.fx.writeRepoFile("a.txt", "1\n");
+    try sf.fx.gitCommit("second");
+    try sf.fx.writeRepoFile("a.txt", "2\n");
+    try sf.fx.gitCommit("third");
+
+    const text = (try sf.inject("", sf.fx.repo)).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "The graph is 2 commits behind HEAD -- /synapse-rebuild-diff") != null);
+}
+
+test "graph at HEAD: no freshness line" {
+    const gpa = testing.allocator;
+    var sf = try SessionStartFixture.init(gpa);
+    defer sf.deinit();
+    try sf.writeVaultIndex();
+    try sf.commit();
+    try sf.addRemote("git@github.com:example/repo.git");
+    try sf.writeNamespace("repo@main", "git@github.com:example/repo.git");
+    const head = try headSha(&sf);
+    defer gpa.free(head);
+    try writeNodeAt(&sf, "repo@main", "Core", head);
+
+    const text = (try sf.inject("", sf.fx.repo)).?;
+    defer gpa.free(text);
+    try testing.expect(std.mem.indexOf(u8, text, "behind HEAD") == null);
+}
+
 test "synapse namespace with matching remote: appends pointer line" {
     const gpa = testing.allocator;
     var sf = try SessionStartFixture.init(gpa);
@@ -435,7 +547,12 @@ test "synapse namespace with matching remote: appends pointer line" {
 
     const text = (try sf.inject("", sf.fx.repo)).?;
     defer gpa.free(text);
-    try testing.expect(std.mem.indexOf(u8, text, "Synapse namespace for this repo and branch: synapse/repo@main/Index.md") != null);
+    const pointer = try std.fmt.allocPrint(gpa, "Synapse namespace for this repo and branch: {s}/synapse/repo@main/Index.md", .{sf.fx.vault});
+    defer gpa.free(pointer);
+    try testing.expect(std.mem.indexOf(u8, text, pointer) != null);
+    // The question-to-command map comes with the pointer.
+    try testing.expect(std.mem.indexOf(u8, text, "`synapse callers <name> --all`") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "`synapse query symbol <name> \"<node>\"`") != null);
 }
 
 test "synapse namespace with mismatched remote: skips pointer and says so" {
@@ -471,7 +588,9 @@ test "synapse namespace keyed by path fallback when repo has no remote" {
 
     const text = (try sf.inject("", sf.fx.repo)).?;
     defer gpa.free(text);
-    try testing.expect(std.mem.indexOf(u8, text, "Synapse namespace for this repo and branch: synapse/repo@main/Index.md") != null);
+    const pointer = try std.fmt.allocPrint(gpa, "Synapse namespace for this repo and branch: {s}/synapse/repo@main/Index.md", .{sf.fx.vault});
+    defer gpa.free(pointer);
+    try testing.expect(std.mem.indexOf(u8, text, pointer) != null);
 }
 
 test "cwd outside any git repo: base index still injected, no synapse logic invoked" {

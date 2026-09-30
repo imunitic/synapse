@@ -32,6 +32,7 @@ const vault_cmd = @import("vault_cmd.zig");
 const refs_cmd = @import("refs_cmd.zig");
 const deps_cmd = @import("deps_cmd.zig");
 const namespaces_cmd = @import("namespaces_cmd.zig");
+const context_cmd = @import("context_cmd.zig");
 const links_cmd = @import("links_cmd.zig");
 const brief_cmd = @import("brief_cmd.zig");
 const gate_cmd = @import("gate_cmd.zig");
@@ -189,6 +190,10 @@ pub fn Table(comptime Extractor: type) type {
             _ = .{ argv0, trace };
             return namespace_cmd.run(gpa, io, env, args);
         }
+        fn context(gpa: Allocator, io: Io, env: *EnvironMap, args: *ArgsIterator, argv0: []const u8, trace: ?[]const u8) anyerror!u8 {
+            _ = .{ argv0, trace };
+            return context_cmd.run(gpa, io, env, args);
+        }
         fn now(gpa: Allocator, io: Io, env: *EnvironMap, args: *ArgsIterator, argv0: []const u8, trace: ?[]const u8) anyerror!u8 {
             _ = .{ argv0, trace };
             return now_cmd.run(gpa, io, env, args);
@@ -287,6 +292,7 @@ pub fn Table(comptime Extractor: type) type {
             .{ .name = "doctor", .run = doctor },
             .{ .name = "namespace", .run = namespace },
             .{ .name = "now", .run = now },
+            .{ .name = "context", .run = context },
             .{ .name = "build-index", .run = buildIndex },
             .{ .name = "graph-clean", .run = graphClean },
             .{ .name = "graph-wipe", .run = graphWipe },
@@ -360,6 +366,19 @@ test "every dispatchable subcommand is named in the usage text, except the delib
         if (!hasUsageLineFor(e.name)) {
             std.debug.print("dispatch table names '{s}', missing its own line in usage.zig\n", .{e.name});
             return error.SubcommandUndocumented;
+        }
+    }
+}
+
+test "every task-to-command map entry names a dispatchable subcommand" {
+    const map = @import("core").command_map;
+    for (map.entries) |m| {
+        const found = for (Table(FakeExtractor).entries) |e| {
+            if (std.mem.eql(u8, e.name, m.sub)) break true;
+        } else false;
+        if (!found) {
+            std.debug.print("command map entry '{s}' names '{s}', not in the dispatch table\n", .{ m.task, m.sub });
+            return error.MapNamesUnknownSubcommand;
         }
     }
 }

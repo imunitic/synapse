@@ -1,6 +1,6 @@
 ---
 name: synapse-node-authoring
-description: How to write every node's prose in a build — sequentially by default, or fanned out to a configurable pool of concurrent subagents. Covers pool-size resolution from synapse.conf, the synapse brief data file each author reads, dispatch/verify/retry mechanics, and the standing contract every author works under. Use at /synapse-init's node-authoring step, or anywhere else a batch of nodes needs fresh prose (e.g. /synapse-rebuild-diff's re-orient class).
+description: Writing node prose for a batch of nodes, sequentially or with a subagent pool. Loaded by /synapse-init and /synapse-rebuild-diff.
 ---
 
 # Writing every node's prose: sequential by default, pooled on request

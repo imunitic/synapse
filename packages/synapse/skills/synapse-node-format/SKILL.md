@@ -1,6 +1,6 @@
 ---
 name: synapse-node-format
-description: The contract for a Synapse code-graph node — frontmatter fields, the crux pointer, `## Links`, `grounded_in`, `## Sources`, and what `synapse write-node` adds or refuses. Load before authoring or regenerating any node, whether from /synapse-init's first build, /synapse-rebuild-diff's triage, or the synapse-node skill's lazy regeneration. Not for reading the graph (that is synapse-query) or for task notes in the vault (that is synapse-task).
+description: The node contract: frontmatter, crux, `## Links`, `grounded_in`, `## Sources`, and what `synapse write-node` refuses. Load before authoring any node.
 ---
 
 # What a node is, and how to author one

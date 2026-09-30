@@ -1,6 +1,6 @@
 ---
 name: synapse-note
-description: Create a plain note in Synapse Vault (bare mode — title + frontmatter, category resolved from the vault's index note), a tracked task note (task mode, scaffolds the checklist skeleton the synapse-task skill expects), list every tracked task, or search existing notes before creating a new one. Use for a note with no design framing, or any task note not compiled from a design discussion. Not for starting/continuing a design conversation (that's the synapse-design-note skill) or compiling a Ready one into a task (that's the synapse-task-note skill) — both of those delegate to this skill themselves.
+description: Create a plain or task note in Synapse Vault, list tracked tasks, or search existing notes.
 ---
 
 # Synapse Note: Plain Vault Notes, Task Notes, Listing, and Search

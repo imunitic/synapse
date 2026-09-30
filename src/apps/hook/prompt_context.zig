@@ -81,13 +81,18 @@ pub fn build(gpa: Allocator, io: Io, env: *std.process.Environ.Map, cwd: []const
     var text: Io.Writer.Allocating = .init(gpa);
     defer text.deinit();
     try text.writer.print(
-        "Synapse: this repo has a code graph at synapse/{s}/ ({d} nodes). Query it FIRST for anything about this codebase -- `synapse query` for how something works, `synapse index lookup <path>` for which node owns a file. Do not grep or open source files until Synapse has named the file to read.",
-        .{ ns.key, nodes },
+        "Synapse: this repo has a code graph at {s}/ ({d} nodes). Query it FIRST for anything about this codebase -- `synapse query` for how something works, `synapse index lookup <path>` for which node owns a file. Do not grep or open source files until Synapse has named the file to read.",
+        .{ ns_dir, nodes },
     );
     if (have_cache) try text.writer.writeAll(
-        " For an exact name, `synapse callers <name>` gives repo-wide call sites from the Code Cache -- use it, not grep. Index line numbers can lag the tree, so re-check a range before relying on it.",
+        " For an exact name, `synapse callers <name>` gives repo-wide call sites from the Code Cache -- use it, not grep.",
     );
-    try text.writer.writeAll(" The synapse-query skill has the procedure.");
+    // Scopes a query's answer instead of licensing a repo-wide re-check: line
+    // ranges come from the last build, so a mismatch is re-located within the
+    // named file, and the file wins over the graph.
+    try text.writer.writeAll(
+        " Read only the files a query names; if its line range no longer matches, re-locate within that file, and trust the file over the graph. The synapse-query skill has the procedure.",
+    );
 
     return try gpa.dupe(u8, text.written());
 }
@@ -217,7 +222,12 @@ test "namespace present: one short line naming the namespace and node count" {
 
     const text = (try fx.nudge(".")).?;
     defer gpa.free(text);
-    try testing.expect(std.mem.indexOf(u8, text, "repo@main") != null);
+    // The absolute namespace directory, so a session never has to search for
+    // where a vault-relative `synapse/...` path actually lives.
+    const ns_dir = try std.fmt.allocPrint(gpa, "{s}/synapse/repo@main/", .{fx.vault});
+    defer gpa.free(ns_dir);
+    try testing.expect(std.mem.indexOf(u8, text, ns_dir) != null);
+    try testing.expect(std.mem.indexOf(u8, text, " at synapse/") == null);
     try testing.expect(std.mem.indexOf(u8, text, "2 nodes") != null); // Index.md is the map, not a node
     // The commands it names must be ones that exist: `synapse query`, not the
     // `synapse-query.sh` wrapper the Zig rewrite deleted.
@@ -245,10 +255,11 @@ test "the nudge never lists nodes, and stays small enough to pay every turn" {
     try testing.expect(std.mem.indexOf(u8, text, "Node 1.md") == null);
     try testing.expect(std.mem.indexOf(u8, text, "Node 17.md") == null);
     // Constant regardless of namespace size: 30 nodes must not cost more than 2.
-    // The ceiling sits close to the real length (~340) rather than round:
+    // The ceiling sits close to the real length (~475) rather than round:
     // this text is paid on every turn of every session, so a rewrite that
-    // doubles it should fail here rather than ship quietly.
-    try testing.expect(text.len < 380);
+    // doubles it should fail here rather than ship quietly. The vault path is
+    // the machine's, not the text's, so it is left out of the measurement.
+    try testing.expect(text.len - fx.vault.len < 510);
 }
 
 test "a namespace with an Index.md but no nodes says nothing" {
@@ -276,4 +287,6 @@ test "a Code Cache present adds a second sentence about it, independent of the g
     defer gpa.free(text);
     try testing.expect(std.mem.indexOf(u8, text, "Code Cache") != null);
     try testing.expect(std.mem.indexOf(u8, text, "synapse callers") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "re-locate within that file") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "re-check a range") == null);
 }

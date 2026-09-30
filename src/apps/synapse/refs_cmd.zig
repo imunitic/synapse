@@ -15,6 +15,7 @@
 //! 26s against this path's 0.235s on a 1.4 GB index.
 
 const std = @import("std");
+const cli_args = @import("cli_args.zig");
 const core = @import("core");
 const context = @import("context.zig");
 
@@ -253,6 +254,7 @@ pub fn callers(
 
 fn callersUsage() u8 {
     std.debug.print("{s}", .{callers_usage});
+    cli_args.printMapFor("callers");
     return 2;
 }
 
