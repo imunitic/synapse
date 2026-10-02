@@ -4,33 +4,37 @@
 // binary already reads and writes. No engine change -- see
 // `src/apps/hook/main.zig`'s own doc comment for that contract.
 //
-// Session lifecycle isn't a named `Hooks` key in OpenCode's plugin API --
-// confirmed against the real `@opencode-ai/plugin`/`@opencode-ai/sdk` type
-// packages, not assumed from prose docs. `session.created` is delivered
-// only through the generic catch-all `event` hook as an `Event` union
-// member (`event.type === "session.created"`), so this plugin instead
-// piggybacks the equivalent one-per-session injection on `chat.message`,
-// gated on whether this session has already received it -- checked against
-// real session history (`client.session.messages`), not just in-memory
-// state, since each `opencode run` CLI invocation is its own short-lived
-// process and an in-memory Set alone re-injects on every `--continue` call.
+// Ported to the OpenCode v2 plugin API (2.0.x). The v2 loader rejects this
+// file's old shape outright at load time -- it requires a default export
+// carrying an `id` plus a `setup(ctx)` function, and it never runs a bare
+// named-export factory ("Plugin must export a default definition with an id
+// and an effect or setup function"). The v1 hook map is kept as `server()`
+// for OpenCode 1.18.29+ hosts, which read exactly that key off the default
+// export; the two implementations share all state and helpers below, and
+// only the wiring differs.
 //
-// `tool.execute.after`'s real tool names/args, live-verified against a real
-// edit: `write` (`args.filePath`, `args.content`) and `edit` (`args.filePath`,
-// `args.oldString`, `args.newString`) -- both share `filePath`, matching
-// Claude Code's `Write`/`Edit` sharing `tool_input.file_path`. Fired on
-// write/edit tools for `staleness` -- the vault's own version control
-// (`SYNAPSE_VAULT_INTEGRATIONS=git`) commits from inside `synapse`'s own CLI
-// (`vault-write`/`vault-patch`) itself now, needing no `PostToolUse`-style
-// hook here or on any other harness.
+// v1 `chat.message` -> v2 `ctx.session.hook("prompt", ...)`. The v2 prompt
+// hook runs once at prompt admission, before the durable inbox write, and an
+// edit to `event.prompt.text` becomes the canonical persisted user input --
+// so appending the synapse blocks there lands them where v1's synthetic parts
+// did: delivered to the model call answering this prompt, and persisted in
+// session history. That persistence is what makes the one-per-session gate
+// correct across separate `opencode run` invocations -- each CLI call is its
+// own short-lived process with an empty in-memory Set, so the gate re-checks
+// real session history (`ctx.session.context`), not just memory.
 //
-// `stop-nudge`'s Claude Code trigger (`Stop`, once per turn) maps to
-// `session.idle` -- live-verified as firing exactly once, after every tool
-// call and the final response for a turn. Its own `additionalContext` (the
-// periodic "worth capturing" nudge) has nowhere to land at that moment --
-// `session.idle` is a pure notification, no message `output` to push a part
-// onto the way `chat.message` has -- so it's queued and delivered as a
-// synthetic part on the *next* `chat.message` instead of dropped.
+// v1 `tool.execute.after` -> v2 `ctx.tool.hook("execute.after", ...)`, same
+// event fields under different names (`event.tool`, `event.input` instead of
+// `input.tool`, `input.args`).
+//
+// v1 `event` -> v2 `ctx.event.subscribe()`, filtered to `session.idle` --
+// live-verified in v1 as firing exactly once, after every tool call and the
+// final response for a turn. `stop-nudge`'s `additionalContext` (the periodic
+// "worth capturing" nudge) still has nowhere to land at that moment -- idle
+// is a pure notification -- so it stays queued and delivered as a block on
+// the *next* admitted prompt instead of dropped. Same for `staleness`
+// warnings: `tool.execute.after` is a post-hoc notification with no way to
+// reach the current turn, so its output queues the same way.
 //
 // `synapse-hook`'s own binary path isn't resolved here the usual way --
 // OpenCode plugins get no `${CLAUDE_PLUGIN_ROOT}`-equivalent "where am I
@@ -86,30 +90,69 @@ const injected = new Set()
 // correct across separate CLI invocations, not just within one, confirmed
 // live: without this check, a second `opencode run --continue` call
 // re-injected the full vault index every time.
-async function alreadyInjected(client, sessionID) {
+//
+// The Set claim happens synchronously *before* the awaited history read, so
+// two prompts admitted concurrently in one process cannot both pass the
+// check (v1 marked only after the await, leaving that race open).
+async function alreadyInjected(fetchHistory, sessionID) {
   if (injected.has(sessionID)) return true
+  injected.add(sessionID)
   try {
-    const res = await client.session.messages({ path: { id: sessionID } })
-    const history = res?.data ?? []
-    const found = history.some((m) => m.parts.some((p) => p.type === "text" && p.text.startsWith(SESSION_START_MARKER)))
-    if (found) injected.add(sessionID)
-    return found
+    const history = await fetchHistory(sessionID)
+    return history.some(messageHasMarker)
   } catch {
     return false
   }
 }
 
+// v1 messages carry text in `parts`; v2 session-context messages (user and
+// synthetic alike) carry it flat on `text`.
+function messageHasMarker(m) {
+  if (typeof m?.text === "string") return m.text.startsWith(SESSION_START_MARKER)
+  return (m?.parts ?? []).some((p) => p.type === "text" && p.text.startsWith(SESSION_START_MARKER))
+}
+
 const EDIT_TOOLS = new Set(["write", "edit"])
 
 // sessionID -> nudge text from a `stop-nudge` call that had nowhere to land
-// yet -- delivered on that session's next `chat.message`.
+// yet -- delivered on that session's next admitted prompt.
 const pendingNudge = new Map()
 
 // sessionID -> queued `staleness` output, same reason and same delivery as
-// `pendingNudge` above: `tool.execute.after` has no message `output` to push
-// a part onto, so a drift/grounding warning from it would otherwise be
+// `pendingNudge` above: `tool.execute.after` has no channel into the turn
+// that just ran, so a drift/grounding warning from it would otherwise be
 // silently discarded instead of just reaching the next turn late.
 const pendingStaleness = new Map()
+
+// Blocks delivered alongside a prompt, in v1's part order: session-start,
+// queued nudge, queued staleness, prompt-context.
+async function collectBlocks(sessionID, opts) {
+  const blocks = []
+
+  if (!(await opts.injected())) {
+    const ctx = runHook("session-start", { cwd: opts.directory })
+    if (ctx) blocks.push(`${SESSION_START_MARKER}\n${ctx}`)
+  }
+
+  const queuedNudge = pendingNudge.get(sessionID)
+  if (queuedNudge) {
+    pendingNudge.delete(sessionID)
+    blocks.push(`[SYNAPSE-STOP-NUDGE]\n${queuedNudge}`)
+  }
+
+  const queuedStaleness = pendingStaleness.get(sessionID)
+  if (queuedStaleness) {
+    pendingStaleness.delete(sessionID)
+    blocks.push(`[SYNAPSE-STALENESS]\n${queuedStaleness}`)
+  }
+
+  return blocks
+}
+
+// ---------------------------------------------------------------------------
+// v1 wiring (OpenCode 1.x): named factory plus `server()` on the default
+// export, per the v1->v2 migration guide's dual-entrypoint shape.
+// ---------------------------------------------------------------------------
 
 export const Synapse = async ({ directory, client }) => {
   return {
@@ -117,23 +160,15 @@ export const Synapse = async ({ directory, client }) => {
       const sessionID = input.sessionID
       const newParts = []
 
-      if (!(await alreadyInjected(client, sessionID))) {
-        injected.add(sessionID)
-        const ctx = runHook("session-start", { cwd: directory })
-        if (ctx) newParts.push(textPart(sessionID, output, `${SESSION_START_MARKER}\n${ctx}`))
+      const history = async (id) => {
+        const res = await client.session.messages({ path: { id } })
+        return res?.data ?? []
       }
-
-      const queuedNudge = pendingNudge.get(sessionID)
-      if (queuedNudge) {
-        pendingNudge.delete(sessionID)
-        newParts.push(textPart(sessionID, output, `[SYNAPSE-STOP-NUDGE]\n${queuedNudge}`))
-      }
-
-      const queuedStaleness = pendingStaleness.get(sessionID)
-      if (queuedStaleness) {
-        pendingStaleness.delete(sessionID)
-        newParts.push(textPart(sessionID, output, `[SYNAPSE-STALENESS]\n${queuedStaleness}`))
-      }
+      const blocks = await collectBlocks(sessionID, {
+        directory,
+        injected: () => alreadyInjected(history, sessionID),
+      })
+      for (const block of blocks) newParts.push(textPart(sessionID, output, block))
 
       const promptText = (output.parts || [])
         .filter((p) => p.type === "text")
@@ -158,9 +193,69 @@ export const Synapse = async ({ directory, client }) => {
 
     event: async ({ event }) => {
       if (event.type !== "session.idle") return
-      const sessionID = event.properties.sessionID
+      const sessionID = event.properties?.sessionID ?? event.data?.sessionID
       const text = runHook("stop-nudge", { session_id: sessionID })
-      if (text) pendingNudge.set(sessionID, text)
+      if (text && sessionID) pendingNudge.set(sessionID, text)
     },
   }
+}
+
+// ---------------------------------------------------------------------------
+// v2 wiring (OpenCode 2.x): registrations through the plugin context.
+// ---------------------------------------------------------------------------
+
+async function setup(ctx) {
+  const directory = ctx.location.directory
+
+  await ctx.session.hook("prompt", async (event) => {
+    const sessionID = event.sessionID
+
+    const history = async (id) => {
+      const res = await ctx.session.context({ sessionID: id })
+      return Array.isArray(res) ? res : res?.data ?? []
+    }
+    const blocks = await collectBlocks(sessionID, {
+      directory,
+      injected: () => alreadyInjected(history, sessionID),
+    })
+
+    const promptText = event.prompt?.text ?? ""
+    const nudge = runHook("prompt-context", { cwd: directory, prompt: promptText || "x" })
+    if (nudge) blocks.push(`[SYNAPSE-PROMPT-CONTEXT]\n${nudge}`)
+
+    if (blocks.length) {
+      event.prompt.text = promptText ? `${promptText}\n\n${blocks.join("\n\n")}` : blocks.join("\n\n")
+    }
+  })
+
+  await ctx.tool.hook("execute.after", async (event) => {
+    const filePath = event.input?.filePath
+    if (EDIT_TOOLS.has(event.tool) && filePath) {
+      const text = runHook("staleness", {
+        session_id: event.sessionID,
+        tool_input: { file_path: filePath },
+      })
+      if (text) pendingStaleness.set(event.sessionID, text)
+    }
+  })
+
+  const controller = new AbortController()
+  void (async () => {
+    for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
+      if (event?.type !== "session.idle") continue
+      const sessionID = event.data?.sessionID ?? event.properties?.sessionID
+      if (!sessionID) continue
+      const text = runHook("stop-nudge", { session_id: sessionID })
+      if (text) pendingNudge.set(sessionID, text)
+    }
+  })().catch(() => {})
+
+  return () => controller.abort()
+}
+
+export default {
+  id: "synapse",
+  setup,
+  // v1 hook factory, read by OpenCode 1.18.29+ loaders; v2 hosts ignore it.
+  server: Synapse,
 }
