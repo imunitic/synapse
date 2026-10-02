@@ -187,7 +187,7 @@ against the node's own line count, and use `synapse query sources "{Node}" --cou
 count drift's numbers are relative to. Then pick one of three strategies and **say which one you
 picked and why**:
 
-**Restore the crux directive before writing any node back.** `synapse query body` returns the
+**Restore the crux directive before writing any node back.** `synapse query body --full` returns the
 *expanded* crux — the fenced code the writer sliced — not the directive that produced it. Writing that
 straight back stores a quote of a file as it looked at the old baseline, presented as if it were
 current. So rebuild the directive from the pointer the writer recorded:
@@ -218,7 +218,7 @@ the summary claims — which is a better reason to re-read a node than any perce
 the sentence at risk rather than the volume of change around it.
 
 **Reseat** — renames only, no content change. No reading at all. Recover the existing prose with
-`synapse query body "{Node}"`, drop its trailing `## Sources` block (the writer regenerates that),
+`synapse query body "{Node}" --full`, drop its trailing `## Sources` block (the writer regenerates that),
 re-enumerate so the list holds the new paths, and write it back. Repeating this is safe: the writer
 trims the body's leading and trailing blank lines, so a reseat is idempotent rather than accreting
 padding each time. The concept did not change; only paths moved. This also
@@ -228,7 +228,7 @@ than from a work-dir file.
 **Patch from the diff** — a small fraction of the node's *lines* changed (rule of thumb: under ~15%),
 and the file its `crux` quotes still exists. Read three things and nothing else:
 
-1. the current prose — `synapse query body "{Node}"`;
+1. the current prose — `synapse query body "{Node}" --full`;
 2. `git diff --name-status -M <commit>..HEAD` restricted to that node's paths, for *which* files moved;
 3. hunks for a **bounded** selection of those files — always including any file the `crux` quotes.
 

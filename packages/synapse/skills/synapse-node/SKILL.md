@@ -53,16 +53,19 @@ needs one.
    synapse query body "{Node title}"
    ```
 
-   That prints only what is between the generated fences — so it excludes `## Notes` as well as the
-   frontmatter, which a raw offset read would not — and costs ~500 tokens whether the node covers 5
-   files or 941. **A full `synapse vault-read`
+   That prints a brief — the node's one-line `summary`, a `crux_path:crux_lines` pointer and the
+   `## Links` block — and costs ~150 tokens whether the node covers 5 files or 941. `--full` prints
+   everything between the generated fences (so `## Notes` and the frontmatter are still excluded,
+   which a raw offset read would not); `--lines <a-b>[,<c-d>]` prints just those lines of the node
+   file, for the ranges a `vault-search-text` hit gave. **A full `synapse vault-read`
    of a hub node is a mistake, not merely expensive** — it spends tens of thousands of tokens on a
    path list you are not going to use. Use `vault-read` only when you specifically need the
    frontmatter itself.
 
    Finding *which* node to read is a separate job, and search does it: because `sources` is
    exhaustive, `synapse vault-search-text` on a class or file name locates the owning node even
-   when that name appears nowhere in any node's prose, and returns snippets rather than whole files.
+   when that name appears nowhere in any node's prose, and returns the matching line ranges rather
+   than the text.
 
    For the other questions about a node, use the same tool rather than reading frontmatter:
    `synapse query sources "{Node}" --count|--modules|--filter <p>` for what it covers, and
@@ -93,7 +96,7 @@ needs one.
      this repo, and the negative results (searches that came back empty) worth not re-deriving.
    - **Prefer patching the prose from the diff over re-reading the node's sources.** If the node has a
      `commit` and only a small fraction of its files changed, read the current prose
-     (`synapse query body`), get `git diff --name-status -M <commit>..HEAD` for its paths, and read
+     (`synapse query body --full`), get `git diff --name-status -M <commit>..HEAD` for its paths, and read
      hunks only for a bounded selection — always including `crux_path`, the file the crux was cut from.
      Amend the sentences the diff contradicts and keep the rest verbatim. A node covering 15,000 files
      where 12
@@ -110,7 +113,7 @@ needs one.
    - Re-author `## Summary`, `## Crux` and `## Links` to match what the files contain now, into
      `$W/body.md`. Re-check the node's one-line `summary` as well; keep the existing one with
      `synapse query field "{Node title}" summary` if it still fits.
-   - **`## Crux` goes back as a directive, never as the code you just read.** `synapse query body`
+   - **`## Crux` goes back as a directive, never as the code you just read.** `synapse query body --full`
      returns the *expanded* crux — the fenced block the writer sliced last time — so copying it forward
      stores a quote of an older version of the file as though it were current. Emit
      `<!-- crux: <path> <start>-<end> -->` and let the writer cut it out again. Reuse the recorded

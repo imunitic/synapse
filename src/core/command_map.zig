@@ -19,7 +19,9 @@ pub const Entry = struct {
 };
 
 pub const entries = [_]Entry{
-    .{ .task = "how an area works", .command = "synapse query body \"<node>\"", .sub = "query" },
+    .{ .task = "how an area works (a brief; --full for the whole prose)", .command = "synapse query body \"<node>\" [--full]", .sub = "query" },
+    .{ .task = "which node mentions a word, as line ranges to read next", .command = "synapse vault-search-text <words> --namespace <repo>@<branch>", .sub = "vault-search-text" },
+    .{ .task = "specific lines of a node, e.g. a search's ranges", .command = "synapse query body \"<node>\" --lines <a-b>[,<c-d>]", .sub = "query" },
     .{ .task = "which files a node covers", .command = "synapse query sources \"<node>\"", .sub = "query" },
     .{ .task = "which node owns a file", .command = "synapse index lookup <path>", .sub = "index" },
     .{ .task = "where a symbol is defined", .command = "synapse query symbol <name> \"<node>\"", .sub = "query" },

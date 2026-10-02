@@ -43,7 +43,7 @@ Do not modify any files in list mode.
 
 Everything after `--search` (trimmed, quotes stripped) is the query.
 
-1. Run `synapse vault-search-text "{query}"` — this gives full-text relevance-ranked matches with context, the closest equivalent to a title/body search.
+1. Run `synapse vault-search-text "{query}"` — this gives full-text relevance-ranked matches (path, score, matching line ranges), the closest equivalent to a title/body search.
 2. If the query looks like it's targeting metadata specifically (a tag, a task ID, a status value) rather than free text, also run `synapse vault-search --fields frontmatter.title` with an appropriate JsonLogic filter on stdin (e.g. `{"==": [{"var": "frontmatter.task_id"}, "proj-032"]}`).
 3. Report matches as `{title} — {file path relative to vault root}`, deduped across both. If nothing matches, say so plainly — the caller (agent or user) needs a clear "no existing note" signal to proceed with `--task`-less creation.
 

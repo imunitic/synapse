@@ -158,7 +158,7 @@ pub const DiskStore = struct {
     /// `core.gate` already uses (and has already calibrated) for judging a
     /// code-graph cluster's vocabulary distinctiveness -- same underlying
     /// question ("how much does this word tell you"), applied here to
-    /// ranking instead of clustering judgment. `tokenizeQuery` filters
+    /// ranking instead of clustering judgment. `core.vocab.queryTerms` filters
     /// through the real `synapse-prompt-stopwords.conf` list, but that's a
     /// cheap first pass, not the mechanism doing the real work: a common
     /// word the list doesn't happen to catch still gets a high measured
@@ -209,7 +209,7 @@ pub const DiskStore = struct {
             break :blk kept.items;
         } else all_names;
 
-        const terms = try tokenizeQuery(gpa, io, self.vars, query);
+        const terms = try core.vocab.queryTerms(gpa, io, self.vars, query);
         defer freeStrings(gpa, terms);
         if (terms.len == 0) return searchSubstring(self, gpa, io, names, query);
 
@@ -284,43 +284,6 @@ const distinctiveness_k: usize = 20;
 
 fn higherScoreFirst(_: void, a: Store.Hit, b: Store.Hit) bool {
     return a.score > b.score;
-}
-
-/// `query`, split into words the same way `core.vocab.splitWords` splits a
-/// code symbol (identifier-aware, so a query like "DiskStore" still finds
-/// prose written as "disk store" and vice versa), filtered by
-/// `core.vocab.keep`'s length/non-digit/stopword rule -- the real
-/// `synapse-prompt-stopwords.conf` list, resolved through `vars` (a
-/// resolver propagated in, not a path or a raw environment map; `vars ==
-/// .none` degrades to length/digit filtering only, never an error). A
-/// genuinely common word not caught by the stopword list still gets
-/// discounted by its measured document frequency in `search` itself --
-/// the two mechanisms overlap on purpose, the stopword list catches the
-/// obvious/cheap case, `distinctivenessScore` catches everything else.
-/// Deduplicated, so a repeated query word doesn't double-count its own
-/// document frequency. Caller-owned.
-fn tokenizeQuery(gpa: Allocator, io: Io, vars: core.conf.Vars, query: []const u8) ![]const []const u8 {
-    var split: std.ArrayListUnmanaged([]u8) = .empty;
-    defer {
-        for (split.items) |w| gpa.free(w);
-        split.deinit(gpa);
-    }
-    try core.vocab.splitWords(gpa, query, &split);
-
-    var stopwords = try core.vocab.loadStopwords(gpa, io, vars);
-    defer core.vocab.freeStopwords(gpa, &stopwords);
-
-    var out: std.ArrayListUnmanaged([]const u8) = .empty;
-    errdefer {
-        for (out.items) |w| gpa.free(w);
-        out.deinit(gpa);
-    }
-    for (split.items) |w| {
-        if (!core.vocab.keep(w, &stopwords)) continue;
-        if (containsNode(out.items, w)) continue;
-        try out.append(gpa, try gpa.dupe(u8, w));
-    }
-    return out.toOwnedSlice(gpa);
 }
 
 /// The first line in `body` containing any of `terms`, case-insensitive --

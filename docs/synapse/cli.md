@@ -37,7 +37,7 @@ usage: synapse <subcommand> [args]
   vault-list                 every note in the vault, recursively
   vault-check                read-only conformance audit over schema-declaring notes
   vault-search [--fields <f1,f2,...>]   JsonLogic filter from stdin, TSV rows out
-  vault-search-text <query> [--path-filter]   full-text relevance search, optionally path-scoped
+  vault-search-text <query> [--namespace <repo>@<branch>] [--path-filter]   full-text search: node, score, matching line ranges
   vault-doc-map <path>       headings/block ids/frontmatter keys, for a vault-patch target
   vault-patch <path> --heading|--block|--frontmatter <target>
               [--append|--prepend|--replace] [--create]   content from stdin
@@ -137,7 +137,9 @@ usage: synapse rank --sources <file> [--repo <path>] [--out <dir>] [--top N] [--
 usage: synapse query [--namespace <repo>@<branch>] <subcommand> [args]
 
   --namespace <repo>@<branch>        address another checkout's graph, not the cwd's
-  body    <node>                     fenced prose only, no frontmatter
+  body    <node>                     brief: summary, crux pointer, Links
+  body    <node> --full              the whole generated prose, no frontmatter
+  body    <node> --lines <a-b>[,<c-d>...]  those lines of the node file, frontmatter included
   sources <node>                     every path the node covers
   sources <node> --count             just the number
   sources <node> --modules           module<TAB>count, byte sorted
@@ -224,9 +226,10 @@ usage: synapse vault-search [--fields <f1,f2,...>]
 ### synapse vault-search-text
 
 ```
-usage: synapse vault-search-text <query> [--path-filter]
+usage: synapse vault-search-text <query> [--namespace <repo>@<branch>] [--path-filter]
 
-  <query>        full-text relevance search, node<TAB>score<TAB>context per hit
+  <query>        full-text relevance search: node<TAB>score<TAB>line ranges, best 10 notes
+  --namespace    only that graph's nodes, the value synapse query --namespace takes
   --path-filter  scope it first by a JsonLogic path filter on stdin
 ```
 

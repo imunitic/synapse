@@ -42,7 +42,11 @@
 //! field. With no `--fields`, each row is just the path. It's a structured
 //! JsonLogic filter over frontmatter/content/tags; for plain full-text
 //! relevance search instead, `vault-search-text` wraps `Store`'s own
-//! `search` method directly, one `node<TAB>score<TAB>context` row per hit.
+//! `search` method directly, one `node<TAB>score<TAB>ranges` row per hit
+//! for the `search_text_row_cap` best -- `ranges` the file lines holding the
+//! query's words (`12-14,40-41,88`), what `synapse query body --lines`
+//! reads back. `--namespace <repo>@<branch>` limits it to that graph's
+//! nodes, the same value `synapse query --namespace` takes.
 //! `--path-filter` scopes that search to a subset of paths first -- the
 //! stdin rule is expected to reference nothing but `path` (see
 //! `ResolvedStore.searchFiltered`'s own doc comment for exactly what that
@@ -58,6 +62,7 @@ const std = @import("std");
 const core = @import("core");
 const ports = @import("ports");
 const adapters = @import("adapters");
+const context = @import("context.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
@@ -110,9 +115,10 @@ const u_search =
 ;
 
 const u_search_text =
-    \\usage: synapse vault-search-text <query> [--path-filter]
+    \\usage: synapse vault-search-text <query> [--namespace <repo>@<branch>] [--path-filter]
     \\
-    \\  <query>        full-text relevance search, node<TAB>score<TAB>context per hit
+    \\  <query>        full-text relevance search: node<TAB>score<TAB>line ranges, best 10 notes
+    \\  --namespace    only that graph's nodes, the value synapse query --namespace takes
     \\  --path-filter  scope it first by a JsonLogic path filter on stdin
     \\
 ;
@@ -437,11 +443,22 @@ pub fn check(gpa: Allocator, io: Io, env: *std.process.Environ.Map, vault: []con
     return if (violations == 0) 0 else 1;
 }
 
+/// How many notes `searchText` prints, best score first. An unscoped search
+/// ranks task, design and research notes alongside graph nodes, so more rows
+/// than this is mostly noise an agent would pay to read past.
+pub const search_text_row_cap: usize = 10;
+
 /// Plain full-text relevance search, straight over `Store.search` (or, with
 /// `path_filter`, `ResolvedStore.searchFiltered` -- see its own doc comment
 /// for exactly what backends that scopes and how) -- distinct from `search`
 /// below (which answers a structured JsonLogic filter instead). `null`
-/// behaves exactly as before this parameter existed.
+/// applies no filter.
+///
+/// One row per note, the `search_text_row_cap` highest-scoring:
+/// `path<TAB>score<TAB>ranges`, `ranges` the file lines (frontmatter
+/// included in the numbering) containing the query's words, consecutive
+/// lines merged. The matched text itself is never printed; a caller reads
+/// the lines it wants with `query body --lines`.
 pub fn searchText(
     gpa: Allocator,
     io: Io,
@@ -469,8 +486,43 @@ pub fn searchText(
         gpa.free(hits);
     }
 
-    for (hits) |h| try result.print("{s}\t{d}\t{s}\n", .{ h.node, h.score, h.context });
+    // The words the ranking itself scored on; a query with none left after
+    // filtering was ranked as one literal substring, so ranges follow suit.
+    const words = try core.vocab.queryTerms(gpa, io, adapters.env.vars(env), query);
+    defer {
+        for (words) |w| gpa.free(w);
+        gpa.free(words);
+    }
+    const literal = [_][]const u8{query};
+    const terms: []const []const u8 = if (words.len == 0) &literal else words;
+
+    const store = resolved.store();
+    for (hits[0..@min(hits.len, search_text_row_cap)]) |h| {
+        try result.print("{s}\t{d}\t", .{ h.node, h.score });
+        if (try store.read(gpa, io, h.node)) |text| {
+            defer gpa.free(text);
+            const prose = core.query.bodyAfterFrontmatter(text);
+            const prose_at = @intFromPtr(prose.ptr) - @intFromPtr(text.ptr);
+            const first_line = 1 + std.mem.count(u8, text[0..prose_at], "\n");
+            const ranges = try core.text_search.matchRanges(gpa, prose, first_line, terms);
+            defer gpa.free(ranges);
+            try core.text_search.writeRanges(result, ranges);
+        }
+        try result.writeAll("\n");
+    }
     return 0;
+}
+
+/// The JsonLogic text `--namespace` stands for: only paths under that
+/// graph's folder, `and`-ed with `user_filter` (the `--path-filter` stdin
+/// text, already known to be valid JSON) when there is one. Null when
+/// `namespace` could not be written into a JSON string unescaped.
+fn namespaceFilter(gpa: Allocator, namespace: []const u8, user_filter: ?[]const u8) !?[]u8 {
+    for (namespace) |c| if (c == '"' or c == '\\' or c < ' ') return null;
+    const own = try std.fmt.allocPrint(gpa, "{{\"glob\": [\"synapse/{s}/*\", {{\"var\": \"path\"}}]}}", .{namespace});
+    defer gpa.free(own);
+    if (user_filter) |u| return try std.fmt.allocPrint(gpa, "{{\"and\": [{s}, {s}]}}", .{ own, u });
+    return try gpa.dupe(u8, own);
 }
 
 /// Every heading path/block id/frontmatter key `note`'s body has, so a
@@ -928,24 +980,49 @@ pub fn runSearchText(gpa: Allocator, io: Io, env: *std.process.Environ.Map, args
     if (isHelp(query)) return help(u_search_text);
 
     var want_path_filter = false;
-    if (args.next()) |arg| {
-        if (!std.mem.eql(u8, arg, "--path-filter")) return usage(u_search_text);
-        want_path_filter = true;
-        if (args.next() != null) return usage(u_search_text);
+    var namespace: ?[]const u8 = null;
+    while (args.next()) |arg| {
+        if (std.mem.eql(u8, arg, "--path-filter") and !want_path_filter) {
+            want_path_filter = true;
+        } else if (std.mem.eql(u8, arg, "--namespace") and namespace == null) {
+            namespace = args.next() orelse return usage(u_search_text);
+        } else return usage(u_search_text);
     }
 
     const vault = (try resolveVault(gpa, io, env)) orelse return 1;
     defer gpa.free(vault);
 
-    var parsed: ?std.json.Parsed(std.json.Value) = null;
-    defer if (parsed) |*p| p.deinit();
+    // A namespace that doesn't resolve fails exactly as `synapse query
+    // --namespace` does, before any search runs.
+    if (namespace) |ns| {
+        var ctx = (try context.resolveExplicit(gpa, io, env, prog, ns)) orelse return 1;
+        defer ctx.deinit();
+        if (!try context.verifyNamespace(&ctx, io, prog)) return 1;
+    }
+
+    var stdin_text: ?[]u8 = null;
+    defer if (stdin_text) |t| gpa.free(t);
     if (want_path_filter) {
-        const filter_text = readStdin(gpa, io) catch {
+        stdin_text = readStdin(gpa, io) catch {
             std.debug.print("{s}: could not read stdin\n", .{prog});
             return 1;
         };
-        defer gpa.free(filter_text);
-        parsed = std.json.parseFromSlice(std.json.Value, gpa, filter_text, .{}) catch {
+    }
+    var filter_text: ?[]u8 = null;
+    defer if (filter_text) |t| gpa.free(t);
+    if (namespace) |ns| {
+        filter_text = (try namespaceFilter(gpa, ns, stdin_text)) orelse {
+            std.debug.print("{s}: --namespace expects <repo>@<branch>, got '{s}'\n", .{ prog, ns });
+            return 2;
+        };
+    } else if (stdin_text) |t| {
+        filter_text = try gpa.dupe(u8, t);
+    }
+
+    var parsed: ?std.json.Parsed(std.json.Value) = null;
+    defer if (parsed) |*p| p.deinit();
+    if (filter_text) |t| {
+        parsed = std.json.parseFromSlice(std.json.Value, gpa, t, .{}) catch {
             std.debug.print("{s}: stdin is not valid JSON\n", .{prog});
             return 1;
         };
@@ -1307,6 +1384,67 @@ test "searchText with a path filter excludes a matching note outside the filtere
     try testing.expectEqual(@as(u8, 0), code);
     try testing.expect(std.mem.indexOf(u8, out.written(), "designs/synapse/sb-001.md\t") != null);
     try testing.expect(std.mem.indexOf(u8, out.written(), "wg-001") == null);
+}
+
+test "searchText prints the file lines holding the words, merged, and never the matched text" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeVaultFile(
+        "designs/synapse/sb-001.md",
+        "---\ntitle: X\n---\nwidgets here\nwidgets again\nplain\nlast widgets\n",
+    );
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try searchText(gpa, fx.io(), &fx.env, fx.vault, "widgets", null, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    var cols = std.mem.splitScalar(u8, std.mem.trimEnd(u8, out.written(), "\n"), '\t');
+    try testing.expectEqualStrings("designs/synapse/sb-001.md", cols.next().?);
+    _ = cols.next().?;
+    try testing.expectEqualStrings("4-5,7", cols.next().?);
+    try testing.expect(cols.next() == null);
+    try testing.expect(std.mem.indexOf(u8, out.written(), "again") == null);
+}
+
+test "searchText prints only the best search_text_row_cap notes" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    const extra = 3;
+    for (0..search_text_row_cap + extra) |i| {
+        const path = try std.fmt.allocPrint(gpa, "designs/synapse/sb-{d:0>3}.md", .{i});
+        defer gpa.free(path);
+        try fx.writeVaultFile(path, "---\ntitle: X\n---\nabout widgets\n");
+    }
+
+    var out: Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
+    const code = try searchText(gpa, fx.io(), &fx.env, fx.vault, "widgets", null, &out.writer);
+    try testing.expectEqual(@as(u8, 0), code);
+    try testing.expectEqual(search_text_row_cap, std.mem.count(u8, out.written(), "\n"));
+}
+
+test "namespaceFilter scopes to the graph folder, and ands with a caller's own filter" {
+    const gpa = testing.allocator;
+    const own = (try namespaceFilter(gpa, "repo@main", null)).?;
+    defer gpa.free(own);
+    var parsed = try std.json.parseFromSlice(std.json.Value, gpa, own, .{});
+    defer parsed.deinit();
+    try testing.expect(try core.vault_query.pathMatches(gpa, parsed.value, "synapse/repo@main/Node.md"));
+    try testing.expect(!try core.vault_query.pathMatches(gpa, parsed.value, "synapse/other@main/Node.md"));
+    try testing.expect(!try core.vault_query.pathMatches(gpa, parsed.value, "tasks/synapse/x.md"));
+
+    const both = (try namespaceFilter(gpa, "repo@main", "{\"glob\": [\"*Hook*\", {\"var\": \"path\"}]}")).?;
+    defer gpa.free(both);
+    var parsed_both = try std.json.parseFromSlice(std.json.Value, gpa, both, .{});
+    defer parsed_both.deinit();
+    try testing.expect(try core.vault_query.pathMatches(gpa, parsed_both.value, "synapse/repo@main/Hook node.md"));
+    try testing.expect(!try core.vault_query.pathMatches(gpa, parsed_both.value, "synapse/repo@main/Other.md"));
+}
+
+test "namespaceFilter refuses a namespace that would need JSON escaping" {
+    try testing.expectEqual(@as(?[]u8, null), try namespaceFilter(testing.allocator, "re\"po@main", null));
 }
 
 test "docMap reports a note's heading paths, block ids, and frontmatter keys" {

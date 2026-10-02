@@ -6,6 +6,7 @@
 
 const std = @import("std");
 const node_mod = @import("node.zig");
+const text_search = @import("text_search.zig");
 
 /// The prose a node is *for*, between the generated fences and excluding both
 /// marker lines.
@@ -40,6 +41,100 @@ pub fn bodyAfterFrontmatter(text: []const u8) []const u8 {
     var it = FrontmatterIterator.init(text);
     while (it.next()) |_| {}
     return it.after;
+}
+
+/// What `query body` prints without `--full`: the frontmatter `summary:`, the
+/// crux as a `path:lines` pointer (never the quoted code), and the `## Links`
+/// block -- the three things that say what a node is and where to read next.
+/// Null for a node with no generated fence, which the caller prints as the
+/// whole body instead. A part the node lacks is left out. Caller-owned.
+pub fn brief(gpa: std.mem.Allocator, text: []const u8) !?[]u8 {
+    const inner = body(text) orelse return null;
+    var out: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer out.deinit(gpa);
+
+    if (try scalar(gpa, text, "summary")) |summary| {
+        defer gpa.free(summary);
+        try out.appendSlice(gpa, "summary: ");
+        try out.appendSlice(gpa, summary);
+        try out.append(gpa, '\n');
+    }
+    if (field(text, "crux_path")) |path| if (path.len != 0) {
+        try out.appendSlice(gpa, "crux: ");
+        try out.appendSlice(gpa, path);
+        if (field(text, "crux_lines")) |lines| if (lines.len != 0) {
+            try out.append(gpa, ':');
+            try out.appendSlice(gpa, lines);
+        };
+        try out.append(gpa, '\n');
+    };
+    if (linksBlock(inner)) |links| {
+        try out.appendSlice(gpa, "## Links\n");
+        try out.appendSlice(gpa, links);
+        try out.append(gpa, '\n');
+    }
+    return try out.toOwnedSlice(gpa);
+}
+
+/// The lines under `## Links`, up to the next `## ` heading, without the
+/// heading itself; null when the section is absent or empty.
+fn linksBlock(inner: []const u8) ?[]const u8 {
+    const heading = "## Links\n";
+    const at = if (std.mem.startsWith(u8, inner, heading))
+        0
+    else
+        (std.mem.indexOf(u8, inner, "\n" ++ heading) orelse return null) + 1;
+    const rest = inner[at + heading.len ..];
+    const end = std.mem.indexOf(u8, rest, "\n## ") orelse rest.len;
+    const block = std.mem.trim(u8, rest[0..end], "\n");
+    return if (block.len == 0) null else block;
+}
+
+/// `12-14,40-41,88` as ranges, in the order given; null for anything
+/// malformed (an empty item, a non-number, a zero line, an end before its
+/// start). The spelling `text_search.writeRanges` produces. Caller-owned.
+pub fn parseLineRanges(gpa: std.mem.Allocator, spec: []const u8) !?[]text_search.LineRange {
+    var out: std.ArrayListUnmanaged(text_search.LineRange) = .empty;
+    errdefer out.deinit(gpa);
+    var items = std.mem.splitScalar(u8, spec, ',');
+    while (items.next()) |item| {
+        const dash = std.mem.indexOfScalar(u8, item, '-');
+        const start = std.fmt.parseInt(usize, if (dash) |d| item[0..d] else item, 10) catch {
+            out.deinit(gpa);
+            return null;
+        };
+        const end = if (dash) |d| std.fmt.parseInt(usize, item[d + 1 ..], 10) catch {
+            out.deinit(gpa);
+            return null;
+        } else start;
+        if (start == 0 or end < start) {
+            out.deinit(gpa);
+            return null;
+        }
+        try out.append(gpa, .{ .start = start, .end = end });
+    }
+    return try out.toOwnedSlice(gpa);
+}
+
+/// The lines of `text` in each range, in the order given, numbered as in the
+/// file -- frontmatter included, whatever the range covers. An end past the
+/// last line stops at the last line; false (nothing written) when a range
+/// starts past it.
+pub fn writeLines(w: *std.Io.Writer, text: []const u8, ranges: []const text_search.LineRange) !bool {
+    var total: usize = std.mem.count(u8, text, "\n");
+    if (text.len != 0 and text[text.len - 1] != '\n') total += 1;
+    for (ranges) |r| if (r.start > total) return false;
+    for (ranges) |r| {
+        var n: usize = 1;
+        var lines = std.mem.splitScalar(u8, text, '\n');
+        while (lines.next()) |line| : (n += 1) {
+            if (n > r.end or n > total) break;
+            if (n < r.start) continue;
+            try w.writeAll(line);
+            try w.writeAll("\n");
+        }
+    }
+    return true;
 }
 
 /// One top-level frontmatter scalar, quotes stripped, or null when absent.
@@ -396,6 +491,94 @@ test "an unfenced node has no body, so the caller can say so" {
     // -- which is why the script announced it on stderr.
     const after = bodyAfterFrontmatter("---\ntitle: x\n---\n\n# T\n\nold style\n");
     try testing.expectEqualStrings("\n# T\n\nold style\n", after);
+}
+
+const briefed =
+    \\---
+    \\title: "Widget"
+    \\summary: "Widgets, and the \"gadget\" they feed."
+    \\crux_path: src/widget.zig
+    \\crux_lines: "10-20"
+    \\---
+    \\
+    \\# Widget
+    \\<!-- synapse:generated:start -->
+    \\
+    \\## Summary
+    \\Long prose about widgets.
+    \\
+    \\## Crux
+    \\```
+    \\pub fn spin() void {}
+    \\```
+    \\
+    \\## Links
+    \\- uses [[Gadget]]
+    \\
+    \\## Sources
+    \\- `src/widget.zig`
+    \\<!-- synapse:generated:end -->
+    \\
+    \\## Notes
+    \\hand written
+    \\
+;
+
+test "brief is the summary, the crux pointer and the Links block, and nothing else" {
+    const b = (try brief(testing.allocator, briefed)).?;
+    defer testing.allocator.free(b);
+    try testing.expectEqualStrings(
+        "summary: Widgets, and the \"gadget\" they feed.\n" ++
+            "crux: src/widget.zig:10-20\n" ++
+            "## Links\n- uses [[Gadget]]\n",
+        b,
+    );
+}
+
+test "brief leaves out a part the node lacks, and is null without a fence" {
+    const bare =
+        \\---
+        \\title: "W"
+        \\---
+        \\<!-- synapse:generated:start -->
+        \\
+        \\## Summary
+        \\Prose.
+        \\<!-- synapse:generated:end -->
+        \\
+    ;
+    const b = (try brief(testing.allocator, bare)).?;
+    defer testing.allocator.free(b);
+    try testing.expectEqualStrings("", b);
+    try testing.expectEqual(@as(?[]u8, null), try brief(testing.allocator, "---\ntitle: x\n---\n\nold style\n"));
+}
+
+test "parseLineRanges reads the spelling writeRanges produces, and refuses anything malformed" {
+    const got = (try parseLineRanges(testing.allocator, "12-14,40-41,88")).?;
+    defer testing.allocator.free(got);
+    try testing.expectEqual(@as(usize, 3), got.len);
+    try testing.expectEqual(text_search.LineRange{ .start = 88, .end = 88 }, got[2]);
+    for ([_][]const u8{ "", "a-b", "5-3", "0-2", "1-", "-2", "1,,2", "1-2-3" }) |bad| {
+        try testing.expectEqual(@as(?[]text_search.LineRange, null), try parseLineRanges(testing.allocator, bad));
+    }
+}
+
+test "writeLines prints file lines, frontmatter included, in the order asked" {
+    var buf: [256]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    const ranges = [_]text_search.LineRange{ .{ .start = 3, .end = 4 }, .{ .start = 2, .end = 2 } };
+    try testing.expect(try writeLines(&w, briefed, &ranges));
+    try testing.expectEqualStrings("summary: \"Widgets, and the \\\"gadget\\\" they feed.\"\ncrux_path: src/widget.zig\ntitle: \"Widget\"\n", w.buffered());
+}
+
+test "writeLines clamps an end past the last line and refuses a start past it" {
+    var buf: [64]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try testing.expect(try writeLines(&w, "a\nb\n", &.{.{ .start = 2, .end = 9 }}));
+    try testing.expectEqualStrings("b\n", w.buffered());
+    var w2 = std.Io.Writer.fixed(&buf);
+    try testing.expect(!try writeLines(&w2, "a\nb\n", &.{.{ .start = 3, .end = 3 }}));
+    try testing.expectEqualStrings("", w2.buffered());
 }
 
 test "field takes one scalar and strips its quotes" {

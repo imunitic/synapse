@@ -82,7 +82,7 @@ test "round trip: --list plus re-emit preserves groundings; omitting them loses 
     const node_path = try std.fmt.allocPrint(fx.gpa, "vault/synapse/{s}/Premium.md", .{ns});
     defer fx.gpa.free(node_path);
 
-    const r1 = try fx.runFake(&.{ "query", "body", "Premium" });
+    const r1 = try fx.runFake(&.{ "query", "body", "Premium", "--full" });
     defer r1.deinit(testing.allocator);
     try testing.expectEqual(@as(?u8, 0), r1.exitCode());
     const recovered = try stripSourcesOnward(testing.allocator, r1.stdout);

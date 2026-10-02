@@ -198,8 +198,11 @@ the `synapse` CLI's `vault-*` subcommands — none of them writes to the vault f
 Prefer `synapse vault-search-text`/`vault-search` over raw file grepping — they read the vault
 directly and don't require re-deriving paths:
 
-- `synapse vault-search-text <query>` — full-text search with relevance scoring and match context,
-  for "does a note about X already exist" checks.
+- `synapse vault-search-text <query>` — full-text search with relevance scoring, for "does a note
+  about X already exist" checks. Each row is the note, its score and the line ranges of the matches,
+  never the matched text: read the ranges with `synapse query body <node> --lines <ranges>` for a
+  graph node, or `vault-read` for any other note. `--namespace <repo>@<branch>` limits the search to
+  that graph's nodes, which a code question should always pass.
 - `synapse vault-search --fields <f1,f2,...>` — JsonLogic queries over note metadata (frontmatter
   fields, tags, content, path globs — not `links`/`backlinks`, which no CLI subcommand exposes yet)
   when you need a structured filter rather than free text, e.g. finding all notes with a given

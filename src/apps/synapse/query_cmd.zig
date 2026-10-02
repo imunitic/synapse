@@ -1,6 +1,6 @@
 //! `synapse query` -- `claude/lib/synapse/synapse-query.sh`'s eight subcommands.
 //!
-//!   body    <node>                     fenced prose only, no frontmatter
+//!   body    <node> [--full|--lines <ranges>]
 //!   sources <node> [--count|--modules|--filter <p>]
 //!   field   <node> <key>               one top-level frontmatter scalar
 //!   stale                              nodes whose files no longer match
@@ -131,7 +131,9 @@ const usage_text =
     \\usage: synapse query [--namespace <repo>@<branch>] <subcommand> [args]
     \\
     \\  --namespace <repo>@<branch>        address another checkout's graph, not the cwd's
-    \\  body    <node>                     fenced prose only, no frontmatter
+    \\  body    <node>                     brief: summary, crux pointer, Links
+    \\  body    <node> --full              the whole generated prose, no frontmatter
+    \\  body    <node> --lines <a-b>[,<c-d>...]  those lines of the node file, frontmatter included
     \\  sources <node>                     every path the node covers
     \\  sources <node> --count             just the number
     \\  sources <node> --modules           module<TAB>count, byte sorted
@@ -164,11 +166,37 @@ fn need(ctx: *const Context, io: Io, name: []const u8) !?[]u8 {
 // --- body -------------------------------------------------------------------
 
 fn cmdBody(gpa: Allocator, io: Io, ctx: *const Context, rest: []const []const u8, w: *Io.Writer) !u8 {
-    if (rest.len != 1 or rest[0].len == 0) return usage();
+    if (rest.len == 0 or rest[0].len == 0) return usage();
+    const Mode = enum { brief, full, lines };
+    const mode: Mode = if (rest.len == 1) .brief else if (rest.len == 2 and std.mem.eql(u8, rest[1], "--full")) .full else if (rest.len == 3 and std.mem.eql(u8, rest[1], "--lines")) .lines else return usage();
+
+    const ranges = if (mode == .lines)
+        (try core.query.parseLineRanges(gpa, rest[2])) orelse {
+            std.debug.print("{s}: --lines expects ranges like 12-14,40-41,88, got '{s}'\n", .{ prog, rest[2] });
+            return 2;
+        }
+    else
+        &[_]core.text_search.LineRange{};
+    defer if (mode == .lines) gpa.free(ranges);
+
     const text = (try need(ctx, io, rest[0])) orelse return 1;
     defer gpa.free(text);
 
-    if (core.query.body(text)) |inner| {
+    if (mode == .lines) {
+        if (!try core.query.writeLines(w, text, ranges)) {
+            std.debug.print("{s}: --lines {s} starts past the last line of '{s}'\n", .{ prog, rest[2], rest[0] });
+            return 1;
+        }
+        return 0;
+    }
+
+    if (mode == .brief) {
+        if (try core.query.brief(gpa, text)) |b| {
+            defer gpa.free(b);
+            try w.writeAll(b);
+            return 0;
+        }
+    } else if (core.query.body(text)) |inner| {
         if (inner.len != 0) {
             try w.writeAll(inner);
             try w.writeAll("\n");
@@ -1659,12 +1687,18 @@ fn fencedNode(gpa: Allocator, sources: []const struct { path: []const u8, conten
     return gpa.dupe(u8, out.written());
 }
 
-fn runBody(gpa: Allocator, fx: *fixture.Fixture, node: []const u8) !struct { code: u8, out: []u8 } {
+const BodyRun = struct { code: u8, out: []u8 };
+
+fn runBody(gpa: Allocator, fx: *fixture.Fixture, node: []const u8) !BodyRun {
+    return runBodyWith(gpa, fx, &.{ node, "--full" });
+}
+
+fn runBodyWith(gpa: Allocator, fx: *fixture.Fixture, rest: []const []const u8) !BodyRun {
     var ctx = try fx.resolveContext();
     defer ctx.deinit();
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
-    const code = try cmdBody(gpa, fx.io(), &ctx, &.{node}, &out.writer);
+    const code = try cmdBody(gpa, fx.io(), &ctx, rest, &out.writer);
     return .{ .code = code, .out = try gpa.dupe(u8, out.written()) };
 }
 
@@ -1722,7 +1756,7 @@ test "resolveExplicit: verifyNamespace skips the remote check, unlike an implici
 
     var out: Io.Writer.Allocating = .init(gpa);
     defer out.deinit();
-    const code = try cmdBody(gpa, fx.io(), &ctx, &.{"Foo Node"}, &out.writer);
+    const code = try cmdBody(gpa, fx.io(), &ctx, &.{ "Foo Node", "--full" }, &out.writer);
     try testing.expectEqual(@as(u8, 0), code);
     try testing.expect(std.mem.indexOf(u8, out.written(), "Prose that should be printed.") != null);
 }
@@ -1795,6 +1829,100 @@ test "body: unfenced node falls back to post-frontmatter and warns on stderr" {
     defer gpa.free(r.out);
     try testing.expectEqual(@as(u8, 0), r.code);
     try testing.expect(std.mem.indexOf(u8, r.out, "path:") == null);
+}
+
+/// A fenced node carrying a `summary:`, a crux pointer and a Links block.
+const briefed_node =
+    \\---
+    \\title: "Foo Node"
+    \\summary: "Foo, in one line."
+    \\crux_path: src/foo.ml
+    \\crux_lines: "1-2"
+    \\---
+    \\
+    \\# Foo Node
+    \\<!-- synapse:generated:start -->
+    \\
+    \\## Summary
+    \\Long prose that the brief leaves out.
+    \\
+    \\## Links
+    \\- uses [[Bar Node]]
+    \\
+    \\## Sources
+    \\- `src` (1)
+    \\<!-- synapse:generated:end -->
+    \\
+    \\## Notes
+    \\HUMAN NOTES
+    \\
+;
+
+test "body: with no flag prints the brief, not the prose" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeNodeFile("Foo Node", briefed_node);
+
+    const r = try runBodyWith(gpa, &fx, &.{"Foo Node"});
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqualStrings("summary: Foo, in one line.\ncrux: src/foo.ml:1-2\n## Links\n- uses [[Bar Node]]\n", r.out);
+}
+
+test "body --full prints the whole generated prose" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeNodeFile("Foo Node", briefed_node);
+
+    const r = try runBodyWith(gpa, &fx, &.{ "Foo Node", "--full" });
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expect(std.mem.indexOf(u8, r.out, "Long prose that the brief leaves out.") != null);
+    try testing.expect(std.mem.indexOf(u8, r.out, "HUMAN NOTES") == null);
+}
+
+test "body --lines prints those lines of the node file, frontmatter included" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeNodeFile("Foo Node", briefed_node);
+
+    const r = try runBodyWith(gpa, &fx, &.{ "Foo Node", "--lines", "3,12" });
+    defer gpa.free(r.out);
+    try testing.expectEqual(@as(u8, 0), r.code);
+    try testing.expectEqualStrings("summary: \"Foo, in one line.\"\nLong prose that the brief leaves out.\n", r.out);
+}
+
+test "body --lines: a malformed range exits 2, a start past the end exits 1" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeNodeFile("Foo Node", briefed_node);
+
+    const bad = try runBodyWith(gpa, &fx, &.{ "Foo Node", "--lines", "9-2" });
+    defer gpa.free(bad.out);
+    try testing.expectEqual(@as(u8, 2), bad.code);
+
+    const past = try runBodyWith(gpa, &fx, &.{ "Foo Node", "--lines", "999" });
+    defer gpa.free(past.out);
+    try testing.expectEqual(@as(u8, 1), past.code);
+    try testing.expectEqual(@as(usize, 0), past.out.len);
+}
+
+test "body: an unknown flag, or --lines with no range, is a usage error" {
+    const gpa = testing.allocator;
+    var fx = try fixture.Fixture.init(gpa);
+    defer fx.deinit();
+    try fx.writeNodeFile("Foo Node", briefed_node);
+
+    const r1 = try runBodyWith(gpa, &fx, &.{ "Foo Node", "--bogus" });
+    defer gpa.free(r1.out);
+    try testing.expectEqual(@as(u8, 2), r1.code);
+    const r2 = try runBodyWith(gpa, &fx, &.{ "Foo Node", "--lines" });
+    defer gpa.free(r2.out);
+    try testing.expectEqual(@as(u8, 2), r2.code);
 }
 
 test "body: unknown node exits 1" {

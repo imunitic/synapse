@@ -112,6 +112,49 @@ pub fn freeStopwords(gpa: Allocator, set: *std.StringHashMapUnmanaged(void)) voi
     set.deinit(gpa);
 }
 
+/// `query`, split into words the same way `splitWords` splits a
+/// code symbol (identifier-aware, so a query like "DiskStore" still finds
+/// prose written as "disk store" and vice versa), filtered by
+/// `keep`'s length/non-digit/stopword rule -- the real
+/// `synapse-prompt-stopwords.conf` list, resolved through `vars` (a
+/// resolver propagated in, not a path or a raw environment map; `vars ==
+/// .none` degrades to length/digit filtering only, never an error). A
+/// genuinely common word not caught by the stopword list still gets
+/// discounted by its measured document frequency in `search` itself --
+/// the two mechanisms overlap on purpose, the stopword list catches the
+/// obvious/cheap case, `distinctivenessScore` catches everything else.
+/// Deduplicated, so a repeated query word doesn't double-count its own
+/// document frequency. Caller-owned.
+pub fn queryTerms(gpa: Allocator, io: Io, vars: conf.Vars, query: []const u8) ![]const []const u8 {
+    var split: std.ArrayListUnmanaged([]u8) = .empty;
+    defer {
+        for (split.items) |w| gpa.free(w);
+        split.deinit(gpa);
+    }
+    try splitWords(gpa, query, &split);
+
+    var stopwords = try loadStopwords(gpa, io, vars);
+    defer freeStopwords(gpa, &stopwords);
+
+    var out: std.ArrayListUnmanaged([]const u8) = .empty;
+    errdefer {
+        for (out.items) |w| gpa.free(w);
+        out.deinit(gpa);
+    }
+    for (split.items) |w| {
+        if (!keep(w, &stopwords)) continue;
+        if (containsTerm(out.items, w)) continue;
+        try out.append(gpa, try gpa.dupe(u8, w));
+    }
+    return out.toOwnedSlice(gpa);
+}
+
+fn containsTerm(haystack: []const []const u8, needle: []const u8) bool {
+    for (haystack) |h| if (std.mem.eql(u8, h, needle)) return true;
+    return false;
+}
+
+
 /// The directory prefix a path is grouped under: the first `depth` segments.
 /// `src/main` from `src/main/java/Foo.java` at depth 2. Shallower paths
 /// group by whatever prefix they have; a repo-root file groups as

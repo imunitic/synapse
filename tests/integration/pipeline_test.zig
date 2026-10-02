@@ -202,7 +202,7 @@ test "synapse-query.sh reads back what the pipeline wrote" {
     try runPipeline(&fx);
 
     // body prints the prose only -- no frontmatter, no ## Notes.
-    const r1 = try fx.runFake(&.{ "query", "body", "Java — the application" });
+    const r1 = try fx.runFake(&.{ "query", "body", "Java — the application", "--full" });
     defer r1.deinit(testing.allocator);
     try testing.expectEqual(@as(?u8, 0), r1.exitCode());
     try testing.expect(std.mem.indexOf(u8, r1.stdout, "The java application.") != null);

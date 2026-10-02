@@ -27,7 +27,7 @@ Search before you answer when the question is about:
 - anything that starts "I think it works like…"
 
 ```
-synapse vault-search-text <query>          full-text, relevance-ranked, with match context
+synapse vault-search-text <query>          full-text, relevance-ranked: path, score, matching line ranges
 synapse vault-search --fields <f1,f2,...>  JsonLogic over frontmatter, tags, content, path globs
 synapse vault-list                         when you already know roughly where it is
 synapse vault-read <path>                  the whole note -- no partial/targeted read, except one path shape below
@@ -46,7 +46,9 @@ exactly what you need with `--fields` instead of over-fetching, and pull a speci
 returns the same whole-note body as any other path — frontmatter included, which on a hub node can
 run to megabytes just to reach a few hundred words of prose. `synapse query body <node>` (add
 `--namespace <repo>@<branch>` to reach a different checkout's graph) is the targeted read for that
-one path shape: prose only, no frontmatter. Reach for it instead of `vault-read` for anything under
+one path shape: a brief by default (summary, crux pointer, Links), `--full` for the whole prose,
+`--lines <a-b>` for the line ranges a `vault-search-text` hit gave. None of them print frontmatter
+unless the range asks for it. Reach for it instead of `vault-read` for anything under
 `synapse/` — see the `synapse-query` skill for the rest of its subcommands.
 
 A search that returns nothing is a real result and worth one line in the note you then write —

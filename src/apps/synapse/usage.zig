@@ -29,7 +29,7 @@ pub const text =
     \\  vault-list                 every note in the vault, recursively
     \\  vault-check                read-only conformance audit over schema-declaring notes
     \\  vault-search [--fields <f1,f2,...>]   JsonLogic filter from stdin, TSV rows out
-    \\  vault-search-text <query> [--path-filter]   full-text relevance search, optionally path-scoped
+    \\  vault-search-text <query> [--namespace <repo>@<branch>] [--path-filter]   full-text search: node, score, matching line ranges
     \\  vault-doc-map <path>       headings/block ids/frontmatter keys, for a vault-patch target
     \\  vault-patch <path> --heading|--block|--frontmatter <target>
     \\              [--append|--prepend|--replace] [--create]   content from stdin

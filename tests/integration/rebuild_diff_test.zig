@@ -161,7 +161,7 @@ test "reseat: a rename-only node is rebuilt from its own body, with no re-readin
     try makeProject(&fx);
     try buildNamespace(&fx);
 
-    const r0 = try fx.runFake(&.{ "query", "body", "Beta — the second module" });
+    const r0 = try fx.runFake(&.{ "query", "body", "Beta — the second module", "--full" });
     defer r0.deinit(gpa);
     const before = try stripSourcesOnward(gpa, r0.stdout);
     defer gpa.free(before);
@@ -177,7 +177,7 @@ test "reseat: a rename-only node is rebuilt from its own body, with no re-readin
     const r2 = try fx.runFake(&.{ "build-lists", "--reenumerate" });
     r2.deinit(gpa);
 
-    const r3 = try fx.runFake(&.{ "query", "body", "Beta — the second module" });
+    const r3 = try fx.runFake(&.{ "query", "body", "Beta — the second module", "--full" });
     defer r3.deinit(gpa);
     const reseat_body = try stripSourcesOnward(gpa, r3.stdout);
     defer gpa.free(reseat_body);
@@ -192,7 +192,7 @@ test "reseat: a rename-only node is rebuilt from its own body, with no re-readin
     defer r4.deinit(gpa);
     try testing.expectEqual(@as(?u8, 0), r4.exitCode());
 
-    const r5 = try fx.runFake(&.{ "query", "body", "Beta — the second module" });
+    const r5 = try fx.runFake(&.{ "query", "body", "Beta — the second module", "--full" });
     defer r5.deinit(gpa);
     const after = try stripSourcesOnward(gpa, r5.stdout);
     defer gpa.free(after);
@@ -229,7 +229,7 @@ test "re-enumeration claims new files under existing patterns, without touching 
     defer gpa.free(list_txt);
     try testing.expectEqual(@as(usize, 23), std.mem.count(u8, list_txt, "\n"));
 
-    const r3 = try fx.runFake(&.{ "query", "body", "Gamma — the third module" });
+    const r3 = try fx.runFake(&.{ "query", "body", "Gamma — the third module", "--full" });
     defer r3.deinit(gpa);
     const stripped = try stripSourcesOnward(gpa, r3.stdout);
     defer gpa.free(stripped);
@@ -330,7 +330,7 @@ test "the loop closes: after rebuilding every flagged node, drift goes silent" {
         defer fx.gpa.free(title);
         const trimmed = std.mem.trim(u8, title, " \t\r\n");
 
-        const rb = try fx.runFake(&.{ "query", "body", trimmed });
+        const rb = try fx.runFake(&.{ "query", "body", trimmed, "--full" });
         const stripped = try stripSourcesOnward(fx.gpa, rb.stdout);
         rb.deinit(fx.gpa);
         defer fx.gpa.free(stripped);
