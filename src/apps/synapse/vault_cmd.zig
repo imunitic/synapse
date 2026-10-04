@@ -560,10 +560,9 @@ pub fn docMap(
     return 0;
 }
 
-/// `null` from `resolved.linkGraph()` means the resolved backend has no
-/// `LinkGraph` of its own -- not a usage error: the caller asked a
-/// well-formed question, this backend just can't answer it (true of Bard's
-/// stores, not either real coding-vault backend).
+/// `resolved.linkGraph()` is never `null`: the resolved chain always starts
+/// from `DiskStore`, which always has a `LinkGraph` of its own.
+///
 /// The one safe way to reach a resolved store's `LinkGraph`: call
 /// `.linkGraph()` on a `ResolvedStore` that is already sitting in its final,
 /// stable location -- never on one still about to be moved. `LinkGraph.ptr`
