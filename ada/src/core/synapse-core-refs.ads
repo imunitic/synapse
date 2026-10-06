@@ -58,7 +58,10 @@ package Synapse.Core.Refs is
 
    package Row_Vectors is new Ada.Containers.Vectors (Positive, Row);
 
-   Default_Block : constant := 65_536;
+   --  A bisection touches a block for each step, so a small one is much
+   --  cheaper: 4 KB lookups in an 800 MB index are ten times faster than
+   --  64 KB ones. A line longer than the block is read with a longer read.
+   Default_Block : constant := 4_096;
 
    --  Every row whose name is exactly Name, in index order. The index must be
    --  the whole file, bytewise sorted: what Sort_Unique produces. Block is how

@@ -12,11 +12,18 @@ package body Synapse.Adapters.File_Byte_Source is
       if SIO.Is_Open (S.File) then
          SIO.Close (S.File);
       end if;
-      SIO.Open (S.File, SIO.In_File, Path);
+      SIO.Open (S.File, SIO.In_File, Path, Form => "shared=yes");
    exception
       when Ada.IO_Exceptions.Name_Error | Ada.IO_Exceptions.Use_Error =>
          raise Ports.Byte_Source.Source_Failure with "cannot open " & Path;
    end Open;
+
+   procedure Close (S : in out Source) is
+   begin
+      if SIO.Is_Open (S.File) then
+         SIO.Close (S.File);
+      end if;
+   end Close;
 
    overriding function Size (S : in out Source) return Ports.Byte_Source.Offset
    is

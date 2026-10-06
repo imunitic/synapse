@@ -28,13 +28,13 @@ package body Synapse.Core.Tags_Cache_Format is
    end Hash_Bytes;
 
    function Record_Bytes
-     (Path_Off : U64; Item : Entry_Type; Tags_Off : U64) return String is
+     (Path_Off : U64; Item : Sized_Entry; Tags_Off : U64) return String is
      (Put_U64 (Path_Off) & Put_U16 (U16 (Length (Item.Path))) &
       Hash_Bytes (Item.Hash) & Put_U64 (Tags_Off) &
-      Put_U32 (U32 (Length (Item.Tags))) &
+      Put_U32 (U32 (Item.Tags_Length)) &
       Character'Val (if Item.Unsupported then Flag_Unsupported else 0));
 
-   function Encode_Prefix (Entries : Entry_Vectors.Vector) return String is
+   function Encode_Prefix (Entries : Sized_Vectors.Vector) return String is
       Paths_Length : Natural          := 0;
       Count        : constant Natural := Natural (Entries.Length);
    begin
@@ -58,11 +58,11 @@ package body Synapse.Core.Tags_Cache_Format is
          Blob_Off  : constant Natural       := Paths_Off + Paths_Length;
          Prefix    : String (1 .. Blob_Off) := [others => Character'Val (0)];
          Path_At   : Natural                := 0;
-         Tags_At   : Natural                := 0;
+         Tags_At   : Long_Long_Integer      := 0;
       begin
          for I in 1 .. Count loop
             declare
-               Item  : Entry_Type renames Entries (I);
+               Item  : Sized_Entry renames Entries (I);
                Path  : constant String  := To_String (Item.Path);
                Where : constant Natural :=
                  Header_Size + (I - 1) * Record_Size + 1;
@@ -74,7 +74,7 @@ package body Synapse.Core.Tags_Cache_Format is
                       Paths_Off + Path_At + Path'Length) :=
                  Path;
                Path_At := Path_At + Path'Length;
-               Tags_At := Tags_At + Length (Item.Tags);
+               Tags_At := Tags_At + Long_Long_Integer (Item.Tags_Length);
             end;
          end loop;
 
@@ -90,6 +90,19 @@ package body Synapse.Core.Tags_Cache_Format is
          end;
          return Prefix;
       end;
+   end Encode_Prefix;
+
+   function Encode_Prefix (Entries : Entry_Vectors.Vector) return String is
+      Sized : Sized_Vectors.Vector;
+   begin
+      for Item of Entries loop
+         Sized.Append
+           (Sized_Entry'
+              (Path        => Item.Path, Hash => Item.Hash,
+               Tags_Length => Length (Item.Tags),
+               Unsupported => Item.Unsupported));
+      end loop;
+      return Encode_Prefix (Sized);
    end Encode_Prefix;
 
    function Encode (Entries : Entry_Vectors.Vector) return String is

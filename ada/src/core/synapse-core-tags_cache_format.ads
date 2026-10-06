@@ -92,6 +92,18 @@ package Synapse.Core.Tags_Cache_Format is
 
    package Entry_Vectors is new Ada.Containers.Vectors (Positive, Entry_Type);
 
+   --  An entry as the record table sees it: the length of its tags and not the
+   --  tags, for writing a file whose payloads are streamed from elsewhere and
+   --  never held together.
+   type Sized_Entry is record
+      Path        : Unbounded_String;
+      Hash        : Graph_Model.Hash;
+      Tags_Length : Natural;
+      Unsupported : Boolean := False;
+   end record;
+
+   package Sized_Vectors is new Ada.Containers.Vectors (Positive, Sized_Entry);
+
    --  Entries not in strictly increasing path order: they would encode and
    --  make every binary search wrong.
    Unsorted : exception;
@@ -102,6 +114,8 @@ package Synapse.Core.Tags_Cache_Format is
    --  payload. Its offsets are known once every path length is, and the
    --  checksum covers exactly this.
    function Encode_Prefix (Entries : Entry_Vectors.Vector) return String;
+
+   function Encode_Prefix (Entries : Sized_Vectors.Vector) return String;
 
    --  The whole file: the prefix, then each entry's tags in order. For tests
    --  and small caches; a repository-sized one writes the payloads as a

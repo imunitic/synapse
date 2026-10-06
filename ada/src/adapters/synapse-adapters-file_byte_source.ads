@@ -15,6 +15,9 @@ package Synapse.Adapters.File_Byte_Source is
    --  Raises Source_Failure when the file cannot be opened.
    procedure Open (S : in out Source; Path : String);
 
+   --  Releases the file; the source can be opened again.
+   procedure Close (S : in out Source);
+
    overriding function Size
      (S : in out Source) return Ports.Byte_Source.Offset;
 
