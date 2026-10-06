@@ -1,5 +1,6 @@
 with Synapse.Adapters.Conf_Files;
 with Synapse.Core.Fence_Languages;
+with Synapse.Core.Grammar_Registry;
 with Synapse.Core.Kind_Synonyms;
 with Synapse.Core.Namespace;
 
@@ -14,6 +15,7 @@ package Synapse.Adapters.Graph_Confs is
    Fence_Languages_Conf  : constant String := "synapse-fence-languages.conf";
    Namespace_Rules_Conf  : constant String := "synapse-namespace-rules.conf";
    Dependency_Rules_Conf : constant String := "synapse-dependency-rules.conf";
+   Grammars_Conf         : constant String := "synapse-grammars.conf";
 
    --  Core.Kind_Synonyms.Malformed when the file is not JSON.
    function Load_Kind_Synonyms
@@ -31,5 +33,11 @@ package Synapse.Adapters.Graph_Confs is
 
    function Load_Dependency_Rules
      (V : Conf_Files.Variables) return Core.Namespace.Registry;
+
+   --  The grammar registry: which grammar serves an extension and where it
+   --  comes from. Empty when there is no file. Core.Grammar_Registry.Malformed
+   --  when the file is not JSON.
+   function Load_Grammar_Registry
+     (V : Conf_Files.Variables) return Core.Grammar_Registry.Registry;
 
 end Synapse.Adapters.Graph_Confs;

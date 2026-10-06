@@ -10,6 +10,7 @@ package body Synapse.Adapters.Graph_Confs.Tests is
 
    use AUnit.Assertions;
    use Synapse.Test_Scratch;
+   use type Core.Grammar_Registry.Readiness_Kind;
 
    subtype Test_Cases_Class is AUnit.Test_Cases.Test_Case'Class;
 
@@ -137,6 +138,33 @@ package body Synapse.Adapters.Graph_Confs.Tests is
          raise;
    end Rule_Files_Are_Read_From_The_Tiers_And_Absent_Is_Empty;
 
+   procedure The_Grammar_Registry_Is_Read_From_The_Tiers
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir : constant Scratch := Make;
+      V   : Fake_Variables.Fake_Variables;
+   begin
+      V.Set ("HOME", Path (Dir));
+      Assert
+        (Core.Grammar_Registry.Lookup (Load_Grammar_Registry (V), "wdg").Kind =
+         Core.Grammar_Registry.No_Entry,
+         "no file, no entry");
+      Put
+        (Path (Dir, ".config/synapse/synapse-grammars.conf"),
+         "{""wdg"":{""repo"":""https://host/tree-sitter-wdg""," &
+         """scope"":""source.wdg""}}");
+      Assert
+        (Core.Grammar_Registry.Lookup (Load_Grammar_Registry (V), "wdg").Kind =
+         Core.Grammar_Registry.Ready,
+         "the entry in the file");
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end The_Grammar_Registry_Is_Read_From_The_Tiers;
+
    overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
@@ -153,6 +181,9 @@ package body Synapse.Adapters.Graph_Confs.Tests is
       Register_Routine
         (T, Rule_Files_Are_Read_From_The_Tiers_And_Absent_Is_Empty'Access,
          "Rule files are read from the tiers and absent is empty");
+      Register_Routine
+        (T, The_Grammar_Registry_Is_Read_From_The_Tiers'Access,
+         "The grammar registry is read from the tiers");
       Register_Routine
         (T, A_File_That_Is_Not_Json_Is_A_Load_Error'Access,
          "A file that is not JSON is a load error");

@@ -37,4 +37,8 @@ package body Synapse.Adapters.Graph_Confs is
      (V : Conf_Files.Variables) return Core.Namespace.Registry is
      (Core.Namespace.Parse (Text_Of (V, Dependency_Rules_Conf, "{}")));
 
+   function Load_Grammar_Registry
+     (V : Conf_Files.Variables) return Core.Grammar_Registry.Registry is
+     (Core.Grammar_Registry.Parse (Text_Of (V, Grammars_Conf, "{}")));
+
 end Synapse.Adapters.Graph_Confs;

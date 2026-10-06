@@ -58,6 +58,9 @@ with Synapse.Core.Vocab.Tests;
 with Synapse.Core.Gate.Tests;
 with Synapse.Core.Rank.Tests;
 with Synapse.Core.Graph_Clean.Tests;
+with Synapse.Core.Grammar_Registry.Tests;
+with Synapse.Core.Node_Types.Tests;
+with Synapse.Core.Docstring_Overrides.Tests;
 with Synapse.Core.Graph_Model.Tests;
 with Synapse.Core.Hashing.Tests;
 with Synapse.Core.Line_Slice.Tests;
@@ -167,6 +170,11 @@ package body Test_Suites is
    Gate_Tests                   : aliased Synapse.Core.Gate.Tests.Test_Case;
    Rank_Tests                   : aliased Synapse.Core.Rank.Tests.Test_Case;
    Graph_Clean_Tests : aliased Synapse.Core.Graph_Clean.Tests.Test_Case;
+   Grammar_Registry_Tests       :
+     aliased Synapse.Core.Grammar_Registry.Tests.Test_Case;
+   Node_Types_Tests : aliased Synapse.Core.Node_Types.Tests.Test_Case;
+   Docstring_Overrides_Tests    :
+     aliased Synapse.Core.Docstring_Overrides.Tests.Test_Case;
    Graph_Model_Tests : aliased Synapse.Core.Graph_Model.Tests.Test_Case;
    Identity_Tests : aliased Synapse.Core.Identity.Tests.Test_Case;
    Project_Index_Tests : aliased Synapse.Core.Project_Index.Tests.Test_Case;
@@ -196,6 +204,9 @@ package body Test_Suites is
       Result.Add_Test (Wikilinks_Tests'Access);
       Result.Add_Test (Git_Identity_Tests'Access);
       Result.Add_Test (Graph_Model_Tests'Access);
+      Result.Add_Test (Grammar_Registry_Tests'Access);
+      Result.Add_Test (Node_Types_Tests'Access);
+      Result.Add_Test (Docstring_Overrides_Tests'Access);
       Result.Add_Test (Rank_Tests'Access);
       Result.Add_Test (Graph_Clean_Tests'Access);
       Result.Add_Test (Vocab_Tests'Access);
