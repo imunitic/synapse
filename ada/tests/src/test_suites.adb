@@ -1,6 +1,7 @@
 with Synapse.Adapters.Tree_Sitter.Tests;
 with Synapse.Core.Arith.Tests;
 with Synapse.Core.Regex_Lite.Tests;
+with Synapse.Core.Note_Check.Tests;
 with Synapse.Core.Note_Model.Tests;
 with Synapse.Core.Note_Operators.Tests;
 with Synapse.Core.Prose.Tests;
@@ -31,6 +32,7 @@ package body Test_Suites is
    Note_Schema_Tests : aliased Synapse.Core.Note_Schema.Tests.Test_Case;
    Note_Text_Tests : aliased Synapse.Core.Note_Text.Tests.Test_Case;
    Note_Model_Tests : aliased Synapse.Core.Note_Model.Tests.Test_Case;
+   Note_Check_Tests : aliased Synapse.Core.Note_Check.Tests.Test_Case;
    Prose_Tests : aliased Synapse.Core.Prose.Tests.Test_Case;
    Note_Operators_Tests : aliased Synapse.Core.Note_Operators.Tests.Test_Case;
 
@@ -53,6 +55,7 @@ package body Test_Suites is
       Result.Add_Test (Note_Text_Tests'Access);
       Result.Add_Test (Note_Model_Tests'Access);
       Result.Add_Test (Prose_Tests'Access);
+      Result.Add_Test (Note_Check_Tests'Access);
       Result.Add_Test (Note_Operators_Tests'Access);
       return Result;
    end Suite;
