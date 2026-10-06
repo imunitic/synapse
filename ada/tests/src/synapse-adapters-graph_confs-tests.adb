@@ -100,6 +100,43 @@ package body Synapse.Adapters.Graph_Confs.Tests is
          raise;
    end A_File_That_Is_Not_Json_Is_A_Load_Error;
 
+   procedure Rule_Files_Are_Read_From_The_Tiers_And_Absent_Is_Empty
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir : constant Scratch := Make;
+      V   : Fake_Variables.Fake_Variables;
+   begin
+      V.Set ("HOME", Path (Dir));
+      Assert
+        (Core.Namespace.Is_Empty (Load_Namespace_Rules (V))
+         and then Core.Namespace.Is_Empty (Load_Dependency_Rules (V)),
+         "no files, no rules");
+      Put
+        (Path (Dir, ".claude/synapse-namespace-rules.conf"),
+         "{""xx"": {""kind"": ""in-file"", ""prefix"": ""package ""}}");
+      Put
+        (Path (Dir, ".config/synapse/synapse-dependency-rules.conf"),
+         "{""yy"": {""kind"": ""in-file"", ""prefix"": ""uses ""}}");
+      Assert
+        (Core.Namespace.Rule_For_Path (Load_Namespace_Rules (V), "a.xx").Found
+         and then not Core.Namespace.Rule_For_Path
+           (Load_Namespace_Rules (V), "a.yy")
+           .Found,
+         "the namespace rules");
+      Assert
+        (Core.Namespace.Rule_For_Path (Load_Dependency_Rules (V), "a.yy").Found
+         and then not Core.Namespace.Rule_For_Path
+           (Load_Dependency_Rules (V), "a.xx")
+           .Found,
+         "the dependency rules, a separate file");
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end Rule_Files_Are_Read_From_The_Tiers_And_Absent_Is_Empty;
+
    overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
@@ -113,6 +150,9 @@ package body Synapse.Adapters.Graph_Confs.Tests is
         (T, No_File_Means_Empty_Lists'Access, "No file means empty lists");
       Register_Routine
         (T, A_File_In_The_Tiers_Is_Read'Access, "A file in the tiers is read");
+      Register_Routine
+        (T, Rule_Files_Are_Read_From_The_Tiers_And_Absent_Is_Empty'Access,
+         "Rule files are read from the tiers and absent is empty");
       Register_Routine
         (T, A_File_That_Is_Not_Json_Is_A_Load_Error'Access,
          "A file that is not JSON is a load error");

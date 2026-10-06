@@ -29,4 +29,12 @@ package body Synapse.Adapters.Graph_Confs is
      (V : Conf_Files.Variables) return Core.Fence_Languages.Registry is
      (Core.Fence_Languages.Parse (Text_Of (V, Fence_Languages_Conf, "{}")));
 
+   function Load_Namespace_Rules
+     (V : Conf_Files.Variables) return Core.Namespace.Registry is
+     (Core.Namespace.Parse (Text_Of (V, Namespace_Rules_Conf, "{}")));
+
+   function Load_Dependency_Rules
+     (V : Conf_Files.Variables) return Core.Namespace.Registry is
+     (Core.Namespace.Parse (Text_Of (V, Dependency_Rules_Conf, "{}")));
+
 end Synapse.Adapters.Graph_Confs;
