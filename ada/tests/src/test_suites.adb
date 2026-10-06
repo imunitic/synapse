@@ -31,6 +31,7 @@ with Synapse.Core.Graph_Model.Tests;
 with Synapse.Core.Hashing.Tests;
 with Synapse.Core.Line_Slice.Tests;
 with Synapse.Core.Node_Format.Tests;
+with Synapse.Core.Node_Query.Tests;
 with Synapse.Core.Identity.Tests;
 with Synapse.Core.Project_Index.Tests;
 with Synapse.Core.Words.Tests;
@@ -98,6 +99,7 @@ package body Test_Suites is
    Hashing_Tests : aliased Synapse.Core.Hashing.Tests.Test_Case;
    Line_Slice_Tests : aliased Synapse.Core.Line_Slice.Tests.Test_Case;
    Node_Format_Tests : aliased Synapse.Core.Node_Format.Tests.Test_Case;
+   Node_Query_Tests : aliased Synapse.Core.Node_Query.Tests.Test_Case;
    Graph_Model_Tests : aliased Synapse.Core.Graph_Model.Tests.Test_Case;
    Identity_Tests : aliased Synapse.Core.Identity.Tests.Test_Case;
    Project_Index_Tests : aliased Synapse.Core.Project_Index.Tests.Test_Case;
@@ -131,6 +133,7 @@ package body Test_Suites is
       Result.Add_Test (Hashing_Tests'Access);
       Result.Add_Test (Line_Slice_Tests'Access);
       Result.Add_Test (Node_Format_Tests'Access);
+      Result.Add_Test (Node_Query_Tests'Access);
       Result.Add_Test (Identity_Tests'Access);
       Result.Add_Test (Project_Index_Tests'Access);
       Result.Add_Test (Disk_Renamer_Tests'Access);
