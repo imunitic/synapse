@@ -4,6 +4,7 @@ with Synapse.Core.Regex_Lite.Tests;
 with Synapse.Adapters.Disk_Store.Tests;
 with Synapse.Adapters.Dir_Lock.Tests;
 with Synapse.Adapters.Conf_Files.Tests;
+with Synapse.Adapters.Disk_Link_Graph.Tests;
 with Synapse.Adapters.Fake_Store.Tests;
 with Synapse.Adapters.Schema_Loader.Tests;
 with Synapse.Adapters.Store_Resolve.Tests;
@@ -75,6 +76,8 @@ package body Test_Suites is
    Store_Resolve_Tests :
      aliased Synapse.Adapters.Store_Resolve.Tests.Test_Case;
    Conf_Tests : aliased Synapse.Core.Conf.Tests.Test_Case;
+   Disk_Link_Graph_Tests :
+     aliased Synapse.Adapters.Disk_Link_Graph.Tests.Test_Case;
    Wikilinks_Tests : aliased Synapse.Core.Wikilinks.Tests.Test_Case;
    Prose_Tests : aliased Synapse.Core.Prose.Tests.Test_Case;
    Note_Operators_Tests : aliased Synapse.Core.Note_Operators.Tests.Test_Case;
@@ -99,6 +102,7 @@ package body Test_Suites is
       Result.Add_Test (Note_Model_Tests'Access);
       Result.Add_Test (Prose_Tests'Access);
       Result.Add_Test (Wikilinks_Tests'Access);
+      Result.Add_Test (Disk_Link_Graph_Tests'Access);
       Result.Add_Test (System_Variables_Tests'Access);
       Result.Add_Test (Conf_Tests'Access);
       Result.Add_Test (Store_Resolve_Tests'Access);
