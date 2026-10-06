@@ -5,6 +5,9 @@ with Synapse.Adapters.Disk_Store.Tests;
 with Synapse.Adapters.Dir_Lock.Tests;
 with Synapse.Adapters.Conf_Files.Tests;
 with Synapse.Adapters.Fake_Store.Tests;
+with Synapse.Adapters.Schema_Loader.Tests;
+with Synapse.Adapters.Schema_Validation_Store.Tests;
+with Synapse.Adapters.System_Clock.Tests;
 with Synapse.Adapters.System_Variables.Tests;
 with Synapse.Core.Conf.Tests;
 with Synapse.Adapters.Git_Store.Tests;
@@ -61,6 +64,12 @@ package body Test_Suites is
      Synapse.Adapters.System_Variables.Tests.Test_Case;
    Conf_Files_Tests :
      aliased Synapse.Adapters.Conf_Files.Tests.Test_Case;
+   Schema_Loader_Tests :
+     aliased Synapse.Adapters.Schema_Loader.Tests.Test_Case;
+   Validation_Store_Tests :
+     aliased Synapse.Adapters.Schema_Validation_Store.Tests.Test_Case;
+   System_Clock_Tests :
+     aliased Synapse.Adapters.System_Clock.Tests.Test_Case;
    Conf_Tests : aliased Synapse.Core.Conf.Tests.Test_Case;
    Prose_Tests : aliased Synapse.Core.Prose.Tests.Test_Case;
    Note_Operators_Tests : aliased Synapse.Core.Note_Operators.Tests.Test_Case;
@@ -86,6 +95,9 @@ package body Test_Suites is
       Result.Add_Test (Prose_Tests'Access);
       Result.Add_Test (System_Variables_Tests'Access);
       Result.Add_Test (Conf_Tests'Access);
+      Result.Add_Test (Schema_Loader_Tests'Access);
+      Result.Add_Test (Validation_Store_Tests'Access);
+      Result.Add_Test (System_Clock_Tests'Access);
       Result.Add_Test (Conf_Files_Tests'Access);
       Result.Add_Test (Git_Store_Tests'Access);
       Result.Add_Test (Git_Sync_Tests'Access);
