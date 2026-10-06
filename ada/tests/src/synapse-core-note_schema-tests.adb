@@ -4,6 +4,7 @@ with Ada.Streams.Stream_IO;
 
 with AUnit.Assertions;
 
+with Synapse.Core.Note_Operators;
 with Synapse.Core.Schema_Rules;
 with Synapse.Core.Schema_YAML;
 
@@ -18,27 +19,7 @@ package body Synapse.Core.Note_Schema.Tests is
 
    Schema_Dir : constant String := "../../packages/synapse/schema";
 
-   --  The operators a real schema may use beyond the built-in ones.
-   type Rule_Operators is new JSON_Logic.Operator_Set with null record;
-
-   overriding
-   function Has_Operator (Set : Rule_Operators; Name : String) return Boolean
-   is (Name in "on_create" | "no_hard_wrap" | "hard_wrap"
-             | "no_stray_frontmatter");
-
-   overriding
-   function Apply
-     (Set   : Rule_Operators;
-      Name  : String;
-      Args  : JSON.Value_Array;
-      Where : JSON_Logic.Scope) return JSON.Value
-   is
-   begin
-      raise JSON_Logic.Unknown_Operator with Name;
-      return JSON.Null_Value;
-   end Apply;
-
-   Operators : constant Rule_Operators := (null record);
+   Operators : Note_Operators.Note_Operators renames Note_Operators.Operators;
 
    Head      : constant String :=
      "schema: synapse-note-schema/v1" & LF & "id: t/v1" & LF;
