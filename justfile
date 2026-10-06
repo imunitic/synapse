@@ -371,12 +371,29 @@ ada-vendor-tree-sitter:
     printf '%s\n' "{{ tree_sitter_commit }}" > "$dest/VERSION"
     echo "tree-sitter {{ tree_sitter_commit }} vendored"
 
+json_suite_commit := "1ef36fa01286573e846ac449e8683f8833c5b26a"
+
+# Download the pinned JSONTestSuite parsing cases the JSON tests read.
+ada-json-suite:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dest="{{ ada_dir }}/testdata/json"
+    if [ -n "$(ls -A "$dest" 2>/dev/null)" ]; then echo "json suite ok"; exit 0; fi
+    work="$(mktemp -d)"
+    trap 'rm -rf "$work"' EXIT
+    curl -fsSL -o "$work/suite.tar.gz" \
+        "https://github.com/nst/JSONTestSuite/archive/{{ json_suite_commit }}.tar.gz"
+    tar -xzf "$work/suite.tar.gz" -C "$work"
+    mkdir -p "$dest"
+    cp "$work/JSONTestSuite-{{ json_suite_commit }}/test_parsing/"* "$dest/"
+    echo "json suite {{ json_suite_commit }} ok"
+
 # Build the Ada crate with the validation profile (contracts checked at runtime).
 ada-build:
     cd {{ ada_dir }} && alr -n build --validation
 
 # Run the AUnit suite; exits non-zero on any failed test.
-ada-test: ada-ucd
+ada-test: ada-ucd ada-json-suite
     cd {{ ada_dir }}/tests && alr -n exec -- gprbuild -q -p -P fixtures/fixtures.gpr && alr -n build --validation && alr -n run --skip-build
 
 # Prove the SPARK units with GNATprove; exits non-zero on any unproved check.
