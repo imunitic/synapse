@@ -35,6 +35,10 @@ with Synapse.Core.Enumerate.Tests;
 with Synapse.Adapters.Graph_Confs.Tests;
 with Synapse.Adapters.File_Byte_Source.Tests;
 with Synapse.Adapters.Memory_Byte_Source.Tests;
+with Synapse.Core.Little_Endian.Tests;
+with Synapse.Core.Byte_Window.Tests;
+with Synapse.Core.Tag_Payload.Tests;
+with Synapse.Core.Tags_Cache_Format.Tests;
 with Synapse.Core.Graph_Model.Tests;
 with Synapse.Core.Hashing.Tests;
 with Synapse.Core.Line_Slice.Tests;
@@ -115,6 +119,11 @@ package body Test_Suites is
      aliased Synapse.Adapters.File_Byte_Source.Tests.Test_Case;
    Memory_Byte_Source_Tests :
      aliased Synapse.Adapters.Memory_Byte_Source.Tests.Test_Case;
+   Little_Endian_Tests : aliased Synapse.Core.Little_Endian.Tests.Test_Case;
+   Byte_Window_Tests        : aliased Synapse.Core.Byte_Window.Tests.Test_Case;
+   Tag_Payload_Tests        : aliased Synapse.Core.Tag_Payload.Tests.Test_Case;
+   Tags_Cache_Format_Tests  :
+     aliased Synapse.Core.Tags_Cache_Format.Tests.Test_Case;
    Graph_Model_Tests        : aliased Synapse.Core.Graph_Model.Tests.Test_Case;
    Identity_Tests           : aliased Synapse.Core.Identity.Tests.Test_Case;
    Project_Index_Tests : aliased Synapse.Core.Project_Index.Tests.Test_Case;
@@ -144,6 +153,10 @@ package body Test_Suites is
       Result.Add_Test (Wikilinks_Tests'Access);
       Result.Add_Test (Git_Identity_Tests'Access);
       Result.Add_Test (Graph_Model_Tests'Access);
+      Result.Add_Test (Little_Endian_Tests'Access);
+      Result.Add_Test (Byte_Window_Tests'Access);
+      Result.Add_Test (Tag_Payload_Tests'Access);
+      Result.Add_Test (Tags_Cache_Format_Tests'Access);
       Result.Add_Test (Memory_Byte_Source_Tests'Access);
       Result.Add_Test (Tag_Line_Tests'Access);
       Result.Add_Test (Refs_Tests'Access);
