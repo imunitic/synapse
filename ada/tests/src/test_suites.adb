@@ -21,6 +21,7 @@ with Synapse.Core.Note_Model.Tests;
 with Synapse.Core.Note_Operators.Tests;
 with Synapse.Core.Prose.Tests;
 with Synapse.Core.Text_Search.Tests;
+with Synapse.Core.Wikilinks.Tests;
 with Synapse.Core.Words.Tests;
 with Synapse.Core.Note_Schema.Tests;
 with Synapse.Core.Note_Text.Tests;
@@ -74,6 +75,7 @@ package body Test_Suites is
    Store_Resolve_Tests :
      aliased Synapse.Adapters.Store_Resolve.Tests.Test_Case;
    Conf_Tests : aliased Synapse.Core.Conf.Tests.Test_Case;
+   Wikilinks_Tests : aliased Synapse.Core.Wikilinks.Tests.Test_Case;
    Prose_Tests : aliased Synapse.Core.Prose.Tests.Test_Case;
    Note_Operators_Tests : aliased Synapse.Core.Note_Operators.Tests.Test_Case;
 
@@ -96,6 +98,7 @@ package body Test_Suites is
       Result.Add_Test (Note_Text_Tests'Access);
       Result.Add_Test (Note_Model_Tests'Access);
       Result.Add_Test (Prose_Tests'Access);
+      Result.Add_Test (Wikilinks_Tests'Access);
       Result.Add_Test (System_Variables_Tests'Access);
       Result.Add_Test (Conf_Tests'Access);
       Result.Add_Test (Store_Resolve_Tests'Access);
