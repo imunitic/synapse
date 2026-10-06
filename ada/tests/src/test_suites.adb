@@ -1,7 +1,9 @@
 with Synapse.Adapters.Tree_Sitter.Tests;
 with Synapse.Core.Arith.Tests;
 with Synapse.Core.Regex_Lite.Tests;
+with Synapse.Core.Note_Model.Tests;
 with Synapse.Core.Note_Schema.Tests;
+with Synapse.Core.Note_Text.Tests;
 with Synapse.Core.Schema_Pattern.Tests;
 with Synapse.Core.Schema_Rules.Tests;
 with Synapse.Core.Schema_YAML.Tests;
@@ -25,6 +27,8 @@ package body Test_Suites is
    Schema_YAML_Tests : aliased Synapse.Core.Schema_YAML.Tests.Test_Case;
    Schema_Rules_Tests : aliased Synapse.Core.Schema_Rules.Tests.Test_Case;
    Note_Schema_Tests : aliased Synapse.Core.Note_Schema.Tests.Test_Case;
+   Note_Text_Tests : aliased Synapse.Core.Note_Text.Tests.Test_Case;
+   Note_Model_Tests : aliased Synapse.Core.Note_Model.Tests.Test_Case;
 
    function Suite return AUnit.Test_Suites.Access_Test_Suite is
       Result : constant AUnit.Test_Suites.Access_Test_Suite :=
@@ -42,6 +46,8 @@ package body Test_Suites is
       Result.Add_Test (Schema_YAML_Tests'Access);
       Result.Add_Test (Schema_Rules_Tests'Access);
       Result.Add_Test (Note_Schema_Tests'Access);
+      Result.Add_Test (Note_Text_Tests'Access);
+      Result.Add_Test (Note_Model_Tests'Access);
       return Result;
    end Suite;
 
