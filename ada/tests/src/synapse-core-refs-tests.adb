@@ -27,6 +27,8 @@ package body Synapse.Core.Refs.Tests is
         "class X implements beta {") &
      LF & Row_Line ("zeta", "ref", "call", "src/z.ext:1", "zeta();") & LF;
 
+   Block_Sizes : constant array (1 .. 5) of Positive := [1, 3, 7, 64, 100_000];
+
    function Lookup
      (Index : String; Name : String; Block : Positive := Default_Block)
       return Row_Vectors.Vector
@@ -300,6 +302,46 @@ package body Synapse.Core.Refs.Tests is
       Assert (Sites (Lookup (Text, "c", 16)) = "p:4;", "the last, long one");
    end A_Line_Longer_Than_The_Block_Is_Still_Read;
 
+   procedure Every_Row_Is_Visited_Once_At_Every_Block_Size
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Long : constant String := [1 .. 300 => 'x'];
+      Text : constant String :=
+        Row_Line ("a", "def", "k", "p:1", Long) & LF & "torn" & HT & "ref" &
+        LF & LF & Row_Line ("b", "ref", "call", "p:2", "short") & LF &
+        Row_Line ("c", "def", "k", "p:3", "tail without a line feed");
+      Seen : Unbounded_String;
+
+      procedure Take (R : Row) is
+      begin
+         Append (Seen, R.Name & "@" & R.Site & ";");
+      end Take;
+
+      procedure Scan is new For_Each_Row (Take);
+   begin
+      for Block of Block_Sizes loop
+         Seen := Null_Unbounded_String;
+         declare
+            Source : Adapters.Memory_Byte_Source.Source :=
+              Adapters.Memory_Byte_Source.Create (Text);
+         begin
+            Scan (Source, Block);
+         end;
+         Assert
+           (To_String (Seen) = "a@p:1;b@p:2;c@p:3;",
+            "block" & Block'Image & ": " & To_String (Seen));
+      end loop;
+      declare
+         Source : Adapters.Memory_Byte_Source.Source :=
+           Adapters.Memory_Byte_Source.Create ("");
+      begin
+         Seen := Null_Unbounded_String;
+         Scan (Source);
+         Assert (Length (Seen) = 0, "an empty index has no rows");
+      end;
+   end Every_Row_Is_Visited_Once_At_Every_Block_Size;
+
    overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
@@ -342,6 +384,9 @@ package body Synapse.Core.Refs.Tests is
       Register_Routine
         (T, The_Bisection_Agrees_With_A_Plain_Scan'Access,
          "The bisection agrees with a plain scan");
+      Register_Routine
+        (T, Every_Row_Is_Visited_Once_At_Every_Block_Size'Access,
+         "Every row is visited once at every block size");
       Register_Routine
         (T, A_Line_Longer_Than_The_Block_Is_Still_Read'Access,
          "A line longer than the block is still read");

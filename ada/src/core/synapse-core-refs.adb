@@ -208,6 +208,64 @@ package body Synapse.Core.Refs is
       return Result;
    end Find;
 
+   procedure For_Each_Row
+     (Index : in out Ports.Byte_Source.Source'Class;
+      Block :        Positive := Default_Block)
+   is
+      Size : constant Offset := Index.Size;
+      Here : Offset          := 0;
+      Want : Positive        := Block;
+   begin
+      while Here < Size loop
+         declare
+            Chunk  : constant String  := Index.Read (Here, Want);
+            Cursor : Positive         := Chunk'First;
+            At_End : constant Boolean := Here + Offset (Chunk'Length) >= Size;
+         begin
+            exit when Chunk'Length = 0;
+            loop
+               declare
+                  Stop : Natural := 0;
+               begin
+                  for I in Cursor .. Chunk'Last loop
+                     if Chunk (I) = LF then
+                        Stop := I;
+                        exit;
+                     end if;
+                  end loop;
+                  if Stop > 0 then
+                     declare
+                        Parsed : constant Maybe_Row :=
+                          Parse_Row (Chunk (Cursor .. Stop - 1));
+                     begin
+                        if Parsed.Found then
+                           Visit (Parsed.Value);
+                        end if;
+                     end;
+                     Cursor := Stop + 1;
+                  elsif At_End and then Cursor <= Chunk'Last then
+                     declare
+                        Parsed : constant Maybe_Row :=
+                          Parse_Row (Chunk (Cursor .. Chunk'Last));
+                     begin
+                        if Parsed.Found then
+                           Visit (Parsed.Value);
+                        end if;
+                     end;
+                     Cursor := Chunk'Last + 1;
+                  end if;
+                  exit when Stop = 0;
+               end;
+            end loop;
+            --  A line longer than the block needs a longer read.
+            Want :=
+              (if Cursor = Chunk'First and then not At_End then Want * 2
+               else Block);
+            Here := Here + Offset (Cursor - Chunk'First);
+         end;
+      end loop;
+   end For_Each_Row;
+
    package String_Sets is new Ada.Containers.Indefinite_Ordered_Sets (String);
 
    function Sort_Unique (Unsorted : String) return Sorted_Index is

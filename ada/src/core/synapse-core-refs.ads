@@ -70,6 +70,14 @@ package Synapse.Core.Refs is
      (Index : in out Ports.Byte_Source.Source'Class; Name : String;
       Block :        Positive := Default_Block) return Row_Vectors.Vector;
 
+   --  Every row of the index in order, one block at a time, so that a table of
+   --  a gigabyte is never held whole. A line that is not a row is skipped.
+   generic
+      with procedure Visit (R : Row);
+   procedure For_Each_Row
+     (Index : in out Ports.Byte_Source.Source'Class;
+      Block :        Positive := Default_Block);
+
    type Counts is record
       Tags  : Natural := 0;
       Defs  : Natural := 0;
