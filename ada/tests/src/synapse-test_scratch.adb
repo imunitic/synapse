@@ -104,7 +104,11 @@ package body Synapse.Test_Scratch is
       Result : constant Ports.Process_Runner.Result :=
         Run (Dir, Vector ("rev-list", "--count", "HEAD", "", "", ""));
    begin
-      if Result.Exit_Code /= 0 then
+      --  A directory with no repository of its own would be read as part of
+      --  the one it sits in.
+      if not Ada.Directories.Exists (Dir & "/.git")
+        or else Result.Exit_Code /= 0
+      then
          return 0;
       end if;
       return Natural'Value (Trim (To_String (Result.Output)));
