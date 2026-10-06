@@ -1,0 +1,18 @@
+--  What differs between operating systems, in one place. Alire sets
+--  SYNAPSE_OS (see alire.toml); a plain gprbuild run defaults to POSIX.
+abstract project Synapse_Platform is
+
+   type Os_Kind is ("posix", "windows");
+   Os : Os_Kind := external ("SYNAPSE_OS", "posix");
+
+   --  Source directory holding the operating system's adapter bodies.
+   Platform_Dir := "src/adapters/" & Os;
+
+   --  Link switches for `dlopen`.
+   Link_Switches := ();
+   case Os is
+      when "posix"   => Link_Switches := ("-ldl");
+      when "windows" => null;
+   end case;
+
+end Synapse_Platform;

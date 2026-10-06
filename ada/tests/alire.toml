@@ -21,3 +21,7 @@ aunit = "^26.0.0"
 
 [[depends-on]]
 gnatprove = "^16.1.0"
+
+[gpr-set-externals.'case(os)']
+windows = { SYNAPSE_OS = "windows" }
+'...' = { SYNAPSE_OS = "posix" }

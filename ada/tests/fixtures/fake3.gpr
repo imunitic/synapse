@@ -1,0 +1,12 @@
+--  A compiled tree-sitter grammar used by the tests.
+library project Fake3 is
+
+   for Languages use ("C");
+   for Source_Dirs use ("fake3/src");
+   for Object_Dir use "obj/fake3";
+   for Library_Name use "fake3";
+   for Library_Dir use "lib";
+   for Library_Kind use "dynamic";
+   for Create_Missing_Dirs use "True";
+
+end Fake3;

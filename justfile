@@ -351,13 +351,33 @@ ada-gen-check: ada-ucd
     cmp {{ ada_dir }}/src/core/synapse-core-unicode_tables.ads {{ ada_dir }}/ucd/check/synapse-core-unicode_tables.ads
     cmp {{ ada_dir }}/src/core/synapse-core-unicode_tables.adb {{ ada_dir }}/ucd/check/synapse-core-unicode_tables.adb
 
+tree_sitter_commit := "42f33fe2f8ddef5617a8536723c5d2b8a19a615e"
+
+# Refresh the vendored libtree-sitter runtime from the pinned upstream commit.
+ada-vendor-tree-sitter:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dest="{{ ada_dir }}/vendor/tree-sitter"
+    work="$(mktemp -d)"
+    trap 'rm -rf "$work"' EXIT
+    curl -fsSL -o "$work/ts.tar.gz" \
+        "https://github.com/tree-sitter/tree-sitter/archive/{{ tree_sitter_commit }}.tar.gz"
+    tar -xzf "$work/ts.tar.gz" -C "$work"
+    src="$work/tree-sitter-{{ tree_sitter_commit }}"
+    rm -rf "$dest/lib"
+    mkdir -p "$dest/lib"
+    cp -R "$src/lib/src" "$src/lib/include" "$dest/lib/"
+    cp "$src/LICENSE" "$dest/LICENSE"
+    printf '%s\n' "{{ tree_sitter_commit }}" > "$dest/VERSION"
+    echo "tree-sitter {{ tree_sitter_commit }} vendored"
+
 # Build the Ada crate with the validation profile (contracts checked at runtime).
 ada-build:
     cd {{ ada_dir }} && alr -n build --validation
 
 # Run the AUnit suite; exits non-zero on any failed test.
 ada-test: ada-ucd
-    cd {{ ada_dir }}/tests && alr -n build --validation && alr -n run --skip-build
+    cd {{ ada_dir }}/tests && alr -n exec -- gprbuild -q -p -P fixtures/fixtures.gpr && alr -n build --validation && alr -n run --skip-build
 
 # Prove the SPARK units with GNATprove; exits non-zero on any unproved check.
 ada-prove:

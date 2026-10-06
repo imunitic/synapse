@@ -15,3 +15,7 @@ validation.contracts = "Yes"
 validation.style_checks = "Yes"
 validation.compile_checks = "Warnings"
 "*".ada_version = "Ada2022"
+
+[gpr-set-externals.'case(os)']
+windows = { SYNAPSE_OS = "windows" }
+'...' = { SYNAPSE_OS = "posix" }
