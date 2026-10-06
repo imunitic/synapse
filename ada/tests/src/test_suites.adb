@@ -8,6 +8,7 @@ with Synapse.Adapters.Disk_Link_Graph.Tests;
 with Synapse.Adapters.Disk_Renamer.Tests;
 with Synapse.Adapters.Git_Capabilities.Tests;
 with Synapse.Adapters.Fake_Store.Tests;
+with Synapse.Adapters.Git_Identity.Tests;
 with Synapse.Adapters.Schema_Loader.Tests;
 with Synapse.Adapters.Store_Resolve.Tests;
 with Synapse.Adapters.Schema_Validation_Store.Tests;
@@ -25,6 +26,9 @@ with Synapse.Core.Note_Operators.Tests;
 with Synapse.Core.Prose.Tests;
 with Synapse.Core.Text_Search.Tests;
 with Synapse.Core.Wikilinks.Tests;
+with Synapse.Core.Graph_Model.Tests;
+with Synapse.Core.Identity.Tests;
+with Synapse.Core.Project_Index.Tests;
 with Synapse.Core.Words.Tests;
 with Synapse.Core.Note_Schema.Tests;
 with Synapse.Core.Note_Text.Tests;
@@ -84,6 +88,11 @@ package body Test_Suites is
      aliased Synapse.Adapters.Disk_Renamer.Tests.Test_Case;
    Git_Capabilities_Tests :
      aliased Synapse.Adapters.Git_Capabilities.Tests.Test_Case;
+   Git_Identity_Tests :
+     aliased Synapse.Adapters.Git_Identity.Tests.Test_Case;
+   Graph_Model_Tests : aliased Synapse.Core.Graph_Model.Tests.Test_Case;
+   Identity_Tests : aliased Synapse.Core.Identity.Tests.Test_Case;
+   Project_Index_Tests : aliased Synapse.Core.Project_Index.Tests.Test_Case;
    Wikilinks_Tests : aliased Synapse.Core.Wikilinks.Tests.Test_Case;
    Prose_Tests : aliased Synapse.Core.Prose.Tests.Test_Case;
    Note_Operators_Tests : aliased Synapse.Core.Note_Operators.Tests.Test_Case;
@@ -108,6 +117,10 @@ package body Test_Suites is
       Result.Add_Test (Note_Model_Tests'Access);
       Result.Add_Test (Prose_Tests'Access);
       Result.Add_Test (Wikilinks_Tests'Access);
+      Result.Add_Test (Git_Identity_Tests'Access);
+      Result.Add_Test (Graph_Model_Tests'Access);
+      Result.Add_Test (Identity_Tests'Access);
+      Result.Add_Test (Project_Index_Tests'Access);
       Result.Add_Test (Disk_Renamer_Tests'Access);
       Result.Add_Test (Git_Capabilities_Tests'Access);
       Result.Add_Test (Disk_Link_Graph_Tests'Access);
