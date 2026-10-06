@@ -2,9 +2,8 @@ with Ada.Containers.Vectors;
 with Ada.Directories;
 with Ada.Exceptions;
 with Ada.IO_Exceptions;
-with Ada.Streams;
-with Ada.Streams.Stream_IO;
 
+with Synapse.Adapters.File_Bytes;
 with Synapse.Adapters.Replace_File;
 with Synapse.Core.Frontmatter;
 with Synapse.Core.Node_Path;
@@ -16,7 +15,6 @@ package body Synapse.Adapters.Disk_Store is
 
    use Ada.Strings.Unbounded;
    use type Ada.Directories.File_Kind;
-   use type Ada.Streams.Stream_IO.Count;
 
    Largest_Read : constant := 256 * 1024 * 1024;
 
@@ -51,43 +49,12 @@ package body Synapse.Adapters.Disk_Store is
           then " (" & Ada.Exceptions.Exception_Message (E) & ")" else ""));
 
    function Read_File (Path : String) return String is
-      package IO renames Ada.Streams.Stream_IO;
-      File : IO.File_Type;
    begin
-      IO.Open (File, IO.In_File, Path);
-      declare
-         Length : constant IO.Count := IO.Size (File);
-      begin
-         if Length > IO.Count (Largest_Read) then
-            IO.Close (File);
-            raise Port.Store_Failure with "file too large: " & Path;
-         end if;
-         declare
-            use type Ada.Streams.Stream_Element_Offset;
-            Data : Ada.Streams.Stream_Element_Array
-                     (1 .. Ada.Streams.Stream_Element_Offset (Length));
-            Last : Ada.Streams.Stream_Element_Offset;
-            Text : String (1 .. Natural (Length));
-         begin
-            IO.Read (File, Data, Last);
-            IO.Close (File);
-            if Last /= Data'Last then
-               raise Port.Store_Failure with "short read: " & Path;
-            end if;
-            for I in Text'Range loop
-               Text (I) :=
-                 Character'Val (Data (Ada.Streams.Stream_Element_Offset (I)));
-            end loop;
-            return Text;
-         end;
-      end;
+      return File_Bytes.Read (Path, Largest_Read);
    exception
-      when Port.Store_Failure =>
-         raise;
+      when File_Bytes.Too_Large =>
+         raise Port.Store_Failure with "file too large: " & Path;
       when E : others =>
-         if IO.Is_Open (File) then
-            IO.Close (File);
-         end if;
          raise Port.Store_Failure with Failure ("cannot read", Path, E);
    end Read_File;
 
@@ -112,29 +79,6 @@ package body Synapse.Adapters.Disk_Store is
          raise Port.Store_Failure with Failure ("cannot read", Path, E);
    end Read;
 
-   procedure Write_File (Path, Content : String) is
-      package IO renames Ada.Streams.Stream_IO;
-      use type Ada.Streams.Stream_Element_Offset;
-      File : IO.File_Type;
-      Data : Ada.Streams.Stream_Element_Array
-               (1 .. Ada.Streams.Stream_Element_Offset (Content'Length));
-   begin
-      for I in Data'Range loop
-         Data (I) :=
-           Ada.Streams.Stream_Element
-             (Character'Pos (Content (Content'First + Natural (I) - 1)));
-      end loop;
-      IO.Create (File, IO.Out_File, Path);
-      IO.Write (File, Data);
-      IO.Close (File);
-   exception
-      when others =>
-         if IO.Is_Open (File) then
-            IO.Close (File);
-         end if;
-         raise;
-   end Write_File;
-
    overriding
    function Write
      (S : in out Disk_Store; Node, Content : String) return Port.Write_Result
@@ -157,7 +101,7 @@ package body Synapse.Adapters.Disk_Store is
       end;
 
       begin
-         Write_File (Temp, Content);
+         File_Bytes.Write (Temp, Content);
          Replace_File.Replace (Temp, Path);
       exception
          when others =>

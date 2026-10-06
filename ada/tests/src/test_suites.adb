@@ -2,7 +2,9 @@ with Synapse.Adapters.Tree_Sitter.Tests;
 with Synapse.Core.Arith.Tests;
 with Synapse.Core.Regex_Lite.Tests;
 with Synapse.Adapters.Disk_Store.Tests;
+with Synapse.Adapters.Dir_Lock.Tests;
 with Synapse.Adapters.Fake_Store.Tests;
+with Synapse.Adapters.System_Process.Tests;
 with Synapse.Core.Node_Path.Tests;
 with Synapse.Core.Path_Filter.Tests;
 with Synapse.Core.Note_Check.Tests;
@@ -45,6 +47,8 @@ package body Test_Suites is
    Fake_Store_Tests : aliased Synapse.Adapters.Fake_Store.Tests.Test_Case;
    Disk_Store_Tests : aliased Synapse.Adapters.Disk_Store.Tests.Test_Case;
    Path_Filter_Tests : aliased Synapse.Core.Path_Filter.Tests.Test_Case;
+   Dir_Lock_Tests : aliased Synapse.Adapters.Dir_Lock.Tests.Test_Case;
+   System_Process_Tests : aliased Synapse.Adapters.System_Process.Tests.Test_Case;
    Prose_Tests : aliased Synapse.Core.Prose.Tests.Test_Case;
    Note_Operators_Tests : aliased Synapse.Core.Note_Operators.Tests.Test_Case;
 
@@ -67,6 +71,8 @@ package body Test_Suites is
       Result.Add_Test (Note_Text_Tests'Access);
       Result.Add_Test (Note_Model_Tests'Access);
       Result.Add_Test (Prose_Tests'Access);
+      Result.Add_Test (Dir_Lock_Tests'Access);
+      Result.Add_Test (System_Process_Tests'Access);
       Result.Add_Test (Path_Filter_Tests'Access);
       Result.Add_Test (Fake_Store_Tests'Access);
       Result.Add_Test (Disk_Store_Tests'Access);
