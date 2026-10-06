@@ -27,4 +27,21 @@ package Synapse.Core.Words is
    function Distinctiveness
      (Docs_With_Term, Docs, K : Natural) return Long_Float;
 
+   type Natural_Array is array (Positive range <>) of Natural;
+
+   --  The sum over terms of Counts (T) times Distinctiveness (Doc_Freq (T),
+   --  Docs, 20), terms with a count of zero skipped. 20 is the scaling the
+   --  rarity weight was calibrated with for the same question elsewhere.
+   --  Counts and Doc_Freq have the same bounds.
+   function Weighted_Score
+     (Counts, Doc_Freq : Natural_Array; Docs : Natural) return Long_Float
+   with
+     Pre =>
+       Counts'First = Doc_Freq'First and then Counts'Last = Doc_Freq'Last;
+
+   --  The words of a stopword list: one per line, spaces, tabs and carriage
+   --  returns trimmed, empty lines and lines starting with `#` skipped,
+   --  ASCII letters lowercased.
+   function Parse_Stopwords (Conf_Text : String) return Text_Lists.Set;
+
 end Synapse.Core.Words;

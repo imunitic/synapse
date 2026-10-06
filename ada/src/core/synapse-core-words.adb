@@ -109,4 +109,52 @@ package body Synapse.Core.Words is
       return D / (D + Long_Float (Docs_With_Term));
    end Distinctiveness;
 
+   function Weighted_Score
+     (Counts, Doc_Freq : Natural_Array; Docs : Natural) return Long_Float
+   is
+      Sum : Long_Float := 0.0;
+   begin
+      for I in Counts'Range loop
+         if Counts (I) > 0 then
+            Sum :=
+              Sum
+              + Long_Float (Counts (I))
+                * Distinctiveness (Doc_Freq (I), Docs, 20);
+         end if;
+      end loop;
+      return Sum;
+   end Weighted_Score;
+
+   function Parse_Stopwords (Conf_Text : String) return Text_Lists.Set is
+      Result : Text_Lists.Set;
+      Start  : Natural := Conf_Text'First;
+
+      procedure Take (Raw : String) is
+         First : Natural := Raw'First;
+         Last  : Natural := Raw'Last;
+      begin
+         while First <= Last
+           and then Raw (First) in ' ' | Character'Val (9) | Character'Val (13)
+         loop
+            First := First + 1;
+         end loop;
+         while Last >= First
+           and then Raw (Last) in ' ' | Character'Val (9) | Character'Val (13)
+         loop
+            Last := Last - 1;
+         end loop;
+         if First <= Last and then Raw (First) /= '#' then
+            Result.Include (Lower (Raw (First .. Last)));
+         end if;
+      end Take;
+   begin
+      for I in Conf_Text'First .. Conf_Text'Last + 1 loop
+         if I > Conf_Text'Last or else Conf_Text (I) = Character'Val (10) then
+            Take (Conf_Text (Start .. I - 1));
+            Start := I + 1;
+         end if;
+      end loop;
+      return Result;
+   end Parse_Stopwords;
+
 end Synapse.Core.Words;

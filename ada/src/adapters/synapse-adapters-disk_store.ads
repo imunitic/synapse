@@ -1,6 +1,7 @@
 with Ada.Strings.Unbounded;
 
 with Synapse.Core.Text_Lists;
+with Synapse.Ports.Search_Filtered;
 with Synapse.Ports.Store;
 
 --  A Store of Markdown files in a directory tree: the vault.
@@ -12,8 +13,10 @@ with Synapse.Ports.Store;
 package Synapse.Adapters.Disk_Store is
 
    package Port renames Synapse.Ports.Store;
+   package Filtered renames Synapse.Ports.Search_Filtered;
 
-   type Disk_Store is limited new Port.Store with private;
+   type Disk_Store is
+     limited new Port.Store and Filtered.Searchable with private;
 
    function Create (Vault, Namespace : String) return Disk_Store;
 
@@ -35,18 +38,38 @@ package Synapse.Adapters.Disk_Store is
    overriding
    function List (S : in out Disk_Store) return Core.Text_Lists.Vector;
 
-   --  The nodes whose text after the frontmatter contains Query under case
-   --  folding, scored by the number of occurrences, best first and then by
-   --  name, with the first matching line as context.
+   --  The words that are not worth searching for (see Core.Words.Keep). None
+   --  until set.
+   procedure Set_Stopwords
+     (S : in out Disk_Store; Words : Core.Text_Lists.Set);
+
+   --  Search_Filtered with no filter.
    overriding
    function Search
      (S : in out Disk_Store; Query : String) return Port.Hit_Vectors.Vector;
 
+   --  Ranks the nodes that pass Filter (all of them with no filter; a node
+   --  that fails is not read). The query is split into terms
+   --  (Core.Words.Query_Terms); a node's score is how often each term occurs
+   --  in its text after the frontmatter, case folded, weighted by how rare
+   --  the term is among the candidates. Nodes with a score of zero are left
+   --  out, the rest ordered by score, best first, and then by name; a hit's
+   --  context is the first line holding any term. A query with no usable
+   --  term (every word short, all digits or a stopword) is counted whole as
+   --  a plain substring instead.
+   overriding
+   function Search_Filtered
+     (S      : in out Disk_Store;
+      Query  : String;
+      Filter : Filtered.Path_Filter) return Port.Hit_Vectors.Vector;
+
 private
 
-   type Disk_Store is limited new Port.Store with record
+   type Disk_Store is
+     limited new Port.Store and Filtered.Searchable with record
       Vault     : Ada.Strings.Unbounded.Unbounded_String;
       Namespace : Ada.Strings.Unbounded.Unbounded_String;
+      Stopwords : Core.Text_Lists.Set;
    end record;
 
 end Synapse.Adapters.Disk_Store;

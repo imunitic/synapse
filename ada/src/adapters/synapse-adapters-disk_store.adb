@@ -1,3 +1,4 @@
+with Ada.Containers.Vectors;
 with Ada.Directories;
 with Ada.Exceptions;
 with Ada.IO_Exceptions;
@@ -7,7 +8,9 @@ with Ada.Streams.Stream_IO;
 with Synapse.Adapters.Replace_File;
 with Synapse.Core.Frontmatter;
 with Synapse.Core.Node_Path;
+with Synapse.Core.Path_Filter;
 with Synapse.Core.Text_Search;
+with Synapse.Core.Words;
 
 package body Synapse.Adapters.Disk_Store is
 
@@ -22,7 +25,8 @@ package body Synapse.Adapters.Disk_Store is
       return
         (Port.Store with
            Vault     => To_Unbounded_String (Vault),
-           Namespace => To_Unbounded_String (Namespace));
+           Namespace => To_Unbounded_String (Namespace),
+           Stopwords => <>);
    end Create;
 
    --  The directory a store's nodes live under.
@@ -231,19 +235,48 @@ package body Synapse.Adapters.Disk_Store is
          raise Port.Store_Failure with Failure ("cannot list", Dir, E);
    end List;
 
+   procedure Set_Stopwords
+     (S : in out Disk_Store; Words : Core.Text_Lists.Set) is
+   begin
+      S.Stopwords := Words;
+   end Set_Stopwords;
+
    function Better (A, B : Port.Hit) return Boolean
    is (A.Score > B.Score
        or else (A.Score = B.Score and then A.Node < B.Node));
 
    package Hit_Sorting is new Port.Hit_Vectors.Generic_Sorting (Better);
 
-   overriding
-   function Search
-     (S : in out Disk_Store; Query : String) return Port.Hit_Vectors.Vector
+   --  A node's text after its frontmatter; empty when it cannot be read.
+   function Prose_Of (S : in out Disk_Store; Node : String) return String is
+      Found : constant Port.Maybe_Text := Read (S, Node);
+   begin
+      if not Found.Found then
+         return "";
+      end if;
+      declare
+         Text : constant String := To_String (Found.Text);
+         Span : constant Core.Frontmatter.Span :=
+           Core.Frontmatter.Body_After (Text);
+      begin
+         return Text (Text'First + Span.First .. Text'First + Span.Stop - 1);
+      end;
+   end Prose_Of;
+
+   function Context_Of
+     (Prose : String; Line : Core.Text_Search.Maybe_Line)
+      return Unbounded_String
+   is (if Line.Found then To_Unbounded_String (Prose (Line.First .. Line.Last))
+       else Null_Unbounded_String);
+
+   --  The whole query counted as a substring.
+   function Search_Substring
+     (S : in out Disk_Store; Names : Core.Text_Lists.Vector; Query : String)
+      return Port.Hit_Vectors.Vector
    is
       Result : Port.Hit_Vectors.Vector;
    begin
-      for Name of List (S) loop
+      for Name of Names loop
          declare
             Node  : constant String := To_String (Name);
             Found : constant Port.Maybe_Text := Read (S, Node);
@@ -258,8 +291,6 @@ package body Synapse.Adapters.Disk_Store is
                           .. Text'First + Span.Stop - 1);
                   Count : constant Natural :=
                     Core.Text_Search.Count_Ignore_Case (Prose, Query);
-                  Line  : constant Core.Text_Search.Maybe_Line :=
-                    Core.Text_Search.First_Matching_Line (Prose, Query);
                begin
                   if Count > 0 then
                      Result.Append
@@ -267,17 +298,106 @@ package body Synapse.Adapters.Disk_Store is
                           (Node    => Name,
                            Score   => Float (Count),
                            Context =>
-                             (if Line.Found
-                              then To_Unbounded_String
-                                     (Prose (Line.First .. Line.Last))
-                              else Null_Unbounded_String)));
+                             Context_Of
+                               (Prose,
+                                Core.Text_Search.First_Matching_Line
+                                  (Prose, Query))));
                   end if;
                end;
             end if;
          end;
       end loop;
-      Hit_Sorting.Sort (Result);
       return Result;
-   end Search;
+   end Search_Substring;
+
+   overriding
+   function Search_Filtered
+     (S      : in out Disk_Store;
+      Query  : String;
+      Filter : Filtered.Path_Filter) return Port.Hit_Vectors.Vector
+   is
+      Everything : constant Core.Text_Lists.Vector := List (S);
+      Names      : Core.Text_Lists.Vector;
+   begin
+      for Name of Everything loop
+         if not Filter.Present
+           or else Core.Path_Filter.Matches (Filter.Rule, To_String (Name))
+         then
+            Names.Append (Name);
+         end if;
+      end loop;
+
+      declare
+         Terms : constant Core.Text_Lists.Vector :=
+           Core.Words.Query_Terms (Query, S.Stopwords);
+      begin
+         if Terms.Is_Empty then
+            return Result : Port.Hit_Vectors.Vector :=
+              Search_Substring (S, Names, Query)
+            do
+               Hit_Sorting.Sort (Result);
+            end return;
+         end if;
+
+         declare
+            use Core.Words;
+            Docs      : constant Natural := Natural (Names.Length);
+            Term_Count : constant Natural := Natural (Terms.Length);
+            Doc_Freq  : Natural_Array (1 .. Term_Count) := [others => 0];
+            type Row is record
+               Counts  : Natural_Array (1 .. Term_Count);
+               Context : Unbounded_String;
+            end record;
+            package Row_Vectors is new Ada.Containers.Vectors (Positive, Row);
+            Rows   : Row_Vectors.Vector;
+            Result : Port.Hit_Vectors.Vector;
+         begin
+            for Name of Names loop
+               declare
+                  Prose : constant String := Prose_Of (S, To_String (Name));
+                  This  : Row :=
+                    (Counts  => [others => 0],
+                     Context =>
+                       Context_Of
+                         (Prose,
+                          Core.Text_Search.First_Matching_Line_Any
+                            (Prose, Terms)));
+               begin
+                  for T in 1 .. Term_Count loop
+                     This.Counts (T) :=
+                       Core.Text_Search.Count_Ignore_Case
+                         (Prose, To_String (Terms (T)));
+                     if This.Counts (T) > 0 then
+                        Doc_Freq (T) := Doc_Freq (T) + 1;
+                     end if;
+                  end loop;
+                  Rows.Append (This);
+               end;
+            end loop;
+
+            for I in 1 .. Docs loop
+               declare
+                  Score : constant Long_Float :=
+                    Weighted_Score (Rows (I).Counts, Doc_Freq, Docs);
+               begin
+                  if Score /= 0.0 then
+                     Result.Append
+                       (Port.Hit'
+                          (Node    => Names (I),
+                           Score   => Float (Score),
+                           Context => Rows (I).Context));
+                  end if;
+               end;
+            end loop;
+            Hit_Sorting.Sort (Result);
+            return Result;
+         end;
+      end;
+   end Search_Filtered;
+
+   overriding
+   function Search
+     (S : in out Disk_Store; Query : String) return Port.Hit_Vectors.Vector
+   is (Search_Filtered (S, Query, Filtered.No_Filter));
 
 end Synapse.Adapters.Disk_Store;

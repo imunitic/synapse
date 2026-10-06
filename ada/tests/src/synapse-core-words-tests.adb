@@ -168,6 +168,42 @@ package body Synapse.Core.Words.Tests is
       end loop;
    end Distinctiveness_Falls_As_A_Word_Gets_Common;
 
+   procedure Stopword_Lists_Skip_Comments_And_Blanks
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      LF    : constant Character := Character'Val (10);
+      CR    : constant Character := Character'Val (13);
+      Words : constant Text_Lists.Set :=
+        Parse_Stopwords
+          ("# a comment" & LF & LF & "About" & LF & "  with  " & CR & LF
+           & "   " & LF & "# with" & LF & "THE" & Character'Val (9) & LF
+           & "last");
+   begin
+      Assert (Natural (Words.Length) = 4, "four words");
+      Assert (Words.Contains ("about") and then Words.Contains ("with")
+              and then Words.Contains ("the") and then Words.Contains ("last"),
+              "trimmed and lowercased");
+      Assert (not Words.Contains ("# a comment"), "comments are skipped");
+      Assert (Parse_Stopwords ("").Is_Empty, "empty text");
+   end Stopword_Lists_Skip_Comments_And_Blanks;
+
+   procedure Weighted_Scores_Sum_Count_Times_Rarity
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+
+      function Near (A, B : Long_Float) return Boolean
+      is (abs (A - B) < 1.0E-12);
+   begin
+      --  Docs = 100, so D = 5: a word in 5 documents weighs 0.5.
+      Assert (Near (Weighted_Score ([2, 0, 1], [5, 9, 0], 100),
+                    2.0 * 0.5 + 1.0 * 1.0), "two terms count, one is absent");
+      Assert (Near (Weighted_Score ([0, 0], [3, 4], 100), 0.0), "no matches");
+      Assert (Near (Weighted_Score ([1], [100], 100), 5.0 / 105.0),
+              "a word in every document");
+   end Weighted_Scores_Sum_Count_Times_Rarity;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -205,6 +241,12 @@ package body Synapse.Core.Words.Tests is
       Register_Routine
         (T, Distinctiveness_Falls_As_A_Word_Gets_Common'Access,
          "Distinctiveness falls as a word gets common");
+      Register_Routine
+        (T, Stopword_Lists_Skip_Comments_And_Blanks'Access,
+         "Stopword lists skip comments and blanks");
+      Register_Routine
+        (T, Weighted_Scores_Sum_Count_Times_Rarity'Access,
+         "Weighted scores sum count times rarity");
    end Register_Tests;
 
 end Synapse.Core.Words.Tests;

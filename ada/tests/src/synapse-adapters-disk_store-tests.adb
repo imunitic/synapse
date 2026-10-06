@@ -9,6 +9,7 @@ with Ada.Strings.Unbounded;
 with AUnit.Assertions;
 
 with Synapse.Adapters.Store_Contract;
+with Synapse.Core.JSON;
 
 package body Synapse.Adapters.Disk_Store.Tests is
 
@@ -352,11 +353,11 @@ package body Synapse.Adapters.Disk_Store.Tests is
          Assert (Hits.Length = 2, "frontmatter is not searched:"
                  & Hits.Length'Image);
          Assert (To_String (Hits (1).Node) = "two.md"
-                 and then Hits (1).Score = 2.0, "the most occurrences first");
+                 and then Hits (1).Score > Hits (2).Score,
+                 "the most occurrences first");
          Assert (To_String (Hits (1).Context) = "A Widget here",
                  "the first matching line");
-         Assert (To_String (Hits (2).Node) = "three.md"
-                 and then Hits (2).Score = 1.0, "then the rest");
+         Assert (To_String (Hits (2).Node) = "three.md", "then the rest");
       end;
       Assert (S.Search ("gadget").Is_Empty, "no match is an empty result");
       Assert (S.Search ("").Is_Empty, "an empty query matches nothing");
@@ -388,6 +389,226 @@ package body Synapse.Adapters.Disk_Store.Tests is
          Remove (Dir);
          raise;
    end Equal_Scores_Are_Ordered_By_Name;
+
+   ---------------------------------------------------------------------------
+   --  Ranked and filtered search
+   ---------------------------------------------------------------------------
+
+   function Rule (Text : String) return Filtered.Path_Filter is
+      Quoted : String := Text;
+   begin
+      for C of Quoted loop
+         if C = ''' then
+            C := '"';
+         end if;
+      end loop;
+      declare
+         Parsed : constant Synapse.Core.JSON.Parse_Result :=
+           Synapse.Core.JSON.Parse (Quoted);
+      begin
+         Assert (Parsed.Ok, "the filter parses");
+         return (Present => True, Rule => Parsed.Item);
+      end;
+   end Rule;
+
+   function Nodes (Hits : Port.Hit_Vectors.Vector) return String is
+      Result : Unbounded_String;
+   begin
+      for H of Hits loop
+         if Result /= Null_Unbounded_String then
+            Append (Result, "|");
+         end if;
+         Append (Result, H.Node);
+      end loop;
+      return To_String (Result);
+   end Nodes;
+
+   procedure A_Rare_Word_Outranks_A_Common_One (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Dir : constant Scratch := Make;
+      S   : Disk_Store := Create (Vault (Dir), "");
+   begin
+      --  "widget" is in one note and "common" in all four: a query with both
+      --  ranks the widget note first though neither repeats a word.
+      Put (S, "rare.md", "common widget" & LF);
+      Put (S, "other1.md", "common" & LF);
+      Put (S, "other2.md", "common" & LF);
+      Put (S, "other3.md", "common" & LF);
+      declare
+         Hits : constant Port.Hit_Vectors.Vector :=
+           S.Search ("widget common");
+      begin
+         Assert (Hits.Length >= 2, "something is found");
+         Assert (To_String (Hits (1).Node) = "rare.md", "the rare one first");
+         Assert (Hits (1).Score > Hits (2).Score, "by a real margin");
+         Assert (Nodes (Hits) = "rare.md|other1.md|other2.md|other3.md",
+                 "then the ties by name: " & Nodes (Hits));
+      end;
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end A_Rare_Word_Outranks_A_Common_One;
+
+   procedure A_Path_Filter_Scopes_The_Candidates (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir     : constant Scratch := Make;
+      S       : Disk_Store := Create (Vault (Dir), "");
+      Designs : constant Filtered.Path_Filter :=
+        Rule ("{'glob': ['designs/*', {'var': 'path'}]}");
+   begin
+      Put (S, "designs/x.md", "widget prose here" & LF);
+      Put (S, "tasks/y.md", "widget prose here too" & LF);
+      Assert (Nodes (S.Search_Filtered ("widget", Designs)) = "designs/x.md",
+              "only the designs");
+      Assert (Nodes (S.Search_Filtered ("widget", Filtered.No_Filter))
+              = "designs/x.md|tasks/y.md", "no filter is every node");
+      Assert (Nodes (S.Search ("widget"))
+              = Nodes (S.Search_Filtered ("widget", Filtered.No_Filter)),
+              "and it is plain search");
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end A_Path_Filter_Scopes_The_Candidates;
+
+   procedure A_Filter_That_Cannot_Be_Judged_Excludes_Everything
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir : constant Scratch := Make;
+      S   : Disk_Store := Create (Vault (Dir), "");
+   begin
+      Put (S, "a.md", "widget" & LF);
+      Assert (S.Search_Filtered
+                ("widget", Rule ("{'no_such_operator': 1}")).Is_Empty,
+              "an unknown operator");
+      Assert (S.Search_Filtered ("widget", Rule ("false")).Is_Empty, "false");
+      Assert (S.Search_Filtered ("widget", Rule ("null")).Is_Empty, "null");
+      Assert (Nodes (S.Search_Filtered ("widget", Rule ("true"))) = "a.md",
+              "true keeps it");
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end A_Filter_That_Cannot_Be_Judged_Excludes_Everything;
+
+   procedure Rarity_Is_Judged_Inside_The_Filtered_Set
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir  : constant Scratch := Make;
+      S    : Disk_Store := Create (Vault (Dir), "");
+      Keep : constant Filtered.Path_Filter :=
+        Rule ("{'glob': ['k/*', {'var': 'path'}]}");
+
+      function Top_Score (Filter : Filtered.Path_Filter) return Float
+      is (S.Search_Filtered ("gadget", Filter) (1).Score);
+   begin
+      Put (S, "k/one.md", "gadget" & LF);
+      for I in 1 .. 20 loop
+         Put (S, "o/" & Ada.Strings.Fixed.Trim (Integer'Image (I),
+                                                Ada.Strings.Left) & ".md",
+              "gadget" & LF);
+      end loop;
+      --  The word is in every note either way, but D grows with the corpus.
+      Assert (Top_Score (Keep) /= Top_Score (Filtered.No_Filter),
+              "the corpus is the filtered set");
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end Rarity_Is_Judged_Inside_The_Filtered_Set;
+
+   procedure Short_Or_Numeric_Queries_Fall_Back_To_A_Substring
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir : constant Scratch := Make;
+      S   : Disk_Store := Create (Vault (Dir), "");
+   begin
+      Put (S, "a.md", "the id 42 record" & LF);
+      Put (S, "b.md", "id and 42 apart" & LF);
+      --  No word of the query is long enough, so the whole query is matched
+      --  as a literal.
+      Assert (Nodes (S.Search ("id 42")) = "a.md", "contiguous only");
+      Put (S, "c.md", "---" & LF & "sources:" & LF & "  - hash: 42424242" & LF
+           & "---" & LF & "no digits here" & LF);
+      Assert (S.Search ("42424242").Is_Empty,
+              "the fallback ignores frontmatter too");
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end Short_Or_Numeric_Queries_Fall_Back_To_A_Substring;
+
+   procedure Identifiers_And_Prose_Find_Each_Other
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir : constant Scratch := Make;
+      S   : Disk_Store := Create (Vault (Dir), "");
+   begin
+      Put (S, "a.md", "the disk store handles this" & LF);
+      Assert (Nodes (S.Search ("DiskStore")) = "a.md",
+              "identifier query, prose text");
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end Identifiers_And_Prose_Find_Each_Other;
+
+   procedure Stopwords_Remove_A_Term (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Dir   : constant Scratch := Make;
+      S     : Disk_Store := Create (Vault (Dir), "");
+      Words : Core.Text_Lists.Set;
+   begin
+      Put (S, "a.md", "plain notes about handling" & LF);
+      Put (S, "b.md", "about nothing at all" & LF);
+      Assert (Nodes (S.Search ("about handling")) = "a.md|b.md",
+              "'about' counts at first");
+      Words.Insert ("about");
+      S.Set_Stopwords (Words);
+      Assert (Nodes (S.Search ("about handling")) = "a.md",
+              "then only 'handling' does");
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end Stopwords_Remove_A_Term;
+
+   procedure Context_Is_The_First_Line_With_Any_Term
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir : constant Scratch := Make;
+      S   : Disk_Store := Create (Vault (Dir), "");
+   begin
+      Put (S, "a.md", "---" & LF & "title: widget in meta" & LF & "---" & LF
+           & "intro" & LF & "a Gadget line" & LF & "a widget line" & LF);
+      declare
+         Hits : constant Port.Hit_Vectors.Vector :=
+           S.Search ("widget gadget");
+      begin
+         Assert (Hits.Length = 1, "one hit");
+         Assert (To_String (Hits (1).Context) = "a Gadget line",
+                 "the first line with any term");
+      end;
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end Context_Is_The_First_Line_With_Any_Term;
 
    ---------------------------------------------------------------------------
 
@@ -435,6 +656,30 @@ package body Synapse.Adapters.Disk_Store.Tests is
       Register_Routine
         (T, Equal_Scores_Are_Ordered_By_Name'Access,
          "Equal scores are ordered by name");
+      Register_Routine
+        (T, A_Rare_Word_Outranks_A_Common_One'Access,
+         "A rare word outranks a common one");
+      Register_Routine
+        (T, A_Path_Filter_Scopes_The_Candidates'Access,
+         "A path filter scopes the candidates");
+      Register_Routine
+        (T, A_Filter_That_Cannot_Be_Judged_Excludes_Everything'Access,
+         "A filter that cannot be judged excludes everything");
+      Register_Routine
+        (T, Rarity_Is_Judged_Inside_The_Filtered_Set'Access,
+         "Rarity is judged inside the filtered set");
+      Register_Routine
+        (T, Short_Or_Numeric_Queries_Fall_Back_To_A_Substring'Access,
+         "Short or numeric queries fall back to a substring");
+      Register_Routine
+        (T, Identifiers_And_Prose_Find_Each_Other'Access,
+         "Identifiers and prose find each other");
+      Register_Routine
+        (T, Stopwords_Remove_A_Term'Access,
+         "Stopwords remove a term");
+      Register_Routine
+        (T, Context_Is_The_First_Line_With_Any_Term'Access,
+         "Context is the first line with any term");
    end Register_Tests;
 
 end Synapse.Adapters.Disk_Store.Tests;

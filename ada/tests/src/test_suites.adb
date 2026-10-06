@@ -4,6 +4,7 @@ with Synapse.Core.Regex_Lite.Tests;
 with Synapse.Adapters.Disk_Store.Tests;
 with Synapse.Adapters.Fake_Store.Tests;
 with Synapse.Core.Node_Path.Tests;
+with Synapse.Core.Path_Filter.Tests;
 with Synapse.Core.Note_Check.Tests;
 with Synapse.Core.Note_Model.Tests;
 with Synapse.Core.Note_Operators.Tests;
@@ -43,6 +44,7 @@ package body Test_Suites is
    Words_Tests : aliased Synapse.Core.Words.Tests.Test_Case;
    Fake_Store_Tests : aliased Synapse.Adapters.Fake_Store.Tests.Test_Case;
    Disk_Store_Tests : aliased Synapse.Adapters.Disk_Store.Tests.Test_Case;
+   Path_Filter_Tests : aliased Synapse.Core.Path_Filter.Tests.Test_Case;
    Prose_Tests : aliased Synapse.Core.Prose.Tests.Test_Case;
    Note_Operators_Tests : aliased Synapse.Core.Note_Operators.Tests.Test_Case;
 
@@ -65,6 +67,7 @@ package body Test_Suites is
       Result.Add_Test (Note_Text_Tests'Access);
       Result.Add_Test (Note_Model_Tests'Access);
       Result.Add_Test (Prose_Tests'Access);
+      Result.Add_Test (Path_Filter_Tests'Access);
       Result.Add_Test (Fake_Store_Tests'Access);
       Result.Add_Test (Disk_Store_Tests'Access);
       Result.Add_Test (Node_Path_Tests'Access);
