@@ -1,12 +1,19 @@
 with Ada.Finalization;
 with Ada.Strings.Unbounded;
 
+with Synapse.Adapters.Disk_Deleter;
+with Synapse.Adapters.Disk_Link_Graph;
+with Synapse.Adapters.Disk_Renamer;
 with Synapse.Adapters.Disk_Store;
+with Synapse.Adapters.Git_Capabilities;
 with Synapse.Adapters.Git_Store;
 with Synapse.Adapters.Schema_Validation_Store;
 with Synapse.Adapters.System_Clock;
 with Synapse.Adapters.System_Process;
 with Synapse.Core.Text_Lists;
+with Synapse.Ports.Deleter;
+with Synapse.Ports.Link_Graph;
+with Synapse.Ports.Renamer;
 with Synapse.Ports.Search_Filtered;
 with Synapse.Ports.Store;
 with Synapse.Ports.Variables;
@@ -68,6 +75,21 @@ package Synapse.Adapters.Store_Resolve is
    --  The outermost layer. The stack must be valid.
    function Store (S : in out Stack) return not null access Port.Store'Class;
 
+   --  The vault's link graph. Nothing wraps it.
+   function Link_Graph
+     (S : in out Stack)
+      return not null access Ports.Link_Graph.Link_Graph'Class;
+
+   --  Moving a note and fixing the links to it; under `git` it commits.
+   function Renamer
+     (S : in out Stack)
+      return not null access Ports.Renamer.Renamer'Class;
+
+   --  Removing a note and unlinking the links to it; under `git` it commits.
+   function Deleter
+     (S : in out Stack)
+      return not null access Ports.Deleter.Deleter'Class;
+
    --  Ranked search scoped by a path filter. It is the disk store's, whatever
    --  wraps it: no layer changes it.
    function Search_Filtered
@@ -84,6 +106,11 @@ private
    type Git_Access is access Git_Store.Git_Store;
    type Runner_Access is access System_Process.System_Runner;
    type Clock_Access is access System_Clock.System_Clock;
+   type Graph_Access is access Disk_Link_Graph.Disk_Link_Graph;
+   type Disk_Renamer_Access is access Disk_Renamer.Disk_Renamer;
+   type Disk_Deleter_Access is access Disk_Deleter.Disk_Deleter;
+   type Git_Renamer_Access is access Git_Capabilities.Git_Renamer;
+   type Git_Deleter_Access is access Git_Capabilities.Git_Deleter;
 
    type Stack is limited new Ada.Finalization.Limited_Controlled with record
       Disk       : Disk_Access;
@@ -91,6 +118,11 @@ private
       Git        : Git_Access;
       Runner     : Runner_Access;
       Clock      : Clock_Access;
+      Graph      : Graph_Access;
+      Mover      : Disk_Renamer_Access;
+      Remover    : Disk_Deleter_Access;
+      Git_Mover  : Git_Renamer_Access;
+      Git_Remover : Git_Deleter_Access;
    end record;
 
    overriding

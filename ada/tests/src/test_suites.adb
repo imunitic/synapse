@@ -5,6 +5,8 @@ with Synapse.Adapters.Disk_Store.Tests;
 with Synapse.Adapters.Dir_Lock.Tests;
 with Synapse.Adapters.Conf_Files.Tests;
 with Synapse.Adapters.Disk_Link_Graph.Tests;
+with Synapse.Adapters.Disk_Renamer.Tests;
+with Synapse.Adapters.Git_Capabilities.Tests;
 with Synapse.Adapters.Fake_Store.Tests;
 with Synapse.Adapters.Schema_Loader.Tests;
 with Synapse.Adapters.Store_Resolve.Tests;
@@ -78,6 +80,10 @@ package body Test_Suites is
    Conf_Tests : aliased Synapse.Core.Conf.Tests.Test_Case;
    Disk_Link_Graph_Tests :
      aliased Synapse.Adapters.Disk_Link_Graph.Tests.Test_Case;
+   Disk_Renamer_Tests :
+     aliased Synapse.Adapters.Disk_Renamer.Tests.Test_Case;
+   Git_Capabilities_Tests :
+     aliased Synapse.Adapters.Git_Capabilities.Tests.Test_Case;
    Wikilinks_Tests : aliased Synapse.Core.Wikilinks.Tests.Test_Case;
    Prose_Tests : aliased Synapse.Core.Prose.Tests.Test_Case;
    Note_Operators_Tests : aliased Synapse.Core.Note_Operators.Tests.Test_Case;
@@ -102,6 +108,8 @@ package body Test_Suites is
       Result.Add_Test (Note_Model_Tests'Access);
       Result.Add_Test (Prose_Tests'Access);
       Result.Add_Test (Wikilinks_Tests'Access);
+      Result.Add_Test (Disk_Renamer_Tests'Access);
+      Result.Add_Test (Git_Capabilities_Tests'Access);
       Result.Add_Test (Disk_Link_Graph_Tests'Access);
       Result.Add_Test (System_Variables_Tests'Access);
       Result.Add_Test (Conf_Tests'Access);

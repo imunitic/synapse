@@ -93,9 +93,25 @@ package body Synapse.Adapters.Store_Resolve is
    procedure Free is new Ada.Unchecked_Deallocation
      (System_Clock.System_Clock, Clock_Access);
 
+   procedure Free is new Ada.Unchecked_Deallocation
+     (Disk_Link_Graph.Disk_Link_Graph, Graph_Access);
+   procedure Free is new Ada.Unchecked_Deallocation
+     (Disk_Renamer.Disk_Renamer, Disk_Renamer_Access);
+   procedure Free is new Ada.Unchecked_Deallocation
+     (Disk_Deleter.Disk_Deleter, Disk_Deleter_Access);
+   procedure Free is new Ada.Unchecked_Deallocation
+     (Git_Capabilities.Git_Renamer, Git_Renamer_Access);
+   procedure Free is new Ada.Unchecked_Deallocation
+     (Git_Capabilities.Git_Deleter, Git_Deleter_Access);
+
    overriding
    procedure Finalize (S : in out Stack) is
    begin
+      Free (S.Git_Mover);
+      Free (S.Git_Remover);
+      Free (S.Mover);
+      Free (S.Remover);
+      Free (S.Graph);
       Free (S.Git);
       Free (S.Validation);
       Free (S.Disk);
@@ -131,6 +147,10 @@ package body Synapse.Adapters.Store_Resolve is
       S.Disk :=
         new Disk_Store.Disk_Store'(Disk_Store.Create (Vault, Namespace));
       S.Disk.Set_Stopwords (Conf_Files.Load_Stopwords (Vars.all));
+      S.Graph := new Disk_Link_Graph.Disk_Link_Graph'
+                       (Disk_Link_Graph.Create (Vault));
+      S.Mover := new Disk_Renamer.Disk_Renamer'(Disk_Renamer.Create (Vault));
+      S.Remover := new Disk_Deleter.Disk_Deleter'(Disk_Deleter.Create (Vault));
 
       --  Validation is a correctness boundary, not a selectable
       --  integration: it always wraps the disk store and every integration
@@ -148,12 +168,37 @@ package body Synapse.Adapters.Store_Resolve is
                      Vault      => Vault,
                      Push_Every => Conf_Files.Push_Every (Vars.all),
                      Spawner    => Spawner));
+         S.Git_Mover :=
+           new Git_Capabilities.Git_Renamer'
+                 (Git_Capabilities.Create (S.Mover, S.Runner, Vault));
+         S.Git_Remover :=
+           new Git_Capabilities.Git_Deleter'
+                 (Git_Capabilities.Create (S.Remover, S.Runner, Vault));
       end if;
    end Resolve;
 
    function Store (S : in out Stack) return not null access Port.Store'Class
    is (if S.Git /= null then Port.Store'Class (S.Git.all)'Access
        else Port.Store'Class (S.Validation.all)'Access);
+
+   function Link_Graph
+     (S : in out Stack)
+      return not null access Ports.Link_Graph.Link_Graph'Class
+   is (Ports.Link_Graph.Link_Graph'Class (S.Graph.all)'Access);
+
+   function Renamer
+     (S : in out Stack)
+      return not null access Ports.Renamer.Renamer'Class
+   is (if S.Git_Mover /= null
+       then Ports.Renamer.Renamer'Class (S.Git_Mover.all)'Access
+       else Ports.Renamer.Renamer'Class (S.Mover.all)'Access);
+
+   function Deleter
+     (S : in out Stack)
+      return not null access Ports.Deleter.Deleter'Class
+   is (if S.Git_Remover /= null
+       then Ports.Deleter.Deleter'Class (S.Git_Remover.all)'Access
+       else Ports.Deleter.Deleter'Class (S.Remover.all)'Access);
 
    function Search_Filtered
      (S      : in out Stack;

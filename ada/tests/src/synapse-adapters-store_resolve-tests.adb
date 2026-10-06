@@ -270,6 +270,47 @@ package body Synapse.Adapters.Store_Resolve.Tests is
          raise;
    end An_Invalid_Setting_Builds_Nothing;
 
+   procedure The_Stack_Exposes_All_The_Capabilities
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+
+      procedure Check (Integrations : String; Commits : Natural) is
+         Dir   : constant Scratch := Make;
+         V     : aliased Fake_Variables.Fake_Variables;
+         S     : Stack;
+         Valid : Boolean;
+      begin
+         Prepare (Dir, V, Integrations);
+         Put (Path (Dir, "vault/A.md"), "see [[B]]" & LF);
+         Put (Path (Dir, "vault/B.md"), "x" & LF);
+         Git (Path (Dir, "vault"), "init", "-q", "-b", "main");
+         Git (Path (Dir, "vault"), "config", "user.email", "t@example.com");
+         Git (Path (Dir, "vault"), "config", "user.name", "T");
+         Resolve (S, V'Access, Path (Dir, "vault"), "", "", null, Valid);
+         Assert (Valid, "valid");
+         Assert (S.Link_Graph.Links ("A.md").Length = 1, "the link graph");
+         S.Renamer.Rename ("B.md", "C.md");
+         Assert (File_Bytes.Read (Path (Dir, "vault/A.md"), 1000)
+                 = "see [[C]]" & LF, "the rename fixed the link");
+         Assert (Commit_Count (Path (Dir, "vault")) = Commits,
+                 "after a rename: " & Integrations);
+         S.Deleter.Delete ("C.md");
+         Assert (File_Bytes.Read (Path (Dir, "vault/A.md"), 1000)
+                 = "see C" & LF, "the delete unlinked it");
+         Assert (Commit_Count (Path (Dir, "vault")) = Commits * 2,
+                 "after a delete: " & Integrations);
+         Remove (Dir);
+      exception
+         when others =>
+            Remove (Dir);
+            raise;
+      end Check;
+   begin
+      Check ("", 0);
+      Check ("git", 1);
+   end The_Stack_Exposes_All_The_Capabilities;
+
    --  Counts the pushes asked for.
    type Counting is limited new Git_Store.Pusher_Spawner with record
       Calls : Natural := 0;
@@ -352,6 +393,9 @@ package body Synapse.Adapters.Store_Resolve.Tests is
       Register_Routine
         (T, An_Invalid_Setting_Builds_Nothing'Access,
          "An invalid setting builds nothing");
+      Register_Routine
+        (T, The_Stack_Exposes_All_The_Capabilities'Access,
+         "The stack exposes all the capabilities");
       Register_Routine
         (T, The_Configuration_Reaches_The_Layers'Access,
          "The configuration reaches the layers");

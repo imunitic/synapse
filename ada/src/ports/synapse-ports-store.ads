@@ -18,6 +18,9 @@ package Synapse.Ports.Store is
    --  A node name that could address something outside the store.
    Unsafe_Node : exception;
 
+   --  There is nothing at the path a rename or delete was asked to act on.
+   Node_Not_Found : exception;
+
    type Maybe_Text (Found : Boolean := False) is record
       case Found is
          when True =>
