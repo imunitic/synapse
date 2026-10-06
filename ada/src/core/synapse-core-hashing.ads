@@ -17,6 +17,12 @@ is
    function Blob_Hash_Hex (Content : String) return String with
      Post => Blob_Hash_Hex'Result'Length = 40;
 
+     --  SHA-256 as 32 bytes, how an index stores it: half the size of its hex,
+     --  and compared as bytes.
+   type Digest is array (1 .. 32) of Natural range 0 .. 255;
+
+   function Sha256_Raw (Content : String) return Digest;
+
    --  SHA-256 as 64 lowercase hexadecimal digits.
    function Sha256_Hex (Content : String) return String with
      Post => Sha256_Hex'Result'Length = 64;

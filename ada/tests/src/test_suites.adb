@@ -44,6 +44,9 @@ with Synapse.Core.Symbol.Tests;
 with Synapse.Core.Index_Map_Format.Tests;
 with Synapse.Core.Index_Map.Tests;
 with Synapse.Adapters.Index_Map.Tests;
+with Synapse.Core.Docstring_Index_Format.Tests;
+with Synapse.Adapters.Docstring_Cache.Tests;
+with Synapse.Adapters.Atomic_File.Tests;
 with Synapse.Core.Graph_Model.Tests;
 with Synapse.Core.Hashing.Tests;
 with Synapse.Core.Line_Slice.Tests;
@@ -65,82 +68,87 @@ with Synapse.Core.Unicode.Tests;
 
 package body Test_Suites is
 
-   Arith_Tests              : aliased Synapse.Core.Arith.Tests.Test_Case;
-   UTF8_Tests               : aliased Synapse.Core.UTF8.Tests.Test_Case;
-   Unicode_Tests            : aliased Synapse.Core.Unicode.Tests.Test_Case;
+   Arith_Tests                  : aliased Synapse.Core.Arith.Tests.Test_Case;
+   UTF8_Tests                   : aliased Synapse.Core.UTF8.Tests.Test_Case;
+   Unicode_Tests                : aliased Synapse.Core.Unicode.Tests.Test_Case;
    Tree_Sitter_Tests : aliased Synapse.Adapters.Tree_Sitter.Tests.Test_Case;
-   JSON_Tests               : aliased Synapse.Core.JSON.Tests.Test_Case;
-   Regex_Lite_Tests         : aliased Synapse.Core.Regex_Lite.Tests.Test_Case;
+   JSON_Tests                   : aliased Synapse.Core.JSON.Tests.Test_Case;
+   Regex_Lite_Tests : aliased Synapse.Core.Regex_Lite.Tests.Test_Case;
    Schema_Pattern_Tests : aliased Synapse.Core.Schema_Pattern.Tests.Test_Case;
-   JSON_Logic_Tests         : aliased Synapse.Core.JSON_Logic.Tests.Test_Case;
-   Frontmatter_Tests        : aliased Synapse.Core.Frontmatter.Tests.Test_Case;
-   Schema_YAML_Tests        : aliased Synapse.Core.Schema_YAML.Tests.Test_Case;
+   JSON_Logic_Tests : aliased Synapse.Core.JSON_Logic.Tests.Test_Case;
+   Frontmatter_Tests : aliased Synapse.Core.Frontmatter.Tests.Test_Case;
+   Schema_YAML_Tests : aliased Synapse.Core.Schema_YAML.Tests.Test_Case;
    Schema_Rules_Tests : aliased Synapse.Core.Schema_Rules.Tests.Test_Case;
-   Note_Schema_Tests        : aliased Synapse.Core.Note_Schema.Tests.Test_Case;
-   Note_Text_Tests          : aliased Synapse.Core.Note_Text.Tests.Test_Case;
-   Note_Model_Tests         : aliased Synapse.Core.Note_Model.Tests.Test_Case;
-   Note_Check_Tests         : aliased Synapse.Core.Note_Check.Tests.Test_Case;
-   Node_Path_Tests          : aliased Synapse.Core.Node_Path.Tests.Test_Case;
-   Text_Search_Tests        : aliased Synapse.Core.Text_Search.Tests.Test_Case;
-   Words_Tests              : aliased Synapse.Core.Words.Tests.Test_Case;
+   Note_Schema_Tests : aliased Synapse.Core.Note_Schema.Tests.Test_Case;
+   Note_Text_Tests : aliased Synapse.Core.Note_Text.Tests.Test_Case;
+   Note_Model_Tests : aliased Synapse.Core.Note_Model.Tests.Test_Case;
+   Note_Check_Tests : aliased Synapse.Core.Note_Check.Tests.Test_Case;
+   Node_Path_Tests : aliased Synapse.Core.Node_Path.Tests.Test_Case;
+   Text_Search_Tests : aliased Synapse.Core.Text_Search.Tests.Test_Case;
+   Words_Tests                  : aliased Synapse.Core.Words.Tests.Test_Case;
    Fake_Store_Tests : aliased Synapse.Adapters.Fake_Store.Tests.Test_Case;
    Disk_Store_Tests : aliased Synapse.Adapters.Disk_Store.Tests.Test_Case;
-   Path_Filter_Tests        : aliased Synapse.Core.Path_Filter.Tests.Test_Case;
+   Path_Filter_Tests : aliased Synapse.Core.Path_Filter.Tests.Test_Case;
    Dir_Lock_Tests : aliased Synapse.Adapters.Dir_Lock.Tests.Test_Case;
-   System_Process_Tests     :
+   System_Process_Tests         :
      aliased Synapse.Adapters.System_Process.Tests.Test_Case;
    Git_Sync_Tests : aliased Synapse.Adapters.Git_Sync.Tests.Test_Case;
    Git_Store_Tests : aliased Synapse.Adapters.Git_Store.Tests.Test_Case;
-   System_Variables_Tests   :
+   System_Variables_Tests       :
      aliased Synapse.Adapters.System_Variables.Tests.Test_Case;
    Conf_Files_Tests : aliased Synapse.Adapters.Conf_Files.Tests.Test_Case;
-   Schema_Loader_Tests      :
+   Schema_Loader_Tests          :
      aliased Synapse.Adapters.Schema_Loader.Tests.Test_Case;
-   Validation_Store_Tests   :
+   Validation_Store_Tests       :
      aliased Synapse.Adapters.Schema_Validation_Store.Tests.Test_Case;
    System_Clock_Tests : aliased Synapse.Adapters.System_Clock.Tests.Test_Case;
-   Store_Resolve_Tests      :
+   Store_Resolve_Tests          :
      aliased Synapse.Adapters.Store_Resolve.Tests.Test_Case;
-   Conf_Tests               : aliased Synapse.Core.Conf.Tests.Test_Case;
-   Disk_Link_Graph_Tests    :
+   Conf_Tests                   : aliased Synapse.Core.Conf.Tests.Test_Case;
+   Disk_Link_Graph_Tests        :
      aliased Synapse.Adapters.Disk_Link_Graph.Tests.Test_Case;
    Disk_Renamer_Tests : aliased Synapse.Adapters.Disk_Renamer.Tests.Test_Case;
-   Git_Capabilities_Tests   :
+   Git_Capabilities_Tests       :
      aliased Synapse.Adapters.Git_Capabilities.Tests.Test_Case;
    Git_Identity_Tests : aliased Synapse.Adapters.Git_Identity.Tests.Test_Case;
-   Emit_Tests               : aliased Synapse.Core.Emit.Tests.Test_Case;
-   Hashing_Tests            : aliased Synapse.Core.Hashing.Tests.Test_Case;
-   Line_Slice_Tests         : aliased Synapse.Core.Line_Slice.Tests.Test_Case;
-   Node_Format_Tests        : aliased Synapse.Core.Node_Format.Tests.Test_Case;
-   Node_Query_Tests         : aliased Synapse.Core.Node_Query.Tests.Test_Case;
-   Tag_Line_Tests           : aliased Synapse.Core.Tag_Line.Tests.Test_Case;
-   Refs_Tests               : aliased Synapse.Core.Refs.Tests.Test_Case;
+   Emit_Tests                   : aliased Synapse.Core.Emit.Tests.Test_Case;
+   Hashing_Tests                : aliased Synapse.Core.Hashing.Tests.Test_Case;
+   Line_Slice_Tests : aliased Synapse.Core.Line_Slice.Tests.Test_Case;
+   Node_Format_Tests : aliased Synapse.Core.Node_Format.Tests.Test_Case;
+   Node_Query_Tests : aliased Synapse.Core.Node_Query.Tests.Test_Case;
+   Tag_Line_Tests : aliased Synapse.Core.Tag_Line.Tests.Test_Case;
+   Refs_Tests                   : aliased Synapse.Core.Refs.Tests.Test_Case;
    Kind_Synonyms_Tests : aliased Synapse.Core.Kind_Synonyms.Tests.Test_Case;
-   Fence_Languages_Tests    :
+   Fence_Languages_Tests        :
      aliased Synapse.Core.Fence_Languages.Tests.Test_Case;
-   Enumerate_Tests          : aliased Synapse.Core.Enumerate.Tests.Test_Case;
+   Enumerate_Tests : aliased Synapse.Core.Enumerate.Tests.Test_Case;
    Graph_Confs_Tests : aliased Synapse.Adapters.Graph_Confs.Tests.Test_Case;
-   File_Byte_Source_Tests   :
+   File_Byte_Source_Tests       :
      aliased Synapse.Adapters.File_Byte_Source.Tests.Test_Case;
-   Memory_Byte_Source_Tests :
+   Memory_Byte_Source_Tests     :
      aliased Synapse.Adapters.Memory_Byte_Source.Tests.Test_Case;
    Little_Endian_Tests : aliased Synapse.Core.Little_Endian.Tests.Test_Case;
-   Byte_Window_Tests        : aliased Synapse.Core.Byte_Window.Tests.Test_Case;
-   Tag_Payload_Tests        : aliased Synapse.Core.Tag_Payload.Tests.Test_Case;
-   Tags_Cache_Format_Tests  :
+   Byte_Window_Tests : aliased Synapse.Core.Byte_Window.Tests.Test_Case;
+   Tag_Payload_Tests : aliased Synapse.Core.Tag_Payload.Tests.Test_Case;
+   Tags_Cache_Format_Tests      :
      aliased Synapse.Core.Tags_Cache_Format.Tests.Test_Case;
    Tags_Cache_Tests : aliased Synapse.Adapters.Tags_Cache.Tests.Test_Case;
-   Symbol_Tests             : aliased Synapse.Core.Symbol.Tests.Test_Case;
-   Index_Map_Format_Tests   :
+   Symbol_Tests                 : aliased Synapse.Core.Symbol.Tests.Test_Case;
+   Index_Map_Format_Tests       :
      aliased Synapse.Core.Index_Map_Format.Tests.Test_Case;
-   Index_Map_Tests          : aliased Synapse.Core.Index_Map.Tests.Test_Case;
-   Adapters_Index_Map_Tests :
+   Index_Map_Tests : aliased Synapse.Core.Index_Map.Tests.Test_Case;
+   Adapters_Index_Map_Tests     :
      aliased Synapse.Adapters.Index_Map.Tests.Test_Case;
-   Graph_Model_Tests        : aliased Synapse.Core.Graph_Model.Tests.Test_Case;
-   Identity_Tests           : aliased Synapse.Core.Identity.Tests.Test_Case;
+   Docstring_Index_Format_Tests :
+     aliased Synapse.Core.Docstring_Index_Format.Tests.Test_Case;
+   Docstring_Cache_Tests        :
+     aliased Synapse.Adapters.Docstring_Cache.Tests.Test_Case;
+   Atomic_File_Tests : aliased Synapse.Adapters.Atomic_File.Tests.Test_Case;
+   Graph_Model_Tests : aliased Synapse.Core.Graph_Model.Tests.Test_Case;
+   Identity_Tests : aliased Synapse.Core.Identity.Tests.Test_Case;
    Project_Index_Tests : aliased Synapse.Core.Project_Index.Tests.Test_Case;
-   Wikilinks_Tests          : aliased Synapse.Core.Wikilinks.Tests.Test_Case;
-   Prose_Tests              : aliased Synapse.Core.Prose.Tests.Test_Case;
+   Wikilinks_Tests : aliased Synapse.Core.Wikilinks.Tests.Test_Case;
+   Prose_Tests                  : aliased Synapse.Core.Prose.Tests.Test_Case;
    Note_Operators_Tests : aliased Synapse.Core.Note_Operators.Tests.Test_Case;
 
    function Suite return AUnit.Test_Suites.Access_Test_Suite is
@@ -165,6 +173,9 @@ package body Test_Suites is
       Result.Add_Test (Wikilinks_Tests'Access);
       Result.Add_Test (Git_Identity_Tests'Access);
       Result.Add_Test (Graph_Model_Tests'Access);
+      Result.Add_Test (Docstring_Index_Format_Tests'Access);
+      Result.Add_Test (Docstring_Cache_Tests'Access);
+      Result.Add_Test (Atomic_File_Tests'Access);
       Result.Add_Test (Index_Map_Format_Tests'Access);
       Result.Add_Test (Index_Map_Tests'Access);
       Result.Add_Test (Adapters_Index_Map_Tests'Access);

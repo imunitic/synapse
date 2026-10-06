@@ -1,7 +1,6 @@
 with Ada.Directories;
 
-with Synapse.Adapters.File_Bytes;
-with Synapse.Adapters.Replace_File;
+with Synapse.Adapters.Atomic_File;
 with Synapse.Core.Index_Map;
 with Synapse.Ports.Byte_Source;
 
@@ -100,32 +99,9 @@ package body Synapse.Adapters.Index_Map is
       return Format.Unassigned (M.Source, M.Head);
    end Unassigned;
 
-   --  The directory part of Path, or "" when it has none.
-   function Directory_Of (Path : String) return String is
-   begin
-      return Ada.Directories.Containing_Directory (Path);
-   exception
-      when others =>
-         return "";
-   end Directory_Of;
-
    procedure Write_File (Path : String; Bytes : String) is
-      Tmp : constant String := Path & ".tmp";
-      Dir : constant String := Directory_Of (Path);
    begin
-      if Dir /= "" then
-         Ada.Directories.Create_Path (Dir);
-      end if;
-      File_Bytes.Write (Tmp, Bytes);
-      begin
-         Replace_File.Replace (Tmp, Path);
-      exception
-         when others =>
-            if Ada.Directories.Exists (Tmp) then
-               Ada.Directories.Delete_File (Tmp);
-            end if;
-            raise;
-      end;
+      Atomic_File.Write (Path, Bytes);
    end Write_File;
 
    function Add_Unassigned (M : in out Map; Extra : String) return Boolean is
