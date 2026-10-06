@@ -1,0 +1,12 @@
+--  A compiled tree-sitter grammar used by the tests.
+library project Fake_Nested is
+
+   for Languages use ("C");
+   for Source_Dirs use ("fake_nested/src");
+   for Object_Dir use "obj/fake_nested";
+   for Library_Name use "fake_nested";
+   for Library_Dir use "lib";
+   for Library_Kind use "dynamic";
+   for Create_Missing_Dirs use "True";
+
+end Fake_Nested;

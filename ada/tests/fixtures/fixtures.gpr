@@ -1,6 +1,6 @@
 --  Builds every fixture grammar as a shared library under fixtures/lib.
 aggregate project Fixtures is
 
-   for Project_Files use ("fake3.gpr", "fake_docstrings.gpr", "fake_abi16.gpr");
+   for Project_Files use ("fake3.gpr", "fake_docstrings.gpr", "fake_abi16.gpr", "fake_nested.gpr");
 
 end Fixtures;
