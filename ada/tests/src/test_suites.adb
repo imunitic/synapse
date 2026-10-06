@@ -3,7 +3,10 @@ with Synapse.Core.Arith.Tests;
 with Synapse.Core.Regex_Lite.Tests;
 with Synapse.Adapters.Disk_Store.Tests;
 with Synapse.Adapters.Dir_Lock.Tests;
+with Synapse.Adapters.Conf_Files.Tests;
 with Synapse.Adapters.Fake_Store.Tests;
+with Synapse.Adapters.System_Variables.Tests;
+with Synapse.Core.Conf.Tests;
 with Synapse.Adapters.Git_Store.Tests;
 with Synapse.Adapters.Git_Sync.Tests;
 with Synapse.Adapters.System_Process.Tests;
@@ -50,9 +53,15 @@ package body Test_Suites is
    Disk_Store_Tests : aliased Synapse.Adapters.Disk_Store.Tests.Test_Case;
    Path_Filter_Tests : aliased Synapse.Core.Path_Filter.Tests.Test_Case;
    Dir_Lock_Tests : aliased Synapse.Adapters.Dir_Lock.Tests.Test_Case;
-   System_Process_Tests : aliased Synapse.Adapters.System_Process.Tests.Test_Case;
+   System_Process_Tests :
+     aliased Synapse.Adapters.System_Process.Tests.Test_Case;
    Git_Sync_Tests : aliased Synapse.Adapters.Git_Sync.Tests.Test_Case;
    Git_Store_Tests : aliased Synapse.Adapters.Git_Store.Tests.Test_Case;
+   System_Variables_Tests : aliased
+     Synapse.Adapters.System_Variables.Tests.Test_Case;
+   Conf_Files_Tests :
+     aliased Synapse.Adapters.Conf_Files.Tests.Test_Case;
+   Conf_Tests : aliased Synapse.Core.Conf.Tests.Test_Case;
    Prose_Tests : aliased Synapse.Core.Prose.Tests.Test_Case;
    Note_Operators_Tests : aliased Synapse.Core.Note_Operators.Tests.Test_Case;
 
@@ -75,6 +84,9 @@ package body Test_Suites is
       Result.Add_Test (Note_Text_Tests'Access);
       Result.Add_Test (Note_Model_Tests'Access);
       Result.Add_Test (Prose_Tests'Access);
+      Result.Add_Test (System_Variables_Tests'Access);
+      Result.Add_Test (Conf_Tests'Access);
+      Result.Add_Test (Conf_Files_Tests'Access);
       Result.Add_Test (Git_Store_Tests'Access);
       Result.Add_Test (Git_Sync_Tests'Access);
       Result.Add_Test (Dir_Lock_Tests'Access);
