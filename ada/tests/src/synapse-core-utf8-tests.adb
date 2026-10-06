@@ -1,4 +1,8 @@
+with Ada.Strings.Unbounded;
+
 with AUnit.Assertions;
+
+with Interfaces;
 
 package body Synapse.Core.UTF8.Tests is
 
@@ -122,6 +126,116 @@ package body Synapse.Core.UTF8.Tests is
       Assert (Scalar_At (Tail, 3) = 16#E9#, "Scalar_At addresses by 'Range");
    end Slices_With_Any_First_Index_Work;
 
+   procedure Decodes_Leniently
+     (T : in out AUnit.Test_Cases.Test_Case'Class)
+   is
+      pragma Unreferenced (T);
+      Value : Natural;
+      Width : Positive;
+      Mixed : constant String :=
+        Bytes ([16#C3#, 16#A9#, 16#FF#, 16#E2#, 16#82#, 16#61#]);
+   begin
+      Decode_Lenient (Mixed, 1, Value, Width);
+      Assert (Value = 16#E9# and then Width = 2, "a well-formed sequence");
+      Decode_Lenient (Mixed, 3, Value, Width);
+      Assert (Value = Invalid_Byte_Base + 16#FF# and then Width = 1,
+              "a stray byte is its own atom");
+      Decode_Lenient (Mixed, 4, Value, Width);
+      Assert (Value = Invalid_Byte_Base + 16#E2# and then Width = 1,
+              "a cut sequence starts with its lead byte alone");
+      Decode_Lenient (Mixed, 5, Value, Width);
+      Assert (Value = Invalid_Byte_Base + 16#82# and then Width = 1,
+              "and its continuation byte follows alone");
+      Decode_Lenient (Mixed, 6, Value, Width);
+      Assert (Value = 16#61# and then Width = 1, "ASCII");
+   end Decodes_Leniently;
+
+   procedure Steps_Back_One_Atom
+     (T : in out AUnit.Test_Cases.Test_Case'Class)
+   is
+      pragma Unreferenced (T);
+      Text : constant String := Bytes ([16#61#, 16#C3#, 16#A9#, 16#FF#]);
+   begin
+      Assert (Previous_Start (Text, 1, 5) = 4, "the stray byte");
+      Assert (Previous_Start (Text, 1, 4) = 2, "the 2-byte character");
+      Assert (Previous_Start (Text, 1, 2) = 1, "the ASCII byte");
+      Assert (Previous_Start (Text, 2, 4) = 2, "never before the floor");
+      Assert (Previous_Start (Text, 3, 4) = 3, "even inside a character");
+   end Steps_Back_One_Atom;
+
+   Seed : Interfaces.Unsigned_64 := 20_261_009;
+
+   function Next (Limit : Positive) return Natural is
+      use type Interfaces.Unsigned_64;
+   begin
+      Seed := Seed * 6_364_136_223_846_793_005 + 1_442_695_040_888_963_407;
+      return Natural ((Seed / 2**20) mod Interfaces.Unsigned_64 (Limit));
+   end Next;
+
+   --  Text mixing ASCII, well-formed sequences, stray bytes and cut sequences.
+   function Random_Bytes return String is
+      use Ada.Strings.Unbounded;
+      Result : Unbounded_String;
+   begin
+      for I in 1 .. Next (14) loop
+         case Next (6) is
+            when 0 =>
+               Append (Result, Character'Val (Next (128)));
+
+            when 1 =>
+               Append (Result, Encode (16#80# + Next (16#7F80#)));
+
+            when 2 =>
+               Append (Result, Encode (16#1_0000# + Next (16#F_0000#)));
+
+            when 3 =>
+               Append (Result, Character'Val (16#80# + Next (128)));
+
+            when 4 =>
+               Append (Result, Character'Val (16#C0# + Next (64)));
+
+            when others =>
+               Append (Result, Encode (16#800# + Next (16#D000#)));
+         end case;
+      end loop;
+      return To_String (Result);
+   end Random_Bytes;
+
+   procedure Backward_Steps_Retrace_The_Forward_Segmentation
+     (T : in out AUnit.Test_Cases.Test_Case'Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      for Case_No in 1 .. 20_000 loop
+         declare
+            Text      : constant String := Random_Bytes;
+            Value     : Natural;
+            Width     : Positive;
+            Pos       : Positive := Text'First;
+            Previous  : Natural := 0;
+         begin
+            while Pos <= Text'Last loop
+               if Previous /= 0
+                 and then Previous_Start (Text, Text'First, Pos) /= Previous
+               then
+                  Assert (False, "case" & Case_No'Image
+                          & ": boundary" & Pos'Image & " steps back to"
+                          & Previous_Start (Text, Text'First, Pos)'Image
+                          & " not" & Previous'Image);
+               end if;
+               Previous := Pos;
+               Decode_Lenient (Text, Pos, Value, Width);
+               Pos := Pos + Width;
+            end loop;
+            if Previous /= 0
+              and then Previous_Start (Text, Text'First, Pos) /= Previous
+            then
+               Assert (False, "case" & Case_No'Image & ": the end");
+            end if;
+         end;
+      end loop;
+   end Backward_Steps_Retrace_The_Forward_Segmentation;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -148,6 +262,12 @@ package body Synapse.Core.UTF8.Tests is
       Register_Routine
         (T, Slices_With_Any_First_Index_Work'Access,
          "Slices with any first index work");
+      Register_Routine (T, Decodes_Leniently'Access, "Decodes leniently");
+      Register_Routine
+        (T, Steps_Back_One_Atom'Access, "Steps back one atom");
+      Register_Routine
+        (T, Backward_Steps_Retrace_The_Forward_Segmentation'Access,
+         "Backward steps retrace the forward segmentation");
    end Register_Tests;
 
 end Synapse.Core.UTF8.Tests;

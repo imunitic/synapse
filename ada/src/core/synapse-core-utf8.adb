@@ -73,6 +73,33 @@ package body Synapse.Core.UTF8 with SPARK_Mode is
       return True;
    end Is_Valid;
 
+   procedure Decode_Lenient
+     (S : String; Pos : Positive; Value : out Natural; Width : out Positive)
+   is
+      Length : constant Natural := Sequence_Length (S, Pos);
+   begin
+      if Length > 0 then
+         Value := Scalar_At (S, Pos);
+         Width := Length;
+      else
+         Value := Invalid_Byte_Base + Byte (S, Pos);
+         Width := 1;
+      end if;
+   end Decode_Lenient;
+
+   function Previous_Start (S : String; Floor, Pos : Positive) return Positive
+   is
+   begin
+      for Back in 1 .. 4 loop
+         if Pos - Back >= Floor
+           and then Sequence_Length (S, Pos - Back) = Back
+         then
+            return Pos - Back;
+         end if;
+      end loop;
+      return Pos - 1;
+   end Previous_Start;
+
    function Encoded_Length (CP : Scalar_Value) return Positive
    is (if CP < 16#80# then 1
        elsif CP < 16#800# then 2

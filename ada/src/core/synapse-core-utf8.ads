@@ -122,6 +122,32 @@ package Synapse.Core.UTF8 with SPARK_Mode is
    function Is_Valid (S : String) return Boolean
    with Pre => S'Last < Positive'Last;
 
+   --  Atom value of a byte that is not part of a well-formed sequence: this
+   --  base plus the byte.
+   Invalid_Byte_Base : constant := 16#11_0000#;
+
+   --  Reads the atom at Pos: the scalar value of a well-formed sequence, or
+   --  Invalid_Byte_Base + byte for a malformed byte, which is an atom of its
+   --  own. Width is the number of bytes the atom takes.
+   procedure Decode_Lenient
+     (S : String; Pos : Positive; Value : out Natural; Width : out Positive)
+   with
+     Pre  => S'Last < Positive'Last and then Pos in S'Range,
+     Post =>
+       Width - 1 <= S'Last - Pos and then Value <= Invalid_Byte_Base + 255;
+
+   --  The start of the atom that ends just before Pos, under the segmentation
+   --  Decode_Lenient produces reading forward from Floor, and never before
+   --  Floor.
+   function Previous_Start (S : String; Floor, Pos : Positive) return Positive
+   with
+     Pre  =>
+       S'Last < Positive'Last
+       and then Floor >= S'First
+       and then Pos > Floor
+       and then Pos <= S'Last + 1,
+     Post => Previous_Start'Result in Floor .. Pos - 1;
+
    function Encoded_Length (CP : Scalar_Value) return Positive
    with Post => Encoded_Length'Result <= 4;
 

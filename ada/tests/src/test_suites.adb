@@ -1,5 +1,7 @@
 with Synapse.Adapters.Tree_Sitter.Tests;
 with Synapse.Core.Arith.Tests;
+with Synapse.Core.Regex_Lite.Tests;
+with Synapse.Core.Schema_Pattern.Tests;
 with Synapse.Core.JSON.Tests;
 with Synapse.Core.UTF8.Tests;
 with Synapse.Core.Unicode.Tests;
@@ -11,6 +13,8 @@ package body Test_Suites is
    Unicode_Tests : aliased Synapse.Core.Unicode.Tests.Test_Case;
    Tree_Sitter_Tests : aliased Synapse.Adapters.Tree_Sitter.Tests.Test_Case;
    JSON_Tests : aliased Synapse.Core.JSON.Tests.Test_Case;
+   Regex_Lite_Tests : aliased Synapse.Core.Regex_Lite.Tests.Test_Case;
+   Schema_Pattern_Tests : aliased Synapse.Core.Schema_Pattern.Tests.Test_Case;
 
    function Suite return AUnit.Test_Suites.Access_Test_Suite is
       Result : constant AUnit.Test_Suites.Access_Test_Suite :=
@@ -21,6 +25,8 @@ package body Test_Suites is
       Result.Add_Test (Unicode_Tests'Access);
       Result.Add_Test (Tree_Sitter_Tests'Access);
       Result.Add_Test (JSON_Tests'Access);
+      Result.Add_Test (Regex_Lite_Tests'Access);
+      Result.Add_Test (Schema_Pattern_Tests'Access);
       return Result;
    end Suite;
 
