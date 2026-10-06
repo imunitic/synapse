@@ -41,6 +41,9 @@ with Synapse.Core.Tag_Payload.Tests;
 with Synapse.Core.Tags_Cache_Format.Tests;
 with Synapse.Adapters.Tags_Cache.Tests;
 with Synapse.Core.Symbol.Tests;
+with Synapse.Core.Index_Map_Format.Tests;
+with Synapse.Core.Index_Map.Tests;
+with Synapse.Adapters.Index_Map.Tests;
 with Synapse.Core.Graph_Model.Tests;
 with Synapse.Core.Hashing.Tests;
 with Synapse.Core.Line_Slice.Tests;
@@ -128,6 +131,11 @@ package body Test_Suites is
      aliased Synapse.Core.Tags_Cache_Format.Tests.Test_Case;
    Tags_Cache_Tests : aliased Synapse.Adapters.Tags_Cache.Tests.Test_Case;
    Symbol_Tests             : aliased Synapse.Core.Symbol.Tests.Test_Case;
+   Index_Map_Format_Tests   :
+     aliased Synapse.Core.Index_Map_Format.Tests.Test_Case;
+   Index_Map_Tests          : aliased Synapse.Core.Index_Map.Tests.Test_Case;
+   Adapters_Index_Map_Tests :
+     aliased Synapse.Adapters.Index_Map.Tests.Test_Case;
    Graph_Model_Tests        : aliased Synapse.Core.Graph_Model.Tests.Test_Case;
    Identity_Tests           : aliased Synapse.Core.Identity.Tests.Test_Case;
    Project_Index_Tests : aliased Synapse.Core.Project_Index.Tests.Test_Case;
@@ -157,6 +165,9 @@ package body Test_Suites is
       Result.Add_Test (Wikilinks_Tests'Access);
       Result.Add_Test (Git_Identity_Tests'Access);
       Result.Add_Test (Graph_Model_Tests'Access);
+      Result.Add_Test (Index_Map_Format_Tests'Access);
+      Result.Add_Test (Index_Map_Tests'Access);
+      Result.Add_Test (Adapters_Index_Map_Tests'Access);
       Result.Add_Test (Tags_Cache_Tests'Access);
       Result.Add_Test (Symbol_Tests'Access);
       Result.Add_Test (Little_Endian_Tests'Access);
