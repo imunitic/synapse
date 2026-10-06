@@ -2,7 +2,8 @@ name: ada
 
 # The Ada tree is a standalone Alire project; this workflow builds it, runs its
 # AUnit suite with contracts checked at runtime, and proves its SPARK units, on
-# every platform Synapse targets. The steps are the ones `just ada-check` runs.
+# every platform Synapse targets, then checks the generated Unicode tables are
+# current. The steps are the ones `just ada-check` runs.
 # Triggered only by changes to the Ada tree, so the Zig workflows and this one
 # do not wait on each other.
 on:
@@ -15,11 +16,6 @@ on:
       - "ada/**"
       - ".github/workflows/ada.yml"
   workflow_dispatch:
-
-# The crate's location is this one default; every step runs relative to it.
-defaults:
-  run:
-    working-directory: ada
 
 jobs:
   ada:
@@ -36,13 +32,18 @@ jobs:
       # crates' own dependencies (AUnit, GNATprove) are fetched on first build.
       - uses: alire-project/setup-alire@v6
 
+      # The justfile owns every command and the pinned Unicode version, so this
+      # workflow and a local `just ada-check` cannot drift apart.
+      - uses: extractions/setup-just@v4
+
       - name: Build
-        run: alr -n build --validation
+        run: just ada-build
 
       - name: AUnit tests
-        run: |
-          alr -n -C tests build --validation
-          alr -n -C tests run --skip-build
+        run: just ada-test
 
       - name: GNATprove
-        run: alr -n -C tests exec -- gnatprove -P synapse_tests.gpr --level=2 --report=all --checks-as-errors=on
+        run: just ada-prove
+
+      - name: Generated Unicode tables are current
+        run: just ada-gen-check

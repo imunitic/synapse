@@ -327,18 +327,42 @@ diff:
 
 ada_dir := "ada"
 
+ucd_version := "18.0.0"
+
+# Download the pinned Unicode Character Database files the tables generator and the conformance tests read.
+ada-ucd:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p {{ ada_dir }}/ucd
+    for f in UnicodeData.txt CompositionExclusions.txt CaseFolding.txt NormalizationTest.txt; do
+        [ -s "{{ ada_dir }}/ucd/$f" ] || curl -fsSL -o "{{ ada_dir }}/ucd/$f" \
+            "https://www.unicode.org/Public/{{ ucd_version }}/ucd/$f"
+    done
+    echo "ucd {{ ucd_version }} ok"
+
+# Regenerate the Unicode tables from the downloaded UCD files.
+ada-gen-unicode: ada-ucd
+    cd {{ ada_dir }}/tools && alr -n build --validation && alr -n run --skip-build --args="../ucd ../src/core {{ ucd_version }}"
+
+# Fail if the committed Unicode tables differ from what the generator produces.
+ada-gen-check: ada-ucd
+    mkdir -p {{ ada_dir }}/ucd/check
+    cd {{ ada_dir }}/tools && alr -n build --validation && alr -n run --skip-build --args="../ucd ../ucd/check {{ ucd_version }}"
+    cmp {{ ada_dir }}/src/core/synapse-core-unicode_tables.ads {{ ada_dir }}/ucd/check/synapse-core-unicode_tables.ads
+    cmp {{ ada_dir }}/src/core/synapse-core-unicode_tables.adb {{ ada_dir }}/ucd/check/synapse-core-unicode_tables.adb
+
 # Build the Ada crate with the validation profile (contracts checked at runtime).
 ada-build:
     cd {{ ada_dir }} && alr -n build --validation
 
 # Run the AUnit suite; exits non-zero on any failed test.
-ada-test:
+ada-test: ada-ucd
     cd {{ ada_dir }}/tests && alr -n build --validation && alr -n run --skip-build
 
 # Prove the SPARK units with GNATprove; exits non-zero on any unproved check.
 ada-prove:
-    cd {{ ada_dir }}/tests && alr -n exec -- gnatprove -P synapse_tests.gpr --level=2 --report=all --checks-as-errors=on
+    cd {{ ada_dir }}/tests && alr -n exec -- gnatprove -P synapse_proof.gpr --level=2 --report=all --checks-as-errors=on
 
 # Everything the Ada CI workflow runs.
-ada-check: ada-build ada-test ada-prove
+ada-check: ada-build ada-test ada-prove ada-gen-check
     @echo "ada green"
