@@ -52,6 +52,8 @@ with Synapse.Core.Deps.Tests;
 with Synapse.Adapters.Disk_Repo_Reader.Tests;
 with Synapse.Core.Links.Tests;
 with Synapse.Core.Rarity.Tests;
+with Synapse.Core.Verify.Tests;
+with Synapse.Core.Drift.Tests;
 with Synapse.Core.Graph_Model.Tests;
 with Synapse.Core.Hashing.Tests;
 with Synapse.Core.Line_Slice.Tests;
@@ -155,6 +157,8 @@ package body Test_Suites is
      aliased Synapse.Adapters.Disk_Repo_Reader.Tests.Test_Case;
    Links_Tests                  : aliased Synapse.Core.Links.Tests.Test_Case;
    Rarity_Tests                 : aliased Synapse.Core.Rarity.Tests.Test_Case;
+   Verify_Tests                 : aliased Synapse.Core.Verify.Tests.Test_Case;
+   Drift_Tests                  : aliased Synapse.Core.Drift.Tests.Test_Case;
    Graph_Model_Tests : aliased Synapse.Core.Graph_Model.Tests.Test_Case;
    Identity_Tests : aliased Synapse.Core.Identity.Tests.Test_Case;
    Project_Index_Tests : aliased Synapse.Core.Project_Index.Tests.Test_Case;
@@ -184,6 +188,8 @@ package body Test_Suites is
       Result.Add_Test (Wikilinks_Tests'Access);
       Result.Add_Test (Git_Identity_Tests'Access);
       Result.Add_Test (Graph_Model_Tests'Access);
+      Result.Add_Test (Verify_Tests'Access);
+      Result.Add_Test (Drift_Tests'Access);
       Result.Add_Test (Links_Tests'Access);
       Result.Add_Test (Rarity_Tests'Access);
       Result.Add_Test (Namespace_Tests'Access);
