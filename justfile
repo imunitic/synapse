@@ -317,3 +317,28 @@ check-local: build build-targets test-zig layering syntax test docs-check npm-ch
 # Show what changed against the pushed branch.
 diff:
     @git --no-pager diff --stat @{u}.. 2>/dev/null || git --no-pager diff --stat
+
+# ---- Ada rewrite -------------------------------------------------------------
+#
+# The Ada tree is a standalone Alire project (crate `synapse`, tests in the
+# `synapse_tests` crate beside it) and has its own CI workflow, ada.yml. These
+# recipes run exactly the steps that workflow runs. Needs Alire (`alr`) on PATH;
+# it fetches GNAT, gprbuild, AUnit and GNATprove itself on first use.
+
+ada_dir := "ada"
+
+# Build the Ada crate with the validation profile (contracts checked at runtime).
+ada-build:
+    cd {{ ada_dir }} && alr -n build --validation
+
+# Run the AUnit suite; exits non-zero on any failed test.
+ada-test:
+    cd {{ ada_dir }}/tests && alr -n build --validation && alr -n run --skip-build
+
+# Prove the SPARK units with GNATprove; exits non-zero on any unproved check.
+ada-prove:
+    cd {{ ada_dir }}/tests && alr -n exec -- gnatprove -P synapse_tests.gpr --level=2 --report=all --checks-as-errors=on
+
+# Everything the Ada CI workflow runs.
+ada-check: ada-build ada-test ada-prove
+    @echo "ada green"

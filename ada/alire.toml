@@ -1,0 +1,17 @@
+name = "synapse"
+description = "Synapse: persistent vault and code-graph memory for coding agents"
+version = "0.0.0-dev"
+
+authors = ["Ivica Munitic"]
+maintainers = ["Ivica Munitic <imunitic@gmail.com>"]
+maintainers-logins = []
+licenses = "MIT"
+tags = []
+
+executables = ["synapse"]
+
+[build-switches]
+validation.contracts = "Yes"
+validation.style_checks = "Yes"
+validation.compile_checks = "Warnings"
+"*".ada_version = "Ada2022"

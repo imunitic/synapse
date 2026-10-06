@@ -1,0 +1,48 @@
+name: ada
+
+# The Ada tree is a standalone Alire project; this workflow builds it, runs its
+# AUnit suite with contracts checked at runtime, and proves its SPARK units, on
+# every platform Synapse targets. The steps are the ones `just ada-check` runs.
+# Triggered only by changes to the Ada tree, so the Zig workflows and this one
+# do not wait on each other.
+on:
+  push:
+    paths:
+      - "ada/**"
+      - ".github/workflows/ada.yml"
+  pull_request:
+    paths:
+      - "ada/**"
+      - ".github/workflows/ada.yml"
+  workflow_dispatch:
+
+# The crate's location is this one default; every step runs relative to it.
+defaults:
+  run:
+    working-directory: ada
+
+jobs:
+  ada:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # Installs Alire and its default toolchain (gnat_native, gprbuild); the
+      # crates' own dependencies (AUnit, GNATprove) are fetched on first build.
+      - uses: alire-project/setup-alire@v6
+
+      - name: Build
+        run: alr -n build --validation
+
+      - name: AUnit tests
+        run: |
+          alr -n -C tests build --validation
+          alr -n -C tests run --skip-build
+
+      - name: GNATprove
+        run: alr -n -C tests exec -- gnatprove -P synapse_tests.gpr --level=2 --report=all --checks-as-errors=on
