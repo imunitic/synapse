@@ -1,9 +1,7 @@
 with Ada.Numerics.Discrete_Random;
-
-with AUnit.Assertions;
-
 with GNAT.CRC32;
 
+with AUnit.Assertions;
 with Synapse.Adapters.Memory_Byte_Source;
 with Synapse.Test_Bytes;
 
@@ -54,7 +52,9 @@ package body Synapse.Core.Index_Map_Format.Tests is
       Src : Memory.Source         := Memory.Create (Bytes);
       Got : constant Parse_Result := Parse (Src);
    begin
-      return (if Got.Ok then "ok" else Parse_Error'Image (Got.Error));
+      return
+        (if Parse_Results.Is_Success (Got) then "ok"
+         else Parse_Error'Image (Parse_Results.Error (Got)));
    end Error_Of;
 
    --  The checksum put back after a change to what it covers, so that what
@@ -125,7 +125,7 @@ package body Synapse.Core.Index_Map_Format.Tests is
    end One_Entry_Encodes_To_Exactly_The_Documented_Bytes;
 
    function Parsed_Head (Src : in out Memory.Source) return Header is
-     (Parse (Src).Head);
+     (Parse_Results.Value (Parse (Src)));
 
    procedure Many_Entries_Round_Trip_With_Multi_Node_Paths
      (T : in out Test_Cases_Class)
@@ -189,13 +189,13 @@ package body Synapse.Core.Index_Map_Format.Tests is
          function At_Of (Path : String) return Integer is
             Got : constant Maybe_Index := Find (Src, H, Path);
          begin
-            return (if Got.Found then Got.Index else -1);
+            return (if Got.Found then Got.Value else -1);
          end At_Of;
 
          function Node_At (Name : String) return Integer is
             Got : constant Maybe_Index := Find_Node (Src, H, Name);
          begin
-            return (if Got.Found then Got.Index else -1);
+            return (if Got.Found then Got.Value else -1);
          end Node_At;
       begin
          Assert
@@ -512,9 +512,9 @@ package body Synapse.Core.Index_Map_Format.Tests is
       Src : Memory.Source         := Memory.Create (Fixture);
       Got : constant Parse_Result := Parse (Src);
    begin
-      Assert (Got.Ok, "parses");
+      Assert (Parse_Results.Is_Success (Got), "parses");
       declare
-         H    : constant Header  := Got.Head;
+         H    : constant Header  := Parse_Results.Value (Got);
          Back : constant Decoded := Decode (Src, H);
       begin
          Assert
@@ -526,7 +526,7 @@ package body Synapse.Core.Index_Map_Format.Tests is
             and then To_String (Back.Entries (1).Nodes (2)) = "Zeta.md",
             "the first path and its second node");
          Assert (To_String (Back.Unassigned (2)) = "notes.txt", "unassigned");
-         Assert (Find_Node (Src, H, "Zeta.md").Index = 1, "a node by name");
+         Assert (Find_Node (Src, H, "Zeta.md").Value = 1, "a node by name");
       end;
    end The_Fixture_Decodes;
 
@@ -573,9 +573,10 @@ package body Synapse.Core.Index_Map_Format.Tests is
                  Memory.Create (Encode (Entries, Unassigned_Paths));
                Got : constant Parse_Result := Parse (Src);
             begin
-               Assert (Got.Ok, "parses");
+               Assert (Parse_Results.Is_Success (Got), "parses");
                declare
-                  Back : constant Decoded := Decode (Src, Got.Head);
+                  Back : constant Decoded :=
+                    Decode (Src, Parse_Results.Value (Got));
                begin
                   Assert
                     (Natural (Back.Entries.Length) = Natural (Entries.Length),
@@ -592,8 +593,10 @@ package body Synapse.Core.Index_Map_Format.Tests is
                            "node");
                      end loop;
                      Assert
-                       (Find (Src, Got.Head, To_String (Entries (I).Path))
-                          .Index =
+                       (Find
+                          (Src, Parse_Results.Value (Got),
+                           To_String (Entries (I).Path))
+                          .Value =
                         I - 1,
                         "found");
                   end loop;

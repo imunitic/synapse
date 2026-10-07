@@ -20,7 +20,7 @@ package body Synapse.Adapters.Fake_Repo_Reader is
       end if;
       return
         (Found => True,
-         Text  =>
+         Value =>
            Ada.Strings.Unbounded.To_Unbounded_String (Files.Element (Place)));
    end Read;
 

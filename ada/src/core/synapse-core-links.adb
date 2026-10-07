@@ -1,7 +1,7 @@
-with Ada.Strings.Fixed;
 
 with Synapse.Core.Rarity;
 with Synapse.Core.Refs;
+with Synapse.Core.Decimal_Image;
 
 package body Synapse.Core.Links is
 
@@ -405,7 +405,7 @@ package body Synapse.Core.Links is
       Append
         (Text,
          To_String (E.From) & HT & To_String (E.To) & HT &
-         Ada.Strings.Fixed.Trim (E.Weight'Image, Ada.Strings.Left) & HT);
+         Decimal_Image.Image (E.Weight) & HT);
       for I in 1 .. Natural (E.Symbols.Length) loop
          if I > 1 then
             Append (Text, " ");

@@ -12,8 +12,8 @@ package body Synapse.Adapters.Disk_Link_Graph is
    use Ada.Strings.Unbounded;
    use type Ada.Containers.Count_Type;
 
-   function Create (Vault : String) return Disk_Link_Graph
-   is (Port.Link_Graph with Vault => To_Unbounded_String (Vault));
+   function Create (Vault : String) return Disk_Link_Graph is
+     (Port.Link_Graph with Vault => To_Unbounded_String (Vault));
 
    --  One link of one note, and the notes it can mean.
    type Edge is record
@@ -24,12 +24,11 @@ package body Synapse.Adapters.Disk_Link_Graph is
 
    package Edge_Vectors is new Ada.Containers.Vectors (Positive, Edge);
 
-   package Path_Maps is new
-     Ada.Containers.Indefinite_Ordered_Maps
-       (String, Core.Text_Lists.Vector, "<", Core.Text_Lists.Vectors."=");
+   package Path_Maps is new Ada.Containers.Indefinite_Ordered_Maps
+     (String, Core.Text_Lists.Vector, "<", Core.Text_Lists.Vectors."=");
 
-   package Id_Maps is new
-     Ada.Containers.Indefinite_Ordered_Maps (String, String);
+   package Id_Maps is new Ada.Containers.Indefinite_Ordered_Maps
+     (String, String);
 
    function In_Code_Graph (Path : String) return Boolean is
    begin
@@ -42,8 +41,8 @@ package body Synapse.Adapters.Disk_Link_Graph is
    end In_Code_Graph;
 
    function Contains
-     (List : Core.Text_Lists.Vector; Item : String) return Boolean
-   is (List.Contains (To_Unbounded_String (Item)));
+     (List : Core.Text_Lists.Vector; Item : String) return Boolean is
+     (List.Contains (To_Unbounded_String (Item)));
 
    --  The value of the field Key, or "" when there is none.
    function Field (Text, Key : String) return String is
@@ -51,25 +50,26 @@ package body Synapse.Adapters.Disk_Link_Graph is
         Core.Frontmatter.Find_Field (Text, Key);
    begin
       if Found.Found then
-         return Text (Text'First + Found.Item.First
-                      .. Text'First + Found.Item.Stop - 1);
+         return
+           Text
+             (Text'First + Found.Value.First ..
+                  Text'First + Found.Value.Stop - 1);
       end if;
       return "";
    end Field;
 
-   function Has_Field (Text, Key : String) return Boolean
-   is (Core.Frontmatter.Find_Field (Text, Key).Found);
+   function Has_Field (Text, Key : String) return Boolean is
+     (Core.Frontmatter.Find_Field (Text, Key).Found);
 
    --  The note's identity: its `note_id`, else its `task_id`, or "".
-   function Identity (Text : String) return String
-   is (if Has_Field (Text, "note_id") then Field (Text, "note_id")
-       else Field (Text, "task_id"));
+   function Identity (Text : String) return String is
+     (if Has_Field (Text, "note_id") then Field (Text, "note_id")
+      else Field (Text, "task_id"));
 
    --  Every edge of the vault, in the order of the notes and of the links in
    --  them, and every note path.
    procedure Build
-     (Vault : String;
-      Paths : out Core.Text_Lists.Vector;
+     (Vault :     String; Paths : out Core.Text_Lists.Vector;
       Edges : out Edge_Vectors.Vector)
    is
       Disk   : Disk_Store.Disk_Store := Disk_Store.Create (Vault, "");
@@ -79,8 +79,8 @@ package body Synapse.Adapters.Disk_Link_Graph is
       type Pending is record
          Source, Target : Unbounded_String;
       end record;
-      package Pending_Vectors is new
-        Ada.Containers.Vectors (Positive, Pending);
+      package Pending_Vectors is new Ada.Containers.Vectors
+        (Positive, Pending);
       Links : Pending_Vectors.Vector;
    begin
       for Name of Disk.List loop
@@ -109,15 +109,14 @@ package body Synapse.Adapters.Disk_Link_Graph is
          begin
             if Found.Found then
                declare
-                  Text : constant String := To_String (Found.Text);
+                  Text : constant String := To_String (Found.Value);
                   Id   : constant String := Identity (Text);
                begin
                   if Id /= "" and then not Ids.Contains (Id) then
                      Ids.Insert (Id, To_String (Path));
                   end if;
                   for Target of Core.Wikilinks.Extract (Text) loop
-                     Links.Append
-                       (Pending'(Source => Path, Target => Target));
+                     Links.Append (Pending'(Source => Path, Target => Target));
                   end loop;
                end;
             end if;
@@ -144,15 +143,14 @@ package body Synapse.Adapters.Disk_Link_Graph is
                end;
             end if;
             Edges.Append
-              (Edge'(Source     => Item.Source,
-                     Target     => Item.Target,
-                     Candidates => Candidates));
+              (Edge'
+                 (Source     => Item.Source, Target => Item.Target,
+                  Candidates => Candidates));
          end;
       end loop;
    end Build;
 
-   overriding
-   function Backlinks
+   overriding function Backlinks
      (G : in out Disk_Link_Graph; Node : String)
       return Port.Backlink_Vectors.Vector
    is
@@ -187,10 +185,8 @@ package body Synapse.Adapters.Disk_Link_Graph is
       return Result;
    end Backlinks;
 
-   overriding
-   function Links
-     (G : in out Disk_Link_Graph; Node : String)
-      return Core.Text_Lists.Vector
+   overriding function Links
+     (G : in out Disk_Link_Graph; Node : String) return Core.Text_Lists.Vector
    is
       Paths  : Core.Text_Lists.Vector;
       Edges  : Edge_Vectors.Vector;
@@ -219,8 +215,7 @@ package body Synapse.Adapters.Disk_Link_Graph is
       end if;
    end Add_Once;
 
-   overriding
-   function Unresolved_Links
+   overriding function Unresolved_Links
      (G : in out Disk_Link_Graph) return Port.Unresolved_Vectors.Vector
    is
       Paths  : Core.Text_Lists.Vector;
@@ -237,7 +232,51 @@ package body Synapse.Adapters.Disk_Link_Graph is
                if not Index.Contains (Target) then
                   Result.Append
                     (Port.Unresolved'
-                       (Target  => E.Target,
+                       (Target  => E.Target, Count => 0,
+                        Sources => Core.Text_Lists.Vectors.Empty_Vector));
+                  Index.Insert
+                    (Target, Natural'Image (Natural (Result.Length)));
+               end if;
+               declare
+                  Position : constant Positive :=
+                    Positive'Value (Index.Element (Target));
+               begin
+                  Result.Reference (Position).Count :=
+                    Result (Position).Count + 1;
+                  Add_Once (Result.Reference (Position).Sources, E.Source);
+               end;
+            end;
+         end if;
+      end loop;
+
+      declare
+         function Before (A, B : Port.Unresolved) return Boolean is
+           (A.Target < B.Target);
+         package Order is new Port.Unresolved_Vectors.Generic_Sorting (Before);
+      begin
+         Order.Sort (Result);
+      end;
+      return Result;
+   end Unresolved_Links;
+
+   overriding function Ambiguous_Links
+     (G : in out Disk_Link_Graph) return Port.Ambiguous_Vectors.Vector
+   is
+      Paths  : Core.Text_Lists.Vector;
+      Edges  : Edge_Vectors.Vector;
+      Result : Port.Ambiguous_Vectors.Vector;
+      Index  : Id_Maps.Map;
+   begin
+      Build (To_String (G.Vault), Paths, Edges);
+      for E of Edges loop
+         if E.Candidates.Length > 1 then
+            declare
+               Target : constant String := To_String (E.Target);
+            begin
+               if not Index.Contains (Target) then
+                  Result.Append
+                    (Port.Ambiguous'
+                       (Target  => E.Target, Candidates => E.Candidates,
                         Count   => 0,
                         Sources => Core.Text_Lists.Vectors.Empty_Vector));
                   Index.Insert
@@ -256,55 +295,8 @@ package body Synapse.Adapters.Disk_Link_Graph is
       end loop;
 
       declare
-         function Before (A, B : Port.Unresolved) return Boolean
-         is (A.Target < B.Target);
-         package Order is new Port.Unresolved_Vectors.Generic_Sorting (Before);
-      begin
-         Order.Sort (Result);
-      end;
-      return Result;
-   end Unresolved_Links;
-
-   overriding
-   function Ambiguous_Links
-     (G : in out Disk_Link_Graph) return Port.Ambiguous_Vectors.Vector
-   is
-      Paths  : Core.Text_Lists.Vector;
-      Edges  : Edge_Vectors.Vector;
-      Result : Port.Ambiguous_Vectors.Vector;
-      Index  : Id_Maps.Map;
-   begin
-      Build (To_String (G.Vault), Paths, Edges);
-      for E of Edges loop
-         if E.Candidates.Length > 1 then
-            declare
-               Target : constant String := To_String (E.Target);
-            begin
-               if not Index.Contains (Target) then
-                  Result.Append
-                    (Port.Ambiguous'
-                       (Target     => E.Target,
-                        Candidates => E.Candidates,
-                        Count      => 0,
-                        Sources    => Core.Text_Lists.Vectors.Empty_Vector));
-                  Index.Insert
-                    (Target, Natural'Image (Natural (Result.Length)));
-               end if;
-               declare
-                  Position : constant Positive :=
-                    Positive'Value (Index.Element (Target));
-               begin
-                  Result.Reference (Position).Count :=
-                    Result (Position).Count + 1;
-                  Add_Once (Result.Reference (Position).Sources, E.Source);
-               end;
-            end;
-         end if;
-      end loop;
-
-      declare
-         function Before (A, B : Port.Ambiguous) return Boolean
-         is (A.Target < B.Target);
+         function Before (A, B : Port.Ambiguous) return Boolean is
+           (A.Target < B.Target);
          package Order is new Port.Ambiguous_Vectors.Generic_Sorting (Before);
       begin
          Order.Sort (Result);
@@ -312,8 +304,8 @@ package body Synapse.Adapters.Disk_Link_Graph is
       return Result;
    end Ambiguous_Links;
 
-   overriding
-   function Orphans (G : in out Disk_Link_Graph) return Core.Text_Lists.Vector
+   overriding function Orphans
+     (G : in out Disk_Link_Graph) return Core.Text_Lists.Vector
    is
       Paths  : Core.Text_Lists.Vector;
       Edges  : Edge_Vectors.Vector;
@@ -334,9 +326,8 @@ package body Synapse.Adapters.Disk_Link_Graph is
       return Result;
    end Orphans;
 
-   overriding
-   function Dead_Ends (G : in out Disk_Link_Graph)
-      return Core.Text_Lists.Vector
+   overriding function Dead_Ends
+     (G : in out Disk_Link_Graph) return Core.Text_Lists.Vector
    is
       Paths   : Core.Text_Lists.Vector;
       Edges   : Edge_Vectors.Vector;

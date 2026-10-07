@@ -4,11 +4,9 @@ with Ada.Directories;
 with Ada.Streams.Stream_IO;
 with Ada.Strings;
 with Ada.Strings.Fixed;
-
-with AUnit.Assertions;
-
 with Interfaces;
 
+with AUnit.Assertions;
 with Synapse.Core.Note_Operators;
 with Synapse.Core.Schema_YAML;
 
@@ -92,20 +90,20 @@ package body Synapse.Core.Note_Check.Tests is
    function Parsed (Source : String) return JSON.Value is
       Result : constant Schema_YAML.Parse_Result := Schema_YAML.Parse (Source);
    begin
-      Assert (Result.Ok, "the schema parses");
+      Assert (Schema_YAML.Parse_Results.Is_Success (Result), "the schema parses");
       declare
          Valid : constant Note_Schema.Check_Result :=
            Note_Schema.Validate_Schema
-             (Result.Root, "t/v1", Note_Operators.Operators);
+             (Schema_YAML.Parse_Results.Value (Result), "t/v1", Note_Operators.Operators);
          Bare  : constant Note_Schema.Check_Result :=
            Note_Schema.Validate_Schema
-             (Result.Root, "vault-note/v1", Note_Operators.Operators);
+             (Schema_YAML.Parse_Results.Value (Result), "vault-note/v1", Note_Operators.Operators);
       begin
-         Assert (Valid.Valid or else Bare.Valid,
+         Assert (Note_Schema.Check_Results.Is_Success (Valid) or else Note_Schema.Check_Results.Is_Success (Bare),
                  "the schema is valid: "
-                 & (if Valid.Valid then "" else To_String (Valid.Message)));
+                 & (if Note_Schema.Check_Results.Is_Success (Valid) then "" else To_String (Note_Schema.Check_Results.Error (Valid))));
       end;
-      return Result.Root;
+      return Schema_YAML.Parse_Results.Value (Result);
    end Parsed;
 
    ---------------------------------------------------------------------------
@@ -128,7 +126,7 @@ package body Synapse.Core.Note_Check.Tests is
       Result : constant Note_Schema.Check_Result :=
         Validate_Note (Parsed (Source), Text, Path, Ctx);
    begin
-      return (if Result.Valid then "<valid>" else To_String (Result.Message));
+      return (if Note_Schema.Check_Results.Is_Success (Result) then "<valid>" else To_String (Note_Schema.Check_Results.Error (Result)));
    end Message_Of;
 
    procedure Rejects
@@ -922,7 +920,7 @@ package body Synapse.Core.Note_Check.Tests is
       Found : constant Maybe_Text := Schema_Id (Note (Fields));
    begin
       return
-        (if Found.Found then "<" & To_String (Found.Text) & ">" else "none");
+        (if Found.Found then "<" & To_String (Found.Value) & ">" else "none");
    end Id_Of;
 
    procedure Schema_Ids_Are_Read_Quoted_Or_Not (T : in out Test_Cases_Class) is
@@ -973,8 +971,8 @@ package body Synapse.Core.Note_Check.Tests is
       Result : constant Schema_YAML.Parse_Result :=
         Schema_YAML.Parse (Read_File (Schema_Dir & "/" & Name & "/v1.yaml"));
    begin
-      Assert (Result.Ok, Name & " parses");
-      return Result.Root;
+      Assert (Schema_YAML.Parse_Results.Is_Success (Result), Name & " parses");
+      return Schema_YAML.Parse_Results.Value (Result);
    end Shipped;
 
    procedure Shipped_Schemas_Accept_Conforming_Notes
@@ -1023,16 +1021,16 @@ package body Synapse.Core.Note_Check.Tests is
                           "tasks/s/Example.md",
                           Ctx_For (Create));
       begin
-         Assert (Got.Valid, "a task note: "
-                 & (if Got.Valid then "" else To_String (Got.Message)));
+         Assert (Note_Schema.Check_Results.Is_Success (Got), "a task note: "
+                 & (if Note_Schema.Check_Results.Is_Success (Got) then "" else To_String (Note_Schema.Check_Results.Error (Got))));
       end;
       declare
          Got : constant Note_Schema.Check_Result :=
            Validate_Note (Shipped ("vault-note"), Vault_Note, "r/Example.md",
                           Ctx_For (Create));
       begin
-         Assert (Got.Valid, "a vault note: "
-                 & (if Got.Valid then "" else To_String (Got.Message)));
+         Assert (Note_Schema.Check_Results.Is_Success (Got), "a vault note: "
+                 & (if Note_Schema.Check_Results.Is_Success (Got) then "" else To_String (Note_Schema.Check_Results.Error (Got))));
       end;
 
       --  A task note created as DONE is refused by its own rule.
@@ -1042,13 +1040,15 @@ package body Synapse.Core.Note_Check.Tests is
       begin
          Done (Mark .. Mark + 3) := "DONE";
          Assert
-           (To_String (Validate_Note (Shipped ("vault-task-note"), Done,
-                                      "tasks/s/Example.md", Ctx_For (Create))
-                         .Message)
+           (To_String
+              (Note_Schema.Check_Results.Error
+                 (Validate_Note (Shipped ("vault-task-note"), Done,
+                                 "tasks/s/Example.md", Ctx_For (Create))))
             = "frontmatter.status: must equal TODO on creation",
             "creation status");
-         Assert (Validate_Note (Shipped ("vault-task-note"), Done,
-                                "tasks/s/Example.md", Ctx_For (Update)).Valid,
+         Assert (Note_Schema.Check_Results.Is_Success
+                   (Validate_Note (Shipped ("vault-task-note"), Done,
+                                   "tasks/s/Example.md", Ctx_For (Update))),
                  "but an update may change it");
       end;
 

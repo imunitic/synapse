@@ -1,11 +1,9 @@
 with Ada.Exceptions;
 with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
-
-with AUnit.Assertions;
-
 with Interfaces;
 
+with AUnit.Assertions;
 with Synapse.Core.Frontmatter.Edit;
 with Synapse.Core.UTF8;
 
@@ -17,27 +15,19 @@ package body Synapse.Core.Frontmatter.Tests is
 
    subtype Test_Cases_Class is AUnit.Test_Cases.Test_Case'Class;
 
-   LF : constant Character := Character'Val (10);
-   CR : constant Character := Character'Val (13);
-   HT : constant Character := Character'Val (9);
+   LF        : constant Character := Character'Val (10);
+   CR        : constant Character := Character'Val (13);
+   HT        : constant Character := Character'Val (9);
    Backslash : constant Character := Character'Val (92);
 
    Hash : constant String := "1111111111111111111111111111111111111111";
 
    Sample : constant String :=
-     "---" & LF
-     & "title: ""State machine""" & LF
-     & "project: sb" & LF
-     & "tags: [synapse, vault-infra]" & LF
-     & "sources:" & LF
-     & "  - path: src/main.zig" & LF
-     & "    hash: " & Hash & LF
-     & "status: TODO" & LF
-     & "---" & LF
-     & LF
-     & "# State machine" & LF
-     & LF
-     & "tags: fake decoy in the body" & LF;
+     "---" & LF & "title: ""State machine""" & LF & "project: sb" & LF &
+     "tags: [synapse, vault-infra]" & LF & "sources:" & LF &
+     "  - path: src/main.zig" & LF & "    hash: " & Hash & LF &
+     "status: TODO" & LF & "---" & LF & LF & "# State machine" & LF & LF &
+     "tags: fake decoy in the body" & LF;
 
    function Replace_All (S, Pattern, By : String) return String is
       Result : Unbounded_String;
@@ -58,30 +48,30 @@ package body Synapse.Core.Frontmatter.Tests is
    end Replace_All;
 
    --  The same text with every line ending CR LF.
-   function As_CRLF (S : String) return String
-   is (Replace_All (S, String'[LF], String'[CR, LF]));
+   function As_CRLF (S : String) return String is
+     (Replace_All (S, String'[LF], String'[CR, LF]));
 
-   function Contains (S, Part : String) return Boolean
-   is (Ada.Strings.Fixed.Index (S, Part) > 0);
+   function Contains (S, Part : String) return Boolean is
+     (Ada.Strings.Fixed.Index (S, Part) > 0);
 
-   function Text_Of (Note : String; Item : Span) return String
-   is (Note (Note'First + Item.First .. Note'First + Item.Stop - 1));
+   function Text_Of (Note : String; Item : Span) return String is
+     (Note (Note'First + Item.First .. Note'First + Item.Stop - 1));
 
    function Field (Note, Key : String) return String is
       Found : constant Maybe_Span := Find_Field (Note, Key);
    begin
       Assert (Found.Found, "field present: " & Key);
-      return Text_Of (Note, Found.Item);
+      return Text_Of (Note, Found.Value);
    end Field;
 
-   function Has_Field (Note, Key : String) return Boolean
-   is (Find_Field (Note, Key).Found);
+   function Has_Field (Note, Key : String) return Boolean is
+     (Find_Field (Note, Key).Found);
 
    function Scalar_Of (Note, Key : String) return String is
       Found : constant Maybe_Text := Scalar (Note, Key);
    begin
       Assert (Found.Found, "scalar present: " & Key);
-      return To_String (Found.Item);
+      return To_String (Found.Value);
    end Scalar_Of;
 
    ---------------------------------------------------------------------------
@@ -89,19 +79,18 @@ package body Synapse.Core.Frontmatter.Tests is
    ---------------------------------------------------------------------------
 
    procedure A_Scalar_Set_Replaces_Only_Its_Line
-
-     (T : in out Test_Cases_Class)
+(T : in out Test_Cases_Class)
 
    is
       pragma Unreferenced (T);
-      Got      : constant String :=
-        Set_Scalar (Sample, "status", "IN-PROGRESS");
+      Got : constant String := Set_Scalar (Sample, "status", "IN-PROGRESS");
       Expected : constant String :=
         Replace_All (Sample, "status: TODO", "status: IN-PROGRESS");
    begin
       Assert (Got = Expected, "exactly one line changed");
-      Assert (Contains (Got, "tags: fake decoy in the body" & LF),
-              "the body is untouched");
+      Assert
+        (Contains (Got, "tags: fake decoy in the body" & LF),
+         "the body is untouched");
    end A_Scalar_Set_Replaces_Only_Its_Line;
 
    procedure A_New_Key_Goes_Before_The_Closing_Fence
@@ -110,80 +99,89 @@ package body Synapse.Core.Frontmatter.Tests is
       pragma Unreferenced (T);
       Got : constant String := Set_Scalar (Sample, "priority", "high");
    begin
-      Assert (Contains (Got, "status: TODO" & LF & "priority: high" & LF
-                             & "---" & LF),
-              "after the last key, before the fence");
+      Assert
+        (Contains
+           (Got, "status: TODO" & LF & "priority: high" & LF & "---" & LF),
+         "after the last key, before the fence");
       Assert
         (Got'Length = Sample'Length + String'("priority: high" & LF)'Length,
-              "and nothing else added");
+         "and nothing else added");
    end A_New_Key_Goes_Before_The_Closing_Fence;
 
    procedure Lists_Are_Written_As_Flow_Sequences
-
-     (T : in out Test_Cases_Class)
+(T : in out Test_Cases_Class)
 
    is
       pragma Unreferenced (T);
       Items : constant String_Array :=
         [To_Unbounded_String ("a"), To_Unbounded_String ("b")];
    begin
-      Assert (Contains (Set_List (Sample, "status", Items),
-                        "status: [a, b]" & LF),
-              "a list on an existing scalar key changes its type");
-      Assert (Contains (Set_List (Sample, "reviewers",
-                                  [To_Unbounded_String ("alice"),
-                                   To_Unbounded_String ("bob")]),
-                        "reviewers: [alice, bob]" & LF),
-              "a list on an absent key");
-      Assert (Contains (Set_List (Sample, "tags", []), "tags: []" & LF),
-              "an empty list");
+      Assert
+        (Contains (Set_List (Sample, "status", Items), "status: [a, b]" & LF),
+         "a list on an existing scalar key changes its type");
+      Assert
+        (Contains
+           (Set_List
+              (Sample, "reviewers",
+               [To_Unbounded_String ("alice"), To_Unbounded_String ("bob")]),
+            "reviewers: [alice, bob]" & LF),
+         "a list on an absent key");
+      Assert
+        (Contains (Set_List (Sample, "tags", []), "tags: []" & LF),
+         "an empty list");
    end Lists_Are_Written_As_Flow_Sequences;
 
    procedure A_Tags_List_Is_Never_A_Quoted_String
-
-     (T : in out Test_Cases_Class)
+(T : in out Test_Cases_Class)
 
    is
       pragma Unreferenced (T);
       Got : constant String :=
-        Set_List (Sample, "tags",
-                  [To_Unbounded_String ("synapse"),
-                   To_Unbounded_String ("vault-infra"),
-                   To_Unbounded_String ("architecture")]);
+        Set_List
+          (Sample, "tags",
+           [To_Unbounded_String ("synapse"),
+           To_Unbounded_String ("vault-infra"),
+           To_Unbounded_String ("architecture")]);
    begin
       Assert
         (Contains (Got, "tags: [synapse, vault-infra, architecture]" & LF),
-              "a real flow sequence");
+         "a real flow sequence");
       Assert (not Contains (Got, "tags: '["), "not a single-quoted string");
       Assert (not Contains (Got, "tags: ""["), "not a double-quoted string");
    end A_Tags_List_Is_Never_A_Quoted_String;
 
    procedure Values_Are_Quoted_Only_When_Needed
-
-     (T : in out Test_Cases_Class)
+(T : in out Test_Cases_Class)
 
    is
       pragma Unreferenced (T);
    begin
-      Assert (Contains (Set_Scalar (Sample, "title", "a: title with a colon"),
-                        "title: ""a: title with a colon""" & LF),
-              "a colon and a space");
-      Assert (Contains (Set_Scalar (Sample, "title", "123"),
-                        "title: ""123""" & LF),
-              "all digits stay a string");
-      Assert (Contains (Set_Scalar (Sample, "title", "plain"),
-                        "title: plain" & LF),
-              "plain text is not quoted");
-      Assert (Contains (Set_Scalar (Sample, "title", """hi"" there"),
-                        "title: """ & Backslash & """hi" & Backslash
-                        & """ there""" & LF),
-              "inner quotes are escaped");
-      Assert (Contains (Set_Scalar (Sample, "title", "say ""hi"""),
-                        "title: say ""hi""" & LF),
-              "a quote inside plain text needs no quoting");
-      Assert (Contains (Set_Scalar (Sample, "title", "line1" & LF & "line2"),
-                        "title: ""line1" & Backslash & "nline2""" & LF),
-              "a newline is escaped");
+      Assert
+        (Contains
+           (Set_Scalar (Sample, "title", "a: title with a colon"),
+            "title: ""a: title with a colon""" & LF),
+         "a colon and a space");
+      Assert
+        (Contains (Set_Scalar (Sample, "title", "123"), "title: ""123""" & LF),
+         "all digits stay a string");
+      Assert
+        (Contains (Set_Scalar (Sample, "title", "plain"), "title: plain" & LF),
+         "plain text is not quoted");
+      Assert
+        (Contains
+           (Set_Scalar (Sample, "title", """hi"" there"),
+            "title: """ & Backslash & """hi" & Backslash & """ there""" & LF),
+         "inner quotes are escaped");
+      Assert
+        (Contains
+           (Set_Scalar (Sample, "title", "say ""hi"""),
+            "title: say ""hi""" & LF),
+         "a quote inside plain text needs no quoting");
+      Assert
+        (Contains
+           (Set_Scalar (Sample, "title", "line1" & LF & "line2"),
+            "title: ""line1" & Backslash & "nline2""" & LF),
+         "a newline is escaped");
    end Values_Are_Quoted_Only_When_Needed;
 
    procedure Needs_Quoting_Follows_The_Writers_Rules
@@ -269,29 +267,33 @@ package body Synapse.Core.Frontmatter.Tests is
      "---" & LF & "title: ""x""" & LF & "---" & LF & "body" & LF;
 
    One_Tag : constant String :=
-     "---" & LF & "title: ""x""" & LF & "tags: [synapse]" & LF & "---" & LF
-     & "body" & LF;
+     "---" & LF & "title: ""x""" & LF & "tags: [synapse]" & LF & "---" & LF &
+     "body" & LF;
 
    procedure Tags_Are_Added (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
    begin
-      Assert (Contains (Add_Tag (Bare, "synapse"), "tags: [synapse]" & LF),
-              "creates the field");
-      Assert (Contains (Add_Tag (Sample, "zig"),
-                        "tags: [synapse, vault-infra, zig]" & LF),
-              "appends to an existing list");
-      Assert (Add_Tag (Sample, "synapse") = Sample,
-              "an existing tag leaves the note byte for byte alone");
+      Assert
+        (Contains (Add_Tag (Bare, "synapse"), "tags: [synapse]" & LF),
+         "creates the field");
+      Assert
+        (Contains
+           (Add_Tag (Sample, "zig"), "tags: [synapse, vault-infra, zig]" & LF),
+         "appends to an existing list");
+      Assert
+        (Add_Tag (Sample, "synapse") = Sample,
+         "an existing tag leaves the note byte for byte alone");
    end Tags_Are_Added;
 
    procedure Tags_Are_Removed (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
    begin
-      Assert (Contains (Remove_Tag (One_Tag, "synapse"), "tags: []" & LF),
-              "the last tag leaves an empty list, not a deleted field");
-      Assert (Contains (Remove_Tag (Sample, "synapse"),
-                        "tags: [vault-infra]" & LF),
-              "one of two");
+      Assert
+        (Contains (Remove_Tag (One_Tag, "synapse"), "tags: []" & LF),
+         "the last tag leaves an empty list, not a deleted field");
+      Assert
+        (Contains (Remove_Tag (Sample, "synapse"), "tags: [vault-infra]" & LF),
+         "one of two");
       Assert (Remove_Tag (Sample, "nonexistent") = Sample, "an absent tag");
       Assert (Remove_Tag (Bare, "synapse") = Bare, "a note without tags");
    end Tags_Are_Removed;
@@ -304,20 +306,20 @@ package body Synapse.Core.Frontmatter.Tests is
          Result : Unbounded_String;
       begin
          for I in Items'Range loop
-            Append (Result, (if I = Items'First then "" else "|")
-                            & To_String (Items (I)));
+            Append
+              (Result,
+               (if I = Items'First then "" else "|") & To_String (Items (I)));
          end loop;
          return To_String (Result);
       end Parsed;
 
-      function With_Tags (Raw : String) return String
-      is ("---" & LF & "tags: " & Raw & LF & "---" & LF);
+      function With_Tags (Raw : String) return String is
+        ("---" & LF & "tags: " & Raw & LF & "---" & LF);
    begin
       Assert (Parsed (Sample) = "synapse|vault-infra", "a flow list");
       Assert (Parsed (With_Tags ("[a,b ,  c]")) = "a|b|c", "blanks trimmed");
       Assert
-        (Parsed (With_Tags ("[""a"", ""b c""]")) = "a|b c",
-         "quotes removed");
+        (Parsed (With_Tags ("[""a"", ""b c""]")) = "a|b c", "quotes removed");
       Assert (Parsed (With_Tags ("[]")) = "", "an empty list");
       Assert (Parsed (With_Tags ("[ ]")) = "", "a blank list");
       Assert (Parsed (With_Tags ("a, b")) = "", "not a flow sequence");
@@ -331,8 +333,7 @@ package body Synapse.Core.Frontmatter.Tests is
    ---------------------------------------------------------------------------
 
    procedure Fields_Are_Read_From_The_Frontmatter
-
-     (T : in out Test_Cases_Class)
+(T : in out Test_Cases_Class)
 
    is
       pragma Unreferenced (T);
@@ -340,8 +341,7 @@ package body Synapse.Core.Frontmatter.Tests is
       Assert (Field (Sample, "title") = "State machine", "quotes stripped");
       Assert (Field (Sample, "project") = "sb", "an unquoted value");
       Assert
-        (Field (Sample, "tags") = "[synapse, vault-infra]",
-         "a list as text");
+        (Field (Sample, "tags") = "[synapse, vault-infra]", "a list as text");
       Assert (not Has_Field (Sample, "missing"), "an absent field");
       Assert (not Has_Field (Sample, "path"), "nested keys are not top level");
       Assert (Field (Sample, "status") = "TODO", "the last key");
@@ -350,8 +350,8 @@ package body Synapse.Core.Frontmatter.Tests is
    procedure A_Lookup_Matches_A_Whole_Key (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Note : constant String :=
-        "---" & LF & "subtitle: nope" & LF & "titled: nope" & LF
-        & "title: yes" & LF & "---" & LF;
+        "---" & LF & "subtitle: nope" & LF & "titled: nope" & LF &
+        "title: yes" & LF & "---" & LF;
    begin
       Assert (Field (Note, "title") = "yes", "not a suffix or prefix");
       Assert (not Has_Field (Note, "tit"), "not a prefix of a key");
@@ -364,37 +364,35 @@ package body Synapse.Core.Frontmatter.Tests is
    end A_Lookup_Matches_A_Whole_Key;
 
    procedure A_Field_Is_Never_Read_From_The_Body
-
-     (T : in out Test_Cases_Class)
+(T : in out Test_Cases_Class)
 
    is
       pragma Unreferenced (T);
       Note : constant String :=
-        "---" & LF & "title: real" & LF & "---" & LF
-        & "status: in the body" & LF;
+        "---" & LF & "title: real" & LF & "---" & LF & "status: in the body" &
+        LF;
    begin
       Assert (not Has_Field (Note, "status"), "a key in the body");
-      Assert (not Has_Field ("status: only prose" & LF, "status"),
-              "a note with no frontmatter");
+      Assert
+        (not Has_Field ("status: only prose" & LF, "status"),
+         "a note with no frontmatter");
    end A_Field_Is_Never_Read_From_The_Body;
 
    procedure One_Quote_Is_Stripped_At_Each_End
-
-     (T : in out Test_Cases_Class)
-
-   is
+(T : in out Test_Cases_Class)
+is
       pragma Unreferenced (T);
 
-      function Value_Of (Raw : String) return String
-      is (Field ("---" & LF & "k: " & Raw & LF & "---" & LF, "k"));
+      function Value_Of (Raw : String) return String is
+        (Field ("---" & LF & "k: " & Raw & LF & "---" & LF, "k"));
    begin
       Assert (Value_Of ("""x""") = "x", "a pair");
       Assert
-        (Value_Of ("""""x""""") = """x""",
-         "no more than one at each end");
-      Assert (Value_Of ("""ends with " & Backslash & """""")
-              = "ends with " & Backslash & """",
-              "an escaped closing quote keeps its character");
+        (Value_Of ("""""x""""") = """x""", "no more than one at each end");
+      Assert
+        (Value_Of ("""ends with " & Backslash & """""") =
+         "ends with " & Backslash & """",
+         "an escaped closing quote keeps its character");
       Assert (Value_Of ("x") = "x", "no quotes");
       Assert (Value_Of ("""") = "", "one lone quote");
       Assert (Value_Of ("   x") = "x", "leading blanks");
@@ -405,17 +403,24 @@ package body Synapse.Core.Frontmatter.Tests is
    procedure Scalars_Resolve_Their_Escapes (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
 
-      function Scalar_Of_Raw (Raw : String) return String
-      is (Scalar_Of ("---" & LF & "k: " & Raw & LF & "---" & LF, "k"));
+      function Scalar_Of_Raw (Raw : String) return String is
+        (Scalar_Of ("---" & LF & "k: " & Raw & LF & "---" & LF, "k"));
    begin
-      Assert (Scalar_Of_Raw ("""a " & Backslash & """b" & Backslash & """""")
-              = "a ""b""", "escaped quotes");
-      Assert (Scalar_Of_Raw ("""C:" & Backslash & Backslash & "path""")
-              = "C:" & Backslash & "path", "an escaped backslash");
-      Assert (Scalar_Of_Raw ("""a" & Backslash & "nb" & Backslash & "rc""")
-              = "a" & LF & "b" & CR & "c", "newline and carriage return");
-      Assert (Scalar_Of_Raw ("""a" & Backslash & "tb""")
-              = "a" & Backslash & "tb", "an unknown escape is kept");
+      Assert
+        (Scalar_Of_Raw ("""a " & Backslash & """b" & Backslash & """""") =
+         "a ""b""",
+         "escaped quotes");
+      Assert
+        (Scalar_Of_Raw ("""C:" & Backslash & Backslash & "path""") =
+         "C:" & Backslash & "path",
+         "an escaped backslash");
+      Assert
+        (Scalar_Of_Raw ("""a" & Backslash & "nb" & Backslash & "rc""") =
+         "a" & LF & "b" & CR & "c",
+         "newline and carriage return");
+      Assert
+        (Scalar_Of_Raw ("""a" & Backslash & "tb""") = "a" & Backslash & "tb",
+         "an unknown escape is kept");
       Assert
         (Scalar_Of_Raw ("fw-core") = "fw-core",
          "an unquoted scalar as written");
@@ -428,14 +433,13 @@ package body Synapse.Core.Frontmatter.Tests is
    end Scalars_Resolve_Their_Escapes;
 
    procedure Key_Values_Split_On_The_First_Colon
-
-     (T : in out Test_Cases_Class)
+(T : in out Test_Cases_Class)
 
    is
       pragma Unreferenced (T);
 
-      procedure Check (Line : String; Want_Found : Boolean;
-                       Want_Key, Want_Value : String)
+      procedure Check
+        (Line : String; Want_Found : Boolean; Want_Key, Want_Value : String)
       is
          Found      : Boolean;
          Key, Value : Span;
@@ -445,8 +449,7 @@ package body Synapse.Core.Frontmatter.Tests is
          if Found then
             Assert (Text_Of (Line, Key) = Want_Key, "key of '" & Line & "'");
             Assert
-              (Text_Of (Line, Value) = Want_Value,
-               "value of '" & Line & "'");
+              (Text_Of (Line, Value) = Want_Value, "value of '" & Line & "'");
          end if;
       end Check;
    begin
@@ -468,21 +471,28 @@ package body Synapse.Core.Frontmatter.Tests is
    begin
       Assert (B.Present, "present");
       Assert (B.Lines_Start = 4, "the first line follows the opening fence");
-      Assert (Sample (Sample'First + B.Close .. Sample'First + B.Close + 2)
-              = "---", "Close is the closing fence's line");
+      Assert
+        (Sample (Sample'First + B.Close .. Sample'First + B.Close + 2) = "---",
+         "Close is the closing fence's line");
       Assert (B.Body_Start = B.Close + 4, "the body follows its line ending");
-      Assert (Text_Of (Sample, Body_After (Sample))
-              = LF & "# State machine" & LF & LF
-                & "tags: fake decoy in the body" & LF, "the body");
-      Assert (Text_Of ("just prose", Body_After ("just prose")) = "just prose",
-              "no block: the whole text");
-      Assert (not Locate ("---" & LF & "no end" & LF).Present,
-              "an unclosed block is not frontmatter");
+      Assert
+        (Text_Of (Sample, Body_After (Sample)) =
+         LF & "# State machine" & LF & LF & "tags: fake decoy in the body" &
+         LF,
+         "the body");
+      Assert
+        (Text_Of ("just prose", Body_After ("just prose")) = "just prose",
+         "no block: the whole text");
+      Assert
+        (not Locate ("---" & LF & "no end" & LF).Present,
+         "an unclosed block is not frontmatter");
       Assert (Locate ("---" & LF & "---" & LF).Present, "an empty block");
-      Assert (Locate ("---" & LF & "a: b" & LF & "---").Present,
-              "the closing fence may end the text");
-      Assert (not Locate ("--- " & LF & "---" & LF).Present,
-              "the opening fence is exactly three dashes");
+      Assert
+        (Locate ("---" & LF & "a: b" & LF & "---").Present,
+         "the closing fence may end the text");
+      Assert
+        (not Locate ("--- " & LF & "---" & LF).Present,
+         "the opening fence is exactly three dashes");
       Assert (not Locate ("----" & LF & "---" & LF).Present, "four dashes");
    end The_Block_Is_Located;
 
@@ -495,7 +505,7 @@ package body Synapse.Core.Frontmatter.Tests is
 
       function Walk (Note : String) return String is
          B        : constant Block := Locate (Note);
-         Position : Natural := B.Lines_Start;
+         Position : Natural        := B.Lines_Start;
          Line     : Span;
          Found    : Boolean;
          Result   : Unbounded_String;
@@ -528,33 +538,41 @@ package body Synapse.Core.Frontmatter.Tests is
       Assert (Field (Note, "status") = "TODO", "the value has no CR");
       Assert (Field (Note, "title") = "State machine", "a quoted value");
       Assert (Scalar_Of (Note, "title") = "State machine", "Scalar too");
-      Assert (Text_Of (Note, Body_After (Note))
-              = CR & LF & "# State machine" & CR & LF & CR & LF
-                & "tags: fake decoy in the body" & CR & LF,
-              "the body after the closing fence's line");
+      Assert
+        (Text_Of (Note, Body_After (Note)) =
+         CR & LF & "# State machine" & CR & LF & CR & LF &
+         "tags: fake decoy in the body" & CR & LF,
+         "the body after the closing fence's line");
    end CRLF_Notes_Have_Frontmatter;
 
    procedure CRLF_Writes_Keep_Line_Endings (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Note : constant String := As_CRLF (Sample);
    begin
-      Assert (Set_Scalar (Note, "status", "DONE")
-              = Replace_All (Note, "status: TODO", "status: DONE"),
-              "a replaced line keeps its CR LF");
-      Assert (Contains (Set_Scalar (Note, "priority", "high"),
-                        "status: TODO" & CR & LF & "priority: high" & CR & LF
-                        & "---" & CR & LF),
-              "an inserted line ends with CR LF");
-      Assert (Contains (Add_Tag (Note, "zig"),
-                        "tags: [synapse, vault-infra, zig]" & CR & LF),
-              "tags on a CRLF note");
+      Assert
+        (Set_Scalar (Note, "status", "DONE") =
+         Replace_All (Note, "status: TODO", "status: DONE"),
+         "a replaced line keeps its CR LF");
+      Assert
+        (Contains
+           (Set_Scalar (Note, "priority", "high"),
+            "status: TODO" & CR & LF & "priority: high" & CR & LF & "---" &
+            CR & LF),
+         "an inserted line ends with CR LF");
+      Assert
+        (Contains
+           (Add_Tag (Note, "zig"),
+            "tags: [synapse, vault-infra, zig]" & CR & LF),
+         "tags on a CRLF note");
       declare
          Bare_CRLF : constant String := As_CRLF (Bare);
          Got       : constant String := Set_Scalar (Bare_CRLF, "a", "b");
       begin
-         Assert (Got = "---" & CR & LF & "title: ""x""" & CR & LF & "a: b"
-                       & CR & LF & "---" & CR & LF & "body" & CR & LF,
-                 "an insert into a CRLF block");
+         Assert
+           (Got =
+            "---" & CR & LF & "title: ""x""" & CR & LF & "a: b" & CR & LF &
+            "---" & CR & LF & "body" & CR & LF,
+            "an insert into a CRLF block");
       end;
    end CRLF_Writes_Keep_Line_Endings;
 
@@ -563,23 +581,25 @@ package body Synapse.Core.Frontmatter.Tests is
       Note : constant String := "---" & LF & "a: b" & LF & "---";
    begin
       Assert (Field (Note, "a") = "b", "readable");
-      Assert (Set_Scalar (Note, "c", "d")
-              = "---" & LF & "a: b" & LF & "c: d" & LF & "---",
-              "writable");
-      Assert (Set_Scalar ("---" & LF & "---", "a", "b")
-              = "---" & LF & "a: b" & LF & "---", "an empty block");
+      Assert
+        (Set_Scalar (Note, "c", "d") =
+         "---" & LF & "a: b" & LF & "c: d" & LF & "---",
+         "writable");
+      Assert
+        (Set_Scalar ("---" & LF & "---", "a", "b") =
+         "---" & LF & "a: b" & LF & "---",
+         "an empty block");
    end A_Closing_Fence_May_End_The_Text;
 
    procedure UTF8_Values_Pass_Through (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Title : constant String :=
-        UTF8.Encode (16#43F#) & UTF8.Encode (16#440#) & UTF8.Encode (16#438#)
-        & " " & UTF8.Encode (16#1F600#);
+        UTF8.Encode (16#43F#) & UTF8.Encode (16#440#) & UTF8.Encode (16#438#) &
+        " " & UTF8.Encode (16#1_F600#);
       Got   : constant String := Set_Scalar (Sample, "title", Title);
    begin
       Assert
-        (Contains (Got, "title: " & Title & LF),
-         "not quoted, not altered");
+        (Contains (Got, "title: " & Title & LF), "not quoted, not altered");
       Assert (Scalar_Of (Got, "title") = Title, "reads back");
    end UTF8_Values_Pass_Through;
 
@@ -643,8 +663,10 @@ package body Synapse.Core.Frontmatter.Tests is
       Result    : Unbounded_String;
    begin
       for C of S loop
-         Append (Result, Digits_Of (Character'Pos (C) / 16 + 1)
-                         & Digits_Of (Character'Pos (C) mod 16 + 1) & ' ');
+         Append
+           (Result,
+            Digits_Of (Character'Pos (C) / 16 + 1) &
+            Digits_Of (Character'Pos (C) mod 16 + 1) & ' ');
       end loop;
       return "[" & To_String (Result) & "]";
    end Hex;
@@ -662,8 +684,10 @@ package body Synapse.Core.Frontmatter.Tests is
             Got   : constant String := Set_Scalar (Note, Key, Value);
          begin
             if Scalar_Of (Got, Key) /= Value then
-               Assert (False, "case" & I'Image & ": " & Hex (Value)
-                       & " read back as " & Hex (Scalar_Of (Got, Key)));
+               Assert
+                 (False,
+                  "case" & I'Image & ": " & Hex (Value) & " read back as " &
+                  Hex (Scalar_Of (Got, Key)));
             end if;
             if Set_Scalar (Got, Key, Value) /= Got then
                Assert
@@ -696,21 +720,26 @@ package body Synapse.Core.Frontmatter.Tests is
       for I in 1 .. Next (6) loop
          case Next (4) is
             when 0 =>
-               Append (Result, "k" & Natural'Image (Next (4)) (2 .. 2)
-                               & ": v" & Natural'Image (I) (2 .. 2) & LF);
+               Append
+                 (Result,
+                  "k" & Natural'Image (Next (4)) (2 .. 2) & ": v" &
+                  Natural'Image (I) (2 .. 2) & LF);
 
             when 1 =>
-               Append (Result, "  nested" & Natural'Image (Next (4)) (2 .. 2)
-                               & ": x" & LF);
+               Append
+                 (Result,
+                  "  nested" & Natural'Image (Next (4)) (2 .. 2) & ": x" & LF);
 
             when 2 =>
-               Append (Result, "k" & Natural'Image (Next (4)) (2 .. 2)
-                               & ": ""q" & Natural'Image (I) (2 .. 2) & """"
-                               & LF);
+               Append
+                 (Result,
+                  "k" & Natural'Image (Next (4)) (2 .. 2) & ": ""q" &
+                  Natural'Image (I) (2 .. 2) & """" & LF);
 
             when others =>
-               Append (Result, "k" & Natural'Image (Next (4)) (2 .. 2)
-                               & ": [a, b]" & LF);
+               Append
+                 (Result,
+                  "k" & Natural'Image (Next (4)) (2 .. 2) & ": [a, b]" & LF);
          end case;
       end loop;
       Append (Result, "---" & LF & "body k0: z" & LF);
@@ -724,29 +753,30 @@ package body Synapse.Core.Frontmatter.Tests is
    begin
       for I in 1 .. 4_000 loop
          declare
-            Note   : constant String := Random_Note;
-            Key    : constant String :=
-              "k" & Natural'Image (Next (5)) (2 .. 2);
-            Got    : constant String := Set_Scalar (Note, Key, "new");
+            Note   : constant String     := Random_Note;
+            Key : constant String := "k" & Natural'Image (Next (5)) (2 .. 2);
+            Got    : constant String     := Set_Scalar (Note, Key, "new");
             Line   : constant Maybe_Span := Find_Key_Line (Note, Key);
-            Before : constant Natural :=
-              (if Line.Found
-               then Ada.Strings.Fixed.Count
-                      (Note (Note'First .. Note'First + Line.Item.First - 1),
-                       String'[LF]) + 1
+            Before : constant Natural    :=
+              (if Line.Found then
+                 Ada.Strings.Fixed.Count
+                   (Note (Note'First .. Note'First + Line.Value.First - 1),
+                    String'[LF]) +
+                 1
                else 0);
          begin
             if Line.Found then
                Replaced := Replaced + 1;
                if Without_Line (Got, Before) /= Without_Line (Note, Before)
                then
-                  Assert (False, "case" & I'Image & ": more than line"
-                          & Before'Image & " changed");
+                  Assert
+                    (False,
+                     "case" & I'Image & ": more than line" & Before'Image &
+                     " changed");
                end if;
                if not Contains (Got, Key & ": new" & LF) then
                   Assert
-                    (False,
-                     "case" & I'Image & ": the new line is missing");
+                    (False, "case" & I'Image & ": the new line is missing");
                end if;
             else
                Inserted := Inserted + 1;
@@ -763,8 +793,8 @@ package body Synapse.Core.Frontmatter.Tests is
             end if;
          end;
       end loop;
-      Assert (Replaced > 500 and then Inserted > 500,
-              "both paths were exercised");
+      Assert
+        (Replaced > 500 and then Inserted > 500, "both paths were exercised");
    end A_Write_Changes_One_Line_Only;
 
    procedure Written_Tags_Parse_Back (T : in out Test_Cases_Class) is
@@ -775,10 +805,11 @@ package body Synapse.Core.Frontmatter.Tests is
             Items : String_Array (1 .. Next (5));
          begin
             for Item of Items loop
-               Item := To_Unbounded_String
-                 (Ada.Strings.Fixed.Trim
-                    (Natural'Image (Next (100000)), Ada.Strings.Both)
-                  & (if Next (2) = 0 then "-t" else ""));
+               Item :=
+                 To_Unbounded_String
+                   (Ada.Strings.Fixed.Trim
+                      (Natural'Image (Next (100_000)), Ada.Strings.Both) &
+                    (if Next (2) = 0 then "-t" else ""));
             end loop;
             declare
                Got    : constant String := Set_List (Sample, "tags", Items);
@@ -813,17 +844,17 @@ package body Synapse.Core.Frontmatter.Tests is
                Text (1 .. 4) := "---" & LF;
             end if;
             declare
-               B       : constant Block := Locate (Text);
-               Ignored : constant Maybe_Span := Find_Field (Text, "a");
-               Tags    : constant String_Array := Parse_Tags (Text);
-               Value   : constant Maybe_Text := Scalar (Text, "b");
-               After_Body : constant Span := Body_After (Text);
+               B          : constant Block        := Locate (Text);
+               Ignored    : constant Maybe_Span   := Find_Field (Text, "a");
+               Tags       : constant String_Array := Parse_Tags (Text);
+               Value      : constant Maybe_Text   := Scalar (Text, "b");
+               After_Body : constant Span         := Body_After (Text);
             begin
                if B.Present then
                   declare
-                     Written : constant String := Set_Scalar (Text, "a", "v");
+                     Written  : constant String := Set_Scalar (Text, "a", "v");
                      With_Tag : constant String := Add_Tag (Text, "t");
-                     Removed : constant String := Remove_Tag (Text, "t");
+                     Removed  : constant String := Remove_Tag (Text, "t");
                   begin
                      if not Has_Frontmatter (Written)
                        or else not Has_Frontmatter (With_Tag)
@@ -848,15 +879,13 @@ package body Synapse.Core.Frontmatter.Tests is
 
    ---------------------------------------------------------------------------
 
-   overriding
-   function Name (T : Test_Case) return AUnit.Message_String is
+   overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
       return AUnit.Format ("Synapse.Core.Frontmatter");
    end Name;
 
-   overriding
-   procedure Register_Tests (T : in out Test_Case) is
+   overriding procedure Register_Tests (T : in out Test_Case) is
       use AUnit.Test_Cases.Registration;
    begin
       Register_Routine

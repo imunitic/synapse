@@ -1,7 +1,6 @@
 with Ada.Text_IO;
 
 with AUnit.Assertions;
-
 with Synapse.Core.Unicode.Transforms;
 with Synapse.Core.Unicode_Tables;
 
@@ -176,7 +175,9 @@ package body Synapse.Core.Unicode.Tests is
       M    : constant Match := Find_Case_Fold (Text, Moskva_Title);
    begin
       Assert (M.Found, "needle found");
-      Assert (Text (M.First .. M.Last) = Moskva_Upper, "range is the match");
+      Assert
+        (Text (M.Value.First .. M.Value.Last) = Moskva_Upper,
+         "range is the match");
    end Find_Locates_A_Cyrillic_Needle;
 
    procedure Find_Returns_Nothing_Without_A_Match
@@ -202,8 +203,9 @@ package body Synapse.Core.Unicode.Tests is
       M    : constant Match := Find_Case_Fold (Text, "k");
    begin
       Assert (M.Found, "k matches KELVIN SIGN");
-      Assert (M.Last - M.First + 1 = 3, "the matched span is 3 bytes");
-      Assert (M.First = 2, "starts after the x");
+      Assert
+        (M.Value.Last - M.Value.First + 1 = 3, "the matched span is 3 bytes");
+      Assert (M.Value.First = 2, "starts after the x");
    end Find_Range_Can_Differ_From_Needle_Length;
 
    procedure Count_Counts_Every_Occurrence (T : in out Test_Cases_Class) is
@@ -232,11 +234,11 @@ package body Synapse.Core.Unicode.Tests is
       pragma Unreferenced (T);
       P : constant Composition := Compose_Pair (16#65#, 16#301#);
    begin
-      Assert (P.Found and then P.Composed = 16#E9#, "e + acute = U+00E9");
+      Assert (P.Found and then P.Value = 16#E9#, "e + acute = U+00E9");
       Assert (not Compose_Pair (16#61#, 16#62#).Found, "a + b: no composite");
       Assert
         (Compose_Pair (16#1100#, 16#1161#).Found
-         and then Compose_Pair (16#1100#, 16#1161#).Composed = 16#AC00#,
+         and then Compose_Pair (16#1100#, 16#1161#).Value = 16#AC00#,
          "Hangul L + V");
    end Compose_Pair_Matches_Known_Pairs;
 

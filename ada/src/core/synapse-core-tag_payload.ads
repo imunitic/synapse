@@ -1,6 +1,7 @@
 with Ada.Containers.Vectors;
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Options;
 with Synapse.Core.Graph_Model;
 
 --  The payload of a tags-cache entry: a list of tags and the bytes it is
@@ -32,15 +33,9 @@ package Synapse.Core.Tag_Payload is
 
    function Encode (Tags : Tag_Vectors.Vector) return String;
 
-   type Maybe_Tag (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Value : Graph_Model.Tag;
+   package Maybe_Tag_Options is new Synapse.Core.Options (Graph_Model.Tag);
 
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Tag is Maybe_Tag_Options.Option;
 
    --  The record that starts at Position of Bytes, with Position moved past
    --  it. None once every record has been read, and as soon as one is

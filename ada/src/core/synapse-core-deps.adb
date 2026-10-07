@@ -84,7 +84,8 @@ package body Synapse.Core.Deps is
                        Cache);
                begin
                   if Raw.Found then
-                     for Library of Split_Libraries (To_String (Raw.Text)) loop
+                     for Library of Split_Libraries (To_String (Raw.Value))
+                     loop
                         Result.Append (Row'(Path => P, Library => Library));
                      end loop;
                   end if;

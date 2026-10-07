@@ -1,5 +1,4 @@
 with Ada.Unchecked_Conversion;
-
 with System;
 
 package body Synapse.Adapters.Tree_Sitter.Grammar with SPARK_Mode => Off is
@@ -28,10 +27,10 @@ package body Synapse.Adapters.Tree_Sitter.Grammar with SPARK_Mode => Off is
       Loader.Open (Path, Lib, Status);
       case Status is
          when Port.Not_Found =>
-            return (Loaded => False, Error => Library_Not_Found);
+            return Load_Results.Failure (Library_Not_Found);
 
          when Port.Not_A_Library =>
-            return (Loaded => False, Error => Not_A_Library);
+            return Load_Results.Failure (Not_A_Library);
 
          when Port.Opened =>
             null;
@@ -41,14 +40,14 @@ package body Synapse.Adapters.Tree_Sitter.Grammar with SPARK_Mode => Off is
          Address : constant System.Address := Loader.Symbol (Lib, Symbol);
       begin
          if Address = System.Null_Address then
-            return (Loaded => False, Error => Symbol_Not_Found);
+            return Load_Results.Failure (Symbol_Not_Found);
          end if;
 
          declare
             Handle : constant Thin.Language_Ptr := To_Function (Address).all;
          begin
             if Handle = Thin.Null_Language then
-               return (Loaded => False, Error => Symbol_Not_Found);
+               return Load_Results.Failure (Symbol_Not_Found);
             end if;
 
             declare
@@ -56,9 +55,9 @@ package body Synapse.Adapters.Tree_Sitter.Grammar with SPARK_Mode => Off is
                ABI   : constant Natural := ABI_Version (Found);
             begin
                if ABI < ABI_Min or else ABI > ABI_Max then
-                  return (Loaded => False, Error => Abi_Unsupported);
+                  return Load_Results.Failure (Abi_Unsupported);
                end if;
-               return (Loaded => True, Item => Found);
+               return Load_Results.Success (Found);
             end;
          end;
       end;

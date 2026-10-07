@@ -1,3 +1,4 @@
+with Synapse.Core.Options;
 --  What a note schema's rules go through when the schema is loaded: the
 --  conversion from the word aliases a YAML key can hold to the symbols the
 --  JsonLogic evaluator knows, and scans for the vocabulary files and
@@ -19,15 +20,9 @@ package Synapse.Core.Schema_Rules is
 
    --  Not Ok: the rule contains a bare `null`, which is only meaningful in a
    --  schema override document, where it deletes a key.
-   type Rule_Result (Ok : Boolean := False) is record
-      case Ok is
-         when True =>
-            Rule : JSON.Value;
+   package Rule_Options is new Synapse.Core.Options (JSON.Value);
 
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Rule_Result is Rule_Options.Option;
 
    --  The tree the evaluator takes. An object with exactly one key has that
    --  key renamed when it is a word alias (eq, ne, lt, lte, gt, gte, not); an

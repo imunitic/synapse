@@ -2,6 +2,7 @@ with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
 
 with Synapse.Core.Line_Slice;
+with Synapse.Core.Decimal_Image;
 
 package body Synapse.Core.Drift is
 
@@ -100,12 +101,6 @@ package body Synapse.Core.Drift is
       Renamed  => Count_Intersect (Paths, Changes.Renamed_From),
       Deleted  => Count_Intersect (Paths, Changes.Deleted));
 
-   function Number (N : Natural) return String is
-      Text : constant String := Natural'Image (N);
-   begin
-      return Text (Text'First + 1 .. Text'Last);
-   end Number;
-
    function Findings (Node_Without_Md : String; D : Node_Drift) return String
    is
       Text : Unbounded_String;
@@ -114,19 +109,19 @@ package body Synapse.Core.Drift is
          Append
            (Text,
             Node_Without_Md & HT & "content changed in " &
-            Number (D.Modified) & " of its files" & LF);
+            Decimal_Image.Image (D.Modified) & " of its files" & LF);
       end if;
       if D.Renamed > 0 then
          Append
            (Text,
-            Node_Without_Md & HT & Number (D.Renamed) &
+            Node_Without_Md & HT & Decimal_Image.Image (D.Renamed) &
             " of its files were renamed -- reseat sources, prose may still " &
             "hold" & LF);
       end if;
       if D.Deleted > 0 then
          Append
            (Text,
-            Node_Without_Md & HT & Number (D.Deleted) &
+            Node_Without_Md & HT & Decimal_Image.Image (D.Deleted) &
             " of its files are gone" & LF);
       end if;
       return To_String (Text);

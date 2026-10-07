@@ -4,7 +4,6 @@ with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
 
 with AUnit.Assertions;
-
 with Synapse.Adapters.File_Bytes;
 with Synapse.Adapters.System_Process;
 with Synapse.Core.Text_Lists;
@@ -28,12 +27,10 @@ package body Synapse.Adapters.Git_Sync.Tests is
       Identity : Boolean := True;
    end record;
 
-   overriding
-   function Run
-     (R       : in out Scripted_Runner;
-      Program : String;
-      Args    : Core.Text_Lists.Vector;
-      Opts    : Runner.Options) return Runner.Result
+   overriding function Run
+     (R    : in out Scripted_Runner; Program : String;
+      Args :        Core.Text_Lists.Vector; Opts : Runner.Options)
+      return Runner.Result
    is
       Line   : Unbounded_String := To_Unbounded_String (Program);
       Result : Runner.Result;
@@ -68,14 +65,18 @@ package body Synapse.Adapters.Git_Sync.Tests is
       pragma Unreferenced (T);
    begin
       Assert (Commit_Message ("a.md") = "vault: a.md", "one");
-      Assert (Commit_Message ("a.md" & LF & "b.md") = "vault: a.md, b.md",
-              "two");
-      Assert (Commit_Message ("1" & LF & "2" & LF & "3" & LF & "4")
-              = "vault: 1, 2, 3, 4", "four are named");
-      Assert (Commit_Message ("1" & LF & "2" & LF & "3" & LF & "4" & LF & "5")
-              = "vault: 5 files", "five are counted");
-      Assert (Commit_Message ("a b/c d.md") = "vault: a b/c d.md",
-              "spaces kept");
+      Assert
+        (Commit_Message ("a.md" & LF & "b.md") = "vault: a.md, b.md", "two");
+      Assert
+        (Commit_Message ("1" & LF & "2" & LF & "3" & LF & "4") =
+         "vault: 1, 2, 3, 4",
+         "four are named");
+      Assert
+        (Commit_Message ("1" & LF & "2" & LF & "3" & LF & "4" & LF & "5") =
+         "vault: 5 files",
+         "five are counted");
+      Assert
+        (Commit_Message ("a b/c d.md") = "vault: a b/c d.md", "spaces kept");
    end Commit_Messages_Name_The_Paths;
 
    procedure The_Exact_Git_Commands_Are_Pinned (T : in out Test_Cases_Class) is
@@ -84,30 +85,35 @@ package body Synapse.Adapters.Git_Sync.Tests is
    begin
       R.Staged := To_Unbounded_String ("a.md" & LF & "b.md" & LF);
       Commit_If_Dirty (R, "/v");
-      Assert (To_String (R.Log)
-              = "git add -A|/v" & LF
-                & "git -c core.quotePath=false diff --cached --name-only|/v"
-                & LF
-                & "git config user.email|/v" & LF
-                & "git commit --quiet -m vault: a.md, b.md|/v" & LF,
-              "add, list, identity, commit: " & To_String (R.Log));
+      Assert
+        (To_String (R.Log) =
+         "git add -A|/v" & LF &
+         "git -c core.quotePath=false diff --cached --name-only|/v" & LF &
+         "git config user.email|/v" & LF &
+         "git commit --quiet -m vault: a.md, b.md|/v" & LF,
+         "add, list, identity, commit: " & To_String (R.Log));
 
-      R.Log := Null_Unbounded_String;
+      R.Log      := Null_Unbounded_String;
       R.Identity := False;
       Commit_If_Dirty (R, "/v");
-      Assert (Ada.Strings.Fixed.Index (To_String (R.Log),
-                                       "git config user.email "
-                                       & "vault@synapse.local|/v") > 0
-              and then Ada.Strings.Fixed.Index (To_String (R.Log),
-                                                "git config user.name "
-                                                & "Synapse Vault|/v") > 0,
-              "a missing identity is set");
+      Assert
+        (Ada.Strings.Fixed.Index
+           (To_String (R.Log),
+            "git config user.email " & "vault@synapse.local|/v") >
+         0
+         and then
+           Ada.Strings.Fixed.Index
+             (To_String (R.Log),
+              "git config user.name " & "Synapse Vault|/v") >
+           0,
+         "a missing identity is set");
 
-      R.Log := Null_Unbounded_String;
+      R.Log    := Null_Unbounded_String;
       R.Staged := Null_Unbounded_String;
       Commit_If_Dirty (R, "/v");
-      Assert (Ada.Strings.Fixed.Index (To_String (R.Log), "commit") = 0,
-              "nothing staged, nothing committed");
+      Assert
+        (Ada.Strings.Fixed.Index (To_String (R.Log), "commit") = 0,
+         "nothing staged, nothing committed");
    end The_Exact_Git_Commands_Are_Pinned;
 
    procedure Ensure_Repo_Initialises_Only_Once (T : in out Test_Cases_Class) is
@@ -119,8 +125,9 @@ package body Synapse.Adapters.Git_Sync.Tests is
       Assert (Ada.Directories.Exists (Path (Dir, ".git")), "made one");
       File_Bytes.Write (Path (Dir, ".git/marker"), "kept");
       Ensure_Repo (Real, Path (Dir));
-      Assert (Ada.Directories.Exists (Path (Dir, ".git/marker")),
-              "an existing repo is left alone");
+      Assert
+        (Ada.Directories.Exists (Path (Dir, ".git/marker")),
+         "an existing repo is left alone");
       Remove (Dir);
    exception
       when others =>
@@ -143,9 +150,12 @@ package body Synapse.Adapters.Git_Sync.Tests is
       Assert (Commit_Count (Path (Dir)) = 1, "no change, no commit");
       for I in 1 .. 5 loop
          File_Bytes.Write
-           (Path (Dir, "n" & Ada.Strings.Fixed.Trim (Integer'Image (I),
-                                                      Ada.Strings.Left)
-                       & ".md"), "x");
+           (Path
+              (Dir,
+               "n" &
+               Ada.Strings.Fixed.Trim (Integer'Image (I), Ada.Strings.Left) &
+               ".md"),
+            "x");
       end loop;
       Commit_If_Dirty (Real, Path (Dir));
       Assert (Head_Subject (Path (Dir)) = "vault: 5 files", "a count");
@@ -156,20 +166,20 @@ package body Synapse.Adapters.Git_Sync.Tests is
          raise;
    end Commits_Are_Made_Only_For_Changes;
 
-   procedure A_Non_Ascii_Path_Is_Named_Verbatim
-     (T : in out Test_Cases_Class)
+   procedure A_Non_Ascii_Path_Is_Named_Verbatim (T : in out Test_Cases_Class)
    is
       pragma Unreferenced (T);
       Dir  : constant Scratch := Make;
-      Dash : constant String :=
-        Character'Val (16#E2#) & Character'Val (16#80#)
-        & Character'Val (16#94#);
+      Dash : constant String  :=
+        Character'Val (16#E2#) & Character'Val (16#80#) &
+        Character'Val (16#94#);
    begin
       Init_Repo (Path (Dir));
       File_Bytes.Write (Path (Dir, "sb " & Dash & " Foo.md"), "x");
       Commit_If_Dirty (Real, Path (Dir));
-      Assert (Head_Subject (Path (Dir)) = "vault: sb " & Dash & " Foo.md",
-              "not git's octal escape: " & Head_Subject (Path (Dir)));
+      Assert
+        (Head_Subject (Path (Dir)) = "vault: sb " & Dash & " Foo.md",
+         "not git's octal escape: " & Head_Subject (Path (Dir)));
       Remove (Dir);
    exception
       when others =>
@@ -192,8 +202,9 @@ package body Synapse.Adapters.Git_Sync.Tests is
       if Git (Path (Dir), "config", "user.email") = "vault@synapse.local" then
          Assert (Commit_Count (Path (Dir)) = 1, "committed with the fallback");
       else
-         Assert (Commit_Count (Path (Dir)) = 1,
-                 "committed with the identity the machine has");
+         Assert
+           (Commit_Count (Path (Dir)) = 1,
+            "committed with the identity the machine has");
       end if;
       Remove (Dir);
    exception
@@ -211,8 +222,9 @@ package body Synapse.Adapters.Git_Sync.Tests is
       Init_Repo (Path (Dir));
       Try_Acquire (Path (Dir), First);
       Assert (Dir_Lock.Held (First), "taken");
-      Assert (Ada.Directories.Exists (Path (Dir, ".git/synapse-sync.lock")),
-              "inside the repository");
+      Assert
+        (Ada.Directories.Exists (Path (Dir, ".git/synapse-sync.lock")),
+         "inside the repository");
       Try_Acquire (Path (Dir), Second);
       Assert (not Dir_Lock.Held (Second), "not twice");
       Acquire_With_Retry (Path (Dir), 1, Second);
@@ -267,8 +279,9 @@ package body Synapse.Adapters.Git_Sync.Tests is
       Commit_If_Dirty (Real, Path (Dir, "a"));
       Git (Path (Dir, "a"), "push", "-q", "-u", "origin", "main");
       Assert (Upstream_Of (Real, Path (Dir, "a")).Found, "has an upstream");
-      Assert (To_String (Upstream_Of (Real, Path (Dir, "a")).Text)
-              = "origin/main", "named");
+      Assert
+        (To_String (Upstream_Of (Real, Path (Dir, "a")).Value) = "origin/main",
+         "named");
       Assert (Commits_Ahead (Real, Path (Dir, "a")) = 0, "in step");
 
       File_Bytes.Write (Path (Dir, "a/two.md"), "2");
@@ -276,8 +289,9 @@ package body Synapse.Adapters.Git_Sync.Tests is
       Assert (Commits_Ahead (Real, Path (Dir, "a")) = 1, "one ahead");
       Push_If_Ahead (Real, Path (Dir, "a"));
       Assert (Commits_Ahead (Real, Path (Dir, "a")) = 0, "pushed");
-      Assert (Git (Path (Dir, "remote.git"), "rev-list", "--count", "main")
-              = "2", "the remote has both");
+      Assert
+        (Git (Path (Dir, "remote.git"), "rev-list", "--count", "main") = "2",
+         "the remote has both");
       Remove (Dir);
    exception
       when others =>
@@ -307,12 +321,14 @@ package body Synapse.Adapters.Git_Sync.Tests is
       File_Bytes.Write (Path (Dir, "a/n.md"), "from a" & LF);
       Commit_If_Dirty (Real, Path (Dir, "a"));
       Assert (not Pull (Real, Path (Dir, "a")), "the conflict is reported");
-      Assert (File_Bytes.Read (Path (Dir, "a/n.md"), 1000) = "from a" & LF,
-              "no conflict markers in the note");
-      Assert (not Ada.Directories.Exists (Path (Dir, "a/.git/rebase-merge"))
-              and then not Ada.Directories.Exists
-                             (Path (Dir, "a/.git/rebase-apply")),
-              "no rebase left half-applied");
+      Assert
+        (File_Bytes.Read (Path (Dir, "a/n.md"), 1_000) = "from a" & LF,
+         "no conflict markers in the note");
+      Assert
+        (not Ada.Directories.Exists (Path (Dir, "a/.git/rebase-merge"))
+         and then not Ada.Directories.Exists
+           (Path (Dir, "a/.git/rebase-apply")),
+         "no rebase left half-applied");
       Remove (Dir);
    exception
       when others =>
@@ -338,11 +354,12 @@ package body Synapse.Adapters.Git_Sync.Tests is
       File_Bytes.Write (Path (Dir, "a/three.md"), "3");
 
       Run_Pusher (Real, Path (Dir, "a"));
-      Assert (Git (Path (Dir, "remote.git"), "rev-list", "--count", "main")
-              = "3", "the catch-up commit went out in the same cycle");
-      Assert (not Ada.Directories.Exists
-                    (Path (Dir, "a/.git/synapse-sync.lock")),
-              "and the lock was released");
+      Assert
+        (Git (Path (Dir, "remote.git"), "rev-list", "--count", "main") = "3",
+         "the catch-up commit went out in the same cycle");
+      Assert
+        (not Ada.Directories.Exists (Path (Dir, "a/.git/synapse-sync.lock")),
+         "and the lock was released");
       Remove (Dir);
    exception
       when others =>
@@ -350,15 +367,13 @@ package body Synapse.Adapters.Git_Sync.Tests is
          raise;
    end The_Pusher_Pulls_Commits_And_Pushes;
 
-   overriding
-   function Name (T : Test_Case) return AUnit.Message_String is
+   overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
       return AUnit.Format ("Synapse.Adapters.Git_Sync");
    end Name;
 
-   overriding
-   procedure Register_Tests (T : in out Test_Case) is
+   overriding procedure Register_Tests (T : in out Test_Case) is
       use AUnit.Test_Cases.Registration;
    begin
       Register_Routine
@@ -386,8 +401,7 @@ package body Synapse.Adapters.Git_Sync.Tests is
         (T, Nothing_Is_Synced_Without_An_Upstream'Access,
          "Nothing is synced without an upstream");
       Register_Routine
-        (T, Pushing_Needs_Commits_Ahead'Access,
-         "Pushing needs commits ahead");
+        (T, Pushing_Needs_Commits_Ahead'Access, "Pushing needs commits ahead");
       Register_Routine
         (T, A_Conflicting_Pull_Is_Aborted_And_Leaves_The_Note_Clean'Access,
          "A conflicting pull is aborted and leaves the note clean");

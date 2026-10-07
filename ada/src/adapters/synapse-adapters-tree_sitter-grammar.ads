@@ -1,3 +1,4 @@
+with Synapse.Core.Results;
 --  Loading a compiled tree-sitter grammar through a Library_Loader.
 
 with Synapse.Ports.Library_Loader;
@@ -10,15 +11,9 @@ package Synapse.Adapters.Tree_Sitter.Grammar with SPARK_Mode => Off is
       Symbol_Not_Found,
       Abi_Unsupported);
 
-   type Load_Result (Loaded : Boolean := False) is record
-      case Loaded is
-         when True =>
-            Item : Language;
+   package Load_Results is new Synapse.Core.Results (Language, Load_Error);
 
-         when False =>
-            Error : Load_Error;
-      end case;
-   end record;
+   subtype Load_Result is Load_Results.Result;
 
    --  Opens the shared library at Path, calls its Symbol function (such as
    --  `tree_sitter_java`) and returns the language it yields. A language whose

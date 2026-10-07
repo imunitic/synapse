@@ -1,7 +1,6 @@
 with Ada.Containers;
 
 with AUnit.Assertions;
-
 with Synapse.Adapters.Dynamic_Libraries;
 with Synapse.Adapters.File_Bytes;
 with Synapse.Adapters.Tree_Sitter.Grammar;
@@ -28,8 +27,10 @@ package body Synapse.Adapters.Tree_Sitter.Docstring_Pairs.Tests is
            "fixtures/lib/libfake_docstrings." & Real_Loader.Extension,
            "tree_sitter_fake_docstrings");
    begin
-      Assert (Loaded.Loaded, "the docstrings fixture loads");
-      return Loaded.Item;
+      Assert
+        (Grammar.Load_Results.Is_Success (Loaded),
+         "the docstrings fixture loads");
+      return Grammar.Load_Results.Value (Loaded);
    end Docstrings;
 
    function Pairs_In
@@ -237,8 +238,8 @@ package body Synapse.Adapters.Tree_Sitter.Docstring_Pairs.Tests is
    ---------------------------------------------------------------------------
 
    function Dir_Of (S : Scratch) return Core.Grammar_Registry.Maybe_Text is
-     (Present => True,
-      Text    => Ada.Strings.Unbounded.To_Unbounded_String (Path (S)));
+     (Found => True,
+      Value => Ada.Strings.Unbounded.To_Unbounded_String (Path (S)));
 
    procedure The_Comment_Type_Is_The_Default_Unless_A_File_Names_One
      (T : in out Test_Cases_Class)
@@ -247,7 +248,7 @@ package body Synapse.Adapters.Tree_Sitter.Docstring_Pairs.Tests is
       Dir : constant Scratch := Make;
    begin
       Assert
-        (Comment_Type_Name ((Present => False), "ext") = "comment",
+        (Comment_Type_Name ((Found => False), "ext") = "comment",
          "no override directory");
       Assert
         (Comment_Type_Name (Dir_Of (Dir), "ext") = "comment",
@@ -283,7 +284,7 @@ package body Synapse.Adapters.Tree_Sitter.Docstring_Pairs.Tests is
       Dir : constant Scratch := Make;
    begin
       Assert
-        (Declaration_Overrides ((Present => False), "ext").Is_Empty,
+        (Declaration_Overrides ((Found => False), "ext").Is_Empty,
          "no override directory");
       Assert
         (Declaration_Overrides (Dir_Of (Dir), "ext").Is_Empty,

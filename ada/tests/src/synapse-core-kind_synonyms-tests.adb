@@ -9,7 +9,7 @@ package body Synapse.Core.Kind_Synonyms.Tests is
    function Kind (List : Rule_List; Spelling, Scope : String) return String is
       Found : constant Maybe_Kind := Kind_For (List, Spelling, Scope);
    begin
-      return (if Found.Found then To_String (Found.Kind) else "none");
+      return (if Found.Found then To_String (Found.Value) else "none");
    end Kind;
 
    procedure An_Empty_List_Maps_Nothing (T : in out Test_Cases_Class) is

@@ -1,5 +1,6 @@
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Optional_Text;
 with Synapse.Core.JSON;
 
 --  What the grammar registry says about an extension: whether a grammar is
@@ -38,15 +39,7 @@ package Synapse.Core.Grammar_Registry is
       end case;
    end record;
 
-   type Maybe_Text (Present : Boolean := False) is record
-      case Present is
-         when True =>
-            Text : Unbounded_String;
-
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Text is Synapse.Core.Optional_Text.Option;
 
    type Registry is private;
 

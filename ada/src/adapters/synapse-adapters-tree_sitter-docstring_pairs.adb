@@ -185,12 +185,12 @@ package body Synapse.Adapters.Tree_Sitter.Docstring_Pairs is
    is
    begin
       Found := False;
-      if not Override_Dir.Present then
+      if not Override_Dir.Found then
          return "";
       end if;
       declare
          Path : constant String :=
-           To_String (Override_Dir.Text) & "/" & Extension & Suffix;
+           To_String (Override_Dir.Value) & "/" & Extension & Suffix;
       begin
          if not Ada.Directories.Exists (Path) then
             return "";

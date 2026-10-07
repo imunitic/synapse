@@ -1,5 +1,4 @@
 with Ada.Containers.Indefinite_Ordered_Maps;
-
 with GNAT.CRC32;
 
 with Synapse.Core.Byte_Window;
@@ -268,7 +267,7 @@ package body Synapse.Core.Index_Map_Format is
             elsif Found > Path then
                High := Mid;
             else
-               return (Found => True, Index => Mid);
+               return (Found => True, Value => Mid);
             end if;
          end;
       end loop;
@@ -292,7 +291,7 @@ package body Synapse.Core.Index_Map_Format is
             elsif Found > Name then
                High := Mid;
             else
-               return (Found => True, Index => Mid);
+               return (Found => True, Value => Mid);
             end if;
          end;
       end loop;
@@ -364,7 +363,7 @@ package body Synapse.Core.Index_Map_Format is
       Size : constant Offset := Source.Size;
 
       function Fail (Why : Parse_Error) return Parse_Result is
-        ((Ok => False, Error => Why));
+        (Parse_Results.Failure (Why));
    begin
       if Size < Header_Size then
          return Fail (Truncated);
@@ -571,7 +570,7 @@ package body Synapse.Core.Index_Map_Format is
                   end if;
                end;
             end;
-            return (Ok => True, Head => Head);
+            return Parse_Results.Success (Head);
          end;
       end;
    end Parse;

@@ -1,6 +1,7 @@
 with Ada.Containers.Vectors;
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Options;
 with Synapse.Core.Text_Lists;
 
 --  Verification: whether a node still describes the tree it claims.
@@ -71,15 +72,9 @@ package Synapse.Core.Verify is
       First, Last : Positive;
    end record;
 
-   type Maybe_Range (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Value : Line_Range;
+   package Maybe_Range_Options is new Synapse.Core.Options (Line_Range);
 
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Range is Maybe_Range_Options.Option;
 
    --  The range a grounding records: none when it is not `first-last`, has a
    --  zero line, or ends before it begins.

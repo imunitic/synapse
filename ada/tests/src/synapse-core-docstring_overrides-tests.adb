@@ -30,7 +30,7 @@ package body Synapse.Core.Docstring_Overrides.Tests is
       Got : constant Maybe_Text := Single_Node_Type (Source);
    begin
       return
-        (if Got.Found then Ada.Strings.Unbounded.To_String (Got.Text)
+        (if Got.Found then Ada.Strings.Unbounded.To_String (Got.Value)
          else "<none>");
    end Named;
 

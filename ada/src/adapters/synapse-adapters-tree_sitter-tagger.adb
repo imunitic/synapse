@@ -336,7 +336,7 @@ package body Synapse.Adapters.Tree_Sitter.Tagger is
                               if Ruled.Found then
                                  Add_Tag
                                    (Result, Source, Item.Captured, Graph.Def,
-                                    To_String (Ruled.Kind));
+                                    To_String (Ruled.Value));
                               end if;
                            end;
                         end if;
@@ -614,9 +614,9 @@ package body Synapse.Adapters.Tree_Sitter.Tagger is
 
       --  Best effort: a locals.scm that cannot be used only means no
       --  filtering of local references for this grammar.
-      if Locals_Text.Present then
+      if Locals_Text.Found then
          Compile
-           (T.Locals, Lang, To_String (Locals_Text.Text), Query_Status,
+           (T.Locals, Lang, To_String (Locals_Text.Value), Query_Status,
             Error_Offset);
          if Query_Status = Compiled then
             Disable_Unevaluable (T.Locals, Any_Left);

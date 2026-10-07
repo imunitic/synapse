@@ -73,7 +73,7 @@ package body Synapse.Core.Kind_Synonyms is
            and then
            (not R.Has_Scope or else To_String (R.Scope) = Grammar_Scope)
          then
-            return (Found => True, Kind => R.Kind);
+            return (Found => True, Value => R.Kind);
          end if;
       end loop;
       return (Found => False);

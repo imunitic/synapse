@@ -1,12 +1,13 @@
+with Ada.Strings.Unbounded;
 package body Synapse.Core.Conf is
 
    use Ada.Strings.Unbounded;
 
-   function Is_Name_Start (C : Character) return Boolean
-   is (C in 'A' .. 'Z' | 'a' .. 'z' | '_');
+   function Is_Name_Start (C : Character) return Boolean is
+     (C in 'A' .. 'Z' | 'a' .. 'z' | '_');
 
-   function Is_Name_Part (C : Character) return Boolean
-   is (Is_Name_Start (C) or else C in '0' .. '9');
+   function Is_Name_Part (C : Character) return Boolean is
+     (Is_Name_Start (C) or else C in '0' .. '9');
 
    --  The length of the shell name at the start of S: a letter or `_`, then
    --  letters, digits and `_`. Zero when S does not start one.
@@ -23,13 +24,12 @@ package body Synapse.Core.Conf is
       return N;
    end Name_Length;
 
-   function Is_Name (S : String) return Boolean
-   is (S'Length > 0 and then Name_Length (S) = S'Length);
+   function Is_Name (S : String) return Boolean is
+     (S'Length > 0 and then Name_Length (S) = S'Length);
 
    function Unquote (Raw : String) return String is
    begin
-      if Raw'Length >= 2
-        and then Raw (Raw'First) in '"' | '''
+      if Raw'Length >= 2 and then Raw (Raw'First) in '"' | '''
         and then Raw (Raw'Last) = Raw (Raw'First)
       then
          return Raw (Raw'First + 1 .. Raw'Last - 1);
@@ -73,13 +73,13 @@ package body Synapse.Core.Conf is
          Blanks : constant String :=
            " " & Character'Val (9) & Character'Val (13);
          Line   : constant String := Trim (Raw, Blanks);
-         First  : Natural := Line'First;
+         First  : Natural         := Line'First;
       begin
          if Line'Length = 0 or else Line (Line'First) = '#' then
             return;
          end if;
-         if Line'Length >= 7 and then Line (Line'First .. Line'First + 6)
-                                      = "export "
+         if Line'Length >= 7
+           and then Line (Line'First .. Line'First + 6) = "export "
          then
             First := Line'First + 7;
             while First <= Line'Last
@@ -92,18 +92,22 @@ package body Synapse.Core.Conf is
             Body_Text : constant String := Line (First .. Line'Last);
          begin
             if Body_Text'Length > Key'Length
-              and then Body_Text (Body_Text'First
-                                  .. Body_Text'First + Key'Length - 1) = Key
+              and then
+                Body_Text
+                  (Body_Text'First .. Body_Text'First + Key'Length - 1) =
+                Key
               and then Body_Text (Body_Text'First + Key'Length) = '='
             then
                Result :=
                  (Found => True,
-                  Text  =>
+                  Value =>
                     To_Unbounded_String
                       (Unquote
-                         (Trim (Body_Text (Body_Text'First + Key'Length + 1
-                                           .. Body_Text'Last),
-                                " " & Character'Val (9)))));
+                         (Trim
+                            (Body_Text
+                               (Body_Text'First + Key'Length + 1 ..
+                                    Body_Text'Last),
+                             " " & Character'Val (9)))));
             end if;
          end;
       end Take;
@@ -127,7 +131,7 @@ package body Synapse.Core.Conf is
          Found : constant Ports.Variables.Maybe_Value := Vars.Get (Name);
       begin
          if Found.Found then
-            Append (Result, Found.Text);
+            Append (Result, Found.Value);
          end if;
       end Append_Variable;
    begin
@@ -140,8 +144,7 @@ package body Synapse.Core.Conf is
       end if;
 
       while I <= Raw'Last loop
-         if Raw (I) = '\' and then I < Raw'Last and then Raw (I + 1) = '$'
-         then
+         if Raw (I) = '\' and then I < Raw'Last and then Raw (I + 1) = '$' then
             Append (Result, '$');
             I := I + 2;
          elsif Raw (I) /= '$' then
@@ -193,9 +196,9 @@ package body Synapse.Core.Conf is
       if not Raw.Found then
          return (Found => False);
       end if;
-      return (Found => True,
-              Text  => To_Unbounded_String
-                         (Expand (To_String (Raw.Text), Vars)));
+      return
+        (Found => True,
+         Value => To_Unbounded_String (Expand (To_String (Raw.Value), Vars)));
    end Value;
 
 end Synapse.Core.Conf;

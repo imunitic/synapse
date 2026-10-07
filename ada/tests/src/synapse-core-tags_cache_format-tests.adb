@@ -1,9 +1,7 @@
 with Ada.Numerics.Discrete_Random;
-
-with AUnit.Assertions;
-
 with GNAT.CRC32;
 
+with AUnit.Assertions;
 with Synapse.Adapters.Memory_Byte_Source;
 with Synapse.Core.Tag_Payload;
 with Synapse.Test_Bytes;
@@ -33,7 +31,9 @@ package body Synapse.Core.Tags_Cache_Format.Tests is
       Src : Memory.Source         := Memory.Create (Bytes);
       Got : constant Parse_Result := Parse (Src);
    begin
-      return (if Got.Ok then "ok" else Parse_Error'Image (Got.Error));
+      return
+        (if Parse_Results.Is_Success (Got) then "ok"
+         else Parse_Error'Image (Parse_Results.Error (Got)));
    end Error_Of;
 
    --  The checksum of a file's table and paths put back after a change to
@@ -128,16 +128,22 @@ package body Synapse.Core.Tags_Cache_Format.Tests is
       Src     : Memory.Source := Memory.Create (Encode (Entries));
       Got     : constant Parse_Result         := Parse (Src);
    begin
-      Assert (Got.Ok and then Got.Head.Entry_Count = 4, "four entries");
+      Assert
+        (Parse_Results.Is_Success (Got)
+         and then Parse_Results.Value (Got).Entry_Count = 4,
+         "four entries");
       for I in 1 .. 4 loop
          declare
-            Item : constant Table_Record := Record_At (Src, Got.Head, I - 1);
+            Item : constant Table_Record :=
+              Record_At (Src, Parse_Results.Value (Got), I - 1);
          begin
             Assert
-              (Path_Of (Src, Got.Head, Item) = To_String (Entries (I).Path),
+              (Path_Of (Src, Parse_Results.Value (Got), Item) =
+               To_String (Entries (I).Path),
                "path" & I'Image);
             Assert
-              (Tags_Of (Src, Got.Head, Item) = To_String (Entries (I).Tags),
+              (Tags_Of (Src, Parse_Results.Value (Got), Item) =
+               To_String (Entries (I).Tags),
                "tags" & I'Image);
             Assert
               (Unsupported (Item) = Entries (I).Unsupported, "flag" & I'Image);
@@ -156,7 +162,7 @@ package body Synapse.Core.Tags_Cache_Format.Tests is
       Entries.Append (Make ("b", Ones, "", True));
       declare
          Src : Memory.Source   := Memory.Create (Encode (Entries));
-         H   : constant Header := Parse (Src).Head;
+         H   : constant Header := Parse_Results.Value (Parse (Src));
       begin
          Assert (not Unsupported (Record_At (Src, H, 0)), "parsed, no tags");
          Assert (Unsupported (Record_At (Src, H, 1)), "no grammar");
@@ -176,12 +182,12 @@ package body Synapse.Core.Tags_Cache_Format.Tests is
       Entries.Append (Make ("i", Ones, ""));
       declare
          Src : Memory.Source   := Memory.Create (Encode (Entries));
-         H   : constant Header := Parse (Src).Head;
+         H   : constant Header := Parse_Results.Value (Parse (Src));
 
          function At_Of (Path : String) return Integer is
             Got : constant Maybe_Index := Find (Src, H, Path);
          begin
-            return (if Got.Found then Got.Index else -1);
+            return (if Got.Found then Got.Value else -1);
          end At_Of;
       begin
          Assert (At_Of ("a") = 0, "the first");
@@ -203,8 +209,13 @@ package body Synapse.Core.Tags_Cache_Format.Tests is
       Got   : constant Parse_Result := Parse (Src);
    begin
       Assert (Bytes'Length = 40, "just a header");
-      Assert (Got.Ok and then Got.Head.Entry_Count = 0, "no entries");
-      Assert (not Find (Src, Got.Head, "x").Found, "and nothing to find");
+      Assert
+        (Parse_Results.Is_Success (Got)
+         and then Parse_Results.Value (Got).Entry_Count = 0,
+         "no entries");
+      Assert
+        (not Find (Src, Parse_Results.Value (Got), "x").Found,
+         "and nothing to find");
    end An_Empty_Cache_Is_A_Valid_Cache;
 
    procedure Unsorted_Input_Is_Refused (T : in out Test_Cases_Class) is
@@ -395,7 +406,7 @@ package body Synapse.Core.Tags_Cache_Format.Tests is
       Other (83) := Character'Val (2);
       declare
          Src : Memory.Source   := Memory.Create (With_Crc (Other));
-         H   : constant Header := Parse (Src).Head;
+         H   : constant Header := Parse_Results.Value (Parse (Src));
       begin
          Assert
            (not Unsupported (Record_At (Src, H, 0)),
@@ -404,7 +415,7 @@ package body Synapse.Core.Tags_Cache_Format.Tests is
       Other (83) := Character'Val (3);
       declare
          Src : Memory.Source   := Memory.Create (With_Crc (Other));
-         H   : constant Header := Parse (Src).Head;
+         H   : constant Header := Parse_Results.Value (Parse (Src));
       begin
          Assert
            (Unsupported (Record_At (Src, H, 0)),
@@ -488,9 +499,12 @@ package body Synapse.Core.Tags_Cache_Format.Tests is
       Src : Memory.Source         := Memory.Create (Fixture);
       Got : constant Parse_Result := Parse (Src);
    begin
-      Assert (Got.Ok and then Got.Head.Entry_Count = 3, "three entries");
+      Assert
+        (Parse_Results.Is_Success (Got)
+         and then Parse_Results.Value (Got).Entry_Count = 3,
+         "three entries");
       declare
-         H     : constant Header                         := Got.Head;
+         H     : constant Header := Parse_Results.Value (Got);
          First : constant Table_Record := Record_At (Src, H, 0);
          Tags  : constant Tag_Payload.Tag_Vectors.Vector :=
            Tag_Payload.Decode (Tags_Of (Src, H, First));
@@ -516,7 +530,7 @@ package body Synapse.Core.Tags_Cache_Format.Tests is
             and then not Unsupported (Record_At (Src, H, 1)),
             "parsed, nothing declared");
          Assert (Unsupported (Record_At (Src, H, 2)), "no grammar");
-         Assert (Find (Src, H, "src/empty.wdg").Index = 1, "found by path");
+         Assert (Find (Src, H, "src/empty.wdg").Value = 1, "found by path");
          Assert (not Find (Src, H, "src/missing.wdg").Found, "a miss");
       end;
    end The_Fixture_Decodes;
@@ -559,26 +573,30 @@ package body Synapse.Core.Tags_Cache_Format.Tests is
                Src : Memory.Source         := Memory.Create (Encode (Entries));
                Got : constant Parse_Result := Parse (Src);
             begin
-               Assert (Got.Ok, "parses");
-               Assert (Natural (Got.Head.Entry_Count) = Count, "the count");
+               Assert (Parse_Results.Is_Success (Got), "parses");
+               Assert
+                 (Natural (Parse_Results.Value (Got).Entry_Count) = Count,
+                  "the count");
                for I in 1 .. Count loop
                   declare
                      Item : constant Table_Record :=
-                       Record_At (Src, Got.Head, I - 1);
+                       Record_At (Src, Parse_Results.Value (Got), I - 1);
                   begin
                      Assert
-                       (Path_Of (Src, Got.Head, Item) =
+                       (Path_Of (Src, Parse_Results.Value (Got), Item) =
                         To_String (Entries (I).Path),
                         "path");
                      Assert
-                       (Tags_Of (Src, Got.Head, Item) =
+                       (Tags_Of (Src, Parse_Results.Value (Got), Item) =
                         To_String (Entries (I).Tags),
                         "tags");
                      Assert
                        (Unsupported (Item) = Entries (I).Unsupported, "flag");
                      Assert
-                       (Find (Src, Got.Head, To_String (Entries (I).Path))
-                          .Index =
+                       (Find
+                          (Src, Parse_Results.Value (Got),
+                           To_String (Entries (I).Path))
+                          .Value =
                         I - 1,
                         "found");
                   end;

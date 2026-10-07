@@ -2,11 +2,9 @@ with Ada.Calendar;
 with Ada.Directories;
 with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
-
-with AUnit.Assertions;
-
 with GNAT.OS_Lib;
 
+with AUnit.Assertions;
 with Synapse.Adapters.Dynamic_Libraries;
 with Synapse.Adapters.File_Bytes;
 with Synapse.Adapters.System_Process;
@@ -17,6 +15,8 @@ package body Synapse.Adapters.Tree_Sitter.Preparation.Tests is
 
    use AUnit.Assertions;
    use Ada.Strings.Unbounded;
+   use Build_Results;
+   use Clone_Results;
    use Synapse.Test_Scratch;
    use type Ada.Calendar.Time;
    use type Grammar.Load_Error;
@@ -28,16 +28,16 @@ package body Synapse.Adapters.Tree_Sitter.Preparation.Tests is
    Real_Runner : Adapters.System_Process.System_Runner;
    Loader      : Dynamic_Libraries.System_Loader;
 
-   No_Text : constant Core.Grammar_Registry.Maybe_Text := (Present => False);
+   No_Text : constant Core.Grammar_Registry.Maybe_Text := (Found => False);
 
    function Set_To (Text : String) return Core.Grammar_Registry.Maybe_Text is
-     (Present => True, Text => To_Unbounded_String (Text));
+     (Found => True, Value => To_Unbounded_String (Text));
 
    function Contains (Text, Part : String) return Boolean is
      (Ada.Strings.Fixed.Index (Text, Part) > 0);
 
    function Reason (Result : Build_Result) return String is
-     (if Result.Ok then "" else Describe (Result.Why));
+     (if Is_Success (Result) then "" else Describe (Error (Result)));
 
    --  Builds and fails the test with the reason when it does not.
    procedure Build_Ok
@@ -47,15 +47,15 @@ package body Synapse.Adapters.Tree_Sitter.Preparation.Tests is
       Result : constant Build_Result :=
         Build (Run, Repo_Dir, Out_Path, Max_Tries);
    begin
-      Assert (Result.Ok, "the build: " & Reason (Result));
+      Assert (Is_Success (Result), "the build: " & Reason (Result));
    end Build_Ok;
 
    function Fails_With
      (Result : Build_Result; Kind : Failure_Kind) return Boolean is
-     (not Result.Ok and then Result.Why.Kind = Kind);
+     (not Is_Success (Result) and then Error (Result).Kind = Kind);
 
    function Detail (Result : Build_Result) return String is
-     (if Result.Ok then "" else To_String (Result.Why.Detail));
+     (if Is_Success (Result) then "" else To_String (Error (Result).Detail));
 
    --  The clone's directory, or a failed assertion with the reason.
    function Cloned
@@ -66,14 +66,15 @@ package body Synapse.Adapters.Tree_Sitter.Preparation.Tests is
         Ensure_Cloned (Run, Url, Parent, Max_Tries);
    begin
       Assert
-        (Result.Ok,
-         "the clone: " & (if Result.Ok then "" else Describe (Result.Why)));
-      return (if Result.Ok then To_String (Result.Dir) else "");
+        (Is_Success (Result),
+         "the clone: " &
+         (if Is_Success (Result) then "" else Describe (Error (Result))));
+      return (if Is_Success (Result) then To_String (Value (Result)) else "");
    end Cloned;
 
    function Clone_Fails_With
      (Result : Clone_Result; Kind : Failure_Kind) return Boolean is
-     (not Result.Ok and then Result.Why.Kind = Kind);
+     (not Is_Success (Result) and then Error (Result).Kind = Kind);
 
    --  Moves a file's or directory's modification time to Ago seconds before
    --  now, or after it when negative. Whether the operating system reads the

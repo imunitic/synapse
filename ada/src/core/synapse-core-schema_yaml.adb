@@ -604,12 +604,13 @@ package body Synapse.Core.Schema_YAML with SPARK_Mode => Off is
          if Index <= Lines.Last_Index then
             Fail (Unexpected_Indent, Lines (Index).Number);
          end if;
-         return (Ok => True, Root => Root);
+         return Parse_Results.Success (Root);
       end;
 
    exception
       when Failure =>
-         return (Ok => False, Error => Error_Kind, Line => Error_Line);
+         return
+           Parse_Results.Failure ((Fault => Error_Kind, Line => Error_Line));
    end Parse;
 
    ---------------------------------------------------------------------------
@@ -794,10 +795,10 @@ package body Synapse.Core.Schema_YAML with SPARK_Mode => Off is
       end Merge_Value;
 
    begin
-      return (Ok => True, Root => Merge_Value (Base, Override));
+      return Merge_Results.Success (Merge_Value (Base, Override));
    exception
       when Failure =>
-         return (Ok => False, Error => Error_Kind);
+         return Merge_Results.Failure (Error_Kind);
    end Merge;
 
 end Synapse.Core.Schema_YAML;

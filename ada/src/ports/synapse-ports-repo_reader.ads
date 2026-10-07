@@ -1,4 +1,4 @@
-with Ada.Strings.Unbounded;
+with Synapse.Core.Optional_Text;
 
 --  The files of a repository, read by path relative to its root. What the
 --  graph's rules need from a repository is the text of a file, found by the
@@ -8,15 +8,7 @@ package Synapse.Ports.Repo_Reader is
 
    type Reader is limited interface;
 
-   type Maybe_Content (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Text : Ada.Strings.Unbounded.Unbounded_String;
-
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Content is Synapse.Core.Optional_Text.Option;
 
    --  The content of the file at Path, or none when it cannot be read: it is
    --  missing, or too large for the graph to read whole.

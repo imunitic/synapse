@@ -12,6 +12,10 @@ package Synapse.Adapters.Fake_Console is
    --  What a command will read from standard input.
    procedure Set_Stdin (F : in out Fake; Text : String);
 
+   --  Forgets what was written to either stream, so the next command's output
+   --  can be read on its own.
+   procedure Clear (F : in out Fake);
+
    --  Everything written to standard output so far.
    function Out_Text (F : Fake) return String;
 

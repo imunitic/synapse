@@ -1,4 +1,6 @@
-package body Synapse.Core.Unicode with SPARK_Mode is
+package body Synapse.Core.Unicode with
+  SPARK_Mode
+is
 
    package T renames Unicode_Tables;
 
@@ -17,8 +19,8 @@ package body Synapse.Core.Unicode with SPARK_Mode is
    N_Count : constant := V_Count * T_Count;
    S_Count : constant := L_Count * N_Count;
 
-   function Is_Hangul_Syllable (CP : Code_Point) return Boolean
-   is (CP in S_Base .. S_Base + S_Count - 1);
+   function Is_Hangul_Syllable (CP : Code_Point) return Boolean is
+     (CP in S_Base .. S_Base + S_Count - 1);
 
    ---------------------------------------------------------------------------
    --  Table lookups: binary searches over tables sorted by their key.
@@ -26,13 +28,13 @@ package body Synapse.Core.Unicode with SPARK_Mode is
 
    function Combining_Class (CP : Code_Point) return Natural is
       Lo : Positive := 1;
-      Hi : Natural := T.Ccc_Count + 1;
+      Hi : Natural  := T.Ccc_Count + 1;
    begin
       while Lo < Hi loop
          pragma Loop_Invariant (Hi <= T.Ccc_Count + 1);
          pragma Loop_Variant (Decreases => Hi - Lo);
          declare
-            Mid : constant Positive := Lo + (Hi - Lo) / 2;
+            Mid : constant Positive   := Lo + (Hi - Lo) / 2;
             Key : constant Code_Point := T.Ccc (Mid).CP;
          begin
             if Key = CP then
@@ -49,13 +51,13 @@ package body Synapse.Core.Unicode with SPARK_Mode is
 
    function Simple_Fold (CP : Code_Point) return Code_Point is
       Lo : Positive := 1;
-      Hi : Natural := T.Fold_Count + 1;
+      Hi : Natural  := T.Fold_Count + 1;
    begin
       while Lo < Hi loop
          pragma Loop_Invariant (Hi <= T.Fold_Count + 1);
          pragma Loop_Variant (Decreases => Hi - Lo);
          declare
-            Mid : constant Positive := Lo + (Hi - Lo) / 2;
+            Mid : constant Positive   := Lo + (Hi - Lo) / 2;
             Key : constant Code_Point := T.Fold (Mid).CP;
          begin
             if Key = CP then
@@ -72,17 +74,17 @@ package body Synapse.Core.Unicode with SPARK_Mode is
 
    function Table_Composition (A, B : Code_Point) return Composition is
       Lo : Positive := 1;
-      Hi : Natural := T.Compose_Count + 1;
+      Hi : Natural  := T.Compose_Count + 1;
    begin
       while Lo < Hi loop
          pragma Loop_Invariant (Hi <= T.Compose_Count + 1);
          pragma Loop_Variant (Decreases => Hi - Lo);
          declare
-            Mid : constant Positive := Lo + (Hi - Lo) / 2;
+            Mid : constant Positive        := Lo + (Hi - Lo) / 2;
             E   : constant T.Compose_Entry := T.Compose (Mid);
          begin
             if E.A = A and then E.B = B then
-               return (Found => True, Composed => E.Composed);
+               return (Found => True, Value => E.Composed);
             elsif (if E.A /= A then E.A < A else E.B < B) then
                Lo := Mid + 1;
             else
@@ -100,17 +102,16 @@ package body Synapse.Core.Unicode with SPARK_Mode is
         and then B in V_Base .. V_Base + V_Count - 1
       then
          return
-           (Found    => True,
-            Composed =>
+           (Found => True,
+            Value =>
               S_Base + ((A - L_Base) * V_Count + (B - V_Base)) * T_Count);
       end if;
 
       --  Hangul LV + T -> LVT syllable.
-      if Is_Hangul_Syllable (A)
-        and then (A - S_Base) mod T_Count = 0
+      if Is_Hangul_Syllable (A) and then (A - S_Base) mod T_Count = 0
         and then B in T_Base + 1 .. T_Base + T_Count - 1
       then
-         return (Found => True, Composed => A + (B - T_Base));
+         return (Found => True, Value => A + (B - T_Base));
       end if;
 
       return Table_Composition (A, B);
@@ -130,7 +131,7 @@ package body Synapse.Core.Unicode with SPARK_Mode is
                Result.Length := 2;
             else
                Result.Items (3) := T_Base + Trail;
-               Result.Length := 3;
+               Result.Length    := 3;
             end if;
             return Result;
          end;
@@ -138,13 +139,13 @@ package body Synapse.Core.Unicode with SPARK_Mode is
 
       declare
          Lo : Positive := 1;
-         Hi : Natural := T.Decomp_Count + 1;
+         Hi : Natural  := T.Decomp_Count + 1;
       begin
          while Lo < Hi loop
-               pragma Loop_Invariant (Hi <= T.Decomp_Count + 1);
+            pragma Loop_Invariant (Hi <= T.Decomp_Count + 1);
             pragma Loop_Variant (Decreases => Hi - Lo);
             declare
-               Mid : constant Positive := Lo + (Hi - Lo) / 2;
+               Mid : constant Positive       := Lo + (Hi - Lo) / 2;
                E   : constant T.Decomp_Entry := T.Decomp (Mid);
             begin
                if E.CP = CP then
@@ -168,7 +169,7 @@ package body Synapse.Core.Unicode with SPARK_Mode is
       end;
 
       Result.Items (1) := CP;
-      Result.Length := 1;
+      Result.Length    := 1;
       return Result;
    end Decompose;
 
@@ -200,8 +201,8 @@ package body Synapse.Core.Unicode with SPARK_Mode is
                if LA = 0 or else LB = 0 then
                   return False;
                end if;
-               if Simple_Fold (UTF8.Scalar_At (A, PA))
-                 /= Simple_Fold (UTF8.Scalar_At (B, PB))
+               if Simple_Fold (UTF8.Scalar_At (A, PA)) /=
+                 Simple_Fold (UTF8.Scalar_At (B, PB))
                then
                   return False;
                end if;
@@ -216,23 +217,18 @@ package body Synapse.Core.Unicode with SPARK_Mode is
    --  starting at or after From, which must lie in Haystack'First ..
    --  Haystack'Last + 1.
    function Find_From
-     (Haystack, Needle : String; From : Positive) return Match
-   with
+     (Haystack, Needle : String; From : Positive) return Match with
      Pre  =>
-       Haystack'Last < Positive'Last
-       and then Needle'Last < Positive'Last
-       and then Needle'Length > 0
-       and then From >= Haystack'First,
+      Haystack'Last < Positive'Last and then Needle'Last < Positive'Last
+      and then Needle'Length > 0 and then From >= Haystack'First,
      Post =>
-       (if Find_From'Result.Found
-        then
-          Find_From'Result.First in Haystack'Range
-          and then Find_From'Result.Last in Haystack'Range
-          and then Find_From'Result.First <= Find_From'Result.Last
-          and then Find_From'Result.First >= From);
+      (if Find_From'Result.Found then
+         Find_From'Result.Value.First in Haystack'Range
+         and then Find_From'Result.Value.Last in Haystack'Range
+         and then Find_From'Result.Value.First <= Find_From'Result.Value.Last
+         and then Find_From'Result.Value.First >= From);
 
-   function Find_From
-     (Haystack, Needle : String; From : Positive) return Match
+   function Find_From (Haystack, Needle : String; From : Positive) return Match
    is
       Start : Positive := From;
    begin
@@ -244,7 +240,7 @@ package body Synapse.Core.Unicode with SPARK_Mode is
          declare
             HP      : Positive := Start;
             NP      : Positive := Needle'First;
-            Matched : Boolean := True;
+            Matched : Boolean  := True;
          begin
             while NP <= Needle'Last loop
                pragma Loop_Invariant (HP >= Start and then NP >= Needle'First);
@@ -257,10 +253,9 @@ package body Synapse.Core.Unicode with SPARK_Mode is
                   LN : constant Natural := UTF8.Sequence_Length (Needle, NP);
                   LH : constant Natural := UTF8.Sequence_Length (Haystack, HP);
                begin
-                  if LN = 0
-                    or else LH = 0
-                    or else Simple_Fold (UTF8.Scalar_At (Haystack, HP))
-                            /= Simple_Fold (UTF8.Scalar_At (Needle, NP))
+                  if LN = 0 or else LH = 0
+                    or else Simple_Fold (UTF8.Scalar_At (Haystack, HP)) /=
+                      Simple_Fold (UTF8.Scalar_At (Needle, NP))
                   then
                      Matched := False;
                      exit;
@@ -271,7 +266,8 @@ package body Synapse.Core.Unicode with SPARK_Mode is
             end loop;
 
             if Matched then
-               return (Found => True, First => Start, Last => HP - 1);
+               return
+                 (Found => True, Value => (First => Start, Last => HP - 1));
             end if;
          end;
 
@@ -287,12 +283,9 @@ package body Synapse.Core.Unicode with SPARK_Mode is
       return (Found => False);
    end Find_From;
 
-   function Searchable (Haystack, Needle : String) return Boolean
-   is (Haystack'Length > 0
-       and then Needle'Length > 0
-       and then UTF8.Is_Valid (Haystack)
-       and then UTF8.Is_Valid (Needle))
-   with
+   function Searchable (Haystack, Needle : String) return Boolean is
+     (Haystack'Length > 0 and then Needle'Length > 0
+      and then UTF8.Is_Valid (Haystack) and then UTF8.Is_Valid (Needle)) with
      Pre => Haystack'Last < Positive'Last and then Needle'Last < Positive'Last;
 
    function Find_Case_Fold (Haystack, Needle : String) return Match is
@@ -303,8 +296,8 @@ package body Synapse.Core.Unicode with SPARK_Mode is
       return Find_From (Haystack, Needle, Haystack'First);
    end Find_Case_Fold;
 
-   function Contains_Case_Fold (Haystack, Needle : String) return Boolean
-   is (Find_Case_Fold (Haystack, Needle).Found);
+   function Contains_Case_Fold (Haystack, Needle : String) return Boolean is
+     (Find_Case_Fold (Haystack, Needle).Found);
 
    function Count_Case_Fold (Haystack, Needle : String) return Natural is
       Count : Natural := 0;
@@ -324,7 +317,7 @@ package body Synapse.Core.Unicode with SPARK_Mode is
          begin
             exit when not M.Found;
             Count := Count + 1;
-            Pos := M.Last + 1;
+            Pos   := M.Value.Last + 1;
          end;
       end loop;
       return Count;

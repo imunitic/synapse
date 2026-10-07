@@ -1,5 +1,4 @@
-with Ada.Strings.Unbounded;
-
+with Synapse.Core.Optional_Text;
 with Synapse.Core.Text_Lists;
 with Synapse.Ports.Variables;
 
@@ -16,15 +15,7 @@ package Synapse.Adapters.Conf_Files is
    --  There is no home directory to put a new file in.
    No_Home : exception;
 
-   type Maybe_Path (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Path : Ada.Strings.Unbounded.Unbounded_String;
-
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Path is Synapse.Core.Optional_Text.Option;
 
    --  The configuration files, in the order they are tried. The second is the
    --  name the first had before it was renamed.

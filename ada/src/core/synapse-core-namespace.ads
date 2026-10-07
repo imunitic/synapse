@@ -2,6 +2,8 @@ with Ada.Containers.Indefinite_Ordered_Maps;
 with Ada.Containers.Vectors;
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Optional_Text;
+with Synapse.Core.Options;
 with Synapse.Core.Text_Lists;
 with Synapse.Ports.Repo_Reader;
 
@@ -33,15 +35,7 @@ package Synapse.Core.Namespace is
 
    use Ada.Strings.Unbounded;
 
-   type Maybe_Text (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Text : Unbounded_String;
-
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Text is Synapse.Core.Optional_Text.Option;
 
    type Kind is (In_File, Build_File);
 
@@ -90,15 +84,9 @@ package Synapse.Core.Namespace is
    --  instead of walking every file to learn it.
    function Is_Empty (R : Registry) return Boolean is (R.Rules.Is_Empty);
 
-   type Maybe_Rule (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Value : Rule;
+   package Maybe_Rule_Options is new Synapse.Core.Options (Rule);
 
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Rule is Maybe_Rule_Options.Option;
 
    --  The rule of the extension a path ends in: after the last dot of its base
    --  name, none for a name that starts with a dot and has no other.

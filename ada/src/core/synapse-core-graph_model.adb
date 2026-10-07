@@ -22,7 +22,7 @@ package body Synapse.Core.Graph_Model is
       Result : Hash := [others => 0];
    begin
       if Hex'Length /= 40 then
-         return (Valid => False);
+         return (Found => False);
       end if;
       for I in Result'Range loop
          declare
@@ -31,12 +31,12 @@ package body Synapse.Core.Graph_Model is
               Digit (Hex (Hex'First + 2 * (I - 1) + 1));
          begin
             if High = 16 or else Low = 16 then
-               return (Valid => False);
+               return (Found => False);
             end if;
             Result (I) := High * 16 + Low;
          end;
       end loop;
-      return (Valid => True, Value => Result);
+      return (Found => True, Value => Result);
    end Hash_From_Hex;
 
    function Hash_To_Hex (Value : Hash) return String is

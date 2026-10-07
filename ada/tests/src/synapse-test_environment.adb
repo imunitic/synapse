@@ -3,7 +3,8 @@ with Ada.Strings.Unbounded;
 package body Synapse.Test_Environment is
 
    function Args
-     (A1, A2, A3, A4, A5 : String := "") return Synapse.Commands.Lists.Vector
+     (A1, A2, A3, A4, A5, A6, A7, A8 : String := "")
+      return Synapse.Commands.Lists.Vector
    is
       Result : Synapse.Commands.Lists.Vector;
 
@@ -19,6 +20,9 @@ package body Synapse.Test_Environment is
       Add (A3);
       Add (A4);
       Add (A5);
+      Add (A6);
+      Add (A7);
+      Add (A8);
       return Result;
    end Args;
 

@@ -1,3 +1,4 @@
+with Synapse.Core.Options;
 with Synapse.Core.JSON;
 with Synapse.Ports.Store;
 
@@ -7,17 +8,11 @@ with Synapse.Ports.Store;
 package Synapse.Ports.Search_Filtered is
 
    --  Either no filter, or a JsonLogic rule that mentions only `path`.
-   type Path_Filter (Present : Boolean := False) is record
-      case Present is
-         when True =>
-            Rule : Core.JSON.Value;
+   package Filter_Options is new Core.Options (Core.JSON.Value);
 
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Path_Filter is Filter_Options.Option;
 
-   No_Filter : constant Path_Filter := (Present => False);
+   No_Filter : constant Path_Filter := Filter_Options.None;
 
    type Searchable is limited interface;
 

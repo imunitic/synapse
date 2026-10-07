@@ -5,6 +5,7 @@ with Ada.Strings.Maps;
 
 with Synapse.Core.Rarity;
 with Synapse.Core.Words;
+with Synapse.Core.Decimal_Image;
 
 package body Synapse.Core.Gate is
 
@@ -229,16 +230,10 @@ package body Synapse.Core.Gate is
       return Result;
    end Judge;
 
-   function Number (N : Natural) return String is
-      Text : constant String := Natural'Image (N);
-   begin
-      return Text (Text'First + 1 .. Text'Last);
-   end Number;
-
    function Verdict_Line (V : Verdict) return String is
       Line : Unbounded_String :=
         To_Unbounded_String
-          (To_String (V.Cluster) & HT & Number (V.Rare) & HT &
+          (To_String (V.Cluster) & HT & Decimal_Image.Image (V.Rare) & HT &
            (case V.State is when Ok => "ok", when Flagged => "flagged",
               when Unparseable => "unparseable") &
            HT);
@@ -285,7 +280,7 @@ package body Synapse.Core.Gate is
    end Judge_Distinctiveness;
 
    function Distinctiveness_Line (Row : Distinctiveness_Row) return String is
-     (To_String (Row.Group) & HT & Number (Row.Distinctive) & HT &
-      Number (Row.Considered) & LF);
+     (To_String (Row.Group) & HT & Decimal_Image.Image (Row.Distinctive) & HT &
+      Decimal_Image.Image (Row.Considered) & LF);
 
 end Synapse.Core.Gate;

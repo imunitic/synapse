@@ -1,3 +1,6 @@
+with Synapse.Core.Unit;
+with Synapse.Core.Results;
+with Synapse.Core.Options;
 --  Note schemas: checking that a schema document is itself well formed.
 --
 --  A schema document (read by Schema_YAML) declares the frontmatter fields a
@@ -19,29 +22,18 @@ package Synapse.Core.Note_Schema is
    --  advisory, Error_Level blocks a write the way a failed check does.
    type Severity is (Ignore, Warn, Error_Level);
 
-   type Maybe_Severity (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Level : Severity;
+   package Maybe_Severity_Options is new Synapse.Core.Options (Severity);
 
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Severity is Maybe_Severity_Options.Option;
 
    --  `ignore`, `warn` or `error`.
    function Parse_Severity (Text : String) return Maybe_Severity;
 
    --  Valid, or the diagnostic for the first problem found.
-   type Check_Result (Valid : Boolean := True) is record
-      case Valid is
-         when True =>
-            null;
+   package Check_Results is new Synapse.Core.Results
+     (Synapse.Core.Unit.Unit, Ada.Strings.Unbounded.Unbounded_String);
 
-         when False =>
-            Message : Ada.Strings.Unbounded.Unbounded_String;
-      end case;
-   end record;
+   subtype Check_Result is Check_Results.Result;
 
    --  Checks Root against the v1 schema language, in this order: the header
    --  (`schema` and `id`, which must equal Expected_Id), the frontmatter

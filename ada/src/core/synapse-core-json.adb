@@ -3,8 +3,11 @@ with Ada.Strings.Fixed;
 with Ada.Unchecked_Deallocation;
 
 with Synapse.Core.JSON_Lexical;
+with Synapse.Core.Decimal_Image;
 
-package body Synapse.Core.JSON with SPARK_Mode => Off is
+package body Synapse.Core.JSON with
+  SPARK_Mode => Off
+is
 
    use Ada.Strings.Unbounded;
    use type Ada.Containers.Count_Type;
@@ -17,16 +20,14 @@ package body Synapse.Core.JSON with SPARK_Mode => Off is
    --  Ownership
    ---------------------------------------------------------------------------
 
-   overriding
-   procedure Adjust (V : in out Value) is
+   overriding procedure Adjust (V : in out Value) is
    begin
       if V.Ref /= null then
          V.Ref.Count := V.Ref.Count + 1;
       end if;
    end Adjust;
 
-   overriding
-   procedure Finalize (V : in out Value) is
+   overriding procedure Finalize (V : in out Value) is
       Doomed : Node_Access := V.Ref;
    begin
       V.Ref := null;
@@ -38,33 +39,32 @@ package body Synapse.Core.JSON with SPARK_Mode => Off is
       end if;
    end Finalize;
 
-   function Wrap (N : Node_Access) return Value
-   is (Ada.Finalization.Controlled with Ref => N);
+   function Wrap (N : Node_Access) return Value is
+     (Ada.Finalization.Controlled with Ref => N);
 
    ---------------------------------------------------------------------------
    --  Construction
    ---------------------------------------------------------------------------
 
-   function Make_Boolean (B : Boolean) return Value
-   is (Wrap (new Node'(K => JSON_Boolean, Count => 1, Flag => B)));
+   function Make_Boolean (B : Boolean) return Value is
+     (Wrap (new Node'(K => JSON_Boolean, Count => 1, Flag => B)));
 
-   function Make_Integer (I : Long_Long_Integer) return Value
-   is (Wrap (new Node'(K => JSON_Integer, Count => 1, Int => I)));
+   function Make_Integer (I : Long_Long_Integer) return Value is
+     (Wrap (new Node'(K => JSON_Integer, Count => 1, Int => I)));
 
-   function Make_Float (F : Long_Float) return Value
-   is (Wrap (new Node'(K => JSON_Float, Count => 1, Flt => F)));
+   function Make_Float (F : Long_Float) return Value is
+     (Wrap (new Node'(K => JSON_Float, Count => 1, Flt => F)));
 
-   function Make_Number_String (Text : String) return Value
-   is (Wrap
-         (new Node'
-            (K     => JSON_Number_String,
-             Count => 1,
-             Text  => To_Unbounded_String (Text))));
+   function Make_Number_String (Text : String) return Value is
+     (Wrap
+        (new Node'
+           (K    => JSON_Number_String, Count => 1,
+            Text => To_Unbounded_String (Text))));
 
-   function Make_String (S : String) return Value
-   is (Wrap
-         (new Node'
-            (K => JSON_String, Count => 1, Text => To_Unbounded_String (S))));
+   function Make_String (S : String) return Value is
+     (Wrap
+        (new Node'
+           (K => JSON_String, Count => 1, Text => To_Unbounded_String (S))));
 
    function Make_Array (Items : Value_Array) return Value is
       Vector : Value_Vectors.Vector;
@@ -77,9 +77,9 @@ package body Synapse.Core.JSON with SPARK_Mode => Off is
 
    --  Adds a member, or replaces the value of an existing key in place.
    procedure Put_Member
-     (Members : in out Member_Vectors.Vector;
-      Key     : Unbounded_String;
-      Item    : Value) is
+     (Members : in out Member_Vectors.Vector; Key : Unbounded_String;
+      Item    :        Value)
+   is
    begin
       for I in Members.First_Index .. Members.Last_Index loop
          if Members (I).Key = Key then
@@ -96,36 +96,30 @@ package body Synapse.Core.JSON with SPARK_Mode => Off is
       for M of Members loop
          Put_Member (Vector, M.Key, M.Item);
       end loop;
-      return
-        Wrap (new Node'(K => JSON_Object, Count => 1, Members => Vector));
+      return Wrap (new Node'(K => JSON_Object, Count => 1, Members => Vector));
    end Make_Object;
 
    ---------------------------------------------------------------------------
    --  Inspection
    ---------------------------------------------------------------------------
 
-   function Kind_Of (V : Value) return Kind
-   is (if V.Ref = null then JSON_Null else V.Ref.K);
+   function Kind_Of (V : Value) return Kind is
+     (if V.Ref = null then JSON_Null else V.Ref.K);
 
-   function As_Boolean (V : Value) return Boolean
-   is (V.Ref.Flag);
+   function As_Boolean (V : Value) return Boolean is (V.Ref.Flag);
 
-   function As_Integer (V : Value) return Long_Long_Integer
-   is (V.Ref.Int);
+   function As_Integer (V : Value) return Long_Long_Integer is (V.Ref.Int);
 
-   function As_Float (V : Value) return Long_Float
-   is (V.Ref.Flt);
+   function As_Float (V : Value) return Long_Float is (V.Ref.Flt);
 
-   function As_String (V : Value) return String
-   is (To_String (V.Ref.Text));
+   function As_String (V : Value) return String is (To_String (V.Ref.Text));
 
-   function Length (V : Value) return Natural
-   is (if V.Ref.K = JSON_Array
-       then Natural (V.Ref.Items.Length)
-       else Natural (V.Ref.Members.Length));
+   function Length (V : Value) return Natural is
+     (if V.Ref.K = JSON_Array then Natural (V.Ref.Items.Length)
+      else Natural (V.Ref.Members.Length));
 
-   function Element (V : Value; Index : Positive) return Value
-   is (V.Ref.Items (Index));
+   function Element (V : Value; Index : Positive) return Value is
+     (V.Ref.Items (Index));
 
    function Find (V : Value; Key : String) return Natural is
    begin
@@ -137,20 +131,19 @@ package body Synapse.Core.JSON with SPARK_Mode => Off is
       return 0;
    end Find;
 
-   function Has_Member (V : Value; Key : String) return Boolean
-   is (Find (V, Key) /= 0);
+   function Has_Member (V : Value; Key : String) return Boolean is
+     (Find (V, Key) /= 0);
 
-   function Member_Value (V : Value; Key : String) return Value
-   is (V.Ref.Members (Find (V, Key)).Item);
+   function Member_Value (V : Value; Key : String) return Value is
+     (V.Ref.Members (Find (V, Key)).Item);
 
-   function Member_Key (V : Value; Index : Positive) return String
-   is (To_String (V.Ref.Members (Index).Key));
+   function Member_Key (V : Value; Index : Positive) return String is
+     (To_String (V.Ref.Members (Index).Key));
 
-   function Member_At (V : Value; Index : Positive) return Value
-   is (V.Ref.Members (Index).Item);
+   function Member_At (V : Value; Index : Positive) return Value is
+     (V.Ref.Members (Index).Item);
 
-   overriding
-   function "=" (L, R : Value) return Boolean is
+   overriding function "=" (L, R : Value) return Boolean is
    begin
       if Kind_Of (L) /= Kind_Of (R) then
          return False;
@@ -191,8 +184,7 @@ package body Synapse.Core.JSON with SPARK_Mode => Off is
                declare
                   Other : constant Natural := Find (R, To_String (M.Key));
                begin
-                  if Other = 0
-                    or else M.Item /= R.Ref.Members (Other).Item
+                  if Other = 0 or else M.Item /= R.Ref.Members (Other).Item
                   then
                      return False;
                   end if;
@@ -210,24 +202,23 @@ package body Synapse.Core.JSON with SPARK_Mode => Off is
 
       Failure : exception;
 
-      Pos        : Positive := Text'First;
+      Pos        : Positive         := Text'First;
       Error_Kind : Parse_Error_Kind := Unexpected_End;
-      Error_At   : Natural := 0;
+      Error_At   : Natural          := 0;
 
       procedure Fail (Reason : Parse_Error_Kind; At_Index : Positive) is
       begin
          Error_Kind := Reason;
-         Error_At := At_Index - Text'First;
+         Error_At   := At_Index - Text'First;
          raise Failure;
       end Fail;
 
-      function At_End return Boolean
-      is (Pos > Text'Last);
+      function At_End return Boolean is (Pos > Text'Last);
 
       procedure Skip_Whitespace is
       begin
-         while not At_End and then Text (Pos) in ' ' | ASCII.HT | ASCII.LF
-           | ASCII.CR
+         while not At_End
+           and then Text (Pos) in ' ' | ASCII.HT | ASCII.LF | ASCII.CR
          loop
             Pos := Pos + 1;
          end loop;
@@ -272,7 +263,7 @@ package body Synapse.Core.JSON with SPARK_Mode => Off is
                   Fail (Invalid_Escape, Pos);
                end if;
                Result := Result * 16 + Digit;
-               Pos := Pos + 1;
+               Pos    := Pos + 1;
             end;
          end loop;
          return Result;
@@ -335,8 +326,8 @@ package body Synapse.Core.JSON with SPARK_Mode => Off is
                         when 'u' =>
                            Pos := Pos + 1;
                            declare
-                              Unit : constant Natural := Hex4;
-                              Scalar : Natural := Unit;
+                              Unit   : constant Natural := Hex4;
+                              Scalar : Natural          := Unit;
                            begin
                               if Unit in 16#DC00# .. 16#DFFF# then
                                  Fail (Invalid_Escape, Escape_At);
@@ -454,8 +445,7 @@ package body Synapse.Core.JSON with SPARK_Mode => Off is
             Pos := Pos + 1;
             return
               Wrap
-                (new Node'
-                   (K => JSON_Object, Count => 1, Members => Members));
+                (new Node'(K => JSON_Object, Count => 1, Members => Members));
          end if;
          loop
             Skip_Whitespace;
@@ -501,9 +491,7 @@ package body Synapse.Core.JSON with SPARK_Mode => Off is
                   S : constant Unbounded_String := Parse_String;
                begin
                   return
-                    Wrap
-                      (new Node'
-                         (K => JSON_String, Count => 1, Text => S));
+                    Wrap (new Node'(K => JSON_String, Count => 1, Text => S));
                end;
 
             when 't' =>
@@ -571,11 +559,11 @@ package body Synapse.Core.JSON with SPARK_Mode => Off is
    function Escape (S : String) return String is
       Hex    : constant String := "0123456789abcdef";
       Result : String (1 .. Lexical.Escaped_Length (S));
-      Last   : Natural := 0;
+      Last   : Natural         := 0;
 
       procedure Put (C : Character) is
       begin
-         Last := Last + 1;
+         Last          := Last + 1;
          Result (Last) := C;
       end Put;
    begin
@@ -587,14 +575,10 @@ package body Synapse.Core.JSON with SPARK_Mode => Off is
             when 2 =>
                Put ('\');
                Put
-                 (case C is
-                    when '"'      => '"',
-                    when '\'      => '\',
-                    when ASCII.BS => 'b',
-                    when ASCII.FF => 'f',
-                    when ASCII.LF => 'n',
-                    when ASCII.CR => 'r',
-                    when others   => 't');
+                 (case C is when '"' => '"', when '\' => '\',
+                    when ASCII.BS => 'b', when ASCII.FF => 'f',
+                    when ASCII.LF => 'n', when ASCII.CR => 'r',
+                    when others => 't');
 
             when others =>
                Put ('\');
@@ -625,21 +609,21 @@ package body Synapse.Core.JSON with SPARK_Mode => Off is
       end loop;
 
       declare
-         Text      : constant String :=
+         Text        : constant String               :=
            Ada.Strings.Fixed.Trim (Buffer, Ada.Strings.Both);
-         Negative  : constant Boolean := Text (Text'First) = '-';
-         From      : constant Positive :=
+         Negative    : constant Boolean := Text (Text'First) = '-';
+         From        : constant Positive             :=
            (if Negative then Text'First + 1 else Text'First);
-         E_At      : constant Natural := Ada.Strings.Fixed.Index (Text, "E");
-         Mantissa  : constant String := Text (From .. E_At - 1);
-         Exponent  : constant Integer :=
+         E_At        : constant Natural := Ada.Strings.Fixed.Index (Text, "E");
+         Mantissa    : constant String := Text (From .. E_At - 1);
+         Exponent    : constant Integer              :=
            Integer'Value (Text (E_At + 1 .. Text'Last));
          Digits_Text : String (1 .. Mantissa'Length) := [others => '0'];
-         Count     : Natural := 0;
+         Count       : Natural                       := 0;
       begin
          for C of Mantissa loop
             if C /= '.' then
-               Count := Count + 1;
+               Count               := Count + 1;
                Digits_Text (Count) := C;
             end if;
          end loop;
@@ -654,22 +638,20 @@ package body Synapse.Core.JSON with SPARK_Mode => Off is
             if Exponent in 0 .. 20 then
                if D'Length <= Exponent + 1 then
                   return
-                    Sign & D & String'(1 .. Exponent + 1 - D'Length => '0')
-                    & ".0";
+                    Sign & D & String'(1 .. Exponent + 1 - D'Length => '0') &
+                    ".0";
                end if;
                return
-                 Sign & D (1 .. Exponent + 1) & "."
-                 & D (Exponent + 2 .. D'Last);
+                 Sign & D (1 .. Exponent + 1) & "." &
+                 D (Exponent + 2 .. D'Last);
             elsif Exponent in -5 .. -1 then
-               return
-                 Sign & "0." & String'(1 .. -Exponent - 1 => '0') & D;
+               return Sign & "0." & String'(1 .. -Exponent - 1 => '0') & D;
             else
                return
-                 Sign & D (1 .. 1) & "."
-                 & (if D'Length > 1 then D (2 .. D'Last) else "0") & "e"
-                 & (if Exponent < 0 then "-" else "+")
-                 & Ada.Strings.Fixed.Trim
-                     (Integer'Image (abs Exponent), Ada.Strings.Left);
+                 Sign & D (1 .. 1) & "." &
+                 (if D'Length > 1 then D (2 .. D'Last) else "0") & "e" &
+                 (if Exponent < 0 then "-" else "+") &
+                 Decimal_Image.Image (abs Exponent);
             end if;
          end;
       end;
@@ -685,10 +667,7 @@ package body Synapse.Core.JSON with SPARK_Mode => Off is
             Append (Into, (if V.Ref.Flag then "true" else "false"));
 
          when JSON_Integer =>
-            Append
-              (Into,
-               Ada.Strings.Fixed.Trim
-                 (Long_Long_Integer'Image (V.Ref.Int), Ada.Strings.Left));
+            Append (Into, Decimal_Image.Image (V.Ref.Int));
 
          when JSON_Float =>
             Append (Into, Float_Text (V.Ref.Flt));

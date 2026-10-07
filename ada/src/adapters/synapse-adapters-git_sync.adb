@@ -1,9 +1,9 @@
 with Ada.Directories;
 with Ada.Exceptions;
 with Ada.Text_IO;
+with Ada.Strings.Unbounded;
 
 with Synapse.Core.Text_Lists;
-with Ada.Strings.Unbounded;
 
 package body Synapse.Adapters.Git_Sync is
 
@@ -19,8 +19,8 @@ package body Synapse.Adapters.Git_Sync is
    Ssh_Option : constant String :=
      "core.sshCommand=ssh -o BatchMode=yes -o ConnectTimeout=10";
 
-   function Lock_Path (Vault : String) return String
-   is (Vault & "/.git/synapse-sync.lock");
+   function Lock_Path (Vault : String) return String is
+     (Vault & "/.git/synapse-sync.lock");
 
    procedure Try_Acquire (Vault : String; L : in out Dir_Lock.Lock) is
    begin
@@ -28,7 +28,8 @@ package body Synapse.Adapters.Git_Sync is
    end Try_Acquire;
 
    procedure Acquire_With_Retry
-     (Vault : String; Max_Tries : Positive; L : in out Dir_Lock.Lock) is
+     (Vault : String; Max_Tries : Positive; L : in out Dir_Lock.Lock)
+   is
    begin
       Dir_Lock.Acquire_With_Retry
         (Lock_Path (Vault), Lock_Stale_After, Max_Tries, L);
@@ -53,8 +54,8 @@ package body Synapse.Adapters.Git_Sync is
 
    --  The non-empty ones of the arguments, as a list.
    function Words
-     (A1 : String;
-      A2, A3, A4, A5, A6, A7 : String := "") return Core.Text_Lists.Vector
+     (A1 : String; A2, A3, A4, A5, A6, A7 : String := "")
+      return Core.Text_Lists.Vector
    is
       Result : Core.Text_Lists.Vector;
 
@@ -76,39 +77,42 @@ package body Synapse.Adapters.Git_Sync is
    end Words;
 
    function Git
-     (R     : in out Runner.Runner'Class;
-      Vault : String;
-      Args  : Core.Text_Lists.Vector) return Runner.Result
-   is (R.Run ("git", Args,
-              (Cwd => To_Unbounded_String (Vault), others => <>)));
+     (R    : in out Runner.Runner'Class; Vault : String;
+      Args :        Core.Text_Lists.Vector) return Runner.Result is
+     (R.Run ("git", Args, (Cwd => To_Unbounded_String (Vault), others => <>)));
 
    function Upstream_Of
      (R : in out Runner.Runner'Class; Vault : String)
       return Ports.Store.Maybe_Text
    is
       Result : constant Runner.Result :=
-        Git (R, Vault,
-             Words ("rev-parse", "--abbrev-ref", "--symbolic-full-name",
-                    "@{upstream}"));
-      Name   : constant String := Trimmed (To_String (Result.Output));
+        Git
+          (R, Vault,
+           Words
+             ("rev-parse", "--abbrev-ref", "--symbolic-full-name",
+              "@{upstream}"));
+      Name   : constant String        := Trimmed (To_String (Result.Output));
    begin
       if not Runner.Succeeded (Result) or else Name'Length = 0 then
          return (Found => False);
       end if;
-      return (Found => True, Text => To_Unbounded_String (Name));
+      return (Found => True, Value => To_Unbounded_String (Name));
    end Upstream_Of;
 
-   function Pull (R : in out Runner.Runner'Class; Vault : String)
-      return Boolean is
+   function Pull
+     (R : in out Runner.Runner'Class; Vault : String) return Boolean
+   is
    begin
       if not Upstream_Of (R, Vault).Found then
          return True;
       end if;
       declare
          Result : constant Runner.Result :=
-           Git (R, Vault,
-                Words ("-c", Ssh_Option, "pull", "--rebase", "--autostash",
-                       "--quiet"));
+           Git
+             (R, Vault,
+              Words
+                ("-c", Ssh_Option, "pull", "--rebase", "--autostash",
+                 "--quiet"));
       begin
          if Runner.Succeeded (Result) then
             return True;
@@ -166,8 +170,8 @@ package body Synapse.Adapters.Git_Sync is
       end if;
       declare
          Ignore_Email : constant Runner.Result :=
-           Git (R, Vault,
-                Words ("config", "user.email", "vault@synapse.local"));
+           Git
+             (R, Vault, Words ("config", "user.email", "vault@synapse.local"));
          Ignore_Name  : constant Runner.Result :=
            Git (R, Vault, Words ("config", "user.name", "Synapse Vault"));
       begin
@@ -187,10 +191,12 @@ package body Synapse.Adapters.Git_Sync is
          --  byte of a path as an octal escape, and that text would land in
          --  the commit message.
          Names  : constant Runner.Result :=
-           Git (R, Vault,
-                Words ("-c", "core.quotePath=false", "diff", "--cached",
-                       "--name-only"));
-         Staged : constant String := Trimmed (To_String (Names.Output));
+           Git
+             (R, Vault,
+              Words
+                ("-c", "core.quotePath=false", "diff", "--cached",
+                 "--name-only"));
+         Staged : constant String        := Trimmed (To_String (Names.Output));
       begin
          if not Runner.Succeeded (Names) or else Staged'Length = 0 then
             return;
@@ -198,16 +204,17 @@ package body Synapse.Adapters.Git_Sync is
          Ensure_Identity (R, Vault);
          declare
             Ignore : constant Runner.Result :=
-              Git (R, Vault,
-                   Words ("commit", "--quiet", "-m", Commit_Message (Staged)));
+              Git
+                (R, Vault,
+                 Words ("commit", "--quiet", "-m", Commit_Message (Staged)));
          begin
             null;
          end;
       end;
    end Commit_If_Dirty;
 
-   function Commits_Ahead (R : in out Runner.Runner'Class; Vault : String)
-      return Natural
+   function Commits_Ahead
+     (R : in out Runner.Runner'Class; Vault : String) return Natural
    is
       Upstream : constant Ports.Store.Maybe_Text := Upstream_Of (R, Vault);
    begin
@@ -216,9 +223,11 @@ package body Synapse.Adapters.Git_Sync is
       end if;
       declare
          Result : constant Runner.Result :=
-           Git (R, Vault,
-                Words ("rev-list", "--count",
-                       To_String (Upstream.Text) & "..HEAD"));
+           Git
+             (R, Vault,
+              Words
+                ("rev-list", "--count",
+                  To_String (Upstream.Value) & "..HEAD"));
          Text   : constant String := Trimmed (To_String (Result.Output));
       begin
          if not Runner.Succeeded (Result) or else Text'Length = 0
@@ -278,8 +287,9 @@ package body Synapse.Adapters.Git_Sync is
          Ensure_Repo (R, Vault);
       exception
          when E : others =>
-            Report ("git repo init failed, change kept local ("
-                    & Ada.Exceptions.Exception_Name (E) & ")");
+            Report
+              ("git repo init failed, change kept local (" &
+               Ada.Exceptions.Exception_Name (E) & ")");
             return;
       end;
       Try_Acquire (Vault, L);
@@ -291,8 +301,9 @@ package body Synapse.Adapters.Git_Sync is
          Committed := True;
       exception
          when E : others =>
-            Report ("git commit failed, change kept local ("
-                    & Ada.Exceptions.Exception_Name (E) & ")");
+            Report
+              ("git commit failed, change kept local (" &
+               Ada.Exceptions.Exception_Name (E) & ")");
       end;
    end Commit_Under_Lock;
 

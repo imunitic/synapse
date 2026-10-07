@@ -1,6 +1,7 @@
 with Ada.Containers.Vectors;
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Optional_Text;
 with Synapse.Core.Text_Lists;
 
 --  Where nodes (notes, graph nodes) are read, written, listed and searched.
@@ -21,15 +22,7 @@ package Synapse.Ports.Store is
    --  There is nothing at the path a rename or delete was asked to act on.
    Node_Not_Found : exception;
 
-   type Maybe_Text (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Text : Unbounded_String;
-
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Text is Synapse.Core.Optional_Text.Option;
 
    --  What a backend said about a write beyond plain success: an anticipated
    --  rejection, not a failure. Status and Body_Text are HTTP-shaped, for the

@@ -1,3 +1,4 @@
+with Synapse.Core.Options;
 --  The `status:` transition of a task note, as one tested rule and not a table
 --  repeated in the prose of two skills with nothing to keep them in agreement.
 --
@@ -12,15 +13,9 @@ package Synapse.Core.Task_Status is
    --  `CANCELED` or `CANCELLED`.
    function Image (S : Status) return String;
 
-   type Maybe_Status (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Value : Status;
+   package Maybe_Status_Options is new Synapse.Core.Options (Status);
 
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Status is Maybe_Status_Options.Option;
 
    --  The status a note's text names, in its exact spelling.
    function Parse (Text : String) return Maybe_Status;

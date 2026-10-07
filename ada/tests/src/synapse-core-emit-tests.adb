@@ -1,7 +1,6 @@
 with Ada.Strings.Fixed;
 
 with AUnit.Assertions;
-
 with Synapse.Core.Graph_Model;
 with Synapse.Core.Node_Format;
 
@@ -22,7 +21,7 @@ package body Synapse.Core.Emit.Tests is
       and then Text (Text'Last - Suffix'Length + 1 .. Text'Last) = Suffix);
 
    function Shown (Found : Maybe_Text) return String is
-     (if Found.Found then "<" & To_String (Found.Text) & ">" else "none");
+     (if Found.Found then "<" & To_String (Found.Value) & ">" else "none");
 
    --  ------------------------------------------------------------------
    --  Titles and directives
@@ -74,7 +73,7 @@ package body Synapse.Core.Emit.Tests is
    begin
       Assert
         (Reparses
-           (To_String (Find_Directive (Text, Kind_Crux).Text), Kind_Crux),
+           (To_String (Find_Directive (Text, Kind_Crux).Value), Kind_Crux),
          "the first crux");
       Assert (Natural (Grounded.Length) = 2, "both groundings");
       for Whole of Grounded loop
@@ -201,7 +200,7 @@ package body Synapse.Core.Emit.Tests is
       Scoped : constant Maybe_Text := Section (Whole, "Crux");
    begin
       Assert
-        (Shown (Find_Directive (To_String (Scoped.Text), Kind_Crux)) =
+        (Shown (Find_Directive (To_String (Scoped.Value), Kind_Crux)) =
          "<<!-- crux: src/real.wdg 5-8 -->>",
          "scoped to the section");
       Assert

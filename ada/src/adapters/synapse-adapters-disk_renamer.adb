@@ -83,7 +83,7 @@ package body Synapse.Adapters.Disk_Renamer is
          Moved : constant String :=
            Core.Wikilinks.Sync_Title_And_Heading
              (Core.Wikilinks.Rename_Target
-                (To_String (Found.Text), Old_Title, New_Title),
+                (To_String (Found.Value), Old_Title, New_Title),
               Old_Title, New_Title);
          Ignore : constant Ports.Store.Write_Result :=
            Disk.Write (New_Path, Moved);
@@ -100,7 +100,7 @@ package body Synapse.Adapters.Disk_Renamer is
                           Disk.Write
                             (To_String (Referrer.Node),
                              Core.Wikilinks.Rename_Target
-                               (To_String (Text.Text), Old_Title, New_Title));
+                               (To_String (Text.Value), Old_Title, New_Title));
                      begin
                         null;
                      end;

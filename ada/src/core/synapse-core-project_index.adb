@@ -1,3 +1,4 @@
+with Synapse.Core.Decimal_Image;
 package body Synapse.Core.Project_Index is
 
    LF : constant Character := Character'Val (10);
@@ -6,19 +7,14 @@ package body Synapse.Core.Project_Index is
    Dash : constant String :=
      Character'Val (16#E2#) & Character'Val (16#80#) & Character'Val (16#94#);
 
-   function Number (N : Natural) return String is
-      Text : constant String := Natural'Image (N);
-   begin
-      return Text (Text'First + 1 .. Text'Last);
-   end Number;
-
    function Image (P : Params) return String is
       Space : constant String := " ";
       Name  : constant String := To_String (P.Namespace);
       Text  : Unbounded_String;
    begin
       Append (Text, "---" & LF);
-      Append (Text, "title: """ & Name & Space & Dash & " Synapse index""" & LF);
+      Append
+        (Text, "title: """ & Name & Space & Dash & " Synapse index""" & LF);
       Append (Text, "node_type: synapse-index" & LF);
       Append (Text, "project: " & To_String (P.Project) & LF);
       Append (Text, "branch: " & To_String (P.Branch) & LF);
@@ -31,27 +27,27 @@ package body Synapse.Core.Project_Index is
       --  opening a node that runs to megabytes.
       Append
         (Text,
-         Number (P.Total_Files) & " tracked files, "
-         & Number (Natural (P.Bullets.Length)) & " nodes. Nodes are "
-         & "subsystems and concepts, not modules " & Dash & " each one's "
-         & "frontmatter `sources` lists every file it covers, and `synapse "
-         & "index lookup <path>` is the reverse index from any path back to "
-         & "its owning node." & LF & LF);
+         Decimal_Image.Image (P.Total_Files) & " tracked files, " &
+         Decimal_Image.Image (Natural (P.Bullets.Length)) &
+         " nodes. Nodes are " & "subsystems and concepts, not modules " &
+         Dash & " each one's " &
+         "frontmatter `sources` lists every file it covers, and `synapse " &
+         "index lookup <path>` is the reverse index from any path back to " &
+         "its owning node." & LF & LF);
       Append
         (Text,
-         "Reading a node: use `synapse query body <node>` rather than "
-         & "opening the file " & Dash & " `sources` runs to tens of thousands "
-         & "of tokens on the hub nodes and the reverse index is far larger "
-         & "still. `synapse query sources <node> --modules` gives the module "
-         & "breakdown, `--count` just the number, and `synapse query stale` "
-         & "verifies the whole namespace against the working tree." & LF
-         & LF);
+         "Reading a node: use `synapse query body <node>` rather than " &
+         "opening the file " & Dash & " `sources` runs to tens of thousands " &
+         "of tokens on the hub nodes and the reverse index is far larger " &
+         "still. `synapse query sources <node> --modules` gives the module " &
+         "breakdown, `--count` just the number, and `synapse query stale` " &
+         "verifies the whole namespace against the working tree." & LF & LF);
       for B of P.Bullets loop
          Append
            (Text,
-            "- [[" & To_String (B.Link) & "]] " & Dash & Space
-            & To_String (B.Summary) & " (" & Number (B.Files) & " files)"
-            & LF);
+            "- [[" & To_String (B.Link) & "]] " & Dash & Space &
+            To_String (B.Summary) & " (" & Decimal_Image.Image (B.Files) &
+            " files)" & LF);
       end loop;
       return To_String (Text);
    end Image;

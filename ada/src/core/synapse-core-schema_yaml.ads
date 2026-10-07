@@ -1,3 +1,4 @@
+with Synapse.Core.Results;
 --  The strict YAML reader note schema documents are written in, and the merge
 --  that applies an override document to a base schema.
 --
@@ -13,7 +14,9 @@
 
 with Synapse.Core.JSON;
 
-package Synapse.Core.Schema_YAML with SPARK_Mode => Off is
+package Synapse.Core.Schema_YAML with
+  SPARK_Mode => Off
+is
 
    package JSON renames Synapse.Core.JSON;
 
@@ -21,59 +24,35 @@ package Synapse.Core.Schema_YAML with SPARK_Mode => Off is
    Max_Depth : constant := 128;
 
    type Fault is
-     (Empty_Document,
-      Tab_Indent,
-      Invalid_Indent,
-      Unexpected_Indent,
-      Mixed_Collection,
-      Malformed_Mapping,
-      Duplicate_Key,
-      Empty_Value,
-      Anchor_Or_Alias,
-      Custom_Tag,
-      Block_Scalar,
-      Flow_Map,
-      Multiple_Documents,
-      Implicit_Type,
-      Unterminated_String,
-      Invalid_Escape,
-      Invalid_Integer,
-      Invalid_Flow_List,
-      Invalid_UTF8,
-      Too_Deep,
-      --  Merge faults
-      Patch_Match_Not_Map,
-      Patch_Match_Not_Found,
-      Mixed_Patch_List,
-      Patch_On_Non_List);
+     (Empty_Document, Tab_Indent, Invalid_Indent, Unexpected_Indent,
+      Mixed_Collection, Malformed_Mapping, Duplicate_Key, Empty_Value,
+      Anchor_Or_Alias, Custom_Tag, Block_Scalar, Flow_Map, Multiple_Documents,
+      Implicit_Type, Unterminated_String, Invalid_Escape, Invalid_Integer,
+      Invalid_Flow_List, Invalid_UTF8, Too_Deep,
+                 --  Merge faults
+                 Patch_Match_Not_Map,
+      Patch_Match_Not_Found, Mixed_Patch_List, Patch_On_Non_List);
 
    subtype Parse_Fault is Fault range Empty_Document .. Too_Deep;
 
    subtype Merge_Fault is Fault range Patch_Match_Not_Map .. Patch_On_Non_List;
 
-   type Parse_Result (Ok : Boolean := False) is record
-      case Ok is
-         when True =>
-            Root : JSON.Value;
-
-         when False =>
-            Error : Parse_Fault;
-            Line  : Natural;  --  1-based source line; 0 when none applies
-      end case;
+   type Parse_Failure is record
+      Fault : Parse_Fault;
+      Line  : Natural;  --  1-based source line; 0 when none applies
    end record;
 
-   function Parse (Source : String) return Parse_Result
-   with Pre => Source'Last < Positive'Last;
+   package Parse_Results is new Synapse.Core.Results
+     (JSON.Value, Parse_Failure);
 
-   type Merge_Result (Ok : Boolean := False) is record
-      case Ok is
-         when True =>
-            Root : JSON.Value;
+   subtype Parse_Result is Parse_Results.Result;
 
-         when False =>
-            Error : Merge_Fault;
-      end case;
-   end record;
+   function Parse (Source : String) return Parse_Result with
+     Pre => Source'Last < Positive'Last;
+
+   package Merge_Results is new Synapse.Core.Results (JSON.Value, Merge_Fault);
+
+   subtype Merge_Result is Merge_Results.Result;
 
    --  Override applied onto Base. Maps merge key by key at every depth: a key
    --  in both recurses, a key only in Base stays, a key only in Override is

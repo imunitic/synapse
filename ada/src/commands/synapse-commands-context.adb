@@ -19,7 +19,7 @@ package body Synapse.Commands.Context is
    is
       Got : constant Ports_Vars.Maybe_Value := Env.Vars.Get (Name);
    begin
-      if Got.Found and then Length (Got.Text) > 0 then
+      if Got.Found and then Length (Got.Value) > 0 then
          return Got;
       end if;
       return (Found => False);
@@ -27,7 +27,7 @@ package body Synapse.Commands.Context is
 
    function Value_Or
      (Got : Ports_Vars.Maybe_Value; Otherwise : String) return String is
-     (if Got.Found then To_String (Got.Text) else Otherwise);
+     (if Got.Found then To_String (Got.Value) else Otherwise);
 
    function Home (Env : Environment) return String is
      (Value_Or (Env.Vars.Get ("HOME"), ""));
@@ -44,8 +44,8 @@ package body Synapse.Commands.Context is
       Found      : constant Adapters.Conf_Files.Maybe_Path :=
         Adapters.Conf_Files.Resolve_Conf_Path (Env.Vars.all, Boilerplate_Conf);
       Path       : constant String                         :=
-        (if Configured.Found then To_String (Configured.Text)
-         elsif Found.Found then To_String (Found.Path)
+        (if Configured.Found then To_String (Configured.Value)
+         elsif Found.Found then To_String (Found.Value)
          elsif Home (Env) /= "" then
            Home (Env) & "/.claude/" & Boilerplate_Conf
          else "");
@@ -134,7 +134,7 @@ package body Synapse.Commands.Context is
          end;
       end if;
 
-      Result.Vault     := Vault.Path;
+      Result.Vault     := Vault.Value;
       Result.Namespace :=
         To_Unbounded_String
           (Value_Or
@@ -163,7 +163,7 @@ package body Synapse.Commands.Context is
         To_Unbounded_String
           (To_String (Result.Vault) & "/" & To_String (Result.Dir));
       Load_Chains (Env, Result);
-      return (Found => True, Item => Result);
+      return (Found => True, Value => Result);
    end Resolve;
 
    function Resolve_Explicit
@@ -192,7 +192,7 @@ package body Synapse.Commands.Context is
             "'" & ASCII.LF);
          return (Found => False);
       end if;
-      Result.Vault              := Vault.Path;
+      Result.Vault              := Vault.Value;
       Result.Namespace          := To_Unbounded_String (Namespace);
       Result.Repo_Root          :=
         To_Unbounded_String
@@ -206,14 +206,14 @@ package body Synapse.Commands.Context is
         To_Unbounded_String
           (To_String (Result.Vault) & "/" & To_String (Result.Dir));
       Load_Chains (Env, Result);
-      return (Found => True, Item => Result);
+      return (Found => True, Value => Result);
    end Resolve_Explicit;
 
    function Field_Of (Text, Key : String) return String is
       Got : constant Core.Node_Query.Maybe_Text :=
         Core.Node_Query.Field (Text, Key);
    begin
-      return (if Got.Found then To_String (Got.Text) else "");
+      return (if Got.Found then To_String (Got.Value) else "");
    end Field_Of;
 
    function Verify_Namespace
@@ -265,7 +265,7 @@ package body Synapse.Commands.Context is
    begin
       return
         (Found => True,
-         Text  =>
+         Value =>
            To_Unbounded_String
              (Files.Read (Node_Path (Ctx, Name), 256 * 1_024 * 1_024)));
    exception

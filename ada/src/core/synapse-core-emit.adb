@@ -2,6 +2,7 @@ with Ada.Strings.Fixed;
 with Ada.Strings.Maps;
 
 with Synapse.Core.Line_Slice;
+with Synapse.Core.Decimal_Image;
 
 package body Synapse.Core.Emit is
 
@@ -22,12 +23,6 @@ package body Synapse.Core.Emit is
 
    function Trim_All (S : String) return String is
      (Ada.Strings.Fixed.Trim (S, Blanks_And_CR, Blanks_And_CR));
-
-   function Number (N : Natural) return String is
-      Text : constant String := Natural'Image (N);
-   begin
-      return Text (Text'First + 1 .. Text'Last);
-   end Number;
 
    function Starts_With (S, Prefix : String) return Boolean is
      (S'Length >= Prefix'Length
@@ -76,7 +71,7 @@ package body Synapse.Core.Emit is
          end if;
          return
            (Found => True,
-            Text  =>
+            Value =>
               To_Unbounded_String (Trim (Rest (Rest'First + 1 .. Rest'Last))));
       end;
    end Directive_Arg;
@@ -108,7 +103,7 @@ package body Synapse.Core.Emit is
       if Found.Is_Empty then
          return (Found => False);
       end if;
-      return (Found => True, Text => Found.First_Element);
+      return (Found => True, Value => Found.First_Element);
    end Find_Directive;
 
    function Section (Text, Heading : String) return Maybe_Text is
@@ -132,7 +127,7 @@ package body Synapse.Core.Emit is
                then
                   return
                     (Found => True,
-                     Text  =>
+                     Value =>
                        To_Unbounded_String
                          (Text (Content_Start .. Start - 1)));
                end if;
@@ -148,7 +143,7 @@ package body Synapse.Core.Emit is
       end if;
       return
         (Found => True,
-         Text  =>
+         Value =>
            To_Unbounded_String
              (Text (Integer'Min (Content_Start, Text'Last + 1) .. Text'Last)));
    end Section;
@@ -290,7 +285,8 @@ package body Synapse.Core.Emit is
       Append
         (Text,
          Em_Dash & " `" & To_String (Of_Span.Path) & "`:" &
-         Number (Of_Span.First) & "-" & Number (Of_Span.Last) & LF);
+         Decimal_Image.Image (Of_Span.First) & "-" &
+         Decimal_Image.Image (Of_Span.Last) & LF);
       return To_String (Text);
    end Crux_Block;
 
@@ -532,7 +528,7 @@ package body Synapse.Core.Emit is
             Append
               (Text,
                "- `" & To_String (Module.Module) & "` (" &
-               Number (Module.Count) & ")" & LF);
+               Decimal_Image.Image (Module.Count) & ")" & LF);
          end loop;
       end if;
       Append (Text, Node_Format.Generated_End & LF);

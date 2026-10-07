@@ -7,9 +7,9 @@ package body Synapse.Core.Graph_Clean.Tests is
    subtype Test_Cases_Class is AUnit.Test_Cases.Test_Case'Class;
 
    function Set_To (Text : String) return Maybe_Text is
-     (Present => True, Text => To_Unbounded_String (Text));
+     (Found => True, Value => To_Unbounded_String (Text));
 
-   None : constant Maybe_Text := (Present => False);
+   None : constant Maybe_Text := (Found => False);
 
    function Is_Report (V : Verdict; Why : Reason) return Boolean is
      (V.Kind = Report and then V.Why = Why);
@@ -156,11 +156,11 @@ package body Synapse.Core.Graph_Clean.Tests is
                              (Branch, Has_Remote, Local, Remote, Merge, Ref);
                            V        : constant Verdict := Classify (F);
                            Complete : constant Boolean :=
-                             Branch.Present and then Length (Branch.Text) > 0
-                             and then Has_Remote and then Remote.Present
-                             and then Length (Remote.Text) > 0
-                             and then Merge.Present
-                             and then Length (Merge.Text) > 0;
+                             Branch.Found and then Length (Branch.Value) > 0
+                             and then Has_Remote and then Remote.Found
+                             and then Length (Remote.Value) > 0
+                             and then Merge.Found
+                             and then Length (Merge.Value) > 0;
                         begin
                            Assert
                              ((V.Kind = Remove) = (Complete and not Ref),

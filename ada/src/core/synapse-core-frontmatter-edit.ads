@@ -1,3 +1,4 @@
+with Synapse.Core.Optional_Text;
 --  Frontmatter operations that build lists or need to raise: scalars as a
 --  YAML reader sees them, one-field writes, and tag edits. Everything here is
 --  built on the proved scanning and splicing in Synapse.Core.Frontmatter.
@@ -15,15 +16,7 @@ package Synapse.Core.Frontmatter.Edit with SPARK_Mode => Off is
    type String_Array is
      array (Positive range <>) of Ada.Strings.Unbounded.Unbounded_String;
 
-   type Maybe_Text (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Item : Ada.Strings.Unbounded.Unbounded_String;
-
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Text is Synapse.Core.Optional_Text.Option;
 
    --  The note has no frontmatter block to write into.
    No_Frontmatter : exception;

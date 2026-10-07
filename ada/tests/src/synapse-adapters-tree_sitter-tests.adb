@@ -1,15 +1,13 @@
 with Ada.Characters.Latin_1;
 with Ada.Strings.Fixed;
 with Ada.Text_IO;
+with System;
 
 with AUnit.Assertions;
-
 with Synapse.Adapters.Dynamic_Libraries;
 with Synapse.Adapters.Tree_Sitter.Grammar;
 with Synapse.Core.Grammar_Names;
 with Synapse.Ports.Library_Loader;
-
-with System;
 
 package body Synapse.Adapters.Tree_Sitter.Tests is
 
@@ -43,8 +41,10 @@ package body Synapse.Adapters.Tree_Sitter.Tests is
       Result : constant Grammar.Load_Result :=
         Load ("fake_docstrings", "tree_sitter_fake_docstrings");
    begin
-      Assert (Result.Loaded, "the docstrings fixture loads");
-      return Result.Item;
+      Assert
+        (Grammar.Load_Results.Is_Success (Result),
+         "the docstrings fixture loads");
+      return Grammar.Load_Results.Value (Result);
    end Docstrings_Language;
 
    function Text (N : Node; In_Source : String) return String is
@@ -295,8 +295,14 @@ package body Synapse.Adapters.Tree_Sitter.Tests is
       Older : constant Grammar.Load_Result :=
         Load ("fake3", "tree_sitter_fake3");
    begin
-      Assert (Newer.Loaded and then ABI_Version (Newer.Item) = 15, "ABI 15");
-      Assert (Older.Loaded and then ABI_Version (Older.Item) = 14, "ABI 14");
+      Assert
+        (Grammar.Load_Results.Is_Success (Newer)
+         and then ABI_Version (Grammar.Load_Results.Value (Newer)) = 15,
+         "ABI 15");
+      Assert
+        (Grammar.Load_Results.Is_Success (Older)
+         and then ABI_Version (Grammar.Load_Results.Value (Older)) = 14,
+         "ABI 14");
    end Loads_Grammars_Of_Supported_Abis;
 
    procedure Refuses_An_Unsupported_Abi (T : in out Test_Cases_Class) is
@@ -305,7 +311,9 @@ package body Synapse.Adapters.Tree_Sitter.Tests is
         Load ("fake_abi16", "tree_sitter_fake_abi16");
    begin
       Assert
-        (not Result.Loaded and then Result.Error = Grammar.Abi_Unsupported,
+        (not Grammar.Load_Results.Is_Success (Result)
+         and then Grammar.Load_Results.Error (Result) =
+           Grammar.Abi_Unsupported,
          "ABI 16 is newer than the runtime");
    end Refuses_An_Unsupported_Abi;
 
@@ -319,13 +327,18 @@ package body Synapse.Adapters.Tree_Sitter.Tests is
         Load ("fake3", "tree_sitter_no_such_symbol");
    begin
       Assert
-        (not Missing.Loaded and then Missing.Error = Grammar.Library_Not_Found,
+        (not Grammar.Load_Results.Is_Success (Missing)
+         and then Grammar.Load_Results.Error (Missing) =
+           Grammar.Library_Not_Found,
          "a missing file");
       Assert
-        (not Not_Lib.Loaded and then Not_Lib.Error = Grammar.Not_A_Library,
+        (not Grammar.Load_Results.Is_Success (Not_Lib)
+         and then Grammar.Load_Results.Error (Not_Lib) = Grammar.Not_A_Library,
          "a file that is not a library");
       Assert
-        (not No_Sym.Loaded and then No_Sym.Error = Grammar.Symbol_Not_Found,
+        (not Grammar.Load_Results.Is_Success (No_Sym)
+         and then Grammar.Load_Results.Error (No_Sym) =
+           Grammar.Symbol_Not_Found,
          "a missing symbol");
    end Reports_Load_Failures;
 
@@ -386,7 +399,9 @@ package body Synapse.Adapters.Tree_Sitter.Tests is
            Grammar.Load_Language (Loader, "anything", "tree_sitter_x");
       begin
          Assert
-           (not R.Loaded and then R.Error = Grammar.Library_Not_Found,
+           (not Grammar.Load_Results.Is_Success (R)
+            and then Grammar.Load_Results.Error (R) =
+              Grammar.Library_Not_Found,
             "Open's status is passed through");
          Assert (Loader.Open_Calls = 1, "the port was asked to open");
       end;
@@ -397,7 +412,8 @@ package body Synapse.Adapters.Tree_Sitter.Tests is
            Grammar.Load_Language (Loader, "anything", "tree_sitter_x");
       begin
          Assert
-           (not R.Loaded and then R.Error = Grammar.Symbol_Not_Found,
+           (not Grammar.Load_Results.Is_Success (R)
+            and then Grammar.Load_Results.Error (R) = Grammar.Symbol_Not_Found,
             "an unresolved symbol");
       end;
 
@@ -407,7 +423,8 @@ package body Synapse.Adapters.Tree_Sitter.Tests is
            Grammar.Load_Language (Loader, "anything", "tree_sitter_x");
       begin
          Assert
-           (not R.Loaded and then R.Error = Grammar.Symbol_Not_Found,
+           (not Grammar.Load_Results.Is_Success (R)
+            and then Grammar.Load_Results.Error (R) = Grammar.Symbol_Not_Found,
             "a grammar function returning no language");
       end;
    end Load_Language_Depends_Only_On_The_Port;

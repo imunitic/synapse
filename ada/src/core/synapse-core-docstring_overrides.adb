@@ -1,3 +1,4 @@
+with Ada.Strings.Unbounded;
 package body Synapse.Core.Docstring_Overrides is
 
    use Ada.Strings.Unbounded;
@@ -34,7 +35,7 @@ package body Synapse.Core.Docstring_Overrides is
          end if;
          return
            (Found => True,
-            Text  => To_Unbounded_String (Source (First .. Stop - 1)));
+            Value => To_Unbounded_String (Source (First .. Stop - 1)));
       end;
    end Single_Node_Type;
 
@@ -42,7 +43,8 @@ package body Synapse.Core.Docstring_Overrides is
       Named : constant Maybe_Text := Single_Node_Type (Source);
    begin
       return
-        (if Named.Found then To_String (Named.Text) else Default_Comment_Type);
+        (if Named.Found then To_String (Named.Value)
+         else Default_Comment_Type);
    end Comment_Type;
 
    function Declaration_Kinds (Source : String) return Text_Lists.Vector is
@@ -61,7 +63,7 @@ package body Synapse.Core.Docstring_Overrides is
                  Single_Node_Type (Source (Start .. Stop - 1));
             begin
                if Named.Found then
-                  Result.Append (Named.Text);
+                  Result.Append (Named.Value);
                end if;
             end;
             Start := Stop + 1;

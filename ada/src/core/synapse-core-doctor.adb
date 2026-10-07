@@ -1,3 +1,4 @@
+with Synapse.Core.Decimal_Image;
 package body Synapse.Core.Doctor is
 
    LF : constant Character := Character'Val (10);
@@ -33,12 +34,6 @@ package body Synapse.Core.Doctor is
       return Result;
    end Count;
 
-   function Number (N : Natural) return String is
-      Text : constant String := Natural'Image (N);
-   begin
-      return Text (Text'First + 1 .. Text'Last);
-   end Number;
-
    function Report (Checks : Check_Vectors.Vector) return String is
       Text  : Unbounded_String;
       Width : Natural := 0;
@@ -65,7 +60,7 @@ package body Synapse.Core.Doctor is
       begin
          Append
            (Text,
-            LF & Number (N.Ok) & " ok," & Natural'Image (N.Warn) &
+            LF & Decimal_Image.Image (N.Ok) & " ok," & Natural'Image (N.Warn) &
             " warning(s)," & Natural'Image (N.Fail) & " failure(s)" & LF);
       end;
       return To_String (Text);

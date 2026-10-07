@@ -2,6 +2,7 @@ with Ada.Containers.Vectors;
 with Ada.Finalization;
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Options;
 with Synapse.Adapters.File_Byte_Source;
 with Synapse.Core.Graph_Model;
 with Synapse.Core.Tags_Cache_Format;
@@ -66,15 +67,9 @@ package Synapse.Adapters.Tags_Cache is
       Unsupported : Boolean := False;
    end record;
 
-   type Maybe_Value (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Item : Value;
+   package Maybe_Value_Options is new Synapse.Core.Options (Value);
 
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Value is Maybe_Value_Options.Option;
 
    function Get (C : in out Cache; Path : String) return Maybe_Value;
 

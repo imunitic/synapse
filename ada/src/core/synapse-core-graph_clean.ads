@@ -1,5 +1,7 @@
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Optional_Text;
+
 --  Which namespaces a clean may remove and which it may only report. Cleaning
 --  is the one destructive operation on the vault, so this is the inference
 --  alone, apart from the deletion, and testable without a vault or a
@@ -23,15 +25,7 @@ package Synapse.Core.Graph_Clean is
 
    use Ada.Strings.Unbounded;
 
-   type Maybe_Text (Present : Boolean := False) is record
-      case Present is
-         when True =>
-            Text : Unbounded_String;
-
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Text is Synapse.Core.Optional_Text.Option;
 
    type Reason is (No_Branch_Field,
       --  The branch is gone and the repository has no remote at all.

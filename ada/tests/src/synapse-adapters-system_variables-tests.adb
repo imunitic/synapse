@@ -13,8 +13,8 @@ package body Synapse.Adapters.System_Variables.Tests is
    function Text (V : System_Variables; Name : String) return String is
       Found : constant Port.Maybe_Value := V.Get (Name);
    begin
-      return (if Found.Found then "<" & To_String (Found.Text) & ">"
-              else "none");
+      return
+        (if Found.Found then "<" & To_String (Found.Value) & ">" else "none");
    end Text;
 
    procedure It_Reads_The_Real_Environment (T : in out Test_Cases_Class) is
@@ -34,19 +34,18 @@ package body Synapse.Adapters.System_Variables.Tests is
       pragma Unreferenced (T);
       V        : System_Variables;
       Had_Home : constant Boolean := Ada.Environment_Variables.Exists ("HOME");
-      Old_Home : constant String :=
+      Old_Home : constant String  :=
         (if Had_Home then Ada.Environment_Variables.Value ("HOME") else "");
       Had_Prof : constant Boolean :=
         Ada.Environment_Variables.Exists ("USERPROFILE");
-      Old_Prof : constant String :=
+      Old_Prof : constant String  :=
         (if Had_Prof then Ada.Environment_Variables.Value ("USERPROFILE")
          else "");
    begin
       Ada.Environment_Variables.Clear ("HOME");
       Ada.Environment_Variables.Set ("USERPROFILE", "C:\Users\x");
       Assert (Text (V, "HOME") = "<C:\Users\x>", "the profile stands in");
-      Assert (Text (V, "OTHER_THAN_HOME_FOR_SURE") = "none",
-              "only for HOME");
+      Assert (Text (V, "OTHER_THAN_HOME_FOR_SURE") = "none", "only for HOME");
       Ada.Environment_Variables.Set ("HOME", "/home/x");
       Assert (Text (V, "HOME") = "</home/x>", "HOME wins when set");
 
@@ -62,15 +61,13 @@ package body Synapse.Adapters.System_Variables.Tests is
       end if;
    end Home_Falls_Back_To_The_User_Profile;
 
-   overriding
-   function Name (T : Test_Case) return AUnit.Message_String is
+   overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
       return AUnit.Format ("Synapse.Adapters.System_Variables");
    end Name;
 
-   overriding
-   procedure Register_Tests (T : in out Test_Case) is
+   overriding procedure Register_Tests (T : in out Test_Case) is
       use AUnit.Test_Cases.Registration;
    begin
       Register_Routine

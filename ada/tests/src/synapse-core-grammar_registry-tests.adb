@@ -7,7 +7,7 @@ package body Synapse.Core.Grammar_Registry.Tests is
    subtype Test_Cases_Class is AUnit.Test_Cases.Test_Case'Class;
 
    function Text_Of (M : Maybe_Text) return String is
-     (if M.Present then To_String (M.Text) else "<none>");
+     (if M.Found then To_String (M.Value) else "<none>");
 
    Sample : constant String :=
      "{""alpha"":{""repo"":""https://host/tree-sitter-alpha""," &
@@ -116,26 +116,25 @@ package body Synapse.Core.Grammar_Registry.Tests is
            """symbol"":""""}}");
    begin
       Assert
-        (not Path_For (R, "a").Present
-         and then not Symbol_For (R, "a").Present,
+        (not Path_For (R, "a").Found and then not Symbol_For (R, "a").Found,
          "neither");
       Assert
         (Text_Of (Path_For (R, "b")) = "grammars/b"
-         and then not Symbol_For (R, "b").Present,
+         and then not Symbol_For (R, "b").Found,
          "a path to a grammar");
       Assert
         (Text_Of (Path_For (R, "c")) = "grammars/c"
          and then Text_Of (Symbol_For (R, "c")) = "tree_sitter_multi_c",
          "and a symbol");
       Assert
-        (not Path_For (R, "empty").Present
-         and then not Symbol_For (R, "empty").Present,
+        (not Path_For (R, "empty").Found
+         and then not Symbol_For (R, "empty").Found,
          "an empty string is not a value");
-      Assert (not Path_For (R, "nope").Present, "no entry");
+      Assert (not Path_For (R, "nope").Found, "no entry");
       Assert
         (Text_Of (Repo_For (R, "b")) = "https://host/tree-sitter-multi",
          "the repository");
-      Assert (not Repo_For (R, "nope").Present, "no entry, no repository");
+      Assert (not Repo_For (R, "nope").Found, "no entry, no repository");
       Assert
         (Text_Of
            (Repo_For

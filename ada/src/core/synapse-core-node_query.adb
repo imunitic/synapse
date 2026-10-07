@@ -64,7 +64,7 @@ package body Synapse.Core.Node_Query is
             end if;
             return
               (Found => True,
-               Text  => To_Unbounded_String (Text (First .. Last)));
+               Value => To_Unbounded_String (Text (First .. Last)));
          end;
       end;
    end Body_Of;
@@ -82,7 +82,8 @@ package body Synapse.Core.Node_Query is
          return (Found => False);
       end if;
       return
-        (Found => True, Text => To_Unbounded_String (Cut (Text, Found.Item)));
+        (Found => True,
+         Value => To_Unbounded_String (Cut (Text, Found.Value)));
    end Field;
 
    function Scalar (Text, Key : String) return Maybe_Text is
@@ -93,7 +94,7 @@ package body Synapse.Core.Node_Query is
          return (Found => False);
       end if;
       declare
-         Line : constant String := Cut (Text, Line_Span.Item);
+         Line : constant String := Cut (Text, Line_Span.Value);
          Raw  : constant String :=
            Trim_Left_Blanks (Line (Line'First + Key'Length + 1 .. Line'Last));
       begin
@@ -102,7 +103,7 @@ package body Synapse.Core.Node_Query is
          if Raw'Length < 2 or else Raw (Raw'First) /= '"'
            or else Raw (Raw'Last) /= '"'
          then
-            return (Found => True, Text => To_Unbounded_String (Raw));
+            return (Found => True, Value => To_Unbounded_String (Raw));
          end if;
          declare
             Inner  : constant String := Raw (Raw'First + 1 .. Raw'Last - 1);
@@ -118,7 +119,7 @@ package body Synapse.Core.Node_Query is
                Append (Result, Inner (I));
                I := I + 1;
             end loop;
-            return (Found => True, Text => Result);
+            return (Found => True, Value => Result);
          end;
       end;
    end Scalar;
@@ -150,7 +151,7 @@ package body Synapse.Core.Node_Query is
          if Block'Length = 0 then
             return (Found => False);
          end if;
-         return (Found => True, Text => To_Unbounded_String (Block));
+         return (Found => True, Value => To_Unbounded_String (Block));
       end;
    end Links_Block;
 
@@ -165,23 +166,23 @@ package body Synapse.Core.Node_Query is
          Summary : constant Maybe_Text := Scalar (Text, "summary");
          Path    : constant Maybe_Text := Field (Text, "crux_path");
          Lines   : constant Maybe_Text := Field (Text, "crux_lines");
-         Links   : constant Maybe_Text := Links_Block (To_String (Inner.Text));
+         Links : constant Maybe_Text := Links_Block (To_String (Inner.Value));
       begin
          if Summary.Found then
-            Append (Result, "summary: " & Summary.Text & LF);
+            Append (Result, "summary: " & Summary.Value & LF);
          end if;
-         if Path.Found and then Length (Path.Text) > 0 then
-            Append (Result, "crux: " & Path.Text);
-            if Lines.Found and then Length (Lines.Text) > 0 then
-               Append (Result, ":" & Lines.Text);
+         if Path.Found and then Length (Path.Value) > 0 then
+            Append (Result, "crux: " & Path.Value);
+            if Lines.Found and then Length (Lines.Value) > 0 then
+               Append (Result, ":" & Lines.Value);
             end if;
             Append (Result, LF);
          end if;
          if Links.Found then
-            Append (Result, "## Links" & LF & Links.Text & LF);
+            Append (Result, "## Links" & LF & Links.Value & LF);
          end if;
       end;
-      return (Found => True, Text => Result);
+      return (Found => True, Value => Result);
    end Brief;
 
    --  A run of digits as a line number, clamped; 0 when it is not a run of
@@ -228,7 +229,7 @@ package body Synapse.Core.Node_Query is
                else Line_Number (Item (Dash + 1 .. Item'Last)));
          begin
             if First = 0 or else Last < First then
-               return (Valid => False);
+               return (Found => False);
             end if;
             Result.Append
               (Text_Search.Line_Range'(First => First, Last => Last));
@@ -236,7 +237,7 @@ package body Synapse.Core.Node_Query is
             Start := Comma + 1;
          end;
       end loop;
-      return (Valid => True, Ranges => Result);
+      return (Found => True, Value => Result);
    end Parse_Line_Ranges;
 
    function Lines_In
@@ -259,14 +260,16 @@ package body Synapse.Core.Node_Query is
               Bounds (Text, R.First, Natural'Min (R.Last, Total));
          begin
             if Found.Found then
-               Append (Result, Text (Found.From .. Found.To));
-               if Found.To < Found.From or else Text (Found.To) /= LF then
+               Append (Result, Text (Found.Value.From .. Found.Value.To));
+               if Found.Value.To < Found.Value.From
+                 or else Text (Found.Value.To) /= LF
+               then
                   Append (Result, LF);
                end if;
             end if;
          end;
       end loop;
-      return (Found => True, Text => Result);
+      return (Found => True, Value => Result);
    end Lines_In;
 
    --  Whether a frontmatter line opens or closes a block: a letter or an
@@ -291,7 +294,7 @@ package body Synapse.Core.Node_Query is
          end if;
          return
            (Found => True,
-            Text  =>
+            Value =>
               To_Unbounded_String
                 (Trim_Left_Blanks (After (After'First + 5 .. After'Last))));
       end;
@@ -323,7 +326,7 @@ package body Synapse.Core.Node_Query is
                      Path : constant Maybe_Text := Dash_Path (Line);
                   begin
                      if Path.Found then
-                        Result.Append (Path.Text);
+                        Result.Append (Path.Value);
                      end if;
                   end;
                end if;

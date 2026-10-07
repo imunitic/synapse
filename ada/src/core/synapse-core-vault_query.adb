@@ -166,7 +166,7 @@ package body Synapse.Core.Vault_Query is
                   if Content.Found then
                      declare
                         Data    : constant JSON.Value :=
-                          Note_Data (Name, To_String (Content.Text));
+                          Note_Data (Name, To_String (Content.Value));
                         Matched : JSON.Value;
                         Done    : Boolean;
                      begin

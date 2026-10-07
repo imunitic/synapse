@@ -222,7 +222,7 @@ package body Synapse.Core.Docstring_Index_Format is
             elsif Before (Path, Name, Kind, P, N, K) then
                High := Mid;
             else
-               return (Found => True, Index => Mid);
+               return (Found => True, Value => Mid);
             end if;
          end;
       end loop;
@@ -272,7 +272,7 @@ package body Synapse.Core.Docstring_Index_Format is
       Size : constant Offset := Source.Size;
 
       function Fail (Why : Parse_Error) return Parse_Result is
-        ((Ok => False, Error => Why));
+        (Parse_Results.Failure (Why));
    begin
       if Size < Header_Size then
          return Fail (Truncated);
@@ -386,7 +386,7 @@ package body Synapse.Core.Docstring_Index_Format is
                   end;
                end loop;
             end;
-            return (Ok => True, Head => Head);
+            return Parse_Results.Success (Head);
          end;
       end;
    end Parse;

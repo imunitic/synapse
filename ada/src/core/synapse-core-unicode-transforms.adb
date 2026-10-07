@@ -143,7 +143,7 @@ package body Synapse.Core.Unicode.Transforms with SPARK_Mode => Off is
                      else (Found => False));
                begin
                   if Pair.Found then
-                     Buffer (Starter) := Pair.Composed;
+                     Buffer (Starter) := Pair.Value;
                   else
                      Output := Output + 1;
                      Buffer (Output) := C;

@@ -1,8 +1,6 @@
 with Ada.Directories;
-with Ada.Strings.Unbounded;
 
 with AUnit.Assertions;
-
 with Synapse.Adapters.Disk_Deleter;
 with Synapse.Adapters.File_Bytes;
 with Synapse.Ports.Store;
@@ -11,7 +9,6 @@ with Synapse.Test_Scratch;
 package body Synapse.Adapters.Disk_Renamer.Tests is
 
    use AUnit.Assertions;
-   use Ada.Strings.Unbounded;
    use Synapse.Test_Scratch;
 
    subtype Test_Cases_Class is AUnit.Test_Cases.Test_Case'Class;

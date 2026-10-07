@@ -4,6 +4,8 @@ with Ada.Environment_Variables;
 with Ada.Streams;
 with Ada.Streams.Stream_IO;
 
+with Synapse.Core.Decimal_Image;
+
 package body Synapse.Adapters.File_Bytes is
 
    package IO renames Ada.Streams.Stream_IO;
@@ -23,8 +25,9 @@ package body Synapse.Adapters.File_Bytes is
             raise Too_Large with Path;
          end if;
          declare
-            Data : Ada.Streams.Stream_Element_Array
-                     (1 .. Ada.Streams.Stream_Element_Offset (Length));
+            Data :
+              Ada.Streams.Stream_Element_Array
+                (1 .. Ada.Streams.Stream_Element_Offset (Length));
             Last : Ada.Streams.Stream_Element_Offset;
             Text : String (1 .. Natural (Length));
          begin
@@ -44,7 +47,7 @@ package body Synapse.Adapters.File_Bytes is
    exception
       when Too_Large =>
          raise;
-      when others =>
+      when others    =>
          if IO.Is_Open (File) then
             IO.Close (File);
          end if;
@@ -53,8 +56,9 @@ package body Synapse.Adapters.File_Bytes is
 
    procedure Write (Path, Content : String) is
       File : IO.File_Type;
-      Data : Ada.Streams.Stream_Element_Array
-               (1 .. Ada.Streams.Stream_Element_Offset (Content'Length));
+      Data :
+        Ada.Streams.Stream_Element_Array
+          (1 .. Ada.Streams.Stream_Element_Offset (Content'Length));
    begin
       for I in Data'Range loop
          Data (I) :=
@@ -81,7 +85,7 @@ package body Synapse.Adapters.File_Bytes is
       end if;
       declare
          Value : constant String := Ada.Environment_Variables.Value (Variable);
-         Last  : Natural := Value'Last;
+         Last  : Natural         := Value'Last;
       begin
          while Last > Value'First and then Value (Last) in '/' | '\' loop
             Last := Last - 1;
@@ -114,21 +118,16 @@ package body Synapse.Adapters.File_Bytes is
 
    Counter : Natural := 0;
 
-   function Number (N : Natural) return String is
-      Text : constant String := Natural'Image (N);
-   begin
-      return Text (Text'First + 1 .. Text'Last);
-   end Number;
-
    function Temp_File (Content : String := "") return String is
       Stamp : constant Natural :=
         Natural (Ada.Calendar.Seconds (Ada.Calendar.Clock) * 1_000.0);
    begin
       Counter := Counter + 1;
-      return Path : constant String :=
-        Ada.Directories.Full_Name
-          (Temp_Dir & "/synapse-" & Number (Stamp) & "-" & Number (Counter)
-           & ".tmp")
+      return
+        Path : constant String :=
+          Ada.Directories.Full_Name
+            (Temp_Dir & "/synapse-" & Core.Decimal_Image.Image (Stamp) & "-" &
+             Core.Decimal_Image.Image (Counter) & ".tmp")
       do
          Write (Path, Content);
       end return;

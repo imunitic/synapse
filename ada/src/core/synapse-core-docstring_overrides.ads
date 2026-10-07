@@ -1,5 +1,4 @@
-with Ada.Strings.Unbounded;
-
+with Synapse.Core.Optional_Text;
 with Synapse.Core.Text_Lists;
 
 --  Two files a person can write beside a grammar to say what its tree calls a
@@ -14,15 +13,7 @@ package Synapse.Core.Docstring_Overrides is
    --  The node type of a comment when nothing says otherwise.
    Default_Comment_Type : constant String := "comment";
 
-   type Maybe_Text (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Text : Ada.Strings.Unbounded.Unbounded_String;
-
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Text is Synapse.Core.Optional_Text.Option;
 
    --  The bytes between the first `(` and the next `)`, `@` or whitespace.
    --  None when there is no `(`, or nothing between it and what ends it.

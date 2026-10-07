@@ -2,7 +2,6 @@ with Ada.Directories;
 with Ada.Strings.Unbounded;
 
 with AUnit.Assertions;
-
 with Synapse.Adapters.Fake_Variables;
 with Synapse.Adapters.File_Bytes;
 with Synapse.Core.JSON;
@@ -32,41 +31,49 @@ package body Synapse.Adapters.Schema_Loader.Tests is
    end Put;
 
    Tags_Schema : constant String :=
-     "schema: synapse-note-schema/v1" & LF & "id: a/v1" & LF & "frontmatter:"
-     & LF & "  fields:" & LF & "    tags:" & LF & "      type: list" & LF
-     & "      required: true" & LF & "    title:" & LF & "      type: string"
-     & LF & "body:" & LF & "  h1:" & LF & "    required: false" & LF
-     & "checks: []" & LF;
+     "schema: synapse-note-schema/v1" & LF & "id: a/v1" & LF & "frontmatter:" &
+     LF & "  fields:" & LF & "    tags:" & LF & "      type: list" & LF &
+     "      required: true" & LF & "    title:" & LF & "      type: string" &
+     LF & "body:" & LF & "  h1:" & LF & "    required: false" & LF &
+     "checks: []" & LF;
 
-   function Fault (Result : Load_Result) return String
-   is (if Result.Ok then "<loaded>" else To_String (Result.Fault));
+   function Fault (Result : Load_Result) return String is
+     (if Load_Results.Is_Success (Result) then "<loaded>"
+      else To_String (Load_Results.Error (Result)));
 
-   function Has_Tags (Result : Load_Result) return Boolean
-   is (Result.Ok
-       and then Core.JSON.Has_Member
-                  (Core.JSON.Member_Value
-                     (Core.JSON.Member_Value (Result.Schema, "frontmatter"),
-                      "fields"), "tags"));
+   function Has_Tags (Result : Load_Result) return Boolean is
+     (Load_Results.Is_Success (Result)
+      and then Core.JSON.Has_Member
+        (Core.JSON.Member_Value
+           (Core.JSON.Member_Value
+              (Load_Results.Value (Result), "frontmatter"),
+            "fields"),
+         "tags"));
 
    procedure Faults_Are_Named (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Dir : constant Scratch := Make;
       V   : Fake_Variables.Fake_Variables;
    begin
-      Assert (Fault (Load_Schema (V, "a/v1")) = "ContentRootMissing",
-              "no content root");
+      Assert
+        (Fault (Load_Schema (V, "a/v1")) = "ContentRootMissing",
+         "no content root");
       V.Set ("SYNAPSE_CONTENT_ROOT", "");
-      Assert (Fault (Load_Schema (V, "a/v1")) = "ContentRootMissing",
-              "an empty one");
+      Assert
+        (Fault (Load_Schema (V, "a/v1")) = "ContentRootMissing",
+         "an empty one");
       V.Set ("SYNAPSE_CONTENT_ROOT", Path (Dir));
       Assert (Fault (Load_Schema (V, "a/v1")) = "FileNotFound", "no file");
       Put (Path (Dir, "schema/a/v1.yaml"), "");
-      Assert (Fault (Load_Schema (V, "a/v1")) = "EmptyDocument",
-              "a fault of the YAML reader");
-      Put (Path (Dir, "schema/a/v1.yaml"),
-           "a:" & LF & Character'Val (9) & "b: 1" & LF);
-      Assert (Fault (Load_Schema (V, "a/v1")) = "TabIndent",
-              "named like the Zig error");
+      Assert
+        (Fault (Load_Schema (V, "a/v1")) = "EmptyDocument",
+         "a fault of the YAML reader");
+      Put
+        (Path (Dir, "schema/a/v1.yaml"),
+         "a:" & LF & Character'Val (9) & "b: 1" & LF);
+      Assert
+        (Fault (Load_Schema (V, "a/v1")) = "TabIndent",
+         "named like the Zig error");
       Remove (Dir);
    exception
       when others =>
@@ -87,22 +94,28 @@ package body Synapse.Adapters.Schema_Loader.Tests is
       Put (Path (Dir, "schema/b/v1.yaml"), Tags_Schema);
       Assert (Has_Tags (Load_Schema (V, "a/v1")), "as shipped");
 
-      Put (Path (Dir, "synapse/schema-overrides/a/v1.yaml"),
-           "frontmatter:" & LF & "  fields:" & LF & "    tags: null" & LF);
+      Put
+        (Path (Dir, "synapse/schema-overrides/a/v1.yaml"),
+         "frontmatter:" & LF & "  fields:" & LF & "    tags: null" & LF);
       Assert (not Has_Tags (Load_Schema (V, "a/v1")), "tags removed");
-      Assert (Has_Tags (Load_Schema (V, "b/v1")),
-              "an override for one id never affects another");
+      Assert
+        (Has_Tags (Load_Schema (V, "b/v1")),
+         "an override for one id never affects another");
 
-      Put (Path (Dir, "synapse/schema-overrides/b/v1.yaml"),
-           "frontmatter:" & LF);
-      Assert (Fault (Load_Schema (V, "b/v1")) /= "<loaded>",
-              "a broken override is a fault");
+      Put
+        (Path (Dir, "synapse/schema-overrides/b/v1.yaml"),
+         "frontmatter:" & LF);
+      Assert
+        (Fault (Load_Schema (V, "b/v1")) /= "<loaded>",
+         "a broken override is a fault");
 
-      Put (Path (Dir, "synapse/schema-overrides/b/v1.yaml"),
-           "lints:" & LF & "  - match:" & LF & "      nothing: 1" & LF
-           & "    severity: error" & LF);
-      Assert (Fault (Load_Schema (V, "b/v1")) /= "<loaded>",
-              "a patch that matches nothing");
+      Put
+        (Path (Dir, "synapse/schema-overrides/b/v1.yaml"),
+         "lints:" & LF & "  - match:" & LF & "      nothing: 1" & LF &
+         "    severity: error" & LF);
+      Assert
+        (Fault (Load_Schema (V, "b/v1")) /= "<loaded>",
+         "a patch that matches nothing");
       Remove (Dir);
    exception
       when others =>
@@ -118,16 +131,18 @@ package body Synapse.Adapters.Schema_Loader.Tests is
       V   : Fake_Variables.Fake_Variables;
    begin
       V.Set ("HOME", Path (Dir));
-      Assert (not Load_Vocabulary (V, "synapse-tag-vocabulary.conf").Found,
-              "none");
-      Put (Path (Dir, ".claude/synapse-tag-vocabulary.conf"),
-           "a" & LF & "b" & LF);
+      Assert
+        (not Load_Vocabulary (V, "synapse-tag-vocabulary.conf").Found, "none");
+      Put
+        (Path (Dir, ".claude/synapse-tag-vocabulary.conf"),
+         "a" & LF & "b" & LF);
       declare
          Found : constant Maybe_Text :=
            Load_Vocabulary (V, "synapse-tag-vocabulary.conf");
       begin
-         Assert (Found.Found and then To_String (Found.Text) = "a" & LF & "b"
-                 & LF, "read");
+         Assert
+           (Found.Found and then To_String (Found.Value) = "a" & LF & "b" & LF,
+            "read");
       end;
       Remove (Dir);
    exception
@@ -170,15 +185,13 @@ package body Synapse.Adapters.Schema_Loader.Tests is
       Unsafe ("/");
    end Schema_Ids_Must_Be_Kind_Slash_Version;
 
-   overriding
-   function Name (T : Test_Case) return AUnit.Message_String is
+   overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
       return AUnit.Format ("Synapse.Adapters.Schema_Loader");
    end Name;
 
-   overriding
-   procedure Register_Tests (T : in out Test_Case) is
+   overriding procedure Register_Tests (T : in out Test_Case) is
       use AUnit.Test_Cases.Registration;
    begin
       Register_Routine (T, Faults_Are_Named'Access, "Faults are named");

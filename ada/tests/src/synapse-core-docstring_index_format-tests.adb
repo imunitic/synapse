@@ -1,9 +1,7 @@
 with Ada.Numerics.Discrete_Random;
-
-with AUnit.Assertions;
-
 with GNAT.CRC32;
 
+with AUnit.Assertions;
 with Synapse.Adapters.Memory_Byte_Source;
 with Synapse.Test_Bytes;
 
@@ -31,7 +29,9 @@ package body Synapse.Core.Docstring_Index_Format.Tests is
       Src : Memory.Source         := Memory.Create (Bytes);
       Got : constant Parse_Result := Parse (Src);
    begin
-      return (if Got.Ok then "ok" else Parse_Error'Image (Got.Error));
+      return
+        (if Parse_Results.Is_Success (Got) then "ok"
+         else Parse_Error'Image (Parse_Results.Error (Got)));
    end Error_Of;
 
    function One return Entry_Vectors.Vector is
@@ -98,7 +98,7 @@ package body Synapse.Core.Docstring_Index_Format.Tests is
       Entries.Append (Make ("b.wdg", "gamma", "fn", 4, 14));
       declare
          Src : Memory.Source   := Memory.Create (Encode (Entries));
-         H   : constant Header := Parse (Src).Head;
+         H   : constant Header := Parse_Results.Value (Parse (Src));
       begin
          Assert (H.Entry_Count = 4, "four entries");
          for I in 1 .. 4 loop
@@ -135,12 +135,12 @@ package body Synapse.Core.Docstring_Index_Format.Tests is
       Entries.Append (Make ("b.wdg", "gamma", "fn"));
       declare
          Src : Memory.Source   := Memory.Create (Encode (Entries));
-         H   : constant Header := Parse (Src).Head;
+         H   : constant Header := Parse_Results.Value (Parse (Src));
 
          function At_Of (P, N, K : String) return Integer is
             Got : constant Maybe_Index := Find (Src, H, P, N, K);
          begin
-            return (if Got.Found then Got.Index else -1);
+            return (if Got.Found then Got.Value else -1);
          end At_Of;
       begin
          Assert (At_Of ("a.wdg", "alpha", "fn") = 0, "the first");
@@ -166,7 +166,7 @@ package body Synapse.Core.Docstring_Index_Format.Tests is
       Entries.Append (Make ("d.wdg", "x", "fn"));
       declare
          Src : Memory.Source   := Memory.Create (Encode (Entries));
-         H   : constant Header := Parse (Src).Head;
+         H   : constant Header := Parse_Results.Value (Parse (Src));
 
          function Span (Path : String) return String is
             R : constant Range_Of_Entries := Path_Range (Src, H, Path);
@@ -420,12 +420,14 @@ package body Synapse.Core.Docstring_Index_Format.Tests is
                   Src : Memory.Source := Memory.Create (Encode (Sorted));
                   Got : constant Parse_Result := Parse (Src);
                begin
-                  Assert (Got.Ok, "parses");
+                  Assert (Parse_Results.Is_Success (Got), "parses");
                   for I in 1 .. Natural (Sorted.Length) loop
                      declare
                         Back : constant Entry_Type :=
                           Entry_Of
-                            (Src, Got.Head, Record_At (Src, Got.Head, I - 1));
+                            (Src, Parse_Results.Value (Got),
+                             Record_At
+                               (Src, Parse_Results.Value (Got), I - 1));
                      begin
                         Assert
                           (Back.Path = Sorted (I).Path
@@ -437,10 +439,11 @@ package body Synapse.Core.Docstring_Index_Format.Tests is
                            "entry" & I'Image);
                         Assert
                           (Find
-                             (Src, Got.Head, To_String (Sorted (I).Path),
+                             (Src, Parse_Results.Value (Got),
+                              To_String (Sorted (I).Path),
                               To_String (Sorted (I).Name),
                               To_String (Sorted (I).Kind))
-                             .Index =
+                             .Value =
                            I - 1,
                            "found");
                      end;

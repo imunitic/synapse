@@ -82,7 +82,7 @@ package body Synapse.Core.Verify is
             Hash : constant Graph_Model.Hash_Result :=
               Graph_Model.Hash_From_Hex (To_String (Hashes (I)));
          begin
-            if not Hash.Valid then
+            if not Hash.Found then
                return (Kind => Hashing_Failed);
             end if;
             Sources.Append

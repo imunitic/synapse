@@ -1,8 +1,9 @@
 with Ada.Containers.Vectors;
 with Ada.Strings.Unbounded;
-
 with Interfaces;
 
+with Synapse.Core.Results;
+with Synapse.Core.Options;
 with Synapse.Core.Little_Endian;
 with Synapse.Core.Text_Lists;
 with Synapse.Ports.Byte_Source;
@@ -114,15 +115,9 @@ package Synapse.Core.Index_Map_Format is
      (Not_An_Index, Version_Mismatch, Truncated, Checksum_Mismatch,
       Offset_Out_Of_Range);
 
-   type Parse_Result (Ok : Boolean := False) is record
-      case Ok is
-         when True =>
-            Head : Header;
+   package Parse_Results is new Synapse.Core.Results (Header, Parse_Error);
 
-         when False =>
-            Error : Parse_Error;
-      end case;
-   end record;
+   subtype Parse_Result is Parse_Results.Result;
 
    --  Validates the file and returns its header. Every offset a reader below
    --  uses is checked here: the regions are in order, a node number names a
@@ -152,15 +147,9 @@ package Synapse.Core.Index_Map_Format is
      (Source : in out Ports.Byte_Source.Source'Class; Head : Header;
       Item   :        Table_Record) return Text_Lists.Vector;
 
-   type Maybe_Index (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Index : Natural;
+   package Maybe_Index_Options is new Synapse.Core.Options (Natural);
 
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Index is Maybe_Index_Options.Option;
 
    --  The position of a path, by bisection.
    function Find

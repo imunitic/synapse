@@ -34,11 +34,11 @@ package body Synapse.Commands.Show_Context is
          if not Found.Found then
             return 1;
          end if;
-         if not Context.Verify_Namespace (Env, Found.Item, Prog) then
+         if not Context.Verify_Namespace (Env, Found.Value, Prog) then
             return 1;
          end if;
          Say
-           (Env, Text (Ada.Strings.Unbounded.To_String (Found.Item.Abs_Dir)));
+           (Env, Text (Ada.Strings.Unbounded.To_String (Found.Value.Abs_Dir)));
          return 0;
       end;
    end Run;

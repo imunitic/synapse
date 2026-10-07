@@ -1,5 +1,4 @@
 with AUnit.Assertions;
-
 with Synapse.Adapters.Fake_Repo_Reader;
 
 package body Synapse.Core.Namespace.Tests is
@@ -13,12 +12,12 @@ package body Synapse.Core.Namespace.Tests is
    LF : constant Character := Character'Val (10);
 
    function Term (Text : String) return Maybe_Text is
-     (Found => True, Text => To_Unbounded_String (Text));
+     (Found => True, Value => To_Unbounded_String (Text));
 
    No_Term : constant Maybe_Text := (Found => False);
 
    function Shown (Value : Maybe_Text) return String is
-     (if Value.Found then "<" & To_String (Value.Text) & ">" else "none");
+     (if Value.Found then "<" & To_String (Value.Value) & ">" else "none");
 
    function Field
      (Content, Prefix : String; Terminator : Maybe_Text := No_Term)

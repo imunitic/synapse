@@ -1,4 +1,5 @@
 with Ada.Containers;
+
 with AUnit.Assertions;
 
 package body Synapse.Core.Vault_Query.Tests is
@@ -43,7 +44,7 @@ package body Synapse.Core.Vault_Query.Tests is
       S.Reads.Append (To_Unbounded_String (Node));
       for I in 1 .. Natural (S.Names.Length) loop
          if To_String (S.Names (I)) = Node then
-            return (Found => True, Text => S.Bodies (I));
+            return (Found => True, Value => S.Bodies (I));
          end if;
       end loop;
       return (Found => False);

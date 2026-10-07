@@ -164,7 +164,7 @@ package body Synapse.Core.Node_Types is
                           (Guess'
                              (Type_Name => To_Unbounded_String (Type_Name),
                               Kind           =>
-                                (if Ruled.Found then Ruled.Kind
+                                (if Ruled.Found then Ruled.Value
                                  elsif Prefix /= "" then
                                    To_Unbounded_String (Prefix)
                                  else To_Unbounded_String (Generic_Kind)),

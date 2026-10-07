@@ -24,6 +24,7 @@ package Synapse.Test_Environment is
 
    --  The arguments as a list.
    function Args
-     (A1, A2, A3, A4, A5 : String := "") return Synapse.Commands.Lists.Vector;
+     (A1, A2, A3, A4, A5, A6, A7, A8 : String := "")
+      return Synapse.Commands.Lists.Vector;
 
 end Synapse.Test_Environment;

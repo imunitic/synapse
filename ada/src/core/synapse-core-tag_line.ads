@@ -1,3 +1,4 @@
+with Synapse.Core.Options;
 with Synapse.Core.Graph_Model;
 
 --  The tag-line codec: tree-sitter's batch output in, a tag out, and the
@@ -14,15 +15,9 @@ with Synapse.Core.Graph_Model;
 
 package Synapse.Core.Tag_Line is
 
-   type Maybe_Tag (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Value : Graph_Model.Tag;
+   package Maybe_Tag_Options is new Synapse.Core.Options (Graph_Model.Tag);
 
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Tag is Maybe_Tag_Options.Option;
 
    --  One line of batch output as a tag. None for what is not one, which is
    --  not an error: batch output has lines that are not tags. A line has too

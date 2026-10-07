@@ -181,7 +181,7 @@ package body Synapse.Core.Tags_Cache_Format is
      (Source : in out Ports.Byte_Source.Source'Class) return Parse_Result
    is
       Size : constant Offset       := Source.Size;
-      Fail : constant Parse_Result := (Ok => False, Error => Truncated);
+      Fail : constant Parse_Result := Parse_Results.Failure (Truncated);
    begin
       if Size < Header_Size then
          return Fail;
@@ -190,7 +190,7 @@ package body Synapse.Core.Tags_Cache_Format is
          Raw : constant String := Source.Read (0, Header_Size);
       begin
          if Raw (Raw'First .. Raw'First + 7) /= Magic then
-            return (Ok => False, Error => Not_A_Cache);
+            return Parse_Results.Failure (Not_A_Cache);
          end if;
          declare
             Head      : constant Header := Header_Of (Raw);
@@ -200,7 +200,7 @@ package body Synapse.Core.Tags_Cache_Format is
             Paths     : Byte_Window.Window;
          begin
             if Head.Version /= Version then
-               return (Ok => False, Error => Version_Mismatch);
+               return Parse_Results.Failure (Version_Mismatch);
             end if;
             if Table_End > U64 (Size) then
                return Fail;
@@ -209,7 +209,7 @@ package body Synapse.Core.Tags_Cache_Format is
             --  the checksum's own range out of the file.
             if Head.Blob_Off > U64 (Size) or else Head.Blob_Off < Header_Size
             then
-               return (Ok => False, Error => Offset_Out_Of_Range);
+               return Parse_Results.Failure (Offset_Out_Of_Range);
             end if;
 
             declare
@@ -233,7 +233,7 @@ package body Synapse.Core.Tags_Cache_Format is
                   end;
                end loop;
                if U32 (GNAT.CRC32.Get_Value (Crc)) /= Head.Crc32 then
-                  return (Ok => False, Error => Checksum_Mismatch);
+                  return Parse_Results.Failure (Checksum_Mismatch);
                end if;
             end;
 
@@ -241,7 +241,7 @@ package body Synapse.Core.Tags_Cache_Format is
             if Head.Paths_Off < Table_End
               or else Head.Blob_Off < Head.Paths_Off
             then
-               return (Ok => False, Error => Offset_Out_Of_Range);
+               return Parse_Results.Failure (Offset_Out_Of_Range);
             end if;
 
             declare
@@ -261,15 +261,15 @@ package body Synapse.Core.Tags_Cache_Format is
                   begin
                      Add (Item.Path_Off, U64 (Item.Path_Len), Path_End, Bad);
                      if Bad or else Path_End > Region then
-                        return (Ok => False, Error => Offset_Out_Of_Range);
+                        return Parse_Results.Failure (Offset_Out_Of_Range);
                      end if;
                      Add (Head.Blob_Off, Item.Tags_Off, Tags_Start, Bad);
                      if Bad then
-                        return (Ok => False, Error => Offset_Out_Of_Range);
+                        return Parse_Results.Failure (Offset_Out_Of_Range);
                      end if;
                      Add (Tags_Start, U64 (Item.Tags_Len), Tags_End, Bad);
                      if Bad or else Tags_End > U64 (Size) then
-                        return (Ok => False, Error => Offset_Out_Of_Range);
+                        return Parse_Results.Failure (Offset_Out_Of_Range);
                      end if;
                      declare
                         Path : constant String :=
@@ -282,14 +282,14 @@ package body Synapse.Core.Tags_Cache_Format is
                      begin
                         --  Find rests on this order.
                         if I > 0 and then not (Previous < Path) then
-                           return (Ok => False, Error => Offset_Out_Of_Range);
+                           return Parse_Results.Failure (Offset_Out_Of_Range);
                         end if;
                         Previous := To_Unbounded_String (Path);
                      end;
                   end;
                end loop;
             end;
-            return (Ok => True, Head => Head);
+            return Parse_Results.Success (Head);
          end;
       end;
    end Parse;
@@ -312,7 +312,7 @@ package body Synapse.Core.Tags_Cache_Format is
             elsif Found > Path then
                High := Mid;
             else
-               return (Found => True, Index => Mid);
+               return (Found => True, Value => Mid);
             end if;
          end;
       end loop;

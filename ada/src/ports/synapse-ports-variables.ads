@@ -1,4 +1,4 @@
-with Ada.Strings.Unbounded;
+with Synapse.Core.Optional_Text;
 
 --  Where the value of a variable comes from: the process environment in
 --  production, a table in tests. Passed in, never reached for, so reading
@@ -6,15 +6,7 @@ with Ada.Strings.Unbounded;
 
 package Synapse.Ports.Variables is
 
-   type Maybe_Value (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Text : Ada.Strings.Unbounded.Unbounded_String;
-
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Value is Synapse.Core.Optional_Text.Option;
 
    type Variables is limited interface;
 

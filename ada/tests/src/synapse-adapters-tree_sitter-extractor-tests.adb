@@ -3,7 +3,6 @@ with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
 
 with AUnit.Assertions;
-
 with Synapse.Adapters.Dynamic_Libraries;
 with Synapse.Adapters.File_Bytes;
 with Synapse.Adapters.System_Process;
@@ -108,7 +107,7 @@ package body Synapse.Adapters.Tree_Sitter.Extractor.Tests is
      (Dir      : Scratch; Registry : Registry_Types.Registry;
       Paths    : Core.Text_Lists.Vector;
       Rules    : Core.Kind_Synonyms.Rule_List := No_Rules;
-      Override : Registry_Types.Maybe_Text    := (Present => False))
+      Override : Registry_Types.Maybe_Text    := (Found => False))
       return Port.Outcome_Vectors.Vector
    is
       Ex : Tagging_Extractor (Real_Runner'Access, Loader'Access);
@@ -140,7 +139,7 @@ package body Synapse.Adapters.Tree_Sitter.Extractor.Tests is
       Reports := Null_Unbounded_String;
       Configure
         (Ex, Registry_Types.Parse ("{}"), Path (Dir, "g"), No_Rules, 5,
-         (Present => False), Capture'Access);
+         (Found => False), Capture'Access);
       Got := Ex.Extract (".", Paths_Of ("a.zz", "b.zz"));
       Assert
         (Got (1).Kind = Port.Unsupported
@@ -172,7 +171,7 @@ package body Synapse.Adapters.Tree_Sitter.Extractor.Tests is
       Reports := Null_Unbounded_String;
       Configure
         (Ex, Registry_Types.Parse ("{}"), Path (Dir, "g"), No_Rules, 5,
-         (Present => False), Capture'Access);
+         (Found => False), Capture'Access);
       Got := Ex.Extract (".", Paths_Of ("Makefile", "dir.d/README"));
       Assert
         (Got (1).Kind = Port.Unsupported
@@ -221,7 +220,7 @@ package body Synapse.Adapters.Tree_Sitter.Extractor.Tests is
       Write_Work (Dir, "a.f3", "fn foo()");
       Configure
         (Ex, Registry_Of (Dir, "f3", "tree-sitter-absent", ""),
-         Path (Dir, "g"), No_Rules, 5, (Present => False), Capture'Access);
+         Path (Dir, "g"), No_Rules, 5, (Found => False), Capture'Access);
       Got := Ex.Extract (Path (Dir, "work"), Paths_Of ("a.f3", "a.f3"));
       Assert
         (Got (1).Kind = Port.Unsupported
@@ -343,8 +342,8 @@ package body Synapse.Adapters.Tree_Sitter.Extractor.Tests is
           (Dir, Registry_Of (Dir, "f3", "tree-sitter-fake3", ""),
            Paths_Of ("a.f3"),
            Override =>
-             (Present => True,
-              Text    => To_Unbounded_String (Path (Dir, "queries"))));
+             (Found => True,
+              Value => To_Unbounded_String (Path (Dir, "queries"))));
       Assert
         (Tags_Of (Got (1)) = "foo:method:def:0;",
          "the person's query, not the repository's");
@@ -404,8 +403,8 @@ package body Synapse.Adapters.Tree_Sitter.Extractor.Tests is
           (Dir, Registry_Of (Dir, "f3", "tree-sitter-fake3", ""),
            Paths_Of ("a.f3"),
            Override =>
-             (Present => True,
-              Text    => To_Unbounded_String (Path (Dir, "queries"))));
+             (Found => True,
+              Value => To_Unbounded_String (Path (Dir, "queries"))));
       Assert
         (Tags_Of (Got (1)) = "",
          "the override's locals filter, not the repository's");

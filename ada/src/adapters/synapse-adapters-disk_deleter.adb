@@ -42,7 +42,7 @@ package body Synapse.Adapters.Disk_Deleter is
                           Disk.Write
                             (To_String (Referrer.Node),
                              Core.Wikilinks.Unlink_Target
-                               (To_String (Text.Text), Title));
+                               (To_String (Text.Value), Title));
                      begin
                         null;
                      end;

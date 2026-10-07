@@ -44,11 +44,12 @@ package body Synapse.Adapters.Index_Map is
          declare
             Got : constant Format.Parse_Result := Format.Parse (M.Source);
          begin
-            if Got.Ok then
-               M.Head   := Got.Head;
+            if Core.Index_Map_Format.Parse_Results.Is_Success (Got) then
+               M.Head   := Core.Index_Map_Format.Parse_Results.Value (Got);
                M.Opened := True;
             else
-               M.Why := Reason (Got.Error);
+               M.Why :=
+                 Reason (Core.Index_Map_Format.Parse_Results.Error (Got));
                File_Byte_Source.Close (M.Source);
             end if;
          end;
@@ -84,10 +85,10 @@ package body Synapse.Adapters.Index_Map is
          end if;
          return
            (Found => True,
-            Nodes =>
+            Value =>
               Format.Nodes_Of
                 (M.Source, M.Head,
-                  Format.Record_At (M.Source, M.Head, Where.Index)));
+                  Format.Record_At (M.Source, M.Head, Where.Value)));
       end;
    end Nodes_For;
 
@@ -123,7 +124,7 @@ package body Synapse.Adapters.Index_Map is
          --  The old file is closed before it is replaced, which Windows needs.
          File_Byte_Source.Close (M.Source);
          M.Opened := False;
-         Write_File (Path, To_String (Next.Bytes));
+         Write_File (Path, To_String (Next.Value));
          Open (M, Path);
          return True;
       end;

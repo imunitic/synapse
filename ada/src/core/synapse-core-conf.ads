@@ -1,5 +1,4 @@
-with Ada.Strings.Unbounded;
-
+with Synapse.Core.Optional_Text;
 with Synapse.Ports.Variables;
 
 --  Shell-style configuration files: `KEY=value` lines, read directly and
@@ -7,15 +6,7 @@ with Synapse.Ports.Variables;
 
 package Synapse.Core.Conf is
 
-   type Maybe_Text (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Text : Ada.Strings.Unbounded.Unbounded_String;
-
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Text is Synapse.Core.Optional_Text.Option;
 
    --  One key's raw value from a file's text. Blank lines and `#` lines are
    --  skipped, an `export ` prefix is allowed, the key must be followed

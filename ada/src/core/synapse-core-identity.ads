@@ -1,5 +1,7 @@
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Optional_Text;
+
 --  Naming a namespace: `synapse/{repo}@{branch}/`. A namespace is keyed by
 --  repository and branch, so the graph describes one tree and not every
 --  branch at once. A linked worktree needs no disambiguation of its own: git
@@ -13,15 +15,7 @@ package Synapse.Core.Identity is
 
    use Ada.Strings.Unbounded;
 
-   type Maybe_Text (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Text : Unbounded_String;
-
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Text is Synapse.Core.Optional_Text.Option;
 
    --  The repository name of a remote in every form it takes
    --  (`ssh://git@host:7999/x/repo.git`, `git@host:org/repo.git`,

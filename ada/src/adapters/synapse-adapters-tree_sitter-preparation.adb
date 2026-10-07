@@ -1,11 +1,14 @@
 with Ada.Calendar;
 with Ada.Directories;
+
 with Synapse.Adapters.Dir_Lock;
 with Synapse.Core.Text_Lists;
+with Synapse.Core.Decimal_Image;
 
 package body Synapse.Adapters.Tree_Sitter.Preparation is
 
    use Ada.Strings.Unbounded;
+   use Build_Results;
    use type Ada.Calendar.Time;
    use type Ada.Directories.File_Kind;
 
@@ -113,9 +116,8 @@ package body Synapse.Adapters.Tree_Sitter.Preparation is
    end Parent_Of;
 
    function Minutes (D : Duration) return String is
-      Text : constant String := Natural'Image (Natural (D / 60.0));
    begin
-      return Text (Text'First + 1 .. Text'Last);
+      return Core.Decimal_Image.Image (Natural (D / 60.0));
    end Minutes;
 
    procedure Delete_Quietly (Path : String) is
@@ -147,15 +149,15 @@ package body Synapse.Adapters.Tree_Sitter.Preparation is
    function Describe (F : Failure) return String is
      (Failure_Kind'Image (F.Kind) & ": " & To_String (F.Detail));
 
-   Done : constant Build_Result := (Ok => True);
+   Done : constant Build_Result := Build_Results.Success (Core.Unit.Nothing);
 
    function Build_Failed
      (Kind : Failure_Kind; Detail : String) return Build_Result is
-     (Ok => False, Why => Failed (Kind, Detail));
+     (Build_Results.Failure (Failed (Kind, Detail)));
 
    function Clone_Failure
      (Kind : Failure_Kind; Detail : String) return Clone_Result is
-     (Ok => False, Why => Failed (Kind, Detail));
+     (Clone_Results.Failure (Failed (Kind, Detail)));
 
    ---------------------------------------------------------------------------
    --  Building
@@ -300,9 +302,8 @@ package body Synapse.Adapters.Tree_Sitter.Preparation is
       Epoch : constant Ada.Calendar.Time := Ada.Calendar.Time_Of (1_970, 1, 1);
       Micros : constant Long_Long_Integer :=
         Long_Long_Integer (Ada.Calendar.Clock - Epoch) * 1_000_000;
-      Text   : constant String            := Long_Long_Integer'Image (Micros);
    begin
-      return Text (Text'First + 1 .. Text'Last);
+      return Core.Decimal_Image.Image (Micros);
    end Stamp;
 
    --  Clones into a private staging directory and publishes with one atomic
@@ -353,7 +354,7 @@ package body Synapse.Adapters.Tree_Sitter.Preparation is
                     "could not publish the clone of " & Repo_Url);
             end if;
       end;
-      return (Ok => True, Dir => To_Unbounded_String (Repo_Dir));
+      return Clone_Results.Success (To_Unbounded_String (Repo_Dir));
    end Clone_Into;
 
    function Ensure_Cloned
@@ -366,7 +367,7 @@ package body Synapse.Adapters.Tree_Sitter.Preparation is
       Lock_Dir : constant String       := Repo_Dir & ".lock";
       Lock     : Dir_Lock.Lock;
       Present  : constant Clone_Result :=
-        (Ok => True, Dir => To_Unbounded_String (Repo_Dir));
+        Clone_Results.Success (To_Unbounded_String (Repo_Dir));
    begin
       if Exists (Repo_Dir) then
          return Present;
@@ -421,27 +422,31 @@ package body Synapse.Adapters.Tree_Sitter.Preparation is
       Max_Tries  :        Positive := Default_Lock_Tries) return Resolved
    is
       Symbol   : constant String       :=
-        (if Sub_Symbol.Present then To_String (Sub_Symbol.Text)
+        (if Sub_Symbol.Found then To_String (Sub_Symbol.Value)
          else Core.Grammar_Registry.Symbol_For (Name));
       Lib_Path : constant String       :=
         Library_Path (Loader, Grammars_Dir, Symbol);
       Src_Root : constant String       :=
-        (if Sub_Path.Present then Repo_Dir & "/" & To_String (Sub_Path.Text)
+        (if Sub_Path.Found then Repo_Dir & "/" & To_String (Sub_Path.Value)
          else Repo_Dir);
       Built    : constant Build_Result :=
         Build (Run, Src_Root, Lib_Path, Max_Tries);
    begin
-      if not Built.Ok then
-         return (Kind => Not_Prepared, Why => Built.Why);
+      if not Is_Success (Built) then
+         return (Kind => Not_Prepared, Why => Error (Built));
       end if;
       declare
          Loaded_Language : constant Grammar.Load_Result :=
            Grammar.Load_Language (Loader, Lib_Path, Symbol);
       begin
-         if not Loaded_Language.Loaded then
-            return (Kind => Not_Loadable, Error => Loaded_Language.Error);
+         if not Grammar.Load_Results.Is_Success (Loaded_Language) then
+            return
+              (Kind  => Not_Loadable,
+               Error => Grammar.Load_Results.Error (Loaded_Language));
          end if;
-         return (Kind => Loaded, Item => Loaded_Language.Item);
+         return
+           (Kind => Loaded,
+            Item => Grammar.Load_Results.Value (Loaded_Language));
       end;
    end Resolve_And_Load;
 

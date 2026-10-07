@@ -82,6 +82,14 @@ with Synapse.Commands.Now.Tests;
 with Synapse.Commands.Namespace.Tests;
 with Synapse.Commands.Show_Context.Tests;
 with Synapse.Commands.Dispatch.Tests;
+with Synapse.Core.Options_Tests;
+with Synapse.Core.Decimal_Image.Tests;
+with Synapse.Core.Float_Image.Tests;
+with Synapse.Commands.Frontmatter.Tests;
+with Synapse.Commands.Vault_Check.Tests;
+with Synapse.Commands.Vault_Search.Tests;
+with Synapse.Commands.Vault_Links.Tests;
+with Synapse.Commands.Vault_Read.Tests;
 with Synapse.Core.Graph_Model.Tests;
 with Synapse.Core.Hashing.Tests;
 with Synapse.Core.Line_Slice.Tests;
@@ -224,6 +232,20 @@ package body Test_Suites is
      aliased Synapse.Commands.Namespace.Tests.Test_Case;
    Show_Context_Tests : aliased Synapse.Commands.Show_Context.Tests.Test_Case;
    Dispatch_Tests : aliased Synapse.Commands.Dispatch.Tests.Test_Case;
+   Core_Optional_Text_Tests : aliased Synapse.Core.Options_Tests.Test_Case;
+   Core_Decimal_Image_Tests      :
+     aliased Synapse.Core.Decimal_Image.Tests.Test_Case;
+   Core_Float_Image_Tests : aliased Synapse.Core.Float_Image.Tests.Test_Case;
+   Commands_Frontmatter_Tests    :
+     aliased Synapse.Commands.Frontmatter.Tests.Test_Case;
+   Commands_Vault_Check_Tests    :
+     aliased Synapse.Commands.Vault_Check.Tests.Test_Case;
+   Commands_Vault_Search_Tests   :
+     aliased Synapse.Commands.Vault_Search.Tests.Test_Case;
+   Commands_Vault_Links_Tests    :
+     aliased Synapse.Commands.Vault_Links.Tests.Test_Case;
+   Commands_Vault_Read_Tests     :
+     aliased Synapse.Commands.Vault_Read.Tests.Test_Case;
    Graph_Model_Tests : aliased Synapse.Core.Graph_Model.Tests.Test_Case;
    Identity_Tests : aliased Synapse.Core.Identity.Tests.Test_Case;
    Project_Index_Tests : aliased Synapse.Core.Project_Index.Tests.Test_Case;
@@ -261,6 +283,14 @@ package body Test_Suites is
       Result.Add_Test (Namespace_Tests'Access);
       Result.Add_Test (Show_Context_Tests'Access);
       Result.Add_Test (Dispatch_Tests'Access);
+      Result.Add_Test (Core_Optional_Text_Tests'Access);
+      Result.Add_Test (Core_Decimal_Image_Tests'Access);
+      Result.Add_Test (Core_Float_Image_Tests'Access);
+      Result.Add_Test (Commands_Frontmatter_Tests'Access);
+      Result.Add_Test (Commands_Vault_Check_Tests'Access);
+      Result.Add_Test (Commands_Vault_Search_Tests'Access);
+      Result.Add_Test (Commands_Vault_Links_Tests'Access);
+      Result.Add_Test (Commands_Vault_Read_Tests'Access);
       Result.Add_Test (Vault_Query_Tests'Access);
       Result.Add_Test (Patch_Tests'Access);
       Result.Add_Test (Command_Map_Tests'Access);

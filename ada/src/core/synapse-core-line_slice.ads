@@ -1,3 +1,4 @@
+with Synapse.Core.Options;
 --  Lines of a text by number, the way `sed -n 'a,bp'` counts them: a line
 --  keeps its terminating line feed, and a final line without one is a line
 --  with none.
@@ -19,15 +20,13 @@ package Synapse.Core.Line_Slice is
    --  shows. Range checks count the same way, so the two agree.
    function Count_Lines (Text : String) return Natural;
 
-   type Maybe_Bounds (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            From, To : Integer;  --  To = From - 1 for an empty slice
-
-         when False =>
-            null;
-      end case;
+   type Slice_Bounds is record
+      From, To : Integer;  --  To = From - 1 for an empty slice
    end record;
+
+   package Bounds_Options is new Synapse.Core.Options (Slice_Bounds);
+
+   subtype Maybe_Bounds is Bounds_Options.Option;
 
    --  The bytes of lines First .. Last (1-based, inclusive) as positions in
    --  Text. Not found when First is 0, Last is before First, or Last is past

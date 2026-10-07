@@ -1,7 +1,6 @@
 with Ada.Strings.Unbounded;
 
 with AUnit.Assertions;
-
 with Synapse.Core.UTF8;
 
 package body Synapse.Core.Text_Search.Tests is
@@ -35,53 +34,64 @@ package body Synapse.Core.Text_Search.Tests is
       return Result;
    end Terms;
 
-   function Line_Of (Text : String; Found : Maybe_Line) return String
-   is (if Found.Found then Text (Found.First .. Found.Last) else "<none>");
+   function Line_Of (Text : String; Found : Maybe_Line) return String is
+     (if Found.Found then Text (Found.Value.First .. Found.Value.Last)
+      else "<none>");
 
-   function Ranges (Text : String; First : Positive; T : Text_Lists.Vector)
-      return String
-   is (Image (Match_Ranges (Text, First, T)));
+   function Ranges
+     (Text : String; First : Positive; T : Text_Lists.Vector) return String is
+     (Image (Match_Ranges (Text, First, T)));
 
    procedure The_First_Matching_Line_Ignores_Case (T : in out Test_Cases_Class)
    is
       pragma Unreferenced (T);
-      Text : constant String := "one" & LF & "Two Widget" & LF & "three widget"
-        & LF;
+      Text : constant String :=
+        "one" & LF & "Two Widget" & LF & "three widget" & LF;
    begin
-      Assert (Line_Of (Text, First_Matching_Line (Text, "widget"))
-              = "Two Widget", "case folded");
-      Assert (Line_Of (Text, First_Matching_Line ("one" & LF & "two" & LF,
-                                                  "gadget")) = "<none>",
-              "no match");
+      Assert
+        (Line_Of (Text, First_Matching_Line (Text, "widget")) = "Two Widget",
+         "case folded");
+      Assert
+        (Line_Of
+           (Text, First_Matching_Line ("one" & LF & "two" & LF, "gadget")) =
+         "<none>",
+         "no match");
       Assert (not First_Matching_Line (Text, "").Found, "an empty query");
       Assert (not First_Matching_Line ("", "x").Found, "empty text");
-      Assert (Line_Of ("abc", First_Matching_Line ("abc", "B")) = "abc",
-              "no line feed");
-      Assert (Line_Of ("a" & LF & "b", First_Matching_Line ("a" & LF & "b",
-                                                            "B")) = "b",
-              "the last line");
+      Assert
+        (Line_Of ("abc", First_Matching_Line ("abc", "B")) = "abc",
+         "no line feed");
+      Assert
+        (Line_Of ("a" & LF & "b", First_Matching_Line ("a" & LF & "b", "B")) =
+         "b",
+         "the last line");
    end The_First_Matching_Line_Ignores_Case;
 
    procedure Any_Of_Several_Terms_Finds_A_Line (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
-      Text : constant String := "alpha" & LF & "beta gadget" & LF & "widget"
-        & LF;
+      Text : constant String :=
+        "alpha" & LF & "beta gadget" & LF & "widget" & LF;
    begin
-      Assert (Line_Of (Text, First_Matching_Line_Any
-                               (Text, Terms ("widget", "gadget")))
-              = "beta gadget", "the earlier line");
-      Assert (not First_Matching_Line_Any (Text, Terms ("nothing")).Found,
-              "no term");
-      Assert (not First_Matching_Line_Any
-                    (Text, Text_Lists.Vectors.Empty_Vector).Found,
-              "no terms at all");
+      Assert
+        (Line_Of
+           (Text, First_Matching_Line_Any (Text, Terms ("widget", "gadget"))) =
+         "beta gadget",
+         "the earlier line");
+      Assert
+        (not First_Matching_Line_Any (Text, Terms ("nothing")).Found,
+         "no term");
+      Assert
+        (not First_Matching_Line_Any (Text, Text_Lists.Vectors.Empty_Vector)
+           .Found,
+         "no terms at all");
    end Any_Of_Several_Terms_Finds_A_Line;
 
    procedure Counting_Ignores_Case (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
    begin
-      Assert (Count_Ignore_Case ("Widget widget WIDGET gadget", "widget") = 3,
-              "three");
+      Assert
+        (Count_Ignore_Case ("Widget widget WIDGET gadget", "widget") = 3,
+         "three");
       Assert (Count_Ignore_Case ("anything", "") = 0, "an empty needle");
       Assert (Count_Ignore_Case ("", "x") = 0, "an empty haystack");
       Assert (Count_Ignore_Case ("aaaa", "aa") = 2, "non-overlapping");
@@ -93,33 +103,43 @@ package body Synapse.Core.Text_Search.Tests is
         U ([16#41C#, 16#41E#, 16#421#, 16#41A#, 16#412#, 16#410#]);
       Lower_Moscow : constant String :=
         U ([16#43C#, 16#43E#, 16#441#, 16#43A#, 16#432#, 16#430#]);
-      City : constant String :=
+      City         : constant String :=
         U ([16#433#, 16#43E#, 16#440#, 16#43E#, 16#434#]);
-      Text : constant String :=
+      Text         : constant String :=
         "one" & LF & City & " " & Upper_Moscow & LF & "x" & LF;
    begin
-      Assert (Line_Of (Text, First_Matching_Line (Text, Lower_Moscow))
-              = City & " " & Upper_Moscow, "Cyrillic line");
-      Assert (Count_Ignore_Case (Upper_Moscow & " " & Lower_Moscow,
-                                 Upper_Moscow) = 2, "Cyrillic count");
+      Assert
+        (Line_Of (Text, First_Matching_Line (Text, Lower_Moscow)) =
+         City & " " & Upper_Moscow,
+         "Cyrillic line");
+      Assert
+        (Count_Ignore_Case (Upper_Moscow & " " & Lower_Moscow, Upper_Moscow) =
+         2,
+         "Cyrillic count");
    end Non_Latin_Text_Is_Searched_Too;
 
    procedure Ranges_Merge_Consecutive_Lines (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Text : constant String :=
-        "alpha widget" & LF & "widget again" & LF & "plain" & LF & "plain" & LF
-        & "the Widget" & LF;
+        "alpha widget" & LF & "widget again" & LF & "plain" & LF & "plain" &
+        LF & "the Widget" & LF;
    begin
-      Assert (Ranges (Text, 1, Terms ("widget")) = "1-2,5",
-              "merged and apart");
-      Assert (Match_Ranges (Text, 1, Terms ("widget")).Length = 2,
-              "two ranges");
-      Assert (Ranges ("no" & LF & "yes widget" & LF, 20, Terms ("widget"))
-              = "21", "numbered from the first line");
-      Assert (Ranges ("one gadget" & LF & "two" & LF & "three widget" & LF, 1,
-                      Terms ("widget", "gadget")) = "1,3", "either term");
-      Assert (Ranges ("w" & LF & "w" & LF & "w", 1, Terms ("w")) = "1-3",
-              "three in a row, no final line feed");
+      Assert
+        (Ranges (Text, 1, Terms ("widget")) = "1-2,5", "merged and apart");
+      Assert
+        (Match_Ranges (Text, 1, Terms ("widget")).Length = 2, "two ranges");
+      Assert
+        (Ranges ("no" & LF & "yes widget" & LF, 20, Terms ("widget")) = "21",
+         "numbered from the first line");
+      Assert
+        (Ranges
+           ("one gadget" & LF & "two" & LF & "three widget" & LF, 1,
+            Terms ("widget", "gadget")) =
+         "1,3",
+         "either term");
+      Assert
+        (Ranges ("w" & LF & "w" & LF & "w", 1, Terms ("w")) = "1-3",
+         "three in a row, no final line feed");
       Assert (Ranges ("", 1, Terms ("w")) = "", "empty text");
       Assert (Ranges (Text, 1, Terms ("absent")) = "", "no match");
    end Ranges_Merge_Consecutive_Lines;
@@ -137,15 +157,13 @@ package body Synapse.Core.Text_Search.Tests is
       Assert (Image (Value) = "12-14,40-41,88", "mixed");
    end Ranges_Are_Written_With_Bare_Single_Lines;
 
-   overriding
-   function Name (T : Test_Case) return AUnit.Message_String is
+   overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
       return AUnit.Format ("Synapse.Core.Text_Search");
    end Name;
 
-   overriding
-   procedure Register_Tests (T : in out Test_Case) is
+   overriding procedure Register_Tests (T : in out Test_Case) is
       use AUnit.Test_Cases.Registration;
    begin
       Register_Routine

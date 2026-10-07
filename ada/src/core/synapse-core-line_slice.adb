@@ -39,8 +39,10 @@ package body Synapse.Core.Line_Slice is
          begin
             if Line = Last then
                return
-                 (Found => True, From => From,
-                  To    => (if Stop = 0 then Text'Last else Stop));
+                 (Found => True,
+                  Value =>
+                    (From => From,
+                     To   => (if Stop = 0 then Text'Last else Stop)));
             end if;
             exit when Stop = 0;
             Here := Stop + 1;

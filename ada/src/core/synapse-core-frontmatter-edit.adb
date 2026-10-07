@@ -13,15 +13,15 @@ package body Synapse.Core.Frontmatter.Edit with SPARK_Mode => Off is
          return (Found => False);
       end if;
       declare
-         First : Natural := Line.Item.First + Key'Length + 1;
+         First : Natural := Line.Value.First + Key'Length + 1;
       begin
-         while First < Line.Item.Stop
+         while First < Line.Value.Stop
            and then Note (Note'First + First) in ' ' | HT
          loop
             First := First + 1;
          end loop;
          return
-           (Found => True, Item => (First => First, Stop => Line.Item.Stop));
+           (Found => True, Value => (First => First, Stop => Line.Value.Stop));
       end;
    end Value_Span;
 
@@ -35,14 +35,14 @@ package body Synapse.Core.Frontmatter.Edit with SPARK_Mode => Off is
       declare
          Text : constant String :=
             Note
-              (Note'First + Raw.Item.First .. Note'First + Raw.Item.Stop - 1);
+              (Note'First + Raw.Value.First .. Note'First + Raw.Value.Stop - 1);
       begin
          --  Unquoted scalars carry no escapes.
          if Text'Length < 2
            or else Text (Text'First) /= '"'
            or else Text (Text'Last) /= '"'
          then
-            return (Found => True, Item => To_Unbounded_String (Text));
+            return (Found => True, Value => To_Unbounded_String (Text));
          end if;
 
          declare
@@ -78,7 +78,7 @@ package body Synapse.Core.Frontmatter.Edit with SPARK_Mode => Off is
                   I := I + 1;
                end if;
             end loop;
-            return (Found => True, Item => Result);
+            return (Found => True, Value => Result);
          end;
       end;
    end Scalar;
@@ -147,8 +147,8 @@ package body Synapse.Core.Frontmatter.Edit with SPARK_Mode => Off is
       declare
          Text : constant String :=
            Trim_Blanks
-             (Note (Note'First + Raw.Item.First
-                    .. Note'First + Raw.Item.Stop - 1));
+             (Note (Note'First + Raw.Value.First
+                    .. Note'First + Raw.Value.Stop - 1));
       begin
          if Text'Length < 2
            or else Text (Text'First) /= '['

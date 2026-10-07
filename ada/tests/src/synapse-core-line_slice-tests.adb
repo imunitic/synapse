@@ -13,7 +13,7 @@ package body Synapse.Core.Line_Slice.Tests is
       if not Found.Found then
          return "<none>";
       end if;
-      return Text (Found.From .. Found.To);
+      return Text (Found.Value.From .. Found.Value.To);
    end Cut;
 
    procedure Count_Lines_Counts_Line_Feeds (T : in out Test_Cases_Class) is
@@ -58,7 +58,7 @@ package body Synapse.Core.Line_Slice.Tests is
       Empty : constant Maybe_Bounds := Bounds (Text, 2, 2);
    begin
       Assert
-        (Empty.Found and then Empty.To = Empty.From - 1,
+        (Empty.Found and then Empty.Value.To = Empty.Value.From - 1,
          "an empty slice, as the callers' range checks never reach it");
       Assert (Cut ("", 1, 1) = "", "an empty text has an empty line one");
    end The_Position_After_The_Last_Line_Feed_Is_An_Empty_Line;

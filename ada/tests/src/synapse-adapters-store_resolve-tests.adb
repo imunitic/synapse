@@ -3,7 +3,6 @@ with Ada.Directories;
 with Ada.Strings.Unbounded;
 
 with AUnit.Assertions;
-
 with Synapse.Adapters.Fake_Variables;
 with Synapse.Adapters.File_Bytes;
 with Synapse.Core.JSON;
@@ -23,14 +22,14 @@ package body Synapse.Adapters.Store_Resolve.Tests is
 
    --  A schema with one required field and nothing else to trip over.
    Schema : constant String :=
-     "schema: synapse-note-schema/v1" & LF & "id: vault-note/v1" & LF
-     & "frontmatter:" & LF & "  fields:" & LF & "    title:" & LF
-     & "      type: string" & LF & "      required: true" & LF & "body:" & LF
-     & "  h1:" & LF & "    required: false" & LF & "checks: []" & LF;
+     "schema: synapse-note-schema/v1" & LF & "id: vault-note/v1" & LF &
+     "frontmatter:" & LF & "  fields:" & LF & "    title:" & LF &
+     "      type: string" & LF & "      required: true" & LF & "body:" & LF &
+     "  h1:" & LF & "    required: false" & LF & "checks: []" & LF;
 
    Good : constant String :=
-     "---" & LF & "schema: vault-note/v1" & LF & "title: Good" & LF & "---"
-     & LF & "# Good" & LF;
+     "---" & LF & "schema: vault-note/v1" & LF & "title: Good" & LF & "---" &
+     LF & "# Good" & LF;
 
    Bad : constant String :=
      "---" & LF & "schema: vault-note/v1" & LF & "---" & LF & "# Bad" & LF;
@@ -51,9 +50,9 @@ package body Synapse.Adapters.Store_Resolve.Tests is
    --  A vault and a content root in a scratch directory, and a variables
    --  source that points at them and at no real configuration.
    procedure Prepare
-     (Dir          : Scratch;
-      Vars         : in out Fake_Variables.Fake_Variables;
-      Integrations : String := "") is
+     (Dir          : Scratch; Vars : in out Fake_Variables.Fake_Variables;
+      Integrations : String := "")
+   is
    begin
       Put (Path (Dir, "content/schema/vault-note/v1.yaml"), Schema);
       Ada.Directories.Create_Path (Path (Dir, "home"));
@@ -68,10 +67,10 @@ package body Synapse.Adapters.Store_Resolve.Tests is
    function Joined (R : Parse_Result) return String is
       Text : Unbounded_String;
    begin
-      if not R.Ok then
-         return "error: " & To_String (R.Message);
+      if not Parse_Results.Is_Success (R) then
+         return "error: " & To_String (Parse_Results.Error (R));
       end if;
-      for Name of R.Names loop
+      for Name of Parse_Results.Value (R) loop
          if Text /= Null_Unbounded_String then
             Append (Text, "|");
          end if;
@@ -86,8 +85,9 @@ package body Synapse.Adapters.Store_Resolve.Tests is
       Assert (Joined (Parse_Integrations ("")) = "", "empty is none");
       Assert (Joined (Parse_Integrations ("git")) = "git", "one");
       Assert (Joined (Parse_Integrations ("  git ")) = "git", "blanks");
-      Assert (Joined (Parse_Integrations (Character'Val (9) & "git"))
-              = "git", "a tab");
+      Assert
+        (Joined (Parse_Integrations (Character'Val (9) & "git")) = "git",
+         "a tab");
    end The_List_Is_Parsed_In_Order;
 
    procedure Bad_Lists_Are_Refused_With_The_Reason
@@ -95,25 +95,46 @@ package body Synapse.Adapters.Store_Resolve.Tests is
    is
       pragma Unreferenced (T);
    begin
-      Assert (Joined (Parse_Integrations ("disk"))
-              = "error: SYNAPSE_VAULT_INTEGRATIONS names 'disk' -- the disk "
-                & "store is always the implicit innermost element, never "
-                & "named explicitly", "disk");
-      Assert (Joined (Parse_Integrations ("git,disk"))
-              = Joined (Parse_Integrations ("disk")), "disk anywhere");
-      Assert (Joined (Parse_Integrations ("notion"))
-              = "error: unknown integration 'notion' in "
-                & "SYNAPSE_VAULT_INTEGRATIONS -- want 'git'", "unknown");
-      Assert (Joined (Parse_Integrations ("git,git"))
-              = "error: 'git' named more than once in "
-                & "SYNAPSE_VAULT_INTEGRATIONS", "twice");
-      Assert (not Parse_Integrations ("git,").Ok, "an empty entry is unknown");
-      Assert (not Parse_Integrations (",git").Ok, "a leading empty entry");
-      Assert (not Parse_Integrations ("Git").Ok, "case matters");
+      Assert
+        (Joined (Parse_Integrations ("disk")) =
+         "error: SYNAPSE_VAULT_INTEGRATIONS names 'disk' -- the disk " &
+         "store is always the implicit innermost element, never " &
+         "named explicitly",
+         "disk");
+      Assert
+        (Joined (Parse_Integrations ("git,disk")) =
+         Joined (Parse_Integrations ("disk")),
+         "disk anywhere");
+      Assert
+        (Joined (Parse_Integrations ("notion")) =
+         "error: unknown integration 'notion' in " &
+         "SYNAPSE_VAULT_INTEGRATIONS -- want 'git'",
+         "unknown");
+      Assert
+        (Joined (Parse_Integrations ("git,git")) =
+         "error: 'git' named more than once in " &
+         "SYNAPSE_VAULT_INTEGRATIONS",
+         "twice");
+      Assert
+        (not Parse_Results.Is_Success (Parse_Integrations ("git,")),
+         "an empty entry is unknown");
+      Assert
+        (not Parse_Results.Is_Success (Parse_Integrations (",git")),
+         "a leading empty entry");
+      Assert
+        (not Parse_Results.Is_Success (Parse_Integrations ("Git")),
+         "case matters");
       --  Validation is a correctness boundary, not an integration to pick.
-      Assert (not Parse_Integrations ("validation").Ok, "validation");
-      Assert (not Parse_Integrations ("schema-validation").Ok, "long name");
-      Assert (not Parse_Integrations ("git,validation").Ok, "beside git");
+      Assert
+        (not Parse_Results.Is_Success (Parse_Integrations ("validation")),
+         "validation");
+      Assert
+        (not Parse_Results.Is_Success
+           (Parse_Integrations ("schema-validation")),
+         "long name");
+      Assert
+        (not Parse_Results.Is_Success (Parse_Integrations ("git,validation")),
+         "beside git");
    end Bad_Lists_Are_Refused_With_The_Reason;
 
    procedure Has_Integration_Answers_Without_Building
@@ -130,8 +151,9 @@ package body Synapse.Adapters.Store_Resolve.Tests is
       Assert (not Has_Integration (V, "notion"), "another name");
       V.Set ("SYNAPSE_VAULT_INTEGRATIONS", "git,git");
       Assert (not Has_Integration (V, "git"), "a malformed value is no");
-      Put (Path (Dir, "home/.claude/synapse.conf"),
-           "SYNAPSE_VAULT_INTEGRATIONS=git" & LF);
+      Put
+        (Path (Dir, "home/.claude/synapse.conf"),
+         "SYNAPSE_VAULT_INTEGRATIONS=git" & LF);
       V.Set ("SYNAPSE_VAULT_INTEGRATIONS", "");
       Assert (Has_Integration (V, "git"), "from the configuration file");
       Remove (Dir);
@@ -156,21 +178,25 @@ package body Synapse.Adapters.Store_Resolve.Tests is
       declare
          Outer : constant not null access Port.Store'Class := Store (S);
       begin
-         Assert (Outer.Write ("legacy.md", "no schema").Accepted,
-                 "legacy passes through");
+         Assert
+           (Outer.Write ("legacy.md", "no schema").Accepted,
+            "legacy passes through");
          Assert (Outer.Write ("good.md", Good).Accepted, "a valid note");
          declare
             Refused : constant Port.Write_Result :=
               Outer.Write ("bad.md", Bad);
          begin
-            Assert (not Refused.Accepted and then Refused.Status = 422,
-                    "an invalid one is refused");
+            Assert
+              (not Refused.Accepted and then Refused.Status = 422,
+               "an invalid one is refused");
          end;
          Assert (not Outer.Read ("bad.md").Found, "and never reached disk");
-         Assert (File_Bytes.Read (Path (Dir, "vault/good.md"), 1000) = Good,
-                 "the valid one did");
-         Assert (not Ada.Directories.Exists (Path (Dir, "vault/.git")),
-                 "no git without the integration");
+         Assert
+           (File_Bytes.Read (Path (Dir, "vault/good.md"), 1_000) = Good,
+            "the valid one did");
+         Assert
+           (not Ada.Directories.Exists (Path (Dir, "vault/.git")),
+            "no git without the integration");
       end;
       Remove (Dir);
    exception
@@ -192,14 +218,17 @@ package body Synapse.Adapters.Store_Resolve.Tests is
       declare
          Outer : constant not null access Port.Store'Class := Store (S);
       begin
-         Assert (not Outer.Write ("bad.md", Bad).Accepted,
-                 "validation still sits under git");
-         Assert (Commit_Count (Path (Dir, "vault")) = 0,
-                 "a refused write is never committed");
+         Assert
+           (not Outer.Write ("bad.md", Bad).Accepted,
+            "validation still sits under git");
+         Assert
+           (Commit_Count (Path (Dir, "vault")) = 0,
+            "a refused write is never committed");
          Assert (Outer.Write ("good.md", Good).Accepted, "a valid note");
          Assert (Commit_Count (Path (Dir, "vault")) = 1, "committed");
-         Assert (Head_Subject (Path (Dir, "vault")) = "vault: good.md",
-                 "naming the file");
+         Assert
+           (Head_Subject (Path (Dir, "vault")) = "vault: good.md",
+            "naming the file");
       end;
       Remove (Dir);
    exception
@@ -224,18 +253,22 @@ package body Synapse.Adapters.Store_Resolve.Tests is
          Assert (Outer.Write ("tasks/y.md", "widget prose too").Accepted, "y");
       end;
       declare
-         Parsed : constant Core.JSON.Parse_Result :=
+         Parsed : constant Core.JSON.Parse_Result  :=
            Core.JSON.Parse
              ("{""glob"": [""designs/*"", {""var"": ""path""}]}");
          Hits   : constant Port.Hit_Vectors.Vector :=
            Search_Filtered
-             (S, "widget", (Present => True, Rule => Parsed.Item));
+             (S, "widget", (Found => True, Value => Parsed.Item));
       begin
-         Assert (Hits.Length = 1
-                 and then To_String (Hits (1).Node) = "designs/x.md",
-                 "scoped to the designs");
-         Assert (Search_Filtered (S, "widget", Ports.Search_Filtered.No_Filter)
-                   .Length = 2, "unscoped");
+         Assert
+           (Hits.Length = 1
+            and then To_String (Hits (1).Node) = "designs/x.md",
+            "scoped to the designs");
+         Assert
+           (Search_Filtered (S, "widget", Ports.Search_Filtered.No_Filter)
+              .Length =
+            2,
+            "unscoped");
       end;
       Remove (Dir);
    exception
@@ -291,15 +324,20 @@ package body Synapse.Adapters.Store_Resolve.Tests is
          Assert (Valid, "valid");
          Assert (S.Link_Graph.Links ("A.md").Length = 1, "the link graph");
          S.Renamer.Rename ("B.md", "C.md");
-         Assert (File_Bytes.Read (Path (Dir, "vault/A.md"), 1000)
-                 = "see [[C]]" & LF, "the rename fixed the link");
-         Assert (Commit_Count (Path (Dir, "vault")) = Commits,
-                 "after a rename: " & Integrations);
+         Assert
+           (File_Bytes.Read (Path (Dir, "vault/A.md"), 1_000) =
+            "see [[C]]" & LF,
+            "the rename fixed the link");
+         Assert
+           (Commit_Count (Path (Dir, "vault")) = Commits,
+            "after a rename: " & Integrations);
          S.Deleter.Delete ("C.md");
-         Assert (File_Bytes.Read (Path (Dir, "vault/A.md"), 1000)
-                 = "see C" & LF, "the delete unlinked it");
-         Assert (Commit_Count (Path (Dir, "vault")) = Commits * 2,
-                 "after a delete: " & Integrations);
+         Assert
+           (File_Bytes.Read (Path (Dir, "vault/A.md"), 1_000) = "see C" & LF,
+            "the delete unlinked it");
+         Assert
+           (Commit_Count (Path (Dir, "vault")) = Commits * 2,
+            "after a delete: " & Integrations);
          Remove (Dir);
       exception
          when others =>
@@ -316,8 +354,7 @@ package body Synapse.Adapters.Store_Resolve.Tests is
       Calls : Natural := 0;
    end record;
 
-   overriding
-   procedure Spawn_Pusher (S : in out Counting; Vault : String) is
+   overriding procedure Spawn_Pusher (S : in out Counting; Vault : String) is
       pragma Unreferenced (Vault);
    begin
       S.Calls := S.Calls + 1;
@@ -334,8 +371,9 @@ package body Synapse.Adapters.Store_Resolve.Tests is
    begin
       Prepare (Dir, V, "git");
       V.Set ("SYNAPSE_VAULT_PUSH_EVERY", "1");
-      Put (Path (Dir, "home/.claude/synapse-prompt-stopwords.conf"),
-           "about" & LF);
+      Put
+        (Path (Dir, "home/.claude/synapse-prompt-stopwords.conf"),
+         "about" & LF);
       Git (Path (Dir), "init", "-q", "--bare", "-b", "main", "remote.git");
       Git (Path (Dir), "clone", "-q", Path (Dir, "remote.git"), "vault2");
       Git (Path (Dir, "vault2"), "config", "user.email", "t@example.com");
@@ -346,15 +384,17 @@ package body Synapse.Adapters.Store_Resolve.Tests is
       Git (Path (Dir, "vault2"), "commit", "-q", "-m", "seed");
       Git (Path (Dir, "vault2"), "push", "-q", "-u", "origin", "main");
 
-      Resolve (S, V'Access, Path (Dir, "vault2"), "", "", Spawner'Access,
-               Valid);
+      Resolve
+        (S, V'Access, Path (Dir, "vault2"), "", "", Spawner'Access, Valid);
       Assert (Valid, "valid");
       Assert (Store (S).Write ("a.md", "about widgets").Accepted, "written");
       Assert (Spawner.Calls = 1, "a push is due after one commit");
 
       --  `about` is a stopword, `widgets` is not.
-      Assert (Store (S).Search ("about").Is_Empty
-              or else Store (S).Search ("about").Length > 0, "searched");
+      Assert
+        (Store (S).Search ("about").Is_Empty
+         or else Store (S).Search ("about").Length > 0,
+         "searched");
       Remove (Dir);
    exception
       when others =>
@@ -362,15 +402,13 @@ package body Synapse.Adapters.Store_Resolve.Tests is
          raise;
    end The_Configuration_Reaches_The_Layers;
 
-   overriding
-   function Name (T : Test_Case) return AUnit.Message_String is
+   overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
       return AUnit.Format ("Synapse.Adapters.Store_Resolve");
    end Name;
 
-   overriding
-   procedure Register_Tests (T : in out Test_Case) is
+   overriding procedure Register_Tests (T : in out Test_Case) is
       use AUnit.Test_Cases.Registration;
    begin
       Register_Routine

@@ -1,7 +1,6 @@
 with Interfaces;
 
 with AUnit.Assertions;
-
 with Synapse.Adapters.Memory_Byte_Source;
 
 package body Synapse.Core.Index_Map.Tests is
@@ -54,11 +53,13 @@ package body Synapse.Core.Index_Map.Tests is
          Got  : constant Index_Map_Format.Parse_Result :=
            Index_Map_Format.Parse (Src);
          Back : constant Index_Map_Format.Decoded      :=
-           Index_Map_Format.Decode (Src, Got.Head);
+           Index_Map_Format.Decode
+             (Src, Index_Map_Format.Parse_Results.Value (Got));
       begin
-         Assert (Got.Ok, "valid");
+         Assert (Index_Map_Format.Parse_Results.Is_Success (Got), "valid");
          Assert
-           (Got.Head.Entry_Count = 3 and then Got.Head.Node_Count = 2,
+           (Index_Map_Format.Parse_Results.Value (Got).Entry_Count = 3
+            and then Index_Map_Format.Parse_Results.Value (Got).Node_Count = 2,
             "three paths, two nodes");
          Assert
            (To_String (Back.Entries (1).Path) = "a.wdg", "the first path");
@@ -81,7 +82,7 @@ package body Synapse.Core.Index_Map.Tests is
       declare
          Src  : Memory.Source := Memory.Create (Build (Pairs, No_Paths));
          Head : constant Index_Map_Format.Header :=
-           Index_Map_Format.Parse (Src).Head;
+           Index_Map_Format.Parse_Results.Value (Index_Map_Format.Parse (Src));
       begin
          Assert
            (Joined
@@ -102,15 +103,21 @@ package body Synapse.Core.Index_Map.Tests is
         Index_Map_Format.Parse (Src);
    begin
       Assert
-        (Got.Ok and then Got.Head.Entry_Count = 0
-         and then Got.Head.Unassigned_Count = 2,
+        (Index_Map_Format.Parse_Results.Is_Success (Got)
+         and then Index_Map_Format.Parse_Results.Value (Got).Entry_Count = 0
+         and then Index_Map_Format.Parse_Results.Value (Got).Unassigned_Count =
+           2,
          "two unassigned");
    end An_Index_With_No_Pairs_Is_Buildable;
 
    function Decoded_Of (Bytes : String) return Index_Map_Format.Decoded is
       Src : Memory.Source := Memory.Create (Bytes);
    begin
-      return Index_Map_Format.Decode (Src, Index_Map_Format.Parse (Src).Head);
+      return
+        Index_Map_Format.Decode
+          (Src,
+           Index_Map_Format.Parse_Results.Value
+             (Index_Map_Format.Parse (Src)));
    end Decoded_Of;
 
    procedure Adding_An_Unassigned_Path_Keeps_Every_Claim_And_Is_Idempotent
@@ -130,7 +137,7 @@ package body Synapse.Core.Index_Map.Tests is
          Assert (Next.Found, "it was new");
          declare
             After : constant Index_Map_Format.Decoded :=
-              Decoded_Of (To_String (Next.Bytes));
+              Decoded_Of (To_String (Next.Value));
          begin
             Assert
               (Joined (After.Unassigned) = "old.wdg;new.wdg;",
@@ -156,7 +163,7 @@ package body Synapse.Core.Index_Map.Tests is
    begin
       Assert (Next.Found, "written");
       Assert
-        (Joined (Decoded_Of (To_String (Next.Bytes)).Unassigned) = "only.wdg;",
+        (Joined (Decoded_Of (To_String (Next.Value)).Unassigned) = "only.wdg;",
          "the one path");
    end Adding_To_An_Empty_Index_Works;
 

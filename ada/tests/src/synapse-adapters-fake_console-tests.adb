@@ -35,6 +35,22 @@ package body Synapse.Adapters.Fake_Console.Tests is
          "readable again: a test may ask twice");
    end Standard_Input_Is_What_Was_Given_And_Empty_Otherwise;
 
+   procedure Clear_Forgets_Both_Streams_And_Keeps_The_Input
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake;
+   begin
+      F.Write_Out ("out");
+      F.Write_Err ("err");
+      F.Set_Stdin ("in");
+      F.Clear;
+      Assert (F.Out_Text = "" and then F.Err_Text = "", "both streams empty");
+      Assert (F.Read_Stdin = "in", "the input stays");
+      F.Write_Out ("again");
+      Assert (F.Out_Text = "again", "writing goes on");
+   end Clear_Forgets_Both_Streams_And_Keeps_The_Input;
+
    overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
@@ -50,6 +66,9 @@ package body Synapse.Adapters.Fake_Console.Tests is
       Register_Routine
         (T, Standard_Input_Is_What_Was_Given_And_Empty_Otherwise'Access,
          "Standard input is what was given, and empty otherwise");
+      Register_Routine
+        (T, Clear_Forgets_Both_Streams_And_Keeps_The_Input'Access,
+         "Clear forgets both streams and keeps the input");
    end Register_Tests;
 
 end Synapse.Adapters.Fake_Console.Tests;

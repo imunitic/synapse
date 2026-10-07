@@ -1,6 +1,8 @@
 with Ada.Containers.Vectors;
+with Ada.Exceptions;
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Optional_Text;
 with Synapse.Core.JSON;
 with Synapse.Core.Note_Model;
 with Synapse.Core.Note_Schema;
@@ -38,18 +40,15 @@ package Synapse.Core.Note_Check is
    function Lint_Note
      (Schema : JSON.Value; Note, Path : String) return Finding_Vectors.Vector;
 
-   type Maybe_Text (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Text : Ada.Strings.Unbounded.Unbounded_String;
-
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Text is Synapse.Core.Optional_Text.Option;
 
    --  The `schema:` field of a note's frontmatter, quoted or not. A list, a
    --  mapping or an empty value is no identifier.
    function Schema_Id (Note : String) return Maybe_Text;
+
+   --  The name a rule's failure is reported under: `InvalidArguments`,
+   --  `UnknownOperator`, `PatternTooComplex`, and the exception's own name for
+   --  anything else.
+   function Fault_Name (E : Ada.Exceptions.Exception_Occurrence) return String;
 
 end Synapse.Core.Note_Check;

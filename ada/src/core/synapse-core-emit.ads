@@ -1,6 +1,8 @@
 with Ada.Containers.Vectors;
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Optional_Text;
+with Synapse.Core.Options;
 with Synapse.Core.Graph_Model;
 with Synapse.Core.Node_Format;
 with Synapse.Core.Text_Lists;
@@ -38,15 +40,7 @@ package Synapse.Core.Emit is
 
    LF : constant Character := Character'Val (10);
 
-   type Maybe_Text (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Text : Unbounded_String;
-
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Text is Synapse.Core.Optional_Text.Option;
 
    --  A file name the vault can store. A wikilink resolves by file name, so
    --  a sanitized title silently breaks every inbound link: this returns the
@@ -66,15 +60,9 @@ package Synapse.Core.Emit is
      (Of_Span.Last - Of_Span.First + 1) with
      Pre => Of_Span.Last >= Of_Span.First;
 
-   type Maybe_Span (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Value : Span;
+   package Maybe_Span_Options is new Synapse.Core.Options (Span);
 
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Span is Maybe_Span_Options.Option;
 
    --  What a `crux:` directive said. `none` is a real answer: a node whose
    --  logic is spread across files says so and gets a rendered line, and is

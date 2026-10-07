@@ -2,48 +2,46 @@ with Ada.Strings.Fixed;
 
 with Synapse.Core.Schema_Pattern;
 with Synapse.Core.Schema_Rules;
+with Synapse.Core.Decimal_Image;
 
 package body Synapse.Core.Note_Schema is
 
    use Ada.Strings.Unbounded;
    use JSON;
 
-   function Parse_Severity (Text : String) return Maybe_Severity
-   is (if Text = "ignore" then (Found => True, Level => Ignore)
-       elsif Text = "warn" then (Found => True, Level => Warn)
-       elsif Text = "error" then (Found => True, Level => Error_Level)
-       else (Found => False));
+   function Parse_Severity (Text : String) return Maybe_Severity is
+     (if Text = "ignore" then (Found => True, Value => Ignore)
+      elsif Text = "warn" then (Found => True, Value => Warn)
+      elsif Text = "error" then (Found => True, Value => Error_Level)
+      else (Found => False));
 
    ---------------------------------------------------------------------------
    --  Results and small helpers
    ---------------------------------------------------------------------------
 
-   Fine : constant Check_Result := (Valid => True);
+   Fine : constant Check_Result := Check_Results.Success (Unit.Nothing);
 
-   function Bad (Message : String) return Check_Result
-   is (Valid => False, Message => To_Unbounded_String (Message));
+   function Bad (Message : String) return Check_Result is
+     (Check_Results.Failure (To_Unbounded_String (Message)));
 
-   function Img (N : Natural) return String
-   is (Ada.Strings.Fixed.Trim (N'Image, Ada.Strings.Left));
+   function Has (V : Value; Key : String) return Boolean is
+     (Kind_Of (V) = JSON_Object and then Has_Member (V, Key));
 
-   function Has (V : Value; Key : String) return Boolean
-   is (Kind_Of (V) = JSON_Object and then Has_Member (V, Key));
-
-   function Child (V : Value; Key : String) return Value
-   is (Member_Value (V, Key))
-   with Pre => Has (V, Key);
+   function Child (V : Value; Key : String) return Value is
+     (Member_Value (V, Key)) with
+     Pre => Has (V, Key);
 
    --  A mapping under Key.
-   function Map_At (V : Value; Key : String) return Boolean
-   is (Has (V, Key) and then Kind_Of (Child (V, Key)) = JSON_Object);
+   function Map_At (V : Value; Key : String) return Boolean is
+     (Has (V, Key) and then Kind_Of (Child (V, Key)) = JSON_Object);
 
    --  A string under Key.
-   function String_At (V : Value; Key : String) return Boolean
-   is (Has (V, Key) and then Kind_Of (Child (V, Key)) = JSON_String);
+   function String_At (V : Value; Key : String) return Boolean is
+     (Has (V, Key) and then Kind_Of (Child (V, Key)) = JSON_String);
 
-   function Text_At (V : Value; Key : String) return String
-   is (As_String (Child (V, Key)))
-   with Pre => String_At (V, Key);
+   function Text_At (V : Value; Key : String) return String is
+     (As_String (Child (V, Key))) with
+     Pre => String_At (V, Key);
 
    function Is_String_List (V : Value) return Boolean is
    begin
@@ -74,8 +72,7 @@ package body Synapse.Core.Note_Schema is
    --  The first key of V that Allowed (space-separated names) does not list;
    --  a value that is not a mapping has the key `<non-mapping>`.
    function Unknown_Key
-     (V : Value; Allowed : String; Key : out Unbounded_String)
-      return Boolean
+     (V : Value; Allowed : String; Key : out Unbounded_String) return Boolean
    is
    begin
       if Kind_Of (V) /= JSON_Object then
@@ -86,8 +83,9 @@ package body Synapse.Core.Note_Schema is
          declare
             Name : constant String := Member_Key (V, I);
          begin
-            if Ada.Strings.Fixed.Index (" " & Allowed & " ", " " & Name & " ")
-               = 0
+            if Ada.Strings.Fixed.Index
+                (" " & Allowed & " ", " " & Name & " ") =
+              0
             then
                Key := To_Unbounded_String (Name);
                return True;
@@ -98,28 +96,28 @@ package body Synapse.Core.Note_Schema is
    end Unknown_Key;
 
    --  The name the Zig reader gives a pattern fault, so messages are stable.
-   function Fault_Name (F : Schema_Pattern.Fault) return String
-   is (case F is
-         when Schema_Pattern.None                  => "",
-         when Schema_Pattern.Invalid_Escape        => "InvalidEscape",
-         when Schema_Pattern.Unterminated_Class    => "UnterminatedClass",
-         when Schema_Pattern.Empty_Class           => "EmptyClass",
-         when Schema_Pattern.Invalid_Quantifier    => "InvalidQuantifier",
-         when Schema_Pattern.Unsupported_Construct => "UnsupportedConstruct");
+   function Fault_Name (F : Schema_Pattern.Fault) return String is
+     (case F is when Schema_Pattern.None => "",
+        when Schema_Pattern.Invalid_Escape => "InvalidEscape",
+        when Schema_Pattern.Unterminated_Class => "UnterminatedClass",
+        when Schema_Pattern.Empty_Class => "EmptyClass",
+        when Schema_Pattern.Invalid_Quantifier => "InvalidQuantifier",
+        when Schema_Pattern.Unsupported_Construct => "UnsupportedConstruct");
 
    --  The fault of a pattern, or "" when it is valid.
-   function Pattern_Fault (Pattern : String) return String
-   is (Fault_Name (Schema_Pattern.Validate (Pattern)));
+   function Pattern_Fault (Pattern : String) return String is
+     (Fault_Name (Schema_Pattern.Validate (Pattern)));
 
    --  Checks an optional boolean under Key, with the message prefix.
-   function Boolean_Rule (V : Value; Key, Prefix : String) return Check_Result
-   is (if Has (V, Key) and then Kind_Of (Child (V, Key)) /= JSON_Boolean
-       then Bad (Prefix & ": must be boolean")
-       else Fine);
+   function Boolean_Rule
+     (V : Value; Key, Prefix : String) return Check_Result is
+     (if Has (V, Key) and then Kind_Of (Child (V, Key)) /= JSON_Boolean then
+        Bad (Prefix & ": must be boolean")
+      else Fine);
 
    --  An optional integer bound under Key: an integer, at least Lowest.
    function Integer_Rule
-     (V : Value; Key, Prefix : String; Lowest : Long_Long_Integer;
+     (V       : Value; Key, Prefix : String; Lowest : Long_Long_Integer;
       Too_Low : String) return Check_Result
    is
    begin
@@ -146,16 +144,18 @@ package body Synapse.Core.Note_Schema is
       end if;
       if Text_At (Top, "schema") /= "synapse-note-schema/v1" then
          return
-           Bad ("schema.schema: unsupported language '"
-                & Text_At (Top, "schema") & "'");
+           Bad
+             ("schema.schema: unsupported language '" &
+              Text_At (Top, "schema") & "'");
       end if;
       if not String_At (Top, "id") then
          return Bad ("schema.id: required string is missing");
       end if;
       if Text_At (Top, "id") /= Expected_Id then
          return
-           Bad ("schema.id: expected '" & Expected_Id & "', found '"
-                & Text_At (Top, "id") & "'");
+           Bad
+             ("schema.id: expected '" & Expected_Id & "', found '" &
+              Text_At (Top, "id") & "'");
       end if;
       return Fine;
    end Header;
@@ -172,10 +172,10 @@ package body Synapse.Core.Note_Schema is
          return Bad (Prefix & ": must be a mapping");
       end if;
       if Unknown_Key
-           (Rule,
-            "type required const min_length pattern mutable format timezone"
-            & " update_on items enum",
-            Key)
+          (Rule,
+           "type required const min_length pattern mutable format timezone" &
+           " update_on items enum",
+           Key)
       then
          return Bad (Prefix & "." & To_String (Key) & ": unsupported v1 key");
       end if;
@@ -186,11 +186,11 @@ package body Synapse.Core.Note_Schema is
       declare
          Type_Name : constant String := Text_At (Rule, "type");
       begin
-         if Type_Name not in "string" | "timestamp" | "list" | "integer"
-                           | "boolean" | "any"
+         if Type_Name not in
+             "string" | "timestamp" | "list" | "integer" | "boolean" | "any"
          then
-            return Bad (Prefix & ".type: unsupported type '" & Type_Name
-              & "'");
+            return
+              Bad (Prefix & ".type: unsupported type '" & Type_Name & "'");
          end if;
 
          declare
@@ -203,11 +203,11 @@ package body Synapse.Core.Note_Schema is
                 (Rule, "min_length", Prefix & ".min_length", 1,
                  "must be at least 1");
          begin
-            if not Required.Valid then
+            if not Check_Results.Is_Success (Required) then
                return Required;
-            elsif not Mutable.Valid then
+            elsif not Check_Results.Is_Success (Mutable) then
                return Mutable;
-            elsif not Length.Valid then
+            elsif not Check_Results.Is_Success (Length) then
                return Length;
             end if;
          end;
@@ -255,8 +255,9 @@ package body Synapse.Core.Note_Schema is
       begin
          if Unknown_Key (Frontmatter, "fields field_order", Key) then
             return
-              Bad ("schema.frontmatter." & To_String (Key)
-                   & ": unsupported v1 key");
+              Bad
+                ("schema.frontmatter." & To_String (Key) &
+                 ": unsupported v1 key");
          end if;
          if Has (Frontmatter, "field_order") then
             if Kind_Of (Child (Frontmatter, "field_order")) /= JSON_String then
@@ -264,8 +265,9 @@ package body Synapse.Core.Note_Schema is
             end if;
             if Text_At (Frontmatter, "field_order") /= "relative" then
                return
-                 Bad ("schema.frontmatter.field_order: unsupported value '"
-                      & Text_At (Frontmatter, "field_order") & "'");
+                 Bad
+                   ("schema.frontmatter.field_order: unsupported value '" &
+                    Text_At (Frontmatter, "field_order") & "'");
             end if;
          end if;
          if not Map_At (Frontmatter, "fields") then
@@ -280,7 +282,7 @@ package body Synapse.Core.Note_Schema is
                   Result : constant Check_Result :=
                     Field_Rule (Member_Key (Fields, I), Member_At (Fields, I));
                begin
-                  if not Result.Valid then
+                  if not Check_Results.Is_Success (Result) then
                      return Result;
                   end if;
                end;
@@ -296,14 +298,15 @@ package body Synapse.Core.Note_Schema is
 
    function Section_Rule (Section : Value; Index : Natural) return Check_Result
    is
-      Prefix : constant String := "schema.body.sections[" & Img (Index) & "]";
+      Prefix : constant String :=
+        "schema.body.sections[" & Decimal_Image.Image (Index) & "]";
       Key    : Unbounded_String;
    begin
       if Unknown_Key
-           (Section,
-            "title level required non_empty max_occurs content children"
-            & " repeatable title_pattern",
-            Key)
+          (Section,
+           "title level required non_empty max_occurs content children" &
+           " repeatable title_pattern",
+           Key)
       then
          return Bad (Prefix & "." & To_String (Key) & ": unsupported v1 key");
       end if;
@@ -321,9 +324,9 @@ package body Synapse.Core.Note_Schema is
              (Section, "max_occurs", Prefix & ".max_occurs", 1,
               "must be at least 1");
       begin
-         if not Level.Valid then
+         if not Check_Results.Is_Success (Level) then
             return Level;
-         elsif not Maximum.Valid then
+         elsif not Check_Results.Is_Success (Maximum) then
             return Maximum;
          end if;
       end;
@@ -331,11 +334,11 @@ package body Synapse.Core.Note_Schema is
       declare
          Flags : constant array (1 .. 3) of Check_Result :=
            [Boolean_Rule (Section, "required", Prefix & ".required"),
-            Boolean_Rule (Section, "non_empty", Prefix & ".non_empty"),
-            Boolean_Rule (Section, "repeatable", Prefix & ".repeatable")];
+           Boolean_Rule (Section, "non_empty", Prefix & ".non_empty"),
+           Boolean_Rule (Section, "repeatable", Prefix & ".repeatable")];
       begin
          for Flag of Flags loop
-            if not Flag.Valid then
+            if not Check_Results.Is_Success (Flag) then
                return Flag;
             end if;
          end loop;
@@ -361,8 +364,9 @@ package body Synapse.Core.Note_Schema is
          begin
             if Unknown_Key (Content, "type enum", Key) then
                return
-                 Bad (Prefix & ".content." & To_String (Key)
-                      & ": unsupported v1 key");
+                 Bad
+                   (Prefix & ".content." & To_String (Key) &
+                    ": unsupported v1 key");
             end if;
             if Has (Content, "enum")
               and then not Is_String_List (Child (Content, "enum"))
@@ -385,7 +389,7 @@ package body Synapse.Core.Note_Schema is
                   Result : constant Check_Result :=
                     Section_Rule (Element (Children, I), I - 1);
                begin
-                  if not Result.Valid then
+                  if not Check_Results.Is_Success (Result) then
                      return Result;
                   end if;
                end;
@@ -406,8 +410,8 @@ package body Synapse.Core.Note_Schema is
          Body_Value : constant Value := Child (Top, "body");
       begin
          if Unknown_Key
-              (Body_Value, "h1 preamble sections section_order lead checklist",
-               Key)
+             (Body_Value, "h1 preamble sections section_order lead checklist",
+              Key)
          then
             return
               Bad ("schema.body." & To_String (Key) & ": unsupported v1 key");
@@ -422,13 +426,14 @@ package body Synapse.Core.Note_Schema is
          begin
             if Unknown_Key (H1, "required count equals", Key) then
                return
-                 Bad ("schema.body.h1." & To_String (Key)
-                      & ": unsupported v1 key");
+                 Bad
+                   ("schema.body.h1." & To_String (Key) &
+                    ": unsupported v1 key");
             end if;
             Counts :=
               Integer_Rule
                 (H1, "count", "schema.body.h1.count", 1, "must be at least 1");
-            if not Counts.Valid then
+            if not Check_Results.Is_Success (Counts) then
                return Counts;
             end if;
          end;
@@ -445,7 +450,7 @@ package body Synapse.Core.Note_Schema is
                      Result : constant Check_Result :=
                        Section_Rule (Element (Sections, I), I - 1);
                   begin
-                     if not Result.Valid then
+                     if not Check_Results.Is_Success (Result) then
                         return Result;
                      end if;
                   end;
@@ -463,16 +468,18 @@ package body Synapse.Core.Note_Schema is
                end if;
                for I in 1 .. Length (Preamble) loop
                   declare
-                     Rule   : constant Value := Element (Preamble, I);
+                     Rule   : constant Value  := Element (Preamble, I);
                      Prefix : constant String :=
-                       "schema.body.preamble[" & Img (I - 1) & "]";
+                       "schema.body.preamble[" & Decimal_Image.Image (I - 1) &
+                       "]";
                   begin
                      if Unknown_Key
-                          (Rule, "type required position marker pattern", Key)
+                         (Rule, "type required position marker pattern", Key)
                      then
                         return
-                          Bad (Prefix & "." & To_String (Key)
-                               & ": unsupported v1 key");
+                          Bad
+                            (Prefix & "." & To_String (Key) &
+                             ": unsupported v1 key");
                      end if;
                      if String_At (Rule, "pattern") then
                         declare
@@ -496,12 +503,13 @@ package body Synapse.Core.Note_Schema is
             begin
                if Unknown_Key (Lead, "type required position", Key) then
                   return
-                    Bad ("schema.body.lead." & To_String (Key)
-                         & ": unsupported v1 key");
+                    Bad
+                      ("schema.body.lead." & To_String (Key) &
+                       ": unsupported v1 key");
                end if;
                Required :=
                  Boolean_Rule (Lead, "required", "schema.body.lead.required");
-               if not Required.Valid then
+               if not Check_Results.Is_Success (Required) then
                   return Required;
                end if;
             end;
@@ -514,35 +522,37 @@ package body Synapse.Core.Note_Schema is
                Minimum   : Check_Result;
             begin
                if Unknown_Key
-                    (Checklist,
-                     "required min_items position nested_items"
-                     & " allowed_children",
-                     Key)
+                   (Checklist,
+                    "required min_items position nested_items" &
+                    " allowed_children",
+                    Key)
                then
                   return
-                    Bad ("schema.body.checklist." & To_String (Key)
-                         & ": unsupported v1 key");
+                    Bad
+                      ("schema.body.checklist." & To_String (Key) &
+                       ": unsupported v1 key");
                end if;
                Required :=
                  Boolean_Rule
                    (Checklist, "required", "schema.body.checklist.required");
-               if not Required.Valid then
+               if not Check_Results.Is_Success (Required) then
                   return Required;
                end if;
                Minimum :=
                  Integer_Rule
                    (Checklist, "min_items", "schema.body.checklist.min_items",
                     0, "must not be negative");
-               if not Minimum.Valid then
+               if not Check_Results.Is_Success (Minimum) then
                   return Minimum;
                end if;
                if Has (Checklist, "allowed_children")
                  and then not Is_String_List
-                                (Child (Checklist, "allowed_children"))
+                   (Child (Checklist, "allowed_children"))
                then
                   return
-                    Bad ("schema.body.checklist.allowed_children:"
-                         & " must be a string list");
+                    Bad
+                      ("schema.body.checklist.allowed_children:" &
+                       " must be a string list");
                end if;
             end;
          end if;
@@ -556,9 +566,9 @@ package body Synapse.Core.Note_Schema is
 
    --  The first operator name in Rule that is neither built in nor in Ops.
    function First_Unknown_Operator
-     (Rule : Value;
-      Ops  : JSON_Logic.Operator_Set'Class;
-      Name : out Unbounded_String) return Boolean is
+     (Rule :     Value; Ops : JSON_Logic.Operator_Set'Class;
+      Name : out Unbounded_String) return Boolean
+   is
    begin
       case Kind_Of (Rule) is
          when JSON_Object =>
@@ -599,14 +609,12 @@ package body Synapse.Core.Note_Schema is
    --  Shared by `checks:` and `lints:`: one rule, an optional string message,
    --  no stray null, no unknown operator. Section is "checks" or "lints".
    function Entry_Rule
-     (Item    : Value;
-      Section : String;
-      Index   : Natural;
-      Ops     : JSON_Logic.Operator_Set'Class;
-      With_Severity : Boolean) return Check_Result
+     (Item : Value; Section : String; Index : Natural;
+      Ops  : JSON_Logic.Operator_Set'Class; With_Severity : Boolean)
+      return Check_Result
    is
-      Prefix : constant String := "schema." & Section & "[" & Img (Index)
-        & "]";
+      Prefix : constant String                   :=
+        "schema." & Section & "[" & Decimal_Image.Image (Index) & "]";
       Shape  : constant Schema_Rules.Entry_Shape :=
         Schema_Rules.Shape_Of (Item);
    begin
@@ -623,8 +631,9 @@ package body Synapse.Core.Note_Schema is
          end if;
          if not Parse_Severity (Text_At (Item, "severity")).Found then
             return
-              Bad (Prefix & ".severity: unsupported value '"
-                   & Text_At (Item, "severity") & "'");
+              Bad
+                (Prefix & ".severity: unsupported value '" &
+                 Text_At (Item, "severity") & "'");
          end if;
       end if;
 
@@ -633,21 +642,23 @@ package body Synapse.Core.Note_Schema is
            Schema_Rules.To_Rule (Schema_Rules.Rule_Object (Shape));
          Name      : Unbounded_String;
       begin
-         if not Converted.Ok then
+         if not Converted.Found then
             return
-              Bad (Prefix & "." & To_String (Shape.Key)
-                   & ": a bare null is not valid here");
+              Bad
+                (Prefix & "." & To_String (Shape.Key) &
+                 ": a bare null is not valid here");
          end if;
-         if First_Unknown_Operator (Converted.Rule, Ops, Name) then
-            return Bad (Prefix & ": unknown operator '" & To_String (Name)
-              & "'");
+         if First_Unknown_Operator (Converted.Value, Ops, Name) then
+            return
+              Bad (Prefix & ": unknown operator '" & To_String (Name) & "'");
          end if;
       end;
       return Fine;
    end Entry_Rule;
 
    function Checks_Rules
-     (Top : Value; Ops : JSON_Logic.Operator_Set'Class) return Check_Result is
+     (Top : Value; Ops : JSON_Logic.Operator_Set'Class) return Check_Result
+   is
    begin
       if not Has (Top, "checks") then
          return Bad ("schema.checks: required list is missing");
@@ -663,7 +674,7 @@ package body Synapse.Core.Note_Schema is
                Result : constant Check_Result :=
                  Entry_Rule (Element (Checks, I), "checks", I - 1, Ops, False);
             begin
-               if not Result.Valid then
+               if not Check_Results.Is_Success (Result) then
                   return Result;
                end if;
             end;
@@ -675,7 +686,8 @@ package body Synapse.Core.Note_Schema is
    --  Unlike `checks:`, optional: a schema with nothing to lint declares no
    --  `lints:` key at all.
    function Lints_Rules
-     (Top : Value; Ops : JSON_Logic.Operator_Set'Class) return Check_Result is
+     (Top : Value; Ops : JSON_Logic.Operator_Set'Class) return Check_Result
+   is
    begin
       if not Has (Top, "lints") then
          return Fine;
@@ -691,7 +703,7 @@ package body Synapse.Core.Note_Schema is
                Result : constant Check_Result :=
                  Entry_Rule (Element (Lints, I), "lints", I - 1, Ops, True);
             begin
-               if not Result.Valid then
+               if not Check_Results.Is_Success (Result) then
                   return Result;
                end if;
             end;
@@ -705,9 +717,8 @@ package body Synapse.Core.Note_Schema is
    ---------------------------------------------------------------------------
 
    function Validate_Schema
-     (Root        : JSON.Value;
-      Expected_Id : String;
-      Ops         : JSON_Logic.Operator_Set'Class := JSON_Logic.No_Operators)
+     (Root : JSON.Value; Expected_Id : String;
+      Ops  : JSON_Logic.Operator_Set'Class := JSON_Logic.No_Operators)
       return Check_Result
    is
    begin
@@ -718,16 +729,16 @@ package body Synapse.Core.Note_Schema is
       declare
          Result : Check_Result := Header (Root, Expected_Id);
       begin
-         if Result.Valid then
+         if Check_Results.Is_Success (Result) then
             Result := Frontmatter_Rules (Root);
          end if;
-         if Result.Valid then
+         if Check_Results.Is_Success (Result) then
             Result := Body_Rules (Root);
          end if;
-         if Result.Valid then
+         if Check_Results.Is_Success (Result) then
             Result := Checks_Rules (Root, Ops);
          end if;
-         if Result.Valid then
+         if Check_Results.Is_Success (Result) then
             Result := Lints_Rules (Root, Ops);
          end if;
          return Result;

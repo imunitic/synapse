@@ -3,10 +3,9 @@ with Ada.Directories;
 with Ada.Exceptions;
 with Ada.Streams.Stream_IO;
 with Ada.Strings.Unbounded;
+with Interfaces;
 
 with AUnit.Assertions;
-
-with Interfaces;
 
 package body Synapse.Core.Schema_YAML.Tests is
 
@@ -25,11 +24,13 @@ package body Synapse.Core.Schema_YAML.Tests is
    function Doc (Source : String) return Value is
       R : constant Parse_Result := Parse (Source);
    begin
-      if not R.Ok then
-         Assert (False, "should parse: " & R.Error'Image & " at line"
-                 & R.Line'Image & " in " & Source);
+      if not Parse_Results.Is_Success (R) then
+         Assert
+           (False,
+            "should parse: " & Parse_Results.Error (R).Fault'Image &
+            " at line" & Parse_Results.Error (R).Line'Image & " in " & Source);
       end if;
-      return R.Root;
+      return Parse_Results.Value (R);
    end Doc;
 
    procedure Expect_Fault
@@ -37,21 +38,23 @@ package body Synapse.Core.Schema_YAML.Tests is
    is
       R : constant Parse_Result := Parse (Source);
    begin
-      if R.Ok then
+      if Parse_Results.Is_Success (R) then
          Assert (False, "should fail with " & Want'Image & ": " & Source);
       else
-         Assert (R.Error = Want,
-                 "got " & R.Error'Image & " for " & Source);
+         Assert
+           (Parse_Results.Error (R).Fault = Want,
+            "got " & Parse_Results.Error (R).Fault'Image & " for " & Source);
          if Line /= 0 then
-            Assert (R.Line = Line,
-                    Want'Image & " at line" & R.Line'Image
-                    & ", wanted" & Line'Image & " in " & Source);
+            Assert
+              (Parse_Results.Error (R).Line = Line,
+               Want'Image & " at line" & Parse_Results.Error (R).Line'Image &
+               ", wanted" & Line'Image & " in " & Source);
          end if;
       end if;
    end Expect_Fault;
 
    function Get (V : Value; Path : String) return Value is
-      Current : Value := V;
+      Current : Value    := V;
       First   : Positive := Path'First;
    begin
       loop
@@ -64,9 +67,10 @@ package body Synapse.Core.Schema_YAML.Tests is
             declare
                Key : constant String := Path (First .. Stop - 1);
             begin
-               Assert (Kind_Of (Current) = JSON_Object
-                       and then Has_Member (Current, Key),
-                       "path " & Path & " breaks at " & Key);
+               Assert
+                 (Kind_Of (Current) = JSON_Object
+                  and then Has_Member (Current, Key),
+                  "path " & Path & " breaks at " & Key);
                Current := Member_Value (Current, Key);
             end;
             exit when Stop > Path'Last;
@@ -76,28 +80,31 @@ package body Synapse.Core.Schema_YAML.Tests is
       return Current;
    end Get;
 
-   function Str (V : Value; Path : String) return String
-   is (As_String (Get (V, Path)));
+   function Str (V : Value; Path : String) return String is
+     (As_String (Get (V, Path)));
 
    function Merged (Base, Override : Value) return Value is
       R : constant Merge_Result := Merge (Base, Override);
    begin
-      if not R.Ok then
-         Assert (False, "merge should succeed, got " & R.Error'Image);
+      if not Merge_Results.Is_Success (R) then
+         Assert
+           (False,
+            "merge should succeed, got " & Merge_Results.Error (R)'Image);
       end if;
-      return R.Root;
+      return Merge_Results.Value (R);
    end Merged;
 
-   procedure Expect_Merge_Fault
-     (Base, Override : String; Want : Merge_Fault)
+   procedure Expect_Merge_Fault (Base, Override : String; Want : Merge_Fault)
    is
       R : constant Merge_Result := Merge (Doc (Base), Doc (Override));
    begin
-      if R.Ok then
+      if Merge_Results.Is_Success (R) then
          Assert (False, "merge should fail with " & Want'Image);
       else
-         Assert (R.Error = Want, "merge gave " & R.Error'Image
-                 & ", wanted " & Want'Image);
+         Assert
+           (Merge_Results.Error (R) = Want,
+            "merge gave " & Merge_Results.Error (R)'Image & ", wanted " &
+            Want'Image);
       end if;
    end Expect_Merge_Fault;
 
@@ -107,34 +114,30 @@ package body Synapse.Core.Schema_YAML.Tests is
 
    procedure Parses_The_Schema_DSL_Shapes (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
-      Root : constant Value :=
-        Doc ("schema: synapse-note-schema/v1" & LF
-             & "id: vault-note/v1" & LF
-             & "frontmatter:" & LF
-             & "  fields:" & LF
-             & "    title:" & LF
-             & "      type: string" & LF
-             & "      required: true" & LF
-             & "body:" & LF
-             & "  sections:" & LF
-             & "    - title: Summary" & LF
-             & "      level: 2" & LF
-             & "checks:" & LF
-             & "  - equals: [filename.stem, frontmatter.title] # same title"
-             & LF);
+      Root     : constant Value :=
+        Doc
+          ("schema: synapse-note-schema/v1" & LF & "id: vault-note/v1" & LF &
+           "frontmatter:" & LF & "  fields:" & LF & "    title:" & LF &
+           "      type: string" & LF & "      required: true" & LF & "body:" &
+           LF & "  sections:" & LF & "    - title: Summary" & LF &
+           "      level: 2" & LF & "checks:" & LF &
+           "  - equals: [filename.stem, frontmatter.title] # same title" & LF);
       Sections : constant Value := Get (Root, "body.sections");
    begin
       Assert (Str (Root, "schema") = "synapse-note-schema/v1", "a scalar");
-      Assert (As_Boolean (Get (Root, "frontmatter.fields.title.required")),
-              "a boolean");
-      Assert (Kind_Of (Sections) = JSON_Array and then Length (Sections) = 1,
-              "a list of one mapping");
+      Assert
+        (As_Boolean (Get (Root, "frontmatter.fields.title.required")),
+         "a boolean");
+      Assert
+        (Kind_Of (Sections) = JSON_Array and then Length (Sections) = 1,
+         "a list of one mapping");
       Assert (Str (Element (Sections, 1), "title") = "Summary", "its title");
-      Assert (As_Integer (Get (Element (Sections, 1), "level")) = 2,
-              "its integer");
+      Assert
+        (As_Integer (Get (Element (Sections, 1), "level")) = 2, "its integer");
       Assert (Length (Get (Root, "checks")) = 1, "checks");
-      Assert (Length (Get (Element (Get (Root, "checks"), 1), "equals")) = 2,
-              "a flow list, with its comment cut");
+      Assert
+        (Length (Get (Element (Get (Root, "checks"), 1), "equals")) = 2,
+         "a flow list, with its comment cut");
    end Parses_The_Schema_DSL_Shapes;
 
    procedure Refuses_YAML_Outside_The_Subset (T : in out Test_Cases_Class) is
@@ -144,8 +147,8 @@ package body Synapse.Core.Schema_YAML.Tests is
       Expect_Fault ("x: !thing value" & LF, Custom_Tag, 1);
       Expect_Fault ("x: |" & LF & "  value: here" & LF, Block_Scalar, 1);
       Expect_Fault ("x: {a: b}" & LF, Flow_Map, 1);
-      Expect_Fault ("x: y" & LF & "---" & LF & "z: q" & LF,
-                    Multiple_Documents, 2);
+      Expect_Fault
+        ("x: y" & LF & "---" & LF & "z: q" & LF, Multiple_Documents, 2);
       Expect_Fault ("x: yes" & LF, Implicit_Type, 1);
       Expect_Fault ("x:" & LF & HT & "y: z" & LF, Tab_Indent, 2);
    end Refuses_YAML_Outside_The_Subset;
@@ -155,15 +158,16 @@ package body Synapse.Core.Schema_YAML.Tests is
    begin
       Expect_Fault ("x: one" & LF & "x: two" & LF, Duplicate_Key, 2);
       Expect_Fault ("- a: 1" & LF & "  a: 2" & LF, Duplicate_Key);
-      Expect_Fault ("m:" & LF & "  k: 1" & LF & "  k: 2" & LF,
-                    Duplicate_Key, 3);
+      Expect_Fault
+        ("m:" & LF & "  k: 1" & LF & "  k: 2" & LF, Duplicate_Key, 3);
    end Duplicate_Keys_Fail_Closed;
 
    procedure A_Literal_Null_Is_A_Tombstone (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
    begin
-      Assert (Kind_Of (Get (Doc ("x: null" & LF), "x")) = JSON_Null,
-              "null reads as a null value");
+      Assert
+        (Kind_Of (Get (Doc ("x: null" & LF), "x")) = JSON_Null,
+         "null reads as a null value");
       Expect_Fault ("x: Null" & LF, Implicit_Type, 1);
       Expect_Fault ("x: NULL" & LF, Implicit_Type, 1);
       Expect_Fault ("x: ~" & LF, Implicit_Type, 1);
@@ -201,56 +205,57 @@ package body Synapse.Core.Schema_YAML.Tests is
       Expect_Fault ("a: 007" & LF, Implicit_Type, 1);
       Expect_Fault ("a: -012" & LF, Implicit_Type, 1);
       Expect_Fault ("x:" & LF & "  - " & LF, Empty_Value);
-      Expect_Fault ("a:" & LF & "  b: 1" & LF & "c:" & LF & "d: 2" & LF,
-                    Empty_Value, 3);
+      Expect_Fault
+        ("a:" & LF & "  b: 1" & LF & "c:" & LF & "d: 2" & LF, Empty_Value, 3);
    end Every_Fault_Names_Its_Line;
 
    procedure Reads_Scalars (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Root : constant Value :=
-        Doc ("t: true" & LF & "f: false" & LF & "n: 0" & LF & "neg: -5" & LF
-             & "minus_zero: -0" & LF & "big: 9223372036854775807" & LF
-             & "low: -9223372036854775808" & LF & "dash: -" & LF
-             & "dec: 1.5" & LF & "word: hello world" & LF
-             & "url: http://example.org/x" & LF & "path: designs/a" & LF);
+        Doc
+          ("t: true" & LF & "f: false" & LF & "n: 0" & LF & "neg: -5" & LF &
+           "minus_zero: -0" & LF & "big: 9223372036854775807" & LF &
+           "low: -9223372036854775808" & LF & "dash: -" & LF & "dec: 1.5" &
+           LF & "word: hello world" & LF & "url: http://example.org/x" & LF &
+           "path: designs/a" & LF);
    begin
       Assert
         (As_Boolean (Get (Root, "t"))
          and then not As_Boolean (Get (Root, "f")),
-              "booleans");
+         "booleans");
       Assert (As_Integer (Get (Root, "n")) = 0, "zero");
       Assert (As_Integer (Get (Root, "neg")) = -5, "negative");
       Assert (As_Integer (Get (Root, "minus_zero")) = 0, "-0");
-      Assert (As_Integer (Get (Root, "big")) = Long_Long_Integer'Last,
-              "the largest integer");
-      Assert (As_Integer (Get (Root, "low")) = Long_Long_Integer'First,
-              "the smallest");
+      Assert
+        (As_Integer (Get (Root, "big")) = Long_Long_Integer'Last,
+         "the largest integer");
+      Assert
+        (As_Integer (Get (Root, "low")) = Long_Long_Integer'First,
+         "the smallest");
       Assert (Str (Root, "dash") = "-", "a lone minus is text");
       Assert (Str (Root, "dec") = "1.5", "a decimal is text");
       Assert (Str (Root, "word") = "hello world", "a plain string");
-      Assert (Str (Root, "url") = "http://example.org/x",
-              "a value may hold colons");
+      Assert
+        (Str (Root, "url") = "http://example.org/x",
+         "a value may hold colons");
       Assert (Str (Root, "path") = "designs/a", "a slash");
    end Reads_Scalars;
 
    procedure Reads_Quoted_Strings (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Root : constant Value :=
-        Doc ("s: 'single ""quoted"" # not a comment'" & LF
-             & "d: ""double " & '\' & """q" & '\' & """ "
-             & '\' & "n" & '\' & "t"
-             & '\' & '\' & "end""" & LF
-             & "glob: ""designs/*""" & LF
-             & "empty: ''" & LF
-             & "colon: 'a: b'" & LF
-             & "bare: a#b" & LF
-             & "cut: a #cut" & LF);
+        Doc
+          ("s: 'single ""quoted"" # not a comment'" & LF & "d: ""double " &
+           '\' & """q" & '\' & """ " & '\' & "n" & '\' & "t" & '\' & '\' &
+           "end""" & LF & "glob: ""designs/*""" & LF & "empty: ''" & LF &
+           "colon: 'a: b'" & LF & "bare: a#b" & LF & "cut: a #cut" & LF);
    begin
-      Assert (Str (Root, "s") = "single ""quoted"" # not a comment",
-              "single quotes keep everything, a hash included");
-      Assert (Str (Root, "d")
-              = "double ""q"" " & LF & HT & '\' & "end",
-              "double-quoted escapes");
+      Assert
+        (Str (Root, "s") = "single ""quoted"" # not a comment",
+         "single quotes keep everything, a hash included");
+      Assert
+        (Str (Root, "d") = "double ""q"" " & LF & HT & '\' & "end",
+         "double-quoted escapes");
       Assert (Str (Root, "glob") = "designs/*", "a quoted glob");
       Assert (Str (Root, "empty") = "", "an empty string");
       Assert (Str (Root, "colon") = "a: b", "a quoted colon");
@@ -261,8 +266,9 @@ package body Synapse.Core.Schema_YAML.Tests is
    procedure Reads_Flow_Lists (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Root : constant Value :=
-        Doc ("a: [x, y, 3, true]" & LF & "b: []" & LF & "c: [ ]" & LF
-             & "d: [""a, b"", 'c, d']" & LF & "e: [  spaced ,  out  ]" & LF);
+        Doc
+          ("a: [x, y, 3, true]" & LF & "b: []" & LF & "c: [ ]" & LF &
+           "d: [""a, b"", 'c, d']" & LF & "e: [  spaced ,  out  ]" & LF);
    begin
       Assert (Length (Get (Root, "a")) = 4, "four items");
       Assert (As_String (Element (Get (Root, "a"), 1)) = "x", "a string");
@@ -270,40 +276,39 @@ package body Synapse.Core.Schema_YAML.Tests is
       Assert (As_Boolean (Element (Get (Root, "a"), 4)), "a boolean");
       Assert (Length (Get (Root, "b")) = 0, "empty");
       Assert (Length (Get (Root, "c")) = 0, "blank");
-      Assert (As_String (Element (Get (Root, "d"), 1)) = "a, b",
-              "a comma inside quotes stays");
+      Assert
+        (As_String (Element (Get (Root, "d"), 1)) = "a, b",
+         "a comma inside quotes stays");
       Assert (As_String (Element (Get (Root, "e"), 2)) = "out", "trimmed");
    end Reads_Flow_Lists;
 
    procedure Reads_Lists_And_List_Items (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
-      Root : constant Value :=
-        Doc ("items:" & LF
-             & "  - plain" & LF
-             & "  - name: one" & LF
-             & "    level: 2" & LF
-             & "  - nested:" & LF
-             & "      deep: 1" & LF
-             & "    after: 2" & LF
-             & "  - http://example.org" & LF
-             & "  - ""quoted: text""" & LF
-             & "  - [a, b]" & LF
-             & "top: 1" & LF);
+      Root  : constant Value :=
+        Doc
+          ("items:" & LF & "  - plain" & LF & "  - name: one" & LF &
+           "    level: 2" & LF & "  - nested:" & LF & "      deep: 1" & LF &
+           "    after: 2" & LF & "  - http://example.org" & LF &
+           "  - ""quoted: text""" & LF & "  - [a, b]" & LF & "top: 1" & LF);
       Items : constant Value := Get (Root, "items");
    begin
       Assert (Length (Items) = 6, "six items");
       Assert (As_String (Element (Items, 1)) = "plain", "a scalar item");
-      Assert (Str (Element (Items, 2), "name") = "one"
-              and then As_Integer (Get (Element (Items, 2), "level")) = 2,
-              "a mapping item with a second field");
-      Assert (As_Integer (Get (Element (Items, 3), "nested.deep")) = 1
-              and then As_Integer (Get (Element (Items, 3), "after")) = 2,
-              "a nested block under the first key, then another field");
-      Assert (Kind_Of (Element (Items, 4)) = JSON_Object
-              and then Str (Element (Items, 4), "http") = "//example.org",
-              "an unquoted item with a colon reads as a mapping");
-      Assert (As_String (Element (Items, 5)) = "quoted: text",
-              "a quoted item stays text");
+      Assert
+        (Str (Element (Items, 2), "name") = "one"
+         and then As_Integer (Get (Element (Items, 2), "level")) = 2,
+         "a mapping item with a second field");
+      Assert
+        (As_Integer (Get (Element (Items, 3), "nested.deep")) = 1
+         and then As_Integer (Get (Element (Items, 3), "after")) = 2,
+         "a nested block under the first key, then another field");
+      Assert
+        (Kind_Of (Element (Items, 4)) = JSON_Object
+         and then Str (Element (Items, 4), "http") = "//example.org",
+         "an unquoted item with a colon reads as a mapping");
+      Assert
+        (As_String (Element (Items, 5)) = "quoted: text",
+         "a quoted item stays text");
       Assert (Kind_Of (Element (Items, 6)) = JSON_Array, "a flow list item");
       Assert (As_Integer (Get (Root, "top")) = 1, "and the map continues");
    end Reads_Lists_And_List_Items;
@@ -311,20 +316,19 @@ package body Synapse.Core.Schema_YAML.Tests is
    procedure Handles_Layout_And_Line_Endings (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Source : constant String :=
-        "# header" & LF & LF & "a: 1  # trailing" & LF
-        & "   " & LF & "b:" & LF & "  c: two" & LF & "  # inner" & LF
-        & "  d: 3" & LF;
+        "# header" & LF & LF & "a: 1  # trailing" & LF & "   " & LF & "b:" &
+        LF & "  c: two" & LF & "  # inner" & LF & "  d: 3" & LF;
       Crlf   : constant String :=
-        "# header" & CR & LF & CR & LF & "a: 1  # trailing" & CR & LF
-        & "b:" & CR & LF & "  c: two" & CR & LF & "  d: 3" & CR & LF;
+        "# header" & CR & LF & CR & LF & "a: 1  # trailing" & CR & LF & "b:" &
+        CR & LF & "  c: two" & CR & LF & "  d: 3" & CR & LF;
    begin
       Assert (As_Integer (Get (Doc (Source), "a")) = 1, "a comment is cut");
-      Assert (Str (Doc (Source), "b.c") = "two"
-              and then As_Integer (Get (Doc (Source), "b.d")) = 3,
-              "blank and comment lines are skipped");
+      Assert
+        (Str (Doc (Source), "b.c") = "two"
+         and then As_Integer (Get (Doc (Source), "b.d")) = 3,
+         "blank and comment lines are skipped");
       Assert (Doc (Crlf) = Doc (Source), "CRLF reads the same as LF");
-      Assert (As_Integer (Get (Doc ("a: 1"), "a")) = 1,
-              "no final line feed");
+      Assert (As_Integer (Get (Doc ("a: 1"), "a")) = 1, "no final line feed");
    end Handles_Layout_And_Line_Endings;
 
    procedure Refuses_Bad_Text_And_Deep_Nesting (T : in out Test_Cases_Class) is
@@ -342,10 +346,11 @@ package body Synapse.Core.Schema_YAML.Tests is
       end Nested;
    begin
       Expect_Fault ("a: " & Character'Val (16#FF#) & LF, Invalid_UTF8, 1);
-      Expect_Fault ("a: ""x" & Character'Val (16#C3#) & """" & LF,
-                    Invalid_UTF8, 1);
-      Assert (Schema_YAML.Parse (Nested (Max_Depth - 4)).Ok,
-              "deep, but within the limit");
+      Expect_Fault
+        ("a: ""x" & Character'Val (16#C3#) & """" & LF, Invalid_UTF8, 1);
+      Assert
+        (Parse_Results.Is_Success (Schema_YAML.Parse (Nested (Max_Depth - 4))),
+         "deep, but within the limit");
       Expect_Fault (Nested (Max_Depth + 20), Too_Deep);
    end Refuses_Bad_Text_And_Deep_Nesting;
 
@@ -363,9 +368,9 @@ package body Synapse.Core.Schema_YAML.Tests is
          Ada.Streams.Stream_IO.Open
            (File, Ada.Streams.Stream_IO.In_File, Path);
          declare
-            Size   : constant Natural :=
+            Size : constant Natural :=
               Natural (Ada.Streams.Stream_IO.Size (File));
-            Text   : String (1 .. Size);
+            Text : String (1 .. Size);
          begin
             String'Read (Ada.Streams.Stream_IO.Stream (File), Text);
             Ada.Streams.Stream_IO.Close (File);
@@ -373,12 +378,10 @@ package body Synapse.Core.Schema_YAML.Tests is
                Root : constant Value := Doc (Text);
             begin
                Assert
-                 (Has_Member (Root, "schema"),
-                  Name & " names its schema");
+                 (Has_Member (Root, "schema"), Name & " names its schema");
                Assert (Has_Member (Root, "id"), Name & " has an id");
                Assert
-                 (Merged (Root, Root) = Root,
-                  Name & " merged with itself");
+                 (Merged (Root, Root) = Root, Name & " merged with itself");
             end;
          end;
       end Check;
@@ -402,8 +405,9 @@ package body Synapse.Core.Schema_YAML.Tests is
    begin
       Assert (Str (Result, "a") = "ONE", "an override's scalar wins");
       Assert (Str (Result, "b") = "two", "an unmentioned key is untouched");
-      Assert (Str (Added, "a") = "one" and then Str (Added, "b") = "two",
-              "a key only the override declares is added");
+      Assert
+        (Str (Added, "a") = "one" and then Str (Added, "b") = "two",
+         "a key only the override declares is added");
    end Merge_Replaces_Adds_And_Keeps;
 
    procedure A_Null_Deletes_The_Key (T : in out Test_Cases_Class) is
@@ -415,89 +419,99 @@ package body Synapse.Core.Schema_YAML.Tests is
    begin
       Assert (not Has_Member (Result, "a"), "the key is gone");
       Assert (Str (Result, "b") = "two", "the other stays");
-      Assert (not Has_Member (Absent, "z"),
-              "a null for an absent key adds nothing");
+      Assert
+        (not Has_Member (Absent, "z"),
+         "a null for an absent key adds nothing");
    end A_Null_Deletes_The_Key;
 
    procedure Nested_Maps_Merge_Recursively (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Result : constant Value :=
         Merged
-          (Doc ("fields:" & LF & "  title:" & LF & "    type: string" & LF
-                & "    required: true" & LF & "  tags:" & LF
-                & "    type: list" & LF),
-           Doc ("fields:" & LF & "  title:" & LF & "    required: false" & LF
-                & "  note_id:" & LF & "    type: string" & LF));
+          (Doc
+             ("fields:" & LF & "  title:" & LF & "    type: string" & LF &
+              "    required: true" & LF & "  tags:" & LF & "    type: list" &
+              LF),
+           Doc
+             ("fields:" & LF & "  title:" & LF & "    required: false" & LF &
+              "  note_id:" & LF & "    type: string" & LF));
    begin
-      Assert (Str (Result, "fields.title.type") = "string",
-              "the base's type is kept");
-      Assert (not As_Boolean (Get (Result, "fields.title.required")),
-              "the override's flag wins");
       Assert
-        (Str (Result, "fields.tags.type") = "list",
-         "a sibling is untouched");
-      Assert (Str (Result, "fields.note_id.type") = "string",
-              "a new field is added whole");
+        (Str (Result, "fields.title.type") = "string",
+         "the base's type is kept");
+      Assert
+        (not As_Boolean (Get (Result, "fields.title.required")),
+         "the override's flag wins");
+      Assert
+        (Str (Result, "fields.tags.type") = "list", "a sibling is untouched");
+      Assert
+        (Str (Result, "fields.note_id.type") = "string",
+         "a new field is added whole");
    end Nested_Maps_Merge_Recursively;
 
    procedure A_List_Is_Replaced_Wholesale (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Result : constant Value :=
-        Merged (Doc ("lints:" & LF & "  - a: one" & LF & "  - a: two" & LF),
-                Doc ("lints:" & LF & "  - a: two" & LF & "  - a: three" & LF));
+        Merged
+          (Doc ("lints:" & LF & "  - a: one" & LF & "  - a: two" & LF),
+           Doc ("lints:" & LF & "  - a: two" & LF & "  - a: three" & LF));
       Lints  : constant Value := Get (Result, "lints");
    begin
       Assert (Length (Lints) = 2, "two entries");
-      Assert (Str (Element (Lints, 1), "a") = "two"
-              and then Str (Element (Lints, 2), "a") = "three",
-              "omission removes, inclusion adds");
+      Assert
+        (Str (Element (Lints, 1), "a") = "two"
+         and then Str (Element (Lints, 2), "a") = "three",
+         "omission removes, inclusion adds");
    end A_List_Is_Replaced_Wholesale;
 
    Patch_Base : constant String :=
-     "lints:" & LF
-     & "  - no_hard_wrap:" & LF & "      var: body.prose" & LF
-     & "    severity: warn" & LF
-     & "  - not:" & LF & "      starts_with:" & LF
-     & "        - var: frontmatter.title" & LF
-     & "        - var: frontmatter.note_id" & LF
-     & "    severity: warn" & LF;
+     "lints:" & LF & "  - no_hard_wrap:" & LF & "      var: body.prose" & LF &
+     "    severity: warn" & LF & "  - not:" & LF & "      starts_with:" & LF &
+     "        - var: frontmatter.title" & LF &
+     "        - var: frontmatter.note_id" & LF & "    severity: warn" & LF;
 
    procedure A_Patch_Edits_The_Matched_Entry (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Result : constant Value :=
         Merged
           (Doc (Patch_Base),
-           Doc ("lints:" & LF & "  - match:" & LF & "      no_hard_wrap:" & LF
-                 & "        var: body.prose" & LF
-                 & "    severity: error" & LF));
+           Doc
+             ("lints:" & LF & "  - match:" & LF & "      no_hard_wrap:" & LF &
+              "        var: body.prose" & LF & "    severity: error" & LF));
       Lints  : constant Value := Get (Result, "lints");
    begin
       Assert (Length (Lints) = 2, "still two");
-      Assert (Str (Element (Lints, 1), "severity") = "error",
-              "the matched entry changed, in place");
-      Assert (Str (Element (Lints, 2), "severity") = "warn",
-              "its sibling did not");
-      Assert (Has_Member (Element (Lints, 1), "no_hard_wrap"),
-              "the entry kept its other fields");
+      Assert
+        (Str (Element (Lints, 1), "severity") = "error",
+         "the matched entry changed, in place");
+      Assert
+        (Str (Element (Lints, 2), "severity") = "warn", "its sibling did not");
+      Assert
+        (Has_Member (Element (Lints, 1), "no_hard_wrap"),
+         "the entry kept its other fields");
    end A_Patch_Edits_The_Matched_Entry;
 
    procedure A_Patch_Applies_To_Every_Match (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Result : constant Value :=
         Merged
-          (Doc ("lints:" & LF & "  - a: one" & LF & "    severity: warn" & LF
-                & "  - a: two" & LF & "    severity: warn" & LF
-                & "  - a: three" & LF & "    severity: ignore" & LF),
-           Doc ("lints:" & LF & "  - match:" & LF & "      severity: warn" & LF
-                & "    severity: error" & LF));
+          (Doc
+             ("lints:" & LF & "  - a: one" & LF & "    severity: warn" & LF &
+              "  - a: two" & LF & "    severity: warn" & LF & "  - a: three" &
+              LF & "    severity: ignore" & LF),
+           Doc
+             ("lints:" & LF & "  - match:" & LF & "      severity: warn" & LF &
+              "    severity: error" & LF));
       Lints  : constant Value := Get (Result, "lints");
    begin
       Assert (Length (Lints) = 3, "three entries");
-      Assert (Str (Element (Lints, 1), "severity") = "error"
-              and then Str (Element (Lints, 2), "severity") = "error",
-              "both matches changed");
-      Assert (Str (Element (Lints, 3), "severity") = "ignore",
-              "the non-match did not");
+      Assert
+        (Str (Element (Lints, 1), "severity") = "error"
+         and then Str (Element (Lints, 2), "severity") = "error",
+         "both matches changed");
+      Assert
+        (Str (Element (Lints, 3), "severity") = "ignore",
+         "the non-match did not");
    end A_Patch_Applies_To_Every_Match;
 
    procedure A_Patch_With_No_Delta_Removes (T : in out Test_Cases_Class) is
@@ -514,16 +528,20 @@ package body Synapse.Core.Schema_YAML.Tests is
       pragma Unreferenced (T);
       Result : constant Value :=
         Merged
-          (Doc ("l:" & LF & "  - a: one" & LF & "    s: warn" & LF
-                & "  - a: two" & LF & "    s: warn" & LF),
-           Doc ("l:" & LF & "  - match:" & LF & "      a: one" & LF
-                & "    s: error" & LF & "  - match:" & LF & "      s: error"
-                & LF & "    extra: yes_it_did" & LF));
+          (Doc
+             ("l:" & LF & "  - a: one" & LF & "    s: warn" & LF &
+              "  - a: two" & LF & "    s: warn" & LF),
+           Doc
+             ("l:" & LF & "  - match:" & LF & "      a: one" & LF &
+              "    s: error" & LF & "  - match:" & LF & "      s: error" & LF &
+              "    extra: yes_it_did" & LF));
    begin
-      Assert (Str (Element (Get (Result, "l"), 1), "extra") = "yes_it_did",
-              "the second patch sees the first one's change");
-      Assert (not Has_Member (Element (Get (Result, "l"), 2), "extra"),
-              "and only that entry");
+      Assert
+        (Str (Element (Get (Result, "l"), 1), "extra") = "yes_it_did",
+         "the second patch sees the first one's change");
+      Assert
+        (not Has_Member (Element (Get (Result, "l"), 2), "extra"),
+         "and only that entry");
    end Patches_Apply_In_Order;
 
    procedure Patch_Faults_Are_Reported (T : in out Test_Cases_Class) is
@@ -533,29 +551,29 @@ package body Synapse.Core.Schema_YAML.Tests is
    begin
       Expect_Merge_Fault
         (One,
-         "lints:" & LF & "  - match:" & LF & "      a: nope" & LF
-         & "    severity: error" & LF,
+         "lints:" & LF & "  - match:" & LF & "      a: nope" & LF &
+         "    severity: error" & LF,
          Patch_Match_Not_Found);
       Expect_Merge_Fault
         (One,
-         "lints:" & LF & "  - match:" & LF & "      a: one" & LF
-         & "    severity: error" & LF & "  - a: two" & LF
-         & "    severity: warn" & LF,
+         "lints:" & LF & "  - match:" & LF & "      a: one" & LF &
+         "    severity: error" & LF & "  - a: two" & LF &
+         "    severity: warn" & LF,
          Mixed_Patch_List);
       Expect_Merge_Fault
         ("checks: []" & LF,
-         "lints:" & LF & "  - match:" & LF & "      a: one" & LF
-         & "    severity: error" & LF,
+         "lints:" & LF & "  - match:" & LF & "      a: one" & LF &
+         "    severity: error" & LF,
          Patch_On_Non_List);
       Expect_Merge_Fault
         ("lints: scalar" & LF,
-         "lints:" & LF & "  - match:" & LF & "      a: one" & LF
-         & "    severity: error" & LF,
+         "lints:" & LF & "  - match:" & LF & "      a: one" & LF &
+         "    severity: error" & LF,
          Patch_On_Non_List);
       Expect_Merge_Fault
         (One,
-         "lints:" & LF & "  - match: not-a-map" & LF & "    severity: error"
-         & LF,
+         "lints:" & LF & "  - match: not-a-map" & LF & "    severity: error" &
+         LF,
          Patch_Match_Not_Map);
    end Patch_Faults_Are_Reported;
 
@@ -612,8 +630,9 @@ package body Synapse.Core.Schema_YAML.Tests is
 
             when 3 =>
                Fields (I).Item :=
-                 Make_Array ([Make_Integer (Long_Long_Integer (Next (9))),
-                              Make_String ("x")]);
+                 Make_Array
+                   ([Make_Integer (Long_Long_Integer (Next (9))),
+                    Make_String ("x")]);
 
             when others =>
                Fields (I).Item := Random_Map (Depth + 1);
@@ -634,8 +653,7 @@ package body Synapse.Core.Schema_YAML.Tests is
          begin
             if Merged (Base, Empty) /= Base then
                Assert
-                 (False,
-                  "case" & I'Image & ": an empty override changed it");
+                 (False, "case" & I'Image & ": an empty override changed it");
             end if;
             if Merged (Base, Base) /= Base then
                Assert
@@ -660,14 +678,15 @@ package body Synapse.Core.Schema_YAML.Tests is
             end loop;
             for K in 1 .. Length (Override) loop
                declare
-                  Key : constant String := Member_Key (Override, K);
-                  Mine : constant Value := Member_At (Override, K);
+                  Key  : constant String := Member_Key (Override, K);
+                  Mine : constant Value  := Member_At (Override, K);
                begin
                   if Kind_Of (Mine) /= JSON_Object
                     and then Member_Value (Once, Key) /= Mine
                   then
-                     Assert (False, "case" & I'Image & ": the override lost "
-                             & Key);
+                     Assert
+                       (False,
+                        "case" & I'Image & ": the override lost " & Key);
                   end if;
                end;
             end loop;
@@ -690,9 +709,11 @@ package body Synapse.Core.Schema_YAML.Tests is
             declare
                R : constant Parse_Result := Parse (Text);
             begin
-               if R.Ok then
+               if Parse_Results.Is_Success (R) then
                   declare
-                     M : constant Merge_Result := Merge (R.Root, R.Root);
+                     M : constant Merge_Result :=
+                       Merge
+                         (Parse_Results.Value (R), Parse_Results.Value (R));
                      pragma Unreferenced (M);
                   begin
                      null;
@@ -708,15 +729,13 @@ package body Synapse.Core.Schema_YAML.Tests is
 
    ---------------------------------------------------------------------------
 
-   overriding
-   function Name (T : Test_Case) return AUnit.Message_String is
+   overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
       return AUnit.Format ("Synapse.Core.Schema_YAML");
    end Name;
 
-   overriding
-   procedure Register_Tests (T : in out Test_Case) is
+   overriding procedure Register_Tests (T : in out Test_Case) is
       use AUnit.Test_Cases.Registration;
    begin
       Register_Routine

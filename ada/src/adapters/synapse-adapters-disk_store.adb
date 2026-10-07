@@ -16,22 +16,19 @@ package body Synapse.Adapters.Disk_Store is
    use Ada.Strings.Unbounded;
    use type Ada.Directories.File_Kind;
 
-   Largest_Read : constant := 256 * 1024 * 1024;
+   Largest_Read : constant := 256 * 1_024 * 1_024;
 
    function Create (Vault, Namespace : String) return Disk_Store is
    begin
       return
-        (Port.Store with
-           Vault     => To_Unbounded_String (Vault),
-           Namespace => To_Unbounded_String (Namespace),
-           Stopwords => <>);
+        (Port.Store with Vault => To_Unbounded_String (Vault),
+         Namespace => To_Unbounded_String (Namespace), Stopwords => <>);
    end Create;
 
    --  The directory a store's nodes live under.
-   function Root (S : Disk_Store) return String
-   is (if S.Namespace = Null_Unbounded_String
-       then To_String (S.Vault)
-       else To_String (S.Vault) & "/" & To_String (S.Namespace));
+   function Root (S : Disk_Store) return String is
+     (if S.Namespace = Null_Unbounded_String then To_String (S.Vault)
+      else To_String (S.Vault) & "/" & To_String (S.Namespace));
 
    function Path_Of (S : Disk_Store; Node : String) return String is
    begin
@@ -43,10 +40,11 @@ package body Synapse.Adapters.Disk_Store is
 
    function Failure
      (Action, Path : String; E : Ada.Exceptions.Exception_Occurrence)
-      return String
-   is (Action & " " & Path & ": " & Ada.Exceptions.Exception_Name (E)
-       & (if Ada.Exceptions.Exception_Message (E)'Length > 0
-          then " (" & Ada.Exceptions.Exception_Message (E) & ")" else ""));
+      return String is
+     (Action & " " & Path & ": " & Ada.Exceptions.Exception_Name (E) &
+      (if Ada.Exceptions.Exception_Message (E)'Length > 0 then
+         " (" & Ada.Exceptions.Exception_Message (E) & ")"
+       else ""));
 
    function Read_File (Path : String) return String is
    begin
@@ -54,12 +52,12 @@ package body Synapse.Adapters.Disk_Store is
    exception
       when File_Bytes.Too_Large =>
          raise Port.Store_Failure with "file too large: " & Path;
-      when E : others =>
+      when E : others           =>
          raise Port.Store_Failure with Failure ("cannot read", Path, E);
    end Read_File;
 
-   overriding
-   function Read (S : in out Disk_Store; Node : String) return Port.Maybe_Text
+   overriding function Read
+     (S : in out Disk_Store; Node : String) return Port.Maybe_Text
    is
       Path : constant String := Path_Of (S, Node);
    begin
@@ -69,18 +67,17 @@ package body Synapse.Adapters.Disk_Store is
       if Ada.Directories.Kind (Path) /= Ada.Directories.Ordinary_File then
          raise Port.Store_Failure with "not a file: " & Path;
       end if;
-      return (Found => True, Text => To_Unbounded_String (Read_File (Path)));
+      return (Found => True, Value => To_Unbounded_String (Read_File (Path)));
    exception
-      when Ada.IO_Exceptions.Name_Error =>
+      when Ada.IO_Exceptions.Name_Error          =>
          return (Found => False);
       when Port.Store_Failure | Port.Unsafe_Node =>
          raise;
-      when E : others =>
+      when E : others                            =>
          raise Port.Store_Failure with Failure ("cannot read", Path, E);
    end Read;
 
-   overriding
-   function Write
+   overriding function Write
      (S : in out Disk_Store; Node, Content : String) return Port.Write_Result
    is
       Path : constant String := Path_Of (S, Node);
@@ -119,14 +116,13 @@ package body Synapse.Adapters.Disk_Store is
    exception
       when Port.Store_Failure | Port.Unsafe_Node =>
          raise;
-      when E : others =>
+      when E : others                            =>
          raise Port.Store_Failure with Failure ("cannot write", Path, E);
    end Write;
 
    --  Appends to Names every Markdown file under Directory, as a path
    --  relative to Base.
-   procedure Scan
-     (Dir, Base : String; Names : in out Core.Text_Lists.Vector)
+   procedure Scan (Dir, Base : String; Names : in out Core.Text_Lists.Vector)
    is
       use Ada.Directories;
       package Directories renames Ada.Directories;
@@ -161,8 +157,9 @@ package body Synapse.Adapters.Disk_Store is
 
    package Sorting is new Core.Text_Lists.Vectors.Generic_Sorting;
 
-   overriding
-   function List (S : in out Disk_Store) return Core.Text_Lists.Vector is
+   overriding function List
+     (S : in out Disk_Store) return Core.Text_Lists.Vector
+   is
       Result : Core.Text_Lists.Vector;
       Dir    : constant String := Root (S);
    begin
@@ -179,15 +176,14 @@ package body Synapse.Adapters.Disk_Store is
          raise Port.Store_Failure with Failure ("cannot list", Dir, E);
    end List;
 
-   procedure Set_Stopwords
-     (S : in out Disk_Store; Words : Core.Text_Lists.Set) is
+   procedure Set_Stopwords (S : in out Disk_Store; Words : Core.Text_Lists.Set)
+   is
    begin
       S.Stopwords := Words;
    end Set_Stopwords;
 
-   function Better (A, B : Port.Hit) return Boolean
-   is (A.Score > B.Score
-       or else (A.Score = B.Score and then A.Node < B.Node));
+   function Better (A, B : Port.Hit) return Boolean is
+     (A.Score > B.Score or else (A.Score = B.Score and then A.Node < B.Node));
 
    package Hit_Sorting is new Port.Hit_Vectors.Generic_Sorting (Better);
 
@@ -199,7 +195,7 @@ package body Synapse.Adapters.Disk_Store is
          return "";
       end if;
       declare
-         Text : constant String := To_String (Found.Text);
+         Text : constant String                := To_String (Found.Value);
          Span : constant Core.Frontmatter.Span :=
            Core.Frontmatter.Body_After (Text);
       begin
@@ -209,9 +205,10 @@ package body Synapse.Adapters.Disk_Store is
 
    function Context_Of
      (Prose : String; Line : Core.Text_Search.Maybe_Line)
-      return Unbounded_String
-   is (if Line.Found then To_Unbounded_String (Prose (Line.First .. Line.Last))
-       else Null_Unbounded_String);
+      return Unbounded_String is
+     (if Line.Found then
+        To_Unbounded_String (Prose (Line.Value.First .. Line.Value.Last))
+      else Null_Unbounded_String);
 
    --  The whole query counted as a substring.
    function Search_Substring
@@ -222,25 +219,24 @@ package body Synapse.Adapters.Disk_Store is
    begin
       for Name of Names loop
          declare
-            Node  : constant String := To_String (Name);
+            Node  : constant String          := To_String (Name);
             Found : constant Port.Maybe_Text := Read (S, Node);
          begin
             if Found.Found then
                declare
-                  Text  : constant String := To_String (Found.Text);
+                  Text  : constant String := To_String (Found.Value);
                   Span  : constant Core.Frontmatter.Span :=
                     Core.Frontmatter.Body_After (Text);
-                  Prose : constant String :=
-                    Text (Text'First + Span.First
-                          .. Text'First + Span.Stop - 1);
-                  Count : constant Natural :=
+                  Prose : constant String                :=
+                    Text
+                      (Text'First + Span.First .. Text'First + Span.Stop - 1);
+                  Count : constant Natural               :=
                     Core.Text_Search.Count_Ignore_Case (Prose, Query);
                begin
                   if Count > 0 then
                      Result.Append
                        (Port.Hit'
-                          (Node    => Name,
-                           Score   => Float (Count),
+                          (Node    => Name, Score => Float (Count),
                            Context =>
                              Context_Of
                                (Prose,
@@ -254,18 +250,16 @@ package body Synapse.Adapters.Disk_Store is
       return Result;
    end Search_Substring;
 
-   overriding
-   function Search_Filtered
-     (S      : in out Disk_Store;
-      Query  : String;
-      Filter : Filtered.Path_Filter) return Port.Hit_Vectors.Vector
+   overriding function Search_Filtered
+     (S : in out Disk_Store; Query : String; Filter : Filtered.Path_Filter)
+      return Port.Hit_Vectors.Vector
    is
       Everything : constant Core.Text_Lists.Vector := List (S);
       Names      : Core.Text_Lists.Vector;
    begin
       for Name of Everything loop
-         if not Filter.Present
-           or else Core.Path_Filter.Matches (Filter.Rule, To_String (Name))
+         if not Filter.Found
+           or else Core.Path_Filter.Matches (Filter.Value, To_String (Name))
          then
             Names.Append (Name);
          end if;
@@ -276,18 +270,18 @@ package body Synapse.Adapters.Disk_Store is
            Core.Words.Query_Terms (Query, S.Stopwords);
       begin
          if Terms.Is_Empty then
-            return Result : Port.Hit_Vectors.Vector :=
-              Search_Substring (S, Names, Query)
-            do
+            return
+              Result : Port.Hit_Vectors.Vector :=
+                Search_Substring (S, Names, Query) do
                Hit_Sorting.Sort (Result);
             end return;
          end if;
 
          declare
             use Core.Words;
-            Docs      : constant Natural := Natural (Names.Length);
+            Docs       : constant Natural := Natural (Names.Length);
             Term_Count : constant Natural := Natural (Terms.Length);
-            Doc_Freq  : Natural_Array (1 .. Term_Count) := [others => 0];
+            Doc_Freq   : Natural_Array (1 .. Term_Count) := [others => 0];
             type Row is record
                Counts  : Natural_Array (1 .. Term_Count);
                Context : Unbounded_String;
@@ -299,7 +293,7 @@ package body Synapse.Adapters.Disk_Store is
             for Name of Names loop
                declare
                   Prose : constant String := Prose_Of (S, To_String (Name));
-                  This  : Row :=
+                  This  : Row             :=
                     (Counts  => [others => 0],
                      Context =>
                        Context_Of
@@ -327,8 +321,7 @@ package body Synapse.Adapters.Disk_Store is
                   if Score /= 0.0 then
                      Result.Append
                        (Port.Hit'
-                          (Node    => Names (I),
-                           Score   => Float (Score),
+                          (Node    => Names (I), Score => Float (Score),
                            Context => Rows (I).Context));
                   end if;
                end;
@@ -339,9 +332,8 @@ package body Synapse.Adapters.Disk_Store is
       end;
    end Search_Filtered;
 
-   overriding
-   function Search
-     (S : in out Disk_Store; Query : String) return Port.Hit_Vectors.Vector
-   is (Search_Filtered (S, Query, Filtered.No_Filter));
+   overriding function Search
+     (S : in out Disk_Store; Query : String) return Port.Hit_Vectors.Vector is
+     (Search_Filtered (S, Query, Filtered.No_Filter));
 
 end Synapse.Adapters.Disk_Store;

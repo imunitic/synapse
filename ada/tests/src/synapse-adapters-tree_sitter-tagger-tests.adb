@@ -1,7 +1,6 @@
 with Ada.Strings.Fixed;
 
 with AUnit.Assertions;
-
 with Synapse.Adapters.Dynamic_Libraries;
 with Synapse.Adapters.File_Bytes;
 with Synapse.Adapters.Tree_Sitter.Grammar;
@@ -23,10 +22,10 @@ package body Synapse.Adapters.Tree_Sitter.Tagger.Tests is
 
    Real_Loader : Dynamic_Libraries.System_Loader;
 
-   No_Locals : constant Registry.Maybe_Text := (Present => False);
+   No_Locals : constant Registry.Maybe_Text := (Found => False);
 
    function Locals_Of (Text : String) return Registry.Maybe_Text is
-     (Present => True, Text => To_Unbounded_String (Text));
+     (Found => True, Value => To_Unbounded_String (Text));
 
    No_Rules : Core.Kind_Synonyms.Rule_List;
 
@@ -38,8 +37,10 @@ package body Synapse.Adapters.Tree_Sitter.Tagger.Tests is
           (Real_Loader,
            "fixtures/lib/lib" & Fixture & "." & Real_Loader.Extension, Symbol);
    begin
-      Assert (Loaded.Loaded, "the " & Fixture & " fixture loads");
-      return Loaded.Item;
+      Assert
+        (Grammar.Load_Results.Is_Success (Loaded),
+         "the " & Fixture & " fixture loads");
+      return Grammar.Load_Results.Value (Loaded);
    end Language_Of;
 
    function Docstrings return Language is

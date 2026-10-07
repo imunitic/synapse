@@ -1,5 +1,7 @@
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Results;
+with Synapse.Core.Optional_Text;
 with Synapse.Core.JSON;
 with Synapse.Ports.Variables;
 
@@ -10,19 +12,10 @@ package Synapse.Adapters.Schema_Loader is
 
    subtype Variables is Synapse.Ports.Variables.Variables'Class;
 
-   type Load_Result (Ok : Boolean := False) is record
-      case Ok is
-         when True =>
-            Schema : Core.JSON.Value;
+   package Load_Results is new Synapse.Core.Results
+     (Core.JSON.Value, Ada.Strings.Unbounded.Unbounded_String);
 
-         when False =>
-            --  The name of what went wrong: `ContentRootMissing`,
-            --  `FileNotFound`, or the name of a fault of the schema YAML
-            --  reader or of the override merge (`EmptyDocument`,
-            --  `PatchMatchNotFound`, ...).
-            Fault  : Ada.Strings.Unbounded.Unbounded_String;
-      end case;
-   end record;
+   subtype Load_Result is Load_Results.Result;
 
    --  `$SYNAPSE_CONTENT_ROOT/schema/{Schema_Id}.yaml`, parsed, with the
    --  override at `schema-overrides/{Schema_Id}.yaml` (found through the
@@ -30,15 +23,7 @@ package Synapse.Adapters.Schema_Loader is
    --  absent leaves the schema exactly as shipped.
    function Load_Schema (V : Variables; Schema_Id : String) return Load_Result;
 
-   type Maybe_Text (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Text : Ada.Strings.Unbounded.Unbounded_String;
-
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Text is Synapse.Core.Optional_Text.Option;
 
    --  The text of the configuration file Name (`synapse-tag-vocabulary.conf`),
    --  found through the configuration tiers. Nothing when there is none, and

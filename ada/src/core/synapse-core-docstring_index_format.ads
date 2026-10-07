@@ -1,8 +1,9 @@
 with Ada.Containers.Vectors;
 with Ada.Strings.Unbounded;
-
 with Interfaces;
 
+with Synapse.Core.Results;
+with Synapse.Core.Options;
 with Synapse.Core.Hashing;
 with Synapse.Core.Little_Endian;
 with Synapse.Ports.Byte_Source;
@@ -100,15 +101,9 @@ package Synapse.Core.Docstring_Index_Format is
      (Not_A_Cache, Version_Mismatch, Truncated, Checksum_Mismatch,
       Offset_Out_Of_Range);
 
-   type Parse_Result (Ok : Boolean := False) is record
-      case Ok is
-         when True =>
-            Head : Header;
+   package Parse_Results is new Synapse.Core.Results (Header, Parse_Error);
 
-         when False =>
-            Error : Parse_Error;
-      end case;
-   end record;
+   subtype Parse_Result is Parse_Results.Result;
 
    --  Validates the file and returns its header: the table fits, the strings
    --  region follows it, the checksum matches, every record's three strings
@@ -139,15 +134,9 @@ package Synapse.Core.Docstring_Index_Format is
      (Source : in out Ports.Byte_Source.Source'Class; Head : Header;
       Item   :        Table_Record) return Entry_Type;
 
-   type Maybe_Index (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Index : Natural;
+   package Maybe_Index_Options is new Synapse.Core.Options (Natural);
 
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Index is Maybe_Index_Options.Option;
 
    --  The position of the exact (path, name, kind).
    function Find

@@ -1,4 +1,5 @@
 with Ada.Directories;
+with Ada.Strings.Unbounded;
 
 with Synapse.Adapters.File_Bytes;
 with Synapse.Core.Conf;
@@ -9,16 +10,16 @@ package body Synapse.Adapters.Conf_Files is
    use Ada.Strings.Unbounded;
    use type Ada.Directories.File_Kind;
 
-   Largest_File : constant := 1024 * 1024;
+   Largest_File : constant := 1_024 * 1_024;
 
    function Setting (V : Variables; Name : String) return String is
       Found : constant Vars.Maybe_Value := V.Get (Name);
    begin
-      return (if Found.Found then To_String (Found.Text) else "");
+      return (if Found.Found then To_String (Found.Value) else "");
    end Setting;
 
-   function Is_Set (V : Variables; Name : String) return Boolean
-   is (V.Get (Name).Found);
+   function Is_Set (V : Variables; Name : String) return Boolean is
+     (V.Get (Name).Found);
 
    function Exists (Path : String) return Boolean is
    begin
@@ -28,17 +29,17 @@ package body Synapse.Adapters.Conf_Files is
          return False;
    end Exists;
 
-   function Found (Path : String) return Maybe_Path
-   is (if Exists (Path)
-       then (Found => True, Path => To_Unbounded_String (Path))
-       else (Found => False));
+   function Found (Path : String) return Maybe_Path is
+     (if Exists (Path) then
+        (Found => True, Value => To_Unbounded_String (Path))
+      else (Found => False));
 
    --  Tiers 1 to 3: the part that names a file a caller could also write to.
    function Resolve_Existing (V : Variables; Name : String) return Maybe_Path
    is
-      Xdg  : constant String := Setting (V, "XDG_CONFIG_HOME");
+      Xdg  : constant String  := Setting (V, "XDG_CONFIG_HOME");
       Home : constant Boolean := Is_Set (V, "HOME");
-      Dir  : constant String := Setting (V, "HOME");
+      Dir  : constant String  := Setting (V, "HOME");
    begin
       if Xdg /= "" then
          declare
@@ -82,7 +83,8 @@ package body Synapse.Adapters.Conf_Files is
 
    function Is_Directory (Path : String) return Boolean is
    begin
-      return Ada.Directories.Exists (Path)
+      return
+        Ada.Directories.Exists (Path)
         and then Ada.Directories.Kind (Path) = Ada.Directories.Directory;
    exception
       when others =>
@@ -91,11 +93,11 @@ package body Synapse.Adapters.Conf_Files is
 
    function Resolve_Write_Path (V : Variables; Name : String) return String is
       Existing : constant Maybe_Path := Resolve_Existing (V, Name);
-      Xdg      : constant String := Setting (V, "XDG_CONFIG_HOME");
-      Home     : constant String := Setting (V, "HOME");
+      Xdg      : constant String     := Setting (V, "XDG_CONFIG_HOME");
+      Home     : constant String     := Setting (V, "HOME");
    begin
       if Existing.Found then
-         return To_String (Existing.Path);
+         return To_String (Existing.Value);
       end if;
       if Xdg /= "" then
          return Xdg & "/synapse/" & Name;
@@ -113,11 +115,11 @@ package body Synapse.Adapters.Conf_Files is
       Direct : constant String := Setting (V, Key);
    begin
       if Direct /= "" then
-         return (Found => True, Path => To_Unbounded_String (Direct));
+         return (Found => True, Value => To_Unbounded_String (Direct));
       end if;
       declare
-         function Name_At (N : Positive) return String
-         is (if N = 1 then Primary_Name else Legacy_Name);
+         function Name_At (N : Positive) return String is
+           (if N = 1 then Primary_Name else Legacy_Name);
       begin
          for N in 1 .. 2 loop
             declare
@@ -126,14 +128,13 @@ package body Synapse.Adapters.Conf_Files is
             begin
                if Path.Found then
                   declare
-                     Text  : constant String :=
-                       File_Bytes.Read (To_String (Path.Path), Largest_File);
+                     Text  : constant String               :=
+                       File_Bytes.Read (To_String (Path.Value), Largest_File);
                      Value : constant Core.Conf.Maybe_Text :=
                        Core.Conf.Value (Text, Key, V);
                   begin
-                     if Value.Found and then Length (Value.Text) > 0 then
-                        return (Found => True,
-                                Path  => Value.Text);
+                     if Value.Found and then Length (Value.Value) > 0 then
+                        return (Found => True, Value => Value.Value);
                      end if;
                   end;
                end if;
@@ -146,8 +147,8 @@ package body Synapse.Adapters.Conf_Files is
       return (Found => False);
    end Resolve;
 
-   function Vault_Dir (V : Variables) return Maybe_Path
-   is (Resolve (V, "SYNAPSE_VAULT_DIR"));
+   function Vault_Dir (V : Variables) return Maybe_Path is
+     (Resolve (V, "SYNAPSE_VAULT_DIR"));
 
    function Push_Every (V : Variables) return Natural is
       Setting_Value : constant Maybe_Path :=
@@ -157,7 +158,7 @@ package body Synapse.Adapters.Conf_Files is
          return 5;
       end if;
       declare
-         Text : constant String := To_String (Setting_Value.Path);
+         Text : constant String := To_String (Setting_Value.Value);
       begin
          if Text'Length = 0 or else Text'Length > 9
            or else not (for all C of Text => C in '0' .. '9')
@@ -177,12 +178,12 @@ package body Synapse.Adapters.Conf_Files is
       end if;
       declare
          Found : constant Maybe_Path := Resolve_Conf_Path (V, Name);
-         Path  : constant String :=
-           (if Found.Found then To_String (Found.Path)
+         Path  : constant String     :=
+           (if Found.Found then To_String (Found.Value)
             else Setting (V, "HOME") & "/.claude/" & Name);
       begin
-         return Core.Words.Parse_Stopwords
-                  (File_Bytes.Read (Path, Largest_File));
+         return
+           Core.Words.Parse_Stopwords (File_Bytes.Read (Path, Largest_File));
       exception
          when others =>
             return Empty;

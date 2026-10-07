@@ -49,7 +49,7 @@ is
      (E : in out Tagging_Extractor; Registry : Core.Grammar_Registry.Registry;
       Grammars_Dir :        String; Rules : Core.Kind_Synonyms.Rule_List;
       Max_Tries    :        Positive := Preparation.Default_Lock_Tries;
-      Override_Dir :    Core.Grammar_Registry.Maybe_Text := (Present => False);
+      Override_Dir :    Core.Grammar_Registry.Maybe_Text := (Found => False);
       Report       :        Reporter := Report_To_Standard_Error'Access);
 
    --  How many extensions have been resolved, the unusable ones included.

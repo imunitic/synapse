@@ -113,12 +113,12 @@ package body Synapse.Core.Grammar_Registry is
    begin
       Entry_Of (R, Extension, Found, Item);
       if not Found or else not String_Member (Item, Key, Value) then
-         return (Present => False);
+         return (Found => False);
       end if;
       if Length (Value) = 0 and then not Allow_Empty then
-         return (Present => False);
+         return (Found => False);
       end if;
-      return (Present => True, Text => Value);
+      return (Found => True, Value => Value);
    end Field_Of;
 
    function Repo_For (R : Registry; Extension : String) return Maybe_Text is

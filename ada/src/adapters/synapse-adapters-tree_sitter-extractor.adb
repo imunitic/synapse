@@ -32,7 +32,7 @@ package body Synapse.Adapters.Tree_Sitter.Extractor is
      (E : in out Tagging_Extractor; Registry : Core.Grammar_Registry.Registry;
       Grammars_Dir :        String; Rules : Core.Kind_Synonyms.Rule_List;
       Max_Tries    :        Positive := Preparation.Default_Lock_Tries;
-      Override_Dir :    Core.Grammar_Registry.Maybe_Text := (Present => False);
+      Override_Dir :    Core.Grammar_Registry.Maybe_Text := (Found => False);
       Report       :        Reporter := Report_To_Standard_Error'Access)
    is
    begin
@@ -78,16 +78,16 @@ package body Synapse.Adapters.Tree_Sitter.Extractor is
    is
       Found : Boolean;
    begin
-      if E.Override_Dir.Present then
+      if E.Override_Dir.Found then
          declare
             Text : constant String :=
               Read_Optional
-                (To_String (E.Override_Dir.Text) & "/" & Extension &
+                (To_String (E.Override_Dir.Value) & "/" & Extension &
                  ".locals.scm",
                  Largest_Query, Found);
          begin
             if Found then
-               return (Present => True, Text => To_Unbounded_String (Text));
+               return (Found => True, Value => To_Unbounded_String (Text));
             end if;
          end;
       end if;
@@ -97,8 +97,8 @@ package body Synapse.Adapters.Tree_Sitter.Extractor is
              (Repo_Dir & "/queries/locals.scm", Largest_Query, Found);
       begin
          return
-           (if Found then (Present => True, Text => To_Unbounded_String (Text))
-            else (Present => False));
+           (if Found then (Found => True, Value => To_Unbounded_String (Text))
+            else (Found => False));
       end;
    end Locals_Of;
 
@@ -151,11 +151,11 @@ package body Synapse.Adapters.Tree_Sitter.Extractor is
       Found    : Boolean;
    begin
       --  A person's own query wins over every other source.
-      if E.Override_Dir.Present then
+      if E.Override_Dir.Found then
          declare
             Text : constant String :=
               Read_Optional
-                (To_String (E.Override_Dir.Text) & "/" & Extension & ".scm",
+                (To_String (E.Override_Dir.Value) & "/" & Extension & ".scm",
                  Largest_Query, Found);
          begin
             if Found then
@@ -174,7 +174,7 @@ package body Synapse.Adapters.Tree_Sitter.Extractor is
             Sub   : constant Registry_Types.Maybe_Text :=
               Registry_Types.Path_For (E.Registry, Extension);
             Root  : constant String                    :=
-              (if Sub.Present then Repo_Dir & "/" & To_String (Sub.Text)
+              (if Sub.Found then Repo_Dir & "/" & To_String (Sub.Value)
                else Repo_Dir);
             Types : constant String                    :=
               Read_Optional
@@ -219,7 +219,7 @@ package body Synapse.Adapters.Tree_Sitter.Extractor is
            Created
              (E, Extension, Resolved, Query, Resolved.Source, No_Guess,
               (if Resolved.Source = Registry_Types.Tags then Locals
-               else (Present => False)));
+               else (Found => False)));
       end;
    end Make_Tagger;
 

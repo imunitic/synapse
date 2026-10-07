@@ -32,7 +32,7 @@ package body Synapse.Core.Namespace is
          then
             return
               (Found => True,
-               Text  => To_Unbounded_String (J.As_String (Item)));
+               Value => To_Unbounded_String (J.As_String (Item)));
          end if;
          return (Found => False);
       end;
@@ -46,7 +46,7 @@ package body Synapse.Core.Namespace is
          return False;
       end if;
       declare
-         Name : constant String := To_String (Kind_Text.Text);
+         Name : constant String := To_String (Kind_Text.Value);
       begin
          if Name = "in-file" then
             Result.Which := In_File;
@@ -56,7 +56,7 @@ package body Synapse.Core.Namespace is
             return False;
          end if;
       end;
-      Result.Prefix := Prefix.Text;
+      Result.Prefix := Prefix.Value;
       Result.File   := Text_Member (Object, "file");
       if Result.Which = Build_File and then not Result.File.Found then
          return False;
@@ -78,7 +78,7 @@ package body Synapse.Core.Namespace is
                         if Prefix_Of_Alias.Found then
                            Result.Aliases.Append
                              (Alias'
-                                (Prefix     => Prefix_Of_Alias.Text,
+                                (Prefix     => Prefix_Of_Alias.Value,
                                  Terminator =>
                                    Text_Member (Item, "terminator")));
                         end if;
@@ -202,7 +202,7 @@ package body Synapse.Core.Namespace is
                      if Terminator.Found then
                         Cut  :=
                           Ada.Strings.Fixed.Index
-                            (Rest, To_String (Terminator.Text));
+                            (Rest, To_String (Terminator.Value));
                         Skip := Cut = 0;
                      end if;
                      if not Skip then
@@ -217,7 +217,7 @@ package body Synapse.Core.Namespace is
                            if Value /= "" then
                               return
                                 (Found => True,
-                                 Text  => To_Unbounded_String (Value));
+                                 Value => To_Unbounded_String (Value));
                            end if;
                         end;
                      end if;
@@ -243,7 +243,7 @@ package body Synapse.Core.Namespace is
             if Dir_Maps.Has_Element (Place) then
                return
                  (Found => True,
-                  Text  => To_Unbounded_String (Dir_Maps.Element (Place)));
+                  Value => To_Unbounded_String (Dir_Maps.Element (Place)));
             end if;
             if Length (Here) = 0 then
                return (Found => False);
@@ -258,7 +258,7 @@ package body Synapse.Core.Namespace is
    function Cache_Key
      (File_Name, Prefix : String; Terminator : Maybe_Text) return String is
      (File_Name & Character'Val (0) & Prefix & Character'Val (0) &
-      (if Terminator.Found then To_String (Terminator.Text) else ""));
+      (if Terminator.Found then To_String (Terminator.Value) else ""));
 
    function Extract
      (Reader : in out Ports.Repo_Reader.Reader'Class; Kept : Text_Lists.Vector;
@@ -276,12 +276,12 @@ package body Synapse.Core.Namespace is
                   return (Found => False);
                end if;
                return
-                 Extract_Field (To_String (Content.Text), Prefix, Terminator);
+                 Extract_Field (To_String (Content.Value), Prefix, Terminator);
             end;
 
          when Build_File =>
             declare
-               File_Name : constant String := To_String (File.Text);
+               File_Name : constant String := To_String (File.Value);
                Key       : constant String :=
                  Cache_Key (File_Name, Prefix, Terminator);
             begin
@@ -300,13 +300,13 @@ package body Synapse.Core.Namespace is
                                  declare
                                     Raw : constant Maybe_Text :=
                                       Extract_Field
-                                        (To_String (Content.Text), Prefix,
+                                        (To_String (Content.Value), Prefix,
                                          Terminator);
                                  begin
                                     if Raw.Found then
                                        Declared.Include
                                          (Dir_Of (To_String (P)),
-                                          To_String (Raw.Text));
+                                          To_String (Raw.Value));
                                     end if;
                                  end;
                               end if;
@@ -355,7 +355,7 @@ package body Synapse.Core.Namespace is
                begin
                   if Primary.Found then
                      Result.Append
-                       (Row'(Path => P, Namespace => Primary.Text));
+                       (Row'(Path => P, Namespace => Primary.Value));
                   end if;
                end;
                for A of Found.Value.Aliases loop
@@ -368,7 +368,7 @@ package body Synapse.Core.Namespace is
                   begin
                      if Other.Found then
                         Result.Append
-                          (Row'(Path => P, Namespace => Other.Text));
+                          (Row'(Path => P, Namespace => Other.Value));
                      end if;
                   end;
                end loop;

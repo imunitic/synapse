@@ -3,7 +3,6 @@ with Ada.Directories;
 with Ada.Strings.Unbounded;
 
 with AUnit.Assertions;
-
 with Synapse.Adapters.Disk_Store;
 with Synapse.Adapters.Fake_Store;
 with Synapse.Adapters.File_Bytes;
@@ -136,7 +135,7 @@ package body Synapse.Adapters.Git_Store.Tests is
       Store : Git_Store := Create (Disk'Access, Run'Access, Path (Dir));
    begin
       Assert (Store.Write ("a.md", "kept").Accepted, "accepted anyway");
-      Assert (To_String (Store.Read ("a.md").Text) = "kept", "and on disk");
+      Assert (To_String (Store.Read ("a.md").Value) = "kept", "and on disk");
       Remove (Dir);
    exception
       when others =>

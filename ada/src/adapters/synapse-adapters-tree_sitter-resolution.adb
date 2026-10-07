@@ -29,25 +29,28 @@ package body Synapse.Adapters.Tree_Sitter.Resolution is
          when Registry_Types.Ready =>
             null;
       end case;
-      if not Repo.Present then
+      if not Repo.Found then
          return (Which => Not_Usable);
       end if;
 
       declare
-         Url    : constant String            := To_String (Repo.Text);
+         Url    : constant String            := To_String (Repo.Value);
          Cloned : constant Prep.Clone_Result :=
            Prep.Ensure_Cloned (Run, Url, Grammars_Dir & "/repos", Max_Tries);
       begin
-         if not Cloned.Ok then
+         if not Preparation.Clone_Results.Is_Success (Cloned) then
             return
               (Which  => Failed,
-               Detail => To_Unbounded_String (Prep.Describe (Cloned.Why)));
+               Detail =>
+                 To_Unbounded_String
+                   (Prep.Describe (Preparation.Clone_Results.Error (Cloned))));
          end if;
          declare
             Loaded : constant Prep.Resolved :=
               Prep.Resolve_And_Load
-                (Run, Loader, To_String (Cloned.Dir), Grammars_Dir,
-                 Registry_Types.Repo_Name_Of (Url),
+                (Run, Loader,
+                 To_String (Preparation.Clone_Results.Value (Cloned)),
+                 Grammars_Dir, Registry_Types.Repo_Name_Of (Url),
                  Registry_Types.Path_For (Registry, Extension),
                  Registry_Types.Symbol_For (Registry, Extension), Max_Tries);
          begin
@@ -55,8 +58,8 @@ package body Synapse.Adapters.Tree_Sitter.Resolution is
                when Prep.Loaded =>
                   return
                     (Which    => Resolved, Lang => Loaded.Item,
-                     Repo_Dir => Cloned.Dir, Scope => Ready.Scope,
-                     Source   => Ready.Source);
+                     Repo_Dir => Preparation.Clone_Results.Value (Cloned),
+                     Scope    => Ready.Scope, Source => Ready.Source);
 
                when Prep.Not_Prepared =>
                   return

@@ -1,5 +1,4 @@
 with Interfaces;
-
 with Ada.Containers.Ordered_Maps;
 with Ada.Containers.Ordered_Sets;
 with Ada.Directories;
@@ -61,11 +60,13 @@ package body Synapse.Adapters.Docstring_Cache is
          declare
             Got : constant Format.Parse_Result := Format.Parse (C.Source);
          begin
-            if Got.Ok then
-               C.Head   := Got.Head;
+            if Core.Docstring_Index_Format.Parse_Results.Is_Success (Got) then
+               C.Head := Core.Docstring_Index_Format.Parse_Results.Value (Got);
                C.Opened := True;
             else
-               C.Why := Reason (Got.Error);
+               C.Why :=
+                 Reason
+                   (Core.Docstring_Index_Format.Parse_Results.Error (Got));
                File_Byte_Source.Close (C.Source);
             end if;
          end;
@@ -108,8 +109,8 @@ package body Synapse.Adapters.Docstring_Cache is
          end if;
          return
            (Found => True,
-            Item  =>
-              Value_Of (Format.Record_At (C.Source, C.Head, Found.Index)));
+            Value =>
+              Value_Of (Format.Record_At (C.Source, C.Head, Found.Value)));
       end;
    end Get;
 
@@ -159,8 +160,8 @@ package body Synapse.Adapters.Docstring_Cache is
                Have : constant Maybe_Value := Get (C, Want.Where);
             begin
                if not Have.Found
-                 or else Have.Item.Docstring_Hash /= Want.Which.Docstring_Hash
-                 or else Have.Item.Decl_Hash /= Want.Which.Decl_Hash
+                 or else Have.Value.Docstring_Hash /= Want.Which.Docstring_Hash
+                 or else Have.Value.Decl_Hash /= Want.Which.Decl_Hash
                then
                   Result.Append (Want);
                end if;

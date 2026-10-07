@@ -2,11 +2,9 @@ with Ada.Containers.Indefinite_Ordered_Maps;
 with Ada.Directories;
 with Ada.Numerics.Discrete_Random;
 with Ada.Strings.Fixed;
-
-with AUnit.Assertions;
-
 with GNAT.OS_Lib;
 
+with AUnit.Assertions;
 with Synapse.Adapters.File_Bytes;
 with Synapse.Core.Graph_Model;
 with Synapse.Core.Tag_Payload;
@@ -101,7 +99,7 @@ package body Synapse.Adapters.Tags_Cache.Tests is
    function Tags_Of (C : in out Cache; Path : String) return String is
       Found : constant Maybe_Value := Get (C, Path);
    begin
-      return (if Found.Found then To_String (Found.Item.Tags) else "<none>");
+      return (if Found.Found then To_String (Found.Value.Tags) else "<none>");
    end Tags_Of;
 
    --  ------------------------------------------------------------------
@@ -151,10 +149,10 @@ package body Synapse.Adapters.Tags_Cache.Tests is
          "two entries, got" & Count (R)'Image & " "
          & Issue'Image (Discarded (R)));
       Assert (Tags_Of (R, "src/A.wdg") = "Alpha" & HT & "def" & LF, "tags");
-      Assert (not Get (R, "src/A.wdg").Item.Unsupported, "supported");
-      Assert (Get (R, "src/b.bin").Item.Unsupported, "unsupported");
+      Assert (not Get (R, "src/A.wdg").Value.Unsupported, "supported");
+      Assert (Get (R, "src/b.bin").Value.Unsupported, "unsupported");
       Assert (not Get (R, "src/missing.wdg").Found, "a miss");
-      Assert (Get (R, "src/A.wdg").Item.Hash = Hash ("11"), "the hash");
+      Assert (Get (R, "src/A.wdg").Value.Hash = Hash ("11"), "the hash");
       Remove (Dir);
    exception
       when others =>
@@ -280,8 +278,8 @@ package body Synapse.Adapters.Tags_Cache.Tests is
            (Entry_Of ("empty.wdg", "11", ""),
             Entry_Of ("nogrammar.bin", "22", "", True)),
          No_Removals);
-      Assert (not Get (C, "empty.wdg").Item.Unsupported, "parsed");
-      Assert (Get (C, "nogrammar.bin").Item.Unsupported, "no grammar");
+      Assert (not Get (C, "empty.wdg").Value.Unsupported, "parsed");
+      Assert (Get (C, "nogrammar.bin").Value.Unsupported, "no grammar");
       Req.Append (Wanted ("empty.wdg", "11"));
       Req.Append (Wanted ("nogrammar.bin", "22"));
       Assert
@@ -330,7 +328,7 @@ package body Synapse.Adapters.Tags_Cache.Tests is
         (C, Updates_Of (Entry_Of ("a.wdg", "22", "New" & LF)), No_Removals);
       Assert (Count (C) = 1, "one entry");
       Assert (Tags_Of (C, "a.wdg") = "New" & LF, "the new tags");
-      Assert (Get (C, "a.wdg").Item.Hash = Hash ("22"), "the new hash");
+      Assert (Get (C, "a.wdg").Value.Hash = Hash ("22"), "the new hash");
       Remove (Dir);
    exception
       when others =>

@@ -57,7 +57,7 @@ package body Synapse.Core.Index_Map is
       Unassigned.Append (To_Unbounded_String (Extra));
       return
         (Found => True,
-         Bytes =>
+         Value =>
            To_Unbounded_String
              (Index_Map_Format.Encode (Current.Entries, Unassigned)));
    end With_Unassigned;

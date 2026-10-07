@@ -1,6 +1,7 @@
 with Ada.Containers.Vectors;
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Options;
 with Synapse.Ports.Byte_Source;
 
 --  `_refs.tsv`: a flat, bytewise sorted reference index, and the lookup over
@@ -40,15 +41,9 @@ package Synapse.Core.Refs is
    function Is_Call (R : Row) return Boolean is
      (To_String (R.Dir) = "ref" and then To_String (R.Kind) = "call");
 
-   type Maybe_Row (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Value : Row;
+   package Maybe_Row_Options is new Synapse.Core.Options (Row);
 
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Row is Maybe_Row_Options.Option;
 
    --  A line as a row; none when it has too few fields. A truncated line, from
    --  an interrupted write, is skipped and not fatal: the index is derived and

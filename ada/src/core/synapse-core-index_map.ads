@@ -1,6 +1,7 @@
 with Ada.Containers.Vectors;
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Optional_Text;
 with Synapse.Core.Index_Map_Format;
 with Synapse.Core.Text_Lists;
 
@@ -29,15 +30,7 @@ package Synapse.Core.Index_Map is
      (Pairs : Pair_Vectors.Vector; Unassigned : Text_Lists.Vector)
       return String;
 
-   type Maybe_Bytes (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Bytes : Unbounded_String;
-
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Bytes is Synapse.Core.Optional_Text.Option;
 
    --  The index's bytes again with Extra added to the unassigned list, or none
    --  when it is already there, so that repeating it does not grow the file.

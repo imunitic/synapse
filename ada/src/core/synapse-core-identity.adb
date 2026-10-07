@@ -1,7 +1,7 @@
 package body Synapse.Core.Identity is
 
-   function Is_Blank (C : Character) return Boolean
-   is (C in ' ' | Character'Val (9) | Character'Val (13) | Character'Val (10));
+   function Is_Blank (C : Character) return Boolean is
+     (C in ' ' | Character'Val (9) | Character'Val (13) | Character'Val (10));
 
    function Trimmed (S : String) return String is
       First : Natural := S'First;
@@ -16,9 +16,9 @@ package body Synapse.Core.Identity is
       return S (First .. Last);
    end Trimmed;
 
-   function Starts_With (S, Prefix : String) return Boolean
-   is (S'Length >= Prefix'Length
-       and then S (S'First .. S'First + Prefix'Length - 1) = Prefix);
+   function Starts_With (S, Prefix : String) return Boolean is
+     (S'Length >= Prefix'Length
+      and then S (S'First .. S'First + Prefix'Length - 1) = Prefix);
 
    function Last_Index (S : String; C : Character) return Natural is
    begin
@@ -52,8 +52,7 @@ package body Synapse.Core.Identity is
             First := Colon + 1;
          end if;
       end;
-      if Last - First + 1 >= 4 and then Remote (Last - 3 .. Last) = ".git"
-      then
+      if Last - First + 1 >= 4 and then Remote (Last - 3 .. Last) = ".git" then
          Last := Last - 4;
       end if;
       return Remote (First .. Last);
@@ -89,7 +88,8 @@ package body Synapse.Core.Identity is
                      if Path'Length = 0 then
                         return (Found => False);
                      end if;
-                     return (Found => True, Text => To_Unbounded_String (Path));
+                     return
+                       (Found => True, Value => To_Unbounded_String (Path));
                   end;
                end if;
             end;
@@ -114,7 +114,7 @@ package body Synapse.Core.Identity is
          then
             return
               (Found => True,
-               Text  =>
+               Value =>
                  To_Unbounded_String
                    (Reference (Reference'First + 11 .. Reference'Last)));
          end if;
@@ -169,7 +169,7 @@ package body Synapse.Core.Identity is
          end if;
 
          if Line (Line'First) = '[' then
-            In_Remote := False;
+            In_Remote    := False;
             Is_Preferred := False;
             for Close in Line'Range loop
                if Line (Close) = ']' then
@@ -180,19 +180,22 @@ package body Synapse.Core.Identity is
                      if Starts_With (Header, "remote") then
                         declare
                            Rest : constant String :=
-                             Trimmed (Header (Header'First + 6 .. Header'Last));
+                             Trimmed
+                               (Header (Header'First + 6 .. Header'Last));
                            Name : constant String :=
-                             (if Rest'Length >= 2
+                             (if
+                                Rest'Length >= 2
                                 and then Rest (Rest'First) = '"'
                                 and then Rest (Rest'Last) = '"'
                               then Rest (Rest'First + 1 .. Rest'Last - 1)
-                              elsif Rest'Length > 1
+                              elsif
+                                Rest'Length > 1
                                 and then Rest (Rest'First) = '.'
                               then Rest (Rest'First + 1 .. Rest'Last)
                               else "");
                         begin
                            if Name'Length > 0 then
-                              In_Remote := True;
+                              In_Remote    := True;
                               Is_Preferred := Name = Preferred;
                            end if;
                         end;
@@ -218,11 +221,11 @@ package body Synapse.Core.Identity is
                         if Is_Preferred then
                            Done :=
                              (Found => True,
-                              Text  => To_Unbounded_String (Value));
+                              Value => To_Unbounded_String (Value));
                         elsif not First.Found then
                            First :=
                              (Found => True,
-                              Text  => To_Unbounded_String (Value));
+                              Value => To_Unbounded_String (Value));
                         end if;
                      end if;
                   end;

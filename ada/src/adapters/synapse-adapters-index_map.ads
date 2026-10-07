@@ -1,6 +1,7 @@
 with Ada.Finalization;
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Options;
 with Synapse.Adapters.File_Byte_Source;
 with Synapse.Core.Index_Map_Format;
 with Synapse.Core.Text_Lists;
@@ -40,15 +41,10 @@ package Synapse.Adapters.Index_Map is
    function Node_Count (M : Map) return Natural;
    function Unassigned_Count (M : Map) return Natural;
 
-   type Maybe_Nodes (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Nodes : Core.Text_Lists.Vector;
+   package Maybe_Nodes_Options is new Synapse.Core.Options
+     (Core.Text_Lists.Vector);
 
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Nodes is Maybe_Nodes_Options.Option;
 
    --  The nodes that claim a path, ascending. None is ordinary: the path is
    --  unassigned, or was never listed; Unassigned is where that distinction

@@ -1,9 +1,7 @@
 with Ada.Directories;
-
-with AUnit.Assertions;
-
 with GNAT.OS_Lib;
 
+with AUnit.Assertions;
 with Synapse.Adapters.File_Bytes;
 with Synapse.Core.Index_Map;
 with Synapse.Test_Scratch;
@@ -41,7 +39,7 @@ package body Synapse.Adapters.Index_Map.Tests is
    function Nodes (M : in out Map; Path : String) return String is
       Got : constant Maybe_Nodes := Nodes_For (M, Path);
    begin
-      return (if Got.Found then Joined (Got.Nodes) else "none");
+      return (if Got.Found then Joined (Got.Value) else "none");
    end Nodes;
 
    procedure An_Absent_File_Opens_As_An_Empty_Index

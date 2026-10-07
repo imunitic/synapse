@@ -1,5 +1,8 @@
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Optional_Text;
+with Synapse.Core.Options;
+
 --  Where a command is: the vault, the namespace of the checkout, its work
 --  directory and the module boilerplate, found once. The shared preamble of
 --  the commands that read or write a graph: find the vault, name the
@@ -42,15 +45,9 @@ package Synapse.Commands.Context is
       Abs_Dir            : Unbounded_String;
    end record;
 
-   type Maybe_Context (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Item : Context;
+   package Maybe_Context_Options is new Synapse.Core.Options (Context);
 
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Context is Maybe_Context_Options.Option;
 
    --  The context of the checkout containing the current directory, or what
    --  is missing explained on standard error, prefixed with Prog, and none.
@@ -77,15 +74,7 @@ package Synapse.Commands.Context is
    --  A node's absolute path, whether Name has its `.md` or not.
    function Node_Path (Ctx : Context; Name : String) return String;
 
-   type Maybe_Text (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Text : Unbounded_String;
-
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Text is Synapse.Core.Optional_Text.Option;
 
    --  One node's text, or none when there is no such node.
    function Read_Node (Ctx : Context; Name : String) return Maybe_Text;

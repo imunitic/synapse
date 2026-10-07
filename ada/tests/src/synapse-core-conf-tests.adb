@@ -1,7 +1,6 @@
 with Ada.Strings.Unbounded;
 
 with AUnit.Assertions;
-
 with Synapse.Adapters.Fake_Variables;
 with Synapse.Ports.Variables;
 
@@ -17,18 +16,19 @@ package body Synapse.Core.Conf.Tests is
    function Got (Text, Key : String) return String is
       Found : constant Maybe_Text := Get (Text, Key);
    begin
-      return (if Found.Found then "<" & To_String (Found.Text) & ">"
-              else "none");
+      return
+        (if Found.Found then "<" & To_String (Found.Value) & ">" else "none");
    end Got;
 
    procedure Reads_The_Shipped_Template (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Text : constant String :=
-        "# Copy this to ~/.claude/synapse.conf" & LF
-        & "SYNAPSE_VAULT_DIR=""/Users/x/Vault/Claude""" & LF;
+        "# Copy this to ~/.claude/synapse.conf" & LF &
+        "SYNAPSE_VAULT_DIR=""/Users/x/Vault/Claude""" & LF;
    begin
-      Assert (Got (Text, "SYNAPSE_VAULT_DIR") = "</Users/x/Vault/Claude>",
-              "a quoted value");
+      Assert
+        (Got (Text, "SYNAPSE_VAULT_DIR") = "</Users/x/Vault/Claude>",
+         "a quoted value");
       Assert (Got (Text, "SOMETHING_ELSE") = "none", "another key");
    end Reads_The_Shipped_Template;
 
@@ -43,11 +43,11 @@ package body Synapse.Core.Conf.Tests is
       Assert (Got ("export   K=/v" & LF, "K") = "</v>", "export and blanks");
       Assert (Got ("K=/v  # trailing" & LF, "K") = "</v>", "a comment");
       Assert (Got ("K=" & LF, "K") = "<>", "empty");
-      Assert (Got ("K=""/My Vault""" & LF, "K") = "</My Vault>",
-              "a space needs quotes and keeps them");
+      Assert
+        (Got ("K=""/My Vault""" & LF, "K") = "</My Vault>",
+         "a space needs quotes and keeps them");
       Assert (Got ("K=/a b" & LF, "K") = "</a>", "an unquoted value stops");
-      Assert (Got ("K=""a # b""" & LF, "K") = "<a # b>",
-              "a # inside quotes");
+      Assert (Got ("K=""a # b""" & LF, "K") = "<a # b>", "a # inside quotes");
       Assert (Got ("K=/v" & Character'Val (13) & LF, "K") = "</v>", "CRLF");
       Assert (Got ("  K=/v" & LF, "K") = "</v>", "indented");
       Assert (Got ("K = /v" & LF, "K") = "none", "blanks around = are not");
@@ -63,16 +63,18 @@ package body Synapse.Core.Conf.Tests is
       pragma Unreferenced (T);
    begin
       Assert (Got ("K_OLD=/old" & LF, "K") = "none", "a longer key");
-      Assert (Got ("K=/first" & LF & "K=/second" & LF, "K") = "</second>",
-              "the last assignment wins, as sourcing would");
+      Assert
+        (Got ("K=/first" & LF & "K=/second" & LF, "K") = "</second>",
+         "the last assignment wins, as sourcing would");
       Assert (Got ("# K=/nope" & LF, "K") = "none", "commented out");
-      Assert (Got ("K=/a" & LF & "# K=/b" & LF, "K") = "</a>",
-              "a later comment does not override");
+      Assert
+        (Got ("K=/a" & LF & "# K=/b" & LF, "K") = "</a>",
+         "a later comment does not override");
    end Keys_Are_Matched_Whole_And_The_Last_Wins;
 
-   function Expanded (Raw : String; Vars : Ports.Variables.Variables'Class)
-      return String
-   is (Expand (Raw, Vars));
+   function Expanded
+     (Raw : String; Vars : Ports.Variables.Variables'Class) return String is
+     (Expand (Raw, Vars));
 
    procedure Any_Variable_Expands (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
@@ -83,12 +85,13 @@ package body Synapse.Core.Conf.Tests is
       V.Set ("HOME", "/h");
       Assert (Expanded ("$CASA/vault", V) = "/casa/vault", "bare name");
       Assert (Expanded ("${CASA}/vault", V) = "/casa/vault", "braced");
-      Assert (Expanded ("$XDG_DATA_HOME/vault", V) = "/xdg/vault",
-              "underscores");
+      Assert
+        (Expanded ("$XDG_DATA_HOME/vault", V) = "/xdg/vault", "underscores");
       Assert (Expanded ("~/Vault", V) = "/h/Vault", "tilde");
       Assert (Expanded ("~", V) = "/h", "tilde alone");
-      Assert (Expanded ("$HOME/a/$CASA", V) = "/h/a//casa",
-              "several, with the name length right");
+      Assert
+        (Expanded ("$HOME/a/$CASA", V) = "/h/a//casa",
+         "several, with the name length right");
       Assert (Expanded ("$CASAx", V) = "", "the whole name is the name");
       Assert (Expanded ("${CASA}x", V) = "/casax", "braces end it");
       Assert (Expanded ("a$CASA$CASA", V) = "a/casa/casa", "adjacent");
@@ -148,31 +151,29 @@ package body Synapse.Core.Conf.Tests is
       V.Set ("HOME", "/Users/x");
       declare
          Found : constant Maybe_Text :=
-           Value ("SYNAPSE_VAULT_DIR=""$HOME/Vault/YourVault""" & LF,
-                  "SYNAPSE_VAULT_DIR", V);
+           Value
+             ("SYNAPSE_VAULT_DIR=""$HOME/Vault/YourVault""" & LF,
+              "SYNAPSE_VAULT_DIR", V);
       begin
-         Assert (Found.Found
-                 and then To_String (Found.Text)
-                          = "/Users/x/Vault/YourVault",
-                 "the template's shape");
+         Assert
+           (Found.Found
+            and then To_String (Found.Value) = "/Users/x/Vault/YourVault",
+            "the template's shape");
       end;
       Assert (not Value ("A=1", "B", V).Found, "no such key");
    end A_Value_Is_Read_Then_Expanded;
 
-   overriding
-   function Name (T : Test_Case) return AUnit.Message_String is
+   overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
       return AUnit.Format ("Synapse.Core.Conf");
    end Name;
 
-   overriding
-   procedure Register_Tests (T : in out Test_Case) is
+   overriding procedure Register_Tests (T : in out Test_Case) is
       use AUnit.Test_Cases.Registration;
    begin
       Register_Routine
-        (T, Reads_The_Shipped_Template'Access,
-         "Reads the shipped template");
+        (T, Reads_The_Shipped_Template'Access, "Reads the shipped template");
       Register_Routine
         (T, Quoting_Comments_And_Export_Read_Alike'Access,
          "Quoting, comments and export read alike");

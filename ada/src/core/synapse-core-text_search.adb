@@ -1,6 +1,7 @@
 with Ada.Strings.Unbounded;
 
 with Synapse.Core.Unicode;
+with Synapse.Core.Decimal_Image;
 
 package body Synapse.Core.Text_Search is
 
@@ -56,7 +57,7 @@ package body Synapse.Core.Text_Search is
          if Last >= First
            and then Unicode.Contains_Case_Fold (Text (First .. Last), Query)
          then
-            Result := (Found => True, First => First, Last => Last);
+            Result := (Found => True, Value => (First => First, Last => Last));
             return False;
          end if;
          return True;
@@ -79,7 +80,7 @@ package body Synapse.Core.Text_Search is
       begin
          if Last >= First and then Contains_Any (Text (First .. Last), Terms)
          then
-            Result := (Found => True, First => First, Last => Last);
+            Result := (Found => True, Value => (First => First, Last => Last));
             return False;
          end if;
          return True;
@@ -127,19 +128,14 @@ package body Synapse.Core.Text_Search is
    function Image (Ranges : Range_Vectors.Vector) return String is
       Result : Unbounded_String;
 
-      function Number (N : Positive) return String is
-         Text : constant String := Positive'Image (N);
-      begin
-         return Text (Text'First + 1 .. Text'Last);
-      end Number;
    begin
       for I in 1 .. Natural (Ranges.Length) loop
          if I > 1 then
             Append (Result, ",");
          end if;
-         Append (Result, Number (Ranges (I).First));
+         Append (Result, Decimal_Image.Image (Ranges (I).First));
          if Ranges (I).Last /= Ranges (I).First then
-            Append (Result, "-" & Number (Ranges (I).Last));
+            Append (Result, "-" & Decimal_Image.Image (Ranges (I).Last));
          end if;
       end loop;
       return To_String (Result);

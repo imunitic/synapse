@@ -1,7 +1,6 @@
 with Ada.Directories;
 
 with AUnit.Assertions;
-
 with Synapse.Adapters.File_Bytes;
 with Synapse.Core.Deps;
 with Synapse.Core.Namespace;
@@ -31,7 +30,7 @@ package body Synapse.Adapters.Disk_Repo_Reader.Tests is
            Read (R, "pkg/a.txt");
       begin
          Assert
-           (Found.Found and then To_String (Found.Text) = "hello",
+           (Found.Found and then To_String (Found.Value) = "hello",
             "the content");
       end;
       Assert (not Read (R, "pkg/missing.txt").Found, "a missing file");

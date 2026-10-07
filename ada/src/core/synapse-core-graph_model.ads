@@ -1,6 +1,8 @@
 with Ada.Containers.Vectors;
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Options;
+
 --  The types the code graph is made of. Small, and free of any notion of
 --  where a definition or a reference came from or where it is stored.
 
@@ -16,15 +18,9 @@ package Synapse.Core.Graph_Model with SPARK_Mode => Off is
    function Image (R : Role) return String
    is (case R is when Def => "def", when Ref => "ref");
 
-   type Maybe_Role (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Value : Role;
+   package Maybe_Role_Options is new Synapse.Core.Options (Role);
 
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Role is Maybe_Role_Options.Option;
 
    function Parse (Text : String) return Maybe_Role;
 
@@ -46,15 +42,9 @@ package Synapse.Core.Graph_Model with SPARK_Mode => Off is
    --  and compared with one comparison.
    type Hash is array (1 .. 20) of Natural range 0 .. 255;
 
-   type Hash_Result (Valid : Boolean := False) is record
-      case Valid is
-         when True =>
-            Value : Hash;
+   package Hash_Options is new Synapse.Core.Options (Hash);
 
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Hash_Result is Hash_Options.Option;
 
    --  Exactly 40 hexadecimal digits, either case. Anything else is refused
    --  and never padded.

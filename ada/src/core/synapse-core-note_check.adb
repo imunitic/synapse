@@ -1,3 +1,4 @@
+with Synapse.Core.Unit;
 with Synapse.Core.Frontmatter;
 with Synapse.Core.JSON_Logic;
 with Synapse.Core.Note_Operators;
@@ -5,6 +6,7 @@ with Synapse.Core.Note_Text;
 with Synapse.Core.Regex_Lite;
 with Synapse.Core.Schema_Pattern;
 with Synapse.Core.Schema_Rules;
+with Synapse.Core.Decimal_Image;
 
 package body Synapse.Core.Note_Check is
 
@@ -14,6 +16,7 @@ package body Synapse.Core.Note_Check is
    use type Schema_Pattern.Fault;
    use type Regex_Lite.Outcome;
    use type Note_Schema.Severity;
+   use type Ada.Exceptions.Exception_Id;
 
    LF : constant Character := Character'Val (10);
 
@@ -23,50 +26,40 @@ package body Synapse.Core.Note_Check is
    --  Small helpers
    ---------------------------------------------------------------------------
 
-   function Bad (Text : String) return Note_Schema.Check_Result
-   is (Valid => False, Message => To_Unbounded_String (Text));
+   function Bad (Text : String) return Note_Schema.Check_Result is
+     (Note_Schema.Check_Results.Failure (To_Unbounded_String (Text)));
 
-   Good : constant Note_Schema.Check_Result := (Valid => True);
+   Good : constant Note_Schema.Check_Result :=
+     Note_Schema.Check_Results.Success (Unit.Nothing);
 
-   function Img (N : Long_Long_Integer) return String is
-      Text : constant String := Long_Long_Integer'Image (N);
-   begin
-      return
-        (if Text (Text'First) = ' '
-         then Text (Text'First + 1 .. Text'Last)
-         else Text);
-   end Img;
+   function Is_Mapping (V : Value) return Boolean is
+     (Kind_Of (V) = JSON_Object);
 
-   function Img (N : Natural) return String
-   is (Img (Long_Long_Integer (N)));
+   function Has (V : Value; Key : String) return Boolean is
+     (Is_Mapping (V) and then Has_Member (V, Key));
 
-   function Is_Mapping (V : Value) return Boolean
-   is (Kind_Of (V) = JSON_Object);
+   function Bool_At
+     (V : Value; Key : String; Default : Boolean) return Boolean is
+     (if Has (V, Key) and then Kind_Of (Member_Value (V, Key)) = JSON_Boolean
+      then As_Boolean (Member_Value (V, Key))
+      else Default);
 
-   function Has (V : Value; Key : String) return Boolean
-   is (Is_Mapping (V) and then Has_Member (V, Key));
+   function Is_Explicitly_False (V : Value; Key : String) return Boolean is
+     (Has (V, Key) and then Kind_Of (Member_Value (V, Key)) = JSON_Boolean
+      and then not As_Boolean (Member_Value (V, Key)));
 
-   function Bool_At (V : Value; Key : String; Default : Boolean) return Boolean
-   is (if Has (V, Key) and then Kind_Of (Member_Value (V, Key)) = JSON_Boolean
-       then As_Boolean (Member_Value (V, Key))
-       else Default);
+   function Has_String (V : Value; Key : String) return Boolean is
+     (Has (V, Key) and then Kind_Of (Member_Value (V, Key)) = JSON_String);
 
-   function Is_Explicitly_False (V : Value; Key : String) return Boolean
-   is (Has (V, Key)
-       and then Kind_Of (Member_Value (V, Key)) = JSON_Boolean
-       and then not As_Boolean (Member_Value (V, Key)));
+   function String_At (V : Value; Key : String) return String is
+     (if Has_String (V, Key) then As_String (Member_Value (V, Key)) else "");
 
-   function Has_String (V : Value; Key : String) return Boolean
-   is (Has (V, Key) and then Kind_Of (Member_Value (V, Key)) = JSON_String);
-
-   function String_At (V : Value; Key : String) return String
-   is (if Has_String (V, Key) then As_String (Member_Value (V, Key)) else "");
-
-   function Int_At (V : Value; Key : String; Default : Long_Long_Integer)
-      return Long_Long_Integer
-   is (if Has (V, Key) and then Kind_Of (Member_Value (V, Key)) = JSON_Integer
-       then As_Integer (Member_Value (V, Key))
-       else Default);
+   function Int_At
+     (V : Value; Key : String; Default : Long_Long_Integer)
+      return Long_Long_Integer is
+     (if Has (V, Key) and then Kind_Of (Member_Value (V, Key)) = JSON_Integer
+      then As_Integer (Member_Value (V, Key))
+      else Default);
 
    --  Whether Text is one of the strings of the list Items.
    function In_List (Text : String; Items : Value) return Boolean is
@@ -111,14 +104,13 @@ package body Synapse.Core.Note_Check is
       return Text (First .. Last);
    end Trim_Of;
 
-   function Trim_Blank (Text : String) return String
-   is (Trim_Of (Text, " " & Character'Val (9) & Character'Val (13)
-                      & LF));
+   function Trim_Blank (Text : String) return String is
+     (Trim_Of (Text, " " & Character'Val (9) & Character'Val (13) & LF));
 
-   function Without_CR (Line : String) return String
-   is (if Line'Length > 0 and then Line (Line'Last) = Character'Val (13)
-       then Line (Line'First .. Line'Last - 1)
-       else Line);
+   function Without_CR (Line : String) return String is
+     (if Line'Length > 0 and then Line (Line'Last) = Character'Val (13) then
+        Line (Line'First .. Line'Last - 1)
+      else Line);
 
    --  The number of characters of UTF-8 text: bytes that start a sequence.
    function Characters (Text : String) return Natural is
@@ -134,9 +126,9 @@ package body Synapse.Core.Note_Check is
 
    --  Whether Text matches Pattern. A pattern that is not valid or runs out
    --  of steps matches nothing.
-   function Matches (Pattern, Text : String) return Boolean
-   is (Schema_Pattern.Validate (Pattern) = Schema_Pattern.None
-       and then Schema_Pattern.Search (Pattern, Text) = Regex_Lite.Matched);
+   function Matches (Pattern, Text : String) return Boolean is
+     (Schema_Pattern.Validate (Pattern) = Schema_Pattern.None
+      and then Schema_Pattern.Search (Pattern, Text) = Regex_Lite.Matched);
 
    ---------------------------------------------------------------------------
    --  Frontmatter fields
@@ -146,17 +138,18 @@ package body Synapse.Core.Note_Check is
      (Key : String; Rule : Value; Note : String; Ctx : Context)
       return Note_Schema.Check_Result
    is
-      Found   : constant Lookup := Lookup_Field (Note, Key);
-      Prefix  : constant String := "frontmatter." & Key & ": ";
+      Found     : constant Lookup := Lookup_Field (Note, Key);
+      Prefix    : constant String := "frontmatter." & Key & ": ";
       Type_Name : constant String := String_At (Rule, "type");
    begin
       if Found.Duplicate then
          return Bad (Prefix & "field occurs more than once");
       end if;
       if not Found.Found then
-         return (if Bool_At (Rule, "required", False)
-                 then Bad (Prefix & "required field is missing")
-                 else Good);
+         return
+           (if Bool_At (Rule, "required", False) then
+              Bad (Prefix & "required field is missing")
+            else Good);
       end if;
       if not Has_Type (Found.Value, Type_Name) then
          return Bad (Prefix & "expected " & Type_Name);
@@ -169,8 +162,8 @@ package body Synapse.Core.Note_Check is
             if Has_String (Rule, "const")
               and then Text /= String_At (Rule, "const")
             then
-               return Bad (Prefix & "expected '" & String_At (Rule, "const")
-                           & "'");
+               return
+                 Bad (Prefix & "expected '" & String_At (Rule, "const") & "'");
             end if;
             if Has (Rule, "min_length") then
                declare
@@ -178,8 +171,10 @@ package body Synapse.Core.Note_Check is
                     Int_At (Rule, "min_length", 0);
                begin
                   if Long_Long_Integer (Characters (Text)) < Bound then
-                     return Bad (Prefix & "must be at least " & Img (Bound)
-                                 & " characters");
+                     return
+                       Bad
+                         (Prefix & "must be at least " &
+                          Decimal_Image.Image (Bound) & " characters");
                   end if;
                end;
             end if;
@@ -196,15 +191,16 @@ package body Synapse.Core.Note_Check is
             if Type_Name = "timestamp"
               and then not Note_Text.Valid_Timestamp (Text)
             then
-               return Bad
-                 (Prefix & "expected RFC3339, YYYY-MM-DDTHH:MM:SS then Z or a"
-                  & " colon-separated numeric offset");
+               return
+                 Bad
+                   (Prefix &
+                    "expected RFC3339, YYYY-MM-DDTHH:MM:SS then Z or a" &
+                    " colon-separated numeric offset");
             end if;
          end;
       end if;
 
-      if Ctx.Has_Existing
-        and then Ctx.Mode /= Create
+      if Ctx.Has_Existing and then Ctx.Mode /= Create
         and then Is_Explicitly_False (Rule, "mutable")
       then
          declare
@@ -226,14 +222,14 @@ package body Synapse.Core.Note_Check is
    is
       Rule      : constant Value := Member_Value (Schema, "frontmatter");
       Fields    : constant Value := Member_Value (Rule, "fields");
-      Relative  : constant Boolean :=
+      Relative  : constant Boolean                 :=
         Has_String (Rule, "field_order")
         and then String_At (Rule, "field_order") = "relative";
       Positions : constant Position_Vectors.Vector :=
         (if Relative then Field_Positions (Note)
          else Position_Vectors.Empty_Vector);
-      Previous  : Natural := 0;
-      Have_Prev : Boolean := False;
+      Previous  : Natural                          := 0;
+      Have_Prev : Boolean                          := False;
    begin
       for I in 1 .. Length (Fields) loop
          declare
@@ -241,18 +237,20 @@ package body Synapse.Core.Note_Check is
             Result : constant Note_Schema.Check_Result :=
               Check_Field (Key, Member_At (Fields, I), Note, Ctx);
          begin
-            if not Result.Valid then
+            if not Note_Schema.Check_Results.Is_Success (Result) then
                return Result;
             end if;
             if Relative then
                for P of Positions loop
                   if To_String (P.Key) = Key then
                      if Have_Prev and then P.Line_Start < Previous then
-                        return Bad ("frontmatter." & Key
-                                    & ": declared fields are out of relative"
-                                    & " order");
+                        return
+                          Bad
+                            ("frontmatter." & Key &
+                             ": declared fields are out of relative" &
+                             " order");
                      end if;
-                     Previous := P.Line_Start;
+                     Previous  := P.Line_Start;
                      Have_Prev := True;
                      exit;
                   end if;
@@ -267,8 +265,8 @@ package body Synapse.Core.Note_Check is
    --  Body
    ---------------------------------------------------------------------------
 
-   function Slice (Text : String; From, Stop : Natural) return String
-   is (Text (Text'First + From .. Text'First + Stop - 1));
+   function Slice (Text : String; From, Stop : Natural) return String is
+     (Text (Text'First + From .. Text'First + Stop - 1));
 
    --  The lines of Text, without line feeds.
    generic
@@ -290,17 +288,17 @@ package body Synapse.Core.Note_Check is
      (Rule : Value; Markdown : String; H1 : Heading)
       return Note_Schema.Check_Result
    is
-      Pattern : constant String := String_At (Rule, "pattern");
-      Marker  : constant String := String_At (Rule, "marker");
-      Region  : constant String :=
+      Pattern    : constant String          := String_At (Rule, "pattern");
+      Marker     : constant String          := String_At (Rule, "marker");
+      Region     : constant String          :=
         Slice (Markdown, H1.Content_Start, H1.Content_End);
       First_Line : Unbounded_String;
-      Have_First : Boolean := False;
+      Have_First : Boolean                  := False;
       Result     : Note_Schema.Check_Result := Good;
 
       procedure Find_First (Line : String) is
-         Text : constant String := Trim_Of (Line, " " & Character'Val (9)
-                                                  & Character'Val (13));
+         Text : constant String :=
+           Trim_Of (Line, " " & Character'Val (9) & Character'Val (13));
       begin
          if not Have_First and then Text'Length > 0 then
             Have_First := True;
@@ -309,20 +307,21 @@ package body Synapse.Core.Note_Check is
       end Find_First;
 
       procedure Check_Line (Line : String) is
-         Text : constant String := Trim_Of (Line, " " & Character'Val (9)
-                                                  & Character'Val (13));
+         Text : constant String :=
+           Trim_Of (Line, " " & Character'Val (9) & Character'Val (13));
       begin
-         if not Result.Valid
+         if not Note_Schema.Check_Results.Is_Success (Result)
            or else Text'Length < Marker'Length
-           or else Text (Text'First .. Text'First + Marker'Length - 1)
-                   /= Marker
+           or else Text (Text'First .. Text'First + Marker'Length - 1) /=
+             Marker
          then
             return;
          end if;
          if not Have_First or else Text /= To_String (First_Line) then
             Result :=
-              Bad ("body.preamble: '" & Marker
-                   & "' annotation must immediately follow H1");
+              Bad
+                ("body.preamble: '" & Marker &
+                 "' annotation must immediately follow H1");
          elsif not Matches (Pattern, Text) then
             Result :=
               Bad ("body.preamble: '" & Marker & "' annotation is malformed");
@@ -346,15 +345,13 @@ package body Synapse.Core.Note_Check is
    end Check_Preamble;
 
    function Check_Child
-     (Rule     : Value;
-      Headings : Heading_Array;
-      Markdown : String;
-      Parent   : Heading) return Note_Schema.Check_Result
+     (Rule   : Value; Headings : Heading_Array; Markdown : String;
+      Parent : Heading) return Note_Schema.Check_Result
    is
-      Level : constant Long_Long_Integer :=
+      Level        : constant Long_Long_Integer :=
         Int_At (Rule, "level", Long_Long_Integer (Parent.Level) + 1);
-      Count : Natural := 0;
-      Parent_Title : constant String := To_String (Parent.Title);
+      Count        : Natural                    := 0;
+      Parent_Title : constant String            := To_String (Parent.Title);
    begin
       for H of Headings loop
          if H.Line_Start > Parent.Line_Start
@@ -362,53 +359,61 @@ package body Synapse.Core.Note_Check is
            and then Long_Long_Integer (H.Level) = Level
          then
             declare
-               Title   : constant String := To_String (H.Title);
+               Title   : constant String  := To_String (H.Title);
                Matched : constant Boolean :=
-                 (if Has_String (Rule, "title")
-                  then Title = String_At (Rule, "title")
-                  elsif Has_String (Rule, "title_pattern")
-                  then Matches (String_At (Rule, "title_pattern"), Title)
+                 (if Has_String (Rule, "title") then
+                    Title = String_At (Rule, "title")
+                  elsif Has_String (Rule, "title_pattern") then
+                    Matches (String_At (Rule, "title_pattern"), Title)
                   else False);
             begin
                if not Matched then
                   if Has_String (Rule, "title_pattern") then
-                     return Bad ("body.section." & Parent_Title
-                                 & ": child heading '" & Title
-                                 & "' has an invalid title");
+                     return
+                       Bad
+                         ("body.section." & Parent_Title &
+                          ": child heading '" & Title &
+                          "' has an invalid title");
                   end if;
                else
                   Count := Count + 1;
                   if Bool_At (Rule, "non_empty", False)
-                    and then Trim_Blank
-                               (Slice (Markdown, H.Content_Start,
-                                       H.Content_End))'Length = 0
+                    and then
+                      Trim_Blank
+                        (Slice (Markdown, H.Content_Start, H.Content_End))'
+                        Length =
+                      0
                   then
-                     return Bad ("body.section." & Parent_Title & "."
-                                 & Title & ": must not be empty");
+                     return
+                       Bad
+                         ("body.section." & Parent_Title & "." & Title &
+                          ": must not be empty");
                   end if;
                end if;
             end;
          end if;
       end loop;
       if Bool_At (Rule, "required", False) and then Count = 0 then
-         return Bad ("body.section." & Parent_Title
-                     & ": required child heading is missing");
+         return
+           Bad
+             ("body.section." & Parent_Title &
+              ": required child heading is missing");
       end if;
       if not Bool_At (Rule, "repeatable", False) and then Count > 1 then
-         return Bad ("body.section." & Parent_Title
-                     & ": child heading occurs more than once");
+         return
+           Bad
+             ("body.section." & Parent_Title &
+              ": child heading occurs more than once");
       end if;
       return Good;
    end Check_Child;
 
-   function Is_Checklist_Line (Line : String) return Boolean
-   is (Line'Length >= 6
-       and then Line (Line'First) = '-'
-       and then Line (Line'First + 1) = ' '
-       and then Line (Line'First + 2) = '['
-       and then Line (Line'First + 3) in ' ' | 'x' | 'X'
-       and then Line (Line'First + 4) = ']'
-       and then Line (Line'First + 5) = ' ');
+   function Is_Checklist_Line (Line : String) return Boolean is
+     (Line'Length >= 6 and then Line (Line'First) = '-'
+      and then Line (Line'First + 1) = ' ' and then Line (Line'First + 2) = '['
+      and then Line (Line'First + 3) in ' ' | 'x' | 'X'
+      and then Line (Line'First + 4) = ']'
+      and then Line (Line'First + 5) = ' ');
 
    function Check_Lead_And_Checklist
      (Body_Rule : Value; Markdown : String; Headings : Heading_Array;
@@ -424,16 +429,16 @@ package body Synapse.Core.Note_Check is
       for H of Headings loop
          if H.Level = 2 and then To_String (H.Title) = "Checklist" then
             Have_Heading := True;
-            Checklist := H;
+            Checklist    := H;
             exit;
          end if;
       end loop;
 
       declare
          Lead_End : constant Natural :=
-           Natural'Max (H1.Content_Start,
-                        (if Have_Heading then Checklist.Line_Start
-                         else H1.Content_End));
+           Natural'Max
+             (H1.Content_Start,
+              (if Have_Heading then Checklist.Line_Start else H1.Content_End));
 
          procedure Lead_Line (Line : String) is
             Text : constant String :=
@@ -461,8 +466,7 @@ package body Synapse.Core.Note_Check is
                end if;
                if Note_Text.Is_Fence_Line (Text) then
                   In_Fence := not In_Fence;
-               elsif not In_Fence
-                 and then Text'Length > 0
+               elsif not In_Fence and then Text'Length > 0
                  and then Is_Checklist_Line (Text)
                then
                   if Raw'Length /= Text'Length then
@@ -476,8 +480,8 @@ package body Synapse.Core.Note_Check is
             procedure Scan_Items is new Each_Line (Item_Line);
          begin
             Scan_Items
-              (Slice (Markdown, Checklist.Content_Start,
-                      Checklist.Content_End));
+              (Slice
+                 (Markdown, Checklist.Content_Start, Checklist.Content_End));
          end;
       end if;
 
@@ -494,12 +498,16 @@ package body Synapse.Core.Note_Check is
          declare
             Rule : constant Value := Member_Value (Body_Rule, "checklist");
             Min  : constant Long_Long_Integer :=
-              Int_At (Rule, "min_items",
-                      (if Bool_At (Rule, "required", False) then 1 else 0));
+              Int_At
+                (Rule, "min_items",
+                 (if Bool_At (Rule, "required", False) then 1 else 0));
          begin
             if Long_Long_Integer (Count) < Min then
-               return Bad ("body.checklist: expected at least " & Img (Min)
-                           & " flat item(s), found " & Img (Count));
+               return
+                 Bad
+                   ("body.checklist: expected at least " &
+                    Decimal_Image.Image (Min) & " flat item(s), found " &
+                    Decimal_Image.Image (Count));
             end if;
          end;
       end if;
@@ -507,15 +515,15 @@ package body Synapse.Core.Note_Check is
    end Check_Lead_And_Checklist;
 
    function Check_Section
-     (Rule : Value; Headings : Heading_Array; Markdown : String;
+     (Rule     :        Value; Headings : Heading_Array; Markdown : String;
       Previous : in out Natural; Have_Previous : in out Boolean)
       return Note_Schema.Check_Result
    is
-      Title : constant String := String_At (Rule, "title");
-      Level : constant Long_Long_Integer := Int_At (Rule, "level", 2);
-      Count : Natural := 0;
-      First : Natural := 0;  --  index of the first match
-      Prefix : constant String := "body.section." & Title & ": ";
+      Title  : constant String            := String_At (Rule, "title");
+      Level  : constant Long_Long_Integer := Int_At (Rule, "level", 2);
+      Count  : Natural                    := 0;
+      First  : Natural                    := 0;  --  index of the first match
+      Prefix : constant String            := "body.section." & Title & ": ";
    begin
       for I in Headings'Range loop
          if Long_Long_Integer (Headings (I).Level) = Level
@@ -536,8 +544,10 @@ package body Synapse.Core.Note_Check is
            Int_At (Rule, "max_occurs", 1);
       begin
          if Long_Long_Integer (Count) > Maximum then
-            return Bad (Prefix & "occurs " & Img (Count)
-                        & " times; maximum is " & Img (Maximum));
+            return
+              Bad
+                (Prefix & "occurs " & Decimal_Image.Image (Count) &
+                 " times; maximum is " & Decimal_Image.Image (Maximum));
          end if;
       end;
       if First = 0 then
@@ -546,14 +556,14 @@ package body Synapse.Core.Note_Check is
 
       declare
          H       : constant Heading := Headings (First);
-         Content : constant String :=
+         Content : constant String  :=
            Trim_Blank (Slice (Markdown, H.Content_Start, H.Content_End));
       begin
          if Have_Previous and then H.Line_Start < Previous then
-            return Bad (Prefix
-                        & "declared sections are out of relative order");
+            return
+              Bad (Prefix & "declared sections are out of relative order");
          end if;
-         Previous := H.Line_Start;
+         Previous      := H.Line_Start;
          Have_Previous := True;
          if Bool_At (Rule, "non_empty", False) and then Content'Length = 0 then
             return Bad (Prefix & "must not be empty");
@@ -561,9 +571,7 @@ package body Synapse.Core.Note_Check is
          if Has (Rule, "content")
            and then Has (Member_Value (Rule, "content"), "enum")
            and then not In_List
-                          (Content,
-                           Member_Value (Member_Value (Rule, "content"),
-                                         "enum"))
+             (Content, Member_Value (Member_Value (Rule, "content"), "enum"))
          then
             return Bad (Prefix & "content '" & Content & "' is not allowed");
          end if;
@@ -574,10 +582,10 @@ package body Synapse.Core.Note_Check is
                for I in 1 .. Length (Children) loop
                   declare
                      Result : constant Note_Schema.Check_Result :=
-                       Check_Child (Element (Children, I), Headings, Markdown,
-                                    H);
+                       Check_Child
+                         (Element (Children, I), Headings, Markdown, H);
                   begin
-                     if not Result.Valid then
+                     if not Note_Schema.Check_Results.Is_Success (Result) then
                         return Result;
                      end if;
                   end;
@@ -591,16 +599,17 @@ package body Synapse.Core.Note_Check is
    function Check_Body
      (Schema : Value; Note : String) return Note_Schema.Check_Result
    is
-      Body_Rule : constant Value := Member_Value (Schema, "body");
-      Markdown  : constant String :=
-        Slice (Note, Frontmatter.Body_After (Note).First,
-               Frontmatter.Body_After (Note).Stop);
-      Headings  : constant Heading_Array := Collect_Headings (Markdown);
-      H1_Rule   : constant Value := Member_Value (Body_Rule, "h1");
-      H1_Count  : Natural := 0;
-      H1_Index  : Natural := 0;
+      Body_Rule : constant Value             := Member_Value (Schema, "body");
+      Markdown  : constant String            :=
+        Slice
+          (Note, Frontmatter.Body_After (Note).First,
+           Frontmatter.Body_After (Note).Stop);
+      Headings  : constant Heading_Array     := Collect_Headings (Markdown);
+      H1_Rule   : constant Value             := Member_Value (Body_Rule, "h1");
+      H1_Count  : Natural                    := 0;
+      H1_Index  : Natural                    := 0;
       Wanted    : constant Long_Long_Integer := Int_At (H1_Rule, "count", 1);
-      Title     : constant Lookup := Lookup_Field (Note, "title");
+      Title     : constant Lookup            := Lookup_Field (Note, "title");
    begin
       for I in Headings'Range loop
          if Headings (I).Level = 1 then
@@ -611,8 +620,10 @@ package body Synapse.Core.Note_Check is
          end if;
       end loop;
       if Long_Long_Integer (H1_Count) /= Wanted then
-         return Bad ("body.h1: expected " & Img (Wanted) & ", found "
-                     & Img (H1_Count));
+         return
+           Bad
+             ("body.h1: expected " & Decimal_Image.Image (Wanted) &
+              ", found " & Decimal_Image.Image (H1_Count));
       end if;
       if H1_Index = 0 then
          return Bad ("body.h1: required heading is missing");
@@ -620,9 +631,10 @@ package body Synapse.Core.Note_Check is
       declare
          H1 : constant Heading := Headings (H1_Index);
       begin
-         if To_String (H1.Title)
-              /= (if Title.Found and then Title.Value.Kind = String_Field
-                  then To_String (Title.Value.Text) else "")
+         if To_String (H1.Title) /=
+           (if Title.Found and then Title.Value.Kind = String_Field then
+              To_String (Title.Value.Text)
+            else "")
          then
             return Bad ("body.h1: must equal frontmatter.title");
          end if;
@@ -636,7 +648,7 @@ package body Synapse.Core.Note_Check is
                      Result : constant Note_Schema.Check_Result :=
                        Check_Preamble (Element (Rules, I), Markdown, H1);
                   begin
-                     if not Result.Valid then
+                     if not Note_Schema.Check_Results.Is_Success (Result) then
                         return Result;
                      end if;
                   end;
@@ -646,10 +658,9 @@ package body Synapse.Core.Note_Check is
 
          if Has (Body_Rule, "sections") then
             declare
-               Rules         : constant Value :=
-                 Member_Value (Body_Rule, "sections");
-               Previous      : Natural := 0;
-               Have_Previous : Boolean := False;
+               Rules : constant Value := Member_Value (Body_Rule, "sections");
+               Previous      : Natural        := 0;
+               Have_Previous : Boolean        := False;
             begin
                for I in 1 .. Length (Rules) loop
                   if Has_String (Element (Rules, I), "title") then
@@ -659,7 +670,8 @@ package body Synapse.Core.Note_Check is
                             (Element (Rules, I), Headings, Markdown, Previous,
                              Have_Previous);
                      begin
-                        if not Result.Valid then
+                        if not Note_Schema.Check_Results.Is_Success (Result)
+                        then
                            return Result;
                         end if;
                      end;
@@ -683,27 +695,28 @@ package body Synapse.Core.Note_Check is
    --  The rule of a `checks:` or `lints:` entry, or nothing for an entry that
    --  has none.
    procedure Rule_Of
-     (Entry_Value : Value; Found : out Boolean; Rule : out Value;
+     (Entry_Value :     Value; Found : out Boolean; Rule : out Value;
       Shape       : out Schema_Rules.Entry_Shape)
    is
       Converted : Schema_Rules.Rule_Result;
    begin
       Shape := Schema_Rules.Shape_Of (Entry_Value);
       Found := False;
-      Rule := Null_Value;
+      Rule  := Null_Value;
       if not Shape.Is_Rule then
          return;
       end if;
       Converted := Schema_Rules.To_Rule (Schema_Rules.Rule_Object (Shape));
-      if Converted.Ok then
+      if Converted.Found then
          Found := True;
-         Rule := Converted.Rule;
+         Rule  := Converted.Value;
       end if;
    end Rule_Of;
 
    function Failure_Message
      (Entry_Value : Value; Shape : Schema_Rules.Entry_Shape; Rule : Value)
-      return String is
+      return String
+   is
    begin
       if Shape.Message_Present and then not Shape.Message_Invalid then
          return As_String (Member_Value (Entry_Value, "message"));
@@ -711,18 +724,18 @@ package body Synapse.Core.Note_Check is
       declare
          Text : constant String := To_String (Rule);
       begin
-         return "rule failed: "
-           & Text (Text'First
-                   .. Text'First
-                      + Natural'Min (Text'Length, Max_Rule_Text) - 1);
+         return
+           "rule failed: " &
+           Text
+             (Text'First ..
+                  Text'First + Natural'Min (Text'Length, Max_Rule_Text) - 1);
       end;
    end Failure_Message;
 
-   function Holds (Rule : Value; Data : Value) return Boolean
-   is (JSON_Logic.Truthy
-         (JSON_Logic.Evaluate
-            (Rule, (Data => Data, others => <>),
-             Note_Operators.Operators)));
+   function Holds (Rule : Value; Data : Value) return Boolean is
+     (JSON_Logic.Truthy
+        (JSON_Logic.Evaluate
+           (Rule, (Data => Data, others => <>), Note_Operators.Operators)));
 
    function Check_Rules
      (Schema : Value; Note, Path : String; Ctx : Context)
@@ -758,9 +771,7 @@ package body Synapse.Core.Note_Check is
    ---------------------------------------------------------------------------
 
    function Validate_Note
-     (Schema : JSON.Value;
-      Note   : String;
-      Path   : String;
+     (Schema : JSON.Value; Note : String; Path : String;
       Ctx    : Note_Model.Context) return Note_Schema.Check_Result
    is
    begin
@@ -772,10 +783,10 @@ package body Synapse.Core.Note_Check is
          Result : Note_Schema.Check_Result :=
            Check_Frontmatter (Schema, Note, Ctx);
       begin
-         if Result.Valid then
+         if Note_Schema.Check_Results.Is_Success (Result) then
             Result := Check_Body (Schema, Note);
          end if;
-         if Result.Valid then
+         if Note_Schema.Check_Results.Is_Success (Result) then
             Result := Check_Rules (Schema, Note, Path, Ctx);
          end if;
          return Result;
@@ -804,7 +815,7 @@ package body Synapse.Core.Note_Check is
                Rule        : Value;
                Shape       : Schema_Rules.Entry_Shape;
             begin
-               if Level.Found and then Level.Level /= Note_Schema.Ignore then
+               if Level.Found and then Level.Value /= Note_Schema.Ignore then
                   Rule_Of (Entry_Value, Found, Rule, Shape);
                   if Found and then not Holds (Rule, Data) then
                      Result.Append
@@ -812,7 +823,7 @@ package body Synapse.Core.Note_Check is
                           (Message =>
                              To_Unbounded_String
                                (Failure_Message (Entry_Value, Shape, Rule)),
-                           Level   => Level.Level));
+                           Level   => Level.Value));
                   end if;
                end if;
             end;
@@ -836,7 +847,7 @@ package body Synapse.Core.Note_Check is
          exit when not Found;
          declare
             Text  : constant String := Slice (Note, Line.First, Line.Stop);
-            Colon : Natural := 0;
+            Colon : Natural         := 0;
          begin
             if Text'Length > 0
               and then Text (Text'First) not in ' ' | Character'Val (9) | '#'
@@ -855,8 +866,10 @@ package body Synapse.Core.Note_Check is
                   Tail  : constant String := Text (Colon + 1 .. Text'Last);
                   Value : constant String :=
                     Trim_Of
-                      (Tail (Tail'First .. Tail'First
-                             + Note_Text.Strip_Trailing_Comment (Tail) - 1),
+                      (Tail
+                         (Tail'First ..
+                              Tail'First +
+                              Note_Text.Strip_Trailing_Comment (Tail) - 1),
                        " ");
                begin
                   if Value'Length >= 2
@@ -865,20 +878,36 @@ package body Synapse.Core.Note_Check is
                   then
                      return
                        (Found => True,
-                        Text  => To_Unbounded_String
-                                   (Value (Value'First + 1
-                                           .. Value'Last - 1)));
+                        Value =>
+                          To_Unbounded_String
+                            (Value (Value'First + 1 .. Value'Last - 1)));
                   elsif Value'Length = 0
                     or else Value (Value'First) in '[' | '{'
                   then
                      return (Found => False);
                   end if;
-                  return (Found => True, Text => To_Unbounded_String (Value));
+                  return (Found => True, Value => To_Unbounded_String (Value));
                end;
             end if;
          end;
       end loop;
       return (Found => False);
    end Schema_Id;
+
+   function Fault_Name
+     (E : Ada.Exceptions.Exception_Occurrence) return String is
+     (if
+        Ada.Exceptions.Exception_Identity (E) =
+        JSON_Logic.Invalid_Arguments'Identity
+      then "InvalidArguments"
+      elsif
+        Ada.Exceptions.Exception_Identity (E) =
+        JSON_Logic.Unknown_Operator'Identity
+      then "UnknownOperator"
+      elsif
+        Ada.Exceptions.Exception_Identity (E) =
+        JSON_Logic.Pattern_Too_Complex'Identity
+      then "PatternTooComplex"
+      else Ada.Exceptions.Exception_Name (E));
 
 end Synapse.Core.Note_Check;

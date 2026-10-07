@@ -7,6 +7,12 @@ package body Synapse.Adapters.Fake_Console is
       F.Input := To_Unbounded_String (Text);
    end Set_Stdin;
 
+   procedure Clear (F : in out Fake) is
+   begin
+      F.Written := Null_Unbounded_String;
+      F.Errors  := Null_Unbounded_String;
+   end Clear;
+
    function Out_Text (F : Fake) return String is (To_String (F.Written));
 
    function Err_Text (F : Fake) return String is (To_String (F.Errors));

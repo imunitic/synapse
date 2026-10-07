@@ -1,6 +1,7 @@
 with Ada.Containers.Vectors;
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Options;
 with Synapse.Core.Namespace;
 with Synapse.Core.Text_Lists;
 with Synapse.Ports.Repo_Reader;
@@ -33,15 +34,9 @@ package Synapse.Core.Deps is
       Library : Unbounded_String;
    end record;
 
-   type Maybe_Row (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Value : Row;
+   package Maybe_Row_Options is new Synapse.Core.Options (Row);
 
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Row is Maybe_Row_Options.Option;
 
    --  `path <TAB> library`. A truncated line is none and not an error, as for
    --  the refs index: the artifact is derived and rebuilt.

@@ -13,7 +13,7 @@ package body Synapse.Core.Node_Query.Tests is
      Character'Val (16#E2#) & Character'Val (16#80#) & Character'Val (16#94#);
 
    function Shown (Found : Maybe_Text) return String is
-     (if Found.Found then "<" & To_String (Found.Text) & ">" else "none");
+     (if Found.Found then "<" & To_String (Found.Value) & ">" else "none");
 
    function Has (Text, Part : String) return Boolean is
      (Ada.Strings.Fixed.Index (Text, Part) > 0);
@@ -47,7 +47,7 @@ package body Synapse.Core.Node_Query.Tests is
    is
       pragma Unreferenced (T);
       Inner : constant Maybe_Text := Body_Of (Sample);
-      Text  : constant String     := To_String (Inner.Text);
+      Text  : constant String     := To_String (Inner.Value);
    begin
       Assert (Inner.Found, "found");
       Assert
@@ -161,10 +161,10 @@ package body Synapse.Core.Node_Query.Tests is
    function Ranges_Image (Found : Maybe_Ranges) return String is
       Result : Unbounded_String;
    begin
-      if not Found.Valid then
+      if not Found.Found then
          return "invalid";
       end if;
-      for R of Found.Ranges loop
+      for R of Found.Value loop
          Append (Result, R.First'Image & "-" & R.Last'Image & ";");
       end loop;
       return To_String (Result);
@@ -197,13 +197,13 @@ package body Synapse.Core.Node_Query.Tests is
       Refuses ("+4");
       Refuses ("1,");
       Assert
-        (Parse_Line_Ranges ("99999999999999999999").Valid,
+        (Parse_Line_Ranges ("99999999999999999999").Found,
          "a number too large is clamped");
    end Line_Ranges_Parse_And_Refuse_Anything_Malformed;
 
    function Ranges_Of
      (Spec : String) return Text_Search.Range_Vectors.Vector is
-     (Parse_Line_Ranges (Spec).Ranges);
+     (Parse_Line_Ranges (Spec).Value);
 
    procedure Lines_Are_Printed_In_The_Order_Asked (T : in out Test_Cases_Class)
    is
@@ -475,7 +475,7 @@ package body Synapse.Core.Node_Query.Tests is
       Assert
         (Shown (Field (Joined_Text, "crux_lines")) = "<10-20>",
          "a field of a node");
-      Assert (Length (Body_Of (Joined_Text).Text) > 0, "and its body");
+      Assert (Length (Body_Of (Joined_Text).Value) > 0, "and its body");
    end Written_Nodes_Read_Back;
 
    overriding function Name (T : Test_Case) return AUnit.Message_String is

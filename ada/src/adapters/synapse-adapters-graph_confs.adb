@@ -18,7 +18,7 @@ package body Synapse.Adapters.Graph_Confs is
       end if;
       return
         File_Bytes.Read
-          (Ada.Strings.Unbounded.To_String (Found.Path), Largest_Conf);
+          (Ada.Strings.Unbounded.To_String (Found.Value), Largest_Conf);
    end Text_Of;
 
    function Load_Kind_Synonyms

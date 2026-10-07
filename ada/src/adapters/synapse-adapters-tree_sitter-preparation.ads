@@ -1,5 +1,7 @@
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Unit;
+with Synapse.Core.Results;
 with Synapse.Adapters.Tree_Sitter.Grammar;
 with Synapse.Core.Grammar_Registry;
 with Synapse.Ports.Library_Loader;
@@ -53,25 +55,15 @@ is
    --  `<kind>: <detail>`.
    function Describe (F : Failure) return String;
 
-   type Build_Result (Ok : Boolean := True) is record
-      case Ok is
-         when True =>
-            null;
+   package Build_Results is new Synapse.Core.Results
+     (Synapse.Core.Unit.Unit, Failure);
 
-         when False =>
-            Why : Failure;
-      end case;
-   end record;
+   subtype Build_Result is Build_Results.Result;
 
-   type Clone_Result (Ok : Boolean := False) is record
-      case Ok is
-         when True =>
-            Dir : Ada.Strings.Unbounded.Unbounded_String;
+   package Clone_Results is new Synapse.Core.Results
+     (Ada.Strings.Unbounded.Unbounded_String, Failure);
 
-         when False =>
-            Why : Failure;
-      end case;
-   end record;
+   subtype Clone_Result is Clone_Results.Result;
 
    --  The directory of Repo_Url's clone under Repos_Parent, cloned there first
    --  if it is not already. The clone is made in a staging directory and

@@ -13,7 +13,7 @@ package body Synapse.Adapters.Disk_Repo_Reader is
    begin
       return
         (Found => True,
-         Text  =>
+         Value =>
            To_Unbounded_String
              (File_Bytes.Read
                 (To_String (R.Root) & "/" & Path, Largest_File)));

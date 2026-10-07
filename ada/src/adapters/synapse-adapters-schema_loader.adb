@@ -9,8 +9,8 @@ package body Synapse.Adapters.Schema_Loader is
 
    use Ada.Strings.Unbounded;
 
-   Largest_Schema     : constant := 1024 * 1024;
-   Largest_Vocabulary : constant := 4 * 1024 * 1024;
+   Largest_Schema     : constant := 1_024 * 1_024;
+   Largest_Vocabulary : constant := 4 * 1_024 * 1_024;
 
    --  `EMPTY_DOCUMENT` as `EmptyDocument`: how the faults are named.
    function Camel (Image : String) return String is
@@ -30,29 +30,32 @@ package body Synapse.Adapters.Schema_Loader is
       return To_String (Result);
    end Camel;
 
-   function Failed (Name : String) return Load_Result
-   is (Ok => False, Fault => To_Unbounded_String (Name));
+   function Failed (Name : String) return Load_Result is
+     (Load_Results.Failure (To_Unbounded_String (Name)));
 
    function Load_Schema (V : Variables; Schema_Id : String) return Load_Result
    is
       Root : constant Synapse.Ports.Variables.Maybe_Value :=
         V.Get ("SYNAPSE_CONTENT_ROOT");
    begin
-      if not Root.Found or else Length (Root.Text) = 0 then
+      if not Root.Found or else Length (Root.Value) = 0 then
          return Failed ("ContentRootMissing");
       end if;
 
       declare
-         Source : constant String :=
+         Source : constant String                        :=
            File_Bytes.Read
-             (To_String (Root.Text) & "/schema/" & Schema_Id & ".yaml",
+             (To_String (Root.Value) & "/schema/" & Schema_Id & ".yaml",
               Largest_Schema);
          Base   : constant Core.Schema_YAML.Parse_Result :=
            Core.Schema_YAML.Parse (Source);
       begin
-         if not Base.Ok then
-            return Failed (Camel (Core.Schema_YAML.Parse_Fault'Image
-                                    (Base.Error)));
+         if not Core.Schema_YAML.Parse_Results.Is_Success (Base) then
+            return
+              Failed
+                (Camel
+                   (Core.Schema_YAML.Parse_Fault'Image
+                      (Core.Schema_YAML.Parse_Results.Error (Base).Fault)));
          end if;
 
          declare
@@ -61,26 +64,41 @@ package body Synapse.Adapters.Schema_Loader is
                 (V, "schema-overrides/" & Schema_Id & ".yaml");
          begin
             if not Found.Found then
-               return (Ok => True, Schema => Base.Root);
+               return
+                 Load_Results.Success
+                   (Core.Schema_YAML.Parse_Results.Value (Base));
             end if;
             declare
-               Patch  : constant Core.Schema_YAML.Parse_Result :=
+               Patch : constant Core.Schema_YAML.Parse_Result :=
                  Core.Schema_YAML.Parse
-                   (File_Bytes.Read (To_String (Found.Path), Largest_Schema));
+                   (File_Bytes.Read (To_String (Found.Value), Largest_Schema));
             begin
-               if not Patch.Ok then
-                  return Failed (Camel (Core.Schema_YAML.Parse_Fault'Image
-                                          (Patch.Error)));
+               if not Core.Schema_YAML.Parse_Results.Is_Success (Patch) then
+                  return
+                    Failed
+                      (Camel
+                         (Core.Schema_YAML.Parse_Fault'Image
+                            (Core.Schema_YAML.Parse_Results.Error (Patch)
+                               .Fault)));
                end if;
                declare
                   Merged : constant Core.Schema_YAML.Merge_Result :=
-                    Core.Schema_YAML.Merge (Base.Root, Patch.Root);
+                    Core.Schema_YAML.Merge
+                      (Core.Schema_YAML.Parse_Results.Value (Base),
+                       Core.Schema_YAML.Parse_Results.Value (Patch));
                begin
-                  if not Merged.Ok then
-                     return Failed (Camel (Core.Schema_YAML.Merge_Fault'Image
-                                             (Merged.Error)));
+                  if not Core.Schema_YAML.Merge_Results.Is_Success (Merged)
+                  then
+                     return
+                       Failed
+                         (Camel
+                            (Core.Schema_YAML.Merge_Fault'Image
+                               (Core.Schema_YAML.Merge_Results.Error
+                                  (Merged))));
                   end if;
-                  return (Ok => True, Schema => Merged.Root);
+                  return
+                    Load_Results.Success
+                      (Core.Schema_YAML.Merge_Results.Value (Merged));
                end;
             end;
          end;
@@ -88,7 +106,7 @@ package body Synapse.Adapters.Schema_Loader is
    exception
       when Ada.IO_Exceptions.Name_Error | Ada.IO_Exceptions.Use_Error =>
          return Failed ("FileNotFound");
-      when File_Bytes.Too_Large =>
+      when File_Bytes.Too_Large                                       =>
          return Failed ("StreamTooLong");
    end Load_Schema;
 
@@ -101,14 +119,14 @@ package body Synapse.Adapters.Schema_Loader is
       end if;
       return
         (Found => True,
-         Text  =>
+         Value =>
            To_Unbounded_String
-             (File_Bytes.Read (To_String (Found.Path), Largest_Vocabulary)));
+             (File_Bytes.Read (To_String (Found.Value), Largest_Vocabulary)));
    exception
       when others =>
          Ada.Text_IO.Put_Line
            (Ada.Text_IO.Standard_Error,
-            "synapse: unreadable vocabulary conf: " & To_String (Found.Path));
+            "synapse: unreadable vocabulary conf: " & To_String (Found.Value));
          return (Found => False);
    end Load_Vocabulary;
 
@@ -128,15 +146,15 @@ package body Synapse.Adapters.Schema_Loader is
             begin
                if Segment'Length = 0 or else Segment = "."
                  or else Segment = ".."
-                 or else not (for all C of Segment =>
-                                C in 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9'
-                                   | '-' | '_')
+                 or else not
+                 (for all C of Segment =>
+                    C in 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' | '-' | '_')
                then
                   return False;
                end if;
             end;
             Segments := Segments + 1;
-            Start := I + 1;
+            Start    := I + 1;
          end if;
       end loop;
       return Segments >= 2;

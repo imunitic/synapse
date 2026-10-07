@@ -61,11 +61,12 @@ package body Synapse.Adapters.Tags_Cache is
          declare
             Got : constant Format.Parse_Result := Format.Parse (C.Source);
          begin
-            if Got.Ok then
-               C.Head   := Got.Head;
+            if Core.Tags_Cache_Format.Parse_Results.Is_Success (Got) then
+               C.Head   := Core.Tags_Cache_Format.Parse_Results.Value (Got);
                C.Opened := True;
             else
-               C.Why := Reason (Got.Error);
+               C.Why :=
+                 Reason (Core.Tags_Cache_Format.Parse_Results.Error (Got));
                File_Byte_Source.Close (C.Source);
             end if;
          end;
@@ -95,11 +96,11 @@ package body Synapse.Adapters.Tags_Cache is
          end if;
          declare
             Rec : constant Format.Table_Record :=
-              Format.Record_At (C.Source, C.Head, Where.Index);
+              Format.Record_At (C.Source, C.Head, Where.Value);
          begin
             return
               (Found => True,
-               Item  =>
+               Value =>
                  (Hash        => Rec.Hash,
                   Tags        =>
                     To_Unbounded_String
@@ -133,7 +134,7 @@ package body Synapse.Adapters.Tags_Cache is
                         Current :=
                           Where.Found
                           and then
-                            Format.Record_At (C.Source, C.Head, Where.Index)
+                            Format.Record_At (C.Source, C.Head, Where.Value)
                               .Hash =
                             Want.Hash;
                      end;

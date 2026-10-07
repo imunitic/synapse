@@ -26,7 +26,7 @@ package body Synapse.Core.Schema_Rules is
    begin
       case Kind_Of (Value) is
          when JSON_Null =>
-            return (Ok => False);
+            return (Found => False);
 
          when JSON_Array =>
             declare
@@ -37,13 +37,13 @@ package body Synapse.Core.Schema_Rules is
                      Item : constant Rule_Result :=
                        To_Rule (Element (Value, I));
                   begin
-                     if not Item.Ok then
-                        return (Ok => False);
+                     if not Item.Found then
+                        return (Found => False);
                      end if;
-                     Items (I) := Item.Rule;
+                     Items (I) := Item.Value;
                   end;
                end loop;
-               return (Ok => True, Rule => Make_Array (Items));
+               return (Found => True, Value => Make_Array (Items));
             end;
 
          when JSON_Object =>
@@ -57,21 +57,21 @@ package body Synapse.Core.Schema_Rules is
                        To_Rule (Member_At (Value, I));
                      Key  : constant String := Member_Key (Value, I);
                   begin
-                     if not Item.Ok then
-                        return (Ok => False);
+                     if not Item.Found then
+                        return (Found => False);
                      end if;
                      Members (I) :=
                        (Key  =>
                           To_Unbounded_String
                             (if Rename then Renamed (Key) else Key),
-                        Item => Item.Rule);
+                        Item => Item.Value);
                   end;
                end loop;
-               return (Ok => True, Rule => Make_Object (Members));
+               return (Found => True, Value => Make_Object (Members));
             end;
 
          when others =>
-            return (Ok => True, Rule => Value);
+            return (Found => True, Value => Value);
       end case;
    end To_Rule;
 
@@ -246,8 +246,8 @@ package body Synapse.Core.Schema_Rules is
                   Converted : constant Rule_Result :=
                     To_Rule (Rule_Object (Shape));
                begin
-                  if Converted.Ok then
-                     Collect_Stems (Converted.Rule, Into);
+                  if Converted.Found then
+                     Collect_Stems (Converted.Value, Into);
                   end if;
                end;
             end if;
@@ -294,8 +294,9 @@ package body Synapse.Core.Schema_Rules is
                      Converted : constant Rule_Result :=
                        To_Rule (Rule_Object (Shape));
                   begin
-                     if Converted.Ok
-                       and then References_Var (Converted.Rule, "id_is_unique")
+                     if Converted.Found
+                       and then References_Var
+                         (Converted.Value, "id_is_unique")
                      then
                         return True;
                      end if;

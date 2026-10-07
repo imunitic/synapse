@@ -7,7 +7,6 @@ with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
 
 with AUnit.Assertions;
-
 with Synapse.Adapters.Store_Contract;
 with Synapse.Core.JSON;
 
@@ -30,18 +29,18 @@ package body Synapse.Adapters.Disk_Store.Tests is
 
    function Make return Scratch is
       Seconds : constant Natural :=
-        Natural (Ada.Calendar.Seconds (Ada.Calendar.Clock) * 1000.0);
+        Natural (Ada.Calendar.Seconds (Ada.Calendar.Clock) * 1_000.0);
    begin
       Counter := Counter + 1;
       return Result : Scratch do
          Result.Path :=
            To_Unbounded_String
-             (Ada.Directories.Current_Directory & "/obj/store-test-"
-              & Ada.Strings.Fixed.Trim (Natural'Image (Seconds),
-                                        Ada.Strings.Left)
-              & "-"
-              & Ada.Strings.Fixed.Trim (Natural'Image (Counter),
-                                        Ada.Strings.Left));
+             (Ada.Directories.Current_Directory & "/obj/store-test-" &
+              Ada.Strings.Fixed.Trim
+                (Natural'Image (Seconds), Ada.Strings.Left) &
+              "-" &
+              Ada.Strings.Fixed.Trim
+                (Natural'Image (Counter), Ada.Strings.Left));
          Ada.Directories.Create_Path (To_String (Result.Path));
       end return;
    end Make;
@@ -54,8 +53,8 @@ package body Synapse.Adapters.Disk_Store.Tests is
          null;
    end Remove;
 
-   function Vault (S : Scratch) return String
-   is (To_String (S.Path) & "/vault");
+   function Vault (S : Scratch) return String is
+     (To_String (S.Path) & "/vault");
 
    function File_Text (Path : String) return String is
       use Ada.Streams.Stream_IO;
@@ -120,7 +119,7 @@ package body Synapse.Adapters.Disk_Store.Tests is
    procedure Meets_The_Store_Contract (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Dir : constant Scratch := Make;
-      S   : Disk_Store := Create (Vault (Dir), "synapse/repo@main");
+      S   : Disk_Store       := Create (Vault (Dir), "synapse/repo@main");
    begin
       Store_Contract.Check (S);
       Remove (Dir);
@@ -132,15 +131,16 @@ package body Synapse.Adapters.Disk_Store.Tests is
 
    procedure A_Node_Lives_Under_The_Namespace (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
-      Dir : constant Scratch := Make;
-      S   : Disk_Store := Create (Vault (Dir), "synapse/repo@main");
-      Note : constant String := "---" & LF & "title: Foo" & LF & "---" & LF
-        & "body" & LF;
+      Dir  : constant Scratch := Make;
+      S    : Disk_Store       := Create (Vault (Dir), "synapse/repo@main");
+      Note : constant String  :=
+        "---" & LF & "title: Foo" & LF & "---" & LF & "body" & LF;
    begin
       Put (S, "Foo.md", Note);
-      Assert (File_Text (Vault (Dir) & "/synapse/repo@main/Foo.md") = Note,
-              "on disk, under the namespace");
-      Assert (To_String (S.Read ("Foo.md").Text) = Note, "and back");
+      Assert
+        (File_Text (Vault (Dir) & "/synapse/repo@main/Foo.md") = Note,
+         "on disk, under the namespace");
+      Assert (To_String (S.Read ("Foo.md").Value) = Note, "and back");
       Remove (Dir);
    exception
       when others =>
@@ -153,11 +153,11 @@ package body Synapse.Adapters.Disk_Store.Tests is
    is
       pragma Unreferenced (T);
       Dir : constant Scratch := Make;
-      S   : Disk_Store := Create (Vault (Dir), "");
+      S   : Disk_Store       := Create (Vault (Dir), "");
    begin
       Put (S, "tasks/synapse/x.md", "x");
-      Assert (File_Text (Vault (Dir) & "/tasks/synapse/x.md") = "x",
-              "unprefixed");
+      Assert
+        (File_Text (Vault (Dir) & "/tasks/synapse/x.md") = "x", "unprefixed");
       Assert (Joined (S) = "tasks/synapse/x.md", "listed by full path");
       Remove (Dir);
    exception
@@ -168,14 +168,15 @@ package body Synapse.Adapters.Disk_Store.Tests is
 
    procedure A_Write_Is_Atomic (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
-      Dir : constant Scratch := Make;
-      S   : Disk_Store := Create (Vault (Dir), "ns");
-      Path : constant String := Vault (Dir) & "/ns/Foo.md";
+      Dir  : constant Scratch := Make;
+      S    : Disk_Store       := Create (Vault (Dir), "ns");
+      Path : constant String  := Vault (Dir) & "/ns/Foo.md";
    begin
       Put (S, "Foo.md", "first");
       Put (S, "Foo.md", "second");
-      Assert (not Ada.Directories.Exists (Path & ".tmp"),
-              "no temporary file survives");
+      Assert
+        (not Ada.Directories.Exists (Path & ".tmp"),
+         "no temporary file survives");
       Assert (File_Text (Path) = "second", "the overwrite replaced it");
       Assert (Joined (S) = "Foo.md", "and it is listed once");
       Remove (Dir);
@@ -188,14 +189,15 @@ package body Synapse.Adapters.Disk_Store.Tests is
    procedure Unsafe_Names_Are_Refused (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Dir : constant Scratch := Make;
-      S   : Disk_Store := Create (Vault (Dir), "ns");
+      S   : Disk_Store       := Create (Vault (Dir), "ns");
    begin
       Assert (Raises_Unsafe (S, "../../../../etc/passwd"), "leading ..");
       Assert (Raises_Unsafe (S, "a/../../b.md"), "buried ..");
       Assert (Raises_Unsafe (S, "/etc/passwd"), "absolute");
       Assert (Raises_Unsafe (S, "..\x"), "backslash");
-      Assert (not Ada.Directories.Exists (Vault (Dir) & "/ns"),
-              "nothing was created");
+      Assert
+        (not Ada.Directories.Exists (Vault (Dir) & "/ns"),
+         "nothing was created");
       Remove (Dir);
    exception
       when others =>
@@ -208,7 +210,7 @@ package body Synapse.Adapters.Disk_Store.Tests is
    is
       pragma Unreferenced (T);
       Dir : constant Scratch := Make;
-      S   : Disk_Store := Create (Vault (Dir), "never/written");
+      S   : Disk_Store       := Create (Vault (Dir), "never/written");
    begin
       Assert (not S.Read ("Nope.md").Found, "missing node");
       Assert (S.List.Is_Empty, "a namespace never written to");
@@ -225,8 +227,8 @@ package body Synapse.Adapters.Disk_Store.Tests is
    is
       pragma Unreferenced (T);
       Dir  : constant Scratch := Make;
-      S    : Disk_Store := Create (Vault (Dir), "ns");
-      Base : constant String := Vault (Dir) & "/ns";
+      S    : Disk_Store       := Create (Vault (Dir), "ns");
+      Base : constant String  := Vault (Dir) & "/ns";
    begin
       Put (S, "b.md", "b");
       Put (S, "a/deep/c.md", "c");
@@ -239,8 +241,9 @@ package body Synapse.Adapters.Disk_Store.Tests is
       Put (S, "Z.md", "upper");
       Put (S, "spaced name.md", "spaces");
       Ada.Directories.Create_Path (Base & "/empty-dir");
-      Assert (Joined (S) = "Z.md|a/a.md|a/deep/c.md|b.md|spaced name.md",
-              "sorted markdown outside hidden names: " & Joined (S));
+      Assert
+        (Joined (S) = "Z.md|a/a.md|a/deep/c.md|b.md|spaced name.md",
+         "sorted markdown outside hidden names: " & Joined (S));
       Remove (Dir);
    exception
       when others =>
@@ -251,14 +254,14 @@ package body Synapse.Adapters.Disk_Store.Tests is
    procedure Every_Byte_Value_Round_Trips (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Dir  : constant Scratch := Make;
-      S    : Disk_Store := Create (Vault (Dir), "");
-      Text : String (1 .. 1024);
+      S    : Disk_Store       := Create (Vault (Dir), "");
+      Text : String (1 .. 1_024);
    begin
       for I in Text'Range loop
          Text (I) := Character'Val ((I - 1) mod 256);
       end loop;
       Put (S, "bytes.md", Text);
-      Assert (To_String (S.Read ("bytes.md").Text) = Text, "binary safe");
+      Assert (To_String (S.Read ("bytes.md").Value) = Text, "binary safe");
       Put (S, "empty.md", "");
       Assert (S.Read ("empty.md").Found, "an empty note exists");
       Remove (Dir);
@@ -268,15 +271,14 @@ package body Synapse.Adapters.Disk_Store.Tests is
          raise;
    end Every_Byte_Value_Round_Trips;
 
-   procedure Names_With_Spaces_And_Unicode_Work
-     (T : in out Test_Cases_Class)
+   procedure Names_With_Spaces_And_Unicode_Work (T : in out Test_Cases_Class)
    is
       pragma Unreferenced (T);
       Dir  : constant Scratch := Make;
-      S    : Disk_Store := Create (Vault (Dir), "");
-      Name : constant String :=
-        "Caf" & Character'Val (16#C3#) & Character'Val (16#A9#)
-        & " au lait.md";
+      S    : Disk_Store       := Create (Vault (Dir), "");
+      Name : constant String  :=
+        "Caf" & Character'Val (16#C3#) & Character'Val (16#A9#) &
+        " au lait.md";
    begin
       Put (S, Name, "x");
       Assert (S.Read (Name).Found, "read back");
@@ -293,8 +295,8 @@ package body Synapse.Adapters.Disk_Store.Tests is
    is
       pragma Unreferenced (T);
       Dir    : constant Scratch := Make;
-      S      : Disk_Store := Create (Vault (Dir), "ns");
-      Raised : Boolean := False;
+      S      : Disk_Store       := Create (Vault (Dir), "ns");
+      Raised : Boolean          := False;
    begin
       --  A file where a directory is needed.
       Put (S, "blocker", "i am a file");
@@ -310,9 +312,9 @@ package body Synapse.Adapters.Disk_Store.Tests is
             Raised := True;
       end;
       Assert (Raised, "Store_Failure");
-      Assert (not Ada.Directories.Exists
-                    (Vault (Dir) & "/ns/blocker/x.md.tmp"),
-              "no temporary file");
+      Assert
+        (not Ada.Directories.Exists (Vault (Dir) & "/ns/blocker/x.md.tmp"),
+         "no temporary file");
 
       --  A directory where a file is expected.
       Ada.Directories.Create_Path (Vault (Dir) & "/ns/folder.md");
@@ -340,23 +342,30 @@ package body Synapse.Adapters.Disk_Store.Tests is
    is
       pragma Unreferenced (T);
       Dir : constant Scratch := Make;
-      S   : Disk_Store := Create (Vault (Dir), "");
+      S   : Disk_Store       := Create (Vault (Dir), "");
    begin
-      Put (S, "one.md", "---" & LF & "title: only in meta widget" & LF & "---"
-           & LF & "plain body" & LF);
-      Put (S, "two.md", "---" & LF & "title: Two" & LF & "---" & LF
-           & "first" & LF & "A Widget here" & LF & "another WIDGET" & LF);
+      Put
+        (S, "one.md",
+         "---" & LF & "title: only in meta widget" & LF & "---" & LF &
+         "plain body" & LF);
+      Put
+        (S, "two.md",
+         "---" & LF & "title: Two" & LF & "---" & LF & "first" & LF &
+         "A Widget here" & LF & "another WIDGET" & LF);
       Put (S, "three.md", "a widget" & LF);
       declare
          Hits : constant Port.Hit_Vectors.Vector := S.Search ("widget");
       begin
-         Assert (Hits.Length = 2, "frontmatter is not searched:"
-                 & Hits.Length'Image);
-         Assert (To_String (Hits (1).Node) = "two.md"
-                 and then Hits (1).Score > Hits (2).Score,
-                 "the most occurrences first");
-         Assert (To_String (Hits (1).Context) = "A Widget here",
-                 "the first matching line");
+         Assert
+           (Hits.Length = 2,
+            "frontmatter is not searched:" & Hits.Length'Image);
+         Assert
+           (To_String (Hits (1).Node) = "two.md"
+            and then Hits (1).Score > Hits (2).Score,
+            "the most occurrences first");
+         Assert
+           (To_String (Hits (1).Context) = "A Widget here",
+            "the first matching line");
          Assert (To_String (Hits (2).Node) = "three.md", "then the rest");
       end;
       Assert (S.Search ("gadget").Is_Empty, "no match is an empty result");
@@ -371,7 +380,7 @@ package body Synapse.Adapters.Disk_Store.Tests is
    procedure Equal_Scores_Are_Ordered_By_Name (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Dir : constant Scratch := Make;
-      S   : Disk_Store := Create (Vault (Dir), "");
+      S   : Disk_Store       := Create (Vault (Dir), "");
    begin
       Put (S, "b.md", "needle");
       Put (S, "a.md", "needle");
@@ -379,9 +388,11 @@ package body Synapse.Adapters.Disk_Store.Tests is
       declare
          Hits : constant Port.Hit_Vectors.Vector := S.Search ("needle");
       begin
-         Assert (To_String (Hits (1).Node) = "a.md"
-                 and then To_String (Hits (2).Node) = "b.md"
-                 and then To_String (Hits (3).Node) = "c.md", "by name");
+         Assert
+           (To_String (Hits (1).Node) = "a.md"
+            and then To_String (Hits (2).Node) = "b.md"
+            and then To_String (Hits (3).Node) = "c.md",
+            "by name");
       end;
       Remove (Dir);
    exception
@@ -407,7 +418,7 @@ package body Synapse.Adapters.Disk_Store.Tests is
            Synapse.Core.JSON.Parse (Quoted);
       begin
          Assert (Parsed.Ok, "the filter parses");
-         return (Present => True, Rule => Parsed.Item);
+         return (Found => True, Value => Parsed.Item);
       end;
    end Rule;
 
@@ -426,7 +437,7 @@ package body Synapse.Adapters.Disk_Store.Tests is
    procedure A_Rare_Word_Outranks_A_Common_One (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Dir : constant Scratch := Make;
-      S   : Disk_Store := Create (Vault (Dir), "");
+      S   : Disk_Store       := Create (Vault (Dir), "");
    begin
       --  "widget" is in one note and "common" in all four: a query with both
       --  ranks the widget note first though neither repeats a word.
@@ -435,14 +446,14 @@ package body Synapse.Adapters.Disk_Store.Tests is
       Put (S, "other2.md", "common" & LF);
       Put (S, "other3.md", "common" & LF);
       declare
-         Hits : constant Port.Hit_Vectors.Vector :=
-           S.Search ("widget common");
+         Hits : constant Port.Hit_Vectors.Vector := S.Search ("widget common");
       begin
          Assert (Hits.Length >= 2, "something is found");
          Assert (To_String (Hits (1).Node) = "rare.md", "the rare one first");
          Assert (Hits (1).Score > Hits (2).Score, "by a real margin");
-         Assert (Nodes (Hits) = "rare.md|other1.md|other2.md|other3.md",
-                 "then the ties by name: " & Nodes (Hits));
+         Assert
+           (Nodes (Hits) = "rare.md|other1.md|other2.md|other3.md",
+            "then the ties by name: " & Nodes (Hits));
       end;
       Remove (Dir);
    exception
@@ -454,20 +465,24 @@ package body Synapse.Adapters.Disk_Store.Tests is
    procedure A_Path_Filter_Scopes_The_Candidates (T : in out Test_Cases_Class)
    is
       pragma Unreferenced (T);
-      Dir     : constant Scratch := Make;
-      S       : Disk_Store := Create (Vault (Dir), "");
+      Dir     : constant Scratch              := Make;
+      S       : Disk_Store                    := Create (Vault (Dir), "");
       Designs : constant Filtered.Path_Filter :=
         Rule ("{'glob': ['designs/*', {'var': 'path'}]}");
    begin
       Put (S, "designs/x.md", "widget prose here" & LF);
       Put (S, "tasks/y.md", "widget prose here too" & LF);
-      Assert (Nodes (S.Search_Filtered ("widget", Designs)) = "designs/x.md",
-              "only the designs");
-      Assert (Nodes (S.Search_Filtered ("widget", Filtered.No_Filter))
-              = "designs/x.md|tasks/y.md", "no filter is every node");
-      Assert (Nodes (S.Search ("widget"))
-              = Nodes (S.Search_Filtered ("widget", Filtered.No_Filter)),
-              "and it is plain search");
+      Assert
+        (Nodes (S.Search_Filtered ("widget", Designs)) = "designs/x.md",
+         "only the designs");
+      Assert
+        (Nodes (S.Search_Filtered ("widget", Filtered.No_Filter)) =
+         "designs/x.md|tasks/y.md",
+         "no filter is every node");
+      Assert
+        (Nodes (S.Search ("widget")) =
+         Nodes (S.Search_Filtered ("widget", Filtered.No_Filter)),
+         "and it is plain search");
       Remove (Dir);
    exception
       when others =>
@@ -480,16 +495,18 @@ package body Synapse.Adapters.Disk_Store.Tests is
    is
       pragma Unreferenced (T);
       Dir : constant Scratch := Make;
-      S   : Disk_Store := Create (Vault (Dir), "");
+      S   : Disk_Store       := Create (Vault (Dir), "");
    begin
       Put (S, "a.md", "widget" & LF);
-      Assert (S.Search_Filtered
-                ("widget", Rule ("{'no_such_operator': 1}")).Is_Empty,
-              "an unknown operator");
+      Assert
+        (S.Search_Filtered ("widget", Rule ("{'no_such_operator': 1}"))
+           .Is_Empty,
+         "an unknown operator");
       Assert (S.Search_Filtered ("widget", Rule ("false")).Is_Empty, "false");
       Assert (S.Search_Filtered ("widget", Rule ("null")).Is_Empty, "null");
-      Assert (Nodes (S.Search_Filtered ("widget", Rule ("true"))) = "a.md",
-              "true keeps it");
+      Assert
+        (Nodes (S.Search_Filtered ("widget", Rule ("true"))) = "a.md",
+         "true keeps it");
       Remove (Dir);
    exception
       when others =>
@@ -501,23 +518,27 @@ package body Synapse.Adapters.Disk_Store.Tests is
      (T : in out Test_Cases_Class)
    is
       pragma Unreferenced (T);
-      Dir  : constant Scratch := Make;
-      S    : Disk_Store := Create (Vault (Dir), "");
+      Dir  : constant Scratch              := Make;
+      S    : Disk_Store                    := Create (Vault (Dir), "");
       Keep : constant Filtered.Path_Filter :=
         Rule ("{'glob': ['k/*', {'var': 'path'}]}");
 
-      function Top_Score (Filter : Filtered.Path_Filter) return Float
-      is (S.Search_Filtered ("gadget", Filter) (1).Score);
+      function Top_Score (Filter : Filtered.Path_Filter) return Float is
+        (S.Search_Filtered ("gadget", Filter) (1).Score);
    begin
       Put (S, "k/one.md", "gadget" & LF);
       for I in 1 .. 20 loop
-         Put (S, "o/" & Ada.Strings.Fixed.Trim (Integer'Image (I),
-                                                Ada.Strings.Left) & ".md",
-              "gadget" & LF);
+         Put
+           (S,
+            "o/" &
+            Ada.Strings.Fixed.Trim (Integer'Image (I), Ada.Strings.Left) &
+            ".md",
+            "gadget" & LF);
       end loop;
       --  The word is in every note either way, but D grows with the corpus.
-      Assert (Top_Score (Keep) /= Top_Score (Filtered.No_Filter),
-              "the corpus is the filtered set");
+      Assert
+        (Top_Score (Keep) /= Top_Score (Filtered.No_Filter),
+         "the corpus is the filtered set");
       Remove (Dir);
    exception
       when others =>
@@ -530,17 +551,20 @@ package body Synapse.Adapters.Disk_Store.Tests is
    is
       pragma Unreferenced (T);
       Dir : constant Scratch := Make;
-      S   : Disk_Store := Create (Vault (Dir), "");
+      S   : Disk_Store       := Create (Vault (Dir), "");
    begin
       Put (S, "a.md", "the id 42 record" & LF);
       Put (S, "b.md", "id and 42 apart" & LF);
       --  No word of the query is long enough, so the whole query is matched
       --  as a literal.
       Assert (Nodes (S.Search ("id 42")) = "a.md", "contiguous only");
-      Put (S, "c.md", "---" & LF & "sources:" & LF & "  - hash: 42424242" & LF
-           & "---" & LF & "no digits here" & LF);
-      Assert (S.Search ("42424242").Is_Empty,
-              "the fallback ignores frontmatter too");
+      Put
+        (S, "c.md",
+         "---" & LF & "sources:" & LF & "  - hash: 42424242" & LF & "---" &
+         LF & "no digits here" & LF);
+      Assert
+        (S.Search ("42424242").Is_Empty,
+         "the fallback ignores frontmatter too");
       Remove (Dir);
    exception
       when others =>
@@ -553,11 +577,12 @@ package body Synapse.Adapters.Disk_Store.Tests is
    is
       pragma Unreferenced (T);
       Dir : constant Scratch := Make;
-      S   : Disk_Store := Create (Vault (Dir), "");
+      S   : Disk_Store       := Create (Vault (Dir), "");
    begin
       Put (S, "a.md", "the disk store handles this" & LF);
-      Assert (Nodes (S.Search ("DiskStore")) = "a.md",
-              "identifier query, prose text");
+      Assert
+        (Nodes (S.Search ("DiskStore")) = "a.md",
+         "identifier query, prose text");
       Remove (Dir);
    exception
       when others =>
@@ -568,17 +593,19 @@ package body Synapse.Adapters.Disk_Store.Tests is
    procedure Stopwords_Remove_A_Term (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Dir   : constant Scratch := Make;
-      S     : Disk_Store := Create (Vault (Dir), "");
+      S     : Disk_Store       := Create (Vault (Dir), "");
       Words : Core.Text_Lists.Set;
    begin
       Put (S, "a.md", "plain notes about handling" & LF);
       Put (S, "b.md", "about nothing at all" & LF);
-      Assert (Nodes (S.Search ("about handling")) = "a.md|b.md",
-              "'about' counts at first");
+      Assert
+        (Nodes (S.Search ("about handling")) = "a.md|b.md",
+         "'about' counts at first");
       Words.Insert ("about");
       S.Set_Stopwords (Words);
-      Assert (Nodes (S.Search ("about handling")) = "a.md",
-              "then only 'handling' does");
+      Assert
+        (Nodes (S.Search ("about handling")) = "a.md",
+         "then only 'handling' does");
       Remove (Dir);
    exception
       when others =>
@@ -591,17 +618,19 @@ package body Synapse.Adapters.Disk_Store.Tests is
    is
       pragma Unreferenced (T);
       Dir : constant Scratch := Make;
-      S   : Disk_Store := Create (Vault (Dir), "");
+      S   : Disk_Store       := Create (Vault (Dir), "");
    begin
-      Put (S, "a.md", "---" & LF & "title: widget in meta" & LF & "---" & LF
-           & "intro" & LF & "a Gadget line" & LF & "a widget line" & LF);
+      Put
+        (S, "a.md",
+         "---" & LF & "title: widget in meta" & LF & "---" & LF & "intro" &
+         LF & "a Gadget line" & LF & "a widget line" & LF);
       declare
-         Hits : constant Port.Hit_Vectors.Vector :=
-           S.Search ("widget gadget");
+         Hits : constant Port.Hit_Vectors.Vector := S.Search ("widget gadget");
       begin
          Assert (Hits.Length = 1, "one hit");
-         Assert (To_String (Hits (1).Context) = "a Gadget line",
-                 "the first line with any term");
+         Assert
+           (To_String (Hits (1).Context) = "a Gadget line",
+            "the first line with any term");
       end;
       Remove (Dir);
    exception
@@ -612,15 +641,13 @@ package body Synapse.Adapters.Disk_Store.Tests is
 
    ---------------------------------------------------------------------------
 
-   overriding
-   function Name (T : Test_Case) return AUnit.Message_String is
+   overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
       return AUnit.Format ("Synapse.Adapters.Disk_Store");
    end Name;
 
-   overriding
-   procedure Register_Tests (T : in out Test_Case) is
+   overriding procedure Register_Tests (T : in out Test_Case) is
       use AUnit.Test_Cases.Registration;
    begin
       Register_Routine
@@ -675,8 +702,7 @@ package body Synapse.Adapters.Disk_Store.Tests is
         (T, Identifiers_And_Prose_Find_Each_Other'Access,
          "Identifiers and prose find each other");
       Register_Routine
-        (T, Stopwords_Remove_A_Term'Access,
-         "Stopwords remove a term");
+        (T, Stopwords_Remove_A_Term'Access, "Stopwords remove a term");
       Register_Routine
         (T, Context_Is_The_First_Line_With_Any_Term'Access,
          "Context is the first line with any term");

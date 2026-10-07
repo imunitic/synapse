@@ -1,6 +1,8 @@
 with Ada.Containers.Vectors;
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Optional_Text;
+with Synapse.Core.Options;
 with Synapse.Core.Node_Format;
 with Synapse.Core.Text_Lists;
 with Synapse.Core.Text_Search;
@@ -14,15 +16,7 @@ package Synapse.Core.Node_Query is
 
    use Ada.Strings.Unbounded;
 
-   type Maybe_Text (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Text : Unbounded_String;
-
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Text is Synapse.Core.Optional_Text.Option;
 
    --  The prose a node is for: between the generated fences, without the two
    --  marker lines. Exactly one line feed comes off each end, the one that
@@ -45,15 +39,10 @@ package Synapse.Core.Node_Query is
    --  fence, which the caller prints as the whole body.
    function Brief (Text : String) return Maybe_Text;
 
-   type Maybe_Ranges (Valid : Boolean := False) is record
-      case Valid is
-         when True =>
-            Ranges : Text_Search.Range_Vectors.Vector;
+   package Maybe_Ranges_Options is new Synapse.Core.Options
+     (Text_Search.Range_Vectors.Vector);
 
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Ranges is Maybe_Ranges_Options.Option;
 
    --  `12-14,40-41,88` as ranges, in the order given: the spelling
    --  Text_Search.Image produces. Invalid for anything malformed: an empty

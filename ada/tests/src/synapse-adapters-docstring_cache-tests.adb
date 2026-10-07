@@ -1,9 +1,7 @@
 with Ada.Directories;
-
-with AUnit.Assertions;
-
 with GNAT.OS_Lib;
 
+with AUnit.Assertions;
 with Synapse.Adapters.Fake_Variables;
 with Synapse.Adapters.File_Bytes;
 with Synapse.Core.Hashing;
@@ -124,12 +122,12 @@ package body Synapse.Adapters.Docstring_Cache.Tests is
       begin
          Assert (Got.Found, "found");
          Assert
-           (Got.Item.Docstring_Hash = Filled (1)
-            and then Got.Item.Decl_Hash = Filled (2),
+           (Got.Value.Docstring_Hash = Filled (1)
+            and then Got.Value.Decl_Hash = Filled (2),
             "the hashes");
          Assert
-           (Got.Item.Docstring_Start = 3 and then Got.Item.Docstring_End = 4
-            and then Got.Item.Decl_Start = 5 and then Got.Item.Decl_End = 9,
+           (Got.Value.Docstring_Start = 3 and then Got.Value.Docstring_End = 4
+            and then Got.Value.Decl_Start = 5 and then Got.Value.Decl_End = 9,
             "line ranges round-trip, for a check that cannot parse");
       end;
       Assert
@@ -297,11 +295,11 @@ package body Synapse.Adapters.Docstring_Cache.Tests is
       Apply (C, Updates_Of (Item ("a.wdg", "foo", "fn", 7, 8)));
       Assert (Count (C) = 2, "no second row");
       Assert
-        (Get (C, Where ("a.wdg", "foo", "fn")).Item.Docstring_Hash =
+        (Get (C, Where ("a.wdg", "foo", "fn")).Value.Docstring_Hash =
          Filled (7),
          "the new pair");
       Assert
-        (Get (C, Where ("a.wdg", "other", "fn")).Item.Docstring_Hash =
+        (Get (C, Where ("a.wdg", "other", "fn")).Value.Docstring_Hash =
          Filled (5),
          "the other, merged onto and kept");
       Remove (Dir);

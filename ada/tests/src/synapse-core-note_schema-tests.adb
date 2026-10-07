@@ -3,7 +3,6 @@ with Ada.Directories;
 with Ada.Streams.Stream_IO;
 
 with AUnit.Assertions;
-
 with Synapse.Core.Note_Operators;
 with Synapse.Core.Schema_Rules;
 with Synapse.Core.Schema_YAML;
@@ -24,8 +23,8 @@ package body Synapse.Core.Note_Schema.Tests is
    Head      : constant String :=
      "schema: synapse-note-schema/v1" & LF & "id: t/v1" & LF;
    Fm_Ok     : constant String :=
-     "frontmatter:" & LF & "  fields:" & LF & "    title:" & LF
-     & "      type: string" & LF;
+     "frontmatter:" & LF & "  fields:" & LF & "    title:" & LF &
+     "      type: string" & LF;
    Body_Ok   : constant String :=
      "body:" & LF & "  h1:" & LF & "    required: false" & LF;
    Checks_Ok : constant String := "checks: []" & LF;
@@ -36,14 +35,18 @@ package body Synapse.Core.Note_Schema.Tests is
    is
       Parsed : constant Schema_YAML.Parse_Result := Schema_YAML.Parse (Source);
    begin
-      Assert (Parsed.Ok, "the schema YAML parses: " & Source);
+      Assert
+        (Schema_YAML.Parse_Results.Is_Success (Parsed),
+         "the schema YAML parses: " & Source);
       declare
          Result : constant Check_Result :=
-           Validate_Schema (Parsed.Root, "t/v1", Ops);
+           Validate_Schema
+             (Schema_YAML.Parse_Results.Value (Parsed), "t/v1", Ops);
       begin
-         return (if Result.Valid
-                 then "<valid>"
-                 else Ada.Strings.Unbounded.To_String (Result.Message));
+         return
+           (if Check_Results.Is_Success (Result) then "<valid>"
+            else Ada.Strings.Unbounded.To_String
+                (Check_Results.Error (Result)));
       end;
    end Message_Of;
 
@@ -55,26 +58,27 @@ package body Synapse.Core.Note_Schema.Tests is
 
    procedure Accepts (Source : String) is
    begin
-      Assert (Message_Of (Source) = "<valid>",
-              "should be valid, got: " & Message_Of (Source));
+      Assert
+        (Message_Of (Source) = "<valid>",
+         "should be valid, got: " & Message_Of (Source));
    end Accepts;
 
    --  A schema around one part under test.
-   function With_Field (Lines : String) return String
-   is (Head & "frontmatter:" & LF & "  fields:" & LF & "    title:" & LF
-       & Lines & Body_Ok & Checks_Ok);
+   function With_Field (Lines : String) return String is
+     (Head & "frontmatter:" & LF & "  fields:" & LF & "    title:" & LF &
+      Lines & Body_Ok & Checks_Ok);
 
-   function With_Frontmatter (Lines : String) return String
-   is (Head & "frontmatter:" & LF & Lines & Body_Ok & Checks_Ok);
+   function With_Frontmatter (Lines : String) return String is
+     (Head & "frontmatter:" & LF & Lines & Body_Ok & Checks_Ok);
 
-   function With_Body (Lines : String) return String
-   is (Head & Fm_Ok & "body:" & LF & Lines & Checks_Ok);
+   function With_Body (Lines : String) return String is
+     (Head & Fm_Ok & "body:" & LF & Lines & Checks_Ok);
 
-   function With_Checks (Lines : String) return String
-   is (Head & Fm_Ok & Body_Ok & Lines);
+   function With_Checks (Lines : String) return String is
+     (Head & Fm_Ok & Body_Ok & Lines);
 
-   function With_Lints (Lines : String) return String
-   is (Head & Fm_Ok & Body_Ok & Checks_Ok & "lints:" & LF & Lines);
+   function With_Lints (Lines : String) return String is
+     (Head & Fm_Ok & Body_Ok & Checks_Ok & "lints:" & LF & Lines);
 
    H1_Ok : constant String := "  h1:" & LF & "    required: false" & LF;
 
@@ -87,30 +91,35 @@ package body Synapse.Core.Note_Schema.Tests is
    begin
       Accepts (Head & Fm_Ok & Body_Ok & Checks_Ok);
       Accepts
-        (Head & "frontmatter:" & LF & "  field_order: relative" & LF
-         & "  fields:" & LF & "    tags:" & LF & "      type: list" & LF
-         & "      items: string" & LF & "      required: true" & LF
-         & "    when:" & LF & "      type: timestamp" & LF
-         & "      mutable: false"
-         & LF & "    kind:" & LF & "      type: string" & LF
-         & "      enum: [a, b]" & LF & "      pattern: '^[a-z]+$'" & LF
-         & "      min_length: 3" & LF & Body_Ok & Checks_Ok);
+        (Head & "frontmatter:" & LF & "  field_order: relative" & LF &
+         "  fields:" & LF & "    tags:" & LF & "      type: list" & LF &
+         "      items: string" & LF & "      required: true" & LF &
+         "    when:" & LF & "      type: timestamp" & LF &
+         "      mutable: false" & LF & "    kind:" & LF &
+         "      type: string" & LF & "      enum: [a, b]" & LF &
+         "      pattern: '^[a-z]+$'" & LF & "      min_length: 3" & LF &
+         Body_Ok & Checks_Ok);
    end A_Well_Formed_Schema_Is_Accepted;
 
    procedure The_Header_Is_Checked_First (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
    begin
       Rejects ("- a" & LF, "schema: document root must be a mapping");
-      Rejects ("id: t/v1" & LF & Fm_Ok & Body_Ok & Checks_Ok,
-               "schema.schema: required string is missing");
-      Rejects ("schema: 5" & LF & "id: t/v1" & LF,
-               "schema.schema: required string is missing");
-      Rejects ("schema: other/v9" & LF & "id: t/v1" & LF,
-               "schema.schema: unsupported language 'other/v9'");
-      Rejects ("schema: synapse-note-schema/v1" & LF,
-               "schema.id: required string is missing");
-      Rejects ("schema: synapse-note-schema/v1" & LF & "id: x/v1" & LF,
-               "schema.id: expected 't/v1', found 'x/v1'");
+      Rejects
+        ("id: t/v1" & LF & Fm_Ok & Body_Ok & Checks_Ok,
+         "schema.schema: required string is missing");
+      Rejects
+        ("schema: 5" & LF & "id: t/v1" & LF,
+         "schema.schema: required string is missing");
+      Rejects
+        ("schema: other/v9" & LF & "id: t/v1" & LF,
+         "schema.schema: unsupported language 'other/v9'");
+      Rejects
+        ("schema: synapse-note-schema/v1" & LF,
+         "schema.id: required string is missing");
+      Rejects
+        ("schema: synapse-note-schema/v1" & LF & "id: x/v1" & LF,
+         "schema.id: expected 't/v1', found 'x/v1'");
    end The_Header_Is_Checked_First;
 
    ---------------------------------------------------------------------------
@@ -120,72 +129,88 @@ package body Synapse.Core.Note_Schema.Tests is
    procedure Frontmatter_Structure_Is_Checked (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
    begin
-      Rejects (Head & Body_Ok & Checks_Ok,
-               "schema.frontmatter: required mapping is missing");
-      Rejects (Head & "frontmatter: none" & LF & Body_Ok & Checks_Ok,
-               "schema.frontmatter: required mapping is missing");
-      Rejects (With_Frontmatter ("  extra: 1" & LF
-                                 & "  fields:" & LF & "    t:" & LF
-                                 & "      type: string" & LF),
-               "schema.frontmatter.extra: unsupported v1 key");
-      Rejects (With_Frontmatter ("  field_order: 5" & LF & "  fields:" & LF
-                                 & "    t:" & LF & "      type: string" & LF),
-               "schema.frontmatter.field_order: must be string");
-      Rejects (With_Frontmatter ("  field_order: absolute" & LF & "  fields:"
-        & LF
-                                 & "    t:" & LF & "      type: string" & LF),
-               "schema.frontmatter.field_order: unsupported value 'absolute'");
-      Rejects (With_Frontmatter ("  field_order: relative" & LF),
-               "schema.frontmatter.fields: required mapping is missing");
-      Rejects (With_Frontmatter ("  fields: none" & LF),
-               "schema.frontmatter.fields: required mapping is missing");
+      Rejects
+        (Head & Body_Ok & Checks_Ok,
+         "schema.frontmatter: required mapping is missing");
+      Rejects
+        (Head & "frontmatter: none" & LF & Body_Ok & Checks_Ok,
+         "schema.frontmatter: required mapping is missing");
+      Rejects
+        (With_Frontmatter
+           ("  extra: 1" & LF & "  fields:" & LF & "    t:" & LF &
+            "      type: string" & LF),
+         "schema.frontmatter.extra: unsupported v1 key");
+      Rejects
+        (With_Frontmatter
+           ("  field_order: 5" & LF & "  fields:" & LF & "    t:" & LF &
+            "      type: string" & LF),
+         "schema.frontmatter.field_order: must be string");
+      Rejects
+        (With_Frontmatter
+           ("  field_order: absolute" & LF & "  fields:" & LF & "    t:" & LF &
+            "      type: string" & LF),
+         "schema.frontmatter.field_order: unsupported value 'absolute'");
+      Rejects
+        (With_Frontmatter ("  field_order: relative" & LF),
+         "schema.frontmatter.fields: required mapping is missing");
+      Rejects
+        (With_Frontmatter ("  fields: none" & LF),
+         "schema.frontmatter.fields: required mapping is missing");
    end Frontmatter_Structure_Is_Checked;
 
    procedure Field_Rules_Are_Checked (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Prefix : constant String := "schema.frontmatter.fields.title";
    begin
-      Rejects (With_Frontmatter ("  fields:" & LF & "    title: string" & LF),
-               Prefix & ": must be a mapping");
-      Rejects (With_Field ("      type: string" & LF & "      color: red"
-        & LF),
-               Prefix & ".color: unsupported v1 key");
-      Rejects (With_Field ("      required: true" & LF),
-               Prefix & ".type: required string is missing");
-      Rejects (With_Field ("      type: 5" & LF),
-               Prefix & ".type: required string is missing");
-      Rejects (With_Field ("      type: float" & LF),
-               Prefix & ".type: unsupported type 'float'");
-      Rejects (With_Field ("      type: string" & LF
-        & "      required: yes_please"
-                           & LF & "      mutable: x" & LF),
-               Prefix & ".required: must be boolean");
-      Rejects (With_Field ("      type: string" & LF & "      required: true"
-        & LF
-                           & "      mutable: ""no""" & LF),
-               Prefix & ".mutable: must be boolean");
-      Rejects (With_Field ("      type: string" & LF & "      min_length: x"
-        & LF),
-               Prefix & ".min_length: must be integer");
-      Rejects (With_Field ("      type: string" & LF & "      min_length: 0"
-        & LF),
-               Prefix & ".min_length: must be at least 1");
-      Rejects (With_Field ("      type: string" & LF & "      min_length: -1"
-        & LF),
-               Prefix & ".min_length: must be at least 1");
-      Rejects (With_Field ("      type: string" & LF & "      pattern: 5"
-        & LF),
-               Prefix & ".pattern: must be string");
-      Rejects (With_Field ("      type: string" & LF & "      enum: x" & LF),
-               Prefix & ".enum: must be a string list");
-      Rejects (With_Field ("      type: string" & LF & "      enum: [a, 5]"
-        & LF),
-               Prefix & ".enum: must be a string list");
-      Rejects (With_Field ("      type: list" & LF),
-               Prefix & ".items: required string is missing");
-      Rejects (With_Field ("      type: list" & LF & "      items: integer"
-        & LF),
-               Prefix & ".items: only string is supported in v1");
+      Rejects
+        (With_Frontmatter ("  fields:" & LF & "    title: string" & LF),
+         Prefix & ": must be a mapping");
+      Rejects
+        (With_Field ("      type: string" & LF & "      color: red" & LF),
+         Prefix & ".color: unsupported v1 key");
+      Rejects
+        (With_Field ("      required: true" & LF),
+         Prefix & ".type: required string is missing");
+      Rejects
+        (With_Field ("      type: 5" & LF),
+         Prefix & ".type: required string is missing");
+      Rejects
+        (With_Field ("      type: float" & LF),
+         Prefix & ".type: unsupported type 'float'");
+      Rejects
+        (With_Field
+           ("      type: string" & LF & "      required: yes_please" & LF &
+            "      mutable: x" & LF),
+         Prefix & ".required: must be boolean");
+      Rejects
+        (With_Field
+           ("      type: string" & LF & "      required: true" & LF &
+            "      mutable: ""no""" & LF),
+         Prefix & ".mutable: must be boolean");
+      Rejects
+        (With_Field ("      type: string" & LF & "      min_length: x" & LF),
+         Prefix & ".min_length: must be integer");
+      Rejects
+        (With_Field ("      type: string" & LF & "      min_length: 0" & LF),
+         Prefix & ".min_length: must be at least 1");
+      Rejects
+        (With_Field ("      type: string" & LF & "      min_length: -1" & LF),
+         Prefix & ".min_length: must be at least 1");
+      Rejects
+        (With_Field ("      type: string" & LF & "      pattern: 5" & LF),
+         Prefix & ".pattern: must be string");
+      Rejects
+        (With_Field ("      type: string" & LF & "      enum: x" & LF),
+         Prefix & ".enum: must be a string list");
+      Rejects
+        (With_Field ("      type: string" & LF & "      enum: [a, 5]" & LF),
+         Prefix & ".enum: must be a string list");
+      Rejects
+        (With_Field ("      type: list" & LF),
+         Prefix & ".items: required string is missing");
+      Rejects
+        (With_Field ("      type: list" & LF & "      items: integer" & LF),
+         Prefix & ".items: only string is supported in v1");
    end Field_Rules_Are_Checked;
 
    procedure Pattern_Faults_Are_Named_As_Zig_Names_Them
@@ -196,9 +221,9 @@ package body Synapse.Core.Note_Schema.Tests is
       procedure Check (Pattern, Fault : String) is
       begin
          Rejects
-           (With_Field ("      type: string" & LF & "      pattern: '"
-             & Pattern
-                        & "'" & LF),
+           (With_Field
+              ("      type: string" & LF & "      pattern: '" & Pattern & "'" &
+               LF),
             "schema.frontmatter.fields.title.pattern: " & Fault);
       end Check;
    begin
@@ -209,9 +234,10 @@ package body Synapse.Core.Note_Schema.Tests is
       Check ("*a", "InvalidQuantifier");
       Check ("(a)", "UnsupportedConstruct");
       Check ("a|b", "UnsupportedConstruct");
-      Accepts (With_Field ("      type: string" & LF
-        & "      pattern: '^[a-z]+-[0-9]{3,}$'"
-                           & LF));
+      Accepts
+        (With_Field
+           ("      type: string" & LF & "      pattern: '^[a-z]+-[0-9]{3,}$'" &
+            LF));
    end Pattern_Faults_Are_Named_As_Zig_Names_Them;
 
    ---------------------------------------------------------------------------
@@ -221,75 +247,95 @@ package body Synapse.Core.Note_Schema.Tests is
    procedure Body_Structure_Is_Checked (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
    begin
-      Rejects (Head & Fm_Ok
-        & Checks_Ok, "schema.body: required mapping is missing");
-      Rejects (With_Body ("  extra: 1" & LF & H1_Ok),
-               "schema.body.extra: unsupported v1 key");
-      Rejects (With_Body ("  sections: []" & LF),
-               "schema.body.h1: required mapping is missing");
-      Rejects (With_Body ("  h1:" & LF & "    extra: 1" & LF),
-               "schema.body.h1.extra: unsupported v1 key");
-      Rejects (With_Body ("  h1:" & LF & "    count: 0" & LF),
-               "schema.body.h1.count: must be at least 1");
-      Rejects (With_Body ("  h1:" & LF & "    count: -1" & LF),
-               "schema.body.h1.count: must be at least 1");
-      Rejects (With_Body ("  h1:" & LF & "    count: many" & LF),
-               "schema.body.h1.count: must be integer");
-      Accepts (With_Body ("  h1:" & LF & "    required: true" & LF
-                          & "    count: 1" & LF
-                          & "    equals: frontmatter.title" & LF
-                          & "  section_order: relative" & LF));
+      Rejects
+        (Head & Fm_Ok & Checks_Ok, "schema.body: required mapping is missing");
+      Rejects
+        (With_Body ("  extra: 1" & LF & H1_Ok),
+         "schema.body.extra: unsupported v1 key");
+      Rejects
+        (With_Body ("  sections: []" & LF),
+         "schema.body.h1: required mapping is missing");
+      Rejects
+        (With_Body ("  h1:" & LF & "    extra: 1" & LF),
+         "schema.body.h1.extra: unsupported v1 key");
+      Rejects
+        (With_Body ("  h1:" & LF & "    count: 0" & LF),
+         "schema.body.h1.count: must be at least 1");
+      Rejects
+        (With_Body ("  h1:" & LF & "    count: -1" & LF),
+         "schema.body.h1.count: must be at least 1");
+      Rejects
+        (With_Body ("  h1:" & LF & "    count: many" & LF),
+         "schema.body.h1.count: must be integer");
+      Accepts
+        (With_Body
+           ("  h1:" & LF & "    required: true" & LF & "    count: 1" & LF &
+            "    equals: frontmatter.title" & LF &
+            "  section_order: relative" & LF));
    end Body_Structure_Is_Checked;
 
    procedure Section_Rules_Are_Checked (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
 
-      function Sections (Lines : String) return String
-      is (With_Body (H1_Ok & "  sections:" & LF & Lines));
+      function Sections (Lines : String) return String is
+        (With_Body (H1_Ok & "  sections:" & LF & Lines));
    begin
-      Rejects (With_Body (H1_Ok & "  sections: one" & LF),
-               "schema.body.sections: must be a list");
-      Rejects (Sections ("    - plain" & LF),
-               "schema.body.sections[0].<non-mapping>: unsupported v1 key");
-      Rejects (Sections ("    - title: A" & LF & "      color: red" & LF),
-               "schema.body.sections[0].color: unsupported v1 key");
-      Rejects (Sections ("    - title: A" & LF & "    - level: 2" & LF),
-               "schema.body.sections[1]: title or title_pattern is required");
-      Rejects (Sections ("    - title: A" & LF & "      level: 0" & LF),
-               "schema.body.sections[0].level: must be at least 1");
-      Rejects (Sections ("    - title: A" & LF & "      level: two" & LF),
-               "schema.body.sections[0].level: must be integer");
-      Rejects (Sections ("    - title: A" & LF & "      max_occurs: 0" & LF),
-               "schema.body.sections[0].max_occurs: must be at least 1");
-      Rejects (Sections ("    - title: A" & LF & "      required: ""true"""
-        & LF),
-               "schema.body.sections[0].required: must be boolean");
-      Rejects (Sections ("    - title: A" & LF & "      non_empty: 1" & LF),
-               "schema.body.sections[0].non_empty: must be boolean");
-      Rejects (Sections ("    - title: A" & LF & "      repeatable: ""yes"""
-        & LF),
-               "schema.body.sections[0].repeatable: must be boolean");
-      Rejects (Sections ("    - title_pattern: 5" & LF),
-               "schema.body.sections[0].title_pattern: must be string");
-      Rejects (Sections ("    - title_pattern: '[x'" & LF),
-               "schema.body.sections[0].title_pattern: UnterminatedClass");
-      Rejects (Sections ("    - title: A" & LF & "      content:" & LF
-                         & "        extra: 1" & LF),
-               "schema.body.sections[0].content.extra: unsupported v1 key");
-      Rejects (Sections ("    - title: A" & LF & "      content:" & LF
-                         & "        enum: x" & LF),
-               "schema.body.sections[0].content.enum: must be a string list");
-      Rejects (Sections ("    - title: A" & LF & "      children: x" & LF),
-               "schema.body.sections[0].children: must be a list");
-      Accepts (Sections ("    - title: A" & LF & "      level: 2" & LF
-                         & "      required: true" & LF
-                         & "      non_empty: true" & LF
-                         & "      max_occurs: 3" & LF & "      content:" & LF
-                         & "        type: string" & LF
-                         & "        enum: [x, y]" & LF
-                         & "      children:" & LF
-                         & "        - title_pattern: '^X'"
-                         & LF));
+      Rejects
+        (With_Body (H1_Ok & "  sections: one" & LF),
+         "schema.body.sections: must be a list");
+      Rejects
+        (Sections ("    - plain" & LF),
+         "schema.body.sections[0].<non-mapping>: unsupported v1 key");
+      Rejects
+        (Sections ("    - title: A" & LF & "      color: red" & LF),
+         "schema.body.sections[0].color: unsupported v1 key");
+      Rejects
+        (Sections ("    - title: A" & LF & "    - level: 2" & LF),
+         "schema.body.sections[1]: title or title_pattern is required");
+      Rejects
+        (Sections ("    - title: A" & LF & "      level: 0" & LF),
+         "schema.body.sections[0].level: must be at least 1");
+      Rejects
+        (Sections ("    - title: A" & LF & "      level: two" & LF),
+         "schema.body.sections[0].level: must be integer");
+      Rejects
+        (Sections ("    - title: A" & LF & "      max_occurs: 0" & LF),
+         "schema.body.sections[0].max_occurs: must be at least 1");
+      Rejects
+        (Sections ("    - title: A" & LF & "      required: ""true""" & LF),
+         "schema.body.sections[0].required: must be boolean");
+      Rejects
+        (Sections ("    - title: A" & LF & "      non_empty: 1" & LF),
+         "schema.body.sections[0].non_empty: must be boolean");
+      Rejects
+        (Sections ("    - title: A" & LF & "      repeatable: ""yes""" & LF),
+         "schema.body.sections[0].repeatable: must be boolean");
+      Rejects
+        (Sections ("    - title_pattern: 5" & LF),
+         "schema.body.sections[0].title_pattern: must be string");
+      Rejects
+        (Sections ("    - title_pattern: '[x'" & LF),
+         "schema.body.sections[0].title_pattern: UnterminatedClass");
+      Rejects
+        (Sections
+           ("    - title: A" & LF & "      content:" & LF &
+            "        extra: 1" & LF),
+         "schema.body.sections[0].content.extra: unsupported v1 key");
+      Rejects
+        (Sections
+           ("    - title: A" & LF & "      content:" & LF & "        enum: x" &
+            LF),
+         "schema.body.sections[0].content.enum: must be a string list");
+      Rejects
+        (Sections ("    - title: A" & LF & "      children: x" & LF),
+         "schema.body.sections[0].children: must be a list");
+      Accepts
+        (Sections
+           ("    - title: A" & LF & "      level: 2" & LF &
+            "      required: true" & LF & "      non_empty: true" & LF &
+            "      max_occurs: 3" & LF & "      content:" & LF &
+            "        type: string" & LF & "        enum: [x, y]" & LF &
+            "      children:" & LF & "        - title_pattern: '^X'" & LF));
    end Section_Rules_Are_Checked;
 
    procedure A_Childs_Diagnostic_Carries_Its_Own_Index
@@ -297,12 +343,13 @@ package body Synapse.Core.Note_Schema.Tests is
    is
       pragma Unreferenced (T);
    begin
-      Rejects (With_Body (H1_Ok & "  sections:" & LF & "    - title: A" & LF
-                          & "    - title: B" & LF & "      children:" & LF
-                          & "        - title: C" & LF & "        - title: D"
-                          & LF
-                          & "          level: 0" & LF),
-               "schema.body.sections[1].level: must be at least 1");
+      Rejects
+        (With_Body
+           (H1_Ok & "  sections:" & LF & "    - title: A" & LF &
+            "    - title: B" & LF & "      children:" & LF &
+            "        - title: C" & LF & "        - title: D" & LF &
+            "          level: 0" & LF),
+         "schema.body.sections[1].level: must be at least 1");
    end A_Childs_Diagnostic_Carries_Its_Own_Index;
 
    procedure Preamble_Lead_And_Checklist_Are_Checked
@@ -310,51 +357,58 @@ package body Synapse.Core.Note_Schema.Tests is
    is
       pragma Unreferenced (T);
    begin
-      Rejects (With_Body (H1_Ok & "  preamble: x" & LF),
-               "schema.body.preamble: must be a list of mappings");
-      Rejects (With_Body (H1_Ok & "  preamble:" & LF & "    - plain" & LF),
-               "schema.body.preamble: must be a list of mappings");
-      Rejects (With_Body (H1_Ok & "  preamble:" & LF & "    - type: blockquote"
-                          & LF & "    - extra: 1" & LF),
-               "schema.body.preamble[1].extra: unsupported v1 key");
-      Rejects (With_Body (H1_Ok & "  preamble:" & LF & "    - pattern: 'a{'"
-        & LF),
-               "schema.body.preamble[0].pattern: InvalidQuantifier");
-      Accepts (With_Body (H1_Ok & "  preamble:" & LF
-        & "    - type: blockquote" & LF
-                          & "      required: false" & LF
-                          & "      position: immediately_after_h1" & LF
-                          & "      marker: '> Compiled task:'" & LF
-                          & "      pattern: '^> Compiled task: "
-                          & "\[\[[^\]]+\]\]$'" & LF));
-      Rejects (With_Body (H1_Ok & "  lead:" & LF & "    extra: 1" & LF),
-               "schema.body.lead.extra: unsupported v1 key");
-      Rejects (With_Body (H1_Ok & "  lead:" & LF & "    required: ""true"""
-        & LF),
-               "schema.body.lead.required: must be boolean");
-      Rejects (With_Body (H1_Ok & "  lead: x" & LF),
-               "schema.body.lead.<non-mapping>: unsupported v1 key");
-      Rejects (With_Body (H1_Ok & "  checklist:" & LF & "    extra: 1" & LF),
-               "schema.body.checklist.extra: unsupported v1 key");
-      Rejects (With_Body (H1_Ok & "  checklist:" & LF & "    required: 1"
-        & LF),
-               "schema.body.checklist.required: must be boolean");
-      Rejects (With_Body (H1_Ok & "  checklist:" & LF & "    min_items: x"
-        & LF),
-               "schema.body.checklist.min_items: must be integer");
-      Rejects (With_Body (H1_Ok & "  checklist:" & LF & "    min_items: -1"
-        & LF),
-               "schema.body.checklist.min_items: must not be negative");
-      Rejects (With_Body (H1_Ok & "  checklist:" & LF
-        & "    allowed_children: x" & LF),
-               "schema.body.checklist.allowed_children:"
-               & " must be a string list");
-      Accepts (With_Body (H1_Ok & "  checklist:" & LF & "    required: true"
-        & LF
-                          & "    min_items: 0" & LF
-                          & "    position: after_lead" & LF
-                          & "    nested_items: forbidden" & LF
-                          & "    allowed_children: [description]" & LF));
+      Rejects
+        (With_Body (H1_Ok & "  preamble: x" & LF),
+         "schema.body.preamble: must be a list of mappings");
+      Rejects
+        (With_Body (H1_Ok & "  preamble:" & LF & "    - plain" & LF),
+         "schema.body.preamble: must be a list of mappings");
+      Rejects
+        (With_Body
+           (H1_Ok & "  preamble:" & LF & "    - type: blockquote" & LF &
+            "    - extra: 1" & LF),
+         "schema.body.preamble[1].extra: unsupported v1 key");
+      Rejects
+        (With_Body (H1_Ok & "  preamble:" & LF & "    - pattern: 'a{'" & LF),
+         "schema.body.preamble[0].pattern: InvalidQuantifier");
+      Accepts
+        (With_Body
+           (H1_Ok & "  preamble:" & LF & "    - type: blockquote" & LF &
+            "      required: false" & LF &
+            "      position: immediately_after_h1" & LF &
+            "      marker: '> Compiled task:'" & LF &
+            "      pattern: '^> Compiled task: " & "\[\[[^\]]+\]\]$'" & LF));
+      Rejects
+        (With_Body (H1_Ok & "  lead:" & LF & "    extra: 1" & LF),
+         "schema.body.lead.extra: unsupported v1 key");
+      Rejects
+        (With_Body (H1_Ok & "  lead:" & LF & "    required: ""true""" & LF),
+         "schema.body.lead.required: must be boolean");
+      Rejects
+        (With_Body (H1_Ok & "  lead: x" & LF),
+         "schema.body.lead.<non-mapping>: unsupported v1 key");
+      Rejects
+        (With_Body (H1_Ok & "  checklist:" & LF & "    extra: 1" & LF),
+         "schema.body.checklist.extra: unsupported v1 key");
+      Rejects
+        (With_Body (H1_Ok & "  checklist:" & LF & "    required: 1" & LF),
+         "schema.body.checklist.required: must be boolean");
+      Rejects
+        (With_Body (H1_Ok & "  checklist:" & LF & "    min_items: x" & LF),
+         "schema.body.checklist.min_items: must be integer");
+      Rejects
+        (With_Body (H1_Ok & "  checklist:" & LF & "    min_items: -1" & LF),
+         "schema.body.checklist.min_items: must not be negative");
+      Rejects
+        (With_Body
+           (H1_Ok & "  checklist:" & LF & "    allowed_children: x" & LF),
+         "schema.body.checklist.allowed_children:" & " must be a string list");
+      Accepts
+        (With_Body
+           (H1_Ok & "  checklist:" & LF & "    required: true" & LF &
+            "    min_items: 0" & LF & "    position: after_lead" & LF &
+            "    nested_items: forbidden" & LF &
+            "    allowed_children: [description]" & LF));
    end Preamble_Lead_And_Checklist_Are_Checked;
 
    ---------------------------------------------------------------------------
@@ -364,90 +418,108 @@ package body Synapse.Core.Note_Schema.Tests is
    procedure Checks_Are_Checked (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
    begin
-      Rejects (Head & Fm_Ok
-        & Body_Ok, "schema.checks: required list is missing");
-      Rejects (With_Checks ("checks: scalar"
-        & LF), "schema.checks: must be a list");
-      Rejects (With_Checks ("checks:" & LF & "  - message: hi" & LF),
-               "schema.checks[0]: exactly one rule operator is required");
-      Rejects (With_Checks ("checks:" & LF & "  - eq: [1, 1]" & LF
-                            & "  - eq: [1, 1]" & LF & "    and: [true]" & LF),
-               "schema.checks[1]: exactly one rule operator is required");
-      Rejects (With_Checks ("checks:" & LF & "  - plain" & LF),
-               "schema.checks[0]: exactly one rule operator is required");
-      Rejects (With_Checks ("checks:" & LF & "  - eq: [1, 1]" & LF
-                            & "    message: 5" & LF),
-               "schema.checks[0].message: must be string");
-      Rejects (With_Checks ("checks:" & LF & "  - eq: null" & LF),
-               "schema.checks[0].eq: a bare null is not valid here");
-      Rejects (With_Checks ("checks:" & LF & "  - bogus: 1" & LF),
-               "schema.checks[0]: unknown operator 'bogus'");
-      Rejects (With_Checks ("checks:" & LF & "  - and:" & LF
-                            & "      - eq: [1, 1]" & LF & "      - bogus: 1"
-                            & LF),
-               "schema.checks[0]: unknown operator 'bogus'");
-      Accepts (With_Checks ("checks:" & LF & "  - eq:" & LF
-                            & "      - var: filename.stem" & LF
-                            & "      - var: frontmatter.title" & LF
-                            & "    message: the title is the file name" & LF
-                            & "  - on_create:" & LF
-                            & "      var: id_is_unique" & LF
-                            & "  - not:" & LF & "      starts_with:" & LF
-                            & "        - var: a" & LF & "        - var: b" & LF
-                            & "  - all:" & LF
-                            & "      - var: frontmatter.tags" & LF
-                            & "      - in:" & LF & "          - var: ''" & LF
-                            & "          - var: vocabularies.tags" & LF));
+      Rejects
+        (Head & Fm_Ok & Body_Ok, "schema.checks: required list is missing");
+      Rejects
+        (With_Checks ("checks: scalar" & LF), "schema.checks: must be a list");
+      Rejects
+        (With_Checks ("checks:" & LF & "  - message: hi" & LF),
+         "schema.checks[0]: exactly one rule operator is required");
+      Rejects
+        (With_Checks
+           ("checks:" & LF & "  - eq: [1, 1]" & LF & "  - eq: [1, 1]" & LF &
+            "    and: [true]" & LF),
+         "schema.checks[1]: exactly one rule operator is required");
+      Rejects
+        (With_Checks ("checks:" & LF & "  - plain" & LF),
+         "schema.checks[0]: exactly one rule operator is required");
+      Rejects
+        (With_Checks
+           ("checks:" & LF & "  - eq: [1, 1]" & LF & "    message: 5" & LF),
+         "schema.checks[0].message: must be string");
+      Rejects
+        (With_Checks ("checks:" & LF & "  - eq: null" & LF),
+         "schema.checks[0].eq: a bare null is not valid here");
+      Rejects
+        (With_Checks ("checks:" & LF & "  - bogus: 1" & LF),
+         "schema.checks[0]: unknown operator 'bogus'");
+      Rejects
+        (With_Checks
+           ("checks:" & LF & "  - and:" & LF & "      - eq: [1, 1]" & LF &
+            "      - bogus: 1" & LF),
+         "schema.checks[0]: unknown operator 'bogus'");
+      Accepts
+        (With_Checks
+           ("checks:" & LF & "  - eq:" & LF & "      - var: filename.stem" &
+            LF & "      - var: frontmatter.title" & LF &
+            "    message: the title is the file name" & LF & "  - on_create:" &
+            LF & "      var: id_is_unique" & LF & "  - not:" & LF &
+            "      starts_with:" & LF & "        - var: a" & LF &
+            "        - var: b" & LF & "  - all:" & LF &
+            "      - var: frontmatter.tags" & LF & "      - in:" & LF &
+            "          - var: ''" & LF & "          - var: vocabularies.tags" &
+            LF));
    end Checks_Are_Checked;
 
    procedure Lints_Are_Checked (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
    begin
       Accepts (Head & Fm_Ok & Body_Ok & Checks_Ok);
-      Rejects (Head & Fm_Ok & Body_Ok & Checks_Ok & "lints: x" & LF,
-               "schema.lints: must be a list");
-      Rejects (With_Lints ("  - severity: warn" & LF),
-               "schema.lints[0]: exactly one rule operator is required");
-      Rejects (With_Lints ("  - no_hard_wrap:" & LF & "      var: body.prose"
-        & LF
-                           & "    severity: warn" & LF & "    extra: 1" & LF),
-               "schema.lints[0]: exactly one rule operator is required");
-      Rejects (With_Lints ("  - no_hard_wrap:" & LF & "      var: body.prose"
-        & LF
-                           & "    message: 5" & LF & "    severity: warn"
-                           & LF),
-               "schema.lints[0].message: must be string");
-      Rejects (With_Lints ("  - no_hard_wrap:" & LF & "      var: body.prose"
-        & LF),
-               "schema.lints[0].severity: required string is missing");
-      Rejects (With_Lints ("  - no_hard_wrap:" & LF & "      var: body.prose"
-        & LF
-                           & "    severity: critical" & LF),
-               "schema.lints[0].severity: unsupported value 'critical'");
-      Rejects (With_Lints ("  - not_a_real_operator:" & LF
-        & "      var: body.prose"
-                           & LF & "    severity: warn" & LF),
-               "schema.lints[0]: unknown operator 'not_a_real_operator'");
-      Rejects (With_Lints ("  - eq: null" & LF & "    severity: warn" & LF),
-               "schema.lints[0].eq: a bare null is not valid here");
-      Accepts (With_Lints ("  - no_hard_wrap:" & LF & "      var: body.prose"
-        & LF
-                           & "    severity: ignore" & LF));
-      Accepts (With_Lints ("  - no_hard_wrap:" & LF & "      var: body.prose"
-        & LF
-                           & "    severity: warn" & LF));
-      Accepts (With_Lints ("  - no_hard_wrap:" & LF & "      var: body.prose"
-        & LF
-                           & "    severity: error" & LF));
+      Rejects
+        (Head & Fm_Ok & Body_Ok & Checks_Ok & "lints: x" & LF,
+         "schema.lints: must be a list");
+      Rejects
+        (With_Lints ("  - severity: warn" & LF),
+         "schema.lints[0]: exactly one rule operator is required");
+      Rejects
+        (With_Lints
+           ("  - no_hard_wrap:" & LF & "      var: body.prose" & LF &
+            "    severity: warn" & LF & "    extra: 1" & LF),
+         "schema.lints[0]: exactly one rule operator is required");
+      Rejects
+        (With_Lints
+           ("  - no_hard_wrap:" & LF & "      var: body.prose" & LF &
+            "    message: 5" & LF & "    severity: warn" & LF),
+         "schema.lints[0].message: must be string");
+      Rejects
+        (With_Lints ("  - no_hard_wrap:" & LF & "      var: body.prose" & LF),
+         "schema.lints[0].severity: required string is missing");
+      Rejects
+        (With_Lints
+           ("  - no_hard_wrap:" & LF & "      var: body.prose" & LF &
+            "    severity: critical" & LF),
+         "schema.lints[0].severity: unsupported value 'critical'");
+      Rejects
+        (With_Lints
+           ("  - not_a_real_operator:" & LF & "      var: body.prose" & LF &
+            "    severity: warn" & LF),
+         "schema.lints[0]: unknown operator 'not_a_real_operator'");
+      Rejects
+        (With_Lints ("  - eq: null" & LF & "    severity: warn" & LF),
+         "schema.lints[0].eq: a bare null is not valid here");
+      Accepts
+        (With_Lints
+           ("  - no_hard_wrap:" & LF & "      var: body.prose" & LF &
+            "    severity: ignore" & LF));
+      Accepts
+        (With_Lints
+           ("  - no_hard_wrap:" & LF & "      var: body.prose" & LF &
+            "    severity: warn" & LF));
+      Accepts
+        (With_Lints
+           ("  - no_hard_wrap:" & LF & "      var: body.prose" & LF &
+            "    severity: error" & LF));
    end Lints_Are_Checked;
 
    procedure Severities_Parse (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
    begin
-      Assert (Parse_Severity ("ignore").Found
-              and then Parse_Severity ("ignore").Level = Ignore, "ignore");
-      Assert (Parse_Severity ("warn").Level = Warn, "warn");
-      Assert (Parse_Severity ("error").Level = Error_Level, "error");
+      Assert
+        (Parse_Severity ("ignore").Found
+         and then Parse_Severity ("ignore").Value = Ignore,
+         "ignore");
+      Assert (Parse_Severity ("warn").Value = Warn, "warn");
+      Assert (Parse_Severity ("error").Value = Error_Level, "error");
       Assert (not Parse_Severity ("critical").Found, "anything else");
       Assert (not Parse_Severity ("").Found, "empty");
       Assert (not Parse_Severity ("Warn").Found, "case matters");
@@ -456,12 +528,14 @@ package body Synapse.Core.Note_Schema.Tests is
    procedure The_Operators_Come_From_The_Set (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Source : constant String :=
-        With_Lints ("  - no_hard_wrap:" & LF & "      var: body.prose" & LF
-                    & "    severity: warn" & LF);
+        With_Lints
+          ("  - no_hard_wrap:" & LF & "      var: body.prose" & LF &
+           "    severity: warn" & LF);
    begin
-      Assert (Message_Of (Source, JSON_Logic.No_Operators)
-              = "schema.lints[0]: unknown operator 'no_hard_wrap'",
-              "unknown without the set");
+      Assert
+        (Message_Of (Source, JSON_Logic.No_Operators) =
+         "schema.lints[0]: unknown operator 'no_hard_wrap'",
+         "unknown without the set");
       Assert (Message_Of (Source, Operators) = "<valid>", "known with it");
    end The_Operators_Come_From_The_Set;
 
@@ -490,39 +564,53 @@ package body Synapse.Core.Note_Schema.Tests is
                Parsed : constant Schema_YAML.Parse_Result :=
                  Schema_YAML.Parse (Text);
             begin
-               Assert (Parsed.Ok, Name & " parses");
+               Assert
+                 (Schema_YAML.Parse_Results.Is_Success (Parsed),
+                  Name & " parses");
                declare
-                  Id     : constant String :=
-                    As_String (Member_Value (Parsed.Root, "id"));
+                  Id     : constant String       :=
+                    As_String
+                      (Member_Value
+                         (Schema_YAML.Parse_Results.Value (Parsed), "id"));
                   Result : constant Check_Result :=
-                    Validate_Schema (Parsed.Root, Id, Operators);
+                    Validate_Schema
+                      (Schema_YAML.Parse_Results.Value (Parsed), Id,
+                       Operators);
                begin
-                  Assert (Result.Valid,
-                          Name & " validates: "
-                          & (if Result.Valid then ""
-                             else Ada.Strings.Unbounded.To_String
-                                    (Result.Message)));
                   Assert
-                    (not Validate_Schema
-                           (Parsed.Root, "other/v1", Operators).Valid,
+                    (Check_Results.Is_Success (Result),
+                     Name & " validates: " &
+                     (if Check_Results.Is_Success (Result) then ""
+                      else Ada.Strings.Unbounded.To_String
+                          (Check_Results.Error (Result))));
+                  Assert
+                    (not Check_Results.Is_Success
+                       (Validate_Schema
+                          (Schema_YAML.Parse_Results.Value (Parsed),
+                           "other/v1", Operators)),
                      Name & " is bound to its own id");
                   if Name = "vault-note" then
                      declare
                         Stems : constant Schema_Rules.String_Array :=
-                          Schema_Rules.Needed_Vocabulary_Stems (Parsed.Root);
+                          Schema_Rules.Needed_Vocabulary_Stems
+                            (Schema_YAML.Parse_Results.Value (Parsed));
                      begin
                         Assert
                           (Stems'Length = 1
-                           and then Ada.Strings.Unbounded.To_String (Stems (1))
-                                    = "synapse-tag-vocabulary",
+                           and then
+                             Ada.Strings.Unbounded.To_String (Stems (1)) =
+                             "synapse-tag-vocabulary",
                            "vault-note reads the tag vocabulary");
-                        Assert (Schema_Rules.Needs_Identity_Scan (Parsed.Root),
-                                "vault-note checks identity");
+                        Assert
+                          (Schema_Rules.Needs_Identity_Scan
+                             (Schema_YAML.Parse_Results.Value (Parsed)),
+                           "vault-note checks identity");
                      end;
                   elsif Name = "graph-node" then
                      Assert
-                       (not Schema_Rules.Needs_Identity_Scan (Parsed.Root),
-                             "graph-node has no identity check");
+                       (not Schema_Rules.Needs_Identity_Scan
+                          (Schema_YAML.Parse_Results.Value (Parsed)),
+                        "graph-node has no identity check");
                   end if;
                end;
             end;
@@ -537,15 +625,13 @@ package body Synapse.Core.Note_Schema.Tests is
 
    ---------------------------------------------------------------------------
 
-   overriding
-   function Name (T : Test_Case) return AUnit.Message_String is
+   overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
       return AUnit.Format ("Synapse.Core.Note_Schema");
    end Name;
 
-   overriding
-   procedure Register_Tests (T : in out Test_Case) is
+   overriding procedure Register_Tests (T : in out Test_Case) is
       use AUnit.Test_Cases.Registration;
    begin
       Register_Routine

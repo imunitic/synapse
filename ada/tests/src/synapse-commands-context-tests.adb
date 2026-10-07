@@ -2,7 +2,6 @@ with Ada.Directories;
 with Ada.Strings.Unbounded;
 
 with AUnit.Assertions;
-
 with Synapse.Adapters.File_Bytes;
 with Synapse.Test_Environment;
 with Synapse.Test_Scratch;
@@ -52,20 +51,20 @@ package body Synapse.Commands.Context.Tests is
       begin
          Assert (Got.Found, "found");
          Assert
-           (To_String (Got.Item.Namespace) = "widget@main"
-            and then To_String (Got.Item.Repo_Root) = "/work/widget"
-            and then To_String (Got.Item.Branch) = "main",
+           (To_String (Got.Value.Namespace) = "widget@main"
+            and then To_String (Got.Value.Repo_Root) = "/work/widget"
+            and then To_String (Got.Value.Branch) = "main",
             "the pinned values");
          Assert
-           (To_String (Got.Item.Dir) = "synapse/widget@main"
-            and then To_String (Got.Item.Abs_Dir) =
+           (To_String (Got.Value.Dir) = "synapse/widget@main"
+            and then To_String (Got.Value.Abs_Dir) =
               Path (Dir, "vault") & "/synapse/widget@main",
             "its directory");
          Assert
-           (To_String (Got.Item.Work_Dir) =
+           (To_String (Got.Value.Work_Dir) =
             Path (Dir, "home") & "/.cache/synapse/work/widget@main",
             "the default work directory");
-         Assert (not Got.Item.Namespace_Explicit, "derived, not named");
+         Assert (not Got.Value.Namespace_Explicit, "derived, not named");
       end;
       Remove (Dir);
    exception
@@ -83,13 +82,13 @@ package body Synapse.Commands.Context.Tests is
       F.Vars.Set ("SYNAPSE_WORK_DIR", "/elsewhere");
       Assert
         (Ada.Strings.Unbounded.To_String
-           (Resolve (Env (F), "p").Item.Work_Dir) =
+           (Resolve (Env (F), "p").Value.Work_Dir) =
          "/elsewhere",
          "the variable wins");
       F.Vars.Set ("SYNAPSE_WORK_DIR", "");
       Assert
         (Ada.Strings.Unbounded.To_String
-           (Resolve (Env (F), "p").Item.Work_Dir) /=
+           (Resolve (Env (F), "p").Value.Work_Dir) /=
          "",
          "empty counts as unset");
       Remove (Dir);
@@ -181,16 +180,16 @@ package body Synapse.Commands.Context.Tests is
          Got : constant Maybe_Context :=
            Resolve_Explicit (Env (F), "p", "other@feature-y");
       begin
-         Assert (Got.Found and then Got.Item.Namespace_Explicit, "explicit");
+         Assert (Got.Found and then Got.Value.Namespace_Explicit, "explicit");
          Assert
-           (To_String (Got.Item.Branch) = "feature-y"
-            and then To_String (Got.Item.Repo_Root) = ""
-            and then To_String (Got.Item.Remote) = "",
+           (To_String (Got.Value.Branch) = "feature-y"
+            and then To_String (Got.Value.Repo_Root) = ""
+            and then To_String (Got.Value.Remote) = "",
             "the branch from the name, the rest empty");
       end;
       F.Vars.Set ("SYNAPSE_REPO_ROOT", "/r");
       Assert
-        (To_String (Resolve_Explicit (Env (F), "p", "a@b").Item.Repo_Root) =
+        (To_String (Resolve_Explicit (Env (F), "p", "a@b").Value.Repo_Root) =
          "/r",
          "a repository root from the environment");
       Remove (Dir);
@@ -230,10 +229,10 @@ package body Synapse.Commands.Context.Tests is
       declare
          Got : constant Maybe_Context := Resolve (Env (F), "p");
       begin
-         Assert (Natural (Got.Item.Chains.Length) = 2, "two chains");
+         Assert (Natural (Got.Value.Chains.Length) = 2, "two chains");
          Assert
-           (To_String (Got.Item.Chains (1)) = "src/main/java"
-            and then To_String (Got.Item.Chains (2)) = "src/lib",
+           (To_String (Got.Value.Chains (1)) = "src/main/java"
+            and then To_String (Got.Value.Chains (2)) = "src/lib",
             "trimmed, comments cut");
       end;
       Remove (Dir);
@@ -253,7 +252,7 @@ package body Synapse.Commands.Context.Tests is
       Adapters.File_Bytes.Write (Path (Dir, "chains.txt"), "a/b" & LF);
       F.Vars.Set ("SYNAPSE_MODULE_BOILERPLATE_CONF", Path (Dir, "chains.txt"));
       Assert
-        (Natural (Resolve (Env (F), "p").Item.Chains.Length) = 1,
+        (Natural (Resolve (Env (F), "p").Value.Chains.Length) = 1,
          "read from the named file");
       Remove (Dir);
    exception
@@ -270,7 +269,7 @@ package body Synapse.Commands.Context.Tests is
       F   : aliased Fixture;
    begin
       Pin (F, Dir);
-      Assert (Resolve (Env (F), "p").Item.Chains.Is_Empty, "no chains");
+      Assert (Resolve (Env (F), "p").Value.Chains.Is_Empty, "no chains");
       Assert (F.Console.Err_Text = "", "and nothing said");
       Remove (Dir);
    exception
@@ -290,7 +289,7 @@ package body Synapse.Commands.Context.Tests is
       Write_Index
         (Dir, "widget@main", "main", "https://host.example/org/widget.git");
       Assert
-        (Verify_Namespace (Env (F), Resolve (Env (F), "p").Item, "p"),
+        (Verify_Namespace (Env (F), Resolve (Env (F), "p").Value, "p"),
          "agrees");
       Assert (F.Console.Err_Text = "", "nothing said");
       Remove (Dir);
@@ -310,7 +309,7 @@ package body Synapse.Commands.Context.Tests is
       Write_Index
         (Dir, "widget@main", "other", "https://host.example/org/widget.git");
       Assert
-        (not Verify_Namespace (Env (F), Resolve (Env (F), "p").Item, "p"),
+        (not Verify_Namespace (Env (F), Resolve (Env (F), "p").Value, "p"),
          "refused");
       Assert
         (F.Console.Err_Text =
@@ -333,7 +332,7 @@ package body Synapse.Commands.Context.Tests is
       Pin (F, Dir);
       Write_Index (Dir, "widget@main", "main", "https://elsewhere/x.git");
       Assert
-        (not Verify_Namespace (Env (F), Resolve (Env (F), "p").Item, "p"),
+        (not Verify_Namespace (Env (F), Resolve (Env (F), "p").Value, "p"),
          "refused");
       Assert (F.Console.Err_Text = "", "the caller reports it");
       Remove (Dir);
@@ -357,14 +356,14 @@ package body Synapse.Commands.Context.Tests is
         (Path (Dir, "vault/synapse/widget@main/Index.md"),
          "---" & LF & "branch: main" & LF & "---" & LF);
       Assert
-        (Verify_Namespace (Env (F), Resolve (Env (F), "p").Item, "p"),
+        (Verify_Namespace (Env (F), Resolve (Env (F), "p").Value, "p"),
          "no remote on either side: both read as empty, which is equal");
       Adapters.File_Bytes.Write
         (Path (Dir, "vault/synapse/widget@main/Index.md"),
          "---" & LF & "branch: main" & LF & "remote: https://x/y.git" & LF &
          "---" & LF);
       Assert
-        (not Verify_Namespace (Env (F), Resolve (Env (F), "p").Item, "p"),
+        (not Verify_Namespace (Env (F), Resolve (Env (F), "p").Value, "p"),
          "an index that names a remote does not match a context with none");
       Remove (Dir);
    exception
@@ -380,7 +379,7 @@ package body Synapse.Commands.Context.Tests is
    begin
       Pin (F, Dir);
       Assert
-        (not Verify_Namespace (Env (F), Resolve (Env (F), "p").Item, "p"),
+        (not Verify_Namespace (Env (F), Resolve (Env (F), "p").Value, "p"),
          "refused");
       Assert
         (F.Console.Err_Text =
@@ -406,7 +405,7 @@ package body Synapse.Commands.Context.Tests is
       Write_Index (Dir, "widget@dev", "dev", "https://whatever/x.git");
       Assert
         (Verify_Namespace
-           (Env (F), Resolve_Explicit (Env (F), "p", "widget@dev").Item, "p"),
+           (Env (F), Resolve_Explicit (Env (F), "p", "widget@dev").Value, "p"),
          "there is no remote of the current directory to compare");
       Remove (Dir);
    exception
@@ -424,7 +423,7 @@ package body Synapse.Commands.Context.Tests is
       Ctx : Context;
    begin
       Pin (F, Dir);
-      Ctx := Resolve (Env (F), "p").Item;
+      Ctx := Resolve (Env (F), "p").Value;
       Assert
         (Node_Path (Ctx, "State machine") =
          Path (Dir, "vault") & "/synapse/widget@main/State machine.md",
@@ -451,14 +450,15 @@ package body Synapse.Commands.Context.Tests is
       Ctx : Context;
    begin
       Pin (F, Dir);
-      Ctx := Resolve (Env (F), "p").Item;
+      Ctx := Resolve (Env (F), "p").Value;
       Ada.Directories.Create_Path (Path (Dir, "vault/synapse/widget@main"));
       Adapters.File_Bytes.Write
         (Path (Dir, "vault/synapse/widget@main/State.md"), "body" & LF);
       Assert
         (Read_Node (Ctx, "State").Found
          and then
-           Ada.Strings.Unbounded.To_String (Read_Node (Ctx, "State.md").Text) =
+           Ada.Strings.Unbounded.To_String
+             (Read_Node (Ctx, "State.md").Value) =
            "body" & LF,
          "with and without the extension");
       Assert (not Read_Node (Ctx, "Missing").Found, "absent");

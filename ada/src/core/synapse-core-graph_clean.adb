@@ -1,7 +1,7 @@
 package body Synapse.Core.Graph_Clean is
 
    function Set_And_Not_Empty (Value : Maybe_Text) return Boolean is
-     (Value.Present and then Length (Value.Text) > 0);
+     (Value.Found and then Length (Value.Value) > 0);
 
    function Classify (F : Facts) return Verdict is
    begin
@@ -18,8 +18,8 @@ package body Synapse.Core.Graph_Clean is
       then
          return
            (if F.Upstream_Ref_Exists then (Kind => Keep)
-            else (Kind => Remove, Upstream_Remote => F.Upstream_Remote.Text,
-               Upstream_Branch => F.Upstream_Branch.Text));
+            else (Kind => Remove, Upstream_Remote => F.Upstream_Remote.Value,
+               Upstream_Branch => F.Upstream_Branch.Value));
       end if;
       return
         (if F.Local_Exists then (Kind => Keep)

@@ -1,6 +1,8 @@
 with Ada.Containers.Vectors;
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Optional_Text;
+
 --  The kind-synonym rule list: the suffix of a `locals.scm` capture
 --  (`@local.definition.<kind>`) mapped onto a tag's kind. The grammars
 --  converge on one shared kind vocabulary in their tag queries, but the
@@ -51,15 +53,7 @@ package Synapse.Core.Kind_Synonyms is
    function Is_Empty (List : Rule_List) return Boolean is
      (List.Rules.Is_Empty);
 
-   type Maybe_Kind (Found : Boolean := False) is record
-      case Found is
-         when True =>
-            Kind : Unbounded_String;
-
-         when False =>
-            null;
-      end case;
-   end record;
+   subtype Maybe_Kind is Synapse.Core.Optional_Text.Option;
 
    --  The kind of the first rule whose `match` is Spelling and whose scope is
    --  absent or is Grammar_Scope. None means unmapped: the caller drops the
