@@ -1,5 +1,4 @@
 with Ada.Directories;
-with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
 with Synapse.Test_Environment;
 with Synapse.Test_Scratch;

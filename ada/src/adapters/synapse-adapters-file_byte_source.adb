@@ -1,11 +1,10 @@
 with Ada.IO_Exceptions;
 with Ada.Streams;
+with Ada.Unchecked_Deallocation;
 
 package body Synapse.Adapters.File_Byte_Source is
 
    package SIO renames Ada.Streams.Stream_IO;
-
-   use type Ada.Streams.Stream_Element_Offset;
 
    procedure Open (S : in out Source; Path : String) is
    begin
@@ -43,20 +42,31 @@ package body Synapse.Adapters.File_Byte_Source is
          return "";
       end if;
       declare
-         Buffer :
-           Ada.Streams.Stream_Element_Array
+         --  On the heap: a blob can be larger than the stack.
+         type Buffer_Access is access Ada.Streams.Stream_Element_Array;
+         procedure Free is new Ada.Unchecked_Deallocation
+           (Ada.Streams.Stream_Element_Array, Buffer_Access);
+         Buffer : Buffer_Access :=
+           new Ada.Streams.Stream_Element_Array
              (1 .. Ada.Streams.Stream_Element_Offset (Count));
          Last   : Ada.Streams.Stream_Element_Offset;
       begin
-         SIO.Set_Index (S.File, SIO.Positive_Count (From + 1));
-         SIO.Read (S.File, Buffer, Last);
-         return Result : String (1 .. Natural (Last)) do
-            for I in Result'Range loop
-               Result (I) :=
-                 Character'Val
-                   (Buffer (Ada.Streams.Stream_Element_Offset (I)));
-            end loop;
-         end return;
+         begin
+            SIO.Set_Index (S.File, SIO.Positive_Count (From + 1));
+            SIO.Read (S.File, Buffer.all, Last);
+            return Result : String (1 .. Natural (Last)) do
+               for I in Result'Range loop
+                  Result (I) :=
+                    Character'Val
+                      (Buffer (Ada.Streams.Stream_Element_Offset (I)));
+               end loop;
+               Free (Buffer);
+            end return;
+         exception
+            when others =>
+               Free (Buffer);
+               raise;
+         end;
       end;
    exception
       when Ada.IO_Exceptions.Device_Error | Ada.IO_Exceptions.Use_Error

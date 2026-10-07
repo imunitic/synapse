@@ -1,6 +1,7 @@
 with Ada.Directories;
 with Ada.IO_Exceptions;
 
+with Synapse.Adapters.Conf_Files;
 with Synapse.Adapters.File_Bytes;
 with Synapse.Adapters.Git_Identity;
 with Synapse.Commands.Context;
@@ -127,6 +128,59 @@ package body Synapse.Commands.Graph_Support is
       when Runner_Port.Process_Failure =>
          return "";
    end Repo_Root;
+
+   function Has_Usable_Extension
+     (Path : String; Usable : Lists.Vector) return Boolean
+   is
+      Name_First : Positive := Path'First;
+      Dot        : Natural := 0;
+   begin
+      for I in reverse Path'Range loop
+         if Path (I) = '/' then
+            Name_First := I + 1;
+            exit;
+         end if;
+      end loop;
+      for I in reverse Name_First .. Path'Last loop
+         if Path (I) = '.' then
+            Dot := I;
+            exit;
+         end if;
+      end loop;
+      if Dot = 0 or else Dot = Name_First then
+         return False;
+      end if;
+      return
+        Usable.Contains (To_Unbounded_String (Path (Dot + 1 .. Path'Last)));
+   end Has_Usable_Extension;
+
+   procedure Load_Rule_Registry
+     (Env : Environment; Variable_Name, Conf_Name : String;
+      Rules : out Core.Namespace.Registry; Ok : out Boolean)
+   is
+      Found : constant Adapters.Conf_Files.Maybe_Path :=
+        Adapters.Conf_Files.Resolve_Conf_Path (Env.Vars.all, Conf_Name);
+      Named : constant Synapse.Ports.Variables.Maybe_Value :=
+        Env.Vars.Get (Variable_Name);
+      Path  : constant String :=
+        (if Named.Found then To_String (Named.Value)
+         elsif Found.Found then To_String (Found.Value)
+         else Set_Variable (Env, "HOME") & "/.claude/" & Conf_Name);
+      Text  : Unbounded_String;
+      Read  : Boolean;
+   begin
+      Rules := Core.Namespace.Parse ("{}");
+      Ok := True;
+      Read_File (Path, 8 * 1_024 * 1_024, Text, Read);
+      if Read then
+         Rules := Core.Namespace.Parse (To_String (Text));
+      elsif Ada.Directories.Exists (Path) then
+         Ok := False;
+      end if;
+   exception
+      when Core.Namespace.Malformed =>
+         Ok := False;
+   end Load_Rule_Registry;
 
    function Max_Listing_Bytes
      (Env : Environment; Default : Natural) return Natural

@@ -1,12 +1,16 @@
 with Ada.Strings.Unbounded;
 
+with Synapse.Commands.Brief;
 with Synapse.Commands.Cli_Args;
 with Synapse.Commands.Build_Lists;
 with Synapse.Commands.Declared;
 with Synapse.Commands.Enumerate;
 with Synapse.Commands.Frontmatter;
+with Synapse.Commands.Gate;
 with Synapse.Commands.Index;
+with Synapse.Commands.Link_Graph;
 with Synapse.Commands.Project_Index;
+with Synapse.Commands.Rank;
 with Synapse.Commands.Refs;
 with Synapse.Commands.Tags;
 with Synapse.Commands.Tags_Cache;
@@ -15,6 +19,7 @@ with Synapse.Commands.Vault_Links;
 with Synapse.Commands.Vault_Read;
 with Synapse.Commands.Vault_Search;
 with Synapse.Commands.Vault_Write;
+with Synapse.Commands.Vocab;
 with Synapse.Commands.Namespace;
 with Synapse.Commands.Now;
 with Synapse.Commands.Show_Context;
@@ -62,6 +67,11 @@ package body Synapse.Commands.Dispatch is
    Build_Deps_Name          : aliased constant String := "build-deps";
    Build_Namespaces_Name    : aliased constant String := "build-namespaces";
    Build_Project_Index_Name : aliased constant String := "build-project-index";
+   Vocab_Name : aliased constant String := "vocab";
+   Rank_Name : aliased constant String := "rank";
+   Gate_Name : aliased constant String := "gate";
+   Link_Graph_Name : aliased constant String := "link-graph";
+   Brief_Name : aliased constant String := "brief";
    Frontmatter_Name         : aliased constant String := "frontmatter";
 
    Table : constant array (Positive range <>) of Entry_Type :=
@@ -96,6 +106,11 @@ package body Synapse.Commands.Dispatch is
      (Build_Deps_Name'Access, Declared.Run_Deps'Access),
      (Build_Namespaces_Name'Access, Declared.Run_Namespaces'Access),
      (Build_Project_Index_Name'Access, Project_Index.Run'Access),
+     (Vocab_Name'Access, Vocab.Run'Access),
+     (Rank_Name'Access, Rank.Run'Access),
+     (Gate_Name'Access, Gate.Run'Access),
+     (Link_Graph_Name'Access, Link_Graph.Run'Access),
+     (Brief_Name'Access, Brief.Run'Access),
      (Build_Index_Name'Access, Index.Run_Build_Index'Access)];
 
    function Find (Name : String) return Run_Access is

@@ -23,7 +23,7 @@ is
    overriding procedure Adjust (V : in out Value) is
    begin
       if V.Ref /= null then
-         V.Ref.Count := V.Ref.Count + 1;
+         System.Atomic_Counters.Increment (V.Ref.Count);
       end if;
    end Adjust;
 
@@ -32,8 +32,7 @@ is
    begin
       V.Ref := null;
       if Doomed /= null then
-         Doomed.Count := Doomed.Count - 1;
-         if Doomed.Count = 0 then
+         if System.Atomic_Counters.Decrement (Doomed.Count) then
             Free (Doomed);
          end if;
       end if;
@@ -47,24 +46,24 @@ is
    ---------------------------------------------------------------------------
 
    function Make_Boolean (B : Boolean) return Value is
-     (Wrap (new Node'(K => JSON_Boolean, Count => 1, Flag => B)));
+     (Wrap (new Node'(K => JSON_Boolean, Count => <>, Flag => B)));
 
    function Make_Integer (I : Long_Long_Integer) return Value is
-     (Wrap (new Node'(K => JSON_Integer, Count => 1, Int => I)));
+     (Wrap (new Node'(K => JSON_Integer, Count => <>, Int => I)));
 
    function Make_Float (F : Long_Float) return Value is
-     (Wrap (new Node'(K => JSON_Float, Count => 1, Flt => F)));
+     (Wrap (new Node'(K => JSON_Float, Count => <>, Flt => F)));
 
    function Make_Number_String (Text : String) return Value is
      (Wrap
         (new Node'
-           (K    => JSON_Number_String, Count => 1,
+           (K    => JSON_Number_String, Count => <>,
             Text => To_Unbounded_String (Text))));
 
    function Make_String (S : String) return Value is
      (Wrap
         (new Node'
-           (K => JSON_String, Count => 1, Text => To_Unbounded_String (S))));
+           (K => JSON_String, Count => <>, Text => To_Unbounded_String (S))));
 
    function Make_Array (Items : Value_Array) return Value is
       Vector : Value_Vectors.Vector;
@@ -72,7 +71,7 @@ is
       for Item of Items loop
          Vector.Append (Item);
       end loop;
-      return Wrap (new Node'(K => JSON_Array, Count => 1, Items => Vector));
+      return Wrap (new Node'(K => JSON_Array, Count => <>, Items => Vector));
    end Make_Array;
 
    --  Adds a member, or replaces the value of an existing key in place.
@@ -96,7 +95,8 @@ is
       for M of Members loop
          Put_Member (Vector, M.Key, M.Item);
       end loop;
-      return Wrap (new Node'(K => JSON_Object, Count => 1, Members => Vector));
+      return
+        Wrap (new Node'(K => JSON_Object, Count => <>, Members => Vector));
    end Make_Object;
 
    ---------------------------------------------------------------------------
@@ -411,7 +411,7 @@ is
          if Peek = ']' then
             Pos := Pos + 1;
             return
-              Wrap (new Node'(K => JSON_Array, Count => 1, Items => Items));
+              Wrap (new Node'(K => JSON_Array, Count => <>, Items => Items));
          end if;
          loop
             Skip_Whitespace;
@@ -425,7 +425,8 @@ is
                   Pos := Pos + 1;
                   return
                     Wrap
-                      (new Node'(K => JSON_Array, Count => 1, Items => Items));
+                      (new Node'
+                         (K => JSON_Array, Count => <>, Items => Items));
 
                when others =>
                   Fail (Unexpected_Character, Pos);
@@ -445,7 +446,7 @@ is
             Pos := Pos + 1;
             return
               Wrap
-                (new Node'(K => JSON_Object, Count => 1, Members => Members));
+                (new Node'(K => JSON_Object, Count => <>, Members => Members));
          end if;
          loop
             Skip_Whitespace;
@@ -468,7 +469,7 @@ is
                   return
                     Wrap
                       (new Node'
-                         (K => JSON_Object, Count => 1, Members => Members));
+                         (K => JSON_Object, Count => <>, Members => Members));
 
                when others =>
                   Fail (Unexpected_Character, Pos);
@@ -491,7 +492,7 @@ is
                   S : constant Unbounded_String := Parse_String;
                begin
                   return
-                    Wrap (new Node'(K => JSON_String, Count => 1, Text => S));
+                    Wrap (new Node'(K => JSON_String, Count => <>, Text => S));
                end;
 
             when 't' =>

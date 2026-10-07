@@ -3,6 +3,7 @@ with Ada.Directories;
 with Ada.Environment_Variables;
 with Ada.Streams;
 with Ada.Streams.Stream_IO;
+with Ada.Unchecked_Deallocation;
 
 with Synapse.Core.Decimal_Image;
 
@@ -16,7 +17,8 @@ package body Synapse.Adapters.File_Bytes is
    function Read (Path : String; Limit : Natural) return String is
       File : IO.File_Type;
    begin
-      IO.Open (File, IO.In_File, Path);
+      --  Shared: tasks may read the same file at once.
+      IO.Open (File, IO.In_File, Path, Form => "shared=yes");
       declare
          Length : constant IO.Count := IO.Size (File);
       begin
@@ -25,23 +27,35 @@ package body Synapse.Adapters.File_Bytes is
             raise Too_Large with Path;
          end if;
          declare
-            Data :
-              Ada.Streams.Stream_Element_Array
+            --  On the heap: a file can be larger than the stack.
+            type Data_Access is access Ada.Streams.Stream_Element_Array;
+            procedure Free is new Ada.Unchecked_Deallocation
+              (Ada.Streams.Stream_Element_Array, Data_Access);
+            Data : Data_Access :=
+              new Ada.Streams.Stream_Element_Array
                 (1 .. Ada.Streams.Stream_Element_Offset (Length));
             Last : Ada.Streams.Stream_Element_Offset;
-            Text : String (1 .. Natural (Length));
          begin
-            IO.Read (File, Data, Last);
-            IO.Close (File);
-            if Last /= Data'Last then
-               raise Ada.Streams.Stream_IO.Data_Error
-                 with "short read: " & Path;
-            end if;
-            for I in Text'Range loop
-               Text (I) :=
-                 Character'Val (Data (Ada.Streams.Stream_Element_Offset (I)));
-            end loop;
-            return Text;
+            begin
+               IO.Read (File, Data.all, Last);
+               IO.Close (File);
+               if Last /= Data'Last then
+                  raise Ada.Streams.Stream_IO.Data_Error
+                    with "short read: " & Path;
+               end if;
+               return Text : String (1 .. Natural (Length)) do
+                  for I in Text'Range loop
+                     Text (I) :=
+                       Character'Val
+                         (Data (Ada.Streams.Stream_Element_Offset (I)));
+                  end loop;
+                  Free (Data);
+               end return;
+            exception
+               when others =>
+                  Free (Data);
+                  raise;
+            end;
          end;
       end;
    exception
@@ -116,13 +130,27 @@ package body Synapse.Adapters.File_Bytes is
       return Ada.Directories.Current_Directory;
    end Temp_Dir;
 
-   Counter : Natural := 0;
+   --  Tasks may ask for temporary files at once.
+   protected Sequence is
+      procedure Next (Value : out Natural);
+   private
+      Last : Natural := 0;
+   end Sequence;
+
+   protected body Sequence is
+      procedure Next (Value : out Natural) is
+      begin
+         Last  := Last + 1;
+         Value := Last;
+      end Next;
+   end Sequence;
 
    function Temp_File (Content : String := "") return String is
-      Stamp : constant Natural :=
+      Stamp   : constant Natural :=
         Natural (Ada.Calendar.Seconds (Ada.Calendar.Clock) * 1_000.0);
+      Counter : Natural;
    begin
-      Counter := Counter + 1;
+      Sequence.Next (Counter);
       return
         Path : constant String :=
           Ada.Directories.Full_Name

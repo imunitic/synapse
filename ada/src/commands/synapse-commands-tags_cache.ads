@@ -16,6 +16,20 @@ package Synapse.Commands.Tags_Cache is
    --  settings are unreadable, or the commit failed. Nothing is said, since a
    --  caller that refreshes in passing does not fail for it; the cache is
    --  read after this returns, never across it.
+   type Backfill_Outcome is (Done, Could_Not_Tag, Could_Not_Commit);
+
+   --  The same, saying which part failed: the settings or the extraction
+   --  that tags, or the commit that records it. The files to tag are cut
+   --  into slices of Chunk (at least 500 when it is 0, or enough to give
+   --  each processor one), and each slice is tagged by a task with an
+   --  extractor of its own; the slices are put back in order before the one
+   --  commit, so the cache does not depend on how many tasks there were.
+   function Backfill_Detailed
+     (Env       :        Environment; Repo_Root : String;
+      Cache     : in out Adapters.Tags_Cache.Cache;
+      Requested :        Adapters.Tags_Cache.Path_Hash_Vectors.Vector;
+      Chunk     :        Natural := 0) return Backfill_Outcome;
+
    function Backfill
      (Env       :        Environment; Repo_Root : String;
       Cache     : in out Adapters.Tags_Cache.Cache;

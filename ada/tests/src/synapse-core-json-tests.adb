@@ -20,8 +20,7 @@ package body Synapse.Core.JSON.Tests is
 
    Suite_Dir : constant String := "../testdata/json";
 
-   function Parses (Text : String) return Boolean
-   is (Parse (Text).Ok);
+   function Parses (Text : String) return Boolean is (Parse (Text).Ok);
 
    function Parsed (Text : String) return Value is
       Result : constant Parse_Result := Parse (Text);
@@ -37,12 +36,11 @@ package body Synapse.Core.JSON.Tests is
       return Result;
    end Failure_Of;
 
-   function Byte (N : Natural) return String
-   is [Character'Val (N)];
+   function Byte (N : Natural) return String is [Character'Val (N)];
 
    --  A backslash-u escape, spelled without writing one in source.
-   function Esc (Hex : String) return String
-   is (Character'Val (92) & "u" & Hex);
+   function Esc (Hex : String) return String is
+     (Character'Val (92) & "u" & Hex);
 
    ---------------------------------------------------------------------------
    --  JSONTestSuite
@@ -51,8 +49,7 @@ package body Synapse.Core.JSON.Tests is
    function Read_File (Path : String) return String is
       File : Ada.Streams.Stream_IO.File_Type;
    begin
-      Ada.Streams.Stream_IO.Open
-        (File, Ada.Streams.Stream_IO.In_File, Path);
+      Ada.Streams.Stream_IO.Open (File, Ada.Streams.Stream_IO.In_File, Path);
       declare
          Size   : constant Natural :=
            Natural (Ada.Streams.Stream_IO.Size (File));
@@ -123,8 +120,7 @@ package body Synapse.Core.JSON.Tests is
                   end case;
                exception
                   when E : others =>
-                     Record_Wrong
-                       (Name, Ada.Exceptions.Exception_Name (E));
+                     Record_Wrong (Name, Ada.Exceptions.Exception_Name (E));
                end;
             end if;
          end;
@@ -134,8 +130,8 @@ package body Synapse.Core.JSON.Tests is
       Assert (Wrong_N = 0, To_String (Wrong));
       Assert
         (Accepted + Rejected + Optional >= 300,
-         "the suite was read in full:"
-         & Natural'Image (Accepted + Rejected + Optional));
+         "the suite was read in full:" &
+         Natural'Image (Accepted + Rejected + Optional));
    end Conforms_To_JSONTestSuite;
 
    ---------------------------------------------------------------------------
@@ -146,23 +142,27 @@ package body Synapse.Core.JSON.Tests is
       pragma Unreferenced (T);
       Fields : constant Member_Array :=
         [(To_Unbounded_String ("b"), Make_Integer (2)),
-         (To_Unbounded_String ("a"), Make_Boolean (True)),
-         (To_Unbounded_String ("b"), Make_String ("two"))];
-      Obj    : constant Value := Make_Object (Fields);
-      Arr    : constant Value :=
+        (To_Unbounded_String ("a"), Make_Boolean (True)),
+        (To_Unbounded_String ("b"), Make_String ("two"))];
+      Obj    : constant Value        := Make_Object (Fields);
+      Arr    : constant Value        :=
         Make_Array ([Make_Integer (1), Null_Value, Make_Float (2.5)]);
    begin
       Assert (Kind_Of (Null_Value) = JSON_Null, "null");
-      Assert (Kind_Of (Obj) = JSON_Object and then Length (Obj) = 2,
-              "a repeated key does not add a member");
-      Assert (Member_Key (Obj, 1) = "b" and then Member_Key (Obj, 2) = "a",
-              "members keep source order");
-      Assert (As_String (Member_Value (Obj, "b")) = "two",
-              "the later value replaces the earlier one in place");
+      Assert
+        (Kind_Of (Obj) = JSON_Object and then Length (Obj) = 2,
+         "a repeated key does not add a member");
+      Assert
+        (Member_Key (Obj, 1) = "b" and then Member_Key (Obj, 2) = "a",
+         "members keep source order");
+      Assert
+        (As_String (Member_Value (Obj, "b")) = "two",
+         "the later value replaces the earlier one in place");
       Assert (As_Boolean (Member_At (Obj, 2)), "member by index");
       Assert (not Has_Member (Obj, "c"), "absent key");
-      Assert (Length (Arr) = 3 and then Kind_Of (Element (Arr, 2)) = JSON_Null,
-              "array elements");
+      Assert
+        (Length (Arr) = 3 and then Kind_Of (Element (Arr, 2)) = JSON_Null,
+         "array elements");
       Assert (As_Integer (Element (Arr, 1)) = 1, "integer");
       Assert (As_Float (Element (Arr, 3)) = 2.5, "float");
    end Builds_And_Reads_Values;
@@ -170,14 +170,16 @@ package body Synapse.Core.JSON.Tests is
    procedure Equality_Is_Structural (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
    begin
-      Assert (Parsed ("{""a"":1,""b"":[true,null]}")
-              = Parsed ("{""b"":[true,null],""a"":1}"),
-              "object member order is ignored");
+      Assert
+        (Parsed ("{""a"":1,""b"":[true,null]}") =
+         Parsed ("{""b"":[true,null],""a"":1}"),
+         "object member order is ignored");
       Assert (Parsed ("[1,2]") /= Parsed ("[2,1]"), "array order counts");
       Assert (Parsed ("1") /= Parsed ("1.0"), "an integer is not a float");
       Assert (Parsed ("""a""") /= Parsed ("[""a""]"), "kinds differ");
-      Assert (Parsed ("{""a"":1}") /= Parsed ("{""a"":1,""b"":2}"),
-              "member counts differ");
+      Assert
+        (Parsed ("{""a"":1}") /= Parsed ("{""a"":1,""b"":2}"),
+         "member counts differ");
       Assert (Parsed ("{""a"":1}") /= Parsed ("{""b"":1}"), "keys differ");
       Assert (Null_Value = Parsed ("null"), "null equals null");
    end Equality_Is_Structural;
@@ -188,7 +190,7 @@ package body Synapse.Core.JSON.Tests is
    begin
       for I in 1 .. 1_000 loop
          declare
-            Copy : constant Value := Original;
+            Copy  : constant Value := Original;
             Inner : constant Value := Element (Copy, 2);
          begin
             if Length (Inner) /= 2 or else Copy /= Original then
@@ -196,8 +198,9 @@ package body Synapse.Core.JSON.Tests is
             end if;
          end;
       end loop;
-      Assert (To_String (Original) = "[1,[2,3],{""k"":""v""}]",
-              "the original is intact after its copies are gone");
+      Assert
+        (To_String (Original) = "[1,[2,3],{""k"":""v""}]",
+         "the original is intact after its copies are gone");
    end Copies_Share_One_Tree;
 
    ---------------------------------------------------------------------------
@@ -207,31 +210,38 @@ package body Synapse.Core.JSON.Tests is
    procedure Classifies_Numbers (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
 
-      function Is_Kind (Text : String; K : Kind) return Boolean
-      is (Kind_Of (Parsed (Text)) = K);
+      function Is_Kind (Text : String; K : Kind) return Boolean is
+        (Kind_Of (Parsed (Text)) = K);
    begin
       Assert (Is_Kind ("0", JSON_Integer), "0");
       Assert (Is_Kind ("-0", JSON_Integer), "-0 is the integer 0");
       Assert (As_Integer (Parsed ("-0")) = 0, "-0 has value 0");
-      Assert (Is_Kind ("9223372036854775807", JSON_Integer),
-              "largest integer");
-      Assert (Is_Kind ("9223372036854775808", JSON_Number_String),
-              "one more keeps its digits");
-      Assert (Is_Kind ("-9223372036854775808", JSON_Integer),
-              "smallest integer");
-      Assert (Is_Kind ("-9223372036854775809", JSON_Number_String),
-              "one less keeps its digits");
-      Assert (As_String (Parsed ("123456789012345678901234567890"))
-              = "123456789012345678901234567890", "big integer digits");
+      Assert
+        (Is_Kind ("9223372036854775807", JSON_Integer), "largest integer");
+      Assert
+        (Is_Kind ("9223372036854775808", JSON_Number_String),
+         "one more keeps its digits");
+      Assert
+        (Is_Kind ("-9223372036854775808", JSON_Integer), "smallest integer");
+      Assert
+        (Is_Kind ("-9223372036854775809", JSON_Number_String),
+         "one less keeps its digits");
+      Assert
+        (As_String (Parsed ("123456789012345678901234567890")) =
+         "123456789012345678901234567890",
+         "big integer digits");
       Assert (Is_Kind ("1.5", JSON_Float), "fraction");
       Assert (Is_Kind ("1e2", JSON_Float), "exponent");
       Assert (As_Float (Parsed ("1e2")) = 100.0, "1e2 is 100");
-      Assert (As_Float (Parsed ("-1.5E-3")) = -0.0015, "signed exponent");
-      Assert (Is_Kind ("1E400", JSON_Number_String),
-              "a float out of range keeps its digits");
+      Assert (As_Float (Parsed ("-1.5E-3")) = -0.001_5, "signed exponent");
+      Assert
+        (Is_Kind ("1E400", JSON_Number_String),
+         "a float out of range keeps its digits");
       Assert (As_String (Parsed ("1E400")) = "1E400", "and its text");
-      Assert (Is_Kind ("1e-400", JSON_Float) or else
-              Is_Kind ("1e-400", JSON_Number_String), "tiny exponent");
+      Assert
+        (Is_Kind ("1e-400", JSON_Float)
+         or else Is_Kind ("1e-400", JSON_Number_String),
+         "tiny exponent");
    end Classifies_Numbers;
 
    ---------------------------------------------------------------------------
@@ -246,8 +256,9 @@ package body Synapse.Core.JSON.Tests is
       is
          R : constant Parse_Result := Failure_Of (Text);
       begin
-         Assert (R.Error = Reason and then R.Offset = At_Offset,
-                 "for " & Text & " got " & R.Error'Image & R.Offset'Image);
+         Assert
+           (R.Error = Reason and then R.Offset = At_Offset,
+            "for " & Text & " got " & R.Error'Image & R.Offset'Image);
       end Check;
    begin
       Check ("", Unexpected_End, 0);
@@ -272,8 +283,8 @@ package body Synapse.Core.JSON.Tests is
    procedure Limits_Nesting_Depth (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
 
-      function Nested (Depth : Natural) return String
-      is (String'(1 .. Depth => '[') & String'(1 .. Depth => ']'));
+      function Nested (Depth : Natural) return String is
+        (String'(1 .. Depth => '[') & String'(1 .. Depth => ']'));
 
       function Nested_Objects (Depth : Natural) return String is
          Result : Unbounded_String;
@@ -289,13 +300,16 @@ package body Synapse.Core.JSON.Tests is
       end Nested_Objects;
    begin
       Assert (Parses (Nested (Max_Depth)), "512 nested arrays parse");
-      Assert (Failure_Of (Nested (Max_Depth + 1)).Error = Too_Deep,
-              "513 nested arrays are too deep");
+      Assert
+        (Failure_Of (Nested (Max_Depth + 1)).Error = Too_Deep,
+         "513 nested arrays are too deep");
       Assert (Parses (Nested_Objects (Max_Depth)), "512 nested objects parse");
-      Assert (Failure_Of (Nested_Objects (Max_Depth + 1)).Error = Too_Deep,
-              "513 nested objects are too deep");
-      Assert (Failure_Of (String'(1 .. 200_000 => '[')).Error = Too_Deep,
-              "a huge opening run fails instead of overflowing the stack");
+      Assert
+        (Failure_Of (Nested_Objects (Max_Depth + 1)).Error = Too_Deep,
+         "513 nested objects are too deep");
+      Assert
+        (Failure_Of (String'(1 .. 200_000 => '[')).Error = Too_Deep,
+         "a huge opening run fails instead of overflowing the stack");
    end Limits_Nesting_Depth;
 
    ---------------------------------------------------------------------------
@@ -305,30 +319,29 @@ package body Synapse.Core.JSON.Tests is
    procedure Unescapes_Strings (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Short_Escapes : constant String :=
-        Character'Val (92) & "n" & Character'Val (92) & """"
-        & Character'Val (92) & Character'Val (92) & Character'Val (92) & "/"
-        & Character'Val (92) & "b" & Character'Val (92) & "f"
-        & Character'Val (92) & "r" & Character'Val (92) & "t";
-      Expected : constant String :=
-        Byte (16#C3#) & Byte (16#A9#)
-        & Byte (16#F0#) & Byte (16#9F#) & Byte (16#98#) & Byte (16#80#)
-        & Byte (10) & """" & Character'Val (92) & "/" & Byte (8) & Byte (12)
-        & Byte (13) & Byte (9) & Byte (0);
+        Character'Val (92) & "n" & Character'Val (92) & """" &
+        Character'Val (92) & Character'Val (92) & Character'Val (92) & "/" &
+        Character'Val (92) & "b" & Character'Val (92) & "f" &
+        Character'Val (92) & "r" & Character'Val (92) & "t";
+      Expected      : constant String :=
+        Byte (16#C3#) & Byte (16#A9#) & Byte (16#F0#) & Byte (16#9F#) &
+        Byte (16#98#) & Byte (16#80#) & Byte (10) & """" & Character'Val (92) &
+        "/" & Byte (8) & Byte (12) & Byte (13) & Byte (9) & Byte (0);
    begin
       Assert
         (As_String
            (Parsed
-              ("""" & Esc ("00e9") & Esc ("d83d") & Esc ("de00")
-               & Short_Escapes & Esc ("0000") & """"))
-         = Expected, "escapes become UTF-8");
+              ("""" & Esc ("00e9") & Esc ("d83d") & Esc ("de00") &
+               Short_Escapes & Esc ("0000") & """")) =
+         Expected,
+         "escapes become UTF-8");
       Assert
-        (As_String (Parsed ("""" & Esc ("D83D") & Esc ("DE00") & """"))
-         = Byte (16#F0#) & Byte (16#9F#) & Byte (16#98#) & Byte (16#80#),
+        (As_String (Parsed ("""" & Esc ("D83D") & Esc ("DE00") & """")) =
+         Byte (16#F0#) & Byte (16#9F#) & Byte (16#98#) & Byte (16#80#),
          "upper-case hex digits");
       Assert
-        (As_String
-           (Parsed ("""" & Byte (16#C3#) & Byte (16#A9#) & """"))
-         = Byte (16#C3#) & Byte (16#A9#),
+        (As_String (Parsed ("""" & Byte (16#C3#) & Byte (16#A9#) & """")) =
+         Byte (16#C3#) & Byte (16#A9#),
          "raw UTF-8 passes through");
    end Unescapes_Strings;
 
@@ -344,28 +357,30 @@ package body Synapse.Core.JSON.Tests is
       Assert (To_String (Make_Integer (-42)) = "-42", "integer");
       Assert (To_String (Parsed ("[ ]")) = "[]", "empty array");
       Assert (To_String (Parsed ("{ }")) = "{}", "empty object");
-      Assert (To_String (Parsed (" { ""b"" : [ 1 , 2 ] , ""a"" : { } } "))
-              = "{""b"":[1,2],""a"":{}}",
-              "no whitespace; members in source order");
-      Assert (To_String (Make_Number_String ("12345678901234567890"))
-              = "12345678901234567890", "number strings are verbatim");
+      Assert
+        (To_String (Parsed (" { ""b"" : [ 1 , 2 ] , ""a"" : { } } ")) =
+         "{""b"":[1,2],""a"":{}}",
+         "no whitespace; members in source order");
+      Assert
+        (To_String (Make_Number_String ("12345678901234567890")) =
+         "12345678901234567890",
+         "number strings are verbatim");
    end Writes_Compact_JSON;
 
    procedure Escapes_Strings_When_Writing (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Raw : constant String :=
-        "q"" b\ s/ " & Byte (8) & Byte (12) & Byte (10) & Byte (13)
-        & Byte (9) & Byte (1) & Byte (31) & Byte (127)
-        & Byte (16#C3#) & Byte (16#A9#);
+        "q"" b\ s/ " & Byte (8) & Byte (12) & Byte (10) & Byte (13) &
+        Byte (9) & Byte (1) & Byte (31) & Byte (127) & Byte (16#C3#) &
+        Byte (16#A9#);
    begin
       Assert
-        (To_String (Make_String (Raw))
-         = """q" & Character'Val (92) & """ b" & Character'Val (92)
-           & Character'Val (92) & " s/ " & Character'Val (92) & "b"
-           & Character'Val (92) & "f" & Character'Val (92) & "n"
-           & Character'Val (92) & "r" & Character'Val (92) & "t"
-           & Esc ("0001") & Esc ("001f") & Byte (127)
-           & Byte (16#C3#) & Byte (16#A9#) & """",
+        (To_String (Make_String (Raw)) =
+         """q" & Character'Val (92) & """ b" & Character'Val (92) &
+         Character'Val (92) & " s/ " & Character'Val (92) & "b" &
+         Character'Val (92) & "f" & Character'Val (92) & "n" &
+         Character'Val (92) & "r" & Character'Val (92) & "t" & Esc ("0001") &
+         Esc ("001f") & Byte (127) & Byte (16#C3#) & Byte (16#A9#) & """",
          "short escapes, \u00XX, and everything else as is");
    end Escapes_Strings_When_Writing;
 
@@ -374,9 +389,9 @@ package body Synapse.Core.JSON.Tests is
 
       procedure Check (F : Long_Float; Expected : String) is
       begin
-         Assert (To_String (Make_Float (F)) = Expected,
-                 "got " & To_String (Make_Float (F))
-                 & " expected " & Expected);
+         Assert
+           (To_String (Make_Float (F)) = Expected,
+            "got " & To_String (Make_Float (F)) & " expected " & Expected);
       end Check;
    begin
       Check (0.0, "0.0");
@@ -385,9 +400,9 @@ package body Synapse.Core.JSON.Tests is
       Check (0.5, "0.5");
       Check (0.1, "0.1");
       Check (100.0, "100.0");
-      Check (123456789.125, "123456789.125");
+      Check (123_456_789.125, "123456789.125");
       Check (1.0 / 3.0, "0.3333333333333333");
-      Check (0.0001, "0.0001");
+      Check (0.000_1, "0.0001");
       Check (1.0e-7, "1.0e-7");
       Check (1.5e300, "1.5e+300");
       Check (-1.0e25, "-1.0e+25");
@@ -447,13 +462,14 @@ package body Synapse.Core.JSON.Tests is
             return Make_Boolean (Next (2) = 1);
 
          when 2 =>
-            return Make_Integer
-              (Long_Long_Integer (Next (1_000_000)) - 500_000);
+            return
+              Make_Integer (Long_Long_Integer (Next (1_000_000)) - 500_000);
 
          when 3 =>
-            return Make_Float
-              ((Long_Float (Next (2_000_000)) - 1_000_000.0)
-               / Long_Float (1 + Next (1_000)));
+            return
+              Make_Float
+                ((Long_Float (Next (2_000_000)) - 1_000_000.0) /
+                 Long_Float (1 + Next (1_000)));
 
          when 4 =>
             return
@@ -491,8 +507,8 @@ package body Synapse.Core.JSON.Tests is
    begin
       for I in 1 .. 3_000 loop
          declare
-            V    : constant Value := Random_Value (0);
-            Text : constant String := To_String (V);
+            V    : constant Value        := Random_Value (0);
+            Text : constant String       := To_String (V);
             R    : constant Parse_Result := Parse (Text);
          begin
             if not R.Ok then
@@ -514,27 +530,25 @@ package body Synapse.Core.JSON.Tests is
       for I in 1 .. 6_000 loop
          declare
             Source : constant String :=
-              (if I mod 2 = 0
-               then To_String (Random_Value (0))
+              (if I mod 2 = 0 then To_String (Random_Value (0))
                else "[1,{""a"":""b""},null]");
-            Text   : String := Source;
+            Text   : String          := Source;
          begin
             --  Mutate a few bytes, or truncate.
             for K in 1 .. 1 + Next (4) loop
                if Text'Length > 0 then
                   Text (Text'First + Next (Text'Length)) :=
-                    (if Next (4) = 0
-                     then Character'Val (Next (256))
+                    (if Next (4) = 0 then Character'Val (Next (256))
                      else Alphabet (Alphabet'First + Next (Alphabet'Length)));
                end if;
             end loop;
             declare
-               Cut    : constant Natural := Next (Text'Length + 1);
-               Probe  : constant String :=
-                 (if Next (5) = 0
-                  then Text (Text'First .. Text'First + Cut - 1)
+               Cut   : constant Natural      := Next (Text'Length + 1);
+               Probe : constant String       :=
+                 (if Next (5) = 0 then
+                    Text (Text'First .. Text'First + Cut - 1)
                   else Text);
-               R      : constant Parse_Result := Parse (Probe);
+               R     : constant Parse_Result := Parse (Probe);
             begin
                if R.Ok and then not Parse (To_String (R.Item)).Ok then
                   Assert (False, "an accepted input does not re-parse");
@@ -554,8 +568,8 @@ package body Synapse.Core.JSON.Tests is
    procedure Scans_Numbers (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
 
-      function Scan (S : String) return Natural
-      is (Lexical.Scan_Number (S, S'First));
+      function Scan (S : String) return Natural is
+        (Lexical.Scan_Number (S, S'First));
    begin
       Assert (Scan ("0") = 1, "0");
       Assert (Scan ("-12.5e+3,") = 8, "full grammar, stops at the comma");
@@ -575,20 +589,24 @@ package body Synapse.Core.JSON.Tests is
    procedure Decodes_Hex_And_Surrogates (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
    begin
-      Assert (Lexical.Hex_Value ('0') = 0 and then Lexical.Hex_Value ('9') = 9,
-              "digits");
+      Assert
+        (Lexical.Hex_Value ('0') = 0 and then Lexical.Hex_Value ('9') = 9,
+         "digits");
       Assert
         (Lexical.Hex_Value ('a') = 10 and then Lexical.Hex_Value ('F') = 15,
          "letters");
       Assert
         (Lexical.Hex_Value ('g') = -1 and then Lexical.Hex_Value (' ') = -1,
          "not hex");
-      Assert (Lexical.Combine_Surrogates (16#D83D#, 16#DE00#) = 16#1F600#,
-              "grinning face");
-      Assert (Lexical.Combine_Surrogates (16#D800#, 16#DC00#) = 16#1_0000#,
-              "first supplementary");
-      Assert (Lexical.Combine_Surrogates (16#DBFF#, 16#DFFF#) = 16#10_FFFF#,
-              "last scalar");
+      Assert
+        (Lexical.Combine_Surrogates (16#D83D#, 16#DE00#) = 16#1_F600#,
+         "grinning face");
+      Assert
+        (Lexical.Combine_Surrogates (16#D800#, 16#DC00#) = 16#1_0000#,
+         "first supplementary");
+      Assert
+        (Lexical.Combine_Surrogates (16#DBFF#, 16#DFFF#) = 16#10_FFFF#,
+         "last scalar");
    end Decodes_Hex_And_Surrogates;
 
    procedure Measures_Escaped_Length (T : in out Test_Cases_Class) is
@@ -605,15 +623,49 @@ package body Synapse.Core.JSON.Tests is
 
    ---------------------------------------------------------------------------
 
-   overriding
-   function Name (T : Test_Case) return AUnit.Message_String is
+   overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
       return AUnit.Format ("Synapse.Core.JSON");
    end Name;
 
-   overriding
-   procedure Register_Tests (T : in out Test_Case) is
+   Shared : Value;
+
+   --  Copies and drops copies of Shared, as the tasks that tag do.
+   task type Copier (Rounds : Positive) is
+      entry Go;
+   end Copier;
+
+   task body Copier is
+      Total : Natural := 0;
+   begin
+      accept Go;
+      for I in 1 .. Rounds loop
+         declare
+            Mine  : constant Value := Shared;
+            Again : constant Value := Mine;
+         begin
+            Total := Total + Length (Again);
+         end;
+      end loop;
+   end Copier;
+
+   procedure Tasks_Share_One_Value (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+   begin
+      Shared := Parsed ("{""a"": [1, 2, 3], ""b"": {""c"": ""d""}}");
+      declare
+         Tasks : array (1 .. 8) of Copier (20_000);
+      begin
+         for Each of Tasks loop
+            Each.Go;
+         end loop;
+      end;
+      Assert (Length (Shared) = 2, "still whole after the copies");
+      Assert (Length (Member_Value (Shared, "a")) = 3, "and its parts");
+   end Tasks_Share_One_Value;
+
+   overriding procedure Register_Tests (T : in out Test_Case) is
       use AUnit.Test_Cases.Registration;
    begin
       Register_Routine
@@ -630,8 +682,7 @@ package body Synapse.Core.JSON.Tests is
       Register_Routine
         (T, Limits_Nesting_Depth'Access, "Limits nesting depth");
       Register_Routine (T, Unescapes_Strings'Access, "Unescapes strings");
-      Register_Routine
-        (T, Writes_Compact_JSON'Access, "Writes compact JSON");
+      Register_Routine (T, Writes_Compact_JSON'Access, "Writes compact JSON");
       Register_Routine
         (T, Escapes_Strings_When_Writing'Access,
          "Escapes strings when writing");
@@ -648,6 +699,8 @@ package body Synapse.Core.JSON.Tests is
         (T, Decodes_Hex_And_Surrogates'Access, "Decodes hex and surrogates");
       Register_Routine
         (T, Measures_Escaped_Length'Access, "Measures escaped length");
+      Register_Routine
+        (T, Tasks_Share_One_Value'Access, "Tasks share one value");
    end Register_Tests;
 
 end Synapse.Core.JSON.Tests;

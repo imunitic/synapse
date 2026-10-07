@@ -1,5 +1,6 @@
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Namespace;
 with Synapse.Core.Optional_Text;
 
 --  What the commands over a namespace's work directory share: finding the
@@ -27,6 +28,20 @@ package Synapse.Commands.Graph_Support is
    --  when Repo is empty: `git rev-parse --show-toplevel`. Empty when it is
    --  in none.
    function Repo_Root (Env : Environment; Repo : String) return String;
+
+   --  Whether the name of Path ends in `.ext` for an Ext of Usable. A name
+   --  that only starts with its dot, as `.profile` does, has no extension.
+   function Has_Usable_Extension
+     (Path : String; Usable : Lists.Vector) return Boolean;
+
+   --  A registry of per extension rules (`synapse-namespace-rules.conf`,
+   --  `synapse-dependency-rules.conf`): the file Variable_Name names when that
+   --  is set, else Conf_Name found through the configuration tiers, else in
+   --  the home's `.claude`. A missing file is no rules; Ok is false for one
+   --  that is there and cannot be read or is not JSON.
+   procedure Load_Rule_Registry
+     (Env : Environment; Variable_Name, Conf_Name : String;
+      Rules : out Core.Namespace.Registry; Ok : out Boolean);
 
    --  How many bytes of a listing a command reads: `SYNAPSE_MAX_LISTING_BYTES`
    --  when it is a number, else Default. Raising it is a deliberate act of

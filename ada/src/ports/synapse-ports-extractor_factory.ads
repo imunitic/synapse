@@ -30,4 +30,11 @@ package Synapse.Ports.Extractor_Factory is
      (F : in out Factory; S : Settings)
       return not null access Extractor.Locating_Extractor'Class is abstract;
 
+   --  An extractor for one of several tasks tagging at once: Index names
+   --  it, and two indexes never share state. Like Locating's it belongs to
+   --  the factory. Called before the tasks start, never from them.
+   function Worker
+     (F : in out Factory; S : Settings; Index : Positive)
+      return not null access Extractor.Locating_Extractor'Class is abstract;
+
 end Synapse.Ports.Extractor_Factory;

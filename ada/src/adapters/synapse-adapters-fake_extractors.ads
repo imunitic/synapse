@@ -15,4 +15,10 @@ package Synapse.Adapters.Fake_Extractors is
      (F : in out Fake_Factory; S : Synapse.Ports.Extractor_Factory.Settings)
       return not null access Synapse.Ports.Extractor.Locating_Extractor'Class;
 
+   --  The one scripted extractor for every index; it serializes its calls.
+   overriding function Worker
+     (F : in out Fake_Factory; S : Synapse.Ports.Extractor_Factory.Settings;
+      Index :        Positive)
+      return not null access Synapse.Ports.Extractor.Locating_Extractor'Class;
+
 end Synapse.Adapters.Fake_Extractors;

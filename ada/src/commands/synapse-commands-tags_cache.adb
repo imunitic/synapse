@@ -1,6 +1,7 @@
 with Ada.Containers.Vectors;
 with Ada.Directories;
 with Ada.Strings.Unbounded;
+with System.Multiprocessors;
 
 with Synapse.Commands.Graph_Support;
 with Synapse.Commands.Tagging_Support;
@@ -12,6 +13,7 @@ with Synapse.Core.Kind_Synonyms;
 with Synapse.Core.Tag_Line;
 with Synapse.Core.Tag_Payload;
 with Synapse.Ports.Extractor;
+with Synapse.Ports.Extractor_Factory;
 
 package body Synapse.Commands.Tags_Cache is
 
@@ -32,18 +34,117 @@ package body Synapse.Commands.Tags_Cache is
    HT   : constant Character := ASCII.HT;
 
    Usage_Text : constant String :=
-     "usage: synapse tags-cache --repo-root <dir> --cache <file> --paths <tsv>" &
-     LF & "       synapse tags-cache --dump <file>" & LF &
+     "usage: synapse tags-cache --repo-root <dir> --cache <file> " &
+     "--paths <tsv>" & LF & "       synapse tags-cache --dump <file>" & LF &
      "       synapse tags-cache --load <file>   (reads --dump's format on " &
      "stdin)" & LF & "       synapse tags-cache --refs <file>" & LF;
 
    function Issue_Name (Why : Cache_Adapter.Issue) return String is
      (Core.Fault_Names.Camel (Cache_Adapter.Issue'Image (Why)));
 
-   function Backfill
+   --  What one task tags: its slice of the paths in, its outcomes out.
+   type Slice is record
+      Paths   : Lists.Vector;
+      Results : Port.Outcome_Vectors.Vector;
+      Failed  : Boolean := False;
+   end record;
+
+   type Slice_Access is access all Slice;
+
+   type Extractor_Access is access all Port.Extractor'Class;
+   type Text_Access is access constant String;
+
+   task type Tag_Task is
+      entry Start
+        (Mine : Slice_Access; Using : Extractor_Access; Root : Text_Access);
+   end Tag_Task;
+
+   task body Tag_Task is
+      Slot : Slice_Access;
+      Ex   : Extractor_Access;
+      From : Text_Access;
+   begin
+      accept Start
+        (Mine : Slice_Access; Using : Extractor_Access; Root : Text_Access)
+      do
+         Slot := Mine;
+         Ex   := Using;
+         From := Root;
+      end Start;
+      begin
+         Slot.Results := Ex.Extract (From.all, Slot.Paths);
+      exception
+         when others =>
+            Slot.Failed := True;
+      end;
+   end Tag_Task;
+
+   --  Every path's outcome, in the order of Paths. Raises when a task
+   --  failed.
+   function Tag_All
+     (Env   : Environment; Repo_Root : String; Paths : Lists.Vector;
+      Using : Ports.Extractor_Factory.Settings; Chunk : Natural)
+      return Port.Outcome_Vectors.Vector
+   is
+      Cores   : constant Positive :=
+        Positive (System.Multiprocessors.Number_Of_CPUs);
+      Total   : constant Positive := Natural (Paths.Length);
+      Size    : constant Positive :=
+        (if Chunk > 0 then Chunk
+         else Positive'Max (500, (Total + Cores - 1) / Cores));
+      Workers : constant Positive :=
+        Positive'Min (Cores, (Total + Size - 1) / Size);
+   begin
+      if Workers = 1 then
+         return Env.Extractors.Locating (Using).Extract (Repo_Root, Paths);
+      end if;
+      declare
+         Root   : aliased constant String := Repo_Root;
+         Slots  : array (1 .. Workers) of aliased Slice;
+         Result : Port.Outcome_Vectors.Vector;
+         Failed : Boolean                 := False;
+         Given  : Natural                 := 0;
+      begin
+         for W in Slots'Range loop
+            declare
+               Take : constant Natural :=
+                 (if W = Workers then Total - Given
+                  else Natural'Min (Size, Total - Given));
+            begin
+               for K in Given + 1 .. Given + Take loop
+                  Slots (W).Paths.Append (Paths (K));
+               end loop;
+               Given := Given + Take;
+            end;
+         end loop;
+         declare
+            Tasks : array (1 .. Workers) of Tag_Task;
+         begin
+            for W in Tasks'Range loop
+               Tasks (W).Start
+                 (Slots (W)'Unchecked_Access,
+                  Extractor_Access (Env.Extractors.Worker (Using, W)),
+                  Root'Unchecked_Access);
+            end loop;
+         end;
+         for Item of Slots loop
+            Failed := Failed or else Item.Failed;
+         end loop;
+         if Failed then
+            raise Program_Error with "a tagging worker failed";
+         end if;
+         for Item of Slots loop
+            Result.Append (Item.Results);
+         end loop;
+         return Result;
+      end;
+   end Tag_All;
+
+   function Backfill_Detailed
      (Env       :        Environment; Repo_Root : String;
       Cache     : in out Cache_Adapter.Cache;
-      Requested :        Cache_Adapter.Path_Hash_Vectors.Vector) return Boolean
+      Requested : Cache_Adapter.Path_Hash_Vectors.Vector; Chunk : Natural := 0)
+      return Backfill_Outcome
    is
       Need    : constant Cache_Adapter.Path_Hash_Vectors.Vector :=
         Cache_Adapter.Needs_Tagging (Cache, Requested);
@@ -54,11 +155,16 @@ package body Synapse.Commands.Tags_Cache is
       if Need.Is_Empty then
          --  The common case. An absent cache must still exist afterwards.
          if not Cache_Adapter.Is_Open (Cache) then
-            Ignored :=
-              Cache_Adapter.Commit
-                (Cache, Updates, Lists.Vectors.Empty_Vector);
+            begin
+               Ignored :=
+                 Cache_Adapter.Commit
+                   (Cache, Updates, Lists.Vectors.Empty_Vector);
+            exception
+               when others =>
+                  return Could_Not_Commit;
+            end;
          end if;
-         return True;
+         return Done;
       end if;
       for Item of Need loop
          Paths.Append (Item.Path);
@@ -75,22 +181,22 @@ package body Synapse.Commands.Tags_Cache is
       begin
          Tagging.Load_Registry (Env, Registry, Registry_Path, Status);
          if Status /= Tagging.Loaded then
-            return False;
+            return Could_Not_Tag;
          end if;
          Tagging.Grammars_Dir (Env, Dir, Have_Dir);
          if not Have_Dir then
-            return False;
+            return Could_Not_Tag;
          end if;
          Tagging.Load_Rules (Env, Rules, Rules_Path, Status);
          if Status /= Tagging.Loaded then
-            return False;
+            return Could_Not_Tag;
          end if;
          declare
-            Extractor : constant not null access Port.Extractor'Class :=
-              Env.Extractors.Locating
-                (Tagging.Settings_For (Env, Registry, To_String (Dir), Rules));
-            Results   : constant Port.Outcome_Vectors.Vector          :=
-              Extractor.Extract (Repo_Root, Paths);
+            Results : constant Port.Outcome_Vectors.Vector :=
+              Tag_All
+                (Env, Repo_Root, Paths,
+                 Tagging.Settings_For (Env, Registry, To_String (Dir), Rules),
+                 Chunk);
          begin
             for I in 1 .. Natural (Need.Length) loop
                if Results (I).Kind = Port.Unsupported then
@@ -114,14 +220,25 @@ package body Synapse.Commands.Tags_Cache is
                end if;
             end loop;
          end;
+      exception
+         when others =>
+            return Could_Not_Tag;
       end;
-      Ignored :=
-        Cache_Adapter.Commit (Cache, Updates, Lists.Vectors.Empty_Vector);
-      return True;
-   exception
-      when others =>
-         return False;
-   end Backfill;
+      begin
+         Ignored :=
+           Cache_Adapter.Commit (Cache, Updates, Lists.Vectors.Empty_Vector);
+      exception
+         when others =>
+            return Could_Not_Commit;
+      end;
+      return Done;
+   end Backfill_Detailed;
+
+   function Backfill
+     (Env       :        Environment; Repo_Root : String;
+      Cache     : in out Cache_Adapter.Cache;
+      Requested :    Cache_Adapter.Path_Hash_Vectors.Vector) return Boolean is
+     (Backfill_Detailed (Env, Repo_Root, Cache, Requested) = Done);
 
    function Update
      (Env : Environment; Repo_Root, Cache_Path, Paths_File : String)

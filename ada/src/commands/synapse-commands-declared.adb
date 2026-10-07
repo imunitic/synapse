@@ -1,7 +1,5 @@
-with Ada.Directories;
 with Ada.Strings.Unbounded;
 
-with Synapse.Adapters.Conf_Files;
 with Synapse.Adapters.Disk_Repo_Reader;
 with Synapse.Commands.Cli_Args;
 with Synapse.Commands.Enumerate;
@@ -9,7 +7,6 @@ with Synapse.Commands.Graph_Support;
 with Synapse.Core.Decimal_Image;
 with Synapse.Core.Deps;
 with Synapse.Core.Namespace;
-with Synapse.Ports.Variables;
 
 package body Synapse.Commands.Declared is
 
@@ -36,45 +33,19 @@ package body Synapse.Commands.Declared is
       (if Which = Dependencies then "_deps.tsv." else "_namespaces.tsv.") &
       LF);
 
-   function Variable (Env : Environment; Name : String) return String is
-      Got : constant Ports.Variables.Maybe_Value := Env.Vars.Get (Name);
-   begin
-      return (if Got.Found then To_String (Got.Value) else "");
-   end Variable;
-
-   --  The rules of Which: the variable names a file, else the tiers, else
-   --  the home's. A missing file is no rules. False after saying why not.
+   --  The rules of Which. False after saying nothing: the caller says why.
    procedure Load_Rules
      (Env :     Environment; Which : Kind; Rules : out Core.Namespace.Registry;
       Ok  : out Boolean)
    is
-      Variable_Name : constant String                         :=
-        (if Which = Dependencies then "SYNAPSE_DEPENDENCY_RULES_CONF"
-         else "SYNAPSE_NAMESPACE_RULES_CONF");
-      Conf_Name     : constant String                         :=
-        (if Which = Dependencies then "synapse-dependency-rules.conf"
-         else "synapse-namespace-rules.conf");
-      Found         : constant Adapters.Conf_Files.Maybe_Path :=
-        Adapters.Conf_Files.Resolve_Conf_Path (Env.Vars.all, Conf_Name);
-      Path          : constant String                         :=
-        (if Env.Vars.Get (Variable_Name).Found then
-           Variable (Env, Variable_Name)
-         elsif Found.Found then To_String (Found.Value)
-         else Variable (Env, "HOME") & "/.claude/" & Conf_Name);
-      Text          : Unbounded_String;
-      Read          : Boolean;
    begin
-      Rules := Core.Namespace.Parse ("{}");
-      Ok    := True;
-      Support.Read_File (Path, 8 * 1_024 * 1_024, Text, Read);
-      if Read then
-         Rules := Core.Namespace.Parse (To_String (Text));
-      elsif Ada.Directories.Exists (Path) then
-         Ok := False;
-      end if;
-   exception
-      when Core.Namespace.Malformed =>
-         Ok := False;
+      Support.Load_Rule_Registry
+        (Env,
+         (if Which = Dependencies then "SYNAPSE_DEPENDENCY_RULES_CONF"
+          else "SYNAPSE_NAMESPACE_RULES_CONF"),
+         (if Which = Dependencies then "synapse-dependency-rules.conf"
+          else "synapse-namespace-rules.conf"),
+         Rules, Ok);
    end Load_Rules;
 
    function Run_Kind

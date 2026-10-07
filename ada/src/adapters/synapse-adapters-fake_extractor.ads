@@ -16,6 +16,10 @@ package Synapse.Adapters.Fake_Extractor is
    --  What to answer for Path.
    procedure Script (F : in out Fake; Path : String; Answer : Port.Outcome);
 
+   --  Make asking about Path raise Program_Error, as an extractor that
+   --  breaks does.
+   procedure Script_Failure (F : in out Fake; Path : String);
+
    --  What to answer for a path with no script. Tags with none at first.
    procedure Set_Default (F : in out Fake; Answer : Port.Outcome);
 
@@ -43,8 +47,18 @@ private
    package Scripts is new Ada.Containers.Indefinite_Hashed_Maps
      (String, Port.Outcome, Ada.Strings.Hash, "=");
 
+   --  Extract may be called by several tasks at once.
+   protected type Mutex is
+      entry Seize;
+      procedure Release;
+   private
+      Held : Boolean := False;
+   end Mutex;
+
    type Fake is limited new Port.Locating_Extractor with record
+      Lock     : Mutex;
       Scripted : Scripts.Map;
+      Failing  : Core.Text_Lists.Set;
       Default  : Port.Outcome := (Kind => Port.With_Tags, others => <>);
       Count    : Natural      := 0;
       Asked    : Core.Text_Lists.Vector;
