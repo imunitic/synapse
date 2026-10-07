@@ -342,14 +342,14 @@ ada-ucd:
 
 # Regenerate the Unicode tables from the downloaded UCD files.
 ada-gen-unicode: ada-ucd
-    cd {{ ada_dir }}/tools && alr -n build --validation && alr -n run --skip-build --args="../ucd ../src/core {{ ucd_version }}"
+    cd {{ ada_dir }}/tools && alr -n build --validation && alr -n run --skip-build --args="../ucd ../src/core/text {{ ucd_version }}"
 
 # Fail if the committed Unicode tables differ from what the generator produces.
 ada-gen-check: ada-ucd
     mkdir -p {{ ada_dir }}/ucd/check
     cd {{ ada_dir }}/tools && alr -n build --validation && alr -n run --skip-build --args="../ucd ../ucd/check {{ ucd_version }}"
-    cmp {{ ada_dir }}/src/core/synapse-core-unicode_tables.ads {{ ada_dir }}/ucd/check/synapse-core-unicode_tables.ads
-    cmp {{ ada_dir }}/src/core/synapse-core-unicode_tables.adb {{ ada_dir }}/ucd/check/synapse-core-unicode_tables.adb
+    cmp {{ ada_dir }}/src/core/text/synapse-core-unicode_tables.ads {{ ada_dir }}/ucd/check/synapse-core-unicode_tables.ads
+    cmp {{ ada_dir }}/src/core/text/synapse-core-unicode_tables.adb {{ ada_dir }}/ucd/check/synapse-core-unicode_tables.adb
 
 tree_sitter_commit := "42f33fe2f8ddef5617a8536723c5d2b8a19a615e"
 

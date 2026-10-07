@@ -11,9 +11,15 @@ project Synapse_Tests is
       "src/core/util", "src/adapters", "src/adapters/caches",
       "src/adapters/fakes", "src/adapters/git", "src/adapters/stores",
       "src/adapters/system", "src/adapters/tree_sitter", "src/commands",
-      "src/hooks", "../src/core", "../src/ports", "../src/adapters",
-      "../src/commands", "../src/hooks", "../" & Synapse_Platform.Platform_Dir,
-      "config/");
+      "src/hooks", "../src/core", "../src/core/config", "../src/core/formats",
+      "../src/core/graph", "../src/core/json", "../src/core/notes",
+      "../src/core/text", "../src/core/util", "../src/ports", "../src/adapters",
+      "../src/adapters/caches", "../src/adapters/fakes", "../src/adapters/git",
+      "../src/adapters/stores", "../src/adapters/system",
+      "../src/adapters/tree_sitter", "../src/commands", "../src/commands/checks",
+      "../src/commands/cli", "../src/commands/graph", "../src/commands/orient",
+      "../src/commands/tagging", "../src/commands/vault", "../src/hooks",
+      "../" & Synapse_Platform.Platform_Dir, "config/");
    for Object_Dir use "obj/" & Synapse_Tests_Config.Build_Profile;
    for Create_Missing_Dirs use "True";
    for Exec_Dir use "bin";

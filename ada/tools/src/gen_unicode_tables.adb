@@ -1,4 +1,4 @@
---  Regenerates src/core/synapse-core-unicode_tables.ads and .adb from the
+--  Regenerates src/core/text/synapse-core-unicode_tables.ads and .adb from the
 --  Unicode Character Database files:
 --
 --     gen_unicode_tables <ucd-dir> <output-dir> <unicode-version>
