@@ -23,3 +23,17 @@ CLAUDE.local.md
 # ~/Development/synapse/scripts/) -- never part of a build or package.
 scripts/
 
+
+# Build products and downloads of the Ada crate.
+obj/
+bin/
+config/
+alire/
+ucd/
+testdata/
+
+# Loose GNAT build products from a one-off compile in this directory.
+b~*
+*.ali
+*.o
+*.bexch
