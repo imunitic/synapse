@@ -36,6 +36,9 @@ package Synapse.Adapters.Index_Map is
 
    function Discarded (M : Map) return Issue;
 
+   --  Whether a readable index was opened: not for a missing or empty file.
+   function Is_Open (M : Map) return Boolean;
+
    --  The number of paths with an owner, of nodes, and of unassigned paths.
    function Count (M : Map) return Natural;
    function Node_Count (M : Map) return Natural;
@@ -52,6 +55,12 @@ package Synapse.Adapters.Index_Map is
    function Nodes_For (M : in out Map; Path : String) return Maybe_Nodes;
 
    function Unassigned (M : in out Map) return Core.Text_Lists.Vector;
+
+   --  The name of every node that claims a path, ascending.
+   function Node_Names (M : in out Map) return Core.Text_Lists.Vector;
+
+   --  Every claimed path, in byte order.
+   function Paths (M : in out Map) return Core.Text_Lists.Vector;
 
    --  Writes Bytes to Path through a temporary file and a rename, so that a
    --  reader sees the old index whole or the new one, never half of either.

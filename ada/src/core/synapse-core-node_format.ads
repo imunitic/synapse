@@ -51,6 +51,11 @@ package Synapse.Core.Node_Format is
 
    Repo_Root_Module : constant String := "(repo root)";
 
+   --  How many nodes a namespace can have. Every reader of `lists/` goes
+   --  through slugs `001` to this number, so one past it would be written and
+   --  never read. Tied to the three digit width of the slugs.
+   Max_Nodes : constant := 200;
+
    --  The grouping of the `## Sources` mirror and of `query sources
    --  --modules`.
    --

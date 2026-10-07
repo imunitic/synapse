@@ -206,6 +206,26 @@ package body Synapse.Adapters.Index_Map.Tests is
          raise;
    end An_Unreadable_File_Opens_Empty_And_Says_So;
 
+   procedure Names_And_Paths_Are_Listed_In_Order (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Dir : constant Scratch := Make;
+      M   : Map;
+   begin
+      Open (M, Path (Dir, "_index.bin"));
+      Assert (not Is_Open (M), "an absent file is not open");
+      Assert (Node_Names (M).Is_Empty and then Paths (M).Is_Empty, "no lists");
+      Write_File (Path (Dir, "_index.bin"), Sample_Bytes);
+      Open (M, Path (Dir, "_index.bin"));
+      Assert (Is_Open (M), "open");
+      Assert (Joined (Node_Names (M)) = "Engine.md;Zeta.md;", "node names");
+      Assert (Joined (Paths (M)) = "src/a.wdg;src/b.wdg;", "claimed paths");
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end Names_And_Paths_Are_Listed_In_Order;
+
    overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
@@ -236,6 +256,9 @@ package body Synapse.Adapters.Index_Map.Tests is
       Register_Routine
         (T, An_Unreadable_File_Opens_Empty_And_Says_So'Access,
          "An unreadable file opens empty and says so");
+      Register_Routine
+        (T, Names_And_Paths_Are_Listed_In_Order'Access,
+         "Names and paths are listed in order");
    end Register_Tests;
 
 end Synapse.Adapters.Index_Map.Tests;

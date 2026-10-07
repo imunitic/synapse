@@ -71,6 +71,10 @@ package Synapse.Commands.Context is
    function Verify_Namespace
      (Env : Environment; Ctx : Context; Prog : String) return Boolean;
 
+   --  The work directory of a namespace: `SYNAPSE_WORK_DIR` when set, else
+   --  one under the home's cache named for it.
+   function Work_Dir_For (Env : Environment; Namespace : String) return String;
+
    --  A node's absolute path, whether Name has its `.md` or not.
    function Node_Path (Ctx : Context; Name : String) return String;
 

@@ -50,4 +50,46 @@ package body Synapse.Core.Enumerate is
       return False;
    end Is_Binary;
 
+   --  Generated files whose names identify them, each delimited by spaces.
+   Noise_Names : constant String :=
+     " package-lock.json npm-shrinkwrap.json yarn.lock pnpm-lock.yaml " &
+     "Cargo.lock poetry.lock Pipfile.lock uv.lock Gemfile.lock " &
+     "composer.lock go.sum mix.lock pubspec.lock packages.lock.json " &
+     "flake.lock ";
+
+   function Ends_With (Name, Suffix : String) return Boolean is
+     (Name'Length >= Suffix'Length
+      and then Name (Name'Last - Suffix'Length + 1 .. Name'Last) = Suffix);
+
+   function Is_Noise (Path : String) return Boolean is
+      Name_First : Natural := Path'First;
+   begin
+      for I in reverse Path'Range loop
+         if Path (I) = '/' then
+            Name_First := I + 1;
+            exit;
+         end if;
+      end loop;
+      declare
+         Name : constant String := Path (Name_First .. Path'Last);
+      begin
+         if Name'Length > 0 and then (for all C of Name => C /= ' ') then
+            for I in Noise_Names'First .. Noise_Names'Last - Name'Length - 1
+            loop
+               if Noise_Names (I) = ' '
+                 and then Noise_Names (I + 1 .. I + Name'Length) = Name
+                 and then Noise_Names (I + Name'Length + 1) = ' '
+               then
+                  return True;
+               end if;
+            end loop;
+         end if;
+         return
+           Ends_With (Name, ".min.js") or else Ends_With (Name, ".min.css")
+           or else Ends_With (Name, ".js.map")
+           or else Ends_With (Name, ".css.map")
+           or else Ends_With (Name, ".ts.map");
+      end;
+   end Is_Noise;
+
 end Synapse.Core.Enumerate;

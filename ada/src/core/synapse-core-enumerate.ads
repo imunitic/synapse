@@ -17,4 +17,12 @@ package Synapse.Core.Enumerate is
    --  directories.
    function Is_Binary (Path : String) return Boolean;
 
+   --  A generated file named by its basename (a lockfile) or by a suffix of
+   --  it (a minified bundle, a source map).
+   function Is_Noise (Path : String) return Boolean;
+
+   --  Everything the shipped filters drop.
+   function Is_Excluded (Path : String) return Boolean is
+     (Is_Binary (Path) or else Is_Noise (Path));
+
 end Synapse.Core.Enumerate;

@@ -62,6 +62,8 @@ package body Synapse.Adapters.Index_Map is
 
    function Discarded (M : Map) return Issue is (M.Why);
 
+   function Is_Open (M : Map) return Boolean is (M.Opened);
+
    function Count (M : Map) return Natural is
      (if M.Opened then Natural (M.Head.Entry_Count) else 0);
 
@@ -99,6 +101,28 @@ package body Synapse.Adapters.Index_Map is
       end if;
       return Format.Unassigned (M.Source, M.Head);
    end Unassigned;
+
+   function Node_Names (M : in out Map) return Core.Text_Lists.Vector is
+      Result : Core.Text_Lists.Vector;
+   begin
+      for Id in 0 .. Node_Count (M) - 1 loop
+         Result.Append
+           (To_Unbounded_String (Format.Node_Name (M.Source, M.Head, Id)));
+      end loop;
+      return Result;
+   end Node_Names;
+
+   function Paths (M : in out Map) return Core.Text_Lists.Vector is
+      Result : Core.Text_Lists.Vector;
+   begin
+      for I in 0 .. Count (M) - 1 loop
+         Result.Append
+           (To_Unbounded_String
+              (Format.Path_Of
+                 (M.Source, M.Head, Format.Record_At (M.Source, M.Head, I))));
+      end loop;
+      return Result;
+   end Paths;
 
    procedure Write_File (Path : String; Bytes : String) is
    begin

@@ -3,6 +3,7 @@ with Ada.Text_IO;
 
 with Synapse.Adapters.Conf_Files;
 with Synapse.Adapters.File_Bytes;
+with Synapse.Core.Fault_Names;
 with Synapse.Core.Schema_YAML;
 
 package body Synapse.Adapters.Schema_Loader is
@@ -12,23 +13,6 @@ package body Synapse.Adapters.Schema_Loader is
    Largest_Schema     : constant := 1_024 * 1_024;
    Largest_Vocabulary : constant := 4 * 1_024 * 1_024;
 
-   --  `EMPTY_DOCUMENT` as `EmptyDocument`: how the faults are named.
-   function Camel (Image : String) return String is
-      Result : Unbounded_String;
-      Upper  : Boolean := True;
-   begin
-      for C of Image loop
-         if C = '_' then
-            Upper := True;
-         elsif Upper then
-            Append (Result, C);
-            Upper := False;
-         else
-            Append (Result, Character'Val (Character'Pos (C) + 32));
-         end if;
-      end loop;
-      return To_String (Result);
-   end Camel;
 
    function Failed (Name : String) return Load_Result is
      (Load_Results.Failure (To_Unbounded_String (Name)));
@@ -53,7 +37,7 @@ package body Synapse.Adapters.Schema_Loader is
          if not Core.Schema_YAML.Parse_Results.Is_Success (Base) then
             return
               Failed
-                (Camel
+                (Core.Fault_Names.Camel
                    (Core.Schema_YAML.Parse_Fault'Image
                       (Core.Schema_YAML.Parse_Results.Error (Base).Fault)));
          end if;
@@ -76,7 +60,7 @@ package body Synapse.Adapters.Schema_Loader is
                if not Core.Schema_YAML.Parse_Results.Is_Success (Patch) then
                   return
                     Failed
-                      (Camel
+                      (Core.Fault_Names.Camel
                          (Core.Schema_YAML.Parse_Fault'Image
                             (Core.Schema_YAML.Parse_Results.Error (Patch)
                                .Fault)));
@@ -91,7 +75,7 @@ package body Synapse.Adapters.Schema_Loader is
                   then
                      return
                        Failed
-                         (Camel
+                         (Core.Fault_Names.Camel
                             (Core.Schema_YAML.Merge_Fault'Image
                                (Core.Schema_YAML.Merge_Results.Error
                                   (Merged))));

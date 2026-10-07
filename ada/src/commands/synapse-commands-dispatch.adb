@@ -1,7 +1,10 @@
 with Ada.Strings.Unbounded;
 
 with Synapse.Commands.Cli_Args;
+with Synapse.Commands.Build_Lists;
+with Synapse.Commands.Enumerate;
 with Synapse.Commands.Frontmatter;
+with Synapse.Commands.Index;
 with Synapse.Commands.Vault_Check;
 with Synapse.Commands.Vault_Links;
 with Synapse.Commands.Vault_Read;
@@ -43,6 +46,10 @@ package body Synapse.Commands.Dispatch is
    Vault_Rename_Name      : aliased constant String := "vault-rename";
    Vault_Delete_Name      : aliased constant String := "vault-delete";
    Vault_Git_Pusher_Name  : aliased constant String := "vault-git-pusher";
+   Enumerate_Name : aliased constant String := "enumerate";
+   Build_Lists_Name : aliased constant String := "build-lists";
+   Index_Name : aliased constant String := "index";
+   Build_Index_Name : aliased constant String := "build-index";
    Frontmatter_Name       : aliased constant String := "frontmatter";
 
    Table : constant array (Positive range <>) of Entry_Type :=
@@ -66,7 +73,11 @@ package body Synapse.Commands.Dispatch is
      (Vault_Patch_Name'Access, Vault_Write.Run_Patch'Access),
      (Vault_Rename_Name'Access, Vault_Write.Run_Rename'Access),
      (Vault_Delete_Name'Access, Vault_Write.Run_Delete'Access),
-     (Vault_Git_Pusher_Name'Access, Vault_Write.Run_Git_Pusher'Access)];
+     (Vault_Git_Pusher_Name'Access, Vault_Write.Run_Git_Pusher'Access),
+     (Enumerate_Name'Access, Enumerate.Run'Access),
+     (Build_Lists_Name'Access, Build_Lists.Run'Access),
+     (Index_Name'Access, Index.Run'Access),
+     (Build_Index_Name'Access, Index.Run_Build_Index'Access)];
 
    function Find (Name : String) return Run_Access is
    begin

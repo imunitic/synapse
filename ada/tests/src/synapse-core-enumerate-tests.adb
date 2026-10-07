@@ -62,6 +62,49 @@ package body Synapse.Core.Enumerate.Tests is
         (Is_Binary ("conf/.hidden.pem"), "a hidden file with an extension");
    end A_Dotfile_Has_No_Extension;
 
+   procedure Lockfiles_Are_Noise_By_Their_Name (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Is_Noise ("yarn.lock"), "a lockfile");
+      Assert (Is_Noise ("web/package-lock.json"), "in a directory");
+      Assert (Is_Noise ("go.sum"), "go.sum");
+      Assert (Is_Noise ("a/b/Cargo.lock"), "Cargo.lock");
+      Assert (Is_Noise ("flake.lock"), "the last of the list");
+      Assert (not Is_Noise ("yarn.lock.bak"), "the whole name counts");
+      Assert (not Is_Noise ("my yarn.lock"), "a name with a blank");
+      Assert
+        (not Is_Noise ("yarn.lock pnpm-lock.yaml"),
+         "two names are not one name with a blank in it");
+      Assert (not Is_Noise ("src/lock.rs"), "source");
+      Assert (not Is_Noise (""), "empty");
+      Assert (not Is_Noise ("dir/"), "a directory name");
+   end Lockfiles_Are_Noise_By_Their_Name;
+
+   procedure Bundles_And_Maps_Are_Noise_By_Their_Suffix
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert (Is_Noise ("dist/app.min.js"), "minified script");
+      Assert (Is_Noise ("app.min.css"), "minified style");
+      Assert (Is_Noise ("a.js.map"), "script map");
+      Assert (Is_Noise ("a.css.map"), "style map");
+      Assert (Is_Noise ("a.ts.map"), "type script map");
+      Assert (not Is_Noise ("app.js"), "plain script");
+      Assert (not Is_Noise ("min.js.txt"), "the suffix is at the end");
+      Assert (not Is_Noise ("a.map"), "a map without its source kind");
+   end Bundles_And_Maps_Are_Noise_By_Their_Suffix;
+
+   procedure Excluded_Is_Binary_Or_Noise (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Is_Excluded ("a.png"), "binary");
+      Assert (Is_Excluded ("yarn.lock"), "noise");
+      Assert (not Is_Excluded ("LICENSE"), "neither");
+      Assert (not Is_Excluded ("bin/run"), "neither again");
+      Assert (not Is_Excluded ("src/deeply/nested/thing"), "and again");
+   end Excluded_Is_Binary_Or_Noise;
+
    overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
@@ -78,6 +121,14 @@ package body Synapse.Core.Enumerate.Tests is
       Register_Routine (T, Case_Matters'Access, "Case matters");
       Register_Routine
         (T, A_Dotfile_Has_No_Extension'Access, "A dotfile has no extension");
+      Register_Routine
+        (T, Lockfiles_Are_Noise_By_Their_Name'Access,
+         "Lockfiles are noise by their name");
+      Register_Routine
+        (T, Bundles_And_Maps_Are_Noise_By_Their_Suffix'Access,
+         "Bundles and maps are noise by their suffix");
+      Register_Routine
+        (T, Excluded_Is_Binary_Or_Noise'Access, "Excluded is binary or noise");
    end Register_Tests;
 
 end Synapse.Core.Enumerate.Tests;
