@@ -116,7 +116,7 @@ package body Synapse.Commands.Graph_Support is
    exception
       when Ada.IO_Exceptions.Name_Error | Ada.IO_Exceptions.Use_Error
         | Ada.IO_Exceptions.Data_Error | Ada.IO_Exceptions.End_Error
-        | Adapters.File_Bytes.Too_Large =>
+        | Ada.IO_Exceptions.Device_Error | Adapters.File_Bytes.Too_Large =>
          Text  := Null_Unbounded_String;
          Found := False;
    end Read_File;

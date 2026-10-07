@@ -1,3 +1,4 @@
+with Synapse.Core.Tag_Payload;
 with Ada.IO_Exceptions;
 with Ada.Text_IO;
 with Ada.Unchecked_Deallocation;
@@ -9,6 +10,7 @@ with Synapse.Core.Node_Types;
 package body Synapse.Adapters.Tree_Sitter.Extractor is
 
    use Ada.Strings.Unbounded;
+   use type Port.Outcome_Kind;
 
    package Registry_Types renames Synapse.Core.Grammar_Registry;
    package Resolve renames Synapse.Adapters.Tree_Sitter.Resolution;
@@ -275,17 +277,18 @@ package body Synapse.Adapters.Tree_Sitter.Extractor is
        (Path'Length >= 3 and then Path (Path'First + 1) = ':'
         and then Path (Path'First + 2) in '/' | '\')));
 
-   overriding function Extract
+   overriding function Extract_Located
      (E     : in out Tagging_Extractor; Root : String;
-      Paths :        Core.Text_Lists.Vector) return Port.Outcome_Vectors.Vector
+      Paths :        Core.Text_Lists.Vector)
+      return Port.Located_Outcome_Vectors.Vector
    is
-      Result : Port.Outcome_Vectors.Vector;
+      Result : Port.Located_Outcome_Vectors.Vector;
    begin
       for Item of Paths loop
          declare
-            Path      : constant String := To_String (Item);
+            Path      : constant String      := To_String (Item);
             Extension : constant String := Registry_Types.Extension_Of (Path);
-            Outcome   : Port.Outcome    := (Kind => Port.Unsupported);
+            Outcome   : Port.Located_Outcome := (Kind => Port.Unsupported);
          begin
             if Extension /= "" then
                declare
@@ -303,16 +306,18 @@ package body Synapse.Adapters.Tree_Sitter.Extractor is
                      begin
                         if Found then
                            declare
-                              Got : constant Tagger.Tag_Results.Result :=
-                                Tagger.Tag_File (Grammar_Tagger.all, Content);
+                              Got : constant Tagger.Located_Results.Result :=
+                                Tagger.Tag_File_Located
+                                  (Grammar_Tagger.all, Content);
                            begin
                               --  A file that parses to nothing is still
                               --  tagged, with none: marking it unsupported
                               --  would try a readable file again for ever.
-                              if Tagger.Tag_Results.Is_Success (Got) then
+                              if Tagger.Located_Results.Is_Success (Got) then
                                  Outcome :=
                                    (Kind => Port.With_Tags,
-                                    Tags => Tagger.Tag_Results.Value (Got));
+                                    Tags =>
+                                      Tagger.Located_Results.Value (Got));
                               end if;
                            end;
                         end if;
@@ -322,6 +327,32 @@ package body Synapse.Adapters.Tree_Sitter.Extractor is
             end if;
             Result.Append (Outcome);
          end;
+      end loop;
+      return Result;
+   end Extract_Located;
+
+   overriding function Extract
+     (E     : in out Tagging_Extractor; Root : String;
+      Paths :        Core.Text_Lists.Vector) return Port.Outcome_Vectors.Vector
+   is
+      Located : constant Port.Located_Outcome_Vectors.Vector :=
+        Extract_Located (E, Root, Paths);
+      Result  : Port.Outcome_Vectors.Vector;
+   begin
+      for Item of Located loop
+         if Item.Kind = Port.Unsupported then
+            Result.Append (Port.Outcome'(Kind => Port.Unsupported));
+         else
+            declare
+               Plain : Core.Tag_Payload.Tag_Vectors.Vector;
+            begin
+               for Spanned of Item.Tags loop
+                  Plain.Append (Spanned.Item);
+               end loop;
+               Result.Append
+                 (Port.Outcome'(Kind => Port.With_Tags, Tags => Plain));
+            end;
+         end if;
       end loop;
       return Result;
    end Extract;

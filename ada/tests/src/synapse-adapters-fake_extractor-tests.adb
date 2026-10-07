@@ -114,6 +114,29 @@ package body Synapse.Adapters.Fake_Extractor.Tests is
          "the last wins");
    end A_Later_Script_Replaces_An_Earlier_One;
 
+   procedure Located_Tags_Have_A_Span_At_Their_Line_As_Wide_As_Their_Name
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F   : Fake;
+      Got : Port.Located_Outcome_Vectors.Vector;
+   begin
+      F.Script ("a", One_Tag ("alpha"));
+      F.Script ("b", (Kind => Port.Unsupported));
+      Got := F.Extract_Located (".", Paths_Of ("a", "b"));
+      Assert (Natural (Got.Length) = 2, "one per path");
+      Assert
+        (Got (1).Kind = Port.With_Tags
+         and then Got (2).Kind = Port.Unsupported,
+         "kinds");
+      Assert
+        (Got (1).Tags (1).Where.End_Col = 5
+         and then Got (1).Tags (1).Where.Start_Col = 0
+         and then To_String (Got (1).Tags (1).Item.Name) = "alpha",
+         "the span");
+      Assert (F.Calls = 1, "one call");
+   end Located_Tags_Have_A_Span_At_Their_Line_As_Wide_As_Their_Name;
+
    overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
@@ -123,6 +146,10 @@ package body Synapse.Adapters.Fake_Extractor.Tests is
    overriding procedure Register_Tests (T : in out Test_Case) is
       use AUnit.Test_Cases.Registration;
    begin
+      Register_Routine
+        (T,
+         Located_Tags_Have_A_Span_At_Their_Line_As_Wide_As_Their_Name'Access,
+         "Located tags have a span at their line as wide as their name");
       Register_Routine
         (T, Outcomes_Come_Back_One_Per_Path_In_Order'Access,
          "Outcomes come back one per path, in order");

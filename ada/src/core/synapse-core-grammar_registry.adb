@@ -64,6 +64,30 @@ package body Synapse.Core.Grammar_Registry is
       return Tags;
    end Source_Of_Entry;
 
+   package Sorting is new Text_Lists.Vectors.Generic_Sorting
+     ("<" => Ada.Strings.Unbounded."<");
+
+   function Usable_Extensions (R : Registry) return Text_Lists.Vector is
+      Result : Text_Lists.Vector;
+   begin
+      if J.Kind_Of (R.Root) /= J.JSON_Object then
+         return Result;
+      end if;
+      for I in 1 .. J.Length (R.Root) loop
+         declare
+            Key : constant String := J.Member_Key (R.Root, I);
+         begin
+            if Lookup (R, Key).Kind = Ready
+              and then not Result.Contains (To_Unbounded_String (Key))
+            then
+               Result.Append (To_Unbounded_String (Key));
+            end if;
+         end;
+      end loop;
+      Sorting.Sort (Result);
+      return Result;
+   end Usable_Extensions;
+
    function Lookup (R : Registry; Extension : String) return Readiness is
       Item  : J.Value;
       Found : Boolean;

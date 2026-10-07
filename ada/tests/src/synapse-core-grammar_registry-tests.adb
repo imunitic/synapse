@@ -199,6 +199,28 @@ package body Synapse.Core.Grammar_Registry.Tests is
       Assert (Repo_Name_Of (".git") = "", "only the suffix");
    end A_Repository_Name_Comes_Off_A_Url;
 
+   procedure Usable_Extensions_Are_Sorted_And_Only_The_Ready_Ones
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      R   : constant Registry               :=
+        Parse
+          ("{""zed"":{""repo"":""u"",""scope"":""s""}," &
+           """off"":{""unsupported"":true}," &
+           """Abc"":{""repo"":""u"",""scope"":""s""}," &
+           """bad"":5,""none"":{""repo"":""u""}," &
+           """abc"":{""repo"":""u"",""scope"":""s""}}");
+      Got : constant Core.Text_Lists.Vector := Usable_Extensions (R);
+   begin
+      Assert (Natural (Got.Length) = 3, "three are ready");
+      Assert (To_String (Got (1)) = "Abc", "byte order puts capitals first");
+      Assert
+        (To_String (Got (2)) = "abc" and then To_String (Got (3)) = "zed",
+         "then the rest");
+      Assert (Usable_Extensions (Parse ("[]")).Is_Empty, "not an object");
+      Assert (Usable_Extensions (Parse ("{}")).Is_Empty, "an empty one");
+   end Usable_Extensions_Are_Sorted_And_Only_The_Ready_Ones;
+
    overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
@@ -208,6 +230,9 @@ package body Synapse.Core.Grammar_Registry.Tests is
    overriding procedure Register_Tests (T : in out Test_Case) is
       use AUnit.Test_Cases.Registration;
    begin
+      Register_Routine
+        (T, Usable_Extensions_Are_Sorted_And_Only_The_Ready_Ones'Access,
+         "Usable extensions are sorted and only the ready ones");
       Register_Routine
         (T, Ready_Unsupported_And_Absent_Are_Three_Answers'Access,
          "Ready, unsupported and absent are three answers");

@@ -58,6 +58,12 @@ package Synapse.Adapters.Tags_Cache is
 
    function Count (C : Cache) return Natural;
 
+   --  Whether a readable cache was opened: not for a missing or empty file.
+   function Is_Open (C : Cache) return Boolean;
+
+   --  How many records are of a file no grammar could parse.
+   function Unsupported_Count (C : in out Cache) return Natural;
+
    --  What the cache knows about one path.
    type Value is record
       Hash        : Core.Graph_Model.Hash;
@@ -72,6 +78,12 @@ package Synapse.Adapters.Tags_Cache is
    subtype Maybe_Value is Maybe_Value_Options.Option;
 
    function Get (C : in out Cache; Path : String) return Maybe_Value;
+
+   --  The path and the value of the record at a position from 1, in the
+   --  order the file holds them: byte order of the paths.
+   procedure Entry_At
+     (C    : in out Cache; Index : Positive; Path : out Unbounded_String;
+      Item :    out Value);
 
    --  A path and the content hash the caller currently sees for it.
    type Path_Hash is record

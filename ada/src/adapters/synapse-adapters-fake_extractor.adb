@@ -2,6 +2,8 @@ with Ada.Strings.Unbounded;
 
 package body Synapse.Adapters.Fake_Extractor is
 
+   use type Port.Outcome_Kind;
+
    procedure Script (F : in out Fake; Path : String; Answer : Port.Outcome) is
    begin
       F.Scripted.Include (Path, Answer);
@@ -36,5 +38,38 @@ package body Synapse.Adapters.Fake_Extractor is
       end loop;
       return Result;
    end Extract;
+
+   overriding function Extract_Located
+     (F : in out Fake; Root : String; Paths : Core.Text_Lists.Vector)
+      return Port.Located_Outcome_Vectors.Vector
+   is
+      Plain : constant Port.Outcome_Vectors.Vector := Extract (F, Root, Paths);
+      Result : Port.Located_Outcome_Vectors.Vector;
+   begin
+      for Item of Plain loop
+         if Item.Kind = Port.Unsupported then
+            Result.Append (Port.Located_Outcome'(Kind => Port.Unsupported));
+         else
+            declare
+               Spanned : Port.Located_Vectors.Vector;
+            begin
+               for Tag of Item.Tags loop
+                  Spanned.Append
+                    (Port.Located_Tag'
+                       (Item  => Tag,
+                        Where =>
+                          (Start_Row => Tag.Line, Start_Col => 0,
+                           End_Row   => Tag.Line,
+                           End_Col   =>
+                             Ada.Strings.Unbounded.Length (Tag.Name))));
+               end loop;
+               Result.Append
+                 (Port.Located_Outcome'
+                    (Kind => Port.With_Tags, Tags => Spanned));
+            end;
+         end if;
+      end loop;
+      return Result;
+   end Extract_Located;
 
 end Synapse.Adapters.Fake_Extractor;

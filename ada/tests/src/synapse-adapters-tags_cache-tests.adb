@@ -146,8 +146,8 @@ package body Synapse.Adapters.Tags_Cache.Tests is
       Open (R, P);
       Assert
         (Count (R) = 2,
-         "two entries, got" & Count (R)'Image & " "
-         & Issue'Image (Discarded (R)));
+         "two entries, got" & Count (R)'Image & " " &
+         Issue'Image (Discarded (R)));
       Assert (Tags_Of (R, "src/A.wdg") = "Alpha" & HT & "def" & LF, "tags");
       Assert (not Get (R, "src/A.wdg").Value.Unsupported, "supported");
       Assert (Get (R, "src/b.bin").Value.Unsupported, "unsupported");
@@ -335,6 +335,40 @@ package body Synapse.Adapters.Tags_Cache.Tests is
          Remove (Dir);
          raise;
    end A_Recommit_Of_A_Path_Replaces_Its_Entry;
+
+   procedure Entries_Are_Read_By_Position_And_Counted
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir  : constant Scratch := Make;
+      C    : Cache;
+      Name : Unbounded_String;
+      Item : Value;
+   begin
+      Open (C, Path (Dir, "_tags_cache.bin"));
+      Assert (not Is_Open (C), "an absent file is not open");
+      Assert (Unsupported_Count (C) = 0, "and has none");
+      Apply
+        (C, Updates_Of (Entry_Of ("b.wdg", "22", "Two" & LF, True)),
+         No_Removals);
+      Assert (Is_Open (C), "open after a commit");
+      Apply
+        (C, Updates_Of (Entry_Of ("a.wdg", "11", "One" & LF)), No_Removals);
+      Assert (Unsupported_Count (C) = 1, "one unsupported");
+      Entry_At (C, 1, Name, Item);
+      Assert
+        (To_String (Name) = "a.wdg" and then To_String (Item.Tags) = "One" & LF
+         and then not Item.Unsupported,
+         "the first path in byte order");
+      Entry_At (C, 2, Name, Item);
+      Assert
+        (To_String (Name) = "b.wdg" and then Item.Unsupported, "the second");
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end Entries_Are_Read_By_Position_And_Counted;
 
    --  The rows a refs projection emits.
    Rows : Unbounded_String;
@@ -711,6 +745,9 @@ package body Synapse.Adapters.Tags_Cache.Tests is
    overriding procedure Register_Tests (T : in out Test_Case) is
       use AUnit.Test_Cases.Registration;
    begin
+      Register_Routine
+        (T, Entries_Are_Read_By_Position_And_Counted'Access,
+         "Entries are read by position and counted");
       Register_Routine
         (T, An_Absent_Cache_Opens_Empty_And_Needs_Everything'Access,
          "An absent cache opens empty and needs everything");

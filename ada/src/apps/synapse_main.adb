@@ -1,8 +1,10 @@
 with Ada.Command_Line;
 with Ada.Strings.Unbounded;
 
+with Synapse.Adapters.Dynamic_Libraries;
 with Synapse.Adapters.System_Clock;
 with Synapse.Adapters.System_Console;
+with Synapse.Adapters.System_Extractors;
 with Synapse.Adapters.System_Process;
 with Synapse.Adapters.System_Variables;
 with Synapse.Commands.Dispatch;
@@ -13,14 +15,18 @@ with Synapse.Commands.Dispatch;
 procedure Synapse_Main is
    use Synapse;
 
-   Console : aliased Adapters.System_Console.System_Console;
-   Vars    : aliased Adapters.System_Variables.System_Variables;
-   Runner  : aliased Adapters.System_Process.System_Runner;
-   Clock   : aliased Adapters.System_Clock.System_Clock;
+   Console    : aliased Adapters.System_Console.System_Console;
+   Vars       : aliased Adapters.System_Variables.System_Variables;
+   Runner     : aliased Adapters.System_Process.System_Runner;
+   Clock      : aliased Adapters.System_Clock.System_Clock;
+   Loader     : aliased Adapters.Dynamic_Libraries.System_Loader;
+   Extractors :
+     aliased Adapters.System_Extractors.System_Extractors
+       (Runner'Access, Loader'Access);
 
    Env  : constant Commands.Environment :=
      (Console => Console'Access, Vars => Vars'Access, Runner => Runner'Access,
-      Clock   => Clock'Access,
+      Clock   => Clock'Access, Extractors => Extractors'Access,
       Argv0   =>
         Ada.Strings.Unbounded.To_Unbounded_String
           (Ada.Command_Line.Command_Name));

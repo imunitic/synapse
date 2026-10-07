@@ -1,5 +1,6 @@
 with Synapse.Adapters.Fake_Clock;
 with Synapse.Adapters.Fake_Console;
+with Synapse.Adapters.Fake_Extractors;
 with Synapse.Adapters.Fake_Variables;
 with Synapse.Adapters.System_Process;
 with Synapse.Commands;
@@ -11,16 +12,18 @@ with Synapse.Commands;
 package Synapse.Test_Environment is
 
    type Fixture is limited record
-      Console : aliased Synapse.Adapters.Fake_Console.Fake;
-      Vars    : aliased Synapse.Adapters.Fake_Variables.Fake_Variables;
-      Runner  : aliased Synapse.Adapters.System_Process.System_Runner;
-      Clock   : aliased Synapse.Adapters.Fake_Clock.Fake_Clock;
+      Console    : aliased Synapse.Adapters.Fake_Console.Fake;
+      Vars       : aliased Synapse.Adapters.Fake_Variables.Fake_Variables;
+      Runner     : aliased Synapse.Adapters.System_Process.System_Runner;
+      Clock      : aliased Synapse.Adapters.Fake_Clock.Fake_Clock;
+      Extractors : aliased Synapse.Adapters.Fake_Extractors.Fake_Factory;
    end record;
 
    function Env
      (F : aliased in out Fixture) return Synapse.Commands.Environment is
-     (Console => F.Console'Access, Vars => F.Vars'Access,
-      Runner  => F.Runner'Access, Clock => F.Clock'Access, Argv0 => <>);
+     (Console    => F.Console'Access, Vars => F.Vars'Access,
+      Runner     => F.Runner'Access, Clock => F.Clock'Access,
+      Extractors => F.Extractors'Access, Argv0 => <>);
 
    --  The arguments as a list.
    function Args

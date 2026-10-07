@@ -225,7 +225,7 @@ package body Synapse.Adapters.Tree_Sitter.Tagger is
    end Line_At;
 
    procedure Add_Tag
-     (Into  : in out Tag_Vectors.Vector; Source : String; Where : Node;
+     (Into  : in out Located_Vectors.Vector; Source : String; Where : Node;
       Which :        Graph.Role; Kind : String)
    is
       Found       : Boolean;
@@ -236,21 +236,29 @@ package body Synapse.Adapters.Tree_Sitter.Tagger is
          return;
       end if;
       Into.Append
-        (Graph.Tag'
-           (Name       => To_Unbounded_String (Source (First .. Last)),
-            Kind       => To_Unbounded_String (Kind), Which => Which,
-            Line       => Start_Point (Where).Row,
-            Expression =>
-              To_Unbounded_String (Line_At (Source, Start_Byte (Where)))));
+        (Synapse.Ports.Extractor.Located_Tag'
+           (Item  =>
+              Graph.Tag'
+                (Name       => To_Unbounded_String (Source (First .. Last)),
+                 Kind       => To_Unbounded_String (Kind), Which => Which,
+                 Line       => Start_Point (Where).Row,
+                 Expression =>
+                   To_Unbounded_String (Line_At (Source, Start_Byte (Where)))),
+            Where =>
+              (Start_Row => Start_Point (Where).Row,
+               Start_Col => Start_Point (Where).Column,
+               End_Row   => End_Point (Where).Row,
+               End_Col   => End_Point (Where).Column)));
    end Add_Tag;
 
    --  tags.scm: `@name` and a sibling `@definition.<kind>` or
    --  `@reference.<kind>`. Neither a name nor a role is not a tag, which is
    --  legitimate in a tags query.
    function Tags_From_Tags_Query
-     (T : Tagger; Root_Node : Node; Source : String) return Tag_Vectors.Vector
+     (T : Tagger; Root_Node : Node; Source : String)
+      return Located_Vectors.Vector
    is
-      Result : Tag_Vectors.Vector;
+      Result : Located_Vectors.Vector;
       C      : Cursor;
       M      : Match;
       Found  : Boolean;
@@ -300,9 +308,10 @@ package body Synapse.Adapters.Tree_Sitter.Tagger is
    Definition_Prefix : constant String := "local.definition";
 
    function Tags_From_Locals_Query
-     (T : Tagger; Root_Node : Node; Source : String) return Tag_Vectors.Vector
+     (T : Tagger; Root_Node : Node; Source : String)
+      return Located_Vectors.Vector
    is
-      Result : Tag_Vectors.Vector;
+      Result : Located_Vectors.Vector;
       C      : Cursor;
       M      : Match;
       Found  : Boolean;
@@ -445,9 +454,10 @@ package body Synapse.Adapters.Tree_Sitter.Tagger is
    --  another, and one match must not hide the ones below it. A stack stands
    --  in for recursion, so a deeply nested file cannot exhaust the call stack.
    function Tags_From_Walk
-     (T : Tagger; Root_Node : Node; Source : String) return Tag_Vectors.Vector
+     (T : Tagger; Root_Node : Node; Source : String)
+      return Located_Vectors.Vector
    is
-      Result   : Tag_Vectors.Vector;
+      Result   : Located_Vectors.Vector;
       Stack    : Node_Stacks.Vector;
       Seen     : Seen_Sets.Set;
       Walkable : Boolean := False;
@@ -561,19 +571,19 @@ package body Synapse.Adapters.Tree_Sitter.Tagger is
    --  dropped here, and never reaches the cross-file join it was not a
    --  candidate for.
    function Without_Local_References
-     (T : Tagger; Root_Node : Node; Source : String; Tags : Tag_Vectors.Vector)
-      return Tag_Vectors.Vector
+     (T    : Tagger; Root_Node : Node; Source : String;
+      Tags : Located_Vectors.Vector) return Located_Vectors.Vector
    is
       Locals : constant Core.Text_Lists.Set :=
         Locally_Defined_Names (T, Root_Node, Source);
-      Kept   : Tag_Vectors.Vector;
+      Kept   : Located_Vectors.Vector;
    begin
       if Locals.Is_Empty then
          return Tags;
       end if;
       for Item of Tags loop
-         if Item.Which = Graph.Ref
-           and then Locals.Contains (To_String (Item.Name))
+         if Item.Item.Which = Graph.Ref
+           and then Locals.Contains (To_String (Item.Item.Name))
          then
             null;
          else
@@ -639,22 +649,22 @@ package body Synapse.Adapters.Tree_Sitter.Tagger is
       Status       := Created;
    end Create;
 
-   function Tag_File
-     (T : in out Tagger; Source : String) return Tag_Results.Result
+   function Tag_File_Located
+     (T : in out Tagger; Source : String) return Located_Results.Result
    is
    begin
       if not T.Ready then
-         return Tag_Results.Failure (Not_Created);
+         return Located_Results.Failure (Not_Created);
       end if;
       declare
          Parsed : constant Tree := Parse (T.Reader, Source);
       begin
          if Is_Null (Parsed) then
-            return Tag_Results.Failure (Not_Parsed);
+            return Located_Results.Failure (Not_Parsed);
          end if;
          declare
             Root_Node : constant Node := Root (Parsed);
-            Tags      : Tag_Vectors.Vector;
+            Tags      : Located_Vectors.Vector;
          begin
             case T.Source is
                when Registry.Tags | Registry.Override =>
@@ -672,8 +682,26 @@ package body Synapse.Adapters.Tree_Sitter.Tagger is
             if T.Has_Locals then
                Tags := Without_Local_References (T, Root_Node, Source, Tags);
             end if;
-            return Tag_Results.Success (Tags);
+            return Located_Results.Success (Tags);
          end;
+      end;
+   end Tag_File_Located;
+
+   function Tag_File
+     (T : in out Tagger; Source : String) return Tag_Results.Result
+   is
+      Got : constant Located_Results.Result := Tag_File_Located (T, Source);
+   begin
+      if not Located_Results.Is_Success (Got) then
+         return Tag_Results.Failure (Located_Results.Error (Got));
+      end if;
+      declare
+         Plain : Tag_Vectors.Vector;
+      begin
+         for Item of Located_Results.Value (Got) loop
+            Plain.Append (Item.Item);
+         end loop;
+         return Tag_Results.Success (Plain);
       end;
    end Tag_File;
 

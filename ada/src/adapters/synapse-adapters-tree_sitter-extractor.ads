@@ -42,7 +42,7 @@ is
       Loader : not null access Synapse.Ports.Library_Loader.Loader'Class)
    is
      limited new Ada.Finalization.Limited_Controlled and
-       Port.Extractor with private;
+       Port.Locating_Extractor with private;
 
    --  Override_Dir is the directory of per-extension query files.
    procedure Configure
@@ -59,6 +59,11 @@ is
      (E     : in out Tagging_Extractor; Root : String;
       Paths :    Core.Text_Lists.Vector) return Port.Outcome_Vectors.Vector;
 
+   overriding function Extract_Located
+     (E     : in out Tagging_Extractor; Root : String;
+      Paths :        Core.Text_Lists.Vector)
+      return Port.Located_Outcome_Vectors.Vector;
+
    overriding procedure Finalize (E : in out Tagging_Extractor);
 
 private
@@ -72,8 +77,8 @@ private
      (Run    : not null access Synapse.Ports.Process_Runner.Runner'Class;
       Loader : not null access Synapse.Ports.Library_Loader.Loader'Class)
    is
-   limited new Ada.Finalization.Limited_Controlled and Port.Extractor with
-   record
+   limited new Ada.Finalization.Limited_Controlled and
+     Port.Locating_Extractor with record
       Registry     : Core.Grammar_Registry.Registry;
       Grammars_Dir : Ada.Strings.Unbounded.Unbounded_String;
       Rules        : Core.Kind_Synonyms.Rule_List;

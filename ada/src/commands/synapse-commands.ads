@@ -3,6 +3,7 @@ with Ada.Strings.Unbounded;
 with Synapse.Core.Text_Lists;
 with Synapse.Ports.Clock;
 with Synapse.Ports.Console;
+with Synapse.Ports.Extractor_Factory;
 with Synapse.Ports.Process_Runner;
 with Synapse.Ports.Variables;
 
@@ -28,7 +29,9 @@ package Synapse.Commands is
      (Console : not null access Synapse.Ports.Console.Console'Class;
       Vars    : not null access Synapse.Ports.Variables.Variables'Class;
       Runner  : not null access Synapse.Ports.Process_Runner.Runner'Class;
-      Clock   : not null access Synapse.Ports.Clock.Clock'Class)
+      Clock   : not null access Synapse.Ports.Clock.Clock'Class;
+      Extractors :
+        not null access Synapse.Ports.Extractor_Factory.Factory'Class)
    is
    limited record
       --  How this program was started, for a command that starts it again.

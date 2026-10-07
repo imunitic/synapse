@@ -11,7 +11,7 @@ package Synapse.Adapters.Fake_Extractor is
 
    package Port renames Synapse.Ports.Extractor;
 
-   type Fake is limited new Port.Extractor with private;
+   type Fake is limited new Port.Locating_Extractor with private;
 
    --  What to answer for Path.
    procedure Script (F : in out Fake; Path : String; Answer : Port.Outcome);
@@ -30,6 +30,12 @@ package Synapse.Adapters.Fake_Extractor is
      (F : in out Fake; Root : String; Paths : Core.Text_Lists.Vector)
       return Port.Outcome_Vectors.Vector;
 
+   --  What was scripted, each tag at a span that starts at its line and is as
+   --  wide as its name.
+   overriding function Extract_Located
+     (F : in out Fake; Root : String; Paths : Core.Text_Lists.Vector)
+      return Port.Located_Outcome_Vectors.Vector;
+
 private
 
    use type Port.Outcome;
@@ -37,7 +43,7 @@ private
    package Scripts is new Ada.Containers.Indefinite_Hashed_Maps
      (String, Port.Outcome, Ada.Strings.Hash, "=");
 
-   type Fake is limited new Port.Extractor with record
+   type Fake is limited new Port.Locating_Extractor with record
       Scripted : Scripts.Map;
       Default  : Port.Outcome := (Kind => Port.With_Tags, others => <>);
       Count    : Natural      := 0;

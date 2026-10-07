@@ -1,5 +1,6 @@
 with Ada.Containers.Vectors;
 
+with Synapse.Core.Graph_Model;
 with Synapse.Core.Tag_Payload;
 with Synapse.Core.Text_Lists;
 
@@ -36,5 +37,47 @@ package Synapse.Ports.Extractor is
      (E : in out Extractor; Root : String; Paths : Core.Text_Lists.Vector)
       return Outcome_Vectors.Vector is abstract with
      Post'Class => Natural (Extract'Result.Length) = Natural (Paths.Length);
+
+   --  Where a tag's name is, as tree-sitter numbers it: rows and columns from
+   --  zero, the end exclusive.
+   type Span is record
+      Start_Row : Natural;
+      Start_Col : Natural;
+      End_Row   : Natural;
+      End_Col   : Natural;
+   end record;
+
+   --  A tag with the span of its name node, which the tags cache does not
+   --  keep and the command line prints.
+   type Located_Tag is record
+      Item  : Core.Graph_Model.Tag;
+      Where : Span;
+   end record;
+
+   package Located_Vectors is new Ada.Containers.Vectors
+     (Positive, Located_Tag);
+
+   type Located_Outcome (Kind : Outcome_Kind := Unsupported) is record
+      case Kind is
+         when With_Tags =>
+            Tags : Located_Vectors.Vector;
+
+         when Unsupported =>
+            null;
+      end case;
+   end record;
+
+   package Located_Outcome_Vectors is new Ada.Containers.Vectors
+     (Positive, Located_Outcome);
+
+   --  An extractor that can also say where each tag is.
+   type Locating_Extractor is limited interface and Extractor;
+
+   function Extract_Located
+     (E     : in out Locating_Extractor; Root : String;
+      Paths :        Core.Text_Lists.Vector)
+      return Located_Outcome_Vectors.Vector is abstract with
+     Post'Class =>
+      Natural (Extract_Located'Result.Length) = Natural (Paths.Length);
 
 end Synapse.Ports.Extractor;

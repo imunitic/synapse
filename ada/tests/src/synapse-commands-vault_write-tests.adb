@@ -1,6 +1,5 @@
 with Ada.Directories;
 with Ada.Strings.Fixed;
-with Ada.Strings.Unbounded;
 with Synapse.Adapters.File_Bytes;
 with Synapse.Commands.Vault_Usage;
 with Synapse.Test_Environment;
@@ -14,13 +13,11 @@ package body Synapse.Commands.Vault_Write.Tests is
 
    subtype Test_Cases_Class is AUnit.Test_Cases.Test_Case'Class;
 
-   use Ada.Strings.Unbounded;
    use Synapse.Test_Environment;
    use Synapse.Test_Scratch;
    use Synapse.Test_Vault;
 
    LF : constant Character := Character'Val (10);
-   HT : constant Character := ASCII.HT;
 
    Note : constant String :=
      "---" & LF & "title: ""A""" & LF & "---" & LF & "# A" & LF & LF &

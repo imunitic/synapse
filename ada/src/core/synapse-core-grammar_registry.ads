@@ -1,3 +1,4 @@
+with Synapse.Core.Text_Lists;
 with Ada.Strings.Unbounded;
 
 with Synapse.Core.Optional_Text;
@@ -48,6 +49,9 @@ package Synapse.Core.Grammar_Registry is
    function Parse (Text : String) return Registry;
 
    function Lookup (R : Registry; Extension : String) return Readiness;
+
+   --  Every extension with a usable grammar, sorted by bytes.
+   function Usable_Extensions (R : Registry) return Core.Text_Lists.Vector;
 
    --  The queries field: `tags` when absent, so an entry written before the
    --  field existed needs no change, `locals` or `generated`. A value that is

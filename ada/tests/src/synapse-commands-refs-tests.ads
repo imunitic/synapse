@@ -1,7 +1,7 @@
 with AUnit;
 with AUnit.Test_Cases;
 
-package Synapse.Commands.Vault_Write.Tests is
+package Synapse.Commands.Refs.Tests is
 
    type Test_Case is new AUnit.Test_Cases.Test_Case with null record;
 
@@ -11,4 +11,4 @@ package Synapse.Commands.Vault_Write.Tests is
    overriding
    procedure Register_Tests (T : in out Test_Case);
 
-end Synapse.Commands.Vault_Write.Tests;
+end Synapse.Commands.Refs.Tests;

@@ -79,6 +79,19 @@ package body Synapse.Adapters.Tags_Cache is
 
    function Discarded (C : Cache) return Issue is (C.Why);
 
+   function Is_Open (C : Cache) return Boolean is (C.Opened);
+
+   function Unsupported_Count (C : in out Cache) return Natural is
+      Result : Natural := 0;
+   begin
+      for I in 0 .. Count (C) - 1 loop
+         if Format.Unsupported (Format.Record_At (C.Source, C.Head, I)) then
+            Result := Result + 1;
+         end if;
+      end loop;
+      return Result;
+   end Unsupported_Count;
+
    function Count (C : Cache) return Natural is
      (if C.Opened then Natural (C.Head.Entry_Count) else 0);
 
@@ -109,6 +122,20 @@ package body Synapse.Adapters.Tags_Cache is
          end;
       end;
    end Get;
+
+   procedure Entry_At
+     (C    : in out Cache; Index : Positive; Path : out Unbounded_String;
+      Item :    out Value)
+   is
+      Rec : constant Format.Table_Record :=
+        Format.Record_At (C.Source, C.Head, Index - 1);
+   begin
+      Path := To_Unbounded_String (Format.Path_Of (C.Source, C.Head, Rec));
+      Item :=
+        (Hash        => Rec.Hash,
+         Tags => To_Unbounded_String (Format.Tags_Of (C.Source, C.Head, Rec)),
+         Unsupported => Format.Unsupported (Rec));
+   end Entry_At;
 
    function Needs_Tagging
      (C : in out Cache; Requested : Path_Hash_Vectors.Vector)

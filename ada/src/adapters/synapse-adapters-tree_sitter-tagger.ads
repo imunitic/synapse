@@ -5,6 +5,7 @@ with Synapse.Core.Kind_Synonyms;
 with Synapse.Core.Node_Types;
 with Synapse.Core.Results;
 with Synapse.Core.Tag_Payload;
+with Synapse.Ports.Extractor;
 
 --  Runs a grammar's query over a parse and turns the captures into tags.
 --
@@ -69,6 +70,8 @@ is
       Status         :    out Create_Status) with
      Pre => not Is_Created (T) and then not Is_Null (Lang);
 
+   package Located_Vectors renames Synapse.Ports.Extractor.Located_Vectors;
+
    type Tag_Error is (Not_Created, Not_Parsed);
 
    package Tag_Results is new Synapse.Core.Results
@@ -79,6 +82,13 @@ is
    --  could not be parsed.
    function Tag_File
      (T : in out Tagger; Source : String) return Tag_Results.Result;
+
+   package Located_Results is new Synapse.Core.Results
+     (Located_Vectors.Vector, Tag_Error);
+
+   --  The same, each tag with the span of its name.
+   function Tag_File_Located
+     (T : in out Tagger; Source : String) return Located_Results.Result;
 
 private
 

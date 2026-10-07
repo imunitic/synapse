@@ -5,6 +5,9 @@ with Synapse.Commands.Build_Lists;
 with Synapse.Commands.Enumerate;
 with Synapse.Commands.Frontmatter;
 with Synapse.Commands.Index;
+with Synapse.Commands.Refs;
+with Synapse.Commands.Tags;
+with Synapse.Commands.Tags_Cache;
 with Synapse.Commands.Vault_Check;
 with Synapse.Commands.Vault_Links;
 with Synapse.Commands.Vault_Read;
@@ -50,6 +53,10 @@ package body Synapse.Commands.Dispatch is
    Build_Lists_Name : aliased constant String := "build-lists";
    Index_Name : aliased constant String := "index";
    Build_Index_Name : aliased constant String := "build-index";
+   Tags_Name : aliased constant String := "tags";
+   Tags_Cache_Name : aliased constant String := "tags-cache";
+   Build_Refs_Name : aliased constant String := "build-refs";
+   Callers_Name : aliased constant String := "callers";
    Frontmatter_Name       : aliased constant String := "frontmatter";
 
    Table : constant array (Positive range <>) of Entry_Type :=
@@ -77,6 +84,10 @@ package body Synapse.Commands.Dispatch is
      (Enumerate_Name'Access, Enumerate.Run'Access),
      (Build_Lists_Name'Access, Build_Lists.Run'Access),
      (Index_Name'Access, Index.Run'Access),
+     (Tags_Name'Access, Tags.Run'Access),
+     (Tags_Cache_Name'Access, Tags_Cache.Run'Access),
+     (Build_Refs_Name'Access, Refs.Run_Build'Access),
+     (Callers_Name'Access, Refs.Run_Callers'Access),
      (Build_Index_Name'Access, Index.Run_Build_Index'Access)];
 
    function Find (Name : String) return Run_Access is

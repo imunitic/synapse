@@ -13,6 +13,7 @@ package body Synapse.Adapters.Tree_Sitter.Tagger.Tests is
 
    use AUnit.Assertions;
    use Ada.Strings.Unbounded;
+   use type Synapse.Ports.Extractor.Span;
 
    package Registry renames Synapse.Core.Grammar_Registry;
 
@@ -387,6 +388,42 @@ package body Synapse.Adapters.Tree_Sitter.Tagger.Tests is
       Assert (not Is_Created (Tag), "not created");
    end A_Tagger_That_Was_Not_Created_Does_Not_Tag;
 
+   procedure A_Tag_Has_The_Span_Of_Its_Name (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Tag    : Tagger;
+      Status : Create_Status;
+   begin
+      Create
+        (Tag, Docstrings, Function_Query, Registry.Tags, No_Rules,
+         "test-scope", No_Guesses, No_Locals, Status);
+      Assert (Status = Created, "created");
+      declare
+         Source : constant String := "fn foo()" & LF & LF & "  fn  barbaz()";
+         Got    : constant Located_Results.Result :=
+           Tag_File_Located (Tag, Source);
+      begin
+         Assert (Located_Results.Is_Success (Got), "tagged");
+         declare
+            Found : constant Located_Vectors.Vector :=
+              Located_Results.Value (Got);
+         begin
+            Assert (Natural (Found.Length) = 2, "two tags");
+            Assert
+              (Found (1).Where =
+               (Start_Row => 0, Start_Col => 3, End_Row => 0, End_Col => 6),
+               "the first name, from zero");
+            Assert
+              (Found (2).Where =
+               (Start_Row => 2, Start_Col => 6, End_Row => 2, End_Col => 12),
+               "the second name, on the third row");
+            Assert
+              (Found (2).Item.Line = 2
+               and then To_String (Found (2).Item.Name) = "barbaz",
+               "the tag itself");
+         end;
+      end;
+   end A_Tag_Has_The_Span_Of_Its_Name;
+
    ---------------------------------------------------------------------------
    --  The locals convention
    ---------------------------------------------------------------------------
@@ -715,6 +752,9 @@ package body Synapse.Adapters.Tree_Sitter.Tagger.Tests is
    overriding procedure Register_Tests (T : in out Test_Case) is
       use AUnit.Test_Cases.Registration;
    begin
+      Register_Routine
+        (T, A_Tag_Has_The_Span_Of_Its_Name'Access,
+         "A tag has the span of its name");
       Register_Routine
         (T, Predicates_Are_Classified_Into_Skip_Evaluate_And_Refuse'Access,
          "Predicates are classified into skip, evaluate and refuse");
