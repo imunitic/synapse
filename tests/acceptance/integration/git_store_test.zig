@@ -6,18 +6,18 @@
 //! native coverage already.
 
 const std = @import("std");
-const adapters = @import("adapters");
+const process = @import("process.zig");
 const support = @import("support.zig");
 
 const testing = std.testing;
 const Fixture = support.Fixture;
 
-fn gitAt(fx: *Fixture, cwd: []const u8, args: []const []const u8) !adapters.process.Result {
+fn gitAt(fx: *Fixture, cwd: []const u8, args: []const []const u8) !process.Result {
     var argv = try fx.gpa.alloc([]const u8, args.len + 1);
     defer fx.gpa.free(argv);
     argv[0] = "git";
     for (args, 0..) |a, i| argv[i + 1] = a;
-    return adapters.process.run(fx.io(), fx.gpa, argv, .{ .cwd = .{ .path = cwd } });
+    return process.run(fx.io(), fx.gpa, argv, .{ .cwd = .{ .path = cwd } });
 }
 
 fn gitOutputAt(fx: *Fixture, gpa: std.mem.Allocator, cwd: []const u8, args: []const []const u8) ![]u8 {

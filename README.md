@@ -187,8 +187,8 @@ seconds combined; `just test-linux` is the honest answer whenever a change is br
 unsure. A change to prose in `docs/` or this README has no test to fail and needs neither.
 
 Two traps in that. Shipped instructions under `plugins/*/` **look** like documentation and are not: they
-install as a Claude Code plugin, and `tests/integration/legacy_commands_test.zig` plus
-`tests/lint_test.zig` cover them — that is how a skill telling Claude to run a nonexistent command
+install as a Claude Code plugin, and `tests/acceptance/integration/legacy_commands_test.zig` plus
+`tests/acceptance/lint_test.zig` cover them — that is how a skill telling Claude to run a nonexistent command
 got caught. And `docs/synapse/`'s `cli.md` plus the diagrams are *generated*, so a change upstream
 of them needs `just fix`, not `just docs-check`.
 
@@ -207,7 +207,7 @@ are each verified by running their generator's `--check` mode, so an edit that w
 test instead of shipping something confidently wrong.
 
 `packages/synapse/commands/*.md` and `packages/synapse/skills/*/SKILL.md` are natural-language procedures, so no test
-executes them — but `tests/integration/legacy_commands_test.zig` does check the one thing about them
+executes them — but `tests/acceptance/integration/legacy_commands_test.zig` does check the one thing about them
 that is mechanically true or false: **every command they tell Claude to run has to exist.** It
 cross-checks each `` `synapse <sub>` `` against the binary's own `--help`, and applies the same rule
 to the text the hooks inject and to the `Index.md` the builder writes. That guard exists because the

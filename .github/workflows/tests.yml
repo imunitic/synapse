@@ -42,7 +42,7 @@ jobs:
         run: zig build
 
       # Internals only -- format round-trips, parsing, the process helper,
-      # plus the static doc/text consistency checks in `tests/lint_test.zig`.
+      # plus the static doc/text consistency checks in `tests/acceptance/lint_test.zig`.
       # The CLI contract belongs to the `integration` job below.
       - name: Unit tests
         run: zig build test --summary all

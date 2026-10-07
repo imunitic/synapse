@@ -276,7 +276,7 @@ pub fn build(b: *std.Build) void {
     // -- plus a `*_cmd.zig`'s own assembly logic where a real `Context` and a
     // real `Store` are reachable without a real git repo or network call
     // (`cmd_test_support.zig`'s fixture), plus static doc/text consistency
-    // checks (`tests/lint_test.zig`) that need no process spawn at all. Real
+    // checks (`tests/acceptance/lint_test.zig`) that need no process spawn at all. Real
     // subprocess/git-integration behavior is `zig build test-integration`'s
     // job instead, kept out of this fast in-process suite.
     const test_step = b.step("test", "Run Zig unit tests");
@@ -303,7 +303,7 @@ pub fn build(b: *std.Build) void {
     // function to call -- reads the shipped docs and scripts directly, so
     // it needs no imports from the rest of the module graph.
     const lint_mod = b.createModule(.{
-        .root_source_file = b.path("tests/lint_test.zig"),
+        .root_source_file = b.path("tests/acceptance/lint_test.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -339,10 +339,9 @@ pub fn build(b: *std.Build) void {
     it_opts.addOption([]const u8, "fake_bin_dir", "tests/fixtures/fake-bin");
 
     const integration_mod = b.createModule(.{
-        .root_source_file = b.path("tests/integration/root.zig"),
+        .root_source_file = b.path("tests/acceptance/integration/root.zig"),
         .target = target,
         .optimize = optimize,
-        .imports = &.{.{ .name = "adapters", .module = adapters }},
     });
     integration_mod.addOptions("build_options", it_opts);
 

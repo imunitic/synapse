@@ -7,7 +7,7 @@
 //! own tests, using `fake_grammar.FakeExtractor`).
 
 const std = @import("std");
-const adapters = @import("adapters");
+const process = @import("process.zig");
 const support = @import("support.zig");
 
 const testing = std.testing;
@@ -63,7 +63,7 @@ test "concurrent first clone: a waiter picks up another worker's finished clone 
     const sample = try std.fmt.allocPrint(fx.gpa, "{s}/sample.ml", .{fx.root});
     defer fx.gpa.free(sample);
     const argv = [_][]const u8{ fx.synapse_fake_bin, "tags", sample };
-    var waiter = std.Io.async(fx.io(), adapters.process.run, .{ fx.io(), fx.gpa, &argv, .{ .cwd = .{ .path = fx.repo } } });
+    var waiter = std.Io.async(fx.io(), process.run, .{ fx.io(), fx.gpa, &argv, .{ .cwd = .{ .path = fx.repo } } });
 
     // Long enough that a waiter which raced the lock instead of honouring it
     // would already have finished (and logged a clone) by this point.
@@ -104,7 +104,7 @@ test "concurrent first clone: a lock released with no repo means the holder fail
     const sample = try std.fmt.allocPrint(fx.gpa, "{s}/sample.ml", .{fx.root});
     defer fx.gpa.free(sample);
     const argv = [_][]const u8{ fx.synapse_fake_bin, "tags", sample };
-    var waiter = std.Io.async(fx.io(), adapters.process.run, .{ fx.io(), fx.gpa, &argv, .{ .cwd = .{ .path = fx.repo } } });
+    var waiter = std.Io.async(fx.io(), process.run, .{ fx.io(), fx.gpa, &argv, .{ .cwd = .{ .path = fx.repo } } });
     sleepMs(fx.io(), 500);
 
     // The other worker's clone failed: lock released, repo never appeared --

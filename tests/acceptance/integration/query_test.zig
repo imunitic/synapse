@@ -8,7 +8,7 @@
 //! compare against a real git remote, not an env-var stand-in.
 
 const std = @import("std");
-const adapters = @import("adapters");
+const process = @import("process.zig");
 const support = @import("support.zig");
 
 const testing = std.testing;

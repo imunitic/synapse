@@ -46,7 +46,7 @@ fn runHook(fx: *Fixture, prompt: []const u8, cwd: []const u8) !support_process_R
     return fx.runHookStdin(&.{"prompt-context"}, payload);
 }
 
-const support_process_Result = @import("adapters").process.Result;
+const support_process_Result = @import("process.zig").Result;
 
 test "a real stdin payload in a repo with a namespace emits the nudge" {
     var fx = try Fixture.init(testing.allocator);

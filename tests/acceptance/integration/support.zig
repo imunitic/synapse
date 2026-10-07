@@ -3,7 +3,7 @@
 //! a fake-bin-prepended `PATH`, spawning the real compiled binaries (their
 //! paths come in through `build_options`, injected at `zig build` time off
 //! each binary's own `Step.Compile`) as real subprocesses via
-//! `adapters.process.run` -- the same spawn primitive `DiskStore`'s own git
+//! `process.run` -- the same spawn primitive `DiskStore`'s own git
 //! calls already go through, not a new one.
 //!
 //! Only `HOME` and `SYNAPSE_VAULT_DIR` are overridden by default: this suite
@@ -15,7 +15,7 @@
 //! `setEnv` it after `init()`.
 
 const std = @import("std");
-const adapters = @import("adapters");
+const process = @import("process.zig");
 const build_options = @import("build_options");
 
 const Allocator = std.mem.Allocator;
@@ -323,7 +323,7 @@ pub const Fixture = struct {
         defer self.gpa.free(out);
 
         var full = [_][]const u8{ self.synapse_fake_bin, "index", "build", "--unassigned", un, "--out", out };
-        const r = try adapters.process.run(self.io(), self.gpa, &full, .{ .cwd = .{ .path = self.repo }, .stdin = stdin.items });
+        const r = try process.run(self.io(), self.gpa, &full, .{ .cwd = .{ .path = self.repo }, .stdin = stdin.items });
         defer r.deinit(self.gpa);
         if (!r.ok()) return error.IndexBuildFailed;
         std.Io.Dir.cwd().deleteFile(std.testing.io, un) catch {};
@@ -331,9 +331,9 @@ pub const Fixture = struct {
 
     /// Runs the real compiled `synapse` binary against this fixture's own
     /// scratch dirs, from `self.repo` unless `cwd` overrides it. Thin wrapper
-    /// over `adapters.process.run` -- no new spawn mechanics, just the
+    /// over `process.run` -- no new spawn mechanics, just the
     /// binary path and this fixture's `Io`/cwd default filled in.
-    pub fn runSynapse(self: *Fixture, argv: []const []const u8) !adapters.process.Result {
+    pub fn runSynapse(self: *Fixture, argv: []const []const u8) !process.Result {
         return self.runBin(self.synapse_bin, argv);
     }
 
@@ -341,33 +341,33 @@ pub const Fixture = struct {
     /// stubbed out, needed so the suite runs with no network, no C toolchain,
     /// and no real grammar repository. What most CLI-usage checks spawn,
     /// since grammar compilation itself is irrelevant to them.
-    pub fn runFake(self: *Fixture, argv: []const []const u8) !adapters.process.Result {
+    pub fn runFake(self: *Fixture, argv: []const []const u8) !process.Result {
         return self.runBin(self.synapse_fake_bin, argv);
     }
 
-    pub fn runHook(self: *Fixture, argv: []const []const u8) !adapters.process.Result {
+    pub fn runHook(self: *Fixture, argv: []const []const u8) !process.Result {
         return self.runBin(self.hook_bin, argv);
     }
 
-    fn runBin(self: *Fixture, bin: []const u8, argv: []const []const u8) !adapters.process.Result {
+    fn runBin(self: *Fixture, bin: []const u8, argv: []const []const u8) !process.Result {
         return self.runBinAt(bin, argv, self.repo);
     }
 
     /// Same as `runBin`, from an explicit `cwd` instead of `self.repo` -- for
     /// the handful of tests that specifically check behavior outside any
     /// repo, or against a differently staged directory.
-    fn runBinAt(self: *Fixture, bin: []const u8, argv: []const []const u8, cwd: []const u8) !adapters.process.Result {
+    fn runBinAt(self: *Fixture, bin: []const u8, argv: []const []const u8, cwd: []const u8) !process.Result {
         var full = try self.gpa.alloc([]const u8, argv.len + 1);
         defer self.gpa.free(full);
         full[0] = bin;
         for (argv, 0..) |a, i| full[i + 1] = a;
-        return adapters.process.run(self.io(), self.gpa, full, .{ .cwd = .{ .path = cwd } });
+        return process.run(self.io(), self.gpa, full, .{ .cwd = .{ .path = cwd } });
     }
 
     /// `runSynapse`, but from `self.root` (the fixture's own top-level
     /// scratch dir) instead of `self.repo` -- the "outside any git repo"
     /// case several usage-error tests check.
-    pub fn runSynapseOutsideRepo(self: *Fixture, argv: []const []const u8) !adapters.process.Result {
+    pub fn runSynapseOutsideRepo(self: *Fixture, argv: []const []const u8) !process.Result {
         return self.runBinAt(self.synapse_bin, argv, self.root);
     }
 
@@ -388,15 +388,15 @@ pub const Fixture = struct {
     /// (identity resolution, real remotes), not the `SYNAPSE_*` env-var
     /// bypass most fixtures use instead.
     pub fn gitCommit(self: *Fixture, message: []const u8) !void {
-        const init_res = try adapters.process.run(self.io(), self.gpa, &.{ "git", "init", "-q", "-b", "main" }, .{
+        const init_res = try process.run(self.io(), self.gpa, &.{ "git", "init", "-q", "-b", "main" }, .{
             .cwd = .{ .path = self.repo },
         });
         defer init_res.deinit(self.gpa);
-        const add_res = try adapters.process.run(self.io(), self.gpa, &.{ "git", "add", "-A" }, .{
+        const add_res = try process.run(self.io(), self.gpa, &.{ "git", "add", "-A" }, .{
             .cwd = .{ .path = self.repo },
         });
         defer add_res.deinit(self.gpa);
-        const commit_res = try adapters.process.run(self.io(), self.gpa, &.{
+        const commit_res = try process.run(self.io(), self.gpa, &.{
             "git",           "-c", "user.email=test@test",
             "-c",            "user.name=test",
             "commit",        "-q", "-m",
@@ -418,11 +418,11 @@ pub const Fixture = struct {
     }
 
     /// Any other real `git` command against the fixture's repo. Caller frees.
-    pub fn git(self: *Fixture, args: []const []const u8) !adapters.process.Result {
+    pub fn git(self: *Fixture, args: []const []const u8) !process.Result {
         var argv_buf: [16][]const u8 = undefined;
         argv_buf[0] = "git";
         @memcpy(argv_buf[1 .. 1 + args.len], args);
-        return adapters.process.run(self.io(), self.gpa, argv_buf[0 .. 1 + args.len], .{
+        return process.run(self.io(), self.gpa, argv_buf[0 .. 1 + args.len], .{
             .cwd = .{ .path = self.repo },
         });
     }
@@ -437,22 +437,22 @@ pub const Fixture = struct {
 
     /// Feeds `stdin` to the real binary instead of no input -- the shape
     /// `synapse-hook`'s own JSON-payload commands need.
-    pub fn runHookStdin(self: *Fixture, argv: []const []const u8, stdin: []const u8) !adapters.process.Result {
+    pub fn runHookStdin(self: *Fixture, argv: []const []const u8, stdin: []const u8) !process.Result {
         return self.runBinStdin(self.hook_bin, argv, stdin);
     }
 
     /// `runFake`, but feeding `stdin` -- for `tags-cache --load` and
     /// anything else that reads its own dump-format on stdin.
-    pub fn runFakeStdin(self: *Fixture, argv: []const []const u8, stdin: []const u8) !adapters.process.Result {
+    pub fn runFakeStdin(self: *Fixture, argv: []const []const u8, stdin: []const u8) !process.Result {
         return self.runBinStdin(self.synapse_fake_bin, argv, stdin);
     }
 
-    fn runBinStdin(self: *Fixture, bin: []const u8, argv: []const []const u8, stdin: []const u8) !adapters.process.Result {
+    fn runBinStdin(self: *Fixture, bin: []const u8, argv: []const []const u8, stdin: []const u8) !process.Result {
         var full = try self.gpa.alloc([]const u8, argv.len + 1);
         defer self.gpa.free(full);
         full[0] = bin;
         for (argv, 0..) |a, i| full[i + 1] = a;
-        return adapters.process.run(self.io(), self.gpa, full, .{ .cwd = .{ .path = self.repo }, .stdin = stdin });
+        return process.run(self.io(), self.gpa, full, .{ .cwd = .{ .path = self.repo }, .stdin = stdin });
     }
 };
 
@@ -486,7 +486,7 @@ test "PATH is fake-bin prepended, so a spawned git resolves to the scripted stan
     var fx = try Fixture.init(testing.allocator);
     defer fx.deinit();
 
-    const res = try adapters.process.run(fx.io(), testing.allocator, &.{ "git", "--version" }, .{});
+    const res = try process.run(fx.io(), testing.allocator, &.{ "git", "--version" }, .{});
     defer res.deinit(testing.allocator);
 
     try testing.expect(res.ok());

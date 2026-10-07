@@ -4,7 +4,7 @@
 //! the real `synapse`, since grammar compilation itself is irrelevant here.
 
 const std = @import("std");
-const adapters = @import("adapters");
+const process = @import("process.zig");
 const support = @import("support.zig");
 
 const testing = std.testing;
@@ -36,7 +36,7 @@ test "build-refs: --help is exit 0, a bad flag is exit 2" {
 }
 
 test "doctor: --help works outside a repo and with no environment at all" {
-    // A fully empty environment except PATH, which `adapters.process.run`'s
+    // A fully empty environment except PATH, which `process.run`'s
     // ambient `Io` environ can't express (it always carries the fixture's
     // full env) -- needs its own scoped `Io.Threaded` built with a minimal
     // PATH-only environ, same pattern `adapters/process.zig`'s own
@@ -57,7 +57,7 @@ test "doctor: --help works outside a repo and with no environment at all" {
     var scoped: std.Io.Threaded = .init(gpa, .{ .environ = .{ .block = .{ .slice = envp } } });
     defer scoped.deinit();
 
-    const r = try adapters.process.run(scoped.io(), gpa, &.{ fx.synapse_bin, "doctor", "--help" }, .{ .cwd = .{ .path = fx.root } });
+    const r = try process.run(scoped.io(), gpa, &.{ fx.synapse_bin, "doctor", "--help" }, .{ .cwd = .{ .path = fx.root } });
     defer r.deinit(gpa);
     try testing.expectEqual(@as(?u8, 0), r.exitCode());
     try testing.expect(std.mem.indexOf(u8, r.stdout, "usage: synapse doctor") != null or

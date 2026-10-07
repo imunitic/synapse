@@ -5,7 +5,7 @@
 //! (`write_node_cmd.zig`'s own tests, calling `write()` directly).
 
 const std = @import("std");
-const adapters = @import("adapters");
+const process = @import("process.zig");
 const support = @import("support.zig");
 
 const testing = std.testing;
@@ -21,7 +21,7 @@ fn writeRootFile(fx: *Fixture, sub_path: []const u8, data: []const u8) !void {
 
 /// `write-node --title <t> --summary <s> --paths <paths> --body <body>`,
 /// run from inside `fx.repo` -- the script resolves the repo from cwd.
-fn runWrite(fx: *Fixture, extra: []const []const u8) !adapters.process.Result {
+fn runWrite(fx: *Fixture, extra: []const []const u8) !process.Result {
     var argv: std.ArrayListUnmanaged([]const u8) = .empty;
     defer argv.deinit(fx.gpa);
     try argv.append(fx.gpa, "write-node");

@@ -2,7 +2,7 @@
 //! against the real binaries' `--help` output.
 
 const std = @import("std");
-const adapters = @import("adapters");
+const process = @import("process.zig");
 const support = @import("support.zig");
 
 const testing = std.testing;
@@ -40,7 +40,7 @@ test "the committed docs/synapse/cli.md is up to date" {
     const root = try projectRoot(gpa);
     defer gpa.free(root);
 
-    const r = try adapters.process.run(fx.io(), fx.gpa, &.{ "bash", gen, "--check" }, .{ .cwd = .{ .path = root } });
+    const r = try process.run(fx.io(), fx.gpa, &.{ "bash", gen, "--check" }, .{ .cwd = .{ .path = root } });
     defer r.deinit(gpa);
     try testing.expectEqual(@as(?u8, 0), r.exitCode());
     try testing.expect(std.mem.indexOf(u8, r.stdout, "up to date") != null or std.mem.indexOf(u8, r.stderr, "up to date") != null);
@@ -70,7 +70,7 @@ test "--check fails when a subcommand's help has moved on" {
     const scratch_docs = try std.fmt.allocPrint(fx.gpa, "{s}/docs", .{fx.root});
     defer fx.gpa.free(scratch_docs);
 
-    const r1 = try adapters.process.run(fx.io(), fx.gpa, &.{ "bash", "./generate-cli-reference.sh", "--check" }, .{ .cwd = .{ .path = scratch_docs } });
+    const r1 = try process.run(fx.io(), fx.gpa, &.{ "bash", "./generate-cli-reference.sh", "--check" }, .{ .cwd = .{ .path = scratch_docs } });
     defer r1.deinit(gpa);
     try testing.expectEqual(@as(?u8, 0), r1.exitCode());
 
@@ -80,7 +80,7 @@ test "--check fails when a subcommand's help has moved on" {
     defer fx.gpa.free(new_content);
     try fx.dir.writeFile(std.testing.io, .{ .sub_path = "docs/cli.md", .data = new_content });
 
-    const r2 = try adapters.process.run(fx.io(), fx.gpa, &.{ "bash", "./generate-cli-reference.sh", "--check" }, .{ .cwd = .{ .path = scratch_docs } });
+    const r2 = try process.run(fx.io(), fx.gpa, &.{ "bash", "./generate-cli-reference.sh", "--check" }, .{ .cwd = .{ .path = scratch_docs } });
     defer r2.deinit(gpa);
     try testing.expectEqual(@as(?u8, 1), r2.exitCode());
     try testing.expect(std.mem.indexOf(u8, r2.stdout, "out of date") != null or std.mem.indexOf(u8, r2.stderr, "out of date") != null);
@@ -177,7 +177,7 @@ test "a --help that needs an environment fails the generator" {
     try fx.setEnv("SYNAPSE_BIN", needy);
     try fx.setEnv("SYNAPSE_HOOK_BIN", needy);
 
-    const r = try adapters.process.run(fx.io(), fx.gpa, &.{ "bash", gen }, .{ .cwd = .{ .path = fx.root } });
+    const r = try process.run(fx.io(), fx.gpa, &.{ "bash", gen }, .{ .cwd = .{ .path = fx.root } });
     defer r.deinit(gpa);
     try testing.expectEqual(@as(?u8, 1), r.exitCode());
     try testing.expect(std.mem.indexOf(u8, r.stdout, "without an environment") != null or std.mem.indexOf(u8, r.stderr, "without an environment") != null);
@@ -189,7 +189,7 @@ test "a bad flag exits 2 with usage" {
     const root = try projectRoot(gpa);
     defer gpa.free(root);
 
-    const r = try adapters.process.run(testing.io, gpa, &.{ "bash", gen, "--nonsense" }, .{ .cwd = .{ .path = root } });
+    const r = try process.run(testing.io, gpa, &.{ "bash", gen, "--nonsense" }, .{ .cwd = .{ .path = root } });
     defer r.deinit(gpa);
     try testing.expectEqual(@as(?u8, 2), r.exitCode());
     try testing.expect(std.mem.indexOf(u8, r.stdout, "Usage:") != null or std.mem.indexOf(u8, r.stderr, "Usage:") != null);

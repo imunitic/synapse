@@ -6,7 +6,7 @@
 //! is the shell snippet the doc tells a reader to run.
 
 const std = @import("std");
-const adapters = @import("adapters");
+const process = @import("process.zig");
 const support = @import("support.zig");
 
 const testing = std.testing;
@@ -41,7 +41,7 @@ fn branchIdentityCheck(fx: *Fixture, ns_dir: []const u8) !bool {
     });
     defer gpa.free(script);
 
-    const r = try adapters.process.run(fx.io(), fx.gpa, &.{ "sh", "-c", script }, .{ .cwd = .{ .path = fx.repo } });
+    const r = try process.run(fx.io(), fx.gpa, &.{ "sh", "-c", script }, .{ .cwd = .{ .path = fx.repo } });
     defer r.deinit(gpa);
     return r.ok();
 }

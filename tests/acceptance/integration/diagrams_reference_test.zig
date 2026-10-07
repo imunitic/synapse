@@ -1,10 +1,10 @@
 //! `docs/synapse/generate-diagrams.sh` -- the .mmd -> .png renderer and its
 //! `--check` mode. Spawns the shell script directly, not the compiled
-//! `synapse` binary, via `adapters.process.run`'s already-general "any
+//! `synapse` binary, via `process.run`'s already-general "any
 //! argv" spawn.
 
 const std = @import("std");
-const adapters = @import("adapters");
+const process = @import("process.zig");
 const support = @import("support.zig");
 
 const testing = std.testing;
@@ -68,13 +68,13 @@ fn stamp(fx: *Fixture, name: []const u8) !void {
     try fx.dir.writeFile(std.testing.io, .{ .sub_path = "docs/diagrams/.rendered", .data = combined });
 }
 
-fn runGen(fx: *Fixture, gen: []const u8, args: []const []const u8) !adapters.process.Result {
+fn runGen(fx: *Fixture, gen: []const u8, args: []const []const u8) !process.Result {
     var argv: std.ArrayListUnmanaged([]const u8) = .empty;
     defer argv.deinit(fx.gpa);
     try argv.append(fx.gpa, "bash");
     try argv.append(fx.gpa, gen);
     try argv.appendSlice(fx.gpa, args);
-    return adapters.process.run(fx.io(), fx.gpa, argv.items, .{ .cwd = .{ .path = fx.root } });
+    return process.run(fx.io(), fx.gpa, argv.items, .{ .cwd = .{ .path = fx.root } });
 }
 
 test "check: a source with no png at all is reported" {
@@ -272,7 +272,7 @@ test "the repo's own diagrams are current" {
     var cwd_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
     const project_root = cwd_buf[0..try cwd_dir.realPath(std.testing.io, &cwd_buf)];
 
-    const r = try adapters.process.run(fx.io(), fx.gpa, &.{ "bash", real_gen, "--check" }, .{ .cwd = .{ .path = project_root } });
+    const r = try process.run(fx.io(), fx.gpa, &.{ "bash", real_gen, "--check" }, .{ .cwd = .{ .path = project_root } });
     defer r.deinit(gpa);
     try testing.expectEqual(@as(?u8, 0), r.exitCode());
 }
