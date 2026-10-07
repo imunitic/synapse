@@ -8,12 +8,24 @@ name: release
 # triggered the dispatch, so a manual run can never build off an untagged
 # commit; `dry_run` makes it an `npm publish --dry-run`.
 #
+# A pull request that touches how the binaries are built runs the `build` job
+# alone: the three platforms, the glibc floor and the package check, with the
+# binaries kept as artifacts. `publish` never runs for a pull request.
+#
 # The Linux binaries are built by `ci/linux-release.sh`, which compiles and
 # links against a glibc 2.28 sysroot from an AlmaLinux 8 image; the script and
 # the package check both fail if a binary asks for a newer glibc.
 on:
   push:
     tags: ["v*"]
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "ci/**"
+      - "alire.toml"
+      - "*.gpr"
+      - "vendor/**"
+      - "packages/**"
   workflow_dispatch:
     inputs:
       tag:
@@ -45,7 +57,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - uses: alire-project/setup-alire@v6
         if: runner.os == 'macOS'
@@ -77,6 +89,7 @@ jobs:
 
   publish:
     needs: build
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     concurrency:
       group: release-tag
@@ -85,7 +98,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
