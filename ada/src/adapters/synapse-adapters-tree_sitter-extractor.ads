@@ -52,6 +52,16 @@ is
       Override_Dir :    Core.Grammar_Registry.Maybe_Text := (Found => False);
       Report       :        Reporter := Report_To_Standard_Error'Access);
 
+   --  Tags by script and not by grammar, for a program that tests the
+   --  commands without a compiler or a grammar to hand: the registry, the
+   --  warnings, the clone with its lock and the remembered refusals are the
+   --  real ones; only building and loading the grammar is left out. Files of
+   --  `.ml`, `.java` and `.py` get a definition named `FAKE_NAME`, one for
+   --  each `symbol:<Name>` line and a reference for each `ref:<Name>` line;
+   --  a `notags` line makes a file parse to nothing. Any other extension has
+   --  no grammar.
+   procedure Script (E : in out Tagging_Extractor);
+
    --  How many extensions have been resolved, the unusable ones included.
    function Resolved_Extensions (E : Tagging_Extractor) return Natural;
 
@@ -87,6 +97,9 @@ private
       Report       : Reporter := Report_To_Standard_Error'Access;
       --  A null tagger means the extension is known to be unusable.
       Taggers      : Caches.Map;
+      Scripted     : Boolean := False;
+      --  The extensions whose clone succeeded, when scripted.
+      Scripted_Ok  : Core.Text_Lists.Set;
    end record;
 
 end Synapse.Adapters.Tree_Sitter.Extractor;

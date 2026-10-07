@@ -324,8 +324,18 @@ pub fn build(b: *std.Build) void {
         it_opts.addOptionPath("synapse_bin", .{ .cwd_relative = path })
     else
         it_opts.addOptionPath("synapse_bin", exe.getEmittedBin());
-    it_opts.addOptionPath("synapse_fake_bin", fake.getEmittedBin());
-    it_opts.addOptionPath("hook_bin", hook.getEmittedBin());
+    // Likewise `-Dsynapse-fake-bin` for the program with scripted grammars and
+    // `-Dhook-bin` for the hooks.
+    const external_fake = b.option([]const u8, "synapse-fake-bin", "Run test-integration against this synapse-fake binary");
+    const external_hook = b.option([]const u8, "hook-bin", "Run test-integration against this synapse-hook binary");
+    if (external_fake) |path|
+        it_opts.addOptionPath("synapse_fake_bin", .{ .cwd_relative = path })
+    else
+        it_opts.addOptionPath("synapse_fake_bin", fake.getEmittedBin());
+    if (external_hook) |path|
+        it_opts.addOptionPath("hook_bin", .{ .cwd_relative = path })
+    else
+        it_opts.addOptionPath("hook_bin", hook.getEmittedBin());
     it_opts.addOption([]const u8, "fake_bin_dir", "tests/fixtures/fake-bin");
 
     const integration_mod = b.createModule(.{

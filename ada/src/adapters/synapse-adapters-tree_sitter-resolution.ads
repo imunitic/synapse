@@ -46,6 +46,9 @@ is
      (Run       : in out Synapse.Ports.Process_Runner.Runner'Class;
       Loader    : in out Synapse.Ports.Library_Loader.Loader'Class;
       Registry  :        Core.Grammar_Registry.Registry; Grammars_Dir : String;
-      Extension :        String; Max_Tries : Positive) return Resolution;
+      Extension :        String; Max_Tries : Positive;
+      --  Look the extension up and clone its repository, but neither build
+      --  nor load the grammar: Lang is then No_Language.
+      Skip_Load :        Boolean := False) return Resolution;
 
 end Synapse.Adapters.Tree_Sitter.Resolution;

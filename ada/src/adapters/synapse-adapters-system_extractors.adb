@@ -12,6 +12,9 @@ package body Synapse.Adapters.System_Extractors is
       return not null access Synapse.Ports.Extractor.Locating_Extractor'Class
    is
    begin
+      if F.Scripted then
+         Tree_Sitter.Extractor.Script (F.Tagging);
+      end if;
       Tree_Sitter.Extractor.Configure
         (F.Tagging, S.Registry,
          Ada.Strings.Unbounded.To_String (S.Grammars_Dir), S.Rules,
@@ -68,6 +71,9 @@ package body Synapse.Adapters.System_Extractors is
       declare
          Own : constant Tagging_Access := F.Workers (Index);
       begin
+         if F.Scripted then
+            Tree_Sitter.Extractor.Script (Own.all);
+         end if;
          Tree_Sitter.Extractor.Configure
            (Own.all, S.Registry,
             Ada.Strings.Unbounded.To_String (S.Grammars_Dir), S.Rules,
@@ -75,6 +81,11 @@ package body Synapse.Adapters.System_Extractors is
          return Own;
       end;
    end Worker;
+
+   procedure Script (F : in out System_Extractors) is
+   begin
+      F.Scripted := True;
+   end Script;
 
    overriding procedure Finalize (F : in out System_Extractors) is
       procedure Free is new Ada.Unchecked_Deallocation

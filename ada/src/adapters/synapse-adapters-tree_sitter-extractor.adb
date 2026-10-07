@@ -5,6 +5,7 @@ with Ada.Unchecked_Deallocation;
 
 with Synapse.Adapters.File_Bytes;
 with Synapse.Adapters.Tree_Sitter.Resolution;
+with Synapse.Core.Graph_Model;
 with Synapse.Core.Node_Types;
 
 package body Synapse.Adapters.Tree_Sitter.Extractor is
@@ -29,6 +30,11 @@ package body Synapse.Adapters.Tree_Sitter.Extractor is
    begin
       Ada.Text_IO.Put_Line (Ada.Text_IO.Standard_Error, Message);
    end Report_To_Standard_Error;
+
+   procedure Script (E : in out Tagging_Extractor) is
+   begin
+      E.Scripted := True;
+   end Script;
 
    procedure Configure
      (E : in out Tagging_Extractor; Registry : Core.Grammar_Registry.Registry;
@@ -239,7 +245,7 @@ package body Synapse.Adapters.Tree_Sitter.Extractor is
       Resolved :=
         Resolve.Resolve
           (E.Run.all, E.Loader.all, E.Registry, To_String (E.Grammars_Dir),
-           Extension, E.Max_Tries);
+           Extension, E.Max_Tries, Skip_Load => E.Scripted);
       declare
          Made : Tagger_Access := null;
       begin
@@ -258,7 +264,11 @@ package body Synapse.Adapters.Tree_Sitter.Extractor is
                Say_Unusable (E, Extension, To_String (Resolved.Detail));
 
             when Resolve.Resolved =>
-               Made := Make_Tagger (E, Extension, Resolved);
+               if E.Scripted then
+                  E.Scripted_Ok.Include (Extension);
+               else
+                  Made := Make_Tagger (E, Extension, Resolved);
+               end if;
          end case;
          E.Taggers.Insert (Extension, Made);
          return Made;
@@ -268,6 +278,72 @@ package body Synapse.Adapters.Tree_Sitter.Extractor is
    ---------------------------------------------------------------------------
    --  Tagging files
    ---------------------------------------------------------------------------
+
+   ---------------------------------------------------------------------------
+   --  Tagging by script
+   ---------------------------------------------------------------------------
+
+   function Scripted_Tags
+     (Extension, Content : String) return Port.Located_Outcome
+   is
+      Spanned : Port.Located_Vectors.Vector;
+
+      procedure Add (Name, Kind : String; Which : Core.Graph_Model.Role) is
+      begin
+         Spanned.Append
+           (Port.Located_Tag'
+              (Item  =>
+                 (Name => To_Unbounded_String (Name),
+                  Kind => To_Unbounded_String (Kind), Which => Which,
+                  Line => 0,
+                  Expression => To_Unbounded_String ("fake source line")),
+               Where => (Start_Row => 0, Start_Col => 0, End_Row => 0, End_Col => 1)));
+      end Add;
+
+      function Lines return Core.Text_Lists.Vector is
+         Result : Core.Text_Lists.Vector;
+         Start  : Positive := Content'First;
+      begin
+         for I in Content'First .. Content'Last + 1 loop
+            if I > Content'Last or else Content (I) = ASCII.LF then
+               declare
+                  Last : Natural := I - 1;
+               begin
+                  if Last >= Start and then Content (Last) = ASCII.CR then
+                     Last := Last - 1;
+                  end if;
+                  Result.Append (To_Unbounded_String (Content (Start .. Last)));
+               end;
+               Start := I + 1;
+            end if;
+         end loop;
+         return Result;
+      end Lines;
+
+      Seen : constant Core.Text_Lists.Vector := Lines;
+   begin
+      if Extension not in "ml" | "java" | "py" then
+         return (Kind => Port.Unsupported);
+      end if;
+      for Line of Seen loop
+         if To_String (Line) = "notags" then
+            return (Kind => Port.With_Tags, Tags => Spanned);
+         end if;
+      end loop;
+      Add ("FAKE_NAME", "function", Core.Graph_Model.Def);
+      for Line of Seen loop
+         declare
+            Text : constant String := To_String (Line);
+         begin
+            if Text'Length > 7 and then Text (Text'First .. Text'First + 6) = "symbol:" then
+               Add (Text (Text'First + 7 .. Text'Last), "function", Core.Graph_Model.Def);
+            elsif Text'Length > 4 and then Text (Text'First .. Text'First + 3) = "ref:" then
+               Add (Text (Text'First + 4 .. Text'Last), "call", Core.Graph_Model.Ref);
+            end if;
+         end;
+      end loop;
+      return (Kind => Port.With_Tags, Tags => Spanned);
+   end Scripted_Tags;
 
    function Is_Absolute (Path : String) return Boolean is
      (Path'Length > 0
@@ -295,7 +371,20 @@ package body Synapse.Adapters.Tree_Sitter.Extractor is
                   Grammar_Tagger : constant Tagger_Access :=
                     Tagger_For (E, Extension);
                begin
-                  if Grammar_Tagger /= null then
+                  if E.Scripted and then E.Scripted_Ok.Contains (Extension) then
+                     declare
+                        Full    : constant String :=
+                          (if Is_Absolute (Path) then Path
+                           else Root & "/" & Path);
+                        Found   : Boolean;
+                        Content : constant String :=
+                          Read_Optional (Full, Largest_Source, Found);
+                     begin
+                        if Found then
+                           Outcome := Scripted_Tags (Extension, Content);
+                        end if;
+                     end;
+                  elsif Grammar_Tagger /= null then
                      declare
                         Full    : constant String :=
                           (if Is_Absolute (Path) then Path

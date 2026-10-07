@@ -38,6 +38,10 @@ package Synapse.Adapters.System_Extractors is
 
    overriding procedure Finalize (F : in out System_Extractors);
 
+   --  Tag by script and not by grammar, as `Tagging_Extractor.Script` says,
+   --  for the extractors this factory hands out from now on.
+   procedure Script (F : in out System_Extractors);
+
 private
 
    type Tagging_Access is
@@ -56,6 +60,7 @@ private
         .Tagging_Extractor
         (Run, Loader);
       Workers : Worker_Vectors.Vector;
+      Scripted : Boolean := False;
    end record;
 
 end Synapse.Adapters.System_Extractors;

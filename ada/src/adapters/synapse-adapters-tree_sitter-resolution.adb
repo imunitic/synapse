@@ -12,7 +12,8 @@ package body Synapse.Adapters.Tree_Sitter.Resolution is
      (Run       : in out Synapse.Ports.Process_Runner.Runner'Class;
       Loader    : in out Synapse.Ports.Library_Loader.Loader'Class;
       Registry  :        Registry_Types.Registry; Grammars_Dir : String;
-      Extension :        String; Max_Tries : Positive) return Resolution
+      Extension :        String; Max_Tries : Positive;
+      Skip_Load :        Boolean := False) return Resolution
    is
       Ready : constant Registry_Types.Readiness  :=
         Registry_Types.Lookup (Registry, Extension);
@@ -44,6 +45,12 @@ package body Synapse.Adapters.Tree_Sitter.Resolution is
                Detail =>
                  To_Unbounded_String
                    (Prep.Describe (Preparation.Clone_Results.Error (Cloned))));
+         end if;
+         if Skip_Load then
+            return
+              (Which    => Resolved, Lang => No_Language,
+               Repo_Dir => Preparation.Clone_Results.Value (Cloned),
+               Scope    => Ready.Scope, Source => Ready.Source);
          end if;
          declare
             Loaded : constant Prep.Resolved :=
