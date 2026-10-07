@@ -1,6 +1,9 @@
 with Ada.Strings.Unbounded;
 with Ada.Unchecked_Deallocation;
 
+with Synapse.Adapters.Tree_Sitter.Docstring_Pairs;
+with Synapse.Adapters.Tree_Sitter.Resolution;
+
 package body Synapse.Adapters.System_Extractors is
 
    overriding function Locating
@@ -15,6 +18,41 @@ package body Synapse.Adapters.System_Extractors is
          S.Max_Tries, S.Override_Dir);
       return F.Tagging'Unchecked_Access;
    end Locating;
+
+   overriding function Find_Pairs
+     (F : in out System_Extractors;
+      S : Synapse.Ports.Extractor_Factory.Settings; Extension, Source : String)
+      return Synapse.Ports.Docstring_Pairs.Finding
+   is
+      package Resolve renames Tree_Sitter.Resolution;
+      package Pairs renames Tree_Sitter.Docstring_Pairs;
+
+      Resolved : constant Resolve.Resolution :=
+        Resolve.Resolve
+          (F.Run.all, F.Loader.all, S.Registry,
+           Ada.Strings.Unbounded.To_String (S.Grammars_Dir), Extension,
+           S.Max_Tries);
+   begin
+      if Resolved.Which in
+          Resolve.Not_Registered | Resolve.Not_Usable | Resolve.Failed
+      then
+         return (Kind => Synapse.Ports.Docstring_Pairs.No_Grammar);
+      end if;
+      declare
+         Found : constant Pairs.Pair_Results.Result :=
+           Pairs.Find_Pairs
+             (Resolved.Lang, Source,
+              Pairs.Comment_Type_Name (S.Override_Dir, Extension),
+              Pairs.Declaration_Overrides (S.Override_Dir, Extension));
+      begin
+         if not Pairs.Pair_Results.Is_Success (Found) then
+            return (Kind => Synapse.Ports.Docstring_Pairs.Failed);
+         end if;
+         return
+           (Kind  => Synapse.Ports.Docstring_Pairs.Found,
+            Pairs => Pairs.Pair_Results.Value (Found));
+      end;
+   end Find_Pairs;
 
    overriding function Worker
      (F : in out System_Extractors;

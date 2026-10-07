@@ -2,6 +2,7 @@ with Ada.Containers.Vectors;
 with Ada.Finalization;
 
 with Synapse.Adapters.Tree_Sitter.Extractor;
+with Synapse.Ports.Docstring_Pairs;
 with Synapse.Ports.Extractor;
 with Synapse.Ports.Extractor_Factory;
 with Synapse.Ports.Library_Loader;
@@ -22,6 +23,11 @@ package Synapse.Adapters.System_Extractors is
      (F : in out System_Extractors;
       S :        Synapse.Ports.Extractor_Factory.Settings)
       return not null access Synapse.Ports.Extractor.Locating_Extractor'Class;
+
+   overriding function Find_Pairs
+     (F : in out System_Extractors;
+      S : Synapse.Ports.Extractor_Factory.Settings; Extension, Source : String)
+      return Synapse.Ports.Docstring_Pairs.Finding;
 
    --  A tagger of its own for each index, made the first time it is asked
    --  for and kept until the factory finishes.

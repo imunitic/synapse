@@ -209,6 +209,44 @@ package body Synapse.Commands.Graph_Support.Tests is
       end;
    end Grep_Keeps_Or_Drops_The_Lines_That_Match;
 
+   procedure Removal_Stays_Inside_The_Vault_Namespaces
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir    : constant Scratch := Make;
+      F      : aliased Fixture;
+      Vault  : constant String  := Path (Dir, "vault");
+      Inside : constant String  := Vault & "/synapse/widget@main";
+   begin
+      Ada.Directories.Create_Path (Inside & "/deeper");
+      Ada.Directories.Create_Path (Path (Dir, "elsewhere"));
+      Assert
+        (not Remove_Namespace
+           (Env (F), Vault, Path (Dir, "elsewhere"), "prog"),
+         "outside the vault");
+      Assert
+        (not Remove_Namespace (Env (F), Vault, Vault & "/synapse/", "prog"),
+         "the namespaces' own directory");
+      Assert
+        (not Remove_Namespace (Env (F), Vault, Vault & "/synapse", "prog"),
+         "without the slash");
+      Assert
+        (F.Console.Err_Text =
+         "prog: refusing to remove " & Path (Dir, "elsewhere") &
+         Character'Val (10) & "prog: refusing to remove " & Vault &
+         "/synapse/" & Character'Val (10) & "prog: refusing to remove " &
+         Vault & "/synapse" & Character'Val (10),
+         "the messages: " & F.Console.Err_Text);
+      Assert (Ada.Directories.Exists (Path (Dir, "elsewhere")), "left alone");
+      Assert (Remove_Namespace (Env (F), Vault, Inside, "prog"), "inside");
+      Assert (not Ada.Directories.Exists (Inside), "gone with what it held");
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end Removal_Stays_Inside_The_Vault_Namespaces;
+
    overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
@@ -247,6 +285,9 @@ package body Synapse.Commands.Graph_Support.Tests is
       Register_Routine
         (T, Grep_Keeps_Or_Drops_The_Lines_That_Match'Access,
          "Grep keeps or drops the lines that match");
+      Register_Routine
+        (T, Removal_Stays_Inside_The_Vault_Namespaces'Access,
+         "Removal stays inside the vault namespaces");
    end Register_Tests;
 
 end Synapse.Commands.Graph_Support.Tests;

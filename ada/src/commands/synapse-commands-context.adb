@@ -1,3 +1,4 @@
+with Ada.Directories;
 with Ada.IO_Exceptions;
 
 with Synapse.Adapters.Conf_Files;
@@ -249,6 +250,38 @@ package body Synapse.Commands.Context is
             "/ -- this branch has no graph" & ASCII.LF);
          return False;
    end Verify_Namespace;
+
+   function Node_Files (Ctx : Context) return Lists.Vector is
+      Dir    : constant String := To_String (Ctx.Abs_Dir);
+      Found  : Lists.Vector;
+      Search : Ada.Directories.Search_Type;
+      Item   : Ada.Directories.Directory_Entry_Type;
+
+      function Before (Left, Right : Unbounded_String) return Boolean is
+        (Left < Right);
+
+      package Sorting is new Lists.Vectors.Generic_Sorting (Before);
+   begin
+      if not Ada.Directories.Exists (Dir) then
+         return Found;
+      end if;
+      Ada.Directories.Start_Search
+        (Search, Dir, "*.md",
+         [Ada.Directories.Ordinary_File => True, others => False]);
+      while Ada.Directories.More_Entries (Search) loop
+         Ada.Directories.Get_Next_Entry (Search, Item);
+         declare
+            Name : constant String := Ada.Directories.Simple_Name (Item);
+         begin
+            if Name /= "Index.md" then
+               Found.Append (To_Unbounded_String (Name));
+            end if;
+         end;
+      end loop;
+      Ada.Directories.End_Search (Search);
+      Sorting.Sort (Found);
+      return Found;
+   end Node_Files;
 
    function Strip_Md (Name : String) return String is
      (if Name'Length >= 3 and then Name (Name'Last - 2 .. Name'Last) = ".md"

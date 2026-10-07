@@ -40,7 +40,7 @@ package Synapse.Commands.Graph_Support is
    --  the home's `.claude`. A missing file is no rules; Ok is false for one
    --  that is there and cannot be read or is not JSON.
    procedure Load_Rule_Registry
-     (Env : Environment; Variable_Name, Conf_Name : String;
+     (Env   :     Environment; Variable_Name, Conf_Name : String;
       Rules : out Core.Namespace.Registry; Ok : out Boolean);
 
    --  How many bytes of a listing a command reads: `SYNAPSE_MAX_LISTING_BYTES`
@@ -68,5 +68,13 @@ package Synapse.Commands.Graph_Support is
      (Env    :     Environment; Flag, Pattern, Input : String;
       Output : out Ada.Strings.Unbounded.Unbounded_String;
       Result : out Grep_Outcome);
+
+   --  Removes the namespace directory Ns_Dir, which must lie inside
+   --  `{Vault}/synapse/`: a recursive delete of a resolved path is one
+   --  substitution away from a much larger one. False, after saying why with
+   --  Prog in front, for a directory outside it or one that cannot be
+   --  removed.
+   function Remove_Namespace
+     (Env : Environment; Vault, Ns_Dir, Prog : String) return Boolean;
 
 end Synapse.Commands.Graph_Support;

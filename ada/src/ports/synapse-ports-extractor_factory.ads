@@ -2,6 +2,7 @@ with Ada.Strings.Unbounded;
 
 with Synapse.Core.Grammar_Registry;
 with Synapse.Core.Kind_Synonyms;
+with Synapse.Ports.Docstring_Pairs;
 with Synapse.Ports.Extractor;
 
 --  Where a command gets the extractor it tags with. A command reads the
@@ -36,5 +37,11 @@ package Synapse.Ports.Extractor_Factory is
    function Worker
      (F : in out Factory; S : Settings; Index : Positive)
       return not null access Extractor.Locating_Extractor'Class is abstract;
+
+   --  The docstring pairs of Source, a file of extension Extension, found
+   --  with the grammar S names.
+   function Find_Pairs
+     (F : in out Factory; S : Settings; Extension, Source : String)
+      return Docstring_Pairs.Finding is abstract;
 
 end Synapse.Ports.Extractor_Factory;

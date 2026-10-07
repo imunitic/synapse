@@ -1,3 +1,4 @@
+with Ada.Strings.Unbounded;
 with Ada.Containers;
 
 with AUnit.Assertions;
@@ -7,6 +8,8 @@ with Synapse.Adapters.Tree_Sitter.Grammar;
 with Synapse.Test_Scratch;
 
 package body Synapse.Adapters.Tree_Sitter.Docstring_Pairs.Tests is
+
+   use Ada.Strings.Unbounded;
 
    use AUnit.Assertions;
    use Synapse.Test_Scratch;

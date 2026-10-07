@@ -1,9 +1,7 @@
-with Ada.Containers.Vectors;
-with Ada.Strings.Unbounded;
-
 with Synapse.Core.Grammar_Registry;
 with Synapse.Core.Results;
 with Synapse.Core.Text_Lists;
+with Synapse.Ports.Docstring_Pairs;
 
 --  Structural pairing of a comment with the declaration under it, apart from
 --  the tagger even though both walk the same parse. Checking docstrings is a
@@ -30,26 +28,9 @@ package Synapse.Adapters.Tree_Sitter.Docstring_Pairs with
   SPARK_Mode => Off
 is
 
-   use Ada.Strings.Unbounded;
+   subtype Pair is Synapse.Ports.Docstring_Pairs.Pair;
 
-   --  One comment run and the declaration directly below it.
-   type Pair is record
-      --  The declaration's raw node type.
-      Kind                 : Unbounded_String;
-      --  The declaration's first line of text.
-      Name                 : Unbounded_String;
-      --  Each comment of the run, joined by line feeds.
-      Docstring_Text       : Unbounded_String;
-      --  The declaration's whole text.
-      Decl_Text            : Unbounded_String;
-      --  1-based and inclusive, the numbering the docstring index uses.
-      Docstring_Start_Line : Positive;
-      Docstring_End_Line   : Positive;
-      Decl_Start_Line      : Positive;
-      Decl_End_Line        : Positive;
-   end record;
-
-   package Pair_Vectors is new Ada.Containers.Vectors (Positive, Pair);
+   package Pair_Vectors renames Synapse.Ports.Docstring_Pairs.Pair_Vectors;
 
    type Pair_Error is (Language_Rejected, Not_Parsed);
 
@@ -61,8 +42,8 @@ is
    --  are node types that count as declarations without a `name` field.
    function Find_Pairs
      (Lang        : Language; Source : String; Comment_Type : String;
-      Extra_Kinds : Core.Text_Lists.Vector) return Pair_Results.Result
-   with Pre => not Is_Null (Lang);
+      Extra_Kinds : Core.Text_Lists.Vector) return Pair_Results.Result with
+     Pre => not Is_Null (Lang);
 
    --  The comment node type of an extension: `<ext>.comments.scm` in the
    --  override directory when it names one, else the default. A file that is

@@ -133,7 +133,7 @@ package body Synapse.Commands.Graph_Support is
      (Path : String; Usable : Lists.Vector) return Boolean
    is
       Name_First : Positive := Path'First;
-      Dot        : Natural := 0;
+      Dot        : Natural  := 0;
    begin
       for I in reverse Path'Range loop
          if Path (I) = '/' then
@@ -155,14 +155,14 @@ package body Synapse.Commands.Graph_Support is
    end Has_Usable_Extension;
 
    procedure Load_Rule_Registry
-     (Env : Environment; Variable_Name, Conf_Name : String;
+     (Env   :     Environment; Variable_Name, Conf_Name : String;
       Rules : out Core.Namespace.Registry; Ok : out Boolean)
    is
-      Found : constant Adapters.Conf_Files.Maybe_Path :=
+      Found : constant Adapters.Conf_Files.Maybe_Path      :=
         Adapters.Conf_Files.Resolve_Conf_Path (Env.Vars.all, Conf_Name);
       Named : constant Synapse.Ports.Variables.Maybe_Value :=
         Env.Vars.Get (Variable_Name);
-      Path  : constant String :=
+      Path  : constant String                              :=
         (if Named.Found then To_String (Named.Value)
          elsif Found.Found then To_String (Found.Value)
          else Set_Variable (Env, "HOME") & "/.claude/" & Conf_Name);
@@ -170,7 +170,7 @@ package body Synapse.Commands.Graph_Support is
       Read  : Boolean;
    begin
       Rules := Core.Namespace.Parse ("{}");
-      Ok := True;
+      Ok    := True;
       Read_File (Path, 8 * 1_024 * 1_024, Text, Read);
       if Read then
          Rules := Core.Namespace.Parse (To_String (Text));
@@ -242,5 +242,27 @@ package body Synapse.Commands.Graph_Support is
          Output := Null_Unbounded_String;
          Result := Failed;
    end Grep;
+
+   function Remove_Namespace
+     (Env : Environment; Vault, Ns_Dir, Prog : String) return Boolean
+   is
+      Allowed : constant String := Vault & "/synapse/";
+   begin
+      if Ns_Dir'Length <= Allowed'Length
+        or else Ns_Dir (Ns_Dir'First .. Ns_Dir'First + Allowed'Length - 1) /=
+          Allowed
+      then
+         Complain
+           (Env, Prog & ": refusing to remove " & Ns_Dir & Character'Val (10));
+         return False;
+      end if;
+      Ada.Directories.Delete_Tree (Ns_Dir);
+      return True;
+   exception
+      when others =>
+         Complain
+           (Env, Prog & ": could not remove " & Ns_Dir & Character'Val (10));
+         return False;
+   end Remove_Namespace;
 
 end Synapse.Commands.Graph_Support;

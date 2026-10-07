@@ -1,3 +1,4 @@
+with Ada.Strings.Unbounded;
 with Ada.Directories;
 with Ada.IO_Exceptions;
 
@@ -5,6 +6,8 @@ with Synapse.Adapters.File_Bytes;
 with Synapse.Core.Docstring_Overrides;
 
 package body Synapse.Adapters.Tree_Sitter.Docstring_Pairs is
+
+   use Ada.Strings.Unbounded;
 
    package Overrides renames Synapse.Core.Docstring_Overrides;
 

@@ -83,6 +83,10 @@ package Synapse.Commands.Context is
    --  One node's text, or none when there is no such node.
    function Read_Node (Ctx : Context; Name : String) return Maybe_Text;
 
+   --  Every node file of the namespace (`*.md` but `Index.md`), by name in
+   --  byte order, so a report does not reorder between runs.
+   function Node_Files (Ctx : Context) return Lists.Vector;
+
    --  Name without its `.md`, which is how every finding names a node.
    function Strip_Md (Name : String) return String;
 

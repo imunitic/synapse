@@ -82,6 +82,13 @@ with Synapse.Commands.Now.Tests;
 with Synapse.Commands.Namespace.Tests;
 with Synapse.Commands.Show_Context.Tests;
 with Synapse.Commands.Dispatch.Tests;
+with Synapse.Commands.Push_Nodes.Tests;
+with Synapse.Commands.Write_Node.Tests;
+with Synapse.Commands.Doctor.Tests;
+with Synapse.Commands.Graph_Wipe.Tests;
+with Synapse.Commands.Graph_Clean.Tests;
+with Synapse.Commands.Comments_Sweep.Tests;
+with Synapse.Commands.Comments_Check.Tests;
 with Synapse.Commands.Vocab.Tests;
 with Synapse.Commands.Rank.Tests;
 with Synapse.Commands.Brief.Tests;
@@ -251,6 +258,19 @@ package body Test_Suites is
      aliased Synapse.Commands.Namespace.Tests.Test_Case;
    Show_Context_Tests : aliased Synapse.Commands.Show_Context.Tests.Test_Case;
    Dispatch_Tests : aliased Synapse.Commands.Dispatch.Tests.Test_Case;
+   Commands_Push_Nodes_Tests      :
+     aliased Synapse.Commands.Push_Nodes.Tests.Test_Case;
+   Commands_Write_Node_Tests      :
+     aliased Synapse.Commands.Write_Node.Tests.Test_Case;
+   Commands_Doctor_Tests : aliased Synapse.Commands.Doctor.Tests.Test_Case;
+   Commands_Graph_Wipe_Tests      :
+     aliased Synapse.Commands.Graph_Wipe.Tests.Test_Case;
+   Commands_Graph_Clean_Tests     :
+     aliased Synapse.Commands.Graph_Clean.Tests.Test_Case;
+   Commands_Comments_Sweep_Tests  :
+     aliased Synapse.Commands.Comments_Sweep.Tests.Test_Case;
+   Commands_Comments_Check_Tests  :
+     aliased Synapse.Commands.Comments_Check.Tests.Test_Case;
    Commands_Vocab_Tests : aliased Synapse.Commands.Vocab.Tests.Test_Case;
    Commands_Rank_Tests : aliased Synapse.Commands.Rank.Tests.Test_Case;
    Commands_Brief_Tests : aliased Synapse.Commands.Brief.Tests.Test_Case;
@@ -331,6 +351,13 @@ package body Test_Suites is
       Result.Add_Test (Namespace_Tests'Access);
       Result.Add_Test (Show_Context_Tests'Access);
       Result.Add_Test (Dispatch_Tests'Access);
+      Result.Add_Test (Commands_Push_Nodes_Tests'Access);
+      Result.Add_Test (Commands_Write_Node_Tests'Access);
+      Result.Add_Test (Commands_Doctor_Tests'Access);
+      Result.Add_Test (Commands_Graph_Wipe_Tests'Access);
+      Result.Add_Test (Commands_Graph_Clean_Tests'Access);
+      Result.Add_Test (Commands_Comments_Sweep_Tests'Access);
+      Result.Add_Test (Commands_Comments_Check_Tests'Access);
       Result.Add_Test (Commands_Vocab_Tests'Access);
       Result.Add_Test (Commands_Rank_Tests'Access);
       Result.Add_Test (Commands_Brief_Tests'Access);

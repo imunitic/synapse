@@ -1,6 +1,13 @@
 with Ada.Strings.Unbounded;
 
 with Synapse.Commands.Brief;
+with Synapse.Commands.Comments_Check;
+with Synapse.Commands.Comments_Sweep;
+with Synapse.Commands.Doctor;
+with Synapse.Commands.Push_Nodes;
+with Synapse.Commands.Write_Node;
+with Synapse.Commands.Graph_Clean;
+with Synapse.Commands.Graph_Wipe;
 with Synapse.Commands.Cli_Args;
 with Synapse.Commands.Build_Lists;
 with Synapse.Commands.Declared;
@@ -72,6 +79,13 @@ package body Synapse.Commands.Dispatch is
    Gate_Name : aliased constant String := "gate";
    Link_Graph_Name : aliased constant String := "link-graph";
    Brief_Name : aliased constant String := "brief";
+   Comments_Check_Name : aliased constant String := "comments-check";
+   Comments_Sweep_Name : aliased constant String := "comments-sweep";
+   Doctor_Name : aliased constant String := "doctor";
+   Write_Node_Name : aliased constant String := "write-node";
+   Push_Nodes_Name : aliased constant String := "push-nodes";
+   Graph_Clean_Name : aliased constant String := "graph-clean";
+   Graph_Wipe_Name : aliased constant String := "graph-wipe";
    Frontmatter_Name         : aliased constant String := "frontmatter";
 
    Table : constant array (Positive range <>) of Entry_Type :=
@@ -111,6 +125,13 @@ package body Synapse.Commands.Dispatch is
      (Gate_Name'Access, Gate.Run'Access),
      (Link_Graph_Name'Access, Link_Graph.Run'Access),
      (Brief_Name'Access, Brief.Run'Access),
+     (Comments_Check_Name'Access, Comments_Check.Run'Access),
+     (Comments_Sweep_Name'Access, Comments_Sweep.Run'Access),
+     (Doctor_Name'Access, Doctor.Run'Access),
+     (Write_Node_Name'Access, Write_Node.Run'Access),
+     (Push_Nodes_Name'Access, Push_Nodes.Run'Access),
+     (Graph_Clean_Name'Access, Graph_Clean.Run'Access),
+     (Graph_Wipe_Name'Access, Graph_Wipe.Run'Access),
      (Build_Index_Name'Access, Index.Run_Build_Index'Access)];
 
    function Find (Name : String) return Run_Access is
