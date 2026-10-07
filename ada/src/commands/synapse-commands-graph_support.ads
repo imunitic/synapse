@@ -23,6 +23,11 @@ package Synapse.Commands.Graph_Support is
    function Work_Dir_For_Namespace
      (Env : Environment; Namespace : String; Prog : String) return Maybe_Path;
 
+   --  The root of the checkout containing Repo, or the working directory
+   --  when Repo is empty: `git rev-parse --show-toplevel`. Empty when it is
+   --  in none.
+   function Repo_Root (Env : Environment; Repo : String) return String;
+
    --  How many bytes of a listing a command reads: `SYNAPSE_MAX_LISTING_BYTES`
    --  when it is a number, else Default. Raising it is a deliberate act of
    --  one invocation and not a setting that follows every clone.

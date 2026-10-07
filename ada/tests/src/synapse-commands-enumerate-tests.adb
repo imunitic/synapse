@@ -256,6 +256,47 @@ package body Synapse.Commands.Enumerate.Tests is
          raise;
    end Enumerate_Without_A_Home_Has_No_Work_Directory;
 
+   procedure Tracked_Files_Are_The_Listing_Less_The_User_S_Patterns
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir : constant Scratch := Make;
+      F   : aliased Fixture;
+   begin
+      Use_Work (F, Dir);
+      Mixed_Repo (Dir);
+      F.Vars.Set ("SYNAPSE_EXTRA_EXCLUDE_RE", "^docs/");
+      declare
+         Paths   : Lists.Vector;
+         Failure : Listing_Failure;
+      begin
+         Tracked_Files (Env (F), Repo (Dir), Paths, Failure);
+         Assert (Failure = None, "listed");
+         Assert
+           (Natural (Paths.Length) = 5,
+            "all but the excluded one, binary and lock files kept");
+         Assert
+           (not Paths.Contains
+              (Ada.Strings.Unbounded.To_Unbounded_String ("docs/guide.md")),
+            "excluded");
+         Assert
+           (Paths.Contains
+              (Ada.Strings.Unbounded.To_Unbounded_String ("assets/logo.png")),
+            "a binary is left to enumerate");
+         F.Vars.Set ("SYNAPSE_EXTRA_EXCLUDE_RE", "(");
+         Tracked_Files (Env (F), Repo (Dir), Paths, Failure);
+         Assert
+           (Failure = Grep_Failed and then Paths.Is_Empty, "a bad pattern");
+         Tracked_Files (Env (F), Path (Dir, "work"), Paths, Failure);
+         Assert (Failure = Git_Failed, "not a repository");
+      end;
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end Tracked_Files_Are_The_Listing_Less_The_User_S_Patterns;
+
    procedure Enumerate_Arguments (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Dir : constant Scratch := Make;
@@ -313,6 +354,9 @@ package body Synapse.Commands.Enumerate.Tests is
       Register_Routine
         (T, Enumerate_Without_A_Home_Has_No_Work_Directory'Access,
          "Enumerate without a home has no work directory");
+      Register_Routine
+        (T, Tracked_Files_Are_The_Listing_Less_The_User_S_Patterns'Access,
+         "Tracked files are the listing less the user's patterns");
       Register_Routine (T, Enumerate_Arguments'Access, "Enumerate arguments");
    end Register_Tests;
 

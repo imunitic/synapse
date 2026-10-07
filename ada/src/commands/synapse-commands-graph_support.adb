@@ -92,6 +92,42 @@ package body Synapse.Commands.Graph_Support is
          Value => To_Unbounded_String (Context.Work_Dir_For (Env, Namespace)));
    end Work_Dir_For_Namespace;
 
+   function Repo_Root (Env : Environment; Repo : String) return String is
+      Args : Lists.Vector;
+      Ran  : Runner_Port.Result;
+   begin
+      Args.Append (To_Unbounded_String ("rev-parse"));
+      Args.Append (To_Unbounded_String ("--show-toplevel"));
+      Ran :=
+        Env.Runner.Run
+          ("git", Args,
+           (Cwd   => To_Unbounded_String (Repo), Has_Stdin => False,
+            Stdin => Null_Unbounded_String));
+      if Ran.Exit_Code /= 0 then
+         return "";
+      end if;
+      declare
+         Text  : constant String := To_String (Ran.Output);
+         First : Positive        := Text'First;
+         Last  : Natural         := Text'Last;
+      begin
+         while First <= Last
+           and then Text (First) in ' ' | ASCII.HT | ASCII.CR | ASCII.LF
+         loop
+            First := First + 1;
+         end loop;
+         while Last >= First
+           and then Text (Last) in ' ' | ASCII.HT | ASCII.CR | ASCII.LF
+         loop
+            Last := Last - 1;
+         end loop;
+         return Text (First .. Last);
+      end;
+   exception
+      when Runner_Port.Process_Failure =>
+         return "";
+   end Repo_Root;
+
    function Max_Listing_Bytes
      (Env : Environment; Default : Natural) return Natural
    is

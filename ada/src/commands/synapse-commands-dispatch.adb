@@ -2,9 +2,11 @@ with Ada.Strings.Unbounded;
 
 with Synapse.Commands.Cli_Args;
 with Synapse.Commands.Build_Lists;
+with Synapse.Commands.Declared;
 with Synapse.Commands.Enumerate;
 with Synapse.Commands.Frontmatter;
 with Synapse.Commands.Index;
+with Synapse.Commands.Project_Index;
 with Synapse.Commands.Refs;
 with Synapse.Commands.Tags;
 with Synapse.Commands.Tags_Cache;
@@ -29,35 +31,38 @@ package body Synapse.Commands.Dispatch is
       Run  : Run_Access;
    end record;
 
-   Namespace_Name         : aliased constant String := "namespace";
-   Now_Name               : aliased constant String := "now";
-   Context_Name           : aliased constant String := "context";
-   Vault_Read_Name        : aliased constant String := "vault-read";
-   Vault_List_Name        : aliased constant String := "vault-list";
-   Vault_Check_Name       : aliased constant String := "vault-check";
-   Vault_Search_Name      : aliased constant String := "vault-search";
-   Vault_Search_Text_Name : aliased constant String := "vault-search-text";
-   Vault_Doc_Map_Name     : aliased constant String := "vault-doc-map";
-   Vault_Backlinks_Name   : aliased constant String := "vault-backlinks";
-   Vault_Links_Name       : aliased constant String := "vault-links";
-   Vault_Unresolved_Name  : aliased constant String := "vault-unresolved";
-   Vault_Orphans_Name     : aliased constant String := "vault-orphans";
-   Vault_Deadends_Name    : aliased constant String := "vault-deadends";
-   Vault_Ambiguous_Name   : aliased constant String := "vault-ambiguous";
-   Vault_Write_Name       : aliased constant String := "vault-write";
-   Vault_Patch_Name       : aliased constant String := "vault-patch";
-   Vault_Rename_Name      : aliased constant String := "vault-rename";
-   Vault_Delete_Name      : aliased constant String := "vault-delete";
-   Vault_Git_Pusher_Name  : aliased constant String := "vault-git-pusher";
-   Enumerate_Name : aliased constant String := "enumerate";
-   Build_Lists_Name : aliased constant String := "build-lists";
-   Index_Name : aliased constant String := "index";
-   Build_Index_Name : aliased constant String := "build-index";
-   Tags_Name : aliased constant String := "tags";
-   Tags_Cache_Name : aliased constant String := "tags-cache";
-   Build_Refs_Name : aliased constant String := "build-refs";
-   Callers_Name : aliased constant String := "callers";
-   Frontmatter_Name       : aliased constant String := "frontmatter";
+   Namespace_Name           : aliased constant String := "namespace";
+   Now_Name                 : aliased constant String := "now";
+   Context_Name             : aliased constant String := "context";
+   Vault_Read_Name          : aliased constant String := "vault-read";
+   Vault_List_Name          : aliased constant String := "vault-list";
+   Vault_Check_Name         : aliased constant String := "vault-check";
+   Vault_Search_Name        : aliased constant String := "vault-search";
+   Vault_Search_Text_Name   : aliased constant String := "vault-search-text";
+   Vault_Doc_Map_Name       : aliased constant String := "vault-doc-map";
+   Vault_Backlinks_Name     : aliased constant String := "vault-backlinks";
+   Vault_Links_Name         : aliased constant String := "vault-links";
+   Vault_Unresolved_Name    : aliased constant String := "vault-unresolved";
+   Vault_Orphans_Name       : aliased constant String := "vault-orphans";
+   Vault_Deadends_Name      : aliased constant String := "vault-deadends";
+   Vault_Ambiguous_Name     : aliased constant String := "vault-ambiguous";
+   Vault_Write_Name         : aliased constant String := "vault-write";
+   Vault_Patch_Name         : aliased constant String := "vault-patch";
+   Vault_Rename_Name        : aliased constant String := "vault-rename";
+   Vault_Delete_Name        : aliased constant String := "vault-delete";
+   Vault_Git_Pusher_Name    : aliased constant String := "vault-git-pusher";
+   Enumerate_Name           : aliased constant String := "enumerate";
+   Build_Lists_Name         : aliased constant String := "build-lists";
+   Index_Name               : aliased constant String := "index";
+   Build_Index_Name         : aliased constant String := "build-index";
+   Tags_Name                : aliased constant String := "tags";
+   Tags_Cache_Name          : aliased constant String := "tags-cache";
+   Build_Refs_Name          : aliased constant String := "build-refs";
+   Callers_Name             : aliased constant String := "callers";
+   Build_Deps_Name          : aliased constant String := "build-deps";
+   Build_Namespaces_Name    : aliased constant String := "build-namespaces";
+   Build_Project_Index_Name : aliased constant String := "build-project-index";
+   Frontmatter_Name         : aliased constant String := "frontmatter";
 
    Table : constant array (Positive range <>) of Entry_Type :=
      [(Namespace_Name'Access, Namespace.Run'Access),
@@ -88,6 +93,9 @@ package body Synapse.Commands.Dispatch is
      (Tags_Cache_Name'Access, Tags_Cache.Run'Access),
      (Build_Refs_Name'Access, Refs.Run_Build'Access),
      (Callers_Name'Access, Refs.Run_Callers'Access),
+     (Build_Deps_Name'Access, Declared.Run_Deps'Access),
+     (Build_Namespaces_Name'Access, Declared.Run_Namespaces'Access),
+     (Build_Project_Index_Name'Access, Project_Index.Run'Access),
      (Build_Index_Name'Access, Index.Run_Build_Index'Access)];
 
    function Find (Name : String) return Run_Access is

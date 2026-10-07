@@ -142,79 +142,105 @@ package body Synapse.Commands.Enumerate is
       end;
    end Without_User_Patterns;
 
-   procedure Enumerate_Into
-     (Env    :     Environment; Repo_Root, All_Path, Oversize_Path : String;
-      Reason : out Unbounded_String)
+   procedure Tracked_Files
+     (Env     :     Environment; Root : String; Paths : out Lists.Vector;
+      Failure : out Listing_Failure)
    is
-      Args    : Lists.Vector;
-      Listed  : Runner_Port.Result;
-      All_Out : Unbounded_String;
-      Big_Out : Unbounded_String;
-      Cap     : constant Long_Long_Integer := Max_File_Bytes (Env);
-      Failed  : Boolean;
+      Args   : Lists.Vector;
+      Listed : Runner_Port.Result;
+      Failed : Boolean;
    begin
-      Reason := To_Unbounded_String ("git ls-files failed");
-      --  Truncated first, so a rebuild keeps no finding of the last run.
-      Support.Write_File (Oversize_Path, "");
+      Paths.Clear;
+      Failure := None;
       Args.Append (To_Unbounded_String ("ls-files"));
       Listed :=
         Env.Runner.Run
           ("git", Args,
-           (Cwd   => To_Unbounded_String (Repo_Root), Has_Stdin => False,
+           (Cwd   => To_Unbounded_String (Root), Has_Stdin => False,
             Stdin => Null_Unbounded_String));
       if Listed.Exit_Code /= 0 then
+         Failure := Git_Failed;
          return;
       end if;
       declare
-         Candidates : constant String :=
+         Kept  : constant String :=
            Without_User_Patterns (Env, To_String (Listed.Output), Failed);
-         Start      : Positive        := Candidates'First;
+         Start : Positive        := Kept'First;
       begin
          if Failed then
-            Reason := To_Unbounded_String ("grep failed");
+            Failure := Grep_Failed;
             return;
          end if;
-         for I in Candidates'First .. Candidates'Last + 1 loop
-            if I > Candidates'Last or else Candidates (I) = LF then
-               declare
-                  Path : constant String := Candidates (Start .. I - 1);
-               begin
-                  Start := I + 1;
-                  if Path'Length > 0
-                    and then not Core.Enumerate.Is_Excluded (Path)
-                  then
-                     declare
-                        Full : constant String := Repo_Root & "/" & Path;
-                     begin
-                        if Ada.Directories.Kind (Full) =
-                          Ada.Directories.Ordinary_File
-                        then
-                           declare
-                              Size : constant Long_Long_Integer :=
-                                Long_Long_Integer
-                                  (Ada.Directories.Size (Full));
-                           begin
-                              if Size > Cap then
-                                 Append
-                                   (Big_Out,
-                                    Core.Decimal_Image.Image (Size) & HT &
-                                    Path & LF);
-                              else
-                                 Append (All_Out, Path & LF);
-                              end if;
-                           end;
-                        end if;
-                     exception
-                        --  A file that is gone or cannot be measured is not
-                        --  one to graph.
-                        when others =>
-                           null;
-                     end;
-                  end if;
-               end;
+         for I in Kept'First .. Kept'Last + 1 loop
+            if I > Kept'Last or else Kept (I) = LF then
+               if I > Start then
+                  Paths.Append (To_Unbounded_String (Kept (Start .. I - 1)));
+               end if;
+               Start := I + 1;
             end if;
          end loop;
       end;
+   end Tracked_Files;
+
+   procedure Enumerate_Into
+     (Env    :     Environment; Repo_Root, All_Path, Oversize_Path : String;
+      Reason : out Unbounded_String)
+   is
+      Tracked : Lists.Vector;
+      Failure : Listing_Failure;
+      All_Out : Unbounded_String;
+      Big_Out : Unbounded_String;
+      Cap     : constant Long_Long_Integer := Max_File_Bytes (Env);
+   begin
+      --  Truncated first, so a rebuild keeps no finding of the last run.
+      Support.Write_File (Oversize_Path, "");
+      Tracked_Files (Env, Repo_Root, Tracked, Failure);
+      case Failure is
+         when None =>
+            Reason := Null_Unbounded_String;
+
+         when Git_Failed =>
+            Reason := To_Unbounded_String ("git ls-files failed");
+            return;
+
+         when Grep_Failed =>
+            Reason := To_Unbounded_String ("grep failed");
+            return;
+      end case;
+      for Item of Tracked loop
+         declare
+            Path : constant String := To_String (Item);
+         begin
+            if not Core.Enumerate.Is_Excluded (Path) then
+               declare
+                  Full : constant String := Repo_Root & "/" & Path;
+               begin
+                  if Ada.Directories.Kind (Full) =
+                    Ada.Directories.Ordinary_File
+                  then
+                     declare
+                        Size : constant Long_Long_Integer :=
+                          Long_Long_Integer (Ada.Directories.Size (Full));
+                     begin
+                        if Size > Cap then
+                           Append
+                             (Big_Out,
+                              Core.Decimal_Image.Image (Size) & HT & Path &
+                              LF);
+                        else
+                           Append (All_Out, Path & LF);
+                        end if;
+                     end;
+                  end if;
+               exception
+                  --  A file that is gone or cannot be measured is not one to
+                  --  graph.
+                  when others =>
+                     null;
+               end;
+            end if;
+         end;
+      end loop;
       Support.Write_File (All_Path, To_String (All_Out));
       Support.Write_File (Oversize_Path, To_String (Big_Out));
       Reason := Null_Unbounded_String;

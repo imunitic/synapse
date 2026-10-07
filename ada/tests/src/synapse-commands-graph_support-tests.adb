@@ -1,3 +1,5 @@
+with Ada.Directories;
+with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
 with Synapse.Test_Environment;
 with Synapse.Test_Scratch;
@@ -107,6 +109,33 @@ package body Synapse.Commands.Graph_Support.Tests is
          "says so");
    end A_Namespace_Names_Its_Work_Directory_Without_A_Checkout;
 
+   procedure The_Repository_Root_Is_Found_From_A_Directory_Inside_It
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir : constant Scratch := Make;
+      F   : aliased Fixture;
+   begin
+      Ada.Directories.Create_Path (Path (Dir, "repo/sub/deep"));
+      Synapse.Test_Scratch.Init_Repo (Path (Dir, "repo"));
+      declare
+         Root : constant String :=
+           Repo_Root (Env (F), Path (Dir, "repo/sub/deep"));
+      begin
+         Assert
+           (Root'Length >= 5
+            and then Root (Root'Last - 4 .. Root'Last) = "/repo",
+            "the top, whole: " & Root);
+      end;
+      Assert
+        (Repo_Root (Env (F), Path (Dir, "none")) = "", "no such directory");
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end The_Repository_Root_Is_Found_From_A_Directory_Inside_It;
+
    procedure The_Listing_Limit_Comes_From_The_Variable_When_It_Is_A_Number
      (T : in out Test_Cases_Class)
    is
@@ -206,6 +235,9 @@ package body Synapse.Commands.Graph_Support.Tests is
       Register_Routine
         (T, A_Namespace_Names_Its_Work_Directory_Without_A_Checkout'Access,
          "A namespace names its work directory without a checkout");
+      Register_Routine
+        (T, The_Repository_Root_Is_Found_From_A_Directory_Inside_It'Access,
+         "The repository root is found from a directory inside it");
       Register_Routine
         (T,
          The_Listing_Limit_Comes_From_The_Variable_When_It_Is_A_Number'Access,

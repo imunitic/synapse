@@ -82,6 +82,8 @@ with Synapse.Commands.Now.Tests;
 with Synapse.Commands.Namespace.Tests;
 with Synapse.Commands.Show_Context.Tests;
 with Synapse.Commands.Dispatch.Tests;
+with Synapse.Commands.Project_Index.Tests;
+with Synapse.Commands.Declared.Tests;
 with Synapse.Commands.Tagging_Support.Tests;
 with Synapse.Commands.Refs.Tests;
 with Synapse.Commands.Tags_Cache.Tests;
@@ -243,6 +245,8 @@ package body Test_Suites is
      aliased Synapse.Commands.Namespace.Tests.Test_Case;
    Show_Context_Tests : aliased Synapse.Commands.Show_Context.Tests.Test_Case;
    Dispatch_Tests : aliased Synapse.Commands.Dispatch.Tests.Test_Case;
+   Commands_Project_Index_Tests : aliased Synapse.Commands.Project_Index.Tests.Test_Case;
+   Commands_Declared_Tests : aliased Synapse.Commands.Declared.Tests.Test_Case;
    Commands_Tagging_Support_Tests : aliased Synapse.Commands.Tagging_Support.Tests.Test_Case;
    Commands_Refs_Tests : aliased Synapse.Commands.Refs.Tests.Test_Case;
    Commands_Tags_Cache_Tests : aliased Synapse.Commands.Tags_Cache.Tests.Test_Case;
@@ -305,6 +309,8 @@ package body Test_Suites is
       Result.Add_Test (Namespace_Tests'Access);
       Result.Add_Test (Show_Context_Tests'Access);
       Result.Add_Test (Dispatch_Tests'Access);
+      Result.Add_Test (Commands_Project_Index_Tests'Access);
+      Result.Add_Test (Commands_Declared_Tests'Access);
       Result.Add_Test (Commands_Tagging_Support_Tests'Access);
       Result.Add_Test (Commands_Refs_Tests'Access);
       Result.Add_Test (Commands_Tags_Cache_Tests'Access);
