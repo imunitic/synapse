@@ -82,6 +82,7 @@ with Synapse.Commands.Now.Tests;
 with Synapse.Commands.Namespace.Tests;
 with Synapse.Commands.Show_Context.Tests;
 with Synapse.Commands.Dispatch.Tests;
+with Synapse.Commands.Query.Tests;
 with Synapse.Commands.Push_Nodes.Tests;
 with Synapse.Commands.Write_Node.Tests;
 with Synapse.Commands.Doctor.Tests;
@@ -258,6 +259,7 @@ package body Test_Suites is
      aliased Synapse.Commands.Namespace.Tests.Test_Case;
    Show_Context_Tests : aliased Synapse.Commands.Show_Context.Tests.Test_Case;
    Dispatch_Tests : aliased Synapse.Commands.Dispatch.Tests.Test_Case;
+   Commands_Query_Tests : aliased Synapse.Commands.Query.Tests.Test_Case;
    Commands_Push_Nodes_Tests      :
      aliased Synapse.Commands.Push_Nodes.Tests.Test_Case;
    Commands_Write_Node_Tests      :
@@ -351,6 +353,7 @@ package body Test_Suites is
       Result.Add_Test (Namespace_Tests'Access);
       Result.Add_Test (Show_Context_Tests'Access);
       Result.Add_Test (Dispatch_Tests'Access);
+      Result.Add_Test (Commands_Query_Tests'Access);
       Result.Add_Test (Commands_Push_Nodes_Tests'Access);
       Result.Add_Test (Commands_Write_Node_Tests'Access);
       Result.Add_Test (Commands_Doctor_Tests'Access);

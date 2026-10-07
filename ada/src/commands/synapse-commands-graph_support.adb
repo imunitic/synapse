@@ -11,6 +11,8 @@ with Synapse.Ports.Variables;
 
 package body Synapse.Commands.Graph_Support is
 
+   use type Ada.Directories.File_Kind;
+
    use Ada.Strings.Unbounded;
 
    package Runner_Port renames Synapse.Ports.Process_Runner;
@@ -242,6 +244,24 @@ package body Synapse.Commands.Graph_Support is
          Output := Null_Unbounded_String;
          Result := Failed;
    end Grep;
+
+   procedure Read_Repo_File
+     (Root, Rel : String; Text : out Ada.Strings.Unbounded.Unbounded_String;
+      Found     : out Boolean)
+   is
+      Full : constant String := Root & "/" & Rel;
+   begin
+      Found := False;
+      if not Ada.Directories.Exists (Full)
+        or else Ada.Directories.Kind (Full) /= Ada.Directories.Ordinary_File
+      then
+         return;
+      end if;
+      Read_File (Full, 256 * 1_024 * 1_024, Text, Found);
+   exception
+      when others =>
+         Found := False;
+   end Read_Repo_File;
 
    function Remove_Namespace
      (Env : Environment; Vault, Ns_Dir, Prog : String) return Boolean

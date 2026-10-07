@@ -55,24 +55,6 @@ package body Synapse.Commands.Write_Node is
 
    type Text_Vector is array (Positive range <>) of Unbounded_String;
 
-   --  The bytes of a regular file of the checkout, or none.
-   procedure Read_Repo_File
-     (Root, Rel : String; Text : out Unbounded_String; Found : out Boolean)
-   is
-      Full : constant String := Root & "/" & Rel;
-   begin
-      Found := False;
-      if not Ada.Directories.Exists (Full)
-        or else Ada.Directories.Kind (Full) /= Ada.Directories.Ordinary_File
-      then
-         return;
-      end if;
-      Support.Read_File (Full, Largest_File, Text, Found);
-   exception
-      when others =>
-         Found := False;
-   end Read_Repo_File;
-
    --  The lines of Text, without carriage returns or blank ones, in byte
    --  order and without repeats: `LC_ALL=C sort -u`.
    function Sorted_Unique (Text : String) return Lists.Vector is
@@ -426,7 +408,7 @@ package body Synapse.Commands.Write_Node is
                         Content : Unbounded_String;
                         Present : Boolean;
                      begin
-                        Read_Repo_File
+                        Support.Read_Repo_File
                           (Root, To_String (Span.Value.Path), Content,
                            Present);
                         if Span_Problem
@@ -494,7 +476,7 @@ package body Synapse.Commands.Write_Node is
                      Content : Unbounded_String;
                      Present : Boolean;
                   begin
-                     Read_Repo_File
+                     Support.Read_Repo_File
                        (Root, To_String (Span.Value.Path), Content, Present);
                      if Span_Problem
                          (Env, Span.Value, Emit.Grounded, Paths, Content,
@@ -730,7 +712,7 @@ package body Synapse.Commands.Write_Node is
                declare
                   Found : Boolean;
                begin
-                  Read_Repo_File
+                  Support.Read_Repo_File
                     (Root, To_String (Paths (I)), Contents (I), Found);
                   if not Found then
                      Append (Bad, To_String (Paths (I)) & " ");

@@ -31,4 +31,11 @@ package Synapse.Commands.Build_Lists is
 
    function Parse_Row (Raw : String) return Maybe_Row;
 
+   --  `grep -E Include` then `grep -vE Exclude` over the paths, one to a
+   --  line. Ok is false when grep itself failed, as it does for a pattern it
+   --  cannot read.
+   procedure Select_Paths
+     (Env     :     Environment; All_Paths, Include, Exclude : String;
+      Matched : out Ada.Strings.Unbounded.Unbounded_String; Ok : out Boolean);
+
 end Synapse.Commands.Build_Lists;

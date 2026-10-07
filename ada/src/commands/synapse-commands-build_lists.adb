@@ -53,8 +53,6 @@ package body Synapse.Commands.Build_Lists is
       end;
    end Parse_Row;
 
-   --  `grep -E Include` then `grep -vE Exclude` over the paths. False when
-   --  grep itself failed, as it does for a pattern it cannot read.
    procedure Select_Paths
      (Env     :     Environment; All_Paths, Include, Exclude : String;
       Matched : out Unbounded_String; Ok : out Boolean)

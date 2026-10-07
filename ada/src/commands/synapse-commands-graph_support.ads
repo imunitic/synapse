@@ -55,6 +55,13 @@ package Synapse.Commands.Graph_Support is
      (Path :     String; Limit : Natural;
       Text : out Ada.Strings.Unbounded.Unbounded_String; Found : out Boolean);
 
+   --  The bytes of a regular file of the checkout at Root, or none when it is
+   --  absent, unreadable, larger than 256 MiB or not a regular file: a deleted
+   --  path, or a submodule's gitlink.
+   procedure Read_Repo_File
+     (Root, Rel : String; Text : out Ada.Strings.Unbounded.Unbounded_String;
+      Found     : out Boolean);
+
    --  Creates or replaces a file, making its directory if it has none.
    procedure Write_File (Path, Text : String);
 

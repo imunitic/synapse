@@ -5,6 +5,7 @@ with Synapse.Commands.Comments_Check;
 with Synapse.Commands.Comments_Sweep;
 with Synapse.Commands.Doctor;
 with Synapse.Commands.Push_Nodes;
+with Synapse.Commands.Query;
 with Synapse.Commands.Write_Node;
 with Synapse.Commands.Graph_Clean;
 with Synapse.Commands.Graph_Wipe;
@@ -84,6 +85,7 @@ package body Synapse.Commands.Dispatch is
    Doctor_Name : aliased constant String := "doctor";
    Write_Node_Name : aliased constant String := "write-node";
    Push_Nodes_Name : aliased constant String := "push-nodes";
+   Query_Name : aliased constant String := "query";
    Graph_Clean_Name : aliased constant String := "graph-clean";
    Graph_Wipe_Name : aliased constant String := "graph-wipe";
    Frontmatter_Name         : aliased constant String := "frontmatter";
@@ -130,6 +132,7 @@ package body Synapse.Commands.Dispatch is
      (Doctor_Name'Access, Doctor.Run'Access),
      (Write_Node_Name'Access, Write_Node.Run'Access),
      (Push_Nodes_Name'Access, Push_Nodes.Run'Access),
+     (Query_Name'Access, Query.Run'Access),
      (Graph_Clean_Name'Access, Graph_Clean.Run'Access),
      (Graph_Wipe_Name'Access, Graph_Wipe.Run'Access),
      (Build_Index_Name'Access, Index.Run_Build_Index'Access)];
