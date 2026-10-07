@@ -1,6 +1,6 @@
-with Synapse.Adapters.Conf_Files;
 with Synapse.Adapters.Docstring_Cache;
 with Synapse.Commands.Graph_Support;
+with Synapse.Commands.Style_Rubric;
 with Synapse.Commands.Tagging_Support;
 with Synapse.Core.Comment_Style_Rules;
 with Synapse.Core.Grammar_Registry;
@@ -24,25 +24,8 @@ package body Synapse.Commands.Docstring_Check is
 
    Largest_Source : constant := 256 * 1_024 * 1_024;
 
-   Largest_Rubric : constant := 1_024 * 1_024;
-
    function Failed (Why : String) return Result is
      (Which => Failed, Why => To_Unbounded_String (Why), others => <>);
-
-   --  The rubric file, or nothing.
-   function Rubric (Env : Environment) return String is
-      Where : constant Support.Maybe_Path :=
-        Adapters.Conf_Files.Resolve_Conf_Path
-          (Env.Vars.all, Core.Comment_Style_Rules.Conf_Name);
-      Text  : Unbounded_String;
-      Found : Boolean;
-   begin
-      if not Where.Found then
-         return "";
-      end if;
-      Support.Read_File (To_String (Where.Value), Largest_Rubric, Text, Found);
-      return (if Found then To_String (Text) else "");
-   end Rubric;
 
    function Is_Same (Left, Right : Unbounded_String) return Boolean is
      (Left = Right);
@@ -205,7 +188,7 @@ package body Synapse.Commands.Docstring_Check is
 
                   if Length (Findings) /= 0 then
                      declare
-                        Style : constant String := Rubric (Env);
+                        Style : constant String := Style_Rubric.Text (Env);
                      begin
                         Result_Out.Report :=
                           To_Unbounded_String

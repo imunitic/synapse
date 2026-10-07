@@ -8,7 +8,7 @@ maintainers-logins = []
 licenses = "MIT"
 tags = []
 
-executables = ["synapse"]
+executables = ["synapse", "synapse-hook"]
 
 [build-switches]
 validation.contracts = "Yes"

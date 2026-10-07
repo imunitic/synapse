@@ -82,6 +82,12 @@ with Synapse.Commands.Now.Tests;
 with Synapse.Commands.Namespace.Tests;
 with Synapse.Commands.Show_Context.Tests;
 with Synapse.Commands.Dispatch.Tests;
+with Synapse.Hooks.Dispatch.Tests;
+with Synapse.Hooks.Staleness.Tests;
+with Synapse.Hooks.Session_Start.Tests;
+with Synapse.Hooks.Stop_Nudge.Tests;
+with Synapse.Hooks.Prompt_Context.Tests;
+with Synapse.Hooks.Common.Tests;
 with Synapse.Commands.Query.Tests;
 with Synapse.Commands.Push_Nodes.Tests;
 with Synapse.Commands.Write_Node.Tests;
@@ -259,6 +265,12 @@ package body Test_Suites is
      aliased Synapse.Commands.Namespace.Tests.Test_Case;
    Show_Context_Tests : aliased Synapse.Commands.Show_Context.Tests.Test_Case;
    Dispatch_Tests : aliased Synapse.Commands.Dispatch.Tests.Test_Case;
+   Hooks_Dispatch_Tests : aliased Synapse.Hooks.Dispatch.Tests.Test_Case;
+   Hooks_Staleness_Tests : aliased Synapse.Hooks.Staleness.Tests.Test_Case;
+   Hooks_Session_Start_Tests : aliased Synapse.Hooks.Session_Start.Tests.Test_Case;
+   Hooks_Stop_Nudge_Tests : aliased Synapse.Hooks.Stop_Nudge.Tests.Test_Case;
+   Hooks_Prompt_Context_Tests : aliased Synapse.Hooks.Prompt_Context.Tests.Test_Case;
+   Hooks_Common_Tests : aliased Synapse.Hooks.Common.Tests.Test_Case;
    Commands_Query_Tests : aliased Synapse.Commands.Query.Tests.Test_Case;
    Commands_Push_Nodes_Tests      :
      aliased Synapse.Commands.Push_Nodes.Tests.Test_Case;
@@ -353,6 +365,12 @@ package body Test_Suites is
       Result.Add_Test (Namespace_Tests'Access);
       Result.Add_Test (Show_Context_Tests'Access);
       Result.Add_Test (Dispatch_Tests'Access);
+      Result.Add_Test (Hooks_Dispatch_Tests'Access);
+      Result.Add_Test (Hooks_Staleness_Tests'Access);
+      Result.Add_Test (Hooks_Session_Start_Tests'Access);
+      Result.Add_Test (Hooks_Stop_Nudge_Tests'Access);
+      Result.Add_Test (Hooks_Prompt_Context_Tests'Access);
+      Result.Add_Test (Hooks_Common_Tests'Access);
       Result.Add_Test (Commands_Query_Tests'Access);
       Result.Add_Test (Commands_Push_Nodes_Tests'Access);
       Result.Add_Test (Commands_Write_Node_Tests'Access);

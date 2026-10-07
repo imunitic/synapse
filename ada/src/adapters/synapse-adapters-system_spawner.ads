@@ -16,4 +16,10 @@ package Synapse.Adapters.System_Spawner is
    overriding procedure Spawn_Pusher
      (S : in out System_Spawner; Vault : String);
 
+   --  Starts Program with a command and, unless it is empty, one argument,
+   --  detached: the caller does not wait for it, its streams go nowhere, and
+   --  it outlives the caller. False when it could not be started.
+   procedure Spawn_Detached
+     (Program, Command, Argument : String; Success : out Boolean);
+
 end Synapse.Adapters.System_Spawner;
