@@ -1,5 +1,4 @@
 with Ada.Strings.Fixed;
-
 with Synapse.Commands.Vault_Usage;
 with Synapse.Test_Environment;
 with Synapse.Test_Scratch;

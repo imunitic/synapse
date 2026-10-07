@@ -6,6 +6,7 @@ with Synapse.Commands.Vault_Check;
 with Synapse.Commands.Vault_Links;
 with Synapse.Commands.Vault_Read;
 with Synapse.Commands.Vault_Search;
+with Synapse.Commands.Vault_Write;
 with Synapse.Commands.Namespace;
 with Synapse.Commands.Now;
 with Synapse.Commands.Show_Context;
@@ -37,6 +38,11 @@ package body Synapse.Commands.Dispatch is
    Vault_Orphans_Name     : aliased constant String := "vault-orphans";
    Vault_Deadends_Name    : aliased constant String := "vault-deadends";
    Vault_Ambiguous_Name   : aliased constant String := "vault-ambiguous";
+   Vault_Write_Name       : aliased constant String := "vault-write";
+   Vault_Patch_Name       : aliased constant String := "vault-patch";
+   Vault_Rename_Name      : aliased constant String := "vault-rename";
+   Vault_Delete_Name      : aliased constant String := "vault-delete";
+   Vault_Git_Pusher_Name  : aliased constant String := "vault-git-pusher";
    Frontmatter_Name       : aliased constant String := "frontmatter";
 
    Table : constant array (Positive range <>) of Entry_Type :=
@@ -55,7 +61,12 @@ package body Synapse.Commands.Dispatch is
      (Vault_Orphans_Name'Access, Vault_Links.Run_Orphans'Access),
      (Vault_Deadends_Name'Access, Vault_Links.Run_Deadends'Access),
      (Vault_Ambiguous_Name'Access, Vault_Links.Run_Ambiguous'Access),
-     (Frontmatter_Name'Access, Frontmatter.Run'Access)];
+     (Frontmatter_Name'Access, Frontmatter.Run'Access),
+     (Vault_Write_Name'Access, Vault_Write.Run_Write'Access),
+     (Vault_Patch_Name'Access, Vault_Write.Run_Patch'Access),
+     (Vault_Rename_Name'Access, Vault_Write.Run_Rename'Access),
+     (Vault_Delete_Name'Access, Vault_Write.Run_Delete'Access),
+     (Vault_Git_Pusher_Name'Access, Vault_Write.Run_Git_Pusher'Access)];
 
    function Find (Name : String) return Run_Access is
    begin

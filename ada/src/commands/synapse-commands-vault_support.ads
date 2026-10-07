@@ -1,5 +1,6 @@
 with Ada.Strings.Unbounded;
 
+with Synapse.Adapters.Git_Store;
 with Synapse.Adapters.Store_Resolve;
 
 --  What every vault subcommand does before and around its own work: answer
@@ -15,10 +16,14 @@ package Synapse.Commands.Vault_Support is
       Vault : out Ada.Strings.Unbounded.Unbounded_String; Found : out Boolean);
 
    --  The stores over Vault, each note addressed by its whole path under it.
-   --  False when the settings are invalid, which Resolve has said.
+   --  False when the settings are invalid, which Resolve has said. Spawner,
+   --  when given, is how a write may start the background push; it must
+   --  outlive the stack.
    procedure Open
-     (Env   :        Environment; Prog : String; Vault : String;
-      Stack : in out Store_Resolve.Stack; Ok : out Boolean);
+     (Env     :        Environment; Prog : String; Vault : String;
+      Stack   : in out Store_Resolve.Stack; Ok : out Boolean;
+      Spawner :    access Synapse.Adapters.Git_Store.Pusher_Spawner'Class :=
+        null);
 
    --  The code for an argument that is not what the subcommand takes: help
    --  asked for is answered with the usage and 0, anything else is a usage

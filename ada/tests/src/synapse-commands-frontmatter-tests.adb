@@ -1,5 +1,6 @@
+with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
-
+with Synapse.Adapters.File_Bytes;
 with Synapse.Commands.Vault_Usage;
 with Synapse.Test_Environment;
 with Synapse.Test_Scratch;
@@ -18,6 +19,8 @@ package body Synapse.Commands.Frontmatter.Tests is
    use Synapse.Test_Vault;
 
    LF : constant Character := Character'Val (10);
+
+   HT : constant Character := ASCII.HT;
 
    Note : constant String :=
      "---" & LF & "title: ""Example""" & LF & "status: TODO" & LF &
@@ -233,6 +236,153 @@ package body Synapse.Commands.Frontmatter.Tests is
          raise;
    end Frontmatter_Needs_A_Vault_And_A_Valid_Request;
 
+   procedure Set_Writes_A_Scalar_And_Prints_The_Path_And_Key
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir : constant Scratch := Make;
+      F   : aliased Fixture;
+   begin
+      Use_Vault (F, Dir);
+      Put (Dir, "x.md", Note);
+      Assert (Run (Env (F), Args ("set", "x.md", "status", "DONE")) = 0, "ok");
+      Assert (F.Console.Out_Text = "x.md" & HT & "status" & LF, "the row");
+      Assert
+        (Ada.Strings.Fixed.Index
+           (Adapters.File_Bytes.Read (Path (Dir, "vault/x.md"), 100_000),
+            "status: DONE") >
+         0,
+         "written");
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end Set_Writes_A_Scalar_And_Prints_The_Path_And_Key;
+
+   procedure Set_With_A_Comma_Writes_A_List (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Dir : constant Scratch := Make;
+      F   : aliased Fixture;
+   begin
+      Use_Vault (F, Dir);
+      Put (Dir, "x.md", Note);
+      Assert (Run (Env (F), Args ("set", "x.md", "tags", "a, b")) = 0, "ok");
+      Assert
+        (Ada.Strings.Fixed.Index
+           (Adapters.File_Bytes.Read (Path (Dir, "vault/x.md"), 100_000),
+            "tags: [a, b]") >
+         0,
+         "a real list");
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end Set_With_A_Comma_Writes_A_List;
+
+   procedure Set_Adds_And_Removes_A_Tag (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Dir : constant Scratch := Make;
+      F   : aliased Fixture;
+   begin
+      Use_Vault (F, Dir);
+      Put (Dir, "x.md", Note);
+      Assert
+        (Run (Env (F), Args ("set", "x.md", "--add-tag", "z")) = 0, "add");
+      Assert (F.Console.Out_Text = "x.md" & HT & "tags" & LF, "the label");
+      Assert
+        (Ada.Strings.Fixed.Index
+           (Adapters.File_Bytes.Read (Path (Dir, "vault/x.md"), 100_000),
+            "tags: [x, y, z]") >
+         0,
+         "added");
+      Assert
+        (Run (Env (F), Args ("set", "x.md", "--remove-tag", "x")) = 0,
+         "remove");
+      Assert
+        (Ada.Strings.Fixed.Index
+           (Adapters.File_Bytes.Read (Path (Dir, "vault/x.md"), 100_000),
+            "tags: [y, z]") >
+         0,
+         "removed");
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end Set_Adds_And_Removes_A_Tag;
+
+   procedure Set_Of_A_Missing_Note_Or_A_Note_Without_Frontmatter_Fails
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir : constant Scratch := Make;
+      F   : aliased Fixture;
+   begin
+      Use_Vault (F, Dir);
+      Put (Dir, "plain.md", "no frontmatter" & LF);
+      Assert (Run (Env (F), Args ("set", "gone.md", "k", "v")) = 1, "missing");
+      Assert (Run (Env (F), Args ("set", "plain.md", "k", "v")) = 1, "plain");
+      Assert
+        (F.Console.Err_Text =
+         "synapse-frontmatter: no such note: gone.md" & LF &
+         "synapse-frontmatter: no frontmatter in plain.md" & LF,
+         "the messages: " & F.Console.Err_Text);
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end Set_Of_A_Missing_Note_Or_A_Note_Without_Frontmatter_Fails;
+
+   procedure Set_Refuses_A_Value_Too_Large_To_Write
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir : constant Scratch := Make;
+      F   : aliased Fixture;
+   begin
+      Use_Vault (F, Dir);
+      Put (Dir, "x.md", Note);
+      Assert
+        (Run (Env (F), Args ("set", "x.md", "k", [1 .. 2_000_000 => 'v'])) = 1,
+         "code 1");
+      Assert
+        (F.Console.Err_Text =
+         "synapse-frontmatter: write failed: too large" & LF,
+         "the message");
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end Set_Refuses_A_Value_Too_Large_To_Write;
+
+   procedure Set_Refuses_A_Tag_Too_Large_To_Add (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir : constant Scratch := Make;
+      F   : aliased Fixture;
+   begin
+      Use_Vault (F, Dir);
+      Put (Dir, "x.md", Note);
+      Assert
+        (Run
+           (Env (F), Args ("set", "x.md", "--add-tag", [1 .. 70_000 => 't'])) =
+         1,
+         "code 1");
+      Assert
+        (F.Console.Err_Text =
+         "synapse-frontmatter: write failed: too large" & LF,
+         "the message");
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end Set_Refuses_A_Tag_Too_Large_To_Add;
+
    procedure Help_Anywhere_In_The_Arguments_Prints_The_Usage
      (T : in out Test_Cases_Class)
    is
@@ -293,6 +443,23 @@ package body Synapse.Commands.Frontmatter.Tests is
       Register_Routine
         (T, Frontmatter_Needs_A_Vault_And_A_Valid_Request'Access,
          "Frontmatter needs a vault and a valid request");
+      Register_Routine
+        (T, Set_Writes_A_Scalar_And_Prints_The_Path_And_Key'Access,
+         "Set writes a scalar and prints the path and key");
+      Register_Routine
+        (T, Set_With_A_Comma_Writes_A_List'Access,
+         "Set with a comma writes a list");
+      Register_Routine
+        (T, Set_Adds_And_Removes_A_Tag'Access, "Set adds and removes a tag");
+      Register_Routine
+        (T, Set_Of_A_Missing_Note_Or_A_Note_Without_Frontmatter_Fails'Access,
+         "Set of a missing note or a note without frontmatter fails");
+      Register_Routine
+        (T, Set_Refuses_A_Value_Too_Large_To_Write'Access,
+         "Set refuses a value too large to write");
+      Register_Routine
+        (T, Set_Refuses_A_Tag_Too_Large_To_Add'Access,
+         "Set refuses a tag too large to add");
       Register_Routine
         (T, Help_Anywhere_In_The_Arguments_Prints_The_Usage'Access,
          "Help anywhere in the arguments prints the usage");

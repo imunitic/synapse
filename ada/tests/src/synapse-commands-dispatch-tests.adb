@@ -85,9 +85,17 @@ package body Synapse.Commands.Dispatch.Tests is
       pragma Unreferenced (T);
    begin
       for I in 1 .. Count loop
-         Assert
-           (Ada.Strings.Fixed.Index (Usage.Text, LF & "  " & Name_Of (I)) > 0,
-            Name_Of (I) & " has a line in the usage");
+         --  What a write starts in the background is not typed by a person.
+         if Name_Of (I) = "vault-git-pusher" then
+            Assert
+              (Ada.Strings.Fixed.Index (Usage.Text, Name_Of (I)) = 0,
+               Name_Of (I) & " is left out of the usage");
+         else
+            Assert
+              (Ada.Strings.Fixed.Index
+                 (Usage.Text, LF & "  " & Name_Of (I)) > 0,
+               Name_Of (I) & " has a line in the usage");
+         end if;
          Assert (Find (Name_Of (I)) /= null, Name_Of (I) & " is found");
       end loop;
    end Every_Name_In_The_Table_Is_Listed_In_The_Usage;

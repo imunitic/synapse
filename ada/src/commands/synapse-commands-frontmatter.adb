@@ -1,11 +1,16 @@
 with Ada.Directories;
+with Ada.Strings.Fixed;
+with Ada.Strings.Maps;
 
 with Synapse.Adapters.File_Bytes;
 with Synapse.Commands.Cli_Args;
 with Synapse.Commands.Vault_Support;
 with Synapse.Commands.Vault_Usage;
+with Synapse.Core.Decimal_Image;
+with Synapse.Core.Frontmatter.Edit;
 with Synapse.Core.Node_Path;
 with Synapse.Core.Node_Query;
+with Synapse.Ports.Store;
 
 package body Synapse.Commands.Frontmatter is
 
@@ -116,6 +121,128 @@ package body Synapse.Commands.Frontmatter is
          return 1;
    end Get;
 
+   package Port renames Synapse.Ports.Store;
+   package Edit renames Synapse.Core.Frontmatter.Edit;
+
+   --  The items of a comma separated value, blanks trimmed.
+   function Items_Of (Value : String) return Edit.String_Array is
+      Count : constant Natural := 1 + Ada.Strings.Fixed.Count (Value, ",");
+      Items : Edit.String_Array (1 .. Count);
+      Start : Positive         := Value'First;
+      N     : Natural          := 0;
+   begin
+      for I in Value'First .. Value'Last + 1 loop
+         if I > Value'Last or else Value (I) = ',' then
+            N         := N + 1;
+            Items (N) :=
+              To_Unbounded_String
+                (Ada.Strings.Fixed.Trim
+                   (Value (Start .. I - 1),
+                    Ada.Strings.Maps.To_Set (" " & ASCII.HT),
+                    Ada.Strings.Maps.To_Set (" " & ASCII.HT)));
+            Start     := I + 1;
+         end if;
+      end loop;
+      return Items;
+   end Items_Of;
+
+   --  Whether the request fits what the editing functions accept.
+   function Fits (Note : String; Wanted : Request) return Boolean is
+      Key   : constant String := To_String (Wanted.Key);
+      Value : constant String := To_String (Wanted.Value);
+   begin
+      if Note'Length > Synapse.Core.Frontmatter.Max_Note_Length then
+         return False;
+      end if;
+      case Wanted.Op is
+         when Set_Value =>
+            if Key'Length > Synapse.Core.Frontmatter.Max_Key_Length then
+               return False;
+            elsif Ada.Strings.Fixed.Index (Value, ",") = 0 then
+               return Value'Length <= Edit.Max_Scalar_Length;
+            end if;
+            declare
+               Items : constant Edit.String_Array := Items_Of (Value);
+            begin
+               return
+                 Items'Length <= Edit.Max_List_Items
+                 and then Edit.Total_Length (Items) <= Edit.Max_List_Text;
+            end;
+
+         when Add_Tag =>
+            return Value'Length <= Edit.Max_List_Text / 2;
+
+         when others =>
+            return True;
+      end case;
+   end Fits;
+
+   --  One field of the note at Path set, or a tag added or removed.
+   function Set
+     (Env : Environment; Vault, Path : String; Wanted : Request)
+      return Exit_Code
+   is
+      Stack : Support.Store_Resolve.Stack;
+      Ok    : Boolean;
+   begin
+      Support.Open (Env, Prog, Vault, Stack, Ok);
+      if not Ok then
+         return 1;
+      end if;
+      declare
+         Current : constant Port.Maybe_Text :=
+           Support.Store_Resolve.Store (Stack).Read (Path);
+      begin
+         if not Current.Found then
+            Complain (Env, Prog & ": no such note: " & Path & LF);
+            return 1;
+         end if;
+         declare
+            Note  : constant String := To_String (Current.Value);
+            Key   : constant String := To_String (Wanted.Key);
+            Value : constant String := To_String (Wanted.Value);
+            Label : constant String :=
+              (if Wanted.Op = Set_Value then Key else "tags");
+         begin
+            if not Fits (Note, Wanted) then
+               Complain (Env, Prog & ": write failed: too large" & LF);
+               return 1;
+            end if;
+            declare
+               Updated : constant String            :=
+                 (case Wanted.Op is
+                    when Set_Value =>
+                      (if Ada.Strings.Fixed.Index (Value, ",") = 0 then
+                         Edit.Set_Scalar (Note, Key, Value)
+                       else Edit.Set_List (Note, Key, Items_Of (Value))),
+                    when Add_Tag => Edit.Add_Tag (Note, Value),
+                    when others => Edit.Remove_Tag (Note, Value));
+               Wrote   : constant Port.Write_Result :=
+                 Support.Store_Resolve.Store (Stack).Write (Path, Updated);
+            begin
+               if not Wrote.Accepted then
+                  Complain
+                    (Env,
+                     Prog & ": write rejected (" &
+                     Core.Decimal_Image.Image (Wrote.Status) & "): " &
+                     To_String (Wrote.Body_Text) & LF);
+                  return 1;
+               end if;
+               Say (Env, Path & ASCII.HT & Label & LF);
+               return 0;
+            end;
+         end;
+      exception
+         when Edit.No_Frontmatter =>
+            Complain (Env, Prog & ": no frontmatter in " & Path & LF);
+            return 1;
+      end;
+   exception
+      when Port.Store_Failure | Port.Unsafe_Node | Port.Node_Not_Found =>
+         Complain (Env, Prog & ": read failed" & LF);
+         return 1;
+   end Set;
+
    function Run (Env : Environment; Args : Lists.Vector) return Exit_Code is
    begin
       for Arg of Args loop
@@ -143,8 +270,8 @@ package body Synapse.Commands.Frontmatter is
                    (Env, To_String (Vault), To_String (Wanted.Path),
                     To_String (Wanted.Key));
             when others =>
-               Complain (Env, Prog & ": set is not available yet" & LF);
-               return 1;
+               return
+                 Set (Env, To_String (Vault), To_String (Wanted.Path), Wanted);
          end case;
       end;
    end Run;

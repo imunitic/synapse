@@ -22,13 +22,14 @@ package body Synapse.Commands.Vault_Support is
    end Find_Vault;
 
    procedure Open
-     (Env   :        Environment; Prog : String; Vault : String;
-      Stack : in out Store_Resolve.Stack; Ok : out Boolean)
+     (Env     :        Environment; Prog : String; Vault : String;
+      Stack   : in out Store_Resolve.Stack; Ok : out Boolean;
+      Spawner : access Synapse.Adapters.Git_Store.Pusher_Spawner'Class := null)
    is
    begin
       Store_Resolve.Resolve
         (S    => Stack, Vars => Env.Vars, Vault => Vault, Namespace => "",
-         Prog => Prog, Spawner => null, Valid => Ok);
+         Prog => Prog, Spawner => Spawner, Valid => Ok);
    end Open;
 
    function Help_Or_Usage

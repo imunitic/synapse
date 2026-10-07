@@ -82,6 +82,8 @@ with Synapse.Commands.Now.Tests;
 with Synapse.Commands.Namespace.Tests;
 with Synapse.Commands.Show_Context.Tests;
 with Synapse.Commands.Dispatch.Tests;
+with Synapse.Adapters.System_Spawner.Tests;
+with Synapse.Commands.Vault_Write.Tests;
 with Synapse.Core.Options_Tests;
 with Synapse.Core.Decimal_Image.Tests;
 with Synapse.Core.Float_Image.Tests;
@@ -232,6 +234,8 @@ package body Test_Suites is
      aliased Synapse.Commands.Namespace.Tests.Test_Case;
    Show_Context_Tests : aliased Synapse.Commands.Show_Context.Tests.Test_Case;
    Dispatch_Tests : aliased Synapse.Commands.Dispatch.Tests.Test_Case;
+   Adapters_System_Spawner_Tests : aliased Synapse.Adapters.System_Spawner.Tests.Test_Case;
+   Commands_Vault_Write_Tests : aliased Synapse.Commands.Vault_Write.Tests.Test_Case;
    Core_Optional_Text_Tests : aliased Synapse.Core.Options_Tests.Test_Case;
    Core_Decimal_Image_Tests      :
      aliased Synapse.Core.Decimal_Image.Tests.Test_Case;
@@ -283,6 +287,8 @@ package body Test_Suites is
       Result.Add_Test (Namespace_Tests'Access);
       Result.Add_Test (Show_Context_Tests'Access);
       Result.Add_Test (Dispatch_Tests'Access);
+      Result.Add_Test (Adapters_System_Spawner_Tests'Access);
+      Result.Add_Test (Commands_Vault_Write_Tests'Access);
       Result.Add_Test (Core_Optional_Text_Tests'Access);
       Result.Add_Test (Core_Decimal_Image_Tests'Access);
       Result.Add_Test (Core_Float_Image_Tests'Access);
