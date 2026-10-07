@@ -68,6 +68,12 @@ with Synapse.Adapters.Fake_Extractor.Tests;
 with Synapse.Adapters.Tree_Sitter.Docstring_Pairs.Tests;
 with Synapse.Adapters.Tree_Sitter.Resolution.Tests;
 with Synapse.Adapters.Tree_Sitter.Extractor.Tests;
+with Synapse.Core.Command_Map.Tests;
+with Synapse.Core.Comment_Style_Rules.Tests;
+with Synapse.Core.Task_Status.Tests;
+with Synapse.Core.Doctor.Tests;
+with Synapse.Core.Patch.Tests;
+with Synapse.Core.Vault_Query.Tests;
 with Synapse.Core.Graph_Model.Tests;
 with Synapse.Core.Hashing.Tests;
 with Synapse.Core.Line_Slice.Tests;
@@ -194,6 +200,13 @@ package body Test_Suites is
      aliased Synapse.Adapters.Tree_Sitter.Resolution.Tests.Test_Case;
    Extractor_Tests               :
      aliased Synapse.Adapters.Tree_Sitter.Extractor.Tests.Test_Case;
+   Command_Map_Tests : aliased Synapse.Core.Command_Map.Tests.Test_Case;
+   Comment_Style_Rules_Tests     :
+     aliased Synapse.Core.Comment_Style_Rules.Tests.Test_Case;
+   Task_Status_Tests : aliased Synapse.Core.Task_Status.Tests.Test_Case;
+   Doctor_Tests                  : aliased Synapse.Core.Doctor.Tests.Test_Case;
+   Patch_Tests                   : aliased Synapse.Core.Patch.Tests.Test_Case;
+   Vault_Query_Tests : aliased Synapse.Core.Vault_Query.Tests.Test_Case;
    Graph_Model_Tests : aliased Synapse.Core.Graph_Model.Tests.Test_Case;
    Identity_Tests : aliased Synapse.Core.Identity.Tests.Test_Case;
    Project_Index_Tests : aliased Synapse.Core.Project_Index.Tests.Test_Case;
@@ -223,6 +236,12 @@ package body Test_Suites is
       Result.Add_Test (Wikilinks_Tests'Access);
       Result.Add_Test (Git_Identity_Tests'Access);
       Result.Add_Test (Graph_Model_Tests'Access);
+      Result.Add_Test (Vault_Query_Tests'Access);
+      Result.Add_Test (Patch_Tests'Access);
+      Result.Add_Test (Command_Map_Tests'Access);
+      Result.Add_Test (Comment_Style_Rules_Tests'Access);
+      Result.Add_Test (Task_Status_Tests'Access);
+      Result.Add_Test (Doctor_Tests'Access);
       Result.Add_Test (Extractor_Tests'Access);
       Result.Add_Test (Resolution_Tests'Access);
       Result.Add_Test (Fake_Extractor_Tests'Access);
