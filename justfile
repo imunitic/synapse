@@ -396,6 +396,14 @@ ada-build:
 ada-test: ada-ucd ada-json-suite
     cd {{ ada_dir }}/tests && alr -n exec -- gprbuild -q -p -P fixtures/fixtures.gpr && alr -n build --validation && alr -n run --skip-build
 
+# Build the release binaries of the Ada crate.
+ada-release:
+    cd {{ ada_dir }} && alr -n build --release
+
+# Package the release binaries as npm packages, install them into a scratch prefix and check the installed program end to end.
+ada-package: ada-release
+    ci/ada-package.sh
+
 # Prove the SPARK units with GNATprove; exits non-zero on any unproved check.
 ada-prove:
     cd {{ ada_dir }}/tests && alr -n exec -- gnatprove -P synapse_proof.gpr --level=2 --report=all --checks-as-errors=on

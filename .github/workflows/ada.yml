@@ -3,7 +3,8 @@ name: ada
 # The Ada tree is a standalone Alire project; this workflow builds it, runs its
 # AUnit suite with contracts checked at runtime, and proves its SPARK units, on
 # every platform Synapse targets, then checks the generated Unicode tables are
-# current. The steps are the ones `just ada-check` runs.
+# current. The steps are the ones `just ada-check` runs; the `package` job
+# builds the release binaries and installs them as the npm packages.
 # Triggered only by changes to the Ada tree, so the Zig workflows and this one
 # do not wait on each other.
 on:
@@ -47,3 +48,25 @@ jobs:
 
       - name: Generated Unicode tables are current
         run: just ada-gen-check
+
+  # The release binaries packaged as the npm packages and installed the way a
+  # user does (`ci/ada-package.sh`): the shims, `synapse-setup configure` for
+  # each harness and the installed hooks. The platforms that have an npm
+  # package; Windows has none yet.
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: alire-project/setup-alire@v6
+      - uses: extractions/setup-just@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Package and check the installed program
+        run: just ada-package

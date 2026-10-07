@@ -1,0 +1,125 @@
+name: ada-release
+
+# Builds the Ada binaries natively on each platform Synapse ships for,
+# packages them as the npm platform packages and checks the installed result
+# end to end (`ci/ada-package.sh`). Publishing is a dry run unless the
+# dispatch says otherwise: until the Ada version replaces the Zig one, the
+# `release` workflow stays the one that publishes.
+#
+# The Linux binaries are built on the runner's own glibc and need at least
+# that version at run time. The Zig release links against glibc 2.28; reaching
+# the same floor needs the build to run in an older image, which is part of
+# the cutover and not of this workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version to package, as a tag (e.g. v0.9.0)"
+        required: true
+      publish:
+        description: "Publish to npm; otherwise `npm publish --dry-run`"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, plat: linux-x64 }
+          - { os: ubuntu-24.04-arm, plat: linux-arm64 }
+          - { os: macos-latest, plat: darwin-arm64 }
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag }}
+
+      - uses: alire-project/setup-alire@v6
+      - uses: extractions/setup-just@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build and check the installed package
+        run: just ada-package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.plat }}
+          path: |
+            ada/bin/synapse
+            ada/bin/synapse-hook
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release-tag
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm for OIDC trusted-publishing support
+        run: npm install -g npm@latest
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # One version, four packages, the platform packages first so the main
+      # package's optional dependencies already resolve. A version already on
+      # the registry is skipped, so a retry after a partial failure works.
+      - name: Publish the npm packages in lock-step
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+          PUBLISH: ${{ github.event.inputs.publish }}
+        run: |
+          v="${TAG#v}"
+          dist_tag="latest"
+          case "$v" in
+            *-*) pre="${v#*-}"; dist_tag="${pre%%.*}" ;;
+          esac
+          dry=(--dry-run)
+          [ "$PUBLISH" = "true" ] && dry=()
+
+          publish_if_new() {
+            local dir="$1" name="$2"
+            if npm view "$name@$v" version >/dev/null 2>&1; then
+              echo "$name@$v already published -- skipping"
+            else
+              npm publish "./$dir" --access public --tag "$dist_tag" "${dry[@]}"
+            fi
+          }
+
+          for plat in linux-x64 linux-arm64 darwin-arm64; do
+            dest="packages/synapse/platforms/$plat/bin"
+            mkdir -p "$dest"
+            cp "artifacts/bin-$plat/synapse" "artifacts/bin-$plat/synapse-hook" "$dest/"
+            chmod +x "$dest/synapse" "$dest/synapse-hook"
+            tmp=$(mktemp)
+            jq --arg v "$v" '.version = $v' "packages/synapse/platforms/$plat/package.json" > "$tmp"
+            mv "$tmp" "packages/synapse/platforms/$plat/package.json"
+            publish_if_new "packages/synapse/platforms/$plat" "@imunitic/synapse-$plat"
+          done
+
+          tmp=$(mktemp)
+          jq --arg v "$v" '.version = $v | .optionalDependencies |= map_values($v)' \
+            packages/synapse/package.json > "$tmp"
+          mv "$tmp" packages/synapse/package.json
+          publish_if_new "packages/synapse" "@imunitic/synapse"
