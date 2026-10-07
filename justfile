@@ -1,47 +1,117 @@
-# Task runner for this repo. The recipes here mirror .github/workflows/tests.yml
-# deliberately: the point is that "green locally" and "green in CI" cannot mean
-# different things. If you change the gate, change it in both places.
+# Task runner for this repo. The recipes mirror .github/workflows/tests.yml
+# deliberately: "green locally" and "green in CI" cannot mean different things.
+# If you change the gate, change it in both places.
 #
 #   just              list the recipes
-#   just test         the CLI-contract suite (zig build test-integration)
-#   just test-linux   the whole suite in the container -- for a broad change
+#   just build        the three programs, into bin/
+#   just test         the AUnit suite
+#   just acceptance   the subprocess suite against the built programs
 #   just check        the full gate -- before PUSHING, not before every commit
 #   just fix          regenerate whatever `check` verifies
-#   just ci-local     what CI actually runs, locally, via act
 #
-# WHAT TO RUN WHEN. The gate is cheap now (26s measured, warm) but it is still not the
-# answer to every change, and reaching for it reflexively trains the habit of not
-# thinking about what a change can actually break:
+# WHAT TO RUN WHEN:
 #
-#   changed a .zig file         just test-zig && just test
+#   changed Ada code            just build && just test
+#   changed a proved unit       just prove
+#   changed a command's output  just acceptance
 #   changed docs/ or README     nothing -- prose has no test to fail
-#   changed plugins/*/**/*.md   just test-zig && just test -- both suites carry a
-#                               "shipped instruction names a real command" check
-#   changed a lot, or unsure    just test-linux
+#   changed packages/**/*.md    just acceptance -- a "shipped instruction names
+#                               a real command" check covers them
 #   about to push               just check
 #
-# Shipped instructions under `plugins/*/` LOOK like documentation and are not: they
-# install into ~/.claude and are covered by tests, which is how a skill telling
-# Claude to run a command that does not exist got caught. And each project's `cli.md`
-# plus the rendered diagrams are generated, so editing what they are generated *from*
-# means `just fix`, not `just docs-check`.
-#
-# Note on comments below: `just --list` shows the comment line immediately above a
-# recipe, so each one gets a single short line there and any longer explanation
-# goes above a blank line, where the listing will not pick it up.
+# Needs Alire (`alr`) on PATH; it fetches GNAT, gprbuild, AUnit and GNATprove
+# itself on first use. `acceptance` and `lint` also need Zig 0.16 (test tooling
+# only). `just --list` shows the comment line immediately above a recipe.
 
 set shell := ["bash", "-uc"]
 
 _default:
     @just --list --unsorted
 
-# The CLI contract: real subprocess/git-integration behavior, spawning the
-# real compiled binaries -- `zig build`'s own compile-order dependency (via
-# `addOptionPath`) rebuilds whatever changed, so this never silently tests
-# yesterday's binary.
 
-# The CLI-contract suite. Pass a substring to narrow to matching test names.
-test FILTER="":
+ucd_version := "18.0.0"
+
+# Download the pinned Unicode Character Database files the tables generator and the conformance tests read.
+ucd:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p ucd
+    for f in UnicodeData.txt CompositionExclusions.txt CaseFolding.txt NormalizationTest.txt; do
+        [ -s "ucd/$f" ] || curl -fsSL -o "ucd/$f" \
+            "https://www.unicode.org/Public/{{ ucd_version }}/ucd/$f"
+    done
+    echo "ucd {{ ucd_version }} ok"
+
+# Regenerate the Unicode tables from the downloaded UCD files.
+gen-unicode: ucd
+    cd tools && alr -n build --validation && alr -n run --skip-build --args="../ucd ../src/core/text {{ ucd_version }}"
+
+# Fail if the committed Unicode tables differ from what the generator produces.
+gen-check: ucd
+    mkdir -p ucd/check
+    cd tools && alr -n build --validation && alr -n run --skip-build --args="../ucd ../ucd/check {{ ucd_version }}"
+    cmp src/core/text/synapse-core-unicode_tables.ads ucd/check/synapse-core-unicode_tables.ads
+    cmp src/core/text/synapse-core-unicode_tables.adb ucd/check/synapse-core-unicode_tables.adb
+
+tree_sitter_commit := "42f33fe2f8ddef5617a8536723c5d2b8a19a615e"
+
+# Refresh the vendored libtree-sitter runtime from the pinned upstream commit.
+vendor-tree-sitter:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dest="vendor/tree-sitter"
+    work="$(mktemp -d)"
+    trap 'rm -rf "$work"' EXIT
+    curl -fsSL -o "$work/ts.tar.gz" \
+        "https://github.com/tree-sitter/tree-sitter/archive/{{ tree_sitter_commit }}.tar.gz"
+    tar -xzf "$work/ts.tar.gz" -C "$work"
+    src="$work/tree-sitter-{{ tree_sitter_commit }}"
+    rm -rf "$dest/lib"
+    mkdir -p "$dest/lib"
+    cp -R "$src/lib/src" "$src/lib/include" "$dest/lib/"
+    cp "$src/LICENSE" "$dest/LICENSE"
+    printf '%s\n' "{{ tree_sitter_commit }}" > "$dest/VERSION"
+    echo "tree-sitter {{ tree_sitter_commit }} vendored"
+
+json_suite_commit := "1ef36fa01286573e846ac449e8683f8833c5b26a"
+
+# Download the pinned JSONTestSuite parsing cases the JSON tests read.
+json-suite:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dest="testdata/json"
+    if [ -n "$(ls -A "$dest" 2>/dev/null)" ]; then echo "json suite ok"; exit 0; fi
+    work="$(mktemp -d)"
+    trap 'rm -rf "$work"' EXIT
+    curl -fsSL -o "$work/suite.tar.gz" \
+        "https://github.com/nst/JSONTestSuite/archive/{{ json_suite_commit }}.tar.gz"
+    tar -xzf "$work/suite.tar.gz" -C "$work"
+    mkdir -p "$dest"
+    cp "$work/JSONTestSuite-{{ json_suite_commit }}/test_parsing/"* "$dest/"
+    echo "json suite {{ json_suite_commit }} ok"
+
+# Build the programs with the validation profile (contracts checked at runtime) into bin/.
+build:
+    alr -n build --validation
+
+# The AUnit suite; exits non-zero on any failed test.
+test: ucd json-suite
+    cd tests/unit && alr -n exec -- gprbuild -q -p -P fixtures/fixtures.gpr && alr -n build --validation && alr -n run --skip-build
+
+# Build the release binaries.
+release:
+    alr -n build --release
+
+# Package the release binaries as npm packages, install them into a scratch prefix and check the installed program end to end.
+package: release
+    ci/package.sh
+
+# Prove the SPARK units with GNATprove; exits non-zero on any unproved check.
+prove:
+    cd tests/unit && alr -n exec -- gnatprove -P synapse_proof.gpr --level=2 --report=all --checks-as-errors=on
+
+# The subprocess suite (Zig): spawns the built programs against scratch repos. Pass a substring to narrow to matching test names.
+acceptance FILTER="":
     #!/usr/bin/env bash
     set -euo pipefail
     command -v zig >/dev/null || { echo "zig not on PATH -- brew install zig" >&2; exit 1; }
@@ -52,191 +122,16 @@ test FILTER="":
         zig build test-integration --summary all
     fi
 
-# The suite is fork/exec-bound, and macOS pays a real tax on every process
-# spawn (Gatekeeper/codesign checks, sandbox policy evaluation) that Linux does
-# not -- measured on this machine at 318s of user+sys CPU time running the
-# suite natively on macOS against 94s for the identical suite in this
-# container, same 8 cores. `test-linux` is the default way to run the full
-# suite from here on, not `just test` against the host directly.
-#
-# ci/Containerfile bakes in this repo's CI dependencies (see
-# .github/workflows/tests.yml) once; the worktree itself is bind-mounted, not
-# copied in, so code changes need no rebuild -- only a change to the
-# Containerfile does, and `podman build` no-ops when it sees none.
-
-# Every podman call below names its connection explicitly, and nothing here
-# changes which connection is default or reconfigures an existing machine --
-# both belong to whoever owns the box, not to this repo. The default
-# connection is not reliably a local machine: on a box that also talks to a
-# remote engine over SSH it points there, and an unqualified `podman
-# build`/`podman run` then builds the image on that host and bind-mounts a
-# /repo path that does not exist on it. `podman machine init` is reached for
-# the same reason only when there is no machine at all -- against an existing
-# one it would either fail outright or, under a fresh name, take the default
-# connection with it. Set CONTAINER_CONNECTION to override the choice.
-
-# Echo the Podman machine the Linux recipes use; init one only if none exists.
-_podman-machine:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    command -v podman >/dev/null || { echo "podman not on PATH -- brew install podman" >&2; exit 1; }
-    if [ -n "${CONTAINER_CONNECTION:-}" ]; then echo "$CONTAINER_CONNECTION"; exit 0; fi
-    # `-q` marks the default machine with a trailing `*` -- strip it, or
-    # every `--connection` lookup downstream fails on the decorated name.
-    machines="$(podman machine list -q | sed 's/\*$//')"
-    if [ -z "$machines" ]; then
-        podman machine init --cpus 8 --memory 8192 >/dev/null
-        echo podman-machine-default
-    elif [ "$(printf '%s\n' "$machines" | wc -l)" -eq 1 ]; then
-        printf '%s\n' "$machines"
-    elif printf '%s\n' "$machines" | grep -qx podman-machine-default; then
-        echo podman-machine-default
-    else
-        echo "several Podman machines, none of them podman-machine-default --" >&2
-        echo "pick one with CONTAINER_CONNECTION=<name>:" >&2
-        printf '%s\n' "$machines" | sed 's/^/  /' >&2
-        exit 1
-    fi
-
-# The recipes below invoke `_podman-ready` from their own body, passing the
-# machine they already resolved, rather than declaring it as a `:` dependency:
-# a just dependency can only be given arguments that are just expressions, not
-# a value computed by the recipe's shell, so a dependency would have to resolve
-# the machine a second time -- a second `podman machine list`, and a second
-# chance to disagree with the name the recipe itself goes on to use.
-
-# Build/refresh the Linux test image and make sure that machine is up.
-_podman-ready MACHINE="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    machine="{{ MACHINE }}"
-    [ -n "$machine" ] || machine="$(just _podman-machine)"
-    podman machine start "$machine" >/dev/null 2>&1 || true
-    podman --connection "$machine" info >/dev/null 2>&1 || {
-        echo "podman connection '$machine' is not reachable -- 'podman machine start $machine'" >&2
-        exit 1
-    }
-    podman --connection "$machine" build -q -t synapse-test -f ci/Containerfile ci >/dev/null
-
-# Full suite under Linux/Podman -- the default full-suite run, not `just test`.
-test-linux:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    machine="$(just _podman-machine)"
-    just _podman-ready "$machine"
-    # Compiled and run natively inside the container via ci/Containerfile's
-    # baked-in, architecture-matched Zig toolchain and `libc6-dev` -- see
-    # that file's own comment for why both matter. `--cache-dir` points at
-    # its own tree rather than the shared `.zig-cache` the host uses: the
-    # worktree is bind-mounted, not copied, and a Linux object cache mixed
-    # into the host's would thrash every native build on both sides.
-    podman --connection "$machine" run --rm -v "$(pwd):/repo:Z" -w /repo synapse-test \
-      bash -c 'zig build test --cache-dir zig-out/linux-cache --summary all \
-        && zig build test-integration --cache-dir zig-out/linux-cache --summary all'
-
-# Needs `brew install act` once -- podman-ready's Podman machine is reused.
-# Tests committed HEAD, same as a real push would -- see the recipe body for
-# why (a worktree's own .git is a pointer act cannot resolve on its own).
-# Scoped to tests.yml (-W, not -j -- act's -j takes one job ID, not a list)
-# so both its jobs (zig, integration) run without also pulling in release.yml.
-
-# What CI actually runs, locally, via act -- the pre-push check.
-ci-local:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    command -v act >/dev/null || { echo "act not on PATH -- brew install act" >&2; exit 1; }
-    machine="$(just _podman-machine)"
-    just _podman-ready "$machine"
-    # A linked worktree's `.git` is a pointer file to the main checkout's
-    # `.git/worktrees/...`, a path outside the worktree itself -- act's
-    # checkout step (a plain copy of the working directory, not a real clone)
-    # carries that dangling pointer in, and every git command then fails with
-    # "not a git repository: (null)", even `git config --global`. Cloning
-    # into a scratch dir first sidesteps it with a real, standalone .git --
-    # and only tests committed HEAD while doing so, which is what a real push
-    # would test too.
-    clone="$(mktemp -d "${TMPDIR:-/tmp}/synapse-ci-local.XXXXXX")"
-    trap 'rm -rf "$clone"' EXIT
-    git clone --local --quiet . "$clone"
-    # act itself (a macOS binary) needs the host-forwarded socket to talk to
-    # Podman at all -- but that same path is not a real path inside the
-    # machine's own filesystem, so act bind-mounting it into every job
-    # container (its default, for actions that themselves shell out to
-    # Docker) fails outright. This workflow never touches Docker from inside
-    # a step, so the fix is disabling that bind-mount rather than chasing a
-    # path valid on both sides at once: `-` per act's own docs.
-    sock="$(podman machine inspect "$machine" | jq -r '.[0].ConnectionInfo.PodmanSocket.Path')"
-    (cd "$clone" && DOCKER_HOST="unix://$sock" act -W .github/workflows/tests.yml --container-daemon-socket - \
-      -P ubuntu-latest=catthehacker/ubuntu:act-latest)
-
-# `just` stays the task runner and calls `zig build`, never the other way round:
-# the gate also has to launch podman, act and mermaid-cli, none of which
-# `std.Build.Step.Run` would express better than a recipe does.
-#
-# No version guard here beyond the `command -v`. `build.zig.zon` pins
-# `minimum_zig_version`, so an old toolchain is rejected by `zig build` itself
-# with a better message than this recipe could produce, and a second check
-# would be one more place to forget when the pin moves.
-
-# Compile the Zig binary.
-build:
+# The doc and text consistency checks (Zig).
+lint:
     #!/usr/bin/env bash
     set -euo pipefail
     command -v zig >/dev/null || { echo "zig not on PATH -- brew install zig" >&2; exit 1; }
-    # Not `ls zig-out/bin`: cross-target builds install alongside the native
-    # one, so the directory accumulates other platforms' artefacts and listing
-    # it would report them as though this build had produced them.
-    zig build
-    echo "zig build ok: zig-out/bin/synapse"
+    zig build test --summary all
 
-# Zig unit tests -- internals only; `just test` owns the CLI contract.
-test-zig:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    command -v zig >/dev/null || { echo "zig not on PATH -- brew install zig" >&2; exit 1; }
-    zig build test
-    echo "zig tests ok"
-
-# Deliberately not part of `check`/CI: under a plain `zig build test`, a
-# `std.testing.fuzz`-based test runs exactly once with an empty corpus, a
-# smoke check, not real coverage (verified live, sb-024). Real randomized,
-# coverage-guided fuzzing only happens under `--fuzz`, which runs
-# continuously (a web UI, by default no iteration limit) until stopped --
-# an interactive activity to run yourself, not a pass/fail gate. Pass a
-# limit to bound it instead of leaving it open-ended, e.g. `just fuzz 100K`.
-
-# Continuous, coverage-guided fuzzing (a person runs this, CI doesn't).
-fuzz LIMIT="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    command -v zig >/dev/null || { echo "zig not on PATH -- brew install zig" >&2; exit 1; }
-    if [ -n "{{ LIMIT }}" ]; then
-        zig build test --fuzz="{{ LIMIT }}"
-    else
-        zig build test --fuzz
-    fi
-
-# The other half of the layering. `build.zig`'s module graph rejects a
-# wrong-direction import, but only once something references it -- Zig analyses
-# declarations lazily, so a dead one compiles. This catches those, and the rule
-# no build graph can express: that core reaches the system only through its Io.
-
-# Compile for every release target. A POSIX path assumption, a /tmp default or
-# a shell-out in core is a portability bug that only surfaces on the platform
-# that lacks the thing -- which, for bard's author, means surfacing on her
-# Windows machine rather than on ours. Compiling all three here moves that to
-# the moment the line is written.
-
-# Compile for all three release targets.
-build-targets:
-    ./ci/build-targets.sh
-
-# Verify the module layering and core's purity.
-layering:
-    ./ci/check-layering.sh
-
-# Catches the class of typo that only surfaces when a rarely-taken branch runs --
-# an unbalanced quote inside an awk program embedded in a heredoc, say.
+# Build the Linux release binaries in a container against a glibc 2.28 sysroot.
+linux-release:
+    ci/linux-release.sh
 
 # Parse-check every shipped script without executing it.
 syntax:
@@ -259,17 +154,10 @@ syntax:
     done
     echo "syntax ok: $n scripts"
 
-# Verify, never regenerate: a `check` that quietly fixes what it is checking
-# cannot fail, and the point is to catch a script edit committed without the
-# regeneration that follows from it.
-
 # Verify the generated cli.md and rendered diagrams match their sources.
 docs-check:
     ./docs/synapse/generate-cli-reference.sh --check
     ./docs/synapse/generate-diagrams.sh --check
-
-# An npm packaging concern, not a synapse/Zig one -- kept as its own recipe
-# rather than a Zig test so it stays decoupled from both test suites.
 
 # Verify the npm package actually includes every shipped schema document.
 npm-check:
@@ -281,133 +169,15 @@ npm-check:
     done
     echo "npm-check ok"
 
+# Show what changed against the pushed branch.
+diff:
+    @git --no-pager diff --stat @{u}.. 2>/dev/null || git --no-pager diff --stat
+
 # Regenerate all generated artefacts; diagrams need mermaid-cli and its Chromium.
 fix:
     ./docs/synapse/generate-cli-reference.sh
     ./docs/synapse/generate-diagrams.sh
 
-# What CI runs, in the same order, plus a syntax pass CI gets for free by
-# executing the scripts. `build` comes first because a compile error should not
-# cost a full suite run to discover, and because everything after it will
-# eventually be exercising the binary it produces.
-#
-# The CLI-contract step is `test-linux`, not `test`: the container pays no macOS
-# fork/exec tax on the tests that spawn real subprocesses, and running the same
-# suite under Linux's DebugAllocator catches a real leak the native build stays
-# silent about that a Mach-O build alone would not.
-#
-# `build-targets` earns its place in the local gate, not CI-only, at a few
-# seconds -- cheap enough that leaving it out would mean a green local run can
-# still fail the push, and expensive enough that nobody would think to run it
-# by hand otherwise.
-#
 # The full gate -- run before pushing (see WHAT TO RUN WHEN at the top).
-check: build build-targets test-zig layering syntax test-linux docs-check npm-check
+check: build test prove gen-check acceptance lint syntax docs-check npm-check
     @echo "all green"
-
-# For when podman is not available, and as the answer to "is this a container
-# artefact?" -- the container runs Linux with a DebugAllocator that reports leaks
-# the native build stays silent about, so a failure there and not here is a real
-# finding rather than a flake. It found two.
-#
-# The full gate with the CLI-contract suite on the host instead of in the container.
-check-local: build build-targets test-zig layering syntax test docs-check npm-check
-    @echo "all green (host)"
-
-# Show what changed against the pushed branch.
-diff:
-    @git --no-pager diff --stat @{u}.. 2>/dev/null || git --no-pager diff --stat
-
-# ---- Ada rewrite -------------------------------------------------------------
-#
-# The Ada tree is a standalone Alire project (crate `synapse`, tests in the
-# `synapse_tests` crate beside it) and has its own CI workflow, ada.yml. These
-# recipes run exactly the steps that workflow runs. Needs Alire (`alr`) on PATH;
-# it fetches GNAT, gprbuild, AUnit and GNATprove itself on first use.
-
-ada_dir := "ada"
-
-ucd_version := "18.0.0"
-
-# Download the pinned Unicode Character Database files the tables generator and the conformance tests read.
-ada-ucd:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    mkdir -p {{ ada_dir }}/ucd
-    for f in UnicodeData.txt CompositionExclusions.txt CaseFolding.txt NormalizationTest.txt; do
-        [ -s "{{ ada_dir }}/ucd/$f" ] || curl -fsSL -o "{{ ada_dir }}/ucd/$f" \
-            "https://www.unicode.org/Public/{{ ucd_version }}/ucd/$f"
-    done
-    echo "ucd {{ ucd_version }} ok"
-
-# Regenerate the Unicode tables from the downloaded UCD files.
-ada-gen-unicode: ada-ucd
-    cd {{ ada_dir }}/tools && alr -n build --validation && alr -n run --skip-build --args="../ucd ../src/core/text {{ ucd_version }}"
-
-# Fail if the committed Unicode tables differ from what the generator produces.
-ada-gen-check: ada-ucd
-    mkdir -p {{ ada_dir }}/ucd/check
-    cd {{ ada_dir }}/tools && alr -n build --validation && alr -n run --skip-build --args="../ucd ../ucd/check {{ ucd_version }}"
-    cmp {{ ada_dir }}/src/core/text/synapse-core-unicode_tables.ads {{ ada_dir }}/ucd/check/synapse-core-unicode_tables.ads
-    cmp {{ ada_dir }}/src/core/text/synapse-core-unicode_tables.adb {{ ada_dir }}/ucd/check/synapse-core-unicode_tables.adb
-
-tree_sitter_commit := "42f33fe2f8ddef5617a8536723c5d2b8a19a615e"
-
-# Refresh the vendored libtree-sitter runtime from the pinned upstream commit.
-ada-vendor-tree-sitter:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    dest="{{ ada_dir }}/vendor/tree-sitter"
-    work="$(mktemp -d)"
-    trap 'rm -rf "$work"' EXIT
-    curl -fsSL -o "$work/ts.tar.gz" \
-        "https://github.com/tree-sitter/tree-sitter/archive/{{ tree_sitter_commit }}.tar.gz"
-    tar -xzf "$work/ts.tar.gz" -C "$work"
-    src="$work/tree-sitter-{{ tree_sitter_commit }}"
-    rm -rf "$dest/lib"
-    mkdir -p "$dest/lib"
-    cp -R "$src/lib/src" "$src/lib/include" "$dest/lib/"
-    cp "$src/LICENSE" "$dest/LICENSE"
-    printf '%s\n' "{{ tree_sitter_commit }}" > "$dest/VERSION"
-    echo "tree-sitter {{ tree_sitter_commit }} vendored"
-
-json_suite_commit := "1ef36fa01286573e846ac449e8683f8833c5b26a"
-
-# Download the pinned JSONTestSuite parsing cases the JSON tests read.
-ada-json-suite:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    dest="{{ ada_dir }}/testdata/json"
-    if [ -n "$(ls -A "$dest" 2>/dev/null)" ]; then echo "json suite ok"; exit 0; fi
-    work="$(mktemp -d)"
-    trap 'rm -rf "$work"' EXIT
-    curl -fsSL -o "$work/suite.tar.gz" \
-        "https://github.com/nst/JSONTestSuite/archive/{{ json_suite_commit }}.tar.gz"
-    tar -xzf "$work/suite.tar.gz" -C "$work"
-    mkdir -p "$dest"
-    cp "$work/JSONTestSuite-{{ json_suite_commit }}/test_parsing/"* "$dest/"
-    echo "json suite {{ json_suite_commit }} ok"
-
-# Build the Ada crate with the validation profile (contracts checked at runtime).
-ada-build:
-    cd {{ ada_dir }} && alr -n build --validation
-
-# Run the AUnit suite; exits non-zero on any failed test.
-ada-test: ada-ucd ada-json-suite
-    cd {{ ada_dir }}/tests && alr -n exec -- gprbuild -q -p -P fixtures/fixtures.gpr && alr -n build --validation && alr -n run --skip-build
-
-# Build the release binaries of the Ada crate.
-ada-release:
-    cd {{ ada_dir }} && alr -n build --release
-
-# Package the release binaries as npm packages, install them into a scratch prefix and check the installed program end to end.
-ada-package: ada-release
-    ci/ada-package.sh
-
-# Prove the SPARK units with GNATprove; exits non-zero on any unproved check.
-ada-prove:
-    cd {{ ada_dir }}/tests && alr -n exec -- gnatprove -P synapse_proof.gpr --level=2 --report=all --checks-as-errors=on
-
-# Everything the Ada CI workflow runs.
-ada-check: ada-build ada-test ada-prove ada-gen-check
-    @echo "ada green"

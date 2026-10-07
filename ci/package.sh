@@ -5,9 +5,9 @@
 # shims find the binaries, `synapse-setup configure claude` wires the hooks to
 # the installed hook binary, and that binary answers as a hook does.
 #
-#   ci/ada-package.sh [--keep]
+#   ci/package.sh [--keep]
 #
-# Needs `ada/bin/synapse` and `ada/bin/synapse-hook` built with
+# Needs `bin/synapse` and `bin/synapse-hook` built with
 # `alr build --release`. --keep leaves the scratch directory in place.
 set -euo pipefail
 
@@ -20,13 +20,13 @@ for tool in node npm jq; do
     command -v "$tool" >/dev/null || { echo "$tool not on PATH" >&2; exit 1; }
 done
 for bin in synapse synapse-hook; do
-    [ -x "ada/bin/$bin" ] || { echo "ada/bin/$bin missing -- run: cd ada && alr build --release" >&2; exit 1; }
+    [ -x "bin/$bin" ] || { echo "bin/$bin missing -- run: alr build --release" >&2; exit 1; }
 done
 
 # On Linux, when a floor is named, the binaries must not ask for a newer glibc.
 if [ -n "${GLIBC_FLOOR:-}" ] && [ "$(uname -s)" = Linux ]; then
     for b in synapse synapse-hook; do
-        top="$(objdump -T "ada/bin/$b" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -Vu | tail -1)"
+        top="$(objdump -T "bin/$b" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -Vu | tail -1)"
         [ "$(printf '%s\n%s\n' "$top" "$GLIBC_FLOOR" | sort -V | tail -1)" = "$GLIBC_FLOOR" ] \
             || { echo "FAIL: $b needs glibc $top, above $GLIBC_FLOOR" >&2; exit 1; }
     done
@@ -45,7 +45,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 # The packages, copied so the checkout is never written to.
 cp -R packages/synapse "$work/pkg"
 mkdir -p "$work/pkg/platforms/$plat/bin"
-cp ada/bin/synapse ada/bin/synapse-hook "$work/pkg/platforms/$plat/bin/"
+cp bin/synapse bin/synapse-hook "$work/pkg/platforms/$plat/bin/"
 
 mkdir -p "$work/tarballs" "$work/prefix"
 (cd "$work/tarballs" && npm pack "$work/pkg/platforms/$plat" --silent >/dev/null && npm pack "$work/pkg" --silent >/dev/null)
@@ -105,4 +105,4 @@ printf '{"tool_input":{"file_path":"/nowhere"}}' | "$hook" staleness >/dev/null 
 "$hook" wat >/dev/null 2>&1 && fail "an unknown hook should not exit 0"
 echo "  hooks ok"
 
-echo "ada-package ok ($plat)"
+echo "package ok ($plat)"

@@ -1,18 +1,16 @@
 name: release
 
-# A release is cut by pushing a tag (`vX.Y.Z`), not by every push to main --
-# main can move freely with nothing building or publishing. workflow_dispatch
-# takes an explicit `tag` input for a manual re-run and checks out that tag
-# rather than whatever ref triggered the dispatch, so a manual run can never
-# accidentally build off an untagged commit.
+# A release is cut by pushing a tag (`vX.Y.Z`), not by every push to main.
+# Builds the binaries natively on each platform Synapse ships for, packages
+# them as the npm platform packages and checks the installed result end to end
+# (`ci/package.sh`), then publishes. workflow_dispatch takes an explicit `tag`
+# input for a manual re-run and checks out that tag rather than whatever ref
+# triggered the dispatch, so a manual run can never build off an untagged
+# commit; `dry_run` makes it an `npm publish --dry-run`.
 #
-# Deliberately independent of tests.yml, which also runs on every push: a
-# compile failure here fails this workflow's own build step the same way it
-# would there (both run the identical `zig build -Dtarget=...` per release
-# target), so there is no real gap in the common case, and chaining this
-# workflow behind tests.yml's own success would only add latency to every
-# release for a case (compiles fine, fails a unit/integration test) a
-# maintainer tagging a known-good commit has already accepted responsibility for.
+# The Linux binaries are built by `ci/linux-release.sh`, which compiles and
+# links against a glibc 2.28 sysroot from an AlmaLinux 8 image; the script and
+# the package check both fail if a binary asks for a newer glibc.
 on:
   push:
     tags: ["v*"]
@@ -21,26 +19,65 @@ on:
       tag:
         description: "Tag to release (must already exist, e.g. v0.2.0)"
         required: true
+      dry_run:
+        description: "Run `npm publish --dry-run` instead of publishing"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
-  # OIDC for npm's Trusted Publishing -- lets `npm publish` mint a
-  # short-lived token itself instead of reading a stored NPM_TOKEN secret.
-  # Requires Trusted Publisher configured per-package on npmjs.com first
-  # (pointing at this workflow file), which only becomes possible after a
-  # package's first publish -- see the release job's own publish step.
+  # OIDC for npm's Trusted Publishing: `npm publish` mints a short-lived token
+  # itself instead of reading a stored secret. Each package's Trusted Publisher
+  # on npmjs.com must name this workflow file.
   id-token: write
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, plat: linux-x64 }
+          - { os: ubuntu-24.04-arm, plat: linux-arm64 }
+          - { os: macos-latest, plat: darwin-arm64 }
+    runs-on: ${{ matrix.os }}
 
-    # Two tags pushed close together could still both reach "Publish npm
-    # packages in lock-step" concurrently; that step publishes platform
-    # packages before the main package in a specific order, so two
-    # overlapping runs could interleave and break that ordering. Queue,
-    # don't cancel -- a cancelled run would silently drop a real tag's
-    # release rather than just delay it.
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+
+      - uses: alire-project/setup-alire@v6
+        if: runner.os == 'macOS'
+      - uses: extractions/setup-just@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build the Linux binaries against glibc 2.28
+        if: runner.os == 'Linux'
+        run: ci/linux-release.sh
+
+      - name: Build the macOS binaries
+        if: runner.os == 'macOS'
+        run: just release
+
+      - name: Check the installed package
+        env:
+          GLIBC_FLOOR: ${{ runner.os == 'Linux' && '2.28' || '' }}
+        run: ci/package.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.plat }}
+          path: |
+            bin/synapse
+            bin/synapse-hook
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
     concurrency:
       group: release-tag
       cancel-in-progress: false
@@ -50,132 +87,48 @@ jobs:
         with:
           ref: ${{ github.event.inputs.tag || github.ref_name }}
 
-      # No version pinned here -- resolved from build.zig.zon's
-      # minimum_zig_version, same reasoning as tests.yml. cache-size-limit
-      # raised the same way too -- see tests.yml's own comment on this,
-      # measured against its cross-compile step, the same shape of work
-      # this job's own release build does.
-      - uses: mlugg/setup-zig@v2
-        with:
-          cache-size-limit: 4096
-
-      - name: Resolve the release tag
-        id: tag
-        run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
-
-      # Same targets ci/build-targets.sh verifies compile on every push; this
-      # job compiles the same builds instead of discarding them, for the npm
-      # publish step below to copy binaries out of directly. See
-      # ci/release-targets.sh for the one shared definition of the list. No
-      # tarring, no SHA256SUMS: those existed only for the old dist-branch
-      # fetch-and-run download path, which npm's own package integrity
-      # replaces here.
-      - name: Cross-compile each target
-        run: |
-          source ci/release-targets.sh
-          for t in "${targets[@]}"; do
-            zig build -Dtarget="$t" -Doptimize=ReleaseSafe -p "out/$t"
-          done
-
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
 
-      # Trusted Publishing needs a recent npm CLI (the OIDC exchange isn't
-      # in whatever ships with Node 20's bundled npm), and current npm
-      # itself now requires Node >=22 to install at all (confirmed live:
-      # `npm install -g npm@latest` under Node 20 fails with EBADENGINE) --
-      # so both had to move together, scoped to just this job rather than
-      # bumping every other workflow's Node version along with it.
       - name: Upgrade npm for OIDC trusted-publishing support
         run: npm install -g npm@latest
 
-      # One tag, one version, four packages -- npm has no cross-package
-      # transaction, so this is as atomic as it gets: a single step, a
-      # single job, one sequential loop. If a publish partway through
-      # fails, the job just stops there (nothing rolls back the packages
-      # that already published), but nothing races either, since nothing
-      # here runs concurrently. Strips the leading `v` since npm's version
-      # field must be bare semver; platform packages publish before the
-      # main package so its optionalDependencies always resolve to a
-      # version that already exists on the registry.
-      #
-      # No NODE_AUTH_TOKEN -- OIDC trusted publishing (id-token: write
-      # above, plus each package's Trusted Publisher configured on
-      # npmjs.com to trust this exact workflow file) is what authenticates
-      # instead. npm detects the GitHub Actions OIDC environment
-      # automatically; nothing here has to request or pass a token by hand.
-      - name: Publish npm packages in lock-step
-        run: |
-          source ci/release-targets.sh
-          v="${{ steps.tag.outputs.tag }}"
-          v="${v#v}"
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
-          # npm refuses to publish a prerelease version (anything with a
-          # `-` in it, e.g. `0.1.0-experimental`) to the default `latest`
-          # dist-tag without an explicit --tag -- derives one from the
-          # version's own prerelease identifier (the part between the
-          # first `-` and the next `.`, e.g. `experimental` out of
-          # `0.1.0-experimental`, `test` out of `0.0.1-test.0`) rather than
-          # hardcoding one, so a real non-prerelease tag still publishes to
-          # `latest` unchanged.
+      # One version, four packages, the platform packages first so the main
+      # package's optional dependencies already resolve. A version already on
+      # the registry is skipped, so a retry after a partial failure works.
+      - name: Publish the npm packages in lock-step
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          v="${TAG#v}"
           dist_tag="latest"
           case "$v" in
-            *-*)
-              pre="${v#*-}"
-              dist_tag="${pre%%.*}"
-              ;;
+            *-*) pre="${v#*-}"; dist_tag="${pre%%.*}" ;;
           esac
+          dry=(--dry-run)
+          [ "$DRY_RUN" = "true" ] || dry=()
 
-          # Translates a Zig cross-compile triple to the npm platform
-          # package it feeds -- npm's `os`/`cpu` fields select on
-          # process.platform/process.arch, an unrelated naming scheme to
-          # Zig's target triples, so this is the one place the two are
-          # bridged. Fails loudly on an unmapped target rather than
-          # silently skipping it, so a new entry in ci/release-targets.sh
-          # can't ship without a matching npm platform package.
-          npm_platform_for() {
-            case "$1" in
-              x86_64-linux-gnu*) echo linux-x64 ;;
-              aarch64-linux-gnu*) echo linux-arm64 ;;
-              aarch64-macos) echo darwin-arm64 ;;
-              *)
-                echo "no npm platform package mapped for target: $1" >&2
-                exit 1
-                ;;
-            esac
-          }
-
-          # Safe to re-run: a version already on the registry is skipped
-          # rather than re-published (npm would reject it anyway, but as a
-          # hard failure -- this makes a retry after a partial failure
-          # possible without bumping the version again). `npm view` exits
-          # non-zero for "not found" (the common case, before a version
-          # exists), but that's the condition of an `if` below, which bash's
-          # own `set -e` never aborts on -- no separate guard needed.
-          #
-          # `./` prefix on every publish target, always -- without it, a
-          # single-slash relative path like `packages/synapse` parses as
-          # npm's own `owner/repo` GitHub shorthand instead of a local
-          # directory, and npm tries to fetch it as a git dependency
-          # (confirmed live: `npm error code EALLOWGIT`). Multi-segment
-          # paths like `packages/synapse/platforms/$plat` never hit this,
-          # but there's no reason to leave the one-segment case fragile.
           publish_if_new() {
             local dir="$1" name="$2"
             if npm view "$name@$v" version >/dev/null 2>&1; then
               echo "$name@$v already published -- skipping"
             else
-              npm publish "./$dir" --access public --tag "$dist_tag"
+              npm publish "./$dir" --access public --tag "$dist_tag" "${dry[@]}"
             fi
           }
 
-          for t in "${targets[@]}"; do
-            plat="$(npm_platform_for "$t")"
+          for plat in linux-x64 linux-arm64 darwin-arm64; do
             dest="packages/synapse/platforms/$plat/bin"
             mkdir -p "$dest"
-            cp "out/$t/bin/synapse" "out/$t/bin/synapse-hook" "$dest/"
+            cp "artifacts/bin-$plat/synapse" "artifacts/bin-$plat/synapse-hook" "$dest/"
+            chmod +x "$dest/synapse" "$dest/synapse-hook"
             tmp=$(mktemp)
             jq --arg v "$v" '.version = $v' "packages/synapse/platforms/$plat/package.json" > "$tmp"
             mv "$tmp" "packages/synapse/platforms/$plat/package.json"

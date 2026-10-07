@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds the Linux release binaries of the Ada crate so that they need no more
+# Builds the Linux release binaries so that they need no more
 # than glibc 2.28, the floor of the Zig release.
 #
 # The Alire toolchain and `alr` itself need a newer glibc than 2.28, so the
@@ -9,17 +9,17 @@
 # own unwinder asks glibc for `_dl_find_object`, which only 2.35 has, so the
 # sysroot also carries the older unwinder of the image's compiler.
 #
-#   ci/ada-linux-release.sh
+#   ci/linux-release.sh
 #
 # Needs podman or docker. Leaves `$OUT_DIR/{synapse,synapse-hook,synapse-fake}`
-# (`ada/bin` unless OUT_DIR says otherwise) and checks the highest glibc
+# (`bin` unless OUT_DIR says otherwise) and checks the highest glibc
 # version they ask for.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 root="$PWD"
 
-out_dir="${OUT_DIR:-$root/ada/bin}"
+out_dir="${OUT_DIR:-$root/bin}"
 floor="${GLIBC_FLOOR:-2.28}"
 alire_version="${ALIRE_VERSION:-2.1.1}"
 gnat_version="${GNAT_VERSION:-16.1.0}"
@@ -54,7 +54,7 @@ echo "sysroot from almalinux:8"
     mv /out/sysroot.tar.gz /out/sysroot.tgz'
 
 echo "build on ubuntu:24.04"
-"$runtime" run --rm -v "$root/ada:/src/ada:ro" -v "$work:/out" \
+"$runtime" run --rm -v "$root:/src/repo:ro" -v "$work:/out" \
     -e ALIRE_ARCH="$alire_arch" -e ALIRE_VERSION="$alire_version" -e GNAT_VERSION="$gnat_version" \
     ubuntu:24.04 bash -euo pipefail -c '
     export DEBIAN_FRONTEND=noninteractive
@@ -63,7 +63,7 @@ echo "build on ubuntu:24.04"
     curl -fsSL -o /tmp/alr.zip "https://github.com/alire-project/alire/releases/download/v${ALIRE_VERSION}/alr-${ALIRE_VERSION}-bin-${ALIRE_ARCH}-linux.zip"
     (cd /tmp && unzip -q alr.zip && install -m755 bin/alr /usr/local/bin/alr)
     mkdir -p /sysroot && tar -xzf /out/sysroot.tgz -C /sysroot
-    mkdir -p /work && cd /src/ada && tar --exclude=obj --exclude=bin --exclude=alire --exclude=ucd --exclude=testdata -cf - . | tar -xf - -C /work
+    mkdir -p /work && cd /src/repo && tar -cf - alire.toml synapse.gpr synapse_platform.gpr src vendor | tar -xf - -C /work
     cd /work
     alr -n toolchain --select "gnat_native=${GNAT_VERSION}" gprbuild
     SYNAPSE_USE_SYSROOT=yes SYNAPSE_SYSROOT=/sysroot alr -n build --release
@@ -81,4 +81,4 @@ cp "$work/synapse" "$work/synapse-hook" "$work/synapse-fake" "$out_dir/"
         [ "$(printf "%s\n%s\n" "$top" "$FLOOR" | sort -V | tail -1)" = "$FLOOR" ] \
             || { echo "FAIL: $b needs glibc $top, above $FLOOR" >&2; exit 1; }
     done'
-echo "ada-linux-release ok (glibc <= $floor)"
+echo "linux-release ok (glibc <= $floor)"
