@@ -2,6 +2,23 @@
 --  lib.c is compiled; it includes the other runtime sources.
 project Tree_Sitter is
 
+   --  See `Synapse_Platform.Sysroot`.
+   type Sysroot_Use is ("no", "yes");
+   Use_Sysroot : Sysroot_Use := external ("SYNAPSE_USE_SYSROOT", "no");
+   Sysroot     := external ("SYNAPSE_SYSROOT", "/");
+
+   Sysroot_Switches := ();
+   case Use_Sysroot is
+      when "no"  => null;
+      when "yes" =>
+         --  The Red Hat family keeps the C library in `usr/lib64`. `eh` holds the
+         --  unwinder of a compiler that predates the glibc 2.35 call that the
+         --  toolchain's own would make.
+         Sysroot_Switches :=
+           ("--sysroot=" & Sysroot, "-B" & Sysroot & "/usr/lib64/",
+            "-L" & Sysroot & "/usr/lib64/eh", "-L" & Sysroot & "/usr/lib64");
+   end case;
+
    for Languages use ("C");
    for Source_Dirs use ("lib/src", "lib/include");
    for Source_Files use ("lib.c");
@@ -10,7 +27,8 @@ project Tree_Sitter is
 
    package Compiler is
       for Default_Switches ("C") use
-        ("-std=c11", "-O2", "-fno-strict-aliasing", "-Ilib/src");
+        ("-std=c11", "-D_POSIX_C_SOURCE=200112L", "-D_DEFAULT_SOURCE", "-O2",
+         "-fno-strict-aliasing", "-Ilib/src") & Sysroot_Switches;
    end Compiler;
 
 end Tree_Sitter;

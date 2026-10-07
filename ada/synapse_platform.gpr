@@ -8,10 +8,29 @@ abstract project Synapse_Platform is
    --  Source directory holding the operating system's adapter bodies.
    Platform_Dir := "src/adapters/" & Os;
 
+   --  A directory of a C library and its headers to compile and link against in
+   --  place of the machine's own, so a binary built on a recent system needs no
+   --  more of the C library than the sysroot's. `SYNAPSE_USE_SYSROOT=yes` turns it on, with `SYNAPSE_SYSROOT` naming the directory.
+   type Sysroot_Use is ("no", "yes");
+   Use_Sysroot : Sysroot_Use := external ("SYNAPSE_USE_SYSROOT", "no");
+   Sysroot     := external ("SYNAPSE_SYSROOT", "/");
+
+   Sysroot_Switches := ();
+   case Use_Sysroot is
+      when "no"  => null;
+      when "yes" =>
+         --  The Red Hat family keeps the C library in `usr/lib64`. `eh` holds the
+         --  unwinder of a compiler that predates the glibc 2.35 call that the
+         --  toolchain's own would make.
+         Sysroot_Switches :=
+           ("--sysroot=" & Sysroot, "-B" & Sysroot & "/usr/lib64/",
+            "-L" & Sysroot & "/usr/lib64/eh", "-L" & Sysroot & "/usr/lib64");
+   end case;
+
    --  Link switches for `dlopen`.
    Link_Switches := ();
    case Os is
-      when "posix"   => Link_Switches := ("-ldl");
+      when "posix"   => Link_Switches := ("-ldl") & Sysroot_Switches;
       when "windows" => null;
    end case;
 

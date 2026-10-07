@@ -23,6 +23,16 @@ for bin in synapse synapse-hook; do
     [ -x "ada/bin/$bin" ] || { echo "ada/bin/$bin missing -- run: cd ada && alr build --release" >&2; exit 1; }
 done
 
+# On Linux, when a floor is named, the binaries must not ask for a newer glibc.
+if [ -n "${GLIBC_FLOOR:-}" ] && [ "$(uname -s)" = Linux ]; then
+    for b in synapse synapse-hook; do
+        top="$(objdump -T "ada/bin/$b" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -Vu | tail -1)"
+        [ "$(printf '%s\n%s\n' "$top" "$GLIBC_FLOOR" | sort -V | tail -1)" = "$GLIBC_FLOOR" ] \
+            || { echo "FAIL: $b needs glibc $top, above $GLIBC_FLOOR" >&2; exit 1; }
+    done
+    echo "  glibc floor $GLIBC_FLOOR ok"
+fi
+
 plat="$(node -p 'process.platform + "-" + process.arch')"
 [ -d "packages/synapse/platforms/$plat" ] || { echo "no npm platform package for $plat" >&2; exit 1; }
 

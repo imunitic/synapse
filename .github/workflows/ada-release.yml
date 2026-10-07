@@ -6,10 +6,10 @@ name: ada-release
 # dispatch says otherwise: until the Ada version replaces the Zig one, the
 # `release` workflow stays the one that publishes.
 #
-# The Linux binaries are built on the runner's own glibc and need at least
-# that version at run time. The Zig release links against glibc 2.28; reaching
-# the same floor needs the build to run in an older image, which is part of
-# the cutover and not of this workflow.
+# The Linux binaries are built by `ci/ada-linux-release.sh`, which compiles and
+# links against a glibc 2.28 sysroot from an AlmaLinux 8 image, so they run on
+# the same systems as the Zig release; the script and the package check both
+# fail if a binary asks for a newer glibc.
 on:
   workflow_dispatch:
     inputs:
@@ -42,13 +42,24 @@ jobs:
           ref: ${{ github.event.inputs.tag }}
 
       - uses: alire-project/setup-alire@v6
+        if: runner.os == 'macOS'
       - uses: extractions/setup-just@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
 
-      - name: Build and check the installed package
-        run: just ada-package
+      - name: Build the Linux binaries against glibc 2.28
+        if: runner.os == 'Linux'
+        run: ci/ada-linux-release.sh
+
+      - name: Build the macOS binaries
+        if: runner.os == 'macOS'
+        run: just ada-release
+
+      - name: Check the installed package
+        env:
+          GLIBC_FLOOR: ${{ runner.os == 'Linux' && '2.28' || '' }}
+        run: ci/ada-package.sh
 
       - uses: actions/upload-artifact@v4
         with:
