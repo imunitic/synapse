@@ -4,3 +4,9 @@ config/
 alire/
 ucd/
 testdata/
+
+# Loose GNAT build products from a one-off compile in this directory.
+b~*
+*.ali
+*.o
+*.bexch

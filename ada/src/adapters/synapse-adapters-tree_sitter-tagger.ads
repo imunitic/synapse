@@ -1,11 +1,10 @@
-with Ada.Containers.Vectors;
 with Ada.Strings.Unbounded;
 
 with Synapse.Core.Grammar_Registry;
-with Synapse.Core.Graph_Model;
 with Synapse.Core.Kind_Synonyms;
 with Synapse.Core.Node_Types;
 with Synapse.Core.Results;
+with Synapse.Core.Tag_Payload;
 
 --  Runs a grammar's query over a parse and turns the captures into tags.
 --
@@ -38,10 +37,8 @@ package Synapse.Adapters.Tree_Sitter.Tagger with
   SPARK_Mode => Off
 is
 
-   use type Core.Graph_Model.Tag;
-
-   package Tag_Vectors is new Ada.Containers.Vectors
-     (Positive, Core.Graph_Model.Tag);
+   --  The tags of a file, as the tags cache holds them.
+   package Tag_Vectors renames Core.Tag_Payload.Tag_Vectors;
 
    --  What a predicate name asks.
    type Predicate is

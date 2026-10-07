@@ -71,6 +71,14 @@ package Synapse.Adapters.Tree_Sitter with SPARK_Mode => Off is
    function Named_Child (N : Node; Index : Positive) return Node
    with Pre => not Is_Null (N) and then Index <= Named_Child_Count (N);
 
+   --  Whether the bytes of N lie within Source, the text that was parsed.
+   function Lies_Within (N : Node; Source : String) return Boolean
+   with Pre => not Is_Null (N);
+
+   --  The text of N in Source, which is the text that was parsed.
+   function Text_Of (N : Node; Source : String) return String
+   with Pre => not Is_Null (N) and then Lies_Within (N, Source);
+
    --  The child filling a named grammar field; null when there is none.
    function Child_By_Field (N : Node; Field : String) return Node
    with Pre => not Is_Null (N);

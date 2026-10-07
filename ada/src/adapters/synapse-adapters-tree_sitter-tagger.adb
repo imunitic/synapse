@@ -1,5 +1,6 @@
 with Ada.Containers.Ordered_Sets;
 
+with Synapse.Core.Graph_Model;
 with Synapse.Core.Text_Lists;
 
 package body Synapse.Adapters.Tree_Sitter.Tagger is

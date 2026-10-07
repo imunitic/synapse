@@ -6,6 +6,7 @@ with Synapse.Adapters.Dynamic_Libraries;
 with Synapse.Adapters.File_Bytes;
 with Synapse.Adapters.Tree_Sitter.Grammar;
 with Synapse.Core.Grammar_Registry;
+with Synapse.Core.Graph_Model;
 with Synapse.Core.Kind_Synonyms;
 with Synapse.Core.Node_Types;
 

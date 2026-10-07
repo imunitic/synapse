@@ -64,6 +64,10 @@ with Synapse.Core.Docstring_Overrides.Tests;
 with Synapse.Adapters.Tree_Sitter.Preparation.Tests;
 with Synapse.Core.Results_Tests;
 with Synapse.Adapters.Tree_Sitter.Tagger.Tests;
+with Synapse.Adapters.Fake_Extractor.Tests;
+with Synapse.Adapters.Tree_Sitter.Docstring_Pairs.Tests;
+with Synapse.Adapters.Tree_Sitter.Resolution.Tests;
+with Synapse.Adapters.Tree_Sitter.Extractor.Tests;
 with Synapse.Core.Graph_Model.Tests;
 with Synapse.Core.Hashing.Tests;
 with Synapse.Core.Line_Slice.Tests;
@@ -181,8 +185,15 @@ package body Test_Suites is
    Tree_Sitter_Preparation_Tests :
      aliased Synapse.Adapters.Tree_Sitter.Preparation.Tests.Test_Case;
    Results_Tests : aliased Synapse.Core.Results_Tests.Test_Case;
-   Tree_Sitter_Tagger_Tests      :
-     aliased Synapse.Adapters.Tree_Sitter.Tagger.Tests.Test_Case;
+   Tagger_Tests : aliased Synapse.Adapters.Tree_Sitter.Tagger.Tests.Test_Case;
+   Fake_Extractor_Tests          :
+     aliased Synapse.Adapters.Fake_Extractor.Tests.Test_Case;
+   Docstring_Pairs_Tests         :
+     aliased Synapse.Adapters.Tree_Sitter.Docstring_Pairs.Tests.Test_Case;
+   Resolution_Tests              :
+     aliased Synapse.Adapters.Tree_Sitter.Resolution.Tests.Test_Case;
+   Extractor_Tests               :
+     aliased Synapse.Adapters.Tree_Sitter.Extractor.Tests.Test_Case;
    Graph_Model_Tests : aliased Synapse.Core.Graph_Model.Tests.Test_Case;
    Identity_Tests : aliased Synapse.Core.Identity.Tests.Test_Case;
    Project_Index_Tests : aliased Synapse.Core.Project_Index.Tests.Test_Case;
@@ -212,7 +223,11 @@ package body Test_Suites is
       Result.Add_Test (Wikilinks_Tests'Access);
       Result.Add_Test (Git_Identity_Tests'Access);
       Result.Add_Test (Graph_Model_Tests'Access);
-      Result.Add_Test (Tree_Sitter_Tagger_Tests'Access);
+      Result.Add_Test (Extractor_Tests'Access);
+      Result.Add_Test (Resolution_Tests'Access);
+      Result.Add_Test (Fake_Extractor_Tests'Access);
+      Result.Add_Test (Docstring_Pairs_Tests'Access);
+      Result.Add_Test (Tagger_Tests'Access);
       Result.Add_Test (Results_Tests'Access);
       Result.Add_Test (Tree_Sitter_Preparation_Tests'Access);
       Result.Add_Test (Grammar_Registry_Tests'Access);
