@@ -10,13 +10,19 @@ package Synapse.Test_Scratch is
    end record;
 
    function Make return Scratch;
+   --  A fresh directory in `/tmp`, or else the temporary directory, which no
+   --  git repository is expected to enclose: `Make` is under this checkout's own `obj/`, and a
+   --  walk up from it finds this checkout's `.git`.
+   function Make_Outside_Git return Scratch;
+
    procedure Remove (S : Scratch);
 
    function Path (S : Scratch; Name : String := "") return String;
 
    --  Runs git in Dir with the given arguments; its standard output, trimmed.
    --  Raises Program_Error when git exits non-zero.
-   function Git (Dir : String; A1 : String; A2, A3, A4, A5, A6 : String := "")
+   function Git
+     (Dir : String; A1 : String; A2, A3, A4, A5, A6 : String := "")
       return String;
 
    --  The same, ignoring a failure.

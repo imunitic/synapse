@@ -2,6 +2,7 @@ with Ada.Calendar;
 with Ada.Directories;
 with Ada.Strings.Fixed;
 
+with Synapse.Adapters.File_Bytes;
 with Synapse.Adapters.System_Process;
 with Synapse.Core.Text_Lists;
 with Synapse.Ports.Process_Runner;
@@ -12,22 +13,43 @@ package body Synapse.Test_Scratch is
 
    Counter : Natural := 0;
 
-   function Number (N : Natural) return String
-   is (Ada.Strings.Fixed.Trim (Natural'Image (N), Ada.Strings.Left));
+   function Number (N : Natural) return String is
+     (Ada.Strings.Fixed.Trim (Natural'Image (N), Ada.Strings.Left));
 
    function Make return Scratch is
       Stamp : constant Natural :=
-        Natural (Ada.Calendar.Seconds (Ada.Calendar.Clock) * 1000.0);
+        Natural (Ada.Calendar.Seconds (Ada.Calendar.Clock) * 1_000.0);
    begin
       Counter := Counter + 1;
       return Result : Scratch do
          Result.Path :=
            To_Unbounded_String
-             (Ada.Directories.Current_Directory & "/obj/scratch-"
-              & Number (Stamp) & "-" & Number (Counter));
+             (Ada.Directories.Current_Directory & "/obj/scratch-" &
+              Number (Stamp) & "-" & Number (Counter));
          Ada.Directories.Create_Path (To_String (Result.Path));
       end return;
    end Make;
+
+   --  `/tmp` where there is one: `$TMPDIR` may name a directory inside a
+   --  repository of its own, as a configuration directory kept under git can
+   --  make it.
+   function Outside_Dir return String is
+     (if Ada.Directories.Exists ("/tmp") then "/tmp"
+      else Adapters.File_Bytes.Temp_Dir);
+
+   function Make_Outside_Git return Scratch is
+      Stamp : constant Natural :=
+        Natural (Ada.Calendar.Seconds (Ada.Calendar.Clock) * 1_000.0);
+   begin
+      Counter := Counter + 1;
+      return Result : Scratch do
+         Result.Path :=
+           To_Unbounded_String
+             (Outside_Dir & "/synapse-test-" & Number (Stamp) & "-" &
+              Number (Counter));
+         Ada.Directories.Create_Path (To_String (Result.Path));
+      end return;
+   end Make_Outside_Git;
 
    procedure Remove (S : Scratch) is
    begin
@@ -37,9 +59,9 @@ package body Synapse.Test_Scratch is
          null;
    end Remove;
 
-   function Path (S : Scratch; Name : String := "") return String
-   is (if Name = "" then To_String (S.Path)
-       else To_String (S.Path) & "/" & Name);
+   function Path (S : Scratch; Name : String := "") return String is
+     (if Name = "" then To_String (S.Path)
+      else To_String (S.Path) & "/" & Name);
 
    function Trim (S : String) return String is
       Last : Natural := S'Last;
@@ -58,8 +80,8 @@ package body Synapse.Test_Scratch is
    is
       R : Adapters.System_Process.System_Runner;
    begin
-      return R.Run ("git", Args, (Cwd => To_Unbounded_String (Dir),
-                                  others => <>));
+      return
+        R.Run ("git", Args, (Cwd => To_Unbounded_String (Dir), others => <>));
    end Run;
 
    function Vector
@@ -68,8 +90,8 @@ package body Synapse.Test_Scratch is
       Result : Core.Text_Lists.Vector;
       Items  : constant array (1 .. 6) of access constant String :=
         [A1'Unrestricted_Access, A2'Unrestricted_Access,
-         A3'Unrestricted_Access, A4'Unrestricted_Access,
-         A5'Unrestricted_Access, A6'Unrestricted_Access];
+        A3'Unrestricted_Access, A4'Unrestricted_Access, A5'Unrestricted_Access,
+        A6'Unrestricted_Access];
    begin
       for Item of Items loop
          if Item.all /= "" then
@@ -79,7 +101,8 @@ package body Synapse.Test_Scratch is
       return Result;
    end Vector;
 
-   function Git (Dir : String; A1 : String; A2, A3, A4, A5, A6 : String := "")
+   function Git
+     (Dir : String; A1 : String; A2, A3, A4, A5, A6 : String := "")
       return String
    is
       Result : constant Ports.Process_Runner.Result :=
@@ -114,8 +137,8 @@ package body Synapse.Test_Scratch is
       return Natural'Value (Trim (To_String (Result.Output)));
    end Commit_Count;
 
-   function Head_Subject (Dir : String) return String
-   is (Git (Dir, "log", "-1", "--format=%s"));
+   function Head_Subject (Dir : String) return String is
+     (Git (Dir, "log", "-1", "--format=%s"));
 
    procedure Init_Repo (Dir : String) is
    begin

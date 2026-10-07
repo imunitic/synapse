@@ -5,7 +5,7 @@ with "vendor/tree-sitter/tree_sitter.gpr";
 project Synapse is
 
    for Source_Dirs use
-     ("src/core", "src/ports", "src/adapters",
+     ("src/core", "src/ports", "src/adapters", "src/commands",
       Synapse_Platform.Platform_Dir, "src/apps", "config/");
    for Object_Dir use "obj/" & Synapse_Config.Build_Profile;
    for Create_Missing_Dirs use "True";

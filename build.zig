@@ -317,7 +317,13 @@ pub fn build(b: *std.Build) void {
     // wires the compile-order dependency on each binary automatically; no
     // manual `.dependOn` is needed for those.
     const it_opts = b.addOptions();
-    it_opts.addOptionPath("synapse_bin", exe.getEmittedBin());
+    // `-Dsynapse-bin=<path>` runs the suite against another build of `synapse`
+    // (the Ada one) instead of this tree's own.
+    const external_synapse = b.option([]const u8, "synapse-bin", "Run test-integration against this synapse binary");
+    if (external_synapse) |path|
+        it_opts.addOptionPath("synapse_bin", .{ .cwd_relative = path })
+    else
+        it_opts.addOptionPath("synapse_bin", exe.getEmittedBin());
     it_opts.addOptionPath("synapse_fake_bin", fake.getEmittedBin());
     it_opts.addOptionPath("hook_bin", hook.getEmittedBin());
     it_opts.addOption([]const u8, "fake_bin_dir", "tests/fixtures/fake-bin");

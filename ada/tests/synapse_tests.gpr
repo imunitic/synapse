@@ -7,6 +7,7 @@ project Synapse_Tests is
 
    for Source_Dirs use
      ("src", "../src/core", "../src/ports", "../src/adapters",
+      "../src/commands",
       "../" & Synapse_Platform.Platform_Dir, "config/");
    for Object_Dir use "obj/" & Synapse_Tests_Config.Build_Profile;
    for Create_Missing_Dirs use "True";
