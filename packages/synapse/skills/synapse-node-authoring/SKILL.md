@@ -44,7 +44,7 @@ conf file actually lives"): the first tier with a file at all wins, whether or n
 sets `SYNAPSE_AUTHOR_POOL` — a `synapse.conf` at `~/.claude/` is not consulted when one already
 exists at the XDG tier, even if the XDG one is silent on this key. Absent, empty, or malformed
 all fall through to `0`. **This is read by you, the orchestrating agent, directly — not by any
-Zig binary.** Nothing compiled dispatches subagents, so there is nothing for a `synapse` flag to
+compiled binary.** Nothing compiled dispatches subagents, so there is nothing for a `synapse` flag to
 feed. The conf file is the shared home for the setting; the reader is markdown, not code.
 
 `pool = 0` is not "a pool of zero workers" — go to §2. `pool >= 1` is a real worker pool — go
@@ -142,7 +142,7 @@ convention. State it here, every time, rather than assuming it travels for free.
 ### 3d. Verify on completion, retry once, then fall back
 
 When a completion notification arrives, read `b-NN.md` yourself — this is a check you read the
-file for, same as the section check next to it, not a shell one-liner (`core/query.zig` is this
+file for, same as the section check next to it, not a shell one-liner (`Core.Frontmatter` is this
 codebase's own tested, compiled frontmatter reader — a fresh hand-rolled `grep`/`sed`/`awk`
 pattern here would drift from it the same way the gap this section exists to close first
 happened). Confirm the file exists, opens with

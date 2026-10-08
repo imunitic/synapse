@@ -15,9 +15,9 @@ const path = require("path");
 const CLI_NAME = "synapse";
 const HOOK_NAME = "synapse-hook";
 
-// Matches process.platform/process.arch directly (not a Zig target triple)
+// Matches process.platform/process.arch directly (not a compiler target triple)
 // since that's what npm's own `os`/`cpu` fields select against -- the
-// release pipeline maps its Zig target names to this naming once, at
+// release pipeline maps its target names to this naming once, at
 // publish time, not here.
 function platformPackageName() {
   return `@imunitic/synapse-${process.platform}-${process.arch}`;

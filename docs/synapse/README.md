@@ -32,7 +32,7 @@ matches what you're trying to understand.
 - **[synapse-code-cache-format.md](synapse-code-cache-format.md)** — the Code Cache's on-disk
   format reference: `_tags_cache.bin`'s header/record-table/path-region/payload-region byte
   layout, the payload codec each entry's tags are stored in, `format.parse`'s validation order,
-  the `_refs.tsv` row format, and the `tag_line.zig` codec at the tagging boundary.
+  the `_refs.tsv` row format, and the `Tag_Line` codec at the tagging boundary.
 - **[synapse-docstring-staleness.md](synapse-docstring-staleness.md)** — **Docstring Staleness
   Detection**: an opt-in check that a docstring and its declaration still agree, using the same
   two-tier model as code-graph node staleness. Comment/declaration pairing (independent of the

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Builds the Linux release binaries so that they need no more
-# than glibc 2.28, the floor of the Zig release.
+# than glibc 2.28, the oldest glibc the release supports.
 #
 # The Alire toolchain and `alr` itself need a newer glibc than 2.28, so the
 # build cannot run on an old system. It runs on a recent one, and compiles and

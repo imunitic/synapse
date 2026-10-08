@@ -25,7 +25,7 @@ package body Synapse.Commands.Gate is
      "                A cluster with zero rare terms and zero parseable " &
      "files is reported" & LF &
      "                `unparseable` instead of `flagged` -- see " &
-     "core/gate.zig." & LF &
+     "Core.Gate." & LF &
      "  --all         print every cluster with its score, not only the " &
      "flagged ones" & LF &
      "  --top         terms per cluster the rule looks at, default 8" & LF;

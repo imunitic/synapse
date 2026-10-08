@@ -37,7 +37,7 @@ synapse-setup configure claude       # or: codex / opencode
 `npm install` alone already puts the right compiled binaries (`synapse`, `synapse-hook`) on disk —
 `@imunitic/synapse` depends on a per-platform package (`@imunitic/synapse-darwin-arm64` etc.) that
 npm resolves automatically for the machine it's running on, so there's nothing to fetch or build
-afterward. `zig build` is only for contributing to Synapse itself; see [Dependencies](#dependencies).
+afterward. Building from source is only for contributing to Synapse itself; see [Dependencies](#dependencies).
 
 > To run from a checkout instead of the published package (for contributing, or to test an
 > unreleased change):
@@ -46,7 +46,7 @@ afterward. `zig build` is only for contributing to Synapse itself; see [Dependen
 > cd synapse/packages/synapse
 > node bin/synapse-setup.cjs configure claude   # or: codex / opencode
 > ```
-> This needs the platform binaries built locally first (`zig build`, or `just build`) and copied
+> This needs the platform binaries built locally first (`just build`) and copied
 > into `platforms/{platform}-{arch}/bin/` — see [Dependencies](#dependencies).
 
 The default (no `SYNAPSE_VAULT_INTEGRATIONS` set at all) needs just a plain folder of
@@ -171,36 +171,33 @@ plain-English summary, a quoted `crux`, typed links, and the exhaustive list of 
 ## Testing
 
 ```sh
-brew install zig just                    # if not already installed
-just test-zig                            # internals: format round-trips, parsing, doc/text lint
-just test                                # the CLI contract: real subprocesses, real git
-just test "query drift"                  # narrow to matching test names
-just test-linux                          # the whole suite in the container
+just build                               # the three programs, into bin/
+just test                                # AUnit: format round-trips, parsing, every unit
+just prove                               # GNATprove on the SPARK units
+just acceptance                          # the CLI contract: real subprocesses, real git
+just acceptance "query drift"            # narrow to matching test names
+just lint                                # doc and shipped-text consistency checks
 just check                               # the full gate -- before pushing
-just check-local                         # same, on the host instead -- no podman needed
 ```
 
 **What to run when.** `just check` is the pre-push gate, not a per-commit ritual — running it
 reflexively is a way of not thinking about what a change can break, and the thinking is the part that
-catches things. Per commit, `just test-zig && just test` covers a changed `.zig` file in a few
-seconds combined; `just test-linux` is the honest answer whenever a change is broad or you are
-unsure. A change to prose in `docs/` or this README has no test to fail and needs neither.
+catches things. Per commit, `just build && just test` covers a changed `.adb`/`.ads` file in a few
+seconds; `just acceptance` is the honest answer whenever a change touches a command's output or is
+broad enough that you are unsure. A change to prose in `docs/` or this README has no test to fail and
+needs neither.
 
-Two traps in that. Shipped instructions under `plugins/*/` **look** like documentation and are not: they
-install as a Claude Code plugin, and `tests/acceptance/integration/legacy_commands_test.zig` plus
-`tests/acceptance/lint_test.zig` cover them — that is how a skill telling Claude to run a nonexistent command
-got caught. And `docs/synapse/`'s `cli.md` plus the diagrams are *generated*, so a change upstream
-of them needs `just fix`, not `just docs-check`.
+Two traps in that. Shipped instructions under `packages/synapse/` **look** like documentation and are
+not: they install into the harnesses, and `tests/acceptance/integration/legacy_commands_test.zig` plus
+`tests/acceptance/lint_test.zig` cover them — that is how a skill telling Claude to run a nonexistent
+command got caught. And `docs/synapse/`'s `cli.md` plus the diagrams are *generated*, so a change
+upstream of them needs `just fix`, not `just docs-check`.
 
-`just check` runs the CLI-contract suite in the Linux container, which is not a preference: the same
-suite spawns real subprocesses, and macOS `fork`/`exec` costs 6.5ms where Linux costs 0.24ms. `just
-check-local` is the same gate on the host instead, for a machine without podman — and it is also how
-you tell a container artefact from a real finding, since the container's `DebugAllocator` reports
-leaks the native build stays silent about.
-
-Every test runs against a throwaway `$HOME`, git repo and Vault built fresh per test — nothing
-touches your real `~/.claude` or Vault, and tests share no state. The same suite runs in CI on
-**Linux** (`.github/workflows/tests.yml`); macOS is covered by development itself.
+The AUnit suite lives in `tests/unit` and runs on Linux and macOS in CI. The acceptance suite spawns
+the built programs against a throwaway `$HOME`, git repo and Vault built fresh per test — nothing
+touches your real `~/.claude` or Vault, and tests share no state. It is written in Zig and takes the
+binary under test as an argument, so it is test tooling only; it runs on Linux in CI
+(`.github/workflows/tests.yml`).
 
 The generated artefacts (each project's `cli.md`, the Mermaid diagrams under `docs/synapse/diagrams/`)
 are each verified by running their generator's `--check` mode, so an edit that was never regenerated fails a
@@ -210,8 +207,8 @@ test instead of shipping something confidently wrong.
 executes them — but `tests/acceptance/integration/legacy_commands_test.zig` does check the one thing about them
 that is mechanically true or false: **every command they tell Claude to run has to exist.** It
 cross-checks each `` `synapse <sub>` `` against the binary's own `--help`, and applies the same rule
-to the text the hooks inject and to the `Index.md` the builder writes. That guard exists because the
-Zig rewrite left three deleted wrappers in the per-turn nudge and a never-existing `synapse query
+to the text the hooks inject and to the `Index.md` the builder writes. That guard exists because an
+earlier rewrite left three deleted wrappers in the per-turn nudge and a never-existing `synapse query
 callers` in a skill's table, with the whole suite green.
 
 ## Dependencies
@@ -226,12 +223,13 @@ it already is for every harness here — `synapse-setup` and the shipped hooks
 (`resolve-binaries.cjs`) run on it directly, no `jq` of its own. Nothing to build, nothing to
 install by hand — see "New machine setup".
 
-For contributing to Synapse itself: Zig 0.16 (`just build`/`zig build`, which also builds and runs
-every test — no separate test runner to install), a C compiler for the Graph's tree-sitter
-acceleration (grammars are native libraries, built on first use), and Node (for `npx`) to re-render
-the diagrams — everything except Zig degrades gracefully if missing.
+For contributing to Synapse itself: [Alire](https://alire.ada.dev) (`alr`), which fetches GNAT,
+gprbuild, AUnit and GNATprove on first use; [just](https://just.systems) as the task runner; Zig 0.16
+for the acceptance and lint suites only (test tooling, not part of the product); a C compiler for the
+Graph's tree-sitter acceleration (grammars are native libraries, built on first use); and Node (for
+`npx`) to re-render the diagrams. Everything except Alire and just degrades gracefully if missing.
 
-The `tree-sitter` CLI is no longer among them: libtree-sitter is linked into the binary and the
+The `tree-sitter` CLI is not needed: libtree-sitter is vendored and linked into the binary, and the
 grammar's own `queries/tags.scm` is run in-process.
 
 ## License

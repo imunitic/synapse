@@ -95,7 +95,7 @@ package body Synapse.Core.Note_Schema is
       return False;
    end Unknown_Key;
 
-   --  The name the Zig reader gives a pattern fault, so messages are stable.
+   --  The name a pattern fault is reported under, so messages are stable.
    function Fault_Name (F : Schema_Pattern.Fault) return String is
      (case F is when Schema_Pattern.None => "",
         when Schema_Pattern.Invalid_Escape => "InvalidEscape",

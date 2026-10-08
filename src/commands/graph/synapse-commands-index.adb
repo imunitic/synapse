@@ -56,7 +56,7 @@ package body Synapse.Commands.Index is
       return 1;
    end No_Work_Dir;
 
-   --  The Zig names of why an index would not read back.
+   --  The names under which an index that would not read back is reported.
    function Issue_Name (Why : Map_Adapter.Issue) return String is
      (Names.Camel (Map_Adapter.Issue'Image (Why)));
 

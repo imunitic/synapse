@@ -370,7 +370,7 @@ usage: synapse gate --vocab <groupwords.tsv> [--parseable <parseable.tsv>] [--al
   --vocab       cluster-keyed vocabulary: `cluster <TAB> word <TAB> count`
   --parseable   synapse vocab's `parseable.tsv`: `cluster <TAB> parseable <TAB> total`.
                 A cluster with zero rare terms and zero parseable files is reported
-                `unparseable` instead of `flagged` -- see core/gate.zig.
+                `unparseable` instead of `flagged` -- see Core.Gate.
   --all         print every cluster with its score, not only the flagged ones
   --top         terms per cluster the rule looks at, default 8
 ```

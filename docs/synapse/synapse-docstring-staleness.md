@@ -34,26 +34,25 @@ Pairing itself is structural, not semantic, and deliberately independent of the 
 [Grammar discovery](synapse-code-cache.md#grammar-discovery-tagsscm-localsscm-or-generated)) — this
 feature is separately toggleable, so its core detection must not share fate with tag extraction's own
 success or failure for a grammar. The only thing genuinely shared is grammar loading itself
-(`treesitter.grammar.resolveAndLoad`) and the override-file resolution pattern.
+(`Tree_Sitter.Resolution.Resolve`) and the override-file resolution pattern.
 
 Starting from a comment node, the walk collects a contiguous run of directly-adjacent (row-consecutive)
 sibling comments — a real doc comment, written as continuous lines with no gap. The run ends either at
 a blank line (a floating comment documenting nothing) or at the next directly-adjacent sibling. That
 sibling only counts as the declaration if it looks like one: does it expose a tree-sitter `name`
 field, checked live via `ts_node_child_by_field_name`. This is the same language-agnostic signal
-`node_types.zig`'s own generated-declaration classification already relies on (there against the
+`Core.Node_Types`' own generated-declaration classification already relies on (there against the
 static `node-types.json` schema, here per-instance against the live parse) — it's what tells an
 ordinary statement (a bare `return;` inside a function body, say) apart from a real declaration a
 comment might legitimately document.
 
-Some grammars expose no `name` field on a node that genuinely is a declaration — Zig's
-`variable_declaration` (the node behind `pub const Foo = struct {...}`) is the concrete case: the
-identifier there is an unlabeled positional child. That gets a second override,
+Some grammars expose no `name` field on a node that genuinely is a declaration — one whose identifier
+is an unlabeled positional child is the shape to look for. That gets a second override,
 `{ext}.declarations.scm`, listing additional node-type names to treat as declarations even without a
 name field, checked alongside the name-field test (either one qualifies).
 
 The declaration's own raw tree-sitter node type name becomes the index key's `kind` — never
-normalized through `kind_synonyms.zig`'s vocabulary, since nothing here needs to agree with tags.scm's
+normalized through `Core.Kind_Synonyms`' vocabulary, since nothing here needs to agree with tags.scm's
 own classification. The key's `name` is the declaration's own first line of text (its signature/header
 line), not a semantically-extracted identifier: fully grammar-agnostic, human-inspectable, and a real
 signature change is exactly the kind of edit that should count as "look at this again."
@@ -62,7 +61,7 @@ signature change is exactly the kind of edit that should count as "look at this 
 
 Lives in `$SYNAPSE_WORK_DIR/_docstring_index.bin`, alongside `_tags_cache.bin`/`_index.bin`. One
 record per `(path, declaration name, declaration kind)` triple — not per file, since a file can hold
-many docstrings — holding two raw 32-byte SHA-256 hashes (`core.verify.sha256Raw`, the sub-range hash
+many docstrings — holding two raw 32-byte SHA-256 hashes (`Core.Hashing.Sha256_Raw`, the sub-range hash
 `grounded_in` staleness already uses, not the tags cache's whole-file git-blob hash) and two 1-based
 inclusive line ranges, one for the docstring and one for the declaration, as of the last time the pair
 was derived.
@@ -85,7 +84,7 @@ out of line) but simpler: there is no separate payload region, since a record's 
 | `version` | u32 | Currently `1`. |
 | `entry_count` | u32 | Number of records. |
 | `strings_off` | u64 | Byte offset of the string region. |
-| `crc32` | u32 | CRC-32 over the whole post-header region — unlike the tags cache, there's no payload region to exclude, so a truncation past the record table is always `ChecksumMismatch`, never a separate `Truncated`. |
+| `crc32` | u32 | CRC-32 over the whole post-header region — unlike the tags cache, there's no payload region to exclude. |
 | `reserved` | u32 | Written zero, keeps the record table 8-byte aligned. |
 
 **Record, 109 bytes:**
@@ -102,16 +101,17 @@ out of line) but simpler: there is no separate payload region, since a record's 
 
 The table is sorted by `(path, name, kind)` bytes, which makes both an exact-triple lookup and "every
 entry for one file" (a contiguous range) binary-searchable. Every multi-byte field is written and read
-one at a time with an explicit `.little`, no `@bitCast`/`packed struct`. A header that fails to parse
+one byte at a time, least significant first. A header that fails to parse
 is discarded and rebuilt from scratch — nothing here can't be recomputed from source.
 
-`core/docstring_index.zig`'s `Cache` wraps the format the same way `tags_cache.zig` wraps its own:
-`open` (mmap, absent/corrupt/wrong-version all degrade to an empty usable cache except a real
-`MapFailed`), `get`, `entriesForPath` (every tracked triple for one file, in on-disk order — what both
-tiers scan), `needsCheck` (which requested triples aren't already held at exactly that hash pair), and
-`commit` (merge updates and removals, write to a temp file, rename over the original — a concurrent
-reader never sees a half-written index; single-writer, undefended, same tolerance for a lost race as
-the tags cache).
+`Adapters.Docstring_Cache` wraps the format the same way `Adapters.Tags_Cache` wraps its own:
+`Open` (absent/corrupt/wrong-version all degrade to an empty usable cache, with `Discarded` saying why;
+a file that exists but could not be opened is `Unreadable`, and a later `Commit` onto it raises
+`Unreadable_Cache` instead of discarding whatever good entries it holds), `Get`, `Entries_For_Path`
+(every tracked triple for one file, in on-disk order — what both tiers scan), `Needs_Check` (which
+requested triples aren't already held at exactly that hash pair), and `Commit` (merge updates and
+removals, write to a temp file, rename over the original — a concurrent reader never sees a
+half-written index; single-writer, undefended, same tolerance for a lost race as the tags cache).
 
 ## Tier 1: the edit-time hook
 
@@ -124,8 +124,8 @@ of accidental dependency this feature's whole design avoids.
 `synapse-hook` deliberately never links libtree-sitter — it runs on every edit with a person waiting,
 so it structurally cannot re-derive a pair via a real parse. Instead, for every tracked triple already
 recorded against the just-edited file, it re-hashes the *stored* line range with pure bytes:
-`core.verify.slice` plus `sha256Raw`, exactly the trick `checkCitedEvidence`'s existing `grounded_in`
-check already uses. If the exact range no longer matches, it falls back to `core.verify.findMoved`
+the lines at that range plus `Sha256_Raw`, the same trick the existing `grounded_in` evidence check
+uses. If the exact range no longer matches, it falls back to `Verify.Find_Moved`
 (same trick, same reason) before concluding the content genuinely changed rather than merely shifted.
 
 A hit on either the docstring's or the declaration's range surfaces as a finding in the hook's existing
@@ -135,9 +135,9 @@ When the docstring range is still locatable, the finding also runs the historian
 
 ## Tier 2: the read-time check
 
-Tier 2 is the only thing that ever calls `docstring_pairs.findPairs` — a real parse — and therefore the
+Tier 2 is the only thing that ever calls `Docstring_Pairs.Find_Pairs` — a real parse — and therefore the
 only place index entries, ranges included, get written: discovering a new docstring, catching a
-rename, or refreshing a shifted range are all real parses, which only the treesitter-linked `synapse`
+rename, or refreshing a shifted range are all real parses, which only the tree-sitter-linked `synapse`
 CLI can do.
 
 **`synapse comments-check <path>`** checks one file: resolves its grammar, finds every
@@ -149,7 +149,7 @@ rename accepts), commits the fresh state, and reports what changed. Silent when 
 sibling to `/synapse-rebuild-diff` (code-graph drift) and `/synapse-vault-tidy` (vault-note health),
 for revisiting docstrings nothing else has touched. It reuses the same `all.txt` tracked-file listing
 `enumerate`/`build-lists` already maintain, and calls the identical per-file check `comments-check`
-uses (`docstring_check.checkFile`, shared between both commands) once per path, so a sweep and a
+uses (`Docstring_Check.Check_File`, shared between both commands) once per path, so a sweep and a
 single-file check can never disagree on what "checking a file" means. Reports each changed file under
 a `-- {path} --` header, then a `files checked`/`changed`/`evicted` totals line.
 
@@ -161,7 +161,7 @@ right.
 ## Style: the same pass, not a second mechanism
 
 Whenever a docstring is actually inspected — by either tier — the check is really two filters in one
-pass. `core.comment_style_rules.historianPlaguePhrase` is a cheap, deliberately non-word-boundary-aware
+pass. `Comment_Style_Rules.Historian_Plague_Phrase` is a cheap, deliberately non-word-boundary-aware
 substring scan for the classic tells ("no longer", "used to", "any more") — free, but it only catches
 phrasing that hits an exact keyword.
 
@@ -175,12 +175,12 @@ mechanism `synapse-tag-vocabulary.conf`/`synapse-projects.conf` already use.
 
 ## Sources
 
-- `src/core/docstring_index/format.zig` — the `_docstring_index.bin` header, record table, encode/parse/View.
-- `src/core/docstring_index.zig` — the `Cache` wrapper (`enabled`, open, get, entriesForPath, needsCheck, commit) and the opt-in gate.
-- `src/core/comment_style_rules.zig` — the historian-plague phrase-grep and the rubric-conf reader.
-- `src/adapters/treesitter/docstring_pairs.zig` — comment/declaration pairing: `resolveLanguage`, `resolveCommentTypeName`, `resolveDeclarationOverrides`, `findPairs`.
-- `src/adapters/treesitter/grammar.zig` — `resolveAndLoad`, the shared grammar-load primitive this feature and the tagger cascade both call.
-- `src/apps/hook/staleness.zig` — Tier 1's `checkDocstrings`/`rangeChanged`.
-- `src/apps/synapse/docstring_check.zig` — Tier 2's shared `checkFile`, called by both commands below.
-- `src/apps/synapse/comments_check_cmd.zig` — `synapse comments-check <path>`.
-- `src/apps/synapse/comments_sweep_cmd.zig` — `synapse comments-sweep [--reenumerate]`.
+- `src/core/formats/synapse-core-docstring_index_format.ads` — the `_docstring_index.bin` header, record table, encode and parse.
+- `src/adapters/caches/synapse-adapters-docstring_cache.ads` — the `Cache` wrapper (`Enabled`, `Open`, `Get`, `Entries_For_Path`, `Needs_Check`, `Commit`) and the opt-in gate.
+- `src/core/config/synapse-core-comment_style_rules.ads` — the historian-plague phrase-grep and the rubric-conf name.
+- `src/adapters/tree_sitter/synapse-adapters-tree_sitter-docstring_pairs.ads` — comment/declaration pairing: `Comment_Type_Name`, `Declaration_Overrides`, `Find_Pairs`.
+- `src/adapters/tree_sitter/synapse-adapters-tree_sitter-resolution.ads` — `Resolve`, the shared grammar-load primitive this feature and the tagger cascade both call.
+- `src/hooks/synapse-hooks-staleness.adb` — Tier 1's `Check_Docstrings`/`Range_Changed`.
+- `src/commands/checks/synapse-commands-docstring_check.ads` — Tier 2's shared `Check_File`, called by both commands below.
+- `src/commands/checks/synapse-commands-comments_check.ads` — `synapse comments-check <path>`.
+- `src/commands/checks/synapse-commands-comments_sweep.ads` — `synapse comments-sweep [--reenumerate]`.

@@ -73,7 +73,7 @@ package body Synapse.Adapters.Schema_Loader.Tests is
          "a:" & LF & Character'Val (9) & "b: 1" & LF);
       Assert
         (Fault (Load_Schema (V, "a/v1")) = "TabIndent",
-         "named like the Zig error");
+         "named TabIndent");
       Remove (Dir);
    exception
       when others =>

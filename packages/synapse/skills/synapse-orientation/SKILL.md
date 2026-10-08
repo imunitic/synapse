@@ -406,9 +406,9 @@ discipline — never assume a patch worked from reading it:
 
 A per-file "this file depends on library L" edge narrows an ambiguous reference (a name defined in
 more than one node) to the candidate the referencing file actually declares a dependency on —
-`core/links.zig`'s own real signal for that case, read from `synapse-dependency-rules.conf`
+`Core.Links`' own real signal for that case, read from `synapse-dependency-rules.conf`
 (`SYNAPSE_DEPENDENCY_RULES_CONF` overrides the path), a second registry alongside
-`synapse-namespace-rules.conf` and reusing the exact same `core/namespace.Rule`/`Registry` shape
+`synapse-namespace-rules.conf` and reusing the exact same `Core.Namespace.Rule`/`Registry` shape
 unchanged — a rule per extension, `kind` `in-file` or `build-file`, ordered `prefix`/`terminator`,
 first match wins, no per-language branching in code. A separate file, not a second key on the same
 one: an extension can need both a namespace rule (what a file *is*) and a dependency rule (what a

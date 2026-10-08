@@ -213,7 +213,7 @@ package body Synapse.Core.Note_Schema.Tests is
          Prefix & ".items: only string is supported in v1");
    end Field_Rules_Are_Checked;
 
-   procedure Pattern_Faults_Are_Named_As_Zig_Names_Them
+   procedure Pattern_Faults_Have_Stable_Names
      (T : in out Test_Cases_Class)
    is
       pragma Unreferenced (T);
@@ -238,7 +238,7 @@ package body Synapse.Core.Note_Schema.Tests is
         (With_Field
            ("      type: string" & LF & "      pattern: '^[a-z]+-[0-9]{3,}$'" &
             LF));
-   end Pattern_Faults_Are_Named_As_Zig_Names_Them;
+   end Pattern_Faults_Have_Stable_Names;
 
    ---------------------------------------------------------------------------
    --  Body
@@ -645,8 +645,8 @@ package body Synapse.Core.Note_Schema.Tests is
       Register_Routine
         (T, Field_Rules_Are_Checked'Access, "Field rules are checked");
       Register_Routine
-        (T, Pattern_Faults_Are_Named_As_Zig_Names_Them'Access,
-         "Pattern faults are named as Zig names them");
+        (T, Pattern_Faults_Have_Stable_Names'Access,
+         "Pattern faults have stable names");
       Register_Routine
         (T, Body_Structure_Is_Checked'Access, "Body structure is checked");
       Register_Routine

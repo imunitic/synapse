@@ -109,7 +109,7 @@ package body Synapse.Core.Schema_YAML.Tests is
    end Expect_Merge_Fault;
 
    ---------------------------------------------------------------------------
-   --  Parsing: what Zig's tests cover
+   --  Parsing
    ---------------------------------------------------------------------------
 
    procedure Parses_The_Schema_DSL_Shapes (T : in out Test_Cases_Class) is
@@ -393,7 +393,7 @@ package body Synapse.Core.Schema_YAML.Tests is
    end The_Shipped_Schemas_Parse;
 
    ---------------------------------------------------------------------------
-   --  Merge: what Zig's tests cover
+   --  Merge
    ---------------------------------------------------------------------------
 
    procedure Merge_Replaces_Adds_And_Keeps (T : in out Test_Cases_Class) is

@@ -146,4 +146,4 @@ note live containing only the leftovers, trimmed of everything that did get merg
 - The wipe itself is `synapse graph-wipe` (via `synapse graph-wipe`), mirroring
   `synapse graph-clean` as the only other destructive tool in the system.
 - Resolves the namespace the same way the synapse-init and synapse-rebuild-diff skills do -- one
-  chain, in `core/identity.zig` — never re-derives repo/branch/remote independently.
+  chain, in `Core.Identity` — never re-derives repo/branch/remote independently.

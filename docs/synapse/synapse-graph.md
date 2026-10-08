@@ -24,7 +24,7 @@ better than prose.
 | **model** — orient and cluster | Reads the vocabulary table and decides what the nodes should be. The one genuinely judgment-shaped step in a build. |
 | `synapse gate` | Flags a cluster whose top terms are all corpus-common — it owns no vocabulary, so it is not a concept. Runs before any prose is paid for. |
 | `synapse rank` | Which of a cluster's files are worth reading, in tiers. Reading order only; `sources` stays exhaustive. |
-| `synapse build-refs` | Projects the tags cache into `_refs.tsv` (`name ⇥ def\|ref ⇥ kind ⇥ path:line ⇥ expression`). Runs both here, before any node exists, and lazily under `synapse callers` — same command, same output, either caller finds the cache already warm. |
+| `synapse build-refs` | Projects the tags cache into `_refs.tsv` (`name ⇥ def\|ref ⇥ kind ⇥ path:line ⇥ expression`). Runs here, before any node exists; `synapse callers` reads the index it writes and says to run it when the index is missing. |
 | `synapse link-graph` | Candidate `## Links` edges between nodes, from `_refs.tsv` joined against the path lists — before any node exists. Weighted by symbol rarity; which edges make it into prose stays judgement. Optionally also takes `_deps.tsv`/`_namespaces.tsv` (`--deps`/`--namespaces`, silently skipped if either is absent) to recover an edge for a name defined in more than one node, when the referencing file's own declared dependency narrows it to exactly one candidate. |
 | `synapse build-deps` | `_deps.tsv`: each tracked file's own declared build/import dependencies, one row per `path ⇥ library` edge, from `synapse-dependency-rules.conf`. Feeds `link-graph`'s optional `--deps`. |
 | `synapse build-namespaces` | `_namespaces.tsv`: each tracked file's own declared namespace(s), one row per identity, from `synapse-namespace-rules.conf`. Feeds `link-graph`'s optional `--namespaces`. |
@@ -75,7 +75,7 @@ nothing, forever.
 More precisely, a **repo and branch pair** has none until it is built there: a namespace is keyed
 `synapse/{repo}@{branch}/`. The repo half comes from the remote's basename rather than the directory,
 so a linked worktree and its parent checkout agree; the branch half from `git symbolic-ref --short
-HEAD`. Both are resolved in one place, `src/core/identity.zig`, because five components have
+HEAD`. Both are resolved in one place, `Core.Identity`, because five components have
 to agree about which namespace a checkout belongs to and a second derivation is how they stop
 agreeing.
 
@@ -188,19 +188,19 @@ instruction to record the aggregations that earned their keep in
 `~/.claude/synapse-grammars.conf` registry: ship the language-agnostic primitive, let the
 per-language or per-repo specifics be discovered and cached.
 
-One of those four questions now has exactly that shape of primitive: `synapse vocab`'s
+One of those four questions has exactly that shape of primitive: `synapse vocab`'s
 `namespaces.tsv` answers "what does the code call itself versus what its directories call it" for
 whichever extensions `~/.claude/synapse-namespace-rules.conf` has a rule for — a source file's own
 in-language namespace declaration, or a build manifest's declared package name — keyed by bare
 extension exactly like the grammar
 registry, and silently answering nothing for an extension with no rule yet rather than guessing.
-Weight and artifact dominance were already this mechanical before either — `counts.tsv` and
-`groupexts.tsv` are plain counts, no rule to discover at all.
+Weight and artifact dominance are plain counts — `counts.tsv` and `groupexts.tsv`, no rule to
+discover at all.
 
-Domain verbs — question 4, the vocabulary itself — stay genuinely mixed. `groupwords.tsv` was
-always the mechanical half: every symbol name, unsampled. What was pure judgment is now partly
-aided by `distinctive.tsv`, a *statistic*, not a per-extension rule like the namespace table —
-`core.gate`'s saturation curve scores how many of a group's top terms are distinctive rather than
+Domain verbs — question 4, the vocabulary itself — stay genuinely mixed. `groupwords.tsv` is the
+mechanical half: every symbol name, unsampled. The judgment is partly aided by
+`distinctive.tsv`, a *statistic*, not a per-extension rule like the namespace table —
+`Core.Gate`'s saturation curve scores how many of a group's top terms are distinctive rather than
 merely frequent, using document frequency across groups the same way `synapse gate` already scores
 document frequency across clusters. It says *how many*, never *which ones or why* — reading the
 vocabulary and deciding what a subsystem is actually about is still the model's, the same way a
@@ -232,15 +232,12 @@ file in the explorer that nothing here is hand-edited. Dotfiles would hide these
 explorer too, but that hides them from *you* as well, and some sync tools skip them — a poor trade for
 a file whose whole purpose is surviving to another machine.
 
-**Sampling used to be required here, and no longer is.** `synapse tags` ran one file per
-invocation (~0.07s warm), which put a 15k-file cluster at ~18 minutes and a whole repo out of
-reach — so any use of it needed a sampling rule, and every fixed rule was biased in a way that had
-to be chosen and defended (alphabetical is an accident, largest-file favours generated code,
-"under `api/`" bakes in a naming convention the repo may not share, most-referenced needs the full
-scan being avoided). `--paths` removed the cost that forced the choice: one invocation for a whole
-list measured 33× on 200 files, and `synapse vocab` now covers 98k code files in ~51s. There is
-no sampling rule anywhere in the pipeline, and reaching for one is a sign of running the wrong
-command.
+**There is no sampling rule anywhere in the pipeline.** `synapse tags --paths` tags a whole list in one
+invocation and `synapse vocab` covers every code file of a repository, so nothing needs a sample. Any
+fixed sampling rule would be biased in a way that has to be chosen and defended (alphabetical is an
+accident, largest-file favours generated code, "under `api/`" bakes in a naming convention the repo may
+not share, most-referenced needs the full scan being avoided); reaching for one is a sign of running the
+wrong command.
 
 ### `sources` is a machine field; `## Sources` is its human mirror
 
@@ -255,16 +252,16 @@ Worth stating plainly, because conflating the two produces a real bug — trimmi
   trim it — that is what the mirror is for.
 - **`## Sources` is aggregated, not enumerated**: one line per owning directory/module with a file
   count. A node covering 941 files would otherwise put 75 KB of paths in front of a reader who wants
-  to know which modules are involved. The aggregation key (`module_of()` in `synapse query`,
-  re-implemented identically in `synapse write-node` -- the two must never drift) is everything
-  before a path's first `/src/`, *except* for a configured list of boilerplate chains
-  (`~/.claude/synapse-module-boilerplate.conf`, seeded with Maven/Gradle's `src/main/java`,
-  `src/test/java`, `src/main/resources`) which strip through to the segment before `src/` entirely.
-  The distinction matters: Maven's `src/main/java/...` carries no subsystem information of its own,
-  but a flat `<pkg>/src/<subsystem>/...` layout (OCaml, Rust, Go, ...) has no such boilerplate -- the
-  segment right after `src/` *is* the subsystem, so collapsing it the same way erases the one
-  distinction the mirror exists to preserve. Add a repo's own conventions to that config file rather
-  than special-casing them in the scripts.
+  to know which modules are involved. The aggregation key (`Core.Node_Format.Module_Of`, one function
+  shared by `synapse query sources --modules` and `synapse write-node`, so the two cannot drift)
+  cuts a path at the segment before a configured boilerplate chain
+  (`synapse-module-boilerplate.conf`: a run of directories that carries no subsystem information of its
+  own), first chain in the list wins. A flat `<pkg>/src/<subsystem>/...` layout has no such chain,
+  and there the segment right after `src/` *is* the subsystem, so collapsing it the same way would
+  erase the one distinction the mirror exists to preserve. Failing both, the key is the path's first
+  component, else `(repo root)`. An empty chain list still groups, just without collapsing
+  scaffolding. Add a repo's own conventions to that config file rather than special-casing them in
+  the scripts.
 - **`## Notes` is human-authored only.** Claude never writes there, at build or regeneration.
 - Everything the generator owns sits between `<!-- synapse:generated:start -->` and
   `<!-- synapse:generated:end -->`. Regeneration replaces only the bytes between those markers and
@@ -365,14 +362,14 @@ The nodes claiming the edited file (`NODES` above) answer *ownership* — who do
 not *impact* — who else might be affected by changing it. The hook answers the second question too,
 cheaply, from data it already has: which other nodes have a typed relation (`depends_on`/`uses`/
 `part_of`/etc) pointing *at* one of `NODES`, via the same scan `links --inbound` uses (see "Relations
-between nodes" below) — one `awk` pass over every node file in the namespace, no per-file forks.
+between nodes" below) — one pass over the node files of the namespace.
 
 This nudge is deliberately looser than the correction nudge above — it fires whenever dependents
 exist at all, not only when something specific broke — so it needs its own narrowing to avoid the
 same "fires constantly, tuned out" failure the correction check was built to avoid. It fires **at
 most once per file per session**: the first edit to a file whose node has dependents gets told;
-later edits to the same file in the same session stay silent, tracked in a small marker file keyed
-by the hook's own `session_id`. A fresh session re-learns it once.
+later edits to the same file in the same session stay silent, tracked in a small per-session log keyed
+by the hook's own `session_id` (logs older than a week are deleted). A fresh session re-learns it once.
 
 When both checks have something to say about the same edit, they're merged into a single
 `additionalContext` — the hook never emits two separate outputs for one edit.
@@ -389,17 +386,16 @@ is prose on the line. So `synapse query links` derives the typed graph from the 
     links --check             targets that resolve to no node
 
 There is deliberately **no cached `_relations.json`**. A namespace is node-scale here, not file-scale —
-a few dozen nodes and a couple of hundred edges is kilobytes, derived in about a tenth of a second — so
+a few dozen nodes and a couple of hundred edges is kilobytes, derived on demand — so
 a cached projection would be a fourth artifact needing rebuild after every write, misleading silently
 once stale, in exchange for a saving of nothing. Caching earns its keep when derivation is expensive;
 this is the case where it does not.
 
 `--check` is the one that pays for itself. A broken `[[wikilink]]` is a valid link to a not-yet-existing
-note, silently, and no other check notices — it used to be a manual
-instruction in `/synapse-rebuild-diff` and is now a command.
+note, silently, and no other check notices.
 
-The API can answer the single-hop question exactly, with `{"in": ["depends_on [[Target]]", {"var":
-"content"}]}` — substring rather than tokenised, so unlike `/search/simple/` it does not return a node
+`vault-search` can answer the single-hop question exactly, with `{"in": ["depends_on [[Target]]", {"var":
+"content"}]}` — substring rather than tokenised, so unlike a full-text search it does not return a node
 whose only relation to that target is a different one. What it cannot do is transitive or aggregate:
 closure needs one request per hop, and orphans, hubs and cycles are not expressible at all. That is the
 gap `links` fills, and the reason it reads from disk — it is asking what the graph asserts about itself,
@@ -422,34 +418,17 @@ Outside any git repo there is no pointer and nothing to exclude, so the catalogu
 
 ## What every prompt is told
 
-`SessionStart` injects a pointer once. `UserPromptSubmit` (`synapse-hook prompt-context`) repeats one short line on every prompt: this repo has a code graph, it has N nodes, query it first, and the skill has the procedure. That is the whole payload — no search, no node list, no network call. ~130 tokens, ~85 without a Code Cache present.
+`SessionStart` injects a pointer once. `UserPromptSubmit` (`synapse-hook prompt-context`) repeats one short line on every prompt: this repo has a code graph, it has N nodes, query it first, and the skill has the procedure. When the Code Cache's `_refs.tsv` is present the line also names `synapse callers`. That is the whole payload — no search, no node list, no network call, and the same text whatever the prompt says.
 
-It is phrased as an instruction rather than a suggestion, and that is deliberate. The earlier wording opened "consult Synapse before grepping or opening files", which reads as advice and was treated as advice — a real session grepped its way through a fully-indexed repo with the nudge in context on every turn. "Query it FIRST" plus an explicit ordering ("do not grep or open source files until Synapse has named the file to read") is the same information, more directive, and shorter: the previous text was ~191 tokens, most of it command signatures and caveats that the `synapse-query` skill already carries.
+It is phrased as an instruction rather than a suggestion, and that is deliberate: advice was treated as advice, and a session grepped its way through a fully-indexed repo with the nudge in context on every turn. "Query it FIRST" plus an explicit ordering ("do not grep or open source files until Synapse has named the file to read") is the same information, more directive, and short — command signatures and caveats live in the `synapse-query` skill, not here.
 
-`SYNAPSE_DISABLE_PROMPT_INJECTION` (any value) turns the nudge off for a session. The coarse opt-out is per-repo — a repo that should not be announced is a repo that should not have a namespace, and the hook is silent without one — but that doesn't help a session that already queries the graph on its own and would rather stop paying ~130 tokens a turn to be reminded.
+`SYNAPSE_DISABLE_PROMPT_INJECTION` (any value) turns the nudge off for a session. The coarse opt-out is per-repo — a repo that should not be announced is a repo that should not have a namespace, and the hook is silent without one — but that doesn't help a session that already queries the graph on its own and would rather stop paying for the reminder every turn.
 
-A per-prompt search preceded this: tokenize the prompt, OR the surviving terms into one `regexp`
-clause, search the vault for it alongside a `glob` on the repo's namespace, and inject the matching
-node paths. On a repo of a few dozen nodes, a natural-language
-prompt asking about one specific subsystem routinely matched nearly every node in the namespace,
-for roughly a thousand tokens on every single turn — a domain-ubiquitous substring (a common
-English word buried inside an unrelated identifier) OR'd into the query destroys precision on its
-own; a genuinely distinctive term in the same prompt matched a useful handful of nodes and was
-drowned out by the weak one beside it.
+There is no per-prompt search. A search over the prompt's terms is *push*, paid on every turn including "commit and push", and a domain-ubiquitous term OR'd into the query destroys precision on its own: a natural-language prompt about one subsystem matches nearly every node of a small namespace. What it would find is already available as *pull*, paid only when the question is actually about the codebase: `synapse index lookup` (path → owning node), the tags cache (symbol lookups with no file opened) and `synapse query` (exact-field projection). The reminder line itself is worth its cost because pulling can't replace it: a `SessionStart` injection ages out once a long session compacts, a per-turn line doesn't, and the habit it defends against — reaching for `grep` by reflex — is exactly what the graph exists to displace.
 
-The search was solving a discovery problem `synapse index lookup` (path → owning node, ~15
-tokens), the tags cache (symbol lookups with no file opened), and `synapse query` (exact-field
-projection) already solve for a fraction of the cost — those are *pull*, paid only when the
-question is actually about the codebase, where the search was *push*, paid on every turn
-including "commit and push". The reminder line itself survived because pulling can't replace it:
-a `SessionStart` injection ages out once a long session compacts, a per-turn line doesn't, and the
-habit it defends against — reaching for `grep` by reflex — is exactly what the graph exists to
-displace. Cost dropped from ~1057 to ~80 tokens per turn, and the line is now constant text
-regardless of the prompt, a standing reminder rather than a result.
+The hook reads the filesystem and git only.
 
-A consequence worth noting: the hook no longer touches the vault REST API, so it needs no cert, no API key and no plugin data. Filesystem and git only.
-
-`synapse-tokenizer.sh` is gone, deleted during the Zig port rather than ported: the search removal above left it with no caller but the porcelain's own dispatch table, and porting dead code is worse than deleting it. Its stopword list (`~/.claude/synapse-prompt-stopwords.conf`) very much is still used — `synapse vocab` reduces symbol vocabulary through the same list, deliberately, so two mechanisms cannot disagree about what a background word is. The list is the artefact worth keeping; the script that first read it is not.
+The prompt stopword list (`~/.claude/synapse-prompt-stopwords.conf`) is shared: `synapse vocab` reduces symbol vocabulary through the same list, deliberately, so two mechanisms cannot disagree about what a background word is.
 
 ## Two-tier staleness
 
@@ -471,18 +450,16 @@ session, whether any other node depends on the ones claiming this file — see "
 
 The hook also refuses to write when the namespace's `remote:` doesn't match the repo's, using the same origin → first-listed-remote → repo-root resolution the SessionStart hook and `synapse query` use. A namespace with no readable `remote:` counts as a mismatch, not a match on the empty string: absent provenance is not permission to write. All three components must resolve the remote identically, or one refuses where another proceeds.
 
-It sets that field by **read-modify-write** (`GET`, rewrite the one `stale:` line, `PUT`), never by
-`PATCH` with `Target-Type: frontmatter`. That call is not field-local despite reading that way: it
-re-serialises the whole YAML block, stripping quotes, folding long `title:` lines, and YAML-coercing
-values by type inference — an all-digit `hash` comes back as `1.1111111111111112e+39`. A corrupted
-hash makes `sources_digest` disagree with its own `sources` permanently, which is a false positive no
-rebuild can clear.
+It sets that field by **read and rewrite** of the one `stale:` line, never by a frontmatter patch. A
+patch that re-serialises the whole YAML block is not field-local despite reading that way: it strips
+quotes, folds long `title:` lines and coerces values by type inference — an all-digit `hash` comes back
+as `1.1111111111111112e+39`. A corrupted hash makes `sources_digest` disagree with its own `sources`
+permanently, which is a false positive no rebuild can clear.
 
 **Tier 2 — read-time, the `synapse-node` skill.** Not a hook — a procedure Claude follows itself,
 proactively, whenever a node's body is about to actually be used (not a title-only skim). It runs
-`synapse query stale`, which verifies the **whole project in one pass** — one
-`git hash-object` fork plus one GET per node, a second or two for a few dozen nodes — and prints one
-line per stale node
+`synapse query stale`, which verifies the **whole project in one pass** — each source hashed
+in-process, each node file read once — and prints one line per stale node
 with a reason (content changed, source files gone by name, no digest, node file missing), or nothing
 at all when everything is current. Its exit 1 means "could not verify", not "clean".
 
@@ -494,7 +471,7 @@ construction: edits made outside a Claude Code session, `git pull`, branch switc
 
 **Reading a node never reads its frontmatter.** Consultation wants the prose, not the path list, so
 the procedure finds the closing `---` and reads from the line after it — ~900 tokens whether the node
-covers 5 files or 941. A full `vault_read` of a hub node is a mistake, not merely expensive.
+covers 5 files or 941. A full `vault-read` of a hub node is a mistake, not merely expensive.
 
 Regeneration re-reads the node's current sources, rewrites `summary`/`crux`/`links` and the
 aggregated `## Sources` mirror (never `## Notes`, and only inside the generated fence), recomputes
@@ -585,7 +562,7 @@ one and switching between them invalidates nothing: the mainline's graph keeps d
 mainline, and a branch with no namespace simply has none until someone runs `/synapse-init` there.
 What still reaches this command is history moving under a graph on the branch it describes — a rebase
 onto a moved trunk, or a reset — which leaves the recorded baseline off the current line and produces
-the same "not an ancestor of HEAD" warning a branch switch used to.
+the "not an ancestor of HEAD" warning.
 
 ### `/synapse-rebuild-full`: wipe and rebuild
 
@@ -622,23 +599,22 @@ It's optional at every layer, never a hard dependency:
 
 - **Grammar registry** (`~/.claude/synapse-grammars.conf`) is self-populating, not hand-curated.
   The first time a never-seen file extension shows up, Claude runs a one-time discovery procedure
-  (try `github.com/tree-sitter/tree-sitter-{lang}`, fall back to a web search, verify the repo
-  actually ships a tags query before trusting it) and caches the result — positive or
+  (try `github.com/tree-sitter/tree-sitter-{lang}`, fall back to a web search, verify the result
+  against a real file before trusting it) and caches the result — positive or
   `{"unsupported": true}` — permanently, across every future project, not just the one that
   triggered it.
 - **Exit codes are the whole contract**: `0` → tags printed, use them; `1` → not usable right now
   (no C compiler, a confirmed-unsupported language) — fall back to reading
   the file directly, silently; `2` → never-seen extension, run discovery once, then retry.
 - Grammars build as native libraries, compiled with `zig cc` (or `cc`/`gcc`/`clang`) and loaded
-with `dlopen`. Not WASM: consuming WASM grammars needs
-  a non-default Rust build of the CLI, a worse dependency than the C compiler native grammars need).
+with `dlopen`. Native libraries, not WASM.
 - **Kind-synonym rules** (`~/.claude/synapse-kind-synonyms.conf`, `SYNAPSE_KIND_SYNONYMS_CONF`
   overrides the path) normalize a grammar's own capture-kind spellings onto `Tag.kind`'s shared
   vocabulary, for grammars discovered via `locals.scm` (no `tags.scm` of their own) — same shape as
   the grammar and namespace-rule registries: ordered rules, first match wins, absent means no
   mapping rather than a guessed one.
 
-One subtlety in reading the output: a qualified-path reference (`Acme_ecs.Foo.bar`) must not also be
+One subtlety in reading the output: a qualified-path reference (`Pkg.Widget.bar`) must not also be
 counted as a bare same-package reference to `bar`, or the tags imply edges the code does not contain.
 
 ## The Code Cache: exact-symbol lookup and repo-wide callers

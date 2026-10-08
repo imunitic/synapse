@@ -458,7 +458,7 @@ package body Synapse.Adapters.Schema_Validation_Store.Tests is
                     & "title: X" & LF & "---" & LF & "# X" & LF);
       begin
          Assert (To_String (Result.Body_Text) = "checks: InvalidArguments",
-                 "named like Zig: " & To_String (Result.Body_Text));
+                 "named: " & To_String (Result.Body_Text));
          Assert (F.Fake.Writes = 0, "never written");
       end;
       Remove (F.Dir);

@@ -59,7 +59,8 @@ jobs:
       - uses: extractions/setup-just@v4
 
       # No version pinned: the action resolves it from `build.zig.zon`'s
-      # `minimum_zig_version`, so the pin lives in one place.
+      # `minimum_zig_version`, so the pin lives in one place. Zig only runs
+      # the acceptance and lint suites.
       - uses: mlugg/setup-zig@v2
 
       # Several tests commit to a scratch repo, and a runner has no global
