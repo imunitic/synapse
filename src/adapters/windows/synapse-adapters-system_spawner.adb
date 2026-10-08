@@ -5,6 +5,7 @@ with GNAT.OS_Lib;
 package body Synapse.Adapters.System_Spawner is
 
    use Ada.Strings.Unbounded;
+   use type GNAT.OS_Lib.Process_Id;
 
    procedure Spawn_Detached
      (Program, Command, Argument : String; Success : out Boolean)
