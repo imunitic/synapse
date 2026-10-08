@@ -27,10 +27,12 @@ scripts/
 # Build products and downloads of the Ada crate.
 obj/
 bin/
-config/
+/config/
+/tests/unit/config/
+/tools/config/
 alire/
-ucd/
-testdata/
+/ucd/
+/testdata/
 
 # Loose GNAT build products from a one-off compile in this directory.
 b~*
