@@ -186,8 +186,8 @@ package body Acceptance.Lint_Tests is
    package Path_Vectors is new Ada.Containers.Vectors
      (Positive, Unbounded_String);
 
-   procedure Collect_Markdown
-     (Dir : String; Found : in out Path_Vectors.Vector)
+   procedure Collect
+     (Dir, Suffix : String; Found : in out Path_Vectors.Vector)
    is
       Search : Ada.Directories.Search_Type;
       Item   : Ada.Directories.Directory_Entry_Type;
@@ -206,16 +206,17 @@ package body Acceptance.Lint_Tests is
             if Name in "." | ".." then
                null;
             elsif Ada.Directories.Kind (Item) = Ada.Directories.Directory then
-               Collect_Markdown (Full, Found);
-            elsif Name'Length > 3
-              and then Name (Name'Last - 2 .. Name'Last) = ".md"
+               Collect (Full, Suffix, Found);
+            elsif Name'Length >= Suffix'Length
+              and then Name (Name'Last - Suffix'Length + 1 .. Name'Last)
+                       = Suffix
             then
                Found.Append (To_Unbounded_String (Full));
             end if;
          end;
       end loop;
       Ada.Directories.End_Search (Search);
-   end Collect_Markdown;
+   end Collect;
 
    --  The rewrite deleted every `*.sh` entry point in favour of the compiled
    --  program. Matched with the trailing `.sh` so it never fires on the
@@ -230,7 +231,7 @@ package body Acceptance.Lint_Tests is
       Files : Path_Vectors.Vector;
       Bad   : Unbounded_String;
    begin
-      Collect_Markdown (Base, Files);
+      Collect (Base, ".md", Files);
       for Path of Files loop
          declare
             Number : Natural := 0;
@@ -425,6 +426,108 @@ package body Acceptance.Lint_Tests is
         (To_String (Bad), "", "a Codex mirror dropped template parts");
    end Every_Codex_Mirror_Keeps_The_Template_Of_Its_Command;
 
+   ---------------------------------------------------------------------------
+   --  Layering
+   ---------------------------------------------------------------------------
+
+   --  The units a source file names in its context clauses.
+   function Withed_Units (Text : String) return Text_Vectors.Vector is
+      Result  : Text_Vectors.Vector;
+      Clause  : Unbounded_String;
+      Reading : Boolean := False;
+
+      procedure Finish is
+         Item : Unbounded_String;
+         Text : constant String := To_String (Clause) & ",";
+      begin
+         for C of Text loop
+            if C = ',' then
+               if Length (Item) > 0 then
+                  Result.Append (Item);
+               end if;
+               Item := Null_Unbounded_String;
+            elsif C not in ' ' | ASCII.HT | LF then
+               Append (Item, C);
+            end if;
+         end loop;
+         Clause := Null_Unbounded_String;
+         Reading := False;
+      end Finish;
+   begin
+      for Raw of Lines (Text) loop
+         declare
+            Line : constant String := Left_Trim (To_String (Raw));
+            Rest : constant String :=
+              (if Starts_With (Line, "with ")
+               then Line (Line'First + 5 .. Line'Last)
+               elsif Starts_With (Line, "limited with ")
+                 or else Starts_With (Line, "private with ")
+               then Line (Line'First + 13 .. Line'Last)
+               elsif Reading then Line
+               else "");
+         begin
+            if Rest /= "" then
+               Reading := True;
+               declare
+                  Semi : constant Natural :=
+                    Ada.Strings.Fixed.Index (Rest, ";");
+               begin
+                  if Semi > 0 then
+                     Append (Clause, Rest (Rest'First .. Semi - 1));
+                     Finish;
+                  else
+                     Append (Clause, Rest & ",");
+                  end if;
+               end;
+            end if;
+         end;
+      end loop;
+      return Result;
+   end Withed_Units;
+
+   function Is_Unit_Or_Child (Name, Unit : String) return Boolean is
+     (Name = Unit or else Starts_With (Name, Unit & "."));
+
+   Core_Dir     : aliased constant String := "core";
+   Ports_Dir    : aliased constant String := "ports";
+   Adapters_Dir : aliased constant String := "adapters";
+
+   --  `core`, `ports` and `adapters` never `with` `commands`, `hooks` or
+   --  `apps`, so that a later split into a library and executables moves
+   --  directories and project files only.
+   procedure No_Lower_Layer_Names_A_Higher_One (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Lower : constant array (1 .. 3) of access constant String :=
+        [Core_Dir'Access, Ports_Dir'Access, Adapters_Dir'Access];
+      Bad   : Unbounded_String;
+      Files : Path_Vectors.Vector;
+   begin
+      for Dir of Lower loop
+         Collect (Checkout & "/src/" & Dir.all, ".ads", Files);
+         Collect (Checkout & "/src/" & Dir.all, ".adb", Files);
+      end loop;
+      Assert (not Files.Is_Empty, "no sources found to check");
+      for Path of Files loop
+         for Unit of Withed_Units (Read_File (To_String (Path))) loop
+            declare
+               Name : constant String := To_String (Unit);
+            begin
+               if Is_Unit_Or_Child (Name, "Synapse.Commands")
+                 or else Is_Unit_Or_Child (Name, "Synapse.Hooks")
+                 or else Is_Unit_Or_Child (Name, "Synapse.Apps")
+               then
+                  Append
+                    (Bad,
+                     "  " &
+                     To_String (Path) (Checkout'Length + 2 .. Length (Path)) &
+                     " withs " & Name & LF);
+               end if;
+            end;
+         end loop;
+      end loop;
+      Assert_Equal (To_String (Bad), "", "a lower layer names a higher one");
+   end No_Lower_Layer_Names_A_Higher_One;
+
    overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
@@ -443,6 +546,9 @@ package body Acceptance.Lint_Tests is
       Register_Routine
         (T, No_Instruction_Names_A_Deleted_Entry_Point'Access,
          "no instruction names a deleted entry point or dead identifier");
+      Register_Routine
+        (T, No_Lower_Layer_Names_A_Higher_One'Access,
+         "core, ports and adapters never name commands, hooks or apps");
       Register_Routine
         (T, Every_Codex_Mirror_Keeps_The_Template_Of_Its_Command'Access,
          "every command's note template is in its Codex mirror");
