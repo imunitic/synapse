@@ -47,6 +47,7 @@ with Synapse.Adapters.Index_Map.Tests;
 with Synapse.Core.Docstring_Index_Format.Tests;
 with Synapse.Adapters.Docstring_Cache.Tests;
 with Synapse.Adapters.Atomic_File.Tests;
+with Synapse.Adapters.File_Bytes.Tests;
 with Synapse.Core.Namespace.Tests;
 with Synapse.Core.Deps.Tests;
 with Synapse.Adapters.Disk_Repo_Reader.Tests;
@@ -220,6 +221,7 @@ package body Test_Suites is
    Docstring_Cache_Tests          :
      aliased Synapse.Adapters.Docstring_Cache.Tests.Test_Case;
    Atomic_File_Tests : aliased Synapse.Adapters.Atomic_File.Tests.Test_Case;
+   File_Bytes_Tests  : aliased Synapse.Adapters.File_Bytes.Tests.Test_Case;
    Namespace_Tests : aliased Synapse.Core.Namespace.Tests.Test_Case;
    Deps_Tests                     : aliased Synapse.Core.Deps.Tests.Test_Case;
    Disk_Repo_Reader_Tests         :
@@ -436,6 +438,7 @@ package body Test_Suites is
       Result.Add_Test (Docstring_Index_Format_Tests'Access);
       Result.Add_Test (Docstring_Cache_Tests'Access);
       Result.Add_Test (Atomic_File_Tests'Access);
+      Result.Add_Test (File_Bytes_Tests'Access);
       Result.Add_Test (Index_Map_Format_Tests'Access);
       Result.Add_Test (Index_Map_Tests'Access);
       Result.Add_Test (Adapters_Index_Map_Tests'Access);

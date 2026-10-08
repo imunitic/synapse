@@ -70,17 +70,11 @@ package body Synapse.Adapters.File_Bytes is
 
    procedure Write (Path, Content : String) is
       File : IO.File_Type;
-      Data :
-        Ada.Streams.Stream_Element_Array
-          (1 .. Ada.Streams.Stream_Element_Offset (Content'Length));
    begin
-      for I in Data'Range loop
-         Data (I) :=
-           Ada.Streams.Stream_Element
-             (Character'Pos (Content (Content'First + Natural (I) - 1)));
-      end loop;
       IO.Create (File, IO.Out_File, Path);
-      IO.Write (File, Data);
+      --  Written from Content itself: a copy of a large content would not fit
+      --  the stack.
+      String'Write (IO.Stream (File), Content);
       IO.Close (File);
    exception
       when others =>
