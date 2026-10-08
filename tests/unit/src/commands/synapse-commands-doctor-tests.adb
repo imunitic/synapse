@@ -244,7 +244,11 @@ package body Synapse.Commands.Doctor.Tests is
       F   : aliased Fixture;
    begin
       Use_Vault (F, Dir);
-      Assert (Run (Env (F), Args ("--repo", Path (Dir))) = 1, "failures");
+      --  A repository of its own: a plain directory would be read as part of
+      --  whatever checkout the tests run in.
+      Put_File (Dir, "a.txt", "a");
+      Commit_All (Dir);
+      Assert (Run (Env (F), Args ("--repo", Repo (Dir))) = 1, "failures");
       Assert
         (Has
            (Report (F),
@@ -255,7 +259,7 @@ package body Synapse.Commands.Doctor.Tests is
       F.Console.Clear;
       F.Vars.Set ("SYNAPSE_VAULT_DIR", "");
       F.Vars.Set ("HOME", Path (Dir, "empty-home"));
-      Assert (Run (Env (F), Args ("--repo", Path (Dir))) = 1, "no vault");
+      Assert (Run (Env (F), Args ("--repo", Repo (Dir))) = 1, "no vault");
       Assert
         (Has
            (Report (F),
@@ -263,7 +267,7 @@ package body Synapse.Commands.Doctor.Tests is
          "vault: " & Report (F));
       F.Console.Clear;
       F.Vars.Set ("SYNAPSE_VAULT_DIR", Path (Dir, "nowhere"));
-      Assert (Run (Env (F), Args ("--repo", Path (Dir))) = 1, "vault gone");
+      Assert (Run (Env (F), Args ("--repo", Repo (Dir))) = 1, "vault gone");
       Assert
         (Has
            (Report (F),
@@ -273,7 +277,7 @@ package body Synapse.Commands.Doctor.Tests is
       F.Console.Clear;
       Synapse.Adapters.File_Bytes.Write (Path (Dir, "afile"), "x");
       F.Vars.Set ("SYNAPSE_VAULT_DIR", Path (Dir, "afile"));
-      Assert (Run (Env (F), Args ("--repo", Path (Dir))) = 1, "vault a file");
+      Assert (Run (Env (F), Args ("--repo", Repo (Dir))) = 1, "vault a file");
       Assert
         (Has
            (Report (F),

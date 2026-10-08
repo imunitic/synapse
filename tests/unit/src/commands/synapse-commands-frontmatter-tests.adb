@@ -346,7 +346,8 @@ package body Synapse.Commands.Frontmatter.Tests is
       Use_Vault (F, Dir);
       Put (Dir, "x.md", Note);
       Assert
-        (Run (Env (F), Args ("set", "x.md", "k", [1 .. 2_000_000 => 'v'])) = 1,
+        (Run (Env (F), Args ("set", "x.md", "k", Ada.Strings.Fixed."*" (2_000_000, 'v')))
+         = 1,
          "code 1");
       Assert
         (F.Console.Err_Text =

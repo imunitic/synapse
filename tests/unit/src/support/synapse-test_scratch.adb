@@ -146,6 +146,10 @@ package body Synapse.Test_Scratch is
       Git (Dir, "init", "-q", "-b", "main");
       Git (Dir, "config", "user.email", "test@example.com");
       Git (Dir, "config", "user.name", "Test");
+      --  Background maintenance writes into .git after a commit and can race
+      --  with the removal of the scratch directory.
+      Git (Dir, "config", "gc.auto", "0");
+      Git (Dir, "config", "maintenance.auto", "false");
    end Init_Repo;
 
 end Synapse.Test_Scratch;

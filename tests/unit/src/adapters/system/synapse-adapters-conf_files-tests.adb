@@ -1,3 +1,4 @@
+with Ada.Strings.Fixed;
 with Ada.Directories;
 with Ada.Strings.Unbounded;
 
@@ -271,12 +272,13 @@ package body Synapse.Adapters.Conf_Files.Tests is
 
    procedure A_File_Over_A_Megabyte_Is_Ignored (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
-      Dir : constant Scratch                         := Make;
+      Dir : constant Scratch := Make;
       V   : Fake_Variables.Fake_Variables;
-      Big : constant String (1 .. 1_024 * 1_024 + 1) := [others => 'x'];
    begin
       Home_Vars (V, Dir);
-      Put (Path (Dir, ".claude/synapse.conf"), "K=small" & LF & Big);
+      Put
+        (Path (Dir, ".claude/synapse.conf"),
+         "K=small" & LF & Ada.Strings.Fixed."*" (1_024 * 1_024 + 1, 'x'));
       Assert (Shown (Resolve (V, "K")) = "none", "too large to trust");
       Remove (Dir);
    exception

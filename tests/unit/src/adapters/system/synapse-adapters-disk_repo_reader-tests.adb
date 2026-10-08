@@ -1,3 +1,4 @@
+with Ada.Unchecked_Deallocation;
 with Ada.Directories;
 
 with AUnit.Assertions;
@@ -42,13 +43,29 @@ package body Synapse.Adapters.Disk_Repo_Reader.Tests is
          raise;
    end Files_Are_Read_Relative_To_The_Root;
 
+   --  Writes a file of Length bytes. The buffer is on the heap: a megabyte
+   --  aggregate on the stack overflows the main task's stack on some systems.
+   procedure Write_Run (Name : String; Length : Natural) is
+      type Buffer_Access is access String;
+      procedure Free is new Ada.Unchecked_Deallocation (String, Buffer_Access);
+      Buffer : Buffer_Access := new String (1 .. Length);
+   begin
+      Buffer.all := [others => 'x'];
+      File_Bytes.Write (Name, Buffer.all);
+      Free (Buffer);
+   exception
+      when others =>
+         Free (Buffer);
+         raise;
+   end Write_Run;
+
    procedure A_File_Over_The_Limit_Is_Not_Read (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Dir : constant Scratch := Make;
       R   : Reader           := Create (Path (Dir));
    begin
-      File_Bytes.Write (Path (Dir, "ok.bin"), [1 .. Largest_File => 'x']);
-      File_Bytes.Write (Path (Dir, "big.bin"), [1 .. Largest_File + 1 => 'x']);
+      Write_Run (Path (Dir, "ok.bin"), Largest_File);
+      Write_Run (Path (Dir, "big.bin"), Largest_File + 1);
       Assert (Read (R, "ok.bin").Found, "exactly the limit");
       Assert (not Read (R, "big.bin").Found, "one byte over");
       Remove (Dir);
