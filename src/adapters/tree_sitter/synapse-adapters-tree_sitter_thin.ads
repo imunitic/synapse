@@ -25,11 +25,14 @@ package Synapse.Adapters.Tree_Sitter_Thin with SPARK_Mode => Off is
    Null_Language : constant Language_Ptr :=
      Language_Ptr (System.Null_Address);
 
+   --  TSPoint, returned by value. Records are passed to C as pointers unless
+   --  their convention is C_Pass_By_Copy (RM B.3), so the structs the C API
+   --  takes or returns by value carry that convention.
    type Point is record
       Row    : uint32_t;
       Column : uint32_t;
    end record
-   with Convention => C;
+   with Convention => C_Pass_By_Copy;
 
    type Context_Array is array (0 .. 3) of uint32_t with Convention => C;
 
@@ -39,7 +42,7 @@ package Synapse.Adapters.Tree_Sitter_Thin with SPARK_Mode => Off is
       Id      : System.Address;
       Tree    : System.Address;
    end record
-   with Convention => C;
+   with Convention => C_Pass_By_Copy;
 
    type Query_Capture is record
       Node  : Tree_Sitter_Thin.Node;
