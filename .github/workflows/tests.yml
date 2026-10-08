@@ -33,6 +33,17 @@ jobs:
       # workflow and a local `just check` cannot drift apart.
       - uses: extractions/setup-just@v4
 
+      # The compiled objects of the last run: with `-m` (see the justfile) only
+      # the units whose source changed are compiled again.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            obj
+            tests/unit/obj
+            tests/acceptance/obj
+          key: obj-${{ runner.os }}-unit-${{ github.sha }}
+          restore-keys: obj-${{ runner.os }}-unit-
+
       - name: Build
         run: just build
 
@@ -58,10 +69,16 @@ jobs:
       - uses: alire-project/setup-alire@v6
       - uses: extractions/setup-just@v4
 
-      # No version pinned: the action resolves it from `build.zig.zon`'s
-      # `minimum_zig_version`, so the pin lives in one place. Zig only runs
-      # the acceptance and lint suites.
-      - uses: mlugg/setup-zig@v2
+      # The compiled objects of the last run: with `-m` (see the justfile) only
+      # the units whose source changed are compiled again.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            obj
+            tests/unit/obj
+            tests/acceptance/obj
+          key: obj-${{ runner.os }}-acceptance-${{ github.sha }}
+          restore-keys: obj-${{ runner.os }}-acceptance-
 
       # Several tests commit to a scratch repo, and a runner has no global
       # identity.
@@ -73,11 +90,8 @@ jobs:
       - name: Build
         run: just build
 
-      - name: Subprocess suite
+      - name: Acceptance suite
         run: just acceptance
-
-      - name: Doc and text checks
-        run: just lint
 
       # Both generated artefacts are also verified inside the suite, by their
       # own --check mode; repeated so a failure names itself in the log.
@@ -111,6 +125,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+
+      # The compiled objects of the last run: with `-m` (see the justfile) only
+      # the units whose source changed are compiled again.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            obj
+            tests/unit/obj
+            tests/acceptance/obj
+          key: obj-${{ runner.os }}-package-${{ github.sha }}
+          restore-keys: obj-${{ runner.os }}-package-
 
       - name: Package and check the installed program
         run: just package

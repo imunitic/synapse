@@ -5,7 +5,7 @@
 #   just              list the recipes
 #   just build        the three programs, into bin/
 #   just test         the AUnit suite
-#   just acceptance   the subprocess suite against the built programs
+#   just acceptance   the subprocess suite and text checks, against the built programs
 #   just check        the full gate -- before PUSHING, not before every commit
 #   just fix          regenerate whatever `check` verifies
 #
@@ -20,8 +20,13 @@
 #   about to push               just check
 #
 # Needs Alire (`alr`) on PATH; it fetches GNAT, gprbuild, AUnit and GNATprove
-# itself on first use. `acceptance` and `lint` also need Zig 0.16 (test tooling
-# only). `just --list` shows the comment line immediately above a recipe.
+# itself on first use. `just --list` shows the comment line immediately above
+# a recipe.
+
+# Every build passes `-m` to gprbuild, which then recompiles a unit only when
+# its source checksum changed and not when its timestamp did. A fresh checkout
+# gives every file a new timestamp, so without it a cached `obj/` would be
+# recompiled whole.
 
 set shell := ["bash", "-uc"]
 
@@ -44,7 +49,7 @@ ucd:
 
 # Regenerate the Unicode tables from the downloaded UCD files.
 gen-unicode: ucd
-    cd tools && alr -n build --validation && alr -n run --skip-build --args="../ucd ../src/core/text {{ ucd_version }}"
+    cd tools && alr -n build --validation -- -m && alr -n run --skip-build --args="../ucd ../src/core/text {{ ucd_version }}"
 
 # Fail if the committed Unicode tables differ from what the generator produces.
 gen-check: ucd
@@ -92,7 +97,7 @@ json-suite:
 
 # Build the programs with the validation profile (contracts checked at runtime) into bin/.
 build:
-    alr -n build --validation
+    alr -n build --validation -- -m
 
 # The AUnit suite; exits non-zero on any failed test.
 test: ucd json-suite
@@ -100,7 +105,7 @@ test: ucd json-suite
 
 # Build the release binaries.
 release:
-    alr -n build --release
+    alr -n build --release -- -m
 
 # Package the release binaries as npm packages, install them into a scratch prefix and check the installed program end to end.
 package: release
@@ -110,24 +115,10 @@ package: release
 prove:
     cd tests/unit && alr -n exec -- gnatprove -P synapse_proof.gpr --level=2 --report=all --checks-as-errors=on
 
-# The subprocess suite (Zig): spawns the built programs against scratch repos. Pass a substring to narrow to matching test names.
-acceptance FILTER="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    command -v zig >/dev/null || { echo "zig not on PATH -- brew install zig" >&2; exit 1; }
-    filter="{{ FILTER }}"
-    if [ -n "$filter" ]; then
-        zig build test-integration --summary all -Dtest-filter="$filter"
-    else
-        zig build test-integration --summary all
-    fi
-
-# The doc and text consistency checks (Zig).
-lint:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    command -v zig >/dev/null || { echo "zig not on PATH -- brew install zig" >&2; exit 1; }
-    zig build test --summary all
+# The acceptance suite: runs the built programs against scratch repositories and checks the shipped text.
+acceptance: build
+    cd tests/acceptance && alr -n build --validation -- -m
+    ./tests/acceptance/bin/synapse_acceptance
 
 # Build the Linux release binaries in a container against a glibc 2.28 sysroot.
 linux-release:
@@ -179,5 +170,5 @@ fix:
     ./docs/synapse/generate-diagrams.sh
 
 # The full gate -- run before pushing (see WHAT TO RUN WHEN at the top).
-check: build test prove gen-check acceptance lint syntax docs-check npm-check
+check: build test prove gen-check acceptance syntax docs-check npm-check
     @echo "all green"

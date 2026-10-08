@@ -174,9 +174,7 @@ plain-English summary, a quoted `crux`, typed links, and the exhaustive list of 
 just build                               # the three programs, into bin/
 just test                                # AUnit: format round-trips, parsing, every unit
 just prove                               # GNATprove on the SPARK units
-just acceptance                          # the CLI contract: real subprocesses, real git
-just acceptance "query drift"            # narrow to matching test names
-just lint                                # doc and shipped-text consistency checks
+just acceptance                          # the CLI contract: real subprocesses, real git, and the shipped-text checks
 just check                               # the full gate -- before pushing
 ```
 
@@ -188,23 +186,21 @@ broad enough that you are unsure. A change to prose in `docs/` or this README ha
 needs neither.
 
 Two traps in that. Shipped instructions under `packages/synapse/` **look** like documentation and are
-not: they install into the harnesses, and `tests/acceptance/integration/legacy_commands_test.zig` plus
-`tests/acceptance/lint_test.zig` cover them — that is how a skill telling Claude to run a nonexistent
-command got caught. And `docs/synapse/`'s `cli.md` plus the diagrams are *generated*, so a change
+not: they install into the harnesses, and `Acceptance.Legacy_Commands_Tests` and `Acceptance.Lint_Tests` cover them — that is how a skill
+telling Claude to run a nonexistent command got caught. And `docs/synapse/`'s `cli.md` plus the diagrams are *generated*, so a change
 upstream of them needs `just fix`, not `just docs-check`.
 
 The AUnit suite lives in `tests/unit` and runs on Linux and macOS in CI. The acceptance suite spawns
 the built programs against a throwaway `$HOME`, git repo and Vault built fresh per test — nothing
-touches your real `~/.claude` or Vault, and tests share no state. It is written in Zig and takes the
-binary under test as an argument, so it is test tooling only; it runs on Linux in CI
-(`.github/workflows/tests.yml`).
+touches your real `~/.claude` or Vault, and tests share no state. It lives in `tests/acceptance`, an
+Alire crate of its own, and runs on Linux in CI (`.github/workflows/tests.yml`).
 
 The generated artefacts (each project's `cli.md`, the Mermaid diagrams under `docs/synapse/diagrams/`)
 are each verified by running their generator's `--check` mode, so an edit that was never regenerated fails a
 test instead of shipping something confidently wrong.
 
 `packages/synapse/commands/*.md` and `packages/synapse/skills/*/SKILL.md` are natural-language procedures, so no test
-executes them — but `tests/acceptance/integration/legacy_commands_test.zig` does check the one thing about them
+executes them — but `Acceptance.Legacy_Commands_Tests` does check the one thing about them
 that is mechanically true or false: **every command they tell Claude to run has to exist.** It
 cross-checks each `` `synapse <sub>` `` against the binary's own `--help`, and applies the same rule
 to the text the hooks inject and to the `Index.md` the builder writes. That guard exists because an
@@ -224,8 +220,7 @@ it already is for every harness here — `synapse-setup` and the shipped hooks
 install by hand — see "New machine setup".
 
 For contributing to Synapse itself: [Alire](https://alire.ada.dev) (`alr`), which fetches GNAT,
-gprbuild, AUnit and GNATprove on first use; [just](https://just.systems) as the task runner; Zig 0.16
-for the acceptance and lint suites only (test tooling, not part of the product); a C compiler for the
+gprbuild, AUnit and GNATprove on first use; [just](https://just.systems) as the task runner; a C compiler for the
 Graph's tree-sitter acceleration (grammars are native libraries, built on first use); and Node (for
 `npx`) to re-render the diagrams. Everything except Alire and just degrades gracefully if missing.
 
