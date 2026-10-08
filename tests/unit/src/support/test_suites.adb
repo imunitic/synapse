@@ -1,0 +1,488 @@
+with Synapse.Adapters.Tree_Sitter.Tests;
+with Synapse.Core.Arith.Tests;
+with Synapse.Core.Regex_Lite.Tests;
+with Synapse.Adapters.Disk_Store.Tests;
+with Synapse.Adapters.Dir_Lock.Tests;
+with Synapse.Adapters.Conf_Files.Tests;
+with Synapse.Adapters.Disk_Link_Graph.Tests;
+with Synapse.Adapters.Disk_Renamer.Tests;
+with Synapse.Adapters.Git_Capabilities.Tests;
+with Synapse.Adapters.Fake_Store.Tests;
+with Synapse.Adapters.Git_Identity.Tests;
+with Synapse.Adapters.Schema_Loader.Tests;
+with Synapse.Adapters.Store_Resolve.Tests;
+with Synapse.Adapters.Schema_Validation_Store.Tests;
+with Synapse.Adapters.System_Clock.Tests;
+with Synapse.Adapters.System_Variables.Tests;
+with Synapse.Core.Conf.Tests;
+with Synapse.Adapters.Git_Store.Tests;
+with Synapse.Adapters.Git_Sync.Tests;
+with Synapse.Adapters.System_Process.Tests;
+with Synapse.Core.Node_Path.Tests;
+with Synapse.Core.Path_Filter.Tests;
+with Synapse.Core.Note_Check.Tests;
+with Synapse.Core.Note_Model.Tests;
+with Synapse.Core.Note_Operators.Tests;
+with Synapse.Core.Prose.Tests;
+with Synapse.Core.Text_Search.Tests;
+with Synapse.Core.Wikilinks.Tests;
+with Synapse.Core.Emit.Tests;
+with Synapse.Core.Tag_Line.Tests;
+with Synapse.Core.Refs.Tests;
+with Synapse.Core.Kind_Synonyms.Tests;
+with Synapse.Core.Fence_Languages.Tests;
+with Synapse.Core.Enumerate.Tests;
+with Synapse.Adapters.Graph_Confs.Tests;
+with Synapse.Adapters.File_Byte_Source.Tests;
+with Synapse.Adapters.Memory_Byte_Source.Tests;
+with Synapse.Core.Little_Endian.Tests;
+with Synapse.Core.Byte_Window.Tests;
+with Synapse.Core.Tag_Payload.Tests;
+with Synapse.Core.Tags_Cache_Format.Tests;
+with Synapse.Adapters.Tags_Cache.Tests;
+with Synapse.Core.Symbol.Tests;
+with Synapse.Core.Index_Map_Format.Tests;
+with Synapse.Core.Index_Map.Tests;
+with Synapse.Adapters.Index_Map.Tests;
+with Synapse.Core.Docstring_Index_Format.Tests;
+with Synapse.Adapters.Docstring_Cache.Tests;
+with Synapse.Adapters.Atomic_File.Tests;
+with Synapse.Core.Namespace.Tests;
+with Synapse.Core.Deps.Tests;
+with Synapse.Adapters.Disk_Repo_Reader.Tests;
+with Synapse.Core.Links.Tests;
+with Synapse.Core.Rarity.Tests;
+with Synapse.Core.Verify.Tests;
+with Synapse.Core.Drift.Tests;
+with Synapse.Core.Vocab.Tests;
+with Synapse.Core.Gate.Tests;
+with Synapse.Core.Rank.Tests;
+with Synapse.Core.Graph_Clean.Tests;
+with Synapse.Core.Grammar_Registry.Tests;
+with Synapse.Core.Node_Types.Tests;
+with Synapse.Core.Docstring_Overrides.Tests;
+with Synapse.Adapters.Tree_Sitter.Preparation.Tests;
+with Synapse.Core.Results_Tests;
+with Synapse.Adapters.Tree_Sitter.Tagger.Tests;
+with Synapse.Adapters.Fake_Extractor.Tests;
+with Synapse.Adapters.Tree_Sitter.Docstring_Pairs.Tests;
+with Synapse.Adapters.Tree_Sitter.Resolution.Tests;
+with Synapse.Adapters.Tree_Sitter.Extractor.Tests;
+with Synapse.Core.Command_Map.Tests;
+with Synapse.Core.Comment_Style_Rules.Tests;
+with Synapse.Core.Task_Status.Tests;
+with Synapse.Core.Doctor.Tests;
+with Synapse.Core.Patch.Tests;
+with Synapse.Core.Vault_Query.Tests;
+with Synapse.Core.Timestamps.Tests;
+with Synapse.Adapters.Fake_Console.Tests;
+with Synapse.Commands.Cli_Args.Tests;
+with Synapse.Commands.Context.Tests;
+with Synapse.Commands.Now.Tests;
+with Synapse.Commands.Namespace.Tests;
+with Synapse.Commands.Show_Context.Tests;
+with Synapse.Commands.Dispatch.Tests;
+with Synapse.Hooks.Dispatch.Tests;
+with Synapse.Hooks.Staleness.Tests;
+with Synapse.Hooks.Session_Start.Tests;
+with Synapse.Hooks.Stop_Nudge.Tests;
+with Synapse.Hooks.Prompt_Context.Tests;
+with Synapse.Hooks.Common.Tests;
+with Synapse.Commands.Query.Tests;
+with Synapse.Commands.Push_Nodes.Tests;
+with Synapse.Commands.Write_Node.Tests;
+with Synapse.Commands.Doctor.Tests;
+with Synapse.Commands.Graph_Wipe.Tests;
+with Synapse.Commands.Graph_Clean.Tests;
+with Synapse.Commands.Comments_Sweep.Tests;
+with Synapse.Commands.Comments_Check.Tests;
+with Synapse.Commands.Vocab.Tests;
+with Synapse.Commands.Rank.Tests;
+with Synapse.Commands.Brief.Tests;
+with Synapse.Commands.Link_Graph.Tests;
+with Synapse.Commands.Gate.Tests;
+with Synapse.Commands.Node_Lists.Tests;
+with Synapse.Commands.Project_Index.Tests;
+with Synapse.Commands.Declared.Tests;
+with Synapse.Commands.Tagging_Support.Tests;
+with Synapse.Commands.Refs.Tests;
+with Synapse.Commands.Tags_Cache.Tests;
+with Synapse.Commands.Tags.Tests;
+with Synapse.Core.Fault_Names.Tests;
+with Synapse.Commands.Graph_Support.Tests;
+with Synapse.Commands.Index.Tests;
+with Synapse.Commands.Build_Lists.Tests;
+with Synapse.Commands.Enumerate.Tests;
+with Synapse.Adapters.System_Spawner.Tests;
+with Synapse.Commands.Vault_Write.Tests;
+with Synapse.Core.Options_Tests;
+with Synapse.Core.Decimal_Image.Tests;
+with Synapse.Core.Float_Image.Tests;
+with Synapse.Commands.Frontmatter.Tests;
+with Synapse.Commands.Vault_Check.Tests;
+with Synapse.Commands.Vault_Search.Tests;
+with Synapse.Commands.Vault_Links.Tests;
+with Synapse.Commands.Vault_Read.Tests;
+with Synapse.Core.Graph_Model.Tests;
+with Synapse.Core.Hashing.Tests;
+with Synapse.Core.Line_Slice.Tests;
+with Synapse.Core.Node_Format.Tests;
+with Synapse.Core.Node_Query.Tests;
+with Synapse.Core.Identity.Tests;
+with Synapse.Core.Project_Index.Tests;
+with Synapse.Core.Words.Tests;
+with Synapse.Core.Note_Schema.Tests;
+with Synapse.Core.Note_Text.Tests;
+with Synapse.Core.Schema_Pattern.Tests;
+with Synapse.Core.Schema_Rules.Tests;
+with Synapse.Core.Schema_YAML.Tests;
+with Synapse.Core.Frontmatter.Tests;
+with Synapse.Core.JSON.Tests;
+with Synapse.Core.JSON_Logic.Tests;
+with Synapse.Core.UTF8.Tests;
+with Synapse.Core.Unicode.Tests;
+
+package body Test_Suites is
+
+   Arith_Tests                    : aliased Synapse.Core.Arith.Tests.Test_Case;
+   UTF8_Tests                     : aliased Synapse.Core.UTF8.Tests.Test_Case;
+   Unicode_Tests : aliased Synapse.Core.Unicode.Tests.Test_Case;
+   Tree_Sitter_Tests : aliased Synapse.Adapters.Tree_Sitter.Tests.Test_Case;
+   JSON_Tests                     : aliased Synapse.Core.JSON.Tests.Test_Case;
+   Regex_Lite_Tests : aliased Synapse.Core.Regex_Lite.Tests.Test_Case;
+   Schema_Pattern_Tests : aliased Synapse.Core.Schema_Pattern.Tests.Test_Case;
+   JSON_Logic_Tests : aliased Synapse.Core.JSON_Logic.Tests.Test_Case;
+   Frontmatter_Tests : aliased Synapse.Core.Frontmatter.Tests.Test_Case;
+   Schema_YAML_Tests : aliased Synapse.Core.Schema_YAML.Tests.Test_Case;
+   Schema_Rules_Tests : aliased Synapse.Core.Schema_Rules.Tests.Test_Case;
+   Note_Schema_Tests : aliased Synapse.Core.Note_Schema.Tests.Test_Case;
+   Note_Text_Tests : aliased Synapse.Core.Note_Text.Tests.Test_Case;
+   Note_Model_Tests : aliased Synapse.Core.Note_Model.Tests.Test_Case;
+   Note_Check_Tests : aliased Synapse.Core.Note_Check.Tests.Test_Case;
+   Node_Path_Tests : aliased Synapse.Core.Node_Path.Tests.Test_Case;
+   Text_Search_Tests : aliased Synapse.Core.Text_Search.Tests.Test_Case;
+   Words_Tests                    : aliased Synapse.Core.Words.Tests.Test_Case;
+   Fake_Store_Tests : aliased Synapse.Adapters.Fake_Store.Tests.Test_Case;
+   Disk_Store_Tests : aliased Synapse.Adapters.Disk_Store.Tests.Test_Case;
+   Path_Filter_Tests : aliased Synapse.Core.Path_Filter.Tests.Test_Case;
+   Dir_Lock_Tests : aliased Synapse.Adapters.Dir_Lock.Tests.Test_Case;
+   System_Process_Tests           :
+     aliased Synapse.Adapters.System_Process.Tests.Test_Case;
+   Git_Sync_Tests : aliased Synapse.Adapters.Git_Sync.Tests.Test_Case;
+   Git_Store_Tests : aliased Synapse.Adapters.Git_Store.Tests.Test_Case;
+   System_Variables_Tests         :
+     aliased Synapse.Adapters.System_Variables.Tests.Test_Case;
+   Conf_Files_Tests : aliased Synapse.Adapters.Conf_Files.Tests.Test_Case;
+   Schema_Loader_Tests            :
+     aliased Synapse.Adapters.Schema_Loader.Tests.Test_Case;
+   Validation_Store_Tests         :
+     aliased Synapse.Adapters.Schema_Validation_Store.Tests.Test_Case;
+   System_Clock_Tests : aliased Synapse.Adapters.System_Clock.Tests.Test_Case;
+   Store_Resolve_Tests            :
+     aliased Synapse.Adapters.Store_Resolve.Tests.Test_Case;
+   Conf_Tests                     : aliased Synapse.Core.Conf.Tests.Test_Case;
+   Disk_Link_Graph_Tests          :
+     aliased Synapse.Adapters.Disk_Link_Graph.Tests.Test_Case;
+   Disk_Renamer_Tests : aliased Synapse.Adapters.Disk_Renamer.Tests.Test_Case;
+   Git_Capabilities_Tests         :
+     aliased Synapse.Adapters.Git_Capabilities.Tests.Test_Case;
+   Git_Identity_Tests : aliased Synapse.Adapters.Git_Identity.Tests.Test_Case;
+   Emit_Tests                     : aliased Synapse.Core.Emit.Tests.Test_Case;
+   Hashing_Tests : aliased Synapse.Core.Hashing.Tests.Test_Case;
+   Line_Slice_Tests : aliased Synapse.Core.Line_Slice.Tests.Test_Case;
+   Node_Format_Tests : aliased Synapse.Core.Node_Format.Tests.Test_Case;
+   Node_Query_Tests : aliased Synapse.Core.Node_Query.Tests.Test_Case;
+   Tag_Line_Tests : aliased Synapse.Core.Tag_Line.Tests.Test_Case;
+   Refs_Tests                     : aliased Synapse.Core.Refs.Tests.Test_Case;
+   Kind_Synonyms_Tests : aliased Synapse.Core.Kind_Synonyms.Tests.Test_Case;
+   Fence_Languages_Tests          :
+     aliased Synapse.Core.Fence_Languages.Tests.Test_Case;
+   Enumerate_Tests : aliased Synapse.Core.Enumerate.Tests.Test_Case;
+   Graph_Confs_Tests : aliased Synapse.Adapters.Graph_Confs.Tests.Test_Case;
+   File_Byte_Source_Tests         :
+     aliased Synapse.Adapters.File_Byte_Source.Tests.Test_Case;
+   Memory_Byte_Source_Tests       :
+     aliased Synapse.Adapters.Memory_Byte_Source.Tests.Test_Case;
+   Little_Endian_Tests : aliased Synapse.Core.Little_Endian.Tests.Test_Case;
+   Byte_Window_Tests : aliased Synapse.Core.Byte_Window.Tests.Test_Case;
+   Tag_Payload_Tests : aliased Synapse.Core.Tag_Payload.Tests.Test_Case;
+   Tags_Cache_Format_Tests        :
+     aliased Synapse.Core.Tags_Cache_Format.Tests.Test_Case;
+   Tags_Cache_Tests : aliased Synapse.Adapters.Tags_Cache.Tests.Test_Case;
+   Symbol_Tests : aliased Synapse.Core.Symbol.Tests.Test_Case;
+   Index_Map_Format_Tests         :
+     aliased Synapse.Core.Index_Map_Format.Tests.Test_Case;
+   Index_Map_Tests : aliased Synapse.Core.Index_Map.Tests.Test_Case;
+   Adapters_Index_Map_Tests       :
+     aliased Synapse.Adapters.Index_Map.Tests.Test_Case;
+   Docstring_Index_Format_Tests   :
+     aliased Synapse.Core.Docstring_Index_Format.Tests.Test_Case;
+   Docstring_Cache_Tests          :
+     aliased Synapse.Adapters.Docstring_Cache.Tests.Test_Case;
+   Atomic_File_Tests : aliased Synapse.Adapters.Atomic_File.Tests.Test_Case;
+   Namespace_Tests : aliased Synapse.Core.Namespace.Tests.Test_Case;
+   Deps_Tests                     : aliased Synapse.Core.Deps.Tests.Test_Case;
+   Disk_Repo_Reader_Tests         :
+     aliased Synapse.Adapters.Disk_Repo_Reader.Tests.Test_Case;
+   Links_Tests                    : aliased Synapse.Core.Links.Tests.Test_Case;
+   Rarity_Tests : aliased Synapse.Core.Rarity.Tests.Test_Case;
+   Verify_Tests : aliased Synapse.Core.Verify.Tests.Test_Case;
+   Drift_Tests                    : aliased Synapse.Core.Drift.Tests.Test_Case;
+   Vocab_Tests                    : aliased Synapse.Core.Vocab.Tests.Test_Case;
+   Gate_Tests                     : aliased Synapse.Core.Gate.Tests.Test_Case;
+   Rank_Tests                     : aliased Synapse.Core.Rank.Tests.Test_Case;
+   Graph_Clean_Tests : aliased Synapse.Core.Graph_Clean.Tests.Test_Case;
+   Grammar_Registry_Tests         :
+     aliased Synapse.Core.Grammar_Registry.Tests.Test_Case;
+   Node_Types_Tests : aliased Synapse.Core.Node_Types.Tests.Test_Case;
+   Docstring_Overrides_Tests      :
+     aliased Synapse.Core.Docstring_Overrides.Tests.Test_Case;
+   Tree_Sitter_Preparation_Tests  :
+     aliased Synapse.Adapters.Tree_Sitter.Preparation.Tests.Test_Case;
+   Results_Tests : aliased Synapse.Core.Results_Tests.Test_Case;
+   Tagger_Tests : aliased Synapse.Adapters.Tree_Sitter.Tagger.Tests.Test_Case;
+   Fake_Extractor_Tests           :
+     aliased Synapse.Adapters.Fake_Extractor.Tests.Test_Case;
+   Docstring_Pairs_Tests          :
+     aliased Synapse.Adapters.Tree_Sitter.Docstring_Pairs.Tests.Test_Case;
+   Resolution_Tests               :
+     aliased Synapse.Adapters.Tree_Sitter.Resolution.Tests.Test_Case;
+   Extractor_Tests                :
+     aliased Synapse.Adapters.Tree_Sitter.Extractor.Tests.Test_Case;
+   Command_Map_Tests : aliased Synapse.Core.Command_Map.Tests.Test_Case;
+   Comment_Style_Rules_Tests      :
+     aliased Synapse.Core.Comment_Style_Rules.Tests.Test_Case;
+   Task_Status_Tests : aliased Synapse.Core.Task_Status.Tests.Test_Case;
+   Doctor_Tests : aliased Synapse.Core.Doctor.Tests.Test_Case;
+   Patch_Tests                    : aliased Synapse.Core.Patch.Tests.Test_Case;
+   Vault_Query_Tests : aliased Synapse.Core.Vault_Query.Tests.Test_Case;
+   Timestamps_Tests : aliased Synapse.Core.Timestamps.Tests.Test_Case;
+   Fake_Console_Tests : aliased Synapse.Adapters.Fake_Console.Tests.Test_Case;
+   Cli_Args_Tests : aliased Synapse.Commands.Cli_Args.Tests.Test_Case;
+   Commands_Context_Tests : aliased Synapse.Commands.Context.Tests.Test_Case;
+   Now_Tests : aliased Synapse.Commands.Now.Tests.Test_Case;
+   Commands_Namespace_Tests       :
+     aliased Synapse.Commands.Namespace.Tests.Test_Case;
+   Show_Context_Tests : aliased Synapse.Commands.Show_Context.Tests.Test_Case;
+   Dispatch_Tests : aliased Synapse.Commands.Dispatch.Tests.Test_Case;
+   Hooks_Dispatch_Tests : aliased Synapse.Hooks.Dispatch.Tests.Test_Case;
+   Hooks_Staleness_Tests : aliased Synapse.Hooks.Staleness.Tests.Test_Case;
+   Hooks_Session_Start_Tests : aliased Synapse.Hooks.Session_Start.Tests.Test_Case;
+   Hooks_Stop_Nudge_Tests : aliased Synapse.Hooks.Stop_Nudge.Tests.Test_Case;
+   Hooks_Prompt_Context_Tests : aliased Synapse.Hooks.Prompt_Context.Tests.Test_Case;
+   Hooks_Common_Tests : aliased Synapse.Hooks.Common.Tests.Test_Case;
+   Commands_Query_Tests : aliased Synapse.Commands.Query.Tests.Test_Case;
+   Commands_Push_Nodes_Tests      :
+     aliased Synapse.Commands.Push_Nodes.Tests.Test_Case;
+   Commands_Write_Node_Tests      :
+     aliased Synapse.Commands.Write_Node.Tests.Test_Case;
+   Commands_Doctor_Tests : aliased Synapse.Commands.Doctor.Tests.Test_Case;
+   Commands_Graph_Wipe_Tests      :
+     aliased Synapse.Commands.Graph_Wipe.Tests.Test_Case;
+   Commands_Graph_Clean_Tests     :
+     aliased Synapse.Commands.Graph_Clean.Tests.Test_Case;
+   Commands_Comments_Sweep_Tests  :
+     aliased Synapse.Commands.Comments_Sweep.Tests.Test_Case;
+   Commands_Comments_Check_Tests  :
+     aliased Synapse.Commands.Comments_Check.Tests.Test_Case;
+   Commands_Vocab_Tests : aliased Synapse.Commands.Vocab.Tests.Test_Case;
+   Commands_Rank_Tests : aliased Synapse.Commands.Rank.Tests.Test_Case;
+   Commands_Brief_Tests : aliased Synapse.Commands.Brief.Tests.Test_Case;
+   Commands_Link_Graph_Tests      :
+     aliased Synapse.Commands.Link_Graph.Tests.Test_Case;
+   Commands_Gate_Tests : aliased Synapse.Commands.Gate.Tests.Test_Case;
+   Commands_Node_Lists_Tests      :
+     aliased Synapse.Commands.Node_Lists.Tests.Test_Case;
+   Commands_Project_Index_Tests   :
+     aliased Synapse.Commands.Project_Index.Tests.Test_Case;
+   Commands_Declared_Tests : aliased Synapse.Commands.Declared.Tests.Test_Case;
+   Commands_Tagging_Support_Tests :
+     aliased Synapse.Commands.Tagging_Support.Tests.Test_Case;
+   Commands_Refs_Tests : aliased Synapse.Commands.Refs.Tests.Test_Case;
+   Commands_Tags_Cache_Tests      :
+     aliased Synapse.Commands.Tags_Cache.Tests.Test_Case;
+   Commands_Tags_Tests : aliased Synapse.Commands.Tags.Tests.Test_Case;
+   Core_Fault_Names_Tests : aliased Synapse.Core.Fault_Names.Tests.Test_Case;
+   Commands_Graph_Support_Tests   :
+     aliased Synapse.Commands.Graph_Support.Tests.Test_Case;
+   Commands_Index_Tests : aliased Synapse.Commands.Index.Tests.Test_Case;
+   Commands_Build_Lists_Tests     :
+     aliased Synapse.Commands.Build_Lists.Tests.Test_Case;
+   Commands_Enumerate_Tests       :
+     aliased Synapse.Commands.Enumerate.Tests.Test_Case;
+   Adapters_System_Spawner_Tests  :
+     aliased Synapse.Adapters.System_Spawner.Tests.Test_Case;
+   Commands_Vault_Write_Tests     :
+     aliased Synapse.Commands.Vault_Write.Tests.Test_Case;
+   Core_Optional_Text_Tests : aliased Synapse.Core.Options_Tests.Test_Case;
+   Core_Decimal_Image_Tests       :
+     aliased Synapse.Core.Decimal_Image.Tests.Test_Case;
+   Core_Float_Image_Tests : aliased Synapse.Core.Float_Image.Tests.Test_Case;
+   Commands_Frontmatter_Tests     :
+     aliased Synapse.Commands.Frontmatter.Tests.Test_Case;
+   Commands_Vault_Check_Tests     :
+     aliased Synapse.Commands.Vault_Check.Tests.Test_Case;
+   Commands_Vault_Search_Tests    :
+     aliased Synapse.Commands.Vault_Search.Tests.Test_Case;
+   Commands_Vault_Links_Tests     :
+     aliased Synapse.Commands.Vault_Links.Tests.Test_Case;
+   Commands_Vault_Read_Tests      :
+     aliased Synapse.Commands.Vault_Read.Tests.Test_Case;
+   Graph_Model_Tests : aliased Synapse.Core.Graph_Model.Tests.Test_Case;
+   Identity_Tests : aliased Synapse.Core.Identity.Tests.Test_Case;
+   Project_Index_Tests : aliased Synapse.Core.Project_Index.Tests.Test_Case;
+   Wikilinks_Tests : aliased Synapse.Core.Wikilinks.Tests.Test_Case;
+   Prose_Tests                    : aliased Synapse.Core.Prose.Tests.Test_Case;
+   Note_Operators_Tests : aliased Synapse.Core.Note_Operators.Tests.Test_Case;
+
+   function Suite return AUnit.Test_Suites.Access_Test_Suite is
+      Result : constant AUnit.Test_Suites.Access_Test_Suite :=
+        new AUnit.Test_Suites.Test_Suite;
+   begin
+      Result.Add_Test (Arith_Tests'Access);
+      Result.Add_Test (UTF8_Tests'Access);
+      Result.Add_Test (Unicode_Tests'Access);
+      Result.Add_Test (Tree_Sitter_Tests'Access);
+      Result.Add_Test (JSON_Tests'Access);
+      Result.Add_Test (Regex_Lite_Tests'Access);
+      Result.Add_Test (Schema_Pattern_Tests'Access);
+      Result.Add_Test (JSON_Logic_Tests'Access);
+      Result.Add_Test (Frontmatter_Tests'Access);
+      Result.Add_Test (Schema_YAML_Tests'Access);
+      Result.Add_Test (Schema_Rules_Tests'Access);
+      Result.Add_Test (Note_Schema_Tests'Access);
+      Result.Add_Test (Note_Text_Tests'Access);
+      Result.Add_Test (Note_Model_Tests'Access);
+      Result.Add_Test (Prose_Tests'Access);
+      Result.Add_Test (Wikilinks_Tests'Access);
+      Result.Add_Test (Git_Identity_Tests'Access);
+      Result.Add_Test (Graph_Model_Tests'Access);
+      Result.Add_Test (Timestamps_Tests'Access);
+      Result.Add_Test (Fake_Console_Tests'Access);
+      Result.Add_Test (Cli_Args_Tests'Access);
+      Result.Add_Test (Commands_Context_Tests'Access);
+      Result.Add_Test (Now_Tests'Access);
+      Result.Add_Test (Namespace_Tests'Access);
+      Result.Add_Test (Show_Context_Tests'Access);
+      Result.Add_Test (Dispatch_Tests'Access);
+      Result.Add_Test (Hooks_Dispatch_Tests'Access);
+      Result.Add_Test (Hooks_Staleness_Tests'Access);
+      Result.Add_Test (Hooks_Session_Start_Tests'Access);
+      Result.Add_Test (Hooks_Stop_Nudge_Tests'Access);
+      Result.Add_Test (Hooks_Prompt_Context_Tests'Access);
+      Result.Add_Test (Hooks_Common_Tests'Access);
+      Result.Add_Test (Commands_Query_Tests'Access);
+      Result.Add_Test (Commands_Push_Nodes_Tests'Access);
+      Result.Add_Test (Commands_Write_Node_Tests'Access);
+      Result.Add_Test (Commands_Doctor_Tests'Access);
+      Result.Add_Test (Commands_Graph_Wipe_Tests'Access);
+      Result.Add_Test (Commands_Graph_Clean_Tests'Access);
+      Result.Add_Test (Commands_Comments_Sweep_Tests'Access);
+      Result.Add_Test (Commands_Comments_Check_Tests'Access);
+      Result.Add_Test (Commands_Vocab_Tests'Access);
+      Result.Add_Test (Commands_Rank_Tests'Access);
+      Result.Add_Test (Commands_Brief_Tests'Access);
+      Result.Add_Test (Commands_Link_Graph_Tests'Access);
+      Result.Add_Test (Commands_Gate_Tests'Access);
+      Result.Add_Test (Commands_Node_Lists_Tests'Access);
+      Result.Add_Test (Commands_Project_Index_Tests'Access);
+      Result.Add_Test (Commands_Declared_Tests'Access);
+      Result.Add_Test (Commands_Tagging_Support_Tests'Access);
+      Result.Add_Test (Commands_Refs_Tests'Access);
+      Result.Add_Test (Commands_Tags_Cache_Tests'Access);
+      Result.Add_Test (Commands_Tags_Tests'Access);
+      Result.Add_Test (Core_Fault_Names_Tests'Access);
+      Result.Add_Test (Commands_Graph_Support_Tests'Access);
+      Result.Add_Test (Commands_Index_Tests'Access);
+      Result.Add_Test (Commands_Build_Lists_Tests'Access);
+      Result.Add_Test (Commands_Enumerate_Tests'Access);
+      Result.Add_Test (Adapters_System_Spawner_Tests'Access);
+      Result.Add_Test (Commands_Vault_Write_Tests'Access);
+      Result.Add_Test (Core_Optional_Text_Tests'Access);
+      Result.Add_Test (Core_Decimal_Image_Tests'Access);
+      Result.Add_Test (Core_Float_Image_Tests'Access);
+      Result.Add_Test (Commands_Frontmatter_Tests'Access);
+      Result.Add_Test (Commands_Vault_Check_Tests'Access);
+      Result.Add_Test (Commands_Vault_Search_Tests'Access);
+      Result.Add_Test (Commands_Vault_Links_Tests'Access);
+      Result.Add_Test (Commands_Vault_Read_Tests'Access);
+      Result.Add_Test (Vault_Query_Tests'Access);
+      Result.Add_Test (Patch_Tests'Access);
+      Result.Add_Test (Command_Map_Tests'Access);
+      Result.Add_Test (Comment_Style_Rules_Tests'Access);
+      Result.Add_Test (Task_Status_Tests'Access);
+      Result.Add_Test (Doctor_Tests'Access);
+      Result.Add_Test (Extractor_Tests'Access);
+      Result.Add_Test (Resolution_Tests'Access);
+      Result.Add_Test (Fake_Extractor_Tests'Access);
+      Result.Add_Test (Docstring_Pairs_Tests'Access);
+      Result.Add_Test (Tagger_Tests'Access);
+      Result.Add_Test (Results_Tests'Access);
+      Result.Add_Test (Tree_Sitter_Preparation_Tests'Access);
+      Result.Add_Test (Grammar_Registry_Tests'Access);
+      Result.Add_Test (Node_Types_Tests'Access);
+      Result.Add_Test (Docstring_Overrides_Tests'Access);
+      Result.Add_Test (Rank_Tests'Access);
+      Result.Add_Test (Graph_Clean_Tests'Access);
+      Result.Add_Test (Vocab_Tests'Access);
+      Result.Add_Test (Gate_Tests'Access);
+      Result.Add_Test (Verify_Tests'Access);
+      Result.Add_Test (Drift_Tests'Access);
+      Result.Add_Test (Links_Tests'Access);
+      Result.Add_Test (Rarity_Tests'Access);
+      Result.Add_Test (Commands_Namespace_Tests'Access);
+      Result.Add_Test (Deps_Tests'Access);
+      Result.Add_Test (Disk_Repo_Reader_Tests'Access);
+      Result.Add_Test (Docstring_Index_Format_Tests'Access);
+      Result.Add_Test (Docstring_Cache_Tests'Access);
+      Result.Add_Test (Atomic_File_Tests'Access);
+      Result.Add_Test (Index_Map_Format_Tests'Access);
+      Result.Add_Test (Index_Map_Tests'Access);
+      Result.Add_Test (Adapters_Index_Map_Tests'Access);
+      Result.Add_Test (Tags_Cache_Tests'Access);
+      Result.Add_Test (Symbol_Tests'Access);
+      Result.Add_Test (Little_Endian_Tests'Access);
+      Result.Add_Test (Byte_Window_Tests'Access);
+      Result.Add_Test (Tag_Payload_Tests'Access);
+      Result.Add_Test (Tags_Cache_Format_Tests'Access);
+      Result.Add_Test (Memory_Byte_Source_Tests'Access);
+      Result.Add_Test (Tag_Line_Tests'Access);
+      Result.Add_Test (Refs_Tests'Access);
+      Result.Add_Test (Kind_Synonyms_Tests'Access);
+      Result.Add_Test (Fence_Languages_Tests'Access);
+      Result.Add_Test (Enumerate_Tests'Access);
+      Result.Add_Test (Graph_Confs_Tests'Access);
+      Result.Add_Test (File_Byte_Source_Tests'Access);
+      Result.Add_Test (Emit_Tests'Access);
+      Result.Add_Test (Hashing_Tests'Access);
+      Result.Add_Test (Line_Slice_Tests'Access);
+      Result.Add_Test (Node_Format_Tests'Access);
+      Result.Add_Test (Node_Query_Tests'Access);
+      Result.Add_Test (Identity_Tests'Access);
+      Result.Add_Test (Project_Index_Tests'Access);
+      Result.Add_Test (Disk_Renamer_Tests'Access);
+      Result.Add_Test (Git_Capabilities_Tests'Access);
+      Result.Add_Test (Disk_Link_Graph_Tests'Access);
+      Result.Add_Test (System_Variables_Tests'Access);
+      Result.Add_Test (Conf_Tests'Access);
+      Result.Add_Test (Store_Resolve_Tests'Access);
+      Result.Add_Test (Schema_Loader_Tests'Access);
+      Result.Add_Test (Validation_Store_Tests'Access);
+      Result.Add_Test (System_Clock_Tests'Access);
+      Result.Add_Test (Conf_Files_Tests'Access);
+      Result.Add_Test (Git_Store_Tests'Access);
+      Result.Add_Test (Git_Sync_Tests'Access);
+      Result.Add_Test (Dir_Lock_Tests'Access);
+      Result.Add_Test (System_Process_Tests'Access);
+      Result.Add_Test (Path_Filter_Tests'Access);
+      Result.Add_Test (Fake_Store_Tests'Access);
+      Result.Add_Test (Disk_Store_Tests'Access);
+      Result.Add_Test (Node_Path_Tests'Access);
+      Result.Add_Test (Text_Search_Tests'Access);
+      Result.Add_Test (Words_Tests'Access);
+      Result.Add_Test (Note_Check_Tests'Access);
+      Result.Add_Test (Note_Operators_Tests'Access);
+      return Result;
+   end Suite;
+
+end Test_Suites;

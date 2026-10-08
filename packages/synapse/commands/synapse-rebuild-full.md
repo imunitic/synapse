@@ -148,5 +148,5 @@ note live containing only the leftovers, trimmed of everything that did get merg
   only the wipe-with-preservation step before it and the note-merge step after it.
 - The wipe itself is `synapse graph-wipe` (via `synapse graph-wipe`), mirroring
   `synapse graph-clean` as the only other destructive tool in the system.
-- Resolves the namespace the same way `/synapse-init` and `/synapse-rebuild-diff` do -- one chain, in `core/identity.zig`
+- Resolves the namespace the same way `/synapse-init` and `/synapse-rebuild-diff` do -- one chain, in `Core.Identity`
   — never re-derives repo/branch/remote independently.

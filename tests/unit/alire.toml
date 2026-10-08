@@ -1,0 +1,27 @@
+name = "synapse_tests"
+description = "AUnit suite for Synapse"
+version = "0.0.0-dev"
+
+authors = ["Ivica Munitic"]
+maintainers = ["Ivica Munitic <imunitic@gmail.com>"]
+maintainers-logins = []
+licenses = "MIT"
+tags = []
+
+executables = ["synapse_tests"]
+
+[[depends-on]]
+aunit = "^26.0.0"
+
+[build-switches]
+"*".contracts = "Yes"
+"*".style_checks = "Yes"
+"*".compile_checks = "Warnings"
+"*".ada_version = "Ada2022"
+
+[[depends-on]]
+gnatprove = "^16.1.0"
+
+[gpr-set-externals.'case(os)']
+windows = { SYNAPSE_OS = "windows" }
+'...' = { SYNAPSE_OS = "posix" }

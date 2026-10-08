@@ -1,0 +1,17 @@
+name = "synapse_tools"
+description = "Development-time generators for Synapse"
+version = "0.0.0-dev"
+
+authors = ["Ivica Munitic"]
+maintainers = ["Ivica Munitic <imunitic@gmail.com>"]
+maintainers-logins = []
+licenses = "MIT"
+tags = []
+
+executables = ["gen_unicode_tables"]
+
+[build-switches]
+"*".contracts = "Yes"
+"*".style_checks = "Yes"
+"*".compile_checks = "Warnings"
+"*".ada_version = "Ada2022"

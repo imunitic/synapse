@@ -1,0 +1,84 @@
+with Ada.IO_Exceptions;
+with Ada.Streams;
+with Ada.Unchecked_Deallocation;
+
+package body Synapse.Adapters.File_Byte_Source is
+
+   package SIO renames Ada.Streams.Stream_IO;
+
+   procedure Open (S : in out Source; Path : String) is
+   begin
+      if SIO.Is_Open (S.File) then
+         SIO.Close (S.File);
+      end if;
+      SIO.Open (S.File, SIO.In_File, Path, Form => "shared=yes");
+   exception
+      when Ada.IO_Exceptions.Name_Error | Ada.IO_Exceptions.Use_Error =>
+         raise Ports.Byte_Source.Source_Failure with "cannot open " & Path;
+   end Open;
+
+   procedure Close (S : in out Source) is
+   begin
+      if SIO.Is_Open (S.File) then
+         SIO.Close (S.File);
+      end if;
+   end Close;
+
+   overriding function Size (S : in out Source) return Ports.Byte_Source.Offset
+   is
+   begin
+      return Ports.Byte_Source.Offset (SIO.Size (S.File));
+   exception
+      when others =>
+         raise Ports.Byte_Source.Source_Failure;
+   end Size;
+
+   overriding function Read
+     (S : in out Source; From : Ports.Byte_Source.Offset; Count : Positive)
+      return String
+   is
+   begin
+      if From >= Ports.Byte_Source.Offset (SIO.Size (S.File)) then
+         return "";
+      end if;
+      declare
+         --  On the heap: a blob can be larger than the stack.
+         type Buffer_Access is access Ada.Streams.Stream_Element_Array;
+         procedure Free is new Ada.Unchecked_Deallocation
+           (Ada.Streams.Stream_Element_Array, Buffer_Access);
+         Buffer : Buffer_Access :=
+           new Ada.Streams.Stream_Element_Array
+             (1 .. Ada.Streams.Stream_Element_Offset (Count));
+         Last   : Ada.Streams.Stream_Element_Offset;
+      begin
+         begin
+            SIO.Set_Index (S.File, SIO.Positive_Count (From + 1));
+            SIO.Read (S.File, Buffer.all, Last);
+            return Result : String (1 .. Natural (Last)) do
+               for I in Result'Range loop
+                  Result (I) :=
+                    Character'Val
+                      (Buffer (Ada.Streams.Stream_Element_Offset (I)));
+               end loop;
+               Free (Buffer);
+            end return;
+         exception
+            when others =>
+               Free (Buffer);
+               raise;
+         end;
+      end;
+   exception
+      when Ada.IO_Exceptions.Device_Error | Ada.IO_Exceptions.Use_Error
+        | Ada.IO_Exceptions.Mode_Error | Ada.IO_Exceptions.Status_Error =>
+         raise Ports.Byte_Source.Source_Failure;
+   end Read;
+
+   overriding procedure Finalize (S : in out Source) is
+   begin
+      if SIO.Is_Open (S.File) then
+         SIO.Close (S.File);
+      end if;
+   end Finalize;
+
+end Synapse.Adapters.File_Byte_Source;

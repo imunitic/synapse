@@ -1,0 +1,24 @@
+name = "synapse_acceptance"
+description = "Acceptance suite for Synapse: the built programs, run as subprocesses"
+version = "0.0.0-dev"
+
+authors = ["Ivica Munitic"]
+maintainers = ["Ivica Munitic <imunitic@gmail.com>"]
+maintainers-logins = []
+licenses = "MIT"
+tags = []
+
+executables = ["synapse_acceptance"]
+
+[[depends-on]]
+aunit = "^26.0.0"
+
+[build-switches]
+"*".contracts = "Yes"
+"*".style_checks = "Yes"
+"*".compile_checks = "Warnings"
+"*".ada_version = "Ada2022"
+
+[gpr-set-externals.'case(os)']
+windows = { SYNAPSE_OS = "windows" }
+'...' = { SYNAPSE_OS = "posix" }

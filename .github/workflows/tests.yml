@@ -1,149 +1,103 @@
 name: tests
 
-# Every push and pull request. The suite is fast (a couple of minutes) and needs
-# no secrets: git is stubbed by tests/fixtures/fake-bin/git, tree-sitter and its
-# grammar cloning by the fake tree-sitter in the same folder, so nothing here
-# touches a network, a real vault, or a real ~/.claude.
+# Every push and pull request. Needs no secrets: git is stubbed by
+# tests/acceptance/fixtures/fake-bin/git, and tree-sitter with its grammar
+# cloning by the program `synapse-fake`, so nothing here touches a network
+# (beyond fetching the toolchain and the pinned test data), a real vault or a
+# real ~/.claude. The steps are the ones `just check` runs.
 on:
   push:
   pull_request:
   workflow_dispatch:
 
 jobs:
-  # A separate job rather than steps bolted onto `integration`: the two fail for
-  # unrelated reasons and neither orders the other, so running them in parallel
-  # costs nothing and keeps a red X pointing at the half that actually broke.
-  zig:
-    runs-on: ubuntu-latest
+  # Builds the programs, runs the AUnit suite with contracts checked at run
+  # time and proves the SPARK units, on the platforms that have a release, then
+  # checks the generated Unicode tables are current. Windows joins the matrix
+  # when its port passes the suite.
+  unit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v5
 
-      # No version pinned here on purpose. The action resolves it from
-      # `build.zig.zon`'s `minimum_zig_version`, so the pin lives in exactly one
-      # place and CI cannot quietly build with a different toolchain than a
-      # local `zig build` uses. Pinning it here too would be a second copy of a
-      # number, which is a second copy that goes stale.
-      #
-      # cache-size-limit raised from the 2048 MiB default: this job's own
-      # .zig-cache (native build + test, sharing one cache scope) measured
-      # comfortably inside 2048 on a normal run, but the `integration` job
-      # below (every test compiling and loading a real tree-sitter grammar)
-      # measured close enough to that default limit that a routine size
-      # increase would start silently skipping the cache save.
-      - uses: mlugg/setup-zig@v2
-        with:
-          cache-size-limit: 4096
+      # Installs Alire and its default toolchain (gnat_native, gprbuild); the
+      # crate's own dependencies (AUnit, GNATprove) are fetched on first build.
+      - uses: alire-project/setup-alire@v6
 
-      - name: Show version
-        run: zig version
+      # The justfile owns every command and the pinned Unicode version, so this
+      # workflow and a local `just check` cannot drift apart.
+      - uses: extractions/setup-just@v4
+
+      # The compiled objects of the last run: with `-m` (see the justfile) only
+      # the units whose source changed are compiled again.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            obj
+            tests/unit/obj
+            tests/acceptance/obj
+          key: obj-${{ runner.os }}-unit-${{ github.sha }}
+          restore-keys: obj-${{ runner.os }}-unit-
 
       - name: Build
-        run: zig build
+        run: just build
 
-      # Internals only -- format round-trips, parsing, the process helper,
-      # plus the static doc/text consistency checks in `tests/lint_test.zig`.
-      # The CLI contract belongs to the `integration` job below.
-      - name: Unit tests
-        run: zig build test --summary all
+      - name: AUnit tests
+        run: just test
 
-      # The half of the layering the compiler cannot enforce: Zig analyses
-      # declarations lazily, so a wrong-direction import nothing references
-      # compiles silently.
-      - name: Layering and purity
-        run: ./ci/check-layering.sh
+      - name: GNATprove
+        run: just prove
 
-  # A separate matrix job, not a step in `zig` above: Zig's own cache is keyed
-  # per target triple, so three different targets sharing one job's cache
-  # scope never reuse each other's compiled objects regardless of cache size
-  # -- see the vault research note "CI cross-compile caching doesn't help
-  # across target triples". Splitting into one job per target trades that
-  # unavoidable compute cost for wall-clock: the three builds don't depend on
-  # each other, so running them in parallel cuts this from ~11 minutes
-  # (sequential) to whichever single target is slowest (~4 minutes). Main
-  # only -- a portability break is real work either way, but a feature branch
-  # already gets it from the `zig` job's own `Build` step failing outright on
-  # its own host target; the other two platforms only need checking before
-  # the merge that actually ships them.
-  cross-compile:
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        target: [x86_64-linux-gnu.2.28, aarch64-linux-gnu.2.28, aarch64-macos]
-    steps:
-      - uses: actions/checkout@v5
+      - name: Generated Unicode tables are current
+        run: just gen-check
 
-      # `cache-key` scopes the Zig cache per matrix instance -- the action's
-      # own default key varies by runner OS, not by `matrix.target`, so
-      # without this all three parallel jobs race to save under the
-      # identical key and only the fastest one's cache actually persists;
-      # the other two always cold-start their compiled-object cache.
-      - uses: mlugg/setup-zig@v2
-        with:
-          cache-size-limit: 4096
-          cache-key: ${{ matrix.target }}
-
-      # Same script `just build-targets` runs (with no argument, sequentially,
-      # for a local full check) -- one definition rather than one here and one
-      # in the justfile.
-      - name: Cross-compile ${{ matrix.target }}
-        run: ./ci/build-targets.sh ${{ matrix.target }}
-
-  integration:
-    # Linux only, and the asymmetry is the point rather than an economy. The two
-    # shells disagree in ways that pass silently on one of them -- BSD vs GNU
-    # `sed -i`, macOS `mktemp` ignoring TMPDIR without an explicit template -- so
-    # both still need covering. macOS is covered by development itself: the suite
-    # is written and run there before anything is pushed. Linux is the half nobody
-    # exercises by hand, which is exactly the half worth spending CI on.
-    #
-    # The cost of dropping it: a macOS-only regression now lands whenever a push
-    # happens without a local run first, and a contributor on Linux gets no signal
-    # at all. If either starts happening, put macos-latest back as a matrix entry
-    # (fail-fast: false) rather than inventing something cleverer.
+  # The subprocess suite and the doc checks, against the built programs. Linux
+  # only: the two shells disagree in ways that pass silently on one of them
+  # (BSD vs GNU `sed -i`, macOS `mktemp` ignoring TMPDIR without a template),
+  # and macOS is covered by development itself. If a macOS-only regression
+  # starts landing, add macos-latest here as a matrix entry.
+  acceptance:
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v5
+      - uses: alire-project/setup-alire@v6
+      - uses: extractions/setup-just@v4
 
-      # Same unpinned action as the `zig` job, for the same reason:
-      # `build.zig.zon` is the only place the version lives. This job spawns
-      # the real binaries as real subprocesses, which is why it needs its
-      # own toolchain rather than depending on the `zig` job's artifacts --
-      # jobs run in separate, disposable runners with no shared filesystem.
-      - uses: mlugg/setup-zig@v2
+      # The compiled objects of the last run: with `-m` (see the justfile) only
+      # the units whose source changed are compiled again.
+      - uses: actions/cache@v4
         with:
-          cache-size-limit: 4096
+          path: |
+            obj
+            tests/unit/obj
+            tests/acceptance/obj
+          key: obj-${{ runner.os }}-acceptance-${{ github.sha }}
+          restore-keys: obj-${{ runner.os }}-acceptance-
 
-      - name: Show versions
-        run: |
-          zig version
-          bash --version | head -1
-          jq --version
-
-      # git config is required: several tests commit to a scratch repo, and a
-      # runner has no global identity, so the commit would fail rather than the
-      # assertion being exercised.
+      # Several tests commit to a scratch repo, and a runner has no global
+      # identity.
       - name: Configure git identity for scratch repos
         run: |
           git config --global user.email ci@example.com
           git config --global user.name CI
 
-      # Builds every binary it spawns as part of the same step, via each
-      # binary's own `Step.Compile` wired in through `addOptionPath` --
-      # no separate `zig build`/`zig build fake` needed first.
-      - name: Run the suite
-        run: zig build test-integration --summary all
+      - name: Build
+        run: just build
 
-      # Both generated artefacts are already verified inside the suite, by their
-      # own --check mode. Repeated here only so a failure names itself in the log
-      # rather than arriving as one line inside a large test run.
+      - name: Acceptance suite
+        run: just acceptance
+
+      # Both generated artefacts are also verified inside the suite, by their
+      # own --check mode; repeated so a failure names itself in the log.
       - name: Generated docs are in sync
         if: always()
-        run: |
-          zig build
-          ./docs/synapse/generate-cli-reference.sh --check
+        run: ./docs/synapse/generate-cli-reference.sh --check
 
       - name: Rendered diagrams are in sync
         if: always()
@@ -151,8 +105,37 @@ jobs:
 
       - name: npm package includes every shipped schema document
         if: always()
-        run: |
-          out="$(npm pack --dry-run --json ./packages/synapse)"
-          for f in schema/vault-note/v1.yaml schema/vault-design-note/v1.yaml schema/vault-task-note/v1.yaml; do
-            grep -qF "$f" <<< "$out" || { echo "npm package is missing $f" >&2; exit 1; }
-          done
+        run: just npm-check
+
+  # The release binaries packaged as the npm packages and installed the way a
+  # user does (`ci/package.sh`): the shims, `synapse-setup configure` for each
+  # harness and the installed hooks. The platforms that have an npm package;
+  # Windows has none yet.
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: alire-project/setup-alire@v6
+      - uses: extractions/setup-just@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # The compiled objects of the last run: with `-m` (see the justfile) only
+      # the units whose source changed are compiled again.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            obj
+            tests/unit/obj
+            tests/acceptance/obj
+          key: obj-${{ runner.os }}-package-${{ github.sha }}
+          restore-keys: obj-${{ runner.os }}-package-
+
+      - name: Package and check the installed program
+        run: just package

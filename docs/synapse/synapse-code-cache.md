@@ -1,10 +1,9 @@
 # Synapse Code Cache: the vault-free acceleration layer
 
-A layer underneath the Graph, not a fourth component beside the Vault, the Graph and the Tools. The
-work directory has always accumulated it quietly — `_tags_cache.bin`, `_refs.tsv`, plus the
-vocabulary/list artifacts clustering uses — but it was previously documented only as a footnote inside
-[synapse-graph.md](synapse-graph.md). Naming it here states plainly what was already true: nothing in
-this chain needs a vault or any network dependency at all.
+A layer underneath the Graph, not a fourth component beside the Vault, the Graph and the Tools. It
+lives in the work directory — `_tags_cache.bin`, `_refs.tsv`, plus the vocabulary/list artifacts
+clustering uses — and nothing in this chain needs a vault or any network dependency at all.
+[synapse-graph.md](synapse-graph.md) covers the Graph built on top of it.
 
 That independence is worth being precise about, because it is a fact about *dependencies* rather than
 about structure. The binary on its own is enough to build and query this cache — `synapse callers`
@@ -13,7 +12,7 @@ matters for how the project is described: it exists to make the Graph's per-symb
 and the Graph is what gives its answers somewhere to live.
 
 For the exact byte layout of `_tags_cache.bin` and `_refs.tsv` — header and record-table fields, the
-payload codec, and `format.parse`'s validation order — see
+payload codec, and `Parse`'s validation order — see
 [synapse-code-cache-format.md](synapse-code-cache-format.md).
 
 ![Build path (tags → tags-cache → build-refs) and query path (symbol, callers) over the Code Cache](diagrams/synapse-code-cache.png)
@@ -23,31 +22,24 @@ payload codec, and `format.parse`'s validation order — see
 `git ls-files` (so `.gitignore` exclusion is free) feeds `synapse tags`, a tree-sitter
 acceleration layer: given a file, it prints real definitions and name-based call references, extracted
 by parsing rather than text guessing. It fails soft — no C compiler, an unsupported
-language — and every caller falls back to reading the file directly, exactly as if the script did not
+language — and every caller falls back to reading the file directly, exactly as if `synapse tags` did not
 exist. Which query file actually does the extracting is a two-tier decision of its own — see
 [Grammar discovery](#grammar-discovery-tagsscm-localsscm-or-generated) below.
 
 `synapse tags-cache` keeps `_tags_cache.bin` (`path → {hash, tags}`) current for a set of files,
 piggybacked on the same per-file hash comparison node regeneration already performs: unchanged paths
-are skipped, changed-or-missing ones are (re-)tagged in one extraction over every path that needs one.
-
-There is no chunking and no worker pool any more, and that is a deletion rather than a regression. The
-shell version split the work across `xargs -P` workers, with each worker writing a private temp file
-and one sequential merge afterwards, because CLI startup and grammar load dominated the per-file cost
-— chunking was how it stopped paying that per file, and it bought a real 10.26s → 1.39s on 400
-files. In process there is nothing to amortise: a grammar is loaded once per extension for the life of
-the run, so the whole apparatus collapses into a single pass. What that trades away is CPU
-parallelism, and whether *that* costs anything on a cold repository has not been measured — it is an
-open question, not a settled one.
+are skipped, changed-or-missing ones are (re-)tagged. The paths that need tagging are cut into slices
+(at least 500 paths each, or enough to give each processor one), each slice is tagged by
+its own task with an extractor of its own — a grammar is loaded once per extension per extractor — and
+the slices are put back in path order before a single commit, so the cache does not depend on how many
+tasks there were. A set small enough for one slice is tagged on the calling task.
 
 `synapse build-refs` projects that cache into `_refs.tsv`, a flat, byte-sorted index —
 `name ⇥ def|ref ⇥ kind ⇥ path:line ⇥ expression`. A separate artifact because the constraint is
-*format*, not size. That was measured back when the cache was JSON: a `jq` pass over a small JSON
-cache extrapolates to double-digit seconds per query once a large repo's cache reaches the
-several-hundred-megabyte scale, for something meant to feel interactive — while the same data as
-flat sorted lines stays sub-second at that same scale, a different regime entirely. The cache is a
-binary format now rather than JSON, so the `jq` half of that comparison is history; the conclusion
-it produced is why this file exists, and a sorted line index is still what a binary search wants.
+*format*, not size: a query over several hundred megabytes of structured cache that parsed each record
+would cost seconds for something meant to feel interactive, while the same data as flat sorted lines
+is answered by a binary search that reads a few blocks. The sorted line index is what that search
+wants.
 
 ## Grammar discovery: tags.scm, locals.scm, or generated
 
@@ -107,13 +99,18 @@ language, ever, not once per repository. `$SYNAPSE_GRAMMARS_QUERY_PATH/{ext}.scm
 preempts the whole cascade — a human-authored (or successfully generated) query for a grammar the
 cascade doesn't handle well on its own, checked fresh every run rather than cached.
 
+What the binary itself does with a `"locals"` or `"generated"` registry entry is definitions only:
+`@local.definition.*` captures normalized through the kind-synonym rules, or the `node-types.json`
+classifier's patterns plus its bounded walk, respectively. Reference data comes from a `tags.scm`
+shape — the repository's own, or the one orientation generates and writes to the override path.
+
 ## Local-reference filtering
 
 Orthogonal to which tier won above: a second, independent query compiled from the grammar's own
 `locals.scm`, used only to build a per-file set of `@local.definition.*` names — never for
 extraction itself. A tier-1 grammar with a real `tags.scm` can still have a real `locals.scm`
 sitting unused beside it, and a `.ref` tag whose name is actually a local binding (a function
-parameter, a `let`-binding, a functor argument) has zero real candidates for `core/links.zig`'s
+parameter, a `let`-binding, a functor argument) has zero real candidates for `Core.Links`'
 cross-file join — it should never reach `_refs.tsv` as an unresolved global name in the first
 place. Any `.ref` tag whose name is in that per-file set is stripped before `synapse tags` returns,
 one file at a time.
@@ -134,19 +131,16 @@ Two commands read the cache, at different scopes:
   `SYNAPSE_DISABLE_SYMBOL_CACHE` to turn the whole cache off.
 - **`synapse callers <name>`** (a top-level subcommand, not one of `query`'s) — repo-wide:
   every call site of an exact name, anywhere, as `path:line ⇥ calling expression`, reading `_refs.tsv`
-  directly. The lookup is an in-process binary search over the index, which is mapped rather than read
-  — a query touches the pages its handful of lines sit on, where reading the file first meant paying
+  directly. The lookup is an in-process binary search over the index, read a 4 KB block at a time
+  — a query touches the blocks its handful of lines sit on, where reading the file first meant paying
   for the full index's I/O and resident memory to reach a small fraction of it. Defaults to `ref | call`
   matches; `--all` widens to every def and ref.
 
-  The binary search is the part worth keeping from the shell version, which reached it with `look`
-  plus an exact `awk` filter: on a large repo's multi-gigabyte, multi-million-line index that
-  answered in a fraction of a second, where `awk` alone — a full scan — took tens of seconds, and
-  where the answer's speed depended on *which* `grep` was on `PATH`, an order-of-magnitude spread.
-  In process there is one implementation, `look`'s prefix-matching quirk
-  is gone (asking for `bet` no longer returns every `beta`), and the byte-order agreement that the
-  writer and the reader each had a shouting comment about is arithmetic in one program rather than a
-  contract between two scripts.
+  The lookup is a binary search over raw bytes, so on a large repo's multi-gigabyte, multi-million-line
+  index it answers in a fraction of a second where a full scan would take tens of seconds. Names match
+  exactly, not by prefix: asking for `bet` does not return every `beta`. The byte order the writer
+  sorts in and the reader bisects on is the same bytewise order in one program, not a contract between
+  two tools.
 
 **`callers` needs no graph at all** — no nodes, no reverse index, no vault — and is dispatched *ahead*
 of `synapse query`'s vault/namespace preamble, so that stays a structural fact rather than a merely
@@ -165,38 +159,34 @@ the Graph, but real, with nothing but this binary as its price of entry.
 
 ## Vault-freedom, measured
 
-Counting vault references (`SYNAPSE_VAULT_DIR`, `ports.Store`, `ports.LinkGraph`, or a
-vault-resident path resolved from either) across all 43 of `synapse`'s subcommands: the
+Counting vault references (`SYNAPSE_VAULT_DIR`, `Ports.Store`, `Ports.Link_Graph`, or a
+vault-resident path resolved from either) across all 44 of `synapse`'s subcommands: the
 code-graph/cache side is vault-free outright — `namespace`, `build-index`, `build-lists`,
 `build-refs`, `build-deps`, `build-namespaces`, `callers`, `enumerate`, `gate`, `push-nodes`,
 `rank`, `vocab`, `tags`, `tags-cache`, `link-graph`, `brief`, `index` (its own `_index.bin` lives
 in the work dir, never the vault), `comments-check`, `comments-sweep`, and `now` -- 20 in total.
-Seven more are *path*-bound, not *network*-bound at all: `write-node`, `frontmatter`, `query`,
-`build-project-index`, `graph-clean`, `graph-wipe`, and `doctor` -- every write among these is
+Eight more are *path*-bound, not *network*-bound at all: `write-node`, `frontmatter`, `query`,
+`build-project-index`, `graph-clean`, `graph-wipe`, `context`, and `doctor` -- every write among these is
 plain disk I/O (`frontmatter` a plain disk read first too, for the one field it's changing) under
 either `Store` backend, `query`/`links` read a node's file or its `## Links` section directly off
 a resolved path, and `doctor` has no live-reachability check at all -- every check it runs is a
 local file or config read. The remaining 16 are the `vault-*` family itself (`vault-read` through
-`vault-rename`, plus the internal `vault-git-pusher`) -- obviously and entirely vault-bound, since
+`vault-delete`) -- obviously and entirely vault-bound, since
 being the vault's own read/write/search/link-graph surface is their whole reason to exist.
 
-The counting is easier than it was, and that is the point of the port rather than a side effect:
-this was fifteen shell scripts plus a compiled binary, so "is this piece vault-free" meant reading
-each script's preamble. It is now one binary whose vault access is a single function
-(`core.conf.vaultDir`) with a countable set of callers.
+The counting is easy because the tooling is one binary whose vault access is a single function
+(`Conf_Files.Vault_Dir`) with a countable set of callers.
 
-`build-index` moved from the second list to the first during the Zig port, which is what that
-distinction predicted: the index it writes was derived, gitignored in the vault and never travelled,
-so the vault reference was a `PUT` with nothing behind it. `query` moved most of the way for the same
-reason — every read is a disk read. `write-node`, `build-project-index`, and `frontmatter` write
+`build-index` is on the first list, which is what that
+distinction predicts: the index it writes is derived, gitignored in the vault and never travels.
+`query` is path-bound for the same reason — every read is a disk read. `write-node`, `build-project-index`, and `frontmatter` write
 through plain disk I/O too, and so do `vault-search-text` and the `LinkGraph`/`Renamer`
-subcommands: `DiskStore` has real `search`/`LinkGraph`/`Renamer` of its own (rarity-weighted
+subcommands: `Disk_Store` has real `Search`/`Link_Graph`/`Renamer` of its own (rarity-weighted
 ranking, wikilink resolution, rename-with-referrer-rewrite), not stubs, and it is the only backend
 these ever reach -- `git`, the one optional integration, layers a commit lifecycle over `write`/
 `renamer` without touching how any of this resolves. `vault-search`'s structured JsonLogic filtering
-(`core.vault_query`, `search_query`'s real successor) is built the same way: `Store.list` +
-`Store.read` per candidate + pure JsonLogic evaluation, one code path under every backend. Not yet decided: whether the Code Cache ships as a separate repo, given it needs only `git` and
-a C compiler to stand alone as `git ls-files → tags-cache → build-refs → callers`. That list used to
-name `jq` and the `tree-sitter` CLI as well, and both are gone — libtree-sitter is linked into the
-binary and the grammar's own query (`tags.scm`, `locals.scm`, or a tier-3 generated one) runs
-in-process.
+(`Core.Vault_Query`) is built the same way: `Store.List` +
+`Store.Read` per candidate + pure JsonLogic evaluation, one code path under every backend. Not yet decided: whether the Code Cache ships as a separate repo, given it needs only `git` and
+a C compiler to stand alone as `git ls-files → tags-cache → build-refs → callers`. libtree-sitter is
+linked into the binary and the grammar's own query (`tags.scm`, `locals.scm`, or a tier-3 generated
+one) runs in-process.

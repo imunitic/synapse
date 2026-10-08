@@ -1,6 +1,4 @@
 .DS_Store
-zig-out/
-.zig-cache/
 # Scratch cross-compile output -- release.yml's own per-target build dir
 # (out/$target/bin/...), also used locally when testing a release by hand.
 out/
@@ -8,12 +6,6 @@ out/
 # release.yml's own publish step copies them in fresh from out/ at publish
 # time (or a local hand-test does the same); never checked into source.
 packages/synapse/platforms/*/bin/
-# Where zig 0.16 unpacks fetched dependencies -- the global cache under
-# ~/.cache/zig/p holds only the tarballs. Build output like the two above,
-# not vendored source: `zig build --fetch` refills it from the hash pinned in
-# build.zig.zon, and unpacks every version it is ever pointed at without
-# collecting the ones no longer named.
-zig-pkg/
 job.txt
 zig-tags.tsv
 # Personal, machine-local Claude Code instructions -- never shared, never
@@ -23,3 +15,20 @@ CLAUDE.local.md
 # ~/Development/synapse/scripts/) -- never part of a build or package.
 scripts/
 
+
+# Build products and downloads of the Ada crate.
+obj/
+bin/
+/config/
+/tests/unit/config/
+/tests/acceptance/config/
+/tools/config/
+alire/
+/ucd/
+/testdata/
+
+# Loose GNAT build products from a one-off compile in this directory.
+b~*
+*.ali
+*.o
+*.bexch

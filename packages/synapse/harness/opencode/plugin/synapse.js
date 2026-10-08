@@ -2,7 +2,7 @@
 // Code's hooks.json already calls, translating OpenCode's plugin callbacks
 // into the same stdin JSON payload / stdout `hookSpecificOutput` shape the
 // binary already reads and writes. No engine change -- see
-// `src/apps/hook/main.zig`'s own doc comment for that contract.
+// `src/hooks/synapse-hooks-dispatch.ads`'s own doc comment for that contract.
 //
 // Ported to the OpenCode v2 plugin API (2.0.x). The v2 loader rejects this
 // file's old shape outright at load time -- it requires a default export

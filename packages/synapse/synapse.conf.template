@@ -44,7 +44,7 @@ SYNAPSE_GRAMMARS_DIR="$HOME/.cache/synapse/grammars"
 # -- the safest choice and the only one that preserves cross-node authorial
 # memory. N>=1 fans out to a worker pool of that size instead, each node
 # written by an isolated subagent. Read directly by the orchestrating agent
-# when it runs /synapse-init, not by any Zig binary -- nothing compiled
+# when it runs /synapse-init, not by any compiled binary -- nothing compiled
 # dispatches subagents.
 #SYNAPSE_AUTHOR_POOL=0
 

@@ -239,13 +239,9 @@ function configureClaude() {
   const rendered = renderHooksTemplate(path.join(PKG_ROOT, "harness", "claude", "hooks.json"), hookBin);
   settings.hooks = mergeHooksInto(settings.hooks, rendered);
 
-  // The npm-install counterpart to $CLAUDE_PLUGIN_ROOT -- conf.zig's own
-  // resolveConfPath and session_start.zig's synapse-claude.md/Index.md.template
-  // lookups both check this env var now that there's no plugin marketplace
-  // to set CLAUDE_PLUGIN_ROOT for them. Points at PKG_ROOT, the same
-  // relative shape CLAUDE_PLUGIN_ROOT used to point at plugins/synapse/ --
-  // synapse-claude.md, Index.md.template, and every *.conf.template sit
-  // directly under it.
+  // SYNAPSE_CONTENT_ROOT points at PKG_ROOT: the config resolution in
+  // Conf_Files and the session-start hook look up synapse-claude.md,
+  // Index.md.template and every *.conf.template directly under it.
   settings.env = settings.env || {};
   settings.env.SYNAPSE_CONTENT_ROOT = PKG_ROOT;
 

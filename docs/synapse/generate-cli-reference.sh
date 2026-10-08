@@ -29,8 +29,8 @@ set -euo pipefail
 readonly HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly ROOT="$(cd "$HERE/../.." && pwd)"
 readonly OUT="$HERE/cli.md"
-readonly SYNAPSE="${SYNAPSE_BIN:-$ROOT/zig-out/bin/synapse}"
-readonly HOOK="${SYNAPSE_HOOK_BIN:-$ROOT/zig-out/bin/synapse-hook}"
+readonly SYNAPSE="${SYNAPSE_BIN:-$ROOT/bin/synapse}"
+readonly HOOK="${SYNAPSE_HOOK_BIN:-$ROOT/bin/synapse-hook}"
 
 usage() { # usage [exit-code]
   awk '/^# Usage:/ { p = 1 } p && !/^#/ { exit } p { sub(/^# ?/, ""); print }' "$0" >&2
@@ -47,7 +47,7 @@ esac
 
 for bin in "$SYNAPSE" "$HOOK"; do
   [ -x "$bin" ] || {
-    echo "generate-cli-reference: no binary at $bin -- run 'zig build'" >&2
+    echo "generate-cli-reference: no binary at $bin -- run 'just build'" >&2
     exit 1
   }
 done
