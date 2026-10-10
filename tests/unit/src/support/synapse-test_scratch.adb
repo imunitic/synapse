@@ -16,6 +16,11 @@ package body Synapse.Test_Scratch is
    function Number (N : Natural) return String is
      (Ada.Strings.Fixed.Trim (Natural'Image (N), Ada.Strings.Left));
 
+   --  The working directory with `/` between its parts: the paths the program
+   --  reports use it on every platform, and the tests compare against them.
+   function Work_Dir return String is
+     (Adapters.File_Bytes.Slashed (Ada.Directories.Current_Directory));
+
    function Make return Scratch is
       Stamp : constant Natural :=
         Natural (Ada.Calendar.Seconds (Ada.Calendar.Clock) * 1_000.0);
@@ -24,7 +29,7 @@ package body Synapse.Test_Scratch is
       return Result : Scratch do
          Result.Path :=
            To_Unbounded_String
-             (Ada.Directories.Current_Directory & "/obj/scratch-" &
+             (Work_Dir & "/obj/scratch-" &
               Number (Stamp) & "-" & Number (Counter));
          Ada.Directories.Create_Path (To_String (Result.Path));
       end return;

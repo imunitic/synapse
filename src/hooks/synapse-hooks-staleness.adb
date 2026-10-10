@@ -1,7 +1,6 @@
 with Ada.Calendar;
 with Ada.Directories;
 with Ada.Strings.Fixed;
-with Ada.Strings.Maps;
 with Ada.Strings.Unbounded;
 
 with GNAT.OS_Lib;
@@ -542,7 +541,7 @@ package body Synapse.Hooks.Staleness is
       Slash : Natural := 0;
    begin
       for I in reverse Path'Range loop
-         if Path (I) in '/' | '\' then
+         if Path (I) in '/' | GNAT.OS_Lib.Directory_Separator then
             Slash := I;
             exit;
          end if;
@@ -554,9 +553,9 @@ package body Synapse.Hooks.Staleness is
          Base     : constant String :=
            (if Slash = 0 then Path else Path (Slash + 1 .. Path'Last));
          Resolved : constant String :=
-           Ada.Strings.Fixed.Translate
-             (GNAT.OS_Lib.Normalize_Pathname (Dir, Resolve_Links => True),
-              Ada.Strings.Maps.To_Mapping ("\", "/"));
+           Adapters.File_Bytes.Slashed
+             (GNAT.OS_Lib.Normalize_Pathname
+                (Dir, Resolve_Links => True, Case_Sensitive => True));
       begin
          return
            (if Resolved = "" then Path elsif Resolved = "/" then "/" & Base
@@ -574,7 +573,7 @@ package body Synapse.Hooks.Staleness is
       Slash : Natural := 0;
    begin
       for I in reverse Raw_File'Range loop
-         if Raw_File (I) in '/' | '\' then
+         if Raw_File (I) in '/' | GNAT.OS_Lib.Directory_Separator then
             Slash := I;
             exit;
          end if;

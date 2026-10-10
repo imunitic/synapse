@@ -12,6 +12,11 @@ package Synapse.Adapters.File_Bytes is
    --  Creates or replaces the file at Path with Content.
    procedure Write (Path, Content : String);
 
+   --  The path with `/` between its parts, whatever the platform's own
+   --  separator is: the form paths take in the graph, in output and in the
+   --  tests. A path that already uses `/` comes back as it is.
+   function Slashed (Path : String) return String;
+
    --  The directory for temporary files: $TMPDIR, $TMP or $TEMP when set to
    --  a directory, else /tmp when there is one, else the current directory.
    --  No trailing separator.
