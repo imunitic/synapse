@@ -186,6 +186,18 @@ package body Synapse.Adapters.System_Process is
 
       Command : Unbounded_String := To_Unbounded_String (Quote (Program));
    begin
+      --  The status a shell gives for a directory it cannot enter.
+      if Length (Opts.Cwd) > 0
+        and then not Ada.Directories.Exists (To_String (Opts.Cwd))
+      then
+         Clean;
+         return
+           (Exit_Code => 127,
+            Output    => Null_Unbounded_String,
+            Errors    =>
+              To_Unbounded_String
+                ("cannot change to " & To_String (Opts.Cwd)));
+      end if;
       for Argument of Args loop
          Append (Command, " " & Quote (To_String (Argument)));
       end loop;

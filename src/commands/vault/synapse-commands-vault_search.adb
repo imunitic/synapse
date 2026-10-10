@@ -198,6 +198,16 @@ package body Synapse.Commands.Vault_Search is
                return 1;
             end if;
 
+            if Has_Space
+              and then Namespace_Filter (To_String (Namespace), "", False) = ""
+            then
+               Complain
+                 (Env,
+                  Prog & ": --namespace expects <repo>@<branch>, got '" &
+                  To_String (Namespace) & "'" & LF);
+               return 2;
+            end if;
+
             if Has_Space then
                declare
                   Ctx : constant Context.Maybe_Context :=
@@ -222,14 +232,6 @@ package body Synapse.Commands.Vault_Search is
                   else User_Text);
                Needs_Rule  : constant Boolean := Has_Space or else Want_Filter;
             begin
-               if Has_Space and then Filter_Text = "" then
-                  Complain
-                    (Env,
-                     Prog & ": --namespace expects <repo>@<branch>, got '" &
-                     To_String (Namespace) & "'" & LF);
-                  return 2;
-               end if;
-
                declare
                   Parsed : constant JSON.Parse_Result :=
                     (if Needs_Rule then JSON.Parse (Filter_Text)

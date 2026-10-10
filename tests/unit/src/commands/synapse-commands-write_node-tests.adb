@@ -701,7 +701,7 @@ package body Synapse.Commands.Write_Node.Tests is
       F   : aliased Fixture;
    begin
       Setup (F, Dir);
-      Ada.Directories.Delete_Tree (Path (Dir, "repo/.git"));
+      Delete_Tree (Path (Dir, "repo/.git"));
       Git (Repo (Dir), "init", "-q");
       Assert
         (Run (Env (F), Write_Args (Dir)) = 0,

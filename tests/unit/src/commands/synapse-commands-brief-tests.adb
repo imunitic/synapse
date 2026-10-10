@@ -76,7 +76,8 @@ package body Synapse.Commands.Brief.Tests is
       Assert
         (Page (Dir, "001") =
          "# Alpha" & LF & LF & "Repo root: " &
-         Ada.Directories.Full_Name (Repo (Dir)) & LF & "Sources list: " &
+         Synapse.Adapters.File_Bytes.Slashed
+           (Ada.Directories.Full_Name (Repo (Dir))) & LF & "Sources list: " &
          Path (Dir, "lists/001.txt") &
          " (2 files, exhaustive -- do not re-enumerate; `write-node` reads this list directly)" &
          LF & LF & "## Summary pool (ranked, read the top few)" & LF & "```" &

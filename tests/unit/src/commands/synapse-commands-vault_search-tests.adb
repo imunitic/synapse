@@ -393,9 +393,6 @@ package body Synapse.Commands.Vault_Search.Tests is
    begin
       Use_Vault (F, Dir);
       Fill (Dir);
-      Put
-        (Dir, "synapse/wi""dget@main/Index.md",
-         "---" & LF & "branch: main" & LF & "remote: r" & LF & "---" & LF);
       F.Vars.Set ("SYNAPSE_REPO_ROOT", "/w");
       F.Vars.Set ("SYNAPSE_BRANCH", "main");
       F.Vars.Set ("SYNAPSE_REMOTE", "r");

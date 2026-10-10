@@ -1,6 +1,8 @@
 with Ada.Environment_Variables;
 with Ada.Strings.Unbounded;
 
+with GNAT.OS_Lib;
+
 with AUnit.Assertions;
 
 package body Synapse.Adapters.System_Variables.Tests is
@@ -23,8 +25,11 @@ package body Synapse.Adapters.System_Variables.Tests is
    begin
       Ada.Environment_Variables.Set ("SYNAPSE_TEST_VARIABLE", "value");
       Assert (Text (V, "SYNAPSE_TEST_VARIABLE") = "<value>", "a set variable");
-      Ada.Environment_Variables.Set ("SYNAPSE_TEST_VARIABLE", "");
-      Assert (Text (V, "SYNAPSE_TEST_VARIABLE") = "<>", "empty is found");
+      --  Windows has no empty variable: setting one to nothing removes it.
+      if GNAT.OS_Lib.Directory_Separator = '/' then
+         Ada.Environment_Variables.Set ("SYNAPSE_TEST_VARIABLE", "");
+         Assert (Text (V, "SYNAPSE_TEST_VARIABLE") = "<>", "empty is found");
+      end if;
       Ada.Environment_Variables.Clear ("SYNAPSE_TEST_VARIABLE");
       Assert (Text (V, "SYNAPSE_TEST_VARIABLE") = "none", "an unset one");
    end It_Reads_The_Real_Environment;
