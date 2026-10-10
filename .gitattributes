@@ -1,0 +1,3 @@
+# Checked-out files have the bytes that are committed, on every platform: the
+# generated sources are compared byte for byte against the generator's output.
+* text=auto eol=lf
