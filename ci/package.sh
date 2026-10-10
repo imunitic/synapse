@@ -63,10 +63,11 @@ ls "$work/tarballs" | sed 's/^/  packed /'
 
 nm="$work/prefix/node_modules"
 bin="$nm/.bin"
-# Where node resolves the platform package from the main package, which is
-# what `synapse-setup` writes into the hook commands: /var is /private/var on
-# macOS, and a Windows temp directory may be spelled with a short name.
-pkgbin="$(cd "$nm/@imunitic/synapse" && node -p "require('path').join(require('path').dirname(require.resolve('@imunitic/synapse-$plat/package.json')), 'bin').split(require('path').sep).join('/')")"
+# A path as node's real path, with `/` between the parts: /var is /private/var
+# on macOS, and a Windows temp directory may be spelled with a short name
+# (RUNNER~1) in one place and its long name in another.
+canon() { node -p "require('fs').realpathSync.native(process.argv[1]).split(require('path').sep).join('/')" "$1"; }
+pkgbin="$(canon "$nm/@imunitic/synapse-$plat/bin")"
 [ -x "$pkgbin/synapse$exe" ] && [ -x "$pkgbin/synapse-hook$exe" ] || fail "the platform package holds no binaries"
 
 # The shims resolve the binaries.
@@ -87,16 +88,20 @@ settings="$home/.claude/settings.json"
 for hook in session-start prompt-context staleness stop-nudge; do
     cmd="$(jq -r --arg h "$hook" '[.hooks[][].hooks[].command | select(endswith(" " + $h))] | first // empty' "$settings")"
     [ -n "$cmd" ] || fail "settings.json registers no '$hook' hook"
-    [ "${cmd%% *}" = "$pkgbin/synapse-hook$exe" ] || fail "'$hook' runs ${cmd%% *}, not the installed hook binary"
+    [ "$(canon "${cmd%% *}")" = "$pkgbin/synapse-hook$exe" ] || fail "'$hook' runs ${cmd%% *}, not the installed hook binary"
 done
 ls "$home/.claude/skills" | grep -q "synapse-query" || fail "no skills copied"
 echo "  configure claude ok"
 
 "$bin/synapse-setup" configure codex >/dev/null || fail "synapse-setup configure codex"
-jq -e --arg bin "$pkgbin/synapse-hook$exe" '[.hooks[][].hooks[].command | startswith($bin + " ")] | length > 0 and all' "$home/.codex/hooks.json" >/dev/null \
-    || fail "codex hooks do not run the installed hook binary"
+codex_bins="$(jq -r '[.hooks[][].hooks[].command | split(" ")[0]] | unique | .[]' "$home/.codex/hooks.json" | tr -d '\r')"
+[ -n "$codex_bins" ] || fail "codex hooks name no binary"
+for b in $codex_bins; do
+    [ "$(canon "$b")" = "$pkgbin/synapse-hook$exe" ] || fail "codex hooks do not run the installed hook binary"
+done
 "$bin/synapse-setup" configure opencode >/dev/null || fail "synapse-setup configure opencode"
-grep -qF "$pkgbin/synapse-hook$exe" "$home/.config/opencode/plugin/synapse.js" || fail "the opencode plugin does not name the installed hook binary"
+plugin_bin="$(grep -o '"[^"]*synapse-hook[^"]*"' "$home/.config/opencode/plugin/synapse.js" | head -1 | tr -d '"')"
+[ -n "$plugin_bin" ] && [ "$(canon "$plugin_bin")" = "$pkgbin/synapse-hook$exe" ] || fail "the opencode plugin does not name the installed hook binary"
 echo "  configure codex, opencode ok"
 
 # The installed hooks, run the way Claude Code runs them.
