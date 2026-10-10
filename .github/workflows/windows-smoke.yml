@@ -1,0 +1,74 @@
+name: windows-smoke
+
+# Installs the published package on a Windows runner the way a user does and
+# uses it: the shims, a vault, a git-backed vault, `synapse-setup configure` and
+# the hook it writes. Runs when this file changes, or by hand.
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/windows-smoke.yml"
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install the published package
+        run: |
+          npm install -g @imunitic/synapse@latest
+          echo "node arch: $(node -p 'process.platform + "-" + process.arch')"
+          npm ls -g @imunitic/synapse
+          ls "$(npm root -g)/@imunitic/synapse/node_modules/@imunitic/"
+
+      - name: The shims run the binaries
+        run: |
+          synapse now
+          synapse-hook --help 2>&1 | grep "usage: synapse-hook"
+
+      - name: A vault, read and written
+        run: |
+          vault="$RUNNER_TEMP/vault"
+          mkdir -p "$vault/inbox"
+          printf '# the vault index\n' > "$vault/Index.md"
+          export SYNAPSE_VAULT_DIR="$(cygpath -m "$vault")"
+          printf '%s\n' '# Hello' '' 'A note about widgets.' | synapse vault-write inbox/hello.md
+          synapse vault-read inbox/hello.md | grep widgets
+          synapse vault-search-text widgets | grep hello
+          synapse vault-list | grep hello
+
+      - name: A git-backed vault commits what is written
+        run: |
+          git config --global user.email ci@example.com
+          git config --global user.name CI
+          vault="$RUNNER_TEMP/gitvault"
+          mkdir -p "$vault/inbox"
+          printf '# the vault index\n' > "$vault/Index.md"
+          git -C "$vault" init -q -b main
+          git -C "$vault" add -A
+          git -C "$vault" commit -q -m init
+          export SYNAPSE_VAULT_DIR="$(cygpath -m "$vault")"
+          export SYNAPSE_VAULT_INTEGRATIONS=git
+          printf '%s\n' '# Tracked' '' 'Goes into git.' | synapse vault-write inbox/tracked.md
+          git -C "$vault" log --oneline
+          test "$(git -C "$vault" rev-list --count HEAD)" -ge 2
+
+      - name: synapse-setup writes a hook that runs
+        run: |
+          synapse-setup configure claude
+          settings="$(cygpath "$USERPROFILE")/.claude/settings.json"
+          jq -r '[.hooks[][].hooks[].command] | unique | .[]' "$settings"
+          cmd="$(jq -r '[.hooks[][].hooks[].command | select(endswith(" session-start"))] | first' "$settings")"
+          echo "session-start command: $cmd"
+          vault="$RUNNER_TEMP/hookvault"
+          mkdir -p "$vault"
+          printf '# the vault index\n' > "$vault/Index.md"
+          export SYNAPSE_VAULT_DIR="$(cygpath -m "$vault")"
+          printf '{"cwd":"%s"}' "$(cygpath -m "$RUNNER_TEMP")" | $cmd | jq -e '.hookSpecificOutput.hookEventName == "SessionStart"'
