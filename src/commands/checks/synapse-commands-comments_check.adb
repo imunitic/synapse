@@ -1,4 +1,6 @@
 with Ada.Directories;
+with Ada.Strings.Fixed;
+with Ada.Strings.Maps;
 with Ada.Strings.Unbounded;
 
 with Synapse.Adapters.Git_Identity;
@@ -63,7 +65,9 @@ package body Synapse.Commands.Comments_Check is
                   end if;
                   declare
                      Absolute : constant String :=
-                       Ada.Directories.Full_Name (Path_Arg);
+                       Ada.Strings.Fixed.Translate
+                         (Ada.Directories.Full_Name (Path_Arg),
+                          Ada.Strings.Maps.To_Mapping ("\", "/"));
                      Prefix   : constant String := Root & "/";
                   begin
                      if Absolute'Length <= Prefix'Length
