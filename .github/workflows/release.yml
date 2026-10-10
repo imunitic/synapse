@@ -52,6 +52,7 @@ jobs:
           - { os: ubuntu-latest, plat: linux-x64 }
           - { os: ubuntu-24.04-arm, plat: linux-arm64 }
           - { os: macos-latest, plat: darwin-arm64 }
+          - { os: windows-latest, plat: win32-x64 }
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -60,7 +61,7 @@ jobs:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
       - uses: alire-project/setup-alire@v6
-        if: runner.os == 'macOS'
+        if: runner.os != 'Linux'
       - uses: extractions/setup-just@v4
       - uses: actions/setup-node@v4
         with:
@@ -70,13 +71,14 @@ jobs:
         if: runner.os == 'Linux'
         run: ci/linux-release.sh
 
-      - name: Build the macOS binaries
-        if: runner.os == 'macOS'
+      - name: Build the macOS and Windows binaries
+        if: runner.os != 'Linux'
         run: just release
 
       - name: Check the installed package
         env:
           GLIBC_FLOOR: ${{ runner.os == 'Linux' && '2.28' || '' }}
+        shell: bash
         run: ci/package.sh
 
       - uses: actions/upload-artifact@v4
@@ -85,6 +87,8 @@ jobs:
           path: |
             bin/synapse
             bin/synapse-hook
+            bin/synapse.exe
+            bin/synapse-hook.exe
           if-no-files-found: error
 
   publish:
@@ -112,7 +116,7 @@ jobs:
         with:
           path: artifacts
 
-      # One version, four packages, the platform packages first so the main
+      # One version, five packages, the platform packages first so the main
       # package's optional dependencies already resolve. A version already on
       # the registry is skipped, so a retry after a partial failure works.
       - name: Publish the npm packages in lock-step
@@ -137,11 +141,13 @@ jobs:
             fi
           }
 
-          for plat in linux-x64 linux-arm64 darwin-arm64; do
+          for plat in linux-x64 linux-arm64 darwin-arm64 win32-x64; do
             dest="packages/synapse/platforms/$plat/bin"
+            exe=""
+            [ "$plat" = win32-x64 ] && exe=".exe"
             mkdir -p "$dest"
-            cp "artifacts/bin-$plat/synapse" "artifacts/bin-$plat/synapse-hook" "$dest/"
-            chmod +x "$dest/synapse" "$dest/synapse-hook"
+            cp "artifacts/bin-$plat/synapse$exe" "artifacts/bin-$plat/synapse-hook$exe" "$dest/"
+            chmod +x "$dest/synapse$exe" "$dest/synapse-hook$exe"
             tmp=$(mktemp)
             jq --arg v "$v" '.version = $v' "packages/synapse/platforms/$plat/package.json" > "$tmp"
             mv "$tmp" "packages/synapse/platforms/$plat/package.json"

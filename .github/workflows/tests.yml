@@ -7,6 +7,8 @@ name: tests
 # real ~/.claude. The steps are the ones `just check` runs.
 on:
   push:
+    branches: [main]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -19,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -109,13 +111,12 @@ jobs:
 
   # The release binaries packaged as the npm packages and installed the way a
   # user does (`ci/package.sh`): the shims, `synapse-setup configure` for each
-  # harness and the installed hooks. The platforms that have an npm package;
-  # Windows has none yet.
+  # harness and the installed hooks. The platforms that have an npm package.
   package:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -138,4 +139,5 @@ jobs:
           restore-keys: obj-${{ runner.os }}-package-
 
       - name: Package and check the installed program
+        shell: bash
         run: just package

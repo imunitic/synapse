@@ -5,6 +5,8 @@ with Ada.Streams;
 with Ada.Streams.Stream_IO;
 with Ada.Unchecked_Deallocation;
 
+with GNAT.OS_Lib;
+
 with Synapse.Core.Decimal_Image;
 
 package body Synapse.Adapters.File_Bytes is
@@ -106,6 +108,17 @@ package body Synapse.Adapters.File_Bytes is
          return "";
       end;
    end Directory_Named;
+
+   function Slashed (Path : String) return String is
+      Result : String := Path;
+   begin
+      for C of Result loop
+         if C = GNAT.OS_Lib.Directory_Separator then
+            C := '/';
+         end if;
+      end loop;
+      return Result;
+   end Slashed;
 
    function Temp_Dir return String is
       Tmpdir : constant String := Directory_Named ("TMPDIR");

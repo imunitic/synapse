@@ -25,7 +25,8 @@
   "optionalDependencies": {
     "@imunitic/synapse-darwin-arm64": "0.0.0-unreleased",
     "@imunitic/synapse-linux-x64": "0.0.0-unreleased",
-    "@imunitic/synapse-linux-arm64": "0.0.0-unreleased"
+    "@imunitic/synapse-linux-arm64": "0.0.0-unreleased",
+    "@imunitic/synapse-win32-x64": "0.0.0-unreleased"
   },
   "license": "SEE LICENSE IN LICENSE"
 }

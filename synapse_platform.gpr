@@ -27,11 +27,12 @@ abstract project Synapse_Platform is
             "-L" & Sysroot & "/usr/lib64/eh", "-L" & Sysroot & "/usr/lib64");
    end case;
 
-   --  Link switches for `dlopen`.
+   --  Link switches for `dlopen`, and on Windows the 8 MiB main-thread stack
+   --  that the other platforms start with: its own default is 1 MiB.
    Link_Switches := ();
    case Os is
       when "posix"   => Link_Switches := ("-ldl") & Sysroot_Switches;
-      when "windows" => null;
+      when "windows" => Link_Switches := ("-Wl,--stack,8388608");
    end case;
 
 end Synapse_Platform;

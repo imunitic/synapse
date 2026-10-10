@@ -13,10 +13,12 @@ package body Synapse.Adapters.Git_Identity is
    Largest_Small_File : constant := 64 * 1_024;
    Largest_Config     : constant := 8 * 1_024 * 1_024;
 
-   --  The path without symbolic links or `..`.
+   --  The path without symbolic links or `..`, with `/` between its parts on
+   --  every platform.
    function Real_Path (Path : String) return String is
-     (GNAT.OS_Lib.Normalize_Pathname
-        (Path, Resolve_Links => True, Case_Sensitive => True));
+     (File_Bytes.Slashed
+        (GNAT.OS_Lib.Normalize_Pathname
+           (Path, Resolve_Links => True, Case_Sensitive => True)));
 
    function Is_Absolute (Path : String) return Boolean is
      (Path'Length > 0

@@ -266,6 +266,8 @@ package body Synapse.Adapters.Git_Sync.Tests is
       Git (Path (Dir), "clone", "-q", Path (Dir, "remote.git"), Name);
       Git (Path (Dir, Name), "config", "user.email", "test@example.com");
       Git (Path (Dir, Name), "config", "user.name", "Test");
+      --  Files keep the line endings the tests write.
+      Git (Path (Dir, Name), "config", "core.autocrlf", "false");
    end Clone_With_Remote;
 
    procedure Pushing_Needs_Commits_Ahead (T : in out Test_Cases_Class) is

@@ -17,6 +17,10 @@ package Synapse.Test_Scratch is
 
    procedure Remove (S : Scratch);
 
+   --  Deletes the directory and everything in it, read-only files too: git
+   --  writes its objects read-only, and Windows refuses to delete those.
+   procedure Delete_Tree (Path : String);
+
    function Path (S : Scratch; Name : String := "") return String;
 
    --  Runs git in Dir with the given arguments; its standard output, trimmed.

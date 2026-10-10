@@ -2,6 +2,8 @@ with Ada.Calendar;
 with Ada.Directories;
 with Ada.Strings.Fixed;
 
+with GNAT.OS_Lib;
+
 with Synapse.Adapters.File_Bytes;
 with Synapse.Adapters.System_Process;
 with Synapse.Core.Text_Lists;
@@ -10,11 +12,17 @@ with Synapse.Ports.Process_Runner;
 package body Synapse.Test_Scratch is
 
    use Ada.Strings.Unbounded;
+   use type Ada.Directories.File_Kind;
 
    Counter : Natural := 0;
 
    function Number (N : Natural) return String is
      (Ada.Strings.Fixed.Trim (Natural'Image (N), Ada.Strings.Left));
+
+   --  The working directory with `/` between its parts: the paths the program
+   --  reports use it on every platform, and the tests compare against them.
+   function Work_Dir return String is
+     (Adapters.File_Bytes.Slashed (Ada.Directories.Current_Directory));
 
    function Make return Scratch is
       Stamp : constant Natural :=
@@ -24,7 +32,7 @@ package body Synapse.Test_Scratch is
       return Result : Scratch do
          Result.Path :=
            To_Unbounded_String
-             (Ada.Directories.Current_Directory & "/obj/scratch-" &
+             (Work_Dir & "/obj/scratch-" &
               Number (Stamp) & "-" & Number (Counter));
          Ada.Directories.Create_Path (To_String (Result.Path));
       end return;
@@ -51,9 +59,40 @@ package body Synapse.Test_Scratch is
       end return;
    end Make_Outside_Git;
 
+   procedure Make_Writable (Path : String) is
+      Search : Ada.Directories.Search_Type;
+      Item   : Ada.Directories.Directory_Entry_Type;
+   begin
+      Ada.Directories.Start_Search
+        (Search, Path, "", [Ada.Directories.Special_File => False,
+                            others                      => True]);
+      while Ada.Directories.More_Entries (Search) loop
+         Ada.Directories.Get_Next_Entry (Search, Item);
+         declare
+            Name : constant String := Ada.Directories.Simple_Name (Item);
+            Full : constant String := Ada.Directories.Full_Name (Item);
+         begin
+            if Name in "." | ".." then
+               null;
+            elsif Ada.Directories.Kind (Item) = Ada.Directories.Directory then
+               Make_Writable (Full);
+            else
+               GNAT.OS_Lib.Set_Writable (Full);
+            end if;
+         end;
+      end loop;
+      Ada.Directories.End_Search (Search);
+   end Make_Writable;
+
+   procedure Delete_Tree (Path : String) is
+   begin
+      Make_Writable (Path);
+      Ada.Directories.Delete_Tree (Path);
+   end Delete_Tree;
+
    procedure Remove (S : Scratch) is
    begin
-      Ada.Directories.Delete_Tree (To_String (S.Path));
+      Delete_Tree (To_String (S.Path));
    exception
       when others =>
          null;

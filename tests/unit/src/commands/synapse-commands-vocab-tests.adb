@@ -356,12 +356,11 @@ package body Synapse.Commands.Vocab.Tests is
       Dir : constant Scratch := Make;
       F   : aliased Fixture;
    begin
-      F.Vars.Set ("HOME", Path (Dir, "home"));
+      --  A directory cannot be made below a file, on any platform.
+      Synapse.Adapters.File_Bytes.Write (Path (Dir, "blocker"), "");
+      F.Vars.Set ("HOME", Path (Dir, "blocker/home"));
       F.Vars.Set ("SYNAPSE_NAMESPACE", "w@m");
-      F.Vars.Set ("HOME", "");
-      Assert
-        (Run (Env (F), Args) = 1 or else Run (Env (F), Args) = 1,
-         "nowhere to write");
+      Assert (Run (Env (F), Args) = 1, "nowhere to write");
       Assert
         (Run
            (Env (F),
