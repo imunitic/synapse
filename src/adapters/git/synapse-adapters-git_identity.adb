@@ -1,4 +1,6 @@
 with Ada.Directories;
+with Ada.Strings.Fixed;
+with Ada.Strings.Maps;
 with Ada.Strings.Unbounded;
 with GNAT.OS_Lib;
 
@@ -13,10 +15,13 @@ package body Synapse.Adapters.Git_Identity is
    Largest_Small_File : constant := 64 * 1_024;
    Largest_Config     : constant := 8 * 1_024 * 1_024;
 
-   --  The path without symbolic links or `..`.
+   --  The path without symbolic links or `..`, with `/` between its parts on
+   --  every platform.
    function Real_Path (Path : String) return String is
-     (GNAT.OS_Lib.Normalize_Pathname
-        (Path, Resolve_Links => True, Case_Sensitive => True));
+     (Ada.Strings.Fixed.Translate
+        (GNAT.OS_Lib.Normalize_Pathname
+           (Path, Resolve_Links => True, Case_Sensitive => True),
+         Ada.Strings.Maps.To_Mapping ("\", "/")));
 
    function Is_Absolute (Path : String) return Boolean is
      (Path'Length > 0
