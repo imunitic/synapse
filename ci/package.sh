@@ -63,8 +63,10 @@ ls "$work/tarballs" | sed 's/^/  packed /'
 
 nm="$work/prefix/node_modules"
 bin="$nm/.bin"
-# Resolved through symlinks, as node resolves it: /var is /private/var on macOS.
-pkgbin="$(native "$(cd "$nm/@imunitic/synapse-$plat/bin" && pwd -P)")"
+# Where node resolves the platform package from the main package, which is
+# what `synapse-setup` writes into the hook commands: /var is /private/var on
+# macOS, and a Windows temp directory may be spelled with a short name.
+pkgbin="$(cd "$nm/@imunitic/synapse" && node -p "require('path').join(require('path').dirname(require.resolve('@imunitic/synapse-$plat/package.json')), 'bin').split(require('path').sep).join('/')")"
 [ -x "$pkgbin/synapse$exe" ] && [ -x "$pkgbin/synapse-hook$exe" ] || fail "the platform package holds no binaries"
 
 # The shims resolve the binaries.
