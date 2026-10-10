@@ -1,0 +1,19 @@
+{
+  "name": "@imunitic/synapse-win32-x64",
+  "version": "0.0.0-unreleased",
+  "description": "Compiled synapse/synapse-hook binaries for win32/x64. An optionalDependency of @imunitic/synapse -- never installed directly.",
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin"
+  ],
+  "license": "SEE LICENSE IN LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imunitic/synapse.git"
+  }
+}

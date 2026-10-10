@@ -17,7 +17,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { hookPath, platformPackageName, HOOK_NAME } = require("../lib/resolve-binaries.cjs");
+const { hookPath, platformPackageName, HOOK_NAME, EXE } = require("../lib/resolve-binaries.cjs");
 
 const PKG_ROOT = path.join(__dirname, "..");
 
@@ -51,7 +51,10 @@ function resolveHookBin() {
         `or npm skipped it. Try "npm install" again, or check that ${platformPackageName()} exists.`
     );
   }
-  return hookBin;
+  // `/` between the parts on Windows: the command runs through whichever
+  // shell the harness uses, and a shell that reads `\` as an escape would
+  // lose every one of them, while every Windows API accepts `/`.
+  return process.platform === "win32" ? hookBin.replace(/\\/g, "/") : hookBin;
 }
 
 function configure(harness) {
@@ -182,7 +185,7 @@ function renderHooksTemplate(templatePath, hookBin) {
 function isOurHookCommand(command) {
   if (typeof command !== "string") return false;
   const binToken = command.split(" ", 1)[0];
-  return path.basename(binToken) === HOOK_NAME;
+  return path.basename(binToken, EXE) === HOOK_NAME;
 }
 
 // Merges a rendered hooks.json-shaped template into an existing hooks.json

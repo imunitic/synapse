@@ -14,6 +14,7 @@ const path = require("path");
 
 const CLI_NAME = "synapse";
 const HOOK_NAME = "synapse-hook";
+const EXE = process.platform === "win32" ? ".exe" : "";
 
 // Matches process.platform/process.arch directly (not a compiler target triple)
 // since that's what npm's own `os`/`cpu` fields select against -- the
@@ -39,7 +40,7 @@ function resolveBinDir() {
 function resolvedPath(name) {
   const binDir = resolveBinDir();
   if (!binDir) return null;
-  const file = path.join(binDir, name);
+  const file = path.join(binDir, name + EXE);
   return fs.existsSync(file) ? file : null;
 }
 
@@ -51,4 +52,4 @@ function hookPath() {
   return resolvedPath(HOOK_NAME);
 }
 
-module.exports = { platformPackageName, resolveBinDir, cliPath, hookPath, CLI_NAME, HOOK_NAME };
+module.exports = { platformPackageName, resolveBinDir, cliPath, hookPath, CLI_NAME, HOOK_NAME, EXE };
