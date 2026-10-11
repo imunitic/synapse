@@ -1,3 +1,4 @@
+with Ada.Characters.Handling;
 with Ada.Containers.Vectors;
 with Ada.Directories;
 with Ada.Strings.Fixed;
@@ -50,8 +51,6 @@ package body Synapse.Commands.Query is
      "  --namespace <repo>@<branch>        address another checkout's " &
      "graph, not the cwd's" & LF;
 
-   Body_Name : aliased constant String := "body";
-
    Body_Usage : aliased constant String :=
      "  body    <node>                     brief: summary, crux " &
      "pointer, Links" & LF &
@@ -59,8 +58,6 @@ package body Synapse.Commands.Query is
      "no frontmatter" & LF &
      "  body    <node> --lines <a-b>[,<c-d>...]  those lines of the " &
      "node file, frontmatter included" & LF;
-
-   Sources_Name : aliased constant String := "sources";
 
    Sources_Usage : aliased constant String :=
      "  sources <node>                     every path the node covers" & LF &
@@ -70,35 +67,25 @@ package body Synapse.Commands.Query is
      "  sources <node> --filter <pattern>  matching paths only " &
      "(substring)" & LF;
 
-   Field_Name : aliased constant String := "field";
-
    Field_Usage : aliased constant String :=
      "  field   <node> <key>               one top-level frontmatter " &
      "scalar" & LF &
      "  field   --file <path> <key>        same, from a file directly " &
      "-- no vault node needed" & LF;
 
-   Stale_Name : aliased constant String := "stale";
-
    Stale_Usage : aliased constant String :=
      "  stale                              nodes whose files no " &
      "longer match" & LF;
 
-   Drift_Name : aliased constant String := "drift";
-
    Drift_Usage : aliased constant String :=
      "  drift                              what changed since each " &
      "node's commit" & LF;
-
-   Grounding_Name : aliased constant String := "grounding";
 
    Grounding_Usage : aliased constant String :=
      "  grounding                          nodes whose evidence no " &
      "longer matches" & LF &
      "  grounding <node> --list            that node's groundings, " &
      "path<TAB>lines" & LF;
-
-   Links_Name : aliased constant String := "links";
 
    Links_Usage : aliased constant String :=
      "  links   <node>                     outbound relations, " &
@@ -109,8 +96,6 @@ package body Synapse.Commands.Query is
      "depth<TAB>node" & LF &
      "  links   --check                    link targets that resolve " &
      "to no node" & LF;
-
-   Symbol_Name : aliased constant String := "symbol";
 
    Symbol_Usage : aliased constant String :=
      "  symbol  <name> <node>              exact-name hits, " &
@@ -1477,7 +1462,13 @@ package body Synapse.Commands.Query is
    --  The subcommands
    ---------------------------------------------------------------------------
 
-   type Name_Access is access constant String;
+   --  The order here is the order the usage text lists them in. Each
+   --  subcommand is typed on the command line as its name without `Sub_`.
+   type Subcommand_Id is
+     (Sub_Body, Sub_Sources, Sub_Field, Sub_Stale, Sub_Drift, Sub_Grounding,
+      Sub_Links, Sub_Symbol);
+
+   type Text_Access is access constant String;
 
    type Run_Access is
      access function
@@ -1485,49 +1476,66 @@ package body Synapse.Commands.Query is
         return Exit_Code;
 
    type Subcommand is record
-      Name  : Name_Access;
-      Usage : Name_Access;
+      Usage : Text_Access;
       Run   : Run_Access;
    end record;
 
-   --  In the order the usage text lists them.
-   Subcommands : constant array (1 .. 8) of Subcommand :=
-     [1 => (Name => Body_Name'Access, Usage => Body_Usage'Access,
-            Run => Cmd_Body'Access),
-      2 => (Name => Sources_Name'Access, Usage => Sources_Usage'Access,
-            Run => Cmd_Sources'Access),
-      3 => (Name => Field_Name'Access, Usage => Field_Usage'Access,
-            Run => Cmd_Field'Access),
-      4 => (Name => Stale_Name'Access, Usage => Stale_Usage'Access,
-            Run => Cmd_Stale'Access),
-      5 => (Name => Drift_Name'Access, Usage => Drift_Usage'Access,
-            Run => Cmd_Drift'Access),
-      6 => (Name => Grounding_Name'Access, Usage => Grounding_Usage'Access,
-            Run => Cmd_Grounding'Access),
-      7 => (Name => Links_Name'Access, Usage => Links_Usage'Access,
-            Run => Cmd_Links'Access),
-      8 => (Name => Symbol_Name'Access, Usage => Symbol_Usage'Access,
-            Run => Cmd_Symbol'Access)];
+   Subcommands : constant array (Subcommand_Id) of Subcommand :=
+     [Sub_Body =>
+        (Usage => Body_Usage'Access, Run => Cmd_Body'Access),
+      Sub_Sources =>
+        (Usage => Sources_Usage'Access, Run => Cmd_Sources'Access),
+      Sub_Field =>
+        (Usage => Field_Usage'Access, Run => Cmd_Field'Access),
+      Sub_Stale =>
+        (Usage => Stale_Usage'Access, Run => Cmd_Stale'Access),
+      Sub_Drift =>
+        (Usage => Drift_Usage'Access, Run => Cmd_Drift'Access),
+      Sub_Grounding =>
+        (Usage => Grounding_Usage'Access, Run => Cmd_Grounding'Access),
+      Sub_Links =>
+        (Usage => Links_Usage'Access, Run => Cmd_Links'Access),
+      Sub_Symbol =>
+        (Usage => Symbol_Usage'Access, Run => Cmd_Symbol'Access)];
 
-   --  Where Sub is in Subcommands, or 0.
-   function Find (Sub : String) return Natural is
+   function Name_Of (Id : Subcommand_Id) return String is
+      Image : constant String := Subcommand_Id'Image (Id);
    begin
-      for I in Subcommands'Range loop
-         if Subcommands (I).Name.all = Sub then
-            return I;
+      return
+        Ada.Characters.Handling.To_Lower
+          (Image (Image'First + 4 .. Image'Last));
+   end Name_Of;
+
+   function Is_Subcommand (Sub : String) return Boolean is
+   begin
+      for Id in Subcommand_Id loop
+         if Name_Of (Id) = Sub then
+            return True;
          end if;
       end loop;
-      return 0;
-   end Find;
+      return False;
+   end Is_Subcommand;
+
+   function Id_Of (Sub : String) return Subcommand_Id
+   with Pre => Is_Subcommand (Sub)
+   is
+   begin
+      for Id in Subcommand_Id loop
+         if Name_Of (Id) = Sub then
+            return Id;
+         end if;
+      end loop;
+      raise Program_Error;
+   end Id_Of;
 
    function Names return String is
       Text : Unbounded_String;
    begin
-      for I in Subcommands'Range loop
-         if I > 1 then
+      for Id in Subcommand_Id loop
+         if Id /= Subcommand_Id'First then
             Append (Text, ", ");
          end if;
-         Append (Text, Subcommands (I).Name.all);
+         Append (Text, Name_Of (Id));
       end loop;
       return To_String (Text);
    end Names;
@@ -1553,7 +1561,7 @@ package body Synapse.Commands.Query is
    function Dispatch
      (Env  : Environment; Ctx : Context.Context; Sub : String;
       Rest : Lists.Vector) return Exit_Code is
-     (Subcommands (Find (Sub)).Run (Env, Ctx, Rest));
+     (Subcommands (Id_Of (Sub)).Run (Env, Ctx, Rest));
 
    --  `--namespace <repo>@<branch>` is taken from wherever it stands, before
    --  or after the subcommand, and what is left is the subcommand and its
@@ -1604,7 +1612,7 @@ package body Synapse.Commands.Query is
          end if;
          --  Checked before the environment: a mistyped subcommand should not
          --  read as a missing vault.
-         if Find (Sub) = 0 then
+         if not Is_Subcommand (Sub) then
             Complain
               (Env,
                Prog & ": unknown subcommand '" & Sub & "'; one of " & Names &
