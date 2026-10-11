@@ -1,4 +1,7 @@
+with Synapse.Core.String_Match;
+
 package body Synapse.Core.Identity is
+   use String_Match;
 
    function Is_Blank (C : Character) return Boolean is
      (C in ' ' | Character'Val (9) | Character'Val (13) | Character'Val (10));
@@ -15,10 +18,6 @@ package body Synapse.Core.Identity is
       end loop;
       return S (First .. Last);
    end Trimmed;
-
-   function Starts_With (S, Prefix : String) return Boolean is
-     (S'Length >= Prefix'Length
-      and then S (S'First .. S'First + Prefix'Length - 1) = Prefix);
 
    function Last_Index (S : String; C : Character) return Natural is
    begin

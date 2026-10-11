@@ -127,6 +127,7 @@ with Synapse.Commands.Vault_Read.Tests;
 with Synapse.Core.Graph_Model.Tests;
 with Synapse.Core.Hashing.Tests;
 with Synapse.Core.Line_Slice.Tests;
+with Synapse.Core.String_Match.Tests;
 with Synapse.Core.Node_Format.Tests;
 with Synapse.Core.Node_Query.Tests;
 with Synapse.Core.Identity.Tests;
@@ -191,6 +192,7 @@ package body Test_Suites is
    Emit_Tests                     : aliased Synapse.Core.Emit.Tests.Test_Case;
    Hashing_Tests : aliased Synapse.Core.Hashing.Tests.Test_Case;
    Line_Slice_Tests : aliased Synapse.Core.Line_Slice.Tests.Test_Case;
+   String_Match_Tests : aliased Synapse.Core.String_Match.Tests.Test_Case;
    Node_Format_Tests : aliased Synapse.Core.Node_Format.Tests.Test_Case;
    Node_Query_Tests : aliased Synapse.Core.Node_Query.Tests.Test_Case;
    Tag_Line_Tests : aliased Synapse.Core.Tag_Line.Tests.Test_Case;
@@ -459,6 +461,7 @@ package body Test_Suites is
       Result.Add_Test (Emit_Tests'Access);
       Result.Add_Test (Hashing_Tests'Access);
       Result.Add_Test (Line_Slice_Tests'Access);
+      Result.Add_Test (String_Match_Tests'Access);
       Result.Add_Test (Node_Format_Tests'Access);
       Result.Add_Test (Node_Query_Tests'Access);
       Result.Add_Test (Identity_Tests'Access);

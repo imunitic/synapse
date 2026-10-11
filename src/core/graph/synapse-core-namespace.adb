@@ -2,8 +2,10 @@ with Ada.Strings.Fixed;
 with Ada.Strings.Maps;
 
 with Synapse.Core.JSON;
+with Synapse.Core.String_Match;
 
 package body Synapse.Core.Namespace is
+   use String_Match;
 
    package J renames Synapse.Core.JSON;
 
@@ -14,10 +16,6 @@ package body Synapse.Core.Namespace is
 
    Blanks_And_CR : constant Ada.Strings.Maps.Character_Set :=
      Ada.Strings.Maps.To_Set (" " & Character'Val (9) & Character'Val (13));
-
-   function Starts_With (S, Prefix : String) return Boolean is
-     (S'Length >= Prefix'Length
-      and then S (S'First .. S'First + Prefix'Length - 1) = Prefix);
 
    --  The string member of an object, if it is one and is not empty.
    function Text_Member (Object : J.Value; Key : String) return Maybe_Text is

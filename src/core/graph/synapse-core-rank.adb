@@ -1,14 +1,12 @@
+with Synapse.Core.String_Match;
 with Synapse.Core.Vocab;
 
 package body Synapse.Core.Rank is
+   use String_Match;
 
    function Ends_With (Text, Suffix : String) return Boolean is
      (Text'Length >= Suffix'Length
       and then Text (Text'Last - Suffix'Length + 1 .. Text'Last) = Suffix);
-
-   function Starts_With (Text, Prefix : String) return Boolean is
-     (Text'Length >= Prefix'Length
-      and then Text (Text'First .. Text'First + Prefix'Length - 1) = Prefix);
 
    function Base_Name (Path : String) return String is
    begin

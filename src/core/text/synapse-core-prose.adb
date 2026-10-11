@@ -1,6 +1,8 @@
 with Synapse.Core.Note_Text;
+with Synapse.Core.String_Match;
 
 package body Synapse.Core.Prose is
+   use String_Match;
 
    LF : constant Character := Character'Val (10);
    CR : constant Character := Character'Val (13);
@@ -30,10 +32,6 @@ package body Synapse.Core.Prose is
 
    function Is_Digit (C : Character) return Boolean
    is (C in '0' .. '9');
-
-   function Starts_With (S, Prefix : String) return Boolean
-   is (S'Length >= Prefix'Length
-       and then S (S'First .. S'First + Prefix'Length - 1) = Prefix);
 
    function Is_Excluded_Line (Line : String) return Boolean is
       Text : constant String := Without_CR (Line);
