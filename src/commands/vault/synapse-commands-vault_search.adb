@@ -158,12 +158,7 @@ package body Synapse.Commands.Vault_Search is
       Count : Natural := 0;
    begin
       for Arg of Args loop
-         declare
-            Text : constant String := To_String (Arg);
-         begin
-            exit when Text'Length >= 2
-              and then Text (Text'First .. Text'First + 1) = "--";
-         end;
+         exit when Cli_Args.Is_Flag (To_String (Arg));
          Count := Count + 1;
       end loop;
       return Count;

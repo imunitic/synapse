@@ -425,9 +425,7 @@ package body Synapse.Commands.Index is
                   I             := I + 1;
                   Namespace     := Args (I);
                   Has_Namespace := True;
-               elsif Arg'Length >= 2
-                 and then Arg (Arg'First .. Arg'First + 1) = "--"
-               then
+               elsif Cli_Args.Is_Flag (Arg) then
                   return Usage (Env);
                elsif not Has_Positional then
                   Positional     := Args (I);

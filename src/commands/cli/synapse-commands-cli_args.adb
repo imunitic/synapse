@@ -18,9 +18,7 @@ package body Synapse.Commands.Cli_Args is
          Text : constant String := Ada.Strings.Unbounded.To_String (Next);
       begin
          Index := Index + 1;
-         if Text'Length >= 2
-           and then Text (Text'First .. Text'First + 1) = "--"
-         then
+         if Is_Flag (Text) then
             return;
          end if;
          Value := Next;
