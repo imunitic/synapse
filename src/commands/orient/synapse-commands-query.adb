@@ -80,10 +80,44 @@ package body Synapse.Commands.Query is
      "node" & LF & "  symbol  <name> <node>              exact-name hits, " &
      "name<TAB>role<TAB>kind<TAB>path:line<TAB>expression" & LF;
 
-   function Usage (Env : Environment) return Exit_Code is
+   function Starts_With (Line, Prefix : String) return Boolean is
+     (Line'Length >= Prefix'Length
+      and then Line (Line'First .. Line'First + Prefix'Length - 1) = Prefix);
+
+   --  The usage header, the `--namespace` line and the lines of one
+   --  subcommand: what a bad argument to it needs, and no more.
+   function Usage_For (Sub : String) return String is
+      Text  : Unbounded_String;
+      Start : Positive := Usage_Text'First;
    begin
-      Complain (Env, Usage_Text);
-      Cli_Args.Print_Map_For (Env, "query");
+      for I in Usage_Text'Range loop
+         if Usage_Text (I) = LF then
+            declare
+               Line : constant String := Usage_Text (Start .. I - 1);
+            begin
+               if Start = Usage_Text'First
+                 or else Starts_With (Line, "  --namespace")
+                 or else Starts_With (Line, "  " & Sub & ' ')
+               then
+                  Append (Text, Line & LF);
+               end if;
+            end;
+            Start := I + 1;
+         end if;
+      end loop;
+      return To_String (Text);
+   end Usage_For;
+
+   --  Everything there is to say when no subcommand was given, and just that
+   --  subcommand's lines when a known one was given a bad argument.
+   function Usage (Env : Environment; Sub : String := "") return Exit_Code is
+   begin
+      if Sub = "" then
+         Complain (Env, Usage_Text);
+         Cli_Args.Print_Map_For (Env, "query");
+      else
+         Complain (Env, Usage_For (Sub));
+      end if;
       return 2;
    end Usage;
 
@@ -118,7 +152,7 @@ package body Synapse.Commands.Query is
       if Rest.Is_Empty or else Is_Blank (Rest (1))
         or else not (Mode_Brief or else Mode_Full or else Mode_Lines)
       then
-         return Usage (Env);
+         return Usage (Env, "body");
       end if;
       declare
          Name   : constant String                  := To_String (Rest (1));
@@ -210,7 +244,7 @@ package body Synapse.Commands.Query is
       Given   : constant Natural := Natural (Rest.Length);
    begin
       if Rest.Is_Empty or else Is_Blank (Rest (1)) then
-         return Usage (Env);
+         return Usage (Env, "sources");
       end if;
       if Given > 1 then
          declare
@@ -226,7 +260,7 @@ package body Synapse.Commands.Query is
                Mode    := Filter;
                Pattern := Rest (3);
             else
-               return Usage (Env);
+               return Usage (Env, "sources");
             end if;
          end;
       end if;
@@ -323,7 +357,7 @@ package body Synapse.Commands.Query is
       if Natural (Rest.Length) /= 2 or else Is_Blank (Rest (1))
         or else Is_Blank (Rest (2))
       then
-         return Usage (Env);
+         return Usage (Env, "field");
       end if;
       declare
          Path : constant String :=
@@ -470,7 +504,7 @@ package body Synapse.Commands.Query is
       Root  : constant String := To_String (Ctx.Repo_Root);
    begin
       if not Rest.Is_Empty then
-         return Usage (Env);
+         return Usage (Env, "stale");
       end if;
       if not Repo_Root_Present (Env, Ctx, "stale") then
          return 1;
@@ -834,7 +868,7 @@ package body Synapse.Commands.Query is
       Pairs         : Pairing_Vectors.Vector;
    begin
       if not Rest.Is_Empty then
-         return Usage (Env);
+         return Usage (Env, "drift");
       end if;
       if not Repo_Root_Present (Env, Ctx, "drift") then
          return 1;
@@ -983,7 +1017,7 @@ package body Synapse.Commands.Query is
          end;
       end if;
       if not Rest.Is_Empty then
-         return Usage (Env);
+         return Usage (Env, "grounding");
       end if;
       if not Repo_Root_Present (Env, Ctx, "grounding") then
          return 1;
@@ -1152,14 +1186,14 @@ package body Synapse.Commands.Query is
    is
    begin
       if Rest.Is_Empty then
-         return Usage (Env);
+         return Usage (Env, "links");
       end if;
       declare
          First : constant String := To_String (Rest (1));
       begin
          if First = "--check" then
             if Natural (Rest.Length) /= 1 then
-               return Usage (Env);
+               return Usage (Env, "links");
             end if;
             declare
                Names : Lists.Vector;
@@ -1181,7 +1215,7 @@ package body Synapse.Commands.Query is
             end;
          end if;
          if First'Length = 0 or else First (First'First) = '-' then
-            return Usage (Env);
+            return Usage (Env, "links");
          end if;
 
          declare
@@ -1206,7 +1240,7 @@ package body Synapse.Commands.Query is
                end;
             end if;
             if Natural (Rest.Length) /= 2 then
-               return Usage (Env);
+               return Usage (Env, "links");
             end if;
 
             declare
@@ -1293,7 +1327,7 @@ package body Synapse.Commands.Query is
                      return 0;
                   end;
                end if;
-               return Usage (Env);
+               return Usage (Env, "links");
             end;
          end;
       end;
@@ -1327,7 +1361,7 @@ package body Synapse.Commands.Query is
       if Natural (Rest.Length) /= 2 or else Is_Blank (Rest (1))
         or else Is_Blank (Rest (2))
       then
-         return Usage (Env);
+         return Usage (Env, "symbol");
       end if;
       if not Repo_Root_Present (Env, Ctx, "symbol") then
          return 1;
@@ -1460,24 +1494,48 @@ package body Synapse.Commands.Query is
       end if;
    end Dispatch;
 
-   function Run (Env : Environment; Args : Lists.Vector) return Exit_Code is
-      Index    : Positive := 1;
-      Explicit : Unbounded_String;
-      Have_Ns  : Boolean  := False;
+   --  `--namespace <repo>@<branch>` is taken from wherever it stands, before
+   --  or after the subcommand, and what is left is the subcommand and its
+   --  arguments. Ok is False when the flag has no value or is given twice.
+   procedure Take_Namespace
+     (Args     :     Lists.Vector; Left : out Lists.Vector;
+      Explicit : out Unbounded_String; Have_Ns : out Boolean;
+      Ok       : out Boolean)
+   is
+      I : Positive := 1;
    begin
-      if Args.Is_Empty then
+      Left.Clear;
+      Explicit := Null_Unbounded_String;
+      Have_Ns  := False;
+      Ok       := True;
+      while I <= Natural (Args.Length) loop
+         if To_String (Args (I)) = "--namespace" then
+            if Have_Ns or else I = Natural (Args.Length) then
+               Ok := False;
+               return;
+            end if;
+            Explicit := Args (I + 1);
+            Have_Ns  := True;
+            I        := I + 2;
+         else
+            Left.Append (Args (I));
+            I := I + 1;
+         end if;
+      end loop;
+   end Take_Namespace;
+
+   function Run (Env : Environment; Args : Lists.Vector) return Exit_Code is
+      Left     : Lists.Vector;
+      Explicit : Unbounded_String;
+      Have_Ns  : Boolean;
+      Ns_Ok    : Boolean;
+   begin
+      Take_Namespace (Args, Left, Explicit, Have_Ns, Ns_Ok);
+      if not Ns_Ok or else Left.Is_Empty then
          return Usage (Env);
       end if;
-      if To_String (Args (Index)) = "--namespace" then
-         if Natural (Args.Length) < 3 then
-            return Usage (Env);
-         end if;
-         Explicit := Args (2);
-         Have_Ns  := True;
-         Index    := 3;
-      end if;
       declare
-         Sub : constant String := To_String (Args (Index));
+         Sub : constant String := To_String (Left (1));
       begin
          if Cli_Args.Is_Help (Sub) then
             Complain (Env, Usage_Text);
@@ -1489,14 +1547,19 @@ package body Synapse.Commands.Query is
              "body" | "sources" | "field" | "stale" | "drift" | "grounding"
              | "links" | "symbol"
          then
-            return Usage (Env);
+            Complain
+              (Env,
+               Prog & ": unknown subcommand '" & Sub & "'; one of body, " &
+               "sources, field, stale, drift, grounding, links, symbol " &
+               "(synapse query --help lists their arguments)" & LF);
+            return 2;
          end if;
 
          declare
             Rest : Lists.Vector;
          begin
-            for I in Index + 1 .. Natural (Args.Length) loop
-               Rest.Append (Args (I));
+            for I in 2 .. Natural (Left.Length) loop
+               Rest.Append (Left (I));
             end loop;
 
             --  `field --file` names its own file and not a vault node, for a
@@ -1507,7 +1570,7 @@ package body Synapse.Commands.Query is
                if Natural (Rest.Length) /= 3 or else Is_Blank (Rest (2))
                  or else Is_Blank (Rest (3))
                then
-                  return Usage (Env);
+                  return Usage (Env, "field");
                end if;
                return
                  Field_Of_File

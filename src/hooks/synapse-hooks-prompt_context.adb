@@ -82,7 +82,8 @@ package body Synapse.Hooks.Prompt_Context is
                   "Synapse: this repo has a code graph at " & Ns_Dir & "/ (" &
                   Core.Decimal_Image.Image (Nodes) &
                   " nodes). Query it FIRST for anything about this " &
-                  "codebase -- `synapse query` for how something works, " &
+                  "codebase -- `synapse query body ""<node>""` for how an " &
+                  "area works (the node `Index` lists them), " &
                   "`synapse index lookup <path>` for which node owns a " &
                   "file. Do not grep or open source files until Synapse has " &
                   "named the file to read.");

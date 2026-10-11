@@ -145,6 +145,11 @@ package body Synapse.Hooks.Prompt_Context.Tests is
               (Out_Text,
                "Do not grep or open source files until Synapse has named the file to read."),
             "the order");
+         Assert
+           (Has
+              (Out_Text,
+               "`synapse query body \""<node>\""` for how an area works"),
+            "a query form that runs: " & Out_Text);
          Assert (not Has (Out_Text, "Code Cache"), "no code cache yet");
          Assert
            (Has
