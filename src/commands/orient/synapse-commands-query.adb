@@ -1514,10 +1514,10 @@ package body Synapse.Commands.Query is
             end if;
             Explicit := Args (I + 1);
             Have_Ns  := True;
-            I        := @ + 2;
+            I        := I + 2;
          else
             Left.Append (Args (I));
-            I := @ + 1;
+            I := I + 1;
          end if;
       end loop;
    end Take_Namespace;
