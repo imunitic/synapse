@@ -3,6 +3,7 @@ with Ada.Strings.Maps;
 with Ada.Strings.Unbounded;
 
 with Synapse.Adapters.Conf_Files;
+with Synapse.Commands.Cli_Args;
 with Synapse.Commands.Context;
 with Synapse.Commands.Vault_Support;
 with Synapse.Commands.Vault_Usage;
@@ -151,24 +152,53 @@ package body Synapse.Commands.Vault_Search is
       end;
    end Namespace_Filter;
 
+   --  How many leading arguments are the query: every word up to the first
+   --  flag, so an unquoted phrase is the same query as a quoted one.
+   function Query_Word_Count (Args : Lists.Vector) return Natural is
+      Count : Natural := 0;
+   begin
+      for Arg of Args loop
+         exit when Cli_Args.Is_Flag (To_String (Arg));
+         Count := Count + 1;
+      end loop;
+      return Count;
+   end Query_Word_Count;
+
+   function Joined_Words (Args : Lists.Vector; Count : Natural) return String
+   is
+      Text : Unbounded_String;
+   begin
+      for I in 1 .. Count loop
+         if I > 1 then
+            Append (Text, ' ');
+         end if;
+         Append (Text, Args (I));
+      end loop;
+      return To_String (Text);
+   end Joined_Words;
+
    function Run_Search_Text
      (Env : Environment; Args : Lists.Vector) return Exit_Code
    is
       Want_Filter : Boolean  := False;
       Has_Space   : Boolean  := False;
       Namespace   : Unbounded_String;
-      I           : Positive := 2;
+      Count       : constant Natural := Query_Word_Count (Args);
+      I           : Positive := Positive'Max (1, Count + 1);
    begin
       if Args.Is_Empty then
          return Usage_Error (Env, Vault_Usage.Search_Text);
       end if;
+      if Cli_Args.Is_Help (To_String (Args (1))) then
+         Complain (Env, Vault_Usage.Search_Text);
+         return 0;
+      end if;
+      if Count = 0 then
+         return Usage_Error (Env, Vault_Usage.Search_Text);
+      end if;
       declare
-         Query : constant String := To_String (Args (1));
+         Query : constant String := Joined_Words (Args, Count);
       begin
-         if Query = "-h" or else Query = "--help" then
-            Complain (Env, Vault_Usage.Search_Text);
-            return 0;
-         end if;
          while I <= Natural (Args.Length) loop
             declare
                Arg : constant String := To_String (Args (I));

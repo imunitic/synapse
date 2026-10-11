@@ -3,10 +3,12 @@ with Ada.Strings.Maps;
 
 with Synapse.Core.Line_Slice;
 with Synapse.Core.Decimal_Image;
+with Synapse.Core.String_Match;
 
 package body Synapse.Core.Emit is
 
    use Line_Slice;
+   use String_Match;
 
    Blanks : constant Ada.Strings.Maps.Character_Set :=
      Ada.Strings.Maps.To_Set (" " & Character'Val (9));
@@ -23,10 +25,6 @@ package body Synapse.Core.Emit is
 
    function Trim_All (S : String) return String is
      (Ada.Strings.Fixed.Trim (S, Blanks_And_CR, Blanks_And_CR));
-
-   function Starts_With (S, Prefix : String) return Boolean is
-     (S'Length >= Prefix'Length
-      and then S (S'First .. S'First + Prefix'Length - 1) = Prefix);
 
    function Ends_With (S, Suffix : String) return Boolean is
      (S'Length >= Suffix'Length

@@ -4,8 +4,10 @@ with Ada.Strings.Maps;
 
 with Synapse.Core.Frontmatter;
 with Synapse.Core.Line_Slice;
+with Synapse.Core.String_Match;
 
 package body Synapse.Core.Node_Query is
+   use String_Match;
 
    use Line_Slice;
 
@@ -14,10 +16,6 @@ package body Synapse.Core.Node_Query is
 
    Only_LF : constant Ada.Strings.Maps.Character_Set :=
      Ada.Strings.Maps.To_Set (LF);
-
-   function Starts_With (S, Prefix : String) return Boolean is
-     (S'Length >= Prefix'Length
-      and then S (S'First .. S'First + Prefix'Length - 1) = Prefix);
 
    function Trim_Left_Blanks (S : String) return String is
      (Ada.Strings.Fixed.Trim (S, Blanks, Ada.Strings.Maps.Null_Set));

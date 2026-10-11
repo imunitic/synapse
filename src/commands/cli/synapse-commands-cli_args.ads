@@ -6,6 +6,10 @@ with Ada.Strings.Unbounded;
 
 package Synapse.Commands.Cli_Args is
 
+   --  Whether the argument is a flag: it begins with `--`.
+   function Is_Flag (Arg : String) return Boolean is
+     (Arg'Length >= 2 and then Arg (Arg'First .. Arg'First + 1) = "--");
+
    --  A flag's own value, the argument after it: found only when there is one
    --  and it does not begin with `--`. Without this check `--repo --help`
    --  would take `--help` as the value of `--repo` and hide the real flag

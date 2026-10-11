@@ -247,15 +247,140 @@ package body Synapse.Commands.Query.Tests is
          "unknown mode");
       Assert (Run (Env (F), Args ("body", "Nope")) = 1, "no such node");
       Assert (Has (F.Console.Err_Text, "usage: synapse query"), "usage");
+      Assert (Has (F.Console.Err_Text, "  body    <node>  "), "its lines");
       Assert
-        (Has (F.Console.Err_Text, "Synapse commands by question:"),
-         "and the map for it");
+        (not Has (F.Console.Err_Text, "  stale  "),
+         "and not the other subcommands': " & F.Console.Err_Text);
+      Assert
+        (not Has (F.Console.Err_Text, "Synapse commands by question:"),
+         "nor the map");
       Remove (Dir);
    exception
       when others =>
          Remove (Dir);
          raise;
    end Body_Needs_A_Node_And_A_Known_Mode;
+
+   procedure Namespace_Is_Taken_From_Either_Side_Of_The_Subcommand
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir : constant Scratch := Make;
+      F   : aliased Fixture;
+   begin
+      Setup (F, Dir);
+      Assert
+        (Run (Env (F), Args ("--namespace", "nope", "body", "Render")) = 1,
+         "before");
+      Assert
+        (Has
+           (F.Console.Err_Text,
+            "--namespace expects <repo>@<branch>, got 'nope'"),
+         "before: " & F.Console.Err_Text);
+      F.Console.Clear;
+      Assert
+        (Run (Env (F), Args ("body", "Render", "--namespace", "nope")) = 1,
+         "after");
+      Assert
+        (Has
+           (F.Console.Err_Text,
+            "--namespace expects <repo>@<branch>, got 'nope'"),
+         "after: " & F.Console.Err_Text);
+      F.Console.Clear;
+      Assert
+        (Run
+           (Env (F),
+            Args ("--namespace", "a@b", "body", "Render", "--namespace", "c@d")) =
+         2,
+         "twice");
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end Namespace_Is_Taken_From_Either_Side_Of_The_Subcommand;
+
+   --  The error names the subcommands the table holds and the usage lists the
+   --  ones it prints; each name must be in both, and run as a subcommand.
+   procedure Every_Subcommand_Is_In_The_Error_The_Usage_And_The_Dispatch
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir   : constant Scratch := Make;
+      F     : aliased Fixture;
+      Names : Ada.Strings.Unbounded.Unbounded_String;
+   begin
+      Setup (F, Dir);
+      Assert (Run (Env (F), Args ("frobnicate")) = 2, "unknown");
+      declare
+         Err   : constant String := F.Console.Err_Text;
+         First : constant Natural := Ada.Strings.Fixed.Index (Err, "one of ");
+         Last  : constant Natural := Ada.Strings.Fixed.Index (Err, " (synapse");
+      begin
+         Assert (First > 0 and then Last > First, "the list: " & Err);
+         Ada.Strings.Unbounded.Append (Names, Err (First + 7 .. Last - 1));
+      end;
+      F.Console.Clear;
+      Assert (Run (Env (F), Args ("--help")) = 0, "help");
+      declare
+         List  : constant String := Ada.Strings.Unbounded.To_String (Names);
+         Usage : constant String := F.Console.Err_Text;
+         Start : Positive        := List'First;
+         Count : Natural         := 0;
+      begin
+         for I in List'First .. List'Last + 1 loop
+            if I = List'Last + 1 or else List (I) = ',' then
+               declare
+                  Name : constant String := List (Start .. I - 1);
+               begin
+                  Count := Count + 1;
+                  Assert
+                    (Has (Usage, LF & "  " & Name & ' '),
+                     "usage has " & Name);
+                  F.Console.Clear;
+                  declare
+                     Code : constant Exit_Code :=
+                       Run (Env (F), Args (Name, "--wat", "--wat"));
+                  begin
+                     Assert (Code /= 0, Name & " refuses a bad argument");
+                  end;
+                  Assert
+                    (not Has (F.Console.Err_Text, "unknown subcommand"),
+                     Name & " is dispatched");
+               end;
+               Start := I + 2;
+            end if;
+         end loop;
+         Assert (Count = 8, "eight subcommands: " & List);
+      end;
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end Every_Subcommand_Is_In_The_Error_The_Usage_And_The_Dispatch;
+
+   procedure An_Unknown_Subcommand_Is_Named_In_One_Line
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir : constant Scratch := Make;
+      F   : aliased Fixture;
+   begin
+      Setup (F, Dir);
+      Assert (Run (Env (F), Args ("how does it work")) = 2, "a question");
+      Assert
+        (F.Console.Err_Text =
+         "synapse-query: unknown subcommand 'how does it work'; one of body, " &
+         "sources, field, stale, drift, grounding, links, symbol " &
+         "(synapse query --help lists their arguments)" & LF,
+         "one line: " & F.Console.Err_Text);
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end An_Unknown_Subcommand_Is_Named_In_One_Line;
 
    procedure Sources_Lists_Counts_Groups_And_Filters
      (T : in out Test_Cases_Class)
@@ -1075,6 +1200,15 @@ package body Synapse.Commands.Query.Tests is
       Register_Routine
         (T, Body_Needs_A_Node_And_A_Known_Mode'Access,
          "Body needs a node and a known mode");
+      Register_Routine
+        (T, Namespace_Is_Taken_From_Either_Side_Of_The_Subcommand'Access,
+         "Namespace is taken from either side of the subcommand");
+      Register_Routine
+        (T, An_Unknown_Subcommand_Is_Named_In_One_Line'Access,
+         "An unknown subcommand is named in one line");
+      Register_Routine
+        (T, Every_Subcommand_Is_In_The_Error_The_Usage_And_The_Dispatch'Access,
+         "Every subcommand is in the error, the usage and the dispatch");
       Register_Routine
         (T, Sources_Lists_Counts_Groups_And_Filters'Access,
          "Sources lists counts groups and filters");

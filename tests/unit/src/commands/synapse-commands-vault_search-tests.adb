@@ -216,6 +216,34 @@ package body Synapse.Commands.Vault_Search.Tests is
          raise;
    end Search_Text_Merges_Adjacent_Lines_And_Finds_Any_Word;
 
+   procedure Search_Text_Takes_An_Unquoted_Phrase_As_One_Query
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir    : constant Scratch := Make;
+      Quoted : aliased Fixture;
+      Bare   : aliased Fixture;
+   begin
+      Use_Vault (Quoted, Dir);
+      Fill (Dir);
+      Assert
+        (Run_Search_Text (Env (Quoted), Args ("alpha gamma")) = 0, "quoted");
+      Use_Vault (Bare, Dir);
+      Assert
+        (Run_Search_Text (Env (Bare), Args ("alpha", "gamma")) = 0, "bare");
+      Assert
+        (Bare.Console.Out_Text = Quoted.Console.Out_Text,
+         "the same hits: " & Bare.Console.Out_Text);
+      Assert
+        (Run_Search_Text (Env (Bare), Args ("--namespace", "w@m")) = 2,
+         "a flag with no query");
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end Search_Text_Takes_An_Unquoted_Phrase_As_One_Query;
+
    procedure Search_Text_Prints_At_Most_Ten_Notes (T : in out Test_Cases_Class)
    is
       pragma Unreferenced (T);
@@ -434,7 +462,12 @@ package body Synapse.Commands.Vault_Search.Tests is
            (Env (F), Args ("q", "--namespace", "a@b", "--namespace", "c@d")) =
          2,
          "a namespace twice");
-      Assert (Run_Search_Text (Env (F), Args ("q", "extra")) = 2, "stray");
+      Assert
+        (Run_Search_Text (Env (F), Args ("q", "--path-filter", "extra")) = 2,
+         "a word after a flag");
+      F.Console.Clear;
+      Assert
+        (Run_Search_Text (Env (F), Args ("q", "--wat")) = 2, "an unknown flag");
       F.Console.Clear;
       Assert (Run_Search_Text (Env (F), Args ("--help")) = 0, "help");
       Assert (F.Console.Err_Text = Vault_Usage.Search_Text, "its usage");
@@ -478,6 +511,9 @@ package body Synapse.Commands.Vault_Search.Tests is
       Register_Routine
         (T, Search_Text_Merges_Adjacent_Lines_And_Finds_Any_Word'Access,
          "Search text merges adjacent lines and finds any word");
+      Register_Routine
+        (T, Search_Text_Takes_An_Unquoted_Phrase_As_One_Query'Access,
+         "Search text takes an unquoted phrase as one query");
       Register_Routine
         (T, Search_Text_Prints_At_Most_Ten_Notes'Access,
          "Search text prints at most ten notes");
