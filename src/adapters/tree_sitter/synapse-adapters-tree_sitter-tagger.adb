@@ -1,11 +1,13 @@
 with Ada.Containers.Ordered_Sets;
 
 with Synapse.Core.Graph_Model;
+with Synapse.Core.String_Match;
 with Synapse.Core.Text_Lists;
 
 package body Synapse.Adapters.Tree_Sitter.Tagger is
 
    use Ada.Strings.Unbounded;
+   use Core.String_Match;
    use type Core.Grammar_Registry.Query_Source;
    use type Core.Graph_Model.Role;
 
@@ -21,10 +23,6 @@ package body Synapse.Adapters.Tree_Sitter.Tagger is
       elsif Name = "not-any-of?" then Not_Any_Of else Unevaluable);
 
    function Is_Created (T : Tagger) return Boolean is (T.Ready);
-
-   function Starts_With (Text, Prefix : String) return Boolean is
-     (Text'Length >= Prefix'Length
-      and then Text (Text'First .. Text'First + Prefix'Length - 1) = Prefix);
 
    ---------------------------------------------------------------------------
    --  Predicates
