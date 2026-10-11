@@ -17,7 +17,6 @@ with Synapse.Core.Hashing;
 with Synapse.Core.Line_Slice;
 with Synapse.Core.Node_Format;
 with Synapse.Core.Node_Query;
-with Synapse.Core.String_Match;
 with Synapse.Core.Symbol;
 with Synapse.Core.Tag_Line;
 with Synapse.Core.Verify;
@@ -26,7 +25,6 @@ with Synapse.Ports.Process_Runner;
 package body Synapse.Commands.Query is
 
    use Ada.Strings.Unbounded;
-   use Core.String_Match;
 
    package Support renames Synapse.Commands.Graph_Support;
    package Node_Query renames Synapse.Core.Node_Query;
@@ -44,78 +42,85 @@ package body Synapse.Commands.Query is
    LF   : constant Character := Character'Val (10);
    HT   : constant Character := ASCII.HT;
 
-   Usage_Text : constant String :=
+   Synopsis : constant String :=
      "usage: synapse query [--namespace <repo>@<branch>] <subcommand> [args]" &
-     LF & LF &
+     LF;
+
+   Namespace_Usage : constant String :=
      "  --namespace <repo>@<branch>        address another checkout's " &
-     "graph, not the cwd's" & LF &
-     "  body    <node>                     brief: summary, crux pointer, " &
-     "Links" & LF &
-     "  body    <node> --full              the whole generated prose, no " &
-     "frontmatter" & LF &
-     "  body    <node> --lines <a-b>[,<c-d>...]  those lines of the node " &
-     "file, frontmatter included" & LF &
+     "graph, not the cwd's" & LF;
+
+   Body_Name : aliased constant String := "body";
+
+   Body_Usage : aliased constant String :=
+     "  body    <node>                     brief: summary, crux " &
+     "pointer, Links" & LF &
+     "  body    <node> --full              the whole generated prose, " &
+     "no frontmatter" & LF &
+     "  body    <node> --lines <a-b>[,<c-d>...]  those lines of the " &
+     "node file, frontmatter included" & LF;
+
+   Sources_Name : aliased constant String := "sources";
+
+   Sources_Usage : aliased constant String :=
      "  sources <node>                     every path the node covers" & LF &
      "  sources <node> --count             just the number" & LF &
-     "  sources <node> --modules           module<TAB>count, byte sorted" &
-     LF &
-     "  sources <node> --filter <pattern>  matching paths only (substring)" &
-     LF & "  field   <node> <key>               one top-level frontmatter " &
+     "  sources <node> --modules           module<TAB>count, byte " &
+     "sorted" & LF &
+     "  sources <node> --filter <pattern>  matching paths only " &
+     "(substring)" & LF;
+
+   Field_Name : aliased constant String := "field";
+
+   Field_Usage : aliased constant String :=
+     "  field   <node> <key>               one top-level frontmatter " &
      "scalar" & LF &
-     "  field   --file <path> <key>        same, from a file directly -- " &
-     "no vault node needed" & LF &
-     "  stale                              nodes whose files no longer " &
-     "match" & LF &
-     "  drift                              what changed since each node's " &
-     "commit" & LF &
-     "  grounding                          nodes whose evidence no longer " &
-     "matches" & LF &
+     "  field   --file <path> <key>        same, from a file directly " &
+     "-- no vault node needed" & LF;
+
+   Stale_Name : aliased constant String := "stale";
+
+   Stale_Usage : aliased constant String :=
+     "  stale                              nodes whose files no " &
+     "longer match" & LF;
+
+   Drift_Name : aliased constant String := "drift";
+
+   Drift_Usage : aliased constant String :=
+     "  drift                              what changed since each " &
+     "node's commit" & LF;
+
+   Grounding_Name : aliased constant String := "grounding";
+
+   Grounding_Usage : aliased constant String :=
+     "  grounding                          nodes whose evidence no " &
+     "longer matches" & LF &
      "  grounding <node> --list            that node's groundings, " &
-     "path<TAB>lines" & LF &
+     "path<TAB>lines" & LF;
+
+   Links_Name : aliased constant String := "links";
+
+   Links_Usage : aliased constant String :=
      "  links   <node>                     outbound relations, " &
      "relation<TAB>target" & LF &
      "  links   <node> --inbound           what points here, " &
      "relation<TAB>source" & LF &
      "  links   <node> --closure           reachable outbound, " &
      "depth<TAB>node" & LF &
-     "  links   --check                    link targets that resolve to no " &
-     "node" & LF & "  symbol  <name> <node>              exact-name hits, " &
+     "  links   --check                    link targets that resolve " &
+     "to no node" & LF;
+
+   Symbol_Name : aliased constant String := "symbol";
+
+   Symbol_Usage : aliased constant String :=
+     "  symbol  <name> <node>              exact-name hits, " &
      "name<TAB>role<TAB>kind<TAB>path:line<TAB>expression" & LF;
 
-   --  The usage header, the `--namespace` line and the lines of one
-   --  subcommand: what a bad argument to it needs, and no more.
-   function Usage_For (Sub : String) return String is
-      Text  : Unbounded_String;
-      Start : Positive := Usage_Text'First;
+   --  What a bad argument to a subcommand prints: the synopsis, the
+   --  `--namespace` line and that subcommand's own lines.
+   function Usage (Env : Environment; Sub_Usage : String) return Exit_Code is
    begin
-      for I in Usage_Text'Range loop
-         if Usage_Text (I) = LF then
-            declare
-               Line : constant String := Usage_Text (Start .. I - 1);
-            begin
-               if Start = Usage_Text'First
-                 or else Starts_With (Line, "  --namespace")
-                 or else Starts_With (Line, "  " & Sub & ' ')
-               then
-                  Append (Text, Line & LF);
-               end if;
-            end;
-            Start := I + 1;
-         end if;
-      end loop;
-      return To_String (Text);
-   end Usage_For;
-
-   --  Everything there is to say when no subcommand was given, and just that
-   --  subcommand's lines when a known one was given a bad argument.
-   function Usage (Env : Environment; Sub : String := "") return Exit_Code is
-   begin
-      if Sub = "" then
-         Complain (Env, Usage_Text);
-         Cli_Args.Print_Map_For (Env, "query");
-      else
-         Complain (Env, Usage_For (Sub));
-      end if;
+      Complain (Env, Synopsis & Namespace_Usage & Sub_Usage);
       return 2;
    end Usage;
 
@@ -150,7 +155,7 @@ package body Synapse.Commands.Query is
       if Rest.Is_Empty or else Is_Blank (Rest (1))
         or else not (Mode_Brief or else Mode_Full or else Mode_Lines)
       then
-         return Usage (Env, "body");
+         return Usage (Env, Body_Usage);
       end if;
       declare
          Name   : constant String                  := To_String (Rest (1));
@@ -242,7 +247,7 @@ package body Synapse.Commands.Query is
       Given   : constant Natural := Natural (Rest.Length);
    begin
       if Rest.Is_Empty or else Is_Blank (Rest (1)) then
-         return Usage (Env, "sources");
+         return Usage (Env, Sources_Usage);
       end if;
       if Given > 1 then
          declare
@@ -258,7 +263,7 @@ package body Synapse.Commands.Query is
                Mode    := Filter;
                Pattern := Rest (3);
             else
-               return Usage (Env, "sources");
+               return Usage (Env, Sources_Usage);
             end if;
          end;
       end if;
@@ -355,7 +360,7 @@ package body Synapse.Commands.Query is
       if Natural (Rest.Length) /= 2 or else Is_Blank (Rest (1))
         or else Is_Blank (Rest (2))
       then
-         return Usage (Env, "field");
+         return Usage (Env, Field_Usage);
       end if;
       declare
          Path : constant String :=
@@ -502,7 +507,7 @@ package body Synapse.Commands.Query is
       Root  : constant String := To_String (Ctx.Repo_Root);
    begin
       if not Rest.Is_Empty then
-         return Usage (Env, "stale");
+         return Usage (Env, Stale_Usage);
       end if;
       if not Repo_Root_Present (Env, Ctx, "stale") then
          return 1;
@@ -866,7 +871,7 @@ package body Synapse.Commands.Query is
       Pairs         : Pairing_Vectors.Vector;
    begin
       if not Rest.Is_Empty then
-         return Usage (Env, "drift");
+         return Usage (Env, Drift_Usage);
       end if;
       if not Repo_Root_Present (Env, Ctx, "drift") then
          return 1;
@@ -1015,7 +1020,7 @@ package body Synapse.Commands.Query is
          end;
       end if;
       if not Rest.Is_Empty then
-         return Usage (Env, "grounding");
+         return Usage (Env, Grounding_Usage);
       end if;
       if not Repo_Root_Present (Env, Ctx, "grounding") then
          return 1;
@@ -1184,14 +1189,14 @@ package body Synapse.Commands.Query is
    is
    begin
       if Rest.Is_Empty then
-         return Usage (Env, "links");
+         return Usage (Env, Links_Usage);
       end if;
       declare
          First : constant String := To_String (Rest (1));
       begin
          if First = "--check" then
             if Natural (Rest.Length) /= 1 then
-               return Usage (Env, "links");
+               return Usage (Env, Links_Usage);
             end if;
             declare
                Names : Lists.Vector;
@@ -1213,7 +1218,7 @@ package body Synapse.Commands.Query is
             end;
          end if;
          if First'Length = 0 or else First (First'First) = '-' then
-            return Usage (Env, "links");
+            return Usage (Env, Links_Usage);
          end if;
 
          declare
@@ -1238,7 +1243,7 @@ package body Synapse.Commands.Query is
                end;
             end if;
             if Natural (Rest.Length) /= 2 then
-               return Usage (Env, "links");
+               return Usage (Env, Links_Usage);
             end if;
 
             declare
@@ -1325,7 +1330,7 @@ package body Synapse.Commands.Query is
                      return 0;
                   end;
                end if;
-               return Usage (Env, "links");
+               return Usage (Env, Links_Usage);
             end;
          end;
       end;
@@ -1359,7 +1364,7 @@ package body Synapse.Commands.Query is
       if Natural (Rest.Length) /= 2 or else Is_Blank (Rest (1))
         or else Is_Blank (Rest (2))
       then
-         return Usage (Env, "symbol");
+         return Usage (Env, Symbol_Usage);
       end if;
       if not Repo_Root_Present (Env, Ctx, "symbol") then
          return 1;
@@ -1468,29 +1473,87 @@ package body Synapse.Commands.Query is
    --  Dispatch
    ---------------------------------------------------------------------------
 
+   ---------------------------------------------------------------------------
+   --  The subcommands
+   ---------------------------------------------------------------------------
+
+   type Name_Access is access constant String;
+
+   type Run_Access is
+     access function
+       (Env : Environment; Ctx : Context.Context; Rest : Lists.Vector)
+        return Exit_Code;
+
+   type Subcommand is record
+      Name  : Name_Access;
+      Usage : Name_Access;
+      Run   : Run_Access;
+   end record;
+
+   --  In the order the usage text lists them.
+   Subcommands : constant array (1 .. 8) of Subcommand :=
+     [1 => (Name => Body_Name'Access, Usage => Body_Usage'Access,
+            Run => Cmd_Body'Access),
+      2 => (Name => Sources_Name'Access, Usage => Sources_Usage'Access,
+            Run => Cmd_Sources'Access),
+      3 => (Name => Field_Name'Access, Usage => Field_Usage'Access,
+            Run => Cmd_Field'Access),
+      4 => (Name => Stale_Name'Access, Usage => Stale_Usage'Access,
+            Run => Cmd_Stale'Access),
+      5 => (Name => Drift_Name'Access, Usage => Drift_Usage'Access,
+            Run => Cmd_Drift'Access),
+      6 => (Name => Grounding_Name'Access, Usage => Grounding_Usage'Access,
+            Run => Cmd_Grounding'Access),
+      7 => (Name => Links_Name'Access, Usage => Links_Usage'Access,
+            Run => Cmd_Links'Access),
+      8 => (Name => Symbol_Name'Access, Usage => Symbol_Usage'Access,
+            Run => Cmd_Symbol'Access)];
+
+   --  Where Sub is in Subcommands, or 0.
+   function Find (Sub : String) return Natural is
+   begin
+      for I in Subcommands'Range loop
+         if Subcommands (I).Name.all = Sub then
+            return I;
+         end if;
+      end loop;
+      return 0;
+   end Find;
+
+   function Names return String is
+      Text : Unbounded_String;
+   begin
+      for I in Subcommands'Range loop
+         if I > 1 then
+            Append (Text, ", ");
+         end if;
+         Append (Text, Subcommands (I).Name.all);
+      end loop;
+      return To_String (Text);
+   end Names;
+
+   --  Everything there is to say when no subcommand was given.
+   function Usage_Text return String is
+      Text : Unbounded_String :=
+        To_Unbounded_String (Synopsis & LF & Namespace_Usage);
+   begin
+      for Item of Subcommands loop
+         Append (Text, Item.Usage.all);
+      end loop;
+      return To_String (Text);
+   end Usage_Text;
+
+   function Usage_All (Env : Environment) return Exit_Code is
+   begin
+      Complain (Env, Usage_Text);
+      Cli_Args.Print_Map_For (Env, "query");
+      return 2;
+   end Usage_All;
+
    function Dispatch
      (Env  : Environment; Ctx : Context.Context; Sub : String;
-      Rest : Lists.Vector) return Exit_Code
-   is
-   begin
-      if Sub = "body" then
-         return Cmd_Body (Env, Ctx, Rest);
-      elsif Sub = "sources" then
-         return Cmd_Sources (Env, Ctx, Rest);
-      elsif Sub = "field" then
-         return Cmd_Field (Env, Ctx, Rest);
-      elsif Sub = "stale" then
-         return Cmd_Stale (Env, Ctx, Rest);
-      elsif Sub = "drift" then
-         return Cmd_Drift (Env, Ctx, Rest);
-      elsif Sub = "grounding" then
-         return Cmd_Grounding (Env, Ctx, Rest);
-      elsif Sub = "links" then
-         return Cmd_Links (Env, Ctx, Rest);
-      else
-         return Cmd_Symbol (Env, Ctx, Rest);
-      end if;
-   end Dispatch;
+      Rest : Lists.Vector) return Exit_Code is
+     (Subcommands (Find (Sub)).Run (Env, Ctx, Rest));
 
    --  `--namespace <repo>@<branch>` is taken from wherever it stands, before
    --  or after the subcommand, and what is left is the subcommand and its
@@ -1530,7 +1593,7 @@ package body Synapse.Commands.Query is
    begin
       Take_Namespace (Args, Left, Explicit, Have_Ns, Ns_Ok);
       if not Ns_Ok or else Left.Is_Empty then
-         return Usage (Env);
+         return Usage_All (Env);
       end if;
       declare
          Sub : constant String := To_String (Left (1));
@@ -1541,15 +1604,11 @@ package body Synapse.Commands.Query is
          end if;
          --  Checked before the environment: a mistyped subcommand should not
          --  read as a missing vault.
-         if Sub not in
-             "body" | "sources" | "field" | "stale" | "drift" | "grounding"
-             | "links" | "symbol"
-         then
+         if Find (Sub) = 0 then
             Complain
               (Env,
-               Prog & ": unknown subcommand '" & Sub & "'; one of body, " &
-               "sources, field, stale, drift, grounding, links, symbol " &
-               "(synapse query --help lists their arguments)" & LF);
+               Prog & ": unknown subcommand '" & Sub & "'; one of " & Names &
+               " (synapse query --help lists their arguments)" & LF);
             return 2;
          end if;
 
@@ -1568,7 +1627,7 @@ package body Synapse.Commands.Query is
                if Natural (Rest.Length) /= 3 or else Is_Blank (Rest (2))
                  or else Is_Blank (Rest (3))
                then
-                  return Usage (Env, "field");
+                  return Usage (Env, Field_Usage);
                end if;
                return
                  Field_Of_File
