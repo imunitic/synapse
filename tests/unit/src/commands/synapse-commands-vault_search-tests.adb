@@ -466,6 +466,9 @@ package body Synapse.Commands.Vault_Search.Tests is
         (Run_Search_Text (Env (F), Args ("q", "--path-filter", "extra")) = 2,
          "a word after a flag");
       F.Console.Clear;
+      Assert
+        (Run_Search_Text (Env (F), Args ("q", "--wat")) = 2, "an unknown flag");
+      F.Console.Clear;
       Assert (Run_Search_Text (Env (F), Args ("--help")) = 0, "help");
       Assert (F.Console.Err_Text = Vault_Usage.Search_Text, "its usage");
       Remove (Dir);

@@ -3,6 +3,7 @@ with Ada.Strings.Maps;
 with Ada.Strings.Unbounded;
 
 with Synapse.Adapters.Conf_Files;
+with Synapse.Commands.Cli_Args;
 with Synapse.Commands.Context;
 with Synapse.Commands.Vault_Support;
 with Synapse.Commands.Vault_Usage;
@@ -157,7 +158,12 @@ package body Synapse.Commands.Vault_Search is
       Count : Natural := 0;
    begin
       for Arg of Args loop
-         exit when To_String (Arg) in "--path-filter" | "--namespace";
+         declare
+            Text : constant String := To_String (Arg);
+         begin
+            exit when Text'Length >= 2
+              and then Text (Text'First .. Text'First + 1) = "--";
+         end;
          Count := Count + 1;
       end loop;
       return Count;
@@ -185,16 +191,19 @@ package body Synapse.Commands.Vault_Search is
       Count       : constant Natural := Query_Word_Count (Args);
       I           : Positive := Positive'Max (1, Count + 1);
    begin
-      if Args.Is_Empty or else Count = 0 then
+      if Args.Is_Empty then
+         return Usage_Error (Env, Vault_Usage.Search_Text);
+      end if;
+      if Cli_Args.Is_Help (To_String (Args (1))) then
+         Complain (Env, Vault_Usage.Search_Text);
+         return 0;
+      end if;
+      if Count = 0 then
          return Usage_Error (Env, Vault_Usage.Search_Text);
       end if;
       declare
          Query : constant String := Joined_Words (Args, Count);
       begin
-         if Query = "-h" or else Query = "--help" then
-            Complain (Env, Vault_Usage.Search_Text);
-            return 0;
-         end if;
          while I <= Natural (Args.Length) loop
             declare
                Arg : constant String := To_String (Args (I));
