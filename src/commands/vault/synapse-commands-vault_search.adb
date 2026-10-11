@@ -159,7 +159,7 @@ package body Synapse.Commands.Vault_Search is
    begin
       for Arg of Args loop
          exit when Cli_Args.Is_Flag (To_String (Arg));
-         Count := Count + 1;
+         Count := @ + 1;
       end loop;
       return Count;
    end Query_Word_Count;
