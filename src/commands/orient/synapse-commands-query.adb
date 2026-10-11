@@ -17,6 +17,7 @@ with Synapse.Core.Hashing;
 with Synapse.Core.Line_Slice;
 with Synapse.Core.Node_Format;
 with Synapse.Core.Node_Query;
+with Synapse.Core.String_Match;
 with Synapse.Core.Symbol;
 with Synapse.Core.Tag_Line;
 with Synapse.Core.Verify;
@@ -25,6 +26,7 @@ with Synapse.Ports.Process_Runner;
 package body Synapse.Commands.Query is
 
    use Ada.Strings.Unbounded;
+   use Core.String_Match;
 
    package Support renames Synapse.Commands.Graph_Support;
    package Node_Query renames Synapse.Core.Node_Query;
@@ -79,10 +81,6 @@ package body Synapse.Commands.Query is
      "  links   --check                    link targets that resolve to no " &
      "node" & LF & "  symbol  <name> <node>              exact-name hits, " &
      "name<TAB>role<TAB>kind<TAB>path:line<TAB>expression" & LF;
-
-   function Starts_With (Line, Prefix : String) return Boolean is
-     (Line'Length >= Prefix'Length
-      and then Line (Line'First .. Line'First + Prefix'Length - 1) = Prefix);
 
    --  The usage header, the `--namespace` line and the lines of one
    --  subcommand: what a bad argument to it needs, and no more.
