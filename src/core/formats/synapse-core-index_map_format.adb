@@ -381,29 +381,12 @@ package body Synapse.Core.Index_Map_Format is
                return Fail (Version_Mismatch);
             end if;
 
-            declare
-               Crc  : GNAT.CRC32.CRC32;
-               Here : Offset := Header_Size;
-            begin
-               GNAT.CRC32.Initialize (Crc);
-               while Here < Size loop
-                  declare
-                     Chunk : constant String :=
-                       Source.Read
-                         (Here,
-                          Positive'Min
-                            (Byte_Window.Default_Block * 16,
-                              Positive (Size - Here)));
-                  begin
-                     exit when Chunk'Length = 0;
-                     GNAT.CRC32.Update (Crc, Chunk);
-                     Here := Here + Offset (Chunk'Length);
-                  end;
-               end loop;
-               if U32 (GNAT.CRC32.Get_Value (Crc)) /= Head.Crc32 then
-                  return Fail (Checksum_Mismatch);
-               end if;
-            end;
+            if Byte_Window.Checksum
+                (Source, Header_Size, Size, Byte_Window.Default_Block * 16)
+              /= Head.Crc32
+            then
+               return Fail (Checksum_Mismatch);
+            end if;
 
             declare
                Table_End : constant U64          :=

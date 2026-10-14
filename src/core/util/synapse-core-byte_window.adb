@@ -1,5 +1,7 @@
 with Ada.Unchecked_Deallocation;
 
+with GNAT.CRC32;
+
 package body Synapse.Core.Byte_Window is
 
    use Ports.Byte_Source;
@@ -10,6 +12,28 @@ package body Synapse.Core.Byte_Window is
    begin
       Free (W.Data);
    end Finalize;
+
+   function Checksum
+     (Source : in out Ports.Byte_Source.Source'Class;
+      From, Stop : Ports.Byte_Source.Offset; Block : Positive)
+      return Interfaces.Unsigned_32
+   is
+      Crc  : GNAT.CRC32.CRC32;
+      Here : Offset := From;
+   begin
+      GNAT.CRC32.Initialize (Crc);
+      while Here < Stop loop
+         declare
+            Chunk : constant String :=
+              Source.Read (Here, Positive'Min (Block, Positive (Stop - Here)));
+         begin
+            exit when Chunk'Length = 0;
+            GNAT.CRC32.Update (Crc, Chunk);
+            Here := Here + Offset (Chunk'Length);
+         end;
+      end loop;
+      return GNAT.CRC32.Get_Value (Crc);
+   end Checksum;
 
    function Read
      (W    : in out Window; Source : in out Ports.Byte_Source.Source'Class;

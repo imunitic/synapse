@@ -1,4 +1,5 @@
 with Ada.Finalization;
+with Interfaces;
 
 with Synapse.Ports.Byte_Source;
 
@@ -19,6 +20,13 @@ package Synapse.Core.Byte_Window is
    function Read
      (W    : in out Window; Source : in out Ports.Byte_Source.Source'Class;
       From :        Ports.Byte_Source.Offset; Count : Positive) return String;
+
+   --  The CRC-32 of the bytes of Source from From up to Stop, read Block at a
+   --  time. A source that ends before Stop ends the sum there.
+   function Checksum
+     (Source : in out Ports.Byte_Source.Source'Class;
+      From, Stop : Ports.Byte_Source.Offset; Block : Positive)
+      return Interfaces.Unsigned_32;
 
 private
 

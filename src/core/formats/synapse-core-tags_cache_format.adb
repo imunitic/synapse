@@ -212,30 +212,13 @@ package body Synapse.Core.Tags_Cache_Format is
                return Parse_Results.Failure (Offset_Out_Of_Range);
             end if;
 
-            declare
-               Crc  : GNAT.CRC32.CRC32;
-               Here : Offset          := Header_Size;
-               Stop : constant Offset := Offset (Head.Blob_Off);
-            begin
-               GNAT.CRC32.Initialize (Crc);
-               while Here < Stop loop
-                  declare
-                     Chunk : constant String :=
-                       Source.Read
-                         (Here,
-                          Positive'Min
-                            (Byte_Window.Default_Block,
-                              Positive (Stop - Here)));
-                  begin
-                     exit when Chunk'Length = 0;
-                     GNAT.CRC32.Update (Crc, Chunk);
-                     Here := Here + Offset (Chunk'Length);
-                  end;
-               end loop;
-               if U32 (GNAT.CRC32.Get_Value (Crc)) /= Head.Crc32 then
-                  return Parse_Results.Failure (Checksum_Mismatch);
-               end if;
-            end;
+            if Byte_Window.Checksum
+                (Source, Header_Size, Offset (Head.Blob_Off),
+                 Byte_Window.Default_Block)
+              /= Head.Crc32
+            then
+               return Parse_Results.Failure (Checksum_Mismatch);
+            end if;
 
             --  A gap between the table and the paths is fine.
             if Head.Paths_Off < Table_End
