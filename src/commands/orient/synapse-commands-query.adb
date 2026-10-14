@@ -1128,6 +1128,20 @@ package body Synapse.Commands.Query is
 
    package Pair_Sorting is new Pair_Vectors.Generic_Sorting (Pair_Before);
 
+   --  A node reached by a breadth-first walk, and how many hops it took.
+   type Visit is record
+      Name  : Unbounded_String;
+      Depth : Natural;
+   end record;
+
+   function Visit_Before (Left, Right : Visit) return Boolean is
+     (Left.Depth < Right.Depth
+      or else (Left.Depth = Right.Depth and then Left.Name < Right.Name));
+
+   package Visit_Vectors is new Ada.Containers.Vectors (Positive, Visit);
+
+   package Visit_Sorting is new Visit_Vectors.Generic_Sorting (Visit_Before);
+
    procedure Print_Pairs (Env : Environment; Rows : in out Pair_Vectors.Vector)
    is
    begin
@@ -1254,25 +1268,22 @@ package body Synapse.Commands.Query is
                   Build_Graph (Ctx, Names, Edges);
                   declare
                      --  Breadth first, so the depth is the shortest hop count
-                     --  and a cycle ends.
+                     --  and a cycle ends. The queue keeps every visited node,
+                     --  the start node at depth 0 first.
                      Seen   : Core.Text_Lists.Set;
-                     Queue  : Lists.Vector;
-                     Depth  :
-                       array (1 .. Natural (Edges.Length) + 1) of Natural :=
-                       [others => 0];
-                     Rows   : Pair_Vectors.Vector;
+                     Queue  : Visit_Vectors.Vector;
                      Cursor : Positive := 1;
-                     Levels : Lists.Vector;
                   begin
                      Seen.Include (Node_Name);
-                     Queue.Append (To_Unbounded_String (Node_Name));
-                     Levels.Append (To_Unbounded_String ("0"));
+                     Queue.Append
+                       (Visit'
+                          (Name  => To_Unbounded_String (Node_Name),
+                           Depth => 0));
                      while Cursor <= Natural (Queue.Length) loop
                         declare
                            Current : constant String  :=
-                             To_String (Queue (Cursor));
-                           Here    : constant Natural :=
-                             Natural'Value (To_String (Levels (Cursor)));
+                             To_String (Queue (Cursor).Name);
+                           Here    : constant Natural := Queue (Cursor).Depth;
                         begin
                            for E of Edges loop
                               if To_String (E.Source) = Current
@@ -1281,36 +1292,23 @@ package body Synapse.Commands.Query is
                                   (To_String (E.Target))
                               then
                                  Seen.Include (To_String (E.Target));
-                                 Queue.Append (E.Target);
-                                 Levels.Append
-                                   (To_Unbounded_String
-                                      (Image.Image (Here + 1)));
-                                 Rows.Append
-                                   (Pair'
-                                      (First  =>
-                                         To_Unbounded_String
-                                           ([
-                                            1 ..
-                                                9 -
-                                                Image.Image (Here + 1)'
-                                                  Length =>
-                                              '0'] &
-                                            Image.Image (Here + 1)),
-                                       Second => E.Target));
+                                 Queue.Append
+                                   (Visit'
+                                      (Name => E.Target, Depth => Here + 1));
                               end if;
                            end loop;
                         end;
                         Cursor := Cursor + 1;
                      end loop;
-                     pragma Unreferenced (Depth);
-                     --  `sort -k1,1n -k2,2`: depth as a number, then the
-                     --  name; the depth is padded so a text order is one.
-                     Pair_Sorting.Sort (Rows);
-                     for R of Rows loop
-                        Say
-                          (Env,
-                           Image.Image (Natural'Value (To_String (R.First))) &
-                           HT & To_String (R.Second) & LF);
+                     --  `sort -k1,1n -k2,2`: depth as a number, then the name.
+                     Visit_Sorting.Sort (Queue);
+                     for V of Queue loop
+                        if V.Depth > 0 then
+                           Say
+                             (Env,
+                              Image.Image (V.Depth) & HT & To_String (V.Name) &
+                              LF);
+                        end if;
                      end loop;
                      return 0;
                   end;

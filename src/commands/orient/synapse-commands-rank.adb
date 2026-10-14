@@ -309,12 +309,7 @@ package body Synapse.Commands.Rank is
                         if not Result.Contains (Module) then
                            Result.Insert (Module, Key_Vectors.Empty_Vector);
                         end if;
-                        declare
-                           Bucket : Key_Vectors.Vector := Result (Module);
-                        begin
-                           Bucket.Append (Item);
-                           Result.Replace (Module, Bucket);
-                        end;
+                        Result.Reference (Module).Append (Item);
                      end;
                   end if;
                end;
