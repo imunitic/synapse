@@ -492,9 +492,9 @@ package body Acceptance.Lint_Tests is
    Ports_Dir    : aliased constant String := "ports";
    Adapters_Dir : aliased constant String := "adapters";
 
-   --  `core`, `ports` and `adapters` never `with` `commands`, `hooks` or
-   --  `apps`, so that a later split into a library and executables moves
-   --  directories and project files only.
+   --  `core`, `ports` and `adapters` (the `synapse` library crate) never
+   --  `with` `commands`, `hooks` or `apps` (the `synapse_cli` crate), which
+   --  the library could not compile without.
    procedure No_Lower_Layer_Names_A_Higher_One (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Lower : constant array (1 .. 3) of access constant String :=
@@ -503,8 +503,8 @@ package body Acceptance.Lint_Tests is
       Files : Path_Vectors.Vector;
    begin
       for Dir of Lower loop
-         Collect (Checkout & "/src/" & Dir.all, ".ads", Files);
-         Collect (Checkout & "/src/" & Dir.all, ".adb", Files);
+         Collect (Checkout & "/synapse/src/" & Dir.all, ".ads", Files);
+         Collect (Checkout & "/synapse/src/" & Dir.all, ".adb", Files);
       end loop;
       Assert (not Files.Is_Empty, "no sources found to check");
       for Path of Files loop

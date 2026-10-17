@@ -22,9 +22,8 @@ on:
     paths:
       - ".github/workflows/release.yml"
       - "ci/**"
-      - "alire.toml"
-      - "*.gpr"
-      - "vendor/**"
+      - "synapse/**"
+      - "synapse_cli/**"
       - "packages/**"
   workflow_dispatch:
     inputs:
@@ -85,10 +84,10 @@ jobs:
         with:
           name: bin-${{ matrix.plat }}
           path: |
-            bin/synapse
-            bin/synapse-hook
-            bin/synapse.exe
-            bin/synapse-hook.exe
+            synapse_cli/bin/synapse
+            synapse_cli/bin/synapse-hook
+            synapse_cli/bin/synapse.exe
+            synapse_cli/bin/synapse-hook.exe
           if-no-files-found: error
 
   publish:

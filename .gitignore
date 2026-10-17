@@ -19,7 +19,8 @@ scripts/
 # Build products and downloads of the Ada crate.
 obj/
 bin/
-/config/
+/synapse/config/
+/synapse_cli/config/
 /tests/unit/config/
 /tests/acceptance/config/
 /tools/config/

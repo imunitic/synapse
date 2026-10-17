@@ -29,8 +29,8 @@ set -euo pipefail
 readonly HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly ROOT="$(cd "$HERE/../.." && pwd)"
 readonly OUT="$HERE/cli.md"
-readonly SYNAPSE="${SYNAPSE_BIN:-$ROOT/bin/synapse}"
-readonly HOOK="${SYNAPSE_HOOK_BIN:-$ROOT/bin/synapse-hook}"
+readonly SYNAPSE="${SYNAPSE_BIN:-$ROOT/synapse_cli/bin/synapse}"
+readonly HOOK="${SYNAPSE_HOOK_BIN:-$ROOT/synapse_cli/bin/synapse-hook}"
 
 usage() { # usage [exit-code]
   awk '/^# Usage:/ { p = 1 } p && !/^#/ { exit } p { sub(/^# ?/, ""); print }' "$0" >&2

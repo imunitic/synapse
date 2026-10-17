@@ -218,8 +218,8 @@ differs by even one byte from what a writer and a reader each expect is unfindab
 
 ## Sources
 
-- `src/core/formats/synapse-core-tags_cache_format.ads` — the `_tags_cache.bin` header, record table, `Encode`, `Parse` and the readers.
-- `src/core/graph/synapse-core-tag_payload.ads` — the per-entry Tag codec that fills the payload region.
-- `src/adapters/caches/synapse-adapters-tags_cache.ads` — the `Cache`: `Open`, `Needs_Tagging`, `Commit`, `Write_Refs`.
-- `src/core/graph/synapse-core-refs.ads` — `_refs.tsv`'s `Row`, `Find`, and `Sort_Unique`.
-- `src/core/graph/synapse-core-tag_line.ads` — the tree-sitter-batch-output ⇄ `Tag` ⇄ `_refs.tsv`-row codec.
+- `synapse/src/core/formats/synapse-core-tags_cache_format.ads` — the `_tags_cache.bin` header, record table, `Encode`, `Parse` and the readers.
+- `synapse/src/core/graph/synapse-core-tag_payload.ads` — the per-entry Tag codec that fills the payload region.
+- `synapse/src/adapters/caches/synapse-adapters-tags_cache.ads` — the `Cache`: `Open`, `Needs_Tagging`, `Commit`, `Write_Refs`.
+- `synapse/src/core/graph/synapse-core-refs.ads` — `_refs.tsv`'s `Row`, `Find`, and `Sort_Unique`.
+- `synapse/src/core/graph/synapse-core-tag_line.ads` — the tree-sitter-batch-output ⇄ `Tag` ⇄ `_refs.tsv`-row codec.

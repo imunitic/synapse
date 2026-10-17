@@ -1,16 +1,16 @@
 with "config/synapse_acceptance_config.gpr";
 with "aunit.gpr";
-with "../../synapse_platform.gpr";
+with "../../synapse/synapse_platform.gpr";
 
 project Synapse_Acceptance is
 
    for Source_Dirs use
-     ("src", "../../src/core", "../../src/core/config", "../../src/core/formats",
-      "../../src/core/graph", "../../src/core/json", "../../src/core/notes",
-      "../../src/core/text", "../../src/core/util", "../../src/ports",
-      "../../src/adapters", "../../src/adapters/caches",
-      "../../src/adapters/stores", "../../src/adapters/system",
-      "../../" & Synapse_Platform.Platform_Dir, "config/");
+     ("src", "../../synapse/src/core", "../../synapse/src/core/config", "../../synapse/src/core/formats",
+      "../../synapse/src/core/graph", "../../synapse/src/core/json", "../../synapse/src/core/notes",
+      "../../synapse/src/core/text", "../../synapse/src/core/util", "../../synapse/src/ports",
+      "../../synapse/src/adapters", "../../synapse/src/adapters/caches",
+      "../../synapse/src/adapters/stores", "../../synapse/src/adapters/system",
+      "../../synapse/" & Synapse_Platform.Platform_Dir, "config/");
    for Object_Dir use "obj/" & Synapse_Acceptance_Config.Build_Profile;
    for Create_Missing_Dirs use "True";
    for Exec_Dir use "bin";

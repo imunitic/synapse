@@ -1,5 +1,5 @@
 --  What differs between operating systems, in one place. Alire sets
---  SYNAPSE_OS (see alire.toml); a plain gprbuild run defaults to POSIX.
+--  SYNAPSE_OS (see both crates' alire.toml); a plain gprbuild run defaults to POSIX.
 abstract project Synapse_Platform is
 
    type Os_Kind is ("posix", "windows");

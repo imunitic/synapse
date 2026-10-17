@@ -40,7 +40,8 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
-            obj
+            synapse/obj
+            synapse_cli/obj
             tests/unit/obj
             tests/acceptance/obj
           key: obj-${{ runner.os }}-unit-${{ github.sha }}
@@ -76,7 +77,8 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
-            obj
+            synapse/obj
+            synapse_cli/obj
             tests/unit/obj
             tests/acceptance/obj
           key: obj-${{ runner.os }}-acceptance-${{ github.sha }}
@@ -132,7 +134,8 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
-            obj
+            synapse/obj
+            synapse_cli/obj
             tests/unit/obj
             tests/acceptance/obj
           key: obj-${{ runner.os }}-package-${{ github.sha }}

@@ -28,12 +28,12 @@ package body Acceptance.Fixtures is
 
    function Checkout return String is (Start_Dir);
 
-   function Synapse_Bin return String is (Start_Dir & "/bin/synapse");
+   function Synapse_Bin return String is (Start_Dir & "/synapse_cli/bin/synapse");
 
    function Synapse_Fake_Bin return String is
-     (Start_Dir & "/bin/synapse-fake");
+     (Start_Dir & "/synapse_cli/bin/synapse-fake");
 
-   function Hook_Bin return String is (Start_Dir & "/bin/synapse-hook");
+   function Hook_Bin return String is (Start_Dir & "/synapse_cli/bin/synapse-hook");
 
    Fake_Bin_Dir : constant String :=
      Start_Dir & "/tests/acceptance/fixtures/fake-bin";

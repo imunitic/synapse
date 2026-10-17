@@ -1,4 +1,4 @@
-name = "synapse"
+name = "synapse_cli"
 description = "Synapse: persistent vault and code-graph memory for coding agents"
 version = "0.0.0-dev"
 
@@ -9,6 +9,12 @@ licenses = "MIT"
 tags = []
 
 executables = ["synapse", "synapse-hook", "synapse-fake"]
+
+[[depends-on]]
+synapse = "*"
+
+[[pins]]
+synapse = { path = "../synapse" }
 
 [build-switches]
 validation.contracts = "Yes"
