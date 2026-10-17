@@ -12,14 +12,14 @@
 #   ci/linux-release.sh
 #
 # Needs podman or docker. Leaves `$OUT_DIR/{synapse,synapse-hook,synapse-fake}`
-# (`bin` unless OUT_DIR says otherwise) and checks the highest glibc
+# (`synapse_cli/bin` unless OUT_DIR says otherwise) and checks the highest glibc
 # version they ask for.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 root="$PWD"
 
-out_dir="${OUT_DIR:-$root/bin}"
+out_dir="${OUT_DIR:-$root/synapse_cli/bin}"
 floor="${GLIBC_FLOOR:-2.28}"
 alire_version="${ALIRE_VERSION:-2.1.1}"
 gnat_version="${GNAT_VERSION:-16.1.0}"
