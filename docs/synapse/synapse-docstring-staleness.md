@@ -175,12 +175,12 @@ mechanism `synapse-tag-vocabulary.conf`/`synapse-projects.conf` already use.
 
 ## Sources
 
-- `src/core/formats/synapse-core-docstring_index_format.ads` — the `_docstring_index.bin` header, record table, encode and parse.
-- `src/adapters/caches/synapse-adapters-docstring_cache.ads` — the `Cache` wrapper (`Enabled`, `Open`, `Get`, `Entries_For_Path`, `Needs_Check`, `Commit`) and the opt-in gate.
-- `src/core/config/synapse-core-comment_style_rules.ads` — the historian-plague phrase-grep and the rubric-conf name.
-- `src/adapters/tree_sitter/synapse-adapters-tree_sitter-docstring_pairs.ads` — comment/declaration pairing: `Comment_Type_Name`, `Declaration_Overrides`, `Find_Pairs`.
-- `src/adapters/tree_sitter/synapse-adapters-tree_sitter-resolution.ads` — `Resolve`, the shared grammar-load primitive this feature and the tagger cascade both call.
-- `src/hooks/synapse-hooks-staleness.adb` — Tier 1's `Check_Docstrings`/`Range_Changed`.
-- `src/commands/checks/synapse-commands-docstring_check.ads` — Tier 2's shared `Check_File`, called by both commands below.
-- `src/commands/checks/synapse-commands-comments_check.ads` — `synapse comments-check <path>`.
-- `src/commands/checks/synapse-commands-comments_sweep.ads` — `synapse comments-sweep [--reenumerate]`.
+- `synapse/src/core/formats/synapse-core-docstring_index_format.ads` — the `_docstring_index.bin` header, record table, encode and parse.
+- `synapse/src/adapters/caches/synapse-adapters-docstring_cache.ads` — the `Cache` wrapper (`Enabled`, `Open`, `Get`, `Entries_For_Path`, `Needs_Check`, `Commit`) and the opt-in gate.
+- `synapse/src/core/config/synapse-core-comment_style_rules.ads` — the historian-plague phrase-grep and the rubric-conf name.
+- `synapse/src/adapters/tree_sitter/synapse-adapters-tree_sitter-docstring_pairs.ads` — comment/declaration pairing: `Comment_Type_Name`, `Declaration_Overrides`, `Find_Pairs`.
+- `synapse/src/adapters/tree_sitter/synapse-adapters-tree_sitter-resolution.ads` — `Resolve`, the shared grammar-load primitive this feature and the tagger cascade both call.
+- `synapse_cli/src/hooks/synapse-hooks-staleness.adb` — Tier 1's `Check_Docstrings`/`Range_Changed`.
+- `synapse_cli/src/commands/checks/synapse-commands-docstring_check.ads` — Tier 2's shared `Check_File`, called by both commands below.
+- `synapse_cli/src/commands/checks/synapse-commands-comments_check.ads` — `synapse comments-check <path>`.
+- `synapse_cli/src/commands/checks/synapse-commands-comments_sweep.ads` — `synapse comments-sweep [--reenumerate]`.

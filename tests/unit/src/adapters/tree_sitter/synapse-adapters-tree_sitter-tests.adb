@@ -444,7 +444,7 @@ package body Synapse.Adapters.Tree_Sitter.Tests is
    is
       pragma Unreferenced (T);
       Header : constant String :=
-        "../../vendor/tree-sitter/lib/include/tree_sitter/api.h";
+        "../../synapse/vendor/tree-sitter/lib/include/tree_sitter/api.h";
       File   : Ada.Text_IO.File_Type;
       Newest : Integer         := -1;
       Oldest : Integer         := -1;

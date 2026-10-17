@@ -3,7 +3,7 @@
 # If you change the gate, change it in both places.
 #
 #   just              list the recipes
-#   just build        the three programs, into bin/
+#   just build        the three programs, into synapse_cli/bin/
 #   just test         the AUnit suite
 #   just acceptance   the subprocess suite and text checks, against the built programs
 #   just check        the full gate -- before PUSHING, not before every commit
@@ -49,14 +49,14 @@ ucd:
 
 # Regenerate the Unicode tables from the downloaded UCD files.
 gen-unicode: ucd
-    cd tools && alr -n build --validation -- -m && alr -n run --skip-build --args="../ucd ../src/core/text {{ ucd_version }}"
+    cd tools && alr -n build --validation -- -m && alr -n run --skip-build --args="../ucd ../synapse/src/core/text {{ ucd_version }}"
 
 # Fail if the committed Unicode tables differ from what the generator produces.
 gen-check: ucd
     mkdir -p ucd/check
     cd tools && alr -n build --validation && alr -n run --skip-build --args="../ucd ../ucd/check {{ ucd_version }}"
-    cmp src/core/text/synapse-core-unicode_tables.ads ucd/check/synapse-core-unicode_tables.ads
-    cmp src/core/text/synapse-core-unicode_tables.adb ucd/check/synapse-core-unicode_tables.adb
+    cmp synapse/src/core/text/synapse-core-unicode_tables.ads ucd/check/synapse-core-unicode_tables.ads
+    cmp synapse/src/core/text/synapse-core-unicode_tables.adb ucd/check/synapse-core-unicode_tables.adb
 
 tree_sitter_commit := "42f33fe2f8ddef5617a8536723c5d2b8a19a615e"
 
@@ -64,7 +64,7 @@ tree_sitter_commit := "42f33fe2f8ddef5617a8536723c5d2b8a19a615e"
 vendor-tree-sitter:
     #!/usr/bin/env bash
     set -euo pipefail
-    dest="vendor/tree-sitter"
+    dest="synapse/vendor/tree-sitter"
     work="$(mktemp -d)"
     trap 'rm -rf "$work"' EXIT
     curl -fsSL -o "$work/ts.tar.gz" \
@@ -95,9 +95,9 @@ json-suite:
     cp "$work/JSONTestSuite-{{ json_suite_commit }}/test_parsing/"* "$dest/"
     echo "json suite {{ json_suite_commit }} ok"
 
-# Build the programs with the validation profile (contracts checked at runtime) into bin/.
+# Build the programs with the validation profile (contracts checked at runtime, library included) into synapse_cli/bin/.
 build:
-    alr -n build --validation -- -m
+    cd synapse_cli && alr -n build --profiles='*=validation' -- -m
 
 # The AUnit suite; exits non-zero on any failed test.
 test: ucd json-suite
@@ -105,7 +105,7 @@ test: ucd json-suite
 
 # Build the release binaries.
 release:
-    alr -n build --release -- -m
+    cd synapse_cli && alr -n build --profiles='*=release' -- -m
 
 # Package the release binaries as npm packages, install them into a scratch prefix and check the installed program end to end.
 package: release

@@ -31,7 +31,7 @@ package body Acceptance.Cli_Reference_Tests is
       pragma Unreferenced (T);
       F : Fixture;
    begin
-      --  The generator defaults to `bin/synapse`; pointing it at the programs
+      --  The generator defaults to `synapse_cli/bin/synapse`; pointing it at the programs
       --  this suite tests leaves nothing implicit.
       Set_Env (F, "SYNAPSE_BIN", Synapse_Bin);
       Set_Env (F, "SYNAPSE_HOOK_BIN", Hook_Bin);

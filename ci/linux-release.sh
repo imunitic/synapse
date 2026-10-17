@@ -5,21 +5,21 @@
 # The Alire toolchain and `alr` itself need a newer glibc than 2.28, so the
 # build cannot run on an old system. It runs on a recent one, and compiles and
 # links against a sysroot taken from an AlmaLinux 8 image instead of its own C
-# library (`SYNAPSE_USE_SYSROOT`, see `synapse_platform.gpr`). The toolchain's
+# library (`SYNAPSE_USE_SYSROOT`, see `synapse/synapse_platform.gpr`). The toolchain's
 # own unwinder asks glibc for `_dl_find_object`, which only 2.35 has, so the
 # sysroot also carries the older unwinder of the image's compiler.
 #
 #   ci/linux-release.sh
 #
 # Needs podman or docker. Leaves `$OUT_DIR/{synapse,synapse-hook,synapse-fake}`
-# (`bin` unless OUT_DIR says otherwise) and checks the highest glibc
+# (`synapse_cli/bin` unless OUT_DIR says otherwise) and checks the highest glibc
 # version they ask for.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 root="$PWD"
 
-out_dir="${OUT_DIR:-$root/bin}"
+out_dir="${OUT_DIR:-$root/synapse_cli/bin}"
 floor="${GLIBC_FLOOR:-2.28}"
 alire_version="${ALIRE_VERSION:-2.1.1}"
 gnat_version="${GNAT_VERSION:-16.1.0}"
@@ -63,8 +63,8 @@ echo "build on ubuntu:24.04"
     curl -fsSL -o /tmp/alr.zip "https://github.com/alire-project/alire/releases/download/v${ALIRE_VERSION}/alr-${ALIRE_VERSION}-bin-${ALIRE_ARCH}-linux.zip"
     (cd /tmp && unzip -q alr.zip && install -m755 bin/alr /usr/local/bin/alr)
     mkdir -p /sysroot && tar -xzf /out/sysroot.tgz -C /sysroot
-    mkdir -p /work && cd /src/repo && tar -cf - alire.toml synapse.gpr synapse_platform.gpr src vendor | tar -xf - -C /work
-    cd /work
+    mkdir -p /work && cd /src/repo && tar -cf - synapse synapse_cli | tar -xf - -C /work
+    cd /work/synapse_cli
     alr -n toolchain --select "gnat_native=${GNAT_VERSION}" gprbuild
     SYNAPSE_USE_SYSROOT=yes SYNAPSE_SYSROOT=/sysroot alr -n build --release
     cp bin/synapse bin/synapse-hook bin/synapse-fake /out/'
