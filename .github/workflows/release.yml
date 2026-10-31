@@ -3,10 +3,17 @@ name: release
 # A release is cut by pushing a tag (`vX.Y.Z`), not by every push to main.
 # Builds the binaries natively on each platform Synapse ships for, packages
 # them as the npm platform packages and checks the installed result end to end
-# (`ci/package.sh`), then publishes. workflow_dispatch takes an explicit `tag`
-# input for a manual re-run and checks out that tag rather than whatever ref
+# (`ci/package.sh`), then publishes ten packages in lock-step: `synapse` and
+# `synapse-pipeline`, each with a package per platform. workflow_dispatch takes
+# an explicit `tag` input for a manual re-run and checks out that tag rather than whatever ref
 # triggered the dispatch, so a manual run can never build off an untagged
 # commit; `dry_run` makes it an `npm publish --dry-run`.
+#
+# Publishing authenticates with npm's Trusted Publishing, which only works for a
+# package that already exists on the registry and names this workflow as its
+# publisher. `use_token` publishes with the repository secret `NPM_TOKEN`
+# instead, for the one run that creates a new package; after that run each new
+# package is given its Trusted Publisher and the input is not used again.
 #
 # A pull request that touches how the binaries are built runs the `build` job
 # alone: the three platforms, the glibc floor and the package check, with the
@@ -24,6 +31,7 @@ on:
       - "ci/**"
       - "synapse/**"
       - "synapse_cli/**"
+      - "synapse_pipeline/**"
       - "packages/**"
   workflow_dispatch:
     inputs:
@@ -32,6 +40,10 @@ on:
         required: true
       dry_run:
         description: "Run `npm publish --dry-run` instead of publishing"
+        type: boolean
+        default: false
+      use_token:
+        description: "Publish with the NPM_TOKEN secret, to create packages that do not exist yet"
         type: boolean
         default: false
 
@@ -92,6 +104,14 @@ jobs:
             synapse_cli/bin/synapse-hook.exe
           if-no-files-found: error
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-${{ matrix.plat }}
+          path: |
+            synapse_pipeline/bin/synapse-pipeline
+            synapse_pipeline/bin/synapse-pipeline.exe
+          if-no-files-found: error
+
   publish:
     needs: build
     if: github.event_name != 'pull_request'
@@ -117,14 +137,20 @@ jobs:
         with:
           path: artifacts
 
-      # One version, five packages, the platform packages first so the main
+      # One version, ten packages, the platform packages first so each main
       # package's optional dependencies already resolve. A version already on
       # the registry is skipped, so a retry after a partial failure works.
       - name: Publish the npm packages in lock-step
         env:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
+          USE_TOKEN: ${{ github.event.inputs.use_token }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          if [ "$USE_TOKEN" = "true" ]; then
+            [ -n "$NPM_TOKEN" ] || { echo "use_token needs the NPM_TOKEN secret" >&2; exit 1; }
+            export NODE_AUTH_TOKEN="$NPM_TOKEN"
+          fi
           v="${TAG#v}"
           dist_tag="latest"
           case "$v" in
@@ -153,6 +179,15 @@ jobs:
             jq --arg v "$v" '.version = $v' "packages/synapse/platforms/$plat/package.json" > "$tmp"
             mv "$tmp" "packages/synapse/platforms/$plat/package.json"
             publish_if_new "packages/synapse/platforms/$plat" "@imunitic/synapse-$plat"
+
+            pdest="packages/synapse-pipeline/platforms/$plat/bin"
+            mkdir -p "$pdest"
+            cp "artifacts/pipeline-$plat/synapse-pipeline$exe" "$pdest/"
+            chmod +x "$pdest/synapse-pipeline$exe"
+            tmp=$(mktemp)
+            jq --arg v "$v" '.version = $v' "packages/synapse-pipeline/platforms/$plat/package.json" > "$tmp"
+            mv "$tmp" "packages/synapse-pipeline/platforms/$plat/package.json"
+            publish_if_new "packages/synapse-pipeline/platforms/$plat" "@imunitic/synapse-pipeline-$plat"
           done
 
           tmp=$(mktemp)
@@ -160,3 +195,9 @@ jobs:
             packages/synapse/package.json > "$tmp"
           mv "$tmp" packages/synapse/package.json
           publish_if_new "packages/synapse" "@imunitic/synapse"
+
+          tmp=$(mktemp)
+          jq --arg v "$v" '.version = $v | .optionalDependencies |= map_values($v)' \
+            packages/synapse-pipeline/package.json > "$tmp"
+          mv "$tmp" packages/synapse-pipeline/package.json
+          publish_if_new "packages/synapse-pipeline" "@imunitic/synapse-pipeline"

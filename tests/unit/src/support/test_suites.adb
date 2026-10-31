@@ -83,6 +83,36 @@ with Synapse.Commands.Now.Tests;
 with Synapse.Commands.Namespace.Tests;
 with Synapse.Commands.Show_Context.Tests;
 with Synapse.Commands.Dispatch.Tests;
+with Synapse.Pipeline.Commands.Dispatch.Tests;
+with Synapse.Pipeline.Lexer.Tests;
+with Synapse.Pipeline.Parser.Tests;
+with Synapse.Pipeline.Definitions.Tests;
+with Synapse.Pipeline.Search_Paths.Tests;
+with Synapse.Pipeline.System_Files.Tests;
+with Synapse.Pipeline.Durations.Tests;
+with Synapse.Pipeline.Skills.Tests;
+with Synapse.Pipeline.Attributes.Tests;
+with Synapse.Pipeline.Validation.Tests;
+with Synapse.Pipeline.Harnesses.Tests;
+with Synapse.Pipeline.Resolution.Tests;
+with Synapse.Pipeline.Guards.Tests;
+with Synapse.Pipeline.Failures.Tests;
+with Synapse.Pipeline.States.Tests;
+with Synapse.Pipeline.Configs.Tests;
+with Synapse.Pipeline.Envelopes.Tests;
+with Synapse.Pipeline.Sessions.Tests;
+with Synapse.Pipeline.Scripted_Runners.Tests;
+with Synapse.Pipeline.Engine.Tests;
+with Synapse.Pipeline.Commands.Check.Tests;
+with Synapse.Pipeline.Commands.Run.Tests;
+with Synapse.Pipeline.Commands.Clients.Tests;
+with Synapse.Pipeline.Inspection.Tests;
+with Synapse.Pipeline.Contexts.Tests;
+with Synapse.Pipeline.Inspectors.Tests;
+with Synapse.Pipeline.System_Inspector.Tests;
+with Synapse.Pipeline.System_Process.Tests;
+with Synapse.Pipeline.Harness_Commands.Tests;
+with Synapse.Pipeline.Process_Runners.Tests;
 with Synapse.Hooks.Dispatch.Tests;
 with Synapse.Hooks.Staleness.Tests;
 with Synapse.Hooks.Session_Start.Tests;
@@ -269,6 +299,59 @@ package body Test_Suites is
      aliased Synapse.Commands.Namespace.Tests.Test_Case;
    Show_Context_Tests : aliased Synapse.Commands.Show_Context.Tests.Test_Case;
    Dispatch_Tests : aliased Synapse.Commands.Dispatch.Tests.Test_Case;
+   Pipeline_Dispatch_Tests :
+     aliased Synapse.Pipeline.Commands.Dispatch.Tests.Test_Case;
+   Pipeline_Lexer_Tests : aliased Synapse.Pipeline.Lexer.Tests.Test_Case;
+   Pipeline_Parser_Tests : aliased Synapse.Pipeline.Parser.Tests.Test_Case;
+   Pipeline_Definitions_Tests :
+     aliased Synapse.Pipeline.Definitions.Tests.Test_Case;
+   Pipeline_Search_Paths_Tests :
+     aliased Synapse.Pipeline.Search_Paths.Tests.Test_Case;
+   Pipeline_System_Files_Tests :
+     aliased Synapse.Pipeline.System_Files.Tests.Test_Case;
+   Pipeline_Durations_Tests :
+     aliased Synapse.Pipeline.Durations.Tests.Test_Case;
+   Pipeline_Skills_Tests : aliased Synapse.Pipeline.Skills.Tests.Test_Case;
+   Pipeline_Attributes_Tests :
+     aliased Synapse.Pipeline.Attributes.Tests.Test_Case;
+   Pipeline_Validation_Tests :
+     aliased Synapse.Pipeline.Validation.Tests.Test_Case;
+   Pipeline_Harnesses_Tests :
+     aliased Synapse.Pipeline.Harnesses.Tests.Test_Case;
+   Pipeline_Resolution_Tests :
+     aliased Synapse.Pipeline.Resolution.Tests.Test_Case;
+   Pipeline_Guards_Tests : aliased Synapse.Pipeline.Guards.Tests.Test_Case;
+   Pipeline_Failures_Tests :
+     aliased Synapse.Pipeline.Failures.Tests.Test_Case;
+   Pipeline_States_Tests : aliased Synapse.Pipeline.States.Tests.Test_Case;
+   Pipeline_Configs_Tests : aliased Synapse.Pipeline.Configs.Tests.Test_Case;
+   Pipeline_Envelopes_Tests :
+     aliased Synapse.Pipeline.Envelopes.Tests.Test_Case;
+   Pipeline_Sessions_Tests :
+     aliased Synapse.Pipeline.Sessions.Tests.Test_Case;
+   Pipeline_Scripted_Runners_Tests :
+     aliased Synapse.Pipeline.Scripted_Runners.Tests.Test_Case;
+   Pipeline_Engine_Tests : aliased Synapse.Pipeline.Engine.Tests.Test_Case;
+   Pipeline_Check_Tests :
+     aliased Synapse.Pipeline.Commands.Check.Tests.Test_Case;
+   Pipeline_Run_Tests :
+     aliased Synapse.Pipeline.Commands.Run.Tests.Test_Case;
+   Pipeline_Clients_Tests :
+     aliased Synapse.Pipeline.Commands.Clients.Tests.Test_Case;
+   Pipeline_Inspection_Tests :
+     aliased Synapse.Pipeline.Inspection.Tests.Test_Case;
+   Pipeline_Contexts_Tests :
+     aliased Synapse.Pipeline.Contexts.Tests.Test_Case;
+   Pipeline_Inspectors_Tests :
+     aliased Synapse.Pipeline.Inspectors.Tests.Test_Case;
+   Pipeline_Harness_Commands_Tests :
+     aliased Synapse.Pipeline.Harness_Commands.Tests.Test_Case;
+   Pipeline_Process_Runners_Tests :
+     aliased Synapse.Pipeline.Process_Runners.Tests.Test_Case;
+   Pipeline_System_Process_Tests :
+     aliased Synapse.Pipeline.System_Process.Tests.Test_Case;
+   Pipeline_System_Inspector_Tests :
+     aliased Synapse.Pipeline.System_Inspector.Tests.Test_Case;
    Hooks_Dispatch_Tests : aliased Synapse.Hooks.Dispatch.Tests.Test_Case;
    Hooks_Staleness_Tests : aliased Synapse.Hooks.Staleness.Tests.Test_Case;
    Hooks_Session_Start_Tests : aliased Synapse.Hooks.Session_Start.Tests.Test_Case;
@@ -369,6 +452,36 @@ package body Test_Suites is
       Result.Add_Test (Namespace_Tests'Access);
       Result.Add_Test (Show_Context_Tests'Access);
       Result.Add_Test (Dispatch_Tests'Access);
+      Result.Add_Test (Pipeline_Dispatch_Tests'Access);
+      Result.Add_Test (Pipeline_Lexer_Tests'Access);
+      Result.Add_Test (Pipeline_Parser_Tests'Access);
+      Result.Add_Test (Pipeline_Definitions_Tests'Access);
+      Result.Add_Test (Pipeline_Search_Paths_Tests'Access);
+      Result.Add_Test (Pipeline_System_Files_Tests'Access);
+      Result.Add_Test (Pipeline_Durations_Tests'Access);
+      Result.Add_Test (Pipeline_Skills_Tests'Access);
+      Result.Add_Test (Pipeline_Attributes_Tests'Access);
+      Result.Add_Test (Pipeline_Validation_Tests'Access);
+      Result.Add_Test (Pipeline_Harnesses_Tests'Access);
+      Result.Add_Test (Pipeline_Resolution_Tests'Access);
+      Result.Add_Test (Pipeline_Guards_Tests'Access);
+      Result.Add_Test (Pipeline_Failures_Tests'Access);
+      Result.Add_Test (Pipeline_States_Tests'Access);
+      Result.Add_Test (Pipeline_Configs_Tests'Access);
+      Result.Add_Test (Pipeline_Envelopes_Tests'Access);
+      Result.Add_Test (Pipeline_Sessions_Tests'Access);
+      Result.Add_Test (Pipeline_Scripted_Runners_Tests'Access);
+      Result.Add_Test (Pipeline_Engine_Tests'Access);
+      Result.Add_Test (Pipeline_Check_Tests'Access);
+      Result.Add_Test (Pipeline_Run_Tests'Access);
+      Result.Add_Test (Pipeline_Clients_Tests'Access);
+      Result.Add_Test (Pipeline_Inspection_Tests'Access);
+      Result.Add_Test (Pipeline_Contexts_Tests'Access);
+      Result.Add_Test (Pipeline_Inspectors_Tests'Access);
+      Result.Add_Test (Pipeline_System_Inspector_Tests'Access);
+      Result.Add_Test (Pipeline_System_Process_Tests'Access);
+      Result.Add_Test (Pipeline_Harness_Commands_Tests'Access);
+      Result.Add_Test (Pipeline_Process_Runners_Tests'Access);
       Result.Add_Test (Hooks_Dispatch_Tests'Access);
       Result.Add_Test (Hooks_Staleness_Tests'Access);
       Result.Add_Test (Hooks_Session_Start_Tests'Access);

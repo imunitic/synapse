@@ -1,0 +1,23 @@
+{
+  "name": "@imunitic/synapse-pipeline",
+  "version": "0.0.0-unreleased",
+  "description": "Runs declarative agent pipelines: each step is one non-interactive Claude Code, Codex CLI or OpenCode session, and its result decides the next step.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imunitic/synapse.git"
+  },
+  "bin": {
+    "synapse-pipeline": "bin/synapse-pipeline.cjs"
+  },
+  "files": [
+    "bin",
+    "lib"
+  ],
+  "optionalDependencies": {
+    "@imunitic/synapse-pipeline-darwin-arm64": "0.0.0-unreleased",
+    "@imunitic/synapse-pipeline-linux-x64": "0.0.0-unreleased",
+    "@imunitic/synapse-pipeline-linux-arm64": "0.0.0-unreleased",
+    "@imunitic/synapse-pipeline-win32-x64": "0.0.0-unreleased"
+  },
+  "license": "SEE LICENSE IN LICENSE"
+}

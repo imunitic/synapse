@@ -20,6 +20,11 @@ components, independent enough that you can use one without the others:
   nodes). See [`docs/synapse/synapse-code-cache.md`](docs/synapse/synapse-code-cache.md).
 - **Synapse Tools** — the scripts, commands, skills and hooks that build and maintain both.
 
+Separately, **Synapse Pipeline** (`npm install -g @imunitic/synapse-pipeline`) is a program that
+runs declarative agent pipelines — one non-interactive Claude Code, Codex CLI or OpenCode session
+per step, with each result deciding the next step. It does not use the Vault or the Graph and is
+installed on its own; see [`docs/synapse/synapse-pipeline.md`](docs/synapse/synapse-pipeline.md).
+
 This repository packages the **Tools**, plus the templates and config they need. It does not contain
 your notes: the Vault's content is a separate sync concern (git, iCloud, Dropbox, manual copy —
 your call).

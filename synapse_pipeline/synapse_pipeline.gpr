@@ -1,0 +1,32 @@
+with "config/synapse_pipeline_config.gpr";
+with "synapse.gpr";
+with "synapse_platform.gpr";
+
+project Synapse_Pipeline is
+
+   for Source_Dirs use ("src/commands", "src/language", "src/adapters/system",
+      "src/adapters/fakes", "src/platform/" & Synapse_Platform.Os,
+      "src/apps", "config/");
+   for Object_Dir use "obj/" & Synapse_Pipeline_Config.Build_Profile;
+   for Create_Missing_Dirs use "True";
+   for Exec_Dir use "bin";
+   for Main use ("synapse_pipeline_main.adb");
+
+   package Compiler is
+      for Default_Switches ("Ada") use
+        Synapse_Pipeline_Config.Ada_Compiler_Switches;
+   end Compiler;
+
+   package Linker is
+      for Default_Switches ("Ada") use Synapse_Platform.Link_Switches;
+   end Linker;
+
+   package Binder is
+      for Switches ("Ada") use ("-Es");
+   end Binder;
+
+   package Builder is
+      for Executable ("synapse_pipeline_main.adb") use "synapse-pipeline";
+   end Builder;
+
+end Synapse_Pipeline;

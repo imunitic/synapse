@@ -13,6 +13,7 @@ with Acceptance.Query_Tests;
 with Acceptance.Index_Namespace_Tests;
 with Acceptance.Git_Store_Tests;
 with Acceptance.Pipeline_Tests;
+with Acceptance.Agent_Pipeline_Tests;
 with Acceptance.Prompt_Context_Tests;
 with Acceptance.Staleness_Tests;
 with Acceptance.Write_Node_Tests;
@@ -34,6 +35,7 @@ package body Test_Suites is
    Lint           : aliased Acceptance.Lint_Tests.Test_Case;
    Cli_Usage      : aliased Acceptance.Cli_Usage_Tests.Test_Case;
    Pipeline       : aliased Acceptance.Pipeline_Tests.Test_Case;
+   Agent_Pipeline : aliased Acceptance.Agent_Pipeline_Tests.Test_Case;
    Prompt_Context : aliased Acceptance.Prompt_Context_Tests.Test_Case;
    Staleness      : aliased Acceptance.Staleness_Tests.Test_Case;
    Write_Node     : aliased Acceptance.Write_Node_Tests.Test_Case;
@@ -44,6 +46,7 @@ package body Test_Suites is
    begin
       Result.Add_Test (Cli_Usage'Access);
       Result.Add_Test (Pipeline'Access);
+      Result.Add_Test (Agent_Pipeline'Access);
       Result.Add_Test (Write_Node'Access);
       Result.Add_Test (Prompt_Context'Access);
       Result.Add_Test (Staleness'Access);

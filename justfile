@@ -95,9 +95,10 @@ json-suite:
     cp "$work/JSONTestSuite-{{ json_suite_commit }}/test_parsing/"* "$dest/"
     echo "json suite {{ json_suite_commit }} ok"
 
-# Build the programs with the validation profile (contracts checked at runtime, library included) into synapse_cli/bin/.
+# Build the programs with the validation profile (contracts checked at runtime, library included) into synapse_cli/bin/ and synapse_pipeline/bin/.
 build:
     cd synapse_cli && alr -n build --profiles='*=validation' -- -m
+    cd synapse_pipeline && alr -n build --profiles='*=validation' -- -m
 
 # The AUnit suite; exits non-zero on any failed test.
 test: ucd json-suite
@@ -106,6 +107,7 @@ test: ucd json-suite
 # Build the release binaries.
 release:
     cd synapse_cli && alr -n build --profiles='*=release' -- -m
+    cd synapse_pipeline && alr -n build --profiles='*=release' -- -m
 
 # Package the release binaries as npm packages, install them into a scratch prefix and check the installed program end to end.
 package: release

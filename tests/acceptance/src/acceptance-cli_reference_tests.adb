@@ -35,6 +35,7 @@ package body Acceptance.Cli_Reference_Tests is
       --  this suite tests leaves nothing implicit.
       Set_Env (F, "SYNAPSE_BIN", Synapse_Bin);
       Set_Env (F, "SYNAPSE_HOOK_BIN", Hook_Bin);
+      Set_Env (F, "SYNAPSE_PIPELINE_BIN", Pipeline_Bin);
       declare
          R : constant Result :=
            Run_Generator (F, Checkout, Generator, "--check");
@@ -56,6 +57,7 @@ package body Acceptance.Cli_Reference_Tests is
    begin
       Set_Env (F, "SYNAPSE_BIN", Synapse_Fake_Bin);
       Set_Env (F, "SYNAPSE_HOOK_BIN", Hook_Bin);
+      Set_Env (F, "SYNAPSE_PIPELINE_BIN", Pipeline_Bin);
       Write_File (Docs & "/cli.md", Read_File (Cli_Md));
       Write_File (Script, Read_File (Generator));
       Make_Executable (Script);
@@ -171,6 +173,7 @@ package body Acceptance.Cli_Reference_Tests is
       Make_Executable (Needy);
       Set_Env (F, "SYNAPSE_BIN", Needy);
       Set_Env (F, "SYNAPSE_HOOK_BIN", Needy);
+      Set_Env (F, "SYNAPSE_PIPELINE_BIN", Pipeline_Bin);
       declare
          R : constant Result := Run_Generator (F, Root (F), Generator);
       begin
