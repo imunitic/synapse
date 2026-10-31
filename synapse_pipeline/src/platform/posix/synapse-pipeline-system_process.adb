@@ -24,7 +24,8 @@ package body Synapse.Pipeline.System_Process is
    --  standard output to $3 and standard error to $4, as a job of its own
    --  with its own process group. A watcher in a group of its own too asks
    --  the group to stop after $6 seconds, making $5 exist first, and makes it
-   --  after a grace period. The shell itself says nothing. Every value reaches
+   --  after a grace period. A shell that cannot give a job a group of its own
+   --  stops the program itself. The shell says nothing. Every value reaches
    --  the script as an argument, never as shell text.
    Script : constant String :=
      "dir=$1; in=$2; out=$3; err=$4; mark=$5; limit=$6; shift 6; "
@@ -32,11 +33,30 @@ package body Synapse.Pipeline.System_Process is
      & "exec 2>/dev/null; set -m; "
      & """$@"" <""$in"" >""$out"" 2>""$err"" & pid=$!; "
      & "( sleep ""$limit""; : >""$mark""; "
-     & "kill -TERM -- ""-$pid"" 2>/dev/null; "
+     & "kill -TERM -- ""-$pid"" 2>/dev/null || kill -TERM ""$pid"" "
+     & "2>/dev/null; "
      & "sleep" & Natural'Image (Grace_Seconds)
-     & "; kill -KILL -- ""-$pid"" 2>/dev/null ) & watcher=$!; "
+     & "; kill -KILL -- ""-$pid"" 2>/dev/null || kill -KILL ""$pid"" "
+     & "2>/dev/null ) & watcher=$!; "
      & "wait ""$pid""; rc=$?; "
-     & "kill -TERM -- ""-$watcher"" 2>/dev/null; exit $rc";
+     & "kill -TERM -- ""-$watcher"" 2>/dev/null || kill -TERM ""$watcher"" "
+     & "2>/dev/null; exit $rc";
+
+   --  The shell that runs the script. Job control, which gives the program
+   --  a process group to be stopped as a whole, works in bash without a
+   --  terminal but not in every `sh`: where /bin/sh is dash, only bash will
+   --  do.
+   function Shell return String is
+      Found_Bash : GNAT.OS_Lib.String_Access :=
+        GNAT.OS_Lib.Locate_Exec_On_Path ("bash");
+   begin
+      if Found_Bash = null then
+         return "/bin/sh";
+      end if;
+      return Path : constant String := Found_Bash.all do
+         GNAT.OS_Lib.Free (Found_Bash);
+      end return;
+   end Shell;
 
    function Image (Item : Positive) return String is
       Text : constant String := Positive'Image (Item);
@@ -128,7 +148,7 @@ package body Synapse.Pipeline.System_Process is
             Next := Next + 1;
          end loop;
 
-         Status := GNAT.OS_Lib.Spawn ("/bin/sh", Argv (1 .. Next - 1));
+         Status := GNAT.OS_Lib.Spawn (Shell, Argv (1 .. Next - 1));
          for A of Argv (1 .. Next - 1) loop
             GNAT.OS_Lib.Free (A);
          end loop;

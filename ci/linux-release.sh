@@ -67,8 +67,8 @@ echo "build on ubuntu:24.04"
     (cd /tmp && unzip -q alr.zip && install -m755 bin/alr /usr/local/bin/alr)
     mkdir -p /sysroot && tar -xzf /out/sysroot.tgz -C /sysroot
     mkdir -p /work && cd /src/repo && tar --exclude=obj --exclude=bin -cf - synapse synapse_cli synapse_pipeline | tar -xf - -C /work
-    alr -n toolchain --select "gnat_native=${GNAT_VERSION}" gprbuild
     cd /work/synapse_cli
+    alr -n toolchain --select "gnat_native=${GNAT_VERSION}" gprbuild
     SYNAPSE_USE_SYSROOT=yes SYNAPSE_SYSROOT=/sysroot alr -n build --release
     cp bin/synapse bin/synapse-hook bin/synapse-fake /out/
     cd /work/synapse_pipeline
