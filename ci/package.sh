@@ -3,12 +3,15 @@
 # machine's platform, installs them into a scratch prefix as a user would, and
 # checks the installed program end to end: the `synapse` and `synapse-hook`
 # shims find the binaries, `synapse-setup configure claude` wires the hooks to
-# the installed hook binary, and that binary answers as a hook does.
+# the installed hook binary, and that binary answers as a hook does. The
+# synapse-pipeline packages are installed beside them, and the installed
+# `synapse-pipeline` runs a pipeline from a script.
 #
 #   ci/package.sh [--keep]
 #
 # Needs `synapse_cli/bin/synapse` and `synapse_cli/bin/synapse-hook` built with
-# `alr build --release` in synapse_cli. --keep leaves the scratch directory in place.
+# `alr build --release` in synapse_cli, and `synapse_pipeline/bin/synapse-pipeline`
+# built the same way in synapse_pipeline. --keep leaves the scratch directory in place.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -28,19 +31,22 @@ done
 for bin in synapse synapse-hook; do
     [ -x "synapse_cli/bin/$bin$exe" ] || { echo "synapse_cli/bin/$bin$exe missing -- run: just release" >&2; exit 1; }
 done
+[ -x "synapse_pipeline/bin/synapse-pipeline$exe" ] \
+    || { echo "synapse_pipeline/bin/synapse-pipeline$exe missing -- run: just release" >&2; exit 1; }
 
 # On Linux, when a floor is named, the binaries must not ask for a newer glibc.
 if [ -n "${GLIBC_FLOOR:-}" ] && [ "$(uname -s)" = Linux ]; then
-    for b in synapse synapse-hook; do
-        top="$(objdump -T "synapse_cli/bin/$b" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -Vu | tail -1)"
+    for b in synapse_cli/bin/synapse synapse_cli/bin/synapse-hook synapse_pipeline/bin/synapse-pipeline; do
+        top="$(objdump -T "$b" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -Vu | tail -1)"
         [ "$(printf '%s\n%s\n' "$top" "$GLIBC_FLOOR" | sort -V | tail -1)" = "$GLIBC_FLOOR" ] \
-            || { echo "FAIL: $b needs glibc $top, above $GLIBC_FLOOR" >&2; exit 1; }
+            || { echo "FAIL: $(basename "$b") needs glibc $top, above $GLIBC_FLOOR" >&2; exit 1; }
     done
     echo "  glibc floor $GLIBC_FLOOR ok"
 fi
 
 plat="$(node -p 'process.platform + "-" + process.arch')"
 [ -d "packages/synapse/platforms/$plat" ] || { echo "no npm platform package for $plat" >&2; exit 1; }
+[ -d "packages/synapse-pipeline/platforms/$plat" ] || { echo "no synapse-pipeline platform package for $plat" >&2; exit 1; }
 
 work="$(mktemp -d)"
 cleanup() { [ "$keep" = 1 ] && echo "kept $work" || rm -rf "$work"; }
@@ -52,9 +58,14 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 cp -R packages/synapse "$work/pkg"
 mkdir -p "$work/pkg/platforms/$plat/bin"
 cp "synapse_cli/bin/synapse$exe" "synapse_cli/bin/synapse-hook$exe" "$work/pkg/platforms/$plat/bin/"
+cp -R packages/synapse-pipeline "$work/pipeline-pkg"
+mkdir -p "$work/pipeline-pkg/platforms/$plat/bin"
+cp "synapse_pipeline/bin/synapse-pipeline$exe" "$work/pipeline-pkg/platforms/$plat/bin/"
 
 mkdir -p "$work/tarballs" "$work/prefix"
-(cd "$work/tarballs" && npm pack "$work/pkg/platforms/$plat" --silent >/dev/null && npm pack "$work/pkg" --silent >/dev/null)
+(cd "$work/tarballs" \
+    && npm pack "$work/pkg/platforms/$plat" --silent >/dev/null && npm pack "$work/pkg" --silent >/dev/null \
+    && npm pack "$work/pipeline-pkg/platforms/$plat" --silent >/dev/null && npm pack "$work/pipeline-pkg" --silent >/dev/null)
 ls "$work/tarballs" | sed 's/^/  packed /'
 
 # Both in one install, so the main package's optional dependency on the
@@ -118,5 +129,19 @@ printf '{"session_id":"x"}' | "$hook" stop-nudge >/dev/null || fail "stop-nudge 
 printf '{"tool_input":{"file_path":"/nowhere"}}' | "$hook" staleness >/dev/null || fail "staleness exited non-zero"
 "$hook" wat >/dev/null 2>&1 && fail "an unknown hook should not exit 0"
 echo "  hooks ok"
+
+# The installed synapse-pipeline: its shim finds the binary, and the binary
+# checks and runs a pipeline from a script, with no harness on the machine.
+pipebin="$(canon "$nm/@imunitic/synapse-pipeline-$plat/bin")"
+[ -x "$pipebin/synapse-pipeline$exe" ] || fail "the synapse-pipeline platform package holds no binary"
+"$bin/synapse-pipeline" --help 2>&1 | grep -q "usage: synapse-pipeline" || fail "synapse-pipeline through the shim"
+mkdir -p "$work/defs"
+printf 'Pipeline Smoke {\n   Build [Harness => Claude, Prompt => "Build it."];\n   Review [Harness => Claude, Prompt => "Review it."];\n}\n' > "$work/defs/Smoke.synapse"
+printf '{"Build":[{"outcome":"Done","summary":"built","data":{}}],"Review":[{"outcome":"Approved","summary":"packaged ok","data":{}}]}\n' > "$work/answers.json"
+export SYNAPSE_PIPELINE_PATH="$(native "$work/defs")" SYNAPSE_PIPELINE_RUNNER=scripted SYNAPSE_PIPELINE_SCRIPT="$(native "$work/answers.json")"
+"$bin/synapse-pipeline" check Smoke >/dev/null || fail "synapse-pipeline check through the shim"
+result="$("$bin/synapse-pipeline" run Smoke 2>/dev/null)" || fail "synapse-pipeline run through the shim"
+echo "$result" | jq -e '.outcome == "Approved" and .summary == "packaged ok"' >/dev/null || fail "synapse-pipeline run printed '$result'"
+echo "  synapse-pipeline ok"
 
 echo "package ok ($plat)"

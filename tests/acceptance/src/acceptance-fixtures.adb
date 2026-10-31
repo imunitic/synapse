@@ -35,6 +35,9 @@ package body Acceptance.Fixtures is
 
    function Hook_Bin return String is (Start_Dir & "/synapse_cli/bin/synapse-hook");
 
+   function Pipeline_Bin return String is
+     (Start_Dir & "/synapse_pipeline/bin/synapse-pipeline");
+
    Fake_Bin_Dir : constant String :=
      Start_Dir & "/tests/acceptance/fixtures/fake-bin";
 
@@ -483,6 +486,18 @@ package body Acceptance.Fixtures is
      (Run
         (F, Hook_Bin, Args (A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11),
          Repo (F)));
+
+   function Run_Pipeline
+     (F                                  : Fixture; A1 : String;
+      A2, A3, A4, A5, A6, A7, A8, A9, A10 : String := "") return Result is
+     (Run
+        (F, Pipeline_Bin, Args (A1, A2, A3, A4, A5, A6, A7, A8, A9, A10),
+         Repo (F)));
+
+   function Run_Pipeline_Stdin
+     (F : Fixture; Stdin : String; A1 : String; A2, A3, A4 : String := "")
+      return Result is
+     (Run (F, Pipeline_Bin, Args (A1, A2, A3, A4), Repo (F), Stdin, True));
 
    function Run_Synapse_Outside_Repo
      (F : Fixture; A1 : String; A2, A3, A4, A5, A6 : String := "")

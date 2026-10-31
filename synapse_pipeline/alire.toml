@@ -1,0 +1,27 @@
+name = "synapse_pipeline"
+description = "Synapse Pipeline: declarative agent pipelines run as a state machine"
+version = "0.0.0-dev"
+
+authors = ["Ivica Munitic"]
+maintainers = ["Ivica Munitic <imunitic@gmail.com>"]
+maintainers-logins = []
+licenses = "MIT"
+tags = []
+
+executables = ["synapse-pipeline"]
+
+[[depends-on]]
+synapse = "*"
+
+[[pins]]
+synapse = { path = "../synapse" }
+
+[build-switches]
+validation.contracts = "Yes"
+validation.style_checks = "Yes"
+validation.compile_checks = "Warnings"
+"*".ada_version = "Ada2022"
+
+[gpr-set-externals.'case(os)']
+windows = { SYNAPSE_OS = "windows" }
+'...' = { SYNAPSE_OS = "posix" }

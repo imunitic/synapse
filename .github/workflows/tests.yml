@@ -44,6 +44,7 @@ jobs:
           path: |
             synapse/obj
             synapse_cli/obj
+            synapse_pipeline/obj
             tests/unit/obj
             tests/acceptance/obj
           key: obj-${{ runner.os }}-unit-${{ github.sha }}
@@ -81,6 +82,7 @@ jobs:
           path: |
             synapse/obj
             synapse_cli/obj
+            synapse_pipeline/obj
             tests/unit/obj
             tests/acceptance/obj
           key: obj-${{ runner.os }}-acceptance-${{ github.sha }}
@@ -138,6 +140,7 @@ jobs:
           path: |
             synapse/obj
             synapse_cli/obj
+            synapse_pipeline/obj
             tests/unit/obj
             tests/acceptance/obj
           key: obj-${{ runner.os }}-package-${{ github.sha }}

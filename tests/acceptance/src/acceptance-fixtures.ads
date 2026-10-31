@@ -167,6 +167,17 @@ package Acceptance.Fixtures is
    function Synapse_Bin return String;
    function Synapse_Fake_Bin return String;
    function Hook_Bin return String;
+   function Pipeline_Bin return String;
+
+   --  `synapse-pipeline`, run in the repository.
+   function Run_Pipeline
+     (F                                  : Fixture; A1 : String;
+      A2, A3, A4, A5, A6, A7, A8, A9, A10 : String := "") return Result;
+
+   --  The same with Stdin as its standard input.
+   function Run_Pipeline_Stdin
+     (F : Fixture; Stdin : String; A1 : String; A2, A3, A4 : String := "")
+      return Result;
 
    ---------------------------------------------------------------------------
    --  Git

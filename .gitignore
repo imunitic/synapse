@@ -6,6 +6,7 @@ out/
 # release.yml's own publish step copies them in fresh from out/ at publish
 # time (or a local hand-test does the same); never checked into source.
 packages/synapse/platforms/*/bin/
+packages/synapse-pipeline/platforms/*/bin/
 job.txt
 zig-tags.tsv
 # Personal, machine-local Claude Code instructions -- never shared, never
@@ -19,8 +20,11 @@ scripts/
 # Build products and downloads of the Ada crate.
 obj/
 bin/
+# The npm shim of synapse-pipeline is source, not a build product.
+!/packages/synapse-pipeline/bin/
 /synapse/config/
 /synapse_cli/config/
+/synapse_pipeline/config/
 /tests/unit/config/
 /tests/acceptance/config/
 /tools/config/
