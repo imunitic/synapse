@@ -83,7 +83,8 @@ for a usage error.
    is not is a `result_contract_failure`.
 4. **Choose the next step.** The edges leaving the step are tried in the order they were written; the
    first whose guard holds is taken. When none is, the next declared step runs, and after the last the
-   run is complete. The agent never decides this: it reports what happened, and the guards route.
+   run is complete, as it is when an edge leads to `End`. The agent never decides this: it reports what
+   happened, and the guards route.
 5. **Repeat** until the run completes or a step fails.
 
 A step that fails ends the run, except that `Retries` gives an `execution_error` or a

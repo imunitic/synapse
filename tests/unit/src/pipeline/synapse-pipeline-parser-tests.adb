@@ -343,6 +343,34 @@ package body Synapse.Pipeline.Parser.Tests is
       end loop;
    end Random_Source_Never_Raises;
 
+   procedure The_End_Of_A_Run_Is_A_Target_Not_A_Step
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      D : constant Syntax.Definition :=
+        Parse_OK
+          ("Pipeline P { A []; B []; A -> End [When => X]; A -> B -> End; }");
+   begin
+      Assert
+        (Natural (D.Edges.Length) = 3 and then Natural (D.Steps.Length) = 2,
+         "three edges, two steps: End is declared nowhere");
+      Assert
+        (Name_Of (D.Edges (1).To) = "End"
+         and then Name_Of (D.Edges (3).To) = "End"
+         and then Natural (D.Edges (1).Attributes.Length) = 1,
+         "an edge to End, with attributes, and the end of a chain");
+      Assert_Fails
+        ("Pipeline P { End []; }", 1, 14, "keyword", "a step named End");
+      Assert_Fails
+        ("Pipeline End {}", 1, 10, "keyword", "a pipeline named End");
+      Assert_Fails
+        ("Pipeline P { A []; End -> A; }", 1, 20, "keyword",
+         "an edge from End");
+      Assert_Fails
+        ("Pipeline P { A -> End -> B; }", 1, 23, "ends the run",
+         "a chain that goes on after End");
+   end The_End_Of_A_Run_Is_A_Target_Not_A_Step;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -378,6 +406,9 @@ package body Synapse.Pipeline.Parser.Tests is
       Register_Routine
         (T, Random_Source_Never_Raises'Access,
          "Random source never raises");
+      Register_Routine
+        (T, The_End_Of_A_Run_Is_A_Target_Not_A_Step'Access,
+         "The end of a run is a target, not a step");
    end Register_Tests;
 
 end Synapse.Pipeline.Parser.Tests;

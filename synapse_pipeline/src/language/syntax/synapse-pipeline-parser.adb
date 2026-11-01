@@ -101,6 +101,21 @@ package body Synapse.Pipeline.Parser is
          return True;
       end Take_Name;
 
+      --  The name an edge leads to: a step, or the end of the run. The token
+      --  has not been taken.
+      function Take_Target (Result : out Syntax.Reference) return Boolean is
+         T : constant Lexer.Token := Here;
+      begin
+         if T.Kind = Lexer.Identifier
+           and then To_String (T.Name) = Syntax.End_Name
+         then
+            Result := Reference_Of (T);
+            Advance;
+            return True;
+         end if;
+         return Take_Name ("a step name after '->'", Result);
+      end Take_Target;
+
       --  `[` attribute { `,` attribute } `]`, or `[]`.
       procedure Parse_Attributes
         (Into : in out Syntax.Attribute_Vectors.Vector)
@@ -190,10 +205,19 @@ package body Synapse.Pipeline.Parser is
                   Chain.Append (First);
                   while Here.Kind = Lexer.Arrow loop
                      Advance;
-                     if not Take_Name ("a step name after '->'", Next) then
+                     if not Take_Target (Next) then
                         return;
                      end if;
                      Chain.Append (Next);
+                     if To_String (Next.Name) = Syntax.End_Name
+                       and then Here.Kind = Lexer.Arrow
+                     then
+                        Fail
+                          (Here,
+                           "'" & Syntax.End_Name & "' ends the run, so no "
+                           & "edge can leave it");
+                        return;
+                     end if;
                   end loop;
                   if Here.Kind = Lexer.Left_Bracket then
                      Parse_Attributes (Attributes);

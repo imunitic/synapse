@@ -144,6 +144,39 @@ package body Synapse.Pipeline.Commands.Show.Tests is
       Assert (Has (Usage.Text, LF & "  show <pipeline>"), "listed");
    end Show_Is_In_The_Usage;
 
+   procedure An_Edge_To_End_Is_Shown_And_End_Is_Not_A_Step
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      F.Files.Add_File
+        ("/defs/Gate.synapse",
+         "Pipeline Gate {"
+         & " Check [Harness => Claude, Prompt => ""Is it ready?""];"
+         & " Build [Harness => Claude, Prompt => ""Build it.""];"
+         & " Check -> End [When => Discussing]; }");
+      Assert
+        (Run (Env (F), Args ("Gate", "--format", "json")) = 0,
+         "it can run: " & F.Base.Console.Err_Text);
+      declare
+         Parsed : constant JSON.Parse_Result :=
+           JSON.Parse (F.Base.Console.Out_Text);
+      begin
+         Assert (Parsed.Ok, "one JSON document");
+         Assert
+           (JSON.Length (JSON.Member_Value (Parsed.Item, "steps")) = 2,
+            "End is not among the steps");
+         Assert
+           (JSON.As_String
+              (JSON.Member_Value
+                 (JSON.Element (JSON.Member_Value (Parsed.Item, "edges"), 1),
+                  "to")) = "End",
+            "the edge leads to End");
+      end;
+   end An_Edge_To_End_Is_Shown_And_End_Is_Not_A_Step;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -169,6 +202,9 @@ package body Synapse.Pipeline.Commands.Show.Tests is
          "A pipeline that cannot run prints nothing");
       Register_Routine
         (T, Show_Is_In_The_Usage'Access, "Show is in the usage");
+      Register_Routine
+        (T, An_Edge_To_End_Is_Shown_And_End_Is_Not_A_Step'Access,
+         "An edge to End is shown and End is not a step");
    end Register_Tests;
 
 end Synapse.Pipeline.Commands.Show.Tests;

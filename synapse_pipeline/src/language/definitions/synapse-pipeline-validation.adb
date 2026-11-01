@@ -348,8 +348,10 @@ package body Synapse.Pipeline.Validation is
             declare
                From_Known : constant Boolean :=
                  Index.Contains (Name_Of (E.From));
+               Ends       : constant Boolean :=
+                 Name_Of (E.To) = Syntax.End_Name;
                To_Known   : constant Boolean :=
-                 Index.Contains (Name_Of (E.To));
+                 Ends or else Index.Contains (Name_Of (E.To));
             begin
                if not From_Known then
                   Add_At
@@ -362,7 +364,7 @@ package body Synapse.Pipeline.Validation is
                      "there is no step named '" & Name_Of (E.To) & "'");
                end if;
                Check_Attributes (File, Attributes.Edge_Context, E.Attributes);
-               if From_Known and then To_Known
+               if From_Known and then To_Known and then not Ends
                  and then Index.Element (Name_Of (E.To)) <=
                           Index.Element (Name_Of (E.From))
                  and then not Has_Attribute (E.Attributes, "Max_Iterations")

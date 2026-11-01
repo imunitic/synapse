@@ -4,6 +4,7 @@ with Synapse.Pipeline.Envelopes;
 with Synapse.Pipeline.Failures;
 with Synapse.Pipeline.Routing;
 with Synapse.Pipeline.Sessions;
+with Synapse.Pipeline.Syntax;
 
 package body Synapse.Pipeline.Engine is
 
@@ -98,7 +99,12 @@ package body Synapse.Pipeline.Engine is
                   Next.Fired.Append (0);
                end loop;
                Next.Fired.Replace_Element (Taken, Next.Fired (Taken) + 1);
-               Next.Current_Step := Pipeline.Edges (Taken).To;
+               if To_String (Pipeline.Edges (Taken).To) = Syntax.End_Name then
+                  Next.Status := States.Completed;
+                  Next.Current_Step := Null_Unbounded_String;
+               else
+                  Next.Current_Step := Pipeline.Edges (Taken).To;
+               end if;
             end;
          elsif Index < Pipeline.Steps.Last_Index then
             Next.Current_Step := Pipeline.Steps (Index + 1).Name;
