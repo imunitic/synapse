@@ -184,7 +184,7 @@ for (const m of text.matchAll(/```\n-- (\w+\.synapse)\n([\s\S]*?)```/g)) {
 }
 if (n < 2) { console.error("no example definitions in the skill"); process.exit(1); }
 ' "$home/.claude/skills/synapse-pipeline/SKILL.md" "$work/skilldefs" || fail "reading the skill's examples"
-for example in Develop_Feature Review_Change; do
+for example in Develop_Feature Review_Change Ready_Gate; do
     SYNAPSE_PIPELINE_PATH="$(native "$work/skilldefs")" "$bin/synapse-pipeline" check "$example" >/dev/null \
         || fail "the skill's example pipeline $example does not pass check"
 done

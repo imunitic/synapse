@@ -61,7 +61,7 @@ Agent Reviewer [Prompt => "You are a reviewer. Find what is wrong with the chang
 | Integer | Plain decimal. |
 | Duration | A quoted string with a number and a unit of `s`, `m` or `h`: `"90s"`, `"30m"`, `"2h"`. |
 | JSON value | After `=>`, a `{` or `[` begins a JSON value that runs to its matching close. |
-| Reserved | `Pipeline`, `System` and `Agent`. Attribute names have a namespace of their own, so a step may be called `Test`. |
+| Reserved | `Pipeline`, `System`, `Agent` and `End`. Attribute names have a namespace of their own, so a step may be called `Test`. |
 
 ## The three kinds
 
@@ -178,6 +178,24 @@ whose guard holds is taken. An edge that has already fired `Max_Iterations` time
 without its guard being evaluated. When no edge is taken, control moves to the next declared step, and
 from the last step the run is complete.
 
+### Ending a run early
+
+`End` is not a step but a place an edge can lead to: `Check -> End [When => Discussing]`. Taking that
+edge completes the run at once, with no session, and the run's result is the result of the step the
+edge leaves, as it is when the last step finishes. The run is a successful completion like any other,
+so the exit code is 0 and a caller reads the outcome in the result. The edge is otherwise an ordinary
+one: it has a guard, it is tried in the order written with the other edges leaving the step, it is
+counted, and it can have `Max_Iterations`. `End` cannot be the name of a step or of a definition, and
+nothing can leave it, so `A -> End -> B` is an error.
+
+```
+Pipeline Build_Ready_Note {
+   Check [Harness => Claude, Prompt => "Report Ready if the design note is Ready, otherwise Discussing."];
+   Build [Harness => Claude, Prompt => "Implement the note."];
+   Check -> End [When => Discussing];
+}
+```
+
 ## Failures
 
 A step that cannot produce a result fails the run at that step. A failed run does not move on, and
@@ -195,7 +213,7 @@ nothing in the pipeline can catch the failure.
 `synapse-pipeline check` and `synapse-pipeline run` check, before the first session starts:
 
 - the grammar, with the file, line and column of every error;
-- that every step, edge, system, agent and skill that is named exists, and is of the right kind;
+- that every step, edge, system, agent and skill that is named exists, and is of the right kind (an edge may also lead to `End`);
 - that every step has a harness, a known permission level and a well-formed duration;
 - that `Prompt` and `Skill` are not both given, and that a system does not name a system;
 - that every guard is a rule the evaluator can run, and every back-edge is bounded.

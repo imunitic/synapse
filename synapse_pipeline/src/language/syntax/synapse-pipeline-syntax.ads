@@ -96,8 +96,13 @@ package Synapse.Pipeline.Syntax is
         when System_Definition   => "System",
         when Agent_Definition    => "Agent");
 
-   --  Whether a name is one of those keywords, which no step may be called.
+   --  Where an edge leads to end the run. It is not a step: an edge to it
+   --  completes the run, and nothing can leave it.
+   End_Name : constant String := "End";
+
+   --  Whether a name is one of the keywords, or the end of a run, which no
+   --  step may be called.
    function Is_Reserved (Name : String) return Boolean is
-     (Name in "Pipeline" | "System" | "Agent");
+     (Name in "Pipeline" | "System" | "Agent" | End_Name);
 
 end Synapse.Pipeline.Syntax;

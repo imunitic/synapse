@@ -430,6 +430,34 @@ package body Synapse.Pipeline.Validation.Tests is
       end;
    end Skills_Must_Exist;
 
+   procedure An_Edge_To_End_Needs_No_Step_And_No_Bound
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Gate.synapse",
+         "Pipeline Gate { A [Prompt => ""x""]; B [Prompt => ""x""];"
+         & " A -> End [When => Stop]; B -> End; }");
+      Assert_Count
+        (Problems_Of (F, "Gate"), 0,
+         "edges to End are neither unknown steps nor back-edges");
+      F.Add_File
+        ("/defs/Gate_And_Ghost.synapse",
+         "Pipeline Gate_And_Ghost { A [Prompt => ""x""];"
+         & " A -> End; A -> Ghost; }");
+      declare
+         P : constant Problem_List := Problems_Of (F, "Gate_And_Ghost");
+      begin
+         Assert_Count (P, 1, "only the stranger");
+         Assert_Has
+           (P, "/defs/Gate_And_Ghost.synapse",
+            "there is no step named 'Ghost'", "an unknown target");
+      end;
+   end An_Edge_To_End_Needs_No_Step_And_No_Bound;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -482,6 +510,9 @@ package body Synapse.Pipeline.Validation.Tests is
          "Steps are declared once and a pipeline has one");
       Register_Routine
         (T, Skills_Must_Exist'Access, "Skills must exist");
+      Register_Routine
+        (T, An_Edge_To_End_Needs_No_Step_And_No_Bound'Access,
+         "An edge to End needs no step and no bound");
    end Register_Tests;
 
 end Synapse.Pipeline.Validation.Tests;

@@ -40,6 +40,17 @@ Pipeline Develop_Feature {
 }
 ```
 
+A pipeline that should stop when a condition is not met ends early by routing to `End`:
+
+```
+-- Ready_Gate.synapse
+Pipeline Ready_Gate {
+   Check [Harness => Claude, Permissions => Read_Only, Prompt => "Look at the design note. Report the outcome Ready if its status is Ready, otherwise Discussing."];
+   Build [Harness => Claude, Prompt => "Implement the design note."];
+   Check -> End [When => Discussing];
+}
+```
+
 An `Agent` or `System` is worth a file when other pipelines will use it. Here a reviewer is defined once and a pipeline uses it:
 
 ```
@@ -89,6 +100,7 @@ Every step ends with one result, `{"outcome": "<Word>", "summary": "<text>", "da
 - `When => Changes_Requested` is shorthand for `{"==": [{"var": "outcome"}, "Changes_Requested"]}`.
 - `When => {">": [{"var": "data.failing"}, 0]}` is a JsonLogic rule over `outcome`, `summary` and `data` only; a missing field reads as `null`; a `var` path follows object members, not list positions. It must give true or false.
 - After a step, the edges leaving it are tried in written order and the first whose guard holds is taken. An edge with no `When` is always taken when reached. An edge that has fired `Max_Iterations` times is skipped. When none is taken, the next declared step runs; after the last, the run is complete.
+- **To stop a run early, route to `End`**: `Check -> End [When => Discussing]` completes the run at once, successfully (exit code 0), with no session, and the run's result is the result of the step the edge leaves. `End` is not a step: it is reserved, so no step or definition can be called `End`, and nothing can leave it. Without an edge to `End`, a run only completes after its last step, and a step with no edge taken falls to the next declared step.
 - **Every back-edge** (to an earlier step or to itself) **must have `Max_Iterations`.** A run is also held to 50 steps in all (`SYNAPSE_PIPELINE_MAX_STEPS`).
 - A failed step ends the run; nothing in a pipeline catches a failure. Use `Retries` for steps that may time out or answer badly.
 

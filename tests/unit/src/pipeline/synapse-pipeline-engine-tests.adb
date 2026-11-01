@@ -531,6 +531,76 @@ package body Synapse.Pipeline.Engine.Tests is
          "a run that is over is left as it is");
    end Hold_To_Ceiling_Fails_Only_A_Run_That_Is_Over;
 
+   --  Check, then Build, with Check sending the run to End on Discussing.
+   function Gate return Resolved.Pipeline is
+      P : Resolved.Pipeline;
+   begin
+      P.Name := To_Unbounded_String ("Gate");
+      Add_Step (P, "Check");
+      Add_Step (P, "Build");
+      Add_Edge
+        (P, "Check", "End",
+         "{""=="": [{""var"": ""outcome""}, ""Discussing""]}", Max => 1);
+      return P;
+   end Gate;
+
+   procedure An_Edge_To_End_Completes_The_Run (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      P : constant Resolved.Pipeline := Gate;
+   begin
+      declare
+         Ended : constant States.State :=
+           Advance (P, Start (P), JSON.Parse (Done ("Discussing")).Item);
+      begin
+         Assert
+           (Ended.Status = States.Completed
+            and then Length (Ended.Current_Step) = 0
+            and then Ended.Steps_Run = 1
+            and then Ended.Fired (1) = 1,
+            "the edge fires and the run is complete: " & Text_Of (Ended));
+         Assert
+           (JSON.As_String
+              (JSON.Member_Value (Ended.Previous_Output, "outcome")) =
+            "Discussing",
+            "the result of the step that ended it");
+      end;
+      declare
+         Open : constant States.State :=
+           Advance (P, Start (P), JSON.Parse (Done ("Ready")).Item);
+      begin
+         Assert
+           (Open.Status = States.Running
+            and then To_String (Open.Current_Step) = "Build"
+            and then Open.Fired (1) = 0,
+            "a guard that does not hold falls to the next step");
+      end;
+      declare
+         Spent : States.State := Start (P);
+      begin
+         Spent.Fired.Replace_Element (1, 1);
+         Assert
+           (To_String
+              (Advance (P, Spent, JSON.Parse (Done ("Discussing")).Item)
+                 .Current_Step) = "Build",
+            "an edge to End at its bound is passed over like any other");
+      end;
+   end An_Edge_To_End_Completes_The_Run;
+
+   procedure A_Run_Ends_At_End_Without_Running_The_Rest
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P : constant Resolved.Pipeline := Gate;
+      R : Scripted_Runners.Scripted_Runner :=
+        Runner_For ("{""Check"":[" & Done ("Discussing") & "]}");
+      Final : States.State;
+   begin
+      Assert
+        (Trail (P, R, Final) = "Check ",
+         "only Check ran, and Build, which has no answer, was not asked");
+      Assert (Final.Status = States.Completed, "and the run is complete");
+   end A_Run_Ends_At_End_Without_Running_The_Rest;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -580,6 +650,12 @@ package body Synapse.Pipeline.Engine.Tests is
       Register_Routine
         (T, Hold_To_Ceiling_Fails_Only_A_Run_That_Is_Over'Access,
          "Hold_To_Ceiling fails only a run that is over");
+      Register_Routine
+        (T, An_Edge_To_End_Completes_The_Run'Access,
+         "An edge to End completes the run");
+      Register_Routine
+        (T, A_Run_Ends_At_End_Without_Running_The_Rest'Access,
+         "A run ends at End without running the rest");
    end Register_Tests;
 
 end Synapse.Pipeline.Engine.Tests;

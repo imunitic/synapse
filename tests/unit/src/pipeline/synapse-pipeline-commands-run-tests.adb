@@ -321,6 +321,28 @@ package body Synapse.Pipeline.Commands.Run.Tests is
       Assert (Run (Env (F), Args ("Dev", "--quiet")) = 2, "another option");
    end The_Arguments_Are_Checked;
 
+   procedure A_Gate_Can_End_The_Run_Early (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F, "{""Check"":[" & Done ("Discussing", "not yet") & "]}");
+      F.Files.Add_File
+        ("/defs/Gate.synapse",
+         "Pipeline Gate {"
+         & " Check [Harness => Claude, Prompt => ""Is it ready?""];"
+         & " Build [Harness => Claude, Prompt => ""Build it.""];"
+         & " Check -> End [When => Discussing]; }");
+      Assert (Run (Env (F), Args ("Gate")) = 0, "ending early is a success");
+      Assert
+        (F.Base.Console.Out_Text =
+         "{""outcome"":""Discussing"",""summary"":""not yet"",""data"":{}}"
+         & LF,
+         "the result of the step that ended it: " & F.Base.Console.Out_Text);
+      Assert
+        (F.Base.Console.Err_Text = "step Check: Discussing -> done" & LF,
+         "one line, and Build never ran: " & F.Base.Console.Err_Text);
+   end A_Gate_Can_End_The_Run_Early;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -367,6 +389,9 @@ package body Synapse.Pipeline.Commands.Run.Tests is
          "Introspection that fails leaves the run as it was");
       Register_Routine
         (T, The_Arguments_Are_Checked'Access, "The arguments are checked");
+      Register_Routine
+        (T, A_Gate_Can_End_The_Run_Early'Access,
+         "A gate can end the run early");
    end Register_Tests;
 
 end Synapse.Pipeline.Commands.Run.Tests;
