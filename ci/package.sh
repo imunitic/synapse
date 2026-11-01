@@ -4,8 +4,9 @@
 # checks the installed program end to end: the `synapse` and `synapse-hook`
 # shims find the binaries, `synapse-setup configure claude` wires the hooks to
 # the installed hook binary, and that binary answers as a hook does. The
-# synapse-pipeline packages are installed beside them, and the installed
-# `synapse-pipeline` runs a pipeline from a script.
+# synapse-pipeline packages are installed beside them, the installed
+# `synapse-pipeline` runs a pipeline from a script, and `synapse-pipeline-setup`
+# installs the pipeline-writing skill, whose examples are checked.
 #
 #   ci/package.sh [--keep]
 #
@@ -143,5 +144,34 @@ export SYNAPSE_PIPELINE_PATH="$(native "$work/defs")" SYNAPSE_PIPELINE_RUNNER=sc
 result="$("$bin/synapse-pipeline" run Smoke 2>/dev/null)" || fail "synapse-pipeline run through the shim"
 echo "$result" | jq -e '.outcome == "Approved" and .summary == "packaged ok"' >/dev/null || fail "synapse-pipeline run printed '$result'"
 echo "  synapse-pipeline ok"
+
+# The skill that teaches an agent to write pipelines: installed for each harness
+# beside the Synapse skills without disturbing them, and every example
+# definition in it passes the installed `check`.
+for h in claude codex opencode; do
+    "$bin/synapse-pipeline-setup" configure "$h" >/dev/null || fail "synapse-pipeline-setup configure $h"
+done
+for d in .claude/skills .codex/skills .config/opencode/skill; do
+    [ -f "$home/$d/synapse-pipeline/SKILL.md" ] || fail "no synapse-pipeline skill in $d"
+    [ -f "$home/$d/synapse-query/SKILL.md" ] || fail "synapse-pipeline-setup removed a Synapse skill from $d"
+done
+"$bin/synapse-setup" configure claude >/dev/null || fail "synapse-setup configure claude after the pipeline skill"
+[ -f "$home/.claude/skills/synapse-pipeline/SKILL.md" ] || fail "synapse-setup removed the synapse-pipeline skill"
+mkdir -p "$work/skilldefs"
+node -e '
+const fs = require("fs"), path = require("path");
+const text = fs.readFileSync(process.argv[1], "utf8");
+let n = 0;
+for (const m of text.matchAll(/```\n-- (\w+\.synapse)\n([\s\S]*?)```/g)) {
+  fs.writeFileSync(path.join(process.argv[2], m[1]), `-- ${m[1]}\n${m[2]}`);
+  n++;
+}
+if (n < 2) { console.error("no example definitions in the skill"); process.exit(1); }
+' "$home/.claude/skills/synapse-pipeline/SKILL.md" "$work/skilldefs" || fail "reading the skill's examples"
+for example in Develop_Feature Review_Change; do
+    SYNAPSE_PIPELINE_PATH="$(native "$work/skilldefs")" "$bin/synapse-pipeline" check "$example" >/dev/null \
+        || fail "the skill's example pipeline $example does not pass check"
+done
+echo "  synapse-pipeline skill ok"
 
 echo "package ok ($plat)"
