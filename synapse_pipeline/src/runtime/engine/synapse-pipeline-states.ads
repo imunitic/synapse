@@ -3,7 +3,7 @@ with Ada.Strings.Unbounded;
 with Synapse.Core.JSON;
 with Synapse.Core.Results;
 with Synapse.Pipeline.Failures;
-with Synapse.Pipeline.Guards;
+with Synapse.Pipeline.Routing;
 with Synapse.Pipeline.Resolved;
 
 --  Where a run of a pipeline has got to. It is all there is to know: a step
@@ -38,7 +38,7 @@ package Synapse.Pipeline.States is
 
       --  How many times each edge has fired, in the order of the pipeline's
       --  edges.
-      Fired           : Guards.Count_Vectors.Vector;
+      Fired           : Routing.Count_Vectors.Vector;
 
       --  How many steps have run, for the ceiling.
       Steps_Run       : Natural := 0;

@@ -515,6 +515,8 @@ usage: synapse-pipeline <subcommand> [args]
   check <pipeline>   validate a pipeline and show what it would run
   show <pipeline> [--format json|text]
          describe a pipeline: its steps, settings, edges and limits
+  next <pipeline> [--input <file>|-] | --state <file>|- --result <file>|-
+         the state a run starts in, or the state after a step's result
   run <pipeline> [--input <file>|-]   run a pipeline to its end
   list   the pipelines running now
   info <execution-id> [--format json|text] [--query <rule>]
@@ -561,6 +563,34 @@ Environment:
   SYNAPSE_PIPELINE_HARNESS  the harness of a step that names none
   SYNAPSE_PIPELINE_TIMEOUT, SYNAPSE_PIPELINE_MAX_STEPS, SYNAPSE_PIPELINE_RUNNER
                             the limits the description reports
+```
+
+### synapse-pipeline next
+
+```
+usage: synapse-pipeline next <pipeline> [--input <file>|-] | --state <file>|- --result <file>|-
+
+One step of a run at a time, for a caller that runs the sessions itself and
+keeps the state between them. Nothing is run and no harness is needed.
+
+  next <pipeline> [--input <file>|-]
+      prints the state a run starts in: the first step to run, with the input
+      (JSON; null without one) that step is given
+  next <pipeline> --state <file>|- --result <file>|-
+      takes the state last printed and the result of the step it names, a JSON
+      object {"outcome", "summary", "data"}, and prints the state that follows
+
+The edges, guards and Max_Iterations are applied, and the step ceiling is held to,
+exactly as 'run' does. A state is the JSON document a running pipeline answers
+'state' with; a run is over when its status is completed or failed. A failed
+run is data in the state printed and the exit code is 0. A state for another
+pipeline, one that is already over, or a result that is not valid prints nothing
+and exits 1.
+
+Environment:
+  SYNAPSE_PIPELINE_PATH      directories of .synapse files besides the default
+  SYNAPSE_PIPELINE_HARNESS   the harness of a step that names none
+  SYNAPSE_PIPELINE_MAX_STEPS the most steps a run may take (default 50)
 ```
 
 ### synapse-pipeline run

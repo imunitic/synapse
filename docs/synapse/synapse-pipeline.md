@@ -184,6 +184,31 @@ fails the run.
 
 The definitions are the same ones, with the same checks, whichever runner runs them.
 
+## Running in a session
+
+`run` starts a headless session of a harness for every step. A pipeline can instead be run by an
+agent that is already in a session, with each step a subagent of that agent and no session of the
+binary at all. `synapse-pipeline next` is what keeps the routing the same: it holds no process, takes
+the run's state and a step's result, and prints the state that follows.
+
+```sh
+synapse-pipeline next Develop_Feature --input input.json > state.json     # a run's first state
+synapse-pipeline next Develop_Feature --state state.json --result result.json > next.json
+```
+
+The state is the document `state` answers with over the socket (`synapse-pipeline-state/v1`), and
+`status` says whether the run is going, completed or failed. The result is the object
+`{"outcome", "summary", "data"}` a step ends with. `next` checks the result as `run` does, applies the
+edges, guards, `Max_Iterations` and the step ceiling exactly as `run` does, and exits 0 whenever it
+prints a state, so a failed run is a state with `status` `failed`. A result that is not valid, or a
+state of another pipeline or of a run that is over, prints nothing and exits 1.
+
+The `synapse-pipeline-execute` skill, installed by `synapse-pipeline-setup configure <harness>` with
+the skill for writing pipelines, tells the agent to do this: one fresh subagent per step, with the
+role, the assignment, the input and the previous result in its prompt, and `next` between steps. In
+that mode `Harness` is ignored and `Permissions`, `Timeout` and `Retries` are advice to the subagent
+and not enforced; `run` is the way to hold a pipeline to its restrictions.
+
 ## Inspecting a run
 
 While a run goes, it can be asked about itself from another process. It is read-only: nothing can be

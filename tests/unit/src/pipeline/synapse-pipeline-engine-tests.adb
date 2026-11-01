@@ -6,7 +6,7 @@ with AUnit.Assertions;
 
 with Synapse.Core.JSON;
 with Synapse.Pipeline.Failures;
-with Synapse.Pipeline.Guards;
+with Synapse.Pipeline.Routing;
 with Synapse.Pipeline.Harnesses;
 with Synapse.Pipeline.Scripted_Runners;
 with Synapse.Pipeline.Scripts;
@@ -23,7 +23,7 @@ package body Synapse.Pipeline.Engine.Tests is
    package JSON renames Synapse.Core.JSON;
 
    use type JSON.Kind;
-   use type Guards.Count_Vectors.Vector;
+   use type Routing.Count_Vectors.Vector;
 
    --  What every scripted answer is made of.
    function Done (Outcome : String; Summary : String := "ok") return String is
@@ -412,6 +412,125 @@ package body Synapse.Pipeline.Engine.Tests is
       end;
    end A_State_At_A_Step_The_Pipeline_Lacks_Fails;
 
+   --  Develop, then Review, which sends the run back to Develop while it asks
+   --  for changes.
+   function Review_Loop return Resolved.Pipeline is
+      P : Resolved.Pipeline;
+   begin
+      P.Name := To_Unbounded_String ("Loop");
+      Add_Step (P, "Develop");
+      Add_Step (P, "Review");
+      Add_Edge (P, "Review", "Develop", Changes_Requested, Max => 2);
+      return P;
+   end Review_Loop;
+
+   function Text_Of (Item : States.State) return String is
+     (JSON.To_String (States.To_JSON (Item)));
+
+   procedure Advance_Routes_As_A_Step_Does (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      P      : constant Resolved.Pipeline := Review_Loop;
+      Output : constant String := Done ("Changes_Requested", "one issue");
+      R      : Scripted_Runners.Scripted_Runner :=
+        Runner_For ("{""Develop"":[" & Done ("Done") & "],""Review"":["
+                    & Output & "]}");
+      Run    : States.State := Start (P);
+   begin
+      Run := Execute_Step (P, Run, Settings, R);
+      declare
+         By_Step    : constant States.State :=
+           Execute_Step (P, Run, Settings, R);
+         By_Advance : constant States.State :=
+           Advance (P, Run, JSON.Parse (Output).Item);
+      begin
+         Assert
+           (Text_Of (By_Step) = Text_Of (By_Advance),
+            "the state is the same: " & Text_Of (By_Advance));
+         Assert
+           (To_String (By_Advance.Current_Step) = "Develop"
+            and then By_Advance.Fired.Last_Index = 1
+            and then By_Advance.Fired (1) = 1
+            and then By_Advance.Steps_Run = 2,
+            "back to Develop along the edge, which has fired once");
+      end;
+   end Advance_Routes_As_A_Step_Does;
+
+   procedure Advance_Falls_Through_Completes_And_Fails
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P    : constant Resolved.Pipeline := Review_Loop;
+      Mine : Resolved.Pipeline := Review_Loop;
+      Run  : States.State := Start (P);
+   begin
+      Run := Advance (P, Run, JSON.Parse (Done ("Done")).Item);
+      Assert
+        (To_String (Run.Current_Step) = "Review"
+         and then Run.Fired (1) = 0,
+         "no edge leaves Develop, so the next declared step");
+      Run := Advance (P, Run, JSON.Parse (Done ("Approved")).Item);
+      Assert
+        (Run.Status = States.Completed and then Length (Run.Current_Step) = 0,
+         "no guard holds after the last step, so the run completes");
+      Assert
+        (JSON.As_String (JSON.Member_Value (Run.Previous_Output, "outcome")) =
+         "Approved",
+         "holding the result that ended it");
+
+      Mine.Edges.Clear;
+      Add_Edge (Mine, "Develop", "Review", "{""nope"":[1]}");
+      declare
+         Failed : constant States.State :=
+           Advance (Mine, Start (Mine), JSON.Parse (Done ("Done")).Item);
+      begin
+         Assert
+           (Failed.Status = States.Failed
+            and then Failed.Failure.Kind = Failures.Execution_Error
+            and then Failed.Steps_Run = 0,
+            "a guard that fails fails the run, which stays as it was");
+      end;
+
+      declare
+         Lost : States.State := Start (P);
+      begin
+         Lost.Current_Step := To_Unbounded_String ("Gone");
+         Assert
+           (Advance (P, Lost, JSON.Parse (Done ("Done")).Item).Status =
+            States.Failed,
+            "a step the pipeline lacks fails the run");
+      end;
+   end Advance_Falls_Through_Completes_And_Fails;
+
+   procedure Hold_To_Ceiling_Fails_Only_A_Run_That_Is_Over
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P     : constant Resolved.Pipeline := Review_Loop;
+      Small : Configs.Config := Settings;
+      Run   : States.State := Start (P);
+   begin
+      Small.Step_Ceiling := 2;
+      Run.Steps_Run := 1;
+      Assert
+        (Text_Of (Hold_To_Ceiling (Run, Small)) = Text_Of (Run),
+         "below the ceiling the run is unchanged");
+      Run.Steps_Run := 2;
+      declare
+         Held : constant States.State := Hold_To_Ceiling (Run, Small);
+      begin
+         Assert
+           (Held.Status = States.Failed
+            and then Held.Failure.Kind = Failures.Ceiling_Reached
+            and then To_String (Held.Failure.Step) = "Develop",
+            "at the ceiling the step that would run next is the one that "
+            & "fails");
+      end;
+      Run.Status := States.Completed;
+      Assert
+        (Hold_To_Ceiling (Run, Small).Status = States.Completed,
+         "a run that is over is left as it is");
+   end Hold_To_Ceiling_Fails_Only_A_Run_That_Is_Over;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -452,6 +571,15 @@ package body Synapse.Pipeline.Engine.Tests is
       Register_Routine
         (T, A_State_At_A_Step_The_Pipeline_Lacks_Fails'Access,
          "A state at a step the pipeline lacks fails");
+      Register_Routine
+        (T, Advance_Routes_As_A_Step_Does'Access,
+         "Advance routes as a step does");
+      Register_Routine
+        (T, Advance_Falls_Through_Completes_And_Fails'Access,
+         "Advance falls through, completes and fails");
+      Register_Routine
+        (T, Hold_To_Ceiling_Fails_Only_A_Run_That_Is_Over'Access,
+         "Hold_To_Ceiling fails only a run that is over");
    end Register_Tests;
 
 end Synapse.Pipeline.Engine.Tests;
