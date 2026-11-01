@@ -96,6 +96,7 @@ with Synapse.Pipeline.Validation.Tests;
 with Synapse.Pipeline.Harnesses.Tests;
 with Synapse.Pipeline.Resolution.Tests;
 with Synapse.Pipeline.Guards.Tests;
+with Synapse.Pipeline.Routing.Tests;
 with Synapse.Pipeline.Failures.Tests;
 with Synapse.Pipeline.States.Tests;
 with Synapse.Pipeline.Configs.Tests;
@@ -324,6 +325,8 @@ package body Test_Suites is
    Pipeline_Resolution_Tests :
      aliased Synapse.Pipeline.Resolution.Tests.Test_Case;
    Pipeline_Guards_Tests : aliased Synapse.Pipeline.Guards.Tests.Test_Case;
+   Pipeline_Routing_Tests :
+     aliased Synapse.Pipeline.Routing.Tests.Test_Case;
    Pipeline_Failures_Tests :
      aliased Synapse.Pipeline.Failures.Tests.Test_Case;
    Pipeline_States_Tests : aliased Synapse.Pipeline.States.Tests.Test_Case;
@@ -474,6 +477,7 @@ package body Test_Suites is
       Result.Add_Test (Pipeline_Harnesses_Tests'Access);
       Result.Add_Test (Pipeline_Resolution_Tests'Access);
       Result.Add_Test (Pipeline_Guards_Tests'Access);
+      Result.Add_Test (Pipeline_Routing_Tests'Access);
       Result.Add_Test (Pipeline_Failures_Tests'Access);
       Result.Add_Test (Pipeline_States_Tests'Access);
       Result.Add_Test (Pipeline_Configs_Tests'Access);

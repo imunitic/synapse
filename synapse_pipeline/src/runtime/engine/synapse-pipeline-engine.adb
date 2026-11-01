@@ -2,7 +2,7 @@ with Ada.Strings.Unbounded;
 
 with Synapse.Pipeline.Envelopes;
 with Synapse.Pipeline.Failures;
-with Synapse.Pipeline.Guards;
+with Synapse.Pipeline.Routing;
 with Synapse.Pipeline.Sessions;
 
 package body Synapse.Pipeline.Engine is
@@ -77,22 +77,22 @@ package body Synapse.Pipeline.Engine is
          return Unknown_Step (Run);
       end if;
       declare
-         Route : constant Guards.Route_Results.Result :=
-           Guards.Route_After (Pipeline.Edges, Run.Fired, Name, Output);
+         Route : constant Routing.Route_Results.Result :=
+           Routing.Route_After (Pipeline.Edges, Run.Fired, Name, Output);
          Next  : States.State := Run;
       begin
-         if not Guards.Route_Results.Is_Success (Route) then
+         if not Routing.Route_Results.Is_Success (Route) then
             return Failed_Run
               (Run, Failures.Execution_Error, Name,
-               To_String (Guards.Route_Results.Error (Route)));
+               To_String (Routing.Route_Results.Error (Route)));
          end if;
 
          Next.Previous_Output := Output;
          Next.Steps_Run := Run.Steps_Run + 1;
-         if Guards.Route_Results.Value (Route).Fires then
+         if Routing.Route_Results.Value (Route).Fires then
             declare
                Taken : constant Positive :=
-                 Guards.Route_Results.Value (Route).Edge;
+                 Routing.Route_Results.Value (Route).Edge;
             begin
                while Next.Fired.Last_Index < Taken loop
                   Next.Fired.Append (0);

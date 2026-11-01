@@ -6,7 +6,7 @@ with AUnit.Assertions;
 
 with Synapse.Core.JSON;
 with Synapse.Pipeline.Failures;
-with Synapse.Pipeline.Guards;
+with Synapse.Pipeline.Routing;
 with Synapse.Pipeline.Harnesses;
 with Synapse.Pipeline.Scripted_Runners;
 with Synapse.Pipeline.Scripts;
@@ -23,7 +23,7 @@ package body Synapse.Pipeline.Engine.Tests is
    package JSON renames Synapse.Core.JSON;
 
    use type JSON.Kind;
-   use type Guards.Count_Vectors.Vector;
+   use type Routing.Count_Vectors.Vector;
 
    --  What every scripted answer is made of.
    function Done (Outcome : String; Summary : String := "ok") return String is
