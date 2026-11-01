@@ -57,15 +57,22 @@ package body Synapse.Pipeline.Inspection is
    --  What a query is evaluated over.
    function Projection (Seen : Snapshot) return JSON.Value is
       Brief  : constant JSON.Value := Info (Seen);
-      Fields : JSON.Member_Array (1 .. JSON.Length (Brief) + 2);
+      Fields : JSON.Member_Array (1 .. JSON.Length (Brief) + 3);
+      Last   : Natural := 0;
    begin
+      --  `pipeline` in a query is the description; the name is its `name`.
       for I in 1 .. JSON.Length (Brief) loop
-         Fields (I) :=
-           Member (JSON.Member_Key (Brief, I), JSON.Member_At (Brief, I));
+         if JSON.Member_Key (Brief, I) /= "pipeline" then
+            Last := Last + 1;
+            Fields (Last) :=
+              Member (JSON.Member_Key (Brief, I), JSON.Member_At (Brief, I));
+         end if;
       end loop;
-      Fields (Fields'Last - 1) := Member ("state", States.To_JSON (Seen.Run));
-      Fields (Fields'Last) := Member ("events", Events_JSON (Seen, 0));
-      return JSON.Make_Object (Fields);
+      Fields (Last + 1) := Member ("pipeline", Seen.Description);
+      Last := Last + 1;
+      Fields (Last + 1) := Member ("state", States.To_JSON (Seen.Run));
+      Fields (Last + 2) := Member ("events", Events_JSON (Seen, 0));
+      return JSON.Make_Object (Fields (1 .. Last + 2));
    end Projection;
 
    function Refusal (Why : String) return String is
@@ -117,6 +124,8 @@ package body Synapse.Pipeline.Inspection is
                return Answer (Info (Seen));
             elsif Command = "state" then
                return Answer (States.To_JSON (Seen.Run));
+            elsif Command = "pipeline" then
+               return Answer (Seen.Description);
             elsif Command = "events" then
                declare
                   After : Natural := 0;
@@ -148,7 +157,7 @@ package body Synapse.Pipeline.Inspection is
             end if;
             return Refusal
               ("'" & Command & "' is not a command; the commands are info, "
-               & "state, events and query");
+               & "state, pipeline, events and query");
          end;
       end;
    exception

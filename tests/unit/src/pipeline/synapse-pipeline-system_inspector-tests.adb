@@ -147,7 +147,8 @@ package body Synapse.Pipeline.System_Inspector.Tests is
       begin
          Listening := Is_Listening;
          Reason := To_Unbounded_String (Why);
-         Context.Start ("exec-1", Initial_State);
+         Context.Start
+           ("exec-1", Synapse.Core.JSON.Null_Value, Initial_State);
          Moved.Steps_Run := 4;
          Context.Publish (Moved);
          Context.Record_Event ("step.finished", "A", JSON.Null_Value);
@@ -224,7 +225,8 @@ package body Synapse.Pipeline.System_Inspector.Tests is
          Silent : GNAT.Sockets.Socket_Type;
       begin
          Assert (Listening, "it listens");
-         Context.Start ("exec-2", Initial_State);
+         Context.Start
+           ("exec-2", Synapse.Core.JSON.Null_Value, Initial_State);
          GNAT.Sockets.Create_Socket
            (Silent, GNAT.Sockets.Family_Unix, GNAT.Sockets.Socket_Stream);
          GNAT.Sockets.Connect_Socket

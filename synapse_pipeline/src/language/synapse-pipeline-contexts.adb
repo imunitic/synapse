@@ -6,9 +6,13 @@ package body Synapse.Pipeline.Contexts is
 
    protected body Execution_Context is
 
-      procedure Start (Id : String; Initial : States.State) is
+      procedure Start
+        (Id          : String;
+         Description : Synapse.Core.JSON.Value;
+         Initial     : States.State) is
       begin
          Data.Execution_Id := To_Unbounded_String (Id);
+         Data.Description := Description;
          Data.Run := Initial;
          Data.Events.Clear;
          Next := 1;

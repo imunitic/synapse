@@ -4,6 +4,7 @@ with Synapse.Pipeline.Commands.Check;
 with Synapse.Pipeline.Commands.Info;
 with Synapse.Pipeline.Commands.List;
 with Synapse.Pipeline.Commands.Run;
+with Synapse.Pipeline.Commands.Show;
 with Synapse.Pipeline.Commands.Usage;
 
 package body Synapse.Pipeline.Commands.Dispatch is
@@ -12,6 +13,7 @@ package body Synapse.Pipeline.Commands.Dispatch is
 
    function Help_For (Name : String) return String is
      (if Name = "check" then Usage.Check_Help
+      elsif Name = "show" then Usage.Show_Help
       elsif Name = "list" then Usage.List_Help
       elsif Name = "info" then Usage.Info_Help
       else Usage.Run_Help);
@@ -24,7 +26,7 @@ package body Synapse.Pipeline.Commands.Dispatch is
       declare
          Name : constant String := To_String (Args.First_Element);
       begin
-         if Name in "check" | "list" | "info" | "run" then
+         if Name in "check" | "show" | "list" | "info" | "run" then
             declare
                Rest : Lists.Vector := Args;
             begin
@@ -36,6 +38,8 @@ package body Synapse.Pipeline.Commands.Dispatch is
                   return 0;
                end if;
                return (if Name = "check" then Check.Run (Env, Rest)
+                       elsif Name = "show"
+                       then Synapse.Pipeline.Commands.Show.Run (Env, Rest)
                        elsif Name = "list"
                        then Synapse.Pipeline.Commands.List.Run (Env, Rest)
                        elsif Name = "info"

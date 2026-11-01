@@ -12,6 +12,9 @@ package Synapse.Pipeline.Commands.Usage is
      "usage: synapse-pipeline <subcommand> [args]" & LF & LF
      & "  check <pipeline>   validate a pipeline and show what it would run"
      & LF
+     & "  show <pipeline> [--format json|text]" & LF
+     & "         describe a pipeline: its steps, settings, edges and limits"
+     & LF
      & "  run <pipeline> [--input <file>|-]   run a pipeline to its end" & LF
      & "  list   the pipelines running now" & LF
      & "  info <execution-id> [--format json|text] [--query <rule>]" & LF
@@ -39,6 +42,29 @@ package Synapse.Pipeline.Commands.Usage is
      & "  SYNAPSE_PIPELINE_HARNESS  the harness of a step that names none: "
      & "Claude, Codex" & LF
      & "                            or Opencode" & LF;
+
+   Show_Help : constant String :=
+     "usage: synapse-pipeline show <pipeline> [--format json|text]" & LF & LF
+     & "Describes a pipeline that is not running the way a running one "
+     & "describes itself:" & LF
+     & "its steps with the settings each will run with, the edges between "
+     & "them and" & LF
+     & "the limits that apply. The pipeline is found and validated as "
+     & "'check' does, and" & LF
+     & "nothing is printed on standard output when it cannot be run." & LF & LF
+     & "  --format text   for a person (the default)" & LF
+     & "  --format json   the document a running pipeline answers its "
+     & "'pipeline'" & LF
+     & "                  command with, format synapse-pipeline-description/v1"
+     & LF & LF
+     & "Environment:" & LF
+     & "  SYNAPSE_PIPELINE_PATH     directories of .synapse files besides "
+     & "the default" & LF
+     & "  SYNAPSE_PIPELINE_HARNESS  the harness of a step that names none"
+     & LF
+     & "  SYNAPSE_PIPELINE_TIMEOUT, SYNAPSE_PIPELINE_MAX_STEPS, "
+     & "SYNAPSE_PIPELINE_RUNNER" & LF
+     & "                            the limits the description reports" & LF;
 
    Run_Help : constant String :=
      "usage: synapse-pipeline run <pipeline> [--input <file>|-]" & LF & LF

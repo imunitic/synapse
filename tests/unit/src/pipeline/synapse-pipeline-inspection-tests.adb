@@ -40,6 +40,8 @@ package body Synapse.Pipeline.Inspection.Tests is
            (Name => To_Unbounded_String ("B"), Harness => Harnesses.Claude,
             others => <>));
       Result.Execution_Id := To_Unbounded_String ("exec-1");
+      Result.Description :=
+        Value ("{""format"":""d/v1"",""name"":""P"",""steps"":[]}");
       Result.Run := States.Initial (Pipeline, Value (Input));
       Result.Run.Current_Step := To_Unbounded_String ("B");
       Result.Run.Steps_Run := 1;
@@ -204,8 +206,8 @@ package body Synapse.Pipeline.Inspection.Tests is
    begin
       Assert_Refused
         (Seen_Run, "{""command"":""execute""}",
-         "'execute' is not a command; the commands are info, state, events "
-         & "and query", "execute");
+         "'execute' is not a command; the commands are info, state, pipeline, "
+         & "events and query", "execute");
       Assert_Refused
         (Seen_Run, "{""command"":""advance""}", "'advance' is not a command",
          "advance");
@@ -294,6 +296,46 @@ package body Synapse.Pipeline.Inspection.Tests is
       end loop;
    end Garbage_Never_Raises;
 
+   procedure Pipeline_Is_What_The_Run_Executes (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Seen   : constant Snapshot := Seen_Run;
+      Answer : constant JSON.Value :=
+        Result_Of (Seen, "{""command"":""pipeline""}");
+   begin
+      Assert (Answer = Seen.Description, "the description it started with");
+      Assert
+        (not JSON.Has_Member
+               (Result_Of (Seen, "{""command"":""info""}"), "steps"),
+         "the brief stays brief");
+      Assert
+        (JSON.As_String
+           (Result_Of
+              (Seen,
+               "{""command"":""query"",""expression"":"
+               & "{""var"":""pipeline.name""}}")) = "P",
+         "a query reaches into it");
+      Assert
+        (JSON.Kind_Of
+           (Result_Of
+              (Seen,
+               "{""command"":""query"",""expression"":"
+               & "{""var"":""pipeline.steps""}}")) = JSON.JSON_Array,
+         "its steps");
+   end Pipeline_Is_What_The_Run_Executes;
+
+   procedure A_Description_Over_The_Limit_Is_Refused
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Seen : Snapshot := Seen_Run;
+   begin
+      Seen.Description :=
+        JSON.Make_String (Ada.Strings.Fixed."*" (Max_Response_Bytes + 1, 'x'));
+      Assert_Refused
+        (Seen, "{""command"":""pipeline""}", "the answer is larger than",
+         "an enormous pipeline");
+   end A_Description_Over_The_Limit_Is_Refused;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -325,6 +367,12 @@ package body Synapse.Pipeline.Inspection.Tests is
         (T, The_Limits_Are_Enforced'Access, "The limits are enforced");
       Register_Routine
         (T, Garbage_Never_Raises'Access, "Garbage never raises");
+      Register_Routine
+        (T, Pipeline_Is_What_The_Run_Executes'Access,
+         "Pipeline is what the run executes");
+      Register_Routine
+        (T, A_Description_Over_The_Limit_Is_Refused'Access,
+         "A description over the limit is refused");
    end Register_Tests;
 
 end Synapse.Pipeline.Inspection.Tests;

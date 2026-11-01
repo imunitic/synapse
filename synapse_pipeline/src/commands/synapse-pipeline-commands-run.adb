@@ -4,6 +4,7 @@ with Synapse.Core.JSON;
 with Synapse.Pipeline.Configs;
 with Synapse.Pipeline.Contexts;
 with Synapse.Pipeline.Definitions;
+with Synapse.Pipeline.Descriptions;
 with Synapse.Pipeline.Engine;
 with Synapse.Pipeline.Failures;
 with Synapse.Pipeline.Inspectors;
@@ -125,7 +126,7 @@ package body Synapse.Pipeline.Commands.Run is
       Work : constant Configs.Environment_Maps.Cursor :=
         Settings.Environment.Find (Configs.Work_Dir_Key);
    begin
-      Context.Start (Id, Run);
+      Context.Start (Id, Descriptions.Describe (Pipeline, Settings), Run);
       if Configs.Environment_Maps.Has_Element (Work) then
          Inspectors.Serve_While
            (Env.Inspector.all,

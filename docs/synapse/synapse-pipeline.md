@@ -38,6 +38,7 @@ Pipeline Develop_Feature {
 
 ```sh
 synapse-pipeline check Develop_Feature      # validate it; nothing is run
+synapse-pipeline show Develop_Feature       # describe its steps, settings and edges
 echo '{"task": "add a --verbose flag"}' | synapse-pipeline run Develop_Feature --input -
 ```
 
@@ -189,6 +190,11 @@ $ synapse-pipeline info exec-13a7d7cb --query '{"var": "current_step"}'
 Review
 ```
 
+`show` describes a pipeline that is not running, with the document a run answers `pipeline` with:
+`show Develop_Feature --format json` prints it as JSON, and without `--format` the same information is
+laid out for a person. The pipeline is found and validated as `check` does, and one that cannot run
+prints nothing on standard output.
+
 `list` shows the runs that are going. A run that has ended, or that died without cleaning up, is not
 shown. `info --format json` gives the answer as JSON, and `--query` takes a
 [JsonLogic](https://jsonlogic.com) rule that the run evaluates over its brief (the members `info`
@@ -210,8 +216,26 @@ end of what it sends) and reads one JSON answer: `{"ok": true, "result": ...}` o
 |---|---|
 | `{"command": "info"}` | execution id, pipeline, status, current step, steps run, failure |
 | `{"command": "state"}` | the run's state |
+| `{"command": "pipeline"}` | the pipeline the run executes: its steps, edges and limits |
 | `{"command": "events", "after": 12}` | the events after sequence number 12 (all, without `after`) |
 | `{"command": "query", "expression": <rule>}` | the rule evaluated as described above |
+
+The pipeline is described by one document, `synapse-pipeline-description/v1`, which is what the run
+resolved when it started, so it is right even if a definition file is edited later. Its members are
+fixed names, and a change to them is a new format.
+
+| Member | Content |
+|---|---|
+| `format` | `synapse-pipeline-description/v1` |
+| `name` | the pipeline's name |
+| `steps` | in the order declared: `name`, `harness`, `model`, `permissions` (the level in effect), `tools`, `timeout_seconds` (the limit in effect), `retries`, `role`, `assignment`, `origins` |
+| `edges` | in the order declared: `index`, `from`, `to`, `guard` (a JsonLogic rule; null when unconditional), `max_iterations` (null when unbounded) |
+| `limits` | `default_timeout_seconds`, `step_ceiling`, `runner` |
+
+`role` and `assignment` are `{"kind": "prompt", "text": ...}`, `{"kind": "skill", "name": ...}` or null;
+a skill is described by its name. `origins` lists the system and the agent a step was built from, each
+with `kind`, `name` and `file`. An edge's `index` counts from 0 and is its position in `state.fired`.
+The configuration's environment values are not part of it.
 
 Events are `run.started`, `step.started`, `step.finished`, `run.completed` and `run.failed`, each with
 a sequence number, the step and a detail object; the last 200 are kept. Any other command is an error.
