@@ -17,7 +17,7 @@ Requires `synapse-pipeline` on `PATH`. Run `synapse-pipeline --help` first; if i
 4. **Check**: `synapse-pipeline check <Pipeline>`. It reports every problem with file, line and column. Fix them all and re-run until it exits 0.
 5. **Review**: `synapse-pipeline show <Pipeline>` prints the steps with the settings each will run with (harness, permissions, timeout, role, assignment) and the edges. Read it against the workflow you were given and correct any difference.
 6. **Try it without cost** when the user wants confidence before a real run: write an answers file and run with `SYNAPSE_PIPELINE_RUNNER=scripted SYNAPSE_PIPELINE_SCRIPT=<file>` (see "Trying a pipeline without agents").
-7. **Hand it over**: name the files written, summarise the steps and loops in a few lines, and give the command to run it. **Do not run a real pipeline unless asked**: every step is a real agent session that costs money and can change files.
+7. **Hand it over**: name the files written, summarise the steps and loops in a few lines, and give the command to run it. **Do not run a real pipeline unless asked**: every step is a real agent session that costs money and can change files. When asked to run it, follow "Running and monitoring".
 
 ## Definitions
 
@@ -121,9 +121,31 @@ SYNAPSE_PIPELINE_RUNNER=scripted SYNAPSE_PIPELINE_SCRIPT=answers.json synapse-pi
 
 An answer may instead be a failure, `{"fail": "timeout"}` (also `execution_error`, `result_contract_failure`, `quota_exhausted`). A step with no answer left fails the run. Use this to exercise the loops and guards you wrote; it proves the routing, not the prompts.
 
-## Running
+## Running and monitoring
 
-`synapse-pipeline run <Pipeline> [--input <file>|-]` runs it from the first step in the current directory, printing one line per step to standard error and the last step's result as JSON to standard output; the exit code is 0 when the run completes and 1 when a step fails. A run can be inspected from another process with `synapse-pipeline list` and `synapse-pipeline info <execution-id>` when `SYNAPSE_WORK_DIR` is set.
+`synapse-pipeline run <Pipeline> [--input <file>|-]` runs the pipeline from its first step in the current directory. It prints one line per finished step to standard error and the last step's result as JSON to standard output; the exit code is 0 when the run completes and 1 when a step fails (the line `error: step <name> failed: <kind>: <message>` says why).
+
+A run takes as long as its sessions do, often many minutes, so **run it as a background job** and watch it, instead of blocking on it. Use the host's own facility for a background command (in Claude Code, a Bash call with `run_in_background`).
+
+1. **Make the run inspectable.** Set `SYNAPSE_WORK_DIR` for the job to an existing directory with a **short path**: the run listens on `$SYNAPSE_WORK_DIR/pipelines/<execution-id>.sock`, and a Unix socket path over 100 bytes cannot be made (a long scratch path gives "introspection is unavailable" on standard error, and the run goes on uninspectable). A directory made with `mktemp -d` under `/tmp` is short enough. Give the monitoring commands the same `SYNAPSE_WORK_DIR`. Inspection is not available on Windows.
+2. **Find the run**: `synapse-pipeline list` prints one line per run in progress for that work directory: execution id, pipeline, status, current step.
+3. **Ask it questions**; all of these only read, and nothing here can start, stop or change the run:
+   - `synapse-pipeline info <id>` is the brief: status, current step, steps run, the failure if there is one.
+   - `synapse-pipeline info <id> --query '<rule>'` evaluates a [JsonLogic](https://jsonlogic.com) rule over the run, and `--format json` gives structured output. A `var` path follows object members only, not positions in a list. What a rule can read: the brief's members (`status`, `current_step`, `steps_run`, `failure`), `state` (the whole state), `events` and `pipeline`.
+
+| To learn | Query |
+|---|---|
+| which step is running | `{"var": "current_step"}` |
+| what the last step reported | `{"var": "state.previous_output.outcome"}` and `{"var": "state.previous_output.summary"}` |
+| what it handed on | `{"var": "state.previous_output.data"}` |
+| how often each edge has fired | `{"var": "state.fired"}`: one count per edge in order, so entry *i* belongs to `pipeline.edges[i]` (the edge's `index`); a missing entry is 0 |
+| the history | `{"var": "events"}`: the last 200 events, each with `sequence`, `kind` (`run.started`, `step.started`, `step.finished`, `run.completed`, `run.failed`), `step` and `detail` |
+| what the pipeline is | `{"var": "pipeline"}`: the steps with their settings and the edges, as `show --format json` prints them |
+
+4. **Report as it moves.** Steps take minutes, so check every little while, not in a tight loop, or wait for the host to say the background job finished. Tell the user in a sentence when the current step changes, and when a loop goes round again (an edge's count goes up), using `show` or `pipeline` to say what each step is.
+5. **Read the end from the job.** Once a run ends it stops answering: `list` no longer shows it and `info <id>` says that no run is listening. The result is on the job's standard output, the per-step lines on its standard error, and the exit code says whether it completed. Report the final outcome and summary, or the failure line, to the user.
+
+Stopping the background job stops the run, in the middle of a session if one is going; nothing in `synapse-pipeline` can stop it.
 
 ## Commands
 
