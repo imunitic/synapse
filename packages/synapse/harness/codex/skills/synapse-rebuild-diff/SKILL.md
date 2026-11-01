@@ -1,6 +1,6 @@
 ---
 name: synapse-rebuild-diff
-description: Bring this repo's Synapse namespace back in line after same-branch drift: a pull, a rebase, or a long absence.
+description: "Bring this repo's Synapse namespace back in line after same-branch drift: a pull, a rebase, or a long absence."
 ---
 
 # Synapse Rebuild Diff: Reconcile a Namespace After Same-Branch Drift

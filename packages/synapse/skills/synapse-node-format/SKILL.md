@@ -1,6 +1,6 @@
 ---
 name: synapse-node-format
-description: The node contract: frontmatter, crux, `## Links`, `grounded_in`, `## Sources`, and what `synapse write-node` refuses. Load before authoring any node.
+description: "The node contract: frontmatter, crux, `## Links`, `grounded_in`, `## Sources`, and what `synapse write-node` refuses. Load before authoring any node."
 ---
 
 # What a node is, and how to author one

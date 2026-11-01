@@ -1,6 +1,6 @@
 ---
 name: synapse-vault-tidy
-description: One on-demand tidy pass over Synapse Vault: recategorization and note-health findings as a single proposal.
+description: "One on-demand tidy pass over Synapse Vault: recategorization and note-health findings as a single proposal."
 ---
 
 # Synapse Vault Tidy: Recategorization Proposals and Note-Health Fixes

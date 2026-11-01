@@ -1,6 +1,6 @@
 ---
 name: synapse-pipeline-execute
-description: Run a synapse-pipeline pipeline inside this agent session instead of through `synapse-pipeline run`: each step as a fresh subagent, with `synapse-pipeline next` deciding which step comes next. Use when asked to run, execute or carry out a pipeline in this session.
+description: "Run a synapse-pipeline pipeline inside this agent session instead of through `synapse-pipeline run`: each step as a fresh subagent, with `synapse-pipeline next` deciding which step comes next. Use when asked to run, execute or carry out a pipeline in this session."
 ---
 
 # synapse-pipeline-execute
