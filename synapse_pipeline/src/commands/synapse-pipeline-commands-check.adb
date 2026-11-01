@@ -1,15 +1,11 @@
 with Ada.Strings.Unbounded;
 
 with Synapse.Core.Optional_Text;
-with Synapse.Pipeline.Definitions;
 with Synapse.Pipeline.Harnesses;
-with Synapse.Pipeline.Namespaces;
-with Synapse.Pipeline.Resolution;
 with Synapse.Pipeline.Resolved;
 with Synapse.Pipeline.Search_Paths;
 with Synapse.Pipeline.Skills;
-with Synapse.Pipeline.Source_Errors;
-with Synapse.Pipeline.Validation;
+with Synapse.Pipeline.Commands.Loading;
 with Synapse.Pipeline.Commands.Usage;
 
 package body Synapse.Pipeline.Commands.Check is
@@ -69,69 +65,21 @@ package body Synapse.Pipeline.Commands.Check is
    end Describe;
 
    function Run (Env : Environment; Args : Lists.Vector) return Exit_Code is
-      LF : constant Character := Character'Val (10);
+      Ok          : Boolean;
+      Item        : Resolved.Pipeline;
+      File        : Unbounded_String;
+      Skill_Roots : Search_Paths.Root_Vectors.Vector;
    begin
       if Natural (Args.Length) /= 1 then
          return Usage_Error (Env, Usage);
       end if;
-      declare
-         Name    : constant String := To_String (Args.First_Element);
-         Default : constant Harnesses.Default_Results.Result :=
-           Harnesses.Default (Env.Vars.all);
-      begin
-         if not Harnesses.Default_Results.Is_Success (Default) then
-            Complain
-              (Env,
-               "error: "
-               & To_String (Harnesses.Default_Results.Error (Default)) & LF);
-            return 1;
-         end if;
-         declare
-            Report      : constant Definitions.Load_Report :=
-              Definitions.Load
-                (Env.Files.all, Search_Paths.Definition_Roots (Env.Vars.all));
-            Skill_Roots : constant Search_Paths.Root_Vectors.Vector :=
-              Search_Paths.Skill_Roots (Env.Vars.all);
-            Problems    : constant Definitions.Problem_Vectors.Vector :=
-              Validation.Validate
-                (Report.Definitions, Env.Files.all, Skill_Roots, Name,
-                 Harnesses.Default_Results.Value (Default));
-         begin
-            for P of Report.Problems loop
-               Complain (Env, Definitions.Warning (P) & LF);
-            end loop;
-            if not Problems.Is_Empty then
-               for P of Problems loop
-                  Complain (Env, "error: " & Source_Errors.Image (P) & LF);
-               end loop;
-               return 1;
-            end if;
-            declare
-               Made : constant Resolution.Resolve_Results.Result :=
-                 Resolution.Resolve
-                   (Report.Definitions, Name,
-                    Harnesses.Default_Results.Value (Default));
-            begin
-               if not Resolution.Resolve_Results.Is_Success (Made) then
-                  Complain
-                    (Env,
-                     "error: "
-                     & Source_Errors.Image
-                         (Resolution.Resolve_Results.Error (Made))
-                     & LF);
-                  return 1;
-               end if;
-               Say
-                 (Env,
-                  Describe
-                    (Resolution.Resolve_Results.Value (Made),
-                     To_String
-                       (Namespaces.Element (Report.Definitions, Name).Path),
-                     Env.Files.all, Skill_Roots));
-               return 0;
-            end;
-         end;
-      end;
+      Loading.Load
+        (Env, To_String (Args.First_Element), Ok, Item, File, Skill_Roots);
+      if not Ok then
+         return 1;
+      end if;
+      Say (Env, Describe (Item, To_String (File), Env.Files.all, Skill_Roots));
+      return 0;
    end Run;
 
 end Synapse.Pipeline.Commands.Check;

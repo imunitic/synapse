@@ -66,7 +66,8 @@ package body Synapse.Pipeline.Inspectors.Tests is
          Moved : States.State := Initial_State;
       begin
          Listening := Is_Listening;
-         Context.Start ("exec-1", Initial_State);
+         Context.Start
+           ("exec-1", Synapse.Core.JSON.Null_Value, Initial_State);
          Transport.Box.Put ("{""command"":""info""}");
          Wait_For (Transport.Box, 1);
          Moved.Current_Step := To_Unbounded_String ("B");

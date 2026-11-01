@@ -104,6 +104,8 @@ with Synapse.Pipeline.Sessions.Tests;
 with Synapse.Pipeline.Scripted_Runners.Tests;
 with Synapse.Pipeline.Engine.Tests;
 with Synapse.Pipeline.Commands.Check.Tests;
+with Synapse.Pipeline.Commands.Show.Tests;
+with Synapse.Pipeline.Descriptions.Tests;
 with Synapse.Pipeline.Commands.Run.Tests;
 with Synapse.Pipeline.Commands.Clients.Tests;
 with Synapse.Pipeline.Inspection.Tests;
@@ -334,6 +336,10 @@ package body Test_Suites is
    Pipeline_Engine_Tests : aliased Synapse.Pipeline.Engine.Tests.Test_Case;
    Pipeline_Check_Tests :
      aliased Synapse.Pipeline.Commands.Check.Tests.Test_Case;
+   Pipeline_Show_Tests :
+     aliased Synapse.Pipeline.Commands.Show.Tests.Test_Case;
+   Pipeline_Descriptions_Tests :
+     aliased Synapse.Pipeline.Descriptions.Tests.Test_Case;
    Pipeline_Run_Tests :
      aliased Synapse.Pipeline.Commands.Run.Tests.Test_Case;
    Pipeline_Clients_Tests :
@@ -473,6 +479,8 @@ package body Test_Suites is
       Result.Add_Test (Pipeline_Scripted_Runners_Tests'Access);
       Result.Add_Test (Pipeline_Engine_Tests'Access);
       Result.Add_Test (Pipeline_Check_Tests'Access);
+      Result.Add_Test (Pipeline_Show_Tests'Access);
+      Result.Add_Test (Pipeline_Descriptions_Tests'Access);
       Result.Add_Test (Pipeline_Run_Tests'Access);
       Result.Add_Test (Pipeline_Clients_Tests'Access);
       Result.Add_Test (Pipeline_Inspection_Tests'Access);

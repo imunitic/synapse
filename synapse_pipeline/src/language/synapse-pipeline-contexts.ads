@@ -12,8 +12,12 @@ package Synapse.Pipeline.Contexts is
 
    protected type Execution_Context is
 
-      --  Begins the context: the run's identity and where it starts.
-      procedure Start (Id : String; Initial : States.State);
+      --  Begins the context: the run's identity, the description of the
+      --  pipeline it executes, which stays as given, and where it starts.
+      procedure Start
+        (Id          : String;
+         Description : Synapse.Core.JSON.Value;
+         Initial     : States.State);
 
       procedure Publish (Item : States.State);
 

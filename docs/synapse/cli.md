@@ -513,6 +513,8 @@ usage: synapse-hook <hook>
 usage: synapse-pipeline <subcommand> [args]
 
   check <pipeline>   validate a pipeline and show what it would run
+  show <pipeline> [--format json|text]
+         describe a pipeline: its steps, settings, edges and limits
   run <pipeline> [--input <file>|-]   run a pipeline to its end
   list   the pipelines running now
   info <execution-id> [--format json|text] [--query <rule>]
@@ -538,6 +540,27 @@ Environment:
                             separated as the directories of a PATH are
   SYNAPSE_PIPELINE_HARNESS  the harness of a step that names none: Claude, Codex
                             or Opencode
+```
+
+### synapse-pipeline show
+
+```
+usage: synapse-pipeline show <pipeline> [--format json|text]
+
+Describes a pipeline that is not running the way a running one describes itself:
+its steps with the settings each will run with, the edges between them and
+the limits that apply. The pipeline is found and validated as 'check' does, and
+nothing is printed on standard output when it cannot be run.
+
+  --format text   for a person (the default)
+  --format json   the document a running pipeline answers its 'pipeline'
+                  command with, format synapse-pipeline-description/v1
+
+Environment:
+  SYNAPSE_PIPELINE_PATH     directories of .synapse files besides the default
+  SYNAPSE_PIPELINE_HARNESS  the harness of a step that names none
+  SYNAPSE_PIPELINE_TIMEOUT, SYNAPSE_PIPELINE_MAX_STEPS, SYNAPSE_PIPELINE_RUNNER
+                            the limits the description reports
 ```
 
 ### synapse-pipeline run

@@ -10,16 +10,20 @@ with Synapse.Pipeline.States;
 --
 --    {"command": "info"}                     the run in brief
 --    {"command": "state"}                    the run's whole state
+--    {"command": "pipeline"}                 the pipeline the run executes
+--                                            (see Descriptions)
 --    {"command": "events", "after": 12}      what happened, newest last
 --    {"command": "query", "expression": R}   a JsonLogic rule evaluated over
 --                                            the run
 --    answers: {"ok": true, "result": ...} or {"ok": false, "error": "..."}
 --
 --  Every command reads and none changes anything: there is no command that
---  runs, advances, retries or cancels, and a name that is not one of the four
+--  runs, advances, retries or cancels, and a name that is not one of the five
 --  is an error. A query is evaluated over the info members, the state under
---  `state` and the events under `events`, so that `{"var": "current_step"}`
---  and `{"var": "state.previous_output.outcome"}` both work.
+--  `state`, the events under `events` and the pipeline's description under
+--  `pipeline`, so that `{"var": "current_step"}`,
+--  `{"var": "state.previous_output.outcome"}` and
+--  `{"var": "pipeline.steps"}` all work.
 --
 --  A request longer than Max_Request_Bytes is refused unread, and an answer
 --  longer than Max_Response_Bytes is replaced by an error saying so.
@@ -51,6 +55,10 @@ package Synapse.Pipeline.Inspection is
    --  The run as it was at one moment.
    type Snapshot is record
       Execution_Id : Ada.Strings.Unbounded.Unbounded_String;
+
+      --  The pipeline the run executes, as Descriptions describes it. Set
+      --  when the run starts and the same for all of it.
+      Description  : JSON.Value;
       Run          : States.State;
       Events       : Event_Vectors.Vector;
    end record;

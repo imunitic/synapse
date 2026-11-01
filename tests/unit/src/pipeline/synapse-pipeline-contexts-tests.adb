@@ -10,6 +10,7 @@ package body Synapse.Pipeline.Contexts.Tests is
 
    use AUnit.Assertions;
    use Ada.Strings.Unbounded;
+   use type Synapse.Core.JSON.Value;
 
    subtype Test_Cases_Class is AUnit.Test_Cases.Test_Case'Class;
 
@@ -30,7 +31,8 @@ package body Synapse.Pipeline.Contexts.Tests is
       pragma Unreferenced (T);
       Context : Execution_Context;
    begin
-      Context.Start ("exec-7", Initial_State);
+      Context.Start
+        ("exec-7", Synapse.Core.JSON.Null_Value, Initial_State);
       declare
          Seen : constant Inspection.Snapshot := Context.Current;
       begin
@@ -48,7 +50,8 @@ package body Synapse.Pipeline.Contexts.Tests is
       Context : Execution_Context;
       Later   : States.State := Initial_State;
    begin
-      Context.Start ("exec-1", Initial_State);
+      Context.Start
+        ("exec-1", Synapse.Core.JSON.Null_Value, Initial_State);
       declare
          Before : constant Inspection.Snapshot := Context.Current;
       begin
@@ -67,7 +70,8 @@ package body Synapse.Pipeline.Contexts.Tests is
       pragma Unreferenced (T);
       Context : Execution_Context;
    begin
-      Context.Start ("exec-1", Initial_State);
+      Context.Start
+        ("exec-1", Synapse.Core.JSON.Null_Value, Initial_State);
       Context.Record_Event
         ("run.started", "A", Synapse.Core.JSON.Null_Value);
       Context.Record_Event
@@ -97,11 +101,30 @@ package body Synapse.Pipeline.Contexts.Tests is
             and then Seen.Events.Last_Element.Sequence = 250,
             "the oldest are the ones forgotten, and numbers go on");
       end;
-      Context.Start ("exec-2", Initial_State);
+      Context.Start
+        ("exec-2", Synapse.Core.JSON.Null_Value, Initial_State);
       Assert
         (Context.Current.Events.Is_Empty,
          "starting again clears them");
    end Events_Are_Numbered_And_The_Oldest_Forgotten;
+
+   procedure The_Description_Given_At_Start_Stays (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context : Execution_Context;
+      Given   : constant Synapse.Core.JSON.Value :=
+        Synapse.Core.JSON.Make_String ("P as described");
+      Later   : States.State := Initial_State;
+   begin
+      Context.Start ("exec-1", Given, Initial_State);
+      Later.Steps_Run := 3;
+      Context.Publish (Later);
+      Context.Record_Event
+        ("step.started", "A", Synapse.Core.JSON.Null_Value);
+      Assert
+        (Context.Current.Description = Given,
+         "published states and events leave it as given");
+   end The_Description_Given_At_Start_Stays;
 
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
@@ -123,6 +146,9 @@ package body Synapse.Pipeline.Contexts.Tests is
       Register_Routine
         (T, Events_Are_Numbered_And_The_Oldest_Forgotten'Access,
          "Events are numbered and the oldest forgotten");
+      Register_Routine
+        (T, The_Description_Given_At_Start_Stays'Access,
+         "The description given at start stays");
    end Register_Tests;
 
 end Synapse.Pipeline.Contexts.Tests;
