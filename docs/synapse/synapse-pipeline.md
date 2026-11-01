@@ -23,6 +23,21 @@ The package depends on a package per platform (`@imunitic/synapse-pipeline-darwi
 that npm picks for the machine, so there is nothing to build or download afterwards. The harnesses a
 pipeline uses are installed separately and must be on `PATH` when it runs.
 
+### The skill for writing pipelines
+
+The package also carries a skill that teaches an agent the definition language and the workflow of
+writing a pipeline: ask for what is missing, write the pipeline, system and agent files into
+`~/.config/synapse-pipeline/`, run `check` and `show`, and hand them over without running anything.
+Install it for a harness with
+
+```sh
+synapse-pipeline-setup configure claude     # or codex, or opencode
+```
+
+and then ask the agent to craft a pipeline for a workflow. The skill goes to the harness's skills
+directory (`~/.claude/skills`, `~/.codex/skills`, `~/.config/opencode/skill`) and only ever replaces or
+removes what an earlier `synapse-pipeline-setup` put there.
+
 ## A first run
 
 Put the definitions in `~/.config/synapse-pipeline/` (or any directory listed in
