@@ -15,6 +15,10 @@ package Synapse.Pipeline.Commands.Usage is
      & "  show <pipeline> [--format json|text]" & LF
      & "         describe a pipeline: its steps, settings, edges and limits"
      & LF
+     & "  next <pipeline> [--input <file>|-] | --state <file>|- --result "
+     & "<file>|-" & LF
+     & "         the state a run starts in, or the state after a step's "
+     & "result" & LF
      & "  run <pipeline> [--input <file>|-]   run a pipeline to its end" & LF
      & "  list   the pipelines running now" & LF
      & "  info <execution-id> [--format json|text] [--query <rule>]" & LF
@@ -65,6 +69,41 @@ package Synapse.Pipeline.Commands.Usage is
      & "  SYNAPSE_PIPELINE_TIMEOUT, SYNAPSE_PIPELINE_MAX_STEPS, "
      & "SYNAPSE_PIPELINE_RUNNER" & LF
      & "                            the limits the description reports" & LF;
+
+   Next_Help : constant String :=
+     "usage: synapse-pipeline next <pipeline> [--input <file>|-] | --state "
+     & "<file>|- --result <file>|-" & LF & LF
+     & "One step of a run at a time, for a caller that runs the sessions "
+     & "itself and" & LF
+     & "keeps the state between them. Nothing is run and no harness is "
+     & "needed." & LF & LF
+     & "  next <pipeline> [--input <file>|-]" & LF
+     & "      prints the state a run starts in: the first step to run, with "
+     & "the input" & LF
+     & "      (JSON; null without one) that step is given" & LF
+     & "  next <pipeline> --state <file>|- --result <file>|-" & LF
+     & "      takes the state last printed and the result of the step it "
+     & "names, a JSON" & LF
+     & "      object {""outcome"", ""summary"", ""data""}, and prints the "
+     & "state that follows" & LF & LF
+     & "The edges, guards and Max_Iterations are applied, and the step "
+     & "ceiling is held to," & LF
+     & "exactly as 'run' does. A state is the JSON document a running "
+     & "pipeline answers" & LF
+     & "'state' with; a run is over when its status is completed or failed. "
+     & "A failed" & LF
+     & "run is data in the state printed and the exit code is 0. A state for "
+     & "another" & LF
+     & "pipeline, one that is already over, or a result that is not valid "
+     & "prints nothing" & LF
+     & "and exits 1." & LF & LF
+     & "Environment:" & LF
+     & "  SYNAPSE_PIPELINE_PATH      directories of .synapse files besides "
+     & "the default" & LF
+     & "  SYNAPSE_PIPELINE_HARNESS   the harness of a step that names none"
+     & LF
+     & "  SYNAPSE_PIPELINE_MAX_STEPS the most steps a run may take (default "
+     & "50)" & LF;
 
    Run_Help : constant String :=
      "usage: synapse-pipeline run <pipeline> [--input <file>|-]" & LF & LF

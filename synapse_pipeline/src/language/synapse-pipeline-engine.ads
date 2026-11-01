@@ -1,12 +1,14 @@
+with Synapse.Core.JSON;
 with Synapse.Pipeline.Configs;
 with Synapse.Pipeline.Resolved;
 with Synapse.Pipeline.Session_Runner;
 with Synapse.Pipeline.States;
 
---  The state machine: where a pipeline goes next. Execute_Step is the one
---  operation that understands a transition. Everything else, running to the
---  end or doing one step at a time for a caller that keeps the state, only
---  decides whether to ask for another.
+--  The state machine: where a pipeline goes next. Advance is the one
+--  operation that understands a transition, and Execute_Step runs a session
+--  and ends with it. Everything else, running to the end or doing one step at
+--  a time for a caller that keeps the state, only decides whether to ask for
+--  another.
 --
 --  One call takes a run that is still going and runs its current step:
 --    * it fails the run, before starting, when the run has already taken as
@@ -29,6 +31,26 @@ with Synapse.Pipeline.States;
 package Synapse.Pipeline.Engine is
 
    use type States.Run_Status;
+
+   --  What follows a step that gave Output: the routing alone, with no
+   --  session. The edges leaving the step are tried in the order written and
+   --  the first whose guard holds sends the run along its edge, counted in
+   --  `Fired`; when none does, the run goes on to the next step declared, and
+   --  past the last one it is completed. A guard that fails, or a run at a
+   --  step the pipeline does not have, returns the run as it was, marked
+   --  failed. Execute_Step ends with this, so a caller that runs the session
+   --  itself routes exactly as a run does.
+   function Advance
+     (Pipeline : Resolved.Pipeline;
+      Run      : States.State;
+      Output   : Synapse.Core.JSON.Value) return States.State
+   with Pre => Run.Status = States.Running;
+
+   --  The run, failed for having taken as many steps as the configuration
+   --  allows, when it is still going and has; otherwise the run unchanged.
+   --  Execute_Step does this before it starts a session.
+   function Hold_To_Ceiling
+     (Run : States.State; Settings : Configs.Config) return States.State;
 
    function Execute_Step
      (Pipeline : Resolved.Pipeline;

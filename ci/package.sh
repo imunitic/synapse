@@ -6,7 +6,8 @@
 # the installed hook binary, and that binary answers as a hook does. The
 # synapse-pipeline packages are installed beside them, the installed
 # `synapse-pipeline` runs a pipeline from a script, and `synapse-pipeline-setup`
-# installs the pipeline-writing skill, whose examples are checked.
+# installs the pipeline skills, whose examples are checked, and `next` steps a
+# pipeline one result at a time.
 #
 #   ci/package.sh [--keep]
 #
@@ -145,7 +146,21 @@ result="$("$bin/synapse-pipeline" run Smoke 2>/dev/null)" || fail "synapse-pipel
 echo "$result" | jq -e '.outcome == "Approved" and .summary == "packaged ok"' >/dev/null || fail "synapse-pipeline run printed '$result'"
 echo "  synapse-pipeline ok"
 
-# The skill that teaches an agent to write pipelines: installed for each harness
+# `next`, through the shim: a run driven one step at a time ends where it ends.
+state="$work/state.json"
+"$bin/synapse-pipeline" next Smoke > "$state" || fail "synapse-pipeline next (start)"
+jq -e '.status == "running" and .current_step == "Build"' "$state" >/dev/null || fail "next started at '$(jq -r .current_step "$state")'"
+printf '{"outcome":"Done","summary":"built","data":{}}\n' > "$work/r1.json"
+"$bin/synapse-pipeline" next Smoke --state "$(native "$state")" --result "$(native "$work/r1.json")" > "$work/state2.json" \
+    || fail "synapse-pipeline next (first result)"
+jq -e '.status == "running" and .current_step == "Review" and .steps_run == 1' "$work/state2.json" >/dev/null || fail "next did not move on to Review"
+printf '{"outcome":"Approved","summary":"packaged ok","data":{}}\n' > "$work/r2.json"
+"$bin/synapse-pipeline" next Smoke --state "$(native "$work/state2.json")" --result "$(native "$work/r2.json")" > "$work/state3.json" \
+    || fail "synapse-pipeline next (last result)"
+jq -e '.status == "completed" and .previous_output.summary == "packaged ok"' "$work/state3.json" >/dev/null || fail "next did not complete the run"
+echo "  synapse-pipeline next ok"
+
+# The skills that teach an agent to write and to run pipelines: installed for each harness
 # beside the Synapse skills without disturbing them, and every example
 # definition in it passes the installed `check`.
 for h in claude codex opencode; do
@@ -153,6 +168,7 @@ for h in claude codex opencode; do
 done
 for d in .claude/skills .codex/skills .config/opencode/skill; do
     [ -f "$home/$d/synapse-pipeline/SKILL.md" ] || fail "no synapse-pipeline skill in $d"
+    [ -f "$home/$d/synapse-pipeline-execute/SKILL.md" ] || fail "no synapse-pipeline-execute skill in $d"
     [ -f "$home/$d/synapse-query/SKILL.md" ] || fail "synapse-pipeline-setup removed a Synapse skill from $d"
 done
 "$bin/synapse-setup" configure claude >/dev/null || fail "synapse-setup configure claude after the pipeline skill"

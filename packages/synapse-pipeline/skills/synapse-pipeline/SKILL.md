@@ -147,9 +147,12 @@ A run takes as long as its sessions do, often many minutes, so **run it as a bac
 
 Stopping the background job stops the run, in the middle of a session if one is going; nothing in `synapse-pipeline` can stop it.
 
+To run a pipeline inside the current session instead, with each step a subagent and no `synapse-pipeline run`, use the `synapse-pipeline-execute` skill. Its steps do not enforce `Permissions` or `Timeout`, so `run` is the way to hold a pipeline to its restrictions.
+
 ## Commands
 
 - `synapse-pipeline check <pipeline>`: validate; nothing is run.
 - `synapse-pipeline show <pipeline> [--format json|text]`: describe the steps, settings and edges.
+- `synapse-pipeline next <pipeline> [--input <file>|-] | --state <file>|- --result <file>|-`: the state a run starts in, or the state after a step's result; for running a pipeline in a session (see `synapse-pipeline-execute`).
 - `synapse-pipeline run <pipeline> [--input <file>|-]`: run it.
 - `synapse-pipeline list`, `synapse-pipeline info <execution-id> [--format json|text] [--query <rule>]`: inspect runs in progress.

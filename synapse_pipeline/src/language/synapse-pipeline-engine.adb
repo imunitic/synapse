@@ -1,6 +1,5 @@
 with Ada.Strings.Unbounded;
 
-with Synapse.Core.JSON;
 with Synapse.Pipeline.Envelopes;
 with Synapse.Pipeline.Failures;
 with Synapse.Pipeline.Guards;
@@ -42,6 +41,75 @@ package body Synapse.Pipeline.Engine is
          (Kind => Kind, Step => To_Unbounded_String (Step),
           Message => To_Unbounded_String (Message), Reset => <>)));
 
+   function Unknown_Step (Run : States.State) return States.State is
+      Name : constant String := To_String (Run.Current_Step);
+   begin
+      return Failed_Run
+        (Run, Failures.Execution_Error, Name,
+         "the run is at step '" & Name & "', which the pipeline does not "
+         & "have");
+   end Unknown_Step;
+
+   function Over_Ceiling
+     (Run : States.State; Settings : Configs.Config) return Boolean is
+     (Run.Steps_Run >= Settings.Step_Ceiling);
+
+   function Ceiling_Reached (Run : States.State) return States.State is
+     (Failed_Run
+        (Run, Failures.Ceiling_Reached, To_String (Run.Current_Step),
+         "the run has taken" & Natural'Image (Run.Steps_Run)
+         & " steps, the most it may"));
+
+   function Hold_To_Ceiling
+     (Run : States.State; Settings : Configs.Config) return States.State is
+     (if Run.Status = States.Running and then Over_Ceiling (Run, Settings)
+      then Ceiling_Reached (Run) else Run);
+
+   function Advance
+     (Pipeline : Resolved.Pipeline;
+      Run      : States.State;
+      Output   : Synapse.Core.JSON.Value) return States.State
+   is
+      Name  : constant String := To_String (Run.Current_Step);
+      Index : constant Natural := Index_Of (Pipeline, Name);
+   begin
+      if Index = 0 then
+         return Unknown_Step (Run);
+      end if;
+      declare
+         Route : constant Guards.Route_Results.Result :=
+           Guards.Route_After (Pipeline.Edges, Run.Fired, Name, Output);
+         Next  : States.State := Run;
+      begin
+         if not Guards.Route_Results.Is_Success (Route) then
+            return Failed_Run
+              (Run, Failures.Execution_Error, Name,
+               To_String (Guards.Route_Results.Error (Route)));
+         end if;
+
+         Next.Previous_Output := Output;
+         Next.Steps_Run := Run.Steps_Run + 1;
+         if Guards.Route_Results.Value (Route).Fires then
+            declare
+               Taken : constant Positive :=
+                 Guards.Route_Results.Value (Route).Edge;
+            begin
+               while Next.Fired.Last_Index < Taken loop
+                  Next.Fired.Append (0);
+               end loop;
+               Next.Fired.Replace_Element (Taken, Next.Fired (Taken) + 1);
+               Next.Current_Step := Pipeline.Edges (Taken).To;
+            end;
+         elsif Index < Pipeline.Steps.Last_Index then
+            Next.Current_Step := Pipeline.Steps (Index + 1).Name;
+         else
+            Next.Status := States.Completed;
+            Next.Current_Step := Null_Unbounded_String;
+         end if;
+         return Next;
+      end;
+   end Advance;
+
    function Execute_Step
      (Pipeline : Resolved.Pipeline;
       Run      : States.State;
@@ -52,15 +120,9 @@ package body Synapse.Pipeline.Engine is
       Index : constant Natural := Index_Of (Pipeline, Name);
    begin
       if Index = 0 then
-         return Failed_Run
-           (Run, Failures.Execution_Error, Name,
-            "the run is at step '" & Name & "', which the pipeline does not "
-            & "have");
-      elsif Run.Steps_Run >= Settings.Step_Ceiling then
-         return Failed_Run
-           (Run, Failures.Ceiling_Reached, Name,
-            "the run has taken" & Natural'Image (Run.Steps_Run)
-            & " steps, the most it may");
+         return Unknown_Step (Run);
+      elsif Over_Ceiling (Run, Settings) then
+         return Ceiling_Reached (Run);
       end if;
 
       declare
@@ -86,40 +148,7 @@ package body Synapse.Pipeline.Engine is
             end;
          end if;
 
-         declare
-            Output : constant Synapse.Core.JSON.Value :=
-              Envelopes.To_JSON (Answer.Result);
-            Route  : constant Guards.Route_Results.Result :=
-              Guards.Route_After (Pipeline.Edges, Run.Fired, Name, Output);
-            Next   : States.State := Run;
-         begin
-            if not Guards.Route_Results.Is_Success (Route) then
-               return Failed_Run
-                 (Run, Failures.Execution_Error, Name,
-                  To_String (Guards.Route_Results.Error (Route)));
-            end if;
-
-            Next.Previous_Output := Output;
-            Next.Steps_Run := Run.Steps_Run + 1;
-            if Guards.Route_Results.Value (Route).Fires then
-               declare
-                  Taken : constant Positive :=
-                    Guards.Route_Results.Value (Route).Edge;
-               begin
-                  while Next.Fired.Last_Index < Taken loop
-                     Next.Fired.Append (0);
-                  end loop;
-                  Next.Fired.Replace_Element (Taken, Next.Fired (Taken) + 1);
-                  Next.Current_Step := Pipeline.Edges (Taken).To;
-               end;
-            elsif Index < Pipeline.Steps.Last_Index then
-               Next.Current_Step := Pipeline.Steps (Index + 1).Name;
-            else
-               Next.Status := States.Completed;
-               Next.Current_Step := Null_Unbounded_String;
-            end if;
-            return Next;
-         end;
+         return Advance (Pipeline, Run, Envelopes.To_JSON (Answer.Result));
       end;
    end Execute_Step;
 
