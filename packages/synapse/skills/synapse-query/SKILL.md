@@ -1,6 +1,6 @@
 ---
 name: synapse-query
-description: This repo has a Synapse code graph. For any task here (how something works, where code lives, what depends on a file, scoping an edit), query the graph before grepping or reading source, and grep only inside files it named. Another checkout's graph: --namespace <repo>@<branch>.
+description: "This repo has a Synapse code graph. For any task here (how something works, where code lives, what depends on a file, scoping an edit), query the graph before grepping or reading source, and grep only inside files it named. Another checkout's graph: --namespace <repo>@<branch>."
 ---
 
 # Synapse Query: Day-to-Day Use of the Code Graph

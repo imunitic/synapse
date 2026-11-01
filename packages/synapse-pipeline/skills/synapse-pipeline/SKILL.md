@@ -1,6 +1,6 @@
 ---
 name: synapse-pipeline
-description: Craft, check and run synapse-pipeline pipelines: declarative multi-step agent workflows. Use when asked to design, write, fix or run a pipeline, or to turn a described workflow into pipeline, system and agent definition files.
+description: "Craft, check and run synapse-pipeline pipelines: declarative multi-step agent workflows. Use when asked to design, write, fix or run a pipeline, or to turn a described workflow into pipeline, system and agent definition files."
 ---
 
 # synapse-pipeline
