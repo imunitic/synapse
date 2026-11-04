@@ -2,6 +2,8 @@ with Ada.Strings.Unbounded;
 
 with GNAT.Sockets;
 
+with System;
+
 with Synapse.Core.Text_Lists;
 
 with Synapse.Pipeline.Inspector_Transport;
@@ -62,6 +64,9 @@ private
       Endpoint  : Ada.Strings.Unbounded.Unbounded_String;
       Listening : Boolean := False;
       Server    : GNAT.Sockets.Socket_Type := GNAT.Sockets.No_Socket;
+
+      --  Where Windows listens: the handle of the named pipe, or null.
+      Pipe      : System.Address := System.Null_Address;
    end record;
 
 end Synapse.Pipeline.System_Inspector;

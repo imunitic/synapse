@@ -1,9 +1,12 @@
 with Ada.Calendar;
 with Ada.Directories;
+with Ada.Streams.Stream_IO;
 with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
 
 with AUnit.Assertions;
+
+with GNAT.OS_Lib;
 
 with Synapse.Test_Scratch;
 
@@ -16,8 +19,8 @@ package body Synapse.Pipeline.System_Process.Tests is
 
    LF : constant Character := Character'Val (10);
 
-   --  These tests run programs a POSIX system has; Windows has its own
-   --  adapter, which says it cannot run a program.
+   --  The first tests run programs a POSIX system has; the ones for Windows
+   --  run programs it has.
    function Has_Posix return Boolean
    is (Ada.Directories.Exists ("/bin/sh"));
 
@@ -150,22 +153,198 @@ package body Synapse.Pipeline.System_Process.Tests is
          "it finished in time");
    end A_Program_Within_Its_Limit_Is_Not_Marked_Timed_Out;
 
-   procedure Without_A_Posix_System_No_Program_Is_Started
+   ---------------------------------------------------------------------------
+   --  Windows
+   ---------------------------------------------------------------------------
+
+   CR : constant Character := Character'Val (13);
+
+   function On_Windows return Boolean is
+     (GNAT.OS_Lib.Directory_Separator = '\');
+
+   --  A program with its arguments as a request.
+   function Program
+     (Name : String; A1, A2, A3 : String := ""; Seconds : Positive := 30)
+      return Session_Process.Process_Request
+   is
+      Result : Session_Process.Process_Request;
+
+      procedure Add (Arg : String) is
+      begin
+         if Arg /= "" then
+            Result.Arguments.Append (To_Unbounded_String (Arg));
+         end if;
+      end Add;
+   begin
+      Result.Program := To_Unbounded_String (Name);
+      Add (A1);
+      Add (A2);
+      Add (A3);
+      Result.Timeout_Seconds := Seconds;
+      return Result;
+   end Program;
+
+   procedure On_Windows_What_The_Program_Wrote_Is_Returned
      (T : in out Test_Cases_Class)
    is
       pragma Unreferenced (T);
-      P   : System_Process;
-      Got : Session_Process.Process_Outcome;
+      P : System_Process;
    begin
-      if Has_Posix then
+      if not On_Windows then
          return;
       end if;
-      Got := P.Run (Shell ("exit 0"));
-      Assert
-        (not Got.Started
-         and then Has (To_String (Got.Problem), "not available"),
-         "it says so: " & To_String (Got.Problem));
-   end Without_A_Posix_System_No_Program_Is_Started;
+      declare
+         Got : constant Session_Process.Process_Outcome :=
+           P.Run
+             (Program
+                ("cmd.exe", "/c", "echo out& echo err>&2& exit /b 3"));
+      begin
+         Assert
+           (Got.Started and then not Got.Timed_Out,
+            "it ran to its end: " & To_String (Got.Problem));
+         Assert (Got.Exit_Code = 3, "its exit code:" & Got.Exit_Code'Image);
+         Assert
+           (Has (To_String (Got.Output), "out")
+            and then not Has (To_String (Got.Output), "err"),
+            "what it wrote to its output: " & To_String (Got.Output));
+         Assert
+           (Has (To_String (Got.Errors), "err")
+            and then not Has (To_String (Got.Errors), "out"),
+            "and to its errors: " & To_String (Got.Errors));
+      end;
+   end On_Windows_What_The_Program_Wrote_Is_Returned;
+
+   procedure On_Windows_The_Program_Is_Given_Its_Input_And_Surroundings
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Scratch : constant Synapse.Test_Scratch.Scratch :=
+        Synapse.Test_Scratch.Make_Outside_Git;
+      P : System_Process;
+   begin
+      if not On_Windows then
+         return;
+      end if;
+      declare
+         Asked : Session_Process.Process_Request :=
+           Program ("findstr", "^");
+      begin
+         Asked.Standard_Input := To_Unbounded_String ("from stdin" & LF);
+         declare
+            Got : constant Session_Process.Process_Outcome := P.Run (Asked);
+         begin
+            Assert
+              (Got.Started and then Has (To_String (Got.Output), "from stdin"),
+               "its input reaches it: " & To_String (Got.Output)
+               & To_String (Got.Problem));
+         end;
+      end;
+      declare
+         Asked : Session_Process.Process_Request :=
+           Program ("cmd.exe", "/c", "echo %PIPELINE_PROBE%& cd");
+      begin
+         Asked.Environment.Append
+           (To_Unbounded_String ("PIPELINE_PROBE=env"));
+         Asked.Directory :=
+           To_Unbounded_String (Synapse.Test_Scratch.Path (Scratch));
+         declare
+            Got : constant Session_Process.Process_Outcome := P.Run (Asked);
+         begin
+            Assert
+              (Has (To_String (Got.Output), "env"),
+               "the variable it was given: " & To_String (Got.Output));
+            Assert
+              (Has
+                 (To_String (Got.Output),
+                  Ada.Directories.Simple_Name
+                    (Synapse.Test_Scratch.Path (Scratch))),
+               "and the directory: " & To_String (Got.Output));
+         end;
+      end;
+   end On_Windows_The_Program_Is_Given_Its_Input_And_Surroundings;
+
+   procedure On_Windows_A_Program_That_Is_Not_There_Is_Not_Started
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P : System_Process;
+   begin
+      if not On_Windows then
+         return;
+      end if;
+      declare
+         Got : constant Session_Process.Process_Outcome :=
+           P.Run (Program ("no-such-harness-program"));
+      begin
+         Assert
+           (not Got.Started
+            and then Has (To_String (Got.Problem), "no-such-harness-program"),
+            "it says which: " & To_String (Got.Problem));
+      end;
+   end On_Windows_A_Program_That_Is_Not_There_Is_Not_Started;
+
+   procedure On_Windows_A_Program_Past_Its_Limit_Is_Stopped
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P : System_Process;
+   begin
+      if not On_Windows then
+         return;
+      end if;
+      declare
+         Started : constant Ada.Calendar.Time := Ada.Calendar.Clock;
+         Got     : constant Session_Process.Process_Outcome :=
+           P.Run (Program ("ping", "-n", "60", "127.0.0.1", Seconds => 1));
+         Taken   : constant Duration :=
+           Ada.Calendar."-" (Ada.Calendar.Clock, Started);
+      begin
+         Assert
+           (Got.Started and then Got.Timed_Out,
+            "it timed out: " & To_String (Got.Problem));
+         Assert
+           (Taken < 30.0, "and was stopped, not waited for:" & Taken'Image);
+      end;
+      declare
+         Got : constant Session_Process.Process_Outcome :=
+           P.Run (Program ("cmd.exe", "/c", "exit 0", Seconds => 30));
+      begin
+         Assert
+           (Got.Started and then not Got.Timed_Out and then Got.Exit_Code = 0,
+            "a program within its limit is not marked timed out");
+      end;
+   end On_Windows_A_Program_Past_Its_Limit_Is_Stopped;
+
+   procedure On_Windows_A_Command_Script_Is_Run
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Scratch : constant Synapse.Test_Scratch.Scratch :=
+        Synapse.Test_Scratch.Make_Outside_Git;
+      Script  : constant String :=
+        Synapse.Test_Scratch.Path (Scratch) & "\show-argument.cmd";
+      File    : Ada.Streams.Stream_IO.File_Type;
+      P       : System_Process;
+   begin
+      if not On_Windows then
+         return;
+      end if;
+      Ada.Streams.Stream_IO.Create
+        (File, Ada.Streams.Stream_IO.Out_File, Script);
+      String'Write
+        (Ada.Streams.Stream_IO.Stream (File),
+         "@echo off" & CR & LF & "echo got %1" & CR & LF);
+      Ada.Streams.Stream_IO.Close (File);
+      declare
+         Got : constant Session_Process.Process_Outcome :=
+           P.Run (Program (Script, "a b"));
+      begin
+         Assert
+           (Got.Started and then Has (To_String (Got.Output), "got ""a b"""),
+            "a script gets its argument as one: " & To_String (Got.Output)
+            & To_String (Got.Problem));
+      end;
+   end On_Windows_A_Command_Script_Is_Run;
 
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
@@ -194,8 +373,21 @@ package body Synapse.Pipeline.System_Process.Tests is
         (T, A_Program_Within_Its_Limit_Is_Not_Marked_Timed_Out'Access,
          "A program within its limit is not marked timed out");
       Register_Routine
-        (T, Without_A_Posix_System_No_Program_Is_Started'Access,
-         "Without a POSIX system no program is started");
+        (T, On_Windows_What_The_Program_Wrote_Is_Returned'Access,
+         "On Windows what the program wrote is returned");
+      Register_Routine
+        (T, On_Windows_The_Program_Is_Given_Its_Input_And_Surroundings'Access,
+         "On Windows the program is given its input, directory and "
+         & "environment");
+      Register_Routine
+        (T, On_Windows_A_Program_That_Is_Not_There_Is_Not_Started'Access,
+         "On Windows a program that is not there is not started");
+      Register_Routine
+        (T, On_Windows_A_Program_Past_Its_Limit_Is_Stopped'Access,
+         "On Windows a program past its limit is stopped");
+      Register_Routine
+        (T, On_Windows_A_Command_Script_Is_Run'Access,
+         "On Windows a command script is run");
    end Register_Tests;
 
 end Synapse.Pipeline.System_Process.Tests;

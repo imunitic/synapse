@@ -242,7 +242,8 @@ not into a list.
 The run listens on a Unix domain socket at `$SYNAPSE_WORK_DIR/pipelines/<execution-id>/execution.sock`, in
 the directory of its record, which only the user can enter, and removes the socket when it ends. A run without a work directory, or
 whose socket cannot be made, is not inspectable and goes on exactly as it would have; the second case
-is reported with one warning line when it starts. Inspecting is not available on Windows yet.
+is reported with one warning line when it starts. On Windows the run listens on a named pipe instead; see
+Platforms.
 
 ### The record of a run
 
@@ -266,7 +267,7 @@ prints, not the conversation.
 
 - `list --all` lists the executions that are over as well, with the status they ended in. One whose record
   says `running` while nothing answers on its socket is shown as `interrupted`, and one with no summary as
-  `incomplete`. A run on Windows, which has no socket, is shown as `interrupted` while it goes.
+  `incomplete`.
 - `info <execution-id>` reads the record when nothing answers, and `info <execution-id> --events` prints the
   events recorded for it. A `--query` needs a run that is listening.
 - `cleanup` removes the records of executions that are not running and were last written more than 30 days
@@ -318,4 +319,12 @@ serving one, never affects the run.
 
 ## Platforms
 
-Running a harness and inspecting a run are not available on Windows yet.
+What differs on Windows:
+
+- A session's program is looked up on `PATH` with the extensions in `PATHEXT`, and a `.cmd` or `.bat` file is
+  run through `cmd.exe` with its arguments quoted. A program and everything it starts are one job, which is
+  stopped as a whole at the time limit.
+- A run listens on a named pipe, `\\.\pipe\synapse-pipeline-<execution-id>`, in place of a socket. `list`,
+  `info` and `cleanup` find and ask it as they do a socket. The pipe refuses clients on other machines but has
+  the default access of a pipe, so another user of the same machine can ask a run what it is doing.
+- Every execution directory is made, but the access mode of a directory is not changed.
