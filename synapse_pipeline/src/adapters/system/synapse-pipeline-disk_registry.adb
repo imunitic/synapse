@@ -1,8 +1,7 @@
 with Ada.Directories;
 with Ada.Streams.Stream_IO;
 
-with GNAT.OS_Lib;
-
+with Synapse.Pipeline.File_Replacement;
 with Synapse.Pipeline.Private_Access;
 
 package body Synapse.Pipeline.Disk_Registry is
@@ -62,7 +61,7 @@ package body Synapse.Pipeline.Disk_Registry is
       Streams.Create (File, Streams.Out_File, Temporary);
       String'Write (Streams.Stream (File), Content);
       Streams.Close (File);
-      GNAT.OS_Lib.Rename_File (Temporary, Path, Renamed);
+      File_Replacement.Replace (Temporary, Path, Renamed);
       if not Renamed then
          Dirs.Delete_File (Temporary);
       end if;
