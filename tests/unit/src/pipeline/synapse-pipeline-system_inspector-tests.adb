@@ -250,6 +250,67 @@ package body Synapse.Pipeline.System_Inspector.Tests is
       Synapse.Test_Scratch.Remove (Scratch);
    end A_Silent_Client_Does_Not_Block_The_Next;
 
+   --  On Windows a run listens on a named pipe, asked through the transport
+   --  itself; where there are no named pipes there is nothing to try.
+   procedure A_Run_Is_Reached_Over_A_Named_Pipe (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Transport : System_Transport;
+      Context   : aliased Contexts.Execution_Context;
+      Endpoint  : constant String :=
+        Transport.Endpoint_For ("unused", "exec-pipe-1");
+      First, Second, Bad : Unbounded_String;
+      Ok_First, Ok_Second, Ok_Bad : Boolean := False;
+      Listed_Live : Boolean := False;
+
+      function Lists (Id : String) return Boolean is
+      begin
+         for Held of Transport.Ids ("unused") loop
+            if To_String (Held) = Id then
+               return True;
+            end if;
+         end loop;
+         return False;
+      end Lists;
+
+      procedure Action (Listening : Boolean; Reason : String) is
+      begin
+         Assert (Listening, "it listens: " & Reason);
+         Transport.Ask
+           (Endpoint, "{""command"":""info""}", Ok_First, First);
+         Transport.Ask
+           (Endpoint, "{""command"":""events""}", Ok_Second, Second);
+         Transport.Ask (Endpoint, "not json", Ok_Bad, Bad);
+         Listed_Live := Lists ("exec-pipe-1");
+      end Action;
+   begin
+      if not On_Windows then
+         return;
+      end if;
+      Context.Start ("exec-pipe-1", JSON.Null_Value, Initial_State);
+      Inspectors.Serve_While (Transport, Endpoint, Context, Action'Access);
+      Assert
+        (Ok_First and then Has (To_String (First), "exec-pipe-1"),
+         "the first client is answered: " & To_String (First));
+      Assert
+        (Ok_Second and then Has (To_String (Second), """ok"":true"),
+         "and the next: " & To_String (Second));
+      Assert
+        (Ok_Bad and then Has (To_String (Bad), """ok"":false"),
+         "a request that is not JSON is answered with an error: "
+         & To_String (Bad));
+      Assert (Listed_Live, "a run that is listening is listed");
+      Assert (not Lists ("exec-pipe-1"), "and is not once it has stopped");
+      declare
+         Later  : Unbounded_String;
+         Answered : Boolean;
+      begin
+         Transport.Ask (Endpoint, "{""command"":""info""}", Answered, Later);
+         Assert
+           (not Answered and then Length (Later) > 0,
+            "nothing answers once it has stopped: " & To_String (Later));
+      end;
+   end A_Run_Is_Reached_Over_A_Named_Pipe;
+
    procedure The_Directory_Is_Private (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Scratch   : constant Synapse.Test_Scratch.Scratch :=
@@ -309,6 +370,9 @@ package body Synapse.Pipeline.System_Inspector.Tests is
       Register_Routine
         (T, A_Path_Too_Long_For_A_Socket_Is_Refused'Access,
          "A path too long for a socket is refused");
+      Register_Routine
+        (T, A_Run_Is_Reached_Over_A_Named_Pipe'Access,
+         "A run is reached over a named pipe");
       Register_Routine
         (T, The_Endpoint_Is_In_The_Executions_Directory'Access,
          "The endpoint is in the execution's directory");
