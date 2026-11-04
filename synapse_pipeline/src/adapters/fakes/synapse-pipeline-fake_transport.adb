@@ -35,7 +35,7 @@ package body Synapse.Pipeline.Fake_Transport is
    is
       pragma Unreferenced (T);
    begin
-      return Work_Directory & "/pipelines/" & Id & ".fake";
+      return Work_Directory & "/pipelines/" & Id & "/execution.fake";
    end Endpoint_For;
 
    overriding
@@ -99,22 +99,22 @@ package body Synapse.Pipeline.Fake_Transport is
       return Result;
    end Ids;
 
-   --  The id in an endpoint made by Endpoint_For.
+   --  The id in an endpoint made by Endpoint_For: the name of the directory
+   --  the endpoint is in.
    function Id_In (Endpoint : String) return String is
-      First : Natural := Endpoint'First;
       Stop  : Natural := Endpoint'Last;
+      First : Natural := Endpoint'First;
    begin
       for I in reverse Endpoint'Range loop
          if Endpoint (I) = '/' then
-            First := I + 1;
-            exit;
+            if Stop = Endpoint'Last then
+               Stop := I - 1;
+            else
+               First := I + 1;
+               exit;
+            end if;
          end if;
       end loop;
-      if Stop >= First + 4
-        and then Endpoint (Stop - 4 .. Stop) = ".fake"
-      then
-         Stop := Stop - 5;
-      end if;
       return Endpoint (First .. Stop);
    end Id_In;
 

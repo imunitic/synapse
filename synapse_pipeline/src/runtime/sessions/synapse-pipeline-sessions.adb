@@ -13,7 +13,8 @@ package body Synapse.Pipeline.Sessions is
       Timeout_Seconds =>
         (if Item.Timeout_Seconds > 0 then Item.Timeout_Seconds
          else Settings.Default_Timeout_Seconds),
-      Attempt         => Attempt);
+      Attempt         => Attempt,
+      Execution_Id    => <>);
 
    function Success
      (Item       : Envelopes.Envelope;

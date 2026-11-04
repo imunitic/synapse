@@ -15,6 +15,18 @@ package Synapse.Pipeline.Commands.Clients is
       Directory : out Ada.Strings.Unbounded.Unbounded_String;
       Found     : out Boolean);
 
+   --  What the registry holds of the execution Id in the shape of a run's
+   --  brief, for one that no longer answers: Found is False when the registry
+   --  has no such execution. A record that says `running` is shown as
+   --  `interrupted`, since nothing answered for it, and an execution whose
+   --  summary is missing or cannot be read as `incomplete`.
+   procedure Recorded_Brief
+     (Env   : Environment;
+      Work  : String;
+      Id    : String;
+      Found : out Boolean;
+      Brief : out Synapse.Core.JSON.Value);
+
    --  The result in an answer that said it was ok. Otherwise Ok is False and
    --  Message says why: the answer was not one, or it said it was not ok.
    procedure Read_Answer

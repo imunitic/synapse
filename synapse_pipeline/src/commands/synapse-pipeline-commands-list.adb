@@ -2,6 +2,7 @@ with Ada.Containers.Vectors;
 with Ada.Strings.Unbounded;
 
 with Synapse.Core.JSON;
+with Synapse.Core.Text_Lists;
 with Synapse.Pipeline.Commands.Clients;
 with Synapse.Pipeline.Commands.Usage;
 
@@ -32,42 +33,66 @@ package body Synapse.Pipeline.Commands.List is
    function Padded (Text : String; Width : Natural) return String is
      (Text & [1 .. Width - Text'Length => ' ']);
 
+   function Row_Of (Id : String; Brief : JSON.Value) return Row is
+     (Id       => To_Unbounded_String (Id),
+      Pipeline => To_Unbounded_String (Text_Of (Brief, "pipeline")),
+      Status   => To_Unbounded_String (Text_Of (Brief, "status")),
+      Step     => To_Unbounded_String (Text_Of (Brief, "current_step")));
+
    function Run (Env : Environment; Args : Lists.Vector) return Exit_Code is
       Work  : Unbounded_String;
       Found : Boolean;
       Rows  : Row_Vectors.Vector;
+      Every : Boolean := False;
+      Ids   : Synapse.Core.Text_Lists.Sets.Set;
    begin
-      if not Args.Is_Empty then
+      if Natural (Args.Length) > 1
+        or else (not Args.Is_Empty and then To_String (Args.First_Element) /=
+                 "--all")
+      then
          return Usage_Error (Env, Usage);
       end if;
+      Every := not Args.Is_Empty;
       Clients.Work_Directory (Env, Work, Found);
       if not Found then
          return 1;
       end if;
       for Id of Env.Inspector.Ids (To_String (Work)) loop
+         Ids.Include (To_String (Id));
+      end loop;
+      if Every then
+         Env.Registry.Open (To_String (Work));
+         for Id of Env.Registry.Ids loop
+            Ids.Include (To_String (Id));
+         end loop;
+      end if;
+      for Id of Ids loop
          declare
             Answered : Boolean;
             Answer   : Unbounded_String;
-            Ok       : Boolean;
-            Result   : JSON.Value;
+            Ok       : Boolean := False;
+            Result   : JSON.Value := JSON.Null_Value;
             Message  : Unbounded_String;
          begin
             Env.Inspector.Ask
-              (Env.Inspector.Endpoint_For (To_String (Work), To_String (Id)),
+              (Env.Inspector.Endpoint_For (To_String (Work), Id),
                "{""command"":""info""}", Answered, Answer);
             if Answered then
                Clients.Read_Answer (To_String (Answer), Ok, Result, Message);
-               if Ok and then JSON.Kind_Of (Result) = JSON.JSON_Object then
-                  Rows.Append
-                    (Row'
-                       (Id       => Id,
-                        Pipeline => To_Unbounded_String
-                                      (Text_Of (Result, "pipeline")),
-                        Status   => To_Unbounded_String
-                                      (Text_Of (Result, "status")),
-                        Step     => To_Unbounded_String
-                                      (Text_Of (Result, "current_step"))));
-               end if;
+            end if;
+            if Ok and then JSON.Kind_Of (Result) = JSON.JSON_Object then
+               Rows.Append (Row_Of (Id, Result));
+            elsif Every then
+               declare
+                  Recorded : Boolean;
+                  Brief    : JSON.Value;
+               begin
+                  Clients.Recorded_Brief
+                    (Env, To_String (Work), Id, Recorded, Brief);
+                  if Recorded then
+                     Rows.Append (Row_Of (Id, Brief));
+                  end if;
+               end;
             end if;
          end;
       end loop;

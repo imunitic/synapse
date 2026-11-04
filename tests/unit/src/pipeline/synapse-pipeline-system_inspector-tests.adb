@@ -114,7 +114,7 @@ package body Synapse.Pipeline.System_Inspector.Tests is
       Transport.Close;
    end A_Path_Too_Long_For_A_Socket_Is_Refused;
 
-   procedure The_Endpoint_Is_In_The_Pipelines_Directory
+   procedure The_Endpoint_Is_In_The_Executions_Directory
      (T : in out Test_Cases_Class)
    is
       pragma Unreferenced (T);
@@ -123,10 +123,10 @@ package body Synapse.Pipeline.System_Inspector.Tests is
       if not On_Windows then
          Assert
            (Transport.Endpoint_For ("/w", "exec-1") =
-            "/w/pipelines/exec-1.sock",
+            "/w/pipelines/exec-1/execution.sock",
             "work directory, pipelines, the id");
       end if;
-   end The_Endpoint_Is_In_The_Pipelines_Directory;
+   end The_Endpoint_Is_In_The_Executions_Directory;
 
    procedure A_Client_Over_A_Real_Socket_Is_Answered
      (T : in out Test_Cases_Class)
@@ -263,7 +263,8 @@ package body Synapse.Pipeline.System_Inspector.Tests is
         Synapse.Test_Scratch.Path (Scratch, "listing.txt");
       Args      : GNAT.OS_Lib.Argument_List (1 .. 2) :=
         [new String'("-ld"),
-         new String'(Synapse.Test_Scratch.Path (Scratch, "pipelines"))];
+         new String'
+           (Synapse.Test_Scratch.Path (Scratch, "pipelines/exec-3"))];
       Done      : Boolean;
       Code      : Integer;
    begin
@@ -309,8 +310,8 @@ package body Synapse.Pipeline.System_Inspector.Tests is
         (T, A_Path_Too_Long_For_A_Socket_Is_Refused'Access,
          "A path too long for a socket is refused");
       Register_Routine
-        (T, The_Endpoint_Is_In_The_Pipelines_Directory'Access,
-         "The endpoint is in the pipelines directory");
+        (T, The_Endpoint_Is_In_The_Executions_Directory'Access,
+         "The endpoint is in the execution's directory");
       Register_Routine
         (T, A_Client_Over_A_Real_Socket_Is_Answered'Access,
          "A client over a real socket is answered");

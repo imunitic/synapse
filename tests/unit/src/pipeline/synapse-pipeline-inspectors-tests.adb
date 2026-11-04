@@ -80,10 +80,12 @@ package body Synapse.Pipeline.Inspectors.Tests is
       end Action;
    begin
       Serve_While
-        (Transport, "/work/pipelines/exec-1.fake", Context, Action'Access);
+        (Transport, "/work/pipelines/exec-1/execution.fake", Context,
+         Action'Access);
       Assert (Listening, "it listened");
       Assert
-        (To_String (Transport.Endpoint) = "/work/pipelines/exec-1.fake",
+        (To_String (Transport.Endpoint) =
+         "/work/pipelines/exec-1/execution.fake",
          "where it was told to");
       declare
          Answers : constant Synapse.Core.Text_Lists.Vector :=
@@ -207,6 +209,18 @@ package body Synapse.Pipeline.Inspectors.Tests is
       Assert (Distinct, "and not always the same");
    end Ids_Are_Exec_And_Eight_Hex_Digits;
 
+   procedure Ids_Drawn_At_Once_Differ (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Seen : Synapse.Core.Text_Lists.Sets.Set;
+   begin
+      for N in 1 .. 200 loop
+         Seen.Include (New_Id);
+      end loop;
+      Assert
+        (Natural (Seen.Length) = 200,
+         "ids drawn with no pause between them are all different");
+   end Ids_Drawn_At_Once_Differ;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -234,6 +248,8 @@ package body Synapse.Pipeline.Inspectors.Tests is
       Register_Routine
         (T, Ids_Are_Exec_And_Eight_Hex_Digits'Access,
          "Ids are exec and eight hex digits");
+      Register_Routine
+        (T, Ids_Drawn_At_Once_Differ'Access, "Ids drawn at once differ");
    end Register_Tests;
 
 end Synapse.Pipeline.Inspectors.Tests;

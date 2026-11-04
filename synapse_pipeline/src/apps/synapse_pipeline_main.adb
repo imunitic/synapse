@@ -6,6 +6,8 @@ with Synapse.Adapters.System_Console;
 with Synapse.Adapters.System_Process;
 with Synapse.Adapters.System_Variables;
 with Synapse.Pipeline.Commands.Dispatch;
+with Synapse.Pipeline.Disk_Registry;
+with Synapse.Pipeline.Retrying_Registry;
 with Synapse.Pipeline.System_Files;
 with Synapse.Pipeline.System_Inspector;
 with Synapse.Pipeline.System_Process;
@@ -25,11 +27,27 @@ procedure Synapse_Pipeline_Main is
      aliased Synapse.Pipeline.System_Inspector.System_Transport;
    Sessions : aliased Synapse.Pipeline.System_Process.System_Process;
 
+   --  What the registry says when it gives up on a write, and how it waits.
+   procedure Warn (Message : String) is
+   begin
+      Console.Write_Err ("warning: " & Message & Character'Val (10));
+   end Warn;
+
+   procedure Pause (Seconds : Duration) is
+   begin
+      delay Seconds;
+   end Pause;
+
+   Disk     : aliased Synapse.Pipeline.Disk_Registry.Disk_Registry;
+   Registry :
+     aliased Synapse.Pipeline.Retrying_Registry.Retrying_Registry
+       (Disk'Access, Pause'Access, Warn'Access);
+
    Env  : constant Commands.Environment :=
      (Console => Console'Access, Vars => Vars'Access,
       Runner  => Runner'Access, Clock => Clock'Access,
       Files   => Files'Access, Inspector => Inspector'Access,
-      Sessions => Sessions'Access,
+      Sessions => Sessions'Access, Registry => Registry'Access,
       Argv0   =>
         Ada.Strings.Unbounded.To_Unbounded_String
           (Ada.Command_Line.Command_Name));

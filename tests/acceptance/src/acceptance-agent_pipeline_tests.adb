@@ -1,6 +1,9 @@
 with Ada.Calendar;
+with Ada.Directories;
 with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
+
+with Synapse.Core.Text_Lists;
 
 with AUnit.Assertions;
 
@@ -396,6 +399,30 @@ package body Acceptance.Agent_Pipeline_Tests is
       return "";
    end Await_Run;
 
+   --  How many executions under Pipelines still hold a socket.
+   function Sockets_In (Pipelines : String) return Natural is
+      Count  : Natural := 0;
+      Search : Ada.Directories.Search_Type;
+      Item   : Ada.Directories.Directory_Entry_Type;
+   begin
+      if not Ada.Directories.Exists (Pipelines) then
+         return 0;
+      end if;
+      Ada.Directories.Start_Search
+        (Search, Pipelines, "",
+         [Ada.Directories.Directory => True, others => False]);
+      while Ada.Directories.More_Entries (Search) loop
+         Ada.Directories.Get_Next_Entry (Search, Item);
+         if Ada.Directories.Exists
+              (Ada.Directories.Full_Name (Item) & "/execution.sock")
+         then
+            Count := Count + 1;
+         end if;
+      end loop;
+      Ada.Directories.End_Search (Search);
+      return Count;
+   end Sockets_In;
+
    procedure A_Run_Can_Be_Inspected_While_It_Goes (T : in out Test_Cases_Class)
    is
       pragma Unreferenced (T);
@@ -462,10 +489,121 @@ package body Acceptance.Agent_Pipeline_Tests is
          Assert_Exit (After, 0, "list after");
          Assert_Equal (Out_Of (After), "", "nothing is left listed");
          Assert
-           (Files_In (Work (F) & "/pipelines", ".sock").Is_Empty,
+           (Sockets_In (Work (F) & "/pipelines") = 0,
             "and the endpoint is gone");
       end;
    end A_Run_Can_Be_Inspected_While_It_Goes;
+
+   --  The id of the first execution `list --all` shows.
+   function First_Id (Listing : String) return String is
+      Start : constant Natural := Ada.Strings.Fixed.Index (Listing, "" & LF);
+   begin
+      if Start = 0 then
+         return "";
+      end if;
+      declare
+         Row : constant String := Listing (Start + 1 .. Listing'Last);
+         Stop : constant Natural := Ada.Strings.Fixed.Index (Row, " ");
+      begin
+         return (if Stop = 0 then Row else Row (Row'First .. Stop - 1));
+      end;
+   end First_Id;
+
+   function Holds (Names : Synapse.Core.Text_Lists.Vector; Name : String)
+      return Boolean is
+   begin
+      for Item of Names loop
+         if To_String (Item) = Name then
+            return True;
+         end if;
+      end loop;
+      return False;
+   end Holds;
+
+   procedure A_Run_Leaves_A_Record_That_Can_Be_Read_And_Removed
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fixture;
+   begin
+      Set_Up (F);
+      Define_Dev (F);
+      Use_Script (F, Review_Loop);
+      Assert_Exit (Run_Pipeline (F, "run", "Dev"), 0, "the run");
+      declare
+         Listing : constant Result := Run_Pipeline (F, "list", "--all");
+         Id      : constant String := First_Id (Out_Of (Listing));
+         Dir     : constant String := Work (F) & "/pipelines/" & Id;
+      begin
+         Assert_Exit (Listing, 0, "list --all");
+         Assert (Id'Length > 0, "an execution is listed: " & Out_Of (Listing));
+         Assert_Contains (Out_Of (Listing), "completed", "and it completed");
+         Assert
+           (Holds (Files_In (Dir), "execution.json")
+            and then Holds (Files_In (Dir), "events.jsonl"),
+            "its directory holds the summary and the events");
+         Assert
+           (Sockets_In (Work (F) & "/pipelines") = 0,
+            "and no socket is left in it");
+         declare
+            Brief  : constant Result := Run_Pipeline (F, "info", Id);
+            Events : constant Result :=
+              Run_Pipeline (F, "info", Id, "--events");
+         begin
+            Assert_Exit (Brief, 0, "info");
+            Assert_Contains (Out_Of (Brief), "status     completed", "info");
+            Assert_Exit (Events, 0, "info --events");
+            Assert_Contains
+              (Out_Of (Events), """kind"":""run.completed""",
+               "the events end with the run");
+            Assert_Contains
+              (Out_Of (Events), """kind"":""session.finished""",
+               "and hold each session");
+         end;
+         declare
+            Dry  : constant Result :=
+              Run_Pipeline (F, "cleanup", "--dry-run");
+            Gone : constant Result := Run_Pipeline (F, "cleanup", "--all");
+         begin
+            Assert_Equal
+              (Out_Of (Dry), "", "a new execution is not old enough");
+            Assert_Exit (Gone, 0, "cleanup --all");
+            Assert_Contains (Out_Of (Gone), "removed " & Id, "it is removed");
+         end;
+         Assert
+           (not Ada.Directories.Exists (Dir),
+            "and its directory is gone");
+         Assert_Equal
+           (Out_Of (Run_Pipeline (F, "list", "--all")), "",
+            "so there is nothing left to list");
+      end;
+   end A_Run_Leaves_A_Record_That_Can_Be_Read_And_Removed;
+
+   procedure A_Sessions_Output_Is_Kept_As_A_Transcript
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fixture;
+   begin
+      Set_Up (F);
+      Define_Dev (F);
+      Install_Claude (F, Says_Done);
+      Assert_Exit (Run_Pipeline (F, "run", "Dev"), 0, "the run");
+      declare
+         Listing : constant Result := Run_Pipeline (F, "list", "--all");
+         Id      : constant String := First_Id (Out_Of (Listing));
+         Dir     : constant String :=
+           Work (F) & "/pipelines/" & Id & "/transcripts";
+      begin
+         Assert
+           (Holds (Files_In (Dir), "Develop-1.jsonl")
+            and then Holds (Files_In (Dir), "Review-1.jsonl"),
+            "each step has a transcript for its first attempt");
+         Assert_Contains
+           (Read_File (Dir & "/Develop-1.jsonl"), "did it",
+            "which holds what the harness printed");
+      end;
+   end A_Sessions_Output_Is_Kept_As_A_Transcript;
 
    procedure A_Dead_Runs_Endpoint_Is_Not_Listed (T : in out Test_Cases_Class)
    is
@@ -473,7 +611,7 @@ package body Acceptance.Agent_Pipeline_Tests is
       F : Fixture;
    begin
       Set_Up (F);
-      Write_File (Work (F) & "/pipelines/exec-deadbeef.sock", "");
+      Write_File (Work (F) & "/pipelines/exec-deadbeef/execution.sock", "");
       declare
          R : constant Result := Run_Pipeline (F, "list");
       begin
@@ -555,6 +693,12 @@ package body Acceptance.Agent_Pipeline_Tests is
       Register_Routine
         (T, A_Dead_Runs_Endpoint_Is_Not_Listed'Access,
          "a dead run's endpoint is not listed");
+      Register_Routine
+        (T, A_Run_Leaves_A_Record_That_Can_Be_Read_And_Removed'Access,
+         "A run leaves a record that can be read and removed");
+      Register_Routine
+        (T, A_Sessions_Output_Is_Kept_As_A_Transcript'Access,
+         "A session's output is kept as a transcript");
       Register_Routine
         (T, Every_Help_Needs_No_Environment'Access,
          "every help needs no environment");

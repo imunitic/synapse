@@ -2,6 +2,8 @@ with Ada.Strings.Fixed;
 
 with AUnit.Assertions;
 
+with Synapse.Pipeline.Fake_Registry;
+with Synapse.Pipeline.Registry_Store;
 with Synapse.Pipeline.Test_Environment;
 
 package body Synapse.Pipeline.Commands.Run.Tests is
@@ -258,6 +260,77 @@ package body Synapse.Pipeline.Commands.Run.Tests is
          "with the run's output as it always is");
    end A_Run_Is_Offered_To_Introspection;
 
+   procedure A_Run_Is_Recorded_In_The_Registry (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F, Round_Once);
+      F.Base.Vars.Set ("SYNAPSE_WORK_DIR", "/work");
+      Assert (Run (Env (F), Args ("Dev")) = 0, "it completes");
+      Assert
+        (To_String (F.Registry.Work) = "/work",
+         "the registry was told where the work is kept");
+      Assert
+        (Natural (F.Registry.Held.Length) = 1,
+         "one execution was recorded");
+      declare
+         Id      : constant String := To_String (F.Registry.Ids.First_Element);
+         Summary : constant Registry_Store.Maybe_Content :=
+           F.Registry.Read_Summary (Id);
+         Events  : constant Registry_Store.Maybe_Content :=
+           F.Registry.Read_Events (Id);
+      begin
+         Assert
+           (Summary.Found
+            and then Has
+                       (To_String (Summary.Value), """status"":""completed"""),
+            "its summary says it completed");
+         Assert
+           (Events.Found
+            and then Has (To_String (Events.Value), """kind"":""run.started""")
+            and then Has
+              (To_String (Events.Value), """kind"":""run.completed"""),
+            "and its events run from the start to the end");
+      end;
+   end A_Run_Is_Recorded_In_The_Registry;
+
+   procedure A_Registry_That_Fails_Leaves_The_Run_As_It_Was
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Expected : constant String :=
+        "step Develop: Done -> Review" & LF
+        & "step Review: Changes_Requested -> Develop" & LF
+        & "step Develop: Done -> Review" & LF
+        & "step Review: Approved -> done" & LF;
+   begin
+      declare
+         F : aliased Fixture;
+      begin
+         Set_Up (F, Round_Once);
+         F.Base.Vars.Set ("SYNAPSE_WORK_DIR", "/work");
+         F.Registry.Fail (Fake_Registry.Create_Op);
+         Assert
+           (Run (Env (F), Args ("Dev")) = 0
+            and then F.Base.Console.Err_Text = Expected,
+            "a directory that cannot be made changes nothing");
+         Assert (F.Registry.Held.Is_Empty, "and nothing was recorded");
+      end;
+      declare
+         F : aliased Fixture;
+      begin
+         Set_Up (F, Round_Once);
+         F.Base.Vars.Set ("SYNAPSE_WORK_DIR", "/work");
+         F.Registry.Fail (Fake_Registry.Replace_Op);
+         F.Registry.Fail (Fake_Registry.Append_Op);
+         F.Registry.Fail (Fake_Registry.Transcript_Op);
+         Assert
+           (Run (Env (F), Args ("Dev")) = 0
+            and then F.Base.Console.Err_Text = Expected,
+            "writes that cannot be made change nothing");
+      end;
+   end A_Registry_That_Fails_Leaves_The_Run_As_It_Was;
+
    procedure Without_A_Work_Directory_There_Is_Nowhere_To_Listen
      (T : in out Test_Cases_Class)
    is
@@ -387,6 +460,12 @@ package body Synapse.Pipeline.Commands.Run.Tests is
       Register_Routine
         (T, Introspection_That_Fails_Leaves_The_Run_As_It_Was'Access,
          "Introspection that fails leaves the run as it was");
+      Register_Routine
+        (T, A_Run_Is_Recorded_In_The_Registry'Access,
+         "A run is recorded in the registry");
+      Register_Routine
+        (T, A_Registry_That_Fails_Leaves_The_Run_As_It_Was'Access,
+         "A registry that fails leaves the run as it was");
       Register_Routine
         (T, The_Arguments_Are_Checked'Access, "The arguments are checked");
       Register_Routine

@@ -518,9 +518,11 @@ usage: synapse-pipeline <subcommand> [args]
   next <pipeline> [--input <file>|-] | --state <file>|- --result <file>|-
          the state a run starts in, or the state after a step's result
   run <pipeline> [--input <file>|-]   run a pipeline to its end
-  list   the pipelines running now
-  info <execution-id> [--format json|text] [--query <rule>]
-         what a running pipeline says about itself
+  list [--all]   the pipelines running now, or all that were run
+  info <execution-id> [--format json|text] [--query <rule>] | --events
+         what a pipeline says about itself, running or not
+  cleanup [--older-than <duration>] [--dry-run] [--all]
+         remove the records of executions that are over
 
 'synapse-pipeline <subcommand> --help' says more.
 ```
@@ -626,12 +628,16 @@ Environment:
 ### synapse-pipeline list
 
 ```
-usage: synapse-pipeline list
+usage: synapse-pipeline list [--all]
 
 Lists the runs in progress that were started with the same work directory, one
 line each: its execution id, pipeline, status and current step. A run that has
 ended, or that died without cleaning up, is not listed. Nothing is printed when
 there is none.
+
+  --all   also list the executions that are over and the ones whose record is
+          kept, with the status they ended in: completed, failed, or
+          interrupted when the record says running and nothing answers
 
 Environment:
   SYNAPSE_WORK_DIR  the work directory runs are started with
@@ -640,9 +646,10 @@ Environment:
 ### synapse-pipeline info
 
 ```
-usage: synapse-pipeline info <execution-id> [--format json|text] [--query <rule>]
+usage: synapse-pipeline info <execution-id> [--format json|text] [--query <rule>] | --events
 
-Asks a run in progress about itself. Without --query it prints the run in brief:
+Asks a run in progress about itself, or reads the record of one that is over.
+Without --query it prints the run in brief:
 execution id, pipeline, status, current step, steps run and the failure if there
 is one. With --query it prints the answer to a JsonLogic rule that the run
 evaluates over its brief, its state under 'state' and its events under 'events'.
@@ -650,9 +657,31 @@ Nothing can be started, stopped or changed this way.
 
   --format text   for a person (the default); a string answer is printed bare
   --format json   the answer as JSON
-  --query <rule>  a JsonLogic rule, such as '{"var": "current_step"}'
+  --query <rule>  a JsonLogic rule, such as '{"var": "current_step"}'; needs a run that is listening
+  --events        the events recorded for the execution, one JSON object a line,
+                  from its record; for a run in progress or one that is over
 
 Environment:
   SYNAPSE_WORK_DIR  the work directory the run was started with
+```
+
+### synapse-pipeline cleanup
+
+```
+usage: synapse-pipeline cleanup [--older-than <duration>] [--dry-run] [--all]
+
+Removes the records of executions that are over: each one's directory, with its
+summary, events and transcripts. An execution that is running, because its socket
+answers, is never removed. One that does not answer is removed once its last
+write is older than the age given, 30 days when none is.
+
+  --older-than <duration>  the age to keep, a number and d, h, m or s, such as 90d
+  --dry-run                say what would be removed and remove nothing
+  --all                    also remove the executions that completed or failed,
+                           whatever their age; one that was interrupted is still
+                           kept until it is old enough
+
+Environment:
+  SYNAPSE_WORK_DIR  the work directory the runs were started with
 ```
 

@@ -9,7 +9,9 @@ with Synapse.Pipeline.Inspector_Transport;
 
 package Synapse.Pipeline.Inspectors is
 
-   --  A fresh identity for a run, `exec-` and eight hexadecimal digits.
+   --  A fresh identity for a run, `exec-` and eight hexadecimal digits drawn
+   --  from the operating system's random bytes, so two runs started in the
+   --  same instant do not draw the same one.
    function New_Id return String;
 
    --  Runs Action, once, with the context answered at Endpoint for as long as

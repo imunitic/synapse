@@ -5,8 +5,11 @@ with AUnit.Assertions;
 with Synapse.Core.JSON;
 with Synapse.Pipeline.Commands.Info;
 with Synapse.Pipeline.Commands.List;
+with Synapse.Pipeline.Fake_Registry;
 with Synapse.Pipeline.Harnesses;
 with Synapse.Pipeline.Inspection;
+with Synapse.Pipeline.Recorders;
+with Synapse.Pipeline.Registry_Store;
 with Synapse.Pipeline.Resolved;
 with Synapse.Pipeline.States;
 with Synapse.Pipeline.Test_Environment;
@@ -16,6 +19,8 @@ package body Synapse.Pipeline.Commands.Clients.Tests is
    use AUnit.Assertions;
    use Synapse.Pipeline.Test_Environment;
    use Ada.Strings.Unbounded;
+   use type Registry_Store.Create_Result;
+   use type States.Run_Status;
 
    package JSON renames Synapse.Core.JSON;
 
@@ -111,6 +116,142 @@ package body Synapse.Pipeline.Commands.Clients.Tests is
          "and says why: " & F.Base.Console.Err_Text);
       Assert (Info.Run (Env (F), Args ("exec-1")) = 1, "info fails");
    end Without_A_Work_Directory_There_Is_Nowhere_To_Look;
+
+   --  Keeps the record of execution Id of pipeline Name in State's status:
+   --  its directory, its summary and, when Events is not empty, its events.
+   procedure Keep
+     (F      : in out Fixture;
+      Id     : String;
+      Status : States.Run_Status;
+      Events : String := "")
+   is
+      Item  : States.State := Run_Of (Id, "Dev").Run;
+      Wrote : Boolean;
+      Made  : constant Registry_Store.Create_Result := F.Registry.Create (Id);
+      pragma Unreferenced (Made);
+      Closed : constant Boolean := Status /= States.Running;
+   begin
+      Item.Status := Status;
+      if Closed then
+         Item.Current_Step := Null_Unbounded_String;
+      end if;
+      Wrote :=
+        F.Registry.Replace_Summary
+          (Id,
+           JSON.To_String
+             (Recorders.Summary
+                (Id, "2026-11-04T10:00:00+00:00",
+                 (if Closed then "2026-11-04T10:05:00+00:00" else ""), Item)));
+      if Events /= "" then
+         Wrote := F.Registry.Append_Event (Id, Events);
+      end if;
+      pragma Unreferenced (Wrote);
+   end Keep;
+
+   procedure List_All_Adds_What_Is_Recorded (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Listen (F);
+      Keep (F, "exec-1", States.Running);
+      Keep (F, "exec-0", States.Completed);
+      Keep (F, "exec-3", States.Failed);
+      Keep (F, "exec-4", States.Running);
+      Assert (F.Registry.Create ("exec-5") = Registry_Store.Created, "made");
+      Assert (List.Run (Env (F), Args ("--all")) = 0, "it succeeds");
+      Assert
+        (F.Base.Console.Out_Text =
+         "EXECUTION  PIPELINE  STATUS       STEP" & LF
+         & "exec-0     Dev       completed    " & LF
+         & "exec-1     Dev       running      B" & LF
+         & "exec-2     Release   running      B" & LF
+         & "exec-3     Dev       failed       " & LF
+         & "exec-4     Dev       interrupted  B" & LF
+         & "exec-5               incomplete   " & LF,
+         "live and recorded, each with the status it has: "
+         & F.Base.Console.Out_Text);
+   end List_All_Adds_What_Is_Recorded;
+
+   procedure List_Without_All_Is_Still_Only_What_Is_Live
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Listen (F);
+      Keep (F, "exec-0", States.Completed);
+      Assert (List.Run (Env (F), Args) = 0, "it succeeds");
+      Assert
+        (not Has (F.Base.Console.Out_Text, "exec-0"),
+         "a record is not a run in progress");
+      Assert
+        (List.Run (Env (F), Args ("--everything")) = 2
+         and then List.Run (Env (F), Args ("--all", "--all")) = 2,
+         "and what list does not know is a usage error");
+   end List_Without_All_Is_Still_Only_What_Is_Live;
+
+   procedure An_Execution_That_Is_Over_Is_Described_From_Its_Record
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      F.Base.Vars.Set ("SYNAPSE_WORK_DIR", "/work");
+      Keep (F, "exec-0", States.Completed);
+      Assert (Info.Run (Env (F), Args ("exec-0")) = 0, "it succeeds");
+      Assert
+        (Has (F.Base.Console.Out_Text, "pipeline   Dev")
+         and then Has (F.Base.Console.Out_Text, "status     completed")
+         and then Has (F.Base.Console.Out_Text, "steps run  1"),
+         "as a run in progress is: " & F.Base.Console.Out_Text);
+      F.Base.Console.Clear;
+      Keep (F, "exec-1", States.Running);
+      Assert
+        (Info.Run (Env (F), Args ("exec-1", "--format", "json")) = 0
+         and then Has (F.Base.Console.Out_Text, """status"":""interrupted"""),
+         "a record that says running, with nothing listening, is "
+         & "interrupted: " & F.Base.Console.Out_Text);
+      F.Base.Console.Clear;
+      Assert
+        (Info.Run (Env (F), Args ("exec-0", "--query", "{""var"":""status""}"))
+         = 1
+         and then Has
+                    (F.Base.Console.Err_Text, "needs a run that is listening"),
+         "a query needs a run to ask: " & F.Base.Console.Err_Text);
+      F.Base.Console.Clear;
+      Assert
+        (Info.Run (Env (F), Args ("exec-9")) = 1
+         and then Has (F.Base.Console.Err_Text, "no run named 'exec-9'"),
+         "and an execution that is not recorded is not found");
+   end An_Execution_That_Is_Over_Is_Described_From_Its_Record;
+
+   procedure Events_Are_Read_From_The_Record (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      F.Base.Vars.Set ("SYNAPSE_WORK_DIR", "/work");
+      Keep (F, "exec-0", States.Completed, "{""sequence"":1}");
+      Assert
+        (F.Registry.Append_Event ("exec-0", "{""sequence"":2}"), "appended");
+      Assert (Info.Run (Env (F), Args ("exec-0", "--events")) = 0, "it works");
+      Assert
+        (F.Base.Console.Out_Text = "{""sequence"":1}" & LF
+         & "{""sequence"":2}" & LF,
+         "one event a line, as they were recorded: "
+         & F.Base.Console.Out_Text);
+      F.Base.Console.Clear;
+      Keep (F, "exec-1", States.Completed);
+      Assert
+        (Info.Run (Env (F), Args ("exec-1", "--events")) = 1
+         and then Has (F.Base.Console.Err_Text, "no events are recorded"),
+         "an execution with none says so");
+      Assert
+        (Info.Run (Env (F), Args ("exec-0", "--events", "--query", "{}")) = 2
+         and then Info.Run
+                    (Env (F), Args ("exec-0", "--events", "--format", "json"))
+                  = 2,
+         "and --events takes neither a query nor a format");
+   end Events_Are_Read_From_The_Record;
 
    procedure A_Run_Is_Described (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
@@ -276,6 +417,18 @@ package body Synapse.Pipeline.Commands.Clients.Tests is
          "A run refusing the question is reported");
       Register_Routine
         (T, The_Arguments_Are_Checked'Access, "The arguments are checked");
+      Register_Routine
+        (T, List_All_Adds_What_Is_Recorded'Access,
+         "list --all adds what is recorded");
+      Register_Routine
+        (T, List_Without_All_Is_Still_Only_What_Is_Live'Access,
+         "list without --all is still only what is live");
+      Register_Routine
+        (T, An_Execution_That_Is_Over_Is_Described_From_Its_Record'Access,
+         "An execution that is over is described from its record");
+      Register_Routine
+        (T, Events_Are_Read_From_The_Record'Access,
+         "Events are read from the record");
    end Register_Tests;
 
 end Synapse.Pipeline.Commands.Clients.Tests;

@@ -20,9 +20,12 @@ package Synapse.Pipeline.Commands.Usage is
      & "         the state a run starts in, or the state after a step's "
      & "result" & LF
      & "  run <pipeline> [--input <file>|-]   run a pipeline to its end" & LF
-     & "  list   the pipelines running now" & LF
-     & "  info <execution-id> [--format json|text] [--query <rule>]" & LF
-     & "         what a running pipeline says about itself" & LF & LF
+     & "  list [--all]   the pipelines running now, or all that were run" & LF
+     & "  info <execution-id> [--format json|text] [--query <rule>] | "
+     & "--events" & LF
+     & "         what a pipeline says about itself, running or not" & LF
+     & "  cleanup [--older-than <duration>] [--dry-run] [--all]" & LF
+     & "         remove the records of executions that are over" & LF & LF
      & "'synapse-pipeline <subcommand> --help' says more." & LF;
 
    Check_Help : constant String :=
@@ -141,7 +144,7 @@ package Synapse.Pipeline.Commands.Usage is
      & "                             given to every session" & LF;
 
    List_Help : constant String :=
-     "usage: synapse-pipeline list" & LF & LF
+     "usage: synapse-pipeline list [--all]" & LF & LF
      & "Lists the runs in progress that were started with the same work "
      & "directory, one" & LF
      & "line each: its execution id, pipeline, status and current step. A "
@@ -149,13 +152,21 @@ package Synapse.Pipeline.Commands.Usage is
      & "ended, or that died without cleaning up, is not listed. Nothing is "
      & "printed when" & LF
      & "there is none." & LF & LF
+     & "  --all   also list the executions that are over and the ones whose "
+     & "record is" & LF
+     & "          kept, with the status they ended in: completed, failed, "
+     & "or" & LF
+     & "          interrupted when the record says running and nothing "
+     & "answers" & LF & LF
      & "Environment:" & LF
      & "  SYNAPSE_WORK_DIR  the work directory runs are started with" & LF;
 
    Info_Help : constant String :=
      "usage: synapse-pipeline info <execution-id> [--format json|text] "
-     & "[--query <rule>]" & LF & LF
-     & "Asks a run in progress about itself. Without --query it prints the "
+     & "[--query <rule>] | --events" & LF & LF
+     & "Asks a run in progress about itself, or reads the record of one that "
+     & "is over." & LF
+     & "Without --query it prints the "
      & "run in brief:" & LF
      & "execution id, pipeline, status, current step, steps run and the "
      & "failure if there" & LF
@@ -168,9 +179,36 @@ package Synapse.Pipeline.Commands.Usage is
      & "printed bare" & LF
      & "  --format json   the answer as JSON" & LF
      & "  --query <rule>  a JsonLogic rule, such as '{""var"": "
-     & """current_step""}'" & LF & LF
+     & """current_step""}'; needs a run that is listening" & LF
+     & "  --events        the events recorded for the execution, one JSON "
+     & "object a line," & LF
+     & "                  from its record; for a run in progress or one that "
+     & "is over" & LF & LF
      & "Environment:" & LF
      & "  SYNAPSE_WORK_DIR  the work directory the run was started with" & LF;
+
+   Cleanup_Help : constant String :=
+     "usage: synapse-pipeline cleanup [--older-than <duration>] [--dry-run] "
+     & "[--all]" & LF & LF
+     & "Removes the records of executions that are over: each one's "
+     & "directory, with its" & LF
+     & "summary, events and transcripts. An execution that is running, "
+     & "because its socket" & LF
+     & "answers, is never removed. One that does not answer is removed once "
+     & "its last" & LF
+     & "write is older than the age given, 30 days when none is." & LF & LF
+     & "  --older-than <duration>  the age to keep, a number and d, h, m or "
+     & "s, such as 90d" & LF
+     & "  --dry-run                say what would be removed and remove "
+     & "nothing" & LF
+     & "  --all                    also remove the executions that completed "
+     & "or failed," & LF
+     & "                           whatever their age; one that was "
+     & "interrupted is still" & LF
+     & "                           kept until it is old enough" & LF & LF
+     & "Environment:" & LF
+     & "  SYNAPSE_WORK_DIR  the work directory the runs were started with"
+     & LF;
 
    --  The first line of a help text, which is the subcommand's synopsis.
    function Synopsis (Help : String) return String;

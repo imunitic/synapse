@@ -3,6 +3,7 @@ with Ada.Strings.Unbounded;
 with Synapse.Core.JSON;
 with Synapse.Pipeline.Commands.Clients;
 with Synapse.Pipeline.Commands.Usage;
+with Synapse.Pipeline.Registry_Store;
 
 package body Synapse.Pipeline.Commands.Info is
 
@@ -68,6 +69,7 @@ package body Synapse.Pipeline.Commands.Info is
       Query     : Unbounded_String;
       Has_Query : Boolean := False;
       Has_Format : Boolean := False;
+      Events    : Boolean := False;
       I         : Positive := Args.First_Index;
    begin
       while I <= Args.Last_Index loop
@@ -89,6 +91,11 @@ package body Synapse.Pipeline.Commands.Info is
                   Has_Query := True;
                   Query := Args (I);
                end if;
+            elsif Arg = "--events" then
+               if Events then
+                  return Usage_Error (Env, Usage);
+               end if;
+               Events := True;
             elsif Arg'Length >= 2
               and then Arg (Arg'First .. Arg'First + 1) = "--"
             then
@@ -104,6 +111,7 @@ package body Synapse.Pipeline.Commands.Info is
       if Length (Id) = 0
         or else (To_String (Format) /= "text"
                  and then To_String (Format) /= "json")
+        or else (Events and then (Has_Query or else Has_Format))
       then
          return Usage_Error (Env, Usage);
       end if;
@@ -135,6 +143,23 @@ package body Synapse.Pipeline.Commands.Info is
          if not Found then
             return 1;
          end if;
+         if Events then
+            Env.Registry.Open (To_String (Work));
+            declare
+               Held : constant Registry_Store.Maybe_Content :=
+                 Env.Registry.Read_Events (To_String (Id));
+            begin
+               if not Held.Found then
+                  Complain
+                    (Env,
+                     "error: no events are recorded for '" & To_String (Id)
+                     & "'" & LF);
+                  return 1;
+               end if;
+               Say (Env, To_String (Held.Value));
+               return 0;
+            end;
+         end if;
          declare
             Answered : Boolean;
             Answer   : Unbounded_String;
@@ -146,11 +171,32 @@ package body Synapse.Pipeline.Commands.Info is
               (Env.Inspector.Endpoint_For (To_String (Work), To_String (Id)),
                To_String (Request), Answered, Answer);
             if not Answered then
-               Complain
-                 (Env,
-                  "error: no run named '" & To_String (Id)
-                  & "' is listening (" & To_String (Answer) & ")" & LF);
-               return 1;
+               declare
+                  Recorded : Boolean;
+                  Brief    : JSON.Value;
+               begin
+                  Clients.Recorded_Brief
+                    (Env, To_String (Work), To_String (Id), Recorded, Brief);
+                  if not Recorded then
+                     Complain
+                       (Env,
+                        "error: no run named '" & To_String (Id)
+                        & "' is listening (" & To_String (Answer) & ")" & LF);
+                     return 1;
+                  elsif Has_Query then
+                     Complain
+                       (Env,
+                        "error: --query needs a run that is listening; '"
+                        & To_String (Id) & "' is not" & LF);
+                     return 1;
+                  end if;
+                  Say
+                    (Env,
+                     (if To_String (Format) = "json"
+                      then JSON.To_String (Brief) & LF
+                      else Describe (Brief)));
+                  return 0;
+               end;
             end if;
             Clients.Read_Answer (To_String (Answer), Ok, Result, Message);
             if not Ok then

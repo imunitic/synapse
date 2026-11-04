@@ -3,20 +3,20 @@ with Ada.Strings.Unbounded;
 with Synapse.Core.JSON;
 with Synapse.Pipeline.Configs;
 with Synapse.Pipeline.Contexts;
-with Synapse.Pipeline.Definitions;
 with Synapse.Pipeline.Descriptions;
 with Synapse.Pipeline.Engine;
 with Synapse.Pipeline.Failures;
+with Synapse.Pipeline.Id_Claims;
 with Synapse.Pipeline.Inspectors;
-with Synapse.Pipeline.Resolution;
 with Synapse.Pipeline.Process_Runners;
+with Synapse.Pipeline.Recorders;
+with Synapse.Pipeline.Recording_Runners;
 with Synapse.Pipeline.Resolved;
 with Synapse.Pipeline.Scripted_Runners;
 with Synapse.Pipeline.Search_Paths;
 with Synapse.Pipeline.Session_Runner;
-with Synapse.Pipeline.Source_Errors;
 with Synapse.Pipeline.States;
-with Synapse.Pipeline.Validation;
+with Synapse.Pipeline.Commands.Loading;
 with Synapse.Pipeline.Commands.Usage;
 
 package body Synapse.Pipeline.Commands.Run is
@@ -51,6 +51,22 @@ package body Synapse.Pipeline.Commands.Run is
    function Member (Key : String; Item : JSON.Value) return JSON.Member is
      (Key => To_Unbounded_String (Key), Item => Item);
 
+   --  The id the run takes, made a directory of the registry when the work
+   --  directory is known and there is a free id to be had.
+   function Claim_Id
+     (Env : Environment; Settings : Configs.Config) return Id_Claims.Claim
+   is
+      Work : constant Configs.Environment_Maps.Cursor :=
+        Settings.Environment.Find (Configs.Work_Dir_Key);
+   begin
+      if Configs.Environment_Maps.Has_Element (Work) then
+         Env.Registry.Open (Configs.Environment_Maps.Element (Work));
+         return Id_Claims.Take (Env.Registry.all, Inspectors.New_Id'Access);
+      end if;
+      return
+        (Id => To_Unbounded_String (Inspectors.New_Id), Registered => False);
+   end Claim_Id;
+
    --  Runs the pipeline from its first step with Runner, and says how it
    --  ended. While it goes on, the run can be asked about from outside, where
    --  the transport can listen; whether it can never changes the run.
@@ -63,7 +79,12 @@ package body Synapse.Pipeline.Commands.Run is
    is
       Run     : States.State := States.Initial (Pipeline, Input);
       Context : aliased Contexts.Execution_Context;
-      Id      : constant String := Inspectors.New_Id;
+      Claimed : constant Id_Claims.Claim := Claim_Id (Env, Settings);
+      Id      : constant String := To_String (Claimed.Id);
+      Recorder : aliased Recorders.Recorder
+        (Context'Access, Env.Registry, Env.Clock);
+      Recording : Recording_Runners.Recording_Runner
+        (Runner'Access, Recorder'Access);
 
       --  The run itself: every step, with what happens recorded for whoever
       --  asks and a line for whoever is watching.
@@ -74,7 +95,7 @@ package body Synapse.Pipeline.Commands.Run is
               (Env,
                "warning: introspection is unavailable: " & Reason & LF);
          end if;
-         Context.Record_Event
+         Recorder.Record_Event
            ("run.started", To_String (Run.Current_Step),
             JSON.Make_Object
               ([Member
@@ -84,11 +105,11 @@ package body Synapse.Pipeline.Commands.Run is
             declare
                Step : constant String := To_String (Run.Current_Step);
             begin
-               Context.Record_Event ("step.started", Step, JSON.Null_Value);
-               Run := Engine.Execute_Step (Pipeline, Run, Settings, Runner);
-               Context.Publish (Run);
+               Recorder.Record_Event ("step.started", Step, JSON.Null_Value);
+               Run := Engine.Execute_Step (Pipeline, Run, Settings, Recording);
+               Recorder.Publish (Run);
                if Run.Status = States.Failed then
-                  Context.Record_Event
+                  Recorder.Record_Event
                     ("run.failed", Step,
                      JSON.Make_Object
                        ([Member
@@ -100,7 +121,7 @@ package body Synapse.Pipeline.Commands.Run is
                             JSON.Make_String
                               (To_String (Run.Failure.Message)))]));
                else
-                  Context.Record_Event
+                  Recorder.Record_Event
                     ("step.finished", Step,
                      JSON.Make_Object
                        ([Member
@@ -115,7 +136,7 @@ package body Synapse.Pipeline.Commands.Run is
                      & (if Run.Status = States.Completed then "done"
                         else To_String (Run.Current_Step)) & LF);
                   if Run.Status = States.Completed then
-                     Context.Record_Event
+                     Recorder.Record_Event
                        ("run.completed", Step, JSON.Null_Value);
                   end if;
                end if;
@@ -126,7 +147,10 @@ package body Synapse.Pipeline.Commands.Run is
       Work : constant Configs.Environment_Maps.Cursor :=
         Settings.Environment.Find (Configs.Work_Dir_Key);
    begin
-      Context.Start (Id, Descriptions.Describe (Pipeline, Settings), Run);
+      Recording.Id := To_Unbounded_String (Id);
+      Recorder.Start
+        (Id, Claimed.Registered, Descriptions.Describe (Pipeline, Settings),
+         Run);
       if Configs.Environment_Maps.Has_Element (Work) then
          Inspectors.Serve_While
            (Env.Inspector.all,
@@ -229,78 +253,48 @@ package body Synapse.Pipeline.Commands.Run is
             end if;
 
             declare
-               Report   : constant Definitions.Load_Report :=
-                 Definitions.Load
-                   (Env.Files.all,
-                    Search_Paths.Definition_Roots (Env.Vars.all));
-               Problems : constant Definitions.Problem_Vectors.Vector :=
-                 Validation.Validate
-                   (Report.Definitions, Env.Files.all,
-                    Search_Paths.Skill_Roots (Env.Vars.all), Wanted,
-                    Settings.Default_Harness);
+               Loaded   : Boolean;
+               Pipeline : Resolved.Pipeline;
+               File     : Unbounded_String;
+               Roots    : Search_Paths.Root_Vectors.Vector;
             begin
-               for P of Report.Problems loop
-                  Complain (Env, Definitions.Warning (P) & LF);
-               end loop;
-               if not Problems.Is_Empty then
-                  for P of Problems loop
-                     Complain (Env, "error: " & Source_Errors.Image (P) & LF);
-                  end loop;
+               Loading.Load (Env, Wanted, Loaded, Pipeline, File, Roots);
+               if not Loaded then
                   return 1;
                end if;
+               if Settings.Runner = Configs.Process_Runner then
+                  declare
+                     Runner : Process_Runners.Process_Runner
+                       (Env.Sessions, Env.Files, Env.Registry);
+                  begin
+                     Runner.Skill_Roots := Roots;
+                     return Run_To_The_End
+                       (Env, Pipeline, Settings, Input, Runner);
+                  end;
+               end if;
                declare
-                  Made : constant Resolution.Resolve_Results.Result :=
-                    Resolution.Resolve
-                      (Report.Definitions, Wanted, Settings.Default_Harness);
+                  Script :
+                    constant Scripted_Runners.Script_Results.Result :=
+                    Scripted_Runners.Load
+                      (Env.Files.all, To_String (Settings.Script));
                begin
-                  if not Resolution.Resolve_Results.Is_Success (Made) then
+                  if not Scripted_Runners.Script_Results.Is_Success (Script)
+                  then
                      Complain
                        (Env,
                         "error: "
-                        & Source_Errors.Image
-                            (Resolution.Resolve_Results.Error (Made)) & LF);
+                        & To_String
+                            (Scripted_Runners.Script_Results.Error (Script))
+                        & LF);
                      return 1;
                   end if;
-                  if Settings.Runner = Configs.Process_Runner then
-                     declare
-                        Runner : Process_Runners.Process_Runner
-                          (Env.Sessions, Env.Files);
-                     begin
-                        Runner.Skill_Roots :=
-                          Search_Paths.Skill_Roots (Env.Vars.all);
-                        return Run_To_The_End
-                          (Env,
-                           Resolution.Resolve_Results.Value (Made), Settings,
-                           Input, Runner);
-                     end;
-                  end if;
                   declare
-                     Script :
-                       constant Scripted_Runners.Script_Results.Result :=
-                       Scripted_Runners.Load
-                         (Env.Files.all, To_String (Settings.Script));
+                     Runner : Scripted_Runners.Scripted_Runner :=
+                       Scripted_Runners.Create
+                         (Scripted_Runners.Script_Results.Value (Script));
                   begin
-                     if not Scripted_Runners.Script_Results.Is_Success
-                              (Script)
-                     then
-                        Complain
-                          (Env,
-                           "error: "
-                           & To_String
-                               (Scripted_Runners.Script_Results.Error
-                                  (Script)) & LF);
-                        return 1;
-                     end if;
-                     declare
-                        Runner : Scripted_Runners.Scripted_Runner :=
-                          Scripted_Runners.Create
-                            (Scripted_Runners.Script_Results.Value (Script));
-                     begin
-                        return Run_To_The_End
-                          (Env,
-                           Resolution.Resolve_Results.Value (Made), Settings,
-                           Input, Runner);
-                     end;
+                     return Run_To_The_End
+                       (Env, Pipeline, Settings, Input, Runner);
                   end;
                end;
             end;

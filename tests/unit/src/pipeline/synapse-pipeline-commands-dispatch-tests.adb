@@ -58,6 +58,7 @@ package body Synapse.Pipeline.Commands.Dispatch.Tests is
       Says ("run", "--help", Usage.Run_Help);
       Says ("list", "-h", Usage.List_Help);
       Says ("info", "--help", Usage.Info_Help);
+      Says ("cleanup", "--help", Usage.Cleanup_Help);
    end Every_Subcommand_Has_Its_Own_Help;
 
    procedure A_Usage_Error_Prints_Only_The_Synopsis
@@ -68,12 +69,13 @@ package body Synapse.Pipeline.Commands.Dispatch.Tests is
    begin
       Assert (Run (Env (F), Args ("list", "extra")) = 2, "code 2");
       Assert
-        (F.Base.Console.Err_Text = "usage: synapse-pipeline list" & Usage.LF,
+        (F.Base.Console.Err_Text =
+         "usage: synapse-pipeline list [--all]" & Usage.LF,
          "one line, not the whole help");
       Assert
         (Usage.Synopsis (Usage.Info_Help) =
          "usage: synapse-pipeline info <execution-id> [--format json|text] "
-         & "[--query <rule>]" & Usage.LF,
+         & "[--query <rule>] | --events" & Usage.LF,
          "a synopsis is the first line");
    end A_Usage_Error_Prints_Only_The_Synopsis;
 

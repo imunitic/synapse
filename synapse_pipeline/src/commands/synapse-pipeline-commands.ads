@@ -7,6 +7,7 @@ with Synapse.Ports.Process_Runner;
 with Synapse.Ports.Variables;
 with Synapse.Pipeline.File_System;
 with Synapse.Pipeline.Inspector_Transport;
+with Synapse.Pipeline.Registry_Store;
 with Synapse.Pipeline.Session_Process;
 
 --  The subcommands of the `synapse-pipeline` executable. Each is a function
@@ -33,7 +34,9 @@ package Synapse.Pipeline.Commands is
       Inspector :
         not null access Synapse.Pipeline.Inspector_Transport.Transport'Class;
       Sessions  :
-        not null access Synapse.Pipeline.Session_Process.Process'Class)
+        not null access Synapse.Pipeline.Session_Process.Process'Class;
+      Registry  :
+        not null access Synapse.Pipeline.Registry_Store.Store'Class)
    is limited record
       --  How this program was started.
       Argv0 : Ada.Strings.Unbounded.Unbounded_String;

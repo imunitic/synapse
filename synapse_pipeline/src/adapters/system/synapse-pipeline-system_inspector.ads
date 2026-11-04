@@ -7,9 +7,10 @@ with Synapse.Core.Text_Lists;
 with Synapse.Pipeline.Inspector_Transport;
 
 --  The inspector's transport on the machine the program runs on. On a POSIX
---  system it is a Unix domain socket in a directory only the user can enter:
---  `<work directory>/pipelines/<id>.sock`. Where there is nothing to listen
---  with, listening reports that and the run goes on without.
+--  system it is a Unix domain socket in the directory of its execution, which
+--  only the user can enter:
+--  `<work directory>/pipelines/<id>/execution.sock`. Where there is nothing
+--  to listen with, listening reports that and the run goes on without.
 
 package Synapse.Pipeline.System_Inspector is
 

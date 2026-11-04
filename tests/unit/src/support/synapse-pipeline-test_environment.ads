@@ -1,6 +1,7 @@
 with Synapse.Pipeline.Commands;
 with Synapse.Pipeline.Fake_Files;
 with Synapse.Pipeline.Fake_Process;
+with Synapse.Pipeline.Fake_Registry;
 with Synapse.Pipeline.Fake_Transport;
 with Synapse.Test_Environment;
 
@@ -16,6 +17,7 @@ package Synapse.Pipeline.Test_Environment is
       Files : aliased Synapse.Pipeline.Fake_Files.Fake_Files;
       Inspector : aliased Synapse.Pipeline.Fake_Transport.Fake_Transport;
       Sessions  : aliased Synapse.Pipeline.Fake_Process.Fake_Process;
+      Registry  : aliased Synapse.Pipeline.Fake_Registry.Fake_Registry;
    end record;
 
    function Env
@@ -24,7 +26,7 @@ package Synapse.Pipeline.Test_Environment is
      (Console => F.Base.Console'Access, Vars => F.Base.Vars'Access,
       Runner  => F.Base.Runner'Access, Clock => F.Base.Clock'Access,
       Files   => F.Files'Access, Inspector => F.Inspector'Access,
-      Sessions => F.Sessions'Access,
+      Sessions => F.Sessions'Access, Registry => F.Registry'Access,
       Argv0   => <>);
 
    --  The arguments as a list.

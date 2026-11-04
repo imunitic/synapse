@@ -239,10 +239,45 @@ shown. `info --format json` gives the answer as JSON, and `--query` takes a
 shows), its state under `state` and its events under `events`. A `var` path goes through objects only,
 not into a list.
 
-The run listens on a Unix domain socket at `$SYNAPSE_WORK_DIR/pipelines/<execution-id>.sock`, in a
-directory only the user can enter, and removes it when it ends. A run without a work directory, or
+The run listens on a Unix domain socket at `$SYNAPSE_WORK_DIR/pipelines/<execution-id>/execution.sock`, in
+the directory of its record, which only the user can enter, and removes the socket when it ends. A run without a work directory, or
 whose socket cannot be made, is not inspectable and goes on exactly as it would have; the second case
 is reported with one warning line when it starts. Inspecting is not available on Windows yet.
+
+### The record of a run
+
+Each execution keeps a record in a directory of its own, `$SYNAPSE_WORK_DIR/pipelines/<execution-id>/`,
+which only the user can enter and which stays after the run has ended:
+
+```
+execution.sock      only while the run is going
+execution.json      the summary, replaced as the run goes on
+events.jsonl        one event a line, as the socket gives them
+transcripts/
+  Develop-1.jsonl   what a harness printed for one step attempt, as it printed it
+  Review-1.jsonl
+```
+
+`execution.json` has `format` `synapse-pipeline-execution/v1`, the execution's `id` and `pipeline`, when it
+`started` and `ended`, its `status` (`running`, `completed` or `failed`), its `current_step` and the run's
+`state`. Each try of a step has a transcript of its own, named for the step and the try, and a
+`session.finished` event that says where it is. For Claude the transcript is the final result the harness
+prints, not the conversation.
+
+- `list --all` lists the executions that are over as well, with the status they ended in. One whose record
+  says `running` while nothing answers on its socket is shown as `interrupted`, and one with no summary as
+  `incomplete`. A run on Windows, which has no socket, is shown as `interrupted` while it goes.
+- `info <execution-id>` reads the record when nothing answers, and `info <execution-id> --events` prints the
+  events recorded for it. A `--query` needs a run that is listening.
+- `cleanup` removes the records of executions that are not running and were last written more than 30 days
+  ago; `--older-than 90d` (a number and `d`, `h`, `m` or `s`) changes the age, `--dry-run` says what would
+  go, and `--all` also removes every execution that completed or failed, whatever its age. An execution that
+  answers on its socket is never removed, and one with no summary to date it by is kept.
+
+The record is best effort. A write that fails is tried again up to five times with a short pause, and then
+given up with one warning line for the execution; the run goes on, and its outcome and exit code are the
+same as when everything is written. A record can therefore be incomplete, and every command that reads one
+says so and does not fail.
 
 ### The protocol
 
@@ -275,7 +310,7 @@ a skill is described by its name. `origins` lists the system and the agent a ste
 with `kind`, `name` and `file`. An edge's `index` counts from 0 and is its position in `state.fired`.
 The configuration's environment values are not part of it.
 
-Events are `run.started`, `step.started`, `step.finished`, `run.completed` and `run.failed`, each with
+Events are `run.started`, `step.started`, `session.finished`, `step.finished`, `run.completed` and `run.failed`, each with
 a sequence number, the step and a detail object; the last 200 are kept. Any other command is an error.
 A request over 4 KiB is refused and an answer over 1 MiB is replaced by an error. A client that
 connects and says nothing is dropped after two seconds. A client that misbehaves, or an error in

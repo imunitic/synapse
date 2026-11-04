@@ -35,6 +35,41 @@ package body Synapse.Pipeline.Process_Runners is
             Reset   => Synapse.Core.Optional_Text.None),
          Used));
 
+   --  Item, with Transcript as the file its transcript was kept in.
+   function With_Transcript
+     (Item       : Sessions.Session_Result;
+      Transcript : Synapse.Core.Optional_Text.Option)
+      return Sessions.Session_Result
+   is
+      Result : Sessions.Session_Result := Item;
+   begin
+      Result.Transcript := Transcript;
+      return Result;
+   end With_Transcript;
+
+   --  Keeps what the session printed as its transcript, when there is an
+   --  execution to keep it under, and says where it went.
+   function Keep_Transcript
+     (R       : Process_Runner;
+      Request : Sessions.Session_Request;
+      Output  : String) return Synapse.Core.Optional_Text.Option
+   is
+      Id   : constant String := To_String (Request.Execution_Id);
+      Name : constant String :=
+        To_String (Request.Step.Name) & "-"
+        & Ada.Strings.Fixed.Trim
+            (Natural'Image (Request.Attempt), Ada.Strings.Left)
+        & ".jsonl";
+   begin
+      if Id = ""
+        or else not R.Registry.Write_Transcript (Id, Name, Output)
+      then
+         return Synapse.Core.Optional_Text.None;
+      end if;
+      return Synapse.Core.Optional_Text.Of_Value
+        (To_Unbounded_String (R.Registry.Transcript_Path (Id, Name)));
+   end Keep_Transcript;
+
    --  What an instruction says, ready for a prompt, and the directory of the
    --  skill it names when it names one. Problem is not empty when a skill
    --  cannot be read.
@@ -180,6 +215,10 @@ package body Synapse.Pipeline.Process_Runners is
                  R.Process.Run (Asked);
                Taken : constant Duration :=
                  Ada.Calendar."-" (Ada.Calendar.Clock, Began);
+               Saved : constant Synapse.Core.Optional_Text.Option :=
+                 (if Ended.Started
+                  then Keep_Transcript (R, Request, To_String (Ended.Output))
+                  else Synapse.Core.Optional_Text.None);
             begin
                if not Ended.Started then
                   return Failed_Session
@@ -187,11 +226,13 @@ package body Synapse.Pipeline.Process_Runners is
                      "cannot run " & Harnesses.Name_Of (Harness) & ": "
                      & To_String (Ended.Problem));
                elsif Ended.Timed_Out then
-                  return Failed_Session
-                    (Request, Failures.Execution_Error,
-                     "timed out after"
-                     & Positive'Image (Request.Timeout_Seconds)
-                     & " seconds");
+                  return With_Transcript
+                    (Failed_Session
+                       (Request, Failures.Execution_Error,
+                        "timed out after"
+                        & Positive'Image (Request.Timeout_Seconds)
+                        & " seconds"),
+                     Saved);
                end if;
                declare
                   Said : Commands.Reply := Commands.Interpret (Harness, Ended);
@@ -200,7 +241,7 @@ package body Synapse.Pipeline.Process_Runners is
                     Natural (Duration'Max (Taken, 0.0));
                   if not Said.Succeeded then
                      Said.Failure.Step := Step.Name;
-                     return Sessions.Failed (Said.Failure, Said.Usage);
+                     return Sessions.Failed (Said.Failure, Said.Usage, Saved);
                   end if;
                   declare
                      Checked : constant Envelopes.Envelope_Results.Result :=
@@ -209,12 +250,15 @@ package body Synapse.Pipeline.Process_Runners is
                      if Envelopes.Envelope_Results.Is_Success (Checked) then
                         return Sessions.Success
                           (Envelopes.Envelope_Results.Value (Checked),
-                           Said.Usage);
+                           Said.Usage, Saved);
                      end if;
-                     return Failed_Session
-                       (Request, Failures.Result_Contract_Failure,
-                        To_String (Envelopes.Envelope_Results.Error (Checked)),
-                        Said.Usage);
+                     return With_Transcript
+                       (Failed_Session
+                          (Request, Failures.Result_Contract_Failure,
+                           To_String
+                             (Envelopes.Envelope_Results.Error (Checked)),
+                           Said.Usage),
+                        Saved);
                   end;
                end;
             end;
