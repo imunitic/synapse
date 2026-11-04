@@ -250,18 +250,6 @@ package body Synapse.Pipeline.Harness_Commands is
       return Permission_Levels.Default;
    end Level_Of;
 
-   function Has_Tools (Item : Resolved.Step) return Boolean is
-     (Item.Tools.Found
-      and then JSON.Kind_Of (Item.Tools.Value) = JSON.JSON_Array
-      and then JSON.Length (Item.Tools.Value) > 0);
-
-   function Cannot_Restrict_Tools (Name : String) return Command_Results.Result
-   is
-     (Command_Results.Failure
-        (To_Unbounded_String
-           (Name & " cannot restrict the tools of a session; take 'Tools' "
-            & "out of the step or run it on Claude")));
-
    function Claude_Command
      (Item : Resolved.Step; Prompt : String; Skill_Directory : String)
       return Command_Results.Result
@@ -283,7 +271,7 @@ package body Synapse.Pipeline.Harness_Commands is
             Add (Made.Arguments, "--tools");
             Add (Made.Arguments, "Read,Grep,Glob");
          when Permission_Levels.Workspace_Write =>
-            Add (Made.Arguments, "acceptEdits");
+            Add (Made.Arguments, "auto");
          when Permission_Levels.Full_Access =>
             Add (Made.Arguments, "bypassPermissions");
       end case;
@@ -295,14 +283,6 @@ package body Synapse.Pipeline.Harness_Commands is
          Add (Made.Arguments, "--add-dir");
          Add (Made.Arguments, Skill_Directory);
       end if;
-      if Has_Tools (Item) then
-         Add (Made.Arguments, "--allowedTools");
-         for I in 1 .. JSON.Length (Item.Tools.Value) loop
-            Add
-              (Made.Arguments,
-               JSON.As_String (JSON.Element (Item.Tools.Value, I)));
-         end loop;
-      end if;
       Made.Standard_Input := To_Unbounded_String (Prompt);
       return Command_Results.Success (Made);
    end Claude_Command;
@@ -313,9 +293,6 @@ package body Synapse.Pipeline.Harness_Commands is
       Made  : Command;
       Level : constant Permission_Levels.Level := Level_Of (Item);
    begin
-      if Has_Tools (Item) then
-         return Cannot_Restrict_Tools ("Codex");
-      end if;
       Made.Program := To_Unbounded_String ("codex");
       Add (Made.Arguments, "exec");
       Add (Made.Arguments, "--json");
@@ -371,9 +348,6 @@ package body Synapse.Pipeline.Harness_Commands is
       Made     : Command;
       Settings : constant String := Opencode_Settings (Level_Of (Item));
    begin
-      if Has_Tools (Item) then
-         return Cannot_Restrict_Tools ("OpenCode");
-      end if;
       Made.Program := To_Unbounded_String ("opencode");
       Add (Made.Arguments, "run");
       Add (Made.Arguments, "--standalone");

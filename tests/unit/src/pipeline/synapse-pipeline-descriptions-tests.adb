@@ -46,7 +46,6 @@ package body Synapse.Pipeline.Descriptions.Tests is
                         Text => U ("test-feature")),
          Model => (Found => True, Value => U ("m-1")),
          Permissions => (Found => True, Value => U ("Read_Only")),
-         Tools => (Found => True, Value => Parsed ("[""Read""]")),
          Timeout_Seconds => 90, Retries => 2,
          others => <>);
       Second.Origins.Append
@@ -95,8 +94,6 @@ package body Synapse.Pipeline.Descriptions.Tests is
          "a step with no limit shows the configured one");
       Assert
         (JSON.Kind_Of (JSON.Member_Value (A, "model")) = JSON.JSON_Null
-         and then JSON.Kind_Of (JSON.Member_Value (A, "tools")) =
-                  JSON.JSON_Null
          and then JSON.Kind_Of (JSON.Member_Value (A, "assignment")) =
                   JSON.JSON_Null,
          "what is not given is null");
@@ -114,8 +111,7 @@ package body Synapse.Pipeline.Descriptions.Tests is
          and then JSON.As_Integer (JSON.Member_Value (B, "timeout_seconds")) =
                   90
          and then JSON.As_Integer (JSON.Member_Value (B, "retries")) = 2
-         and then JSON.As_String (JSON.Member_Value (B, "model")) = "m-1"
-         and then JSON.Length (JSON.Member_Value (B, "tools")) = 1,
+         and then JSON.As_String (JSON.Member_Value (B, "model")) = "m-1",
          "the second step's own settings");
       Assert
         (JSON.As_String

@@ -1,19 +1,16 @@
 with Ada.Strings.Unbounded;
 
-with Synapse.Core.JSON;
 with Synapse.Pipeline.Durations;
 with Synapse.Pipeline.Guards;
 with Synapse.Pipeline.Harnesses;
+with Synapse.Pipeline.Limits;
 with Synapse.Pipeline.Permission_Levels;
 with Synapse.Pipeline.Skills;
 
 package body Synapse.Pipeline.Attributes is
 
    use Ada.Strings.Unbounded;
-   use type Synapse.Core.JSON.Kind;
    use type Syntax.Value_Kind;
-
-   package JSON renames Synapse.Core.JSON;
 
    type Context_Set is array (Context) of Boolean;
    type Value_Set is array (Syntax.Value_Kind) of Boolean;
@@ -51,9 +48,6 @@ package body Synapse.Pipeline.Attributes is
            (True, Both,
             [Syntax.Name_Value | Syntax.String_Value => True,
              others => False]);
-      elsif Name = "Tools" then
-         return
-           (True, Both, [Syntax.JSON_Value => True, others => False]);
       elsif Name = "Timeout" then
          return (True, Both, String_Only);
       elsif Name = "Retries" then
@@ -115,12 +109,6 @@ package body Synapse.Pipeline.Attributes is
      (Error_Options.Of_Value
         (Source_Errors.Make (Message, Item.Item.Line, Item.Item.Column)));
 
-   function Strings_Only (V : JSON.Value) return Boolean is
-     (JSON.Kind_Of (V) = JSON.JSON_Array
-      and then
-        (for all I in 1 .. JSON.Length (V) =>
-           JSON.Kind_Of (JSON.Element (V, I)) = JSON.JSON_String));
-
    function Check
      (Where : Context; Item : Syntax.Attribute) return Error_Options.Option
    is
@@ -168,10 +156,23 @@ package body Synapse.Pipeline.Attributes is
       then
          return At_Value
            (Item,
-            "'Timeout' is a number and a unit, such as ""30m""; found """
-            & To_String (Item.Item.Text) & """");
+            "'Timeout' is a number and a unit, such as ""30m"", of at most "
+            & "30 days; found """ & To_String (Item.Item.Text) & """");
+      elsif Name = "Retries"
+        and then Item.Item.Number > Limits.Largest_Repeat
+      then
+         return At_Value
+           (Item,
+            "'Retries' is at most" & Natural'Image (Limits.Largest_Repeat));
       elsif Name = "Max_Iterations" and then Item.Item.Number < 1 then
          return At_Value (Item, "'Max_Iterations' is at least 1");
+      elsif Name = "Max_Iterations"
+        and then Item.Item.Number > Limits.Largest_Repeat
+      then
+         return At_Value
+           (Item,
+            "'Max_Iterations' is at most"
+            & Natural'Image (Limits.Largest_Repeat));
       elsif Name = "When" and then Item.Item.Kind = Syntax.JSON_Value
         and then Guards.Problem (Item.Item.Json).Found
       then
@@ -179,8 +180,6 @@ package body Synapse.Pipeline.Attributes is
            (Item,
             "'When': "
             & To_String (Guards.Problem (Item.Item.Json).Value));
-      elsif Name = "Tools" and then not Strings_Only (Item.Item.Json) then
-         return At_Value (Item, "'Tools' is a JSON list of strings");
       end if;
       return Error_Options.None;
    end Check;

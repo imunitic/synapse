@@ -33,7 +33,8 @@ function installSkills(dest) {
     .map((e) => e.name);
   fs.mkdirSync(dest, { recursive: true });
   for (const name of names) {
-    fs.cpSync(path.join(src, name), path.join(dest, name), { recursive: true, force: true });
+    fs.rmSync(path.join(dest, name), { recursive: true, force: true });
+    fs.cpSync(path.join(src, name), path.join(dest, name), { recursive: true });
   }
   const manifestPath = path.join(dest, MANIFEST);
   let previous = [];

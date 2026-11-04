@@ -2,8 +2,9 @@
 // Checks that the frontmatter of each SKILL.md named on the command line is
 // valid YAML in the one way a skill gets it wrong: a plain value that holds
 // `: ` or ` #`, which a strict YAML parser reads as a second mapping key or a
-// comment. Such a value has to be written in double quotes. Every skill needs
-// a `name` and a non-empty `description`.
+// comment, or a plain value that ends in `:`. Such a value has to be written in
+// double quotes. Every skill needs a `name` and a non-empty `description`; a
+// value of `""` is empty.
 //
 //   node ci/check-skill-frontmatter.cjs <SKILL.md>...
 
@@ -28,12 +29,14 @@ function problems(file) {
       } catch {
         found.push(`'${key}' is a double-quoted value that is not a valid string`);
       }
-    } else if (/: | #/.test(value)) {
-      found.push(`'${key}' holds ': ' or ' #' and is not in double quotes`);
+    } else if (/: | #|:$/.test(value)) {
+      found.push(`'${key}' holds ': ', ' #' or a final ':' and is not in double quotes`);
     }
   }
   for (const required of ["name", "description"]) {
-    if (!keys[required]) found.push(`has no '${required}'`);
+    if (!keys[required] || /^(["'])\s*\1$/.test(keys[required].trim())) {
+      found.push(`has no '${required}'`);
+    }
   }
   return found;
 }

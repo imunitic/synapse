@@ -2,7 +2,6 @@ with Ada.Strings.Fixed;
 
 with AUnit.Assertions;
 
-with Synapse.Core.JSON;
 with Synapse.Core.Optional_Text;
 with Synapse.Core.Text_Lists;
 with Synapse.Pipeline.Fake_Process;
@@ -12,8 +11,6 @@ package body Synapse.Pipeline.Harness_Commands.Tests is
    use AUnit.Assertions;
    use Ada.Strings.Unbounded;
    use type Failures.Failure_Kind;
-
-   package JSON renames Synapse.Core.JSON;
 
    subtype Test_Cases_Class is AUnit.Test_Cases.Test_Case'Class;
 
@@ -44,8 +41,8 @@ package body Synapse.Pipeline.Harness_Commands.Tests is
    end Joined;
 
    function Step_Of
-     (Permissions : String := ""; Model : String := "";
-      Tools : String := "") return Resolved.Step
+     (Permissions : String := ""; Model : String := "")
+      return Resolved.Step
    is
       Result : Resolved.Step;
    begin
@@ -58,10 +55,6 @@ package body Synapse.Pipeline.Harness_Commands.Tests is
       if Model /= "" then
          Result.Model :=
            Synapse.Core.Optional_Text.Of_Value (To_Unbounded_String (Model));
-      end if;
-      if Tools /= "" then
-         Result.Tools :=
-           Resolved.Json_Options.Of_Value (JSON.Parse (J (Tools)).Item);
       end if;
       return Result;
    end Step_Of;
@@ -128,9 +121,9 @@ package body Synapse.Pipeline.Harness_Commands.Tests is
              .Arguments);
    begin
       Assert
-        (Has (Default, "--permission-mode acceptEdits")
+        (Has (Default, "--permission-mode auto")
          and then not Has (Default, "--tools"),
-         "a step with no level may edit files: " & Default);
+         "a step with no level is left to Claude's auto mode: " & Default);
       Assert
         (Has (Read, "--permission-mode dontAsk")
          and then Has (Read, "--tools Read,Grep,Glob"),
@@ -140,22 +133,21 @@ package body Synapse.Pipeline.Harness_Commands.Tests is
          "a full-access one is not asked: " & Full);
    end Claude_Permissions_Follow_The_Level;
 
-   procedure Claude_Is_Given_Tools_And_The_Skill_Directory
+   procedure Claude_Is_Given_The_Skill_Directory
      (T : in out Test_Cases_Class)
    is
       pragma Unreferenced (T);
       Args : constant String :=
         Joined
           (Command_Of
-             (Harnesses.Claude,
-              Step_Of (Tools => "['Bash(git *)','Edit']"), "/skills/x")
+             (Harnesses.Claude, Step_Of, "/skills/x")
              .Arguments);
    begin
+      Assert (Has (Args, "--add-dir /skills/x"), "the skill is reachable");
       Assert
-        (Has (Args, "--allowedTools Bash(git *) Edit "),
-         "each tool is an allowed tool: " & Args);
-      Assert (Has (Args, "--add-dir /skills/x"), "and the skill is reachable");
-   end Claude_Is_Given_Tools_And_The_Skill_Directory;
+        (not Has (Args, "--allowedTools"),
+         "no tool is allowed beyond what the level gives: " & Args);
+   end Claude_Is_Given_The_Skill_Directory;
 
    procedure Codex_Is_Run_In_A_Sandbox_That_Matches_The_Level
      (T : in out Test_Cases_Class)
@@ -214,30 +206,6 @@ package body Synapse.Pipeline.Harness_Commands.Tests is
          "or run commands or fetch");
       Assert (Full.Environment.Is_Empty, "full access adds no settings");
    end OpenCode_Is_Run_Alone_With_Its_Permissions_In_The_Environment;
-
-   procedure A_Tool_Allowlist_Is_Refused_Where_It_Cannot_Be_Kept
-     (T : in out Test_Cases_Class)
-   is
-      pragma Unreferenced (T);
-      Step : constant Resolved.Step := Step_Of (Tools => "['Edit']");
-      Code : constant Command_Results.Result :=
-        Build (Harnesses.Codex, Step, "P", "");
-      Open : constant Command_Results.Result :=
-        Build (Harnesses.Opencode, Step, "P", "");
-   begin
-      Assert
-        (not Command_Results.Is_Success (Code)
-         and then Has
-           (To_String (Command_Results.Error (Code)),
-            "Codex cannot restrict the tools"),
-         "Codex says so");
-      Assert
-        (not Command_Results.Is_Success (Open)
-         and then Has
-           (To_String (Command_Results.Error (Open)),
-            "OpenCode cannot restrict the tools"),
-         "OpenCode says so");
-   end A_Tool_Allowlist_Is_Refused_Where_It_Cannot_Be_Kept;
 
    ---------------------------------------------------------------------------
    --  Replies
@@ -482,8 +450,8 @@ package body Synapse.Pipeline.Harness_Commands.Tests is
         (T, Claude_Permissions_Follow_The_Level'Access,
          "Claude's permissions follow the level");
       Register_Routine
-        (T, Claude_Is_Given_Tools_And_The_Skill_Directory'Access,
-         "Claude is given tools and the skill directory");
+        (T, Claude_Is_Given_The_Skill_Directory'Access,
+         "Claude is given the skill directory");
       Register_Routine
         (T, Codex_Is_Run_In_A_Sandbox_That_Matches_The_Level'Access,
          "Codex is run in a sandbox that matches the level");
@@ -491,9 +459,6 @@ package body Synapse.Pipeline.Harness_Commands.Tests is
         (T,
          OpenCode_Is_Run_Alone_With_Its_Permissions_In_The_Environment'Access,
          "OpenCode is run alone with its permissions in the environment");
-      Register_Routine
-        (T, A_Tool_Allowlist_Is_Refused_Where_It_Cannot_Be_Kept'Access,
-         "A tool allowlist is refused where it cannot be kept");
       Register_Routine
         (T, A_Claude_Answer_Is_Its_Structured_Output'Access,
          "A Claude answer is its structured output");

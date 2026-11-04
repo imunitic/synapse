@@ -11,7 +11,7 @@ with Synapse.Pipeline.Resolved;
 --    format   Format
 --    name     the pipeline's name
 --    steps    in the order declared: name, harness, model, permissions (the
---             level in effect), tools, timeout_seconds (the limit in
+--             level in effect), timeout_seconds (the limit in
 --             effect), retries, role, assignment, origins
 --    edges    in the order declared: index, from, to, guard, max_iterations
 --    limits   default_timeout_seconds, step_ceiling, runner

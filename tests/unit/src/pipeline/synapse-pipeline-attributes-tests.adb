@@ -86,11 +86,12 @@ package body Synapse.Pipeline.Attributes.Tests is
         (Step_Context, Named ("Model", A_String ("claude-opus")), "Model");
       Assert_Fine
         (System_Context, Named ("Permissions", A_Name ("Read_Only")), "P");
-      Assert_Fine
-        (Step_Context, Named ("Tools", A_JSON ("[""Read"", ""Grep""]")),
-         "Tools");
       Assert_Fine (Step_Context, Named ("Timeout", A_String ("30m")), "T");
       Assert_Fine (Step_Context, Named ("Retries", An_Integer (0)), "Retries");
+      Assert_Fine
+        (Step_Context, Named ("Retries", An_Integer (100)), "Most retries");
+      Assert_Fine
+        (Step_Context, Named ("Timeout", A_String ("720h")), "30 days");
       Assert_Fine (Edge_Context, Named ("When", A_Name ("Done")), "When");
       Assert_Fine
         (Edge_Context, Named ("When", A_JSON ("{""=="": [1, 1]}")), "When");
@@ -105,6 +106,9 @@ package body Synapse.Pipeline.Attributes.Tests is
       Assert_Wrong
         (Step_Context, Named ("Colour", A_Name ("Red")), 1,
          "unknown attribute 'Colour'", "an unknown attribute");
+      Assert_Wrong
+        (Step_Context, Named ("Tools", A_JSON ("[""Read""]")), 1,
+         "unknown attribute 'Tools'", "a tool list is not an attribute");
       Assert_Wrong
         (Step_Context, Named ("When", A_Name ("Done")), 1,
          "'When' is not an attribute of a step", "a guard on a step");
@@ -161,23 +165,39 @@ package body Synapse.Pipeline.Attributes.Tests is
         (Step_Context, Named ("Timeout", A_String ("soon")), 9,
          "a number and a unit", "a bad timeout");
       Assert_Wrong
+        (Step_Context, Named ("Timeout", A_String ("721h")), 9,
+         "at most 30 days", "a timeout past 30 days");
+      Assert_Wrong
+        (Step_Context, Named ("Timeout", A_String ("1000000h")), 9,
+         "at most 30 days", "a million hours");
+      Assert_Wrong
+        (Step_Context, Named ("Retries", An_Integer (101)), 9,
+         "'Retries' is at most 100", "too many retries");
+      Assert_Wrong
+        (Step_Context, Named ("Retries", An_Integer (2_147_483_647)), 9,
+         "'Retries' is at most 100", "retries up to the integer limit");
+      Assert_Wrong
+        (Step_Context, Named ("Retries", An_Integer (99_999_999_999)), 9,
+         "'Retries' is at most 100", "retries past the integer limit");
+      Assert_Wrong
         (Edge_Context, Named ("Max_Iterations", An_Integer (0)), 9,
          "at least 1", "no iterations");
+      Assert_Wrong
+        (Edge_Context, Named ("Max_Iterations", An_Integer (101)), 9,
+         "'Max_Iterations' is at most 100", "too many iterations");
+      Assert_Wrong
+        (Edge_Context, Named ("Max_Iterations", An_Integer (99_999_999_999)),
+         9, "'Max_Iterations' is at most 100",
+         "iterations past the integer limit");
       Assert_Wrong
         (Edge_Context, Named ("When", A_JSON ("{""frob"": [1]}")), 9,
          "'frob' is not a JsonLogic operator", "an unknown guard operator");
       Assert_Wrong
         (Edge_Context, Named ("When", A_JSON ("[1, 2]")), 9,
          "a guard is a single JsonLogic rule", "a list for a guard");
-      Assert_Wrong
-        (Step_Context, Named ("Tools", A_JSON ("[""Read"", 3]")), 9,
-         "a JSON list of strings", "a list with a number");
-      Assert_Wrong
-        (Step_Context, Named ("Tools", A_JSON ("{""a"": 1}")), 9,
-         "a JSON list of strings", "an object for a list");
    end Some_Values_Are_Checked_Further;
 
-   procedure Is_Known_Knows_The_Twelve (T : in out Test_Cases_Class) is
+   procedure Is_Known_Knows_The_Eleven (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
    begin
       Assert (Is_Known ("Agent") and then Is_Known ("System"), "Agent System");
@@ -185,8 +205,8 @@ package body Synapse.Pipeline.Attributes.Tests is
       Assert
         (Is_Known ("Harness") and then Is_Known ("Model"), "Harness Model");
       Assert
-        (Is_Known ("Permissions") and then Is_Known ("Tools"),
-         "Permissions Tools");
+        (Is_Known ("Permissions") and then not Is_Known ("Tools"),
+         "Permissions, and no Tools");
       Assert
         (Is_Known ("Timeout") and then Is_Known ("Retries"),
          "Timeout Retries");
@@ -197,7 +217,7 @@ package body Synapse.Pipeline.Attributes.Tests is
         (not Is_Known ("Colour") and then not Is_Known ("")
          and then not Is_Known ("agent"),
          "and only those, spelled so");
-   end Is_Known_Knows_The_Twelve;
+   end Is_Known_Knows_The_Eleven;
 
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
@@ -223,7 +243,7 @@ package body Synapse.Pipeline.Attributes.Tests is
         (T, Some_Values_Are_Checked_Further'Access,
          "Some values are checked further");
       Register_Routine
-        (T, Is_Known_Knows_The_Twelve'Access, "Is_Known knows the twelve");
+        (T, Is_Known_Knows_The_Eleven'Access, "Is_Known knows the eleven");
    end Register_Tests;
 
 end Synapse.Pipeline.Attributes.Tests;

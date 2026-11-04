@@ -3,6 +3,7 @@ with Ada.Strings.Unbounded;
 with Synapse.Core.JSON;
 with Synapse.Core.Optional_Text;
 with Synapse.Pipeline.Durations;
+with Synapse.Pipeline.Limits;
 with Synapse.Pipeline.Syntax;
 
 package body Synapse.Pipeline.Resolution is
@@ -234,16 +235,12 @@ package body Synapse.Pipeline.Resolution is
               Synapse.Core.Optional_Text.Of_Value
                 (To_Unbounded_String (Text_Of (Picked ("Permissions"))));
          end if;
-         if Given ("Tools") then
-            Made.Tools :=
-              Resolved.Json_Options.Of_Value (Picked ("Tools").Json);
-         end if;
          if Given ("Timeout") then
             Made.Timeout_Seconds :=
               Durations.Seconds (Text_Of (Picked ("Timeout")));
          end if;
          if Given ("Retries") then
-            Made.Retries := Natural (Picked ("Retries").Number);
+            Made.Retries := Limits.Repeat_Count (Picked ("Retries").Number);
          end if;
          return Resolve_Results.Success (Result);
       end Merge_Step;
@@ -271,7 +268,8 @@ package body Synapse.Pipeline.Resolution is
          end if;
          if M /= Syntax.Attribute_Vectors.No_Element then
             Made.Max_Iterations :=
-              Natural (Syntax.Attribute_Vectors.Element (M).Item.Number);
+              Limits.Repeat_Count
+                (Syntax.Attribute_Vectors.Element (M).Item.Number);
          end if;
          return Made;
       end Make_Edge;
@@ -295,7 +293,7 @@ package body Synapse.Pipeline.Resolution is
                Made   : Resolved.Step :=
                  (Name => <>, Harness => Harnesses.Claude, Role => <>,
                   Assignment => <>, Model => <>, Permissions => <>,
-                  Tools => <>, Timeout_Seconds => 0, Retries => 0,
+                  Timeout_Seconds => 0, Retries => 0,
                   Origins => <>);
                Merged : constant Resolve_Results.Result :=
                  Merge_Step (S, File, Made);

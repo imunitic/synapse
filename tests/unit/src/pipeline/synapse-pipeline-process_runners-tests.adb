@@ -307,30 +307,6 @@ package body Synapse.Pipeline.Process_Runners.Tests is
          "the fence is taken off");
    end A_Result_Wrapped_In_A_Code_Fence_Is_Accepted;
 
-   procedure A_Request_The_Harness_Cannot_Honour_Does_Not_Start_A_Process
-     (T : in out Test_Cases_Class)
-   is
-      pragma Unreferenced (T);
-      Process : aliased Fake_Process.Fake_Process;
-      Files   : aliased Fake_Files.Fake_Files;
-      Runner  : Process_Runner (Process'Access, Files'Access);
-      Step    : Resolved.Step := Prompt_Step (Harnesses.Codex);
-   begin
-      Step.Tools :=
-        Resolved.Json_Options.Of_Value (JSON.Parse (J ("['Edit']")).Item);
-      declare
-         Got : constant Sessions.Session_Result :=
-           Runner.Run_Session (Request_Of (Step));
-      begin
-         Assert
-           (not Got.Succeeded
-            and then Has
-              (To_String (Got.Failure.Message), "Codex cannot restrict"),
-            "it says what cannot be done");
-      end;
-      Assert (Process.Requests.Is_Empty, "and nothing was run");
-   end A_Request_The_Harness_Cannot_Honour_Does_Not_Start_A_Process;
-
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -366,10 +342,6 @@ package body Synapse.Pipeline.Process_Runners.Tests is
       Register_Routine
         (T, A_Result_Wrapped_In_A_Code_Fence_Is_Accepted'Access,
          "A result wrapped in a code fence is accepted");
-      Register_Routine
-        (T,
-         A_Request_The_Harness_Cannot_Honour_Does_Not_Start_A_Process'Access,
-         "A request the harness cannot honour does not start a process");
    end Register_Tests;
 
 end Synapse.Pipeline.Process_Runners.Tests;

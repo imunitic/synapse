@@ -231,7 +231,7 @@ package body Synapse.Pipeline.Lexer.Tests is
    is
       pragma Unreferenced (T);
       V : constant Token_Vectors.Vector :=
-        Lex ("Tools => [""Read""," & LF & "   ""Grep""]" & LF & "Next");
+        Lex ("Data => [""Read""," & LF & "   ""Grep""]" & LF & "Next");
    begin
       Assert
         (Kinds (V) = "IDENTIFIER FAT_ARROW JSON_LITERAL IDENTIFIER "
