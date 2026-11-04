@@ -3,7 +3,7 @@
 // Runs check-skill-frontmatter.cjs on small SKILL.md files and checks what it
 // reports.
 //
-//   node --test ci/
+//   node --test ci/*.test.cjs
 
 const assert = require("node:assert");
 const { spawnSync } = require("node:child_process");

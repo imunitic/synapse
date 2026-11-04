@@ -3,7 +3,7 @@
 // Runs synapse-pipeline-setup.cjs against a scratch home directory and checks
 // what it leaves in the harness's skills directory.
 //
-//   node --test ci/
+//   node --test ci/*.test.cjs
 
 const assert = require("node:assert");
 const { spawnSync } = require("node:child_process");

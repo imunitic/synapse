@@ -160,7 +160,7 @@ npm-check:
     for f in schema/vault-note/v1.yaml schema/vault-design-note/v1.yaml schema/vault-task-note/v1.yaml; do
         grep -qF "$f" <<< "$out" || { echo "npm package is missing $f" >&2; exit 1; }
     done
-    node --test ci/
+    node --test ci/*.test.cjs
     node ci/check-skill-frontmatter.cjs packages/*/skills/*/SKILL.md packages/synapse/harness/codex/skills/*/SKILL.md
     echo "npm-check ok"
 
