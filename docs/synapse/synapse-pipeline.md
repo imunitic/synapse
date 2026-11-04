@@ -139,15 +139,12 @@ is `Workspace_Write`.
 | Level | Claude | Codex | OpenCode |
 |---|---|---|---|
 | `Read_Only` | only the tools that read; nothing else is asked about or run | `read-only` sandbox | editing, commands and fetching denied |
-| `Workspace_Write` | edits are accepted; a command runs only if `Tools` allows it | `workspace-write` sandbox | files outside the working directory denied |
+| `Workspace_Write` | Claude's `auto` mode: edits and ordinary commands go ahead and what it refuses is for Claude to decide | `workspace-write` sandbox | files outside the working directory denied |
 | `Full_Access` | no permission checks | `danger-full-access` sandbox | no restriction |
 
 A session cannot ask anyone to approve anything, so a tool the level does not allow is refused
 rather than waited for. OpenCode's restrictions apply to its file tools; a command it runs is not
 confined to the working directory.
-
-`Tools` is a list of tools the session may use. It is honoured by Claude. A step that sets it for
-Codex or OpenCode fails before a session is started, because neither can restrict a session's tools.
 
 ### Quota
 
@@ -269,7 +266,7 @@ fixed names, and a change to them is a new format.
 |---|---|
 | `format` | `synapse-pipeline-description/v1` |
 | `name` | the pipeline's name |
-| `steps` | in the order declared: `name`, `harness`, `model`, `permissions` (the level in effect), `tools`, `timeout_seconds` (the limit in effect), `retries`, `role`, `assignment`, `origins` |
+| `steps` | in the order declared: `name`, `harness`, `model`, `permissions` (the level in effect), `timeout_seconds` (the limit in effect), `retries`, `role`, `assignment`, `origins` |
 | `edges` | in the order declared: `index`, `from`, `to`, `guard` (a JsonLogic rule; null when unconditional), `max_iterations` (null when unbounded) |
 | `limits` | `default_timeout_seconds`, `step_ceiling`, `runner` |
 

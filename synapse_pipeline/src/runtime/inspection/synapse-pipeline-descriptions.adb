@@ -74,10 +74,6 @@ package body Synapse.Pipeline.Descriptions is
               else JSON.Make_String
                      (Permission_Levels.Name_Of (Permission_Levels.Default)))),
           Member
-            ("tools",
-             (if Item.Tools.Found then Item.Tools.Value
-              else JSON.Null_Value)),
-          Member
             ("timeout_seconds",
              Count
                (if Item.Timeout_Seconds > 0 then Item.Timeout_Seconds

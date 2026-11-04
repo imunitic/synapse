@@ -12,7 +12,7 @@ Requires `synapse-pipeline` on `PATH` (check with `synapse-pipeline --help`) and
 ## What this mode does not do
 
 - `Harness` is ignored: every step runs in this host, as a subagent.
-- `Permissions`, `Timeout` and `Retries` are advisory. A `Read_Only` step is only told not to change anything; nothing stops it. `Model` and `Tools` apply only where the host lets you start a subagent with them. If any step relies on a restriction, say so to the user once before starting and offer `synapse-pipeline run` instead, which enforces them.
+- `Permissions`, `Timeout` and `Retries` are advisory. A `Read_Only` step is only told not to change anything; nothing stops it. `Model` applies only where the host lets you start a subagent with it. If any step relies on a restriction, say so to the user once before starting and offer `synapse-pipeline run` instead, which enforces them.
 - The routing is not yours. Never choose the next step, skip `next`, or edit a state by hand.
 
 ## Procedure

@@ -83,7 +83,6 @@ Pipeline Review_Change {
 | `Harness` | step, system | `Claude`, `Codex` or `Opencode` |
 | `Model` | step, system | name or string |
 | `Permissions` | step, system | `Read_Only`, `Workspace_Write` (default) or `Full_Access` |
-| `Tools` | step, system | JSON list of strings; only Claude honours it, the others fail the step |
 | `Timeout` | step, system | quoted duration: `"90s"`, `"30m"`, `"2h"` (default 30 minutes) |
 | `Retries` | step, system | integer: extra tries after an execution error or an invalid result |
 | `When` | edge | outcome name, or a JsonLogic rule |

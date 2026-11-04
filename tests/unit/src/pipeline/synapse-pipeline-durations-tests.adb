@@ -14,7 +14,9 @@ package body Synapse.Pipeline.Durations.Tests is
       Assert (Seconds ("30m") = 1800, "minutes");
       Assert (Seconds ("2h") = 7200, "hours");
       Assert (Seconds ("007s") = 7, "leading zeros");
-      Assert (Seconds ("10000000s") = 10_000_000, "the largest count");
+      Assert (Seconds ("2592000s") = 2_592_000, "30 days in seconds");
+      Assert (Seconds ("43200m") = 2_592_000, "30 days in minutes");
+      Assert (Seconds ("720h") = 2_592_000, "30 days in hours");
    end A_Number_And_A_Unit_Is_A_Duration;
 
    procedure Anything_Else_Is_Nothing (T : in out Test_Cases_Class) is
@@ -28,7 +30,11 @@ package body Synapse.Pipeline.Durations.Tests is
       Assert (Seconds ("-5m") = 0, "negative");
       Assert (Seconds ("1.5h") = 0, "fractional");
       Assert (Seconds ("5 m") = 0, "a space");
-      Assert (Seconds ("10000001s") = 0, "past the largest count");
+      Assert (Seconds ("2592001s") = 0, "a second past 30 days");
+      Assert (Seconds ("43201m") = 0, "a minute past 30 days");
+      Assert (Seconds ("721h") = 0, "an hour past 30 days");
+      Assert (Seconds ("1000000h") = 0, "a million hours");
+      Assert (Seconds ("10000000h") = 0, "ten million hours");
       Assert (Seconds ("99999999999999999999h") = 0, "far too large");
    end Anything_Else_Is_Nothing;
 

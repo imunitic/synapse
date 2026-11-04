@@ -14,11 +14,10 @@ with Synapse.Pipeline.Syntax;
 --    Harness          step, system   a name
 --    Model            step, system   a name or a string
 --    Permissions      step, system   a name
---    Tools            step, system   a JSON list of strings
---    Timeout          step, system   a string such as "30m"
---    Retries          step, system   an integer
+--    Timeout          step, system   a string such as "30m", at most 30 days
+--    Retries          step, system   an integer, at most 100
 --    When             edge           a name or a JSON value
---    Max_Iterations   edge           an integer, at least 1
+--    Max_Iterations   edge           an integer, from 1 to 100
 
 package Synapse.Pipeline.Attributes is
 

@@ -156,7 +156,7 @@ package body Synapse.Pipeline.Parser.Tests is
       D : constant Syntax.Definition :=
         Parse_OK
           ("System S [When => {"">"": [{""var"": ""data.n""}, 0]}, "
-           & "Tools => [""Read"", ""Grep""]];");
+           & "Data => [""Read"", ""Grep""]];");
    begin
       Assert
         (D.Attributes (1).Item.Kind = Syntax.JSON_Value

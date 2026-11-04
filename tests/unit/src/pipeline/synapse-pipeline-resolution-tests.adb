@@ -36,12 +36,12 @@ package body Synapse.Pipeline.Resolution.Tests is
         ("/defs/Base.synapse",
          "System Base [Agent => Reviewer, Harness => Codex, "
          & "Model => ""big-model"", Permissions => Read_Only, "
-         & "Tools => [""Read"", ""Grep""], Timeout => ""10m"", Retries => 2, "
+         & "Timeout => ""10m"", Retries => 2, "
          & "Prompt => ""System task.""];");
       F.Add_File
         ("/defs/Plain.synapse",
          "Pipeline Plain { A [Harness => Claude, Prompt => ""do a"", "
-         & "Model => Opus, Tools => [""Write""], Timeout => ""90s"", "
+         & "Model => Opus, Timeout => ""90s"", "
          & "Retries => 1]; }");
       F.Add_File
         ("/defs/Inherits.synapse",
@@ -124,8 +124,6 @@ package body Synapse.Pipeline.Resolution.Tests is
       Assert (Text_Of (S.Model) = "Opus", "a model, from a name");
       Assert (Text_Of (S.Permissions) = "<none>", "no permissions");
       Assert
-        (S.Tools.Found and then JSON.Length (S.Tools.Value) = 1, "its tools");
-      Assert
         (S.Timeout_Seconds = 90 and then S.Retries = 1,
          "a timeout in seconds, and retries");
       Assert (S.Origins.Is_Empty, "nothing came from a definition");
@@ -149,9 +147,6 @@ package body Synapse.Pipeline.Resolution.Tests is
         (Text_Of (S.Model) = "big-model"
          and then Text_Of (S.Permissions) = "Read_Only",
          "model and permissions");
-      Assert
-        (S.Tools.Found and then JSON.Length (S.Tools.Value) = 2,
-         "tools");
       Assert
         (S.Timeout_Seconds = 600 and then S.Retries = 2,
          "timeout and retries");
@@ -181,7 +176,7 @@ package body Synapse.Pipeline.Resolution.Tests is
         (Is_Instruction (S.Assignment, Resolved.Skill_Name, "own-skill"),
          "its own skill replaces the system's prompt whole");
       Assert
-        (Text_Of (S.Model) = "big-model" and then S.Tools.Found,
+        (Text_Of (S.Model) = "big-model",
          "and what it does not set still comes from the system");
       Assert
         (Natural (S.Origins.Length) = 2

@@ -152,7 +152,7 @@ docs-check:
     ./docs/synapse/generate-cli-reference.sh --check
     ./docs/synapse/generate-diagrams.sh --check
 
-# Verify the npm package actually includes every shipped schema document, and that every shipped skill's frontmatter is valid YAML.
+# Verify the npm package actually includes every shipped schema document, that every shipped skill's frontmatter is valid YAML, and the checks' own tests.
 npm-check:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -160,6 +160,7 @@ npm-check:
     for f in schema/vault-note/v1.yaml schema/vault-design-note/v1.yaml schema/vault-task-note/v1.yaml; do
         grep -qF "$f" <<< "$out" || { echo "npm package is missing $f" >&2; exit 1; }
     done
+    node --test ci/*.test.cjs
     node ci/check-skill-frontmatter.cjs packages/*/skills/*/SKILL.md packages/synapse/harness/codex/skills/*/SKILL.md
     echo "npm-check ok"
 

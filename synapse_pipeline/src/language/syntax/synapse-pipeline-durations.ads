@@ -3,8 +3,13 @@
 
 package Synapse.Pipeline.Durations is
 
-   --  The seconds Text stands for, or 0 for anything that is not a duration
-   --  or is a duration of nothing.
-   function Seconds (Text : String) return Natural;
+   --  The longest duration there is: 30 days.
+   Largest_Seconds : constant := 30 * 24 * 60 * 60;
+
+   subtype Timeout_Seconds is Natural range 0 .. Largest_Seconds;
+
+   --  The seconds Text stands for, or 0 for anything that is not a duration,
+   --  is a duration of nothing or is longer than 30 days.
+   function Seconds (Text : String) return Timeout_Seconds;
 
 end Synapse.Pipeline.Durations;

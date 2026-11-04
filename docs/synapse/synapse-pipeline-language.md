@@ -108,7 +108,6 @@ Pipeline Name {
 | `Harness` | step, system | `Claude`, `Codex` or `Opencode` | What runs the session. |
 | `Model` | step, system | name or string | The model the harness is asked to use. |
 | `Permissions` | step, system | `Read_Only`, `Workspace_Write` or `Full_Access` | What the session may do. Default `Workspace_Write`. |
-| `Tools` | step, system | JSON list of strings | The tools the session may use. Only Claude can honour it. |
 | `Timeout` | step, system | duration | The most one session may take. |
 | `Retries` | step, system | integer | Extra tries after an execution error or a result that breaks the contract. |
 | `When` | edge | outcome name or JSON | The guard. |

@@ -1,10 +1,10 @@
 package body Synapse.Pipeline.Durations is
 
-   --  Large enough to be a limit and small enough that no unit overflows.
-   Largest : constant := 10_000_000;
-
-   function Seconds (Text : String) return Natural is
-      Count : Natural := 0;
+   function Seconds (Text : String) return Timeout_Seconds is
+      --  A count above Largest_Seconds is a duration above it in every unit,
+      --  so the count stays small enough for the products below to fit.
+      Count : Long_Long_Integer := 0;
+      Total : Long_Long_Integer;
    begin
       if Text'Length < 2 then
          return 0;
@@ -14,17 +14,23 @@ package body Synapse.Pipeline.Durations is
             return 0;
          end if;
          Count :=
-           Count * 10 + (Character'Pos (Text (I)) - Character'Pos ('0'));
-         if Count > Largest then
+           Count * 10
+           + Long_Long_Integer
+               (Character'Pos (Text (I)) - Character'Pos ('0'));
+         if Count > Largest_Seconds then
             return 0;
          end if;
       end loop;
       case Text (Text'Last) is
-         when 's'    => return Count;
-         when 'm'    => return Count * 60;
-         when 'h'    => return Count * 3600;
+         when 's'    => Total := Count;
+         when 'm'    => Total := Count * 60;
+         when 'h'    => Total := Count * 3600;
          when others => return 0;
       end case;
+      if Total > Largest_Seconds then
+         return 0;
+      end if;
+      return Timeout_Seconds (Total);
    end Seconds;
 
 end Synapse.Pipeline.Durations;

@@ -3,8 +3,9 @@ with Ada.Strings.Unbounded;
 
 with Synapse.Core.JSON;
 with Synapse.Core.Optional_Text;
-with Synapse.Core.Options;
+with Synapse.Pipeline.Durations;
 with Synapse.Pipeline.Harnesses;
+with Synapse.Pipeline.Limits;
 
 --  A pipeline with everything it refers to settled: each step holds the
 --  values it will run with, and no name is left to look up. This is what a
@@ -38,8 +39,6 @@ package Synapse.Pipeline.Resolved is
 
    package Origin_Vectors is new Ada.Containers.Vectors (Positive, Origin);
 
-   package Json_Options is new Synapse.Core.Options (Synapse.Core.JSON.Value);
-
    type Step is record
       Name        : Ada.Strings.Unbounded.Unbounded_String;
       Harness     : Harnesses.Harness_Kind;
@@ -54,12 +53,9 @@ package Synapse.Pipeline.Resolved is
       Model       : Synapse.Core.Optional_Text.Option;
       Permissions : Synapse.Core.Optional_Text.Option;
 
-      --  A JSON list of the tools the session may use.
-      Tools       : Json_Options.Option;
-
       --  Zero when the configuration's default applies.
-      Timeout_Seconds : Natural := 0;
-      Retries     : Natural := 0;
+      Timeout_Seconds : Durations.Timeout_Seconds := 0;
+      Retries     : Limits.Repeat_Count := 0;
 
       --  The system and the agent the step's values came from.
       Origins     : Origin_Vectors.Vector;
@@ -78,7 +74,7 @@ package Synapse.Pipeline.Resolved is
       Guard          : Synapse.Core.JSON.Value;
 
       --  How many times the edge may fire; zero when it is not bounded.
-      Max_Iterations : Natural := 0;
+      Max_Iterations : Limits.Repeat_Count := 0;
    end record;
 
    package Edge_Vectors is new Ada.Containers.Vectors (Positive, Edge);

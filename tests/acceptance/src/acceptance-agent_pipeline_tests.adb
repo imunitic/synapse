@@ -255,8 +255,8 @@ package body Acceptance.Agent_Pipeline_Tests is
            (Out_Of (R), """summary"":""did it""", "the harness's result");
          Assert_Contains (Seen, "args: -p ", "headless");
          Assert_Contains
-           (Seen, "--permission-mode acceptEdits",
-            "a step with no level may edit");
+           (Seen, "--permission-mode auto",
+            "a step with no level is left to Claude's auto mode");
          Assert
            (Contains (Seen, "cwd:" & Repo (F))
             or else Contains (Seen, "cwd:/private" & Repo (F)),
