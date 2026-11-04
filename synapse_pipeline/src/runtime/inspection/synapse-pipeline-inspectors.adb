@@ -1,24 +1,44 @@
 with Ada.Numerics.Discrete_Random;
+with Ada.Streams;
 with Ada.Strings.Unbounded;
 
+with Synapse.Pipeline.Entropy;
 with Synapse.Pipeline.Inspection;
 
 package body Synapse.Pipeline.Inspectors is
 
    use Ada.Strings.Unbounded;
 
+   package Entropy_Source renames Synapse.Pipeline.Entropy;
+
    type Word is mod 2**32;
 
    package Random_Words is new Ada.Numerics.Discrete_Random (Word);
 
+   --  Used only where the system gives no random bytes. It is seeded once,
+   --  so the ids it makes one after another differ even within a clock tick.
+   Fallback : Random_Words.Generator;
+   Seeded   : Boolean := False;
+
    function New_Id return String is
-      Generator : Random_Words.Generator;
-      Value     : Word;
       Digits_Of : constant String := "0123456789abcdef";
       Id        : String := "exec-00000000";
+      Bytes     : Ada.Streams.Stream_Element_Array (1 .. 4);
+      Ok        : Boolean;
+      Value     : Word := 0;
    begin
-      Random_Words.Reset (Generator);
-      Value := Random_Words.Random (Generator);
+      Entropy_Source.Fill (Bytes, Ok);
+      if Ok then
+         for B of Bytes loop
+            Value := Value * 256 + Word (B);
+         end loop;
+      else
+         if not Seeded then
+            Random_Words.Reset (Fallback);
+            Seeded := True;
+         end if;
+         Value := Random_Words.Random (Fallback);
+      end if;
       for I in reverse Id'Last - 7 .. Id'Last loop
          Id (I) := Digits_Of (Natural (Value mod 16) + 1);
          Value := Value / 16;

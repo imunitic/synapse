@@ -89,12 +89,18 @@ with Synapse.Pipeline.Parser.Tests;
 with Synapse.Pipeline.Definitions.Tests;
 with Synapse.Pipeline.Search_Paths.Tests;
 with Synapse.Pipeline.System_Files.Tests;
+with Synapse.Pipeline.Disk_Registry.Tests;
 with Synapse.Pipeline.Durations.Tests;
+with Synapse.Pipeline.Fake_Registry.Tests;
+with Synapse.Pipeline.Id_Claims.Tests;
 with Synapse.Pipeline.Skills.Tests;
 with Synapse.Pipeline.Attributes.Tests;
 with Synapse.Pipeline.Validation.Tests;
 with Synapse.Pipeline.Harnesses.Tests;
+with Synapse.Pipeline.Recorders.Tests;
+with Synapse.Pipeline.Recording_Runners.Tests;
 with Synapse.Pipeline.Resolution.Tests;
+with Synapse.Pipeline.Retrying_Registry.Tests;
 with Synapse.Pipeline.Guards.Tests;
 with Synapse.Pipeline.Routing.Tests;
 with Synapse.Pipeline.Failures.Tests;
@@ -105,6 +111,7 @@ with Synapse.Pipeline.Sessions.Tests;
 with Synapse.Pipeline.Scripted_Runners.Tests;
 with Synapse.Pipeline.Engine.Tests;
 with Synapse.Pipeline.Commands.Check.Tests;
+with Synapse.Pipeline.Commands.Cleanup.Tests;
 with Synapse.Pipeline.Commands.Show.Tests;
 with Synapse.Pipeline.Commands.Next.Tests;
 with Synapse.Pipeline.Descriptions.Tests;
@@ -313,8 +320,14 @@ package body Test_Suites is
      aliased Synapse.Pipeline.Search_Paths.Tests.Test_Case;
    Pipeline_System_Files_Tests :
      aliased Synapse.Pipeline.System_Files.Tests.Test_Case;
+   Pipeline_Disk_Registry_Tests :
+     aliased Synapse.Pipeline.Disk_Registry.Tests.Test_Case;
    Pipeline_Durations_Tests :
      aliased Synapse.Pipeline.Durations.Tests.Test_Case;
+   Pipeline_Id_Claims_Tests :
+     aliased Synapse.Pipeline.Id_Claims.Tests.Test_Case;
+   Pipeline_Fake_Registry_Tests :
+     aliased Synapse.Pipeline.Fake_Registry.Tests.Test_Case;
    Pipeline_Skills_Tests : aliased Synapse.Pipeline.Skills.Tests.Test_Case;
    Pipeline_Attributes_Tests :
      aliased Synapse.Pipeline.Attributes.Tests.Test_Case;
@@ -322,8 +335,14 @@ package body Test_Suites is
      aliased Synapse.Pipeline.Validation.Tests.Test_Case;
    Pipeline_Harnesses_Tests :
      aliased Synapse.Pipeline.Harnesses.Tests.Test_Case;
+   Pipeline_Recorders_Tests :
+     aliased Synapse.Pipeline.Recorders.Tests.Test_Case;
+   Pipeline_Recording_Runners_Tests :
+     aliased Synapse.Pipeline.Recording_Runners.Tests.Test_Case;
    Pipeline_Resolution_Tests :
      aliased Synapse.Pipeline.Resolution.Tests.Test_Case;
+   Pipeline_Retrying_Registry_Tests :
+     aliased Synapse.Pipeline.Retrying_Registry.Tests.Test_Case;
    Pipeline_Guards_Tests : aliased Synapse.Pipeline.Guards.Tests.Test_Case;
    Pipeline_Routing_Tests :
      aliased Synapse.Pipeline.Routing.Tests.Test_Case;
@@ -340,6 +359,8 @@ package body Test_Suites is
    Pipeline_Engine_Tests : aliased Synapse.Pipeline.Engine.Tests.Test_Case;
    Pipeline_Check_Tests :
      aliased Synapse.Pipeline.Commands.Check.Tests.Test_Case;
+   Pipeline_Cleanup_Tests :
+     aliased Synapse.Pipeline.Commands.Cleanup.Tests.Test_Case;
    Pipeline_Show_Tests :
      aliased Synapse.Pipeline.Commands.Show.Tests.Test_Case;
    Pipeline_Next_Tests :
@@ -470,12 +491,18 @@ package body Test_Suites is
       Result.Add_Test (Pipeline_Definitions_Tests'Access);
       Result.Add_Test (Pipeline_Search_Paths_Tests'Access);
       Result.Add_Test (Pipeline_System_Files_Tests'Access);
+      Result.Add_Test (Pipeline_Disk_Registry_Tests'Access);
       Result.Add_Test (Pipeline_Durations_Tests'Access);
+      Result.Add_Test (Pipeline_Fake_Registry_Tests'Access);
+      Result.Add_Test (Pipeline_Id_Claims_Tests'Access);
       Result.Add_Test (Pipeline_Skills_Tests'Access);
       Result.Add_Test (Pipeline_Attributes_Tests'Access);
       Result.Add_Test (Pipeline_Validation_Tests'Access);
       Result.Add_Test (Pipeline_Harnesses_Tests'Access);
+      Result.Add_Test (Pipeline_Recorders_Tests'Access);
+      Result.Add_Test (Pipeline_Recording_Runners_Tests'Access);
       Result.Add_Test (Pipeline_Resolution_Tests'Access);
+      Result.Add_Test (Pipeline_Retrying_Registry_Tests'Access);
       Result.Add_Test (Pipeline_Guards_Tests'Access);
       Result.Add_Test (Pipeline_Routing_Tests'Access);
       Result.Add_Test (Pipeline_Failures_Tests'Access);
@@ -486,6 +513,7 @@ package body Test_Suites is
       Result.Add_Test (Pipeline_Scripted_Runners_Tests'Access);
       Result.Add_Test (Pipeline_Engine_Tests'Access);
       Result.Add_Test (Pipeline_Check_Tests'Access);
+      Result.Add_Test (Pipeline_Cleanup_Tests'Access);
       Result.Add_Test (Pipeline_Show_Tests'Access);
       Result.Add_Test (Pipeline_Next_Tests'Access);
       Result.Add_Test (Pipeline_Descriptions_Tests'Access);

@@ -8,6 +8,8 @@ with Synapse.Pipeline.Configs;
 with Synapse.Pipeline.Failures;
 with Synapse.Pipeline.Fake_Files;
 with Synapse.Pipeline.Fake_Process;
+with Synapse.Pipeline.Fake_Registry;
+with Synapse.Pipeline.Registry_Store;
 with Synapse.Pipeline.Harnesses;
 with Synapse.Pipeline.Resolved;
 with Synapse.Pipeline.Search_Paths;
@@ -16,6 +18,7 @@ package body Synapse.Pipeline.Process_Runners.Tests is
 
    use AUnit.Assertions;
    use Ada.Strings.Unbounded;
+   use type Registry_Store.Create_Result;
    use type Failures.Failure_Kind;
 
    package JSON renames Synapse.Core.JSON;
@@ -80,7 +83,9 @@ package body Synapse.Pipeline.Process_Runners.Tests is
       pragma Unreferenced (T);
       Process  : aliased Fake_Process.Fake_Process;
       Files    : aliased Fake_Files.Fake_Files;
-      Runner   : Process_Runner (Process'Access, Files'Access);
+      Registry : aliased Fake_Registry.Fake_Registry;
+      Runner   : Process_Runner
+        (Process'Access, Files'Access, Registry'Access);
       Settings : Configs.Config;
    begin
       Settings.Working_Directory := To_Unbounded_String ("/work/tree");
@@ -126,11 +131,105 @@ package body Synapse.Pipeline.Process_Runners.Tests is
       end;
    end A_Session_Is_Run_As_A_Process_Of_The_Harness;
 
+   procedure A_Sessions_Output_Is_Kept_As_Its_Transcript
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Process  : aliased Fake_Process.Fake_Process;
+      Files    : aliased Fake_Files.Fake_Files;
+      Registry : aliased Fake_Registry.Fake_Registry;
+      Runner   : Process_Runner
+        (Process'Access, Files'Access, Registry'Access);
+      Asked    : Sessions.Session_Request := Request_Of (Prompt_Step);
+   begin
+      Assert (Registry.Create ("exec-1") = Registry_Store.Created, "made");
+      Asked.Execution_Id := To_Unbounded_String ("exec-1");
+      Asked.Attempt := 2;
+      Process.Outcomes.Append (Fake_Process.Exited (Claude_Said ("Done")));
+      declare
+         Got : constant Sessions.Session_Result := Runner.Run_Session (Asked);
+      begin
+         Assert (Got.Succeeded, "the session succeeded");
+         Assert
+           (Got.Transcript.Found
+            and then To_String (Got.Transcript.Value) =
+                     "memory:exec-1/transcripts/Develop-2.jsonl",
+            "and says where its transcript is");
+      end;
+      Assert
+        (Registry.Held.Element ("exec-1").Transcripts.Element
+           ("Develop-2.jsonl") = Claude_Said ("Done"),
+         "which holds what the harness printed, as it printed it");
+   end A_Sessions_Output_Is_Kept_As_Its_Transcript;
+
+   procedure A_Session_That_Fails_Keeps_Its_Transcript_Too
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Process  : aliased Fake_Process.Fake_Process;
+      Files    : aliased Fake_Files.Fake_Files;
+      Registry : aliased Fake_Registry.Fake_Registry;
+      Runner   : Process_Runner
+        (Process'Access, Files'Access, Registry'Access);
+      Asked    : Sessions.Session_Request := Request_Of (Prompt_Step);
+   begin
+      Assert (Registry.Create ("exec-1") = Registry_Store.Created, "made");
+      Asked.Execution_Id := To_Unbounded_String ("exec-1");
+      Process.Outcomes.Append (Fake_Process.Exited ("not an answer"));
+      declare
+         Got : constant Sessions.Session_Result := Runner.Run_Session (Asked);
+      begin
+         Assert (not Got.Succeeded, "the session failed");
+         Assert (Got.Transcript.Found, "and its transcript was kept");
+      end;
+   end A_Session_That_Fails_Keeps_Its_Transcript_Too;
+
+   procedure Nothing_Is_Kept_Without_A_Record_To_Keep_It_In
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Process  : aliased Fake_Process.Fake_Process;
+      Files    : aliased Fake_Files.Fake_Files;
+      Registry : aliased Fake_Registry.Fake_Registry;
+      Runner   : Process_Runner
+        (Process'Access, Files'Access, Registry'Access);
+   begin
+      Process.Outcomes.Append (Fake_Process.Exited (Claude_Said ("Done")));
+      declare
+         Got : constant Sessions.Session_Result :=
+           Runner.Run_Session (Request_Of (Prompt_Step));
+      begin
+         Assert (Got.Succeeded and then not Got.Transcript.Found,
+                 "a request with no execution has no transcript");
+      end;
+      Assert (Registry.Held.Is_Empty, "and nothing is written");
+
+      Assert (Registry.Create ("exec-1") = Registry_Store.Created, "made");
+      Registry.Fail (Fake_Registry.Transcript_Op);
+      Process.Outcomes.Append (Fake_Process.Exited (Claude_Said ("Done")));
+      declare
+         Asked : Sessions.Session_Request := Request_Of (Prompt_Step);
+      begin
+         Asked.Execution_Id := To_Unbounded_String ("exec-1");
+         declare
+            Got : constant Sessions.Session_Result :=
+              Runner.Run_Session (Asked);
+         begin
+            Assert
+              (Got.Succeeded and then not Got.Transcript.Found,
+               "a transcript that cannot be written is left out and the "
+               & "session is as it was");
+         end;
+      end;
+   end Nothing_Is_Kept_Without_A_Record_To_Keep_It_In;
+
    procedure A_Skill_Is_Read_Into_The_Prompt (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Process : aliased Fake_Process.Fake_Process;
       Files   : aliased Fake_Files.Fake_Files;
-      Runner  : Process_Runner (Process'Access, Files'Access);
+      Registry : aliased Fake_Registry.Fake_Registry;
+      Runner   : Process_Runner
+        (Process'Access, Files'Access, Registry'Access);
       Step    : Resolved.Step := Prompt_Step;
       Root    : Search_Paths.Root;
    begin
@@ -169,7 +268,9 @@ package body Synapse.Pipeline.Process_Runners.Tests is
       pragma Unreferenced (T);
       Process : aliased Fake_Process.Fake_Process;
       Files   : aliased Fake_Files.Fake_Files;
-      Runner  : Process_Runner (Process'Access, Files'Access);
+      Registry : aliased Fake_Registry.Fake_Registry;
+      Runner   : Process_Runner
+        (Process'Access, Files'Access, Registry'Access);
       Step    : Resolved.Step := Prompt_Step;
       Root    : Search_Paths.Root;
    begin
@@ -205,7 +306,9 @@ package body Synapse.Pipeline.Process_Runners.Tests is
    is
       Process : aliased Fake_Process.Fake_Process;
       Files   : aliased Fake_Files.Fake_Files;
-      Runner  : Process_Runner (Process'Access, Files'Access);
+      Registry : aliased Fake_Registry.Fake_Registry;
+      Runner   : Process_Runner
+        (Process'Access, Files'Access, Registry'Access);
    begin
       Process.Outcomes.Append (Outcome);
       return Runner.Run_Session (Request_Of (Prompt_Step (Harness)));
@@ -321,6 +424,15 @@ package body Synapse.Pipeline.Process_Runners.Tests is
       Register_Routine
         (T, A_Session_Is_Run_As_A_Process_Of_The_Harness'Access,
          "A session is run as a process of the harness");
+      Register_Routine
+        (T, A_Sessions_Output_Is_Kept_As_Its_Transcript'Access,
+         "A session's output is kept as its transcript");
+      Register_Routine
+        (T, A_Session_That_Fails_Keeps_Its_Transcript_Too'Access,
+         "A session that fails keeps its transcript too");
+      Register_Routine
+        (T, Nothing_Is_Kept_Without_A_Record_To_Keep_It_In'Access,
+         "Nothing is kept without a record to keep it in");
       Register_Routine
         (T, A_Skill_Is_Read_Into_The_Prompt'Access,
          "A skill is read into the prompt");

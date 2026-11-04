@@ -1,3 +1,5 @@
+with Ada.Strings.Unbounded;
+
 with Synapse.Core.JSON;
 with Synapse.Core.Optional_Text;
 with Synapse.Pipeline.Configs;
@@ -39,6 +41,10 @@ package Synapse.Pipeline.Sessions is
 
       --  Which try this is for the step, from 1.
       Attempt         : Positive := 1;
+
+      --  The execution the session belongs to, which its transcript is kept
+      --  under; empty when there is no record to keep one in.
+      Execution_Id    : Ada.Strings.Unbounded.Unbounded_String;
    end record;
 
    --  The request to run Item as the next session of the run in State.

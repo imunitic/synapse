@@ -138,10 +138,10 @@ An answer may instead be a failure, `{"fail": "timeout"}` (also `execution_error
 
 A run takes as long as its sessions do, often many minutes, so **run it as a background job** and watch it, instead of blocking on it. Use the host's own facility for a background command (in Claude Code, a Bash call with `run_in_background`).
 
-1. **Make the run inspectable.** Set `SYNAPSE_WORK_DIR` for the job to an existing directory with a **short path**: the run listens on `$SYNAPSE_WORK_DIR/pipelines/<execution-id>.sock`, and a Unix socket path over 100 bytes cannot be made (a long scratch path gives "introspection is unavailable" on standard error, and the run goes on uninspectable). A directory made with `mktemp -d` under `/tmp` is short enough. Give the monitoring commands the same `SYNAPSE_WORK_DIR`. Inspection is not available on Windows.
-2. **Find the run**: `synapse-pipeline list` prints one line per run in progress for that work directory: execution id, pipeline, status, current step.
+1. **Make the run inspectable.** Set `SYNAPSE_WORK_DIR` for the job to an existing directory with a **short path**: the run listens on `$SYNAPSE_WORK_DIR/pipelines/<execution-id>/execution.sock`, and a Unix socket path over 100 bytes cannot be made (a long scratch path gives "introspection is unavailable" on standard error, and the run goes on uninspectable). A directory made with `mktemp -d` under `/tmp` is short enough. Give the monitoring commands the same `SYNAPSE_WORK_DIR`. Inspection is not available on Windows.
+2. **Find the run**: `synapse-pipeline list` prints one line per run in progress for that work directory: execution id, pipeline, status, current step. `list --all` adds the executions that are over (completed, failed, or interrupted when a record says running and nothing answers). `synapse-pipeline cleanup` removes old records: those of executions that are not running and were last written over 30 days ago (`--older-than`, `--dry-run` and `--all` change that).
 3. **Ask it questions**; all of these only read, and nothing here can start, stop or change the run:
-   - `synapse-pipeline info <id>` is the brief: status, current step, steps run, the failure if there is one.
+   - `synapse-pipeline info <id>` is the brief: status, current step, steps run, the failure if there is one. For an execution that is over it reads the record kept in `$SYNAPSE_WORK_DIR/pipelines/<id>/`, and `info <id> --events` prints the events recorded for it.
    - `synapse-pipeline info <id> --query '<rule>'` evaluates a [JsonLogic](https://jsonlogic.com) rule over the run, and `--format json` gives structured output. A `var` path follows object members only, not positions in a list. What a rule can read: the brief's members (`status`, `current_step`, `steps_run`, `failure`), `state` (the whole state), `events` and `pipeline`.
 
 | To learn | Query |
@@ -150,7 +150,7 @@ A run takes as long as its sessions do, often many minutes, so **run it as a bac
 | what the last step reported | `{"var": "state.previous_output.outcome"}` and `{"var": "state.previous_output.summary"}` |
 | what it handed on | `{"var": "state.previous_output.data"}` |
 | how often each edge has fired | `{"var": "state.fired"}`: one count per edge in order, so entry *i* belongs to `pipeline.edges[i]` (the edge's `index`); a missing entry is 0 |
-| the history | `{"var": "events"}`: the last 200 events, each with `sequence`, `kind` (`run.started`, `step.started`, `step.finished`, `run.completed`, `run.failed`), `step` and `detail` |
+| the history | `{"var": "events"}`: the last 200 events, each with `sequence`, `kind` (`run.started`, `step.started`, `session.finished`, `step.finished`, `run.completed`, `run.failed`), `step` and `detail` |
 | what the pipeline is | `{"var": "pipeline"}`: the steps with their settings and the edges, as `show --format json` prints them |
 
 4. **Report as it moves.** Steps take minutes, so check every little while, not in a tight loop, or wait for the host to say the background job finished. Tell the user in a sentence when the current step changes, and when a loop goes round again (an edge's count goes up), using `show` or `pipeline` to say what each step is.

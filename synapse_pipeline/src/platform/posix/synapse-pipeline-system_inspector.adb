@@ -4,9 +4,8 @@ with Ada.Streams;
 
 with GNAT.OS_Lib;
 
-with Interfaces.C;
-
 with Synapse.Pipeline.Inspection;
+with Synapse.Pipeline.Private_Access;
 
 package body Synapse.Pipeline.System_Inspector is
 
@@ -17,24 +16,13 @@ package body Synapse.Pipeline.System_Inspector is
 
    LF : constant Character := Character'Val (10);
 
+   --  The socket's name in the directory of its execution.
+   Socket_Name : constant String := "execution.sock";
+
    --  How long a client may take to say its request, and how often the
    --  listener looks up to see whether it was told to stop.
    Client_Patience : constant Duration := 2.0;
    Poll            : constant Duration := 0.1;
-
-   function C_Chmod
-     (Path : Interfaces.C.char_array; Mode : Interfaces.C.unsigned)
-      return Interfaces.C.int
-   with Import, Convention => C, External_Name => "chmod";
-
-   --  Only the user may read, write or enter Path. Failing to say so is not
-   --  reported: the path was just made by this program.
-   procedure Keep_Private (Path : String; Mode : Interfaces.C.unsigned) is
-      Ignored : constant Interfaces.C.int :=
-        C_Chmod (Interfaces.C.To_C (Path), Mode);
-   begin
-      null;
-   end Keep_Private;
 
    function Directory_Of (Path : String) return String is
    begin
@@ -52,7 +40,7 @@ package body Synapse.Pipeline.System_Inspector is
    is
       pragma Unreferenced (T);
    begin
-      return Work_Directory & "/pipelines/" & Id & ".sock";
+      return Work_Directory & "/pipelines/" & Id & "/" & Socket_Name;
    end Endpoint_For;
 
    overriding
@@ -76,7 +64,7 @@ package body Synapse.Pipeline.System_Inspector is
       end if;
       if Directory /= "" then
          Ada.Directories.Create_Path (Directory);
-         Keep_Private (Directory, 8#700#);
+         Private_Access.Directory (Directory);
       end if;
       GNAT.Sockets.Create_Socket
         (T.Server, GNAT.Sockets.Family_Unix, GNAT.Sockets.Socket_Stream);
@@ -84,7 +72,7 @@ package body Synapse.Pipeline.System_Inspector is
         (T.Server,
          (Family => GNAT.Sockets.Family_Unix,
           Name   => To_Unbounded_String (Endpoint)));
-      Keep_Private (Endpoint, 8#600#);
+      Private_Access.File (Endpoint);
       GNAT.Sockets.Listen_Socket (T.Server, 8);
       T.Endpoint := To_Unbounded_String (Endpoint);
       T.Listening := True;
@@ -227,16 +215,17 @@ package body Synapse.Pipeline.System_Inspector is
       end if;
       Ada.Directories.Start_Search
         (Search, Directory, "",
-         [Ada.Directories.Directory => False, others => True]);
+         [Ada.Directories.Directory => True, others => False]);
       while Ada.Directories.More_Entries (Search) loop
          Ada.Directories.Get_Next_Entry (Search, Item);
          declare
             Name : constant String := Ada.Directories.Simple_Name (Item);
          begin
-            if Name'Length > 5
-              and then Name (Name'Last - 4 .. Name'Last) = ".sock"
+            if Name /= "." and then Name /= ".."
+              and then Ada.Directories.Exists
+                         (Directory & "/" & Name & "/" & Socket_Name)
             then
-               Names.Include (Name (Name'First .. Name'Last - 5));
+               Names.Include (Name);
             end if;
          end;
       end loop;
