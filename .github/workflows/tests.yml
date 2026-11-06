@@ -149,3 +149,22 @@ jobs:
       - name: Package and check the installed program
         shell: bash
         run: just package
+
+  # The desktop app: type-check, build, lint, format check and unit tests. It
+  # needs nothing but the npm registry, and it always runs, so it can be a
+  # required check without holding up a pull request that leaves
+  # synapse_desktop/ alone.
+  desktop:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: extractions/setup-just@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: synapse_desktop/package-lock.json
+
+      - name: Desktop app checks
+        run: just desktop-check

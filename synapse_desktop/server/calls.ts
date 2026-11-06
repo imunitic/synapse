@@ -1,0 +1,102 @@
+// The API calls: each one validates its own parameters and reaches only what
+// the roots and the CLI allowlist let it.
+
+import { readdir, readFile, stat } from 'node:fs/promises'
+import { join } from 'node:path'
+import { ZodError } from 'zod'
+import { appConfigSchema, callParams, isCallName, type CallName } from '../shared/calls.ts'
+import type { AppConfig, CliResult, DirEntry } from '../shared/transport.ts'
+import { refuseCli, type CliRunner } from './cli.ts'
+import { loadConfig, saveConfig } from './config-store.ts'
+import { allowedRoots, OutsideRoots, resolveInside, type Environment } from './roots.ts'
+
+const MAX_FILE_BYTES = 4 * 1024 * 1024
+
+export interface Context {
+  environment: Environment
+  configFile: string
+  runCli: CliRunner
+}
+
+// An error with the HTTP status the caller should see.
+export class CallError extends Error {
+  status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
+type Handler = (raw: unknown, context: Context) => Promise<unknown>
+
+async function insideRoots(path: string, context: Context): Promise<string> {
+  const config = await loadConfig(context.configFile)
+  try {
+    return await resolveInside(path, allowedRoots(config, context.environment))
+  } catch (error) {
+    if (error instanceof OutsideRoots) throw new CallError(error.message, 403)
+    throw error
+  }
+}
+
+const handlers: Record<CallName, Handler> = {
+  async readText(raw, context): Promise<string> {
+    const { path } = callParams.readText.parse(raw)
+    const real = await insideRoots(path, context)
+    const { size } = await stat(real)
+    if (size > MAX_FILE_BYTES) throw new CallError('file is too large', 413)
+    return readFile(real, 'utf8')
+  },
+
+  async readDir(raw, context): Promise<DirEntry[]> {
+    const { path } = callParams.readDir.parse(raw)
+    const real = await insideRoots(path, context)
+    const entries = await readdir(real, { withFileTypes: true })
+    const result: DirEntry[] = []
+    for (const entry of entries) {
+      // A link that leads nowhere has no modification time to report.
+      const info = await stat(join(real, entry.name)).catch(() => null)
+      result.push({
+        name: entry.name,
+        isDir: info?.isDirectory() ?? false,
+        mtimeMs: info?.mtimeMs ?? 0,
+      })
+    }
+    return result.sort((a, b) => a.name.localeCompare(b.name))
+  },
+
+  async cli(raw, context): Promise<CliResult> {
+    const { binary, args, stdin } = callParams.cli.parse(raw)
+    const refusal = refuseCli(binary, args)
+    if (refusal !== null) throw new CallError(refusal, 400)
+    const config = await loadConfig(context.configFile)
+    return context.runCli({ binary, args, stdin, workDir: config.workDir })
+  },
+
+  async getConfig(raw, context): Promise<AppConfig> {
+    callParams.getConfig.parse(raw)
+    return loadConfig(context.configFile)
+  },
+
+  async setConfig(raw, context): Promise<AppConfig> {
+    const { patch } = callParams.setConfig.parse(raw)
+    const merged = appConfigSchema.parse({ ...(await loadConfig(context.configFile)), ...patch })
+    await saveConfig(context.configFile, merged)
+    return merged
+  },
+}
+
+export async function handleCall(
+  name: string,
+  params: unknown,
+  context: Context,
+): Promise<unknown> {
+  if (!isCallName(name)) throw new CallError(`unknown method ${name}`, 404)
+  try {
+    return await handlers[name](params, context)
+  } catch (error) {
+    if (error instanceof ZodError) throw new CallError(`invalid parameters: ${error.message}`, 400)
+    throw error
+  }
+}

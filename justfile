@@ -17,6 +17,7 @@
 #   changed docs/ or README     nothing -- prose has no test to fail
 #   changed packages/**/*.md    just acceptance -- a "shipped instruction names
 #                               a real command" check covers them
+#   changed synapse_desktop/    just desktop-check
 #   about to push               just check
 #
 # Needs Alire (`alr`) on PATH; it fetches GNAT, gprbuild, AUnit and GNATprove
@@ -164,6 +165,10 @@ npm-check:
     node ci/check-skill-frontmatter.cjs packages/*/skills/*/SKILL.md packages/synapse/harness/codex/skills/*/SKILL.md
     echo "npm-check ok"
 
+# Type-check, build, lint, format-check and test the desktop app; needs Node 24 and npm.
+desktop-check:
+    cd synapse_desktop && npm ci && npm run check
+
 # Show what changed against the pushed branch.
 diff:
     @git --no-pager diff --stat @{u}.. 2>/dev/null || git --no-pager diff --stat
@@ -174,5 +179,5 @@ fix:
     ./docs/synapse/generate-diagrams.sh
 
 # The full gate -- run before pushing (see WHAT TO RUN WHEN at the top).
-check: build test prove gen-check acceptance syntax docs-check npm-check
+check: build test prove gen-check acceptance syntax docs-check npm-check desktop-check
     @echo "all green"
