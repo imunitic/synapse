@@ -58,6 +58,12 @@ export type PipelineDescription = z.infer<typeof descriptionSchema>
 export type PipelineStep = PipelineDescription['steps'][number]
 export type PipelineEdge = PipelineDescription['edges'][number]
 
+// The description a document holds, or null when it is not one this app knows.
+export function parseDescription(json: unknown): PipelineDescription | null {
+  const parsed = descriptionSchema.safeParse(json)
+  return parsed.success ? parsed.data : null
+}
+
 export interface Problem {
   severity: 'error' | 'warning'
   file: string | null
@@ -130,7 +136,7 @@ export async function describePipeline(transport: Transport, name: string): Prom
   } catch {
     throw new Error('show did not answer JSON')
   }
-  const parsed = descriptionSchema.safeParse(json)
-  if (!parsed.success) throw new Error('show answered a description this app does not know')
-  return { ok: true, description: parsed.data }
+  const description = parseDescription(json)
+  if (description === null) throw new Error('show answered a description this app does not know')
+  return { ok: true, description }
 }

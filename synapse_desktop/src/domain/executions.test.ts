@@ -34,6 +34,8 @@ describe('parseExecution', () => {
       currentStep: null,
       stepsRun: 6,
       failure: null,
+      failureStep: null,
+      fired: [1],
     })
   })
 
@@ -41,6 +43,8 @@ describe('parseExecution', () => {
     expect(parseExecution('exec-07baedc0', FAILED)).toMatchObject({
       status: 'failed',
       failure: 'the session ran past its limit',
+      failureStep: 'Test',
+      fired: [0],
     })
   })
 

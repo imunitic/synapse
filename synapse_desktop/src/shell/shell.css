@@ -636,3 +636,78 @@
   font-size: 12px;
   color: #fcd34d;
 }
+
+/* A run on the graph */
+.graph-node[data-state='current'] rect {
+  fill: #1f2733;
+  stroke: #60a5fa;
+  stroke-width: 2;
+}
+
+.graph-node[data-state='done'] rect {
+  fill: #1f2a24;
+  stroke: #2f6f49;
+  stroke-width: 2;
+}
+
+.graph-node[data-state='failed'] rect {
+  fill: #2e2020;
+  stroke: #f87171;
+  stroke-width: 2;
+}
+
+.graph-node[data-state='interrupted'] rect {
+  fill: #33290f;
+  stroke: #fcd34d;
+  stroke-width: 2;
+}
+
+.graph-node[data-state='idle'] {
+  opacity: 0.55;
+}
+
+.graph-end[data-state='done'] rect {
+  stroke: #2f6f49;
+  stroke-width: 2;
+}
+
+.graph-end[data-state='done'] text {
+  fill: #86efac;
+}
+
+.graph-flow[data-taken='true'] line,
+.graph-arc[data-taken='true'] path {
+  stroke: #86efac;
+}
+
+.graph-flow[data-taken='true'] polygon,
+.graph-arc[data-taken='true'] polygon {
+  fill: #86efac;
+}
+
+.graph-arc[data-taken='true'] text {
+  fill: #86efac;
+}
+
+.graph-flow[data-taken='false'],
+.graph-arc[data-taken='false'] {
+  opacity: 0.4;
+}
+
+.trace {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+}
+
+.trace-row {
+  display: grid;
+  grid-template-columns: 32px 120px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.warn-line {
+  margin: 0;
+  color: #fcd34d;
+}

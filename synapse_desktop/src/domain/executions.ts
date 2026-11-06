@@ -16,7 +16,12 @@ const executionSchema = z.object({
   current_step: z.string().nullable(),
   state: z.looseObject({
     steps_run: z.number().optional(),
-    failure: z.looseObject({ message: z.string().optional() }).nullable().optional(),
+    // How many times each edge has been taken, by the edge's index.
+    fired: z.array(z.number()).optional(),
+    failure: z
+      .looseObject({ message: z.string().optional(), step: z.string().optional() })
+      .nullable()
+      .optional(),
   }),
 })
 
@@ -42,6 +47,9 @@ export interface ExecutionSummary {
   currentStep: string | null
   stepsRun: number | null
   failure: string | null
+  failureStep: string | null
+  // How many times each edge has been taken, by the edge's index.
+  fired: number[]
 }
 
 function incomplete(id: string): ExecutionSummary {
@@ -54,6 +62,8 @@ function incomplete(id: string): ExecutionSummary {
     currentStep: null,
     stepsRun: null,
     failure: null,
+    failureStep: null,
+    fired: [],
   }
 }
 
@@ -78,6 +88,8 @@ export function parseExecution(id: string, text: string): ExecutionSummary | nul
     currentStep: data.current_step,
     stepsRun: data.state.steps_run ?? null,
     failure: data.state.failure?.message ?? null,
+    failureStep: data.state.failure?.step ?? null,
+    fired: data.state.fired ?? [],
   }
 }
 
