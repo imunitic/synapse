@@ -378,6 +378,10 @@ package body Synapse.Pipeline.Engine.Tests is
             and then R.Seen (3).Attempt = 1,
             "the attempt number counts the retries");
          Assert
+           (R.Seen (1).Visit = 1 and then R.Seen (2).Visit = 1
+            and then R.Seen (3).Visit = 2,
+            "every step of the run has a visit number of its own");
+         Assert
            (R.Seen (1).Timeout_Seconds = 90
             and then R.Seen (3).Timeout_Seconds = 600,
             "a step's own timeout, else the configuration's");

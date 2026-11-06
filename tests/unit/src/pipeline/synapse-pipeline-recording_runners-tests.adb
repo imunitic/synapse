@@ -89,7 +89,7 @@ package body Synapse.Pipeline.Recording_Runners.Tests is
           (Envelopes.Envelope'(others => <>),
            Transcript =>
              Synapse.Core.Optional_Text.Of_Value
-               (To_Unbounded_String ("/w/exec-1/transcripts/A-2.jsonl")));
+               (To_Unbounded_String ("/w/exec-1/transcripts/1-A-2.jsonl")));
       R.Id := To_Unbounded_String ("exec-1");
       Recorder.Start ("exec-1", False, JSON.Null_Value, Initial_State);
       declare
@@ -104,7 +104,7 @@ package body Synapse.Pipeline.Recording_Runners.Tests is
       Assert
         (Events_Text (Context) =
          "{""attempt"":2,""succeeded"":true,"
-         & """transcript"":""/w/exec-1/transcripts/A-2.jsonl""}|",
+         & """transcript"":""/w/exec-1/transcripts/1-A-2.jsonl""}|",
          "and the session is an event: " & Events_Text (Context));
       Assert
         (To_String (Context.Current.Events.First_Element.Step) = "A"

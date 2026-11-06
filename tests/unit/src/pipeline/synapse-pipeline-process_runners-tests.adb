@@ -153,12 +153,12 @@ package body Synapse.Pipeline.Process_Runners.Tests is
          Assert
            (Got.Transcript.Found
             and then To_String (Got.Transcript.Value) =
-                     "memory:exec-1/transcripts/Develop-2.jsonl",
+                     "memory:exec-1/transcripts/1-Develop-2.jsonl",
             "and says where its transcript is");
       end;
       Assert
         (Registry.Held.Element ("exec-1").Transcripts.Element
-           ("Develop-2.jsonl") = Claude_Said ("Done"),
+           ("1-Develop-2.jsonl") = Claude_Said ("Done"),
          "which holds what the harness printed, as it printed it");
    end A_Sessions_Output_Is_Kept_As_Its_Transcript;
 

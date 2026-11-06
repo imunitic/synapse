@@ -14,6 +14,7 @@ package body Synapse.Pipeline.Sessions is
         (if Item.Timeout_Seconds > 0 then Item.Timeout_Seconds
          else Settings.Default_Timeout_Seconds),
       Attempt         => Attempt,
+      Visit           => Run.Steps_Run + 1,
       Execution_Id    => <>);
 
    function Success
