@@ -1,7 +1,8 @@
 // Running the Synapse binaries: only the subcommands listed here, never a shell.
 
 import { execFile } from 'node:child_process'
-import type { CliBinary, CliResult } from '../shared/transport.ts'
+import { delimiter } from 'node:path'
+import type { AppConfig, CliBinary, CliResult } from '../shared/transport.ts'
 
 // What `cli` may run. Starting a run is `startRun`, not a subcommand of this.
 const ALLOWED_SUBCOMMANDS: Record<CliBinary, readonly string[]> = {
@@ -32,16 +33,30 @@ export interface CliRun {
   binary: CliBinary
   args: readonly string[]
   stdin?: string
-  workDir: string | null
+  config: AppConfig
+}
+
+// The environment a Synapse binary runs in: the work directory and the
+// definition directories the user set up in the app come before those the
+// process already had.
+export function cliEnvironment(base: NodeJS.ProcessEnv, config: AppConfig): NodeJS.ProcessEnv {
+  const env = { ...base }
+  if (config.workDir !== null) env.SYNAPSE_WORK_DIR = config.workDir
+  if (config.definitionPaths.length > 0) {
+    const inherited = (base.SYNAPSE_PIPELINE_PATH ?? '').split(delimiter)
+    env.SYNAPSE_PIPELINE_PATH = [...config.definitionPaths, ...inherited]
+      .filter(Boolean)
+      .join(delimiter)
+  }
+  return env
 }
 
 export type CliRunner = (run: CliRun) => Promise<CliResult>
 
 // The binary is looked up on PATH. A non-zero exit is a result, not an error.
-export const runCli: CliRunner = ({ binary, args, stdin, workDir }) =>
+export const runCli: CliRunner = ({ binary, args, stdin, config }) =>
   new Promise((resolve, reject) => {
-    const env = { ...process.env }
-    if (workDir !== null) env.SYNAPSE_WORK_DIR = workDir
+    const env = cliEnvironment(process.env, config)
     const child = execFile(
       binary,
       [...args],

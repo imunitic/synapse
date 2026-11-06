@@ -18,6 +18,7 @@ import {
   type Environment,
 } from './roots.ts'
 import { askRun, NotListening, socketPath } from './run-socket.ts'
+import { NotStartedHere, RunNotStarted, type RunStarter } from './runs.ts'
 
 const MAX_FILE_BYTES = 4 * 1024 * 1024
 
@@ -25,6 +26,7 @@ export interface Context {
   environment: Environment
   configFile: string
   runCli: CliRunner
+  runs: RunStarter
 }
 
 // An error with the HTTP status the caller should see.
@@ -80,7 +82,7 @@ const handlers: Record<CallName, Handler> = {
     const refusal = refuseCli(binary, args)
     if (refusal !== null) throw new CallError(refusal, 400)
     const config = await loadConfig(context.configFile)
-    return context.runCli({ binary, args, stdin, workDir: config.workDir })
+    return context.runCli({ binary, args, stdin, config })
   },
 
   async runRequest(raw, context): Promise<RunAnswer> {
@@ -109,6 +111,30 @@ const handlers: Record<CallName, Handler> = {
       skillsDir: skillsDir ?? null,
       recordsDir: recordsDir ?? null,
     }
+  },
+
+  async startRun(raw, context): Promise<{ executionId: string }> {
+    const { pipeline, input } = callParams.startRun.parse(raw)
+    const config = await loadConfig(context.configFile)
+    try {
+      return await context.runs.start(pipeline, input, config)
+    } catch (error) {
+      if (error instanceof RunNotStarted) {
+        throw new CallError(error.message, config.workDir === null ? 409 : 502)
+      }
+      throw error
+    }
+  },
+
+  async stopRun(raw, context): Promise<null> {
+    const { executionId } = callParams.stopRun.parse(raw)
+    try {
+      context.runs.stop(executionId)
+    } catch (error) {
+      if (error instanceof NotStartedHere) throw new CallError(error.message, 404)
+      throw error
+    }
+    return null
   },
 
   async getConfig(raw, context): Promise<AppConfig> {

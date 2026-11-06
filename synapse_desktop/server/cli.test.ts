@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { refuseCli } from './cli.ts'
+import { delimiter } from 'node:path'
+import { defaultConfig } from '../shared/calls.ts'
+import { cliEnvironment, refuseCli } from './cli.ts'
 
 describe('refuseCli', () => {
   it('allows the read-only and housekeeping subcommands of synapse-pipeline', () => {
@@ -27,5 +29,28 @@ describe('refuseCli', () => {
     )
     expect(refuseCli('synapse-pipeline', ['show', 'a'.repeat(5000)])).toMatch(/too long/)
     expect(refuseCli('synapse-pipeline', ['show', 'a\0b'])).toMatch(/too long or holds a NUL/)
+  })
+})
+
+describe('cliEnvironment', () => {
+  it('leaves the environment as it is when the app sets nothing', () => {
+    expect(cliEnvironment({ A: '1' }, defaultConfig)).toEqual({ A: '1' })
+  })
+
+  it('sets the work directory', () => {
+    const env = cliEnvironment({}, { ...defaultConfig, workDir: '/w' })
+    expect(env.SYNAPSE_WORK_DIR).toBe('/w')
+  })
+
+  it('puts the definition directories of the app before the inherited ones', () => {
+    const base = { SYNAPSE_PIPELINE_PATH: `/x${delimiter}/y` }
+    const env = cliEnvironment(base, { ...defaultConfig, definitionPaths: ['/mine'] })
+    expect(env.SYNAPSE_PIPELINE_PATH).toBe(['/mine', '/x', '/y'].join(delimiter))
+  })
+
+  it('does not change the environment it is given', () => {
+    const base = { SYNAPSE_PIPELINE_PATH: '/x' }
+    cliEnvironment(base, { ...defaultConfig, definitionPaths: ['/mine'] })
+    expect(base.SYNAPSE_PIPELINE_PATH).toBe('/x')
   })
 })

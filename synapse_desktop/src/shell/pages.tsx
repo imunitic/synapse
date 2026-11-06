@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useConfig } from './config.tsx'
 import { DefinitionPage } from './DefinitionPage.tsx'
 import { ExecutionPage } from './ExecutionPage.tsx'
+import { PipelinePage } from './PipelinePage.tsx'
 import { DEFINITION_LABELS, type Page } from './state.ts'
 
 function WorkDirectoryForm({ initial }: { initial: string }) {
@@ -70,14 +71,18 @@ function CreatePage({ definition }: { definition: keyof typeof DEFINITION_LABELS
   )
 }
 
-export function PageView({ page }: { page: Page }) {
+export function PageView({ page, onOpen }: { page: Page; onOpen: (page: Page) => void }) {
   switch (page.kind) {
     case 'settings':
       return <SettingsPage />
     case 'create':
       return <CreatePage definition={page.definition} />
     case 'definition':
-      return <DefinitionPage definition={page.definition} name={page.name} path={page.path} />
+      return page.definition === 'pipeline' ? (
+        <PipelinePage name={page.name} path={page.path} onOpen={onOpen} />
+      ) : (
+        <DefinitionPage definition={page.definition} name={page.name} path={page.path} />
+      )
     case 'execution':
       return <ExecutionPage id={page.id} />
   }

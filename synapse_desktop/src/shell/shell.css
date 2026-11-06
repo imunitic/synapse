@@ -410,3 +410,229 @@
   gap: 12px;
   overflow-wrap: anywhere;
 }
+
+/* Pipeline page */
+.graph-card {
+  overflow-x: auto;
+}
+
+.graph {
+  display: block;
+}
+
+.graph-node {
+  cursor: pointer;
+}
+
+.graph-node rect {
+  fill: #2a2a30;
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.graph-node:hover rect {
+  fill: var(--raised);
+}
+
+.graph-node[aria-pressed='true'] rect {
+  fill: #2a2740;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.graph-node:focus-visible {
+  outline: none;
+}
+
+.graph-node:focus-visible rect {
+  stroke: var(--accent-text);
+  stroke-width: 2;
+}
+
+.graph-name {
+  fill: var(--text);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.graph-sub {
+  fill: var(--muted);
+  font-size: 12px;
+}
+
+.graph-flow line,
+.graph-arc path {
+  stroke: #6b6b75;
+  stroke-width: 2;
+}
+
+.graph-flow polygon,
+.graph-arc polygon {
+  fill: #6b6b75;
+}
+
+.graph-arc text {
+  fill: var(--muted);
+  font-size: 12px;
+  /* A halo in the color of the card breaks the line behind the label. */
+  paint-order: stroke;
+  stroke: var(--card);
+  stroke-width: 5px;
+  stroke-linejoin: round;
+}
+
+.graph-end rect {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.graph-end text {
+  fill: var(--muted);
+  font-size: 13px;
+}
+
+.link {
+  color: var(--accent-text);
+  text-decoration: underline;
+  margin-right: 12px;
+}
+
+.accent {
+  color: var(--accent-text);
+}
+
+.prompt {
+  display: inline-block;
+  max-width: 640px;
+}
+
+.problems {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.problems li {
+  margin: 2px 0;
+}
+
+/* Page header and actions */
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.page-head .eyebrow {
+  margin-bottom: 2px;
+}
+
+.head-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.small {
+  font-size: 12px;
+}
+
+.primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.secondary {
+  padding: 8px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: #2a2a30;
+  font-weight: 500;
+}
+
+.danger {
+  padding: 8px 16px;
+  border: 1px solid #f87171;
+  border-radius: 6px;
+  color: #fecaca;
+  font-weight: 600;
+}
+
+.error {
+  margin: 0;
+  color: #fecaca;
+}
+
+.row.end {
+  justify-content: flex-end;
+}
+
+/* Dialog */
+.dialog {
+  width: 520px;
+  max-width: 90vw;
+  padding: 20px;
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+}
+
+.dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.dialog form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dialog textarea {
+  width: 100%;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--tabbar);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+/* The pipeline page gives the graph the width of the page and keeps the rest readable. */
+.page.full {
+  max-width: none;
+}
+
+.page.full > :not(.graph-card) {
+  max-width: 1000px;
+}
+
+.graph-card {
+  padding: 20px 0 8px;
+}
+
+.graph-card .graph {
+  margin: 0 auto;
+}
+
+/* Routes of a step */
+.routes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.warn-note {
+  margin-left: 4px;
+  padding: 0 6px;
+  border: 1px solid #fcd34d;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #fcd34d;
+}

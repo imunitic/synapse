@@ -56,16 +56,16 @@ export class HttpTransport implements Transport {
     return this.call('runRequest', { executionId, request })
   }
 
-  // The server has no event stream or run control yet.
+  // The server has no event stream yet.
   watch(): Unsubscribe {
     throw new Error('watch is not available: the server has no event stream yet')
   }
 
-  startRun(): Promise<{ executionId: string }> {
-    return Promise.reject(new Error('startRun is not available yet'))
+  startRun(pipeline: string, input: unknown): Promise<{ executionId: string }> {
+    return this.call('startRun', { pipeline, input })
   }
 
-  stopRun(): Promise<void> {
-    return Promise.reject(new Error('stopRun is not available yet'))
+  async stopRun(executionId: string): Promise<void> {
+    await this.call('stopRun', { executionId })
   }
 }

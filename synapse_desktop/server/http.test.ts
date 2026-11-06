@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { API_PREFIX, TOKEN_HEADER } from '../shared/constants.ts'
 import type { CliRun } from './cli.ts'
 import { createHandler } from './http.ts'
+import { NotStartedHere, RunNotStarted } from './runs.ts'
 
 const TOKEN = 'test-token'
 const ORIGIN = 'http://localhost:5173'
@@ -23,6 +24,12 @@ beforeEach(async () => {
     {
       environment: { env: { XDG_CONFIG_HOME: join(dir, 'xdg') }, home: dir },
       configFile: join(dir, 'config.json'),
+      runs: {
+        start: () => Promise.reject(new RunNotStarted('stub')),
+        stop: () => {
+          throw new NotStartedHere('stub')
+        },
+      },
       runCli: (run) => {
         cliCalls.push(run)
         return Promise.resolve({ code: 0, stdout: 'ok', stderr: '' })

@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { readExecution } from '../domain/executions.ts'
 import { transport } from '../transport/index.ts'
 import { StatusBadge } from './StatusBadge.tsx'
@@ -15,7 +15,18 @@ function formatTime(iso: string | null): string {
 // One run: its summary and the events of its record.
 export function ExecutionPage({ id }: { id: string }) {
   const load = useCallback(() => readExecution(transport, id), [id])
-  const { state } = useLoad(load, REFRESH_MS)
+  const { state, reload } = useLoad(load, REFRESH_MS)
+  const [stopError, setStopError] = useState<string | null>(null)
+
+  async function stop() {
+    try {
+      await transport.stopRun(id)
+      setStopError(null)
+      reload()
+    } catch (error) {
+      setStopError(String(error))
+    }
+  }
 
   if (state.status === 'loading') return <p className="muted">Loading…</p>
   if (state.status === 'failed') return <p role="alert">Could not read the run: {state.error}</p>
@@ -23,8 +34,25 @@ export function ExecutionPage({ id }: { id: string }) {
   const { summary, events } = state.data
   return (
     <div className="page wide">
-      <p className="eyebrow">Execution</p>
-      <h1 className="page-title mono">{summary.id}</h1>
+      <div className="page-head">
+        <div>
+          <p className="eyebrow">Execution</p>
+          <h1 className="page-title mono">{summary.id}</h1>
+        </div>
+        {summary.status === 'running' && (
+          <div className="head-actions">
+            <button className="danger" onClick={() => void stop()}>
+              Stop run
+            </button>
+            <span className="muted small">Only for runs started from this app.</span>
+          </div>
+        )}
+      </div>
+      {stopError !== null && (
+        <p className="error" role="alert">
+          Could not stop the run: {stopError}
+        </p>
+      )}
       <div className="row">
         <StatusBadge status={summary.status} />
         <span>{summary.pipeline ?? 'unknown pipeline'}</span>

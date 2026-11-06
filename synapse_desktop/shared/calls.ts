@@ -38,6 +38,12 @@ export const callParams = {
     stdin: z.string().optional(),
   }),
   runRequest: z.object({ executionId: executionIdSchema, request: runRequestSchema }),
+  startRun: z.object({
+    // A definition's name is an identifier.
+    pipeline: z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/),
+    input: z.unknown(),
+  }),
+  stopRun: z.object({ executionId: executionIdSchema }),
   getConfig: z.object({}),
   getPaths: z.object({}),
   setConfig: z.object({ patch: appConfigSchema.partial() }),
