@@ -1,0 +1,77 @@
+:root {
+  --ground: #1b1b1f;
+  --rail: #151518;
+  --panel: #202024;
+  --main: #1e1e22;
+  --tabbar: #18181b;
+  --card: #232328;
+  --raised: #2c2c33;
+  --border: #2e2e34;
+  --border-strong: #3a3a42;
+  --text: #e4e4e7;
+  --muted: #a1a1aa;
+  --accent: #6d5ce8;
+  --accent-text: #b0a6ff;
+  --warn-bg: #3a2f12;
+  --warn-border: #6b5416;
+  --warn-text: #fde68a;
+  --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--ground);
+  color: var(--text);
+  font: 14px/1.45 var(--font);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+input {
+  font: inherit;
+  color: var(--text);
+  background: var(--tabbar);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+input::placeholder {
+  color: #8b8b95;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+
+.mono {
+  font-family: var(--mono);
+}
+
+.muted {
+  color: var(--muted);
+}
