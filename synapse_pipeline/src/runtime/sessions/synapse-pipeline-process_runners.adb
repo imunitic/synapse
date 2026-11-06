@@ -56,7 +56,9 @@ package body Synapse.Pipeline.Process_Runners is
    is
       Id   : constant String := To_String (Request.Execution_Id);
       Name : constant String :=
-        To_String (Request.Step.Name) & "-"
+        Ada.Strings.Fixed.Trim
+          (Natural'Image (Request.Visit), Ada.Strings.Left) & "-"
+        & To_String (Request.Step.Name) & "-"
         & Ada.Strings.Fixed.Trim
             (Natural'Image (Request.Attempt), Ada.Strings.Left)
         & ".jsonl";

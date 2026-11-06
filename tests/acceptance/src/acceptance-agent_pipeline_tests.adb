@@ -596,11 +596,11 @@ package body Acceptance.Agent_Pipeline_Tests is
            Work (F) & "/pipelines/" & Id & "/transcripts";
       begin
          Assert
-           (Holds (Files_In (Dir), "Develop-1.jsonl")
-            and then Holds (Files_In (Dir), "Review-1.jsonl"),
+           (Holds (Files_In (Dir), "1-Develop-1.jsonl")
+            and then Holds (Files_In (Dir), "2-Review-1.jsonl"),
             "each step has a transcript for its first attempt");
          Assert_Contains
-           (Read_File (Dir & "/Develop-1.jsonl"), "did it",
+           (Read_File (Dir & "/1-Develop-1.jsonl"), "did it",
             "which holds what the harness printed");
       end;
    end A_Sessions_Output_Is_Kept_As_A_Transcript;

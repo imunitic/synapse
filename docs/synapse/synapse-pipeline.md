@@ -255,13 +255,13 @@ execution.sock      only while the run is going
 execution.json      the summary, replaced as the run goes on
 events.jsonl        one event a line, as the socket gives them
 transcripts/
-  Develop-1.jsonl   what a harness printed for one step attempt, as it printed it
-  Review-1.jsonl
+  1-Develop-1.jsonl   what a harness printed for one step attempt, as it printed it
+  2-Review-1.jsonl
 ```
 
 `execution.json` has `format` `synapse-pipeline-execution/v1`, the execution's `id` and `pipeline`, when it
 `started` and `ended`, its `status` (`running`, `completed` or `failed`), its `current_step` and the run's
-`state`. Each try of a step has a transcript of its own, named for the step and the try, and a
+`state`. Each try of a step has a transcript of its own, named for the run's step count, the step and the try, and a
 `session.finished` event that says where it is. For Claude the transcript is the final result the harness
 prints, not the conversation.
 

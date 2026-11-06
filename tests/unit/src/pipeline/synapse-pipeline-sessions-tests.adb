@@ -61,6 +61,15 @@ package body Synapse.Pipeline.Sessions.Tests is
          Assert
            (Request_For (Step_With (0), Run_At_A, Settings, 3).Attempt = 3,
             "or the one given");
+         declare
+            Later : States.State := Run_At_A;
+         begin
+            Later.Steps_Run := 4;
+            Assert
+              (Asked.Visit = 1
+               and then Request_For (Step_With (0), Later, Settings).Visit = 5,
+               "and which step of the run it is, which a revisit changes");
+         end;
       end;
    end A_Session_Is_Asked_For_From_The_Step_And_The_Run;
 

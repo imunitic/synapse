@@ -42,6 +42,10 @@ package Synapse.Pipeline.Sessions is
       --  Which try this is for the step, from 1.
       Attempt         : Positive := 1;
 
+      --  Which step of the run this is, from 1. A step the run comes back to
+      --  has a new one each time, so it tells every session of the run apart.
+      Visit           : Positive := 1;
+
       --  The execution the session belongs to, which its transcript is kept
       --  under; empty when there is no record to keep one in.
       Execution_Id    : Ada.Strings.Unbounded.Unbounded_String;
