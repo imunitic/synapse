@@ -3,6 +3,7 @@
 import { API_PREFIX } from '../../shared/constants.ts'
 import type {
   AppConfig,
+  AppPaths,
   CliBinary,
   CliOptions,
   CliResult,
@@ -47,15 +48,17 @@ export class HttpTransport implements Transport {
     return this.call('setConfig', { patch })
   }
 
-  // The server has no event stream or run control yet.
-  watch(): Unsubscribe {
-    throw new Error('watch is not available: the server has no event stream yet')
+  getPaths(): Promise<AppPaths> {
+    return this.call('getPaths', {})
   }
 
   runRequest(executionId: string, request: RunRequest): Promise<RunAnswer> {
-    return Promise.reject(
-      new Error(`runRequest ${executionId} ${request.command} is not available yet`),
-    )
+    return this.call('runRequest', { executionId, request })
+  }
+
+  // The server has no event stream or run control yet.
+  watch(): Unsubscribe {
+    throw new Error('watch is not available: the server has no event stream yet')
   }
 
   startRun(): Promise<{ executionId: string }> {

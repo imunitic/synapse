@@ -128,4 +128,38 @@ describe('the API', () => {
     expect(refused.status).toBe(400)
     expect(cliCalls).toHaveLength(1)
   })
+
+  it('lists only the directories that exist', async () => {
+    const definitions = join(dir, 'xdg', 'synapse-pipeline')
+    await mkdir(join(definitions, 'skills'), { recursive: true })
+    await post('setConfig', {
+      patch: { workDir: join(dir, 'work'), definitionPaths: [join(dir, 'missing')] },
+    })
+
+    const before = await post('getPaths', {})
+    expect(before.body.result).toEqual({
+      definitionDirs: [definitions],
+      skillsDir: join(definitions, 'skills'),
+      recordsDir: null,
+    })
+
+    await mkdir(join(dir, 'work', 'pipelines'), { recursive: true })
+    const after = await post('getPaths', {})
+    expect(after.body.result).toMatchObject({ recordsDir: join(dir, 'work', 'pipelines') })
+  })
+
+  it('refuses a run id that would leave the records directory', async () => {
+    await post('setConfig', { patch: { workDir: join(dir, 'work') } })
+    const reply = await post('runRequest', { executionId: '../x', request: { command: 'info' } })
+    expect(reply.status).toBe(400)
+  })
+
+  it('reports a run that is not listening, and no work directory', async () => {
+    const none = await post('runRequest', { executionId: 'exec-1', request: { command: 'info' } })
+    expect(none.status).toBe(409)
+
+    await post('setConfig', { patch: { workDir: join(dir, 'work') } })
+    const gone = await post('runRequest', { executionId: 'exec-1', request: { command: 'info' } })
+    expect(gone.status).toBe(404)
+  })
 })

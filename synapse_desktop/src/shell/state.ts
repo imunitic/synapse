@@ -14,7 +14,12 @@ export const DEFINITION_LABELS: Record<DefinitionKind, { singular: string; plura
   skill: { singular: 'skill', plural: 'Skills' },
 }
 
-export type Page = { kind: 'settings' } | { kind: 'create'; definition: DefinitionKind }
+export type Page =
+  | { kind: 'settings' }
+  | { kind: 'create'; definition: DefinitionKind }
+  // A definition's file: a .synapse file, or a skill's SKILL.md.
+  | { kind: 'definition'; definition: DefinitionKind; name: string; path: string }
+  | { kind: 'execution'; id: string }
 
 export interface Tab {
   id: string
@@ -46,11 +51,29 @@ export type Action =
   | { type: 'closeTab'; id: string }
 
 export function pageId(page: Page): string {
-  return page.kind === 'create' ? `create:${page.definition}` : page.kind
+  switch (page.kind) {
+    case 'settings':
+      return 'settings'
+    case 'create':
+      return `create:${page.definition}`
+    case 'definition':
+      return `definition:${page.definition}:${page.name}`
+    case 'execution':
+      return `execution:${page.id}`
+  }
 }
 
 export function pageTitle(page: Page): string {
-  return page.kind === 'create' ? `New ${DEFINITION_LABELS[page.definition].singular}` : 'Settings'
+  switch (page.kind) {
+    case 'settings':
+      return 'Settings'
+    case 'create':
+      return `New ${DEFINITION_LABELS[page.definition].singular}`
+    case 'definition':
+      return page.name
+    case 'execution':
+      return page.id
+  }
 }
 
 export function reduce(state: ShellState, action: Action): ShellState {

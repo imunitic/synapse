@@ -30,6 +30,27 @@ describe('side panel', () => {
   })
 })
 
+describe('page ids', () => {
+  it('keeps a pipeline and an agent of the same name apart', () => {
+    const a = {
+      kind: 'definition',
+      definition: 'pipeline',
+      name: 'X',
+      path: '/a/X.synapse',
+    } as const
+    const b = { kind: 'definition', definition: 'agent', name: 'X', path: '/b/X.synapse' } as const
+    expect(pageId(a)).not.toBe(pageId(b))
+  })
+
+  it('opens an execution once', () => {
+    const state = run([
+      { type: 'openPage', page: { kind: 'execution', id: 'exec-1' } },
+      { type: 'openPage', page: { kind: 'execution', id: 'exec-1' } },
+    ])
+    expect(state.tabs).toHaveLength(1)
+  })
+})
+
 describe('tabs', () => {
   it('opens a page once and activates it again instead of duplicating it', () => {
     const state = run([

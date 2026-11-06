@@ -29,6 +29,15 @@ export type RunRequest =
   | { command: 'events'; after?: number }
   | { command: 'query'; expression: unknown }
 
+// Where the app looks, with only the directories that exist.
+export interface AppPaths {
+  // Directories of .synapse files.
+  definitionDirs: string[]
+  skillsDir: string | null
+  // The work directory's pipelines folder, where each run keeps its record.
+  recordsDir: string | null
+}
+
 export type RunAnswer = { ok: true; result: unknown } | { ok: false; error: string }
 
 export type CliBinary = 'synapse-pipeline' | 'synapse'
@@ -59,5 +68,6 @@ export interface Transport {
   stopRun(executionId: string): Promise<void>
 
   getConfig(): Promise<AppConfig>
+  getPaths(): Promise<AppPaths>
   setConfig(patch: Partial<AppConfig>): Promise<AppConfig>
 }

@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useConfig } from './config.tsx'
+import { DefinitionPage } from './DefinitionPage.tsx'
+import { ExecutionPage } from './ExecutionPage.tsx'
 import { DEFINITION_LABELS, type Page } from './state.ts'
 
 function WorkDirectoryForm({ initial }: { initial: string }) {
@@ -74,5 +76,9 @@ export function PageView({ page }: { page: Page }) {
       return <SettingsPage />
     case 'create':
       return <CreatePage definition={page.definition} />
+    case 'definition':
+      return <DefinitionPage definition={page.definition} name={page.name} path={page.path} />
+    case 'execution':
+      return <ExecutionPage id={page.id} />
   }
 }

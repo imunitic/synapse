@@ -2,6 +2,7 @@
 // names are the Transport methods that travel over HTTP.
 
 import { z } from 'zod'
+import type { RunRequest } from './transport.ts'
 
 export const harnessSchema = z.enum(['Claude', 'Codex', 'Opencode'])
 
@@ -17,6 +18,17 @@ export const defaultConfig: z.infer<typeof appConfigSchema> = {
   defaultHarness: null,
 }
 
+// A run's id names a directory, so it may not hold a separator or a dot.
+export const executionIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/)
+
+export const runRequestSchema: z.ZodType<RunRequest> = z.discriminatedUnion('command', [
+  z.object({ command: z.literal('info') }),
+  z.object({ command: z.literal('state') }),
+  z.object({ command: z.literal('pipeline') }),
+  z.object({ command: z.literal('events'), after: z.number().int().nonnegative().optional() }),
+  z.object({ command: z.literal('query'), expression: z.unknown() }),
+])
+
 export const callParams = {
   readText: z.object({ path: z.string() }),
   readDir: z.object({ path: z.string() }),
@@ -25,7 +37,9 @@ export const callParams = {
     args: z.array(z.string()),
     stdin: z.string().optional(),
   }),
+  runRequest: z.object({ executionId: executionIdSchema, request: runRequestSchema }),
   getConfig: z.object({}),
+  getPaths: z.object({}),
   setConfig: z.object({ patch: appConfigSchema.partial() }),
 } as const
 

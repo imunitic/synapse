@@ -38,7 +38,7 @@ export function Shell() {
             {active === undefined ? (
               <p className="empty">Open a page from the side panel.</p>
             ) : (
-              <PageView page={active.page} />
+              <PageView key={active.id} page={active.page} />
             )}
           </div>
         </main>

@@ -5,10 +5,19 @@ import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { ZodError } from 'zod'
 import { appConfigSchema, callParams, isCallName, type CallName } from '../shared/calls.ts'
-import type { AppConfig, CliResult, DirEntry } from '../shared/transport.ts'
+import type { AppConfig, AppPaths, CliResult, DirEntry, RunAnswer } from '../shared/transport.ts'
 import { refuseCli, type CliRunner } from './cli.ts'
 import { loadConfig, saveConfig } from './config-store.ts'
-import { allowedRoots, OutsideRoots, resolveInside, type Environment } from './roots.ts'
+import {
+  allowedRoots,
+  definitionDirs as listDefinitionDirs,
+  existingDirs,
+  OutsideRoots,
+  pipelineConfigDir,
+  resolveInside,
+  type Environment,
+} from './roots.ts'
+import { askRun, NotListening, socketPath } from './run-socket.ts'
 
 const MAX_FILE_BYTES = 4 * 1024 * 1024
 
@@ -72,6 +81,34 @@ const handlers: Record<CallName, Handler> = {
     if (refusal !== null) throw new CallError(refusal, 400)
     const config = await loadConfig(context.configFile)
     return context.runCli({ binary, args, stdin, workDir: config.workDir })
+  },
+
+  async runRequest(raw, context): Promise<RunAnswer> {
+    const { executionId, request } = callParams.runRequest.parse(raw)
+    const { workDir } = await loadConfig(context.configFile)
+    if (workDir === null) throw new CallError('no work directory is set', 409)
+    const path = socketPath(join(workDir, 'pipelines'), executionId, process.platform)
+    try {
+      return await askRun(path, request)
+    } catch (error) {
+      if (error instanceof NotListening) throw new CallError('the run is not listening', 404)
+      throw error
+    }
+  },
+
+  async getPaths(raw, context): Promise<AppPaths> {
+    callParams.getPaths.parse(raw)
+    const config = await loadConfig(context.configFile)
+    const { environment } = context
+    const [skillsDir] = await existingDirs([join(pipelineConfigDir(environment), 'skills')])
+    const [recordsDir] = await existingDirs(
+      config.workDir === null ? [] : [join(config.workDir, 'pipelines')],
+    )
+    return {
+      definitionDirs: await existingDirs(listDefinitionDirs(config, environment)),
+      skillsDir: skillsDir ?? null,
+      recordsDir: recordsDir ?? null,
+    }
   },
 
   async getConfig(raw, context): Promise<AppConfig> {

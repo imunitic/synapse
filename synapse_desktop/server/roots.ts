@@ -1,7 +1,7 @@
 // The directories the file primitives may reach: the work directory's records
 // and the places definitions are looked for.
 
-import { realpath } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
 import { delimiter, isAbsolute, join, sep } from 'node:path'
 import type { AppConfig } from '../shared/transport.ts'
 
@@ -51,4 +51,14 @@ export async function resolveInside(target: string, roots: readonly string[]): P
     if (real === realRoot || real.startsWith(realRoot + sep)) return real
   }
   throw new OutsideRoots('path is outside the allowed directories')
+}
+
+// The paths that are directories now, without repeats, in their order.
+export async function existingDirs(paths: readonly string[]): Promise<string[]> {
+  const found: string[] = []
+  for (const path of new Set(paths)) {
+    const info = await stat(path).catch(() => null)
+    if (info?.isDirectory()) found.push(path)
+  }
+  return found
 }
