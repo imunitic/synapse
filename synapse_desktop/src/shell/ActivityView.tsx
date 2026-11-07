@@ -19,6 +19,8 @@ const KIND_LABEL: Record<Action['kind'], string> = {
   command: 'run',
   search: 'search',
   message: 'said',
+  prompt: 'you',
+  thinking: 'thought',
   other: 'tool',
   error: 'error',
 }
@@ -60,7 +62,16 @@ function Detail({ action }: { action: Action }) {
   )
 }
 
-function ActionRow({ action, folder }: { action: Action; folder: string }) {
+function ActionRow({
+  action,
+  folder,
+  expanded = false,
+}: {
+  action: Action
+  folder: string
+  // Every row open, whatever it is by default.
+  expanded?: boolean
+}) {
   const head = (
     <>
       <span className="activity-kind" data-kind={action.kind}>
@@ -85,13 +96,64 @@ function ActionRow({ action, folder }: { action: Action; folder: string }) {
     return <div className="activity-row">{head}</div>
   }
   return (
+    // The key makes a change of `expanded` apply to rows that were opened or closed by hand.
     <details
+      key={String(expanded)}
       className="activity-row"
-      open={action.kind === 'message' || action.status === 'failed'}
+      open={
+        expanded ||
+        action.kind === 'message' ||
+        action.kind === 'prompt' ||
+        action.status === 'failed'
+      }
     >
       <summary>{head}</summary>
       <Detail action={action} />
     </details>
+  )
+}
+
+// The files an activity changed and its actions: what a session did, or what a
+// conversation has done so far.
+export function ActivityBody({
+  activity,
+  empty,
+  expanded = false,
+}: {
+  activity: Activity
+  // Said when there is nothing in it.
+  empty: string
+  expanded?: boolean
+}) {
+  const { actions, changes } = activity
+  const folder = commonFolder([
+    ...changes.map((c) => c.path),
+    ...actions
+      .filter((a) => a.kind === 'read' || a.kind === 'write' || a.kind === 'edit')
+      .flatMap((a) => (a.target === null ? [] : [a.target])),
+  ])
+  return (
+    <>
+      {changes.length > 0 && (
+        <div className="chips" aria-label="Files changed">
+          {changes.map((c) => (
+            <span key={c.path} className="chip mono" title={c.path}>
+              {c.change === 'add' ? '+' : c.change === 'delete' ? '−' : '~'}{' '}
+              {shownPath(c.path, folder)}
+            </span>
+          ))}
+        </div>
+      )}
+      {actions.length === 0 ? (
+        <p className="muted small">{empty}</p>
+      ) : (
+        <div className="activity-list">
+          {actions.map((action, i) => (
+            <ActionRow key={i} action={action} folder={folder} expanded={expanded} />
+          ))}
+        </div>
+      )}
+    </>
   )
 }
 
@@ -104,39 +166,18 @@ export function ActivityView({ path }: { path: string }) {
   if (state.status === 'failed') {
     return <p className="muted small">The transcript could not be read: {state.error}</p>
   }
-  const { harness, actions, changes, stats } = state.data
-  const folder = commonFolder([
-    ...changes.map((c) => c.path),
-    ...actions
-      .filter((a) => a.kind === 'read' || a.kind === 'write' || a.kind === 'edit')
-      .flatMap((a) => (a.target === null ? [] : [a.target])),
-  ])
+  const { harness, stats } = state.data
   return (
     <div className="activity">
       <p className="muted small">{statsText(harness, stats)}</p>
-      {changes.length > 0 && (
-        <div className="chips" aria-label="Files changed">
-          {changes.map((c) => (
-            <span key={c.path} className="chip mono" title={c.path}>
-              {c.change === 'add' ? '+' : c.change === 'delete' ? '−' : '~'}{' '}
-              {shownPath(c.path, folder)}
-            </span>
-          ))}
-        </div>
-      )}
-      {actions.length === 0 ? (
-        <p className="muted small">
-          {harness === 'unknown'
+      <ActivityBody
+        activity={state.data}
+        empty={
+          harness === 'unknown'
             ? 'This transcript is in a form the app does not know.'
-            : 'The transcript records no actions, only how the session ended.'}
-        </p>
-      ) : (
-        <div className="activity-list">
-          {actions.map((action, i) => (
-            <ActionRow key={i} action={action} folder={folder} />
-          ))}
-        </div>
-      )}
+            : 'The transcript records no actions, only how the session ended.'
+        }
+      />
     </div>
   )
 }

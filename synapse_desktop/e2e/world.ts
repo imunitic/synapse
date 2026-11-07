@@ -191,17 +191,39 @@ export function resetSettings(world: World): void {
   )
 }
 
-// A harness that prints what it was started with and then echoes each line that
-// is typed, until the line `quit`, which ends it with code 7.
-const STUB = `#!/bin/sh
-echo "STUB $(basename "$0") args: $*"
-echo "CODEX_HOME=\${CODEX_HOME:-} OPENCODE_CONFIG_DIR=\${OPENCODE_CONFIG_DIR:-} CONTENT_ROOT=\${SYNAPSE_CONTENT_ROOT:-}"
-echo "cwd: $(pwd)"
-while IFS= read -r line; do
-  echo "typed: $line"
-  [ "$line" = quit ] && exit 7
-done
-`
+// A harness that prints what it was started with, writes a session file in the
+// form of the real one, and then echoes each line that is typed, until the line
+// `quit`, which ends it with code 7.
+const STUB = [
+  '#!/bin/sh',
+  'name=$(basename "$0")',
+  'echo "STUB $name args: $*"',
+  'echo "CODEX_HOME=${CODEX_HOME:-} OPENCODE_CONFIG_DIR=${OPENCODE_CONFIG_DIR:-} CONTENT_ROOT=${SYNAPSE_CONTENT_ROOT:-}"',
+  'echo "cwd: $(pwd)"',
+  'sid=""; prev=""',
+  'for a in "$@"; do [ "$prev" = "--session-id" ] && sid="$a"; prev="$a"; done',
+  'if [ "$name" = claude ] && [ -n "$sid" ]; then',
+  '  d="$HOME/.claude/projects/-stub"; mkdir -p "$d"; f="$d/$sid.jsonl"',
+  `  printf '%s\\n' '{"type":"permission-mode"}' >> "$f"`,
+  `  printf '%s\\n' '{"type":"user","message":{"role":"user","content":"Fix the bug in a.txt"}}' >> "$f"`,
+  `  printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"I will look at the folder."}]}}' >> "$f"`,
+  `  printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls -la"}}]}}' >> "$f"`,
+  `  printf '%s\\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"total 8 a.txt"}]}}' >> "$f"`,
+  'fi',
+  'if [ "$name" = codex ]; then',
+  '  d="${CODEX_HOME:-$HOME/.codex}/sessions/$(date +%Y/%m/%d)"; mkdir -p "$d"; f="$d/rollout-stub-$$.jsonl"',
+  `  printf '{"type":"session_meta","payload":{"cwd":"%s"}}\\n' "$(pwd)" > "$f"`,
+  `  printf '%s\\n' '{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Add a test"}]}}' >> "$f"`,
+  `  printf '%s\\n' '{"type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\\"command\\":[\\"bash\\",\\"-lc\\",\\"echo hello-codex\\"]}","call_id":"c1"}}' >> "$f"`,
+  `  printf '%s\\n' '{"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"hello-codex"}}' >> "$f"`,
+  `  printf '%s\\n' '{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Added it."}]}}' >> "$f"`,
+  'fi',
+  'while IFS= read -r line; do',
+  '  echo "typed: $line"',
+  '  [ "$line" = quit ] && exit 7',
+  'done',
+  '',
+].join('\n')
 
 export function buildWorld(root: string, binDirs: readonly string[]): World {
   const world = worldAt(root)

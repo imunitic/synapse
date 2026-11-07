@@ -34,6 +34,15 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
   // for this session, and `note` says so to the person.
   z.object({ type: z.literal('started'), loaded: z.boolean(), note: z.string() }),
   z.object({ type: z.literal('output'), data: z.string() }),
+  // The conversation of a harness started in the session is being followed.
+  z.object({
+    type: z.literal('transcript-source'),
+    id: z.string(),
+    harness: z.enum(['Claude', 'Codex']),
+    cwd: z.string(),
+  }),
+  // Lines of that conversation's session file, as they were appended.
+  z.object({ type: z.literal('transcript'), id: z.string(), lines: z.array(z.string()) }),
   z.object({ type: z.literal('exit'), code: z.number() }),
   z.object({ type: z.literal('error'), message: z.string() }),
 ])

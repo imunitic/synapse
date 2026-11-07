@@ -4,8 +4,19 @@
 
 import type { RunEvent } from './executions.ts'
 
+// `prompt` and `thinking` come only from a conversation that is followed as it
+// goes, not from what a step's session printed.
 export type ActionKind =
-  'read' | 'write' | 'edit' | 'command' | 'search' | 'message' | 'other' | 'error'
+  | 'read'
+  | 'write'
+  | 'edit'
+  | 'command'
+  | 'search'
+  | 'message'
+  | 'prompt'
+  | 'thinking'
+  | 'other'
+  | 'error'
 
 export interface Action {
   kind: ActionKind
@@ -177,7 +188,23 @@ function toolOutput(content: unknown): string | null {
   return parts.length > 0 ? parts.join('\n') : null
 }
 
-function readClaude(events: readonly Json[]): Activity {
+// What a person typed, in the content of a user line that holds no tool result;
+// null when it holds none.
+function promptText(content: unknown): string | null {
+  if (typeof content === 'string') return content.trim() === '' ? null : content
+  const parts = list(content).map(obj)
+  if (parts.some((p) => p?.type === 'tool_result')) return null
+  const texts = parts
+    .map((p) => (p?.type === 'text' ? str(p.text) : null))
+    .filter((t) => t !== null)
+  const text = texts.join('\n')
+  return text.trim() === '' ? null : text
+}
+
+// `conversation`: the lines are those of a session file, which also holds what
+// the person typed and what the model thought, and writes the result of a tool
+// as `toolUseResult`.
+function readClaude(events: readonly Json[], conversation = false): Activity {
   const actions: Action[] = []
   const changes: FileChange[] = []
   const stats = emptyStats()
@@ -185,11 +212,24 @@ function readClaude(events: readonly Json[]): Activity {
 
   for (const event of events) {
     const type = str(event.type)
+    // A subagent's own lines, and the context the harness adds, are not the conversation.
+    if (conversation && (event.isSidechain === true || event.isMeta === true)) continue
     const content = list(obj(event.message)?.content).map(obj)
     if (type === 'assistant') {
       for (const part of content) {
         if (part === null) continue
-        if (part.type === 'text') {
+        if (conversation && part.type === 'thinking') {
+          const thought = str(part.thinking) ?? ''
+          if (thought.trim() !== '') {
+            actions.push({
+              kind: 'thinking',
+              title: 'Thought',
+              target: null,
+              detail: thought,
+              status: 'ok',
+            })
+          }
+        } else if (part.type === 'text') {
           const text = str(part.text) ?? ''
           if (text.trim() !== '' && !isResultEnvelope(text)) {
             actions.push({
@@ -218,7 +258,13 @@ function readClaude(events: readonly Json[]): Activity {
         }
       }
     } else if (type === 'user') {
-      const outcome = obj(event.tool_use_result)
+      const outcome = obj(event.tool_use_result) ?? obj(event.toolUseResult)
+      if (conversation) {
+        const said = promptText(obj(event.message)?.content)
+        if (said !== null) {
+          actions.push({ kind: 'prompt', title: 'You', target: null, detail: said, status: 'ok' })
+        }
+      }
       for (const part of content) {
         if (part === null || part.type !== 'tool_result') continue
         const found = byId.get(str(part.tool_use_id) ?? '')
@@ -511,4 +557,176 @@ export function sessionsByVisit(events: readonly RunEvent[]): RecordedSession[][
     }
   }
   return visits
+}
+
+// ---- A session that is followed as it goes
+
+// The command of a shell tool call, which a harness writes as text, as a list
+// of words, or as `bash -lc <script>`.
+function commandOf(args: Json): string | null {
+  const raw = args.command ?? args.cmd
+  if (typeof raw === 'string') return unwrapShell(raw)
+  const words = list(raw).filter((w): w is string => typeof w === 'string')
+  if (words.length === 0) return null
+  const wrapped =
+    words.length === 3 &&
+    /(?:^|\/)(?:ba|z)?sh$/.test(words[0] ?? '') &&
+    /^-l?c$/.test(words[1] ?? '')
+  return wrapped ? (words[2] ?? null) : words.join(' ')
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
+// The text of an output that is the output itself, or JSON with it in `output`.
+function outputText(raw: unknown): { text: string; failed: boolean } {
+  if (typeof raw !== 'string') return { text: '', failed: false }
+  const parsed = obj(parseJson(raw))
+  if (parsed !== null && typeof parsed.output === 'string') {
+    const code = num(obj(parsed.metadata)?.exit_code)
+    return { text: parsed.output, failed: code !== null && code !== 0 }
+  }
+  return { text: raw, failed: false }
+}
+
+// The files a patch in the form Codex gives names, and what it does to each.
+function patchFiles(patch: string): FileChange[] {
+  const changes: FileChange[] = []
+  for (const match of patch.matchAll(/^\*\*\* (Add|Update|Delete) File: (.+)$/gm)) {
+    const how = match[1]
+    changes.push({
+      path: (match[2] ?? '').trim(),
+      change: how === 'Add' ? 'add' : how === 'Delete' ? 'delete' : 'update',
+    })
+  }
+  return changes
+}
+
+// What the harness adds to the first message of a session is not what the person
+// typed: a line that opens a tag, or the instructions of the project.
+function isContext(text: string): boolean {
+  const first = text.trimStart()
+  return first.startsWith('<') || first.startsWith('# AGENTS.md')
+}
+
+// The rollout file of a Codex session: one record for each message, thought, tool
+// call and what came of it.
+function readCodexRollout(events: readonly Json[]): Activity {
+  const actions: Action[] = []
+  const changes: FileChange[] = []
+  const calls = new Map<string, Action>()
+
+  for (const event of events) {
+    if (event.type !== 'response_item') continue
+    const item = obj(event.payload)
+    if (item === null) continue
+    switch (item.type) {
+      case 'message': {
+        const text = list(item.content)
+          .map((part) => str(obj(part)?.text))
+          .filter((t) => t !== null)
+          .join('\n')
+        if (text.trim() === '') break
+        if (item.role === 'user' && !isContext(text)) {
+          actions.push({ kind: 'prompt', title: 'You', target: null, detail: text, status: 'ok' })
+        } else if (item.role === 'assistant') {
+          actions.push({ kind: 'message', title: 'Said', target: null, detail: text, status: 'ok' })
+        }
+        break
+      }
+      case 'reasoning': {
+        const text = list(item.summary)
+          .map((part) => str(obj(part)?.text))
+          .filter((t) => t !== null)
+          .join('\n')
+        if (text.trim() !== '') {
+          actions.push({
+            kind: 'thinking',
+            title: 'Thought',
+            target: null,
+            detail: text,
+            status: 'ok',
+          })
+        }
+        break
+      }
+      case 'function_call': {
+        const name = str(item.name) ?? 'tool'
+        const args = obj(parseJson(str(item.arguments) ?? '')) ?? {}
+        const command = commandOf(args)
+        const action: Action = {
+          kind: command === null ? 'other' : 'command',
+          title: command === null ? name : 'Ran',
+          target: command ?? shortJson(args),
+          detail: null,
+          status: 'pending',
+        }
+        actions.push(action)
+        const id = str(item.call_id)
+        if (id !== null) calls.set(id, action)
+        break
+      }
+      case 'custom_tool_call': {
+        const name = str(item.name) ?? 'tool'
+        const input = str(item.input) ?? ''
+        const files = name === 'apply_patch' ? patchFiles(input) : []
+        const first = files[0]
+        const action: Action =
+          name === 'apply_patch'
+            ? {
+                kind: first?.change === 'add' ? 'write' : 'edit',
+                title:
+                  first?.change === 'add'
+                    ? 'Wrote'
+                    : first?.change === 'delete'
+                      ? 'Deleted'
+                      : 'Edited',
+                target: first?.path ?? null,
+                detail: input,
+                status: 'pending',
+              }
+            : { kind: 'other', title: name, target: null, detail: input, status: 'pending' }
+        actions.push(action)
+        changes.push(...files)
+        const id = str(item.call_id)
+        if (id !== null) calls.set(id, action)
+        break
+      }
+      case 'function_call_output':
+      case 'custom_tool_call_output': {
+        const action = calls.get(str(item.call_id) ?? '')
+        if (action === undefined) break
+        const { text, failed } = outputText(item.output)
+        action.status = failed ? 'failed' : 'ok'
+        // What a patch did is its diff; any other result is its output.
+        if (action.kind !== 'edit' && action.kind !== 'write') action.detail = text
+        else if (failed) action.detail = text
+        break
+      }
+      case 'web_search_call': {
+        const query = str(obj(item.action)?.query)
+        actions.push({
+          kind: 'search',
+          title: 'Searched the web',
+          target: query,
+          detail: null,
+          status: 'ok',
+        })
+        break
+      }
+    }
+  }
+  return { harness: 'Codex', actions, changes: dedupe(changes), stats: emptyStats() }
+}
+
+// The conversation of a session file written by Claude Code or by Codex, which
+// is followed as the file grows.
+export function readSessionLog(harness: 'Claude' | 'Codex', text: string): Activity {
+  const events = lines(text)
+  return harness === 'Claude' ? readClaude(events, true) : readCodexRollout(events)
 }

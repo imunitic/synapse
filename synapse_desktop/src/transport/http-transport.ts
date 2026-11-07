@@ -97,6 +97,17 @@ export class HttpTransport implements Transport {
         case 'output':
           listener.onOutput(message.data)
           break
+        case 'transcript-source':
+          listener.onTranscript({
+            kind: 'source',
+            id: message.id,
+            harness: message.harness,
+            cwd: message.cwd,
+          })
+          break
+        case 'transcript':
+          listener.onTranscript({ kind: 'lines', id: message.id, lines: message.lines })
+          break
         case 'exit':
           ended = true
           listener.onExit(message.code)

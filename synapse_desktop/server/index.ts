@@ -10,7 +10,7 @@ import { configFile } from './config-store.ts'
 import { createHandler } from './http.ts'
 import { runAgent } from './generate.ts'
 import { createRunStarter } from './runs.ts'
-import { attachTerminals, defaultPlan, spawnPty } from './terminal.ts'
+import { attachTerminals, defaultPlan, sessionsRoot, spawnPty } from './terminal.ts'
 
 const environment = { env: process.env, home: homedir() }
 const suppliedToken = process.env.SYNAPSE_DESKTOP_TOKEN
@@ -40,6 +40,7 @@ attachTerminals(server, {
   spawn: spawnPty,
   plan: defaultPlan(environment),
   maxTerminals: 8,
+  sessionsRoot: sessionsRoot(environment),
 })
 server.listen(SERVER_PORT, '127.0.0.1', () => {
   console.log(`synapse-desktop server on http://127.0.0.1:${SERVER_PORT}`)

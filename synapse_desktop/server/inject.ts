@@ -306,24 +306,76 @@ function quoted(text: string): string {
   return `'${text.replaceAll("'", "'\\''")}'`
 }
 
+// Escapes backslashes and quotes for a JSON string written by a shell script.
+const JSON_ESCAPE = `sed 's/\\\\/\\\\\\\\/g; s/"/\\\\"/g'`
+
+// What a wrapper writes when it starts a session whose conversation is followed:
+// one file in the folder SYNAPSE_SESSIONS_DIR names, which the app reads. Claude
+// is given a session id of the wrapper's choosing, so that the file is known
+// before it exists; a run that continues another session is not followed.
+const CLAUDE_TRACKING = `track=""
+if [ -n "$SYNAPSE_SESSIONS_DIR" ]; then
+  skip=""
+  case "$1" in
+    mcp|plugin|plugins|config|doctor|update|install|setup-token|migrate-installer|auth|agents|api-key|help) skip=1 ;;
+  esac
+  case " $* " in
+    *" -p "*|*" --print"*|*" -r "*|*" --resume"*|*" -c "*|*" --continue"*|*" --session-id"*|*" --version"*|*" -v "*|*" --help"*|*" -h "*) skip=1 ;;
+  esac
+  if [ -z "$skip" ]; then
+    id=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null)
+    id=$(printf %s "$id" | tr 'A-Z' 'a-z')
+    if [ -n "$id" ]; then
+      track="--session-id $id"
+      cwd=$(pwd | ${JSON_ESCAPE})
+      cfg=$(printf %s "\${CLAUDE_CONFIG_DIR:-$HOME/.claude}" | ${JSON_ESCAPE})
+      mkdir -p "$SYNAPSE_SESSIONS_DIR" 2>/dev/null
+      printf '{"harness":"claude","sessionId":"%s","cwd":"%s","configDir":"%s","startedAt":%s000}\\n' "$id" "$cwd" "$cfg" "$(date +%s)" > "$SYNAPSE_SESSIONS_DIR/.claude-$id.tmp" && mv "$SYNAPSE_SESSIONS_DIR/.claude-$id.tmp" "$SYNAPSE_SESSIONS_DIR/claude-$id.json"
+    fi
+  fi
+fi
+`
+
+// Codex has no way to be given a session id, so it is found by where and when it
+// started. A run that is a command and not a session is not followed.
+const CODEX_TRACKING = `if [ -n "$SYNAPSE_SESSIONS_DIR" ]; then
+  case "$1" in
+    exec|e|review|login|logout|mcp|plugin|app-server|completion|update|doctor|sandbox|debug|apply|features|help|cloud) ;;
+    *)
+      cwd=$(pwd | ${JSON_ESCAPE})
+      home=$(printf %s "\${CODEX_HOME:-$HOME/.codex}" | ${JSON_ESCAPE})
+      mkdir -p "$SYNAPSE_SESSIONS_DIR" 2>/dev/null
+      printf '{"harness":"codex","cwd":"%s","home":"%s","startedAt":%s000}\\n' "$cwd" "$home" "$(date +%s)" > "$SYNAPSE_SESSIONS_DIR/.codex-$$.tmp" && mv "$SYNAPSE_SESSIONS_DIR/.codex-$$.tmp" "$SYNAPSE_SESSIONS_DIR/codex-$$.json"
+      ;;
+  esac
+fi
+`
+
+export type Tracking = 'claude' | 'codex' | null
+
 // A command that starts the next program of that name on PATH, after its own
-// folder, with the arguments and variables of a session plan added. PATH is the
-// one of the shell it is started from, which is not known until then.
-export function shimScript(name: string, plan: SessionPlan): string {
+// folder, with the arguments and variables of a session plan added, and, for a
+// harness whose conversation is followed, a note of the run. PATH is the one of
+// the shell it is started from, which is not known until then.
+export function shimScript(name: string, plan: SessionPlan, tracking: Tracking = null): string {
   const exports = Object.entries(plan.env).map(
     ([key, value]) => `    export ${key}=${quoted(value)}\n`,
   )
   const args = plan.args.map(quoted).join(' ')
+  const before = tracking === 'claude' ? CLAUDE_TRACKING : ''
+  // Codex notes where it will keep its sessions, which the variables decide.
+  const after = tracking === 'codex' ? CODEX_TRACKING.replace(/^/gm, '    ') : ''
+  const typed = tracking === 'claude' ? '$track "$@"' : '"$@"'
   return `#!/bin/sh
 # Starts the next ${name} on PATH with the bundled Synapse loaded for this session.
-self=$(cd "$(dirname "$0")" && pwd)
+${before}self=$(cd "$(dirname "$0")" && pwd)
 old=$IFS
 IFS=:
 for dir in $PATH; do
   [ "$dir" = "$self" ] && continue
   if [ -f "$dir/${name}" ] && [ -x "$dir/${name}" ]; then
     IFS=$old
-${exports.join('')}    exec "$dir/${name}" ${args}${args === '' ? '' : ' '}"$@"
+${exports.join('')}${after}    exec "$dir/${name}" ${args}${args === '' ? '' : ' '}${typed}
   fi
 done
 IFS=$old
@@ -365,21 +417,21 @@ export async function planShell(deps: InjectDeps): Promise<ShellPlan> {
   })
   if (process.platform === 'win32') return plain('Your shell.')
 
-  const wrapped: { name: string; plan: SessionPlan }[] = []
+  const wrapped: { name: string; plan: SessionPlan; tracking: Tracking }[] = []
   for (const harness of ['Claude', 'Codex', 'Opencode'] as const) {
     const plan = await planSession(harness, deps)
-    if (plan.loaded) wrapped.push({ name: plan.command, plan })
+    // Claude and Codex are wrapped to follow their conversations, whether or not
+    // Synapse is loaded into them.
+    const tracking: Tracking =
+      harness === 'Claude' ? 'claude' : harness === 'Codex' ? 'codex' : null
+    if (plan.loaded || tracking !== null) wrapped.push({ name: plan.command, plan, tracking })
   }
-  if (wrapped.length === 0) {
-    return plain(
-      'Your login shell. Synapse is installed, or its content was not found, so nothing is added.',
-    )
-  }
+  if (wrapped.length === 0) return plain('Your login shell.')
 
   const shims = join(deps.dataDir, 'shims')
   await resetDir(deps.dataDir, shims)
-  for (const { name, plan } of wrapped) {
-    await writeFile(join(shims, name), shimScript(name, plan), { mode: 0o755 })
+  for (const { name, plan, tracking } of wrapped) {
+    await writeFile(join(shims, name), shimScript(name, plan, tracking), { mode: 0o755 })
   }
   const env: Record<string, string> = {
     PATH: [shims, deps.env.PATH ?? ''].filter(Boolean).join(delimiter),
@@ -392,13 +444,18 @@ export async function planShell(deps: InjectDeps): Promise<ShellPlan> {
     env.SYNAPSE_USER_ZDOTDIR = deps.env.ZDOTDIR || deps.home
     env.ZDOTDIR = zdotdir
   }
-  const names = wrapped.map((w) => w.name)
+  const names = wrapped.filter((w) => w.plan.loaded).map((w) => w.name)
+  const followed = wrapped.filter((w) => w.tracking !== null).map((w) => w.name)
+  const loads =
+    names.length === 0
+      ? ''
+      : ` ${names.join(', ')} started here load Synapse for that run only and nothing is installed.`
   return {
     command: shell,
     args: ['-l'],
     env,
-    loaded: true,
-    note: `Your login shell. ${names.join(', ')} started here load Synapse for that run only and nothing is installed.`,
+    loaded: names.length > 0,
+    note: `Your login shell.${loads} The conversation of a ${followed.join(' or ')} started here shows below the terminal.`,
     wrapped: names,
   }
 }

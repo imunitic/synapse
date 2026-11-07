@@ -103,7 +103,14 @@ export interface TerminalListener {
   onExit(code: number): void
   // The session could not start, or the connection failed.
   onError(message: string): void
+  // The conversation of a harness started in the session: its source is made
+  // known, and then lines of its session file come as they are appended.
+  onTranscript(event: TerminalTranscript): void
 }
+
+export type TerminalTranscript =
+  | { kind: 'source'; id: string; harness: 'Claude' | 'Codex'; cwd: string }
+  | { kind: 'lines'; id: string; lines: string[] }
 
 export interface TerminalHandle {
   write(data: string): void

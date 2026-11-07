@@ -1068,3 +1068,60 @@ div.activity-row {
   box-sizing: border-box;
   margin-top: 4px;
 }
+
+.activity-kind[data-kind='prompt'] {
+  background: #1f3329;
+  color: #86efac;
+}
+
+.activity-kind[data-kind='thinking'] {
+  font-style: italic;
+}
+
+/* The conversation under a terminal */
+.conversation {
+  flex: 0 0 42%;
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.conversation-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.conversation-head .card-title {
+  margin: 0;
+  font-size: 13px;
+}
+
+.conversation-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 12px;
+}
+
+.conversation-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px;
+}
+
+.terminal-view .terminal-host {
+  flex: 1 1 58%;
+  min-height: 160px;
+}
+
+.conversation[data-open='false'] {
+  flex: 0 0 auto;
+  min-height: 0;
+}

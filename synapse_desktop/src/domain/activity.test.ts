@@ -4,6 +4,7 @@ import {
   commonFolder,
   harnessOf,
   readActivity,
+  readSessionLog,
   replacementDiff,
   sessionsByVisit,
   shownPath,
@@ -434,5 +435,229 @@ describe('sessionsByVisit', () => {
         { attempt: 1, succeeded: true, transcript: null },
       ],
     ])
+  })
+})
+
+// A session file of Claude Code: what the person typed, what the model thought
+// and said, and each tool call with its result, among lines that are about the
+// session and not the conversation.
+const claudeSession = jsonl(
+  { type: 'permission-mode', permissionMode: 'default' },
+  { type: 'user', sessionId: 's', message: { role: 'user', content: 'Fix the bug in a.txt' } },
+  { type: 'attachment', attachment: {} },
+  {
+    type: 'assistant',
+    message: { content: [{ type: 'thinking', thinking: 'Let me read the file first.' }] },
+  },
+  { type: 'assistant', message: { content: [{ type: 'thinking', thinking: '' }] } },
+  { type: 'assistant', message: { content: [{ type: 'text', text: 'I will read it.' }] } },
+  {
+    type: 'assistant',
+    message: {
+      content: [{ type: 'tool_use', id: 'r1', name: 'Read', input: { file_path: '/w/a.txt' } }],
+    },
+  },
+  {
+    type: 'user',
+    message: { content: [{ type: 'tool_result', tool_use_id: 'r1', content: '1\tbug' }] },
+    toolUseResult: { type: 'text', file: {} },
+  },
+  {
+    type: 'assistant',
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          id: 'e1',
+          name: 'Edit',
+          input: { file_path: '/w/a.txt', old_string: 'bug', new_string: 'fix' },
+        },
+      ],
+    },
+  },
+  {
+    type: 'user',
+    message: { content: [{ type: 'tool_result', tool_use_id: 'e1', content: 'updated' }] },
+    toolUseResult: {
+      structuredPatch: [
+        { oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-bug', '+fix'] },
+      ],
+    },
+  },
+  // A subagent's lines, and what the harness adds, are not the conversation.
+  { type: 'user', isSidechain: true, message: { content: 'a subagent was asked this' } },
+  {
+    type: 'user',
+    isMeta: true,
+    message: { content: [{ type: 'text', text: '<system-reminder>' }] },
+  },
+  { type: 'user', message: { content: [{ type: 'text', text: 'Thanks, now run the tests' }] } },
+  {
+    type: 'assistant',
+    message: {
+      content: [{ type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'npm test' } }],
+    },
+  },
+  {
+    type: 'user',
+    message: {
+      content: [{ type: 'tool_result', tool_use_id: 'b1', content: 'boom', is_error: true }],
+    },
+  },
+)
+
+describe('the conversation of a Claude session file', () => {
+  const activity = readSessionLog('Claude', claudeSession)
+
+  it('has what was typed, thought, said and done, in order, and nothing of the session around it', () => {
+    expect(activity.actions.map((a) => [a.kind, a.title, a.target])).toEqual([
+      ['prompt', 'You', null],
+      ['thinking', 'Thought', null],
+      ['message', 'Said', null],
+      ['read', 'Read', '/w/a.txt'],
+      ['edit', 'Edited', '/w/a.txt'],
+      ['prompt', 'You', null],
+      ['command', 'Ran', 'npm test'],
+    ])
+    expect(activity.actions[0]?.detail).toBe('Fix the bug in a.txt')
+    expect(activity.actions[1]?.detail).toBe('Let me read the file first.')
+    expect(activity.actions[5]?.detail).toBe('Thanks, now run the tests')
+  })
+
+  it('shows an edit as the patch the result carries and a failure as its output', () => {
+    expect(activity.actions[4]?.detail).toBe('@@ -1,1 +1,1 @@\n-bug\n+fix')
+    expect(activity.actions[6]).toMatchObject({ status: 'failed', detail: 'boom' })
+    expect(activity.changes).toEqual([{ path: '/w/a.txt', change: 'update' }])
+  })
+
+  it('does not take what a step printed for a conversation: there a user line is not a prompt', () => {
+    const printed = jsonl(
+      { type: 'user', message: { content: [{ type: 'text', text: 'a notice of the harness' }] } },
+      { type: 'result', is_error: false },
+    )
+    expect(readActivity(printed).actions).toEqual([])
+  })
+})
+
+// A rollout file of Codex.
+const codexRollout = jsonl(
+  { type: 'session_meta', payload: { id: 'x', cwd: '/w' } },
+  { type: 'event_msg', payload: { type: 'task_started' } },
+  {
+    type: 'response_item',
+    payload: {
+      type: 'message',
+      role: 'developer',
+      content: [{ type: 'input_text', text: 'instructions' }],
+    },
+  },
+  {
+    type: 'response_item',
+    payload: {
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'input_text', text: '<environment_context>cwd</environment_context>' }],
+    },
+  },
+  {
+    type: 'response_item',
+    payload: {
+      type: 'message',
+      role: 'user',
+      content: [{ type: 'input_text', text: 'Add a test' }],
+    },
+  },
+  {
+    type: 'response_item',
+    payload: { type: 'reasoning', summary: [{ text: 'Plan the test' }], encrypted_content: 'x' },
+  },
+  { type: 'response_item', payload: { type: 'reasoning', summary: [], encrypted_content: 'x' } },
+  {
+    type: 'response_item',
+    payload: {
+      type: 'function_call',
+      name: 'shell',
+      arguments: '{"command":["bash","-lc","ls -la"]}',
+      call_id: 'c1',
+    },
+  },
+  {
+    type: 'response_item',
+    payload: {
+      type: 'function_call_output',
+      call_id: 'c1',
+      output: '{"output":"total 0","metadata":{"exit_code":0}}',
+    },
+  },
+  {
+    type: 'response_item',
+    payload: {
+      type: 'function_call',
+      name: 'shell',
+      arguments: '{"command":["false"]}',
+      call_id: 'c2',
+    },
+  },
+  {
+    type: 'response_item',
+    payload: {
+      type: 'function_call_output',
+      call_id: 'c2',
+      output: '{"output":"nope","metadata":{"exit_code":1}}',
+    },
+  },
+  {
+    type: 'response_item',
+    payload: {
+      type: 'custom_tool_call',
+      name: 'apply_patch',
+      call_id: 'p1',
+      input: '*** Begin Patch\n*** Add File: t.test.ts\n+test\n*** End Patch',
+    },
+  },
+  {
+    type: 'response_item',
+    payload: { type: 'custom_tool_call_output', call_id: 'p1', output: 'Success' },
+  },
+  {
+    type: 'response_item',
+    payload: { type: 'web_search_call', status: 'completed', action: { query: 'vitest docs' } },
+  },
+  {
+    type: 'response_item',
+    payload: {
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'output_text', text: 'Added it.' }],
+    },
+  },
+)
+
+describe('the conversation of a Codex rollout', () => {
+  const activity = readSessionLog('Codex', codexRollout)
+
+  it('has what was typed, thought, run and said, and leaves out what the harness adds', () => {
+    expect(activity.harness).toBe('Codex')
+    expect(activity.actions.map((a) => [a.kind, a.title, a.target])).toEqual([
+      ['prompt', 'You', null],
+      ['thinking', 'Thought', null],
+      ['command', 'Ran', 'ls -la'],
+      ['command', 'Ran', 'false'],
+      ['write', 'Wrote', 't.test.ts'],
+      ['search', 'Searched the web', 'vitest docs'],
+      ['message', 'Said', null],
+    ])
+    expect(activity.actions[0]?.detail).toBe('Add a test')
+  })
+
+  it('gives a command its output, and a failed exit code as a failure', () => {
+    expect(activity.actions[2]).toMatchObject({ status: 'ok', detail: 'total 0' })
+    expect(activity.actions[3]).toMatchObject({ status: 'failed', detail: 'nope' })
+  })
+
+  it('shows a patch as its text and lists the files it changes', () => {
+    expect(activity.actions[4]?.detail).toContain('+test')
+    expect(activity.actions[4]?.status).toBe('ok')
+    expect(activity.changes).toEqual([{ path: 't.test.ts', change: 'add' }])
   })
 })

@@ -8,8 +8,23 @@ import { WebSocket } from 'ws'
 import { TERMINAL_PATH, TOKEN_HEADER } from '../shared/constants.ts'
 import type { ServerMessage } from '../shared/terminal.ts'
 import { attachTerminals, type Pty, type SpawnPty } from './terminal.ts'
+import type { Registration, TranscriptEvents, Watcher } from './transcripts.ts'
 
 const TOKEN = 'secret-token'
+
+class FakeWatcher implements Watcher {
+  registered: [string, Registration][] = []
+  stopped = false
+  poll() {
+    return Promise.resolve()
+  }
+  register(id: string, registration: Registration) {
+    this.registered.push([id, registration])
+  }
+  stop() {
+    this.stopped = true
+  }
+}
 
 class FakePty implements Pty {
   written: string[] = []
@@ -55,6 +70,9 @@ let spawned: {
 let sockets: WebSocket[]
 let maxTerminals: number
 let failSpawn: boolean
+let watchers: FakeWatcher[]
+let watchEvents: TranscriptEvents[]
+let watchDirs: string[]
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'synapse-desktop-terminal-'))
@@ -63,6 +81,9 @@ beforeEach(async () => {
   sockets = []
   maxTerminals = 8
   failSpawn = false
+  watchers = []
+  watchEvents = []
+  watchDirs = []
   await writeFile(
     join(dir, 'config.json'),
     JSON.stringify({
@@ -111,6 +132,14 @@ beforeEach(async () => {
       }),
     get maxTerminals() {
       return maxTerminals
+    },
+    sessionsRoot: join(dir, 'sessions'),
+    watch: (options) => {
+      const watcher = new FakeWatcher()
+      watchers.push(watcher)
+      watchEvents.push(options.events)
+      watchDirs.push(options.dir)
+      return watcher
     },
   })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -223,13 +252,9 @@ describe('a session', () => {
     })
 
     expect(spawned).toHaveLength(1)
-    expect(spawned[0]).toMatchObject({
-      file: 'claude',
-      args: ['--injected'],
-      cwd: dir,
-      cols: 100,
-      rows: 30,
-    })
+    expect(spawned[0]).toMatchObject({ file: 'claude', cwd: dir, cols: 100, rows: 30 })
+    // The plan's arguments, then the session the server gives Claude to follow.
+    expect(spawned[0]?.args.slice(0, 2)).toEqual(['--injected', '--session-id'])
     // The server's own environment, the variables set in the app, then the plan's.
     expect(spawned[0]?.env).toMatchObject({
       INHERITED: 'i',
@@ -370,5 +395,68 @@ describe('a session', () => {
     await opened(third)
     third.send(start(dir))
     expect(await thirdMessages.next()).toMatchObject({ type: 'started' })
+  })
+})
+
+describe('following the conversation of a harness', () => {
+  async function startKind(kind: string, cwd = dir) {
+    const socket = connect()
+    const messages = inbox(socket)
+    await opened(socket)
+    socket.send(start(cwd, kind))
+    await messages.next()
+    return { socket, messages }
+  }
+
+  it('gives a Claude tab a session of its own and follows its file', async () => {
+    const { messages } = await startKind('Claude')
+    const args = spawned[0]?.args ?? []
+    expect(args.slice(0, 1)).toEqual(['--injected'])
+    expect(args[1]).toBe('--session-id')
+    const id = args[2] ?? ''
+    expect(id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(watchers[0]?.registered).toEqual([
+      [id, expect.objectContaining({ harness: 'claude', sessionId: id, cwd: dir })],
+    ])
+
+    // What the watcher finds goes to the page.
+    watchEvents[0]?.onSource({ id, harness: 'Claude', cwd: dir })
+    watchEvents[0]?.onLines(id, ['{"a":1}', '{"b":2}'])
+    expect(await messages.next()).toEqual({
+      type: 'transcript-source',
+      id,
+      harness: 'Claude',
+      cwd: dir,
+    })
+    expect(await messages.next()).toEqual({ type: 'transcript', id, lines: ['{"a":1}', '{"b":2}'] })
+  })
+
+  it('notes a Codex tab by where it started and where it keeps its sessions', async () => {
+    await startKind('Codex')
+    const [registration] = watchers[0]?.registered ?? []
+    expect(registration?.[1]).toMatchObject({ harness: 'codex', cwd: dir })
+    expect(spawned[0]?.args).toEqual(['--injected'])
+  })
+
+  it('follows nothing for OpenCode, and gives a shell the folder its commands note runs in', async () => {
+    await startKind('Opencode')
+    expect(watchers[0]?.registered).toEqual([])
+
+    await startKind('Shell')
+    expect(watchers[1]?.registered).toEqual([])
+    const shell = spawned[1]
+    expect(shell?.args).toEqual(['--injected'])
+    expect(shell?.env.SYNAPSE_SESSIONS_DIR).toBe(watchDirs[1])
+    expect(watchDirs[1]?.startsWith(join(dir, 'sessions') + '/')).toBe(true)
+    // Each terminal has a folder of its own.
+    expect(watchDirs[0]).not.toBe(watchDirs[1])
+  })
+
+  it('stops following when the terminal closes', async () => {
+    const { socket } = await startKind('Claude')
+    socket.close()
+    await closed(socket)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(watchers[0]?.stopped).toBe(true)
   })
 })

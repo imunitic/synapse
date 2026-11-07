@@ -290,20 +290,24 @@ describe('wrapper commands', () => {
     expect(plan.command).toBe('/bin/bash')
     expect(plan.args).toEqual(['-l'])
     expect(plan.loaded).toBe(true)
+    // The ones that load Synapse; Claude is wrapped as well, to be followed.
     expect(plan.wrapped).toEqual(['codex', 'opencode'])
-    expect((await readdir(shims)).sort()).toEqual(['codex', 'opencode'])
+    expect((await readdir(shims)).sort()).toEqual(['claude', 'codex', 'opencode'])
+    expect(await readFile(join(shims, 'claude'), 'utf8')).not.toContain('--add-dir')
     expect(plan.env.PATH).toBe(`${shims}${delimiter}${deps.env.PATH}`)
     expect(plan.env.ZDOTDIR).toBeUndefined()
     expect(plan.note).toContain('codex, opencode')
   })
 
-  it('are not made when every harness has Synapse installed', async () => {
+  it('load nothing when every harness has Synapse installed, but still follow Claude and Codex', async () => {
     await put(join(deps.home, '.claude', 'settings.json'), 'synapse-hook')
     await put(join(deps.home, '.codex', 'hooks.json'), 'synapse-hook')
     await put(join(deps.home, '.config', 'opencode', 'plugin', 'synapse.js'), '')
     const plan = await planShell(deps)
-    expect(plan).toMatchObject({ loaded: false, env: {}, wrapped: [] })
-    expect(await stat(join(deps.dataDir, 'shims')).catch(() => null)).toBeNull()
+    expect(plan).toMatchObject({ loaded: false, wrapped: [] })
+    expect((await readdir(join(deps.dataDir, 'shims'))).sort()).toEqual(['claude', 'codex'])
+    expect(plan.note).not.toContain('load Synapse')
+    expect(plan.note).toContain('claude or codex')
   })
 
   it.skipIf(!zshAvailable)(
@@ -333,4 +337,125 @@ describe('wrapper commands', () => {
       expect(out.stdout).toContain(' one env=')
     },
   )
+})
+
+describe('following a conversation', () => {
+  let sessions: string
+  let shims: string
+  let real: string
+
+  beforeEach(async () => {
+    sessions = join(dir, 'sessions')
+    shims = join(dir, 'shims')
+    real = join(dir, 'real')
+    await mkdir(shims, { recursive: true })
+    for (const name of ['claude', 'codex']) {
+      await put(join(real, name), `#!/bin/sh\necho "REAL ${name} $*"\n`)
+      await chmod(join(real, name), 0o755)
+    }
+  })
+
+  async function install(
+    name: 'claude' | 'codex',
+    plan = { args: [] as string[], env: {} as Record<string, string> },
+  ) {
+    await writeFile(
+      join(shims, name),
+      shimScript(name, { command: name, ...plan, loaded: false, note: '' }, name),
+      { mode: 0o755 },
+    )
+  }
+
+  function start(name: string, args: string[], cwd = dir, extra: Record<string, string> = {}) {
+    return spawnSync('/bin/sh', [join(shims, name), ...args], {
+      cwd,
+      env: {
+        PATH: `${shims}${delimiter}${real}${delimiter}/usr/bin${delimiter}/bin`,
+        HOME: deps.home,
+        SYNAPSE_SESSIONS_DIR: sessions,
+        ...extra,
+      },
+      encoding: 'utf8',
+    })
+  }
+
+  async function registrations(): Promise<Record<string, unknown>[]> {
+    const names = (await readdir(sessions).catch(() => [])).filter((n) => n.endsWith('.json'))
+    return Promise.all(
+      names.map(
+        async (n) =>
+          JSON.parse(await readFile(join(sessions, n), 'utf8')) as Record<string, unknown>,
+      ),
+    )
+  }
+
+  it('gives a new Claude session an id and says where and when it started', async () => {
+    await install('claude')
+    const out = start('claude', ['fix it'])
+    const id = /--session-id ([0-9a-f-]{36})/.exec(out.stdout)?.[1]
+    expect(id).toBeDefined()
+    expect(out.stdout).toContain('REAL claude --session-id')
+    expect(out.stdout.trim().endsWith('fix it')).toBe(true)
+    const [registration] = await registrations()
+    expect(registration).toMatchObject({
+      harness: 'claude',
+      sessionId: id,
+      cwd: dir,
+      configDir: join(deps.home, '.claude'),
+    })
+    expect(Math.abs((registration?.startedAt as number) - Date.now())).toBeLessThan(10_000)
+  })
+
+  it('writes a folder with a quote or a backslash in its name as valid JSON', async () => {
+    await install('claude')
+    const odd = join(dir, 'a"b\\c d')
+    await mkdir(odd)
+    start('claude', [], odd)
+    const [registration] = await registrations()
+    expect(registration?.cwd).toBe(odd)
+  })
+
+  it('does not follow a run that is not a new session, and leaves the arguments as they were', async () => {
+    await install('claude')
+    for (const args of [
+      ['--resume'],
+      ['-c'],
+      ['--continue'],
+      ['-p', 'hi'],
+      ['mcp', 'list'],
+      ['doctor'],
+      ['--version'],
+      ['--session-id', 'abc'],
+      ['-h'],
+    ]) {
+      const out = start('claude', args)
+      expect(out.stdout.trim()).toBe(`REAL claude ${args.join(' ')}`)
+    }
+    expect(await registrations()).toEqual([])
+  })
+
+  it('follows nothing when it is not asked to, and still starts the program', async () => {
+    await install('claude')
+    const out = spawnSync('/bin/sh', [join(shims, 'claude'), 'x'], {
+      env: { PATH: `${shims}${delimiter}${real}${delimiter}/usr/bin${delimiter}/bin` },
+      encoding: 'utf8',
+    })
+    expect(out.stdout.trim()).toBe('REAL claude x')
+  })
+
+  it('notes where and when a Codex session started and where it keeps its sessions', async () => {
+    await install('codex', { args: [], env: { CODEX_HOME: '/the/home' } })
+    start('codex', ['fix it'])
+    const [registration] = await registrations()
+    expect(registration).toMatchObject({ harness: 'codex', cwd: dir, home: '/the/home' })
+    expect(typeof registration?.startedAt).toBe('number')
+  })
+
+  it('does not note a Codex run that is a command and not a session', async () => {
+    await install('codex')
+    for (const args of [['exec', 'x'], ['login'], ['mcp', 'list'], ['review']]) {
+      expect(start('codex', args).status).toBe(0)
+    }
+    expect(await registrations()).toEqual([])
+  })
 })
