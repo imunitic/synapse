@@ -32,7 +32,7 @@ export type VaultCategory = z.infer<typeof categorySchema>
 
 // What `synapse status` says: the vault's categories, or that no vault is set.
 export type VaultAttention =
-  { configured: true; categories: VaultCategory[] } | { configured: false }
+  { configured: true; vault: string; categories: VaultCategory[] } | { configured: false }
 
 // Throws when `synapse` cannot be run or answers in a form this app does not know.
 export async function loadVaultAttention(transport: Transport): Promise<VaultAttention> {
@@ -49,7 +49,7 @@ export async function loadVaultAttention(transport: Transport): Promise<VaultAtt
   }
   const parsed = statusSchema.safeParse(json)
   if (!parsed.success) throw new Error('status answered a form this app does not know')
-  return { configured: true, categories: parsed.data.categories }
+  return { configured: true, vault: parsed.data.vault, categories: parsed.data.categories }
 }
 
 // Where an item leads, when the app has a page for it.
@@ -59,6 +59,8 @@ export type AttentionTarget =
 
 export interface AttentionItem {
   key: string
+  // The note's own id, which the page sets apart from its title.
+  id: string | null
   label: string
   detail: string | null
   target: AttentionTarget | null
@@ -96,6 +98,7 @@ function runItem(run: ExecutionSummary): AttentionItem {
   const name = run.pipeline ?? 'A pipeline'
   return {
     key: `run:${run.id}`,
+    id: null,
     label: run.status === 'failed' ? `${name} failed` : `${name} was interrupted`,
     detail:
       run.status === 'failed' && run.failure !== null
@@ -116,7 +119,8 @@ function vaultItems(vault: VaultAttention): AttentionGroup[] {
       title: category.title,
       items: category.items.map((item) => ({
         key: `${category.key}:${item.path}`,
-        label: `${item.id !== null ? `[${item.id}] ` : ''}${item.title}`,
+        id: item.id,
+        label: item.title,
         detail:
           category.key === 'open_questions'
             ? (item.compiled_task ?? null) !== null
@@ -130,34 +134,20 @@ function vaultItems(vault: VaultAttention): AttentionGroup[] {
     }))
 }
 
-// The things to look at, in the order they are worth looking: what stops the
-// app working, then runs that went wrong, then the vault's decisions. A source
+// The things to look at, in the order they are worth looking: a harness that
+// is broken, then runs that went wrong, then the vault's decisions. What is not
+// set up yet is the setup card's, not a fault. A source
 // that failed is a problem of its own, and a source still loading says nothing.
 export function attentionGroups(inputs: AttentionInputs): AttentionGroup[] {
   const groups: AttentionGroup[] = []
 
   const setup: AttentionItem[] = []
-  if (inputs.config.status === 'ready' && inputs.config.data.workDir === null) {
-    setup.push({
-      key: 'setup:work-dir',
-      label: 'No work directory is set',
-      detail: 'Runs leave no record and cannot be seen here.',
-      target: { kind: 'settings', section: 'general' },
-    })
-  }
-  if (inputs.vault.status === 'ready' && !inputs.vault.data.configured) {
-    setup.push({
-      key: 'setup:vault',
-      label: 'No vault is configured',
-      detail: 'Synapse has nowhere to keep notes.',
-      target: { kind: 'settings', section: 'vault' },
-    })
-  }
   if (inputs.integrations.status === 'ready') {
     for (const item of inputs.integrations.data) {
       if (item.state === 'broken') {
         setup.push({
-          key: `setup:integration:${item.harness}`,
+          key: `harness:${item.harness}`,
+          id: null,
           label: `${HARNESS_NAMES[item.harness]} names a hook program that is gone`,
           detail: item.hook,
           target: { kind: 'settings', section: 'integrations' },
@@ -165,7 +155,7 @@ export function attentionGroups(inputs: AttentionInputs): AttentionGroup[] {
       }
     }
   }
-  if (setup.length > 0) groups.push({ key: 'setup', title: 'Setup', items: setup })
+  if (setup.length > 0) groups.push({ key: 'harnesses', title: 'Harnesses', items: setup })
 
   if (inputs.runs.status === 'ready') {
     const wrong = inputs.runs.data.filter(
@@ -176,6 +166,7 @@ export function attentionGroups(inputs: AttentionInputs): AttentionGroup[] {
       if (wrong.length > MAX_RUNS) {
         items.push({
           key: 'runs:more',
+          id: null,
           label: `and ${wrong.length - MAX_RUNS} more`,
           detail: null,
           target: null,

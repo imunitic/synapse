@@ -14,6 +14,11 @@ export function uniqueName(prefix: string): string {
   return `E2e_${prefix}_${randomBytes(3).toString('hex')}`
 }
 
+// The side panel, where the same words may also be on the page beside it.
+export function sidePanel(page: Page) {
+  return page.getByRole('complementary', { name: 'Side panel' })
+}
+
 // Opens a section of the rail and its panel, whatever it showed before.
 export async function openSection(
   page: Page,

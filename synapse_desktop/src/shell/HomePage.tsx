@@ -4,15 +4,21 @@ import {
   attentionGroups,
   isSettled,
   loadVaultAttention,
+  type AttentionInputs,
   type AttentionItem,
   type AttentionTarget,
   type Source,
+  type VaultAttention,
 } from '../domain/attention.ts'
-import { listExecutions } from '../domain/executions.ts'
+import { listDefinitions } from '../domain/definitions.ts'
+import { listExecutions, type ExecutionSummary } from '../domain/executions.ts'
+import { recentRuns, runCounts, setupSteps, vaultCounts } from '../domain/home.ts'
+import { describeVault } from '../domain/vaults.ts'
 import { transport } from '../transport/index.ts'
 import { useConfig } from './config.tsx'
 import { RefreshIcon } from './icons.tsx'
-import type { Page } from './state.ts'
+import type { Page, TerminalKind, TerminalSession } from './state.ts'
+import { StatusBadge } from './StatusBadge.tsx'
 import { useLoad, type LoadState } from './useLoad.ts'
 
 const REFRESH_MS = 30_000
@@ -30,7 +36,10 @@ function pageOf(target: AttentionTarget): Page {
 function ItemRow({ item, onOpen }: { item: AttentionItem; onOpen: (page: Page) => void }) {
   const body = (
     <>
-      <span className="attention-label">{item.label}</span>
+      <span className="attention-label">
+        {item.id !== null && <span className="note-id">{item.id}</span>}
+        {item.label}
+      </span>
       {item.detail !== null && <span className="muted small attention-detail">{item.detail}</span>}
     </>
   )
@@ -50,43 +59,26 @@ function ItemRow({ item, onOpen }: { item: AttentionItem; onOpen: (page: Page) =
   )
 }
 
-// The things worth looking at: what is missing, runs that went wrong and what
-// the vault wants decided. Each source is read on its own, so one that fails is
-// said so and the rest still show.
-function NeedsAttention({ onOpen }: { onOpen: (page: Page) => void }) {
-  const { state: config } = useConfig()
-  const loadVault = useCallback(() => loadVaultAttention(transport), [])
-  const loadRuns = useCallback(() => listExecutions(transport), [])
-  const loadHarnesses = useCallback(async () => (await transport.getIntegrations()).harnesses, [])
-  const vault = useLoad(loadVault, REFRESH_MS)
-  const runs = useLoad(loadRuns, REFRESH_MS)
-  const harnesses = useLoad(loadHarnesses, REFRESH_MS)
-
-  const inputs = {
-    config:
-      config.status === 'ready'
-        ? ({ status: 'ready', data: config.config } as const)
-        : asSource<never>(config.status === 'loading' ? { status: 'loading' } : config),
-    vault: asSource(vault.state),
-    runs: asSource(runs.state),
-    integrations: asSource(harnesses.state),
-    now: new Date(),
-  }
+// The things worth looking at: a harness that is broken, runs that went wrong
+// and what the vault wants decided. A source that failed is said so, and the
+// rest still show.
+function NeedsAttention({
+  inputs,
+  onRefresh,
+  onOpen,
+}: {
+  inputs: AttentionInputs
+  onRefresh: () => void
+  onOpen: (page: Page) => void
+}) {
   const groups = attentionGroups(inputs)
   const failures = attentionFailures(inputs)
   const settled = isSettled(inputs)
-
-  function refresh() {
-    vault.reload()
-    runs.reload()
-    harnesses.reload()
-  }
-
   return (
     <section className="card" aria-label="Needs attention">
       <div className="card-head">
         <h2 className="card-title">Needs attention</h2>
-        <button className="icon-button" aria-label="Refresh" onClick={refresh}>
+        <button className="icon-button" aria-label="Refresh" onClick={onRefresh}>
           <RefreshIcon />
         </button>
       </div>
@@ -96,7 +88,10 @@ function NeedsAttention({ onOpen }: { onOpen: (page: Page) => void }) {
       )}
       {groups.map((group) => (
         <div key={group.key} className="attention-group">
-          <h3 className="attention-title">{group.title}</h3>
+          <h3 className="attention-title">
+            {group.title}
+            <span className="count-pill">{group.items.length}</span>
+          </h3>
           <ul className="attention-list">
             {group.items.map((item) => (
               <ItemRow key={item.key} item={item} onOpen={onOpen} />
@@ -113,12 +108,332 @@ function NeedsAttention({ onOpen }: { onOpen: (page: Page) => void }) {
   )
 }
 
-// Where things stand: the cards of what the app knows.
-export function HomePage({ onOpen }: { onOpen: (page: Page) => void }) {
+// What the app needs to be useful, while something of it is not done.
+function SetupCard({ inputs, onOpen }: { inputs: AttentionInputs; onOpen: (page: Page) => void }) {
+  const steps = setupSteps(inputs)
+  if (steps.length === 0 || steps.every((step) => step.done)) return null
   return (
-    <div className="page">
-      <h1 className="page-title">Home</h1>
-      <NeedsAttention onOpen={onOpen} />
+    <section className="card" aria-label="Get set up">
+      <div className="card-head">
+        <h2 className="card-title">Get set up</h2>
+        <span className="muted small">
+          {steps.filter((step) => step.done).length} of {steps.length} done
+        </span>
+      </div>
+      <ul className="attention-list">
+        {steps.map((step) => (
+          <li key={step.key}>
+            <button
+              className="attention-item attention-link"
+              disabled={step.done}
+              onClick={() => onOpen({ kind: 'settings', section: step.target.section })}
+            >
+              <span className="step">
+                <span className="step-mark" data-done={step.done} aria-hidden="true" />
+                <span className="attention-label" data-done={step.done}>
+                  {step.label}
+                </span>
+                <span className="visually-hidden">{step.done ? ' (done)' : ' (not done)'}</span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+// The vault at a glance: where it is, how many notes, and the counts of what
+// waits for a decision.
+function VaultSummary({
+  vault,
+  onOpen,
+}: {
+  vault: LoadState<VaultAttention>
+  onOpen: (page: Page) => void
+}) {
+  const path = vault.status === 'ready' && vault.data.configured ? vault.data.vault : null
+  const load = useCallback(
+    () => (path === null ? Promise.resolve(null) : transport.inspectVault(path)),
+    [path],
+  )
+  const { state: info } = useLoad(load)
+  return (
+    <section className="card" aria-label="Vault">
+      <h2 className="card-title">Vault</h2>
+      {vault.status === 'loading' && <p className="muted">Looking…</p>}
+      {vault.status === 'failed' && <p className="muted">It could not be read.</p>}
+      {vault.status === 'ready' && !vault.data.configured && (
+        <p className="muted">
+          No vault is chosen.{' '}
+          <button className="link" onClick={() => onOpen({ kind: 'settings', section: 'vault' })}>
+            Choose one
+          </button>
+        </p>
+      )}
+      {vault.status === 'ready' && vault.data.configured && (
+        <>
+          <p className="mono small">{vault.data.vault}</p>
+          {info.status === 'ready' && info.data !== null && (
+            <p className="muted small">{describeVault(info.data)}</p>
+          )}
+          <div className="tiles">
+            {(
+              [
+                ['discussing', 'Discussing'],
+                ['ready_uncompiled', 'Not compiled'],
+                ['in_progress', 'In progress'],
+                ['awaiting_review', 'In review'],
+              ] as const
+            ).map(([key, label]) => (
+              <div key={key} className="tile count">
+                <span className="tile-value">
+                  {vaultCounts(vault.data.configured ? vault.data.categories : [])[key] ?? 0}
+                </span>
+                <span className="tile-label">{label}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
+// The pipelines: how many there are, how the runs of the week went, and the
+// latest ones.
+function PipelinesSummary({
+  runs,
+  count,
+  now,
+  onOpen,
+}: {
+  runs: LoadState<ExecutionSummary[]>
+  count: LoadState<number>
+  now: Date
+  onOpen: (page: Page) => void
+}) {
+  return (
+    <section className="card" aria-label="Pipelines">
+      <h2 className="card-title">Pipelines</h2>
+      {count.status === 'ready' && (
+        <p className="muted small">
+          {count.data} {count.data === 1 ? 'pipeline' : 'pipelines'} defined · runs of the last 7
+          days
+        </p>
+      )}
+      {runs.status === 'loading' && <p className="muted">Looking…</p>}
+      {runs.status === 'failed' && <p className="muted">The runs could not be read.</p>}
+      {runs.status === 'ready' && (
+        <>
+          <div className="tiles" aria-label="The last 7 days">
+            {(() => {
+              const c = runCounts(runs.data, now)
+              return (
+                [
+                  ['completed', c.completed, 'good'],
+                  ['failed', c.failed, 'bad'],
+                  ['interrupted', c.interrupted, 'bad'],
+                  ['running', c.running, 'plain'],
+                ] as const
+              ).map(([label, value, tone]) => (
+                <div key={label} className="tile" data-tone={value > 0 ? tone : 'plain'}>
+                  <span className="tile-value">{value}</span>
+                  <span className="tile-label">{label}</span>
+                </div>
+              ))
+            })()}
+          </div>
+          {recentRuns(runs.data, 5).length > 0 && (
+            <ul className="attention-list">
+              {recentRuns(runs.data, 5).map((run) => (
+                <li key={run.id}>
+                  <button
+                    className="attention-item attention-link run-row"
+                    onClick={() => onOpen({ kind: 'execution', id: run.id })}
+                  >
+                    <span className="attention-label">{run.pipeline ?? 'unknown pipeline'}</span>
+                    <StatusBadge status={run.status} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {runs.data.length === 0 && <p className="muted small">No runs yet.</p>}
+        </>
+      )}
+    </section>
+  )
+}
+
+// The code graph is not part of the app yet.
+function GraphSummary({ onOpen }: { onOpen: (page: Page) => void }) {
+  return (
+    <section className="card" aria-label="Code graph">
+      <h2 className="card-title">Code graph</h2>
+      <p className="muted small">
+        The graph of a repository is not part of the app yet. Its settings are.{' '}
+        <button className="link" onClick={() => onOpen({ kind: 'settings', section: 'graph' })}>
+          Open them
+        </button>
+      </p>
+    </section>
+  )
+}
+
+// What is going now: pipeline runs, and the terminals that are open.
+function RunningNow({
+  runs,
+  terminals,
+  onOpen,
+  onSelectTerminal,
+}: {
+  runs: LoadState<ExecutionSummary[]>
+  terminals: readonly TerminalSession[]
+  onOpen: (page: Page) => void
+  onSelectTerminal: (id: string) => void
+}) {
+  const running = runs.status === 'ready' ? runs.data.filter((r) => r.status === 'running') : []
+  if (running.length === 0 && terminals.length === 0) return null
+  return (
+    <section className="card" aria-label="Running now">
+      <h2 className="card-title">Running now</h2>
+      <ul className="attention-list">
+        {running.map((run) => (
+          <li key={run.id}>
+            <button
+              className="attention-item attention-link run-row"
+              onClick={() => onOpen({ kind: 'execution', id: run.id })}
+            >
+              <span className="attention-label">
+                {run.pipeline ?? 'A pipeline'}
+                {run.currentStep !== null && (
+                  <span className="muted small"> · step {run.currentStep}</span>
+                )}
+              </span>
+              <StatusBadge status="running" />
+            </button>
+          </li>
+        ))}
+        {terminals.map((session) => (
+          <li key={session.id}>
+            <button
+              className="attention-item attention-link"
+              onClick={() => onSelectTerminal(session.id)}
+            >
+              <span className="attention-label">
+                {session.title}
+                <span className="muted small"> · terminal</span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function QuickActions({
+  onOpen,
+  onStartTerminal,
+}: {
+  onOpen: (page: Page) => void
+  onStartTerminal: (kind: TerminalKind) => void
+}) {
+  return (
+    <div className="quick-actions" role="group" aria-label="Quick actions">
+      <button className="secondary" onClick={() => onStartTerminal('Shell')}>
+        New shell
+      </button>
+      <button className="secondary" onClick={() => onStartTerminal('Claude')}>
+        Claude Code
+      </button>
+      <button className="secondary" onClick={() => onStartTerminal('Codex')}>
+        Codex
+      </button>
+      <button className="secondary" onClick={() => onStartTerminal('Opencode')}>
+        OpenCode
+      </button>
+      <button
+        className="secondary"
+        onClick={() => onOpen({ kind: 'create', definition: 'pipeline' })}
+      >
+        New pipeline
+      </button>
+    </div>
+  )
+}
+
+// Where things stand: what needs attention, what is going, and a card for each
+// part of Synapse.
+export function HomePage({
+  onOpen,
+  terminals,
+  onSelectTerminal,
+  onStartTerminal,
+}: {
+  onOpen: (page: Page) => void
+  terminals: readonly TerminalSession[]
+  onSelectTerminal: (id: string) => void
+  onStartTerminal: (kind: TerminalKind) => void
+}) {
+  const { state: config } = useConfig()
+  const loadVault = useCallback(() => loadVaultAttention(transport), [])
+  const loadRuns = useCallback(() => listExecutions(transport), [])
+  const loadHarnesses = useCallback(async () => (await transport.getIntegrations()).harnesses, [])
+  const loadCount = useCallback(
+    async () => (await listDefinitions(transport)).filter((d) => d.kind === 'pipeline').length,
+    [],
+  )
+  const vault = useLoad(loadVault, REFRESH_MS)
+  const runs = useLoad(loadRuns, REFRESH_MS)
+  const harnesses = useLoad(loadHarnesses, REFRESH_MS)
+  const count = useLoad(loadCount, REFRESH_MS)
+
+  const now = new Date()
+  const inputs: AttentionInputs = {
+    config:
+      config.status === 'ready'
+        ? { status: 'ready', data: config.config }
+        : config.status === 'loading'
+          ? { status: 'loading' }
+          : { status: 'failed', error: config.error },
+    vault: asSource(vault.state),
+    runs: asSource(runs.state),
+    integrations: asSource(harnesses.state),
+    now,
+  }
+
+  function refresh() {
+    vault.reload()
+    runs.reload()
+    harnesses.reload()
+    count.reload()
+  }
+
+  return (
+    <div className="page home">
+      <header className="home-head">
+        <h1 className="page-title">Home</h1>
+        <QuickActions onOpen={onOpen} onStartTerminal={onStartTerminal} />
+      </header>
+      <RunningNow
+        runs={runs.state}
+        terminals={terminals}
+        onOpen={onOpen}
+        onSelectTerminal={onSelectTerminal}
+      />
+      <div className="home-grid">
+        <div className="home-column">
+          <NeedsAttention inputs={inputs} onRefresh={refresh} onOpen={onOpen} />
+          <PipelinesSummary runs={runs.state} count={count.state} now={now} onOpen={onOpen} />
+        </div>
+        <div className="home-column">
+          <SetupCard inputs={inputs} onOpen={onOpen} />
+          <VaultSummary vault={vault.state} onOpen={onOpen} />
+          <GraphSummary onOpen={onOpen} />
+        </div>
+      </div>
     </div>
   )
 }

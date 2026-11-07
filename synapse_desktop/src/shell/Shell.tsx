@@ -62,6 +62,19 @@ export function Shell() {
                 key={active.id}
                 page={active.page}
                 onOpen={(page) => dispatch({ type: 'openPage', page })}
+                terminals={state.terminals}
+                onSelectTerminal={(id) => {
+                  dispatch({ type: 'openPage', page: { kind: 'terminals' } })
+                  dispatch({ type: 'selectTerminal', id })
+                }}
+                onStartTerminal={(kind) =>
+                  dispatch({
+                    type: 'openTerminal',
+                    kind,
+                    cwd: config.status === 'ready' ? (config.config.terminalFolder ?? '') : '',
+                    id: Math.random().toString(36).slice(2, 8),
+                  })
+                }
                 onCreated={(page) =>
                   dispatch({ type: 'definitionCreated', closeId: active.id, page })
                 }

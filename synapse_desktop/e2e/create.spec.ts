@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
-import { editor, openSection, setEditorText, uniqueName, world } from './helpers.ts'
+import { editor, openSection, setEditorText, uniqueName, world, sidePanel } from './helpers.ts'
 
 test('a new pipeline is drawn as it is typed, shows what is wrong, and is saved as a file', async ({
   page,
@@ -9,7 +9,7 @@ test('a new pipeline is drawn as it is typed, shows what is wrong, and is saved 
   const name = uniqueName('Created')
   await page.goto('/')
   await openSection(page, 'Definitions')
-  await page.getByRole('button', { name: 'New pipeline' }).click()
+  await sidePanel(page).getByRole('button', { name: 'New pipeline' }).click()
 
   await setEditorText(
     page,
@@ -42,7 +42,7 @@ test('a new pipeline is drawn as it is typed, shows what is wrong, and is saved 
 test('a name that is taken is refused', async ({ page }) => {
   await page.goto('/')
   await openSection(page, 'Definitions')
-  await page.getByRole('button', { name: 'New pipeline' }).click()
+  await sidePanel(page).getByRole('button', { name: 'New pipeline' }).click()
   await setEditorText(page, 'Pipeline Develop_Feature { Only [Harness => Claude, Prompt => "x"]; }')
   await expect(page.getByLabel('Problems')).toContainText('already exists')
   await expect(page.getByRole('button', { name: 'Create', exact: true })).toBeDisabled()
@@ -53,7 +53,7 @@ test('the Name field changes the name in the text, and waits for a name that fit
 }) => {
   await page.goto('/')
   await openSection(page, 'Definitions')
-  await page.getByRole('button', { name: 'New pipeline' }).click()
+  await sidePanel(page).getByRole('button', { name: 'New pipeline' }).click()
   const field = page.getByRole('textbox', { name: 'Name', exact: true })
 
   await field.fill('Typed_Name')

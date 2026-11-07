@@ -387,6 +387,10 @@
 }
 
 /* Pages */
+.page.home {
+  max-width: 1100px;
+}
+
 .page.wide {
   max-width: 1000px;
 }
@@ -1190,4 +1194,147 @@ div.activity-row {
 
 .attention-link:hover {
   background: var(--raised);
+}
+
+.page.home {
+  max-width: 1240px;
+  gap: 20px;
+}
+
+.home-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+
+.home-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(300px, 2fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.home-column {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+@media (max-width: 1100px) {
+  .home-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.home .card {
+  gap: 12px;
+}
+
+.home .card p,
+.home .card h3 {
+  margin: 0;
+}
+
+.quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quick-actions .secondary {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.tile-value {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.tile-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.tile[data-tone='bad'] .tile-value {
+  color: #fca5a5;
+}
+
+.tile[data-tone='good'] .tile-value {
+  color: #86efac;
+}
+
+.note-id {
+  margin-right: 8px;
+  font-family: var(--mono, ui-monospace, 'SF Mono', Menlo, Consolas, monospace);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.count-pill {
+  margin-left: 8px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--raised);
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.step-mark {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--muted);
+  border-radius: 50%;
+}
+
+.step-mark[data-done='true'] {
+  border-color: #86efac;
+  background: #86efac;
+}
+
+.attention-label[data-done='true'] {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.run-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }

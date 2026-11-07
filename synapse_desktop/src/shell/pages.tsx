@@ -7,7 +7,7 @@ import { ExecutionPage } from './ExecutionPage.tsx'
 import { HomePage } from './HomePage.tsx'
 import { PipelinePage } from './PipelinePage.tsx'
 import { SettingsPage } from './SettingsPages.tsx'
-import type { Page } from './state.ts'
+import type { Page, TerminalKind, TerminalSession } from './state.ts'
 
 // A definition's page, which turns into its editor while it is edited. After a
 // save the page is read again.
@@ -64,9 +64,16 @@ export function PageView({
   onCreated,
   onChanged,
   onCancel,
+  terminals,
+  onSelectTerminal,
+  onStartTerminal,
 }: {
   page: Page
   onOpen: (page: Page) => void
+  // The home page shows the terminals that are open and can start one.
+  terminals: readonly TerminalSession[]
+  onSelectTerminal: (id: string) => void
+  onStartTerminal: (kind: TerminalKind) => void
   // A definition was made; this is its page.
   onCreated: (page: Page) => void
   // A definition was changed.
@@ -75,7 +82,14 @@ export function PageView({
 }) {
   switch (page.kind) {
     case 'home':
-      return <HomePage onOpen={onOpen} />
+      return (
+        <HomePage
+          onOpen={onOpen}
+          terminals={terminals}
+          onSelectTerminal={onSelectTerminal}
+          onStartTerminal={onStartTerminal}
+        />
+      )
     case 'settings':
       return <SettingsPage section={page.section} onChanged={onChanged} />
     case 'create':

@@ -27,13 +27,20 @@ test('the app opens on the home page, and the rail leads back to it', async ({ p
   await expect(page.getByRole('tab', { name: 'Home' })).toHaveAttribute('aria-selected', 'true')
 })
 
-test('a missing vault is listed and leads to the page that sets it', async ({ page }) => {
+test('what is not set up is listed, each step leading to the page that does it', async ({
+  page,
+}) => {
   await page.goto('/')
-  await expect(card(page)).toContainText('No vault is configured')
-  await card(page)
-    .getByRole('button', { name: /No vault is configured/ })
-    .click()
+  const steps = page.getByLabel('Get set up')
+  await expect(steps).toContainText('Choose a vault')
+  await expect(steps).toContainText('Install Synapse in a harness')
+  // The world has a work directory, so that step is not one of those left.
+  await expect(steps.getByRole('button', { name: /Choose a vault/ })).toBeEnabled()
+  await steps.getByRole('button', { name: /Choose a vault/ }).click()
   await expect(page.getByRole('heading', { level: 1, name: 'Vault' })).toBeVisible()
+  // A missing vault is not a fault, so Needs attention does not list it.
+  await page.getByRole('button', { name: 'Home', exact: true }).click()
+  await expect(card(page)).not.toContainText('No vault is configured')
 })
 
 test('a run that failed lately is listed with why, and opens', async ({ page }) => {
@@ -81,12 +88,74 @@ test('the vault says what needs a decision', async ({ page }) => {
   try {
     await page.goto('/')
     await expect(card(page)).toContainText('Discussing')
-    await expect(card(page)).toContainText('[p-1] Talk')
+    await expect(card(page)).toContainText('p-1')
     await expect(card(page)).toContainText('In progress (unchecked items)')
-    await expect(card(page)).toContainText('[p-2] Work')
+    await expect(card(page)).toContainText('p-2')
     await expect(card(page)).toContainText('2 unchecked')
     await expect(card(page)).not.toContainText('No vault is configured')
+
+    const summary = page.getByLabel('Vault', { exact: true })
+    await expect(summary).toContainText(vault)
+    await expect(summary.locator('.count').filter({ hasText: 'Discussing' })).toContainText('1')
+    await expect(summary.locator('.count').filter({ hasText: 'In progress' })).toContainText('1')
+    // The step is done now, and a done step is ticked and cannot be pressed.
+    await expect(
+      page.getByLabel('Get set up').getByRole('button', { name: /Choose a vault/ }),
+    ).toBeDisabled()
   } finally {
     rmSync(vault, { recursive: true, force: true })
   }
+})
+
+test('the pipelines card counts the week and lists the latest runs', async ({ page }) => {
+  const dir = join(world().work, 'pipelines', 'exec-home-2')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(
+    join(dir, 'execution.json'),
+    JSON.stringify({
+      format: 'synapse-pipeline-execution/v1',
+      id: 'exec-home-2',
+      pipeline: 'Develop_Feature',
+      started: new Date().toISOString(),
+      ended: new Date().toISOString(),
+      status: 'completed',
+      current_step: null,
+      state: { steps_run: 2 },
+    }),
+  )
+  try {
+    await page.goto('/')
+    const pipelines = page.getByLabel('Pipelines', { exact: true })
+    await expect(pipelines.locator('.tile').filter({ hasText: 'completed' })).toContainText(/[1-9]/)
+    await expect(pipelines.getByRole('button', { name: /Develop_Feature/ })).toContainText(
+      'completed',
+    )
+    await expect(pipelines).toContainText('pipelines defined')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a quick action starts a terminal, which then shows as running', async ({ page }) => {
+  await page.goto('/')
+  await page
+    .getByRole('group', { name: 'Quick actions' })
+    .getByRole('button', { name: 'New shell' })
+    .click()
+  await expect(page.getByRole('tab', { name: 'Terminals' })).toBeVisible()
+  await page.getByRole('button', { name: 'Home', exact: true }).click()
+  const running = page.getByLabel('Running now')
+  await expect(running).toContainText('Shell 1')
+  await running.getByRole('button', { name: /Shell 1/ }).click()
+  await expect(page.locator('.terminal-host')).toBeVisible()
+})
+
+test('the code graph card says it is not in the app yet and leads to its settings', async ({
+  page,
+}) => {
+  await page.goto('/')
+  const graph = page.getByLabel('Code graph', { exact: true })
+  await expect(graph).toContainText('not part of the app yet')
+  await graph.getByRole('button', { name: 'Open them' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Code graph' })).toBeVisible()
 })

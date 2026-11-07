@@ -120,7 +120,7 @@ function run(
 
 const quiet: AttentionInputs = {
   config: { status: 'ready', data: config('/work') },
-  vault: { status: 'ready', data: { configured: true, categories: [] } },
+  vault: { status: 'ready', data: { configured: true, vault: '/v', categories: [] } },
   runs: { status: 'ready', data: [] },
   integrations: { status: 'ready', data: [] },
   now: NOW,
@@ -134,7 +134,7 @@ describe('what needs attention', () => {
     expect(isSettled(quiet)).toBe(true)
   })
 
-  it('names the setup that is missing, each leading to the page that fixes it', () => {
+  it('names a harness whose hook program is gone, and leaves what is not set up to the setup card', () => {
     const groups = attentionGroups({
       ...quiet,
       config: { status: 'ready', data: config(null) },
@@ -147,10 +147,8 @@ describe('what needs attention', () => {
         ] as Integration[],
       },
     })
-    expect(groups.map((g) => g.key)).toEqual(['setup'])
+    expect(groups.map((g) => g.key)).toEqual(['harnesses'])
     expect(groups[0]?.items.map((i) => [i.label, i.target])).toEqual([
-      ['No work directory is set', { kind: 'settings', section: 'general' }],
-      ['No vault is configured', { kind: 'settings', section: 'vault' }],
       [
         'Claude Code names a hook program that is gone',
         { kind: 'settings', section: 'integrations' },
@@ -193,28 +191,31 @@ describe('what needs attention', () => {
   it("takes the vault's categories that have items, with their id, title and what they carry", () => {
     const groups = attentionGroups({
       ...quiet,
-      vault: vaultReady({ configured: true, categories: status.categories }),
+      vault: vaultReady({ configured: true, vault: '/v', categories: status.categories }),
     })
     expect(groups.map((g) => g.title)).toEqual([
       'Discussing',
       'Open questions',
       'In progress (unchecked items)',
     ])
-    expect(groups[1]?.items.map((i) => [i.label, i.detail])).toEqual([
-      ['[p-2] Asks', 'Not compiled'],
-      ['Going', 'Compiled task: Going task'],
+    expect(groups[1]?.items.map((i) => [i.id, i.label, i.detail])).toEqual([
+      ['p-2', 'Asks', 'Not compiled'],
+      [null, 'Going', 'Compiled task: Going task'],
     ])
-    expect(groups[2]?.items[0]).toMatchObject({ label: '[p-3] Work', detail: '4 unchecked' })
+    expect(groups[2]?.items[0]).toMatchObject({ id: 'p-3', label: 'Work', detail: '4 unchecked' })
   })
 
-  it('puts setup before runs before the vault', () => {
+  it('puts harnesses before runs before the vault', () => {
     const groups = attentionGroups({
       ...quiet,
-      config: { status: 'ready', data: config(null) },
+      integrations: {
+        status: 'ready',
+        data: [{ harness: 'Claude', state: 'broken', hook: '/x', version: null }] as Integration[],
+      },
       runs: { status: 'ready', data: [run('a', 'failed', '2026-11-07T10:00:00Z')] },
-      vault: vaultReady({ configured: true, categories: status.categories }),
+      vault: vaultReady({ configured: true, vault: '/v', categories: status.categories }),
     })
-    expect(groups.map((g) => g.key).slice(0, 3)).toEqual(['setup', 'runs', 'vault:discussing'])
+    expect(groups.map((g) => g.key).slice(0, 3)).toEqual(['harnesses', 'runs', 'vault:discussing'])
   })
 
   it('says nothing of a source that is still loading, and names one that failed', () => {
