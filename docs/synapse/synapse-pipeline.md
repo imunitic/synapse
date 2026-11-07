@@ -58,7 +58,9 @@ echo '{"task": "add a --verbose flag"}' | synapse-pipeline run Develop_Feature -
 ```
 
 `run` prints one line per step to standard error as it finishes, and the last step's result as JSON to
-standard output:
+standard output. `--id <execution-id>` gives the run its id, of 1 to 64 letters, digits, `_` and `-`, instead of
+one drawn, so a caller knows it before the run begins: `info <execution-id>` and the record's directory are
+named by it. It needs a work directory, and an id that is taken is an error, not replaced by another:
 
 ```
 step Develop: Done -> Review

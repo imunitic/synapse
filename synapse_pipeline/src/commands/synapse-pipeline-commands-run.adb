@@ -53,35 +53,82 @@ package body Synapse.Pipeline.Commands.Run is
      (Key => To_Unbounded_String (Key), Item => Item);
 
    --  The id the run takes, made a directory of the registry when the work
-   --  directory is known and there is a free id to be had.
+   --  directory is known and there is a free id to be had. Wanted is the id
+   --  that was asked for, or empty to have one drawn; an id that was asked for
+   --  is never replaced by another, and Refusal says why the run cannot go on
+   --  when it could not be had.
+   type Claiming is record
+      Claimed : Id_Claims.Claim;
+      Refusal : Unbounded_String;
+   end record;
+
    function Claim_Id
-     (Env : Environment; Settings : Configs.Config) return Id_Claims.Claim
+     (Env : Environment; Settings : Configs.Config; Wanted : String)
+      return Claiming
    is
       Work : constant Configs.Environment_Maps.Cursor :=
         Settings.Environment.Find (Configs.Work_Dir_Key);
    begin
-      if Configs.Environment_Maps.Has_Element (Work) then
-         Env.Registry.Open (Configs.Environment_Maps.Element (Work));
-         return Id_Claims.Take (Env.Registry.all, Inspectors.New_Id'Access);
+      if not Configs.Environment_Maps.Has_Element (Work) then
+         if Wanted /= "" then
+            return
+              (Claimed => <>,
+               Refusal =>
+                 To_Unbounded_String
+                   ("--id needs a work directory; set "
+                    & Configs.Work_Dir_Key));
+         end if;
+         return
+           (Claimed =>
+              (Id => To_Unbounded_String (Inspectors.New_Id),
+               Registered => False),
+            Refusal => Null_Unbounded_String);
       end if;
-      return
-        (Id => To_Unbounded_String (Inspectors.New_Id), Registered => False);
+      Env.Registry.Open (Configs.Environment_Maps.Element (Work));
+      if Wanted = "" then
+         return
+           (Claimed =>
+              Id_Claims.Take (Env.Registry.all, Inspectors.New_Id'Access),
+            Refusal => Null_Unbounded_String);
+      end if;
+      case Id_Claims.Take_Named (Env.Registry.all, Wanted) is
+         when Id_Claims.Named_Claimed =>
+            return
+              (Claimed =>
+                 (Id => To_Unbounded_String (Wanted), Registered => True),
+               Refusal => Null_Unbounded_String);
+
+         when Id_Claims.Named_Taken =>
+            return
+              (Claimed => <>,
+               Refusal =>
+                 To_Unbounded_String
+                   ("execution " & Wanted & " already exists"));
+
+         when Id_Claims.Named_Failed =>
+            return
+              (Claimed => <>,
+               Refusal =>
+                 To_Unbounded_String
+                   ("the record of execution " & Wanted
+                    & " could not be made"));
+      end case;
    end Claim_Id;
 
    --  Runs the pipeline from its first step with Runner, and says how it
    --  ended. While it goes on, the run can be asked about from outside, where
    --  the transport can listen; whether it can never changes the run.
-   function Run_To_The_End
+   function Run_Claimed
      (Env      : Environment;
       Pipeline : Resolved.Pipeline;
       Settings : Configs.Config;
       Input    : JSON.Value;
       Copies   : Definition_Copies.Copy_Vectors.Vector;
+      Claimed  : Id_Claims.Claim;
       Runner   : in out Session_Runner.Runner'Class) return Exit_Code
    is
       Run     : States.State := States.Initial (Pipeline, Input);
       Context : aliased Contexts.Execution_Context;
-      Claimed : constant Id_Claims.Claim := Claim_Id (Env, Settings);
       Id      : constant String := To_String (Claimed.Id);
       Recorder : aliased Recorders.Recorder
         (Context'Access, Env.Registry, Env.Clock);
@@ -172,12 +219,34 @@ package body Synapse.Pipeline.Commands.Run is
       end if;
       Say (Env, JSON.To_String (Run.Previous_Output) & LF);
       return 0;
+   end Run_Claimed;
+
+   --  Takes the id of the run, and runs it, or says why it cannot.
+   function Run_To_The_End
+     (Env      : Environment;
+      Pipeline : Resolved.Pipeline;
+      Settings : Configs.Config;
+      Input    : JSON.Value;
+      Copies   : Definition_Copies.Copy_Vectors.Vector;
+      Wanted   : String;
+      Runner   : in out Session_Runner.Runner'Class) return Exit_Code
+   is
+      Taken : constant Claiming := Claim_Id (Env, Settings, Wanted);
+   begin
+      if Length (Taken.Refusal) > 0 then
+         Complain (Env, "error: " & To_String (Taken.Refusal) & LF);
+         return 1;
+      end if;
+      return Run_Claimed
+        (Env, Pipeline, Settings, Input, Copies, Taken.Claimed, Runner);
    end Run_To_The_End;
 
    function Run (Env : Environment; Args : Lists.Vector) return Exit_Code is
       Name       : Unbounded_String;
       Input_Path : Unbounded_String;
       Has_Input  : Boolean := False;
+      Wanted_Id  : Unbounded_String;
+      Has_Id     : Boolean := False;
       I          : Positive := Args.First_Index;
    begin
       while I <= Args.Last_Index loop
@@ -191,6 +260,13 @@ package body Synapse.Pipeline.Commands.Run is
                Has_Input := True;
                I := I + 1;
                Input_Path := Args (I);
+            elsif Arg = "--id" then
+               if Has_Id or else I = Args.Last_Index then
+                  return Usage_Error (Env, Usage);
+               end if;
+               Has_Id := True;
+               I := I + 1;
+               Wanted_Id := Args (I);
             elsif Arg'Length >= 2 and then Arg (Arg'First .. Arg'First + 1) =
                   "--"
             then
@@ -204,6 +280,12 @@ package body Synapse.Pipeline.Commands.Run is
          I := I + 1;
       end loop;
       if Length (Name) = 0 then
+         return Usage_Error (Env, Usage);
+      end if;
+      if Has_Id and then not Id_Claims.Is_Valid (To_String (Wanted_Id)) then
+         Complain
+           (Env,
+            "error: --id must be 1 to 64 letters, digits, '_' or '-'" & LF);
          return Usage_Error (Env, Usage);
       end if;
 
@@ -280,7 +362,8 @@ package body Synapse.Pipeline.Commands.Run is
                      begin
                         Runner.Skill_Roots := Roots;
                         return Run_To_The_End
-                          (Env, Pipeline, Settings, Input, Copies, Runner);
+                          (Env, Pipeline, Settings, Input, Copies,
+                             To_String (Wanted_Id), Runner);
                      end;
                   end if;
                   declare
@@ -305,7 +388,8 @@ package body Synapse.Pipeline.Commands.Run is
                             (Scripted_Runners.Script_Results.Value (Script));
                      begin
                         return Run_To_The_End
-                          (Env, Pipeline, Settings, Input, Copies, Runner);
+                          (Env, Pipeline, Settings, Input, Copies,
+                             To_String (Wanted_Id), Runner);
                      end;
                   end;
                end;

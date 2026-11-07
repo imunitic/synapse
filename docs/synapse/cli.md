@@ -517,7 +517,8 @@ usage: synapse-pipeline <subcommand> [args]
          describe a pipeline: its steps, settings, edges and limits
   next <pipeline> [--input <file>|-] | --state <file>|- --result <file>|-
          the state a run starts in, or the state after a step's result
-  run <pipeline> [--input <file>|-]   run a pipeline to its end
+  run <pipeline> [--input <file>|-] [--id <execution-id>]
+         run a pipeline to its end
   list [--all]   the pipelines running now, or all that were run
   info <execution-id> [--format json|text] [--query <rule>] | --events
          what a pipeline says about itself, running or not
@@ -598,7 +599,7 @@ Environment:
 ### synapse-pipeline run
 
 ```
-usage: synapse-pipeline run <pipeline> [--input <file>|-]
+usage: synapse-pipeline run <pipeline> [--input <file>|-] [--id <execution-id>]
 
 Runs the pipeline from its first step, one agent session per step, and prints
 the last step's result as JSON on standard output. One line per step goes to
@@ -607,6 +608,9 @@ standard error as it finishes. The exit code is 0 when the run completes and
 
   --input <file>   JSON handed to the first step; '-' reads it from standard
                    input
+  --id <id>        the id of the execution, 1 to 64 letters, digits, '_' and
+                   '-', instead of one drawn; it needs a work directory, and
+                   an id that is taken is an error
 
 While it runs, the run can be inspected with 'list' and 'info' when a work
 directory is set.

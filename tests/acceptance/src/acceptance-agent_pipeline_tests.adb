@@ -520,6 +520,33 @@ package body Acceptance.Agent_Pipeline_Tests is
       return False;
    end Holds;
 
+   procedure A_Run_Can_Be_Given_Its_Id (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : Fixture;
+   begin
+      Set_Up (F);
+      Define_Dev (F);
+      Use_Script (F, Review_Loop);
+      Assert_Exit
+        (Run_Pipeline (F, "run", "Dev", "--id", "nightly-1"), 0, "the run");
+      declare
+         Dir  : constant String := Work (F) & "/pipelines/nightly-1";
+         Info : constant Result := Run_Pipeline (F, "info", "nightly-1");
+      begin
+         Assert
+           (Holds (Files_In (Dir), "execution.json"),
+            "its record is under the id it was given");
+         Assert_Exit (Info, 0, "info reads it by that id");
+         Assert_Contains (Out_Of (Info), "status     completed", "info");
+      end;
+      Assert_Exit
+        (Run_Pipeline (F, "run", "Dev", "--id", "nightly-1"), 1,
+         "the same id again is refused");
+      Assert_Exit
+        (Run_Pipeline (F, "run", "Dev", "--id", "../escape"), 2,
+         "an id that is not plain is a usage error");
+   end A_Run_Can_Be_Given_Its_Id;
+
    procedure A_Run_Leaves_A_Record_That_Can_Be_Read_And_Removed
      (T : in out Test_Cases_Class)
    is
@@ -703,6 +730,8 @@ package body Acceptance.Agent_Pipeline_Tests is
       Register_Routine
         (T, A_Run_Leaves_A_Record_That_Can_Be_Read_And_Removed'Access,
          "A run leaves a record that can be read and removed");
+      Register_Routine
+        (T, A_Run_Can_Be_Given_Its_Id'Access, "A run can be given its id");
       Register_Routine
         (T, A_Sessions_Output_Is_Kept_As_A_Transcript'Access,
          "A session's output is kept as a transcript");
