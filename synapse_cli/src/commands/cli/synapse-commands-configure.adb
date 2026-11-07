@@ -358,6 +358,41 @@ package body Synapse.Commands.Configure is
       end;
    end Object_In;
 
+   --  Whether a shell would split or read something in a path: a space, a quote,
+   --  an escape or any of the characters it gives a meaning to.
+   function Needs_Quoting (Path : String) return Boolean is
+   begin
+      for C of Path loop
+         if C in ' ' | ASCII.HT | ''' | '"' | '\' | '$' | '`' | '&' | ';'
+                | '|' | '<' | '>' | '(' | ')' | '*' | '?' | '[' | ']' | '{'
+                | '}' | '!' | '#' | '~' | '^' | '%'
+         then
+            return True;
+         end if;
+      end loop;
+      return False;
+   end Needs_Quoting;
+
+   --  A path as the first word of a shell command: as it is when nothing in it
+   --  needs quoting, else in double quotes with `\`, `"`, `$` and the backtick
+   --  escaped.
+   function Shell_Word (Path : String) return String is
+      Result : Unbounded_String;
+   begin
+      if not Needs_Quoting (Path) then
+         return Path;
+      end if;
+      Append (Result, '"');
+      for C of Path loop
+         if C in '\' | '"' | '$' | '`' then
+            Append (Result, '\');
+         end if;
+         Append (Result, C);
+      end loop;
+      Append (Result, '"');
+      return To_String (Result);
+   end Shell_Word;
+
    --  The hook template with the hook program's path where the bare name is.
    function Rendered (V : JSON.Value; Hook : String) return JSON.Value is
       Prefix : constant String := Hook_Name & " ";
@@ -392,7 +427,7 @@ package body Synapse.Commands.Configure is
                           With_Member
                             (Result, Key,
                              JSON.Make_String
-                               (Hook
+                               (Shell_Word (Hook)
                                 & JSON.As_String (Item)
                                     (JSON.As_String (Item)'First
                                      + Hook_Name'Length ..
@@ -415,16 +450,29 @@ package body Synapse.Commands.Configure is
    --  its first word's file name is the program's, so that a copy installed
    --  at another path is still recognised as Synapse's own.
    function Is_Our_Command (Command : String) return Boolean is
-      Word_End : Natural := Command'Last;
-      Name_At  : Natural := Command'First;
+      Quoted     : constant Boolean :=
+        Command'Length > 0 and then Command (Command'First) = '"';
+      Word_Start : constant Natural :=
+        (if Quoted then Command'First + 1 else Command'First);
+      Word_End   : Natural := Command'Last;
+      Name_At    : Natural := Word_Start;
+      Scan       : Natural := Word_Start;
    begin
-      for I in Command'Range loop
-         if Command (I) = ' ' then
-            Word_End := I - 1;
+      --  A quoted word ends at the first quote that is not escaped, any other
+      --  at the first space.
+      while Scan <= Command'Last loop
+         if Quoted and then Command (Scan) = '\' then
+            Scan := Scan + 2;
+         elsif (Quoted and then Command (Scan) = '"')
+           or else (not Quoted and then Command (Scan) = ' ')
+         then
+            Word_End := Scan - 1;
             exit;
+         else
+            Scan := Scan + 1;
          end if;
       end loop;
-      for I in Command'First .. Word_End loop
+      for I in Word_Start .. Word_End loop
          if Is_Separator (Command (I)) then
             Name_At := I + 1;
          end if;

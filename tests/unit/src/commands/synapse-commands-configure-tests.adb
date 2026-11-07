@@ -81,9 +81,10 @@ package body Synapse.Commands.Configure.Tests is
       end return;
    end Make_World;
 
-   --  Runs `configure Harness` in W's machine, and says what it returned.
-   function Configure
-     (W : World; Harness : String; Out_Text, Err_Text : out
+   --  Runs `configure Harness` in W's machine with this program started from
+   --  Bin_Dir, and says what it returned.
+   function Configure_From
+     (W : World; Bin_Dir, Harness : String; Out_Text, Err_Text : out
         Ada.Strings.Unbounded.Unbounded_String) return Exit_Code
    is
       F : aliased Synapse.Test_Environment.Fixture;
@@ -96,7 +97,7 @@ package body Synapse.Commands.Configure.Tests is
             Runner     => F.Runner'Access, Clock => F.Clock'Access,
             Extractors => F.Extractors'Access,
             Argv0      =>
-              Ada.Strings.Unbounded.To_Unbounded_String (Bin (W) & "/synapse"));
+              Ada.Strings.Unbounded.To_Unbounded_String (Bin_Dir & "/synapse"));
          Code : constant Exit_Code :=
            Run (Environment_Of_W, Synapse.Test_Environment.Args (Harness));
       begin
@@ -104,7 +105,12 @@ package body Synapse.Commands.Configure.Tests is
          Err_Text := Ada.Strings.Unbounded.To_Unbounded_String (F.Console.Err_Text);
          return Code;
       end;
-   end Configure;
+   end Configure_From;
+
+   function Configure
+     (W : World; Harness : String; Out_Text, Err_Text : out
+        Ada.Strings.Unbounded.Unbounded_String) return Exit_Code is
+     (Configure_From (W, Bin (W), Harness, Out_Text, Err_Text));
 
    function Configure (W : World; Harness : String) return Exit_Code is
       Out_Text, Err_Text : Ada.Strings.Unbounded.Unbounded_String;
@@ -195,6 +201,53 @@ package body Synapse.Commands.Configure.Tests is
          Remove (W);
          raise;
    end Hooks_Are_Merged_Into_What_Is_There_And_A_Rerun_Adds_Nothing;
+
+   --  A hook program kept in a folder whose name has a space is quoted, so that
+   --  the shell reads the path as one word; a rerun still knows the hooks as its
+   --  own, and so does a run from a folder with no space.
+   procedure A_Hook_Path_With_A_Space_Is_Quoted_And_Still_Recognised
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      W        : constant World := Make_World;
+      Spaced   : constant String := Path (W, "my programs");
+      Settings : constant String := Home (W) & "/.claude/settings.json";
+      Out_Text, Err_Text : Ada.Strings.Unbounded.Unbounded_String;
+   begin
+      Put (Spaced & "/synapse", "");
+      Put (Spaced & "/synapse-hook" & Exe, "");
+      Assert
+        (Configure_From (W, Spaced, "claude", Out_Text, Err_Text) = 0,
+         "it succeeds: " & Ada.Strings.Unbounded.To_String (Err_Text));
+      declare
+         First : constant String := Read (Settings);
+      begin
+         Assert
+           (Has
+              (First,
+               """command"": ""\""" & Spaced & "/synapse-hook" & Exe
+               & "\"" session-start"""),
+            "the path is one quoted word: " & First);
+         Assert
+           (Configure_From (W, Spaced, "claude", Out_Text, Err_Text) = 0
+            and then Read (Settings) = First,
+            "a second run knows the quoted hooks and changes nothing");
+      end;
+      Assert (Configure (W, "claude") = 0, "a run from a folder with no space");
+      declare
+         Last : constant String := Read (Settings);
+      begin
+         Assert
+           (not Has (Last, "my programs")
+            and then Has (Last, """command"": """ & Hook (W) & " session-start"""),
+            "replaces the quoted hooks instead of adding to them: " & Last);
+      end;
+      Remove (W);
+   exception
+      when others =>
+         Remove (W);
+         raise;
+   end A_Hook_Path_With_A_Space_Is_Quoted_And_Still_Recognised;
 
    procedure Settings_That_Cannot_Be_Merged_Into_Stop_The_Run_Before_It_Writes
      (T : in out Test_Cases_Class)
@@ -408,6 +461,9 @@ package body Synapse.Commands.Configure.Tests is
         (T,
          Hooks_Are_Merged_Into_What_Is_There_And_A_Rerun_Adds_Nothing'Access,
          "Hooks are merged into what is there and a rerun adds nothing");
+      Register_Routine
+        (T, A_Hook_Path_With_A_Space_Is_Quoted_And_Still_Recognised'Access,
+         "A hook path with a space is quoted and still recognised");
       Register_Routine
         (T,
          Settings_That_Cannot_Be_Merged_Into_Stop_The_Run_Before_It_Writes'Access,

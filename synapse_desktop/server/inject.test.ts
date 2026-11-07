@@ -12,6 +12,7 @@ import {
   planSession,
   planShell,
   renderHooks,
+  shellWord,
   shimScript,
   type InjectDeps,
 } from './inject.ts'
@@ -86,6 +87,19 @@ describe('finding the content and the hook', () => {
     const commands = JSON.stringify(rendered)
     expect(commands).toContain(`${hook} session-start`)
     expect(commands).toContain('echo not-ours')
+  })
+
+  it('quotes a hook path that has a blank in it, as one word, and leaves other paths as they are', async () => {
+    const spaced = join(pkg, 'Synapse Desktop.app', 'synapse-hook')
+    const rendered = JSON.stringify(
+      await renderHooks(join(pkg, 'harness', 'claude', 'hooks.json'), spaced),
+    )
+    expect(rendered).toContain(`\\"${spaced}\\" session-start`)
+    expect(shellWord('/usr/local/bin/synapse-hook')).toBe('/usr/local/bin/synapse-hook')
+    expect(shellWord('C:/Program Files/Synapse/synapse-hook.exe')).toBe(
+      '"C:/Program Files/Synapse/synapse-hook.exe"',
+    )
+    expect(shellWord('/a/it"s $HOME/h')).toBe('"/a/it\\"s \\$HOME/h"')
   })
 })
 

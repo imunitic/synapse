@@ -122,12 +122,23 @@ export async function renderHooks(
     for (const group of groups) {
       for (const hook of group.hooks) {
         if (hook.command.startsWith(`${HOOK_NAME} `)) {
-          hook.command = slashed(hookBinary) + hook.command.slice(HOOK_NAME.length)
+          hook.command = shellWord(slashed(hookBinary)) + hook.command.slice(HOOK_NAME.length)
         }
       }
     }
   }
   return template
+}
+
+// What a shell would split or read in a path: a space, a quote, an escape or any
+// of the characters it gives a meaning to.
+const NEEDS_QUOTING = /[\s'"\\$`&;|<>()*?[\]{}!#~^%]/
+
+// A path as the first word of a shell command: as it is when nothing in it needs
+// quoting, else in double quotes with `\`, `"`, `$` and the backtick escaped.
+export function shellWord(path: string): string {
+  if (!NEEDS_QUOTING.test(path)) return path
+  return `"${path.replace(/[\\"$`]/g, '\\$&')}"`
 }
 
 // `/` between the parts on Windows: the command runs through a shell that may
