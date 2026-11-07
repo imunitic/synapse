@@ -32,6 +32,8 @@ export interface ShellState {
   definitionKind: DefinitionKind
   tabs: Tab[]
   activeId: string | null
+  // Changes when a definition is made, so that the lists are read again.
+  reloadToken: number
 }
 
 export const initialState: ShellState = {
@@ -40,6 +42,7 @@ export const initialState: ShellState = {
   definitionKind: 'pipeline',
   tabs: [],
   activeId: null,
+  reloadToken: 0,
 }
 
 export type Action =
@@ -49,6 +52,8 @@ export type Action =
   | { type: 'openPage'; page: Page }
   | { type: 'activateTab'; id: string }
   | { type: 'closeTab'; id: string }
+  // A definition was made in the tab closeId: that tab gives way to its page.
+  | { type: 'definitionCreated'; closeId: string; page: Page }
 
 export function pageId(page: Page): string {
   switch (page.kind) {
@@ -99,6 +104,14 @@ export function reduce(state: ShellState, action: Action): ShellState {
 
     case 'activateTab':
       return state.tabs.some((t) => t.id === action.id) ? { ...state, activeId: action.id } : state
+
+    case 'definitionCreated': {
+      const opened = reduce(reduce(state, { type: 'closeTab', id: action.closeId }), {
+        type: 'openPage',
+        page: action.page,
+      })
+      return { ...opened, reloadToken: state.reloadToken + 1 }
+    }
 
     case 'closeTab': {
       const index = state.tabs.findIndex((t) => t.id === action.id)

@@ -30,6 +30,7 @@ beforeEach(async () => {
           throw new NotStartedHere('stub')
         },
       },
+      agent: () => Promise.reject(new Error('not used')),
       runCli: (run) => {
         cliCalls.push(run)
         return Promise.resolve({ code: 0, stdout: 'ok', stderr: '' })

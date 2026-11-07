@@ -26,7 +26,8 @@ export function DefinitionsPanel({
   state: ShellState
   dispatch: Dispatch<Action>
 }) {
-  const { state: load, reload } = useLoad(loadAll)
+  // Read again when a definition has been made.
+  const { state: load, reload } = useLoad(loadAll, undefined, state.reloadToken)
   const kind = state.definitionKind
   const labels = DEFINITION_LABELS[kind]
 

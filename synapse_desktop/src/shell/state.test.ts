@@ -51,6 +51,26 @@ describe('page ids', () => {
   })
 })
 
+describe('a definition that is made', () => {
+  const made = {
+    kind: 'definition',
+    definition: 'agent',
+    name: 'Fresh',
+    path: '/d/Fresh.synapse',
+  } as const
+
+  it('gives its create tab way to its page and has the lists read again', () => {
+    const before = run([
+      { type: 'openPage', page: settings },
+      { type: 'openPage', page: newAgent },
+    ])
+    const after = reduce(before, { type: 'definitionCreated', closeId: 'create:agent', page: made })
+    expect(after.tabs.map((t) => t.id)).toEqual(['settings', 'definition:agent:Fresh'])
+    expect(after.activeId).toBe('definition:agent:Fresh')
+    expect(after.reloadToken).toBe(before.reloadToken + 1)
+  })
+})
+
 describe('tabs', () => {
   it('opens a page once and activates it again instead of duplicating it', () => {
     const state = run([

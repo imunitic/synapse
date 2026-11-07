@@ -29,6 +29,20 @@ export const runRequestSchema: z.ZodType<RunRequest> = z.discriminatedUnion('com
   z.object({ command: z.literal('query'), expression: z.unknown() }),
 ])
 
+// A definition's name is its file's name: an identifier.
+export const definitionNameSchema = z
+  .string()
+  .regex(/^[A-Za-z][A-Za-z0-9_]*$/)
+  .max(128)
+
+// The form the Agent Skills specification gives a skill's name.
+export const skillNameSchema = z
+  .string()
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/)
+  .max(64)
+
+const draftText = z.string().max(200_000)
+
 export const callParams = {
   readText: z.object({ path: z.string() }),
   readDir: z.object({ path: z.string() }),
@@ -44,6 +58,28 @@ export const callParams = {
     input: z.unknown(),
   }),
   stopRun: z.object({ executionId: executionIdSchema }),
+  previewDraft: z.object({
+    draft: z.object({
+      kind: z.enum(['pipeline', 'system', 'agent']),
+      name: definitionNameSchema,
+      text: draftText,
+    }),
+  }),
+  writeDefinition: z.union([
+    z.object({ kind: z.literal('definition'), name: definitionNameSchema, text: draftText }),
+    z.object({ kind: z.literal('skill'), name: skillNameSchema, text: draftText }),
+  ]),
+  generateDefinition: z.object({
+    kind: z.enum(['pipeline', 'system', 'agent', 'skill']),
+    prompt: z.string().min(1).max(20_000),
+    harness: harnessSchema.optional(),
+    definitions: z
+      .array(
+        z.object({ name: definitionNameSchema, kind: z.enum(['pipeline', 'system', 'agent']) }),
+      )
+      .max(1000),
+    skills: z.array(skillNameSchema).max(1000),
+  }),
   getConfig: z.object({}),
   getPaths: z.object({}),
   setConfig: z.object({ patch: appConfigSchema.partial() }),

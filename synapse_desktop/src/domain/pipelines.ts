@@ -2,7 +2,7 @@
 // the problems it reports when the pipeline cannot run.
 
 import { z } from 'zod'
-import type { Transport } from '../../shared/transport.ts'
+import type { CliResult, Transport } from '../../shared/transport.ts'
 
 // `role` and `assignment`: inline text, or the name of a skill.
 const instructionSchema = z
@@ -116,10 +116,9 @@ export function guardLabel(guard: unknown): string | null {
 export type Described =
   { ok: true; description: PipelineDescription } | { ok: false; problems: Problem[] }
 
-// The pipeline as the CLI resolves it, or why it cannot run. Throws when the
-// CLI cannot be run or answers in a format this app does not know.
-export async function describePipeline(transport: Transport, name: string): Promise<Described> {
-  const result = await transport.cli('synapse-pipeline', ['show', name, '--format', 'json'])
+// What `show --format json` answered: the pipeline, or why it cannot run.
+// Throws when the answer is in a format this app does not know.
+export function readShown(result: CliResult): Described {
   if (result.code !== 0) {
     const problems = parseProblems(result.stderr)
     return {
@@ -139,4 +138,10 @@ export async function describePipeline(transport: Transport, name: string): Prom
   const description = parseDescription(json)
   if (description === null) throw new Error('show answered a description this app does not know')
   return { ok: true, description }
+}
+
+// The pipeline as the CLI resolves it, or why it cannot run. Throws when the
+// CLI cannot be run or answers in a format this app does not know.
+export async function describePipeline(transport: Transport, name: string): Promise<Described> {
+  return readShown(await transport.cli('synapse-pipeline', ['show', name, '--format', 'json']))
 }

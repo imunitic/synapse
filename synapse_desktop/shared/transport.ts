@@ -40,6 +40,32 @@ export interface AppPaths {
 
 export type RunAnswer = { ok: true; result: unknown } | { ok: false; error: string }
 
+// Text that is being written and is not saved: a pipeline, a system or an agent.
+export interface DraftDefinition {
+  kind: 'pipeline' | 'system' | 'agent'
+  // The name the text declares, which is the name of its file.
+  name: string
+  text: string
+}
+
+// A definition file, or the SKILL.md of a skill, to be made.
+export interface NewDefinition {
+  kind: 'definition' | 'skill'
+  name: string
+  text: string
+}
+
+// A description to have an agent write a definition from. What exists is given
+// so that the text reuses it and does not take a name that is used.
+export interface GenerateRequest {
+  kind: 'pipeline' | 'system' | 'agent' | 'skill'
+  prompt: string
+  // The harness that writes it; the default harness when absent.
+  harness?: Harness
+  definitions: { name: string; kind: 'pipeline' | 'system' | 'agent' }[]
+  skills: string[]
+}
+
 export type CliBinary = 'synapse-pipeline' | 'synapse'
 
 export interface CliOptions {
@@ -63,6 +89,17 @@ export interface Transport {
 
   // A typed allowlist of binaries and subcommands, never a generic exec.
   cli(binary: CliBinary, args: string[], options?: CliOptions): Promise<CliResult>
+  // What `synapse-pipeline` says about the draft as if it were saved among the
+  // definitions: `show --format json` for a pipeline, and `check` of a pipeline
+  // that stands for the others, whose warnings name the draft when it is wrong.
+  previewDraft(draft: DraftDefinition): Promise<CliResult>
+  // Makes the file in the default definition directory. It never replaces one.
+  writeDefinition(item: NewDefinition): Promise<{ path: string }>
+
+  // The text of a definition, or of a skill's SKILL.md, that an agent wrote from
+  // the description. Nothing is saved.
+  generateDefinition(request: GenerateRequest): Promise<{ text: string }>
+
   startRun(pipeline: string, input: unknown): Promise<{ executionId: string }>
   // Only for runs this app started.
   stopRun(executionId: string): Promise<void>

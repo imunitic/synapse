@@ -1,7 +1,7 @@
 // The API calls: each one validates its own parameters and reaches only what
 // the roots and the CLI allowlist let it.
 
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { ZodError } from 'zod'
 import { appConfigSchema, callParams, isCallName, type CallName } from '../shared/calls.ts'
@@ -17,6 +17,8 @@ import {
   resolveInside,
   type Environment,
 } from './roots.ts'
+import { GenerationFailed, generateText, SkillNotFound, type AgentRunner } from './generate.ts'
+import { previewDraft } from './preview.ts'
 import { askRun, NotListening, socketPath } from './run-socket.ts'
 import { NotStartedHere, RunNotStarted, type RunStarter } from './runs.ts'
 
@@ -27,6 +29,7 @@ export interface Context {
   configFile: string
   runCli: CliRunner
   runs: RunStarter
+  agent: AgentRunner
 }
 
 // An error with the HTTP status the caller should see.
@@ -135,6 +138,48 @@ const handlers: Record<CallName, Handler> = {
       throw error
     }
     return null
+  },
+
+  async previewDraft(raw, context): Promise<CliResult> {
+    const { draft } = callParams.previewDraft.parse(raw)
+    return previewDraft(draft, context)
+  },
+
+  async generateDefinition(raw, context): Promise<{ text: string }> {
+    const request = callParams.generateDefinition.parse(raw)
+    const { defaultHarness } = await loadConfig(context.configFile)
+    try {
+      const text = await generateText(request, {
+        harness: request.harness ?? defaultHarness ?? 'Claude',
+        pathVariable: context.environment.env.PATH ?? '',
+        agent: context.agent,
+      })
+      return { text }
+    } catch (error) {
+      if (error instanceof SkillNotFound) throw new CallError(error.message, 409)
+      if (error instanceof GenerationFailed) throw new CallError(error.message, 502)
+      throw error
+    }
+  },
+
+  async writeDefinition(raw, context): Promise<{ path: string }> {
+    const item = callParams.writeDefinition.parse(raw)
+    const defaultDir = pipelineConfigDir(context.environment)
+    const path =
+      item.kind === 'definition'
+        ? join(defaultDir, `${item.name}.synapse`)
+        : join(defaultDir, 'skills', item.name, 'SKILL.md')
+    await mkdir(join(path, '..'), { recursive: true })
+    try {
+      // `wx` fails when the file is there: a definition is never replaced.
+      await writeFile(path, item.text, { flag: 'wx' })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw new CallError(`${item.name} already exists`, 409)
+      }
+      throw error
+    }
+    return { path }
   },
 
   async getConfig(raw, context): Promise<AppConfig> {

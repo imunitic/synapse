@@ -42,6 +42,10 @@ export function Shell() {
                 key={active.id}
                 page={active.page}
                 onOpen={(page) => dispatch({ type: 'openPage', page })}
+                onCreated={(page) =>
+                  dispatch({ type: 'definitionCreated', closeId: active.id, page })
+                }
+                onCancel={() => dispatch({ type: 'closeTab', id: active.id })}
               />
             )}
           </div>

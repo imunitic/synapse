@@ -7,6 +7,9 @@ import type {
   CliBinary,
   CliOptions,
   CliResult,
+  DraftDefinition,
+  GenerateRequest,
+  NewDefinition,
   DirEntry,
   RunAnswer,
   RunRequest,
@@ -38,6 +41,18 @@ export class HttpTransport implements Transport {
 
   cli(binary: CliBinary, args: string[], options?: CliOptions): Promise<CliResult> {
     return this.call('cli', { binary, args, stdin: options?.stdin })
+  }
+
+  previewDraft(draft: DraftDefinition): Promise<CliResult> {
+    return this.call('previewDraft', { draft })
+  }
+
+  writeDefinition(item: NewDefinition): Promise<{ path: string }> {
+    return this.call('writeDefinition', item)
+  }
+
+  generateDefinition(request: GenerateRequest): Promise<{ text: string }> {
+    return this.call('generateDefinition', request)
   }
 
   getConfig(): Promise<AppConfig> {

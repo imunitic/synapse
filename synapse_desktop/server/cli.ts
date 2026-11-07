@@ -34,6 +34,8 @@ export interface CliRun {
   args: readonly string[]
   stdin?: string
   config: AppConfig
+  // Variables set after the others, to point the program somewhere else.
+  env?: Record<string, string>
 }
 
 // The environment a Synapse binary runs in: the work directory and the
@@ -54,9 +56,9 @@ export function cliEnvironment(base: NodeJS.ProcessEnv, config: AppConfig): Node
 export type CliRunner = (run: CliRun) => Promise<CliResult>
 
 // The binary is looked up on PATH. A non-zero exit is a result, not an error.
-export const runCli: CliRunner = ({ binary, args, stdin, config }) =>
+export const runCli: CliRunner = ({ binary, args, stdin, config, env: extra }) =>
   new Promise((resolve, reject) => {
-    const env = cliEnvironment(process.env, config)
+    const env = { ...cliEnvironment(process.env, config), ...extra }
     const child = execFile(
       binary,
       [...args],

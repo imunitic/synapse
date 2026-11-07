@@ -8,6 +8,7 @@ import { SERVER_PORT, WEB_PORT } from '../shared/constants.ts'
 import { runCli } from './cli.ts'
 import { configFile } from './config-store.ts'
 import { createHandler } from './http.ts'
+import { runAgent } from './generate.ts'
 import { createRunStarter } from './runs.ts'
 
 const environment = { env: process.env, home: homedir() }
@@ -19,6 +20,7 @@ const handler = createHandler(
     environment,
     configFile: configFile(environment),
     runCli,
+    agent: runAgent,
     runs: createRunStarter('synapse-pipeline', process.env),
   },
   {

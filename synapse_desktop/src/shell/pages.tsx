@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useConfig } from './config.tsx'
+import { CreatePage } from './CreatePage.tsx'
 import { DefinitionPage } from './DefinitionPage.tsx'
 import { ExecutionPage } from './ExecutionPage.tsx'
 import { PipelinePage } from './PipelinePage.tsx'
-import { DEFINITION_LABELS, type Page } from './state.ts'
+import type { Page } from './state.ts'
 
 function WorkDirectoryForm({ initial }: { initial: string }) {
   const { save } = useConfig()
@@ -60,23 +61,23 @@ function SettingsPage() {
   )
 }
 
-function CreatePage({ definition }: { definition: keyof typeof DEFINITION_LABELS }) {
-  const labels = DEFINITION_LABELS[definition]
-  return (
-    <div className="page">
-      <p className="eyebrow">Create</p>
-      <h1 className="page-title">New {labels.singular}</h1>
-      <div className="placeholder">The form for a new {labels.singular} is not designed yet.</div>
-    </div>
-  )
-}
-
-export function PageView({ page, onOpen }: { page: Page; onOpen: (page: Page) => void }) {
+export function PageView({
+  page,
+  onOpen,
+  onCreated,
+  onCancel,
+}: {
+  page: Page
+  onOpen: (page: Page) => void
+  // A definition was made; this is its page.
+  onCreated: (page: Page) => void
+  onCancel: () => void
+}) {
   switch (page.kind) {
     case 'settings':
       return <SettingsPage />
     case 'create':
-      return <CreatePage definition={page.definition} />
+      return <CreatePage definition={page.definition} onCreated={onCreated} onCancel={onCancel} />
     case 'definition':
       return page.definition === 'pipeline' ? (
         <PipelinePage name={page.name} path={page.path} onOpen={onOpen} />

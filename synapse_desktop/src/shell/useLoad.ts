@@ -4,11 +4,13 @@ export type LoadState<T> =
   { status: 'loading' } | { status: 'ready'; data: T } | { status: 'failed'; error: string }
 
 // Runs `load` when the component appears and again on `reload`, or every
-// `refreshMs` when given. `load` must be the same function on every render.
+// `refreshMs` when given, and when `reloadKey` changes. `load` must be the same
+// function on every render.
 // A reload keeps the data on screen until the new data arrives.
 export function useLoad<T>(
   load: () => Promise<T>,
   refreshMs?: number,
+  reloadKey?: number,
 ): { state: LoadState<T>; reload: () => void } {
   const [state, setState] = useState<LoadState<T>>({ status: 'loading' })
   const [version, setVersion] = useState(0)
@@ -21,7 +23,7 @@ export function useLoad<T>(
     return () => {
       current = false
     }
-  }, [load, version])
+  }, [load, version, reloadKey])
 
   useEffect(() => {
     if (refreshMs === undefined) return

@@ -739,3 +739,45 @@
   flex-direction: column;
   gap: 3px;
 }
+
+/* The editor of a new definition */
+.code-editor {
+  margin-bottom: 8px;
+}
+
+.diagram-note {
+  margin: 0 24px 8px;
+}
+
+.agent-card textarea {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 6px 0 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--tabbar);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.name-value {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.actions {
+  justify-content: flex-end;
+}
+
+.agent-card select {
+  margin-left: 8px;
+  color: var(--text);
+  background: var(--tabbar);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
