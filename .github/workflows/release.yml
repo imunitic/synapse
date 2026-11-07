@@ -80,6 +80,19 @@ jobs:
         with:
           node-version: 24
 
+      # The programs report the version of their crate, which is the tag.
+      - name: Set the version the programs report
+        if: startsWith(github.event.inputs.tag || github.ref_name, 'v')
+        shell: bash
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          v="${TAG#v}"
+          for crate in synapse synapse_cli synapse_pipeline; do
+            sed -i.bak "s/^version = \".*\"/version = \"$v\"/" "$crate/alire.toml"
+            rm "$crate/alire.toml.bak"
+          done
+
       - name: Build the Linux binaries against glibc 2.28
         if: runner.os == 'Linux'
         run: ci/linux-release.sh

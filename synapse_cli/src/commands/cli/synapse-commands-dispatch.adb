@@ -1,5 +1,7 @@
 with Ada.Strings.Unbounded;
 
+with Synapse_Config;
+
 with Synapse.Commands.Brief;
 with Synapse.Commands.Comments_Check;
 with Synapse.Commands.Comments_Sweep;
@@ -170,6 +172,9 @@ package body Synapse.Commands.Dispatch is
       begin
          if Cli_Args.Is_Help (Sub) then
             Complain (Env, Usage.Text);
+            return 0;
+         elsif Sub = "--version" then
+            Say (Env, "synapse " & Synapse_Config.Crate_Version & ASCII.LF);
             return 0;
          end if;
          declare

@@ -1,5 +1,7 @@
 with Ada.Strings.Unbounded;
 
+with Synapse_Config;
+
 with Synapse.Pipeline.Commands.Check;
 with Synapse.Pipeline.Commands.Cleanup;
 with Synapse.Pipeline.Commands.Configure;
@@ -62,6 +64,12 @@ package body Synapse.Pipeline.Commands.Dispatch is
             end;
          elsif Name = "--help" or else Name = "-h" or else Name = "help" then
             Say (Env, Usage.Text);
+            return 0;
+         elsif Name = "--version" then
+            Say
+              (Env,
+               "synapse-pipeline " & Synapse_Config.Crate_Version
+               & Usage.LF);
             return 0;
          end if;
          Complain (Env, "synapse-pipeline: unknown subcommand '" & Name &

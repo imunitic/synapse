@@ -29,7 +29,8 @@ package Synapse.Pipeline.Commands.Usage is
      & "         remove the records of executions that are over" & LF
      & "  configure <claude|codex|opencode>" & LF
      & "         install the skills of this program for a harness" & LF & LF
-     & "'synapse-pipeline <subcommand> --help' says more." & LF;
+     & "'synapse-pipeline <subcommand> --help' says more." & LF
+     & "'synapse-pipeline --version' says which version this is." & LF;
 
    Check_Help : constant String :=
      "usage: synapse-pipeline check <pipeline>" & LF & LF

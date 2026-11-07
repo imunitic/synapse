@@ -14,6 +14,7 @@ to do with the vault or the graph; see `synapse-pipeline.md`.
 
 ```
 usage: synapse <subcommand> [args]
+       synapse --version
 
   tags <file>                tags for one file
   tags --paths <list-file>   tags for every listed file, in one batch
@@ -556,6 +557,7 @@ usage: synapse-pipeline <subcommand> [args]
          install the skills of this program for a harness
 
 'synapse-pipeline <subcommand> --help' says more.
+'synapse-pipeline --version' says which version this is.
 ```
 
 ### synapse-pipeline check

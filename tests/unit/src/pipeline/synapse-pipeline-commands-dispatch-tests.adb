@@ -1,5 +1,7 @@
 with AUnit.Assertions;
 
+with Synapse_Config;
+
 with Synapse.Pipeline.Commands.Usage;
 with Synapse.Pipeline.Test_Environment;
 
@@ -35,6 +37,20 @@ package body Synapse.Pipeline.Commands.Dispatch.Tests is
          "the usage, to standard output");
       Assert (Run (Env (F), Args ("-h")) = 0, "-h");
    end Help_Prints_The_Usage_And_Succeeds;
+
+   procedure Version_Names_The_Program_And_Its_Version
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Assert (Run (Env (F), Args ("--version")) = 0, "it succeeds");
+      Assert
+        (F.Base.Console.Out_Text =
+         "synapse-pipeline " & Synapse_Config.Crate_Version & Usage.LF
+         and then F.Base.Console.Err_Text = "",
+         "one line on standard output: " & F.Base.Console.Out_Text);
+   end Version_Names_The_Program_And_Its_Version;
 
    procedure Every_Subcommand_Has_Its_Own_Help (T : in out Test_Cases_Class)
    is
@@ -146,6 +162,9 @@ package body Synapse.Pipeline.Commands.Dispatch.Tests is
          "A flag before the subcommand is not its option");
       Register_Routine
         (T, Check_Is_A_Subcommand'Access, "Check is a subcommand");
+      Register_Routine
+        (T, Version_Names_The_Program_And_Its_Version'Access,
+         "Version names the program and its version");
    end Register_Tests;
 
 end Synapse.Pipeline.Commands.Dispatch.Tests;

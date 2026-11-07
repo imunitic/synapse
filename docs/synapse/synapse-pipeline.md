@@ -21,7 +21,9 @@ npm install -g @imunitic/synapse-pipeline
 
 The package depends on a package per platform (`@imunitic/synapse-pipeline-darwin-arm64` and so on)
 that npm picks for the machine, so there is nothing to build or download afterwards. The harnesses a
-pipeline uses are installed separately and must be on `PATH` when it runs.
+pipeline uses are installed separately and must be on `PATH` when it runs. `synapse-pipeline --version`
+says which version is installed; a release sets it from its tag, and a build from a checkout says
+`0.0.0-dev`.
 
 ### The skill for writing pipelines
 
