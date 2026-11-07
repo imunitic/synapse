@@ -41,7 +41,8 @@ package body Synapse.Pipeline.Process_Runners.Tests is
 
    --  What Claude prints for a session that ended well with Outcome.
    function Claude_Said (Outcome : String) return String is
-     (J ("{'is_error':false,'structured_output':{'outcome':'" & Outcome
+     (J ("{'type':'result','is_error':false,"
+         & "'structured_output':{'outcome':'" & Outcome
          & "','summary':'did it','data':{'n':1}},'usage':{'input_tokens':1,"
          & "'output_tokens':2}}"));
 
@@ -355,7 +356,8 @@ package body Synapse.Pipeline.Process_Runners.Tests is
       Got : constant Sessions.Session_Result :=
         Fails
           (Fake_Process.Exited
-             (J ("{'is_error':true,'result':'You have hit your limit. "
+             (J ("{'type':'result',"
+               & "'is_error':true,'result':'You have hit your limit. "
                  & "resets 9am'}"),
               Code => 1));
    begin
@@ -375,11 +377,13 @@ package body Synapse.Pipeline.Process_Runners.Tests is
       pragma Unreferenced (T);
       Prose : constant Sessions.Session_Result :=
         Fails
-          (Fake_Process.Exited (J ("{'is_error':false,'result':'Sure!'}")));
+          (Fake_Process.Exited (J ("{'type':'result',"
+            & "'is_error':false,'result':'Sure!'}")));
       Extra : constant Sessions.Session_Result :=
         Fails
           (Fake_Process.Exited
-             (J ("{'is_error':false,'structured_output':{'outcome':'D',"
+             (J ("{'type':'result',"
+               & "'is_error':false,'structured_output':{'outcome':'D',"
                  & "'summary':'s','data':{},'x':1}}")));
    begin
       Assert
@@ -400,7 +404,7 @@ package body Synapse.Pipeline.Process_Runners.Tests is
       Got   : constant Sessions.Session_Result :=
         Fails
           (Fake_Process.Exited
-             (J ("{'is_error':false,'result':'")
+             (J ("{'type':'result','is_error':false,'result':'")
               & Fence & "json\n"
               & J ("{\'outcome\':\'Done\',\'summary\':\'s\',\'data\':{}}")
               & "\n" & Fence & J ("'}")));

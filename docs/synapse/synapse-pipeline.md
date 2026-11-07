@@ -269,8 +269,9 @@ transcripts/
 `execution.json` has `format` `synapse-pipeline-execution/v1`, the execution's `id` and `pipeline`, when it
 `started` and `ended`, its `status` (`running`, `completed` or `failed`), its `current_step` and the run's
 `state`. Each try of a step has a transcript of its own, named for the run's step count, the step and the try, and a
-`session.finished` event that says where it is. For Claude the transcript is the final result the harness
-prints, not the conversation.
+`session.finished` event that says where it is. A transcript is what the harness printed, one JSON event per
+line: Claude's session events ending with its `result`, Codex's `--json` events and OpenCode's `--format json`
+events. They hold the tool calls and file changes as well as the messages.
 
 `description.json` is the `synapse-pipeline-description/v1` document that `show --format json` prints, as the
 run resolved it when it began: its steps and edges with the harness, permissions and timeout each step runs with,

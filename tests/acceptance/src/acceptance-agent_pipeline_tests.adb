@@ -89,7 +89,8 @@ package body Acceptance.Agent_Pipeline_Tests is
    end Install_Claude;
 
    Says_Done : constant String :=
-     "printf '%s' '{""is_error"":false,""structured_output"":"
+     "printf '%s' '{""type"":""result"","
+       & """is_error"":false,""structured_output"":"
      & "{""outcome"":""Done"",""summary"":""did it"",""data"":{}},"
      & """usage"":{""input_tokens"":1,""output_tokens"":1}}'";
 
@@ -284,7 +285,8 @@ package body Acceptance.Agent_Pipeline_Tests is
         (F,
          "case ""$prompt"" in *'""task"":""build""'*) s=input-seen;;"
          & " *) s=input-missing;; esac" & LF
-         & "printf '{""is_error"":false,""structured_output"":"
+         & "printf '{""type"":""result"","
+           & """is_error"":false,""structured_output"":"
          & "{""outcome"":""Done"",""summary"":""%s"",""data"":{}}}' ""$s""");
       Write_File (Root (F) & "/input.json", "{""task"":""build""}");
       declare
@@ -342,7 +344,8 @@ package body Acceptance.Agent_Pipeline_Tests is
          & LF);
       Install_Claude
         (F,
-         "printf '%s' '{""is_error"":true,""result"":""You have hit your "
+         "printf '%s' '{""type"":""result"","
+           & """is_error"":true,""result"":""You have hit your "
          & "limit. resets 9am""}'; exit 1");
       declare
          R : constant Result := Run_Pipeline (F, "run", "Limited");
