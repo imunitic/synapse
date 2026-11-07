@@ -98,6 +98,16 @@ jobs:
       - name: Build
         run: just build
 
+      # The desktop app's end-to-end tests run on the programs built here.
+      - name: Keep the programs
+        uses: actions/upload-artifact@v4
+        with:
+          name: programs
+          path: |
+            synapse_cli/bin/synapse
+            synapse_pipeline/bin/synapse-pipeline
+          retention-days: 1
+
       - name: Acceptance suite
         run: just acceptance
 
@@ -168,3 +178,46 @@ jobs:
 
       - name: Desktop app checks
         run: just desktop-check
+
+  # The desktop app in a browser: the pages and the server on the programs the
+  # acceptance job built, with the scripted runner, so that no agent is started
+  # and nothing costs anything.
+  desktop-e2e:
+    needs: acceptance
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: synapse_desktop/package-lock.json
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: programs
+
+      # An artifact does not keep the executable bit.
+      - name: Make the programs executable
+        run: chmod +x synapse_cli/bin/synapse synapse_pipeline/bin/synapse-pipeline
+
+      - name: Install
+        working-directory: synapse_desktop
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        working-directory: synapse_desktop
+        run: npm run e2e
+
+      - name: Report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            synapse_desktop/playwright-report
+            synapse_desktop/test-results
+          retention-days: 7

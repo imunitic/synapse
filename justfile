@@ -169,6 +169,10 @@ npm-check:
 desktop-check:
     cd synapse_desktop && npm ci && npm run check
 
+# Run the desktop app's end-to-end tests in a browser, on the programs `just build` made.
+desktop-e2e:
+    cd synapse_desktop && npm ci && npx playwright install chromium && npm run e2e
+
 # Show what changed against the pushed branch.
 diff:
     @git --no-pager diff --stat @{u}.. 2>/dev/null || git --no-pager diff --stat

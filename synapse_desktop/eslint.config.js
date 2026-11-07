@@ -5,7 +5,7 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import tseslint from 'typescript-eslint'
 
 export default defineConfig([
-  globalIgnores(['dist', 'node_modules']),
+  globalIgnores(['dist', 'node_modules', 'test-results', 'playwright-report']),
   js.configs.recommended,
   tseslint.configs.recommended,
   {
@@ -18,7 +18,14 @@ export default defineConfig([
     },
   },
   {
-    files: ['server/**/*.ts', 'scripts/**/*.ts', 'vite.config.ts', 'eslint.config.js'],
+    files: [
+      'server/**/*.ts',
+      'scripts/**/*.ts',
+      'e2e/**/*.ts',
+      'vite.config.ts',
+      'playwright.config.ts',
+      'eslint.config.js',
+    ],
     languageOptions: { globals: globals.node },
   },
 ])

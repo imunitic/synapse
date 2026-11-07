@@ -13,14 +13,19 @@ npm run dev      # the API server on :5174 and the Vite dev server on :5173
 
 Open <http://127.0.0.1:5173>. `npm run check` is what CI runs: type-check, build, lint, format check and tests.
 
+## End-to-end tests
+
+`npm run e2e` runs the app in a browser (Playwright, Chromium) on a world made for the run: a temporary configuration directory with a few definitions, a `synapse.conf`, a finished run with a transcript and a folder that looks like a vault. Runs are scripted, so no agent is started and nothing costs anything. It needs the programs built in this checkout (`just build`) and the ports of `npm run dev` free, and `npx playwright install chromium` once. `just desktop-e2e` does all of it.
+
 ## Layout
 
-| Path       | What it holds                                                                                     |
-| ---------- | ------------------------------------------------------------------------------------------------- |
-| `shared/`  | The `Transport` contract, the API call parameters and the values both sides agree on.             |
-| `src/`     | The React app. It reaches the machine only through a `Transport`.                                 |
-| `server/`  | The local API server of the web phase: guards, allowed directories, the CLI allowlist, the calls. |
-| `scripts/` | `dev.ts`, which starts both servers with one per-launch token.                                    |
+| Path       | What it holds                                                                                              |
+| ---------- | ---------------------------------------------------------------------------------------------------------- |
+| `shared/`  | The `Transport` contract, the API call parameters and the values both sides agree on.                      |
+| `src/`     | The React app. It reaches the machine only through a `Transport`.                                          |
+| `server/`  | The local API server of the web phase: guards, allowed directories, the CLI allowlist, the calls.          |
+| `scripts/` | `dev.ts`, which starts both servers with one per-launch token, and `e2e.ts`, which runs the browser tests. |
+| `e2e/`     | The browser tests and the world they run in.                                                               |
 
 ## How the server protects itself
 
