@@ -64,6 +64,22 @@ describe('cliEnvironment', () => {
     expect(env.SYNAPSE_PIPELINE_PATH).toBe(['/mine', '/x', '/y'].join(delimiter))
   })
 
+  it('puts the variables the user set over the environment and over what the app sets', () => {
+    const env = cliEnvironment(
+      { SYNAPSE_VAULT_DIR: '/inherited', KEEP: 'k' },
+      {
+        ...defaultConfig,
+        workDir: '/w',
+        env: { SYNAPSE_VAULT_DIR: '/mine', SYNAPSE_WORK_DIR: '/elsewhere' },
+      },
+    )
+    expect(env).toMatchObject({
+      SYNAPSE_VAULT_DIR: '/mine',
+      SYNAPSE_WORK_DIR: '/elsewhere',
+      KEEP: 'k',
+    })
+  })
+
   it('does not change the environment it is given', () => {
     const base = { SYNAPSE_PIPELINE_PATH: '/x' }
     cliEnvironment(base, { ...defaultConfig, definitionPaths: ['/mine'] })

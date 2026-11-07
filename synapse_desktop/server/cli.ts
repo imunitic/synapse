@@ -66,7 +66,7 @@ export interface CliRun {
 
 // The environment a Synapse binary runs in: the work directory and the
 // definition directories the user set up in the app come before those the
-// process already had.
+// process already had, and the variables the user set are over all of it.
 export function cliEnvironment(base: NodeJS.ProcessEnv, config: AppConfig): NodeJS.ProcessEnv {
   const env = { ...base }
   if (config.workDir !== null) env.SYNAPSE_WORK_DIR = config.workDir
@@ -76,7 +76,8 @@ export function cliEnvironment(base: NodeJS.ProcessEnv, config: AppConfig): Node
       .filter(Boolean)
       .join(delimiter)
   }
-  return env
+  // The variables the user set in the app come last, so that they win.
+  return { ...env, ...config.env }
 }
 
 export type CliRunner = (run: CliRun) => Promise<CliResult>

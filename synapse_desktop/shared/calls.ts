@@ -6,16 +6,37 @@ import type { RunRequest } from './transport.ts'
 
 export const harnessSchema = z.enum(['Claude', 'Codex', 'Opencode'])
 
-export const appConfigSchema = z.object({
+// A variable's name: the form every shell takes.
+export const envNameSchema = z
+  .string()
+  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
+  .max(128)
+
+const configFields = {
   workDir: z.string().min(1).nullable(),
   definitionPaths: z.array(z.string().min(1)),
   defaultHarness: harnessSchema.nullable(),
+  env: z
+    .record(envNameSchema, z.string().max(4096))
+    .refine((env) => Object.keys(env).length <= 64, 'at most 64 variables'),
+  recentVaults: z.array(z.string().min(1)).max(8),
+}
+
+export const appConfigSchema = z.object(configFields)
+
+// The file as it is read: one written before a setting existed has its default.
+export const storedConfigSchema = z.object({
+  ...configFields,
+  env: configFields.env.default({}),
+  recentVaults: configFields.recentVaults.default([]),
 })
 
 export const defaultConfig: z.infer<typeof appConfigSchema> = {
   workDir: null,
   definitionPaths: [],
   defaultHarness: null,
+  env: {},
+  recentVaults: [],
 }
 
 // A run's id names a directory, so it may not hold a separator or a dot.
@@ -81,6 +102,7 @@ export const callParams = {
       .max(1000),
     skills: z.array(skillNameSchema).max(1000),
   }),
+  inspectVault: z.object({ path: z.string().min(1).max(4096) }),
   getConfig: z.object({}),
   getPaths: z.object({}),
   setConfig: z.object({ patch: appConfigSchema.partial() }),

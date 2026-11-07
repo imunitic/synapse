@@ -922,3 +922,38 @@ div.activity-row {
   max-width: 520px;
   box-sizing: border-box;
 }
+
+/* The environment variables of the app */
+.env-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.env-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 260px) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: baseline;
+  font-size: 13px;
+}
+
+.env-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.env-add input {
+  min-width: 0;
+}
+
+.field input {
+  width: 100%;
+  max-width: 520px;
+  box-sizing: border-box;
+}

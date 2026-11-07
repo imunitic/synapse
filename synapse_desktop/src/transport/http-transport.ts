@@ -15,6 +15,7 @@ import type {
   RunRequest,
   Transport,
   Unsubscribe,
+  VaultInfo,
 } from '../../shared/transport.ts'
 
 type Reply<T> = { ok: true; result: T } | { ok: false; error: string }
@@ -57,6 +58,10 @@ export class HttpTransport implements Transport {
 
   generateDefinition(request: GenerateRequest): Promise<{ text: string }> {
     return this.call('generateDefinition', request)
+  }
+
+  inspectVault(path: string): Promise<VaultInfo> {
+    return this.call('inspectVault', { path })
   }
 
   getConfig(): Promise<AppConfig> {

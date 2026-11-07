@@ -3,7 +3,10 @@ import { transport } from '../transport/index.ts'
 import { useLoad } from './useLoad.ts'
 import { useConfig } from './config.tsx'
 import { DefinitionEditorPage } from './DefinitionEditorPage.tsx'
+import { loadSettings } from '../domain/settings.ts'
+import { EnvCard } from './EnvCard.tsx'
 import { SettingsForm } from './SettingsForm.tsx'
+import { VaultCard } from './VaultCard.tsx'
 import { DefinitionPage } from './DefinitionPage.tsx'
 import { ExecutionPage } from './ExecutionPage.tsx'
 import { PipelinePage } from './PipelinePage.tsx'
@@ -52,6 +55,30 @@ function WorkDirectoryForm({ initial }: { initial: string }) {
   )
 }
 
+// The settings of Synapse are read again after any change: a vault, a variable
+// or a setting each show up in the others.
+function SynapseSettings() {
+  const [version, setVersion] = useState(0)
+  const load = useCallback(() => loadSettings(transport), [])
+  const { state } = useLoad(load, undefined, version)
+  const changed = () => setVersion((v) => v + 1)
+
+  if (state.status === 'loading') return <p className="muted">Loading the settings…</p>
+  if (state.status === 'failed') {
+    return <p role="alert">Could not read the settings of Synapse: {state.error}</p>
+  }
+  return (
+    <>
+      <VaultCard
+        vault={state.data.settings.find((s) => s.key === 'SYNAPSE_VAULT_DIR')}
+        onChanged={changed}
+      />
+      <EnvCard onChanged={changed} />
+      <SettingsForm settings={state.data} onChanged={changed} />
+    </>
+  )
+}
+
 function SettingsPage() {
   const { state } = useConfig()
   return (
@@ -60,7 +87,7 @@ function SettingsPage() {
       {state.status === 'loading' && <p className="muted">Loading…</p>}
       {state.status === 'failed' && <p role="alert">The server did not answer: {state.error}</p>}
       {state.status === 'ready' && <WorkDirectoryForm initial={state.config.workDir ?? ''} />}
-      <SettingsForm />
+      <SynapseSettings />
     </div>
   )
 }

@@ -18,6 +18,23 @@ export interface AppConfig {
   // Directories of .synapse files besides the default one.
   definitionPaths: string[]
   defaultHarness: Harness | null
+  // Variables set for every process the app starts, over those it was started
+  // with.
+  env: Record<string, string>
+  // Vaults the app has switched to, newest first.
+  recentVaults: string[]
+}
+
+// What a folder that may be a vault holds.
+export interface VaultInfo {
+  // The folder is there.
+  exists: boolean
+  hasIndex: boolean
+  isGit: boolean
+  // Markdown files outside the folders that start with a dot.
+  notes: number
+  // The count stopped before the end of the folder.
+  capped: boolean
 }
 
 // What a running pipeline answers over its socket (a named pipe on Windows):
@@ -107,6 +124,9 @@ export interface Transport {
   startRun(pipeline: string, input: unknown): Promise<{ executionId: string }>
   // Only for runs this app started.
   stopRun(executionId: string): Promise<void>
+
+  // Looks at a folder, which may be anywhere, and changes nothing.
+  inspectVault(path: string): Promise<VaultInfo>
 
   getConfig(): Promise<AppConfig>
   getPaths(): Promise<AppPaths>

@@ -2,10 +2,17 @@
 // the roots and the CLI allowlist let it.
 
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { basename, isAbsolute, join } from 'node:path'
 import { ZodError } from 'zod'
 import { appConfigSchema, callParams, isCallName, type CallName } from '../shared/calls.ts'
-import type { AppConfig, AppPaths, CliResult, DirEntry, RunAnswer } from '../shared/transport.ts'
+import type {
+  AppConfig,
+  AppPaths,
+  CliResult,
+  DirEntry,
+  RunAnswer,
+  VaultInfo,
+} from '../shared/transport.ts'
 import { refuseCli, type CliRunner } from './cli.ts'
 import { loadConfig, saveConfig } from './config-store.ts'
 import {
@@ -19,6 +26,7 @@ import {
 } from './roots.ts'
 import { GenerationFailed, generateText, SkillNotFound, type AgentRunner } from './generate.ts'
 import { previewDraft } from './preview.ts'
+import { inspectVault } from './vault.ts'
 import { askRun, NotListening, socketPath } from './run-socket.ts'
 import { NotStartedHere, RunNotStarted, type RunStarter } from './runs.ts'
 
@@ -169,10 +177,11 @@ const handlers: Record<CallName, Handler> = {
 
   async generateDefinition(raw, context): Promise<{ text: string }> {
     const request = callParams.generateDefinition.parse(raw)
-    const { defaultHarness } = await loadConfig(context.configFile)
+    const { defaultHarness, env } = await loadConfig(context.configFile)
     try {
       const text = await generateText(request, {
         harness: request.harness ?? defaultHarness ?? 'Claude',
+        env,
         pathVariable: context.environment.env.PATH ?? '',
         agent: context.agent,
       })
@@ -202,6 +211,12 @@ const handlers: Record<CallName, Handler> = {
       throw error
     }
     return { path }
+  },
+
+  async inspectVault(raw): Promise<VaultInfo> {
+    const { path } = callParams.inspectVault.parse(raw)
+    if (!isAbsolute(path)) throw new CallError('the path must be absolute', 400)
+    return inspectVault(path)
   },
 
   async getConfig(raw, context): Promise<AppConfig> {

@@ -12,6 +12,8 @@ const TIMEOUT_MS = 180_000
 const MAX_OUTPUT_BYTES = 1024 * 1024
 
 export interface AgentRun {
+  // Variables set in the app, over those the server has.
+  env?: Record<string, string>
   harness: Harness
   // Added to the session's own instructions.
   system: string
@@ -90,7 +92,7 @@ export const runAgent: AgentRunner = (run) =>
       args,
       {
         cwd: tmpdir(),
-        env: { ...process.env, ...env },
+        env: { ...process.env, ...run.env, ...env },
         timeout: TIMEOUT_MS,
         maxBuffer: MAX_OUTPUT_BYTES,
       },
@@ -178,10 +180,16 @@ export function textOf(answer: string): string {
 
 export async function generateText(
   request: GenerateRequest,
-  deps: { pathVariable: string; agent: AgentRunner; harness: Harness },
+  deps: {
+    pathVariable: string
+    agent: AgentRunner
+    harness: Harness
+    env: Record<string, string>
+  },
 ): Promise<string> {
   const skill = request.kind === 'skill' ? '' : await findPipelineSkill(deps.pathVariable)
   const result = await deps.agent({
+    env: deps.env,
     harness: deps.harness,
     system: systemFor(request, skill),
     prompt: promptFor(request),

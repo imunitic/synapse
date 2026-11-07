@@ -172,6 +172,20 @@ describe('generateDefinition', () => {
     expect(harnesses).toEqual(['Claude', 'Codex', 'Opencode'])
   })
 
+  it('gives the agent the variables set in the app', async () => {
+    const seen: (Record<string, string> | undefined)[] = []
+    const context = contextWith(
+      (run) => {
+        seen.push(run.env)
+        return Promise.resolve({ code: 0, stdout: 'Agent A [Prompt => "x"];', stderr: '' })
+      },
+      await pathWithSkill(),
+    )
+    await handleCall('setConfig', { patch: { env: { OPENCODE_X: 'y' } } }, context)
+    await handleCall('generateDefinition', request, context)
+    expect(seen).toEqual([{ OPENCODE_X: 'y' }])
+  })
+
   it('gives the text the agent wrote', async () => {
     let seen: AgentRun | null = null
     const context = contextWith(

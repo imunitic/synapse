@@ -1,13 +1,12 @@
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import {
   clearSetting,
   isWholeNumber,
-  loadSettings,
   saveSetting,
   type SynapseSetting,
+  type SynapseSettings,
 } from '../domain/settings.ts'
 import { transport } from '../transport/index.ts'
-import { useLoad } from './useLoad.ts'
 
 // Where a setting's value in force comes from, in words.
 function sourceText(setting: SynapseSetting): string {
@@ -124,17 +123,16 @@ function SettingRow({ setting, onChanged }: { setting: SynapseSetting; onChanged
   )
 }
 
-// The settings of `synapse.conf`, one input to a setting.
-export function SettingsForm() {
-  const [version, setVersion] = useState(0)
-  const load = useCallback(() => loadSettings(transport), [])
-  const { state } = useLoad(load, undefined, version)
-
-  if (state.status === 'loading') return <p className="muted">Loading the settings…</p>
-  if (state.status === 'failed') {
-    return <p role="alert">Could not read the settings: {state.error}</p>
-  }
-  const { settings, write } = state.data
+// The settings of `synapse.conf`, one input to a setting. What they say is read
+// again when `version` changes.
+export function SettingsForm({
+  settings: loaded,
+  onChanged,
+}: {
+  settings: SynapseSettings
+  onChanged: () => void
+}) {
+  const { settings, write } = loaded
   return (
     <section className="card" aria-label="Synapse settings">
       <h2 className="card-title">Synapse settings</h2>
@@ -151,7 +149,7 @@ export function SettingsForm() {
           <SettingRow
             key={`${setting.key}:${setting.file_value ?? ''}`}
             setting={setting}
-            onChanged={() => setVersion((v) => v + 1)}
+            onChanged={onChanged}
           />
         ))}
       </div>

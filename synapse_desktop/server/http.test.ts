@@ -87,7 +87,13 @@ describe('the API', () => {
   it('answers getConfig with the default configuration', async () => {
     const reply = await post('getConfig', {})
     expect(reply.status).toBe(200)
-    expect(reply.body.result).toEqual({ workDir: null, definitionPaths: [], defaultHarness: null })
+    expect(reply.body.result).toEqual({
+      workDir: null,
+      definitionPaths: [],
+      defaultHarness: null,
+      env: {},
+      recentVaults: [],
+    })
   })
 
   it('keeps what setConfig stores', async () => {
@@ -97,6 +103,8 @@ describe('the API', () => {
       workDir: '/w',
       definitionPaths: [],
       defaultHarness: 'Codex',
+      env: {},
+      recentVaults: [],
     })
   })
 

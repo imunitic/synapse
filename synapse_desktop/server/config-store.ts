@@ -2,7 +2,7 @@
 
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { appConfigSchema, defaultConfig } from '../shared/calls.ts'
+import { defaultConfig, storedConfigSchema } from '../shared/calls.ts'
 import type { AppConfig } from '../shared/transport.ts'
 import type { Environment } from './roots.ts'
 
@@ -21,7 +21,7 @@ export async function loadConfig(file: string): Promise<AppConfig> {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { ...defaultConfig }
     throw error
   }
-  return appConfigSchema.parse(JSON.parse(text))
+  return storedConfigSchema.parse(JSON.parse(text))
 }
 
 // Written beside the file and renamed over it, so a reader never sees half of it.
