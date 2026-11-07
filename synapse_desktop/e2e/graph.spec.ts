@@ -336,3 +336,53 @@ test('a rebuild is not started from a checkout of another branch', async ({ page
   await expect(card.getByRole('alert')).toContainText('would build another graph')
   await expect(page.getByRole('tab', { name: /rebuild/ })).toHaveCount(0)
 })
+
+async function checkNewGraph(page: Page, path: string) {
+  await page.getByRole('button', { name: 'New graph…' }).click()
+  const card = page.getByRole('region', { name: 'New graph' })
+  await card.getByRole('textbox', { name: 'Folder of the repository to build from' }).fill(path)
+  await card.getByRole('button', { name: 'Check' }).click()
+  return card
+}
+
+test('a new graph is built from a repository folder, after asking, and the folder is kept', async ({
+  page,
+}) => {
+  const repo = repository('gadget')
+  await openGraph(page)
+  const card = await checkNewGraph(page, repo)
+  const question = card.getByRole('alertdialog')
+  await expect(question).toContainText('Are you sure?')
+  await expect(question).toContainText('first graph of gadget@main')
+  await expect(question).toContainText(repo)
+
+  await question.getByRole('button', { name: 'Yes, open Claude Code' }).click()
+  await expect(page.getByRole('tab', { name: 'Claude Code 1 · build' })).toBeVisible()
+  const screen = page.locator('.terminal-view:not([hidden]) .terminal-host')
+  await expect(screen).toContainText('/synapse-init')
+  await expect(screen).toContainText(`cwd: ${repo}`)
+
+  // The folder is saved for the namespace, so the graph can be checked once it is built.
+  await page.getByRole('button', { name: 'Code graph', exact: true }).click()
+  const stored = JSON.parse(
+    readFileSync(join(world().xdg, 'synapse-desktop', 'config.json'), 'utf8'),
+  ) as { graphRepos: Record<string, string> }
+  expect(stored.graphRepos['gadget@main']).toBe(repo)
+})
+
+test('a new graph for a namespace that has one points to the graph instead', async ({ page }) => {
+  await openGraph(page)
+  const card = await checkNewGraph(page, repository('widget'))
+  await expect(card).toContainText('widget@main already has a graph')
+  await expect(card.getByRole('alertdialog')).toHaveCount(0)
+  await card.getByRole('button', { name: 'Open it' }).click()
+  await expect(page.getByLabel('Namespace', { exact: true })).toHaveValue('widget@main')
+  await expect(page.getByRole('region', { name: 'New graph' })).toHaveCount(0)
+})
+
+test('a folder that is not a repository cannot start a new graph', async ({ page }) => {
+  await openGraph(page)
+  const card = await checkNewGraph(page, join(world().root, 'not-there'))
+  await expect(card.getByRole('alert')).toBeVisible()
+  await expect(card.getByRole('alertdialog')).toHaveCount(0)
+})

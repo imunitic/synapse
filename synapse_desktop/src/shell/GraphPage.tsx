@@ -660,6 +660,162 @@ const REBUILDS: {
   },
 ]
 
+// The harness a graph is built with: the one chosen here, else the default.
+function useHarness(): { harness: TerminalKind; choose: (kind: TerminalKind) => void } {
+  const { state: config } = useConfig()
+  const [chosen, setChosen] = useState<TerminalKind | null>(null)
+  const fallback: TerminalKind =
+    config.status === 'ready' ? (config.config.defaultHarness ?? 'Claude') : 'Claude'
+  return { harness: chosen ?? fallback, choose: setChosen }
+}
+
+function HarnessSelect({
+  label,
+  harness,
+  onChange,
+}: {
+  label: string
+  harness: TerminalKind
+  onChange: (kind: TerminalKind) => void
+}) {
+  return (
+    <label className="field">
+      <span className="muted small">Harness</span>
+      <select
+        aria-label={label}
+        value={harness}
+        onChange={(event) => onChange(event.target.value as TerminalKind)}
+      >
+        {(['Claude', 'Codex', 'Opencode'] as const).map((kind) => (
+          <option key={kind} value={kind}>
+            {TERMINAL_LABELS[kind]}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
+// A graph that does not exist yet is built from a repository folder: the folder is
+// checked for the namespace it is on, which is the graph's name, and an agent builds
+// it with the first-build command in that folder.
+function NewGraph({
+  existing,
+  onSelect,
+  onStartTask,
+}: {
+  existing: readonly string[]
+  onSelect: (namespace: string) => void
+  onStartTask: (kind: TerminalKind, cwd: string, task: TerminalTask) => void
+}) {
+  const { state: config, save } = useConfig()
+  const { harness, choose } = useHarness()
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [found, setFound] = useState<{ path: string; key: string } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  function close() {
+    setOpen(false)
+    setDraft('')
+    setFound(null)
+    setError(null)
+  }
+
+  async function check(event: React.SubmitEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const path = draft.trim()
+    if (path === '') return
+    setFound(null)
+    const result = await transport.checkGraphRepo(path).catch((e: unknown) => ({
+      key: null,
+      error: String(e),
+    }))
+    if (result.key === null) {
+      setError(result.error ?? 'That folder has no namespace.')
+      return
+    }
+    setError(null)
+    setFound({ path, key: result.key })
+  }
+
+  async function build(path: string, key: string) {
+    if (config.status !== 'ready') return
+    try {
+      await save({ graphRepos: { ...config.config.graphRepos, [key]: path } })
+    } catch (e) {
+      setError(`Not saved: ${String(e)}`)
+      return
+    }
+    onStartTask(harness, path, 'init')
+    close()
+  }
+
+  if (!open) {
+    return (
+      <div className="row">
+        <button className="secondary" onClick={() => setOpen(true)}>
+          New graph…
+        </button>
+      </div>
+    )
+  }
+  const exists = found !== null && existing.includes(found.key)
+  return (
+    <section className="card" aria-label="New graph">
+      <h3 className="card-title">New graph</h3>
+      <form className="row" onSubmit={(event) => void check(event)}>
+        <input
+          className="grow"
+          aria-label="Folder of the repository to build from"
+          placeholder="/path/to/the/repository"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        <button className="secondary" type="submit" disabled={draft.trim() === ''}>
+          Check
+        </button>
+        <button className="link" type="button" onClick={close}>
+          Cancel
+        </button>
+      </form>
+      {error !== null && <p role="alert">{error}</p>}
+      {found !== null && exists && (
+        <p>
+          {found.key} already has a graph. Rebuild it from its Manage tab.{' '}
+          <button
+            className="link"
+            onClick={() => {
+              onSelect(found.key)
+              close()
+            }}
+          >
+            Open it
+          </button>
+        </p>
+      )}
+      {found !== null && !exists && (
+        <div className="confirm" role="alertdialog" aria-label="Are you sure?">
+          <p>
+            <strong>Are you sure?</strong> This opens a session in {found.path} that builds the
+            first graph of {found.key}. It takes a while, uses {TERMINAL_LABELS[harness]}'s credits
+            and will ask you things.
+          </p>
+          <HarnessSelect label="Harness for the new graph" harness={harness} onChange={choose} />
+          <div className="row">
+            <button className="primary" onClick={() => void build(found.path, found.key)}>
+              Yes, open {TERMINAL_LABELS[harness]}
+            </button>
+            <button className="secondary" onClick={close}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
 // Rebuilding a graph is an agent's work, so it opens a session of the default harness
 // in the repository, with the command as its first prompt, where it can be watched
 // and answered.
@@ -672,13 +828,9 @@ function Rebuild({
   repository: string
   onStartTask: (kind: TerminalKind, cwd: string, task: TerminalTask) => void
 }) {
-  const { state: config } = useConfig()
-  const [chosen, setChosen] = useState<TerminalKind | null>(null)
+  const { harness, choose } = useHarness()
   const [asking, setAsking] = useState<TerminalTask | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const fallback: TerminalKind =
-    config.status === 'ready' ? (config.config.defaultHarness ?? 'Claude') : 'Claude'
-  const harness = chosen ?? fallback
 
   async function start(task: TerminalTask) {
     setError(null)
@@ -701,20 +853,7 @@ function Rebuild({
   return (
     <section className="card" aria-label="Rebuild">
       <h3 className="card-title">Rebuild with an agent</h3>
-      <label className="field">
-        <span className="muted small">Harness</span>
-        <select
-          aria-label="Harness for the rebuild"
-          value={harness}
-          onChange={(event) => setChosen(event.target.value as TerminalKind)}
-        >
-          {(['Claude', 'Codex', 'Opencode'] as const).map((kind) => (
-            <option key={kind} value={kind}>
-              {TERMINAL_LABELS[kind]}
-            </option>
-          ))}
-        </select>
-      </label>
+      <HarnessSelect label="Harness for the rebuild" harness={harness} onChange={choose} />
       {REBUILDS.map((rebuild) => (
         <div key={rebuild.task} className="rebuild">
           <p className="muted small">{rebuild.about}</p>
@@ -821,10 +960,18 @@ export function GraphPage({
       <h1 className="page-title">Code graph</h1>
       {graphs.status === 'loading' && <p className="muted">Looking for graphs…</p>}
       {graphs.status === 'failed' && <p role="alert">Could not look for graphs: {graphs.error}</p>}
+      <NewGraph
+        existing={list.map((g) => g.namespace)}
+        onSelect={(namespace) => {
+          setChosen(namespace)
+          remember(namespace)
+        }}
+        onStartTask={onStartTask}
+      />
       {graphs.status === 'ready' && list.length === 0 && (
         <p className="muted">
-          No graph has local files yet. Build one in a repository with the{' '}
-          <code>/synapse-init</code> skill, and it shows here.
+          No graph has local files yet. Build one from a repository with New graph, and it shows
+          here.
         </p>
       )}
       {graph !== undefined && (
