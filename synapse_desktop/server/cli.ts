@@ -7,7 +7,7 @@ import type { AppConfig, CliBinary, CliResult } from '../shared/transport.ts'
 // What `cli` may run. Starting a run is `startRun`, not a subcommand of this.
 const ALLOWED_SUBCOMMANDS: Record<CliBinary, readonly string[]> = {
   'synapse-pipeline': ['check', 'show', 'list', 'info', 'cleanup'],
-  synapse: ['config'],
+  synapse: ['config', 'status'],
 }
 
 const MAX_ARGS = 32
@@ -41,6 +41,15 @@ function refuseConfig(args: readonly string[]): string | null {
   return 'config takes list, set or unset'
 }
 
+// `status [--format json|text]`, and nothing else of `synapse status`.
+function refuseStatus(args: readonly string[]): string | null {
+  const [, ...rest] = args
+  if (rest.length === 0) return null
+  const formatted =
+    rest.length === 2 && rest[0] === '--format' && ['json', 'text'].includes(rest[1] ?? '')
+  return formatted ? null : 'status takes only --format json or text'
+}
+
 // The reason the call is refused, or null when it may run.
 export function refuseCli(binary: CliBinary, args: readonly string[]): string | null {
   const [subcommand] = args
@@ -52,7 +61,8 @@ export function refuseCli(binary: CliBinary, args: readonly string[]): string | 
   if (args.some((a) => a.length > MAX_ARG_LENGTH || a.includes('\0'))) {
     return 'an argument is too long or holds a NUL'
   }
-  return binary === 'synapse' ? refuseConfig(args) : null
+  if (binary !== 'synapse') return null
+  return subcommand === 'status' ? refuseStatus(args) : refuseConfig(args)
 }
 
 export interface CliRun {

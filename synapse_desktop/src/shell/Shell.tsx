@@ -5,12 +5,12 @@ import { Rail } from './Rail.tsx'
 import { SidePanel } from './SidePanel.tsx'
 import { StatusBar } from './StatusBar.tsx'
 import { TerminalsPage } from './TerminalsPage.tsx'
-import { initialState, reduce } from './state.ts'
+import { reduce, startState } from './state.ts'
 import { TabBar } from './TabBar.tsx'
 import './shell.css'
 
 export function Shell() {
-  const [state, dispatch] = useReducer(reduce, initialState)
+  const [state, dispatch] = useReducer(reduce, startState)
   const { state: config } = useConfig()
   const active = state.tabs.find((tab) => tab.id === state.activeId)
   const missingWorkDir = config.status === 'ready' && config.config.workDir === null

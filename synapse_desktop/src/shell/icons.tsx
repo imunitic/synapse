@@ -46,6 +46,12 @@ export const TerminalIcon = () => (
   </Icon>
 )
 
+export const HomeIcon = () => (
+  <Icon>
+    <path d="M4 11l8-7 8 7M6 10v9h12v-9M10 19v-5h4v5" />
+  </Icon>
+)
+
 export const SettingsIcon = () => (
   <Icon>
     <path d="M4 7h10M18 7h2M4 17h2M10 17h10" />

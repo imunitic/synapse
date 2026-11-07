@@ -16,6 +16,10 @@ describe('refuseCli', () => {
 
   it('allows only config of synapse, and only its list, set and unset', () => {
     expect(refuseCli('synapse', ['vault-read', 'Index.md'])).toMatch(/not allowed/)
+    expect(refuseCli('synapse', ['status'])).toBeNull()
+    expect(refuseCli('synapse', ['status', '--format', 'json'])).toBeNull()
+    expect(refuseCli('synapse', ['status', '--format', 'xml'])).toMatch(/only --format/)
+    expect(refuseCli('synapse', ['status', 'extra'])).toMatch(/only --format/)
     expect(refuseCli('synapse', ['config', 'list'])).toBeNull()
     expect(refuseCli('synapse', ['config', 'list', '--format', 'json'])).toBeNull()
     expect(refuseCli('synapse', ['config', 'set', 'SYNAPSE_VAULT_DIR', '/a b'])).toBeNull()

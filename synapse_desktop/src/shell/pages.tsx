@@ -4,6 +4,7 @@ import { useLoad } from './useLoad.ts'
 import { DefinitionEditorPage } from './DefinitionEditorPage.tsx'
 import { DefinitionPage } from './DefinitionPage.tsx'
 import { ExecutionPage } from './ExecutionPage.tsx'
+import { HomePage } from './HomePage.tsx'
 import { PipelinePage } from './PipelinePage.tsx'
 import { SettingsPage } from './SettingsPages.tsx'
 import type { Page } from './state.ts'
@@ -73,6 +74,8 @@ export function PageView({
   onCancel: () => void
 }) {
   switch (page.kind) {
+    case 'home':
+      return <HomePage onOpen={onOpen} />
     case 'settings':
       return <SettingsPage section={page.section} onChanged={onChanged} />
     case 'create':

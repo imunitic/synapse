@@ -58,6 +58,8 @@ export interface TerminalSession {
 }
 
 export type Page =
+  // The page the app opens on: what needs attention, and where things stand.
+  | { kind: 'home' }
   | { kind: 'settings'; section: SettingsSection }
   | { kind: 'create'; definition: DefinitionKind }
   // A definition's file: a .synapse file, or a skill's SKILL.md.
@@ -97,6 +99,13 @@ export const initialState: ShellState = {
   terminalsOpened: 0,
 }
 
+// The state the app starts in: the home page open.
+export const startState: ShellState = {
+  ...initialState,
+  tabs: [{ id: 'home', page: { kind: 'home' } }],
+  activeId: 'home',
+}
+
 export type Action =
   | { type: 'selectSection'; section: RailSection }
   | { type: 'togglePanel' }
@@ -115,6 +124,8 @@ export type Action =
 
 export function pageId(page: Page): string {
   switch (page.kind) {
+    case 'home':
+      return 'home'
     case 'settings':
       return `settings:${page.section}`
     case 'create':
@@ -130,6 +141,8 @@ export function pageId(page: Page): string {
 
 export function pageTitle(page: Page): string {
   switch (page.kind) {
+    case 'home':
+      return 'Home'
     case 'settings':
       return `${SETTINGS_SECTIONS.find((s) => s.section === page.section)?.label ?? 'Settings'} settings`
     case 'create':

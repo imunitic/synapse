@@ -5,6 +5,7 @@ import {
   pageTitle,
   reduce,
   SETTINGS_SECTIONS,
+  startState,
   type Action,
   type ShellState,
 } from './state.ts'
@@ -16,6 +17,23 @@ function run(actions: Action[], from: ShellState = initialState): ShellState {
 const settings = { kind: 'settings', section: 'general' } as const
 const newPipeline = { kind: 'create', definition: 'pipeline' } as const
 const newAgent = { kind: 'create', definition: 'agent' } as const
+
+describe('the start', () => {
+  it('has the home page open and active, and nothing else', () => {
+    expect(startState.tabs).toEqual([{ id: 'home', page: { kind: 'home' } }])
+    expect(startState.activeId).toBe('home')
+    expect(pageId({ kind: 'home' })).toBe('home')
+    expect(pageTitle({ kind: 'home' })).toBe('Home')
+  })
+
+  it('opens the home page once, and again after it was closed', () => {
+    const twice = reduce(startState, { type: 'openPage', page: { kind: 'home' } })
+    expect(twice.tabs).toHaveLength(1)
+    const closed = reduce(startState, { type: 'closeTab', id: 'home' })
+    expect(closed.tabs).toEqual([])
+    expect(reduce(closed, { type: 'openPage', page: { kind: 'home' } }).activeId).toBe('home')
+  })
+})
 
 describe('side panel', () => {
   it('opens on the definitions section', () => {
