@@ -2,6 +2,7 @@ with Ada.Strings.Unbounded;
 
 with Synapse.Pipeline.Commands.Check;
 with Synapse.Pipeline.Commands.Cleanup;
+with Synapse.Pipeline.Commands.Configure;
 with Synapse.Pipeline.Commands.Info;
 with Synapse.Pipeline.Commands.List;
 with Synapse.Pipeline.Commands.Next;
@@ -20,6 +21,7 @@ package body Synapse.Pipeline.Commands.Dispatch is
       elsif Name = "list" then Usage.List_Help
       elsif Name = "info" then Usage.Info_Help
       elsif Name = "cleanup" then Usage.Cleanup_Help
+      elsif Name = "configure" then Usage.Configure_Help
       else Usage.Run_Help);
 
    function Run (Env : Environment; Args : Lists.Vector) return Exit_Code is
@@ -31,7 +33,7 @@ package body Synapse.Pipeline.Commands.Dispatch is
          Name : constant String := To_String (Args.First_Element);
       begin
          if Name in "check" | "show" | "next" | "list" | "info" | "run"
-           | "cleanup"
+           | "cleanup" | "configure"
          then
             declare
                Rest : Lists.Vector := Args;
@@ -54,6 +56,8 @@ package body Synapse.Pipeline.Commands.Dispatch is
                        then Synapse.Pipeline.Commands.Info.Run (Env, Rest)
                        elsif Name = "cleanup"
                        then Synapse.Pipeline.Commands.Cleanup.Run (Env, Rest)
+                       elsif Name = "configure"
+                       then Synapse.Pipeline.Commands.Configure.Run (Env, Rest)
                        else Synapse.Pipeline.Commands.Run.Run (Env, Rest));
             end;
          elsif Name = "--help" or else Name = "-h" or else Name = "help" then

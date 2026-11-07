@@ -36,6 +36,7 @@ usage: synapse <subcommand> [args]
   config list [--format json|text]   every setting of synapse.conf, its value and where it comes from
   config set <KEY> <value>   write one setting into the file that holds it, byte-preserving
   config unset <KEY>         remove one setting from that file
+  configure <claude|codex|opencode>   install Synapse's hooks, skills and commands for a harness
   vault-read <path>          a note's full body
   vault-write <path>         write a note's full body, from stdin
   vault-list                 every note in the vault, recursively
@@ -190,6 +191,22 @@ usage: synapse frontmatter get <path> <key>
 usage: synapse config list [--format json|text]
        synapse config set <KEY> <value>
        synapse config unset <KEY>
+```
+
+### synapse configure
+
+```
+usage: synapse configure <claude|codex|opencode>
+
+Installs Synapse for a harness: its skills and commands, and its hooks, which
+run the synapse-hook beside this program. A hooks file that holds more than
+Synapse's own is merged into, and a copy is kept beside it as .bak.
+A synapse.conf is made from its template when there is none.
+
+Environment:
+  SYNAPSE_CONTENT_ROOT  the folder that holds skills/, commands/, harness/ and
+                        synapse.conf.template; the folder above this program's
+                        own when not set
 ```
 
 ### synapse vault-read
@@ -535,6 +552,8 @@ usage: synapse-pipeline <subcommand> [args]
          what a pipeline says about itself, running or not
   cleanup [--older-than <duration>] [--dry-run] [--all]
          remove the records of executions that are over
+  configure <claude|codex|opencode>
+         install the skills of this program for a harness
 
 'synapse-pipeline <subcommand> --help' says more.
 ```
@@ -698,5 +717,20 @@ write is older than the age given, 30 days when none is.
 
 Environment:
   SYNAPSE_WORK_DIR  the work directory the runs were started with
+```
+
+### synapse-pipeline configure
+
+```
+usage: synapse-pipeline configure <claude|codex|opencode>
+
+Installs the skills of this program for a harness: each skill is copied, with
+everything beside its SKILL.md, into the harness's skills folder in your home
+directory (~/.claude/skills, ~/.codex/skills or ~/.config/opencode/skill),
+replacing the copy that is there. A skill that an earlier run installed and this
+one does not ship is removed; anything else in the folder is left as it is.
+
+Environment:
+  SYNAPSE_CONTENT_ROOT  the folder that holds skills/
 ```
 

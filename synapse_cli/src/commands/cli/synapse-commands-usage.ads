@@ -44,6 +44,8 @@ package Synapse.Commands.Usage is
       "file that holds it, byte-preserving" & LF &
       "  config unset <KEY>         remove one setting from tha" &
       "t file" & LF &
+      "  configure <claude|codex|opencode>   install Synapse's hook" &
+      "s, skills and commands for a harness" & LF &
       "  vault-read <path>          a note's full body" & LF &
       "  vault-write <path>         write a note's full body, fro" &
       "m stdin" & LF &

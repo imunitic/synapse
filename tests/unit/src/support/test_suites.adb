@@ -80,6 +80,7 @@ with Synapse.Adapters.Fake_Console.Tests;
 with Synapse.Commands.Cli_Args.Tests;
 with Synapse.Commands.Context.Tests;
 with Synapse.Commands.Config.Tests;
+with Synapse.Commands.Configure.Tests;
 with Synapse.Commands.Now.Tests;
 with Synapse.Commands.Namespace.Tests;
 with Synapse.Commands.Show_Context.Tests;
@@ -114,6 +115,7 @@ with Synapse.Pipeline.Scripted_Runners.Tests;
 with Synapse.Pipeline.Engine.Tests;
 with Synapse.Pipeline.Commands.Check.Tests;
 with Synapse.Pipeline.Commands.Cleanup.Tests;
+with Synapse.Pipeline.Commands.Configure.Tests;
 with Synapse.Pipeline.Commands.Show.Tests;
 with Synapse.Pipeline.Commands.Next.Tests;
 with Synapse.Pipeline.Descriptions.Tests;
@@ -308,6 +310,7 @@ package body Test_Suites is
    Cli_Args_Tests : aliased Synapse.Commands.Cli_Args.Tests.Test_Case;
    Commands_Context_Tests : aliased Synapse.Commands.Context.Tests.Test_Case;
    Config_Tests : aliased Synapse.Commands.Config.Tests.Test_Case;
+   Configure_Tests : aliased Synapse.Commands.Configure.Tests.Test_Case;
    Now_Tests : aliased Synapse.Commands.Now.Tests.Test_Case;
    Commands_Namespace_Tests       :
      aliased Synapse.Commands.Namespace.Tests.Test_Case;
@@ -366,6 +369,8 @@ package body Test_Suites is
      aliased Synapse.Pipeline.Commands.Check.Tests.Test_Case;
    Pipeline_Cleanup_Tests :
      aliased Synapse.Pipeline.Commands.Cleanup.Tests.Test_Case;
+   Pipeline_Configure_Tests :
+     aliased Synapse.Pipeline.Commands.Configure.Tests.Test_Case;
    Pipeline_Show_Tests :
      aliased Synapse.Pipeline.Commands.Show.Tests.Test_Case;
    Pipeline_Next_Tests :
@@ -488,6 +493,7 @@ package body Test_Suites is
       Result.Add_Test (Commands_Context_Tests'Access);
       Result.Add_Test (Now_Tests'Access);
       Result.Add_Test (Config_Tests'Access);
+      Result.Add_Test (Configure_Tests'Access);
       Result.Add_Test (Namespace_Tests'Access);
       Result.Add_Test (Show_Context_Tests'Access);
       Result.Add_Test (Dispatch_Tests'Access);
@@ -521,6 +527,7 @@ package body Test_Suites is
       Result.Add_Test (Pipeline_Engine_Tests'Access);
       Result.Add_Test (Pipeline_Check_Tests'Access);
       Result.Add_Test (Pipeline_Cleanup_Tests'Access);
+      Result.Add_Test (Pipeline_Configure_Tests'Access);
       Result.Add_Test (Pipeline_Show_Tests'Access);
       Result.Add_Test (Pipeline_Next_Tests'Access);
       Result.Add_Test (Pipeline_Descriptions_Tests'Access);

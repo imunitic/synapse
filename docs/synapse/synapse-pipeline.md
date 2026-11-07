@@ -36,7 +36,9 @@ synapse-pipeline-setup configure claude     # or codex, or opencode
 
 and then ask the agent to craft a pipeline for a workflow. The skill goes to the harness's skills
 directory (`~/.claude/skills`, `~/.codex/skills`, `~/.config/opencode/skill`) and only ever replaces or
-removes what an earlier `synapse-pipeline-setup` put there.
+removes what an earlier install put there. The work is done by the program itself,
+`synapse-pipeline configure <harness>`, which installs the skills found under `skills/` in the folder
+`SYNAPSE_CONTENT_ROOT` names; `synapse-pipeline-setup` runs it with the folder of its own package.
 
 ## A first run
 

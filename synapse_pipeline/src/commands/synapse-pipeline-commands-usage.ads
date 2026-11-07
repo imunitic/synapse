@@ -26,7 +26,9 @@ package Synapse.Pipeline.Commands.Usage is
      & "--events" & LF
      & "         what a pipeline says about itself, running or not" & LF
      & "  cleanup [--older-than <duration>] [--dry-run] [--all]" & LF
-     & "         remove the records of executions that are over" & LF & LF
+     & "         remove the records of executions that are over" & LF
+     & "  configure <claude|codex|opencode>" & LF
+     & "         install the skills of this program for a harness" & LF & LF
      & "'synapse-pipeline <subcommand> --help' says more." & LF;
 
    Check_Help : constant String :=
@@ -216,6 +218,21 @@ package Synapse.Pipeline.Commands.Usage is
      & "Environment:" & LF
      & "  SYNAPSE_WORK_DIR  the work directory the runs were started with"
      & LF;
+
+   Configure_Help : constant String :=
+     "usage: synapse-pipeline configure <claude|codex|opencode>" & LF & LF
+     & "Installs the skills of this program for a harness: each skill is "
+     & "copied, with" & LF
+     & "everything beside its SKILL.md, into the harness's skills folder in "
+     & "your home" & LF
+     & "directory (~/.claude/skills, ~/.codex/skills or "
+     & "~/.config/opencode/skill)," & LF
+     & "replacing the copy that is there. A skill that an earlier run "
+     & "installed and this" & LF
+     & "one does not ship is removed; anything else in the folder is left "
+     & "as it is." & LF & LF
+     & "Environment:" & LF
+     & "  SYNAPSE_CONTENT_ROOT  the folder that holds skills/" & LF;
 
    --  The first line of a help text, which is the subcommand's synopsis.
    function Synopsis (Help : String) return String;
