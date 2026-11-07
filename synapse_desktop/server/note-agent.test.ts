@@ -33,7 +33,9 @@ describe('the prompt for a note', () => {
     expect(text).toContain('Nobody can answer questions')
     expect(text).toContain('Only these commands work in this session: synapse, ls, cat')
     expect(text).toContain('one command in each Bash call')
-    expect(text).toContain('vault-write <path>` on standard input as a here-document')
+    expect(text).toContain('`synapse vault-write <path>`, and a query to `synapse vault-search`')
+    expect(text).toContain('as a here-document, not through cat, echo or <<<')
+    expect(text).toContain('add the folder to Index.md')
     expect(text).toContain('path in the vault')
     expect(text).toContain('FAILED:')
   })
@@ -42,7 +44,7 @@ describe('the prompt for a note', () => {
     expect(notePrompt('note', 'x', 'Opencode')).toContain('Only these commands work')
     const codex = notePrompt('note', 'x', 'Codex')
     expect(codex).not.toContain('Only these commands work')
-    expect(codex).toContain('vault-write <path>` on standard input')
+    expect(codex).toContain('on standard input as a here-document')
   })
 })
 
@@ -62,6 +64,13 @@ describe('the headless session for a note', () => {
     // The tools are one argument, so that no flag can be taken into them.
     const at = command.args.indexOf('--allowedTools')
     expect(command.args[at + 1]).toBe(NOTE_TOOLS)
+  })
+
+  it('may also read the Synapse package folder when it is loaded for the session', () => {
+    const loaded: SessionPlan = { ...plan, env: { SYNAPSE_CONTENT_ROOT: '/pkg/synapse' } }
+    const command = noteCommand('Claude', loaded, 'p', [])
+    const at = command.args.indexOf('--allowedTools')
+    expect(command.args[at + 1]).toBe(`${NOTE_TOOLS},Read(/pkg/synapse/**)`)
   })
 
   it('allows the skills, the Synapse program and the lists the skills keep, and no shell', () => {

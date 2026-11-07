@@ -41,7 +41,7 @@ export function notePrompt(kind: NoteKind, description: string, harness: Harness
     `Write ${KIND_INSTRUCTIONS[kind]}. Follow that skill and the synapse-vault skill: search the vault first and link to the notes that already exist, put the note where the skill says, tag it, and write the content the description asks for. The note is not finished while it is only a title.`,
     '',
     ...(harness === 'Codex' ? [] : [COMMAND_RULES, '']),
-    "Give a note's text to `synapse vault-write <path>` on standard input as a here-document, not through cat or echo: the synapse program is the only thing that may write here.",
+    "Give a note's text to `synapse vault-write <path>`, and a query to `synapse vault-search`, on standard input as a here-document, not through cat, echo or <<<: the synapse program is the only thing that may write here. When the note is in a top-level folder that Index.md does not list, add the folder to Index.md as the skill says, with `synapse vault-patch` or `synapse vault-write`.",
     '',
     'When the note is written, end your reply with one line that holds its path in the vault, as `synapse vault-list` shows it. If you cannot write it, end with one line that starts with FAILED: and says why.',
     '',
@@ -112,7 +112,11 @@ export function noteCommand(
           '--permission-mode',
           'dontAsk',
           '--allowedTools',
-          NOTE_TOOLS,
+          // The folder of the Synapse package, when it is loaded for the session, is
+          // there to be read: its skills and the schemas the vault holds notes to.
+          plan.env.SYNAPSE_CONTENT_ROOT === undefined
+            ? NOTE_TOOLS
+            : `${NOTE_TOOLS},Read(${plan.env.SYNAPSE_CONTENT_ROOT}/**)`,
           ...plan.args,
         ],
         env: {},

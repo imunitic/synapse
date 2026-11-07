@@ -55,7 +55,8 @@ reading the same file:
    "Resolving a missing task ID" step 6 does: `task_id` and `note_id` share one counter per prefix, so
    check both fields (`synapse vault-search --fields frontmatter.task_id,frontmatter.note_id`, filter
    both for `{prefix}-\d+`, take the highest number found across both, add 1; start at 1 if none exist
-   yet). This is frontmatter only — unlike a task note, a design note's title and filename stay
+   yet), written zero-padded to 3 digits (`{prefix}-001`) as the note schema's pattern requires.
+   This is frontmatter only — unlike a task note, a design note's title and filename stay
    exactly `{Topic}`, with no id and no project prefix prepended.
 
 Never hardcode a specific project/prefix pair in this command's own instructions — the conf file is
