@@ -69,6 +69,7 @@ export const callParams = {
     z.object({ kind: z.literal('definition'), name: definitionNameSchema, text: draftText }),
     z.object({ kind: z.literal('skill'), name: skillNameSchema, text: draftText }),
   ]),
+  saveDefinition: z.object({ path: z.string(), previous: draftText, text: draftText }),
   generateDefinition: z.object({
     kind: z.enum(['pipeline', 'system', 'agent', 'skill']),
     prompt: z.string().min(1).max(20_000),

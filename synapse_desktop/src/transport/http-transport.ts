@@ -51,6 +51,10 @@ export class HttpTransport implements Transport {
     return this.call('writeDefinition', item)
   }
 
+  async saveDefinition(path: string, previous: string, text: string): Promise<void> {
+    await this.call('saveDefinition', { path, previous, text })
+  }
+
   generateDefinition(request: GenerateRequest): Promise<{ text: string }> {
     return this.call('generateDefinition', request)
   }

@@ -98,6 +98,10 @@ export interface Transport {
 
   // The text of a definition, or of a skill's SKILL.md, that an agent wrote from
   // the description. Nothing is saved.
+  // Replaces the text of a definition file, or a skill's SKILL.md, in the
+  // definition directories. It is refused when the file no longer holds what
+  // `previous` says it did.
+  saveDefinition(path: string, previous: string, text: string): Promise<void>
   generateDefinition(request: GenerateRequest): Promise<{ text: string }>
 
   startRun(pipeline: string, input: unknown): Promise<{ executionId: string }>

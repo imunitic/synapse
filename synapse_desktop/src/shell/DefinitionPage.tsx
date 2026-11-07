@@ -128,16 +128,25 @@ export function DefinitionPage({
   name,
   path,
   onOpen,
+  onEdit,
 }: {
   definition: DefinitionKind
   name: string
   path: string
   onOpen: (page: Page) => void
+  onEdit: () => void
 }) {
   return (
     <div className="page">
-      <p className="eyebrow">{DEFINITION_LABELS[definition].singular}</p>
-      <h1 className="page-title">{name}</h1>
+      <div className="page-head">
+        <div>
+          <p className="eyebrow">{DEFINITION_LABELS[definition].singular}</p>
+          <h1 className="page-title">{name}</h1>
+        </div>
+        <button className="secondary" onClick={onEdit}>
+          Edit
+        </button>
+      </div>
       {definition === 'skill' && <SkillCard path={path} />}
       {definition !== 'pipeline' && <UsedBy kind={definition} name={name} onOpen={onOpen} />}
       <SourceCard path={path} />

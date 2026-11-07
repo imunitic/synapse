@@ -230,10 +230,12 @@ export function PipelinePage({
   name,
   path,
   onOpen,
+  onEdit,
 }: {
   name: string
   path: string
   onOpen: (page: Page) => void
+  onEdit: () => void
 }) {
   const load = useCallback(async () => {
     const [described, skills] = await Promise.all([
@@ -264,6 +266,12 @@ export function PipelinePage({
           <h1 className="page-title">{name}</h1>
         </div>
         <div className="head-actions">
+          {description !== null && !hasWorkDir && (
+            <span className="muted small">Set a work directory first.</span>
+          )}
+          <button className="secondary" onClick={onEdit}>
+            Edit
+          </button>
           <button
             className="primary"
             disabled={description === null || !hasWorkDir}
@@ -271,9 +279,6 @@ export function PipelinePage({
           >
             Run
           </button>
-          {description !== null && !hasWorkDir && (
-            <span className="muted small">Set a work directory first.</span>
-          )}
         </div>
       </div>
       {running && (

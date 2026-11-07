@@ -531,9 +531,10 @@
 
 .head-actions {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .small {
@@ -611,11 +612,12 @@
 }
 
 .graph-card {
-  padding: 20px 0 8px;
+  padding: 20px 18px 8px 0;
 }
 
+/* The diagram is at the left of its card, in line with the cards below. */
 .graph-card .graph {
-  margin: 0 auto;
+  margin: 0;
 }
 
 /* Routes of a step */

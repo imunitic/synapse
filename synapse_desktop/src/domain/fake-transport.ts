@@ -47,6 +47,7 @@ export function fakeTransport(world: FakeWorld): Transport {
     stopRun: unavailable,
     previewDraft: unavailable,
     writeDefinition: unavailable,
+    saveDefinition: unavailable,
     generateDefinition: unavailable,
     getConfig: (): Promise<AppConfig> => unavailable(),
     setConfig: unavailable,

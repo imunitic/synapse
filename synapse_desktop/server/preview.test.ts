@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { handleCall, type Context } from './calls.ts'
+import { CallError, handleCall, type Context } from './calls.ts'
 import type { CliRun } from './cli.ts'
 
 let dir: string
@@ -139,5 +139,58 @@ describe('writeDefinition', () => {
       )
     }
     expect(await readdir(defaults)).toEqual(['Reviewer.synapse'])
+  })
+})
+
+describe('saveDefinition', () => {
+  async function fileIn(sub: string, name: string, text: string): Promise<string> {
+    const folder = join(dir, sub)
+    await mkdir(folder, { recursive: true })
+    const path = join(folder, name)
+    await writeFile(path, text)
+    return path
+  }
+
+  it('replaces the text of a definition when the file is as it was read', async () => {
+    const path = await fileIn('xdg/synapse-pipeline', 'Old.synapse', 'Agent Old [Prompt => "a"];')
+    await handleCall(
+      'saveDefinition',
+      { path, previous: 'Agent Old [Prompt => "a"];', text: 'Agent Old [Prompt => "b"];' },
+      context,
+    )
+    expect(await readFile(path, 'utf8')).toBe('Agent Old [Prompt => "b"];')
+  })
+
+  it('refuses when the file has changed since it was read', async () => {
+    const path = await fileIn('xdg/synapse-pipeline', 'Old.synapse', 'changed elsewhere')
+    await expect(
+      handleCall('saveDefinition', { path, previous: 'what was read', text: 'x' }, context),
+    ).rejects.toMatchObject({ status: 409 })
+    expect(await readFile(path, 'utf8')).toBe('changed elsewhere')
+  })
+
+  it('saves the SKILL.md of a skill', async () => {
+    const path = await fileIn('xdg/synapse-pipeline/skills/a-skill', 'SKILL.md', 'one')
+    await handleCall('saveDefinition', { path, previous: 'one', text: 'two' }, context)
+    expect(await readFile(path, 'utf8')).toBe('two')
+  })
+
+  it('refuses any other file, and a file outside the definition directories', async () => {
+    const other = await fileIn('xdg/synapse-pipeline', 'notes.txt', 'x')
+    const outside = await fileIn('elsewhere', 'Out.synapse', 'x')
+    for (const path of [other, outside]) {
+      await expect(
+        handleCall('saveDefinition', { path, previous: 'x', text: 'y' }, context),
+      ).rejects.toBeInstanceOf(CallError)
+      expect(await readFile(path, 'utf8')).toBe('x')
+    }
+  })
+
+  it('does not reach into the records of runs', async () => {
+    await handleCall('setConfig', { patch: { workDir: join(dir, 'work') } }, context)
+    const path = await fileIn('work/pipelines/exec-1/definitions', 'Copy.synapse', 'x')
+    await expect(
+      handleCall('saveDefinition', { path, previous: 'x', text: 'y' }, context),
+    ).rejects.toMatchObject({ status: 403 })
   })
 })

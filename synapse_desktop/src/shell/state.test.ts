@@ -71,6 +71,16 @@ describe('a definition that is made', () => {
   })
 })
 
+describe('a definition that is changed', () => {
+  it('has the lists read again and leaves the tabs as they are', () => {
+    const before = reduce(initialState, { type: 'openPage', page: settings })
+    const after = reduce(before, { type: 'definitionsChanged' })
+    expect(after.tabs).toEqual(before.tabs)
+    expect(after.activeId).toBe(before.activeId)
+    expect(after.reloadToken).toBe(before.reloadToken + 1)
+  })
+})
+
 describe('tabs', () => {
   it('opens a page once and activates it again instead of duplicating it', () => {
     const state = run([

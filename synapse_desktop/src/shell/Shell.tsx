@@ -45,6 +45,7 @@ export function Shell() {
                 onCreated={(page) =>
                   dispatch({ type: 'definitionCreated', closeId: active.id, page })
                 }
+                onChanged={() => dispatch({ type: 'definitionsChanged' })}
                 onCancel={() => dispatch({ type: 'closeTab', id: active.id })}
               />
             )}

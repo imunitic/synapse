@@ -2,7 +2,7 @@
 // the roots and the CLI allowlist let it.
 
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { ZodError } from 'zod'
 import { appConfigSchema, callParams, isCallName, type CallName } from '../shared/calls.ts'
 import type { AppConfig, AppPaths, CliResult, DirEntry, RunAnswer } from '../shared/transport.ts'
@@ -143,6 +143,28 @@ const handlers: Record<CallName, Handler> = {
   async previewDraft(raw, context): Promise<CliResult> {
     const { draft } = callParams.previewDraft.parse(raw)
     return previewDraft(draft, context)
+  },
+
+  async saveDefinition(raw, context): Promise<null> {
+    const { path, previous, text } = callParams.saveDefinition.parse(raw)
+    // Only a definition file or a skill's SKILL.md, and only where definitions
+    // live: not the records of runs.
+    if (!path.endsWith('.synapse') && basename(path) !== 'SKILL.md') {
+      throw new CallError('only a definition or a SKILL.md can be saved', 400)
+    }
+    const config = await loadConfig(context.configFile)
+    let real: string
+    try {
+      real = await resolveInside(path, listDefinitionDirs(config, context.environment))
+    } catch (error) {
+      if (error instanceof OutsideRoots) throw new CallError(error.message, 403)
+      throw error
+    }
+    if ((await readFile(real, 'utf8')) !== previous) {
+      throw new CallError('the file has changed since it was read', 409)
+    }
+    await writeFile(real, text)
+    return null
   },
 
   async generateDefinition(raw, context): Promise<{ text: string }> {
