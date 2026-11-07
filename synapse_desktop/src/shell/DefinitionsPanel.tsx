@@ -1,5 +1,6 @@
-import type { Dispatch } from 'react'
+import { useState, type Dispatch } from 'react'
 import { listDefinitions, listSkills } from '../domain/definitions.ts'
+import { filterByName } from '../domain/filter.ts'
 import { transport } from '../transport/index.ts'
 import { PlusIcon, RefreshIcon } from './icons.tsx'
 import { DEFINITION_KINDS, DEFINITION_LABELS, type Action, type ShellState } from './state.ts'
@@ -30,6 +31,7 @@ export function DefinitionsPanel({
   const { state: load, reload } = useLoad(loadAll, undefined, state.reloadToken)
   const kind = state.definitionKind
   const labels = DEFINITION_LABELS[kind]
+  const [filter, setFilter] = useState('')
 
   let items: Item[] = []
   if (load.status === 'ready') {
@@ -38,6 +40,8 @@ export function DefinitionsPanel({
         ? load.data.skills.map((s) => ({ ...s, duplicate: false }))
         : load.data.definitions.filter((d) => d.kind === kind)
   }
+
+  const shown = filterByName(items, filter)
 
   return (
     <>
@@ -70,6 +74,15 @@ export function DefinitionsPanel({
           </button>
         ))}
       </div>
+      <div className="panel-search">
+        <input
+          type="search"
+          aria-label={`Filter the ${labels.plural.toLowerCase()}`}
+          placeholder="Filter…"
+          value={filter}
+          onChange={(event) => setFilter(event.target.value)}
+        />
+      </div>
       {load.status === 'loading' && <p className="panel-empty">Loading…</p>}
       {load.status === 'failed' && (
         <p className="panel-empty" role="alert">
@@ -79,8 +92,13 @@ export function DefinitionsPanel({
       {load.status === 'ready' && items.length === 0 && (
         <p className="panel-empty">No {labels.plural.toLowerCase()} found.</p>
       )}
+      {load.status === 'ready' && items.length > 0 && shown.length === 0 && (
+        <p className="panel-empty">
+          No {labels.plural.toLowerCase()} match “{filter.trim()}”.
+        </p>
+      )}
       <div className="list">
-        {items.map((item) => (
+        {shown.map((item) => (
           <button
             key={item.path}
             className="list-item"
