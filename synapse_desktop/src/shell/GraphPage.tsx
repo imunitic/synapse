@@ -703,24 +703,20 @@ function NewGraph({
   existing,
   onSelect,
   onStartTask,
+  onClose,
 }: {
   existing: readonly string[]
   onSelect: (namespace: string) => void
   onStartTask: (kind: TerminalKind, cwd: string, task: TerminalTask) => void
+  onClose: () => void
 }) {
   const { state: config, save } = useConfig()
   const { harness, choose } = useHarness()
-  const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState('')
   const [found, setFound] = useState<{ path: string; key: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  function close() {
-    setOpen(false)
-    setDraft('')
-    setFound(null)
-    setError(null)
-  }
+  const close = onClose
 
   async function check(event: React.SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -751,15 +747,6 @@ function NewGraph({
     close()
   }
 
-  if (!open) {
-    return (
-      <div className="row">
-        <button className="secondary" onClick={() => setOpen(true)}>
-          New graph…
-        </button>
-      </div>
-    )
-  }
   const exists = found !== null && existing.includes(found.key)
   return (
     <section className="card" aria-label="New graph">
@@ -943,6 +930,7 @@ export function GraphPage({
   const { state: graphs, reload } = useLoad(loadGraphs)
   const [chosen, setChosen] = useState<string | null>(remembered())
   const [mode, setMode] = useState<Mode>('symbol')
+  const [building, setBuilding] = useState(false)
 
   const list = graphs.status === 'ready' ? graphs.data : []
   const graph = list.find((g) => g.namespace === chosen) ?? list[0]
@@ -957,17 +945,25 @@ export function GraphPage({
 
   return (
     <div className="page wide graph-page">
-      <h1 className="page-title">Code graph</h1>
+      <div className="graph-head">
+        <h1 className="page-title">Code graph</h1>
+        <button className="secondary" disabled={building} onClick={() => setBuilding(true)}>
+          New graph…
+        </button>
+      </div>
+      {building && (
+        <NewGraph
+          existing={list.map((g) => g.namespace)}
+          onSelect={(namespace) => {
+            setChosen(namespace)
+            remember(namespace)
+          }}
+          onStartTask={onStartTask}
+          onClose={() => setBuilding(false)}
+        />
+      )}
       {graphs.status === 'loading' && <p className="muted">Looking for graphs…</p>}
       {graphs.status === 'failed' && <p role="alert">Could not look for graphs: {graphs.error}</p>}
-      <NewGraph
-        existing={list.map((g) => g.namespace)}
-        onSelect={(namespace) => {
-          setChosen(namespace)
-          remember(namespace)
-        }}
-        onStartTask={onStartTask}
-      />
       {graphs.status === 'ready' && list.length === 0 && (
         <p className="muted">
           No graph has local files yet. Build one from a repository with New graph, and it shows

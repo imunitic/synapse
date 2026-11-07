@@ -1634,3 +1634,30 @@ div.activity-row {
   margin: 4px 0 0;
   padding-left: 18px;
 }
+
+.graph-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.graph-page .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.graph-page select {
+  min-width: 220px;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--tabbar);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+}
+
+.graph-page .confirm .field {
+  margin-bottom: 12px;
+}
