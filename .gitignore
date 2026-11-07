@@ -14,7 +14,7 @@ zig-tags.tsv
 CLAUDE.local.md
 # One-shot/site-local migration scripts kept outside the repo (moved to
 # ~/Development/synapse/scripts/) -- never part of a build or package.
-scripts/
+/scripts/
 
 
 # Build products and downloads of the Ada crate.

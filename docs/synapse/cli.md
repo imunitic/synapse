@@ -33,6 +33,9 @@ usage: synapse <subcommand> [args]
   frontmatter get <path> <key>             read one frontmatter field
   frontmatter set <path> <key> <value>    set one frontmatter field, byte-preserving
   frontmatter set <path> --add-tag|--remove-tag <tag>   same, for the tags field
+  config list [--format json|text]   every setting of synapse.conf, its value and where it comes from
+  config set <KEY> <value>   write one setting into the file that holds it, byte-preserving
+  config unset <KEY>         remove one setting from that file
   vault-read <path>          a note's full body
   vault-write <path>         write a note's full body, from stdin
   vault-list                 every note in the vault, recursively
@@ -179,6 +182,14 @@ usage: synapse frontmatter get <path> <key>
 
   <path>   the note's full vault-relative path, e.g. tasks/proj/foo.md
   <value>  bare sets a scalar field; comma-separated sets an array
+```
+
+### synapse config
+
+```
+usage: synapse config list [--format json|text]
+       synapse config set <KEY> <value>
+       synapse config unset <KEY>
 ```
 
 ### synapse vault-read
@@ -517,7 +528,8 @@ usage: synapse-pipeline <subcommand> [args]
          describe a pipeline: its steps, settings, edges and limits
   next <pipeline> [--input <file>|-] | --state <file>|- --result <file>|-
          the state a run starts in, or the state after a step's result
-  run <pipeline> [--input <file>|-]   run a pipeline to its end
+  run <pipeline> [--input <file>|-] [--id <execution-id>]
+         run a pipeline to its end
   list [--all]   the pipelines running now, or all that were run
   info <execution-id> [--format json|text] [--query <rule>] | --events
          what a pipeline says about itself, running or not
@@ -598,7 +610,7 @@ Environment:
 ### synapse-pipeline run
 
 ```
-usage: synapse-pipeline run <pipeline> [--input <file>|-]
+usage: synapse-pipeline run <pipeline> [--input <file>|-] [--id <execution-id>]
 
 Runs the pipeline from its first step, one agent session per step, and prints
 the last step's result as JSON on standard output. One line per step goes to
@@ -607,6 +619,9 @@ standard error as it finishes. The exit code is 0 when the run completes and
 
   --input <file>   JSON handed to the first step; '-' reads it from standard
                    input
+  --id <id>        the id of the execution, 1 to 64 letters, digits, '_' and
+                   '-', instead of one drawn; it needs a work directory, and
+                   an id that is taken is an error
 
 While it runs, the run can be inspected with 'list' and 'info' when a work
 directory is set.

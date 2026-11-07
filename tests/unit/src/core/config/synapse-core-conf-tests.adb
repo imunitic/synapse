@@ -169,9 +169,157 @@ package body Synapse.Core.Conf.Tests is
       return AUnit.Format ("Synapse.Core.Conf");
    end Name;
 
+   procedure Set_Replaces_The_Last_Assignment_In_Place
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Text : constant String :=
+        "# one" & LF & "K=old" & LF & "  export K=""mid"" # note" & LF &
+        "OTHER=x" & LF;
+   begin
+      Assert
+        (Set (Text, "K", "new") =
+         "# one" & LF & "K=old" & LF & "  export K=new # note" & LF &
+         "OTHER=x" & LF,
+         "the last one is replaced and the rest is as it was: " &
+         Set (Text, "K", "new"));
+      Assert (Got (Set (Text, "K", "new"), "K") = "<new>", "and it is read");
+   end Set_Replaces_The_Last_Assignment_In_Place;
+
+   procedure Set_Keeps_What_Follows_The_Value (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (Set ("K=/old   # why" & LF, "K", "/new") = "K=/new   # why" & LF,
+         "a comment after an unquoted value");
+      Assert
+        (Set ("K=""a b"" # why" & LF, "K", "c") = "K=c # why" & LF,
+         "a comment after a quoted value");
+      Assert
+        (Set ("K='x y'" & LF, "K", "z z") = "K=""z z""" & LF,
+         "a quoted value is replaced whole");
+      Assert (Set ("K=" & LF, "K", "v") = "K=v" & LF, "an empty value");
+   end Set_Keeps_What_Follows_The_Value;
+
+   procedure Set_Adds_A_Key_That_Is_Not_There (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+   begin
+      Assert (Set ("", "K", "v") = "K=v" & LF, "into nothing");
+      Assert
+        (Set ("A=1", "K", "v") = "A=1" & LF & "K=v" & LF,
+         "after a last line with no line feed");
+      Assert
+        (Set ("A=1" & LF & "# K=old" & LF & "KK=2" & LF, "K", "v") =
+         "A=1" & LF & "# K=old" & LF & "KK=2" & LF & "K=v" & LF,
+         "a comment and a longer key are not the key");
+   end Set_Adds_A_Key_That_Is_Not_There;
+
+   procedure Set_Keeps_A_Carriage_Return_And_Line_Ends
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      CR : constant Character := Character'Val (13);
+   begin
+      Assert
+        (Set ("K=old" & CR & LF & "A=1" & CR & LF, "K", "new") =
+         "K=new" & CR & LF & "A=1" & CR & LF,
+         "a file with carriage returns keeps them");
+   end Set_Keeps_A_Carriage_Return_And_Line_Ends;
+
+   procedure A_Value_Is_Written_So_That_It_Reads_Back
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+
+      procedure Round (Value : String) is
+      begin
+         Assert
+           (Got (Set ("", "K", Value), "K") = "<" & Value & ">",
+            "reads back: " & Value);
+      end Round;
+   begin
+      Round ("/plain/path");
+      Round ("with a blank");
+      Round ("has # a hash");
+      Round ("it's");
+      Round ("say ""hi""");
+      Round ("");
+      Round ("$HOME/vault");
+      Assert (Set ("", "K", "a b") = "K=""a b""" & LF, "double quotes");
+      Assert (Set ("", "K", "$HOME/v") = "K=$HOME/v" & LF, "left to expand");
+   end A_Value_Is_Written_So_That_It_Reads_Back;
+
+   procedure A_Value_That_Has_No_Written_Form_Is_Refused
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Refused : Boolean := False;
+   begin
+      begin
+         declare
+            Unused : constant String := Set ("", "K", "a" & LF & "b");
+         begin
+            null;
+         end;
+      exception
+         when Unrepresentable =>
+            Refused := True;
+      end;
+      Assert (Refused, "a line feed");
+      Refused := False;
+      begin
+         declare
+            Unused : constant String := Set ("", "K", "it's ""x""");
+         begin
+            null;
+         end;
+      exception
+         when Unrepresentable =>
+            Refused := True;
+      end;
+      Assert (Refused, "both kinds of quote");
+   end A_Value_That_Has_No_Written_Form_Is_Refused;
+
+   procedure Unset_Removes_Every_Assignment_And_Nothing_Else
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Text : constant String :=
+        "# keep" & LF & "K=1" & LF & "KK=2" & LF & "export K=3" & LF &
+        "# K=4" & LF & "last=5";
+   begin
+      Assert
+        (Unset (Text, "K") = "# keep" & LF & "KK=2" & LF & "# K=4" & LF &
+         "last=5",
+         "only the assignments of K go: " & Unset (Text, "K"));
+      Assert (Unset ("A=1", "K") = "A=1", "a key that is not there");
+      Assert (Got (Unset (Text, "K"), "K") = "none", "and it reads as unset");
+   end Unset_Removes_Every_Assignment_And_Nothing_Else;
+
    overriding procedure Register_Tests (T : in out Test_Case) is
       use AUnit.Test_Cases.Registration;
    begin
+      Register_Routine
+        (T, Set_Replaces_The_Last_Assignment_In_Place'Access,
+         "Set replaces the last assignment in place");
+      Register_Routine
+        (T, Set_Keeps_What_Follows_The_Value'Access,
+         "Set keeps what follows the value");
+      Register_Routine
+        (T, Set_Adds_A_Key_That_Is_Not_There'Access,
+         "Set adds a key that is not there");
+      Register_Routine
+        (T, Set_Keeps_A_Carriage_Return_And_Line_Ends'Access,
+         "Set keeps a carriage return and the line ends");
+      Register_Routine
+        (T, A_Value_Is_Written_So_That_It_Reads_Back'Access,
+         "A value is written so that it reads back");
+      Register_Routine
+        (T, A_Value_That_Has_No_Written_Form_Is_Refused'Access,
+         "A value that has no written form is refused");
+      Register_Routine
+        (T, Unset_Removes_Every_Assignment_And_Nothing_Else'Access,
+         "Unset removes every assignment and nothing else");
       Register_Routine
         (T, Reads_The_Shipped_Template'Access, "Reads the shipped template");
       Register_Routine

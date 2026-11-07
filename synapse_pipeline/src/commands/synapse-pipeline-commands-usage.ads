@@ -19,7 +19,8 @@ package Synapse.Pipeline.Commands.Usage is
      & "<file>|-" & LF
      & "         the state a run starts in, or the state after a step's "
      & "result" & LF
-     & "  run <pipeline> [--input <file>|-]   run a pipeline to its end" & LF
+     & "  run <pipeline> [--input <file>|-] [--id <execution-id>]" & LF
+     & "         run a pipeline to its end" & LF
      & "  list [--all]   the pipelines running now, or all that were run" & LF
      & "  info <execution-id> [--format json|text] [--query <rule>] | "
      & "--events" & LF
@@ -109,7 +110,8 @@ package Synapse.Pipeline.Commands.Usage is
      & "50)" & LF;
 
    Run_Help : constant String :=
-     "usage: synapse-pipeline run <pipeline> [--input <file>|-]" & LF & LF
+     "usage: synapse-pipeline run <pipeline> [--input <file>|-] "
+     & "[--id <execution-id>]" & LF & LF
      & "Runs the pipeline from its first step, one agent session per step, "
      & "and prints" & LF
      & "the last step's result as JSON on standard output. One line per step "
@@ -119,7 +121,12 @@ package Synapse.Pipeline.Commands.Usage is
      & "1 when a step fails or the pipeline cannot be run." & LF & LF
      & "  --input <file>   JSON handed to the first step; '-' reads it from "
      & "standard" & LF
-     & "                   input" & LF & LF
+     & "                   input" & LF
+     & "  --id <id>        the id of the execution, 1 to 64 letters, digits, "
+     & "'_' and" & LF
+     & "                   '-', instead of one drawn; it needs a work "
+     & "directory, and" & LF
+     & "                   an id that is taken is an error" & LF & LF
      & "While it runs, the run can be inspected with 'list' and 'info' when "
      & "a work" & LF
      & "directory is set." & LF & LF

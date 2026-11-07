@@ -11,7 +11,8 @@ with Synapse.Pipeline.Registry_Store;
 package Synapse.Pipeline.Fake_Registry is
 
    type Operation is
-     (Create_Op, Replace_Op, Append_Op, Transcript_Op, Remove_Op);
+     (Create_Op, Replace_Op, Append_Op, Transcript_Op, Description_Op,
+      Definition_Op, Remove_Op);
 
    package Contents is new Ada.Containers.Indefinite_Ordered_Maps
      (String, String);
@@ -22,6 +23,9 @@ package Synapse.Pipeline.Fake_Registry is
       Events      : Ada.Strings.Unbounded.Unbounded_String;
       Has_Events  : Boolean := False;
       Transcripts : Contents.Map;
+      Description     : Ada.Strings.Unbounded.Unbounded_String;
+      Has_Description : Boolean := False;
+      Definitions : Contents.Map;
       Written     : Ada.Calendar.Time := Ada.Calendar.Clock;
    end record;
 
@@ -71,6 +75,14 @@ package Synapse.Pipeline.Fake_Registry is
      (F : in out Fake_Registry; Id, Name, Content : String) return Boolean;
 
    overriding
+   function Write_Description
+     (F : in out Fake_Registry; Id, Content : String) return Boolean;
+
+   overriding
+   function Write_Definition
+     (F : in out Fake_Registry; Id, Path, Content : String) return Boolean;
+
+   overriding
    function Remove (F : in out Fake_Registry; Id : String) return Boolean;
 
    overriding
@@ -83,6 +95,15 @@ package Synapse.Pipeline.Fake_Registry is
    overriding
    function Read_Events
      (F : Fake_Registry; Id : String) return Registry_Store.Maybe_Content;
+
+   overriding
+   function Read_Description
+     (F : Fake_Registry; Id : String) return Registry_Store.Maybe_Content;
+
+   overriding
+   function Read_Definition
+     (F : Fake_Registry; Id, Path : String)
+      return Registry_Store.Maybe_Content;
 
    overriding
    function Transcript_Path

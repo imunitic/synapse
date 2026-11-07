@@ -11,6 +11,7 @@ package body Synapse.Pipeline.Commands.Run.Tests is
    use AUnit.Assertions;
    use Synapse.Pipeline.Test_Environment;
    use Ada.Strings.Unbounded;
+   use type Registry_Store.Create_Result;
 
    subtype Test_Cases_Class is AUnit.Test_Cases.Test_Case'Class;
 
@@ -291,6 +292,21 @@ package body Synapse.Pipeline.Commands.Run.Tests is
             and then Has
               (To_String (Events.Value), """kind"":""run.completed"""),
             "and its events run from the start to the end");
+         Assert
+           (F.Registry.Read_Description (Id).Found
+            and then Has
+              (To_String (F.Registry.Read_Description (Id).Value),
+               """name"":""Dev"""),
+            "and the pipeline it ran is described");
+         Assert
+           (F.Registry.Read_Definition (Id, "synapse-pipeline/Dev.synapse")
+              .Found
+            and then Has
+              (To_String
+                 (F.Registry.Read_Definition
+                    (Id, "synapse-pipeline/Dev.synapse").Value),
+               "Pipeline Dev {"),
+            "and the file it was loaded from is kept as it was");
       end;
    end A_Run_Is_Recorded_In_The_Registry;
 
@@ -384,7 +400,8 @@ package body Synapse.Pipeline.Commands.Run.Tests is
       Assert (Run (Env (F), Args) = 2, "no pipeline");
       Assert
         (F.Base.Console.Err_Text =
-         "usage: synapse-pipeline run <pipeline> [--input <file>|-]" & LF,
+         "usage: synapse-pipeline run <pipeline> [--input <file>|-] "
+         & "[--id <execution-id>]" & LF,
          "says how");
       Assert (Run (Env (F), Args ("A", "B")) = 2, "two pipelines");
       Assert (Run (Env (F), Args ("Dev", "--input")) = 2, "--input alone");
@@ -393,6 +410,119 @@ package body Synapse.Pipeline.Commands.Run.Tests is
          "--input twice");
       Assert (Run (Env (F), Args ("Dev", "--quiet")) = 2, "another option");
    end The_Arguments_Are_Checked;
+
+   procedure A_Run_Takes_The_Id_It_Is_Given (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F, Round_Once);
+      F.Base.Vars.Set ("SYNAPSE_WORK_DIR", "/work");
+      Assert
+        (Run (Env (F), Args ("Dev", "--id", "nightly-1")) = 0,
+         "it completes");
+      Assert
+        (Natural (F.Registry.Held.Length) = 1
+         and then F.Registry.Held.Contains ("nightly-1"),
+         "and is recorded under that id and no other");
+      Assert
+        (Has
+           (To_String (F.Registry.Read_Summary ("nightly-1").Value),
+            """id"":""nightly-1"""),
+         "its summary names it");
+   end A_Run_Takes_The_Id_It_Is_Given;
+
+   procedure An_Id_That_Is_Taken_Is_An_Error_And_Nothing_Runs
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F, Round_Once);
+      F.Base.Vars.Set ("SYNAPSE_WORK_DIR", "/work");
+      Assert
+        (F.Registry.Create ("nightly-1") = Registry_Store.Created, "taken");
+      Assert
+        (Run (Env (F), Args ("Dev", "--id", "nightly-1")) = 1,
+         "the run is refused");
+      Assert
+        (F.Base.Console.Err_Text =
+         "error: execution nightly-1 already exists" & LF,
+         "and says why: " & F.Base.Console.Err_Text);
+      Assert
+        (F.Base.Console.Out_Text = ""
+         and then not F.Registry.Read_Summary ("nightly-1").Found
+         and then Natural (F.Registry.Held.Length) = 1,
+         "no session ran and the taken id was left as it was");
+   end An_Id_That_Is_Taken_Is_An_Error_And_Nothing_Runs;
+
+   procedure An_Id_Needs_A_Work_Directory (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F, Round_Once);
+      Assert
+        (Run (Env (F), Args ("Dev", "--id", "nightly-1")) = 1,
+         "the run is refused");
+      Assert
+        (F.Base.Console.Err_Text =
+         "error: --id needs a work directory; set SYNAPSE_WORK_DIR" & LF
+         and then F.Base.Console.Out_Text = "",
+         "and says why: " & F.Base.Console.Err_Text);
+   end An_Id_Needs_A_Work_Directory;
+
+   procedure A_Directory_That_Cannot_Be_Made_Refuses_The_Id
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F, Round_Once);
+      F.Base.Vars.Set ("SYNAPSE_WORK_DIR", "/work");
+      F.Registry.Fail (Fake_Registry.Create_Op);
+      Assert
+        (Run (Env (F), Args ("Dev", "--id", "nightly-1")) = 1,
+         "the run is refused, since it was asked to be recorded by name");
+      Assert
+        (Has
+           (F.Base.Console.Err_Text,
+            "the record of execution nightly-1 could not be made")
+         and then F.Base.Console.Out_Text = "",
+         "and says why: " & F.Base.Console.Err_Text);
+   end A_Directory_That_Cannot_Be_Made_Refuses_The_Id;
+
+   procedure An_Id_That_Is_Not_Plain_Is_A_Usage_Error
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+      --  Whether the run is turned away as a usage error for this id.
+      procedure Refuse (Id : String) is
+      begin
+         Assert
+           (Run (Env (F), Args ("Dev", "--id", Id)) = 2,
+            "an id that is not plain is a usage error: " & Id);
+      end Refuse;
+   begin
+      Set_Up (F, Round_Once);
+      F.Base.Vars.Set ("SYNAPSE_WORK_DIR", "/work");
+      Refuse ("");
+      Refuse ("../x");
+      Refuse ("a b");
+      Refuse ("a/b");
+      Refuse ("a:b");
+      Refuse ([1 .. 65 => 'a']);
+      Assert
+        (Has (F.Base.Console.Err_Text, "error: --id must be 1 to 64 letters")
+         and then F.Registry.Held.Is_Empty,
+         "it says what an id may be and nothing is recorded");
+      Assert (Run (Env (F), Args ("Dev", "--id")) = 2, "--id alone");
+      Assert
+        (Run (Env (F), Args ("Dev", "--id", "a", "--id", "b")) = 2,
+         "--id twice");
+      Assert
+        (Run (Env (F), Args ("Dev", "--id", [1 .. 64 => 'a'])) = 0,
+         "64 characters are allowed");
+   end An_Id_That_Is_Not_Plain_Is_A_Usage_Error;
 
    procedure A_Gate_Can_End_The_Run_Early (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
@@ -471,6 +601,21 @@ package body Synapse.Pipeline.Commands.Run.Tests is
       Register_Routine
         (T, A_Gate_Can_End_The_Run_Early'Access,
          "A gate can end the run early");
+      Register_Routine
+        (T, A_Run_Takes_The_Id_It_Is_Given'Access,
+         "A run takes the id it is given");
+      Register_Routine
+        (T, An_Id_That_Is_Taken_Is_An_Error_And_Nothing_Runs'Access,
+         "An id that is taken is an error and nothing runs");
+      Register_Routine
+        (T, An_Id_Needs_A_Work_Directory'Access,
+         "An id needs a work directory");
+      Register_Routine
+        (T, A_Directory_That_Cannot_Be_Made_Refuses_The_Id'Access,
+         "A directory that cannot be made refuses the id");
+      Register_Routine
+        (T, An_Id_That_Is_Not_Plain_Is_A_Usage_Error'Access,
+         "An id that is not plain is a usage error");
    end Register_Tests;
 
 end Synapse.Pipeline.Commands.Run.Tests;
