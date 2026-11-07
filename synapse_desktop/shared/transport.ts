@@ -121,6 +121,42 @@ export interface TerminalHandle {
   close(): void
 }
 
+// Whether a harness has Synapse installed, and from where.
+export type IntegrationState =
+  // The harness has no hook of Synapse.
+  | 'absent'
+  // The hook is the one of the Synapse this app runs, or of the same version.
+  | 'current'
+  // The hook is of another copy, or another version.
+  | 'different'
+  // The harness names a hook program that is not there.
+  | 'broken'
+  // There is a hook, and no Synapse of the app's own to compare it with.
+  | 'installed'
+
+export interface Integration {
+  harness: Harness
+  state: IntegrationState
+  // The hook program the harness runs, as it names it.
+  hook: string | null
+  // The version of the Synapse that program belongs to.
+  version: string | null
+}
+
+// The Synapse this app would install, found as the programs on PATH and the
+// packages they belong to.
+export interface BundledSynapse {
+  version: string | null
+  hook: string | null
+  contentRoot: string | null
+  pipelineRoot: string | null
+}
+
+export interface Integrations {
+  bundled: BundledSynapse
+  harnesses: Integration[]
+}
+
 export type CliBinary = 'synapse-pipeline' | 'synapse'
 
 export interface CliOptions {
@@ -171,6 +207,13 @@ export interface Transport {
 
   // Looks at a folder, which may be anywhere, and changes nothing.
   inspectVault(path: string): Promise<VaultInfo>
+
+  // What each harness has installed of Synapse, and what this app would install.
+  getIntegrations(): Promise<Integrations>
+  // Installs Synapse and its pipeline skills for the harness, as
+  // `synapse configure` and `synapse-pipeline configure` do. It writes into the
+  // harness's own configuration, so it is only done when asked for.
+  configureHarness(harness: Harness): Promise<{ output: string }>
 
   getConfig(): Promise<AppConfig>
   getPaths(): Promise<AppPaths>

@@ -6,6 +6,7 @@ import {
   type SynapseSetting,
   type SynapseSettings,
 } from '../domain/settings.ts'
+import { actionLabel, HARNESS_NAMES, stateLabel } from '../domain/integrations.ts'
 import { isAbsolutePath } from '../domain/vaults.ts'
 import { transport } from '../transport/index.ts'
 import { useConfig } from './config.tsx'
@@ -321,6 +322,98 @@ function Environment() {
   )
 }
 
+// What each harness has of Synapse, and a button that installs it from the copy
+// of Synapse this app has. Nothing is written into a harness until one is
+// pressed.
+function IntegrationsPage() {
+  const [version, setVersion] = useState(0)
+  const [working, setWorking] = useState<Harness | null>(null)
+  const [results, setResults] = useState<Partial<Record<Harness, { ok: boolean; text: string }>>>(
+    {},
+  )
+  const load = useCallback(() => transport.getIntegrations(), [])
+  const { state } = useLoad(load, undefined, version)
+
+  async function configure(harness: Harness) {
+    setWorking(harness)
+    try {
+      const { output } = await transport.configureHarness(harness)
+      setResults((all) => ({ ...all, [harness]: { ok: true, text: output } }))
+    } catch (error) {
+      setResults((all) => ({ ...all, [harness]: { ok: false, text: String(error) } }))
+    }
+    setWorking(null)
+    setVersion((v) => v + 1)
+  }
+
+  if (state.status === 'loading') return <p className="muted">Looking at the harnesses…</p>
+  if (state.status === 'failed') return <p role="alert">Could not look: {state.error}</p>
+  const { bundled, harnesses } = state.data
+  const ready = bundled.contentRoot !== null && bundled.pipelineRoot !== null
+  return (
+    <>
+      <section className="card" aria-label="This app's Synapse">
+        <h2 className="card-title">The Synapse this app has</h2>
+        {bundled.hook === null ? (
+          <p role="alert">
+            No <span className="mono">synapse</span> program was found on PATH, so there is nothing
+            to install.
+          </p>
+        ) : (
+          <p className="muted">
+            Version <span className="mono">{bundled.version ?? 'unknown'}</span>, hook program{' '}
+            <span className="mono">{bundled.hook}</span>
+          </p>
+        )}
+        {!ready && bundled.hook !== null && (
+          <p role="alert">Its skills, commands and hook templates were not found.</p>
+        )}
+      </section>
+      {harnesses.map((item) => (
+        <section key={item.harness} className="card" aria-label={HARNESS_NAMES[item.harness]}>
+          <h2 className="card-title">{HARNESS_NAMES[item.harness]}</h2>
+          <p>
+            <span data-state={item.state}>{stateLabel(item.state)}</span>
+            {item.version !== null && (
+              <span className="muted">
+                {' '}
+                · version <span className="mono">{item.version}</span>
+              </span>
+            )}
+          </p>
+          {item.hook !== null && (
+            <p className="muted small">
+              Hook program <span className="mono">{item.hook}</span>
+            </p>
+          )}
+          <div className="row">
+            <button
+              className="primary"
+              disabled={working !== null || !ready || bundled.hook === null}
+              onClick={() => void configure(item.harness)}
+            >
+              {working === item.harness ? 'Working…' : actionLabel(item.state)}
+            </button>
+          </div>
+          {results[item.harness] !== undefined && (
+            <pre
+              className="mono small"
+              role={results[item.harness]?.ok === true ? 'status' : 'alert'}
+            >
+              {results[item.harness]?.text}
+            </pre>
+          )}
+        </section>
+      ))}
+      <p className="muted small">
+        Installing writes into the harness's own configuration: its skills and commands, and a hook
+        program that Synapse runs. A harness started from the Terminals page loads Synapse for that
+        session without any of this.
+      </p>
+    </>
+  )
+}
+
 function Terminals() {
   const { state, save } = useConfig()
   if (state.status !== 'ready') return null
@@ -353,6 +446,7 @@ const TITLES: Record<SettingsSection, string> = {
   vault: 'Vault',
   graph: 'Code graph',
   environment: 'Environment',
+  integrations: 'Integrations',
   terminals: 'Terminals',
 }
 
@@ -372,6 +466,7 @@ export function SettingsPage({
       {section === 'vault' && <Vault />}
       {section === 'graph' && <Graph />}
       {section === 'environment' && <Environment />}
+      {section === 'integrations' && <IntegrationsPage />}
       {section === 'terminals' && <Terminals />}
     </div>
   )

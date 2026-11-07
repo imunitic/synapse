@@ -15,10 +15,12 @@ let dir: string
 let server: Server
 let port: number
 let cliCalls: CliRun[]
+let cliResult: { code: number; stdout: string; stderr: string }
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'synapse-desktop-http-'))
   cliCalls = []
+  cliResult = { code: 0, stdout: 'ok', stderr: '' }
   const hosts = new Set<string>()
   const handler = createHandler(
     {
@@ -33,7 +35,7 @@ beforeEach(async () => {
       agent: () => Promise.reject(new Error('not used')),
       runCli: (run) => {
         cliCalls.push(run)
-        return Promise.resolve({ code: 0, stdout: 'ok', stderr: '' })
+        return Promise.resolve(cliResult)
       },
     },
     { allowedHosts: hosts, allowedOrigins: new Set([ORIGIN]), token: TOKEN },
@@ -95,6 +97,33 @@ describe('the API', () => {
       recentVaults: [],
       terminalFolder: null,
     })
+  })
+
+  it('installs Synapse and the pipeline skills for a harness, each with its own content', async () => {
+    const reply = await post('configureHarness', { harness: 'Codex' })
+    expect(reply.status).toBe(200)
+    expect(cliCalls.map((c) => [c.binary, c.args])).toEqual([
+      ['synapse', ['configure', 'codex']],
+      ['synapse-pipeline', ['configure', 'codex']],
+    ])
+    const [first, second] = cliCalls
+    expect(first?.env?.SYNAPSE_CONTENT_ROOT).toMatch(/packages[\\/]synapse$/)
+    expect(second?.env?.SYNAPSE_CONTENT_ROOT).toMatch(/packages[\\/]synapse-pipeline$/)
+  })
+
+  it('refuses a harness it does not know, and reports a configure that failed', async () => {
+    expect((await post('configureHarness', { harness: 'Cursor' })).status).toBe(400)
+    cliResult = { code: 1, stdout: '', stderr: 'synapse-configure: no home' }
+    const failed = await post('configureHarness', { harness: 'Claude' })
+    expect(failed.status).toBe(502)
+    expect(failed.body.error).toContain('no home')
+  })
+
+  it('says what each harness has installed', async () => {
+    const reply = await post('getIntegrations', {})
+    expect(reply.status).toBe(200)
+    const result = reply.body.result as { harnesses: { harness: string; state: string }[] }
+    expect(result.harnesses.map((h) => h.harness)).toEqual(['Claude', 'Codex', 'Opencode'])
   })
 
   it('keeps what setConfig stores', async () => {

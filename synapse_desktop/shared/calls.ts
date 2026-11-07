@@ -107,6 +107,8 @@ export const callParams = {
     skills: z.array(skillNameSchema).max(1000),
   }),
   inspectVault: z.object({ path: z.string().min(1).max(4096) }),
+  getIntegrations: z.object({}),
+  configureHarness: z.object({ harness: harnessSchema }),
   getConfig: z.object({}),
   getPaths: z.object({}),
   setConfig: z.object({ patch: appConfigSchema.partial() }),

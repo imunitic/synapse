@@ -15,7 +15,8 @@ export const DEFINITION_LABELS: Record<DefinitionKind, { singular: string; plura
 }
 
 // The categories of the settings, each with a page of its own.
-export type SettingsSection = 'general' | 'vault' | 'graph' | 'environment' | 'terminals'
+export type SettingsSection =
+  'general' | 'vault' | 'graph' | 'environment' | 'integrations' | 'terminals'
 
 export const SETTINGS_SECTIONS: readonly {
   section: SettingsSection
@@ -30,6 +31,11 @@ export const SETTINGS_SECTIONS: readonly {
   { section: 'vault', label: 'Vault', about: 'The vault and how it is kept' },
   { section: 'graph', label: 'Code graph', about: 'Grammars, authoring and staleness checks' },
   { section: 'environment', label: 'Environment', about: 'Variables for what the app runs' },
+  {
+    section: 'integrations',
+    label: 'Integrations',
+    about: 'Synapse in Claude Code, Codex and OpenCode',
+  },
   { section: 'terminals', label: 'Terminals', about: 'Where a new terminal starts' },
 ]
 

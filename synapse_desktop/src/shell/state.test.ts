@@ -110,6 +110,7 @@ describe('settings pages', () => {
       'vault',
       'graph',
       'environment',
+      'integrations',
       'terminals',
     ])
     for (const { label, about } of SETTINGS_SECTIONS) {

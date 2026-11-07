@@ -10,6 +10,8 @@ import type {
   CliResult,
   DraftDefinition,
   GenerateRequest,
+  Harness,
+  Integrations,
   NewDefinition,
   DirEntry,
   RunAnswer,
@@ -66,6 +68,14 @@ export class HttpTransport implements Transport {
 
   inspectVault(path: string): Promise<VaultInfo> {
     return this.call('inspectVault', { path })
+  }
+
+  getIntegrations(): Promise<Integrations> {
+    return this.call('getIntegrations', {})
+  }
+
+  configureHarness(harness: Harness): Promise<{ output: string }> {
+    return this.call('configureHarness', { harness })
   }
 
   // A terminal is a WebSocket to the same host, which the dev server proxies to
