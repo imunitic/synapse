@@ -703,7 +703,7 @@
 
 .trace-row {
   display: grid;
-  grid-template-columns: 32px 120px minmax(0, 1fr);
+  grid-template-columns: 32px 120px minmax(0, 1fr) auto;
   gap: 12px;
 }
 
@@ -780,4 +780,104 @@
   border-radius: 6px;
   padding: 6px 8px;
   font-size: 13px;
+}
+
+/* What the agent did in a session */
+.trace-session {
+  margin: 6px 0 12px 44px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border-strong);
+}
+
+.activity {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.activity-row {
+  padding: 2px 0;
+}
+
+.activity-row summary,
+div.activity-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.activity-row summary {
+  cursor: pointer;
+}
+
+.activity-kind {
+  flex: none;
+  min-width: 68px;
+  box-sizing: border-box;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  text-align: center;
+  background: #2a2a30;
+  color: var(--muted);
+}
+
+.activity-kind[data-kind='edit'],
+.activity-kind[data-kind='write'] {
+  background: #2a2740;
+  color: var(--accent-text);
+}
+
+.activity-kind[data-kind='command'] {
+  background: #1f2d33;
+  color: #93c5fd;
+}
+
+.activity-kind[data-kind='error'] {
+  background: #3a2020;
+  color: #fca5a5;
+}
+
+.activity-target {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-status[data-status='failed'] {
+  color: #fca5a5;
+}
+
+.activity-status[data-status='pending'] {
+  color: var(--muted);
+}
+
+.activity-detail {
+  margin: 4px 0 6px 70px;
+  padding: 8px 10px;
+  max-height: 320px;
+  overflow: auto;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--tabbar);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.diff-line[data-change='add'] {
+  color: #86efac;
+}
+
+.diff-line[data-change='del'] {
+  color: #fca5a5;
 }

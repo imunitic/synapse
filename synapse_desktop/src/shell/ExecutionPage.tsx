@@ -1,10 +1,12 @@
 import { useCallback, useMemo, useState } from 'react'
 import { listRecordedDefinitions } from '../domain/definitions.ts'
+import { sessionsByVisit, type RecordedSession } from '../domain/activity.ts'
 import { readExecution, type ExecutionRecord } from '../domain/executions.ts'
 import { layoutGraph } from '../domain/graph.ts'
 import { progressOf, visitsOf, type StepProgress, type Visit } from '../domain/progress.ts'
 import { describeRun } from '../domain/run-graph.ts'
 import { transport } from '../transport/index.ts'
+import { ActivityView } from './ActivityView.tsx'
 import { SourceCard } from './DefinitionPage.tsx'
 import { GraphView } from './GraphView.tsx'
 import { StatusBadge } from './StatusBadge.tsx'
@@ -42,6 +44,44 @@ function visitText(visit: Visit, status: ExecutionRecord['summary']['status']): 
   if (status === 'failed') return 'failed'
   if (status === 'interrupted') return 'interrupted'
   return 'going on'
+}
+
+// A visit to a step, with what the agent did in it once its session has ended.
+function TraceVisit({
+  visit,
+  status,
+  sessions,
+}: {
+  visit: Visit
+  status: ExecutionRecord['summary']['status']
+  sessions: RecordedSession[]
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div>
+      <div className="trace-row">
+        <span className="muted">{visit.n}</span>
+        <span>{visit.step}</span>
+        <span className="muted">{visitText(visit, status)}</span>
+        {sessions.length > 0 && (
+          <button className="link" aria-expanded={open} onClick={() => setOpen(!open)}>
+            {open ? 'Hide activity' : 'Activity'}
+          </button>
+        )}
+      </div>
+      {open &&
+        sessions.map((session) => (
+          <div key={session.transcript} className="trace-session">
+            {sessions.length > 1 && (
+              <p className="muted small">
+                Try {session.attempt}: {session.succeeded ? 'ended well' : 'failed'}
+              </p>
+            )}
+            <ActivityView path={session.transcript} />
+          </div>
+        ))}
+    </div>
+  )
 }
 
 // The run on its pipeline: where it has been, which edges it took, where it is.
@@ -168,6 +208,7 @@ export function ExecutionPage({ id }: { id: string }) {
   const record = state.data
   const { summary, events } = record
   const visits = visitsOf(events)
+  const sessions = sessionsByVisit(events)
   return (
     <div className="page full">
       <div className="page-head">
@@ -218,11 +259,12 @@ export function ExecutionPage({ id }: { id: string }) {
         {visits.length === 0 && <p className="muted">No step has started.</p>}
         <div className="trace mono">
           {visits.map((visit) => (
-            <div key={visit.n} className="trace-row">
-              <span className="muted">{visit.n}</span>
-              <span>{visit.step}</span>
-              <span className="muted">{visitText(visit, summary.status)}</span>
-            </div>
+            <TraceVisit
+              key={visit.n}
+              visit={visit}
+              status={summary.status}
+              sessions={sessions[visit.n - 1] ?? []}
+            />
           ))}
         </div>
       </section>
