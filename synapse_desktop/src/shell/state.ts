@@ -1,6 +1,7 @@
 // The shell's state: which section is selected, whether the side panel is open
 // and which pages are open in tabs. Pure, so it is tested without a browser.
 
+import type { TerminalTask } from '../../shared/transport.ts'
 import { titleOf } from '../domain/notes.ts'
 
 export type RailSection = 'definitions' | 'executions' | 'vault' | 'terminals' | 'settings'
@@ -43,11 +44,19 @@ export const SETTINGS_SECTIONS: readonly {
 
 export type TerminalKind = 'Shell' | 'Claude' | 'Codex' | 'Opencode'
 
+export type { TerminalTask } from '../../shared/transport.ts'
+
 export const TERMINAL_LABELS: Record<TerminalKind, string> = {
   Shell: 'Shell',
   Claude: 'Claude Code',
   Codex: 'Codex',
   Opencode: 'OpenCode',
+}
+
+export const TASK_LABELS: Record<TerminalTask, string> = {
+  init: 'build',
+  'rebuild-diff': 'rebuild',
+  'rebuild-full': 'rebuild all',
 }
 
 // One session in a terminal: a login shell, or a harness started directly.
@@ -57,6 +66,8 @@ export interface TerminalSession {
   title: string
   // Where it was started; empty for the home folder.
   cwd: string
+  // What it was started to do, when it was started for a task.
+  task?: TerminalTask
 }
 
 export type Page =
@@ -120,7 +131,7 @@ export type Action =
   | { type: 'activateTab'; id: string }
   | { type: 'closeTab'; id: string }
   // A session is added to the terminals page, which shows with it selected.
-  | { type: 'openTerminal'; kind: TerminalKind; cwd: string; id: string }
+  | { type: 'openTerminal'; kind: TerminalKind; cwd: string; id: string; task?: TerminalTask }
   | { type: 'selectTerminal'; id: string }
   | { type: 'closeTerminal'; id: string }
   // A definition was changed: the lists are read again.
@@ -199,8 +210,11 @@ export function reduce(state: ShellState, action: Action): ShellState {
       const session: TerminalSession = {
         id: action.id,
         kind: action.kind,
-        title: `${TERMINAL_LABELS[action.kind]} ${opened}`,
+        title: `${TERMINAL_LABELS[action.kind]} ${opened}${
+          action.task === undefined ? '' : ` · ${TASK_LABELS[action.task]}`
+        }`,
         cwd: action.cwd,
+        ...(action.task === undefined ? {} : { task: action.task }),
       }
       return {
         ...reduce(state, { type: 'openPage', page: { kind: 'terminals' } }),

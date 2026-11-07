@@ -1602,3 +1602,22 @@ div.activity-row {
   border-color: var(--border-strong);
   color: #fff;
 }
+
+.repo-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.repo-warning {
+  color: #fca5a5;
+}
+
+.rebuild {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}

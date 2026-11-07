@@ -9,6 +9,8 @@ export const MAX_INPUT_BYTES = 64 * 1024
 // What a terminal runs: the user's login shell, or one of the harnesses.
 export const terminalKindSchema = z.enum(['Shell', 'Claude', 'Codex', 'Opencode'])
 
+export const terminalTaskSchema = z.enum(['init', 'rebuild-diff', 'rebuild-full'])
+
 export const clientMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('start'),
@@ -16,6 +18,8 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
     // Where it is started: an absolute path of a folder that is there. Without
     // one, the user's home folder.
     cwd: z.string().min(1).max(4096).optional(),
+    // What a harness is started to do; a shell has nothing to be told.
+    task: terminalTaskSchema.optional(),
     cols: z.number().int().min(1).max(1000),
     rows: z.number().int().min(1).max(1000),
   }),

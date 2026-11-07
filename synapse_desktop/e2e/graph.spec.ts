@@ -1,9 +1,25 @@
 import { expect, test, type Page } from '@playwright/test'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { resetWorldSettings, world } from './helpers.ts'
 
 let vault = ''
+
+// A repository folder on branch main, named `name`, so its namespace is `name@main`.
+function repository(name: string): string {
+  const path = join(world().root, 'repos', name)
+  rmSync(path, { recursive: true, force: true })
+  mkdirSync(join(path, 'src'), { recursive: true })
+  writeFileSync(join(path, 'src', 'render.adb'), 'x')
+  const git = (...args: string[]) => spawnSync('git', args, { cwd: path, encoding: 'utf8' })
+  git('init', '-q', '-b', 'main')
+  git('config', 'user.email', 'test@example.com')
+  git('config', 'user.name', 'Test')
+  git('add', '-A')
+  git('commit', '-q', '-m', 'files')
+  return path
+}
 
 test.beforeEach(() => {
   resetWorldSettings()
@@ -15,6 +31,10 @@ test.beforeEach(() => {
     '---\ntitle: Rendering\n---\n# Rendering\n\nHow a scene is drawn.\n',
   )
   writeFileSync(
+    join(vault, 'synapse', 'widget@main', 'Index.md'),
+    '---\ntitle: "widget@main"\nnode_type: synapse-index\nproject: widget\nbranch: main\n---\n# widget@main\n',
+  )
+  writeFileSync(
     join(vault, 'synapse', 'widget@main', 'Game loop.md'),
     '---\ntitle: Game loop\n---\nThe loop.\n',
   )
@@ -22,6 +42,7 @@ test.beforeEach(() => {
 })
 
 test.afterEach(() => {
+  rmSync(join(world().root, 'repos'), { recursive: true, force: true })
   rmSync(vault, { recursive: true, force: true })
   resetWorldSettings()
 })
@@ -119,4 +140,199 @@ test('the choice of namespace is remembered', async ({ page }) => {
   await page.reload()
   await page.getByRole('button', { name: 'Code graph', exact: true }).click()
   await expect(page.getByLabel('Namespace', { exact: true })).toHaveValue('widget@main')
+})
+
+test('health needs the repository, which is checked when it is saved', async ({ page }) => {
+  await openGraph(page)
+  await page.getByLabel('Namespace', { exact: true }).selectOption('widget@main')
+  await page.getByRole('tab', { name: 'Health' }).click()
+  await expect(page.getByText('Save the folder of the repository above')).toBeVisible()
+
+  // A folder that is not a repository is refused, with the reason.
+  const folder = page.getByRole('textbox', { name: 'Repository folder' })
+  await folder.fill(join(world().root, 'not-a-repository'))
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.getByRole('alert').filter({ hasText: 'not a folder' })).toBeVisible()
+
+  await folder.fill(repository('widget'))
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.getByLabel('Repository', { exact: true })).toContainText('on widget@main')
+})
+
+test('health lists the stale nodes, the drift and what is not grounded, and a node opens', async ({
+  page,
+}) => {
+  const repo = repository('widget')
+  await openGraph(page)
+  await page.getByLabel('Namespace', { exact: true }).selectOption('widget@main')
+  await page.getByRole('textbox', { name: 'Repository folder' }).fill(repo)
+  await page.getByRole('button', { name: 'Save' }).click()
+  await page.getByRole('tab', { name: 'Health' }).click()
+
+  await expect(page.getByText('2 nodes need attention.')).toBeVisible()
+  const stale = page.getByRole('region', { name: 'Stale nodes' })
+  await expect(stale).toContainText('Rendering')
+  await expect(stale).toContainText('Game loop')
+  await expect(stale).toContainText('no sources_digest')
+  await expect(page.getByRole('region', { name: 'Drift' })).toContainText('no commit recorded')
+  await expect(page.getByRole('region', { name: 'Not grounded' })).toContainText('None.')
+
+  await stale.getByRole('button', { name: /Rendering/ }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Rendering' })).toBeVisible()
+})
+
+test('a checkout of another branch is warned about, and the repository can be removed', async ({
+  page,
+}) => {
+  await openGraph(page)
+  await page.getByLabel('Namespace', { exact: true }).selectOption('widget@main')
+  await page.getByRole('textbox', { name: 'Repository folder' }).fill(repository('other'))
+  await page.getByRole('button', { name: 'Save' }).click()
+  const row = page.getByLabel('Repository', { exact: true })
+  await expect(row).toContainText('is on other@main, not widget@main')
+
+  await row.getByRole('button', { name: 'Remove' }).click()
+  await expect(page.getByRole('textbox', { name: 'Repository folder' })).toBeVisible()
+})
+
+test('a namespace with no node index has no health to read', async ({ page }) => {
+  await openGraph(page)
+  await page.getByLabel('Namespace', { exact: true }).selectOption('thin@main')
+  await expect(page.getByRole('tab', { name: 'Health' })).toBeDisabled()
+})
+
+test('a stale graph with a repository saved is on the home page, and leads to its page', async ({
+  page,
+}) => {
+  const repo = repository('widget')
+  await openGraph(page)
+  await page.getByLabel('Namespace', { exact: true }).selectOption('widget@main')
+  await page.getByRole('textbox', { name: 'Repository folder' }).fill(repo)
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.getByLabel('Repository', { exact: true })).toContainText('on widget@main')
+
+  await page.getByRole('button', { name: 'Home', exact: true }).click()
+  const attention = page.getByLabel('Needs attention')
+  await expect(attention).toContainText('Code graphs')
+  await attention.getByRole('button', { name: /widget@main: 2 nodes are stale/ }).click()
+  await expect(page.getByLabel('Namespace', { exact: true })).toHaveValue('widget@main')
+})
+
+async function saveRepository(page: Page, path: string) {
+  await page.getByLabel('Namespace', { exact: true }).selectOption('widget@main')
+  await page.getByRole('textbox', { name: 'Repository folder' }).fill(path)
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.getByLabel('Repository', { exact: true })).toContainText('widget@main')
+}
+
+test('changing a graph needs the repository, and says so without one', async ({ page }) => {
+  await openGraph(page)
+  await page.getByLabel('Namespace', { exact: true }).selectOption('widget@main')
+  await page.getByRole('tab', { name: 'Manage' }).click()
+  await expect(page.getByText('Save the folder of the repository above to change')).toBeVisible()
+})
+
+test('deleting a graph shows what goes and asks first, and cancelling deletes nothing', async ({
+  page,
+}) => {
+  await openGraph(page)
+  await saveRepository(page, repository('widget'))
+  await page.getByRole('tab', { name: 'Manage' }).click()
+  const card = page.getByRole('region', { name: 'Delete this graph' })
+  await card.getByRole('button', { name: 'Delete the graph…' }).click()
+  const question = card.getByRole('alertdialog')
+  await expect(question).toContainText('Are you sure?')
+  await expect(question).toContainText('This deletes the graph of widget@main.')
+  await expect(question).toContainText('Its 2 nodes will be removed from the vault.')
+  await expect(question).toContainText('synapse/widget@main')
+
+  await question.getByRole('button', { name: 'Cancel' }).click()
+  await expect(card.getByRole('alertdialog')).toHaveCount(0)
+  expect(existsSync(join(vault, 'synapse', 'widget@main', 'Rendering.md'))).toBe(true)
+})
+
+test('confirming deletes the graph from the vault', async ({ page }) => {
+  await openGraph(page)
+  await saveRepository(page, repository('widget'))
+  await page.getByRole('tab', { name: 'Manage' }).click()
+  const card = page.getByRole('region', { name: 'Delete this graph' })
+  await card.getByRole('button', { name: 'Delete the graph…' }).click()
+  await card.getByRole('button', { name: 'Yes, delete the graph' }).click()
+  await expect(card.getByRole('status')).toBeVisible()
+  expect(existsSync(join(vault, 'synapse', 'widget@main'))).toBe(false)
+})
+
+test('a checkout of another branch is not used to delete a graph', async ({ page }) => {
+  await openGraph(page)
+  await saveRepository(page, repository('other'))
+  await page.getByRole('tab', { name: 'Manage' }).click()
+  const card = page.getByRole('region', { name: 'Delete this graph' })
+  await card.getByRole('button', { name: 'Delete the graph…' }).click()
+  await expect(card.getByRole('alert')).toContainText('would delete another graph')
+  expect(existsSync(join(vault, 'synapse', 'widget@main', 'Rendering.md'))).toBe(true)
+})
+
+test('cleaning up says when there is nothing to clean', async ({ page }) => {
+  await openGraph(page)
+  await saveRepository(page, repository('widget'))
+  await page.getByRole('tab', { name: 'Manage' }).click()
+  const card = page.getByRole('region', { name: 'Clean up deleted branches' })
+  await card.getByRole('button', { name: 'Look for graphs to clean up…' }).click()
+  await expect(card).toContainText('Nothing to clean up')
+  await expect(card.getByRole('alertdialog')).toHaveCount(0)
+})
+
+test('a rebuild asks first, then opens the default harness in the repository with the command', async ({
+  page,
+}) => {
+  const repo = repository('widget')
+  await openGraph(page)
+  await saveRepository(page, repo)
+  await page.getByRole('tab', { name: 'Manage' }).click()
+  await page.getByRole('combobox', { name: 'Harness for the rebuild' }).selectOption('Claude')
+
+  const card = page.getByRole('region', { name: 'Rebuild', exact: true })
+  await card.getByRole('button', { name: 'Rebuild what changed…' }).click()
+  const question = card.getByRole('alertdialog')
+  await expect(question).toContainText('Are you sure?')
+  await expect(question).toContainText("uses Claude Code's credits")
+  await question.getByRole('button', { name: 'Cancel' }).click()
+  await expect(page.getByRole('tab', { name: /Claude Code 1/ })).toHaveCount(0)
+
+  await card.getByRole('button', { name: 'Rebuild what changed…' }).click()
+  await card.getByRole('button', { name: 'Yes, open Claude Code' }).click()
+  await expect(page.getByRole('tab', { name: 'Claude Code 1 · rebuild' })).toBeVisible()
+  // The stub harness prints what it was started with, and where.
+  const screen = page.locator('.terminal-view:not([hidden]) .terminal-host')
+  await expect(screen).toContainText('/synapse-rebuild-diff')
+  await expect(screen).toContainText(`cwd: ${repo}`)
+})
+
+test('a rebuild from scratch gives the full command, and the harness can be chosen', async ({
+  page,
+}) => {
+  const repo = repository('widget')
+  await openGraph(page)
+  await saveRepository(page, repo)
+  await page.getByRole('tab', { name: 'Manage' }).click()
+  await page.getByRole('combobox', { name: 'Harness for the rebuild' }).selectOption('Codex')
+  const card = page.getByRole('region', { name: 'Rebuild', exact: true })
+  await card.getByRole('button', { name: 'Rebuild from scratch…' }).click()
+  await expect(card.getByRole('alertdialog')).toContainText('deletes the graph of widget@main')
+  await card.getByRole('button', { name: 'Yes, open Codex' }).click()
+  await expect(page.getByRole('tab', { name: 'Codex 1 · rebuild all' })).toBeVisible()
+  await expect(page.locator('.terminal-view:not([hidden]) .terminal-host')).toContainText(
+    '$synapse-rebuild-full',
+  )
+})
+
+test('a rebuild is not started from a checkout of another branch', async ({ page }) => {
+  await openGraph(page)
+  await saveRepository(page, repository('other'))
+  await page.getByRole('tab', { name: 'Manage' }).click()
+  const card = page.getByRole('region', { name: 'Rebuild', exact: true })
+  await card.getByRole('button', { name: 'Rebuild what changed…' }).click()
+  await card.getByRole('button', { name: /^Yes, open/ }).click()
+  await expect(card.getByRole('alert')).toContainText('would build another graph')
+  await expect(page.getByRole('tab', { name: /rebuild/ })).toHaveCount(0)
 })

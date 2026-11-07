@@ -10,11 +10,22 @@ import type {
   AppPaths,
   CliResult,
   DirEntry,
+  GraphHealth,
+  GraphPlan,
+  GraphRepoCheck,
   Integrations,
   RunAnswer,
   VaultInfo,
 } from '../shared/transport.ts'
 import { cliEnvironment, refuseCli, type CliRunner } from './cli.ts'
+import { checkGraphRepo, graphHealth } from './graph-health.ts'
+import {
+  cleanGraphs,
+  dropGraph,
+  GraphActionRefused,
+  planGraphClean,
+  planGraphDrop,
+} from './graph-manage.ts'
 import { findContentRoot } from './inject.ts'
 import { findPipelineRoot, inspectIntegrations, versionOfProgram } from './integrations.ts'
 import { loadConfig, loadStoredConfig, saveConfig } from './config-store.ts'
@@ -54,6 +65,16 @@ export class CallError extends Error {
 }
 
 type Handler = (raw: unknown, context: Context) => Promise<unknown>
+
+// A graph action that was refused is an answer with its own status.
+async function refusing<T>(action: () => Promise<T>): Promise<T> {
+  try {
+    return await action()
+  } catch (error) {
+    if (error instanceof GraphActionRefused) throw new CallError(error.message, error.status)
+    throw error
+  }
+}
 
 async function insideRoots(path: string, context: Context): Promise<string> {
   const config = await loadConfig(context.configFile, context.environment)
@@ -220,6 +241,49 @@ const handlers: Record<CallName, Handler> = {
     const { path } = callParams.inspectVault.parse(raw)
     if (!isAbsolute(path)) throw new CallError('the path must be absolute', 400)
     return inspectVault(path)
+  },
+
+  async checkGraphRepo(raw, context): Promise<GraphRepoCheck> {
+    const { path } = callParams.checkGraphRepo.parse(raw)
+    const config = await loadConfig(context.configFile, context.environment)
+    return checkGraphRepo(context.runCli, config, path)
+  },
+
+  async graphHealth(raw, context): Promise<GraphHealth> {
+    const { namespace } = callParams.graphHealth.parse(raw)
+    const config = await loadConfig(context.configFile, context.environment)
+    const repo = config.graphRepos[namespace]
+    if (repo === undefined) {
+      throw new CallError('no repository is saved for this graph', 409)
+    }
+    if (!(await stat(repo).catch(() => null))?.isDirectory()) {
+      throw new CallError(`${repo} is not a folder`, 409)
+    }
+    return graphHealth(context.runCli, config, namespace, repo)
+  },
+
+  async planGraphDrop(raw, context): Promise<GraphPlan> {
+    const { namespace } = callParams.planGraphDrop.parse(raw)
+    const config = await loadConfig(context.configFile, context.environment)
+    return refusing(() => planGraphDrop(context.runCli, config, namespace))
+  },
+
+  async dropGraph(raw, context): Promise<{ output: string }> {
+    const { namespace } = callParams.dropGraph.parse(raw)
+    const config = await loadConfig(context.configFile, context.environment)
+    return refusing(() => dropGraph(context.runCli, config, namespace))
+  },
+
+  async planGraphClean(raw, context): Promise<GraphPlan> {
+    const { namespace } = callParams.planGraphClean.parse(raw)
+    const config = await loadConfig(context.configFile, context.environment)
+    return refusing(() => planGraphClean(context.runCli, config, namespace))
+  },
+
+  async cleanGraphs(raw, context): Promise<{ output: string }> {
+    const { namespace } = callParams.cleanGraphs.parse(raw)
+    const config = await loadConfig(context.configFile, context.environment)
+    return refusing(() => cleanGraphs(context.runCli, config, namespace))
   },
 
   async getIntegrations(raw, context): Promise<Integrations> {

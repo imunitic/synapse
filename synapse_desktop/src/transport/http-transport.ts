@@ -10,6 +10,9 @@ import type {
   CliResult,
   DraftDefinition,
   GenerateRequest,
+  GraphHealth,
+  GraphPlan,
+  GraphRepoCheck,
   Harness,
   Integrations,
   NewDefinition,
@@ -68,6 +71,30 @@ export class HttpTransport implements Transport {
 
   inspectVault(path: string): Promise<VaultInfo> {
     return this.call('inspectVault', { path })
+  }
+
+  checkGraphRepo(path: string): Promise<GraphRepoCheck> {
+    return this.call('checkGraphRepo', { path })
+  }
+
+  graphHealth(namespace: string): Promise<GraphHealth> {
+    return this.call('graphHealth', { namespace })
+  }
+
+  planGraphDrop(namespace: string): Promise<GraphPlan> {
+    return this.call('planGraphDrop', { namespace })
+  }
+
+  dropGraph(namespace: string): Promise<{ output: string }> {
+    return this.call('dropGraph', { namespace })
+  }
+
+  planGraphClean(namespace: string): Promise<GraphPlan> {
+    return this.call('planGraphClean', { namespace })
+  }
+
+  cleanGraphs(namespace: string): Promise<{ output: string }> {
+    return this.call('cleanGraphs', { namespace })
   }
 
   getIntegrations(): Promise<Integrations> {

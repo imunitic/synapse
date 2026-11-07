@@ -92,6 +92,7 @@ beforeEach(async () => {
       defaultHarness: null,
       env: { FROM_APP: 'yes' },
       recentVaults: [],
+      graphRepos: {},
     }),
   )
   const spawn: SpawnPty = (file, args, options) => {
@@ -203,11 +204,12 @@ function refusedWith(socket: WebSocket): Promise<number> {
   })
 }
 
-const start = (cwd?: string, kind = 'Claude') =>
+const start = (cwd?: string, kind = 'Claude', task?: string) =>
   JSON.stringify({
     type: 'start',
     kind,
     ...(cwd === undefined ? {} : { cwd }),
+    ...(task === undefined ? {} : { task }),
     cols: 100,
     rows: 30,
   })
@@ -226,6 +228,55 @@ describe('the handshake', () => {
     })
     sockets.push(socket)
     await new Promise((resolve) => socket.once('error', resolve))
+  })
+})
+
+describe('a session started for a task', () => {
+  it('gives the harness the command as its last argument, after the session it is followed by', async () => {
+    const socket = connect()
+    const messages = inbox(socket)
+    await opened(socket)
+    socket.send(start(dir, 'Claude', 'rebuild-diff'))
+    expect(await messages.next()).toMatchObject({ type: 'started' })
+    const args = spawned[0]?.args ?? []
+    expect(args.slice(0, 2)).toEqual(['--injected', '--session-id'])
+    expect(args.at(-1)).toBe('/synapse-rebuild-diff')
+    expect(args).toHaveLength(4)
+  })
+
+  it('gives OpenCode the command after --prompt, and Codex the skill named with a dollar', async () => {
+    const socket = connect()
+    const messages = inbox(socket)
+    await opened(socket)
+    socket.send(start(dir, 'Opencode', 'rebuild-full'))
+    expect(await messages.next()).toMatchObject({ type: 'started' })
+    expect(spawned[0]?.args.slice(-2)).toEqual(['--prompt', '/synapse-rebuild-full'])
+
+    const other = connect()
+    const otherMessages = inbox(other)
+    await opened(other)
+    other.send(start(dir, 'Codex', 'init'))
+    expect(await otherMessages.next()).toMatchObject({ type: 'started' })
+    expect(spawned[1]?.args.at(-1)).toBe('$synapse-init')
+  })
+
+  it('is refused for a shell, which has no prompt, and for a task it does not know', async () => {
+    const socket = connect()
+    const messages = inbox(socket)
+    await opened(socket)
+    socket.send(start(dir, 'Shell', 'init'))
+    expect(await messages.next()).toMatchObject({
+      type: 'error',
+      message: 'a shell has no task to start',
+    })
+    expect(spawned).toEqual([])
+
+    const other = connect()
+    const otherMessages = inbox(other)
+    await opened(other)
+    other.send(start(dir, 'Claude', 'rm -rf'))
+    expect(await otherMessages.next()).toMatchObject({ type: 'error' })
+    expect(spawned).toEqual([])
   })
 })
 

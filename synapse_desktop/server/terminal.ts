@@ -14,6 +14,7 @@ import { TERMINAL_PATH, TOKEN_HEADER } from '../shared/constants.ts'
 import { clientMessageSchema, type ServerMessage } from '../shared/terminal.ts'
 import type { TerminalKind } from '../shared/transport.ts'
 import { cliEnvironment } from './cli.ts'
+import { taskArgs } from './tasks.ts'
 import { loadConfig } from './config-store.ts'
 import { checkUpgrade, type Policy } from './guards.ts'
 import { planSession, planShell, type SessionPlan } from './inject.ts'
@@ -127,6 +128,10 @@ async function start(
     send(ws, { type: 'error', message: `${cwd} is not a folder` })
     return null
   }
+  if (message.task !== undefined && message.kind === 'Shell') {
+    send(ws, { type: 'error', message: 'a shell has no task to start' })
+    return null
+  }
   const plan = await deps.plan(message.kind)
   const config = await loadConfig(deps.configFile, deps.environment)
   let args = plan.args
@@ -149,6 +154,7 @@ async function start(
         startedAt: Date.now(),
       })
   }
+  if (message.task !== undefined) args = [...args, ...taskArgs(message.kind, message.task)]
   const env = {
     ...Object.fromEntries(
       Object.entries(strings(cliEnvironment(deps.environment.env, config))).filter(

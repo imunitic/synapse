@@ -11,11 +11,16 @@ import {
   type Graph,
   type SymbolHit,
 } from '../domain/graph-search.ts'
+import { findingsOf, nodesNeedingAttention } from '../domain/graph-health.ts'
+import type { GraphCheck } from '../../shared/transport.ts'
+import { dropQuestion, nothingToClean, removals } from '../domain/graph-manage.ts'
+import type { GraphPlan } from '../../shared/transport.ts'
 import { transport } from '../transport/index.ts'
-import type { Page } from './state.ts'
+import { useConfig } from './config.tsx'
+import { TERMINAL_LABELS, type Page, type TerminalKind, type TerminalTask } from './state.ts'
 import { useLoad } from './useLoad.ts'
 
-type Mode = 'symbol' | 'files' | 'nodes'
+type Mode = 'symbol' | 'files' | 'nodes' | 'health' | 'manage'
 
 const NAMESPACE_KEY = 'synapse-desktop.graph-namespace'
 const MAX_ROWS = 300
@@ -38,6 +43,14 @@ export function remember(namespace: string): void {
 
 // What a mode needs a namespace to have, or null when it has it.
 function missing(graph: Graph, mode: Mode): string | null {
+  // Managing a graph works on the repository saved for it, which any namespace can have.
+  if (mode === 'manage') return null
+  // Health reads the nodes and compares them with the repository's files.
+  if (mode === 'health') {
+    return graph.hasIndex
+      ? null
+      : 'This namespace has no node index here, so there is nothing to check.'
+  }
   if (mode === 'symbol') {
     return graph.hasRefs
       ? null
@@ -271,12 +284,496 @@ const MODES: { mode: Mode; label: string }[] = [
   { mode: 'symbol', label: 'Symbol' },
   { mode: 'files', label: 'Files' },
   { mode: 'nodes', label: 'Nodes' },
+  { mode: 'health', label: 'Health' },
+  { mode: 'manage', label: 'Manage' },
 ]
+
+// The folder of the repository a graph was built from, which its health is read
+// against. The folder is checked when it is saved and shown with the branch it is
+// on, since a checkout of another branch makes every node look stale.
+function RepoRow({ namespace }: { namespace: string }) {
+  const { state: config, save } = useConfig()
+  const saved = config.status === 'ready' ? (config.config.graphRepos[namespace] ?? null) : null
+  const [draft, setDraft] = useState('')
+  const [editing, setEditing] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+  const loadCheck = useCallback(
+    () => (saved === null ? Promise.resolve(null) : transport.checkGraphRepo(saved)),
+    [saved],
+  )
+  const { state: check } = useLoad(loadCheck)
+
+  async function put(repos: Record<string, string>) {
+    try {
+      await save({ graphRepos: repos })
+      setMessage(null)
+      setEditing(false)
+    } catch (error) {
+      setMessage(`Not saved: ${String(error)}`)
+    }
+  }
+
+  async function submit(event: React.SubmitEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const path = draft.trim()
+    if (path === '' || config.status !== 'ready') return
+    const result = await transport.checkGraphRepo(path).catch((error: unknown) => ({
+      key: null,
+      error: String(error),
+    }))
+    if (result.key === null) {
+      setMessage(result.error ?? 'That folder has no namespace.')
+      return
+    }
+    await put({ ...config.config.graphRepos, [namespace]: path })
+  }
+
+  if (config.status !== 'ready') return null
+  if (saved !== null && !editing) {
+    const other =
+      check.status === 'ready' && check.data?.key != null && check.data.key !== namespace
+    return (
+      <div className="repo-row" aria-label="Repository">
+        <span className="muted small">Repository</span>
+        <span className="mono small">{saved}</span>
+        {check.status === 'ready' && check.data?.key != null && (
+          <span className={other ? 'repo-warning small' : 'muted small'}>
+            {other
+              ? `is on ${check.data.key}, not ${namespace}, so every node may look stale`
+              : `on ${check.data.key}`}
+          </span>
+        )}
+        {check.status === 'ready' && check.data?.key == null && check.data?.error != null && (
+          <span className="repo-warning small">{check.data.error}</span>
+        )}
+        <button
+          className="link"
+          onClick={() => {
+            setDraft(saved)
+            setEditing(true)
+          }}
+        >
+          Change
+        </button>
+        <button
+          className="link"
+          onClick={() => {
+            const rest = { ...config.config.graphRepos }
+            delete rest[namespace]
+            void put(rest)
+          }}
+        >
+          Remove
+        </button>
+      </div>
+    )
+  }
+  return (
+    <form className="repo-row" aria-label="Repository" onSubmit={(event) => void submit(event)}>
+      <span className="muted small">Repository</span>
+      <input
+        className="mono grow"
+        aria-label="Repository folder"
+        placeholder="/path/to/the/repository this graph was built from"
+        value={draft}
+        onChange={(event) => {
+          setDraft(event.target.value)
+          setMessage(null)
+        }}
+      />
+      <button type="submit" className="secondary" disabled={draft.trim() === ''}>
+        Save
+      </button>
+      {editing && (
+        <button type="button" className="link" onClick={() => setEditing(false)}>
+          Cancel
+        </button>
+      )}
+      {message !== null && (
+        <span role="alert" className="repo-warning small">
+          {message}
+        </span>
+      )}
+    </form>
+  )
+}
+
+function Check({
+  title,
+  check,
+  namespace,
+  onOpen,
+  about,
+}: {
+  title: string
+  check: GraphCheck
+  namespace: string
+  onOpen: (page: Page) => void
+  about: string
+}) {
+  const findings = findingsOf(check)
+  return (
+    <section className="card" aria-label={title}>
+      <h3 className="card-title">
+        {title}
+        {check.ok && <span className="count-pill">{findings.length}</span>}
+      </h3>
+      <p className="muted small">{about}</p>
+      {!check.ok && <p role="alert">Could not run: {check.error}</p>}
+      {check.ok && findings.length === 0 && <p className="muted">None.</p>}
+      <ul className="attention-list">
+        {findings.map((finding, i) => (
+          <li key={i}>
+            {finding.node === '(repo)' ? (
+              <div className="attention-item">
+                <span className="attention-label">The repository</span>
+                <span className="muted small attention-detail">{finding.reason}</span>
+              </div>
+            ) : (
+              <button
+                className="attention-item attention-link"
+                onClick={() =>
+                  onOpen({ kind: 'note', path: nodeNotePath(namespace, finding.node) })
+                }
+              >
+                <span className="attention-label">{finding.node}</span>
+                <span className="muted small attention-detail">{finding.reason}</span>
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+// How a graph stands against the repository saved for it.
+function Health({ namespace, onOpen }: { namespace: string; onOpen: (page: Page) => void }) {
+  const { state: config } = useConfig()
+  const saved = config.status === 'ready' ? (config.config.graphRepos[namespace] ?? null) : null
+  // Read again when a folder is saved, since the checks need one.
+  const load = useCallback(
+    () =>
+      saved === null
+        ? Promise.reject(new Error('no repository'))
+        : transport.graphHealth(namespace),
+    [namespace, saved],
+  )
+  const { state, reload } = useLoad(load)
+  if (saved === null) {
+    return (
+      <p className="muted">
+        Save the folder of the repository above to check this graph against it.
+      </p>
+    )
+  }
+  if (state.status === 'loading')
+    return <p className="muted">Checking the graph against the files…</p>
+  if (state.status === 'failed') return <p role="alert">Could not check: {state.error}</p>
+  const attention = nodesNeedingAttention(state.data)
+  return (
+    <>
+      <div className="row">
+        <p className="muted">
+          {attention.length === 0
+            ? 'No node needs attention.'
+            : `${attention.length} ${attention.length === 1 ? 'node needs' : 'nodes need'} attention.`}
+        </p>
+        <button className="link" onClick={reload}>
+          Check again
+        </button>
+      </div>
+      <Check
+        title="Stale nodes"
+        check={state.data.stale}
+        namespace={namespace}
+        onOpen={onOpen}
+        about="Their files no longer match what they were written from."
+      />
+      <Check
+        title="Drift"
+        check={state.data.drift}
+        namespace={namespace}
+        onOpen={onOpen}
+        about="What changed since the commit each node was built at."
+      />
+      <Check
+        title="Not grounded"
+        check={state.data.grounding}
+        namespace={namespace}
+        onOpen={onOpen}
+        about="Their evidence no longer matches the files."
+      />
+    </>
+  )
+}
+
+// An action that changes a graph, which shows what it would do and asks first.
+function Action({
+  title,
+  about,
+  button,
+  plan,
+  run,
+  question,
+  confirm,
+  nothing,
+  onDone,
+}: {
+  title: string
+  about: string
+  button: string
+  plan: () => Promise<GraphPlan>
+  run: () => Promise<{ output: string }>
+  question: (lines: string[]) => string
+  confirm: string
+  // Words for a plan that finds nothing to do, or null when there is always something.
+  nothing: string | null
+  onDone: () => void
+}) {
+  const [state, setState] = useState<
+    | { status: 'idle' }
+    | { status: 'planning' }
+    | { status: 'asking'; lines: string[] }
+    | { status: 'working' }
+    | { status: 'done'; output: string }
+    | { status: 'failed'; error: string }
+  >({ status: 'idle' })
+
+  async function ask() {
+    setState({ status: 'planning' })
+    try {
+      setState({ status: 'asking', lines: (await plan()).lines })
+    } catch (error) {
+      setState({ status: 'failed', error: String(error) })
+    }
+  }
+
+  async function go() {
+    setState({ status: 'working' })
+    try {
+      setState({ status: 'done', output: (await run()).output })
+      onDone()
+    } catch (error) {
+      setState({ status: 'failed', error: String(error) })
+    }
+  }
+
+  const empty = state.status === 'asking' && nothing !== null && nothingToClean(state.lines)
+  return (
+    <section className="card" aria-label={title}>
+      <h3 className="card-title">{title}</h3>
+      <p className="muted small">{about}</p>
+      <div className="row">
+        <button
+          className="secondary"
+          disabled={state.status === 'planning' || state.status === 'working'}
+          onClick={() => void ask()}
+        >
+          {state.status === 'planning' ? 'Looking…' : button}
+        </button>
+      </div>
+      {state.status === 'asking' && empty && <p className="muted">{nothing}</p>}
+      {state.status === 'asking' && !empty && (
+        <div className="confirm" role="alertdialog" aria-label="Are you sure?">
+          <p>
+            <strong>Are you sure?</strong> {question(state.lines)}
+          </p>
+          <ul className="small">
+            {removals(state.lines).map((path) => (
+              <li key={path} className="mono">
+                {path}
+              </li>
+            ))}
+          </ul>
+          <div className="row">
+            <button className="primary" onClick={() => void go()}>
+              {confirm}
+            </button>
+            <button className="secondary" onClick={() => setState({ status: 'idle' })}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {state.status === 'working' && <p className="muted">Working…</p>}
+      {state.status === 'done' && (
+        <pre className="mono small" role="status">
+          {state.output === '' ? 'Done.' : state.output}
+        </pre>
+      )}
+      {state.status === 'failed' && <p role="alert">{state.error}</p>}
+    </section>
+  )
+}
+
+const REBUILDS: {
+  task: TerminalTask
+  title: string
+  about: string
+  button: string
+  question: (ns: string) => string
+}[] = [
+  {
+    task: 'rebuild-diff',
+    title: 'Rebuild what changed',
+    about:
+      'Looks at what changed since each node was built and, node by node, reseats, patches or re-orients it. Nothing is deleted.',
+    button: 'Rebuild what changed…',
+    question: () =>
+      'This opens a session in the repository that looks at what changed since each node was built and brings the nodes up to date.',
+  },
+  {
+    task: 'rebuild-full',
+    title: 'Rebuild from scratch',
+    about:
+      'Deletes the graph of this namespace, keeping the Notes written by hand, and builds it again.',
+    button: 'Rebuild from scratch…',
+    question: (ns) =>
+      `This opens a session in the repository that deletes the graph of ${ns}, keeping the Notes written by hand, and builds it again from nothing.`,
+  },
+]
+
+// Rebuilding a graph is an agent's work, so it opens a session of the default harness
+// in the repository, with the command as its first prompt, where it can be watched
+// and answered.
+function Rebuild({
+  namespace,
+  repository,
+  onStartTask,
+}: {
+  namespace: string
+  repository: string
+  onStartTask: (kind: TerminalKind, cwd: string, task: TerminalTask) => void
+}) {
+  const { state: config } = useConfig()
+  const [chosen, setChosen] = useState<TerminalKind | null>(null)
+  const [asking, setAsking] = useState<TerminalTask | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const fallback: TerminalKind =
+    config.status === 'ready' ? (config.config.defaultHarness ?? 'Claude') : 'Claude'
+  const harness = chosen ?? fallback
+
+  async function start(task: TerminalTask) {
+    setError(null)
+    const check = await transport.checkGraphRepo(repository).catch((e: unknown) => ({
+      key: null,
+      error: String(e),
+    }))
+    if (check.key !== namespace) {
+      setError(
+        check.key === null
+          ? (check.error ?? 'That folder has no namespace.')
+          : `${repository} is on ${check.key}, not ${namespace}, so a rebuild from it would build another graph.`,
+      )
+      return
+    }
+    setAsking(null)
+    onStartTask(harness, repository, task)
+  }
+
+  return (
+    <section className="card" aria-label="Rebuild">
+      <h3 className="card-title">Rebuild with an agent</h3>
+      <label className="field">
+        <span className="muted small">Harness</span>
+        <select
+          aria-label="Harness for the rebuild"
+          value={harness}
+          onChange={(event) => setChosen(event.target.value as TerminalKind)}
+        >
+          {(['Claude', 'Codex', 'Opencode'] as const).map((kind) => (
+            <option key={kind} value={kind}>
+              {TERMINAL_LABELS[kind]}
+            </option>
+          ))}
+        </select>
+      </label>
+      {REBUILDS.map((rebuild) => (
+        <div key={rebuild.task} className="rebuild">
+          <p className="muted small">{rebuild.about}</p>
+          <div className="row">
+            <button className="secondary" onClick={() => setAsking(rebuild.task)}>
+              {rebuild.button}
+            </button>
+          </div>
+          {asking === rebuild.task && (
+            <div className="confirm" role="alertdialog" aria-label="Are you sure?">
+              <p>
+                <strong>Are you sure?</strong> {rebuild.question(namespace)} It takes a while, uses{' '}
+                {TERMINAL_LABELS[harness]}'s credits and will ask you things.
+              </p>
+              <div className="row">
+                <button className="primary" onClick={() => void start(rebuild.task)}>
+                  Yes, open {TERMINAL_LABELS[harness]}
+                </button>
+                <button className="secondary" onClick={() => setAsking(null)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+      {error !== null && <p role="alert">{error}</p>}
+    </section>
+  )
+}
+
+// Changing a graph: rebuilding it, deleting it, and cleaning up the graphs of branches that are gone.
+function Manage({
+  namespace,
+  onChanged,
+  onStartTask,
+}: {
+  namespace: string
+  onChanged: () => void
+  onStartTask: (kind: TerminalKind, cwd: string, task: TerminalTask) => void
+}) {
+  const { state: config } = useConfig()
+  const saved = config.status === 'ready' ? (config.config.graphRepos[namespace] ?? null) : null
+  if (saved === null) {
+    return <p className="muted">Save the folder of the repository above to change this graph.</p>
+  }
+  return (
+    <>
+      <Rebuild namespace={namespace} repository={saved} onStartTask={onStartTask} />
+      <Action
+        title="Delete this graph"
+        about="Removes the graph of this namespace from the vault, keeping the Notes written by hand in its nodes. Rebuild it afterwards from the repository."
+        button="Delete the graph…"
+        plan={() => transport.planGraphDrop(namespace)}
+        run={() => transport.dropGraph(namespace)}
+        question={(lines) => dropQuestion(namespace, lines)}
+        confirm="Yes, delete the graph"
+        nothing={null}
+        onDone={onChanged}
+      />
+      <Action
+        title="Clean up deleted branches"
+        about="Removes the graphs of this repository whose branch is gone upstream."
+        button="Look for graphs to clean up…"
+        plan={() => transport.planGraphClean(namespace)}
+        run={() => transport.cleanGraphs(namespace)}
+        question={() => 'This removes these graphs from the vault.'}
+        confirm="Yes, clean them up"
+        nothing="Nothing to clean up: no graph of this repository is for a branch that is gone."
+        onDone={onChanged}
+      />
+    </>
+  )
+}
 
 // Searching what a code graph keeps locally: its symbols, the files its nodes
 // cover and the nodes themselves, for the namespace chosen. The nodes' notes are
 // in the vault, which is where a node opens.
-export function GraphPage({ onOpen }: { onOpen: (page: Page) => void }) {
+export function GraphPage({
+  onOpen,
+  onStartTask,
+}: {
+  onOpen: (page: Page) => void
+  onStartTask: (kind: TerminalKind, cwd: string, task: TerminalTask) => void
+}) {
   const loadGraphs = useCallback(() => listGraphs(transport), [])
   const { state: graphs, reload } = useLoad(loadGraphs)
   const [chosen, setChosen] = useState<string | null>(remembered())
@@ -338,6 +835,7 @@ export function GraphPage({ onOpen }: { onOpen: (page: Page) => void }) {
               Look again
             </button>
           </div>
+          <RepoRow namespace={graph.namespace} />
           <div className="subtabs graph-tabs" role="tablist" aria-label="What to search">
             {MODES.map(({ mode: m, label }) => (
               <button
@@ -361,6 +859,10 @@ export function GraphPage({ onOpen }: { onOpen: (page: Page) => void }) {
               {mode === 'symbol' && <SymbolSearch namespace={graph.namespace} />}
               {mode === 'files' && <FileSearch namespace={graph.namespace} onOpen={onOpen} />}
               {mode === 'nodes' && <Nodes namespace={graph.namespace} onOpen={onOpen} />}
+              {mode === 'health' && <Health namespace={graph.namespace} onOpen={onOpen} />}
+              {mode === 'manage' && (
+                <Manage namespace={graph.namespace} onChanged={reload} onStartTask={onStartTask} />
+              )}
             </div>
           )}
         </>

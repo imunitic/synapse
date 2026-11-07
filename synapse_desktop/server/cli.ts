@@ -156,6 +156,8 @@ export interface CliRun {
   config: AppConfig
   // Variables set after the others, to point the program somewhere else.
   env?: Record<string, string>
+  // The folder to run in, for the commands that work on the repository there.
+  cwd?: string
 }
 
 // The environment a Synapse binary runs in: the work directory and the
@@ -177,13 +179,13 @@ export function cliEnvironment(base: NodeJS.ProcessEnv, config: AppConfig): Node
 export type CliRunner = (run: CliRun) => Promise<CliResult>
 
 // The binary is looked up on PATH. A non-zero exit is a result, not an error.
-export const runCli: CliRunner = ({ binary, args, stdin, config, env: extra }) =>
+export const runCli: CliRunner = ({ binary, args, stdin, config, env: extra, cwd }) =>
   new Promise((resolve, reject) => {
     const env = { ...cliEnvironment(process.env, config), ...extra }
     const child = execFile(
       binary,
       [...args],
-      { env, timeout: TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES },
+      { env, cwd, timeout: TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES },
       (error, stdout, stderr) => {
         if (error === null) {
           resolve({ code: 0, stdout, stderr })

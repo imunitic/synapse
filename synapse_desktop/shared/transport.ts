@@ -25,6 +25,8 @@ export interface AppConfig {
   recentVaults: string[]
   // Where a new terminal starts; the home folder without one.
   terminalFolder: string | null
+  // The folder of the repository a code graph was built from, by namespace.
+  graphRepos: Record<string, string>
 }
 
 // What a folder that may be a vault holds.
@@ -90,10 +92,16 @@ export interface GenerateRequest {
 
 export type TerminalKind = 'Shell' | Harness
 
+// What a session of a harness is started to do: build a code graph, rebuild what
+// changed in it, or rebuild it from scratch.
+export type TerminalTask = 'init' | 'rebuild-diff' | 'rebuild-full'
+
 export interface TerminalStart {
   kind: TerminalKind
   // Where to start it; the home folder without one.
   cwd?: string
+  // What a harness is started to do, given to it as its first prompt.
+  task?: TerminalTask
   cols: number
   rows: number
 }
@@ -159,6 +167,40 @@ export interface Integrations {
   harnesses: Integration[]
 }
 
+// What a folder says about the code graph it is the repository of.
+export interface GraphRepoCheck {
+  // The `<repo>@<branch>` of the folder as it is checked out now, or null when
+  // it is not a repository on a branch.
+  key: string | null
+  // Why there is no key.
+  error: string | null
+}
+
+// A finding about a node of a graph, or about the repository as a whole.
+export interface GraphFinding {
+  // The node's name, or `(repo)` for the repository.
+  node: string
+  reason: string
+}
+
+// What one of the health checks found, or why it could not run.
+export type GraphCheck = { ok: true; findings: GraphFinding[] } | { ok: false; error: string }
+
+export interface GraphHealth {
+  // Nodes whose files no longer match what they were written from.
+  stale: GraphCheck
+  // What changed since each node's commit.
+  drift: GraphCheck
+  // Nodes whose evidence no longer matches.
+  grounding: GraphCheck
+}
+
+// What deleting a graph, or cleaning up the graphs of branches that are gone,
+// would remove: the lines the program prints for a dry run.
+export interface GraphPlan {
+  lines: string[]
+}
+
 export type CliBinary = 'synapse-pipeline' | 'synapse'
 
 export interface CliOptions {
@@ -216,6 +258,17 @@ export interface Transport {
   // `synapse configure` and `synapse-pipeline configure` do. It writes into the
   // harness's own configuration, so it is only done when asked for.
   configureHarness(harness: Harness): Promise<{ output: string }>
+
+  // The namespace of a folder that is the repository of a graph.
+  checkGraphRepo(path: string): Promise<GraphRepoCheck>
+  // Reads a graph against the repository saved for its namespace.
+  graphHealth(namespace: string): Promise<GraphHealth>
+  // What deleting the graph of a namespace would remove, and then removing it.
+  planGraphDrop(namespace: string): Promise<GraphPlan>
+  dropGraph(namespace: string): Promise<{ output: string }>
+  // The same for the graphs of the saved repository whose branch is gone upstream.
+  planGraphClean(namespace: string): Promise<GraphPlan>
+  cleanGraphs(namespace: string): Promise<{ output: string }>
 
   getConfig(): Promise<AppConfig>
   getPaths(): Promise<AppPaths>

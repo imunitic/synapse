@@ -68,6 +68,15 @@ export function Shell() {
                   dispatch({ type: 'openPage', page: { kind: 'terminals' } })
                   dispatch({ type: 'selectTerminal', id })
                 }}
+                onStartTask={(kind, cwd, task) =>
+                  dispatch({
+                    type: 'openTerminal',
+                    kind,
+                    cwd,
+                    task,
+                    id: Math.random().toString(36).slice(2, 8),
+                  })
+                }
                 onStartTerminal={(kind) =>
                   dispatch({
                     type: 'openTerminal',

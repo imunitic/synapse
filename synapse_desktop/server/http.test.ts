@@ -97,6 +97,7 @@ describe('the API', () => {
       env: {},
       recentVaults: [],
       terminalFolder: null,
+      graphRepos: {},
     })
   })
 
@@ -120,6 +121,50 @@ describe('the API', () => {
     expect(failed.body.error).toContain('no home')
   })
 
+  it('reads a graph against the repository saved for it, and says when none is', async () => {
+    const none = await post('graphHealth', { namespace: 'synapse@main' })
+    expect(none.status).toBe(409)
+    expect(none.body.error).toMatch(/no repository/)
+
+    await post('setConfig', { patch: { graphRepos: { 'synapse@main': dir } } })
+    cliResult = { code: 0, stdout: 'Node A\tchanged\n', stderr: '' }
+    const reply = await post('graphHealth', { namespace: 'synapse@main' })
+    expect(reply.status).toBe(200)
+    const health = reply.body.result as { stale: { ok: boolean; findings: unknown[] } }
+    expect(health.stale.findings).toEqual([{ node: 'Node A', reason: 'changed' }])
+    expect(cliCalls.at(-1)?.env?.SYNAPSE_REPO_ROOT).toBe(dir)
+
+    await post('setConfig', { patch: { graphRepos: { 'synapse@main': join(dir, 'gone') } } })
+    expect((await post('graphHealth', { namespace: 'synapse@main' })).status).toBe(409)
+    expect((await post('graphHealth', { namespace: '../x@y' })).status).toBe(400)
+  })
+
+  it('plans and does a drop in the repository saved for the graph, and refuses without one', async () => {
+    expect((await post('planGraphDrop', { namespace: 'a@main' })).status).toBe(409)
+    expect((await post('dropGraph', { namespace: '../x@y' })).status).toBe(400)
+
+    await post('setConfig', { patch: { graphRepos: { 'a@main': dir } } })
+    cliResult = { code: 0, stdout: 'a@main\n', stderr: '' }
+    const plan = await post('planGraphDrop', { namespace: 'a@main' })
+    expect(plan.status).toBe(200)
+    expect(cliCalls.find((c) => c.args[0] === 'graph-wipe')).toMatchObject({
+      args: ['graph-wipe', '--dry-run'],
+      cwd: dir,
+    })
+    // The folder is on another branch: nothing is dropped.
+    cliResult = { code: 0, stdout: 'b@main\n', stderr: '' }
+    const wrong = await post('dropGraph', { namespace: 'a@main' })
+    expect(wrong.status).toBe(409)
+    expect(wrong.body.error).toMatch(/would delete another graph/)
+  })
+
+  it('asks synapse which namespace a folder is on', async () => {
+    cliResult = { code: 0, stdout: 'synapse@main\n', stderr: '' }
+    const reply = await post('checkGraphRepo', { path: dir })
+    expect(reply.body.result).toEqual({ key: 'synapse@main', error: null })
+    expect(cliCalls.at(-1)?.args).toEqual(['namespace', '--repo', dir])
+  })
+
   it('says what each harness has installed', async () => {
     const reply = await post('getIntegrations', {})
     expect(reply.status).toBe(200)
@@ -137,6 +182,7 @@ describe('the API', () => {
       env: {},
       recentVaults: [],
       terminalFolder: null,
+      graphRepos: {},
     })
   })
 

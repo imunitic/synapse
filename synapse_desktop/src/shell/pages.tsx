@@ -9,7 +9,7 @@ import { HomePage } from './HomePage.tsx'
 import { NotePage } from './NotePage.tsx'
 import { PipelinePage } from './PipelinePage.tsx'
 import { SettingsPage } from './SettingsPages.tsx'
-import type { Page, TerminalKind, TerminalSession } from './state.ts'
+import type { Page, TerminalKind, TerminalSession, TerminalTask } from './state.ts'
 
 // A definition's page, which turns into its editor while it is edited. After a
 // save the page is read again.
@@ -69,6 +69,7 @@ export function PageView({
   terminals,
   onSelectTerminal,
   onStartTerminal,
+  onStartTask,
 }: {
   page: Page
   onOpen: (page: Page) => void
@@ -76,6 +77,8 @@ export function PageView({
   terminals: readonly TerminalSession[]
   onSelectTerminal: (id: string) => void
   onStartTerminal: (kind: TerminalKind) => void
+  // A harness is started in a folder for a task.
+  onStartTask: (kind: TerminalKind, cwd: string, task: TerminalTask) => void
   // A definition was made; this is its page.
   onCreated: (page: Page) => void
   // A definition was changed.
@@ -93,7 +96,7 @@ export function PageView({
         />
       )
     case 'graph':
-      return <GraphPage onOpen={onOpen} />
+      return <GraphPage onOpen={onOpen} onStartTask={onStartTask} />
     case 'note':
       return <NotePage key={page.path} path={page.path} onOpen={onOpen} />
     case 'settings':

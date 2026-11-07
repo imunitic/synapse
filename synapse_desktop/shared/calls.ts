@@ -4,6 +4,9 @@
 import { z } from 'zod'
 import type { RunRequest } from './transport.ts'
 
+// `<repo>@<branch>`: a folder's name, with no separator and no dots alone.
+export const namespaceSchema = z.string().regex(/^[A-Za-z0-9._+-]{1,128}@[A-Za-z0-9._+-]{1,128}$/)
+
 export const harnessSchema = z.enum(['Claude', 'Codex', 'Opencode'])
 
 // A variable's name: the form every shell takes.
@@ -21,6 +24,9 @@ const configFields = {
     .refine((env) => Object.keys(env).length <= 64, 'at most 64 variables'),
   recentVaults: z.array(z.string().min(1)).max(8),
   terminalFolder: z.string().min(1).max(4096).nullable(),
+  graphRepos: z
+    .record(namespaceSchema, z.string().min(1).max(4096))
+    .refine((repos) => Object.keys(repos).length <= 64, 'at most 64 repositories'),
 }
 
 export const appConfigSchema = z.object(configFields)
@@ -31,6 +37,7 @@ export const storedConfigSchema = z.object({
   env: configFields.env.default({}),
   recentVaults: configFields.recentVaults.default([]),
   terminalFolder: configFields.terminalFolder.default(null),
+  graphRepos: configFields.graphRepos.default({}),
 })
 
 export const defaultConfig: z.infer<typeof appConfigSchema> = {
@@ -40,6 +47,7 @@ export const defaultConfig: z.infer<typeof appConfigSchema> = {
   env: {},
   recentVaults: [],
   terminalFolder: null,
+  graphRepos: {},
 }
 
 // A run's id names a directory, so it may not hold a separator or a dot.
@@ -109,6 +117,12 @@ export const callParams = {
   inspectVault: z.object({ path: z.string().min(1).max(4096) }),
   getIntegrations: z.object({}),
   configureHarness: z.object({ harness: harnessSchema }),
+  checkGraphRepo: z.object({ path: z.string().min(1).max(4096) }),
+  graphHealth: z.object({ namespace: namespaceSchema }),
+  planGraphDrop: z.object({ namespace: namespaceSchema }),
+  dropGraph: z.object({ namespace: namespaceSchema }),
+  planGraphClean: z.object({ namespace: namespaceSchema }),
+  cleanGraphs: z.object({ namespace: namespaceSchema }),
   getConfig: z.object({}),
   getPaths: z.object({}),
   setConfig: z.object({ patch: appConfigSchema.partial() }),

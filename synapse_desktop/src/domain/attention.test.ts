@@ -94,6 +94,7 @@ const config = (workDir: string | null): AppConfig => ({
   defaultHarness: null,
   env: {},
   recentVaults: [],
+  graphRepos: {},
   terminalFolder: null,
 })
 
@@ -123,6 +124,7 @@ const quiet: AttentionInputs = {
   vault: { status: 'ready', data: { configured: true, vault: '/v', categories: [] } },
   runs: { status: 'ready', data: [] },
   integrations: { status: 'ready', data: [] },
+  graphs: { status: 'ready', data: [] },
   now: NOW,
 }
 
@@ -205,6 +207,28 @@ describe('what needs attention', () => {
     expect(groups[2]?.items[0]).toMatchObject({ id: 'p-3', label: 'Work', detail: '4 unchecked' })
     expect(groups[0]?.items[0]?.target).toEqual({ kind: 'note', path: 'designs/a.md' })
     expect(groups[2]?.items[0]?.target).toEqual({ kind: 'note', path: 'tasks/t.md' })
+  })
+
+  it('lists the graphs that are not clean, each leading to its page, after the runs and before the vault', () => {
+    const groups = attentionGroups({
+      ...quiet,
+      runs: { status: 'ready', data: [run('a', 'failed', '2026-11-07T10:00:00Z')] },
+      graphs: {
+        status: 'ready',
+        data: [{ namespace: 'a@main', line: 'a@main: 2 nodes are stale' }],
+      },
+      vault: vaultReady({ configured: true, vault: '/v', categories: status.categories }),
+    })
+    expect(groups.map((g) => g.key).slice(0, 3)).toEqual(['runs', 'graphs', 'vault:discussing'])
+    expect(groups[1]?.items).toEqual([
+      {
+        key: 'graph:a@main',
+        id: null,
+        label: 'a@main: 2 nodes are stale',
+        detail: null,
+        target: { kind: 'graph', namespace: 'a@main' },
+      },
+    ])
   })
 
   it('puts harnesses before runs before the vault', () => {

@@ -57,6 +57,8 @@ export type AttentionTarget =
   | { kind: 'settings'; section: 'general' | 'vault' | 'integrations' }
   | { kind: 'execution'; id: string }
   | { kind: 'note'; path: string }
+  // A code graph, by namespace.
+  | { kind: 'graph'; namespace: string }
 
 export interface AttentionItem {
   key: string
@@ -82,7 +84,14 @@ export interface AttentionInputs {
   vault: Source<VaultAttention>
   runs: Source<ExecutionSummary[]>
   integrations: Source<Integration[]>
+  // A line for each graph with a repository saved that is not clean.
+  graphs: Source<GraphLine[]>
   now: Date
+}
+
+export interface GraphLine {
+  namespace: string
+  line: string
 }
 
 // A run older than this is not news.
@@ -177,6 +186,20 @@ export function attentionGroups(inputs: AttentionInputs): AttentionGroup[] {
     }
   }
 
+  if (inputs.graphs.status === 'ready' && inputs.graphs.data.length > 0) {
+    groups.push({
+      key: 'graphs',
+      title: 'Code graphs',
+      items: inputs.graphs.data.map((graph) => ({
+        key: `graph:${graph.namespace}`,
+        id: null,
+        label: graph.line,
+        detail: null,
+        target: { kind: 'graph', namespace: graph.namespace },
+      })),
+    })
+  }
+
   if (inputs.vault.status === 'ready') groups.push(...vaultItems(inputs.vault.data))
   return groups
 }
@@ -188,6 +211,7 @@ export function attentionFailures(inputs: AttentionInputs): { source: string; er
     ['the vault', inputs.vault],
     ['the runs', inputs.runs],
     ['the harnesses', inputs.integrations],
+    ['the graphs', inputs.graphs],
     ['the settings', inputs.config],
   ]
   for (const [source, state] of named) {
@@ -198,7 +222,7 @@ export function attentionFailures(inputs: AttentionInputs): { source: string; er
 
 // Whether every source has answered.
 export function isSettled(inputs: AttentionInputs): boolean {
-  return [inputs.config, inputs.vault, inputs.runs, inputs.integrations].every(
+  return [inputs.config, inputs.vault, inputs.runs, inputs.integrations, inputs.graphs].every(
     (s) => s.status !== 'loading',
   )
 }

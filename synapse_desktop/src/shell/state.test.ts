@@ -37,6 +37,26 @@ describe('note pages', () => {
   })
 })
 
+describe('a terminal started for a task', () => {
+  it('says the task in its title and remembers it for the session that is asked for', () => {
+    const state = reduce(initialState, {
+      type: 'openTerminal',
+      kind: 'Claude',
+      cwd: '/repo',
+      id: 'a',
+      task: 'rebuild-diff',
+    })
+    expect(state.terminals[0]).toMatchObject({
+      title: 'Claude Code 1 · rebuild',
+      cwd: '/repo',
+      task: 'rebuild-diff',
+    })
+    const plain = reduce(state, { type: 'openTerminal', kind: 'Shell', cwd: '', id: 'b' })
+    expect(plain.terminals[1]?.title).toBe('Shell 2')
+    expect(plain.terminals[1]).not.toHaveProperty('task')
+  })
+})
+
 describe('the code graph page', () => {
   it('is one page, opened once and named', () => {
     expect(pageId({ kind: 'graph' })).toBe('graph')

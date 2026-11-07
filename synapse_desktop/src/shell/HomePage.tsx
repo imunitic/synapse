@@ -7,11 +7,13 @@ import {
   type AttentionInputs,
   type AttentionItem,
   type AttentionTarget,
+  type GraphLine,
   type Source,
   type VaultAttention,
 } from '../domain/attention.ts'
 import { listDefinitions } from '../domain/definitions.ts'
 import { timeAgo } from '../domain/format.ts'
+import { healthLine } from '../domain/graph-health.ts'
 import { listGraphs } from '../domain/graph-search.ts'
 import { recentlyUpdated, titleOf } from '../domain/notes.ts'
 import { recentlyOpened } from '../domain/recent.ts'
@@ -40,6 +42,9 @@ function pageOf(target: AttentionTarget): Page {
       return { kind: 'execution', id: target.id }
     case 'note':
       return { kind: 'note', path: target.path }
+    case 'graph':
+      remember(target.namespace)
+      return { kind: 'graph' }
   }
 }
 
@@ -477,6 +482,22 @@ export function HomePage({
   const runs = useLoad(loadRuns, REFRESH_MS)
   const harnesses = useLoad(loadHarnesses, REFRESH_MS)
   const count = useLoad(loadCount, REFRESH_MS)
+  // The graphs that have a repository saved are checked against it, which reads
+  // every file they cover, so it is done less often than the rest.
+  const repos = config.status === 'ready' ? config.config.graphRepos : null
+  const loadGraphLines = useCallback(async (): Promise<GraphLine[]> => {
+    const lines: GraphLine[] = []
+    for (const namespace of Object.keys(repos ?? {})) {
+      try {
+        const line = healthLine(namespace, await transport.graphHealth(namespace))
+        if (line !== null) lines.push({ namespace, line })
+      } catch {
+        // A graph that cannot be read is not a line; its own page says why.
+      }
+    }
+    return lines
+  }, [repos])
+  const graphLines = useLoad(loadGraphLines, 120_000)
 
   const now = new Date()
   const inputs: AttentionInputs = {
@@ -489,6 +510,7 @@ export function HomePage({
     vault: asSource(vault.state),
     runs: asSource(runs.state),
     integrations: asSource(harnesses.state),
+    graphs: repos === null ? { status: 'loading' } : asSource(graphLines.state),
     now,
   }
 
@@ -497,6 +519,7 @@ export function HomePage({
     runs.reload()
     harnesses.reload()
     count.reload()
+    graphLines.reload()
   }
 
   return (
