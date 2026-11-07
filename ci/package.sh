@@ -100,10 +100,19 @@ unset XDG_CONFIG_HOME CLAUDE_PLUGIN_ROOT
 "$bin/synapse-setup" configure claude >/dev/null || fail "synapse-setup configure claude"
 settings="$home/.claude/settings.json"
 [ -f "$settings" ] || fail "no settings.json written"
+# The program a hook command starts: its first word, which is in double quotes
+# when the path has a space or another character a shell would read.
+first_word() {
+    case "$1" in
+        \"*) w="${1#\"}"; printf '%s' "${w%%\"*}" ;;
+        *) printf '%s' "${1%% *}" ;;
+    esac
+}
 for hook in session-start prompt-context staleness stop-nudge; do
     cmd="$(jq -r --arg h "$hook" '[.hooks[][].hooks[].command | select(endswith(" " + $h))] | first // empty' "$settings")"
     [ -n "$cmd" ] || fail "settings.json registers no '$hook' hook"
-    [ "$(canon "${cmd%% *}")" = "$pkgbin/synapse-hook$exe" ] || fail "'$hook' runs ${cmd%% *}, not the installed hook binary"
+    prog="$(first_word "$cmd")"
+    [ "$(canon "$prog")" = "$pkgbin/synapse-hook$exe" ] || fail "'$hook' runs $prog, not the installed hook binary"
 done
 ls "$home/.claude/skills" | grep -q "synapse-query" || fail "no skills copied"
 echo "  configure claude ok"

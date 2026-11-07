@@ -96,6 +96,10 @@ describe('finding the content and the hook', () => {
     )
     expect(rendered).toContain(`\\"${spaced}\\" session-start`)
     expect(shellWord('/usr/local/bin/synapse-hook')).toBe('/usr/local/bin/synapse-hook')
+    // A short Windows name has a `~` in it, which a shell reads only at the start.
+    expect(shellWord('C:/Users/RUNNER~1/AppData/synapse-hook.exe')).toBe(
+      'C:/Users/RUNNER~1/AppData/synapse-hook.exe',
+    )
     expect(shellWord('C:/Program Files/Synapse/synapse-hook.exe')).toBe(
       '"C:/Program Files/Synapse/synapse-hook.exe"',
     )

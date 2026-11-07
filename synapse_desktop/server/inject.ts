@@ -131,8 +131,10 @@ export async function renderHooks(
 }
 
 // What a shell would split or read in a path: a space, a quote, an escape or any
-// of the characters it gives a meaning to.
-const NEEDS_QUOTING = /[\s'"\\$`&;|<>()*?[\]{}!#~^%]/
+// of the characters it gives a meaning to. A `~` is only read at the start of a
+// word and a path is absolute, so a short Windows name such as `RUNNER~1` is not
+// quoted.
+const NEEDS_QUOTING = /[\s'"\\$`&;|<>()*?[\]{}!#^%]/
 
 // A path as the first word of a shell command: as it is when nothing in it needs
 // quoting, else in double quotes with `\`, `"`, `$` and the backtick escaped.

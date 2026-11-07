@@ -359,13 +359,15 @@ package body Synapse.Commands.Configure is
    end Object_In;
 
    --  Whether a shell would split or read something in a path: a space, a quote,
-   --  an escape or any of the characters it gives a meaning to.
+   --  an escape or any of the characters it gives a meaning to. A `~` is only read
+   --  at the start of a word, and a path is absolute, so a short Windows name such
+   --  as `RUNNER~1` is left as it is.
    function Needs_Quoting (Path : String) return Boolean is
    begin
       for C of Path loop
          if C in ' ' | ASCII.HT | ''' | '"' | '\' | '$' | '`' | '&' | ';'
                 | '|' | '<' | '>' | '(' | ')' | '*' | '?' | '[' | ']' | '{'
-                | '}' | '!' | '#' | '~' | '^' | '%'
+                | '}' | '!' | '#' | '^' | '%'
          then
             return True;
          end if;

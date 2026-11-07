@@ -242,6 +242,21 @@ package body Synapse.Commands.Configure.Tests is
             and then Has (Last, """command"": """ & Hook (W) & " session-start"""),
             "replaces the quoted hooks instead of adding to them: " & Last);
       end;
+      --  A short Windows name has a `~` in it, which a shell reads only at the
+      --  start of a word, so the path is not quoted.
+      declare
+         Short : constant String := Path (W, "RUNNER~1");
+      begin
+         Put (Short & "/synapse", "");
+         Put (Short & "/synapse-hook" & Exe, "");
+         Assert
+           (Configure_From (W, Short, "claude", Out_Text, Err_Text) = 0
+            and then Has
+              (Read (Settings),
+               """command"": """ & Short & "/synapse-hook" & Exe
+               & " session-start"""),
+            "a path with a tilde is not quoted: " & Read (Settings));
+      end;
       Remove (W);
    exception
       when others =>
