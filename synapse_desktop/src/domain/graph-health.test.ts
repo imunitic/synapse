@@ -5,6 +5,7 @@ import {
   findingsOf,
   healthLine,
   nodesNeedingAttention,
+  splitReason,
   staleCount,
 } from './graph-health.ts'
 
@@ -41,5 +42,22 @@ describe('the health of a graph', () => {
     expect(healthLine('a@b', health(clean, found('A'), clean))).toBe('a@b: 1 node needs a look')
     expect(healthLine('a@b', health(clean, found('(repo)'), clean))).toBeNull()
     expect(healthLine('a@b', health(found('A'), failed, clean))).toBe('a@b: a check could not run')
+  })
+})
+
+describe('the reason of a finding', () => {
+  it('keeps the files a long list names out of the sentence', () => {
+    expect(splitReason('source files gone: a.adb b.adb c.ads d.ads')).toEqual({
+      text: 'source files gone (4)',
+      items: ['a.adb', 'b.adb', 'c.ads', 'd.ads'],
+    })
+  })
+
+  it('keeps a reason that names few files, or none, as it is', () => {
+    expect(splitReason('source files gone: a.adb b.adb c.ads')).toEqual({
+      text: 'source files gone: a.adb b.adb c.ads',
+      items: [],
+    })
+    expect(splitReason('content changed')).toEqual({ text: 'content changed', items: [] })
   })
 })

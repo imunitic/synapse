@@ -11,8 +11,8 @@ import {
   type Graph,
   type SymbolHit,
 } from '../domain/graph-search.ts'
-import { findingsOf, nodesNeedingAttention } from '../domain/graph-health.ts'
-import type { GraphCheck } from '../../shared/transport.ts'
+import { findingsOf, nodesNeedingAttention, splitReason } from '../domain/graph-health.ts'
+import type { GraphCheck, GraphFinding } from '../../shared/transport.ts'
 import { dropQuestion, nothingToClean, removals } from '../domain/graph-manage.ts'
 import type { GraphPlan } from '../../shared/transport.ts'
 import { transport } from '../transport/index.ts'
@@ -398,6 +398,40 @@ function RepoRow({ namespace }: { namespace: string }) {
   )
 }
 
+// A node's finding, which opens the node, with the files it lists kept closed.
+function FindingLink({
+  namespace,
+  finding,
+  onOpen,
+}: {
+  namespace: string
+  finding: GraphFinding
+  onOpen: (page: Page) => void
+}) {
+  const reason = splitReason(finding.reason)
+  return (
+    <>
+      <button
+        className="attention-item attention-link"
+        onClick={() => onOpen({ kind: 'note', path: nodeNotePath(namespace, finding.node) })}
+      >
+        <span className="attention-label">{finding.node}</span>
+        <span className="muted small attention-detail">{reason.text}</span>
+      </button>
+      {reason.items.length > 0 && (
+        <details className="reason-files">
+          <summary className="muted small">Show the {reason.items.length} files</summary>
+          <ul className="mono small">
+            {reason.items.map((file) => (
+              <li key={file}>{file}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </>
+  )
+}
+
 function Check({
   title,
   check,
@@ -430,15 +464,7 @@ function Check({
                 <span className="muted small attention-detail">{finding.reason}</span>
               </div>
             ) : (
-              <button
-                className="attention-item attention-link"
-                onClick={() =>
-                  onOpen({ kind: 'note', path: nodeNotePath(namespace, finding.node) })
-                }
-              >
-                <span className="attention-label">{finding.node}</span>
-                <span className="muted small attention-detail">{finding.reason}</span>
-              </button>
+              <FindingLink namespace={namespace} finding={finding} onOpen={onOpen} />
             )}
           </li>
         ))}

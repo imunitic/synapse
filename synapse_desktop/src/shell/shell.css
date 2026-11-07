@@ -1621,3 +1621,16 @@ div.activity-row {
   padding-top: 8px;
   border-top: 1px solid var(--border);
 }
+
+.reason-files {
+  padding: 0 12px 8px;
+}
+
+.reason-files summary {
+  cursor: pointer;
+}
+
+.reason-files ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
