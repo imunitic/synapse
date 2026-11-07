@@ -92,3 +92,25 @@ export function joinItems(items: readonly string[]): string {
 export function isWholeNumber(text: string): boolean {
   return /^[0-9]{1,9}$/.test(text)
 }
+
+// The pages the settings of synapse.conf are shown on. The vault's own setting is
+// on the vault page, as its own card; a setting that is not named here is with the
+// code graph, which is what most of them are about.
+export type SettingsGroup = 'vault' | 'graph'
+
+const GROUPS: Record<string, SettingsGroup> = {
+  SYNAPSE_VAULT_INTEGRATIONS: 'vault',
+  SYNAPSE_VAULT_PUSH_EVERY: 'vault',
+}
+
+export function groupOf(key: string): SettingsGroup {
+  return GROUPS[key] ?? 'graph'
+}
+
+// The settings of one group, which the vault's own setting is not part of.
+export function settingsOf(
+  settings: readonly SynapseSetting[],
+  group: SettingsGroup,
+): SynapseSetting[] {
+  return settings.filter((s) => s.key !== 'SYNAPSE_VAULT_DIR' && groupOf(s.key) === group)
+}

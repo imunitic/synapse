@@ -19,7 +19,7 @@ export interface PreviewDeps {
 // asked to check a pipeline that uses neither: it loads every definition, and
 // says in a warning what is wrong with one that does not load.
 export async function previewDraft(draft: DraftDefinition, deps: PreviewDeps): Promise<CliResult> {
-  const config = await loadConfig(deps.configFile)
+  const config = await loadConfig(deps.configFile, deps.environment.env)
   const defaultDir = pipelineConfigDir(deps.environment)
   const otherDirs = definitionDirs(config, deps.environment).filter((d) => d !== defaultDir)
   const [skillsDir] = await existingDirs([join(defaultDir, 'skills')])

@@ -14,6 +14,25 @@ export const DEFINITION_LABELS: Record<DefinitionKind, { singular: string; plura
   skill: { singular: 'skill', plural: 'Skills' },
 }
 
+// The categories of the settings, each with a page of its own.
+export type SettingsSection = 'general' | 'vault' | 'graph' | 'environment' | 'terminals'
+
+export const SETTINGS_SECTIONS: readonly {
+  section: SettingsSection
+  label: string
+  about: string
+}[] = [
+  {
+    section: 'general',
+    label: 'General',
+    about: 'Work directory, default harness, definition folders',
+  },
+  { section: 'vault', label: 'Vault', about: 'The vault and how it is kept' },
+  { section: 'graph', label: 'Code graph', about: 'Grammars, authoring and staleness checks' },
+  { section: 'environment', label: 'Environment', about: 'Variables for what the app runs' },
+  { section: 'terminals', label: 'Terminals', about: 'Where a new terminal starts' },
+]
+
 export type TerminalKind = 'Shell' | 'Claude' | 'Codex' | 'Opencode'
 
 export const TERMINAL_LABELS: Record<TerminalKind, string> = {
@@ -33,7 +52,7 @@ export interface TerminalSession {
 }
 
 export type Page =
-  | { kind: 'settings' }
+  | { kind: 'settings'; section: SettingsSection }
   | { kind: 'create'; definition: DefinitionKind }
   // A definition's file: a .synapse file, or a skill's SKILL.md.
   | { kind: 'definition'; definition: DefinitionKind; name: string; path: string }
@@ -91,7 +110,7 @@ export type Action =
 export function pageId(page: Page): string {
   switch (page.kind) {
     case 'settings':
-      return 'settings'
+      return `settings:${page.section}`
     case 'create':
       return `create:${page.definition}`
     case 'definition':
@@ -106,7 +125,7 @@ export function pageId(page: Page): string {
 export function pageTitle(page: Page): string {
   switch (page.kind) {
     case 'settings':
-      return 'Settings'
+      return `${SETTINGS_SECTIONS.find((s) => s.section === page.section)?.label ?? 'Settings'} settings`
     case 'create':
       return `New ${DEFINITION_LABELS[page.definition].singular}`
     case 'definition':

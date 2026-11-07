@@ -14,7 +14,7 @@ import type {
   VaultInfo,
 } from '../shared/transport.ts'
 import { refuseCli, type CliRunner } from './cli.ts'
-import { loadConfig, saveConfig } from './config-store.ts'
+import { loadConfig, loadStoredConfig, saveConfig } from './config-store.ts'
 import {
   allowedRoots,
   definitionDirs as listDefinitionDirs,
@@ -53,7 +53,7 @@ export class CallError extends Error {
 type Handler = (raw: unknown, context: Context) => Promise<unknown>
 
 async function insideRoots(path: string, context: Context): Promise<string> {
-  const config = await loadConfig(context.configFile)
+  const config = await loadConfig(context.configFile, context.environment.env)
   try {
     return await resolveInside(path, allowedRoots(config, context.environment))
   } catch (error) {
@@ -92,13 +92,13 @@ const handlers: Record<CallName, Handler> = {
     const { binary, args, stdin } = callParams.cli.parse(raw)
     const refusal = refuseCli(binary, args)
     if (refusal !== null) throw new CallError(refusal, 400)
-    const config = await loadConfig(context.configFile)
+    const config = await loadConfig(context.configFile, context.environment.env)
     return context.runCli({ binary, args, stdin, config })
   },
 
   async runRequest(raw, context): Promise<RunAnswer> {
     const { executionId, request } = callParams.runRequest.parse(raw)
-    const { workDir } = await loadConfig(context.configFile)
+    const { workDir } = await loadConfig(context.configFile, context.environment.env)
     if (workDir === null) throw new CallError('no work directory is set', 409)
     const path = socketPath(join(workDir, 'pipelines'), executionId, process.platform)
     try {
@@ -111,7 +111,7 @@ const handlers: Record<CallName, Handler> = {
 
   async getPaths(raw, context): Promise<AppPaths> {
     callParams.getPaths.parse(raw)
-    const config = await loadConfig(context.configFile)
+    const config = await loadConfig(context.configFile, context.environment.env)
     const { environment } = context
     const [skillsDir] = await existingDirs([join(pipelineConfigDir(environment), 'skills')])
     const [recordsDir] = await existingDirs(
@@ -126,7 +126,7 @@ const handlers: Record<CallName, Handler> = {
 
   async startRun(raw, context): Promise<{ executionId: string }> {
     const { pipeline, input } = callParams.startRun.parse(raw)
-    const config = await loadConfig(context.configFile)
+    const config = await loadConfig(context.configFile, context.environment.env)
     try {
       return await context.runs.start(pipeline, input, config)
     } catch (error) {
@@ -160,7 +160,7 @@ const handlers: Record<CallName, Handler> = {
     if (!path.endsWith('.synapse') && basename(path) !== 'SKILL.md') {
       throw new CallError('only a definition or a SKILL.md can be saved', 400)
     }
-    const config = await loadConfig(context.configFile)
+    const config = await loadConfig(context.configFile, context.environment.env)
     let real: string
     try {
       real = await resolveInside(path, listDefinitionDirs(config, context.environment))
@@ -177,7 +177,7 @@ const handlers: Record<CallName, Handler> = {
 
   async generateDefinition(raw, context): Promise<{ text: string }> {
     const request = callParams.generateDefinition.parse(raw)
-    const { defaultHarness, env } = await loadConfig(context.configFile)
+    const { defaultHarness, env } = await loadConfig(context.configFile, context.environment.env)
     try {
       const text = await generateText(request, {
         harness: request.harness ?? defaultHarness ?? 'Claude',
@@ -221,14 +221,17 @@ const handlers: Record<CallName, Handler> = {
 
   async getConfig(raw, context): Promise<AppConfig> {
     callParams.getConfig.parse(raw)
-    return loadConfig(context.configFile)
+    return loadConfig(context.configFile, context.environment.env)
   },
 
   async setConfig(raw, context): Promise<AppConfig> {
     const { patch } = callParams.setConfig.parse(raw)
-    const merged = appConfigSchema.parse({ ...(await loadConfig(context.configFile)), ...patch })
+    const merged = appConfigSchema.parse({
+      ...(await loadStoredConfig(context.configFile)),
+      ...patch,
+    })
     await saveConfig(context.configFile, merged)
-    return merged
+    return loadConfig(context.configFile, context.environment.env)
   },
 }
 

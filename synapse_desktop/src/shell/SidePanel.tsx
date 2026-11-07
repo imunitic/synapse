@@ -2,7 +2,14 @@ import type { Dispatch } from 'react'
 import { DefinitionsPanel } from './DefinitionsPanel.tsx'
 import { ExecutionsPanel } from './ExecutionsPanel.tsx'
 import { useState } from 'react'
-import { TERMINAL_LABELS, type Action, type ShellState, type TerminalKind } from './state.ts'
+import { useConfig } from './config.tsx'
+import {
+  SETTINGS_SECTIONS,
+  TERMINAL_LABELS,
+  type Action,
+  type ShellState,
+  type TerminalKind,
+} from './state.ts'
 
 function SettingsPanel({ dispatch }: { dispatch: Dispatch<Action> }) {
   return (
@@ -11,12 +18,16 @@ function SettingsPanel({ dispatch }: { dispatch: Dispatch<Action> }) {
         <h2 className="panel-title">Settings</h2>
       </div>
       <div className="menu">
-        <button
-          className="menu-item"
-          onClick={() => dispatch({ type: 'openPage', page: { kind: 'settings' } })}
-        >
-          All settings
-        </button>
+        {SETTINGS_SECTIONS.map(({ section, label, about }) => (
+          <button
+            key={section}
+            className="menu-item settings-item"
+            onClick={() => dispatch({ type: 'openPage', page: { kind: 'settings', section } })}
+          >
+            <span>{label}</span>
+            <span className="muted small">{about}</span>
+          </button>
+        ))}
       </div>
     </>
   )
@@ -27,24 +38,14 @@ function newTerminalId(): string {
   return Math.random().toString(36).slice(2, 8)
 }
 
-const FOLDER_KEY = 'synapse-desktop.terminal-folder'
-
 function TerminalsPanel({ dispatch }: { dispatch: Dispatch<Action> }) {
-  // Where the next session starts; empty is the home folder.
-  const [folder, setFolder] = useState(() => {
-    try {
-      return localStorage.getItem(FOLDER_KEY) ?? ''
-    } catch {
-      return ''
-    }
-  })
+  const { state: config } = useConfig()
+  // Where the next session starts: what was typed here, else the default of the
+  // settings; empty is the home folder.
+  const [typed, setTyped] = useState<string | null>(null)
+  const folder = typed ?? (config.status === 'ready' ? (config.config.terminalFolder ?? '') : '')
 
   function start(kind: TerminalKind) {
-    try {
-      localStorage.setItem(FOLDER_KEY, folder)
-    } catch {
-      // Nothing is remembered; the folder still applies to this session.
-    }
     dispatch({ type: 'openTerminal', kind, cwd: folder.trim(), id: newTerminalId() })
   }
 
@@ -60,7 +61,7 @@ function TerminalsPanel({ dispatch }: { dispatch: Dispatch<Action> }) {
             className="mono"
             value={folder}
             placeholder="your home folder"
-            onChange={(event) => setFolder(event.target.value)}
+            onChange={(event) => setTyped(event.target.value)}
           />
         </label>
         {(['Shell', 'Claude', 'Codex', 'Opencode'] as const).map((kind) => (

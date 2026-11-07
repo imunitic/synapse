@@ -93,6 +93,7 @@ describe('the API', () => {
       defaultHarness: null,
       env: {},
       recentVaults: [],
+      terminalFolder: null,
     })
   })
 
@@ -105,6 +106,7 @@ describe('the API', () => {
       defaultHarness: 'Codex',
       env: {},
       recentVaults: [],
+      terminalFolder: null,
     })
   })
 

@@ -3,10 +3,12 @@ import type { CliResult, Transport } from '../../shared/transport.ts'
 import { fakeTransport } from './fake-transport.ts'
 import {
   clearSetting,
+  groupOf,
   isWholeNumber,
   joinItems,
   listItems,
   loadSettings,
+  settingsOf,
   saveSetting,
 } from './settings.ts'
 
@@ -127,5 +129,42 @@ describe('helpers', () => {
     expect(isWholeNumber('0')).toBe(true)
     expect(isWholeNumber('123456789')).toBe(true)
     for (const text of ['', '1234567890', '1.5', '-1', 'a']) expect(isWholeNumber(text)).toBe(false)
+  })
+})
+
+describe('groups', () => {
+  const keys = [
+    'SYNAPSE_VAULT_DIR',
+    'SYNAPSE_VAULT_INTEGRATIONS',
+    'SYNAPSE_GRAMMARS_DIR',
+    'SYNAPSE_GRAMMARS_QUERY_PATH',
+    'SYNAPSE_GRAMMAR_LOCK_TRIES',
+    'SYNAPSE_VAULT_PUSH_EVERY',
+    'SYNAPSE_AUTHOR_POOL',
+    'SYNAPSE_DOCSTRING_STALENESS_DETECTION',
+  ]
+  const settings = keys.map((key) => ({ key }) as never)
+
+  it('put the settings of the vault on its page and the rest with the code graph', () => {
+    expect(settingsOf(settings, 'vault').map((s) => s.key)).toEqual([
+      'SYNAPSE_VAULT_INTEGRATIONS',
+      'SYNAPSE_VAULT_PUSH_EVERY',
+    ])
+    expect(settingsOf(settings, 'graph').map((s) => s.key)).toEqual([
+      'SYNAPSE_GRAMMARS_DIR',
+      'SYNAPSE_GRAMMARS_QUERY_PATH',
+      'SYNAPSE_GRAMMAR_LOCK_TRIES',
+      'SYNAPSE_AUTHOR_POOL',
+      'SYNAPSE_DOCSTRING_STALENESS_DETECTION',
+    ])
+  })
+
+  it('leave the vault itself to its card, and give every setting a page', () => {
+    for (const group of ['vault', 'graph'] as const) {
+      expect(settingsOf(settings, group).map((s) => s.key)).not.toContain('SYNAPSE_VAULT_DIR')
+    }
+    const shown = [...settingsOf(settings, 'vault'), ...settingsOf(settings, 'graph')]
+    expect(shown).toHaveLength(keys.length - 1)
+    expect(groupOf('A_SETTING_THAT_IS_NEW')).toBe('graph')
   })
 })

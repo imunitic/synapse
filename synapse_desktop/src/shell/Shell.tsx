@@ -29,7 +29,9 @@ export function Shell() {
               </span>
               <button
                 className="banner-button"
-                onClick={() => dispatch({ type: 'openPage', page: { kind: 'settings' } })}
+                onClick={() =>
+                  dispatch({ type: 'openPage', page: { kind: 'settings', section: 'general' } })
+                }
               >
                 Set work directory
               </button>

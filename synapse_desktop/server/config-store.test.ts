@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { defaultConfig } from '../shared/calls.ts'
 import { handleCall, type Context } from './calls.ts'
-import { loadConfig } from './config-store.ts'
+import { loadConfig, loadStoredConfig } from './config-store.ts'
 
 let dir: string
 let file: string
@@ -34,17 +34,18 @@ describe('the configuration file', () => {
       file,
       JSON.stringify({ workDir: '/w', definitionPaths: [], defaultHarness: 'Codex' }),
     )
-    expect(await loadConfig(file)).toEqual({
+    expect(await loadStoredConfig(file)).toEqual({
       workDir: '/w',
       definitionPaths: [],
       defaultHarness: 'Codex',
       env: {},
       recentVaults: [],
+      terminalFolder: null,
     })
   })
 
   it('is the default when there is no file', async () => {
-    expect(await loadConfig(file)).toEqual(defaultConfig)
+    expect(await loadStoredConfig(file)).toEqual(defaultConfig)
   })
 })
 
@@ -53,7 +54,7 @@ describe('setConfig', () => {
     const context = contextFor()
     await handleCall('setConfig', { patch: { env: { SYNAPSE_X: '1' } } }, context)
     await handleCall('setConfig', { patch: { workDir: '/w' } }, context)
-    expect(await loadConfig(file)).toMatchObject({ workDir: '/w', env: { SYNAPSE_X: '1' } })
+    expect(await loadStoredConfig(file)).toMatchObject({ workDir: '/w', env: { SYNAPSE_X: '1' } })
   })
 
   it('refuses a variable with a name no shell takes, and too many variables', async () => {
@@ -75,5 +76,41 @@ describe('setConfig', () => {
     await expect(
       handleCall('setConfig', { patch: { recentVaults: nine } }, context),
     ).rejects.toMatchObject({ status: 400 })
+  })
+})
+
+describe('the work directory in force', () => {
+  it('is the variable of the app, else of the server, else the saved one', async () => {
+    expect((await loadConfig(file, {})).workDir).toBeNull()
+    expect((await loadConfig(file, { SYNAPSE_WORK_DIR: '/started' })).workDir).toBe('/started')
+
+    await writeFile(file, JSON.stringify({ ...defaultConfig, workDir: '/saved' }))
+    expect((await loadConfig(file, {})).workDir).toBe('/saved')
+    expect((await loadConfig(file, { SYNAPSE_WORK_DIR: '/started' })).workDir).toBe('/started')
+
+    await writeFile(
+      file,
+      JSON.stringify({ ...defaultConfig, workDir: '/saved', env: { SYNAPSE_WORK_DIR: '/app' } }),
+    )
+    expect((await loadConfig(file, { SYNAPSE_WORK_DIR: '/started' })).workDir).toBe('/app')
+  })
+
+  it('does not replace the saved one when another setting is changed', async () => {
+    const context = contextFor()
+    context.environment.env.SYNAPSE_WORK_DIR = '/started'
+    await handleCall('setConfig', { patch: { workDir: '/saved' } }, context)
+    const answer = (await handleCall(
+      'setConfig',
+      { patch: { defaultHarness: 'Codex' } },
+      context,
+    )) as {
+      workDir: string
+    }
+    expect(answer.workDir).toBe('/started')
+    expect((await loadStoredConfig(file)).workDir).toBe('/saved')
+  })
+
+  it('is not from an empty variable', async () => {
+    expect((await loadConfig(file, { SYNAPSE_WORK_DIR: '' })).workDir).toBeNull()
   })
 })

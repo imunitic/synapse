@@ -189,8 +189,8 @@ test('sessions go on while another page of the app shows', async ({ page }) => {
   await type(page, 'MARK=kept')
 
   await openSection(page, 'Settings')
-  await page.getByRole('button', { name: 'All settings' }).click()
-  await expect(page.getByRole('heading', { name: 'Synapse settings' })).toBeVisible()
+  await page.locator('.settings-item').filter({ hasText: 'General' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'General' })).toBeVisible()
   await expect(page.locator('.terminal-host')).toBeHidden()
 
   await page.getByRole('tab', { name: 'Terminals' }).click()

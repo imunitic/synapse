@@ -123,19 +123,22 @@ function SettingRow({ setting, onChanged }: { setting: SynapseSetting; onChanged
   )
 }
 
-// The settings of `synapse.conf`, one input to a setting. What they say is read
-// again when `version` changes.
+// Some of the settings of `synapse.conf`, one input to a setting.
 export function SettingsForm({
-  settings: loaded,
+  title,
+  settings,
+  write,
   onChanged,
 }: {
-  settings: SynapseSettings
+  title: string
+  // The settings of this page, and the file a change is written to.
+  settings: SynapseSetting[]
+  write: SynapseSettings['write']
   onChanged: () => void
 }) {
-  const { settings, write } = loaded
   return (
-    <section className="card" aria-label="Synapse settings">
-      <h2 className="card-title">Synapse settings</h2>
+    <section className="card" aria-label={title}>
+      <h2 className="card-title">{title}</h2>
       <p className="muted small">
         These are the settings of <span className="mono">synapse.conf</span>.{' '}
         {write === null

@@ -1,11 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { initialState, pageId, pageTitle, reduce, type Action, type ShellState } from './state.ts'
+import {
+  initialState,
+  pageId,
+  pageTitle,
+  reduce,
+  SETTINGS_SECTIONS,
+  type Action,
+  type ShellState,
+} from './state.ts'
 
 function run(actions: Action[], from: ShellState = initialState): ShellState {
   return actions.reduce(reduce, from)
 }
 
-const settings = { kind: 'settings' } as const
+const settings = { kind: 'settings', section: 'general' } as const
 const newPipeline = { kind: 'create', definition: 'pipeline' } as const
 const newAgent = { kind: 'create', definition: 'agent' } as const
 
@@ -65,7 +73,7 @@ describe('a definition that is made', () => {
       { type: 'openPage', page: newAgent },
     ])
     const after = reduce(before, { type: 'definitionCreated', closeId: 'create:agent', page: made })
-    expect(after.tabs.map((t) => t.id)).toEqual(['settings', 'definition:agent:Fresh'])
+    expect(after.tabs.map((t) => t.id)).toEqual(['settings:general', 'definition:agent:Fresh'])
     expect(after.activeId).toBe('definition:agent:Fresh')
     expect(after.reloadToken).toBe(before.reloadToken + 1)
   })
@@ -78,6 +86,36 @@ describe('a definition that is changed', () => {
     expect(after.tabs).toEqual(before.tabs)
     expect(after.activeId).toBe(before.activeId)
     expect(after.reloadToken).toBe(before.reloadToken + 1)
+  })
+})
+
+describe('settings pages', () => {
+  it('are a page for each category, with a title of its own, opened once', () => {
+    const vault = { kind: 'settings', section: 'vault' } as const
+    const graph = { kind: 'settings', section: 'graph' } as const
+    expect(pageId(vault)).toBe('settings:vault')
+    expect(pageTitle(vault)).toBe('Vault settings')
+    expect(pageTitle(graph)).toBe('Code graph settings')
+    const opened = [vault, graph, vault].reduce(
+      (state, page) => reduce(state, { type: 'openPage', page }),
+      initialState,
+    )
+    expect(opened.tabs.map((t) => t.id)).toEqual(['settings:vault', 'settings:graph'])
+    expect(opened.activeId).toBe('settings:vault')
+  })
+
+  it('have a title and a line about them in the panel for every category', () => {
+    expect(SETTINGS_SECTIONS.map((s) => s.section)).toEqual([
+      'general',
+      'vault',
+      'graph',
+      'environment',
+      'terminals',
+    ])
+    for (const { label, about } of SETTINGS_SECTIONS) {
+      expect(label).not.toBe('')
+      expect(about).not.toBe('')
+    }
   })
 })
 
@@ -150,8 +188,8 @@ describe('tabs', () => {
       { type: 'openPage', page: newPipeline },
       { type: 'openPage', page: settings },
     ])
-    expect(state.tabs.map((t) => t.id)).toEqual(['settings', 'create:pipeline'])
-    expect(state.activeId).toBe('settings')
+    expect(state.tabs.map((t) => t.id)).toEqual(['settings:general', 'create:pipeline'])
+    expect(state.activeId).toBe('settings:general')
   })
 
   it('gives each kind of definition its own create tab', () => {
@@ -160,7 +198,7 @@ describe('tabs', () => {
 
   it('activates only a tab that exists', () => {
     const state = run([{ type: 'openPage', page: settings }])
-    expect(run([{ type: 'activateTab', id: 'nope' }], state).activeId).toBe('settings')
+    expect(run([{ type: 'activateTab', id: 'nope' }], state).activeId).toBe('settings:general')
   })
 
   it('closing the active tab activates the one that took its place', () => {
@@ -180,7 +218,7 @@ describe('tabs', () => {
       { type: 'openPage', page: newPipeline },
       { type: 'closeTab', id: 'create:pipeline' },
     ])
-    expect(state.activeId).toBe('settings')
+    expect(state.activeId).toBe('settings:general')
   })
 
   it('closing a tab that is not active keeps the active one', () => {
@@ -195,7 +233,7 @@ describe('tabs', () => {
   it('closing the only tab leaves none active', () => {
     const state = run([
       { type: 'openPage', page: settings },
-      { type: 'closeTab', id: 'settings' },
+      { type: 'closeTab', id: 'settings:general' },
     ])
     expect(state).toMatchObject({ tabs: [], activeId: null })
   })

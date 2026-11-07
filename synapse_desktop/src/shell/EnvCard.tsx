@@ -4,10 +4,17 @@ import { useConfig } from './config.tsx'
 
 // Variables the app sets for every process it starts, over those it was started
 // with. They are the app's own and are not written to synapse.conf.
-export function EnvCard({ onChanged }: { onChanged: () => void }) {
+export function EnvCard({
+  onChanged,
+  start,
+}: {
+  onChanged: () => void
+  // A variable to begin the form with.
+  start?: { name: string; value: string }
+}) {
   const { state, save } = useConfig()
-  const [name, setName] = useState('')
-  const [value, setValue] = useState('')
+  const [name, setName] = useState(start?.name ?? '')
+  const [value, setValue] = useState(start?.value ?? '')
   const [failure, setFailure] = useState<string | null>(null)
   if (state.status !== 'ready') return null
   const env = state.config.env

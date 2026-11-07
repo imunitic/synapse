@@ -20,6 +20,7 @@ const configFields = {
     .record(envNameSchema, z.string().max(4096))
     .refine((env) => Object.keys(env).length <= 64, 'at most 64 variables'),
   recentVaults: z.array(z.string().min(1)).max(8),
+  terminalFolder: z.string().min(1).max(4096).nullable(),
 }
 
 export const appConfigSchema = z.object(configFields)
@@ -29,6 +30,7 @@ export const storedConfigSchema = z.object({
   ...configFields,
   env: configFields.env.default({}),
   recentVaults: configFields.recentVaults.default([]),
+  terminalFolder: configFields.terminalFolder.default(null),
 })
 
 export const defaultConfig: z.infer<typeof appConfigSchema> = {
@@ -37,6 +39,7 @@ export const defaultConfig: z.infer<typeof appConfigSchema> = {
   defaultHarness: null,
   env: {},
   recentVaults: [],
+  terminalFolder: null,
 }
 
 // A run's id names a directory, so it may not hold a separator or a dot.

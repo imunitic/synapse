@@ -187,6 +187,7 @@ export function resetSettings(world: World): void {
       defaultHarness: null,
       env: {},
       recentVaults: [],
+      terminalFolder: null,
     }),
   )
 }

@@ -23,6 +23,8 @@ export interface AppConfig {
   env: Record<string, string>
   // Vaults the app has switched to, newest first.
   recentVaults: string[]
+  // Where a new terminal starts; the home folder without one.
+  terminalFolder: string | null
 }
 
 // What a folder that may be a vault holds.
