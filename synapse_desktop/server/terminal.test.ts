@@ -281,6 +281,16 @@ describe('a session started for a task', () => {
 })
 
 describe('a session', () => {
+  it('takes ~ for the home folder in the folder it is asked to start in', async () => {
+    const socket = connect()
+    const messages = inbox(socket)
+    await opened(socket)
+    // The environment of the test has `dir` as its home.
+    socket.send(start('~', 'Shell'))
+    expect(await messages.next()).toMatchObject({ type: 'started' })
+    expect(spawned[0]).toMatchObject({ file: 'shell', cwd: dir })
+  })
+
   it('starts the shell in the home folder when no folder is given', async () => {
     const socket = connect()
     const messages = inbox(socket)

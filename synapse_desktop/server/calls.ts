@@ -20,6 +20,7 @@ import type {
 } from '../shared/transport.ts'
 import { cliEnvironment, refuseCli, type CliRunner } from './cli.ts'
 import { findGraphRepos } from './graph-find.ts'
+import { expandConfigPaths, expandHome } from './home.ts'
 import { checkGraphRepo, graphHealth } from './graph-health.ts'
 import {
   cleanGraphs,
@@ -295,16 +296,17 @@ const handlers: Record<CallName, Handler> = {
     return { path }
   },
 
-  async inspectVault(raw): Promise<VaultInfo> {
-    const { path } = callParams.inspectVault.parse(raw)
+  async inspectVault(raw, context): Promise<VaultInfo> {
+    const typed = callParams.inspectVault.parse(raw).path
+    const path = expandHome(typed, context.environment.home)
     if (!isAbsolute(path)) throw new CallError('the path must be absolute', 400)
-    return inspectVault(path)
+    return { ...(await inspectVault(path)), path }
   },
 
   async checkGraphRepo(raw, context): Promise<GraphRepoCheck> {
-    const { path } = callParams.checkGraphRepo.parse(raw)
+    const typed = callParams.checkGraphRepo.parse(raw).path
     const config = await loadConfig(context.configFile, context.environment)
-    return checkGraphRepo(context.runCli, config, path)
+    return checkGraphRepo(context.runCli, config, expandHome(typed, context.environment.home))
   },
 
   async findGraphRepos(raw, context): Promise<GraphRepoMatches> {
@@ -401,10 +403,13 @@ const handlers: Record<CallName, Handler> = {
 
   async setConfig(raw, context): Promise<AppConfig> {
     const { patch } = callParams.setConfig.parse(raw)
-    const merged = appConfigSchema.parse({
-      ...(await loadStoredConfig(context.configFile)),
-      ...patch,
-    })
+    const merged = expandConfigPaths(
+      appConfigSchema.parse({
+        ...(await loadStoredConfig(context.configFile)),
+        ...patch,
+      }),
+      context.environment.home,
+    )
     await saveConfig(context.configFile, merged)
     return loadConfig(context.configFile, context.environment)
   },

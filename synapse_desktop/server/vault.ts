@@ -35,7 +35,7 @@ async function countNotes(root: string): Promise<{ notes: number; capped: boolea
   return { notes, capped: false }
 }
 
-export async function inspectVault(path: string): Promise<VaultInfo> {
+export async function inspectVault(path: string): Promise<Omit<VaultInfo, 'path'>> {
   if (!(await isThere(path, 'directory'))) {
     return { exists: false, hasIndex: false, isGit: false, notes: 0, capped: false }
   }

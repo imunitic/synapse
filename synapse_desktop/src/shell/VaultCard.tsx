@@ -45,13 +45,15 @@ export function VaultCard({
   const [failure, setFailure] = useState<string | null>(null)
   const wanted = path.trim()
   const looked = useVaultInfo(wanted)
+  // Where the folder is once a leading ~ is the home folder.
+  const resolved = looked.info?.path ?? wanted
 
   async function use() {
     setSwitching(true)
     setFailure(null)
     try {
-      await saveSetting(transport, 'SYNAPSE_VAULT_DIR', wanted)
-      await save({ recentVaults: rememberVault(recent, wanted) })
+      await saveSetting(transport, 'SYNAPSE_VAULT_DIR', resolved)
+      await save({ recentVaults: rememberVault(recent, resolved) })
       setPath('')
       onChanged()
     } catch (error) {
@@ -113,7 +115,9 @@ export function VaultCard({
       <div className="row">
         <button
           className="primary"
-          disabled={switching || looked.info === null || !looked.info.exists || wanted === current}
+          disabled={
+            switching || looked.info === null || !looked.info.exists || resolved === current
+          }
           onClick={() => void use()}
         >
           {switching ? 'Switching…' : 'Use this vault'}

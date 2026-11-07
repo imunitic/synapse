@@ -31,6 +31,8 @@ export interface AppConfig {
 
 // What a folder that may be a vault holds.
 export interface VaultInfo {
+  // The folder asked about, with a leading ~ made the home folder.
+  path: string
   // The folder is there.
   exists: boolean
   hasIndex: boolean

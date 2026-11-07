@@ -14,6 +14,7 @@ import { TERMINAL_PATH, TOKEN_HEADER } from '../shared/constants.ts'
 import { clientMessageSchema, type ServerMessage } from '../shared/terminal.ts'
 import type { TerminalKind } from '../shared/transport.ts'
 import { cliEnvironment } from './cli.ts'
+import { expandHome } from './home.ts'
 import { taskArgs } from './tasks.ts'
 import { loadConfig } from './config-store.ts'
 import { checkUpgrade, type Policy } from './guards.ts'
@@ -123,7 +124,7 @@ async function start(
   deps: TerminalDeps,
   sessionsDir: string,
 ): Promise<Started | null> {
-  const cwd = message.cwd ?? deps.environment.home
+  const cwd = expandHome(message.cwd ?? deps.environment.home, deps.environment.home)
   if (!isAbsolute(cwd) || !(await isDirectory(cwd))) {
     send(ws, { type: 'error', message: `${cwd} is not a folder` })
     return null

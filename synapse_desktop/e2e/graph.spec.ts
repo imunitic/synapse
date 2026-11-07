@@ -7,8 +7,8 @@ import { resetWorldSettings, world } from './helpers.ts'
 let vault = ''
 
 // A repository folder on branch main, named `name`, so its namespace is `name@main`.
-function repository(name: string): string {
-  const path = join(world().root, 'repos', name)
+function repository(name: string, parent = join(world().root, 'repos')): string {
+  const path = join(parent, name)
   rmSync(path, { recursive: true, force: true })
   mkdirSync(join(path, 'src'), { recursive: true })
   writeFileSync(join(path, 'src', 'render.adb'), 'x')
@@ -385,6 +385,36 @@ test('a folder that is not a repository cannot start a new graph', async ({ page
   const card = await checkNewGraph(page, join(world().root, 'not-there'))
   await expect(card.getByRole('alert')).toBeVisible()
   await expect(card.getByRole('alertdialog')).toHaveCount(0)
+})
+
+test('a repository folder typed with ~ is the folder in the home folder, and is saved as that', async ({
+  page,
+}) => {
+  const path = repository('widget', world().home)
+  await openGraph(page)
+  await page.getByLabel('Namespace', { exact: true }).selectOption('widget@main')
+  await page.getByRole('textbox', { name: 'Repository folder' }).fill('~/widget')
+  await page.getByRole('button', { name: 'Save' }).click()
+  const row = page.getByLabel('Repository', { exact: true })
+  await expect(row).toContainText(path)
+  await expect(row).toContainText('on widget@main')
+  const stored = JSON.parse(
+    readFileSync(join(world().xdg, 'synapse-desktop', 'config.json'), 'utf8'),
+  ) as { graphRepos: Record<string, string> }
+  expect(stored.graphRepos['widget@main']).toBe(path)
+})
+
+test('New graph takes a folder typed with ~, and opens the harness in the folder it is', async ({
+  page,
+}) => {
+  const path = repository('gadget', world().home)
+  await openGraph(page)
+  const card = await checkNewGraph(page, '~/gadget')
+  await expect(card.getByRole('alertdialog')).toContainText('first graph of gadget@main')
+  await card.getByRole('button', { name: /^Yes, open/ }).click()
+  await expect(page.locator('.terminal-view:not([hidden]) .terminal-host')).toContainText(
+    `cwd: ${path}`,
+  )
 })
 
 test('a saved folder on another branch is offered the checkout that is on the graph', async ({

@@ -4,6 +4,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { defaultConfig, storedConfigSchema } from '../shared/calls.ts'
 import type { AppConfig } from '../shared/transport.ts'
+import { expandConfigPaths } from './home.ts'
 import type { Environment } from './roots.ts'
 
 // $XDG_CONFIG_HOME/synapse-desktop/config.json, or ~/.config/synapse-desktop/config.json.
@@ -36,7 +37,7 @@ export function defaultWorkDir({ home }: Environment): string | null {
 // app sets it for its programs or the server was started with it, as for the
 // programs themselves, else the one saved, else the default.
 export async function loadConfig(file: string, environment: Environment): Promise<AppConfig> {
-  const stored = await loadStoredConfig(file)
+  const stored = expandConfigPaths(await loadStoredConfig(file), environment.home)
   const named = stored.env.SYNAPSE_WORK_DIR || environment.env.SYNAPSE_WORK_DIR
   return { ...stored, workDir: named || stored.workDir || defaultWorkDir(environment) }
 }

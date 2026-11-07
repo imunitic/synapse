@@ -8,7 +8,14 @@ import {
   withVariable,
 } from './vaults.ts'
 
-const vault = { exists: true, hasIndex: true, isGit: true, notes: 12, capped: false }
+const vault = {
+  path: '/v',
+  exists: true,
+  hasIndex: true,
+  isGit: true,
+  notes: 12,
+  capped: false,
+}
 
 describe('describeVault', () => {
   it('says what a folder holds', () => {
@@ -34,7 +41,9 @@ describe('paths and names', () => {
     for (const path of ['/a/b', 'C:\\vault', 'D:/vault', '\\\\server\\share']) {
       expect(isAbsolutePath(path)).toBe(true)
     }
-    for (const path of ['', 'vault', './v', '~/v']) expect(isAbsolutePath(path)).toBe(false)
+    // The home folder is known to the server, which makes it a path.
+    for (const path of ['~', '~/v', '~\\v']) expect(isAbsolutePath(path)).toBe(true)
+    for (const path of ['', 'vault', './v', '~user/v']) expect(isAbsolutePath(path)).toBe(false)
   })
 
   it('knows a variable name', () => {

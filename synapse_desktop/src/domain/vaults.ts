@@ -17,9 +17,17 @@ export function describeVault(info: VaultInfo): string {
   ].join(', ')
 }
 
-// A path the server can look at: absolute, on any platform.
+// A path the server can look at: absolute on any platform, or in the home folder,
+// which the server knows.
 export function isAbsolutePath(path: string): boolean {
-  return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\')
+  return (
+    path.startsWith('/') ||
+    /^[A-Za-z]:[\\/]/.test(path) ||
+    path.startsWith('\\\\') ||
+    path === '~' ||
+    path.startsWith('~/') ||
+    path.startsWith('~\\')
+  )
 }
 
 // The recent vaults with this one first, once.

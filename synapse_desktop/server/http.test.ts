@@ -166,6 +166,31 @@ describe('the API', () => {
     expect(cliCalls.at(-1)?.args).toEqual(['namespace', '--repo', dir])
   })
 
+  it('takes ~ for the home folder in a path that is typed, and keeps the folder that makes', async () => {
+    await mkdir(join(dir, 'code'), { recursive: true })
+    cliResult = { code: 0, stdout: 'synapse@main\n', stderr: '' }
+    const reply = await post('checkGraphRepo', { path: '~/code' })
+    expect(reply.body.result).toEqual({ key: 'synapse@main', error: null })
+    expect(cliCalls.at(-1)?.args).toEqual(['namespace', '--repo', join(dir, 'code')])
+
+    // What is saved is the folder, so that a program that is handed it can use it.
+    await post('setConfig', {
+      patch: {
+        workDir: '~/work',
+        definitionPaths: ['~/defs'],
+        terminalFolder: '~',
+        graphRepos: { 'a@main': '~/code' },
+      },
+    })
+    const saved = (await post('getConfig', {})).body.result as Record<string, unknown>
+    expect(saved).toMatchObject({
+      workDir: join(dir, 'work'),
+      definitionPaths: [join(dir, 'defs')],
+      terminalFolder: dir,
+      graphRepos: { 'a@main': join(dir, 'code') },
+    })
+  })
+
   it('says what each harness has installed', async () => {
     const reply = await post('getIntegrations', {})
     expect(reply.status).toBe(200)

@@ -65,7 +65,12 @@ describe('inspectVault', () => {
 })
 
 describe('the inspectVault call', () => {
-  const context = {} as Context
+  // The folder the test makes is the home folder of this context.
+  const context = {
+    get environment() {
+      return { env: {}, home: dir }
+    },
+  } as unknown as Context
 
   it('refuses a path that is not absolute, and an empty one', async () => {
     await expect(
@@ -81,8 +86,20 @@ describe('the inspectVault call', () => {
   it('answers for an absolute path', async () => {
     await note('a.md')
     expect(await handleCall('inspectVault', { path: dir }, context)).toMatchObject({
+      path: dir,
       exists: true,
       notes: 1,
     })
+  })
+
+  it('takes ~ for the home folder and says which folder that made it', async () => {
+    await mkdir(join(dir, 'vault'))
+    await note('vault/a.md')
+    expect(await handleCall('inspectVault', { path: '~/vault' }, context)).toMatchObject({
+      path: join(dir, 'vault'),
+      exists: true,
+      notes: 1,
+    })
+    expect(await handleCall('inspectVault', { path: '~' }, context)).toMatchObject({ path: dir })
   })
 })
