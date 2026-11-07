@@ -79,6 +79,7 @@ with Synapse.Core.Timestamps.Tests;
 with Synapse.Adapters.Fake_Console.Tests;
 with Synapse.Commands.Cli_Args.Tests;
 with Synapse.Commands.Context.Tests;
+with Synapse.Commands.Config.Tests;
 with Synapse.Commands.Now.Tests;
 with Synapse.Commands.Namespace.Tests;
 with Synapse.Commands.Show_Context.Tests;
@@ -306,6 +307,7 @@ package body Test_Suites is
    Fake_Console_Tests : aliased Synapse.Adapters.Fake_Console.Tests.Test_Case;
    Cli_Args_Tests : aliased Synapse.Commands.Cli_Args.Tests.Test_Case;
    Commands_Context_Tests : aliased Synapse.Commands.Context.Tests.Test_Case;
+   Config_Tests : aliased Synapse.Commands.Config.Tests.Test_Case;
    Now_Tests : aliased Synapse.Commands.Now.Tests.Test_Case;
    Commands_Namespace_Tests       :
      aliased Synapse.Commands.Namespace.Tests.Test_Case;
@@ -485,6 +487,7 @@ package body Test_Suites is
       Result.Add_Test (Cli_Args_Tests'Access);
       Result.Add_Test (Commands_Context_Tests'Access);
       Result.Add_Test (Now_Tests'Access);
+      Result.Add_Test (Config_Tests'Access);
       Result.Add_Test (Namespace_Tests'Access);
       Result.Add_Test (Show_Context_Tests'Access);
       Result.Add_Test (Dispatch_Tests'Access);

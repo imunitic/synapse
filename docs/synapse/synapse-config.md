@@ -72,6 +72,14 @@ configure it — the row below just documents the value, not which of the two yo
 | `SYNAPSE_AUTHOR_POOL` | `0` | How many nodes `/synapse-init`'s final step authors concurrently via the `synapse-node-authoring` skill. `0` is the original one-at-a-time, same-session procedure — the only choice that preserves cross-node authorial memory. Read directly by the orchestrating agent, not by any compiled binary -- this one specifically is never a real environment variable, only ever text in the conf file an agent reads. |
 | `SYNAPSE_DOCSTRING_STALENESS_DETECTION` | — (disabled) | Opt-in gate for docstring staleness detection (see [synapse-docstring-staleness.md](synapse-docstring-staleness.md)): any non-empty value enables both the edit-time hook check and the read-time `comments-check`/`comments-sweep` commands, no boolean parsing. Absent or empty is disabled. |
 
+### Reading and changing these settings
+
+`synapse config list [--format json|text]` shows every key in the table above with the value in force, where it comes from (`environment`, `file`, `default` or `unset`), the file that defines it, and whether a variable of the same name shadows what the file says. `--format json` is `synapse-config/v1`: the conf file read and the one a new setting would be written to, and for each key its kind (`path`, `list`, `number` or `toggle`), description, default, whether it is required, whether a variable can set it, its value, its source, and the file's own text for it.
+
+`synapse config set <KEY> <value>` writes a key into the file that holds it now, else into the file a new setting goes in (the same choice `Resolve_Write_Path` makes), and changes no other byte: comments, `export` prefixes, indentation, line endings and a comment after the value stay as they were, and the last assignment of a key, the one that is read, is the one replaced. A value is checked first: a whole number for a number, a list that `SYNAPSE_VAULT_INTEGRATIONS` accepts, a non-empty path or switch. A value with a blank, a tab, a `#` or a quote is written in quotes. If a variable of the same name is set, the file is written all the same and the command says that the variable wins. The shipped template is never written. `synapse config unset <KEY>` removes the key's lines from the file that holds it and does nothing when there are none.
+
+`SYNAPSE_AUTHOR_POOL` is read from the file only, so a variable of that name is not a source and `list` ignores it.
+
 ## Self-populating registries (JSON)
 
 Discovered once per language/extension during grammar or namespace discovery, then cached

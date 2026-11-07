@@ -38,6 +38,12 @@ package Synapse.Commands.Usage is
       "ter field, byte-preserving" & LF &
       "  frontmatter set <path> --add-tag|--remove-tag <tag>   sa" &
       "me, for the tags field" & LF &
+      "  config list [--format json|text]   every setting of sy" &
+      "napse.conf, its value and where it comes from" & LF &
+      "  config set <KEY> <value>   write one setting into the " &
+      "file that holds it, byte-preserving" & LF &
+      "  config unset <KEY>         remove one setting from tha" &
+      "t file" & LF &
       "  vault-read <path>          a note's full body" & LF &
       "  vault-write <path>         write a note's full body, fro" &
       "m stdin" & LF &

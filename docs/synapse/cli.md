@@ -33,6 +33,9 @@ usage: synapse <subcommand> [args]
   frontmatter get <path> <key>             read one frontmatter field
   frontmatter set <path> <key> <value>    set one frontmatter field, byte-preserving
   frontmatter set <path> --add-tag|--remove-tag <tag>   same, for the tags field
+  config list [--format json|text]   every setting of synapse.conf, its value and where it comes from
+  config set <KEY> <value>   write one setting into the file that holds it, byte-preserving
+  config unset <KEY>         remove one setting from that file
   vault-read <path>          a note's full body
   vault-write <path>         write a note's full body, from stdin
   vault-list                 every note in the vault, recursively
@@ -179,6 +182,14 @@ usage: synapse frontmatter get <path> <key>
 
   <path>   the note's full vault-relative path, e.g. tasks/proj/foo.md
   <value>  bare sets a scalar field; comma-separated sets an array
+```
+
+### synapse config
+
+```
+usage: synapse config list [--format json|text]
+       synapse config set <KEY> <value>
+       synapse config unset <KEY>
 ```
 
 ### synapse vault-read

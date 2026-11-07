@@ -159,6 +159,32 @@ package body Acceptance.Cli_Usage_Tests is
          "the question-to-command entries");
    end Callers_Without_A_Name;
 
+   --  The settings are read back as written, through the program that reads
+   --  them everywhere else.
+   procedure Config_Sets_And_Lists_A_Setting (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F    : Fixture;
+      Set  : constant Result :=
+        Run_Fake (F, "config", "set", "SYNAPSE_GRAMMAR_LOCK_TRIES", "42");
+      List : constant Result :=
+        Run_Fake (F, "config", "list", "--format", "json");
+   begin
+      Assert_Exit (Set, 0, "config set");
+      Assert_Exit (List, 0, "config list");
+      Assert_Contains
+        (To_String (List.Output), """value"":""42"",""source"":""file""",
+         "the number is read back from the file");
+      Assert_Contains
+        (To_String (List.Output), """format"":""synapse-config/v1""",
+         "the format is named");
+      Assert_Exit
+        (Run_Fake (F, "config", "set", "SYNAPSE_VAULT_PUSH_EVERY", "often"), 1,
+         "a value that is not a number");
+      Assert_Exit (Run_Fake (F, "config", "set", "NOT_A_KEY", "1"), 1,
+                   "a key that is not a setting");
+      Assert_Exit (Run_Fake (F, "config"), 2, "config alone is a usage error");
+   end Config_Sets_And_Lists_A_Setting;
+
    overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
@@ -190,6 +216,9 @@ package body Acceptance.Cli_Usage_Tests is
       Register_Routine
         (T, Tags_Cache_Without_Arguments'Access,
          "tags-cache: missing arguments is exit 2");
+      Register_Routine
+        (T, Config_Sets_And_Lists_A_Setting'Access,
+         "config: set and list a setting through the binary");
       Register_Routine
         (T, Callers_Without_A_Name'Access,
          "callers with no name exits 2 and prints the map entries");

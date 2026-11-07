@@ -3,6 +3,7 @@ with Ada.Strings.Unbounded;
 with Synapse.Commands.Brief;
 with Synapse.Commands.Comments_Check;
 with Synapse.Commands.Comments_Sweep;
+with Synapse.Commands.Config;
 with Synapse.Commands.Doctor;
 with Synapse.Commands.Push_Nodes;
 with Synapse.Commands.Query;
@@ -89,6 +90,7 @@ package body Synapse.Commands.Dispatch is
    Graph_Clean_Name : aliased constant String := "graph-clean";
    Graph_Wipe_Name : aliased constant String := "graph-wipe";
    Frontmatter_Name         : aliased constant String := "frontmatter";
+   Config_Name              : aliased constant String := "config";
 
    Table : constant array (Positive range <>) of Entry_Type :=
      [(Namespace_Name'Access, Namespace.Run'Access),
@@ -107,6 +109,7 @@ package body Synapse.Commands.Dispatch is
      (Vault_Deadends_Name'Access, Vault_Links.Run_Deadends'Access),
      (Vault_Ambiguous_Name'Access, Vault_Links.Run_Ambiguous'Access),
      (Frontmatter_Name'Access, Frontmatter.Run'Access),
+     (Config_Name'Access, Config.Run'Access),
      (Vault_Write_Name'Access, Vault_Write.Run_Write'Access),
      (Vault_Patch_Name'Access, Vault_Write.Run_Patch'Access),
      (Vault_Rename_Name'Access, Vault_Write.Run_Rename'Access),
