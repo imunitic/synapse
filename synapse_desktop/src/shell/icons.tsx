@@ -76,6 +76,15 @@ export const VaultIcon = () => (
   </Icon>
 )
 
+export const GraphIcon = () => (
+  <Icon>
+    <circle cx="6" cy="6" r="2.2" />
+    <circle cx="18" cy="8" r="2.2" />
+    <circle cx="9" cy="18" r="2.2" />
+    <path d="M8 7l8 1M7 8l2 8M16.6 10l-6 6.4" />
+  </Icon>
+)
+
 export const HomeIcon = () => (
   <Icon>
     <path d="M4 11l8-7 8 7M6 10v9h12v-9M10 19v-5h4v5" />

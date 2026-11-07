@@ -48,8 +48,8 @@ package Synapse.Commands.Usage is
       "s, skills and commands for a harness" & LF &
       "  status [--format text|json]   what in the vault needs a hum" &
       "an decision" & LF &
-      "  work-dir [--root | --namespace <repo>@<branch>]   where Syn" &
-      "apse keeps its working files" & LF &
+      "  work-dir [--root | --list | --namespace <repo>@<branch>]   " &
+      "where Synapse keeps its working files" & LF &
       "  vault-read <path>          a note's full body" & LF &
       "  vault-write <path>         write a note's full body, fro" &
       "m stdin" & LF &

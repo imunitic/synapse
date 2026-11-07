@@ -16,6 +16,9 @@ const ALLOWED_SUBCOMMANDS: Record<CliBinary, readonly string[]> = {
     'vault-search-text',
     'vault-links',
     'vault-backlinks',
+    'work-dir',
+    'callers',
+    'index',
   ],
 }
 
@@ -79,6 +82,53 @@ function refuseVault(args: readonly string[]): string | null {
   return null
 }
 
+// A namespace is `<repo>@<branch>`, a folder's name: no separator, no dots alone.
+const NAMESPACE = /^[A-Za-z0-9._+-]{1,128}@[A-Za-z0-9._+-]{1,128}$/
+
+// A search term or a path: one argument that is not a flag.
+function plain(arg: string | undefined, max: number): boolean {
+  return arg !== undefined && arg !== '' && !arg.startsWith('-') && arg.length <= max
+}
+
+// The reads of a graph's local files, always of one namespace named by
+// `--namespace`: `callers <name> [--all]`, `index lookup <path>` and
+// `index nodes|paths|unassigned`; and `work-dir --list` or `--root`.
+function refuseGraph(args: readonly string[]): string | null {
+  const [subcommand, ...rest] = args
+  const named = (own: readonly string[]): boolean => {
+    const at = own.length
+    return (
+      rest.length === at + 2 && rest[at] === '--namespace' && NAMESPACE.test(rest[at + 1] ?? '')
+    )
+  }
+  if (subcommand === 'work-dir') {
+    return rest.length === 1 && (rest[0] === '--list' || rest[0] === '--root')
+      ? null
+      : 'work-dir takes only --list or --root'
+  }
+  if (subcommand === 'callers') {
+    const all = rest[1] === '--all'
+    const ok = plain(rest[0], 512) && named(all ? [rest[0] ?? '', '--all'] : [rest[0] ?? ''])
+    return ok ? null : 'callers takes a name, --all and --namespace <repo>@<branch>'
+  }
+  // `index`
+  const [action, ...more] = rest
+  if (action === 'lookup') {
+    return plain(more[0], 4096) &&
+      more.length === 3 &&
+      more[1] === '--namespace' &&
+      NAMESPACE.test(more[2] ?? '')
+      ? null
+      : 'index lookup takes a path and --namespace <repo>@<branch>'
+  }
+  if (action === 'nodes' || action === 'paths' || action === 'unassigned') {
+    return more.length === 2 && more[0] === '--namespace' && NAMESPACE.test(more[1] ?? '')
+      ? null
+      : `index ${action} takes --namespace <repo>@<branch>`
+  }
+  return 'index takes lookup, nodes, paths or unassigned'
+}
+
 // The reason the call is refused, or null when it may run.
 export function refuseCli(binary: CliBinary, args: readonly string[]): string | null {
   const [subcommand] = args
@@ -93,6 +143,9 @@ export function refuseCli(binary: CliBinary, args: readonly string[]): string | 
   if (binary !== 'synapse') return null
   if (subcommand === 'status') return refuseStatus(args)
   if (subcommand?.startsWith('vault-')) return refuseVault(args)
+  if (subcommand === 'work-dir' || subcommand === 'callers' || subcommand === 'index') {
+    return refuseGraph(args)
+  }
   return refuseConfig(args)
 }
 

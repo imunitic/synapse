@@ -1,13 +1,18 @@
 with Ada.Strings.Fixed;
 
+with Ada.Directories;
+
 with AUnit.Assertions;
 
+with Synapse.Adapters.File_Bytes;
 with Synapse.Test_Environment;
+with Synapse.Test_Scratch;
 
 package body Synapse.Commands.Work_Dir.Tests is
 
    use AUnit.Assertions;
    use Synapse.Test_Environment;
+   use Synapse.Test_Scratch;
 
    subtype Test_Cases_Class is AUnit.Test_Cases.Test_Case'Class;
 
@@ -63,6 +68,50 @@ package body Synapse.Commands.Work_Dir.Tests is
          & F.Console.Out_Text);
    end The_Namespace_Of_The_Environment_Gives_The_Folder;
 
+   procedure Put (Dir : Scratch; Name : String) is
+   begin
+      Ada.Directories.Create_Path
+        (Ada.Directories.Containing_Directory (Path (Dir, Name)));
+      Synapse.Adapters.File_Bytes.Write (Path (Dir, Name), "x");
+   end Put;
+
+   procedure List_Names_The_Namespaces_That_Have_Local_Files
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir : constant Scratch := Make;
+      F   : aliased Fixture;
+   begin
+      F.Vars.Set ("HOME", Path (Dir, "home"));
+      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, "root"));
+      Assert
+        (Run (Env (F), Args ("--list")) = 0 and then F.Console.Out_Text = "",
+         "no root folder, no namespaces");
+      Put (Dir, "root/zeta@main/_index.bin");
+      Put (Dir, "root/zeta@main/_refs.tsv");
+      Put (Dir, "root/zeta@main/_tags_cache.bin");
+      Put (Dir, "root/alpha@dev/_refs.tsv");
+      Put (Dir, "root/alpha@dev/_tags_cache.bin");
+      Put (Dir, "root/beta@main/_index.bin");
+      --  Not namespaces: no @, no local files, a file and the pipelines.
+      Put (Dir, "root/plain/_index.bin");
+      Put (Dir, "root/empty@main/notes.txt");
+      Put (Dir, "root/pipelines/exec-1/execution.json");
+      Put (Dir, "root/loose@file");
+      Assert (Run (Env (F), Args ("--list")) = 0, "it succeeds");
+      Assert
+        (F.Console.Out_Text =
+         "alpha@dev" & ASCII.HT & "refs,tags" & LF
+         & "beta@main" & ASCII.HT & "index" & LF
+         & "zeta@main" & ASCII.HT & "index,refs,tags" & LF,
+         "the namespaces, sorted, with what each has: " & F.Console.Out_Text);
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end List_Names_The_Namespaces_That_Have_Local_Files;
+
    procedure Bad_Arguments_Are_A_Usage_Error_And_Help_Is_Not
      (T : in out Test_Cases_Class)
    is
@@ -101,6 +150,9 @@ package body Synapse.Commands.Work_Dir.Tests is
       Register_Routine
         (T, The_Namespace_Of_The_Environment_Gives_The_Folder'Access,
          "The namespace of the environment gives the folder");
+      Register_Routine
+        (T, List_Names_The_Namespaces_That_Have_Local_Files'Access,
+         "List names the namespaces that have local files");
       Register_Routine
         (T, Bad_Arguments_Are_A_Usage_Error_And_Help_Is_Not'Access,
          "Bad arguments are a usage error and help is not");

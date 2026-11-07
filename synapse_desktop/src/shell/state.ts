@@ -62,6 +62,8 @@ export interface TerminalSession {
 export type Page =
   // The page the app opens on: what needs attention, and where things stand.
   | { kind: 'home' }
+  // Searching a code graph's symbols, files and nodes.
+  | { kind: 'graph' }
   | { kind: 'settings'; section: SettingsSection }
   | { kind: 'create'; definition: DefinitionKind }
   // A definition's file: a .synapse file, or a skill's SKILL.md.
@@ -130,6 +132,8 @@ export function pageId(page: Page): string {
   switch (page.kind) {
     case 'home':
       return 'home'
+    case 'graph':
+      return 'graph'
     case 'settings':
       return `settings:${page.section}`
     case 'create':
@@ -149,6 +153,8 @@ export function pageTitle(page: Page): string {
   switch (page.kind) {
     case 'home':
       return 'Home'
+    case 'graph':
+      return 'Code graph'
     case 'settings':
       return `${SETTINGS_SECTIONS.find((s) => s.section === page.section)?.label ?? 'Settings'} settings`
     case 'create':

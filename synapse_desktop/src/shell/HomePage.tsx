@@ -12,6 +12,7 @@ import {
 } from '../domain/attention.ts'
 import { listDefinitions } from '../domain/definitions.ts'
 import { timeAgo } from '../domain/format.ts'
+import { listGraphs } from '../domain/graph-search.ts'
 import { recentlyUpdated, titleOf } from '../domain/notes.ts'
 import { recentlyOpened } from '../domain/recent.ts'
 import { listExecutions, type ExecutionSummary } from '../domain/executions.ts'
@@ -19,6 +20,7 @@ import { recentRuns, runCounts, setupSteps, vaultCounts } from '../domain/home.t
 import { describeVault } from '../domain/vaults.ts'
 import { transport } from '../transport/index.ts'
 import { useConfig } from './config.tsx'
+import { remember } from './GraphPage.tsx'
 import { RefreshIcon } from './icons.tsx'
 import type { Page, TerminalKind, TerminalSession } from './state.ts'
 import { StatusBadge } from './StatusBadge.tsx'
@@ -326,17 +328,43 @@ function PipelinesSummary({
   )
 }
 
-// The code graph is not part of the app yet.
+// The graphs this machine has local files for: choosing one opens the search of it.
 function GraphSummary({ onOpen }: { onOpen: (page: Page) => void }) {
+  const loadGraphs = useCallback(() => listGraphs(transport), [])
+  const graphs = useLoad(loadGraphs, REFRESH_MS)
   return (
     <section className="card" aria-label="Code graph">
       <h2 className="card-title">Code graph</h2>
-      <p className="muted small">
-        The graph of a repository is not part of the app yet. Its settings are.{' '}
-        <button className="link" onClick={() => onOpen({ kind: 'settings', section: 'graph' })}>
-          Open them
-        </button>
-      </p>
+      {graphs.state.status === 'loading' && <p className="muted">Looking…</p>}
+      {graphs.state.status === 'failed' && <p className="muted">The graphs could not be read.</p>}
+      {graphs.state.status === 'ready' && graphs.state.data.length === 0 && (
+        <p className="muted small">
+          No graph has local files yet. Build one in a repository with the{' '}
+          <code>/synapse-init</code> skill.
+        </p>
+      )}
+      {graphs.state.status === 'ready' && graphs.state.data.length > 0 && (
+        <>
+          <p className="muted small">
+            Search the symbols, files and nodes of {graphs.state.data.length}{' '}
+            {graphs.state.data.length === 1 ? 'graph' : 'graphs'}
+          </p>
+          <div className="chips">
+            {graphs.state.data.map((graph) => (
+              <button
+                key={graph.namespace}
+                className="chip-plain chip-button"
+                onClick={() => {
+                  remember(graph.namespace)
+                  onOpen({ kind: 'graph' })
+                }}
+              >
+                {graph.namespace}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </section>
   )
 }

@@ -46,6 +46,37 @@ describe('refuseCli', () => {
     expect(refuseCli('synapse', ['config', 'unset', 'SYNAPSE_VAULT_DIR'])).toBeNull()
   })
 
+  it('allows the reads of a graph, always of one namespace', () => {
+    const ns = ['--namespace', 'synapse@main']
+    expect(refuseCli('synapse', ['work-dir', '--list'])).toBeNull()
+    expect(refuseCli('synapse', ['work-dir', '--root'])).toBeNull()
+    expect(refuseCli('synapse', ['work-dir'])).toMatch(/only --list or --root/)
+    expect(refuseCli('synapse', ['work-dir', '--namespace', 'a@b'])).toMatch(/only --list/)
+    expect(refuseCli('synapse', ['callers', 'Resolve', ...ns])).toBeNull()
+    expect(refuseCli('synapse', ['callers', 'Resolve', '--all', ...ns])).toBeNull()
+    expect(refuseCli('synapse', ['callers', 'Resolve'])).toMatch(/--namespace/)
+    expect(refuseCli('synapse', ['callers', '--all', ...ns])).toMatch(/takes a name/)
+    expect(refuseCli('synapse', ['callers', 'a', 'b', ...ns])).toMatch(/takes a name/)
+    expect(refuseCli('synapse', ['index', 'nodes', ...ns])).toBeNull()
+    expect(refuseCli('synapse', ['index', 'paths', ...ns])).toBeNull()
+    expect(refuseCli('synapse', ['index', 'unassigned', ...ns])).toBeNull()
+    expect(refuseCli('synapse', ['index', 'lookup', 'src/a.adb', ...ns])).toBeNull()
+    expect(refuseCli('synapse', ['index', 'lookup', ...ns])).toMatch(/takes a path/)
+    expect(refuseCli('synapse', ['index', 'nodes'])).toMatch(/--namespace/)
+  })
+
+  it('refuses a namespace that is not a name, and the writes of the index', () => {
+    for (const bad of ['../x@main', 'a@b/c', 'a@', '@b', 'nobranch', 'a@b c', 'a@..\\b']) {
+      expect(refuseCli('synapse', ['index', 'nodes', '--namespace', bad])).toMatch(/--namespace/)
+    }
+    const ns = ['--namespace', 'a@b']
+    expect(refuseCli('synapse', ['index', 'build', ...ns])).toMatch(/takes lookup/)
+    expect(refuseCli('synapse', ['index', 'add-unassigned', 'x', ...ns])).toMatch(/takes lookup/)
+    expect(refuseCli('synapse', ['index'])).toMatch(/takes lookup/)
+    expect(refuseCli('synapse', ['tags-cache', '--dump', 'x'])).toMatch(/not allowed/)
+    expect(refuseCli('synapse', ['build-refs'])).toMatch(/not allowed/)
+  })
+
   it('refuses the rest of config: other actions, bad names, wrong counts', () => {
     expect(refuseCli('synapse', ['config'])).toMatch(/list, set or unset/)
     expect(refuseCli('synapse', ['config', 'frob'])).toMatch(/list, set or unset/)

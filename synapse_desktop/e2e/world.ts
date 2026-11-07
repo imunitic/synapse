@@ -250,6 +250,43 @@ export function buildWorld(root: string, binDirs: readonly string[]): World {
   mkdirSync(join(world.vault, '.git'), { recursive: true })
   write(join(world.vault, '.obsidian', 'ignored.md'), 'x')
 
+  // The local files of two code graphs in the work directory: one with a node
+  // index, made by the program itself, and references, and one with references
+  // only.
+  const graph = join(world.work, 'widget@main')
+  mkdirSync(graph, { recursive: true })
+  write(
+    join(graph, '_refs.tsv'),
+    [
+      'Render\tdef\tfunction\tsrc/render.adb:12\tprocedure Render (Scene : Scene_Type) is',
+      'Render\tref\tcall\tsrc/main.adb:30\tRender (Current);',
+      'Render\tref\tcall\tsrc/loop.adb:8\tRender (Frame.Scene);',
+      'Update\tdef\tfunction\tsrc/update.adb:5\tprocedure Update is',
+      '',
+    ].join('\n'),
+  )
+  write(join(graph, 'unassigned.txt'), 'scripts/loose.sh\n')
+  const built = spawnSync(
+    'synapse',
+    [
+      'index',
+      'build',
+      '--unassigned',
+      join(graph, 'unassigned.txt'),
+      '--out',
+      join(graph, '_index.bin'),
+    ],
+    {
+      env: environmentFor(world, binDirs),
+      encoding: 'utf8',
+      input: 'src/render.adb\tRendering\nsrc/main.adb\tRendering\nsrc/update.adb\tGame loop\n',
+    },
+  )
+  if (built.status !== 0) throw new Error(`could not build the index: ${built.stderr}`)
+  const thin = join(world.work, 'thin@main')
+  mkdirSync(thin, { recursive: true })
+  write(join(thin, '_refs.tsv'), 'Only\tdef\tfunction\tsrc/only.adb:1\tprocedure Only is\n')
+
   // A finished run, made by the program itself, with the transcript that a
   // scripted run does not write put in its record.
   const id = 'exec-fixture1'

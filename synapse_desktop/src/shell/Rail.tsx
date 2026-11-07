@@ -2,6 +2,7 @@ import type { ComponentType, Dispatch } from 'react'
 import {
   DefinitionsIcon,
   ExecutionsIcon,
+  GraphIcon,
   HomeIcon,
   SettingsIcon,
   SidebarIcon,
@@ -36,6 +37,14 @@ export function Rail({ state, dispatch }: { state: ShellState; dispatch: Dispatc
         onClick={() => dispatch({ type: 'openPage', page: { kind: 'home' } })}
       >
         <HomeIcon />
+      </button>
+      <button
+        className="rail-button"
+        aria-label="Code graph"
+        aria-pressed={state.activeId === 'graph'}
+        onClick={() => dispatch({ type: 'openPage', page: { kind: 'graph' } })}
+      >
+        <GraphIcon />
       </button>
       <div className="rail-divider" />
       {SECTIONS.map(({ section, label, icon: Glyph }) => (

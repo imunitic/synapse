@@ -150,12 +150,11 @@ test('a quick action starts a terminal, which then shows as running', async ({ p
   await expect(page.locator('.terminal-host')).toBeVisible()
 })
 
-test('the code graph card says it is not in the app yet and leads to its settings', async ({
-  page,
-}) => {
+test('the code graph card lists the graphs, and a choice opens its search', async ({ page }) => {
   await page.goto('/')
-  const graph = page.getByLabel('Code graph', { exact: true })
-  await expect(graph).toContainText('not part of the app yet')
-  await graph.getByRole('button', { name: 'Open them' }).click()
+  const graph = page.getByRole('region', { name: 'Code graph', exact: true })
+  await expect(graph).toContainText('Search the symbols, files and nodes of 2 graphs')
+  await graph.getByRole('button', { name: 'widget@main' }).click()
   await expect(page.getByRole('heading', { level: 1, name: 'Code graph' })).toBeVisible()
+  await expect(page.getByLabel('Namespace', { exact: true })).toHaveValue('widget@main')
 })

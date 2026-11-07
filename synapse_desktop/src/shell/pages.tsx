@@ -4,6 +4,7 @@ import { useLoad } from './useLoad.ts'
 import { DefinitionEditorPage } from './DefinitionEditorPage.tsx'
 import { DefinitionPage } from './DefinitionPage.tsx'
 import { ExecutionPage } from './ExecutionPage.tsx'
+import { GraphPage } from './GraphPage.tsx'
 import { HomePage } from './HomePage.tsx'
 import { NotePage } from './NotePage.tsx'
 import { PipelinePage } from './PipelinePage.tsx'
@@ -91,6 +92,8 @@ export function PageView({
           onStartTerminal={onStartTerminal}
         />
       )
+    case 'graph':
+      return <GraphPage onOpen={onOpen} />
     case 'note':
       return <NotePage key={page.path} path={page.path} onOpen={onOpen} />
     case 'settings':

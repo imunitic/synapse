@@ -96,6 +96,15 @@
   color: var(--muted);
 }
 
+.subtab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.graph-tabs {
+  padding: 0;
+}
+
 .subtab[aria-pressed='true'] {
   background: var(--raised);
   color: #fff;
@@ -1530,4 +1539,66 @@ div.activity-row {
 .tree-spacer {
   flex: none;
   width: 14px;
+}
+
+/* The code graph */
+.graph-controls {
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.graph-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.grow {
+  flex: 1;
+  min-width: 220px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hits {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hit {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hit-place {
+  flex: none;
+  color: var(--muted);
+}
+
+.hit-expression {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono, ui-monospace, 'SF Mono', Menlo, Consolas, monospace);
+  font-size: 12.5px;
+}
+
+.chip-button {
+  cursor: pointer;
+  font-family: var(--mono, ui-monospace, 'SF Mono', Menlo, Consolas, monospace);
+}
+
+.chip-button:hover {
+  border-color: var(--border-strong);
+  color: #fff;
 }

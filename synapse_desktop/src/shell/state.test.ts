@@ -37,6 +37,19 @@ describe('note pages', () => {
   })
 })
 
+describe('the code graph page', () => {
+  it('is one page, opened once and named', () => {
+    expect(pageId({ kind: 'graph' })).toBe('graph')
+    expect(pageTitle({ kind: 'graph' })).toBe('Code graph')
+    const twice = reduce(reduce(initialState, { type: 'openPage', page: { kind: 'graph' } }), {
+      type: 'openPage',
+      page: { kind: 'graph' },
+    })
+    expect(twice.tabs).toHaveLength(1)
+    expect(twice.activeId).toBe('graph')
+  })
+})
+
 describe('the start', () => {
   it('has the home page open and active, and nothing else', () => {
     expect(startState.tabs).toEqual([{ id: 'home', page: { kind: 'home' } }])

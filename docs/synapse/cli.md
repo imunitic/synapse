@@ -38,7 +38,7 @@ usage: synapse <subcommand> [args]
   config unset <KEY>         remove one setting from that file
   configure <claude|codex|opencode>   install Synapse's hooks, skills and commands for a harness
   status [--format text|json]   what in the vault needs a human decision
-  work-dir [--root | --namespace <repo>@<branch>]   where Synapse keeps its working files
+  work-dir [--root | --list | --namespace <repo>@<branch>]   where Synapse keeps its working files
   vault-read <path>          a note's full body
   vault-write <path>         write a note's full body, from stdin
   vault-list                 every note in the vault, recursively
@@ -226,12 +226,14 @@ synapse-status/v1, every category with its items and their paths.
 ### synapse work-dir
 
 ```
-usage: synapse work-dir [--root | --namespace <repo>@<branch>]
+usage: synapse work-dir [--root | --list | --namespace <repo>@<branch>]
 
 Prints where Synapse keeps its working files: the folder of this repository's
 namespace, or with --namespace that of another, or with --root the directory
 they are folders of. The root is SYNAPSE_WORK_DIR, else .cache/synapse/work in
-the home directory. Nothing is created.
+the home directory. With --list, each namespace that has an index, a reference
+index or a tags cache there: its name, a tab and which of index, refs and tags it
+has. Nothing is created.
 ```
 
 ### synapse vault-read
