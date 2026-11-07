@@ -35,7 +35,7 @@ package body Acceptance.Agent_Pipeline_Tests is
       Unset_Env (F, "SYNAPSE_PIPELINE_RUNNER");
       Unset_Env (F, "SYNAPSE_PIPELINE_SCRIPT");
       Set_Env (F, "SYNAPSE_PIPELINE_PATH", Root (F) & "/defs");
-      Set_Env (F, "SYNAPSE_WORK_DIR", Work (F));
+      Set_Env (F, "SYNAPSE_WORK_DIR", Work_Root (F));
    end Set_Up;
 
    procedure Define (F : Fixture; Name, Text : String) is
@@ -266,7 +266,7 @@ package body Acceptance.Agent_Pipeline_Tests is
             or else Contains (Seen, "cwd:/private" & Repo (F)),
             "in the working directory: " & Seen);
          Assert_Contains
-           (Seen, "work:" & Work (F), "with the work directory it was given");
+           (Seen, "work:" & Work_Root (F), "with the work directory it was given");
          Assert_Contains (Seen, "Do it.", "the step's prompt");
       end;
    end A_Harness_Is_Run_As_A_Program_With_The_Settings_It_Needs;

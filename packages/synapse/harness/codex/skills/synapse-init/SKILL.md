@@ -97,8 +97,10 @@ yours and cannot be scripted because what counts as signal differs per codebase.
   (hash, digest, `## Sources` mirror, PUT), `synapse push-nodes`, `synapse build-index`,
   `synapse build-project-index`.
 
-**The work directory** defaults to `~/.cache/synapse/work/{repo}@{branch}/`, created on demand, and
-holds `manifest.tsv`, `all.txt`, `lists/`, the authored `b-NN.md` bodies and the coverage files. Override with `$SYNAPSE_WORK_DIR` if you need to. Two things never to do: point it
+**The work directory** of the namespace is `~/.cache/synapse/work/{repo}@{branch}/`, created on demand, and
+holds `manifest.tsv`, `all.txt`, `lists/`, the authored `b-NN.md` bodies and the coverage files. `synapse work-dir`
+prints it; set `WORK="$(synapse work-dir)"` once and the commands below use `$WORK`. The folders of every namespace
+are in one root, `~/.cache/synapse/work`, which `$SYNAPSE_WORK_DIR` moves if you need to. Two things never to do: point it
 at the repo (`synapse` runs from inside the repo, so its working files would land in the user's
 checkout) or at the vault (a file list that runs to six figures of lines has no business inside it).
 It is deliberately persistent rather than a temp dir, so a later run finds the previous manifest
@@ -161,7 +163,7 @@ emit into tool calls than read into a window. Never hand-author those.
    `CLAUDE.md`/`README.md` content read in step 2 as a bias on grouping and naming, never as a
    boundary the files themselves don't support.
 
-   Express each cluster as one line in `$SYNAPSE_WORK_DIR/manifest.tsv`:
+   Express each cluster as one line in `$WORK/manifest.tsv`:
 
    ```
    title <TAB> include-ERE <TAB> exclude-ERE
@@ -183,9 +185,9 @@ emit into tool calls than read into a window. Never hand-author those.
    write its summary and found there was nothing to say.
 
    ```
-   synapse vocab --lists "$SYNAPSE_WORK_DIR/lists"   # re-key the vocabulary by CLUSTER
-   synapse gate  --vocab "$SYNAPSE_WORK_DIR/groupwords.tsv" \
-                 --parseable "$SYNAPSE_WORK_DIR/parseable.tsv"
+   synapse vocab --lists "$WORK/lists"   # re-key the vocabulary by CLUSTER
+   synapse gate  --vocab "$WORK/groupwords.tsv" \
+                 --parseable "$WORK/parseable.tsv"
    ```
 
    The second run of `synapse vocab` is not redundant. A cluster is generally *not* a union of
@@ -216,15 +218,15 @@ emit into tool calls than read into a window. Never hand-author those.
 
    ```
    synapse build-refs
-   synapse link-graph --refs "$SYNAPSE_WORK_DIR/_refs.tsv" --lists "$SYNAPSE_WORK_DIR/lists"
+   synapse link-graph --refs "$WORK/_refs.tsv" --lists "$WORK/lists"
    ```
 
-   `build-refs` projects the tags cache into `$SYNAPSE_WORK_DIR/_refs.tsv` — cheap here, since step 3
+   `build-refs` projects the tags cache into `$WORK/_refs.tsv` — cheap here, since step 3
    already left the cache current for every file, so this reads it rather than re-parsing anything.
    `link-graph` joins that against the path lists: a `ref` in one node's file to a name whose `def`
    sits in another node's file is a candidate edge, weighted by how many distinct symbols support
    it that are *rare* — referenced from few enough nodes to be informative, not a generic utility
-   name every node calls into. Writes `$SYNAPSE_WORK_DIR/links.tsv`
+   name every node calls into. Writes `$WORK/links.tsv`
    (`node ⇥ target ⇥ weight ⇥ symbols`), strongest edges first per node.
 
    The edges are fact; `depends_on` and `uses` are both covered by what this computes, and which
@@ -232,7 +234,7 @@ emit into tool calls than read into a window. Never hand-author those.
    `part_of` is containment rather than reference and is never computed here — it stays entirely a
    judgement call.
 7. **Write each node.** Author the prose only — put each node's content in
-   `$SYNAPSE_WORK_DIR/b-NN.md` (matching its `lists/NN.txt`), then run `synapse push-nodes`,
+   `$WORK/b-NN.md` (matching its `lists/NN.txt`), then run `synapse push-nodes`,
    which calls `synapse write-node` per node.
 
    **Do not choose which files to read by judgment, and do not decide how the writing itself
@@ -253,7 +255,7 @@ emit into tool calls than read into a window. Never hand-author those.
    covers *how* nodes get written; this covers *what* one is. Do not re-derive either from an
    existing node: a node you are reading may predate a change to its format.
 8. **Write `_index.bin`** — mechanics, run `synapse build-index`. It emits
-   `$SYNAPSE_WORK_DIR/_index.bin`, mapping every source path used
+   `$WORK/_index.bin`, mapping every source path used
    above to the list of node **filenames, including the `.md` extension** (matching the design
    note's schema exactly, since the file-edit staleness hook and the read-time procedure both use
    this value directly as a vault path with no extension-handling of their own) that claim it, plus

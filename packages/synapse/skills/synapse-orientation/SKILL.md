@@ -19,7 +19,7 @@ tree* well enough to cluster it and then write about it.
 ## Start with the vocabulary — it is mechanical, and it is most of the answer
 
 ```
-synapse vocab                    # writes six tables into $SYNAPSE_WORK_DIR
+synapse vocab                    # writes six tables into the work directory (`synapse work-dir`)
 ```
 
 One command derives what used to be an exploration. It tags every file that has a grammar, splits
@@ -275,7 +275,7 @@ contribute to a node's prose. Do not build a tally out of those warnings.
         as well-formed and still produce zero tags when actually run against a real sample,
         confirmed directly — exactly the gap this verification step exists to catch. Only write to
         the conf file once the improvement is confirmed live, and only there — never
-        `$SYNAPSE_WORK_DIR`. These are facts about a *language*, not this repo, and the whole
+        the work directory. These are facts about a *language*, not this repo, and the whole
         reason these conf files are global and permanent (see step 4 below) is so the next project
         in the same language skips rediscovering it; a repo-scoped copy would throw that away for
         exactly the kind of finding worth keeping. This step is additive only and has a real

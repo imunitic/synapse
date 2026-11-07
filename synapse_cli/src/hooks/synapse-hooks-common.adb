@@ -4,6 +4,7 @@ with Ada.Strings.Fixed;
 with Synapse.Adapters.Conf_Files;
 with Synapse.Adapters.File_Bytes;
 with Synapse.Adapters.Git_Identity;
+with Synapse.Adapters.Work_Dirs;
 with Synapse.Core.Node_Query;
 with Synapse.Ports.Variables;
 
@@ -190,19 +191,13 @@ package body Synapse.Hooks.Common is
    end Resolve_Namespace;
 
    function Work_Dir (Env : Environment; Key : String) return Maybe_Text is
-      Named : constant Maybe_Text := Non_Empty (Env, "SYNAPSE_WORK_DIR");
-      Home  : constant Ports.Variables.Maybe_Value := Env.Vars.Get ("HOME");
+      Where : constant String :=
+        Synapse.Adapters.Work_Dirs.Of_Namespace (Env.Vars.all, Key);
    begin
-      if Named.Found then
-         return Named;
-      elsif Home.Found then
-         return
-           (Found => True,
-            Value =>
-              Home.Value & "/.cache/synapse/work/" &
-              To_Unbounded_String (Key));
+      if Where = "" then
+         return (Found => False);
       end if;
-      return (Found => False);
+      return (Found => True, Value => To_Unbounded_String (Where));
    end Work_Dir;
 
    function Index_Agrees (Index_Text : String; Ns : Namespace) return Boolean

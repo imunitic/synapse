@@ -147,9 +147,13 @@ package Synapse.Pipeline.Commands.Usage is
      & "answer from a file" & LF
      & "  SYNAPSE_PIPELINE_SCRIPT    the file a scripted run answers from"
      & LF
-     & "  SYNAPSE_WORK_DIR           where a run can be inspected from "
-     & "(also given to" & LF
-     & "                             every session)" & LF
+     & "  SYNAPSE_WORK_DIR           where Synapse keeps its working files; "
+     & "runs are" & LF
+     & "                             recorded in pipelines/ under it (default "
+     & LF
+     & "                             ~/.cache/synapse/work, also given to "
+     & "every" & LF
+     & "                             session)" & LF
      & "  SYNAPSE_VAULT_DIR, SYNAPSE_CONTENT_ROOT" & LF
      & "                             given to every session" & LF;
 
@@ -169,7 +173,9 @@ package Synapse.Pipeline.Commands.Usage is
      & "          interrupted when the record says running and nothing "
      & "answers" & LF & LF
      & "Environment:" & LF
-     & "  SYNAPSE_WORK_DIR  the work directory runs are started with" & LF;
+     & "  SYNAPSE_WORK_DIR  the work directory runs are recorded under "
+     & "(default" & LF
+     & "                    ~/.cache/synapse/work)" & LF;
 
    Info_Help : constant String :=
      "usage: synapse-pipeline info <execution-id> [--format json|text] "
@@ -195,7 +201,9 @@ package Synapse.Pipeline.Commands.Usage is
      & "                  from its record; for a run in progress or one that "
      & "is over" & LF & LF
      & "Environment:" & LF
-     & "  SYNAPSE_WORK_DIR  the work directory the run was started with" & LF;
+     & "  SYNAPSE_WORK_DIR  the work directory the run was recorded under "
+     & "(default" & LF
+     & "                    ~/.cache/synapse/work)" & LF;
 
    Cleanup_Help : constant String :=
      "usage: synapse-pipeline cleanup [--older-than <duration>] [--dry-run] "
@@ -217,8 +225,9 @@ package Synapse.Pipeline.Commands.Usage is
      & "interrupted is still" & LF
      & "                           kept until it is old enough" & LF & LF
      & "Environment:" & LF
-     & "  SYNAPSE_WORK_DIR  the work directory the runs were started with"
-     & LF;
+     & "  SYNAPSE_WORK_DIR  the work directory the runs were recorded under "
+     & "(default" & LF
+     & "                    ~/.cache/synapse/work)" & LF;
 
    Configure_Help : constant String :=
      "usage: synapse-pipeline configure <claude|codex|opencode>" & LF & LF

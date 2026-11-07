@@ -253,7 +253,7 @@ package body Acceptance.Legacy_Commands_Tests is
       F : Fixture;
    begin
       Make_Repo (F, "ssh://git@example.com/x/proj.git");
-      Set_Env (F, "SYNAPSE_WORK_DIR", Work (F));
+      Set_Env (F, "SYNAPSE_WORK_DIR", Work_Root (F));
       Write_Work_File (F, "lists/01.title", "Query API" & LF);
       Write_Work_File (F, "lists/01.txt", "src/foo.aa" & LF);
       Stage_Node (F, "Query API", "Conditions and validation.");

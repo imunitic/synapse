@@ -27,7 +27,7 @@ package Synapse.Core.Settings is
       Environment : Boolean;
    end record;
 
-   Count : constant := 8;
+   Count : constant := 9;
 
    subtype Index is Positive range 1 .. Count;
 

@@ -1,4 +1,5 @@
 with Synapse.Adapters.Conf_Files;
+with Synapse.Adapters.Work_Dirs;
 with Synapse.Pipeline.Durations;
 
 package body Synapse.Pipeline.Configs is
@@ -109,7 +110,13 @@ package body Synapse.Pipeline.Configs is
       end;
 
       Capture (Vault_Dir_Key);
-      Capture (Work_Dir_Key);
+      declare
+         Root : constant String := Synapse.Adapters.Work_Dirs.Root (V);
+      begin
+         if Root /= "" then
+            Result.Environment.Include (Work_Dir_Key, Root);
+         end if;
+      end;
       Capture (Content_Root_Key);
       return Config_Results.Success (Result);
    end Resolve;

@@ -261,6 +261,26 @@ package body Synapse.Pipeline.Commands.Run.Tests is
          "with the run's output as it always is");
    end A_Run_Is_Offered_To_Introspection;
 
+   procedure A_Run_With_Only_A_Home_Is_Recorded_In_The_Default_Root
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F, Round_Once);
+      F.Base.Vars.Set ("HOME", "/home/u");
+      Assert (Run (Env (F), Args ("Dev")) = 0, "it completes");
+      Assert
+        (To_String (F.Registry.Work) = "/home/u/.cache/synapse/work",
+         "it is recorded under the default root: "
+         & To_String (F.Registry.Work));
+      Assert
+        (Has
+           (To_String (F.Inspector.Endpoint),
+            "/home/u/.cache/synapse/work/pipelines/exec-"),
+         "and listens where the transport puts a run there");
+   end A_Run_With_Only_A_Home_Is_Recorded_In_The_Default_Root;
+
    procedure A_Run_Is_Recorded_In_The_Registry (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       F : aliased Fixture;
@@ -581,6 +601,9 @@ package body Synapse.Pipeline.Commands.Run.Tests is
       Register_Routine
         (T, The_Input_Is_Read_From_A_File_Or_Standard_Input'Access,
          "The input is read from a file or standard input");
+      Register_Routine
+        (T, A_Run_With_Only_A_Home_Is_Recorded_In_The_Default_Root'Access,
+         "A run with only a home is recorded in the default root");
       Register_Routine
         (T, A_Run_Is_Offered_To_Introspection'Access,
          "A run is offered to introspection");

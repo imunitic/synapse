@@ -29,7 +29,7 @@ package body Synapse.Commands.Declared is
       (if Which = Dependencies then "build-deps" else "build-namespaces") &
       " [--repo <path>] [--out <path>]" & LF & LF &
       "  --repo   the checkout to scan. Default: the one containing $PWD." &
-      LF & "  --out    where to write the index. Default $SYNAPSE_WORK_DIR/" &
+      LF & "  --out    where to write the index. Default <work dir>/" &
       (if Which = Dependencies then "_deps.tsv." else "_namespaces.tsv.") &
       LF);
 

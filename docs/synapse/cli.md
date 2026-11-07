@@ -38,6 +38,7 @@ usage: synapse <subcommand> [args]
   config unset <KEY>         remove one setting from that file
   configure <claude|codex|opencode>   install Synapse's hooks, skills and commands for a harness
   status [--format text|json]   what in the vault needs a human decision
+  work-dir [--root | --namespace <repo>@<branch>]   where Synapse keeps its working files
   vault-read <path>          a note's full body
   vault-write <path>         write a note's full body, from stdin
   vault-list                 every note in the vault, recursively
@@ -222,6 +223,17 @@ and tasks/ are looked at, and nothing is written. --format json gives
 synapse-status/v1, every category with its items and their paths.
 ```
 
+### synapse work-dir
+
+```
+usage: synapse work-dir [--root | --namespace <repo>@<branch>]
+
+Prints where Synapse keeps its working files: the folder of this repository's
+namespace, or with --namespace that of another, or with --root the directory
+they are folders of. The root is SYNAPSE_WORK_DIR, else .cache/synapse/work in
+the home directory. Nothing is created.
+```
+
 ### synapse vault-read
 
 ```
@@ -370,8 +382,8 @@ usage: synapse vault-delete <path>
 ```
 usage: synapse build-refs [--cache <path>] [--out <path>]
 
-  --cache  the tags cache to project. Default $SYNAPSE_WORK_DIR/_tags_cache.bin.
-  --out    where to write the index. Default $SYNAPSE_WORK_DIR/_refs.tsv.
+  --cache  the tags cache to project. Default <work dir>/_tags_cache.bin.
+  --out    where to write the index. Default <work dir>/_refs.tsv.
 ```
 
 ### synapse build-deps
@@ -380,7 +392,7 @@ usage: synapse build-refs [--cache <path>] [--out <path>]
 usage: synapse build-deps [--repo <path>] [--out <path>]
 
   --repo   the checkout to scan. Default: the one containing $PWD.
-  --out    where to write the index. Default $SYNAPSE_WORK_DIR/_deps.tsv.
+  --out    where to write the index. Default <work dir>/_deps.tsv.
 ```
 
 ### synapse build-namespaces
@@ -389,7 +401,7 @@ usage: synapse build-deps [--repo <path>] [--out <path>]
 usage: synapse build-namespaces [--repo <path>] [--out <path>]
 
   --repo   the checkout to scan. Default: the one containing $PWD.
-  --out    where to write the index. Default $SYNAPSE_WORK_DIR/_namespaces.tsv.
+  --out    where to write the index. Default <work dir>/_namespaces.tsv.
 ```
 
 ### synapse callers
@@ -423,14 +435,14 @@ usage: synapse gate --vocab <groupwords.tsv> [--parseable <parseable.tsv>] [--al
 usage: synapse link-graph --refs <_refs.tsv> --lists <dir> [--deps <f>] [--namespaces <f>]
                           [--top N] [--out <dir>]
 
-  --refs        synapse build-refs's index. Default $SYNAPSE_WORK_DIR/_refs.tsv.
+  --refs        synapse build-refs's index. Default <work dir>/_refs.tsv.
   --lists       the NN.txt/NN.title path lists synapse build-lists wrote.
-  --deps        synapse build-deps's index. Default $SYNAPSE_WORK_DIR/_deps.tsv,
+  --deps        synapse build-deps's index. Default <work dir>/_deps.tsv,
                 skipped silently if absent.
   --namespaces  synapse build-namespaces's index. Default
-                $SYNAPSE_WORK_DIR/_namespaces.tsv, skipped silently if absent.
+                <work dir>/_namespaces.tsv, skipped silently if absent.
   --top         edges kept per node, strongest first, default 8. 0 means no cap.
-  --out         where to write links.tsv. Default $SYNAPSE_WORK_DIR.
+  --out         where to write links.tsv. Default <work dir>.
 ```
 
 ### synapse brief
@@ -440,10 +452,10 @@ usage: synapse brief --lists <dir> [--rank <dir>] [--links <file>] [--repo <path
 
   --lists  the NN.txt/NN.title path lists synapse build-lists wrote.
   --rank   where synapse rank --lists wrote NN.summary.tsv/NN.crux.tsv.
-           Default $SYNAPSE_WORK_DIR/rank.
-  --links  synapse link-graph's output. Default $SYNAPSE_WORK_DIR/links.tsv.
+           Default <work dir>/rank.
+  --links  synapse link-graph's output. Default <work dir>/links.tsv.
            A missing file warns and leaves every node's edges empty.
-  --out    where to write brief/NN.md. Default $SYNAPSE_WORK_DIR.
+  --out    where to write brief/NN.md. Default <work dir>.
 ```
 
 ### synapse push-nodes
@@ -667,8 +679,10 @@ Environment:
   SYNAPSE_PIPELINE_MAX_STEPS the most steps a run may take (default 50)
   SYNAPSE_PIPELINE_RUNNER    process (default), or scripted to answer from a file
   SYNAPSE_PIPELINE_SCRIPT    the file a scripted run answers from
-  SYNAPSE_WORK_DIR           where a run can be inspected from (also given to
-                             every session)
+  SYNAPSE_WORK_DIR           where Synapse keeps its working files; runs are
+                             recorded in pipelines/ under it (default 
+                             ~/.cache/synapse/work, also given to every
+                             session)
   SYNAPSE_VAULT_DIR, SYNAPSE_CONTENT_ROOT
                              given to every session
 ```
@@ -688,7 +702,8 @@ there is none.
           interrupted when the record says running and nothing answers
 
 Environment:
-  SYNAPSE_WORK_DIR  the work directory runs are started with
+  SYNAPSE_WORK_DIR  the work directory runs are recorded under (default
+                    ~/.cache/synapse/work)
 ```
 
 ### synapse-pipeline info
@@ -710,7 +725,8 @@ Nothing can be started, stopped or changed this way.
                   from its record; for a run in progress or one that is over
 
 Environment:
-  SYNAPSE_WORK_DIR  the work directory the run was started with
+  SYNAPSE_WORK_DIR  the work directory the run was recorded under (default
+                    ~/.cache/synapse/work)
 ```
 
 ### synapse-pipeline cleanup
@@ -730,7 +746,8 @@ write is older than the age given, 30 days when none is.
                            kept until it is old enough
 
 Environment:
-  SYNAPSE_WORK_DIR  the work directory the runs were started with
+  SYNAPSE_WORK_DIR  the work directory the runs were recorded under (default
+                    ~/.cache/synapse/work)
 ```
 
 ### synapse-pipeline configure

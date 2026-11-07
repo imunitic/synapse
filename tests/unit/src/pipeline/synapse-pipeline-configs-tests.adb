@@ -133,6 +133,26 @@ package body Synapse.Pipeline.Configs.Tests is
         (V, "SYNAPSE_PIPELINE_HARNESS is 'Cluade'", "a default harness");
    end A_Variable_That_Is_Wrong_Is_Said_To_Be;
 
+   procedure The_Work_Directory_Has_A_Default_Under_The_Home
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      V : Synapse.Adapters.Fake_Variables.Fake_Variables;
+   begin
+      Assert
+        (not Resolved_From (V).Environment.Contains (Work_Dir_Key),
+         "no home and no variable: no work directory");
+      V.Set ("HOME", "/home/u");
+      Assert
+        (Resolved_From (V).Environment.Element (Work_Dir_Key) =
+         "/home/u/.cache/synapse/work",
+         "the root under the home, which sessions are given");
+      V.Set ("SYNAPSE_WORK_DIR", "/named");
+      Assert
+        (Resolved_From (V).Environment.Element (Work_Dir_Key) = "/named",
+         "a variable is the root when there is one");
+   end The_Work_Directory_Has_A_Default_Under_The_Home;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -152,6 +172,9 @@ package body Synapse.Pipeline.Configs.Tests is
       Register_Routine
         (T, A_Variable_That_Is_Wrong_Is_Said_To_Be'Access,
          "A variable that is wrong is said to be");
+      Register_Routine
+        (T, The_Work_Directory_Has_A_Default_Under_The_Home'Access,
+         "The work directory has a default under the home");
    end Register_Tests;
 
 end Synapse.Pipeline.Configs.Tests;

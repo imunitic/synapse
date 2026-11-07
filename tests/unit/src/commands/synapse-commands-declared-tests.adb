@@ -41,7 +41,7 @@ package body Synapse.Commands.Declared.Tests is
    end Sample;
 
    function Out_Path (Dir : Scratch) return String is
-     (Path (Dir, "work/out.tsv"));
+     (Path (Dir, Synapse.Test_Repo.Work_Rel & "/out.tsv"));
 
    procedure Build_Deps_Writes_An_Edge_For_Each_Declared_Dependency
      (T : in out Test_Cases_Class)
@@ -87,7 +87,7 @@ package body Synapse.Commands.Declared.Tests is
       Sample (Dir);
       Assert (Run_Deps (Env (F), Args ("--repo", Repo (Dir))) = 0, "success");
       Assert
-        (Ada.Directories.Exists (Path (Dir, "work/_deps.tsv")),
+        (Ada.Directories.Exists (Path (Dir, Synapse.Test_Repo.Work_Rel & "/_deps.tsv")),
          "written there");
       Remove (Dir);
    exception

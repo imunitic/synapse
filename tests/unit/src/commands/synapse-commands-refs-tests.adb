@@ -1,3 +1,4 @@
+with Synapse.Test_Repo;
 with Ada.Directories;
 with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
@@ -43,12 +44,13 @@ package body Synapse.Commands.Refs.Tests is
       Tags : Synapse.Core.Tag_Payload.Tag_Vectors.Vector;
    begin
       F.Vars.Set ("HOME", Path (Dir, "home"));
-      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, "work"));
+      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, Synapse.Test_Repo.Root_Rel));
+      F.Vars.Set ("SYNAPSE_NAMESPACE", Synapse.Test_Repo.Namespace);
       Put_Config
         (Dir, "synapse-grammars.conf",
          "{""ext"": {""repo"": ""u"", ""scope"": ""s""}}");
       Ada.Directories.Create_Path (Path (Dir, "repo"));
-      Ada.Directories.Create_Path (Path (Dir, "work"));
+      Ada.Directories.Create_Path (Path (Dir, Synapse.Test_Repo.Work_Rel));
       Synapse.Adapters.File_Bytes.Write
         (Path (Dir, "paths.tsv"),
          "a.ext" & HT & Hash_A & LF & "b.ext" & HT & Hash_A & LF & "c.none" &
@@ -74,7 +76,7 @@ package body Synapse.Commands.Refs.Tests is
            (Env (F),
             Args
               ("--repo-root", Path (Dir, "repo"), "--cache",
-               Path (Dir, "work/_tags_cache.bin"), "--paths",
+               Path (Dir, Synapse.Test_Repo.Work_Rel & "/_tags_cache.bin"), "--paths",
                Path (Dir, "paths.tsv"))) =
          0,
          "the cache is built: " & F.Console.Err_Text);
@@ -94,7 +96,7 @@ package body Synapse.Commands.Refs.Tests is
       Build_Everything (F, Dir);
       Assert
         (Synapse.Adapters.File_Bytes.Read
-           (Path (Dir, "work/_refs.tsv"), 100_000) =
+           (Path (Dir, Synapse.Test_Repo.Work_Rel & "/_refs.tsv"), 100_000) =
          "run" & HT & "def" & HT & "function" & HT & "a.ext:1" & HT & "run()" &
          LF & "run" & HT & "ref" & HT & "call" & HT & "a.ext:5" & HT &
          "run()" & LF & "run" & HT & "ref" & HT & "call" & HT & "b.ext:2" &
@@ -106,7 +108,7 @@ package body Synapse.Commands.Refs.Tests is
       Assert
         (F.Console.Err_Text =
          "synapse-build-refs: 5 tags (2 def, 3 ref) over 2 files, 1 unsupported -> " &
-         Path (Dir, "work/_refs.tsv") & LF,
+         Path (Dir, Synapse.Test_Repo.Work_Rel & "/_refs.tsv") & LF,
          "the report: " & F.Console.Err_Text);
       Assert (F.Console.Out_Text = "", "on standard error only");
       Remove (Dir);
@@ -130,7 +132,7 @@ package body Synapse.Commands.Refs.Tests is
         (Run_Build
            (Env (F),
             Args
-              ("--cache", Path (Dir, "work/_tags_cache.bin"), "--out",
+              ("--cache", Path (Dir, Synapse.Test_Repo.Work_Rel & "/_tags_cache.bin"), "--out",
                Path (Dir, "x.tsv"))) =
          0,
          "success: " & F.Console.Err_Text);
@@ -153,13 +155,13 @@ package body Synapse.Commands.Refs.Tests is
       Cache (F, Dir);
       Assert (Run_Build (Env (F), Args) = 1, "none");
       Synapse.Adapters.File_Bytes.Write
-        (Path (Dir, "work/_tags_cache.bin"), [1 .. 100 => 'x']);
+        (Path (Dir, Synapse.Test_Repo.Work_Rel & "/_tags_cache.bin"), [1 .. 100 => 'x']);
       F.Console.Clear;
       Assert (Run_Build (Env (F), Args) = 1, "unreadable");
       Assert
         (F.Console.Err_Text =
          "synapse-build-refs: unreadable cache: " &
-         Path (Dir, "work/_tags_cache.bin") & LF,
+         Path (Dir, Synapse.Test_Repo.Work_Rel & "/_tags_cache.bin") & LF,
          "the message");
       F.Vars.Set ("HOME", "");
       F.Vars.Set ("SYNAPSE_WORK_DIR", "");
@@ -266,13 +268,13 @@ package body Synapse.Commands.Refs.Tests is
       F.Vars.Set ("SYNAPSE_WORK_DIR", "");
       Assert
         (Run_Callers
-           (Env (F), Args ("run", "--refs", Path (Dir, "work/_refs.tsv"))) =
+           (Env (F), Args ("run", "--refs", Path (Dir, Synapse.Test_Repo.Work_Rel & "/_refs.tsv"))) =
          0,
          "by file");
       F.Console.Clear;
       Ada.Directories.Create_Path (Path (Dir, "home/.cache/synapse/work/w@m"));
       Ada.Directories.Copy_File
-        (Path (Dir, "work/_refs.tsv"),
+        (Path (Dir, Synapse.Test_Repo.Work_Rel & "/_refs.tsv"),
          Path (Dir, "home/.cache/synapse/work/w@m/_refs.tsv"));
       Assert
         (Run_Callers (Env (F), Args ("run", "--namespace", "w@m")) = 0,
@@ -299,7 +301,7 @@ package body Synapse.Commands.Refs.Tests is
       Assert
         (F.Console.Err_Text =
          "synapse-callers: no reference index at " &
-         Path (Dir, "work/_refs.tsv") & " -- run `synapse build-refs`" & LF,
+         Path (Dir, Synapse.Test_Repo.Work_Rel & "/_refs.tsv") & " -- run `synapse build-refs`" & LF,
          "the message: " & F.Console.Err_Text);
       Remove (Dir);
    exception

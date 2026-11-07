@@ -64,7 +64,7 @@ echo '{"task": "add a --verbose flag"}' | synapse-pipeline run Develop_Feature -
 `run` prints one line per step to standard error as it finishes, and the last step's result as JSON to
 standard output. `--id <execution-id>` gives the run its id, of 1 to 64 letters, digits, `_` and `-`, instead of
 one drawn, so a caller knows it before the run begins: `info <execution-id>` and the record's directory are
-named by it. It needs a work directory, and an id that is taken is an error, not replaced by another:
+named by it. It needs a work directory, which there is unless there is no home directory either, and an id that is taken is an error, not replaced by another:
 
 ```
 step Develop: Done -> Review
@@ -114,7 +114,7 @@ Everything is read from the environment when a run starts.
 | `SYNAPSE_PIPELINE_MAX_STEPS` | The most steps one run may take. | `50` |
 | `SYNAPSE_PIPELINE_RUNNER` | `process` runs the harnesses; `scripted` answers from a file. | `process` |
 | `SYNAPSE_PIPELINE_SCRIPT` | The file a scripted run answers from. | |
-| `SYNAPSE_WORK_DIR` | Where a running pipeline can be inspected from. Also given to every session. | |
+| `SYNAPSE_WORK_DIR` | The root of Synapse's working files: runs are recorded in `pipelines/` under it, and the code graph keeps a folder in it for each namespace. Also given to every session. | `~/.cache/synapse/work` |
 | `SYNAPSE_VAULT_DIR`, `SYNAPSE_CONTENT_ROOT` | Given to every session, so that it works in the same vault. | |
 
 `run` rejects a value that is wrong before it does anything, and says which variable it came from. Each of
@@ -246,9 +246,11 @@ shows), its state under `state` and its events under `events`. A `var` path goes
 not into a list.
 
 The run listens on a Unix domain socket at `$SYNAPSE_WORK_DIR/pipelines/<execution-id>/execution.sock`, in
-the directory of its record, which only the user can enter, and removes the socket when it ends. A run without a work directory, or
-whose socket cannot be made, is not inspectable and goes on exactly as it would have; the second case
-is reported with one warning line when it starts. On Windows the run listens on a named pipe instead; see
+the directory of its record, which only the user can enter, and removes the socket when it ends. A run with no
+work directory, which only happens with no home directory to hold the default, or whose socket cannot be made, is not
+inspectable and goes on exactly as it would have; the second case is reported with one warning line when it
+starts. The default work directory adds about 60 characters to the socket's path, so a home directory with a very long path can make
+it too long for a Unix socket; set `SYNAPSE_WORK_DIR` to a short one then. On Windows the run listens on a named pipe instead; see
 Platforms.
 
 ### The record of a run

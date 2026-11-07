@@ -1,3 +1,4 @@
+with Synapse.Test_Repo;
 with Ada.Directories;
 with GNAT.OS_Lib;
 
@@ -69,7 +70,7 @@ package body Synapse.Adapters.Index_Map.Tests is
    is
       pragma Unreferenced (T);
       Dir : constant Scratch := Make;
-      P   : constant String  := Path (Dir, "work/_index.bin");
+      P   : constant String  := Path (Dir, Synapse.Test_Repo.Work_Rel & "/_index.bin");
       M   : Map;
    begin
       Write_File (P, Sample_Bytes);

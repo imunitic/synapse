@@ -17,7 +17,7 @@ refuses to break, that is deliberate and the script is the authority; this descr
 a reader knows what to produce, not so anyone hand-builds one.
 
 Author the prose only — put each node's content in
-`$SYNAPSE_WORK_DIR/b-NN.md` (matching its `lists/NN.txt`), then run `synapse push-nodes`,
+`b-NN.md` in the work directory (`synapse work-dir`) (matching its `lists/NN.txt`), then run `synapse push-nodes`,
 which calls `synapse write-node` per node. The contract below is what that writer implements
 and what `synapse query stale` verifies; it is specified here because the two must agree
 exactly, not because you should hand-build the file. A node lands at

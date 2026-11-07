@@ -33,7 +33,8 @@ package body Synapse.Commands.Doctor.Tests is
    procedure Setup (F : aliased in out Fixture; Dir : Scratch) is
    begin
       Use_Vault (F, Dir);
-      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, "work"));
+      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, Synapse.Test_Repo.Root_Rel));
+      F.Vars.Set ("SYNAPSE_NAMESPACE", Synapse.Test_Repo.Namespace);
       Put_Config
         (Dir, "synapse.conf",
          "SYNAPSE_VAULT_DIR=""" & Path (Dir, "vault") & """" & LF);
@@ -104,7 +105,7 @@ package body Synapse.Commands.Doctor.Tests is
         (Run (Env (F), Args ("--repo", Repo (Dir))) = 1,
          "no hooks is a failure");
       Assert
-        (Has (Report (F), "warn  work dir       " & Path (Dir, "work") & LF),
+        (Has (Report (F), "warn  work dir       " & Path (Dir, Synapse.Test_Repo.Work_Rel) & LF),
          "work dir: " & Report (F));
       Assert
         (Has
@@ -143,27 +144,27 @@ package body Synapse.Commands.Doctor.Tests is
       F   : aliased Fixture;
    begin
       Setup (F, Dir);
-      Ada.Directories.Create_Path (Path (Dir, "work"));
+      Ada.Directories.Create_Path (Path (Dir, Synapse.Test_Repo.Work_Rel));
       Synapse.Adapters.File_Bytes.Write
-        (Path (Dir, "work/_tags_cache.bin"), "x");
-      Synapse.Adapters.File_Bytes.Write (Path (Dir, "work/_refs.tsv"), "x");
+        (Path (Dir, Synapse.Test_Repo.Work_Rel & "/_tags_cache.bin"), "x");
+      Synapse.Adapters.File_Bytes.Write (Path (Dir, Synapse.Test_Repo.Work_Rel & "/_refs.tsv"), "x");
       Synapse.Adapters.File_Bytes.Write
-        (Path (Dir, "work/_index.bin"), "junk");
+        (Path (Dir, Synapse.Test_Repo.Work_Rel & "/_index.bin"), "junk");
       Assert
         (Run (Env (F), Args ("--repo", Repo (Dir))) = 1,
          "a damaged index fails");
       Assert
-        (Has (Report (F), "ok    work dir       " & Path (Dir, "work") & LF),
+        (Has (Report (F), "ok    work dir       " & Path (Dir, Synapse.Test_Repo.Work_Rel) & LF),
          "work dir");
       Assert
         (Has
            (Report (F),
-            "ok    tags cache     " & Path (Dir, "work/_tags_cache.bin") & LF),
+            "ok    tags cache     " & Path (Dir, Synapse.Test_Repo.Work_Rel & "/_tags_cache.bin") & LF),
          "tags");
       Assert
         (Has
            (Report (F),
-            "ok    code cache     " & Path (Dir, "work/_refs.tsv") & LF),
+            "ok    code cache     " & Path (Dir, Synapse.Test_Repo.Work_Rel & "/_refs.tsv") & LF),
          "refs");
       Assert
         (Has (Report (F), "FAIL  reverse index  discarded ("),

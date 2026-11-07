@@ -470,14 +470,10 @@ package body Synapse.Commands.Rank is
 
       --  Where `vocab` left the cache.
       declare
-         Work_Dir   : Unbounded_String;
-         Configured : constant Ports.Variables.Maybe_Value :=
-           Env.Vars.Get ("SYNAPSE_WORK_DIR");
+         Work_Dir : Unbounded_String;
       begin
          if Opts.Has_Out then
             Work_Dir := Opts.Out_Dir;
-         elsif Configured.Found then
-            Work_Dir := Configured.Value;
          else
             declare
                Derived : constant Support.Maybe_Path :=
@@ -486,8 +482,6 @@ package body Synapse.Commands.Rank is
                     (if Opts.Has_Repo then To_String (Opts.Repo) else "."));
             begin
                if not Derived.Found then
-                  Complain
-                    (Env, Prog & ": no --out and no SYNAPSE_WORK_DIR" & LF);
                   return 1;
                end if;
                Work_Dir := Derived.Value;

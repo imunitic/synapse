@@ -35,6 +35,10 @@ package Acceptance.Fixtures is
    function Root (F : Fixture) return String;
    function Repo (F : Fixture) return String;
    function Vault (F : Fixture) return String;
+   --  The work directory root, which SYNAPSE_WORK_DIR names, and the folder of
+   --  the repository's namespace in it, where the commands keep their files.
+   function Work_Root (F : Fixture) return String;
+
    function Work (F : Fixture) return String;
    function Home (F : Fixture) return String;
 

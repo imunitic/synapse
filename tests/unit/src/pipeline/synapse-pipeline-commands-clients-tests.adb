@@ -103,6 +103,23 @@ package body Synapse.Pipeline.Commands.Clients.Tests is
          "and says nothing");
    end With_No_Runs_There_Is_Nothing_To_Print;
 
+   procedure The_Home_Gives_A_Work_Directory_To_Look_In
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      F.Base.Vars.Set ("HOME", "/home/u");
+      Assert
+        (List.Run (Env (F), Args ("--all")) = 0,
+         "list succeeds with only a home");
+      Assert
+        (To_String (F.Registry.Work) = "/home/u/.cache/synapse/work",
+         "it looked in the default work directory: "
+         & To_String (F.Registry.Work));
+      Assert (F.Base.Console.Err_Text = "", "and found nothing to complain of");
+   end The_Home_Gives_A_Work_Directory_To_Look_In;
+
    procedure Without_A_Work_Directory_There_Is_Nowhere_To_Look
      (T : in out Test_Cases_Class)
    is
@@ -400,6 +417,9 @@ package body Synapse.Pipeline.Commands.Clients.Tests is
       Register_Routine
         (T, With_No_Runs_There_Is_Nothing_To_Print'Access,
          "With no runs there is nothing to print");
+      Register_Routine
+        (T, The_Home_Gives_A_Work_Directory_To_Look_In'Access,
+         "The home gives a work directory to look in");
       Register_Routine
         (T, Without_A_Work_Directory_There_Is_Nowhere_To_Look'Access,
          "Without a work directory there is nowhere to look");

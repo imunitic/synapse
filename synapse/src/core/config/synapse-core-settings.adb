@@ -13,6 +13,7 @@ package body Synapse.Core.Settings is
    Author_Pool_Name       : aliased constant String := "SYNAPSE_AUTHOR_POOL";
    Staleness_Name         : aliased constant String :=
      "SYNAPSE_DOCSTRING_STALENESS_DETECTION";
+   Work_Dir_Name          : aliased constant String := "SYNAPSE_WORK_DIR";
 
    Vault_Dir_Text         : aliased constant String :=
      "The vault: the folder of notes that Synapse reads and writes.";
@@ -38,12 +39,18 @@ package body Synapse.Core.Settings is
      "Detect stale docstrings at edit time and in comments-check and " &
      "comments-sweep. Any non-empty value turns it on.";
 
+   Work_Dir_Text          : aliased constant String :=
+     "Where Synapse keeps its working files: the code graph has a folder in " &
+     "it for each namespace, and synapse-pipeline records its runs in " &
+     "pipelines/ under it.";
+
    No_Default             : aliased constant String := "";
    Grammars_Default       : aliased constant String :=
      "~/.cache/synapse/grammars";
    Lock_Tries_Default     : aliased constant String := "300";
    Push_Every_Default     : aliased constant String := "5";
    Author_Pool_Default    : aliased constant String := "0";
+   Work_Dir_Default       : aliased constant String := "~/.cache/synapse/work";
 
    All_Settings : constant array (Index) of Setting :=
      [(Vault_Dir_Name'Access, Vault_Dir_Text'Access, No_Default'Access,
@@ -61,7 +68,9 @@ package body Synapse.Core.Settings is
       (Author_Pool_Name'Access, Author_Pool_Text'Access,
        Author_Pool_Default'Access, Number_Kind, False, False),
       (Staleness_Name'Access, Staleness_Text'Access, No_Default'Access,
-       Toggle_Kind, False, True)];
+       Toggle_Kind, False, True),
+      (Work_Dir_Name'Access, Work_Dir_Text'Access, Work_Dir_Default'Access,
+       Path_Kind, False, True)];
 
    function Item (I : Index) return Setting is (All_Settings (I));
 

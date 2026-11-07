@@ -23,9 +23,9 @@ package body Synapse.Commands.Build_Lists.Tests is
 
    procedure Manifest (Dir : Scratch; Text : String) is
    begin
-      Ada.Directories.Create_Path (Path (Dir, "work"));
+      Ada.Directories.Create_Path (Path (Dir, Synapse.Test_Repo.Work_Rel));
       Synapse.Adapters.File_Bytes.Write
-        (Path (Dir, "work/manifest.tsv"), Text);
+        (Path (Dir, Synapse.Test_Repo.Work_Rel & "/manifest.tsv"), Text);
    end Manifest;
 
    procedure Sample_Repo (Dir : Scratch) is
@@ -176,13 +176,13 @@ package body Synapse.Commands.Build_Lists.Tests is
    begin
       Use_Work (F, Dir);
       Sample_Repo (Dir);
-      Ada.Directories.Create_Path (Path (Dir, "work/lists"));
+      Ada.Directories.Create_Path (Path (Dir, Synapse.Test_Repo.Work_Rel & "/lists"));
       Synapse.Adapters.File_Bytes.Write
-        (Path (Dir, "work/lists/009.txt"), "stale");
+        (Path (Dir, Synapse.Test_Repo.Work_Rel & "/lists/009.txt"), "stale");
       Manifest (Dir, "Core" & HT & "^src/a/" & HT & LF);
       Assert (Build (Env (F), Repo (Dir), False) = 0, "success");
       Assert
-        (not Ada.Directories.Exists (Path (Dir, "work/lists/009.txt")),
+        (not Ada.Directories.Exists (Path (Dir, Synapse.Test_Repo.Work_Rel & "/lists/009.txt")),
          "no stale list");
       Remove (Dir);
    exception
@@ -203,7 +203,7 @@ package body Synapse.Commands.Build_Lists.Tests is
       Assert (Build (Env (F), Repo (Dir), False) = 1, "code 1");
       Assert
         (F.Console.Err_Text =
-         "synapse-build-lists: no manifest.tsv in " & Path (Dir, "work") & LF,
+         "synapse-build-lists: no manifest.tsv in " & Path (Dir, Synapse.Test_Repo.Work_Rel) & LF,
          "the message: " & F.Console.Err_Text);
       Assert (F.Console.Out_Text = "", "nothing enumerated");
       Remove (Dir);
@@ -258,10 +258,10 @@ package body Synapse.Commands.Build_Lists.Tests is
          0,
          "the message");
       Assert
-        (Ada.Directories.Exists (Path (Dir, "work/lists/200.txt")),
+        (Ada.Directories.Exists (Path (Dir, Synapse.Test_Repo.Work_Rel & "/lists/200.txt")),
          "200 were written");
       Assert
-        (not Ada.Directories.Exists (Path (Dir, "work/lists/201.txt")),
+        (not Ada.Directories.Exists (Path (Dir, Synapse.Test_Repo.Work_Rel & "/lists/201.txt")),
          "not the 201st");
       Remove (Dir);
    exception

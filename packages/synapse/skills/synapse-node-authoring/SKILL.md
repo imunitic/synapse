@@ -56,13 +56,14 @@ Author every node yourself, one after another, in the same session — cross-nod
 intact, no subagent, no brief file needed. For each node, in list order:
 
 ```sh
-synapse rank --sources "$SYNAPSE_WORK_DIR/lists/NN.txt" --pool summary
-synapse rank --sources "$SYNAPSE_WORK_DIR/lists/NN.txt" --pool crux
-awk -F'\t' '$1 == "{Node Title}"' "$SYNAPSE_WORK_DIR/links.tsv"
+WORK="$(synapse work-dir)"   # the namespace's work directory
+synapse rank --sources "$WORK/lists/NN.txt" --pool summary
+synapse rank --sources "$WORK/lists/NN.txt" --pool crux
+awk -F'\t' '$1 == "{Node Title}"' "$WORK/links.tsv"
 ```
 
 Read the top few files each pool names, read this node's link rows for `## Links`
-candidates, then write `$SYNAPSE_WORK_DIR/b-NN.md` yourself, following the
+candidates, then write `$WORK/b-NN.md` yourself, following the
 `synapse-node-format` contract. This is the whole procedure — no dispatch, no verification
 step beyond what you'd naturally do writing anything else.
 
@@ -76,14 +77,14 @@ at pool 1, can offer. Fan-out is opt-in, not assumed.
 ### 3a. Compute the briefs, once
 
 ```sh
-synapse rank --lists "$SYNAPSE_WORK_DIR/lists"
-synapse brief --lists "$SYNAPSE_WORK_DIR/lists"
+synapse rank --lists "$WORK/lists"
+synapse brief --lists "$WORK/lists"
 ```
 
 `build-refs` + `link-graph` should already have run by this point in `/synapse-init` (its own
 step 6) regardless of pool size; `rank --lists` has not, since §2 uses `rank --sources`
 instead and only this branch needs the batched form. `brief` reshapes both into one file per
-node — it computes nothing itself. Writes `$SYNAPSE_WORK_DIR/brief/NN.md` per node: the
+node — it computes nothing itself. Writes `$WORK/brief/NN.md` per node: the
 node's title, its source list's path and count, both ranked pools verbatim, its own rows from
 `links.tsv`, and every node's title in the namespace (for judging `part_of`). A brief is pure
 data — no instructions, no contract. That lives here and in the prompt you write per author, so

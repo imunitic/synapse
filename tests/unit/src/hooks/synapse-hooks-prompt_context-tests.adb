@@ -39,8 +39,8 @@ package body Synapse.Hooks.Prompt_Context.Tests is
    procedure Work (Dir : Scratch; Name, Text : String) is
    begin
       Ada.Directories.Create_Path
-        (Ada.Directories.Containing_Directory (Path (Dir, "work/" & Name)));
-      Synapse.Adapters.File_Bytes.Write (Path (Dir, "work/" & Name), Text);
+        (Ada.Directories.Containing_Directory (Path (Dir, Synapse.Test_Repo.Work_Rel & "/" & Name)));
+      Synapse.Adapters.File_Bytes.Write (Path (Dir, Synapse.Test_Repo.Work_Rel & "/" & Name), Text);
    end Work;
 
    function Node (Dir : Scratch; File : String) return String is
@@ -52,7 +52,8 @@ package body Synapse.Hooks.Prompt_Context.Tests is
    begin
       Use_Vault (F, Dir);
       F.Clock.Now := To_Unbounded_String ("2026-09-07T14:32:05+02:00");
-      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, "work"));
+      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, Synapse.Test_Repo.Root_Rel));
+      F.Vars.Set ("SYNAPSE_NAMESPACE", Synapse.Test_Repo.Namespace);
       Put_File (Dir, "src/engine.ext", Engine_Source);
       Put_File (Dir, "src/render.ext", "paint" & LF);
       Put_File (Dir, "README.md", "hello" & LF);

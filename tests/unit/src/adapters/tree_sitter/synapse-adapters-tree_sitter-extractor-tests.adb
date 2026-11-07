@@ -1,3 +1,4 @@
+with Synapse.Test_Repo;
 with Ada.Directories;
 with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
@@ -115,13 +116,13 @@ package body Synapse.Adapters.Tree_Sitter.Extractor.Tests is
       Configure
         (Ex, Registry, Path (Dir, "grammars"), Rules, 5, Override,
          Capture'Access);
-      return Ex.Extract (Path (Dir, "work"), Paths);
+      return Ex.Extract (Path (Dir, Synapse.Test_Repo.Work_Rel), Paths);
    end Extracted;
 
    procedure Write_Work (Dir : Scratch; Name, Text : String) is
    begin
-      Ada.Directories.Create_Path (Path (Dir, "work"));
-      File_Bytes.Write (Path (Dir, "work/" & Name), Text);
+      Ada.Directories.Create_Path (Path (Dir, Synapse.Test_Repo.Work_Rel));
+      File_Bytes.Write (Path (Dir, Synapse.Test_Repo.Work_Rel & "/" & Name), Text);
    end Write_Work;
 
    ---------------------------------------------------------------------------
@@ -221,7 +222,7 @@ package body Synapse.Adapters.Tree_Sitter.Extractor.Tests is
       Configure
         (Ex, Registry_Of (Dir, "f3", "tree-sitter-absent", ""),
          Path (Dir, "g"), No_Rules, 5, (Found => False), Capture'Access);
-      Got := Ex.Extract (Path (Dir, "work"), Paths_Of ("a.f3", "a.f3"));
+      Got := Ex.Extract (Path (Dir, Synapse.Test_Repo.Work_Rel), Paths_Of ("a.f3", "a.f3"));
       Assert
         (Got (1).Kind = Port.Unsupported
          and then Got (2).Kind = Port.Unsupported,
@@ -230,7 +231,7 @@ package body Synapse.Adapters.Tree_Sitter.Extractor.Tests is
         (Count_Of (Reported, "grammar for .f3 is not usable") = 1,
          "reported once");
       Assert (Count_Of (Reported, "CLONE_FAILED") = 1, "with the reason");
-      Got := Ex.Extract (Path (Dir, "work"), Paths_Of ("a.f3"));
+      Got := Ex.Extract (Path (Dir, Synapse.Test_Repo.Work_Rel), Paths_Of ("a.f3"));
       Assert
         (Count_Of (Reported, "not usable") = 1,
          "the failure is remembered and not retried");
