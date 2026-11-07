@@ -3,6 +3,7 @@ with Ada.Strings.Unbounded;
 with Synapse.Core.JSON;
 with Synapse.Pipeline.Configs;
 with Synapse.Pipeline.Contexts;
+with Synapse.Pipeline.Definition_Copies;
 with Synapse.Pipeline.Descriptions;
 with Synapse.Pipeline.Engine;
 with Synapse.Pipeline.Failures;
@@ -75,6 +76,7 @@ package body Synapse.Pipeline.Commands.Run is
       Pipeline : Resolved.Pipeline;
       Settings : Configs.Config;
       Input    : JSON.Value;
+      Copies   : Definition_Copies.Copy_Vectors.Vector;
       Runner   : in out Session_Runner.Runner'Class) return Exit_Code
    is
       Run     : States.State := States.Initial (Pipeline, Input);
@@ -151,6 +153,10 @@ package body Synapse.Pipeline.Commands.Run is
       Recorder.Start
         (Id, Claimed.Registered, Descriptions.Describe (Pipeline, Settings),
          Run);
+      for Item of Copies loop
+         Recorder.Record_Definition
+           (To_String (Item.Path), To_String (Item.Content));
+      end loop;
       if Configs.Environment_Maps.Has_Element (Work) then
          Inspectors.Serve_While
            (Env.Inspector.all,
@@ -262,39 +268,45 @@ package body Synapse.Pipeline.Commands.Run is
                if not Loaded then
                   return 1;
                end if;
-               if Settings.Runner = Configs.Process_Runner then
-                  declare
-                     Runner : Process_Runners.Process_Runner
-                       (Env.Sessions, Env.Files, Env.Registry);
-                  begin
-                     Runner.Skill_Roots := Roots;
-                     return Run_To_The_End
-                       (Env, Pipeline, Settings, Input, Runner);
-                  end;
-               end if;
                declare
-                  Script :
-                    constant Scripted_Runners.Script_Results.Result :=
-                    Scripted_Runners.Load
-                      (Env.Files.all, To_String (Settings.Script));
+                  Copies : constant Definition_Copies.Copy_Vectors.Vector :=
+                    Definition_Copies.Collect
+                      (Env.Files.all, Pipeline, To_String (File), Roots);
                begin
-                  if not Scripted_Runners.Script_Results.Is_Success (Script)
-                  then
-                     Complain
-                       (Env,
-                        "error: "
-                        & To_String
-                            (Scripted_Runners.Script_Results.Error (Script))
-                        & LF);
-                     return 1;
+                  if Settings.Runner = Configs.Process_Runner then
+                     declare
+                        Runner : Process_Runners.Process_Runner
+                          (Env.Sessions, Env.Files, Env.Registry);
+                     begin
+                        Runner.Skill_Roots := Roots;
+                        return Run_To_The_End
+                          (Env, Pipeline, Settings, Input, Copies, Runner);
+                     end;
                   end if;
                   declare
-                     Runner : Scripted_Runners.Scripted_Runner :=
-                       Scripted_Runners.Create
-                         (Scripted_Runners.Script_Results.Value (Script));
+                     Script :
+                       constant Scripted_Runners.Script_Results.Result :=
+                       Scripted_Runners.Load
+                         (Env.Files.all, To_String (Settings.Script));
                   begin
-                     return Run_To_The_End
-                       (Env, Pipeline, Settings, Input, Runner);
+                     if not Scripted_Runners.Script_Results.Is_Success (Script)
+                     then
+                        Complain
+                          (Env,
+                           "error: "
+                           & To_String
+                               (Scripted_Runners.Script_Results.Error (Script))
+                           & LF);
+                        return 1;
+                     end if;
+                     declare
+                        Runner : Scripted_Runners.Scripted_Runner :=
+                          Scripted_Runners.Create
+                            (Scripted_Runners.Script_Results.Value (Script));
+                     begin
+                        return Run_To_The_End
+                          (Env, Pipeline, Settings, Input, Copies, Runner);
+                     end;
                   end;
                end;
             end;

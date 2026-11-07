@@ -291,6 +291,21 @@ package body Synapse.Pipeline.Commands.Run.Tests is
             and then Has
               (To_String (Events.Value), """kind"":""run.completed"""),
             "and its events run from the start to the end");
+         Assert
+           (F.Registry.Read_Description (Id).Found
+            and then Has
+              (To_String (F.Registry.Read_Description (Id).Value),
+               """name"":""Dev"""),
+            "and the pipeline it ran is described");
+         Assert
+           (F.Registry.Read_Definition (Id, "synapse-pipeline/Dev.synapse")
+              .Found
+            and then Has
+              (To_String
+                 (F.Registry.Read_Definition
+                    (Id, "synapse-pipeline/Dev.synapse").Value),
+               "Pipeline Dev {"),
+            "and the file it was loaded from is kept as it was");
       end;
    end A_Run_Is_Recorded_In_The_Registry;
 

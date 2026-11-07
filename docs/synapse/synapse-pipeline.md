@@ -254,6 +254,11 @@ which only the user can enter and which stays after the run has ended:
 execution.sock      only while the run is going
 execution.json      the summary, replaced as the run goes on
 events.jsonl        one event a line, as the socket gives them
+description.json    the pipeline the run began with, as the socket answers `pipeline`
+definitions/        the definition files the run was made from, laid out as a configuration directory
+  synapse-pipeline/
+    Develop_Feature.synapse    the pipeline, and every system and agent a step was built from
+    skills/review-code/SKILL.md    the SKILL.md of each skill a step names
 transcripts/
   1-Develop-1.jsonl   what a harness printed for one step attempt, as it printed it
   2-Review-1.jsonl
@@ -264,6 +269,18 @@ transcripts/
 `state`. Each try of a step has a transcript of its own, named for the run's step count, the step and the try, and a
 `session.finished` event that says where it is. For Claude the transcript is the final result the harness
 prints, not the conversation.
+
+`description.json` is the `synapse-pipeline-description/v1` document that `show --format json` prints, as the
+run resolved it when it began: its steps and edges with the harness, permissions and timeout each step runs with,
+and the limits. `definitions/` holds the files as they were when the run began, so editing or removing a
+definition afterwards does not change what the record says. A file that cannot be read when the run begins is
+left out. `XDG_CONFIG_HOME=<record>/definitions synapse-pipeline check <pipeline>`, with `SYNAPSE_PIPELINE_PATH`
+unset, resolves the pipeline from those files; what comes from the environment, such as the default harness and
+the limits, is the environment's of the moment, and `description.json` is what the run had.
+
+These copies are history. Nothing runs from them: `run` resolves a pipeline from the definition directories as
+they are when it starts, so running a pipeline again runs the files as they are then, not the ones an earlier
+record kept.
 
 - `list --all` lists the executions that are over as well, with the status they ended in. One whose record
   says `running` while nothing answers on its socket is shown as `interrupted`, and one with no summary as

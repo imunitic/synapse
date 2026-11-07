@@ -92,6 +92,31 @@ package body Synapse.Pipeline.Retrying_Registry is
    end Write_Transcript;
 
    overriding
+   function Write_Description
+     (R : in out Retrying_Registry; Id, Content : String) return Boolean
+   is
+      function Once return Boolean is
+        (R.Inner.Write_Description (Id, Content));
+   begin
+      return Try (R, Id, "its description", Once'Access);
+   end Write_Description;
+
+   overriding
+   function Write_Definition
+     (R : in out Retrying_Registry; Id, Path, Content : String) return Boolean
+   is
+      function Once return Boolean is
+        (R.Inner.Write_Definition (Id, Path, Content));
+   begin
+      --  A path that is refused is refused every time, so it is not tried
+      --  again.
+      if not Registry_Store.Is_Plain_Path (Path) then
+         return False;
+      end if;
+      return Try (R, Id, "the definition " & Path, Once'Access);
+   end Write_Definition;
+
+   overriding
    function Remove (R : in out Retrying_Registry; Id : String) return Boolean
    is
       function Once return Boolean is (R.Inner.Remove (Id));
@@ -121,6 +146,23 @@ package body Synapse.Pipeline.Retrying_Registry is
    begin
       return R.Inner.Read_Events (Id);
    end Read_Events;
+
+   overriding
+   function Read_Description
+     (R : Retrying_Registry; Id : String) return Registry_Store.Maybe_Content
+   is
+   begin
+      return R.Inner.Read_Description (Id);
+   end Read_Description;
+
+   overriding
+   function Read_Definition
+     (R : Retrying_Registry; Id, Path : String)
+      return Registry_Store.Maybe_Content
+   is
+   begin
+      return R.Inner.Read_Definition (Id, Path);
+   end Read_Definition;
 
    overriding
    function Transcript_Path

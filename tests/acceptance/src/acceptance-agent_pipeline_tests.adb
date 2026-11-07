@@ -543,6 +543,13 @@ package body Acceptance.Agent_Pipeline_Tests is
             and then Holds (Files_In (Dir), "events.jsonl"),
             "its directory holds the summary and the events");
          Assert
+           (Holds (Files_In (Dir), "description.json")
+            and then Holds
+              (Files_In (Dir & "/definitions/synapse-pipeline"),
+               "Dev.synapse"),
+            "and the pipeline it ran is described and the file it was loaded "
+            & "from is kept");
+         Assert
            (Sockets_In (Work (F) & "/pipelines") = 0,
             "and no socket is left in it");
          declare

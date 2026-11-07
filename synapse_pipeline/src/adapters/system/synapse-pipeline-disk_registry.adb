@@ -16,6 +16,8 @@ package body Synapse.Pipeline.Disk_Registry is
 
    Summary_Name : constant String := "execution.json";
    Events_Name  : constant String := "events.jsonl";
+   Description_Name : constant String := "description.json";
+   Definitions  : constant String := "definitions";
    Transcripts  : constant String := "transcripts";
 
    --  The most a summary or an event history is read back as.
@@ -227,6 +229,44 @@ package body Synapse.Pipeline.Disk_Registry is
    end Write_Transcript;
 
    overriding
+   function Write_Description
+     (R : in out Disk_Registry; Id, Content : String) return Boolean
+   is
+      Dir : constant String := Directory_Of (R, Id);
+   begin
+      return Is_Plain (Id) and then Is_Directory (Dir)
+        and then Write_Whole (Dir & "/" & Description_Name, Content);
+   end Write_Description;
+
+   overriding
+   function Write_Definition
+     (R : in out Disk_Registry; Id, Path, Content : String) return Boolean
+   is
+      Dir   : constant String := Directory_Of (R, Id);
+      Base  : constant String := Dir & "/" & Definitions;
+      Slash : Natural := 0;
+   begin
+      if not Is_Plain (Id) or else not Registry_Store.Is_Plain_Path (Path)
+        or else not Is_Directory (Dir)
+      then
+         return False;
+      end if;
+      for I in reverse Path'Range loop
+         if Path (I) = '/' then
+            Slash := I;
+            exit;
+         end if;
+      end loop;
+      Dirs.Create_Path
+        (if Slash = 0 then Base
+         else Base & "/" & Path (Path'First .. Slash - 1));
+      return Write_Whole (Base & "/" & Path, Content);
+   exception
+      when others =>
+         return False;
+   end Write_Definition;
+
+   overriding
    function Remove (R : in out Disk_Registry; Id : String) return Boolean is
       Dir : constant String := Directory_Of (R, Id);
    begin
@@ -267,6 +307,27 @@ package body Synapse.Pipeline.Disk_Registry is
       end if;
       return Read_Text (Directory_Of (R, Id) & "/" & Events_Name);
    end Read_Events;
+
+   overriding
+   function Read_Description
+     (R : Disk_Registry; Id : String) return Registry_Store.Maybe_Content is
+   begin
+      if not Is_Plain (Id) then
+         return (Found => False);
+      end if;
+      return Read_Text (Directory_Of (R, Id) & "/" & Description_Name);
+   end Read_Description;
+
+   overriding
+   function Read_Definition
+     (R : Disk_Registry; Id, Path : String) return Registry_Store.Maybe_Content
+   is
+   begin
+      if not Is_Plain (Id) or else not Registry_Store.Is_Plain_Path (Path) then
+         return (Found => False);
+      end if;
+      return Read_Text (Directory_Of (R, Id) & "/" & Definitions & "/" & Path);
+   end Read_Definition;
 
    overriding
    function Transcript_Path
