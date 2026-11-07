@@ -201,6 +201,21 @@ const STUB = [
   'echo "STUB $name args: $*"',
   'echo "CODEX_HOME=${CODEX_HOME:-} OPENCODE_CONFIG_DIR=${OPENCODE_CONFIG_DIR:-} CONTENT_ROOT=${SYNAPSE_CONTENT_ROOT:-}"',
   'echo "cwd: $(pwd)"',
+  // A headless run, as the app starts one to write a note: the prompt is on standard
+  // input, or the last argument for OpenCode; the note is made with the synapse
+  // program and its path is the last line.
+  'headless=""',
+  '[ "$name" = claude ] && [ "$1" = "-p" ] && headless=stdin',
+  '[ "$name" = codex ] && [ "$1" = exec ] && headless=stdin',
+  '[ "$name" = opencode ] && [ "$1" = run ] && headless=argument',
+  'if [ -n "$headless" ]; then',
+  '  if [ "$headless" = stdin ]; then prompt=$(cat); else for a in "$@"; do prompt=$a; done; fi',
+  '  case "$prompt" in',
+  '    *FAILCASE*) echo "FAILED: the stub was asked to fail"; exit 0 ;;',
+  '  esac',
+  `  printf '%s\\n' "# Stub note" "" "Written by $name" "$prompt" | synapse vault-write "research/Stub note.md"`,
+  '  echo "research/Stub note.md"; exit 0',
+  'fi',
   'sid=""; prev=""',
   'for a in "$@"; do [ "$prev" = "--session-id" ] && sid="$a"; prev="$a"; done',
   'if [ "$name" = claude ] && [ -n "$sid" ]; then',

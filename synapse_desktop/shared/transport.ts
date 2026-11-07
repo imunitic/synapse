@@ -90,6 +90,17 @@ export interface GenerateRequest {
   skills: string[]
 }
 
+// The kinds of note an agent can be asked to write.
+export type NoteKind = 'note' | 'task' | 'design'
+
+// A description to have an agent write a note of the vault from.
+export interface NoteRequest {
+  kind: NoteKind
+  prompt: string
+  // The harness that writes it; the default harness when absent.
+  harness?: Harness
+}
+
 export type TerminalKind = 'Shell' | Harness
 
 // What a session of a harness is started to do: build a code graph, rebuild what
@@ -243,6 +254,8 @@ export interface Transport {
   // `previous` says it did.
   saveDefinition(path: string, previous: string, text: string): Promise<void>
   generateDefinition(request: GenerateRequest): Promise<{ text: string }>
+  // Has an agent write a note of the vault; the note's path when it is written.
+  createNote(request: NoteRequest): Promise<{ path: string }>
 
   // Starts the user's login shell, or a harness, in a pty. The bundled Synapse is
   // loaded for the session, or for the harnesses started from the shell, unless

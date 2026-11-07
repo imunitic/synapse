@@ -29,6 +29,7 @@ beforeEach(async () => {
       return { code: 0, stdout: '{}', stderr: '' }
     },
     agent: () => Promise.reject(new Error('not used')),
+    noteSession: () => Promise.reject(new Error('not used')),
     runs: {
       start: () => Promise.reject(new Error('not used')),
       stop: () => undefined,

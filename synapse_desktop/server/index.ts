@@ -9,6 +9,7 @@ import { runCli } from './cli.ts'
 import { configFile } from './config-store.ts'
 import { createHandler } from './http.ts'
 import { runAgent } from './generate.ts'
+import { createNoteSession } from './note-agent.ts'
 import { createRunStarter } from './runs.ts'
 import { attachTerminals, defaultPlan, sessionsRoot, spawnPty } from './terminal.ts'
 
@@ -28,6 +29,7 @@ const context = {
   runCli,
   agent: runAgent,
   runs: createRunStarter('synapse-pipeline', process.env),
+  noteSession: createNoteSession((harness) => defaultPlan(environment)(harness)),
 }
 
 const handler = createHandler(context, policy)

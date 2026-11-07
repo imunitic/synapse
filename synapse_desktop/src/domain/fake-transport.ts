@@ -49,6 +49,7 @@ export function fakeTransport(world: FakeWorld): Transport {
     writeDefinition: unavailable,
     saveDefinition: unavailable,
     generateDefinition: unavailable,
+    createNote: unavailable,
     inspectVault: unavailable,
     getIntegrations: unavailable,
     checkGraphRepo: unavailable,

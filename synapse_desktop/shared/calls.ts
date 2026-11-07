@@ -114,6 +114,11 @@ export const callParams = {
       .max(1000),
     skills: z.array(skillNameSchema).max(1000),
   }),
+  createNote: z.object({
+    kind: z.enum(['note', 'task', 'design']),
+    prompt: z.string().min(1).max(20_000),
+    harness: harnessSchema.optional(),
+  }),
   inspectVault: z.object({ path: z.string().min(1).max(4096) }),
   getIntegrations: z.object({}),
   configureHarness: z.object({ harness: harnessSchema }),

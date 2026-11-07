@@ -8,7 +8,7 @@ import {
   type TreeFolder,
 } from '../domain/notes.ts'
 import { transport } from '../transport/index.ts'
-import { ChevronIcon, FolderIcon, NoteIcon, RefreshIcon } from './icons.tsx'
+import { ChevronIcon, FolderIcon, NoteIcon, PlusIcon, RefreshIcon } from './icons.tsx'
 import type { Action, ShellState } from './state.ts'
 import { useLoad } from './useLoad.ts'
 
@@ -74,7 +74,8 @@ function Folder({
 // The vault's notes as a tree of folders, and a search over their text.
 export function VaultPanel({ state, dispatch }: { state: ShellState; dispatch: Dispatch<Action> }) {
   const loadAll = useCallback(() => listNotes(transport), [])
-  const { state: notes, reload } = useLoad(loadAll)
+  // Read again when a note has been written.
+  const { state: notes, reload } = useLoad(loadAll, undefined, state.reloadToken)
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set())
   const [draft, setDraft] = useState('')
   const [query, setQuery] = useState('')
@@ -119,9 +120,18 @@ export function VaultPanel({ state, dispatch }: { state: ShellState; dispatch: D
     <>
       <div className="panel-header">
         <h2 className="panel-title">Vault</h2>
-        <button className="icon-button" aria-label="Refresh the notes" onClick={reload}>
-          <RefreshIcon />
-        </button>
+        <div className="row">
+          <button className="icon-button" aria-label="Refresh the notes" onClick={reload}>
+            <RefreshIcon />
+          </button>
+          <button
+            className="icon-button"
+            aria-label="New note"
+            onClick={() => dispatch({ type: 'openPage', page: { kind: 'new-note' } })}
+          >
+            <PlusIcon />
+          </button>
+        </div>
       </div>
       <form className="panel-search" role="search" onSubmit={(event) => void search(event)}>
         <input

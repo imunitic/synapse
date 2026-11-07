@@ -37,6 +37,30 @@ describe('note pages', () => {
   })
 })
 
+describe('the new note page', () => {
+  it('is one tab, with its own id and title, that opening again does not repeat', () => {
+    const page = { kind: 'new-note' } as const
+    expect(pageId(page)).toBe('new-note')
+    expect(pageTitle(page)).toBe('New note')
+    const twice = reduce(reduce(initialState, { type: 'openPage', page }), {
+      type: 'openPage',
+      page,
+    })
+    expect(twice.tabs).toHaveLength(1)
+  })
+
+  it('is replaced by the note that was written, and the lists are read again', () => {
+    const opened = reduce(initialState, { type: 'openPage', page: { kind: 'new-note' } })
+    const done = reduce(opened, {
+      type: 'definitionCreated',
+      closeId: 'new-note',
+      page: { kind: 'note', path: 'research/A.md' },
+    })
+    expect(done.tabs.map((t) => t.id)).toEqual(['note:research/A.md'])
+    expect(done.reloadToken).toBe(opened.reloadToken + 1)
+  })
+})
+
 describe('a terminal started for a task', () => {
   it('says the task in its title and remembers it for the session that is asked for', () => {
     const state = reduce(initialState, {

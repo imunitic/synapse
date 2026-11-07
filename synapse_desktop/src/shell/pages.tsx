@@ -6,6 +6,7 @@ import { DefinitionPage } from './DefinitionPage.tsx'
 import { ExecutionPage } from './ExecutionPage.tsx'
 import { GraphPage } from './GraphPage.tsx'
 import { HomePage } from './HomePage.tsx'
+import { NewNotePage } from './NewNotePage.tsx'
 import { NotePage } from './NotePage.tsx'
 import { PipelinePage } from './PipelinePage.tsx'
 import { SettingsPage } from './SettingsPages.tsx'
@@ -110,6 +111,8 @@ export function PageView({
           onCancel={onCancel}
         />
       )
+    case 'new-note':
+      return <NewNotePage onCreated={onCreated} />
     case 'definition':
       return <DefinitionView page={page} onOpen={onOpen} onChanged={onChanged} />
     case 'execution':

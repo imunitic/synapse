@@ -155,6 +155,7 @@ describe('generateDefinition', () => {
       runCli: () => Promise.reject(new Error('not used')),
       runs: { start: () => Promise.reject(new Error('not used')), stop: () => undefined },
       agent,
+      noteSession: () => Promise.reject(new Error('not used')),
     }
   }
 

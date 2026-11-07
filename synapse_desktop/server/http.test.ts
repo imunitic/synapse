@@ -33,6 +33,7 @@ beforeEach(async () => {
         },
       },
       agent: () => Promise.reject(new Error('not used')),
+      noteSession: () => Promise.reject(new Error('not used')),
       runCli: (run) => {
         cliCalls.push(run)
         return Promise.resolve(cliResult)

@@ -14,6 +14,7 @@ import type {
   GraphPlan,
   GraphRepoCheck,
   GraphRepoMatches,
+  NoteRequest,
   Harness,
   Integrations,
   NewDefinition,
@@ -68,6 +69,10 @@ export class HttpTransport implements Transport {
 
   generateDefinition(request: GenerateRequest): Promise<{ text: string }> {
     return this.call('generateDefinition', request)
+  }
+
+  createNote(request: NoteRequest): Promise<{ path: string }> {
+    return this.call('createNote', request)
   }
 
   inspectVault(path: string): Promise<VaultInfo> {

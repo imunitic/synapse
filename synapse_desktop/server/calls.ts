@@ -41,6 +41,15 @@ import {
   type Environment,
 } from './roots.ts'
 import { GenerationFailed, generateText, SkillNotFound, type AgentRunner } from './generate.ts'
+import {
+  createdPath,
+  failureOf,
+  NoteFailed,
+  notePrompt,
+  pathsOf,
+  vaultDirOf,
+  type NoteSession,
+} from './note-agent.ts'
 import { previewDraft } from './preview.ts'
 import { inspectVault } from './vault.ts'
 import { askRun, NotListening, socketPath } from './run-socket.ts'
@@ -54,6 +63,8 @@ export interface Context {
   runCli: CliRunner
   runs: RunStarter
   agent: AgentRunner
+  // Runs a headless session of a harness with Synapse loaded, to write a note.
+  noteSession: NoteSession
 }
 
 // An error with the HTTP status the caller should see.
@@ -215,6 +226,51 @@ const handlers: Record<CallName, Handler> = {
     } catch (error) {
       if (error instanceof SkillNotFound) throw new CallError(error.message, 409)
       if (error instanceof GenerationFailed) throw new CallError(error.message, 502)
+      throw error
+    }
+  },
+
+  async createNote(raw, context): Promise<{ path: string }> {
+    const request = callParams.createNote.parse(raw)
+    const config = await loadConfig(context.configFile, context.environment)
+    const harness = request.harness ?? config.defaultHarness ?? 'Claude'
+    const settings = await context.runCli({
+      binary: 'synapse',
+      args: ['config', 'list', '--format', 'json'],
+      config,
+    })
+    const vault = vaultDirOf(settings.stdout)
+    if (vault === null) throw new CallError('no vault is set up to write the note in', 409)
+    const list = async (): Promise<string[]> => {
+      const result = await context.runCli({ binary: 'synapse', args: ['vault-list'], config })
+      if (result.code !== 0) {
+        throw new CallError(result.stderr.trim() || 'the vault could not be listed', 502)
+      }
+      return pathsOf(result.stdout)
+    }
+    const before = new Set(await list())
+    const env = Object.fromEntries(
+      Object.entries(cliEnvironment(context.environment.env, config)).filter(
+        (entry): entry is [string, string] => entry[1] !== undefined,
+      ),
+    )
+    try {
+      const run = await context.noteSession({
+        harness,
+        prompt: notePrompt(request.kind, request.prompt, harness),
+        env,
+        writable: await existingDirs([
+          vault,
+          join(context.environment.home, '.config', 'synapse'),
+          config.workDir ?? join(context.environment.home, '.cache', 'synapse', 'work'),
+        ]),
+      })
+      const path = createdPath(run.stdout, before, await list())
+      if (path !== null) return { path }
+      const why = failureOf(run.stdout) ?? (run.stderr.trim() || run.stdout.trim().slice(-300))
+      throw new NoteFailed(`No note was written. ${why}`.trim())
+    } catch (error) {
+      if (error instanceof NoteFailed) throw new CallError(error.message, error.status)
       throw error
     }
   },

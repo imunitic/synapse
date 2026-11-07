@@ -77,6 +77,8 @@ export type Page =
   | { kind: 'graph' }
   | { kind: 'settings'; section: SettingsSection }
   | { kind: 'create'; definition: DefinitionKind }
+  // Describing a note for an agent to write into the vault.
+  | { kind: 'new-note' }
   // A definition's file: a .synapse file, or a skill's SKILL.md.
   | { kind: 'definition'; definition: DefinitionKind; name: string; path: string }
   | { kind: 'execution'; id: string }
@@ -149,6 +151,8 @@ export function pageId(page: Page): string {
       return `settings:${page.section}`
     case 'create':
       return `create:${page.definition}`
+    case 'new-note':
+      return 'new-note'
     case 'definition':
       return `definition:${page.definition}:${page.name}`
     case 'execution':
@@ -170,6 +174,8 @@ export function pageTitle(page: Page): string {
       return `${SETTINGS_SECTIONS.find((s) => s.section === page.section)?.label ?? 'Settings'} settings`
     case 'create':
       return `New ${DEFINITION_LABELS[page.definition].singular}`
+    case 'new-note':
+      return 'New note'
     case 'definition':
       return page.name
     case 'execution':
