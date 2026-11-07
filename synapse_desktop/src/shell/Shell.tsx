@@ -25,7 +25,8 @@ export function Shell() {
           {missingWorkDir && (
             <div className="banner" role="status">
               <span>
-                No work directory is set. Runs without one leave no record and cannot be seen here.
+                There is no home directory to keep Synapse's working files in, so runs leave no
+                record. Set a work directory.
               </span>
               <button
                 className="banner-button"

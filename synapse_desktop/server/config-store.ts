@@ -25,13 +25,20 @@ export async function loadStoredConfig(file: string): Promise<AppConfig> {
   return storedConfigSchema.parse(JSON.parse(text))
 }
 
+// Where Synapse keeps its working files when nothing names a place: the same
+// `.cache/synapse/work` in the home directory that `synapse` and
+// `synapse-pipeline` use, so that the app and the programs look in one place.
+export function defaultWorkDir({ home }: Environment): string | null {
+  return home === '' ? null : join(home, '.cache', 'synapse', 'work')
+}
+
 // The configuration in force. The work directory is SYNAPSE_WORK_DIR when the
-// app sets it for its programs or the server was started with it, as for
-// `synapse-pipeline` itself, and otherwise the one saved.
-export async function loadConfig(file: string, env: NodeJS.ProcessEnv): Promise<AppConfig> {
+// app sets it for its programs or the server was started with it, as for the
+// programs themselves, else the one saved, else the default.
+export async function loadConfig(file: string, environment: Environment): Promise<AppConfig> {
   const stored = await loadStoredConfig(file)
-  const fromEnvironment = stored.env.SYNAPSE_WORK_DIR || env.SYNAPSE_WORK_DIR
-  return fromEnvironment ? { ...stored, workDir: fromEnvironment } : stored
+  const named = stored.env.SYNAPSE_WORK_DIR || environment.env.SYNAPSE_WORK_DIR
+  return { ...stored, workDir: named || stored.workDir || defaultWorkDir(environment) }
 }
 
 // Written beside the file and renamed over it, so a reader never sees half of it.

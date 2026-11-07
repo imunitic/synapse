@@ -90,7 +90,8 @@ describe('the API', () => {
     const reply = await post('getConfig', {})
     expect(reply.status).toBe(200)
     expect(reply.body.result).toEqual({
-      workDir: null,
+      // Nothing names a work directory, so it is the default in the home.
+      workDir: join(dir, '.cache', 'synapse', 'work'),
       definitionPaths: [],
       defaultHarness: null,
       env: {},
@@ -201,12 +202,12 @@ describe('the API', () => {
     expect(reply.status).toBe(400)
   })
 
-  it('reports a run that is not listening, and no work directory', async () => {
-    const none = await post('runRequest', { executionId: 'exec-1', request: { command: 'info' } })
-    expect(none.status).toBe(409)
-
-    await post('setConfig', { patch: { workDir: join(dir, 'work') } })
+  it('reports a run that is not listening, in the work directory there is by default', async () => {
     const gone = await post('runRequest', { executionId: 'exec-1', request: { command: 'info' } })
     expect(gone.status).toBe(404)
+
+    await post('setConfig', { patch: { workDir: join(dir, 'work') } })
+    const still = await post('runRequest', { executionId: 'exec-1', request: { command: 'info' } })
+    expect(still.status).toBe(404)
   })
 })

@@ -34,7 +34,7 @@ test('what is not set up is listed, each step leading to the page that does it',
   const steps = page.getByLabel('Get set up')
   await expect(steps).toContainText('Choose a vault')
   await expect(steps).toContainText('Install Synapse in a harness')
-  // The world has a work directory, so that step is not one of those left.
+  // A work directory has a default, so it is not a step.
   await expect(steps.getByRole('button', { name: /Choose a vault/ })).toBeEnabled()
   await steps.getByRole('button', { name: /Choose a vault/ }).click()
   await expect(page.getByRole('heading', { level: 1, name: 'Vault' })).toBeVisible()

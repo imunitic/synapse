@@ -80,19 +80,25 @@ describe('setConfig', () => {
 })
 
 describe('the work directory in force', () => {
-  it('is the variable of the app, else of the server, else the saved one', async () => {
-    expect((await loadConfig(file, {})).workDir).toBeNull()
-    expect((await loadConfig(file, { SYNAPSE_WORK_DIR: '/started' })).workDir).toBe('/started')
+  const at = (env: Record<string, string>, home = '/h') => ({ env, home })
+
+  it('is the variable of the app, else of the server, else the saved one, else the default', async () => {
+    expect((await loadConfig(file, at({}))).workDir).toBe(join('/h', '.cache', 'synapse', 'work'))
+    expect((await loadConfig(file, at({ SYNAPSE_WORK_DIR: '/started' }))).workDir).toBe('/started')
 
     await writeFile(file, JSON.stringify({ ...defaultConfig, workDir: '/saved' }))
-    expect((await loadConfig(file, {})).workDir).toBe('/saved')
-    expect((await loadConfig(file, { SYNAPSE_WORK_DIR: '/started' })).workDir).toBe('/started')
+    expect((await loadConfig(file, at({}))).workDir).toBe('/saved')
+    expect((await loadConfig(file, at({ SYNAPSE_WORK_DIR: '/started' }))).workDir).toBe('/started')
 
     await writeFile(
       file,
       JSON.stringify({ ...defaultConfig, workDir: '/saved', env: { SYNAPSE_WORK_DIR: '/app' } }),
     )
-    expect((await loadConfig(file, { SYNAPSE_WORK_DIR: '/started' })).workDir).toBe('/app')
+    expect((await loadConfig(file, at({ SYNAPSE_WORK_DIR: '/started' }))).workDir).toBe('/app')
+  })
+
+  it('is none only when there is no home to put the default in', async () => {
+    expect((await loadConfig(file, at({}, ''))).workDir).toBeNull()
   })
 
   it('does not replace the saved one when another setting is changed', async () => {
@@ -111,6 +117,8 @@ describe('the work directory in force', () => {
   })
 
   it('is not from an empty variable', async () => {
-    expect((await loadConfig(file, { SYNAPSE_WORK_DIR: '' })).workDir).toBeNull()
+    expect((await loadConfig(file, at({ SYNAPSE_WORK_DIR: '' }))).workDir).toBe(
+      join('/h', '.cache', 'synapse', 'work'),
+    )
   })
 })

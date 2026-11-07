@@ -1,6 +1,6 @@
 // What the home page's cards say, worked out from what the pages already know.
 
-import type { AppConfig, Integration } from '../../shared/transport.ts'
+import type { Integration } from '../../shared/transport.ts'
 import type { VaultAttention, VaultCategory } from './attention.ts'
 import { RUN_AGE_DAYS } from './attention.ts'
 import type { ExecutionSummary } from './executions.ts'
@@ -33,29 +33,21 @@ export interface SetupStep {
   key: string
   label: string
   done: boolean
-  target: { kind: 'settings'; section: 'general' | 'vault' | 'integrations' }
+  target: { kind: 'settings'; section: 'vault' | 'integrations' }
 }
 
 export type SetupSource<T> =
   { status: 'loading' } | { status: 'ready'; data: T } | { status: 'failed'; error: string }
 
-// What the app needs to be useful: a place for the records of runs, a vault and
-// Synapse in a harness. A step whose answer is not known yet is not listed, so
-// that a step never shows as undone only because the page is still loading.
+// What the app needs to be useful: a vault and Synapse in a harness. A step
+// whose answer is not known yet is not listed, so that a step never shows as
+// undone only because the page is still loading. The place for the records of
+// runs has a default, so it is not a step.
 export function setupSteps(sources: {
-  config: SetupSource<AppConfig>
   vault: SetupSource<VaultAttention>
   integrations: SetupSource<Integration[]>
 }): SetupStep[] {
   const steps: SetupStep[] = []
-  if (sources.config.status === 'ready') {
-    steps.push({
-      key: 'work-dir',
-      label: 'Set a work directory for the records of runs',
-      done: sources.config.data.workDir !== null,
-      target: { kind: 'settings', section: 'general' },
-    })
-  }
   if (sources.vault.status === 'ready') {
     steps.push({
       key: 'vault',

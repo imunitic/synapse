@@ -4,7 +4,7 @@ export function StatusBar() {
   const { state } = useConfig()
   const workDir =
     state.status === 'ready'
-      ? (state.config.workDir ?? 'not set')
+      ? (state.config.workDir ?? 'none')
       : state.status === 'failed'
         ? 'unavailable'
         : '…'

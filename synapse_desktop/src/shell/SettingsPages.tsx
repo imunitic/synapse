@@ -204,9 +204,9 @@ function General({ onChanged }: { onChanged: () => void }) {
       {state.status === 'ready' && (
         <PathCard
           title="Work directory"
-          hint="Where runs keep their records. A run started without one cannot be seen here. The SYNAPSE_WORK_DIR variable, when the app was started with it or you set it under Environment, is used instead of what is saved here."
+          hint="Where Synapse keeps its working files: the code graph has a folder in it for each repository and branch, and runs are recorded in pipelines/ under it. Without a choice here it is ~/.cache/synapse/work. The SYNAPSE_WORK_DIR variable, when the app was started with it or you set it under Environment, is used instead of what is saved here."
           label="Work directory path"
-          placeholder="/path/to/work-directory"
+          placeholder="~/.cache/synapse/work"
           initial={state.config.workDir ?? ''}
           onSave={(path) => save({ workDir: path }).then(() => onChanged())}
         />

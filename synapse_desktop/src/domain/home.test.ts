@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { AppConfig, Integration } from '../../shared/transport.ts'
+import type { Integration } from '../../shared/transport.ts'
 import type { VaultAttention } from './attention.ts'
 import type { ExecutionSummary } from './executions.ts'
 import { recentRuns, runCounts, setupSteps, vaultCounts } from './home.ts'
@@ -60,19 +60,6 @@ describe('recent runs', () => {
   })
 })
 
-const config = (workDir: string | null) =>
-  ({
-    status: 'ready',
-    data: {
-      workDir,
-      definitionPaths: [],
-      defaultHarness: null,
-      env: {},
-      recentVaults: [],
-      terminalFolder: null,
-    } satisfies AppConfig,
-  }) as const
-
 const vault = (configured: boolean) =>
   ({
     status: 'ready',
@@ -95,21 +82,18 @@ const harnesses = (...states: Integration['state'][]) =>
 describe('setup steps', () => {
   it('say what is done and what is not, each leading to the page that does it', () => {
     const steps = setupSteps({
-      config: config(null),
       vault: vault(false),
       integrations: harnesses('absent', 'absent', 'absent'),
     })
     expect(steps.map((s) => [s.key, s.done])).toEqual([
-      ['work-dir', false],
       ['vault', false],
       ['harness', false],
     ])
-    expect(steps.map((s) => s.target.section)).toEqual(['general', 'vault', 'integrations'])
+    expect(steps.map((s) => s.target.section)).toEqual(['vault', 'integrations'])
   })
 
-  it('are done when a work directory, a vault and a working install are there', () => {
+  it('are done when a vault and a working install are there', () => {
     const steps = setupSteps({
-      config: config('/w'),
       vault: vault(true),
       integrations: harnesses('absent', 'newer'),
     })
@@ -117,21 +101,21 @@ describe('setup steps', () => {
   })
 
   it('count an install whose hook program is gone as not done', () => {
-    const steps = setupSteps({
-      config: config('/w'),
-      vault: vault(true),
-      integrations: harnesses('broken'),
-    })
+    const steps = setupSteps({ vault: vault(true), integrations: harnesses('broken') })
     expect(steps.find((s) => s.key === 'harness')?.done).toBe(false)
   })
 
   it('leave out a step whose answer is not known yet, or could not be read', () => {
     const steps = setupSteps({
-      config: config('/w'),
       vault: { status: 'loading' },
       integrations: { status: 'failed', error: 'x' },
     })
-    expect(steps.map((s) => s.key)).toEqual(['work-dir'])
+    expect(steps).toEqual([])
+  })
+
+  it('do not include a work directory, which has a default', () => {
+    const steps = setupSteps({ vault: vault(false), integrations: harnesses('absent') })
+    expect(steps.map((s) => s.key)).not.toContain('work-dir')
   })
 })
 

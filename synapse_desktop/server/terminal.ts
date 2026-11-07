@@ -128,7 +128,7 @@ async function start(
     return null
   }
   const plan = await deps.plan(message.kind)
-  const config = await loadConfig(deps.configFile, deps.environment.env)
+  const config = await loadConfig(deps.configFile, deps.environment)
   let args = plan.args
   let follow: Started['follow'] = null
   // The commands of a shell note the runs they start in this folder.
