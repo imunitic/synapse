@@ -14,8 +14,24 @@ describe('refuseCli', () => {
     expect(refuseCli('synapse-pipeline', ['run', 'p'])).toMatch(/not allowed/)
   })
 
-  it('refuses every subcommand of synapse until one is added', () => {
+  it('allows only config of synapse, and only its list, set and unset', () => {
     expect(refuseCli('synapse', ['vault-read', 'Index.md'])).toMatch(/not allowed/)
+    expect(refuseCli('synapse', ['config', 'list'])).toBeNull()
+    expect(refuseCli('synapse', ['config', 'list', '--format', 'json'])).toBeNull()
+    expect(refuseCli('synapse', ['config', 'set', 'SYNAPSE_VAULT_DIR', '/a b'])).toBeNull()
+    expect(refuseCli('synapse', ['config', 'set', 'SYNAPSE_VAULT_PUSH_EVERY', '--x'])).toBeNull()
+    expect(refuseCli('synapse', ['config', 'unset', 'SYNAPSE_VAULT_DIR'])).toBeNull()
+  })
+
+  it('refuses the rest of config: other actions, bad names, wrong counts', () => {
+    expect(refuseCli('synapse', ['config'])).toMatch(/list, set or unset/)
+    expect(refuseCli('synapse', ['config', 'frob'])).toMatch(/list, set or unset/)
+    expect(refuseCli('synapse', ['config', 'list', '--format', 'xml'])).toMatch(/only --format/)
+    expect(refuseCli('synapse', ['config', 'list', 'extra'])).toMatch(/only --format/)
+    expect(refuseCli('synapse', ['config', 'set', 'lower_case', 'v'])).toMatch(/name and a value/)
+    expect(refuseCli('synapse', ['config', 'set', '--help', 'v'])).toMatch(/name and a value/)
+    expect(refuseCli('synapse', ['config', 'set', 'SYNAPSE_X'])).toMatch(/name and a value/)
+    expect(refuseCli('synapse', ['config', 'unset'])).toMatch(/setting name/)
   })
 
   it('refuses a call with no subcommand and one that starts with a flag', () => {

@@ -3,6 +3,7 @@ import { transport } from '../transport/index.ts'
 import { useLoad } from './useLoad.ts'
 import { useConfig } from './config.tsx'
 import { DefinitionEditorPage } from './DefinitionEditorPage.tsx'
+import { SettingsForm } from './SettingsForm.tsx'
 import { DefinitionPage } from './DefinitionPage.tsx'
 import { ExecutionPage } from './ExecutionPage.tsx'
 import { PipelinePage } from './PipelinePage.tsx'
@@ -59,6 +60,7 @@ function SettingsPage() {
       {state.status === 'loading' && <p className="muted">Loading…</p>}
       {state.status === 'failed' && <p role="alert">The server did not answer: {state.error}</p>}
       {state.status === 'ready' && <WorkDirectoryForm initial={state.config.workDir ?? ''} />}
+      <SettingsForm />
     </div>
   )
 }

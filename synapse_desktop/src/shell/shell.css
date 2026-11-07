@@ -883,3 +883,42 @@ div.activity-row {
 .diff-line[data-change='del'] {
   color: #fca5a5;
 }
+
+/* The settings of synapse.conf */
+.settings {
+  display: flex;
+  flex-direction: column;
+}
+
+.setting {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+}
+
+.setting:first-child {
+  border-top: none;
+}
+
+.setting p {
+  margin: 0;
+}
+
+.setting-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.setting-key {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.setting input.mono {
+  width: 100%;
+  max-width: 520px;
+  box-sizing: border-box;
+}

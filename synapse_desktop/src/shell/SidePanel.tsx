@@ -14,7 +14,7 @@ function SettingsPanel({ dispatch }: { dispatch: Dispatch<Action> }) {
           className="menu-item"
           onClick={() => dispatch({ type: 'openPage', page: { kind: 'settings' } })}
         >
-          Work directory
+          All settings
         </button>
       </div>
     </>

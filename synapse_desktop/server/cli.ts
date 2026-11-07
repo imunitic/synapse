@@ -7,13 +7,39 @@ import type { AppConfig, CliBinary, CliResult } from '../shared/transport.ts'
 // What `cli` may run. Starting a run is `startRun`, not a subcommand of this.
 const ALLOWED_SUBCOMMANDS: Record<CliBinary, readonly string[]> = {
   'synapse-pipeline': ['check', 'show', 'list', 'info', 'cleanup'],
-  synapse: [],
+  synapse: ['config'],
 }
 
 const MAX_ARGS = 32
 const MAX_ARG_LENGTH = 4096
 const TIMEOUT_MS = 30_000
 const MAX_OUTPUT_BYTES = 8 * 1024 * 1024
+
+// A setting's name: capitals, digits and underscores.
+const SETTING_KEY = /^[A-Z][A-Z0-9_]*$/
+
+// `config list [--format json|text]`, `config set <KEY> <value>` and
+// `config unset <KEY>`, and nothing else of `synapse config`.
+function refuseConfig(args: readonly string[]): string | null {
+  const [, action, ...rest] = args
+  if (action === 'list') {
+    const plain = rest.length === 0
+    const formatted =
+      rest.length === 2 && rest[0] === '--format' && ['json', 'text'].includes(rest[1] ?? '')
+    return plain || formatted ? null : 'config list takes only --format json or text'
+  }
+  if (action === 'set') {
+    return rest.length === 2 && SETTING_KEY.test(rest[0] ?? '')
+      ? null
+      : 'config set takes a setting name and a value'
+  }
+  if (action === 'unset') {
+    return rest.length === 1 && SETTING_KEY.test(rest[0] ?? '')
+      ? null
+      : 'config unset takes a setting name'
+  }
+  return 'config takes list, set or unset'
+}
 
 // The reason the call is refused, or null when it may run.
 export function refuseCli(binary: CliBinary, args: readonly string[]): string | null {
@@ -26,7 +52,7 @@ export function refuseCli(binary: CliBinary, args: readonly string[]): string | 
   if (args.some((a) => a.length > MAX_ARG_LENGTH || a.includes('\0'))) {
     return 'an argument is too long or holds a NUL'
   }
-  return null
+  return binary === 'synapse' ? refuseConfig(args) : null
 }
 
 export interface CliRun {
