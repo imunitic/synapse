@@ -10,6 +10,7 @@ with Synapse.Commands.Configure;
 with Synapse.Commands.Doctor;
 with Synapse.Commands.Push_Nodes;
 with Synapse.Commands.Query;
+with Synapse.Commands.Status;
 with Synapse.Commands.Write_Node;
 with Synapse.Commands.Graph_Clean;
 with Synapse.Commands.Graph_Wipe;
@@ -95,6 +96,7 @@ package body Synapse.Commands.Dispatch is
    Frontmatter_Name         : aliased constant String := "frontmatter";
    Config_Name              : aliased constant String := "config";
    Configure_Name           : aliased constant String := "configure";
+   Status_Name              : aliased constant String := "status";
 
    Table : constant array (Positive range <>) of Entry_Type :=
      [(Namespace_Name'Access, Namespace.Run'Access),
@@ -115,6 +117,7 @@ package body Synapse.Commands.Dispatch is
      (Frontmatter_Name'Access, Frontmatter.Run'Access),
      (Config_Name'Access, Config.Run'Access),
      (Configure_Name'Access, Configure.Run'Access),
+     (Status_Name'Access, Status.Run'Access),
      (Vault_Write_Name'Access, Vault_Write.Run_Write'Access),
      (Vault_Patch_Name'Access, Vault_Write.Run_Patch'Access),
      (Vault_Rename_Name'Access, Vault_Write.Run_Rename'Access),

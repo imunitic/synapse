@@ -37,6 +37,7 @@ usage: synapse <subcommand> [args]
   config set <KEY> <value>   write one setting into the file that holds it, byte-preserving
   config unset <KEY>         remove one setting from that file
   configure <claude|codex|opencode>   install Synapse's hooks, skills and commands for a harness
+  status [--format text|json]   what in the vault needs a human decision
   vault-read <path>          a note's full body
   vault-write <path>         write a note's full body, from stdin
   vault-list                 every note in the vault, recursively
@@ -207,6 +208,18 @@ Environment:
   SYNAPSE_CONTENT_ROOT  the folder that holds skills/, commands/, harness/ and
                         synapse.conf.template; the folder above this program's
                         own when not set
+```
+
+### synapse status
+
+```
+usage: synapse status [--format text|json]
+
+Prints what in the vault needs a human decision: design notes still being
+discussed, ready ones with no compiled task, ready ones with open questions,
+open tasks with unchecked items, and tasks waiting for review. Only designs/
+and tasks/ are looked at, and nothing is written. --format json gives
+synapse-status/v1, every category with its items and their paths.
 ```
 
 ### synapse vault-read

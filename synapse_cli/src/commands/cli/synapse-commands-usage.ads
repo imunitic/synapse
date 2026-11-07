@@ -46,6 +46,8 @@ package Synapse.Commands.Usage is
       "t file" & LF &
       "  configure <claude|codex|opencode>   install Synapse's hook" &
       "s, skills and commands for a harness" & LF &
+      "  status [--format text|json]   what in the vault needs a hum" &
+      "an decision" & LF &
       "  vault-read <path>          a note's full body" & LF &
       "  vault-write <path>         write a note's full body, fro" &
       "m stdin" & LF &
