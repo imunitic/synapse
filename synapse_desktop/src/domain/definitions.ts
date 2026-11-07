@@ -36,38 +36,25 @@ function join(dir: string, name: string): string {
   return `${dir}/${name}`
 }
 
-// Every definition in the definition directories, by name. A file that does
-// not start with a kind is left out.
-export async function listDefinitions(transport: Transport): Promise<Definition[]> {
-  const { definitionDirs } = await transport.getPaths()
-  const perDirectory = await Promise.all(
-    definitionDirs.map(async (dir) => {
-      const entries = await transport.readDir(dir)
-      const files = entries.filter((e) => !e.isDir && e.name.endsWith('.synapse'))
-      const found = await Promise.all(
-        files.map(async (file) => {
-          const path = join(dir, file.name)
-          const kind = kindOfSource(await transport.readText(path))
-          return kind === null
-            ? null
-            : { name: file.name.slice(0, -'.synapse'.length), kind, path, duplicate: false }
-        }),
-      )
-      return found.filter((d) => d !== null)
+// The definitions of one directory, with the kind each declares. A file that
+// does not start with a kind is left out.
+async function readDefinitionDir(transport: Transport, dir: string): Promise<Definition[]> {
+  const entries = await transport.readDir(dir)
+  const files = entries.filter((e) => !e.isDir && e.name.endsWith('.synapse'))
+  const found = await Promise.all(
+    files.map(async (file) => {
+      const path = join(dir, file.name)
+      const kind = kindOfSource(await transport.readText(path))
+      return kind === null
+        ? null
+        : { name: file.name.slice(0, -'.synapse'.length), kind, path, duplicate: false }
     }),
   )
-  const all = perDirectory.flat()
-  const counts = new Map<string, number>()
-  for (const d of all) counts.set(d.name, (counts.get(d.name) ?? 0) + 1)
-  return all
-    .map((d) => ({ ...d, duplicate: (counts.get(d.name) ?? 0) > 1 }))
-    .sort((a, b) => a.name.localeCompare(b.name))
+  return found.filter((d) => d !== null)
 }
 
-// The directories of the skills directory that hold a SKILL.md.
-export async function listSkills(transport: Transport): Promise<Skill[]> {
-  const { skillsDir } = await transport.getPaths()
-  if (skillsDir === null) return []
+// The directories of a skills directory that hold a SKILL.md.
+async function readSkillDir(transport: Transport, skillsDir: string): Promise<Skill[]> {
   const entries = await transport.readDir(skillsDir)
   const found = await Promise.all(
     entries
@@ -80,4 +67,42 @@ export async function listSkills(transport: Transport): Promise<Skill[]> {
       }),
   )
   return found.filter((s) => s !== null).sort((a, b) => a.name.localeCompare(b.name))
+}
+
+// Every definition in the definition directories, by name.
+export async function listDefinitions(transport: Transport): Promise<Definition[]> {
+  const { definitionDirs } = await transport.getPaths()
+  const all = (
+    await Promise.all(definitionDirs.map((dir) => readDefinitionDir(transport, dir)))
+  ).flat()
+  const counts = new Map<string, number>()
+  for (const d of all) counts.set(d.name, (counts.get(d.name) ?? 0) + 1)
+  return all
+    .map((d) => ({ ...d, duplicate: (counts.get(d.name) ?? 0) > 1 }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+// The directories of the skills directory that hold a SKILL.md.
+export async function listSkills(transport: Transport): Promise<Skill[]> {
+  const { skillsDir } = await transport.getPaths()
+  return skillsDir === null ? [] : readSkillDir(transport, skillsDir)
+}
+
+export interface RecordedDefinitions {
+  definitions: Definition[]
+  skills: Skill[]
+}
+
+// The definition files a run's record keeps, laid out in it as a configuration
+// directory is. A record made before it kept them has none.
+export async function listRecordedDefinitions(
+  transport: Transport,
+  executionId: string,
+): Promise<RecordedDefinitions> {
+  const { recordsDir } = await transport.getPaths()
+  if (recordsDir === null) return { definitions: [], skills: [] }
+  const dir = `${recordsDir}/${executionId}/definitions/synapse-pipeline`
+  const definitions = await readDefinitionDir(transport, dir).catch(() => [])
+  const skills = await readSkillDir(transport, `${dir}/skills`).catch(() => [])
+  return { definitions: definitions.sort((a, b) => a.name.localeCompare(b.name)), skills }
 }

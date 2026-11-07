@@ -711,3 +711,22 @@
   margin: 0;
   color: #fcd34d;
 }
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 12px;
+  background: #2a2a30;
+}
+
+.chip[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: #2a2740;
+}

@@ -1,9 +1,11 @@
 import { useCallback, useMemo, useState } from 'react'
+import { listRecordedDefinitions } from '../domain/definitions.ts'
 import { readExecution, type ExecutionRecord } from '../domain/executions.ts'
 import { layoutGraph } from '../domain/graph.ts'
 import { progressOf, visitsOf, type StepProgress, type Visit } from '../domain/progress.ts'
 import { describeRun } from '../domain/run-graph.ts'
 import { transport } from '../transport/index.ts'
+import { SourceCard } from './DefinitionPage.tsx'
 import { GraphView } from './GraphView.tsx'
 import { StatusBadge } from './StatusBadge.tsx'
 import { useLoad } from './useLoad.ts'
@@ -47,9 +49,10 @@ function RunGraph({ id, record }: { id: string; record: ExecutionRecord }) {
   const pipeline = record.summary.pipeline
   // Loaded once: a run that is going gives its pipeline exactly, and the
   // answer does not change while it runs.
+  const going = record.summary.status === 'running'
   const load = useCallback(
-    () => (pipeline === null ? Promise.resolve(null) : describeRun(transport, id, pipeline)),
-    [id, pipeline],
+    () => (pipeline === null ? Promise.resolve(null) : describeRun(transport, id, pipeline, going)),
+    [id, pipeline, going],
   )
   const { state } = useLoad(load)
   const drawn = state.status === 'ready' && state.data?.ok ? state.data : null
@@ -108,6 +111,40 @@ function RunGraph({ id, record }: { id: string; record: ExecutionRecord }) {
   )
 }
 
+// The definition files the run's record keeps, as they were when it began. A
+// record made before it kept them has none, and shows nothing here.
+function RecordedFiles({ id }: { id: string }) {
+  const load = useCallback(() => listRecordedDefinitions(transport, id), [id])
+  const { state } = useLoad(load)
+  const [open, setOpen] = useState<string | null>(null)
+  if (state.status !== 'ready') return null
+  const { definitions, skills } = state.data
+  if (definitions.length === 0 && skills.length === 0) return null
+  const files = [
+    ...definitions.map((d) => ({ label: `${d.kind} ${d.name}`, path: d.path })),
+    ...skills.map((s) => ({ label: `skill ${s.name}`, path: s.path })),
+  ]
+  return (
+    <section className="card" aria-label="Definitions it ran">
+      <h2 className="card-title">Definitions it ran</h2>
+      <p className="muted small">The files as they were when the run began.</p>
+      <div className="chips">
+        {files.map((file) => (
+          <button
+            key={file.path}
+            className="chip mono"
+            aria-pressed={open === file.path}
+            onClick={() => setOpen(open === file.path ? null : file.path)}
+          >
+            {file.label}
+          </button>
+        ))}
+      </div>
+      {open !== null && <SourceCard path={open} />}
+    </section>
+  )
+}
+
 // One run: where it is on its pipeline, its summary, the steps it went through
 // and the events of its record.
 export function ExecutionPage({ id }: { id: string }) {
@@ -161,7 +198,7 @@ export function ExecutionPage({ id }: { id: string }) {
           {summary.failure}
         </div>
       )}
-      <RunGraph key={id} id={id} record={record} />
+      <RunGraph id={id} record={record} />
       <section className="card" aria-label="Summary">
         <h2 className="card-title">Summary</h2>
         <dl className="facts">
@@ -175,6 +212,7 @@ export function ExecutionPage({ id }: { id: string }) {
           <dd>{summary.stepsRun ?? '—'}</dd>
         </dl>
       </section>
+      <RecordedFiles id={id} />
       <section className="card" aria-label="Trace">
         <h2 className="card-title">Trace</h2>
         {visits.length === 0 && <p className="muted">No step has started.</p>}

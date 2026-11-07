@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { kindOfSource, listDefinitions, listSkills } from './definitions.ts'
+import {
+  kindOfSource,
+  listDefinitions,
+  listRecordedDefinitions,
+  listSkills,
+} from './definitions.ts'
 import { fakeTransport } from './fake-transport.ts'
 
 describe('kindOfSource', () => {
@@ -87,5 +92,49 @@ describe('listSkills', () => {
       files: {},
     })
     expect(await listSkills(transport)).toEqual([])
+  })
+})
+
+describe('listRecordedDefinitions', () => {
+  const paths = { definitionDirs: [], skillsDir: null, recordsDir: '/w/pipelines' }
+  const dir = '/w/pipelines/exec-1/definitions/synapse-pipeline'
+
+  it('lists the files a run kept, by name and kind, with its skills', async () => {
+    const transport = fakeTransport({
+      paths,
+      files: {
+        [`${dir}/Dev.synapse`]: 'Pipeline Dev {}',
+        [`${dir}/Reviewer.synapse`]: 'Agent Reviewer [Prompt => "x"];',
+        [`${dir}/skills/review-code/SKILL.md`]: '---\nname: review-code\n---',
+      },
+    })
+    const kept = await listRecordedDefinitions(transport, 'exec-1')
+    expect(kept.definitions.map((d) => [d.name, d.kind])).toEqual([
+      ['Dev', 'pipeline'],
+      ['Reviewer', 'agent'],
+    ])
+    expect(kept.skills.map((s) => s.name)).toEqual(['review-code'])
+  })
+
+  it('has nothing for a record made before it kept them, or without a work directory', async () => {
+    const old = fakeTransport({ paths, files: { '/w/pipelines/exec-1/execution.json': '{}' } })
+    expect(await listRecordedDefinitions(old, 'exec-1')).toEqual({ definitions: [], skills: [] })
+    const none = fakeTransport({
+      paths: { definitionDirs: [], skillsDir: null, recordsDir: null },
+      files: {},
+    })
+    expect(await listRecordedDefinitions(none, 'exec-1')).toEqual({ definitions: [], skills: [] })
+  })
+
+  it('does not mix the files of two runs', async () => {
+    const transport = fakeTransport({
+      paths,
+      files: {
+        [`${dir}/Dev.synapse`]: 'Pipeline Dev {}',
+        '/w/pipelines/exec-2/definitions/synapse-pipeline/Other.synapse': 'Pipeline Other {}',
+      },
+    })
+    const kept = await listRecordedDefinitions(transport, 'exec-1')
+    expect(kept.definitions.map((d) => d.name)).toEqual(['Dev'])
   })
 })
