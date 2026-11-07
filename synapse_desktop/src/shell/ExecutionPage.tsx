@@ -57,22 +57,27 @@ function TraceVisit({
   sessions: RecordedSession[]
 }) {
   const [open, setOpen] = useState(false)
+  const written = sessions.filter(
+    (s): s is RecordedSession & { transcript: string } => s.transcript !== null,
+  )
   return (
     <div>
       <div className="trace-row">
         <span className="muted">{visit.n}</span>
         <span>{visit.step}</span>
         <span className="muted">{visitText(visit, status)}</span>
-        {sessions.length > 0 && (
+        {written.length > 0 ? (
           <button className="link" aria-expanded={open} onClick={() => setOpen(!open)}>
             {open ? 'Hide activity' : 'Activity'}
           </button>
+        ) : (
+          sessions.length > 0 && <span className="muted small">no transcript</span>
         )}
       </div>
       {open &&
-        sessions.map((session) => (
+        written.map((session) => (
           <div key={session.transcript} className="trace-session">
-            {sessions.length > 1 && (
+            {written.length > 1 && (
               <p className="muted small">
                 Try {session.attempt}: {session.succeeded ? 'ended well' : 'failed'}
               </p>

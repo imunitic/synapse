@@ -422,14 +422,17 @@ describe('sessionsByVisit', () => {
         succeeded: true,
         transcript: '/t/2-B-1.jsonl',
       }),
-      event(8, 'session.finished', 'B', { attempt: 1, succeeded: true }),
+      event(8, 'session.finished', 'B', { attempt: 1, succeeded: true, transcript: null }),
     ]
     expect(sessionsByVisit(events)).toEqual([
       [
         { attempt: 1, succeeded: false, transcript: '/t/1-A-1.jsonl' },
         { attempt: 2, succeeded: true, transcript: '/t/1-A-2.jsonl' },
       ],
-      [{ attempt: 1, succeeded: true, transcript: '/t/2-B-1.jsonl' }],
+      [
+        { attempt: 1, succeeded: true, transcript: '/t/2-B-1.jsonl' },
+        { attempt: 1, succeeded: true, transcript: null },
+      ],
     ])
   })
 })

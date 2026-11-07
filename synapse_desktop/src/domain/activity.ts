@@ -486,7 +486,8 @@ export function readActivity(text: string): Activity {
 export interface RecordedSession {
   attempt: number
   succeeded: boolean
-  transcript: string
+  // Null for a session that wrote none, such as a scripted run's.
+  transcript: string | null
 }
 
 // The sessions of each visit to a step, in the order of the visits: a try is
@@ -500,7 +501,7 @@ export function sessionsByVisit(events: readonly RunEvent[]): RecordedSession[][
       const detail = obj(event.detail)
       const transcript = str(detail?.transcript)
       const current = visits.at(-1)
-      if (current !== undefined && transcript !== null) {
+      if (current !== undefined) {
         current.push({
           attempt: num(detail?.attempt) ?? current.length + 1,
           succeeded: detail?.succeeded === true,
