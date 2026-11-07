@@ -52,6 +52,7 @@ export function fakeTransport(world: FakeWorld): Transport {
     inspectVault: unavailable,
     getIntegrations: unavailable,
     checkGraphRepo: unavailable,
+    findGraphRepos: unavailable,
     graphHealth: unavailable,
     planGraphDrop: unavailable,
     dropGraph: unavailable,

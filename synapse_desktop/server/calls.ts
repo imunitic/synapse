@@ -13,11 +13,13 @@ import type {
   GraphHealth,
   GraphPlan,
   GraphRepoCheck,
+  GraphRepoMatches,
   Integrations,
   RunAnswer,
   VaultInfo,
 } from '../shared/transport.ts'
 import { cliEnvironment, refuseCli, type CliRunner } from './cli.ts'
+import { findGraphRepos } from './graph-find.ts'
 import { checkGraphRepo, graphHealth } from './graph-health.ts'
 import {
   cleanGraphs,
@@ -247,6 +249,12 @@ const handlers: Record<CallName, Handler> = {
     const { path } = callParams.checkGraphRepo.parse(raw)
     const config = await loadConfig(context.configFile, context.environment)
     return checkGraphRepo(context.runCli, config, path)
+  },
+
+  async findGraphRepos(raw, context): Promise<GraphRepoMatches> {
+    const { namespace } = callParams.findGraphRepos.parse(raw)
+    const config = await loadConfig(context.configFile, context.environment)
+    return { paths: await findGraphRepos(context.runCli, config, namespace) }
   },
 
   async graphHealth(raw, context): Promise<GraphHealth> {

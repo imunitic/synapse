@@ -13,6 +13,7 @@ import type {
   GraphHealth,
   GraphPlan,
   GraphRepoCheck,
+  GraphRepoMatches,
   Harness,
   Integrations,
   NewDefinition,
@@ -75,6 +76,10 @@ export class HttpTransport implements Transport {
 
   checkGraphRepo(path: string): Promise<GraphRepoCheck> {
     return this.call('checkGraphRepo', { path })
+  }
+
+  findGraphRepos(namespace: string): Promise<GraphRepoMatches> {
+    return this.call('findGraphRepos', { namespace })
   }
 
   graphHealth(namespace: string): Promise<GraphHealth> {

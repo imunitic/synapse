@@ -1661,3 +1661,16 @@ div.activity-row {
 .graph-page .confirm .field {
   margin-bottom: 12px;
 }
+
+.repo-suggest {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.repo-suggestion {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}

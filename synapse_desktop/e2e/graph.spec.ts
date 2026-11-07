@@ -386,3 +386,45 @@ test('a folder that is not a repository cannot start a new graph', async ({ page
   await expect(card.getByRole('alert')).toBeVisible()
   await expect(card.getByRole('alertdialog')).toHaveCount(0)
 })
+
+test('a saved folder on another branch is offered the checkout that is on the graph', async ({
+  page,
+}) => {
+  const right = repository('widget')
+  await openGraph(page)
+  await saveRepository(page, repository('other'))
+  const found = page.getByLabel('Checkouts found')
+  await expect(found).toContainText('A checkout of widget@main found:')
+  await expect(found).toContainText(right)
+  // The folder that is saved is never offered again.
+  await expect(found).not.toContainText(join(world().root, 'repos', 'other'))
+
+  await found.getByRole('button', { name: 'Use it' }).click()
+  await expect(page.getByLabel('Repository', { exact: true })).toContainText('on widget@main')
+  await expect(page.getByLabel('Checkouts found')).toHaveCount(0)
+})
+
+test('a graph with no folder is offered the checkouts next to the ones saved for others', async ({
+  page,
+}) => {
+  const widget = repository('widget')
+  await openGraph(page)
+  await page.getByLabel('Namespace', { exact: true }).selectOption('thin@main')
+  await page.getByRole('textbox', { name: 'Repository folder' }).fill(repository('thin'))
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.getByLabel('Repository', { exact: true })).toContainText('thin@main')
+
+  await page.getByLabel('Namespace', { exact: true }).selectOption('widget@main')
+  const found = page.getByLabel('Checkouts found')
+  await expect(found).toContainText(widget)
+  await found.getByRole('button', { name: 'Use it' }).click()
+  await expect(page.getByLabel('Repository', { exact: true })).toContainText('on widget@main')
+})
+
+test('nothing is offered when no folder has been saved to look next to', async ({ page }) => {
+  repository('widget')
+  await openGraph(page)
+  await page.getByLabel('Namespace', { exact: true }).selectOption('widget@main')
+  await expect(page.getByRole('textbox', { name: 'Repository folder' })).toBeVisible()
+  await expect(page.getByLabel('Checkouts found')).toHaveCount(0)
+})

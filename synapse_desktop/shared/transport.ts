@@ -168,6 +168,11 @@ export interface Integrations {
 }
 
 // What a folder says about the code graph it is the repository of.
+// The checkouts found that are on a graph's namespace.
+export interface GraphRepoMatches {
+  paths: string[]
+}
+
 export interface GraphRepoCheck {
   // The `<repo>@<branch>` of the folder as it is checked out now, or null when
   // it is not a repository on a branch.
@@ -261,6 +266,8 @@ export interface Transport {
 
   // The namespace of a folder that is the repository of a graph.
   checkGraphRepo(path: string): Promise<GraphRepoCheck>
+  // The checkouts next to the saved ones that are on this namespace now.
+  findGraphRepos(namespace: string): Promise<GraphRepoMatches>
   // Reads a graph against the repository saved for its namespace.
   graphHealth(namespace: string): Promise<GraphHealth>
   // What deleting the graph of a namespace would remove, and then removing it.

@@ -118,6 +118,7 @@ export const callParams = {
   getIntegrations: z.object({}),
   configureHarness: z.object({ harness: harnessSchema }),
   checkGraphRepo: z.object({ path: z.string().min(1).max(4096) }),
+  findGraphRepos: z.object({ namespace: namespaceSchema }),
   graphHealth: z.object({ namespace: namespaceSchema }),
   planGraphDrop: z.object({ namespace: namespaceSchema }),
   dropGraph: z.object({ namespace: namespaceSchema }),
