@@ -1,9 +1,10 @@
-// Starting a run and stopping it. `synapse-pipeline run` prints no execution
-// id before it ends, so the run is found by its record: the new directory whose
-// summary names this pipeline and holds this input.
+// Starting a run and stopping it. The server draws the run's id and gives it
+// to `synapse-pipeline run --id`, so the run is known by its id from the start:
+// its record directory, named by the id, is made as the run begins.
 
 import { spawn, type ChildProcess } from 'node:child_process'
-import { readdir, readFile } from 'node:fs/promises'
+import { randomBytes } from 'node:crypto'
+import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { AppConfig } from '../shared/transport.ts'
 import { cliEnvironment } from './cli.ts'
@@ -15,48 +16,14 @@ const MAX_STDERR_BYTES = 8192
 export class NotStartedHere extends Error {}
 export class RunNotStarted extends Error {}
 
-// JSON with the keys of every object in order, so two documents that mean the
-// same thing give the same text.
-export function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
-  if (value !== null && typeof value === 'object') {
-    const entries = Object.entries(value).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(',')}}`
-  }
-  return JSON.stringify(value) ?? 'null'
+// An id in the form the program draws its own, so that the app's runs and the
+// others look alike.
+function drawId(): string {
+  return `exec-${randomBytes(4).toString('hex')}`
 }
 
-// Whether a record's summary is the run of this pipeline with this input.
-export function isRunOf(summary: unknown, pipeline: string, input: unknown): boolean {
-  if (summary === null || typeof summary !== 'object') return false
-  const { pipeline: named, state } = summary as { pipeline?: unknown; state?: unknown }
-  if (named !== pipeline || state === null || typeof state !== 'object') return false
-  const initial = (state as { initial_input?: unknown }).initial_input
-  return canonical(initial) === canonical(input)
-}
-
-async function recordNames(recordsDir: string): Promise<string[]> {
-  const entries = await readdir(recordsDir, { withFileTypes: true }).catch(() => [])
-  return entries.filter((e) => e.isDirectory()).map((e) => e.name)
-}
-
-async function findRecord(
-  recordsDir: string,
-  before: ReadonlySet<string>,
-  pipeline: string,
-  input: unknown,
-): Promise<string | null> {
-  for (const name of await recordNames(recordsDir)) {
-    if (before.has(name)) continue
-    const text = await readFile(join(recordsDir, name, 'execution.json'), 'utf8').catch(() => null)
-    if (text === null) continue
-    try {
-      if (isRunOf(JSON.parse(text), pipeline, input)) return name
-    } catch {
-      continue
-    }
-  }
-  return null
+async function isDirectory(path: string): Promise<boolean> {
+  return (await stat(path).catch(() => null))?.isDirectory() ?? false
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -90,10 +57,10 @@ export function createRunStarter(binary: string, baseEnv: NodeJS.ProcessEnv): Ru
   return {
     async start(pipeline, input, config) {
       if (config.workDir === null) throw new RunNotStarted('no work directory is set')
-      const recordsDir = join(config.workDir, 'pipelines')
-      const before = new Set(await recordNames(recordsDir))
+      const id = drawId()
+      const record = join(config.workDir, 'pipelines', id)
 
-      const child = spawn(binary, ['run', pipeline, '--input', '-'], {
+      const child = spawn(binary, ['run', pipeline, '--input', '-', '--id', id], {
         env: cliEnvironment(baseEnv, config),
         stdio: ['pipe', 'ignore', 'pipe'],
         // Its own process group, so that stop can end the whole tree.
@@ -110,10 +77,11 @@ export function createRunStarter(binary: string, baseEnv: NodeJS.ProcessEnv): Ru
       child.stdin.on('error', () => undefined)
       child.stdin.end(JSON.stringify(input))
 
+      // The run makes its record directory as it begins; a run that is refused
+      // exits without making it, and says why on standard error.
       const deadline = Date.now() + FIND_TIMEOUT_MS
       for (;;) {
-        const id = await findRecord(recordsDir, before, pipeline, input)
-        if (id !== null) {
+        if (await isDirectory(record)) {
           children.set(id, child)
           child.on('exit', () => children.delete(id))
           return { executionId: id }
