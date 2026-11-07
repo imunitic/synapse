@@ -92,8 +92,8 @@ function DefaultHarnessCard() {
     <section className="card" aria-label="Default harness">
       <h2 className="card-title">Default harness</h2>
       <p className="muted">
-        The harness that writes a definition when you ask an agent to, and that a step uses when it
-        names none. Without one, Claude Code is used.
+        The harness that writes a definition or a note when you ask an agent to, and that a step
+        uses when it names none. Without one, Claude Code is used.
       </p>
       <select
         aria-label="Default harness"

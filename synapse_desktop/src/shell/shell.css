@@ -814,14 +814,22 @@
   justify-content: flex-end;
 }
 
-.agent-card select {
-  margin-left: 8px;
+/* Every dropdown has the colours of the app and room for its labels. */
+select {
+  min-width: 220px;
+  max-width: 100%;
+  /* In a column of controls, as wide as its labels and not the whole row. */
+  align-self: flex-start;
+  padding: 6px 8px;
+  font-size: 13px;
   color: var(--text);
   background: var(--tabbar);
   border: 1px solid var(--border-strong);
   border-radius: 6px;
-  padding: 6px 8px;
-  font-size: 13px;
+}
+
+.agent-card select {
+  margin-left: 8px;
 }
 
 /* What the agent did in a session */
@@ -1646,16 +1654,6 @@ div.activity-row {
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-
-.graph-page select {
-  min-width: 220px;
-  padding: 6px 8px;
-  font-size: 13px;
-  color: var(--text);
-  background: var(--tabbar);
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
 }
 
 .graph-page .confirm .field {

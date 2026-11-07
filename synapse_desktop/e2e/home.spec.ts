@@ -138,6 +138,12 @@ test('the pipelines card counts the week and lists the latest runs', async ({ pa
 
 test('a quick action starts a terminal, which then shows as running', async ({ page }) => {
   await page.goto('/')
+  // A harness needs a folder to work in, which the terminals page asks for, so the
+  // quick actions are a shell and a pipeline.
+  await expect(page.getByRole('group', { name: 'Quick actions' }).getByRole('button')).toHaveText([
+    'New shell',
+    'New pipeline',
+  ])
   await page
     .getByRole('group', { name: 'Quick actions' })
     .getByRole('button', { name: 'New shell' })

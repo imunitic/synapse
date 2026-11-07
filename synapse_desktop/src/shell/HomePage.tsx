@@ -438,15 +438,6 @@ function QuickActions({
       <button className="secondary" onClick={() => onStartTerminal('Shell')}>
         New shell
       </button>
-      <button className="secondary" onClick={() => onStartTerminal('Claude')}>
-        Claude Code
-      </button>
-      <button className="secondary" onClick={() => onStartTerminal('Codex')}>
-        Codex
-      </button>
-      <button className="secondary" onClick={() => onStartTerminal('Opencode')}>
-        OpenCode
-      </button>
       <button
         className="secondary"
         onClick={() => onOpen({ kind: 'create', definition: 'pipeline' })}
