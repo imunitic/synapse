@@ -4,6 +4,8 @@ with Ada.Strings.Unbounded;
 
 with AUnit.Assertions;
 
+with GNAT.OS_Lib;
+
 with Synapse.Adapters.File_Bytes;
 with Synapse.Test_Environment;
 with Synapse.Test_Scratch;
@@ -49,7 +51,12 @@ package body Synapse.Commands.Configure.Tests is
    function Home (W : World) return String is (Path (W, "home"));
    function Content (W : World) return String is (Path (W, "content"));
    function Bin (W : World) return String is (Path (W, "bin"));
-   function Hook (W : World) return String is (Bin (W) & "/synapse-hook");
+   --  The hook program is `synapse-hook.exe` where programs have that suffix.
+   Exe : constant String :=
+     (if GNAT.OS_Lib.Directory_Separator = '\' then ".exe" else "");
+
+   function Hook (W : World) return String is
+     (Bin (W) & "/synapse-hook" & Exe);
 
    function Make_World return World is
    begin
