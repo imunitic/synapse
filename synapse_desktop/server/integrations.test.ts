@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { hookOf, inspectIntegrations, versionOfProgram } from './integrations.ts'
+import { compareVersions, hookOf, inspectIntegrations, versionOfProgram } from './integrations.ts'
 
 let dir: string
 let home: string
@@ -158,5 +158,57 @@ describe('the version a program says', () => {
 
   it('is nothing for a program that is not there or says something else', async () => {
     expect(await versionOfProgram(join(bin, 'missing'))).toBeNull()
+  })
+})
+
+describe('versions', () => {
+  it('are compared by their numbers, a pre-release being older than its release', () => {
+    expect(compareVersions('0.17.0', '0.0.0-dev')).toBe(1)
+    expect(compareVersions('0.0.0-dev', '0.17.0')).toBe(-1)
+    expect(compareVersions('1.2.3', '1.2.3')).toBe(0)
+    expect(compareVersions('1.10.0', '1.9.9')).toBe(1)
+    expect(compareVersions('1.2.3-rc1', '1.2.3')).toBe(-1)
+    expect(compareVersions('v2.0.0', '1.9.0')).toBe(1)
+    expect(compareVersions('0.0.0-dev', '0.0.0-dev')).toBe(0)
+  })
+
+  it('are not compared when one is not a version', () => {
+    expect(compareVersions('unknown', '1.0.0')).toBeNull()
+    expect(compareVersions('1.0', '1.0.0')).toBeNull()
+  })
+})
+
+describe('a harness with a newer Synapse than the app has', () => {
+  it('is newer, and its version is read from the npm package when the program does not say', async () => {
+    const mine = await program(join(dir, 'mine'))
+    void mine
+    const installed = await program(join(dir, 'node_modules', '@imunitic', 'synapse-x', 'bin'))
+    await put(
+      join(dir, 'node_modules', '@imunitic', 'synapse-x', 'package.json'),
+      JSON.stringify({ name: '@imunitic/synapse-x', version: '0.18.0' }),
+    )
+    await put(join(home, '.claude', 'settings.json'), claude(installed))
+    const result = await inspectIntegrations({
+      env: { PATH: join(dir, 'mine') },
+      home,
+      versionOf: (p) => Promise.resolve(p.startsWith(join(dir, 'mine')) ? '0.0.0-dev' : null),
+    })
+    expect(result.harnesses[0]).toMatchObject({ state: 'newer', version: '0.18.0' })
+  })
+
+  it("is not read from a package.json that is not one of Synapse's", async () => {
+    await program(join(dir, 'mine'))
+    const installed = await program(join(dir, 'other', 'bin'))
+    await put(
+      join(dir, 'other', 'package.json'),
+      JSON.stringify({ name: 'something', version: '9.9.9' }),
+    )
+    await put(join(home, '.claude', 'settings.json'), claude(installed))
+    const result = await inspectIntegrations({
+      env: { PATH: join(dir, 'mine') },
+      home,
+      versionOf: () => Promise.resolve(null),
+    })
+    expect(result.harnesses[0]).toMatchObject({ state: 'different', version: null })
   })
 })

@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { IntegrationState } from '../../shared/transport.ts'
-import { actionLabel, HARNESS_NAMES, stateLabel } from './integrations.ts'
+import { actionLabel, HARNESS_NAMES, isDowngrade, stateLabel, writesFor } from './integrations.ts'
 
-const STATES: IntegrationState[] = ['absent', 'current', 'different', 'broken', 'installed']
+const STATES: IntegrationState[] = [
+  'absent',
+  'current',
+  'different',
+  'broken',
+  'installed',
+  'newer',
+]
 
 describe('integrations', () => {
   it('say each state in words, with a button that fits it', () => {
@@ -18,6 +25,19 @@ describe('integrations', () => {
     for (const state of STATES) {
       expect(stateLabel(state)).not.toBe('')
       expect(actionLabel(state)).not.toBe('')
+    }
+  })
+
+  it('call it a downgrade only when what is installed is newer', () => {
+    expect(STATES.filter(isDowngrade)).toEqual(['newer'])
+  })
+
+  it('say which files of a harness installing writes, and keep a copy of the ones it merges into', () => {
+    expect(writesFor('Claude').join(' ')).toContain('settings.json.bak')
+    expect(writesFor('Codex').join(' ')).toContain('hooks.json.bak')
+    expect(writesFor('Opencode').join(' ')).toContain('plugin/synapse.js')
+    for (const harness of ['Claude', 'Codex', 'Opencode'] as const) {
+      expect(writesFor(harness).length).toBeGreaterThan(0)
     }
   })
 

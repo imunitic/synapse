@@ -133,6 +133,8 @@ export type IntegrationState =
   | 'broken'
   // There is a hook, and no Synapse of the app's own to compare it with.
   | 'installed'
+  // The hook is of a newer version than the Synapse the app has.
+  | 'newer'
 
 export interface Integration {
   harness: Harness

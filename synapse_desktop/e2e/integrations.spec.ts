@@ -37,6 +37,9 @@ test('installing writes the hooks, skills and commands, and the page then says i
   await openIntegrations(page)
   const card = page.getByLabel('Claude Code', { exact: true })
   await card.getByRole('button', { name: 'Install' }).click()
+  await expect(card.getByRole('alertdialog')).toContainText('Are you sure?')
+  await expect(card.getByRole('alertdialog')).toContainText('settings.json.bak')
+  await card.getByRole('button', { name: 'Yes, install' }).click()
   await expect(card).toContainText('Installed, up to date')
   await expect(card.getByRole('status')).toContainText('configured')
   await expect(card.getByRole('button', { name: 'Reinstall' })).toBeVisible()
@@ -60,12 +63,20 @@ test('OpenCode and Codex are installed the way each takes it', async ({ page }) 
     .getByLabel('OpenCode', { exact: true })
     .getByRole('button', { name: 'Install' })
     .click()
+  await page
+    .getByLabel('OpenCode', { exact: true })
+    .getByRole('button', { name: 'Yes, install' })
+    .click()
   await expect(page.getByLabel('OpenCode', { exact: true })).toContainText('Installed, up to date')
   expect(
     readFileSync(join(world().home, '.config', 'opencode', 'plugin', 'synapse.js'), 'utf8'),
   ).toContain('synapse-hook')
 
   await page.getByLabel('Codex', { exact: true }).getByRole('button', { name: 'Install' }).click()
+  await page
+    .getByLabel('Codex', { exact: true })
+    .getByRole('button', { name: 'Yes, install' })
+    .click()
   await expect(page.getByLabel('Codex', { exact: true })).toContainText('Installed, up to date')
   expect(existsSync(join(world().home, '.codex', 'hooks.json'))).toBe(true)
 })
@@ -87,8 +98,53 @@ test('a hook program that is gone is shown, and installing again repairs it', as
   const card = page.getByLabel('Claude Code', { exact: true })
   await expect(card).toContainText('Its hook program is missing')
   await card.getByRole('button', { name: 'Repair' }).click()
+  await card.getByRole('button', { name: 'Yes, repair' }).click()
   await expect(card).toContainText('Installed, up to date')
   const settings = readFileSync(join(world().home, '.claude', 'settings.json'), 'utf8')
   expect(settings).not.toContain('/gone/bin')
   expect(settings).toContain('"theme": "dark"')
+})
+
+test('a newer Synapse than the app has is shown with its version, and is not written over', async ({
+  page,
+}) => {
+  const pkg = join(world().root, 'newer-package')
+  mkdirSync(join(pkg, 'bin'), { recursive: true })
+  writeFileSync(join(pkg, 'package.json'), '{"name":"@imunitic/synapse-test","version":"9.0.0"}')
+  writeFileSync(join(pkg, 'bin', 'synapse-hook'), '')
+  mkdirSync(join(world().home, '.claude'), { recursive: true })
+  writeFileSync(
+    join(world().home, '.claude', 'settings.json'),
+    JSON.stringify({
+      hooks: {
+        SessionStart: [
+          {
+            hooks: [
+              { type: 'command', command: `${join(pkg, 'bin', 'synapse-hook')} session-start` },
+            ],
+          },
+        ],
+      },
+    }),
+  )
+  try {
+    await openIntegrations(page)
+    const card = page.getByLabel('Claude Code', { exact: true })
+    await expect(card).toContainText("newer than this app's Synapse")
+    await expect(card).toContainText('9.0.0')
+    await expect(card.getByRole('button', { name: 'Update' })).toBeDisabled()
+  } finally {
+    rmSync(pkg, { recursive: true, force: true })
+  }
+})
+
+test('cancelling the question installs nothing', async ({ page }) => {
+  await openIntegrations(page)
+  const card = page.getByLabel('Claude Code', { exact: true })
+  await card.getByRole('button', { name: 'Install' }).click()
+  await expect(card.getByRole('alertdialog')).toBeVisible()
+  await card.getByRole('button', { name: 'Cancel' }).click()
+  await expect(card.getByRole('alertdialog')).toHaveCount(0)
+  await expect(card).toContainText('Not installed')
+  expect(existsSync(join(world().home, '.claude', 'settings.json'))).toBe(false)
 })

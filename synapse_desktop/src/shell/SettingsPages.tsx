@@ -6,7 +6,13 @@ import {
   type SynapseSetting,
   type SynapseSettings,
 } from '../domain/settings.ts'
-import { actionLabel, HARNESS_NAMES, stateLabel } from '../domain/integrations.ts'
+import {
+  actionLabel,
+  HARNESS_NAMES,
+  isDowngrade,
+  stateLabel,
+  writesFor,
+} from '../domain/integrations.ts'
 import { isAbsolutePath } from '../domain/vaults.ts'
 import { transport } from '../transport/index.ts'
 import { useConfig } from './config.tsx'
@@ -328,6 +334,8 @@ function Environment() {
 function IntegrationsPage() {
   const [version, setVersion] = useState(0)
   const [working, setWorking] = useState<Harness | null>(null)
+  // The harness whose installing is being asked about.
+  const [asking, setAsking] = useState<Harness | null>(null)
   const [results, setResults] = useState<Partial<Record<Harness, { ok: boolean; text: string }>>>(
     {},
   )
@@ -335,6 +343,7 @@ function IntegrationsPage() {
   const { state } = useLoad(load, undefined, version)
 
   async function configure(harness: Harness) {
+    setAsking(null)
     setWorking(harness)
     try {
       const { output } = await transport.configureHarness(harness)
@@ -389,12 +398,40 @@ function IntegrationsPage() {
           <div className="row">
             <button
               className="primary"
-              disabled={working !== null || !ready || bundled.hook === null}
-              onClick={() => void configure(item.harness)}
+              disabled={
+                working !== null || !ready || bundled.hook === null || isDowngrade(item.state)
+              }
+              title={
+                isDowngrade(item.state)
+                  ? "A newer Synapse than this app's is already installed"
+                  : undefined
+              }
+              onClick={() => setAsking(item.harness)}
             >
               {working === item.harness ? 'Working…' : actionLabel(item.state)}
             </button>
           </div>
+          {asking === item.harness && (
+            <div className="confirm" role="alertdialog" aria-label="Are you sure?">
+              <p>
+                <strong>Are you sure?</strong> This writes into {HARNESS_NAMES[item.harness]}'s own
+                configuration:
+              </p>
+              <ul className="small">
+                {writesFor(item.harness).map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+              <div className="row">
+                <button className="primary" onClick={() => void configure(item.harness)}>
+                  Yes, {actionLabel(item.state).toLowerCase()}
+                </button>
+                <button className="secondary" onClick={() => setAsking(null)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
           {results[item.harness] !== undefined && (
             <pre
               className="mono small"
