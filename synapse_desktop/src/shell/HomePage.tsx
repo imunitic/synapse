@@ -28,9 +28,14 @@ function asSource<T>(state: LoadState<T>): Source<T> {
 }
 
 function pageOf(target: AttentionTarget): Page {
-  return target.kind === 'settings'
-    ? { kind: 'settings', section: target.section }
-    : { kind: 'execution', id: target.id }
+  switch (target.kind) {
+    case 'settings':
+      return { kind: 'settings', section: target.section }
+    case 'execution':
+      return { kind: 'execution', id: target.id }
+    case 'note':
+      return { kind: 'note', path: target.path }
+  }
 }
 
 function ItemRow({ item, onOpen }: { item: AttentionItem; onOpen: (page: Page) => void }) {

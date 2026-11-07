@@ -18,6 +18,25 @@ const settings = { kind: 'settings', section: 'general' } as const
 const newPipeline = { kind: 'create', definition: 'pipeline' } as const
 const newAgent = { kind: 'create', definition: 'agent' } as const
 
+describe('note pages', () => {
+  it('are a page for each note, named by its file, opened once', () => {
+    const note = { kind: 'note', path: 'designs/p/Talk.md' } as const
+    expect(pageId(note)).toBe('note:designs/p/Talk.md')
+    expect(pageTitle(note)).toBe('Talk')
+    const twice = [note, note, { kind: 'note', path: 'tasks/p/Work.md' } as const].reduce(
+      (state, page) => reduce(state, { type: 'openPage', page }),
+      initialState,
+    )
+    expect(twice.tabs.map((t) => t.id)).toEqual(['note:designs/p/Talk.md', 'note:tasks/p/Work.md'])
+    expect(twice.activeId).toBe('note:tasks/p/Work.md')
+  })
+
+  it('have a section in the rail that shows its panel', () => {
+    const state = reduce(initialState, { type: 'selectSection', section: 'vault' })
+    expect(state).toMatchObject({ section: 'vault', panelOpen: true })
+  })
+})
+
 describe('the start', () => {
   it('has the home page open and active, and nothing else', () => {
     expect(startState.tabs).toEqual([{ id: 'home', page: { kind: 'home' } }])

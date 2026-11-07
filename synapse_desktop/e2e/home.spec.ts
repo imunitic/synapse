@@ -94,7 +94,7 @@ test('the vault says what needs a decision', async ({ page }) => {
     await expect(card(page)).toContainText('2 unchecked')
     await expect(card(page)).not.toContainText('No vault is configured')
 
-    const summary = page.getByLabel('Vault', { exact: true })
+    const summary = page.getByRole('region', { name: 'Vault', exact: true })
     await expect(summary).toContainText(vault)
     await expect(summary.locator('.count').filter({ hasText: 'Discussing' })).toContainText('1')
     await expect(summary.locator('.count').filter({ hasText: 'In progress' })).toContainText('1')

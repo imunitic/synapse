@@ -1338,3 +1338,196 @@ div.activity-row {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* The vault: its tree, and a note */
+.panel-search {
+  padding: 0 12px 8px;
+}
+
+.panel-search input {
+  width: 100%;
+}
+
+.tree {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 12px;
+}
+
+.tree-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 8px;
+  text-align: left;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 4px;
+}
+
+.tree-item:hover {
+  background: var(--raised);
+}
+
+.tree-item[aria-current='true'] {
+  background: var(--raised);
+  color: #fff;
+}
+
+.tree-folder {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.page.note {
+  max-width: 820px;
+}
+
+.properties {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 12px 16px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.properties dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.properties dt {
+  margin: 0;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip-plain {
+  padding: 0 8px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.note-body {
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.note-body h1,
+.note-body h2,
+.note-body h3,
+.note-body h4 {
+  margin: 1.4em 0 0.5em;
+  line-height: 1.25;
+}
+
+.note-body h1 {
+  font-size: 22px;
+}
+
+.note-body h2 {
+  font-size: 18px;
+}
+
+.note-body h3 {
+  font-size: 15px;
+}
+
+.note-body p,
+.note-body ul,
+.note-body ol {
+  margin: 0.6em 0;
+}
+
+.note-body pre {
+  padding: 12px 14px;
+  overflow-x: auto;
+  background: #18181b;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.note-body code {
+  font-family: var(--mono, ui-monospace, 'SF Mono', Menlo, Consolas, monospace);
+  font-size: 0.9em;
+}
+
+.note-body :not(pre) > code {
+  padding: 1px 5px;
+  background: var(--raised);
+  border-radius: 4px;
+}
+
+.note-body blockquote {
+  margin: 0.8em 0;
+  padding: 0 14px;
+  border-left: 3px solid var(--border-strong);
+  color: var(--muted);
+}
+
+.note-body table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+
+.note-body th,
+.note-body td {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+}
+
+.note-body a {
+  color: var(--accent-text);
+}
+
+.note-body li > input[type='checkbox'] {
+  margin-right: 6px;
+}
+
+.wikilink {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
+.note-links {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.tree-item svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.tree-folder svg:nth-child(2) {
+  color: #d4a85f;
+}
+
+.tree-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-spacer {
+  flex: none;
+  width: 14px;
+}

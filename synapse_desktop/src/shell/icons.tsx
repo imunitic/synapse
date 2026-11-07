@@ -46,6 +46,36 @@ export const TerminalIcon = () => (
   </Icon>
 )
 
+export const ChevronIcon = ({ open }: { open: boolean }) => (
+  <Icon size={14}>
+    <path d={open ? 'M6 9l6 6 6-6' : 'M9 6l6 6-6 6'} />
+  </Icon>
+)
+
+export const FolderIcon = ({ open }: { open: boolean }) => (
+  <Icon size={15}>
+    {open ? (
+      <path d="M3 8a2 2 0 012-2h4l2 2h8a2 2 0 012 2v1H7.5a2 2 0 00-1.9 1.4L3 18V8zM3 18l2.6-6.6A2 2 0 017.5 10H22l-2.4 7.4A2 2 0 0117.7 19H5a2 2 0 01-2-1z" />
+    ) : (
+      <path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+    )}
+  </Icon>
+)
+
+export const NoteIcon = () => (
+  <Icon size={15}>
+    <path d="M7 3h7l5 5v11a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z" />
+    <path d="M14 3v5h5M9 13h6M9 17h6" />
+  </Icon>
+)
+
+export const VaultIcon = () => (
+  <Icon>
+    <path d="M5 4h11a3 3 0 013 3v13H8a3 3 0 01-3-3V4z" />
+    <path d="M5 17a3 3 0 013-3h11M9 8h6" />
+  </Icon>
+)
+
 export const HomeIcon = () => (
   <Icon>
     <path d="M4 11l8-7 8 7M6 10v9h12v-9M10 19v-5h4v5" />

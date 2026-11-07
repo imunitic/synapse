@@ -56,6 +56,7 @@ export async function loadVaultAttention(transport: Transport): Promise<VaultAtt
 export type AttentionTarget =
   | { kind: 'settings'; section: 'general' | 'vault' | 'integrations' }
   | { kind: 'execution'; id: string }
+  | { kind: 'note'; path: string }
 
 export interface AttentionItem {
   key: string
@@ -129,7 +130,7 @@ function vaultItems(vault: VaultAttention): AttentionGroup[] {
             : category.key === 'in_progress'
               ? `${item.unchecked ?? 0} unchecked`
               : null,
-        target: null,
+        target: { kind: 'note', path: item.path },
       })),
     }))
 }

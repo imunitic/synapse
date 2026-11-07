@@ -3,6 +3,7 @@ import { DefinitionsPanel } from './DefinitionsPanel.tsx'
 import { ExecutionsPanel } from './ExecutionsPanel.tsx'
 import { useState } from 'react'
 import { useConfig } from './config.tsx'
+import { VaultPanel } from './VaultPanel.tsx'
 import {
   SETTINGS_SECTIONS,
   TERMINAL_LABELS,
@@ -79,6 +80,7 @@ export function SidePanel({ state, dispatch }: { state: ShellState; dispatch: Di
     <aside className="panel" aria-label="Side panel">
       {state.section === 'definitions' && <DefinitionsPanel state={state} dispatch={dispatch} />}
       {state.section === 'executions' && <ExecutionsPanel state={state} dispatch={dispatch} />}
+      {state.section === 'vault' && <VaultPanel state={state} dispatch={dispatch} />}
       {state.section === 'terminals' && <TerminalsPanel dispatch={dispatch} />}
       {state.section === 'settings' && <SettingsPanel dispatch={dispatch} />}
     </aside>

@@ -14,8 +14,20 @@ describe('refuseCli', () => {
     expect(refuseCli('synapse-pipeline', ['run', 'p'])).toMatch(/not allowed/)
   })
 
-  it('allows only config of synapse, and only its list, set and unset', () => {
-    expect(refuseCli('synapse', ['vault-read', 'Index.md'])).toMatch(/not allowed/)
+  it('allows of synapse only config, status and the read-only commands of the vault', () => {
+    expect(refuseCli('synapse', ['write-node'])).toMatch(/not allowed/)
+    expect(refuseCli('synapse', ['vault-delete', 'a.md'])).toMatch(/not allowed/)
+    expect(refuseCli('synapse', ['vault-list'])).toBeNull()
+    expect(refuseCli('synapse', ['vault-list', 'x'])).toMatch(/no arguments/)
+    expect(refuseCli('synapse', ['vault-read', 'designs/a.md'])).toBeNull()
+    expect(refuseCli('synapse', ['vault-search-text', 'two words'])).toBeNull()
+    expect(refuseCli('synapse', ['vault-links', 'a.md'])).toBeNull()
+    expect(refuseCli('synapse', ['vault-backlinks', 'a.md'])).toBeNull()
+    expect(refuseCli('synapse', ['vault-read'])).toMatch(/one argument/)
+    expect(refuseCli('synapse', ['vault-read', '--help'])).toMatch(/one argument/)
+    expect(refuseCli('synapse', ['vault-read', 'a.md', 'b.md'])).toMatch(/one argument/)
+    expect(refuseCli('synapse', ['vault-write', 'a.md'])).toMatch(/not allowed/)
+    expect(refuseCli('synapse', ['vault-patch', 'a.md'])).toMatch(/not allowed/)
     expect(refuseCli('synapse', ['status'])).toBeNull()
     expect(refuseCli('synapse', ['status', '--format', 'json'])).toBeNull()
     expect(refuseCli('synapse', ['status', '--format', 'xml'])).toMatch(/only --format/)

@@ -5,6 +5,7 @@ import { DefinitionEditorPage } from './DefinitionEditorPage.tsx'
 import { DefinitionPage } from './DefinitionPage.tsx'
 import { ExecutionPage } from './ExecutionPage.tsx'
 import { HomePage } from './HomePage.tsx'
+import { NotePage } from './NotePage.tsx'
 import { PipelinePage } from './PipelinePage.tsx'
 import { SettingsPage } from './SettingsPages.tsx'
 import type { Page, TerminalKind, TerminalSession } from './state.ts'
@@ -90,6 +91,8 @@ export function PageView({
           onStartTerminal={onStartTerminal}
         />
       )
+    case 'note':
+      return <NotePage key={page.path} path={page.path} onOpen={onOpen} />
     case 'settings':
       return <SettingsPage section={page.section} onChanged={onChanged} />
     case 'create':

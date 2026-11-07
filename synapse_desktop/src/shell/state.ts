@@ -1,7 +1,9 @@
 // The shell's state: which section is selected, whether the side panel is open
 // and which pages are open in tabs. Pure, so it is tested without a browser.
 
-export type RailSection = 'definitions' | 'executions' | 'terminals' | 'settings'
+import { titleOf } from '../domain/notes.ts'
+
+export type RailSection = 'definitions' | 'executions' | 'vault' | 'terminals' | 'settings'
 
 export type DefinitionKind = 'pipeline' | 'system' | 'agent' | 'skill'
 
@@ -65,6 +67,8 @@ export type Page =
   // A definition's file: a .synapse file, or a skill's SKILL.md.
   | { kind: 'definition'; definition: DefinitionKind; name: string; path: string }
   | { kind: 'execution'; id: string }
+  // A note of the vault, by its path.
+  | { kind: 'note'; path: string }
   // The terminals: one page with a tab for each session.
   | { kind: 'terminals' }
 
@@ -134,6 +138,8 @@ export function pageId(page: Page): string {
       return `definition:${page.definition}:${page.name}`
     case 'execution':
       return `execution:${page.id}`
+    case 'note':
+      return `note:${page.path}`
     case 'terminals':
       return 'terminals'
   }
@@ -151,6 +157,8 @@ export function pageTitle(page: Page): string {
       return page.name
     case 'execution':
       return page.id
+    case 'note':
+      return titleOf(page.path)
     case 'terminals':
       return 'Terminals'
   }

@@ -22,7 +22,7 @@ export function sidePanel(page: Page) {
 // Opens a section of the rail and its panel, whatever it showed before.
 export async function openSection(
   page: Page,
-  section: 'Definitions' | 'Executions' | 'Terminals' | 'Settings',
+  section: 'Definitions' | 'Executions' | 'Vault' | 'Terminals' | 'Settings',
 ) {
   const button = page.getByRole('button', { name: section, exact: true })
   if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click()

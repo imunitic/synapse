@@ -7,7 +7,15 @@ import type { AppConfig, CliBinary, CliResult } from '../shared/transport.ts'
 // What `cli` may run. Starting a run is `startRun`, not a subcommand of this.
 const ALLOWED_SUBCOMMANDS: Record<CliBinary, readonly string[]> = {
   'synapse-pipeline': ['check', 'show', 'list', 'info', 'cleanup'],
-  synapse: ['config', 'status'],
+  synapse: [
+    'config',
+    'status',
+    'vault-list',
+    'vault-read',
+    'vault-search-text',
+    'vault-links',
+    'vault-backlinks',
+  ],
 }
 
 const MAX_ARGS = 32
@@ -50,6 +58,19 @@ function refuseStatus(args: readonly string[]): string | null {
   return formatted ? null : 'status takes only --format json or text'
 }
 
+// The read-only commands of the vault. `vault-list` takes nothing; each of the
+// others takes one argument that is not a flag, a note's path or a search.
+function refuseVault(args: readonly string[]): string | null {
+  const [subcommand, ...rest] = args
+  if (subcommand === 'vault-list') {
+    return rest.length === 0 ? null : 'vault-list takes no arguments'
+  }
+  if (rest.length !== 1 || (rest[0] ?? '').startsWith('-') || (rest[0] ?? '') === '') {
+    return `${subcommand ?? 'the command'} takes one argument that is not a flag`
+  }
+  return null
+}
+
 // The reason the call is refused, or null when it may run.
 export function refuseCli(binary: CliBinary, args: readonly string[]): string | null {
   const [subcommand] = args
@@ -62,7 +83,9 @@ export function refuseCli(binary: CliBinary, args: readonly string[]): string | 
     return 'an argument is too long or holds a NUL'
   }
   if (binary !== 'synapse') return null
-  return subcommand === 'status' ? refuseStatus(args) : refuseConfig(args)
+  if (subcommand === 'status') return refuseStatus(args)
+  if (subcommand?.startsWith('vault-')) return refuseVault(args)
+  return refuseConfig(args)
 }
 
 export interface CliRun {

@@ -203,6 +203,8 @@ describe('what needs attention', () => {
       [null, 'Going', 'Compiled task: Going task'],
     ])
     expect(groups[2]?.items[0]).toMatchObject({ id: 'p-3', label: 'Work', detail: '4 unchecked' })
+    expect(groups[0]?.items[0]?.target).toEqual({ kind: 'note', path: 'designs/a.md' })
+    expect(groups[2]?.items[0]?.target).toEqual({ kind: 'note', path: 'tasks/t.md' })
   })
 
   it('puts harnesses before runs before the vault', () => {
