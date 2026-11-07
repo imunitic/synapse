@@ -1,6 +1,7 @@
 // The web-phase Transport: every call is a POST to the local API server.
 
-import { API_PREFIX } from '../../shared/constants.ts'
+import { API_PREFIX, TERMINAL_PATH } from '../../shared/constants.ts'
+import { serverMessageSchema, type ClientMessage } from '../../shared/terminal.ts'
 import type {
   AppConfig,
   AppPaths,
@@ -15,6 +16,9 @@ import type {
   RunRequest,
   Transport,
   Unsubscribe,
+  TerminalHandle,
+  TerminalListener,
+  TerminalStart,
   VaultInfo,
 } from '../../shared/transport.ts'
 
@@ -62,6 +66,61 @@ export class HttpTransport implements Transport {
 
   inspectVault(path: string): Promise<VaultInfo> {
     return this.call('inspectVault', { path })
+  }
+
+  // A terminal is a WebSocket to the same host, which the dev server proxies to
+  // the API server with the token added.
+  openTerminal(start: TerminalStart, listener: TerminalListener): TerminalHandle {
+    const scheme = location.protocol === 'https:' ? 'wss' : 'ws'
+    const socket = new WebSocket(`${scheme}://${location.host}${TERMINAL_PATH}`)
+    // Set when the session has ended, so that the close that follows is not a failure.
+    let ended = false
+    // What is typed before the program has started waits, and goes to it then.
+    let running = false
+    const typed: string[] = []
+    const send = (message: ClientMessage) => {
+      if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
+    }
+    socket.onopen = () => send({ type: 'start', ...start })
+    socket.onmessage = (event: MessageEvent<unknown>) => {
+      const parsed = serverMessageSchema.safeParse(
+        typeof event.data === 'string' ? JSON.parse(event.data) : null,
+      )
+      if (!parsed.success) return
+      const message = parsed.data
+      switch (message.type) {
+        case 'started':
+          running = true
+          for (const data of typed.splice(0)) send({ type: 'input', data })
+          listener.onStarted({ loaded: message.loaded, note: message.note })
+          break
+        case 'output':
+          listener.onOutput(message.data)
+          break
+        case 'exit':
+          ended = true
+          listener.onExit(message.code)
+          break
+        case 'error':
+          ended = true
+          listener.onError(message.message)
+          break
+      }
+    }
+    socket.onclose = () => {
+      if (!ended) {
+        ended = true
+        listener.onError('The connection to the server was closed.')
+      }
+    }
+    return {
+      write: (data) => (running ? send({ type: 'input', data }) : typed.push(data)),
+      resize: (cols, rows) => send({ type: 'resize', cols, rows }),
+      close: () => {
+        ended = true
+        socket.close()
+      },
+    }
   }
 
   getConfig(): Promise<AppConfig> {

@@ -10,27 +10,38 @@ import { configFile } from './config-store.ts'
 import { createHandler } from './http.ts'
 import { runAgent } from './generate.ts'
 import { createRunStarter } from './runs.ts'
+import { attachTerminals, defaultPlan, spawnPty } from './terminal.ts'
 
 const environment = { env: process.env, home: homedir() }
 const suppliedToken = process.env.SYNAPSE_DESKTOP_TOKEN
 const token = suppliedToken ? suppliedToken : randomBytes(24).toString('hex')
 
-const handler = createHandler(
-  {
-    environment,
-    configFile: configFile(environment),
-    runCli,
-    agent: runAgent,
-    runs: createRunStarter('synapse-pipeline', process.env),
-  },
-  {
-    allowedHosts: new Set([`127.0.0.1:${SERVER_PORT}`, `localhost:${SERVER_PORT}`]),
-    allowedOrigins: new Set([`http://127.0.0.1:${WEB_PORT}`, `http://localhost:${WEB_PORT}`]),
-    token,
-  },
-)
+const policy = {
+  allowedHosts: new Set([`127.0.0.1:${SERVER_PORT}`, `localhost:${SERVER_PORT}`]),
+  allowedOrigins: new Set([`http://127.0.0.1:${WEB_PORT}`, `http://localhost:${WEB_PORT}`]),
+  token,
+}
 
-createServer((req, res) => void handler(req, res)).listen(SERVER_PORT, '127.0.0.1', () => {
+const context = {
+  environment,
+  configFile: configFile(environment),
+  runCli,
+  agent: runAgent,
+  runs: createRunStarter('synapse-pipeline', process.env),
+}
+
+const handler = createHandler(context, policy)
+
+const server = createServer((req, res) => void handler(req, res))
+attachTerminals(server, {
+  policy,
+  environment,
+  configFile: context.configFile,
+  spawn: spawnPty,
+  plan: defaultPlan(environment),
+  maxTerminals: 8,
+})
+server.listen(SERVER_PORT, '127.0.0.1', () => {
   console.log(`synapse-desktop server on http://127.0.0.1:${SERVER_PORT}`)
   if (!suppliedToken) console.log(`token: ${token}`)
 })

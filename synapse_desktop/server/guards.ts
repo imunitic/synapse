@@ -27,9 +27,12 @@ function sameToken(given: string, expected: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b)
 }
 
-// Null when the request may go on. A request with no Origin does not come from
-// a page; it still needs the token.
-export function checkRequest(facts: RequestFacts, policy: Policy): Refusal | null {
+// Null when a request, or the handshake of a WebSocket, may go on. A request
+// with no Origin does not come from a page; it still needs the token.
+export function checkUpgrade(
+  facts: Omit<RequestFacts, 'contentType'>,
+  policy: Policy,
+): Refusal | null {
   if (facts.host === undefined || !policy.allowedHosts.has(facts.host)) {
     return { status: 403, error: 'host not allowed' }
   }
@@ -39,6 +42,14 @@ export function checkRequest(facts: RequestFacts, policy: Policy): Refusal | nul
   if (facts.token === undefined || !sameToken(facts.token, policy.token)) {
     return { status: 401, error: 'missing or wrong token' }
   }
+  return null
+}
+
+// Null when the request may go on: what a WebSocket handshake needs, and a JSON
+// content type.
+export function checkRequest(facts: RequestFacts, policy: Policy): Refusal | null {
+  const refusal = checkUpgrade(facts, policy)
+  if (refusal !== null) return refusal
   // A page can send text/plain without a preflight; JSON it cannot.
   if (!facts.contentType?.toLowerCase().startsWith('application/json')) {
     return { status: 415, error: 'content type must be application/json' }

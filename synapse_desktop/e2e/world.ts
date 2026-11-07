@@ -17,6 +17,12 @@ export interface World {
   script: string
   conf: string
   vault: string
+  // Programs that stand in for the harnesses, found first on PATH.
+  bin: string
+  // The home and the data folder of the server, so that what is installed on the
+  // machine does not matter.
+  home: string
+  data: string
 }
 
 export function worldAt(root: string): World {
@@ -29,6 +35,9 @@ export function worldAt(root: string): World {
     script: join(root, 'script.json'),
     conf: join(xdg, 'synapse', 'synapse.conf'),
     vault: join(root, 'vault'),
+    bin: join(root, 'bin'),
+    home: join(root, 'home'),
+    data: join(root, 'data'),
   }
 }
 
@@ -154,7 +163,7 @@ function claudeTranscript(folder: string): string {
 export function environmentFor(world: World, binDirs: readonly string[]): NodeJS.ProcessEnv {
   return {
     ...process.env,
-    PATH: [...binDirs, process.env.PATH ?? ''].join(delimiter),
+    PATH: [world.bin, ...binDirs, process.env.PATH ?? ''].join(delimiter),
     XDG_CONFIG_HOME: world.xdg,
     SYNAPSE_PIPELINE_RUNNER: 'scripted',
     SYNAPSE_PIPELINE_SCRIPT: world.script,
@@ -182,8 +191,26 @@ export function resetSettings(world: World): void {
   )
 }
 
+// A harness that prints what it was started with and then echoes each line that
+// is typed, until the line `quit`, which ends it with code 7.
+const STUB = `#!/bin/sh
+echo "STUB $(basename "$0") args: $*"
+echo "CODEX_HOME=\${CODEX_HOME:-} OPENCODE_CONFIG_DIR=\${OPENCODE_CONFIG_DIR:-} CONTENT_ROOT=\${SYNAPSE_CONTENT_ROOT:-}"
+echo "cwd: $(pwd)"
+while IFS= read -r line; do
+  echo "typed: $line"
+  [ "$line" = quit ] && exit 7
+done
+`
+
 export function buildWorld(root: string, binDirs: readonly string[]): World {
   const world = worldAt(root)
+  mkdirSync(world.home, { recursive: true })
+  mkdirSync(world.data, { recursive: true })
+  mkdirSync(world.bin, { recursive: true })
+  for (const name of ['claude', 'codex', 'opencode']) {
+    writeFileSync(join(world.bin, name), STUB, { mode: 0o755, flag: 'w' })
+  }
   for (const [name, text] of Object.entries(DEFINITIONS)) write(join(world.definitions, name), text)
   for (const [name, text] of Object.entries(SKILLS)) {
     write(join(world.definitions, 'skills', name, 'SKILL.md'), text)

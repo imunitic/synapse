@@ -86,6 +86,32 @@ export interface GenerateRequest {
   skills: string[]
 }
 
+export type TerminalKind = 'Shell' | Harness
+
+export interface TerminalStart {
+  kind: TerminalKind
+  // Where to start it; the home folder without one.
+  cwd?: string
+  cols: number
+  rows: number
+}
+
+export interface TerminalListener {
+  onStarted(info: { loaded: boolean; note: string }): void
+  onOutput(data: string): void
+  // The program ended, with its exit code.
+  onExit(code: number): void
+  // The session could not start, or the connection failed.
+  onError(message: string): void
+}
+
+export interface TerminalHandle {
+  write(data: string): void
+  resize(cols: number, rows: number): void
+  // Ends the session and the program with it.
+  close(): void
+}
+
 export type CliBinary = 'synapse-pipeline' | 'synapse'
 
 export interface CliOptions {
@@ -123,6 +149,12 @@ export interface Transport {
   // `previous` says it did.
   saveDefinition(path: string, previous: string, text: string): Promise<void>
   generateDefinition(request: GenerateRequest): Promise<{ text: string }>
+
+  // Starts the user's login shell, or a harness, in a pty. The bundled Synapse is
+  // loaded for the session, or for the harnesses started from the shell, unless
+  // a harness has it installed. What the program prints comes to the
+  // listener; what is typed goes through the handle.
+  openTerminal(start: TerminalStart, listener: TerminalListener): TerminalHandle
 
   startRun(pipeline: string, input: unknown): Promise<{ executionId: string }>
   // Only for runs this app started.

@@ -172,5 +172,8 @@ export function PageView({
       return <DefinitionView page={page} onOpen={onOpen} onChanged={onChanged} />
     case 'execution':
       return <ExecutionPage id={page.id} />
+    // The terminals are kept by the shell, which does not unmount them.
+    case 'terminals':
+      return null
   }
 }

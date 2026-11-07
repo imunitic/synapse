@@ -4,6 +4,7 @@ import { PageView } from './pages.tsx'
 import { Rail } from './Rail.tsx'
 import { SidePanel } from './SidePanel.tsx'
 import { StatusBar } from './StatusBar.tsx'
+import { TerminalsPage } from './TerminalsPage.tsx'
 import { initialState, reduce } from './state.ts'
 import { TabBar } from './TabBar.tsx'
 import './shell.css'
@@ -35,9 +36,26 @@ export function Shell() {
             </div>
           )}
           <div className="content" role="tabpanel">
-            {active === undefined ? (
-              <p className="empty">Open a page from the side panel.</p>
-            ) : (
+            {active === undefined && <p className="empty">Open a page from the side panel.</p>}
+            {/* A session goes on while another tab shows, so the terminals stay mounted. */}
+            {state.terminals.length > 0 && (
+              <TerminalsPage
+                sessions={state.terminals}
+                activeId={state.activeTerminal}
+                visible={active?.page.kind === 'terminals'}
+                onSelect={(id) => dispatch({ type: 'selectTerminal', id })}
+                onClose={(id) => dispatch({ type: 'closeTerminal', id })}
+                onNew={() =>
+                  dispatch({
+                    type: 'openTerminal',
+                    kind: 'Shell',
+                    cwd: '',
+                    id: Math.random().toString(36).slice(2, 8),
+                  })
+                }
+              />
+            )}
+            {active !== undefined && active.page.kind !== 'terminals' && (
               <PageView
                 key={active.id}
                 page={active.page}

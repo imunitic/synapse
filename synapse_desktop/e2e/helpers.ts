@@ -15,7 +15,10 @@ export function uniqueName(prefix: string): string {
 }
 
 // Opens a section of the rail and its panel, whatever it showed before.
-export async function openSection(page: Page, section: 'Definitions' | 'Executions' | 'Settings') {
+export async function openSection(
+  page: Page,
+  section: 'Definitions' | 'Executions' | 'Terminals' | 'Settings',
+) {
   const button = page.getByRole('button', { name: section, exact: true })
   if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click()
   await expect(button).toHaveAttribute('aria-pressed', 'true')

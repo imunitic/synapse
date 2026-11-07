@@ -23,6 +23,14 @@ export default defineConfig({
   webServer: {
     command: 'node scripts/dev.ts',
     url: `http://127.0.0.1:${WEB_PORT}`,
+    // The server works in a home and a data folder of the world's own.
+    env: {
+      HOME: process.env.E2E_HOME ?? '',
+      USERPROFILE: process.env.E2E_HOME ?? '',
+      XDG_DATA_HOME: process.env.E2E_DATA ?? '',
+      // The shell of the terminals, whatever the machine's own is.
+      SHELL: '/bin/sh',
+    },
     reuseExistingServer: false,
     timeout: 30_000,
   },

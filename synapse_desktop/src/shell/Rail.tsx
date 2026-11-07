@@ -1,10 +1,17 @@
 import type { ComponentType, Dispatch } from 'react'
-import { DefinitionsIcon, ExecutionsIcon, SettingsIcon, SidebarIcon } from './icons.tsx'
+import {
+  DefinitionsIcon,
+  ExecutionsIcon,
+  SettingsIcon,
+  SidebarIcon,
+  TerminalIcon,
+} from './icons.tsx'
 import type { Action, RailSection, ShellState } from './state.ts'
 
 const SECTIONS: { section: RailSection; label: string; icon: ComponentType }[] = [
   { section: 'definitions', label: 'Definitions', icon: DefinitionsIcon },
   { section: 'executions', label: 'Executions', icon: ExecutionsIcon },
+  { section: 'terminals', label: 'Terminals', icon: TerminalIcon },
   { section: 'settings', label: 'Settings', icon: SettingsIcon },
 ]
 

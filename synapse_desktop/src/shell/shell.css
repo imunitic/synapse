@@ -964,3 +964,107 @@ div.activity-row {
   box-sizing: border-box;
   margin-bottom: 4px;
 }
+
+/* A harness in a terminal */
+.terminal-page {
+  height: 100%;
+}
+
+.terminal-page[hidden] {
+  display: none;
+}
+
+.terminal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.terminal-note {
+  margin: 0;
+}
+
+.terminal-host {
+  flex: 1;
+  min-height: 320px;
+  padding: 8px;
+  background: #18181b;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.terminal-host[data-phase='form'] {
+  display: none;
+}
+
+/* The terminal takes the whole page, not the width of the cards. */
+.page.full.terminal-page > * {
+  max-width: none;
+}
+
+.page.full.terminal-page > .card {
+  max-width: 560px;
+}
+
+/* The tabs of the terminals page */
+.terminals-page {
+  height: 100%;
+}
+
+.terminals-page[hidden],
+.terminal-view[hidden] {
+  display: none;
+}
+
+.terminal-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.terminal-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.terminal-tab {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--tabbar);
+}
+
+.terminal-tab[data-selected='true'] {
+  background: var(--raised);
+  border-color: var(--border-strong);
+}
+
+.terminal-tab > button:first-child {
+  padding: 4px 10px;
+  color: var(--text);
+}
+
+.terminal-ended {
+  margin: 0;
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.panel-field {
+  padding: 4px 12px 8px;
+}
+
+.panel-field input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+}

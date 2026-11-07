@@ -15,6 +15,7 @@ const binDirs = [cliBin, pipelineBin]
 const exe = process.platform === 'win32' ? '.exe' : ''
 for (const program of [
   join(cliBin, `synapse${exe}`),
+  join(cliBin, `synapse-hook${exe}`),
   join(pipelineBin, `synapse-pipeline${exe}`),
 ]) {
   if (!existsSync(program)) {
@@ -32,7 +33,12 @@ try {
   const cli = join('node_modules', '@playwright', 'test', 'cli.js')
   const result = spawnSync(process.execPath, [cli, 'test', ...process.argv.slice(2)], {
     stdio: 'inherit',
-    env: { ...environmentFor(world, binDirs), E2E_WORLD: root },
+    env: {
+      ...environmentFor(world, binDirs),
+      E2E_WORLD: root,
+      E2E_HOME: world.home,
+      E2E_DATA: world.data,
+    },
   })
   process.exitCode = result.status ?? 1
 } finally {

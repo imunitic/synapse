@@ -105,6 +105,7 @@ jobs:
           name: programs
           path: |
             synapse_cli/bin/synapse
+            synapse_cli/bin/synapse-hook
             synapse_pipeline/bin/synapse-pipeline
           retention-days: 1
 
@@ -200,7 +201,7 @@ jobs:
 
       # An artifact does not keep the executable bit.
       - name: Make the programs executable
-        run: chmod +x synapse_cli/bin/synapse synapse_pipeline/bin/synapse-pipeline
+        run: chmod +x synapse_cli/bin/synapse synapse_cli/bin/synapse-hook synapse_pipeline/bin/synapse-pipeline
 
       - name: Install
         working-directory: synapse_desktop

@@ -14,6 +14,8 @@ export default defineConfig({
       '/api': {
         target: `http://127.0.0.1:${SERVER_PORT}`,
         changeOrigin: true,
+        // A terminal is a WebSocket on /api/terminal.
+        ws: true,
         headers: { [TOKEN_HEADER]: process.env.SYNAPSE_DESKTOP_TOKEN ?? '' },
       },
     },

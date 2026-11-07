@@ -40,6 +40,12 @@ export const ExecutionsIcon = () => (
   </Icon>
 )
 
+export const TerminalIcon = () => (
+  <Icon>
+    <path d="M5 7l5 5-5 5M12 17h7" />
+  </Icon>
+)
+
 export const SettingsIcon = () => (
   <Icon>
     <path d="M4 7h10M18 7h2M4 17h2M10 17h10" />

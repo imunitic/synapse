@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { initialState, pageId, reduce, type Action, type ShellState } from './state.ts'
+import { initialState, pageId, pageTitle, reduce, type Action, type ShellState } from './state.ts'
 
 function run(actions: Action[], from: ShellState = initialState): ShellState {
   return actions.reduce(reduce, from)
@@ -78,6 +78,68 @@ describe('a definition that is changed', () => {
     expect(after.tabs).toEqual(before.tabs)
     expect(after.activeId).toBe(before.activeId)
     expect(after.reloadToken).toBe(before.reloadToken + 1)
+  })
+})
+
+describe('terminals', () => {
+  const open = (state: ShellState, id: string, kind: 'Shell' | 'Claude' = 'Shell', cwd = '') =>
+    reduce(state, { type: 'openTerminal', kind, cwd, id })
+
+  it('are sessions on one page, each with a title of its own, the newest selected', () => {
+    const state = open(open(open(initialState, 'a'), 'b'), 'c', 'Claude', '/work')
+    expect(state.tabs.map((t) => t.id)).toEqual(['terminals'])
+    expect(state.activeId).toBe('terminals')
+    expect(state.terminals.map((t) => [t.id, t.title, t.cwd])).toEqual([
+      ['a', 'Shell 1', ''],
+      ['b', 'Shell 2', ''],
+      ['c', 'Claude Code 3', '/work'],
+    ])
+    expect(state.activeTerminal).toBe('c')
+    expect(pageId({ kind: 'terminals' })).toBe('terminals')
+    expect(pageTitle({ kind: 'terminals' })).toBe('Terminals')
+  })
+
+  it('are selected by id, and a session that is not there is left alone', () => {
+    const state = open(open(initialState, 'a'), 'b')
+    expect(reduce(state, { type: 'selectTerminal', id: 'a' }).activeTerminal).toBe('a')
+    expect(reduce(state, { type: 'selectTerminal', id: 'zz' })).toBe(state)
+  })
+
+  it('give their place to a neighbour when the selected one closes, and go away with the last', () => {
+    const three = open(open(open(initialState, 'a'), 'b'), 'c')
+    const middle = reduce(reduce(three, { type: 'selectTerminal', id: 'b' }), {
+      type: 'closeTerminal',
+      id: 'b',
+    })
+    expect(middle.terminals.map((t) => t.id)).toEqual(['a', 'c'])
+    expect(middle.activeTerminal).toBe('c')
+    // A session that is not selected closing does not move the selection.
+    expect(reduce(three, { type: 'closeTerminal', id: 'a' }).activeTerminal).toBe('c')
+
+    const last = reduce(open(initialState, 'only'), { type: 'closeTerminal', id: 'only' })
+    expect(last.terminals).toEqual([])
+    expect(last.activeTerminal).toBeNull()
+    expect(last.tabs).toEqual([])
+  })
+
+  it('end with the page: closing its tab closes every session', () => {
+    const state = reduce(open(open(initialState, 'a'), 'b'), { type: 'closeTab', id: 'terminals' })
+    expect(state.terminals).toEqual([])
+    expect(state.activeTerminal).toBeNull()
+  })
+
+  it('never give two sessions the same title, even after one closes', () => {
+    const state = open(
+      reduce(open(open(initialState, 'a'), 'b'), { type: 'closeTerminal', id: 'b' }),
+      'c',
+    )
+    expect(state.terminals.map((t) => t.title)).toEqual(['Shell 1', 'Shell 3'])
+  })
+
+  it('have a section in the rail that shows its panel', () => {
+    const state = reduce(initialState, { type: 'selectSection', section: 'terminals' })
+    expect(state.section).toBe('terminals')
+    expect(state.panelOpen).toBe(true)
   })
 })
 

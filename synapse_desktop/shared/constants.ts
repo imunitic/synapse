@@ -8,3 +8,6 @@ export const TOKEN_HEADER = 'x-synapse-desktop-token'
 
 // Requests are POSTed to API_PREFIX + method name.
 export const API_PREFIX = '/api/call/'
+
+// A terminal is one WebSocket here, one pty for each connection.
+export const TERMINAL_PATH = '/api/terminal'
