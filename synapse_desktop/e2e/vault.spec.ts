@@ -18,6 +18,7 @@ test.beforeEach(() => {
       'title: Talk',
       'note_id: p-1',
       'tags: [alpha, beta]',
+      `updated: ${new Date().toISOString()}`,
       '---',
       '# Talk',
       '',
@@ -40,7 +41,7 @@ test.beforeEach(() => {
   )
   writeFileSync(
     join(vault, 'tasks', 'p', 'Work.md'),
-    '---\ntitle: Work\ntask_id: p-2\nstatus: IN-PROGRESS\n---\nBack to [[Talk]].\n\n- [ ] one\n',
+    `---\ntitle: Work\ntask_id: p-2\nstatus: IN-PROGRESS\nupdated: ${new Date(Date.now() - 2 * 3_600_000).toISOString()}\n---\nBack to [[Talk]].\n\n- [ ] one\n`,
   )
   writeFileSync(world().conf, `${readFileSync(world().conf, 'utf8')}SYNAPSE_VAULT_DIR=${vault}\n`)
 })
@@ -122,4 +123,40 @@ test('the vault items on the home page open their notes', async ({ page }) => {
   const attention = page.getByLabel('Needs attention')
   await attention.getByRole('button', { name: /Talk/ }).click()
   await expect(page.getByRole('heading', { level: 1, name: 'Talk' })).toBeVisible()
+})
+
+test('the home page offers the notes updated lately, newest first, and the notes opened', async ({
+  page,
+}) => {
+  await page.goto('/')
+  const next = page.getByLabel('Continue')
+  const updated = next.locator('.attention-group').filter({ hasText: 'Updated lately' })
+  const rows = updated.getByRole('button')
+  await expect(rows).toHaveCount(2)
+  await expect(rows.nth(0)).toContainText('Talk')
+  await expect(rows.nth(0)).toContainText('just now')
+  await expect(rows.nth(1)).toContainText('Work')
+  await expect(rows.nth(1)).toContainText('2 hours ago')
+  // Nothing has been opened yet.
+  await expect(next).not.toContainText('Opened lately')
+
+  await rows.nth(1).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Work' })).toBeVisible()
+  await page.getByRole('button', { name: 'Home', exact: true }).click()
+  const opened = page
+    .getByLabel('Continue')
+    .locator('.attention-group')
+    .filter({ hasText: 'Opened lately' })
+  await expect(opened.getByRole('button')).toHaveCount(1)
+  await expect(opened).toContainText('Work')
+  await expect(opened).toContainText('tasks/p/Work.md')
+  await opened.getByRole('button', { name: /Work/ }).click()
+  await expect(page.getByRole('tab', { name: 'Work' })).toHaveAttribute('aria-selected', 'true')
+})
+
+test('with no vault there is nothing to continue from', async ({ page }) => {
+  resetWorldSettings()
+  await page.goto('/')
+  await expect(page.getByLabel('Needs attention')).toBeVisible()
+  await expect(page.getByLabel('Continue')).toHaveCount(0)
 })

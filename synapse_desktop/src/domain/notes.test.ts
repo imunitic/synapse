@@ -9,6 +9,8 @@ import {
   noteLinks,
   parseHits,
   parseNote,
+  parseUpdated,
+  recentlyUpdated,
   readNote,
   resolveLink,
   searchNotes,
@@ -167,5 +169,43 @@ describe('the title heading', () => {
     expect(withoutTitleHeading('# Another\n\ntext', ['Talk'])).toBe('# Another\n\ntext')
     expect(withoutTitleHeading('text\n# Talk\n', ['Talk'])).toBe('text\n# Talk\n')
     expect(withoutTitleHeading('## Talk\ntext', ['Talk'])).toBe('## Talk\ntext')
+  })
+})
+
+describe('the notes updated last', () => {
+  const rows =
+    'a.md\tA\t2026-11-01T10:00:00+01:00\n' +
+    'b.md\tB\t2026-11-07T10:00:00+01:00\n' +
+    'c.md\t\t2026-11-05T10:00:00+01:00\n' +
+    'd.md\tD\tnot a date\n' +
+    'e.md\tE\n'
+
+  it('are newest first by the date, titled by the file when they have no title, with no bad dates', () => {
+    expect(parseUpdated(rows, 10)).toEqual([
+      { path: 'b.md', title: 'B', updated: '2026-11-07T10:00:00+01:00' },
+      { path: 'c.md', title: 'c', updated: '2026-11-05T10:00:00+01:00' },
+      { path: 'a.md', title: 'A', updated: '2026-11-01T10:00:00+01:00' },
+    ])
+    expect(parseUpdated(rows, 2).map((n) => n.path)).toEqual(['b.md', 'c.md'])
+  })
+
+  it('are searched for with a rule on standard input', async () => {
+    let seen: { args: string[]; stdin: string | undefined } | null = null
+    const transport = {
+      cli: (_binary: string, args: string[], options?: { stdin?: string }) => {
+        seen = { args, stdin: options?.stdin }
+        return Promise.resolve({ code: 0, stdout: rows, stderr: '' })
+      },
+    } as unknown as Transport
+    expect((await recentlyUpdated(transport, 1))[0]?.path).toBe('b.md')
+    expect(seen).toEqual({
+      args: ['vault-search', '--fields', 'frontmatter.title,frontmatter.updated'],
+      stdin: '{"var":"frontmatter.updated"}',
+    })
+    const failing = {
+      cli: () =>
+        Promise.resolve({ code: 1, stdout: '', stderr: 'synapse-vault-search: no vault\n' }),
+    } as unknown as Transport
+    await expect(recentlyUpdated(failing, 5)).rejects.toThrow('no vault')
   })
 })

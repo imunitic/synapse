@@ -197,3 +197,38 @@ export function withoutTitleHeading(body: string, titles: readonly string[]): st
   if (match === null || !titles.includes((match[1] ?? '').trim())) return body
   return body.slice(match[0].length).replace(/^\s*\n/, '')
 }
+
+export interface UpdatedNote {
+  path: string
+  title: string
+  updated: string
+}
+
+// The rows of a search that asked for the title and the date a note was updated,
+// newest first; a note with no date that reads as one is left out.
+export function parseUpdated(text: string, limit: number): UpdatedNote[] {
+  return lines(text)
+    .flatMap((line) => {
+      const [path, title, updated] = line.split('\t')
+      if (path === undefined || updated === undefined || Number.isNaN(Date.parse(updated)))
+        return []
+      return [{ path, title: title === undefined || title === '' ? titleOf(path) : title, updated }]
+    })
+    .sort((a, b) => Date.parse(b.updated) - Date.parse(a.updated))
+    .slice(0, limit)
+}
+
+// The notes that were updated last, by the date in their frontmatter.
+export async function recentlyUpdated(transport: Transport, limit: number): Promise<UpdatedNote[]> {
+  const result = await transport.cli(
+    'synapse',
+    ['vault-search', '--fields', 'frontmatter.title,frontmatter.updated'],
+    {
+      stdin: '{"var":"frontmatter.updated"}',
+    },
+  )
+  if (result.code !== 0) {
+    throw new Error(result.stderr.trim() === '' ? 'vault-search failed' : result.stderr.trim())
+  }
+  return parseUpdated(result.stdout, limit)
+}

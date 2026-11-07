@@ -12,6 +12,7 @@ const ALLOWED_SUBCOMMANDS: Record<CliBinary, readonly string[]> = {
     'status',
     'vault-list',
     'vault-read',
+    'vault-search',
     'vault-search-text',
     'vault-links',
     'vault-backlinks',
@@ -64,6 +65,13 @@ function refuseVault(args: readonly string[]): string | null {
   const [subcommand, ...rest] = args
   if (subcommand === 'vault-list') {
     return rest.length === 0 ? null : 'vault-list takes no arguments'
+  }
+  // A search by a rule on standard input names the columns it wants back.
+  if (subcommand === 'vault-search') {
+    const fields = rest[1] ?? ''
+    return rest.length === 2 && rest[0] === '--fields' && /^[A-Za-z0-9_.,-]{1,200}$/.test(fields)
+      ? null
+      : 'vault-search takes only --fields and a list of fields'
   }
   if (rest.length !== 1 || (rest[0] ?? '').startsWith('-') || (rest[0] ?? '') === '') {
     return `${subcommand ?? 'the command'} takes one argument that is not a flag`

@@ -11,6 +11,9 @@ import {
   type VaultAttention,
 } from '../domain/attention.ts'
 import { listDefinitions } from '../domain/definitions.ts'
+import { timeAgo } from '../domain/format.ts'
+import { recentlyUpdated, titleOf } from '../domain/notes.ts'
+import { recentlyOpened } from '../domain/recent.ts'
 import { listExecutions, type ExecutionSummary } from '../domain/executions.ts'
 import { recentRuns, runCounts, setupSteps, vaultCounts } from '../domain/home.ts'
 import { describeVault } from '../domain/vaults.ts'
@@ -109,6 +112,58 @@ function NeedsAttention({
           Could not read {failure.source}: {failure.error}
         </p>
       ))}
+    </section>
+  )
+}
+
+// Where to pick up: the notes opened in the app lately, and the notes the vault
+// says were updated last.
+function Continue({ onOpen }: { onOpen: (page: Page) => void }) {
+  const loadUpdated = useCallback(() => recentlyUpdated(transport, 6), [])
+  const updated = useLoad(loadUpdated, REFRESH_MS)
+  const opened = recentlyOpened(5)
+  const now = new Date()
+  if (opened.length === 0 && updated.state.status !== 'ready') return null
+  if (opened.length === 0 && updated.state.status === 'ready' && updated.state.data.length === 0) {
+    return null
+  }
+  const open = (path: string) => onOpen({ kind: 'note', path })
+  return (
+    <section className="card" aria-label="Continue">
+      <h2 className="card-title">Continue where you left off</h2>
+      {opened.length > 0 && (
+        <div className="attention-group">
+          <h3 className="attention-title">Opened lately</h3>
+          <ul className="attention-list">
+            {opened.map((path) => (
+              <li key={path}>
+                <button className="attention-item attention-link" onClick={() => open(path)}>
+                  <span className="attention-label">{titleOf(path)}</span>
+                  <span className="muted small attention-detail">{path}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {updated.state.status === 'ready' && updated.state.data.length > 0 && (
+        <div className="attention-group">
+          <h3 className="attention-title">Updated lately</h3>
+          <ul className="attention-list">
+            {updated.state.data.map((note) => (
+              <li key={note.path}>
+                <button
+                  className="attention-item attention-link run-row"
+                  onClick={() => open(note.path)}
+                >
+                  <span className="attention-label">{note.title}</span>
+                  <span className="muted small">{timeAgo(note.updated, now)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   )
 }
@@ -431,6 +486,7 @@ export function HomePage({
       <div className="home-grid">
         <div className="home-column">
           <NeedsAttention inputs={inputs} onRefresh={refresh} onOpen={onOpen} />
+          <Continue onOpen={onOpen} />
           <PipelinesSummary runs={runs.state} count={count.state} now={now} onOpen={onOpen} />
         </div>
         <div className="home-column">

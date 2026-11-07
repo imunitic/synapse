@@ -1,4 +1,4 @@
-import { useCallback, useMemo, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, type ReactNode } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -13,6 +13,7 @@ import {
   wikilinkTarget,
   withoutTitleHeading,
 } from '../domain/notes.ts'
+import { recordOpened } from '../domain/recent.ts'
 import { transport } from '../transport/index.ts'
 import type { Page } from './state.ts'
 import { useLoad } from './useLoad.ts'
@@ -56,6 +57,10 @@ export function NotePage({ path, onOpen }: { path: string; onOpen: (page: Page) 
   const readBacklinks = useCallback(() => noteBacklinks(transport, path), [path])
   const readAll = useCallback(() => listNotes(transport), [])
   const note = useLoad(read)
+  // A note that was read is one that was opened, which the home page offers again.
+  useEffect(() => {
+    if (note.state.status === 'ready') recordOpened(path)
+  }, [note.state.status, path])
   const links = useLoad(readLinks)
   const backlinks = useLoad(readBacklinks)
   const all = useLoad(readAll)
