@@ -232,3 +232,9 @@ export async function recentlyUpdated(transport: Transport, limit: number): Prom
   }
   return parseUpdated(result.stdout, limit)
 }
+
+// The nodes of a code graph, `synapse/<repo>@<branch>/<node>.md`, are written by the
+// graph tools, which compute what each holds, and are not changed by hand.
+export function isGraphNodePath(path: string): boolean {
+  return /^synapse\/[^/]+@[^/]+\//.test(path)
+}

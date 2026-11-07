@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { CliResult, Transport } from '../../shared/transport.ts'
 import {
   buildTree,
+  isGraphNodePath,
   linkifyWikilinks,
   listNotes,
   nameIndex,
@@ -207,5 +208,15 @@ describe('the notes updated last', () => {
         Promise.resolve({ code: 1, stdout: '', stderr: 'synapse-vault-search: no vault\n' }),
     } as unknown as Transport
     await expect(recentlyUpdated(failing, 5)).rejects.toThrow('no vault')
+  })
+})
+
+describe('the nodes of a code graph', () => {
+  it('are told from the other notes by their folder', () => {
+    expect(isGraphNodePath('synapse/widget@main/Rendering.md')).toBe(true)
+    expect(isGraphNodePath('synapse/emacs-config@main/Index.md')).toBe(true)
+    expect(isGraphNodePath('synapse-notes/A.md')).toBe(false)
+    expect(isGraphNodePath('designs/synapse/A design.md')).toBe(false)
+    expect(isGraphNodePath('Index.md')).toBe(false)
   })
 })

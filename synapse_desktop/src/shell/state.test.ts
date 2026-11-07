@@ -202,6 +202,7 @@ describe('settings pages', () => {
     expect(SETTINGS_SECTIONS.map((s) => s.section)).toEqual([
       'general',
       'vault',
+      'projects',
       'graph',
       'environment',
       'integrations',

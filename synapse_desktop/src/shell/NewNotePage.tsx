@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import type { NoteKind } from '../../shared/transport.ts'
 import { transport } from '../transport/index.ts'
 import { useConfig } from './config.tsx'
+import { AddProjectForm } from './ProjectForm.tsx'
 import { TERMINAL_LABELS, type Page } from './state.ts'
+import { useLoad } from './useLoad.ts'
 
 const KINDS: { kind: NoteKind; label: string; about: string; placeholder: string }[] = [
   {
@@ -25,12 +27,67 @@ const KINDS: { kind: NoteKind; label: string; about: string; placeholder: string
   },
 ]
 
+// The project of a task or design note: one of this machine's projects, or the one
+// the agent matches to the description. A project is made here, by a person, and never
+// by the agent.
+function ProjectChoice({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string
+  onChange: (name: string) => void
+  disabled: boolean
+}) {
+  const load = useCallback(() => transport.listProjects(), [])
+  const { state, reload } = useLoad(load)
+  const [adding, setAdding] = useState(false)
+  const projects = state.status === 'ready' ? state.data.projects : []
+
+  return (
+    <div className="project-choice">
+      <label className="field">
+        <span>Project</span>
+        <select
+          aria-label="Project of the note"
+          value={value}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+        >
+          <option value="">Let the agent decide</option>
+          {projects.map((project) => (
+            <option key={project.name} value={project.name}>
+              {project.name} ({project.prefix})
+            </option>
+          ))}
+        </select>
+      </label>
+      {!adding && (
+        <button className="link" disabled={disabled} onClick={() => setAdding(true)}>
+          New project…
+        </button>
+      )}
+      {adding && (
+        <AddProjectForm
+          onAdded={(name) => {
+            reload()
+            onChange(name)
+            setAdding(false)
+          }}
+          onCancel={() => setAdding(false)}
+        />
+      )}
+    </div>
+  )
+}
+
 // Describe a note and have an agent write it into the vault the way the vault's
 // own commands do; the note opens when it is written.
 export function NewNotePage({ onCreated }: { onCreated: (page: Page) => void }) {
   const { state: config } = useConfig()
   const harness = config.status === 'ready' ? (config.config.defaultHarness ?? 'Claude') : 'Claude'
   const [kind, setKind] = useState<NoteKind>('note')
+  const [project, setProject] = useState('')
   const [prompt, setPrompt] = useState('')
   const [working, setWorking] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
@@ -40,7 +97,12 @@ export function NewNotePage({ onCreated }: { onCreated: (page: Page) => void }) 
     setWorking(true)
     setFailure(null)
     try {
-      const { path } = await transport.createNote({ kind, prompt, harness })
+      const { path } = await transport.createNote({
+        kind,
+        prompt,
+        harness,
+        ...(kind !== 'note' && project !== '' ? { project } : {}),
+      })
       onCreated({ kind: 'note', path })
     } catch (error) {
       setFailure(String(error))
@@ -66,6 +128,9 @@ export function NewNotePage({ onCreated }: { onCreated: (page: Page) => void }) 
           ))}
         </div>
         <p className="muted small">{current?.about}</p>
+        {kind !== 'note' && (
+          <ProjectChoice value={project} onChange={setProject} disabled={working} />
+        )}
         <label className="field">
           <span>Describe the note</span>
           <textarea

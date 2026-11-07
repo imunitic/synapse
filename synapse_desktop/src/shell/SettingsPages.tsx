@@ -15,10 +15,13 @@ import {
 } from '../domain/integrations.ts'
 import { isAbsolutePath } from '../domain/vaults.ts'
 import { transport } from '../transport/index.ts'
+import { TEXT_SIZES } from '../domain/text-size.ts'
 import { useConfig } from './config.tsx'
 import { EnvCard } from './EnvCard.tsx'
+import { AddProjectForm } from './ProjectForm.tsx'
 import { SettingsForm } from './SettingsForm.tsx'
 import type { SettingsSection } from './state.ts'
+import { currentTextSize, setTextSize } from './text-size.ts'
 import { useLoad } from './useLoad.ts'
 import { VaultCard } from './VaultCard.tsx'
 
@@ -195,6 +198,35 @@ function DefinitionFoldersCard({ onChanged }: { onChanged: () => void }) {
   )
 }
 
+// How big the text of the app is, which is kept in this browser and takes effect at once.
+function TextSizeCard() {
+  const [percent, setPercent] = useState(currentTextSize())
+  return (
+    <section className="card" aria-label="Text size">
+      <h2 className="card-title">Text size</h2>
+      <p className="muted">
+        How big the text is, in the whole app. Wide screens show it smaller than it is, so the
+        default is a little over the browser&apos;s own size. This is kept in this browser.
+      </p>
+      <select
+        aria-label="Text size"
+        value={percent}
+        onChange={(event) => {
+          const next = Number(event.target.value)
+          setTextSize(next)
+          setPercent(next)
+        }}
+      >
+        {TEXT_SIZES.map((size) => (
+          <option key={size.percent} value={size.percent}>
+            {size.label} ({size.percent}%)
+          </option>
+        ))}
+      </select>
+    </section>
+  )
+}
+
 function General({ onChanged }: { onChanged: () => void }) {
   const { state, save } = useConfig()
   return (
@@ -211,6 +243,7 @@ function General({ onChanged }: { onChanged: () => void }) {
           onSave={(path) => save({ workDir: path }).then(() => onChanged())}
         />
       )}
+      <TextSizeCard />
       <DefaultHarnessCard />
       <DefinitionFoldersCard onChanged={onChanged} />
     </>
@@ -252,6 +285,53 @@ function Vault() {
         </>
       )}
     </WithSynapseSettings>
+  )
+}
+
+// The projects notes belong to, which a person adds here by hand and the New note page
+// and the note skills read.
+function Projects() {
+  const load = useCallback(() => transport.listProjects(), [])
+  const { state, reload } = useLoad(load)
+  return (
+    <section className="card" aria-label="Projects">
+      <h2 className="card-title">Projects</h2>
+      <p className="muted">
+        A project is the folder its notes are in (<code>tasks/name/</code>) and the prefix that
+        starts the id of each note (<code>sb-001</code>). A task note and a design note belong to
+        one. They are kept in a file on this machine that the note skills read too, and a note
+        session never adds one: a project is made here or on the New note page.
+      </p>
+      {state.status === 'loading' && <p className="muted">Reading the projects…</p>}
+      {state.status === 'failed' && (
+        <p role="alert" className="error">
+          {state.error}
+        </p>
+      )}
+      {state.status === 'ready' && (
+        <>
+          {state.data.projects.length === 0 ? (
+            <p className="muted">No project is set yet.</p>
+          ) : (
+            <ul className="project-list" aria-label="The projects">
+              {state.data.projects.map((project) => (
+                <li key={project.name}>
+                  <span className="mono">{project.name}</span>
+                  <span className="muted small">prefix</span>
+                  <span className="mono">{project.prefix}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="muted small">
+            They are in <span className="mono">{state.data.file}</span>. A line can be changed or
+            removed there by hand.
+          </p>
+        </>
+      )}
+      <h3 className="card-title">Add a project</h3>
+      <AddProjectForm onAdded={reload} />
+    </section>
   )
 }
 
@@ -481,6 +561,7 @@ function Terminals() {
 const TITLES: Record<SettingsSection, string> = {
   general: 'General',
   vault: 'Vault',
+  projects: 'Projects',
   graph: 'Code graph',
   environment: 'Environment',
   integrations: 'Integrations',
@@ -501,6 +582,7 @@ export function SettingsPage({
       <h1 className="page-title">{TITLES[section]}</h1>
       {section === 'general' && <General onChanged={onChanged} />}
       {section === 'vault' && <Vault />}
+      {section === 'projects' && <Projects />}
       {section === 'graph' && <Graph />}
       {section === 'environment' && <Environment />}
       {section === 'integrations' && <IntegrationsPage />}

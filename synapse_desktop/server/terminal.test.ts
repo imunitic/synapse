@@ -232,7 +232,7 @@ describe('the handshake', () => {
 })
 
 describe('a session started for a task', () => {
-  it('gives the harness the command as its last argument, after the session it is followed by', async () => {
+  it('gives the harness the sentence as its last argument, after the session it is followed by', async () => {
     const socket = connect()
     const messages = inbox(socket)
     await opened(socket)
@@ -240,24 +240,24 @@ describe('a session started for a task', () => {
     expect(await messages.next()).toMatchObject({ type: 'started' })
     const args = spawned[0]?.args ?? []
     expect(args.slice(0, 2)).toEqual(['--injected', '--session-id'])
-    expect(args.at(-1)).toBe('/synapse-rebuild-diff')
+    expect(args.at(-1)).toBe('Do a synapse rebuild diff.')
     expect(args).toHaveLength(4)
   })
 
-  it('gives OpenCode the command after --prompt, and Codex the skill named with a dollar', async () => {
+  it('gives OpenCode the sentence after --prompt, and Codex the same sentence as its last argument', async () => {
     const socket = connect()
     const messages = inbox(socket)
     await opened(socket)
     socket.send(start(dir, 'Opencode', 'rebuild-full'))
     expect(await messages.next()).toMatchObject({ type: 'started' })
-    expect(spawned[0]?.args.slice(-2)).toEqual(['--prompt', '/synapse-rebuild-full'])
+    expect(spawned[0]?.args.slice(-2)).toEqual(['--prompt', 'Do a synapse rebuild full.'])
 
     const other = connect()
     const otherMessages = inbox(other)
     await opened(other)
     other.send(start(dir, 'Codex', 'init'))
     expect(await otherMessages.next()).toMatchObject({ type: 'started' })
-    expect(spawned[1]?.args.at(-1)).toBe('$synapse-init')
+    expect(spawned[1]?.args.at(-1)).toBe('Do a synapse init.')
   })
 
   it('is refused for a shell, which has no prompt, and for a task it does not know', async () => {

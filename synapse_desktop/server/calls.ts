@@ -14,7 +14,10 @@ import type {
   GraphPlan,
   GraphRepoCheck,
   GraphRepoMatches,
+  Harness,
   Integrations,
+  NoteEdit,
+  ProjectList,
   RunAnswer,
   VaultInfo,
 } from '../shared/transport.ts'
@@ -52,6 +55,8 @@ import {
   type NoteSession,
 } from './note-agent.ts'
 import { previewDraft } from './preview.ts'
+import { EditRefused, editNote, restoreNote } from './note-edit.ts'
+import { addProject, listProjects, ProjectRefused, projectsFile } from './projects.ts'
 import { inspectVault } from './vault.ts'
 import { askRun, NotListening, socketPath } from './run-socket.ts'
 import { NotStartedHere, RunNotStarted, type RunStarter } from './runs.ts'
@@ -76,6 +81,34 @@ export class CallError extends Error {
     super(message)
     this.status = status
   }
+}
+
+// A headless session of a harness for a note of the vault: it runs in the environment
+// the app runs programs in and may write in the vault and where the skills keep their
+// files. The prompt is given when it is run.
+async function noteSessionOf(
+  context: Context,
+  config: AppConfig,
+  harness: Harness,
+): Promise<(prompt: string) => Promise<CliResult>> {
+  const settings = await context.runCli({
+    binary: 'synapse',
+    args: ['config', 'list', '--format', 'json'],
+    config,
+  })
+  const vault = vaultDirOf(settings.stdout)
+  if (vault === null) throw new CallError('no vault is set up to write the note in', 409)
+  const env = Object.fromEntries(
+    Object.entries(cliEnvironment(context.environment.env, config)).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined,
+    ),
+  )
+  const writable = await existingDirs([
+    vault,
+    join(context.environment.home, '.config', 'synapse'),
+    config.workDir ?? join(context.environment.home, '.cache', 'synapse', 'work'),
+  ])
+  return (prompt) => context.noteSession({ harness, prompt, env, writable })
 }
 
 type Handler = (raw: unknown, context: Context) => Promise<unknown>
@@ -235,13 +268,17 @@ const handlers: Record<CallName, Handler> = {
     const request = callParams.createNote.parse(raw)
     const config = await loadConfig(context.configFile, context.environment)
     const harness = request.harness ?? config.defaultHarness ?? 'Claude'
-    const settings = await context.runCli({
-      binary: 'synapse',
-      args: ['config', 'list', '--format', 'json'],
-      config,
-    })
-    const vault = vaultDirOf(settings.stdout)
-    if (vault === null) throw new CallError('no vault is set up to write the note in', 409)
+    const session = await noteSessionOf(context, config, harness)
+    // A task or design note belongs to a project, which a request names or the agent
+    // matches from the ones there are.
+    const projects = await listProjects(context.environment)
+    const chosen =
+      request.project === undefined
+        ? undefined
+        : projects.find((project) => project.name === request.project)
+    if (request.project !== undefined && chosen === undefined) {
+      throw new CallError(`${request.project} is not a project in synapse-projects.conf`, 409)
+    }
     const list = async (): Promise<string[]> => {
       const result = await context.runCli({ binary: 'synapse', args: ['vault-list'], config })
       if (result.code !== 0) {
@@ -250,28 +287,62 @@ const handlers: Record<CallName, Handler> = {
       return pathsOf(result.stdout)
     }
     const before = new Set(await list())
-    const env = Object.fromEntries(
-      Object.entries(cliEnvironment(context.environment.env, config)).filter(
-        (entry): entry is [string, string] => entry[1] !== undefined,
-      ),
-    )
     try {
-      const run = await context.noteSession({
-        harness,
-        prompt: notePrompt(request.kind, request.prompt, harness),
-        env,
-        writable: await existingDirs([
-          vault,
-          join(context.environment.home, '.config', 'synapse'),
-          config.workDir ?? join(context.environment.home, '.cache', 'synapse', 'work'),
-        ]),
-      })
+      const run = await session(notePrompt(request.kind, request.prompt, harness, projects, chosen))
       const path = createdPath(run.stdout, before, await list())
       if (path !== null) return { path }
       const why = failureOf(run.stdout) ?? (run.stderr.trim() || run.stdout.trim().slice(-300))
       throw new NoteFailed(`No note was written. ${why}`.trim())
     } catch (error) {
       if (error instanceof NoteFailed) throw new CallError(error.message, error.status)
+      throw error
+    }
+  },
+
+  async editNote(raw, context): Promise<NoteEdit> {
+    const request = callParams.editNote.parse(raw)
+    const config = await loadConfig(context.configFile, context.environment)
+    const harness = request.harness ?? config.defaultHarness ?? 'Claude'
+    const session = await noteSessionOf(context, config, harness)
+    try {
+      return await editNote(
+        { run: context.runCli, config, harness, session },
+        request.path,
+        request.prompt,
+      )
+    } catch (error) {
+      if (error instanceof EditRefused) throw new CallError(error.message, error.status)
+      throw error
+    }
+  },
+
+  async restoreNote(raw, context): Promise<null> {
+    const { path, before, after } = callParams.restoreNote.parse(raw)
+    const config = await loadConfig(context.configFile, context.environment)
+    try {
+      await restoreNote(context.runCli, config, path, before, after)
+      return null
+    } catch (error) {
+      if (error instanceof EditRefused) throw new CallError(error.message, error.status)
+      throw error
+    }
+  },
+
+  async listProjects(raw, context): Promise<ProjectList> {
+    callParams.listProjects.parse(raw)
+    return {
+      projects: await listProjects(context.environment),
+      file: await projectsFile(context.environment),
+    }
+  },
+
+  async addProject(raw, context): Promise<ProjectList> {
+    const { name, prefix } = callParams.addProject.parse(raw)
+    try {
+      const projects = await addProject(context.environment, name, prefix)
+      return { projects, file: await projectsFile(context.environment) }
+    } catch (error) {
+      if (error instanceof ProjectRefused) throw new CallError(error.message, error.status)
       throw error
     }
   },

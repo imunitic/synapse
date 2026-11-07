@@ -341,7 +341,7 @@ function RepoRow({ namespace }: { namespace: string }) {
 
   if (config.status !== 'ready') return null
   const suggestions = suggested.length > 0 && (
-    <div className="repo-suggest small" aria-label="Checkouts found">
+    <div className="repo-suggest bar-note small" aria-label="Checkouts found">
       <span className="muted">
         {suggested.length === 1 ? 'A checkout' : 'Checkouts'} of {namespace} found:
       </span>
@@ -362,8 +362,8 @@ function RepoRow({ namespace }: { namespace: string }) {
     const other = wrongBranch
     return (
       <>
+        <span className="muted small">Repository</span>
         <div className="repo-row" aria-label="Repository">
-          <span className="muted small">Repository</span>
           <span className="mono small">{saved}</span>
           {check.status === 'ready' && check.data?.key != null && (
             <span className={other ? 'repo-warning small' : 'muted small'}>
@@ -401,8 +401,8 @@ function RepoRow({ namespace }: { namespace: string }) {
   }
   return (
     <>
+      <span className="muted small">Repository</span>
       <form className="repo-row" aria-label="Repository" onSubmit={(event) => void submit(event)}>
-        <span className="muted small">Repository</span>
         <input
           className="mono grow"
           aria-label="Repository folder"
@@ -1006,9 +1006,9 @@ export function GraphPage({
       )}
       {graph !== undefined && (
         <>
-          <div className="row graph-controls">
-            <label className="field">
-              <span className="muted small">Namespace</span>
+          <div className="graph-bar">
+            <span className="muted small">Namespace</span>
+            <div className="row graph-controls">
               <select
                 aria-label="Namespace"
                 value={graph.namespace}
@@ -1023,22 +1023,22 @@ export function GraphPage({
                   </option>
                 ))}
               </select>
-            </label>
-            <span className="muted small">
-              has{' '}
-              {[
-                graph.hasIndex && 'a node index',
-                graph.hasRefs && 'references',
-                graph.hasTags && 'tags',
-              ]
-                .filter(Boolean)
-                .join(', ')}
-            </span>
-            <button className="link" onClick={reload}>
-              Look again
-            </button>
+              <span className="muted small">
+                has{' '}
+                {[
+                  graph.hasIndex && 'a node index',
+                  graph.hasRefs && 'references',
+                  graph.hasTags && 'tags',
+                ]
+                  .filter(Boolean)
+                  .join(', ')}
+              </span>
+              <button className="link" onClick={reload}>
+                Look again
+              </button>
+            </div>
+            <RepoRow namespace={graph.namespace} />
           </div>
-          <RepoRow namespace={graph.namespace} />
           <div className="subtabs graph-tabs" role="tablist" aria-label="What to search">
             {MODES.map(({ mode: m, label }) => (
               <button

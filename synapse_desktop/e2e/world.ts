@@ -212,6 +212,7 @@ const STUB = [
   '  if [ "$headless" = stdin ]; then prompt=$(cat); else for a in "$@"; do prompt=$a; done; fi',
   '  case "$prompt" in',
   '    *FAILCASE*) echo "FAILED: the stub was asked to fail"; exit 0 ;;',
+  '    *"Change one note that already exists"*) exec "$(dirname "$0")/stub-edit" "$prompt" ;;',
   '  esac',
   `  printf '%s\\n' "# Stub note" "" "Written by $name" "$prompt" | synapse vault-write "research/Stub note.md"`,
   '  echo "research/Stub note.md"; exit 0',
@@ -241,6 +242,29 @@ const STUB = [
   '',
 ].join('\n')
 
+// What the stub harness does when it is asked to change a note: it adds a line that holds
+// the description to the note named in the prompt, or changes nothing, or also moves the
+// date of another note, as the description says.
+const EDIT_STUB = String.raw`#!/bin/sh
+prompt="$1"
+path=$(printf '%s\n' "$prompt" | sed -n 's/.*The note is .\(.*\).: read it first.*/\1/p')
+desc=$(printf '%s\n' "$prompt" | sed -n '/^Description:$/,$p' | tail -n +2)
+case "$desc" in
+  *NOCHANGE*) echo EDITED; exit 0 ;;
+esac
+tmp=$(mktemp)
+synapse vault-read "$path" > "$tmp"
+printf '\nStub edit: %s\n' "$desc" >> "$tmp"
+synapse vault-write "$path" < "$tmp"
+case "$desc" in
+  *TOUCHOTHER*)
+    synapse vault-read "research/Other.md" | sed 's/^updated: .*/updated: 2099-01-01T00:00:00+00:00/' > "$tmp"
+    synapse vault-write "research/Other.md" < "$tmp" ;;
+esac
+rm -f "$tmp"
+echo EDITED
+`
+
 export function buildWorld(root: string, binDirs: readonly string[]): World {
   const world = worldAt(root)
   mkdirSync(world.home, { recursive: true })
@@ -249,6 +273,7 @@ export function buildWorld(root: string, binDirs: readonly string[]): World {
   for (const name of ['claude', 'codex', 'opencode']) {
     writeFileSync(join(world.bin, name), STUB, { mode: 0o755, flag: 'w' })
   }
+  writeFileSync(join(world.bin, 'stub-edit'), EDIT_STUB, { mode: 0o755, flag: 'w' })
   for (const [name, text] of Object.entries(DEFINITIONS)) write(join(world.definitions, name), text)
   for (const [name, text] of Object.entries(SKILLS)) {
     write(join(world.definitions, 'skills', name, 'SKILL.md'), text)

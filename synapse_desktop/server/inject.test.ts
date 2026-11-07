@@ -226,7 +226,12 @@ describe('OpenCode', () => {
     const plan = await planSession('Opencode', deps)
     const config = join(deps.dataDir, 'opencode')
     expect(plan.env).toEqual({ OPENCODE_CONFIG_DIR: config, SYNAPSE_CONTENT_ROOT: pkg })
-    expect((await readdir(join(config, 'skill'))).sort()).toEqual(['query', 'vault'])
+    // The skill forms of the commands are skills as well, as for Codex, since a model is
+    // shown skills and not commands.
+    expect((await readdir(join(config, 'skill'))).sort()).toEqual(['codex-only', 'query', 'vault'])
+    expect(await readFile(join(config, 'skill', 'codex-only', 'SKILL.md'), 'utf8')).toBe(
+      'codex skill\n',
+    )
     expect(await readdir(join(config, 'command'))).toEqual(['note.md'])
     const plugin = await readFile(join(config, 'plugin', 'synapse.js'), 'utf8')
     expect(plugin).toBe(`const bin = ${JSON.stringify(hook)}\n`)

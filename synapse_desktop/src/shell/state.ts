@@ -19,7 +19,7 @@ export const DEFINITION_LABELS: Record<DefinitionKind, { singular: string; plura
 
 // The categories of the settings, each with a page of its own.
 export type SettingsSection =
-  'general' | 'vault' | 'graph' | 'environment' | 'integrations' | 'terminals'
+  'general' | 'vault' | 'projects' | 'graph' | 'environment' | 'integrations' | 'terminals'
 
 export const SETTINGS_SECTIONS: readonly {
   section: SettingsSection
@@ -32,6 +32,7 @@ export const SETTINGS_SECTIONS: readonly {
     about: 'Work directory, default harness, definition folders',
   },
   { section: 'vault', label: 'Vault', about: 'The vault and how it is kept' },
+  { section: 'projects', label: 'Projects', about: 'The projects that notes belong to' },
   { section: 'graph', label: 'Code graph', about: 'Grammars, authoring and staleness checks' },
   { section: 'environment', label: 'Environment', about: 'Variables for what the app runs' },
   {

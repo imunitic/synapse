@@ -1,28 +1,19 @@
 // What a session of a harness is started to do: build a code graph, rebuild what
-// changed in it, or rebuild it from scratch. Each is a command or skill of
-// Synapse that the harness is given as its first prompt, in the way that harness
-// takes one.
+// changed in it, or rebuild it from scratch. The harness is given a plain sentence
+// as its first prompt, as a person would type it, and finds the skill of Synapse
+// that it names by the skill's description.
 
 import type { TerminalKind, TerminalTask } from '../shared/transport.ts'
 
-const COMMANDS: Record<TerminalTask, string> = {
-  init: 'synapse-init',
-  'rebuild-diff': 'synapse-rebuild-diff',
-  'rebuild-full': 'synapse-rebuild-full',
+const SENTENCES: Record<TerminalTask, string> = {
+  init: 'Do a synapse init.',
+  'rebuild-diff': 'Do a synapse rebuild diff.',
+  'rebuild-full': 'Do a synapse rebuild full.',
 }
 
-// The first prompt: a slash command for Claude Code and OpenCode, which load
-// Synapse's commands, and the skill named by `$` for Codex, which loads skills.
+// The first prompt, the same for every harness; a shell has none.
 export function taskPrompt(kind: TerminalKind, task: TerminalTask): string | null {
-  switch (kind) {
-    case 'Claude':
-    case 'Opencode':
-      return `/${COMMANDS[task]}`
-    case 'Codex':
-      return `$${COMMANDS[task]}`
-    case 'Shell':
-      return null
-  }
+  return kind === 'Shell' ? null : SENTENCES[task]
 }
 
 // The arguments that give the harness its first prompt, which OpenCode takes as

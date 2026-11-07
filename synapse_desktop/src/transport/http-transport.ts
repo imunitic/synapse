@@ -14,7 +14,10 @@ import type {
   GraphPlan,
   GraphRepoCheck,
   GraphRepoMatches,
+  NoteEdit,
   NoteRequest,
+  EditNoteRequest,
+  ProjectList,
   Harness,
   Integrations,
   NewDefinition,
@@ -73,6 +76,22 @@ export class HttpTransport implements Transport {
 
   createNote(request: NoteRequest): Promise<{ path: string }> {
     return this.call('createNote', request)
+  }
+
+  editNote(request: EditNoteRequest): Promise<NoteEdit> {
+    return this.call('editNote', request)
+  }
+
+  async restoreNote(path: string, before: string, after: string): Promise<void> {
+    await this.call('restoreNote', { path, before, after })
+  }
+
+  listProjects(): Promise<ProjectList> {
+    return this.call('listProjects', {})
+  }
+
+  addProject(name: string, prefix: string): Promise<ProjectList> {
+    return this.call('addProject', { name, prefix })
   }
 
   inspectVault(path: string): Promise<VaultInfo> {

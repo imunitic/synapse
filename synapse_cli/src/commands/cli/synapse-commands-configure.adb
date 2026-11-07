@@ -746,12 +746,19 @@ package body Synapse.Commands.Configure is
       end;
       Say (Env, "installed " & Folder & "/plugin/synapse.js" & LF);
 
+      --  A model is shown skills and not commands, so the instructions the
+      --  commands carry are installed as skills as well, the same ones Codex
+      --  gets.
       declare
-         Skills   : constant Lists.Vector :=
+         Skills   : Lists.Vector :=
            Copy_Skills (Root_Of (From) & "/skills", Folder & "/skill");
+         Own      : constant Lists.Vector :=
+           Copy_Skills
+             (Root_Of (From) & "/harness/codex/skills", Folder & "/skill");
          Commands : constant Lists.Vector :=
            Copy_Commands (Root_Of (From) & "/commands", Folder & "/command");
       begin
+         Skills.Append_Vector (Own);
          Prune (Folder & "/skill", Skills);
          Prune (Folder & "/command", Commands);
          Say

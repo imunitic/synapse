@@ -371,6 +371,14 @@ package body Synapse.Commands.Configure.Tests is
          and then Exists (Folder & "/command/one.md"),
          "skills in skill/ and commands in command/");
       Assert
+        (Read (Folder & "/skill/gamma/SKILL.md") = "gamma",
+         "and the skill forms of the commands are skills too, as for Codex");
+      Assert
+        (Read (Folder & "/skill/.synapse-managed.json") =
+         "[" & LF & "  ""alpha""," & LF & "  ""beta""," & LF & "  ""gamma""" & LF
+         & "]" & LF,
+         "all of them in the manifest, so that one no longer shipped is removed");
+      Assert
         (not Exists (Home (W) & "/.claude/skills")
          and then not Exists (Home (W) & "/.claude/settings.json"),
          "and no skills or settings for Claude");

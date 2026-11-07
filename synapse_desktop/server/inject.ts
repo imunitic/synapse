@@ -256,6 +256,13 @@ async function opencodeSession(
 ) {
   for (const sub of ['skill', 'command', 'plugin']) await resetDir(dataDir, join(dir, sub))
   await copySkills(join(root, 'skills'), join(dir, 'skill'))
+  // A model is shown skills and not commands, so the instructions the commands carry
+  // are skills here too, the ones Codex gets.
+  for (const name of await skillNames(join(root, 'harness', 'codex', 'skills'))) {
+    await cp(join(root, 'harness', 'codex', 'skills', name), join(dir, 'skill', name), {
+      recursive: true,
+    })
+  }
   await copyCommands(join(root, 'commands'), join(dir, 'command'))
   if (hookBinary !== null) {
     const template = await readFile(

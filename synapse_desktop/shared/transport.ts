@@ -95,10 +95,39 @@ export interface GenerateRequest {
 // The kinds of note an agent can be asked to write.
 export type NoteKind = 'note' | 'task' | 'design'
 
+// What an agent's change to a note left: the note as it was and as it is, to be shown
+// and undone, and the other notes that moved, which a change should not touch.
+export interface NoteEdit {
+  before: string
+  after: string
+  touched: string[]
+}
+
+// A description of a change to a note that is there already.
+export interface EditNoteRequest {
+  path: string
+  prompt: string
+  // The harness that changes it; the default harness when absent.
+  harness?: Harness
+}
+
+// A project of the vault's notes: its name is the folder, its prefix is in each id.
+export interface Project {
+  name: string
+  prefix: string
+}
+
+export interface ProjectList {
+  projects: Project[]
+  file: string
+}
+
 // A description to have an agent write a note of the vault from.
 export interface NoteRequest {
   kind: NoteKind
   prompt: string
+  // The project of a task or design note, by name; the agent matches one when absent.
+  project?: string
   // The harness that writes it; the default harness when absent.
   harness?: Harness
 }
@@ -258,6 +287,13 @@ export interface Transport {
   generateDefinition(request: GenerateRequest): Promise<{ text: string }>
   // Has an agent write a note of the vault; the note's path when it is written.
   createNote(request: NoteRequest): Promise<{ path: string }>
+  // Has an agent change a note that exists, and puts the text from before back.
+  editNote(request: EditNoteRequest): Promise<NoteEdit>
+  restoreNote(path: string, before: string, after: string): Promise<void>
+  // The projects of this machine's synapse-projects.conf, and one more added to it.
+  // The file they are in is answered too, for a person who would edit it by hand.
+  listProjects(): Promise<ProjectList>
+  addProject(name: string, prefix: string): Promise<ProjectList>
 
   // Starts the user's login shell, or a harness, in a pty. The bundled Synapse is
   // loaded for the session, or for the harnesses started from the shell, unless

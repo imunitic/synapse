@@ -66,7 +66,7 @@ export const editorTheme = EditorView.theme(
     '&': {
       color: '#e4e4e7',
       backgroundColor: '#18181b',
-      fontSize: '13px',
+      fontSize: '0.8125rem',
       border: '1px solid #3a3a42',
       borderRadius: '8px',
     },

@@ -1,4 +1,6 @@
 import { FitAddon } from '@xterm/addon-fit'
+import { scaledPixels } from '../domain/text-size.ts'
+import { currentTextSize, onTextSizeChange } from './text-size.ts'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -112,7 +114,7 @@ function TerminalView({
     if (element === null) return
     const terminal = new Terminal({
       cursorBlink: true,
-      fontSize: 13,
+      fontSize: scaledPixels(13, currentTextSize()),
       fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
       theme: { background: '#18181b', foreground: '#e4e4e7', cursor: '#b0a6ff' },
     })
@@ -133,6 +135,11 @@ function TerminalView({
       if (element.offsetParent !== null) fitter.fit()
     })
     observer.observe(element)
+    // A terminal draws its own text, so it is told when the size of the text changes.
+    const unlisten = onTextSizeChange((percent) => {
+      terminal.options.fontSize = scaledPixels(13, percent)
+      if (element.offsetParent !== null) fitter.fit()
+    })
 
     // The terminal has a size once it is on the page: ask for the session then.
     const frame = requestAnimationFrame(() => {
@@ -182,6 +189,7 @@ function TerminalView({
       gone = true
       cancelAnimationFrame(frame)
       observer.disconnect()
+      unlisten()
       handle?.close()
       terminal.dispose()
       term.current = null

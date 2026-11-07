@@ -304,7 +304,7 @@ test('a rebuild asks first, then opens the default harness in the repository wit
   await expect(page.getByRole('tab', { name: 'Claude Code 1 · rebuild' })).toBeVisible()
   // The stub harness prints what it was started with, and where.
   const screen = page.locator('.terminal-view:not([hidden]) .terminal-host')
-  await expect(screen).toContainText('/synapse-rebuild-diff')
+  await expect(screen).toContainText('Do a synapse rebuild diff.')
   await expect(screen).toContainText(`cwd: ${repo}`)
 })
 
@@ -322,7 +322,7 @@ test('a rebuild from scratch gives the full command, and the harness can be chos
   await card.getByRole('button', { name: 'Yes, open Codex' }).click()
   await expect(page.getByRole('tab', { name: 'Codex 1 · rebuild all' })).toBeVisible()
   await expect(page.locator('.terminal-view:not([hidden]) .terminal-host')).toContainText(
-    '$synapse-rebuild-full',
+    'Do a synapse rebuild full.',
   )
 })
 
@@ -359,7 +359,7 @@ test('a new graph is built from a repository folder, after asking, and the folde
   await question.getByRole('button', { name: 'Yes, open Claude Code' }).click()
   await expect(page.getByRole('tab', { name: 'Claude Code 1 · build' })).toBeVisible()
   const screen = page.locator('.terminal-view:not([hidden]) .terminal-host')
-  await expect(screen).toContainText('/synapse-init')
+  await expect(screen).toContainText('Do a synapse init.')
   await expect(screen).toContainText(`cwd: ${repo}`)
 
   // The folder is saved for the namespace, so the graph can be checked once it is built.

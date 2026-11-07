@@ -105,6 +105,13 @@ export const PlusIcon = () => (
   </Icon>
 )
 
+export const PencilIcon = () => (
+  <Icon size={16}>
+    <path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1z" />
+    <path d="M14.5 6.5l3 3" />
+  </Icon>
+)
+
 export const CloseIcon = () => (
   <Icon size={12}>
     <path d="M6 6l12 12M18 6L6 18" />

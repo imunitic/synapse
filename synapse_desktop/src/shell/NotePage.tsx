@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, type ReactNode } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
+  isGraphNodePath,
   linkifyWikilinks,
   listNotes,
   nameIndex,
@@ -15,6 +16,7 @@ import {
 } from '../domain/notes.ts'
 import { recordOpened } from '../domain/recent.ts'
 import { transport } from '../transport/index.ts'
+import { EditNote } from './EditNote.tsx'
 import type { Page } from './state.ts'
 import { useLoad } from './useLoad.ts'
 
@@ -98,7 +100,11 @@ export function NotePage({ path, onOpen }: { path: string; onOpen: (page: Page) 
       <p className="eyebrow">
         {path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : 'Vault'}
       </p>
-      <h1 className="page-title">{title}</h1>
+      {isGraphNodePath(path) ? (
+        <h1 className="page-title">{title}</h1>
+      ) : (
+        <EditNote path={path} title={title} onChanged={note.reload} />
+      )}
       {properties.length > 0 && (
         <dl className="properties" aria-label="Properties">
           {properties.map(([key, value]) => (

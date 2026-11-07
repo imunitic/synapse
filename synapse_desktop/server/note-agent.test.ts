@@ -40,6 +40,56 @@ describe('the prompt for a note', () => {
     expect(text).toContain('FAILED:')
   })
 
+  it('never lets a session add a project, whichever harness writes the note', () => {
+    for (const harness of ['Claude', 'Codex', 'Opencode'] as const) {
+      const text = notePrompt('task', 'x', harness, [{ name: 'a', prefix: 'b' }])
+      expect(text).toContain('Never add a project')
+      expect(text).toContain('so that the person can add one on the page')
+    }
+  })
+
+  it('lists the projects there are for a task or design note, to match the description to', () => {
+    const projects = [
+      { name: 'synapse', prefix: 'sb' },
+      { name: 'eon', prefix: 'ecs' },
+    ]
+    const task = notePrompt('task', 'x', 'Claude', projects)
+    expect(task).toContain('as name=prefix: synapse=sb, eon=ecs')
+    expect(task).toContain('is in tasks/NAME/ and has the project PREFIX')
+    expect(task).toContain('matching loosely')
+    expect(notePrompt('design', 'x', 'Codex', projects)).toContain('designs/NAME/')
+    expect(notePrompt('task', 'x', 'Claude', [])).toContain('There are none.')
+  })
+
+  it('names the project that was chosen, with its folder and prefix, and asks for no other', () => {
+    const chosen = { name: 'synapse', prefix: 'sb' }
+    const text = notePrompt(
+      'design',
+      'x',
+      'Claude',
+      [chosen, { name: 'eon', prefix: 'ecs' }],
+      chosen,
+    )
+    expect(text).toContain('The project of this note is synapse, with the prefix sb')
+    expect(text).toContain('in designs/synapse/ and its project is sb')
+    expect(text).not.toContain('eon=ecs')
+    expect(text).not.toContain('Never add a project')
+  })
+
+  it('says nothing of projects to a plain note', () => {
+    const text = notePrompt('note', 'x', 'Claude', [{ name: 'synapse', prefix: 'sb' }])
+    expect(text).not.toContain('project')
+  })
+
+  it('asks every harness for the note skill of the kind of note by name', () => {
+    for (const harness of ['Claude', 'Codex', 'Opencode'] as const) {
+      expect(notePrompt('task', 'x', harness)).toContain('use the synapse-note skill with --task')
+      expect(notePrompt('design', 'x', harness)).toContain('use the synapse-design-note skill')
+      expect(notePrompt('note', 'x', harness)).toContain('use the synapse-note skill in bare mode')
+      expect(notePrompt('task', 'x', harness)).not.toContain('Read the file of')
+    }
+  })
+
   it('names the commands that work to the harnesses that hold a session to them, and not to Codex', () => {
     expect(notePrompt('note', 'x', 'Opencode')).toContain('Only these commands work')
     const codex = notePrompt('note', 'x', 'Codex')
@@ -73,14 +123,31 @@ describe('the headless session for a note', () => {
     expect(command.args[at + 1]).toBe(`${NOTE_TOOLS},Read(/pkg/synapse/**)`)
   })
 
-  it('allows the skills, the Synapse program and the lists the skills keep, and no shell', () => {
+  it('allows the skills, the Synapse program and reading the lists the skills keep, and no shell', () => {
     const tools = NOTE_TOOLS.split(',')
     expect(tools).toContain('Skill')
     expect(tools).toContain('Bash(synapse *)')
+    expect(tools).toContain('Read(~/.config/synapse/**)')
     expect(tools.some((tool) => tool === 'Bash' || tool === 'Write')).toBe(false)
-    expect(tools.filter((tool) => tool.startsWith('Edit('))).toEqual([
-      'Edit(~/.config/synapse/**)',
-      'Edit(~/.claude/synapse-*.conf)',
+  })
+
+  it('lets a session add to the tag vocabulary and to no other list, the projects list included', () => {
+    const edits = NOTE_TOOLS.split(',').filter((tool) => tool.startsWith('Edit('))
+    expect(edits).toEqual([
+      'Edit(~/.config/synapse/synapse-tag-vocabulary.conf)',
+      'Edit(~/.claude/synapse-tag-vocabulary.conf)',
+    ])
+    expect(edits.some((edit) => edit.includes('projects'))).toBe(false)
+    expect(edits.some((edit) => edit.includes('**'))).toBe(false)
+  })
+
+  it('holds OpenCode to the same: only the tag vocabulary may be edited', () => {
+    const allowed = Object.entries(OPENCODE_PERMISSION.edit)
+      .filter(([, action]) => action === 'allow')
+      .map(([pattern]) => pattern)
+    expect(allowed).toEqual([
+      '~/.config/synapse/synapse-tag-vocabulary.conf',
+      '~/.claude/synapse-tag-vocabulary.conf',
     ])
   })
 

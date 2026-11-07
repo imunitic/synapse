@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -125,6 +125,50 @@ describe('writing a note with an agent', () => {
     await handleCall('createNote', { kind: 'note', prompt: 'x' }, context)
     // The work folder does not exist here, so it is left out.
     expect(sessions[0]?.writable).toEqual([vault, join(dir, '.config', 'synapse')])
+  })
+
+  it('tells a task note the projects there are, or the one it was given', async () => {
+    // The test's environment has the folder as XDG_CONFIG_HOME.
+    await mkdir(join(dir, 'synapse'), { recursive: true })
+    await writeFile(join(dir, 'synapse', 'synapse-projects.conf'), '# mine\nsynapse=sb\neon=ecs\n')
+    const open = contextFor(['Index.md\n', 'Index.md\nresearch/A.md\n'], ok('research/A.md'))
+    await handleCall('createNote', { kind: 'task', prompt: 'x' }, open.context)
+    expect(open.sessions[0]?.prompt).toContain('as name=prefix: synapse=sb, eon=ecs')
+
+    const given = contextFor(['Index.md\n', 'Index.md\nresearch/A.md\n'], ok('research/A.md'))
+    await handleCall('createNote', { kind: 'task', prompt: 'x', project: 'eon' }, given.context)
+    expect(given.sessions[0]?.prompt).toContain(
+      'The project of this note is eon, with the prefix ecs',
+    )
+
+    const unknown = contextFor([], ok(''))
+    const refused = await failure(
+      handleCall('createNote', { kind: 'task', prompt: 'x', project: 'nope' }, unknown.context),
+    )
+    expect(refused).toMatchObject({ status: 409 })
+    expect(refused?.message).toContain('nope is not a project')
+    expect(unknown.sessions).toEqual([])
+  })
+
+  it('lists the projects, adds one, and refuses one that is taken', async () => {
+    const { context } = contextFor([], ok(''))
+    // The test's environment has the folder as XDG_CONFIG_HOME, so that is where they are.
+    const file = join(dir, 'synapse', 'synapse-projects.conf')
+    expect(await handleCall('listProjects', {}, context)).toEqual({ projects: [], file })
+    expect(await handleCall('addProject', { name: 'thing', prefix: 'tg' }, context)).toEqual({
+      projects: [{ name: 'thing', prefix: 'tg' }],
+      file,
+    })
+    expect(await handleCall('listProjects', {}, context)).toEqual({
+      projects: [{ name: 'thing', prefix: 'tg' }],
+      file,
+    })
+    const taken = await failure(
+      handleCall('addProject', { name: 'thing', prefix: 'other' }, context),
+    )
+    expect(taken).toMatchObject({ status: 409 })
+    const bad = await failure(handleCall('addProject', { name: 'No Good', prefix: 'tg2' }, context))
+    expect(bad).toMatchObject({ status: 409 })
   })
 
   it('is refused, before anything is run, when no vault is set up', async () => {
