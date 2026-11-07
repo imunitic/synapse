@@ -81,7 +81,12 @@ export function PageView({ page, onOpen }: { page: Page; onOpen: (page: Page) =>
       return page.definition === 'pipeline' ? (
         <PipelinePage name={page.name} path={page.path} onOpen={onOpen} />
       ) : (
-        <DefinitionPage definition={page.definition} name={page.name} path={page.path} />
+        <DefinitionPage
+          definition={page.definition}
+          name={page.name}
+          path={page.path}
+          onOpen={onOpen}
+        />
       )
     case 'execution':
       return <ExecutionPage id={page.id} />
