@@ -139,9 +139,12 @@ const REPLY_RULES = `Reply with the text of one file and nothing else: no code f
 
 const SKILL_FORMAT = `A skill is a SKILL.md: frontmatter between --- lines holding name (1 to 64 lowercase letters, digits and single hyphens) and description (what the skill does and when to use it), then the instructions the agent follows.`
 
+const REVISE_RULES = `You are given the current text of the file. Reply with the whole revised text, with the same name and the same kind of definition, and change only what the description asks for.`
+
 export function systemFor(request: GenerateRequest, skill: string): string {
+  const revising = request.current === undefined ? '' : `\n\n${REVISE_RULES}`
   if (request.kind === 'skill') {
-    return `You write skills for coding agents. ${SKILL_FORMAT}\n\n${REPLY_RULES}`
+    return `You write skills for coding agents. ${SKILL_FORMAT}\n\n${REPLY_RULES}${revising}`
   }
   const wanted = {
     pipeline:
@@ -149,11 +152,22 @@ export function systemFor(request: GenerateRequest, skill: string): string {
     system: 'a System: one reusable setup that steps can share.',
     agent: 'an Agent: one role, a Prompt that says who the session is.',
   }[request.kind]
-  return `You write definition files for synapse-pipeline. Write ${wanted}\n\n${REPLY_RULES}\n\n${referenceFrom(skill)}`
+  return `You write definition files for synapse-pipeline. Write ${wanted}\n\n${REPLY_RULES}${revising}\n\n${referenceFrom(skill)}`
 }
 
 export function promptFor(request: GenerateRequest): string {
-  const lines = [`Write a new ${request.kind} as described here.`, '', request.prompt.trim()]
+  const lines =
+    request.current === undefined
+      ? [`Write a new ${request.kind} as described here.`, '', request.prompt.trim()]
+      : [
+          `Change this ${request.kind} as described here.`,
+          '',
+          request.prompt.trim(),
+          '',
+          'The current text:',
+          '',
+          request.current,
+        ]
   if (request.kind !== 'skill' && request.definitions.length > 0) {
     lines.push(
       '',

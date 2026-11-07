@@ -95,6 +95,7 @@ export const callParams = {
     kind: z.enum(['pipeline', 'system', 'agent', 'skill']),
     prompt: z.string().min(1).max(20_000),
     harness: harnessSchema.optional(),
+    current: draftText.optional(),
     definitions: z
       .array(
         z.object({ name: definitionNameSchema, kind: z.enum(['pipeline', 'system', 'agent']) }),

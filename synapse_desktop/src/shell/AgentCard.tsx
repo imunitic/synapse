@@ -12,12 +12,15 @@ export function AgentCard({
   definition,
   existing,
   defaultHarness,
+  current,
   onWritten,
 }: {
   definition: DefinitionKind
   // What exists, or null until it has been read.
   existing: { definitions: Pick<Definition, 'name' | 'kind'>[]; skills: string[] } | null
   defaultHarness: Harness
+  // The text to change; absent when the definition is to be written new.
+  current?: string
   onWritten: (text: string) => void
 }) {
   const [prompt, setPrompt] = useState('')
@@ -37,6 +40,7 @@ export function AgentCard({
         kind: definition,
         prompt,
         harness,
+        current,
         definitions: existing.definitions.map((d) => ({ name: d.name, kind: d.kind })),
         skills: existing.skills,
       })
@@ -51,17 +55,23 @@ export function AgentCard({
   return (
     <section className="card agent-card" aria-label="Build with an agent">
       <label className="field">
-        <span>Describe what it should do</span>
+        <span>
+          {current === undefined ? 'Describe what it should do' : 'Describe what to change'}
+        </span>
         <textarea
           rows={4}
           value={prompt}
           disabled={working}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder={`What should the ${label} do?`}
+          placeholder={
+            current === undefined ? `What should the ${label} do?` : `What should change in it?`
+          }
         />
       </label>
       <p className="muted small">
-        The text the agent writes replaces what is in the editor; undo brings back what was there.
+        {current === undefined
+          ? 'The text the agent writes replaces what is in the editor; undo brings back what was there.'
+          : 'The agent is given the text as it is in the editor now, and the text it writes replaces it; undo brings back what was there.'}
       </p>
       <div className="row">
         <label className="row">

@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest'
 import type { CliResult } from '../../shared/transport.ts'
 import {
   declaredOf,
+  isDefinitionName,
   isSkillName,
   marksFor,
   readPreview,
+  renameDeclared,
+  renameSkill,
   skillProblems,
   templateFor,
 } from './drafts.ts'
@@ -121,6 +124,39 @@ describe('marksFor', () => {
     const [mark] = marksFor('Agent A', parseProblems('error: /f/A.synapse:1:500: far'))
     expect(mark!.from).toBeLessThanOrEqual('Agent A'.length)
     expect(mark!.to).toBeLessThanOrEqual('Agent A'.length)
+  })
+})
+
+describe('renaming', () => {
+  it('changes the name a definition declares and nothing else', () => {
+    const text = '-- a comment\nPipeline Old_Name {\n  Old_Name [Prompt => "x"];\n}\n'
+    expect(renameDeclared(text, 'New_Name')).toBe(
+      '-- a comment\nPipeline New_Name {\n  Old_Name [Prompt => "x"];\n}\n',
+    )
+    expect(renameDeclared('Agent  A [Prompt => "x"];', 'B')).toBe('Agent  B [Prompt => "x"];')
+  })
+
+  it('leaves a text that declares no name as it is', () => {
+    expect(renameDeclared('nothing here', 'X')).toBe('nothing here')
+    expect(renameDeclared('Pipeline {', 'X')).toBe('Pipeline {')
+  })
+
+  it('changes the name in the frontmatter of a skill and nothing else', () => {
+    const text =
+      '---\nname: old-name\ndescription: Does it. name: not this\n---\n\nname: nor this\n'
+    expect(renameSkill(text, 'new-name')).toBe(
+      '---\nname: new-name\ndescription: Does it. name: not this\n---\n\nname: nor this\n',
+    )
+  })
+
+  it('leaves a skill with no name in its frontmatter as it is', () => {
+    expect(renameSkill('---\ndescription: x\n---\n', 'n')).toBe('---\ndescription: x\n---\n')
+    expect(renameSkill('no frontmatter', 'n')).toBe('no frontmatter')
+  })
+
+  it('knows a name a definition can have', () => {
+    expect(isDefinitionName('Develop_Feature')).toBe(true)
+    for (const name of ['', '1x', 'a b', 'a-b']) expect(isDefinitionName(name)).toBe(false)
   })
 })
 

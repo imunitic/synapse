@@ -63,6 +63,15 @@ describe('what the agent is given', () => {
     expect(promptFor({ ...request, kind: 'skill' })).not.toContain('Reviewer')
   })
 
+  it('gives the current text and asks for a revision, not a new definition', () => {
+    const asked = { ...request, current: 'Pipeline P {}\n' }
+    expect(promptFor(asked)).toContain('Change this pipeline')
+    expect(promptFor(asked)).toContain('The current text:\n\nPipeline P {}')
+    expect(promptFor(request)).toContain('Write a new pipeline')
+    expect(systemFor(asked, SKILL)).toContain('same name')
+    expect(systemFor(request, SKILL)).not.toContain('same name')
+  })
+
   it('needs no skill file to write a skill', () => {
     expect(systemFor({ ...request, kind: 'skill' }, '')).toContain('SKILL.md')
   })

@@ -2,8 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { listDefinitions, listSkills } from '../domain/definitions.ts'
 import {
   declaredOf,
+  isDefinitionName,
+  isSkillName,
   marksFor,
   previewDraft,
+  renameDeclared,
+  renameSkill,
   skillProblems,
   templateFor,
   type Declared,
@@ -124,6 +128,9 @@ export function DefinitionEditorPage({
   const [saveError, setSaveError] = useState<string | null>(null)
   const [replacement, setReplacement] = useState<{ id: number; text: string } | null>(null)
   const [mode, setMode] = useState<'hand' | 'agent'>('hand')
+  // What is typed in the name field while it is not a name yet: a name that fits
+  // is put into the text at once, and then the text is what the field shows.
+  const [nameDraft, setNameDraft] = useState<string | null>(null)
   const { state: taken } = useLoad(loadTaken)
   const { state: config } = useLoad(loadConfig)
 
@@ -188,7 +195,20 @@ export function DefinitionEditorPage({
   const onChange = useCallback((next: string) => {
     setText(next)
     setSaveError(null)
+    setNameDraft(null)
   }, [])
+
+  // The name field changes the name in the text, a name at a time that fits.
+  function rename(next: string) {
+    const fits = isSkill ? isSkillName(next) : isDefinitionName(next)
+    if (!fits) {
+      setNameDraft(next)
+      return
+    }
+    setNameDraft(null)
+    const renamed = isSkill ? renameSkill(text, next) : renameDeclared(text, next)
+    if (renamed !== text) setReplacement((r) => ({ id: (r?.id ?? 0) + 1, text: renamed }))
+  }
 
   async function save() {
     if (name === null) return
@@ -228,40 +248,53 @@ export function DefinitionEditorPage({
 
       <section className="card" aria-label="Name">
         <h2 className="card-title">Name</h2>
-        <p className="mono name-value">{name ?? 'Not named yet.'}</p>
+        {existing ? (
+          <p className="mono name-value">{existing.name}</p>
+        ) : (
+          <input
+            className="mono name-input"
+            aria-label="Name"
+            value={nameDraft ?? name ?? ''}
+            placeholder={isSkill ? 'name-of-the-skill' : 'Name_Of_The_Definition'}
+            onChange={(event) => rename(event.target.value)}
+          />
+        )}
         <p className="muted small">
           {existing
             ? 'The name cannot change: it is the name of the file.'
-            : name === null
-              ? 'The name comes from the text.'
-              : isSkill
-                ? `The name is in the frontmatter: skills/${name}/SKILL.md.`
-                : `The name is the file name: ${name}.synapse.`}
+            : nameDraft !== null
+              ? isSkill
+                ? 'A skill name is 1 to 64 lowercase letters, digits and single hyphens.'
+                : 'A name has letters, digits and underscores and starts with a letter.'
+              : name === null
+                ? 'The name is in the text: type it here or write it there.'
+                : isSkill
+                  ? `The name is in the frontmatter: skills/${name}/SKILL.md.`
+                  : `The name is the file name: ${name}.synapse.`}
         </p>
       </section>
 
-      {!existing && (
-        <div className="row" role="group" aria-label="How to write it">
-          <button
-            className={mode === 'hand' ? 'primary' : 'secondary'}
-            aria-pressed={mode === 'hand'}
-            onClick={() => setMode('hand')}
-          >
-            Write by hand
-          </button>
-          <button
-            className={mode === 'agent' ? 'primary' : 'secondary'}
-            aria-pressed={mode === 'agent'}
-            onClick={() => setMode('agent')}
-          >
-            Build with an agent
-          </button>
-        </div>
-      )}
+      <div className="row" role="group" aria-label="How to write it">
+        <button
+          className={mode === 'hand' ? 'primary' : 'secondary'}
+          aria-pressed={mode === 'hand'}
+          onClick={() => setMode('hand')}
+        >
+          Write by hand
+        </button>
+        <button
+          className={mode === 'agent' ? 'primary' : 'secondary'}
+          aria-pressed={mode === 'agent'}
+          onClick={() => setMode('agent')}
+        >
+          {existing ? 'Revise with an agent' : 'Build with an agent'}
+        </button>
+      </div>
 
-      {!existing && mode === 'agent' && (
+      {mode === 'agent' && (
         <AgentCard
           definition={definition}
+          current={existing ? text : undefined}
           existing={taken.status === 'ready' ? taken.data.existing : null}
           defaultHarness={
             config.status === 'ready' ? (config.data.defaultHarness ?? 'Claude') : 'Claude'

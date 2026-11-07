@@ -79,6 +79,9 @@ export interface GenerateRequest {
   prompt: string
   // The harness that writes it; the default harness when absent.
   harness?: Harness
+  // The text to change, when the prompt asks for a change to a definition that
+  // exists and not for a new one.
+  current?: string
   definitions: { name: string; kind: 'pipeline' | 'system' | 'agent' }[]
   skills: string[]
 }

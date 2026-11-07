@@ -957,3 +957,10 @@ div.activity-row {
   max-width: 520px;
   box-sizing: border-box;
 }
+
+.name-input {
+  width: 100%;
+  max-width: 520px;
+  box-sizing: border-box;
+  margin-bottom: 4px;
+}

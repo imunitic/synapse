@@ -160,3 +160,27 @@ export function skillProblems(text: string): Problem[] {
     message,
   }))
 }
+
+// Whether a name is one a definition's file can have.
+export function isDefinitionName(name: string): boolean {
+  return /^[A-Za-z][A-Za-z0-9_]*$/.test(name) && name.length <= 128
+}
+
+// The text with the name it declares changed, and nothing else changed; the
+// text itself when it declares none.
+export function renameDeclared(text: string, name: string): string {
+  const match = /^((?:\s|--[^\n]*)*(?:Pipeline|System|Agent)\s+)([A-Za-z][A-Za-z0-9_]*)/.exec(text)
+  if (match?.[1] === undefined || match[2] === undefined) return text
+  return match[1] + name + text.slice(match[0].length)
+}
+
+// The text of a skill with the name in its frontmatter changed; the text itself
+// when the frontmatter has none.
+export function renameSkill(text: string, name: string): string {
+  const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)
+  if (frontmatter?.[1] === undefined) return text
+  const line = /^(name:[ \t]*)(.*)$/m.exec(frontmatter[1])
+  if (line === null) return text
+  const at = frontmatter[0].indexOf(frontmatter[1]) + line.index + line[1]!.length
+  return text.slice(0, at) + name + text.slice(at + line[2]!.length)
+}
