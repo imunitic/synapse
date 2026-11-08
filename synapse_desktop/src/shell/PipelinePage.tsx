@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { listSkills } from '../domain/definitions.ts'
 import { formatDuration } from '../domain/format.ts'
 import { layoutGraph } from '../domain/graph.ts'
-import { fallThrough, mentioned, routesFrom } from '../domain/outcomes.ts'
+import { fallThrough, routesFrom } from '../domain/outcomes.ts'
 import {
   describePipeline,
   guardLabel,
@@ -16,6 +16,7 @@ import { useConfig } from './config.tsx'
 import { RunDialog } from './RunDialog.tsx'
 import { SourceCard } from './DefinitionPage.tsx'
 import { GraphView } from './GraphView.tsx'
+import { PromptView } from './PromptView.tsx'
 import type { Page } from './state.ts'
 import { useLoad } from './useLoad.ts'
 
@@ -64,42 +65,8 @@ function InstructionCell({
   )
 }
 
-// What the step's instructions say, to look for the outcomes in: its prompts and
-// the text of its skills. Null while it is read, and when a skill cannot be
-// read, because then nothing can be said about it.
-function useInstructionTexts(step: PipelineStep, skills: Map<string, string>): string[] | null {
-  const load = useCallback(async (): Promise<string[] | null> => {
-    const texts: string[] = []
-    for (const instruction of [step.role, step.assignment]) {
-      if (instruction === null) continue
-      if (instruction.kind === 'prompt') {
-        texts.push(instruction.text)
-        continue
-      }
-      const path = skills.get(instruction.name)
-      if (path === undefined) return null
-      try {
-        texts.push(await transport.readText(path))
-      } catch {
-        return null
-      }
-    }
-    return texts
-  }, [step, skills])
-  const { state } = useLoad(load)
-  return state.status === 'ready' ? state.data : null
-}
-
 // The outcomes a step's edges wait for, and where each leads.
-function Routes({
-  description,
-  step,
-  texts,
-}: {
-  description: PipelineDescription
-  step: PipelineStep
-  texts: string[] | null
-}) {
+function Routes({ description, step }: { description: PipelineDescription; step: PipelineStep }) {
   const routes = routesFrom(description, step.name)
   const next = fallThrough(description, step.name)
   return (
@@ -114,9 +81,6 @@ function Routes({
             → {route.to}
             {route.maxIterations !== null && ` · at most ${route.maxIterations} times`}
           </span>
-          {texts !== null && route.outcome !== null && !mentioned(route.outcome, texts) && (
-            <span className="warn-note"> not named in this step's instructions</span>
-          )}
         </li>
       ))}
       <li className="muted">otherwise → {next ?? 'the run completes'}</li>
@@ -135,7 +99,6 @@ function StepDetails({
   skills: Map<string, string>
   onOpen: (page: Page) => void
 }) {
-  const texts = useInstructionTexts(step, skills)
   const skillPath = (i: Instruction) => (i?.kind === 'skill' ? skills.get(i.name) : undefined)
   return (
     <section className="card" aria-label={`Step ${step.name}`}>
@@ -189,9 +152,28 @@ function StepDetails({
             onOpen={onOpen}
           />
         </dd>
+        <dt>Outcomes</dt>
+        <dd>
+          {step.outcomes === null ? (
+            <span className="muted">any word: the step declares none</span>
+          ) : (
+            <ul className="outcomes">
+              {step.outcomes.map((outcome) => (
+                <li key={outcome.word}>
+                  <span className="mono">{outcome.word}</span>
+                  <span className="muted"> · {outcome.meaning}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </dd>
         <dt>Routes on</dt>
         <dd>
-          <Routes description={description} step={step} texts={texts} />
+          <Routes description={description} step={step} />
+        </dd>
+        <dt>Prompt</dt>
+        <dd>
+          <PromptView pipeline={description.name} step={step.name} />
         </dd>
       </dl>
     </section>
@@ -284,6 +266,7 @@ export function PipelinePage({
       {running && (
         <RunDialog
           pipeline={name}
+          firstStep={description?.steps[0]?.name}
           onClose={() => setRunning(false)}
           onStarted={(id) => {
             setRunning(false)

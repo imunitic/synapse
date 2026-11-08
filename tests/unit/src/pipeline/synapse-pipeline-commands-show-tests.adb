@@ -237,6 +237,17 @@ package body Synapse.Pipeline.Commands.Show.Tests is
             "its attributes as written");
          Assert (Users (System.Item) = "pipeline:Develop_Feature ",
                  "the pipeline that uses it: " & Users (System.Item));
+         declare
+            Steps : constant JSON.Value :=
+              JSON.Member_Value
+                (JSON.Element (JSON.Member_Value (System.Item, "used_by"), 1),
+                 "steps");
+         begin
+            Assert
+              (JSON.Length (Steps) = 1
+               and then JSON.As_String (JSON.Element (Steps, 1)) = "Review",
+               "and the step that names it");
+         end;
       end;
 
       declare

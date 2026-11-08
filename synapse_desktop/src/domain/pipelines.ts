@@ -20,6 +20,11 @@ const originSchema = z.object({
   file: z.string(),
 })
 
+// What a step may end with: the word guards test, and what it means.
+const outcomeSchema = z.object({ word: z.string(), meaning: z.string() })
+
+export type StepOutcome = z.infer<typeof outcomeSchema>
+
 const stepSchema = z.object({
   name: z.string(),
   harness: z.string(),
@@ -27,6 +32,8 @@ const stepSchema = z.object({
   permissions: z.string(),
   timeout_seconds: z.number(),
   retries: z.number(),
+  // Null when the step declares none and may end with any word.
+  outcomes: z.array(outcomeSchema).nullable().default(null),
   role: instructionSchema,
   assignment: instructionSchema,
   origins: z.array(originSchema),
@@ -144,4 +151,50 @@ export function readShown(result: CliResult): Described {
 // CLI cannot be run or answers in a format this app does not know.
 export async function describePipeline(transport: Transport, name: string): Promise<Described> {
   return readShown(await transport.cli('synapse-pipeline', ['show', name, '--format', 'json']))
+}
+
+const promptSchema = z.object({
+  format: z.literal('synapse-pipeline-prompt/v1'),
+  pipeline: z.string(),
+  step: z.string(),
+  prompt: z.string(),
+})
+
+export type StepPrompt = { ok: true; prompt: string } | { ok: false; message: string }
+
+// The prompt a step is started with, as `show --step` builds it: the same text the
+// runner hands the session. A step after the first has a marked slot for what the step
+// before reports. `input` is the JSON the run is started with, when there is one. The
+// message is the CLI's when it cannot say, such as for an input that is not JSON.
+// Throws when the CLI cannot be run or answers in a format this app does not know.
+export async function describeStepPrompt(
+  transport: Transport,
+  pipeline: string,
+  step: string,
+  input?: string,
+): Promise<StepPrompt> {
+  const args = ['show', pipeline, '--step', step, '--format', 'json']
+  if (input !== undefined) args.push('--input', '-')
+  const result = await transport.cli(
+    'synapse-pipeline',
+    args,
+    input === undefined ? undefined : { stdin: input },
+  )
+  if (result.code !== 0) {
+    const message = result.stderr
+      .split('\n')
+      .map((line) => line.replace(/^error:\s*/, '').trim())
+      .filter((line) => line !== '')
+      .join(' ')
+    return { ok: false, message: message === '' ? 'show failed' : message }
+  }
+  let json: unknown
+  try {
+    json = JSON.parse(result.stdout)
+  } catch {
+    throw new Error('show did not answer JSON')
+  }
+  const parsed = promptSchema.safeParse(json)
+  if (!parsed.success) throw new Error('show answered a prompt this app does not know')
+  return { ok: true, prompt: parsed.data.prompt }
 }

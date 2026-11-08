@@ -41,19 +41,23 @@ describe('referencesOf', () => {
 
 describe('buildReferenceIndex', () => {
   function world(shows: Record<string, CliResult>): Transport {
-    const base = fakeTransport({
-      paths: { definitionDirs: ['/d'], skillsDir: null, recordsDir: null },
-      files: {
-        '/d/Develop_Feature.synapse': 'Pipeline Develop_Feature {}',
-        '/d/Broken.synapse': 'Pipeline Broken {}',
-        '/d/Reviewer.synapse': 'Agent Reviewer [Prompt => "x"];',
-      },
+    const listing = JSON.stringify({
+      format: 'synapse-pipeline-definitions/v1',
+      definitions: [
+        { kind: 'pipeline', name: 'Develop_Feature', file: '/d/Develop_Feature.synapse' },
+        { kind: 'pipeline', name: 'Broken', file: '/d/Broken.synapse' },
+        { kind: 'agent', name: 'Reviewer', file: '/d/Reviewer.synapse' },
+      ],
+      problems: [],
     })
-    return {
-      ...base,
+    return fakeTransport({
+      paths: { definitionDirs: ['/d'], skillsDir: null, recordsDir: null },
+      files: {},
       cli: (_binary, args) =>
-        Promise.resolve(shows[args[1] ?? ''] ?? { code: 1, stdout: '', stderr: 'error: nope' }),
-    }
+        args[0] === 'definitions'
+          ? { code: 0, stdout: listing, stderr: '' }
+          : (shows[args[1] ?? ''] ?? { code: 1, stdout: '', stderr: 'error: nope' }),
+    })
   }
 
   const ok: CliResult = { code: 0, stdout: DEVELOP_FEATURE_SHOW, stderr: '' }

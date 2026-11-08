@@ -1,5 +1,5 @@
 import { useState, type Dispatch } from 'react'
-import { listDefinitions, listSkills } from '../domain/definitions.ts'
+import { listSkills, loadDefinitions } from '../domain/definitions.ts'
 import { filterByName } from '../domain/filter.ts'
 import { transport } from '../transport/index.ts'
 import { PlusIcon, RefreshIcon } from './icons.tsx'
@@ -7,17 +7,21 @@ import { DEFINITION_KINDS, DEFINITION_LABELS, type Action, type ShellState } fro
 import { useLoad } from './useLoad.ts'
 
 async function loadAll() {
-  const [definitions, skills] = await Promise.all([
-    listDefinitions(transport),
+  const [{ definitions, problems }, skills] = await Promise.all([
+    loadDefinitions(transport),
     listSkills(transport),
   ])
-  return { definitions, skills }
+  return { definitions, problems, skills }
 }
 
 interface Item {
   name: string
   path: string
-  duplicate: boolean
+}
+
+// The last part of a path, for a list that has little room.
+function baseName(path: string): string {
+  return path.slice(path.lastIndexOf('/') + 1)
 }
 
 export function DefinitionsPanel({
@@ -36,9 +40,7 @@ export function DefinitionsPanel({
   let items: Item[] = []
   if (load.status === 'ready') {
     items =
-      kind === 'skill'
-        ? load.data.skills.map((s) => ({ ...s, duplicate: false }))
-        : load.data.definitions.filter((d) => d.kind === kind)
+      kind === 'skill' ? load.data.skills : load.data.definitions.filter((d) => d.kind === kind)
   }
 
   const shown = filterByName(items, filter)
@@ -111,10 +113,24 @@ export function DefinitionsPanel({
             }
           >
             <span className="list-name">{item.name}</span>
-            {item.duplicate && <span className="list-note warn">claimed by two files</span>}
           </button>
         ))}
       </div>
+      {load.status === 'ready' && kind !== 'skill' && load.data.problems.length > 0 && (
+        <section className="panel-problems" aria-label="Files that did not load">
+          <h3 className="panel-subtitle">Did not load</h3>
+          <ul>
+            {load.data.problems.map((problem) => (
+              <li key={`${problem.file}:${problem.line}:${problem.column}:${problem.message}`}>
+                <span className="mono" title={problem.file}>
+                  {problem.file === '' ? 'a directory' : baseName(problem.file)}
+                </span>
+                <span className="muted small"> {problem.message}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
     </>
   )
 }

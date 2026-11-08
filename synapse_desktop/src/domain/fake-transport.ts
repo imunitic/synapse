@@ -1,12 +1,23 @@
 // An in-memory Transport for tests: files by path, and the runs that answer.
 
-import type { AppConfig, AppPaths, DirEntry, RunAnswer, Transport } from '../../shared/transport.ts'
+import type {
+  AppConfig,
+  AppPaths,
+  CliBinary,
+  CliOptions,
+  CliResult,
+  DirEntry,
+  RunAnswer,
+  Transport,
+} from '../../shared/transport.ts'
 
 export interface FakeWorld {
   files: Record<string, string>
   paths: AppPaths
   // Ids of the runs that answer on their socket.
   listening?: string[]
+  // What the CLI answers, for a test that runs it.
+  cli?: (binary: CliBinary, args: readonly string[], options?: CliOptions) => CliResult
 }
 
 function unavailable(): never {
@@ -42,7 +53,8 @@ export function fakeTransport(world: FakeWorld): Transport {
         : Promise.reject(new Error('the run is not listening'))
     },
     watch: unavailable,
-    cli: unavailable,
+    cli: (binary, args, options) =>
+      world.cli === undefined ? unavailable() : Promise.resolve(world.cli(binary, args, options)),
     startRun: unavailable,
     stopRun: unavailable,
     previewDraft: unavailable,

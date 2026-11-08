@@ -1859,3 +1859,46 @@ div.activity-row {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.panel-problems {
+  margin: 12px 12px 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.panel-problems ul {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.panel-subtitle {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.prompt-view > summary {
+  cursor: pointer;
+}
+
+.prompt-text {
+  max-height: 24rem;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.outcomes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}

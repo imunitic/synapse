@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEVELOP_FEATURE_SHOW } from './fixtures.ts'
-import { fallThrough, mentioned, routesFrom } from './outcomes.ts'
+import { fallThrough, routesFrom } from './outcomes.ts'
 import { guardLabel, outcomeOf, type PipelineDescription } from './pipelines.ts'
 
 const develop = JSON.parse(DEVELOP_FEATURE_SHOW) as PipelineDescription
@@ -64,23 +64,5 @@ describe('fallThrough', () => {
   it('is the next declared step, and null after the last', () => {
     expect(fallThrough(develop, 'Develop')).toBe('Test')
     expect(fallThrough(develop, 'Review')).toBeNull()
-  })
-})
-
-describe('mentioned', () => {
-  it('finds the word in any of the texts', () => {
-    expect(mentioned('Failing', ['Run the checks.', 'Answer Failing if they fail.'])).toBe(true)
-  })
-
-  it('does not find it inside a longer name, or in another case', () => {
-    expect(mentioned('Failing', ['Answer Failing_Tests'])).toBe(false)
-    expect(mentioned('Done', ['Answer Undone'])).toBe(false)
-    expect(mentioned('Failing', ['answer failing'])).toBe(false)
-  })
-
-  it('finds nothing in no text, and treats the name as plain text', () => {
-    expect(mentioned('Failing', [])).toBe(false)
-    expect(mentioned('A.B', ['AxB'])).toBe(false)
-    expect(mentioned('A.B', ['say A.B now'])).toBe(true)
   })
 })

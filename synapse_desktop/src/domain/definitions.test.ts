@@ -4,6 +4,7 @@ import {
   listDefinitions,
   listRecordedDefinitions,
   listSkills,
+  loadDefinitions,
 } from './definitions.ts'
 import { fakeTransport } from './fake-transport.ts'
 
@@ -30,44 +31,72 @@ describe('kindOfSource', () => {
   })
 })
 
-describe('listDefinitions', () => {
-  const paths = { definitionDirs: ['/a', '/b'], skillsDir: null, recordsDir: null }
-
-  it('lists the .synapse files of every directory by name and kind', async () => {
-    const transport = fakeTransport({
-      paths,
-      files: {
-        '/a/Develop.synapse': '-- c\nPipeline Develop {}',
-        '/a/Reviewer.synapse': 'Agent Reviewer [Prompt => "x"];',
-        '/a/notes.txt': 'not a definition',
-        '/b/Strict.synapse': 'System Strict [Agent => Reviewer];',
+describe('loadDefinitions', () => {
+  const answered = (text: string, code = 0, stderr = '') =>
+    fakeTransport({
+      paths: { definitionDirs: [], skillsDir: null, recordsDir: null },
+      files: {},
+      cli: (binary, args) => {
+        expect([binary, ...args]).toEqual(['synapse-pipeline', 'definitions', '--format', 'json'])
+        return { code, stdout: text, stderr }
       },
     })
-    const found = await listDefinitions(transport)
-    expect(found.map((d) => [d.name, d.kind, d.path])).toEqual([
-      ['Develop', 'pipeline', '/a/Develop.synapse'],
-      ['Reviewer', 'agent', '/a/Reviewer.synapse'],
-      ['Strict', 'system', '/b/Strict.synapse'],
+
+  const listing = JSON.stringify({
+    format: 'synapse-pipeline-definitions/v1',
+    definitions: [
+      { kind: 'pipeline', name: 'Develop', file: '/a/Develop.synapse' },
+      { kind: 'agent', name: 'Reviewer', file: '/a/Reviewer.synapse' },
+      { kind: 'system', name: 'Strict', file: '/b/Strict.synapse' },
+    ],
+    problems: [{ file: '/a/Broken.synapse', line: 1, column: 22, message: 'expected a name' }],
+  })
+
+  it('has the definitions the CLI lists, by name, kind and file', async () => {
+    const found = await loadDefinitions(answered(listing))
+    expect(found.definitions).toEqual([
+      { name: 'Develop', kind: 'pipeline', path: '/a/Develop.synapse' },
+      { name: 'Reviewer', kind: 'agent', path: '/a/Reviewer.synapse' },
+      { name: 'Strict', kind: 'system', path: '/b/Strict.synapse' },
     ])
-    expect(found.every((d) => !d.duplicate)).toBe(true)
   })
 
-  it('marks a name claimed by two files, whatever their kinds', async () => {
-    const transport = fakeTransport({
-      paths,
-      files: { '/a/X.synapse': 'Agent X [Prompt => "x"];', '/b/X.synapse': 'System X [];' },
+  it('puts them in the order a person reads a list in, whatever case the names have', async () => {
+    const mixed = JSON.stringify({
+      format: 'synapse-pipeline-definitions/v1',
+      definitions: [
+        { kind: 'agent', name: 'Zed', file: '/a/Zed.synapse' },
+        { kind: 'agent', name: 'alpha', file: '/a/alpha.synapse' },
+        { kind: 'agent', name: 'Beta', file: '/a/Beta.synapse' },
+      ],
+      problems: [],
     })
-    const found = await listDefinitions(transport)
-    expect(found).toHaveLength(2)
-    expect(found.every((d) => d.duplicate)).toBe(true)
+    const found = await listDefinitions(answered(mixed))
+    expect(found.map((d) => d.name)).toEqual(['alpha', 'Beta', 'Zed'])
   })
 
-  it('leaves out a file that does not start with a kind', async () => {
-    const transport = fakeTransport({
-      paths: { ...paths, definitionDirs: ['/a'] },
-      files: { '/a/Odd.synapse': 'Widget Odd {}' },
-    })
-    expect(await listDefinitions(transport)).toEqual([])
+  it('has the files that did not load, each with where and why', async () => {
+    const found = await loadDefinitions(answered(listing))
+    expect(found.problems).toEqual([
+      { file: '/a/Broken.synapse', line: 1, column: 22, message: 'expected a name' },
+    ])
+  })
+
+  it('is listDefinitions without the problems', async () => {
+    const found = await listDefinitions(answered(listing))
+    expect(found.map((d) => d.name)).toEqual(['Develop', 'Reviewer', 'Strict'])
+  })
+
+  it('says what the CLI said when it could not run', async () => {
+    await expect(loadDefinitions(answered('', 1, 'error: no home\n'))).rejects.toThrow('no home')
+    await expect(loadDefinitions(answered('', 1))).rejects.toThrow('could not run')
+  })
+
+  it('refuses an answer that is not JSON or is another format', async () => {
+    await expect(loadDefinitions(answered('not json'))).rejects.toThrow('did not answer JSON')
+    await expect(
+      loadDefinitions(answered(JSON.stringify({ format: 'other/v1', definitions: [] }))),
+    ).rejects.toThrow('does not know')
   })
 })
 

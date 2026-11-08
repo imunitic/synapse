@@ -107,8 +107,34 @@ package body Synapse.Pipeline.Commands.Show is
       end case;
    end Uses;
 
+   --  The names of the steps of a pipeline that name Name, a system or an
+   --  agent; none for a definition that is not a pipeline.
+   function Steps_Using
+     (Item : Syn.Definition; Name : String; Kind : Syn.Definition_Kind)
+      return JSON.Value
+   is
+      Key   : constant String :=
+        (if Kind = Syn.System_Definition then "System" else "Agent");
+      Count : constant Natural :=
+        (if Item.Kind = Syn.Pipeline_Definition
+         then Natural (Item.Steps.Length) else 0);
+      Names : JSON.Value_Array (1 .. Count);
+      Last  : Natural := 0;
+   begin
+      if Item.Kind = Syn.Pipeline_Definition then
+         for S of Item.Steps loop
+            if Names_Target (S.Attributes, Key, Name) then
+               Last := Last + 1;
+               Names (Last) := JSON.Make_String (To_String (S.Name.Name));
+            end if;
+         end loop;
+      end if;
+      return JSON.Make_Array (Names (1 .. Last));
+   end Steps_Using;
+
    --  The definitions that name Name, a system or an agent, in alphabetical
-   --  order: each as an object of its kind, name and file.
+   --  order: each as an object of its kind, name, file and the steps that
+   --  name it.
    function Used_By
      (Defs : Namespaces.Namespace; Name : String; Kind : Syn.Definition_Kind)
       return JSON.Value
@@ -131,7 +157,8 @@ package body Synapse.Pipeline.Commands.Show is
                                        (Kind_Word (Other.Item.Kind))),
                      Member ("name", JSON.Make_String (To_String (N))),
                      Member ("file", JSON.Make_String
-                                       (To_String (Other.Path)))]);
+                                       (To_String (Other.Path))),
+                     Member ("steps", Steps_Using (Other.Item, Name, Kind))]);
             end if;
          end;
       end loop;

@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState, type SubmitEvent } from 'react'
 import { transport } from '../transport/index.ts'
+import { PromptView } from './PromptView.tsx'
 
 // The input of a run, as JSON, and the button that starts it. A native dialog
 // gives the focus handling and the Escape key.
 export function RunDialog({
   pipeline,
+  firstStep,
   onClose,
   onStarted,
 }: {
   pipeline: string
+  // The step the input goes to, whose prompt can be looked at with the input in it.
+  firstStep?: string
   onClose: () => void
   onStarted: (executionId: string) => void
 }) {
@@ -61,6 +65,14 @@ export function RunDialog({
             setError(null)
           }}
         />
+        {firstStep !== undefined && (
+          <PromptView
+            pipeline={pipeline}
+            step={firstStep}
+            input={text}
+            label="The prompt of the first step, with this input"
+          />
+        )}
         {error !== null && (
           <p className="error" role="alert">
             {error}

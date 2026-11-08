@@ -19,6 +19,7 @@ function pipeline(
       permissions: 'Workspace_Write',
       timeout_seconds: 1800,
       retries: 0,
+      outcomes: null,
       role: null,
       assignment: null,
       origins: [],

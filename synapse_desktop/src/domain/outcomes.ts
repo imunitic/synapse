@@ -1,5 +1,4 @@
-// How a step's result routes the run: the outcomes its edges listen for, and
-// whether the step's instructions ever name them.
+// How a step's result routes the run: the outcomes its edges listen for.
 
 import { outcomeOf, type PipelineDescription } from './pipelines.ts'
 
@@ -35,12 +34,4 @@ export function routesFrom(description: PipelineDescription, step: string): Rout
 export function fallThrough(description: PipelineDescription, step: string): string | null {
   const index = description.steps.findIndex((s) => s.name === step)
   return description.steps[index + 1]?.name ?? null
-}
-
-// Whether the outcome appears as a word in any of the texts. A longer name that
-// contains it does not count: `Failing` is not in `Failing_Tests`.
-export function mentioned(outcome: string, texts: readonly string[]): boolean {
-  const escaped = outcome.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const word = new RegExp(`(?<![A-Za-z0-9_])${escaped}(?![A-Za-z0-9_])`)
-  return texts.some((text) => word.test(text))
 }

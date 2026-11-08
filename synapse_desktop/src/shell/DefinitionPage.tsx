@@ -1,4 +1,5 @@
-import { useCallback } from 'react'
+import { Fragment, useCallback } from 'react'
+import { describeDefinition, valueLabel, type DefinitionInfo } from '../domain/definition-info.ts'
 import { buildReferenceIndex, usedBy } from '../domain/references.ts'
 import { listSkillFiles, parseSkillMeta } from '../domain/skills.ts'
 import { transport } from '../transport/index.ts'
@@ -22,13 +23,92 @@ export function SourceCard({ path }: { path: string }) {
 
 const loadIndex = () => buildReferenceIndex(transport)
 
-// The steps of the pipelines that use a system, an agent or a skill.
+// The attributes of a system or an agent as they are written, and the definitions that use it,
+// as the CLI describes it.
+function DefinitionDetails({
+  kind,
+  name,
+  onOpen,
+}: {
+  kind: 'system' | 'agent'
+  name: string
+  onOpen: (page: Page) => void
+}) {
+  const load = useCallback(() => describeDefinition(transport, name), [name])
+  const { state } = useLoad(load)
+  if (state.status === 'loading') return <p className="muted">Reading the definition…</p>
+  if (state.status === 'failed') return <p role="alert">Could not describe it: {state.error}</p>
+  return <DefinitionFacts kind={kind} info={state.data} onOpen={onOpen} />
+}
+
+function DefinitionFacts({
+  kind,
+  info,
+  onOpen,
+}: {
+  kind: 'system' | 'agent'
+  info: DefinitionInfo
+  onOpen: (page: Page) => void
+}) {
+  return (
+    <>
+      <section className="card" aria-label="Attributes">
+        <h2 className="card-title">Attributes</h2>
+        {info.attributes.length === 0 && <p className="muted">It sets none.</p>}
+        <dl className="facts">
+          {info.attributes.map((attribute) => (
+            <Fragment key={attribute.name}>
+              <dt>{attribute.name}</dt>
+              <dd className="mono prompt">{valueLabel(attribute.value)}</dd>
+            </Fragment>
+          ))}
+        </dl>
+      </section>
+      <section className="card" aria-label="Used by">
+        <h2 className="card-title">Used by</h2>
+        {info.used_by.length === 0 && (
+          <p className="muted">
+            {kind === 'system' ? 'No pipeline' : 'No pipeline or system'} uses this{' '}
+            {DEFINITION_LABELS[kind].singular}.
+          </p>
+        )}
+        <ul className="used-by">
+          {info.used_by.map((user) => (
+            <li key={`${user.kind}:${user.name}`}>
+              <button
+                className="link mono"
+                onClick={() =>
+                  onOpen({
+                    kind: 'definition',
+                    definition: user.kind,
+                    name: user.name,
+                    path: user.file,
+                  })
+                }
+              >
+                {user.name}
+              </button>
+              <span className="muted">
+                {' '}
+                · {user.kind}
+                {user.steps.length > 0 &&
+                  ` · ${user.steps.length === 1 ? 'step' : 'steps'} ${user.steps.join(', ')}`}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </>
+  )
+}
+
+// The steps of the pipelines that use a skill.
 function UsedBy({
   kind,
   name,
   onOpen,
 }: {
-  kind: 'system' | 'agent' | 'skill'
+  kind: 'skill'
   name: string
   onOpen: (page: Page) => void
 }) {
@@ -51,7 +131,7 @@ function UsedByList({
   index,
   onOpen,
 }: {
-  kind: 'system' | 'agent' | 'skill'
+  kind: 'skill'
   name: string
   index: Awaited<ReturnType<typeof buildReferenceIndex>>
   onOpen: (page: Page) => void
@@ -148,7 +228,10 @@ export function DefinitionPage({
         </button>
       </div>
       {definition === 'skill' && <SkillCard path={path} />}
-      {definition !== 'pipeline' && <UsedBy kind={definition} name={name} onOpen={onOpen} />}
+      {definition === 'skill' && <UsedBy kind={definition} name={name} onOpen={onOpen} />}
+      {(definition === 'system' || definition === 'agent') && (
+        <DefinitionDetails kind={definition} name={name} onOpen={onOpen} />
+      )}
       <SourceCard path={path} />
     </div>
   )

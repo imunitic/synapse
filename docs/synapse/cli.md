@@ -618,7 +618,7 @@ the limits that apply. The pipeline is found and validated as 'check' does, and
 nothing is printed on standard output when it cannot be run.
 
 A system or an agent is described by its attributes as written, its file and the
-definitions that use it.
+definitions that use it, a pipeline with the steps that name it.
 
   --format text   for a person (the default)
   --format json   for a pipeline the document a running pipeline answers its

@@ -5,7 +5,7 @@ import { cliEnvironment, refuseCli } from './cli.ts'
 
 describe('refuseCli', () => {
   it('allows the read-only and housekeeping subcommands of synapse-pipeline', () => {
-    for (const sub of ['check', 'show', 'list', 'info', 'cleanup']) {
+    for (const sub of ['check', 'show', 'definitions', 'list', 'info', 'cleanup']) {
       expect(refuseCli('synapse-pipeline', [sub, 'x'])).toBeNull()
     }
   })

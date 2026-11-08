@@ -70,7 +70,8 @@ package Synapse.Pipeline.Commands.Usage is
      & "nothing is printed on standard output when it cannot be run." & LF & LF
      & "A system or an agent is described by its attributes as written, its "
      & "file and the" & LF
-     & "definitions that use it." & LF & LF
+     & "definitions that use it, a pipeline with the steps that name it." & LF
+     & LF
      & "  --format text   for a person (the default)" & LF
      & "  --format json   for a pipeline the document a running pipeline "
      & "answers its" & LF

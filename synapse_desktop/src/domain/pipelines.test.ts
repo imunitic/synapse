@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest'
 import type { CliResult, Transport } from '../../shared/transport.ts'
 import { fakeTransport } from './fake-transport.ts'
 import { BROKEN_ONE_STDERR, DEVELOP_FEATURE_SHOW } from './fixtures.ts'
-import { describePipeline, guardLabel, parseProblems } from './pipelines.ts'
+import {
+  describePipeline,
+  describeStepPrompt,
+  guardLabel,
+  parseDescription,
+  parseProblems,
+} from './pipelines.ts'
 
 function withCli(result: CliResult): Transport {
   const base = fakeTransport({
@@ -94,5 +100,99 @@ describe('guardLabel', () => {
   it('writes any other rule as JSON and no guard as null', () => {
     expect(guardLabel({ '>': [{ var: 'x' }, 1] })).toBe('{">":[{"var":"x"},1]}')
     expect(guardLabel(null)).toBeNull()
+  })
+})
+
+describe('the outcomes of a step', () => {
+  const withOutcomes = () => {
+    const description = JSON.parse(DEVELOP_FEATURE_SHOW) as {
+      steps: Record<string, unknown>[]
+    }
+    description.steps[2]!.outcomes = [
+      { word: 'Approved', meaning: 'Every requirement is met.' },
+      { word: 'Changes_Requested', meaning: 'Something is unmet.' },
+    ]
+    return description
+  }
+
+  it('are the words and meanings a step declares, in order', () => {
+    const parsed = parseDescription(withOutcomes())
+    expect(parsed?.steps[2]?.outcomes).toEqual([
+      { word: 'Approved', meaning: 'Every requirement is met.' },
+      { word: 'Changes_Requested', meaning: 'Something is unmet.' },
+    ])
+  })
+
+  it('are null for a step that declares none, whether the CLI says null or says nothing', () => {
+    const parsed = parseDescription(JSON.parse(DEVELOP_FEATURE_SHOW))
+    expect(parsed?.steps[0]?.outcomes).toBeNull()
+    const explicit = withOutcomes()
+    explicit.steps[0]!.outcomes = null
+    expect(parseDescription(explicit)?.steps[0]?.outcomes).toBeNull()
+  })
+})
+
+describe('describeStepPrompt', () => {
+  const prompt = JSON.stringify({
+    format: 'synapse-pipeline-prompt/v1',
+    pipeline: 'P',
+    step: 'A',
+    prompt: 'You review.\n\nDo it.',
+  })
+
+  function recording(result: CliResult) {
+    const calls: { args: readonly string[]; stdin: string | undefined }[] = []
+    const transport = fakeTransport({
+      files: {},
+      paths: { definitionDirs: [], skillsDir: null, recordsDir: null },
+      cli: (_binary, args, options) => {
+        calls.push({ args, stdin: options?.stdin })
+        return result
+      },
+    })
+    return { calls, transport }
+  }
+
+  it('asks for the step by name and has the prompt the CLI built', async () => {
+    const { calls, transport } = recording({ code: 0, stdout: prompt, stderr: '' })
+    expect(await describeStepPrompt(transport, 'P', 'A')).toEqual({
+      ok: true,
+      prompt: 'You review.\n\nDo it.',
+    })
+    expect(calls).toEqual([
+      { args: ['show', 'P', '--step', 'A', '--format', 'json'], stdin: undefined },
+    ])
+  })
+
+  it('hands an input to the CLI on standard input', async () => {
+    const { calls, transport } = recording({ code: 0, stdout: prompt, stderr: '' })
+    await describeStepPrompt(transport, 'P', 'A', '{"n": 1}')
+    expect(calls[0]?.args).toEqual(['show', 'P', '--step', 'A', '--format', 'json', '--input', '-'])
+    expect(calls[0]?.stdin).toBe('{"n": 1}')
+  })
+
+  it('says why when the CLI cannot, such as for an input that is not JSON', async () => {
+    const { transport } = recording({
+      code: 1,
+      stdout: '',
+      stderr: 'error: --input - is not JSON: UNEXPECTED_CHARACTER at byte 1\n',
+    })
+    expect(await describeStepPrompt(transport, 'P', 'A', 'x')).toEqual({
+      ok: false,
+      message: '--input - is not JSON: UNEXPECTED_CHARACTER at byte 1',
+    })
+  })
+
+  it('throws for an answer that is not a prompt of a format it knows', async () => {
+    await expect(
+      describeStepPrompt(recording({ code: 0, stdout: 'x', stderr: '' }).transport, 'P', 'A'),
+    ).rejects.toThrow('did not answer JSON')
+    await expect(
+      describeStepPrompt(
+        recording({ code: 0, stdout: '{"format":"x"}', stderr: '' }).transport,
+        'P',
+        'A',
+      ),
+    ).rejects.toThrow('does not know')
   })
 })

@@ -6,7 +6,7 @@ import type { AppConfig, CliBinary, CliResult } from '../shared/transport.ts'
 
 // What `cli` may run. Starting a run is `startRun`, not a subcommand of this.
 const ALLOWED_SUBCOMMANDS: Record<CliBinary, readonly string[]> = {
-  'synapse-pipeline': ['check', 'show', 'list', 'info', 'cleanup'],
+  'synapse-pipeline': ['check', 'show', 'definitions', 'list', 'info', 'cleanup'],
   synapse: [
     'config',
     'status',
