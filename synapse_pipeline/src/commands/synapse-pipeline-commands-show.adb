@@ -8,6 +8,8 @@ with Synapse.Pipeline.Syntax;
 with Synapse.Pipeline.Commands.Usage;
 with Synapse.Pipeline.Configs;
 with Synapse.Pipeline.Descriptions;
+with Synapse.Pipeline.Instructions;
+with Synapse.Pipeline.Prompts;
 with Synapse.Pipeline.Resolved;
 with Synapse.Pipeline.Search_Paths;
 
@@ -19,6 +21,12 @@ package body Synapse.Pipeline.Commands.Show is
    package JSON renames Synapse.Core.JSON;
 
    LF : constant Character := Character'Val (10);
+
+   Prompt_Format : constant String := "synapse-pipeline-prompt/v1";
+
+   --  What stands where the result of the step before is handed over.
+   Slot : constant String :=
+     "<the result of the step before, as it reports it when this step runs>";
 
    Definition_Format : constant String := "synapse-pipeline-definition/v1";
 
@@ -38,7 +46,6 @@ package body Synapse.Pipeline.Commands.Show is
       elsif JSON.Kind_Of (JSON.Member_Value (Item, Key)) = JSON.JSON_String
       then JSON.As_String (JSON.Member_Value (Item, Key))
       else JSON.To_String (JSON.Member_Value (Item, Key)));
-
 
    package Syn renames Synapse.Pipeline.Syntax;
 
@@ -312,10 +319,93 @@ package body Synapse.Pipeline.Commands.Show is
       return True;
    end Print_Definition;
 
+   function Prompt_Document (Pipeline, Step, Prompt : String) return JSON.Value
+   is
+     (JSON.Make_Object
+        ([Member ("format", JSON.Make_String (Prompt_Format)),
+          Member ("pipeline", JSON.Make_String (Pipeline)),
+          Member ("step", JSON.Make_String (Step)),
+          Member ("prompt", JSON.Make_String (Prompt))]));
+
+   --  The prompt the step called Step_Name would be started with. The input
+   --  is what Input_Path holds, when it is given; for a step after the first
+   --  what the step before reported is a marked slot.
+   function Print_Prompt
+     (Env         : Environment;
+      Item        : Resolved.Pipeline;
+      Skill_Roots : Search_Paths.Root_Vectors.Vector;
+      Step_Name   : String;
+      Input_Path  : String;
+      Format      : String) return Exit_Code
+   is
+      Input : JSON.Value := JSON.Null_Value;
+      Read  : Boolean := True;
+   begin
+      for Index in Item.Steps.First_Index .. Item.Steps.Last_Index loop
+         if To_String (Item.Steps (Index).Name) = Step_Name then
+            if Input_Path'Length > 0 then
+               Loading.Read_Input (Env, Input_Path, Input, Read);
+               if not Read then
+                  return 1;
+               end if;
+            end if;
+            declare
+               Chosen  : constant Resolved.Step := Item.Steps (Index);
+               Role    : Unbounded_String;
+               Task_Of : Unbounded_String;
+               Folder  : Unbounded_String;
+               Problem : Unbounded_String;
+            begin
+               Instructions.Text_Of
+                 (Env.Files.all, Skill_Roots, Chosen.Role, Role, Folder,
+                  Problem);
+               if Length (Problem) = 0 then
+                  Instructions.Text_Of
+                    (Env.Files.all, Skill_Roots, Chosen.Assignment, Task_Of,
+                     Folder, Problem);
+               end if;
+               if Length (Problem) > 0 then
+                  Complain (Env, "error: " & To_String (Problem) & LF);
+                  return 1;
+               end if;
+               declare
+                  Prompt : constant String :=
+                    Prompts.Build
+                      (Role            => To_String (Role),
+                       Assignment      => To_String (Task_Of),
+                       Step            => Step_Name,
+                       Initial_Input   => Input,
+                       Previous_Output =>
+                         (if Index = Item.Steps.First_Index
+                          then JSON.Null_Value
+                          else JSON.Make_String (Slot)));
+               begin
+                  Say
+                    (Env,
+                     (if Format = "json"
+                      then JSON.To_String
+                             (Prompt_Document
+                                (To_String (Item.Name), Step_Name, Prompt))
+                           & LF
+                      else Prompt));
+                  return 0;
+               end;
+            end;
+         end if;
+      end loop;
+      Complain
+        (Env,
+         "error: pipeline " & To_String (Item.Name) & " has no step "
+         & Step_Name & LF);
+      return 1;
+   end Print_Prompt;
+
    function Run (Env : Environment; Args : Lists.Vector) return Exit_Code is
       Name       : Unbounded_String;
       Format     : Unbounded_String := To_Unbounded_String ("text");
       Has_Format : Boolean := False;
+      Step       : Unbounded_String;
+      Input_Path : Unbounded_String;
       I          : Positive := Args.First_Index;
    begin
       while I <= Args.Last_Index loop
@@ -329,6 +419,19 @@ package body Synapse.Pipeline.Commands.Show is
                Has_Format := True;
                I := I + 1;
                Format := Args (I);
+            elsif Arg in "--step" | "--input" then
+               if I = Args.Last_Index
+                 or else Length (if Arg = "--step" then Step else Input_Path)
+                         > 0
+               then
+                  return Usage_Error (Env, Usage);
+               end if;
+               I := I + 1;
+               if Arg = "--step" then
+                  Step := Args (I);
+               else
+                  Input_Path := Args (I);
+               end if;
             elsif Arg'Length >= 2
               and then Arg (Arg'First .. Arg'First + 1) = "--"
             then
@@ -343,11 +446,14 @@ package body Synapse.Pipeline.Commands.Show is
       end loop;
       if Length (Name) = 0
         or else To_String (Format) not in "text" | "json"
+        or else (Length (Input_Path) > 0 and then Length (Step) = 0)
       then
          return Usage_Error (Env, Usage);
       end if;
 
-      if Print_Definition (Env, To_String (Name), To_String (Format)) then
+      if Length (Step) = 0
+        and then Print_Definition (Env, To_String (Name), To_String (Format))
+      then
          return 0;
       end if;
 
@@ -369,6 +475,11 @@ package body Synapse.Pipeline.Commands.Show is
          Loading.Load (Env, To_String (Name), Ok, Item, File, Skill_Roots);
          if not Ok then
             return 1;
+         end if;
+         if Length (Step) > 0 then
+            return Print_Prompt
+              (Env, Item, Skill_Roots, To_String (Step),
+               To_String (Input_Path), To_String (Format));
          end if;
          declare
             Document : constant JSON.Value :=

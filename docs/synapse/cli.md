@@ -568,7 +568,7 @@ usage: synapse-hook <hook>
 usage: synapse-pipeline <subcommand> [args]
 
   check <pipeline>   validate a pipeline and show what it would run
-  show <name> [--format json|text]
+  show <name> [--format json|text] [--step <step> [--input <file>|-]]
          describe a pipeline (its steps, settings, edges and limits), a system or an agent
   definitions [--format json|text]
          every pipeline, system and agent there is, and what is wrong with a file
@@ -610,7 +610,7 @@ Environment:
 ### synapse-pipeline show
 
 ```
-usage: synapse-pipeline show <name> [--format json|text]
+usage: synapse-pipeline show <name> [--format json|text] [--step <step> [--input <file>|-]]
 
 Describes a pipeline that is not running the way a running one describes itself:
 its steps with the settings each will run with, the edges between them and
@@ -625,6 +625,13 @@ definitions that use it.
                   'pipeline' command with, format synapse-pipeline-description/v1,
                   plus its kind, file and an empty used_by; for a system or an
                   agent format synapse-pipeline-definition/v1
+  --step <step>   print the prompt the step is started with: its role, its
+                  assignment (a skill's SKILL.md in full), what the run was
+                  started with and how it is to report. After the first step
+                  what the step before reported is marked as a slot. With
+                  --format json: format synapse-pipeline-prompt/v1
+  --input <file>  with --step, the JSON the run is started with, or - for
+                  standard input
 
 Environment:
   SYNAPSE_PIPELINE_PATH     directories of .synapse files besides the default

@@ -130,26 +130,11 @@ package body Synapse.Pipeline.Commands.Next is
                Input : JSON.Value := JSON.Null_Value;
             begin
                if Has_Input then
-                  Read_Source
-                    (Env, To_String (Input_Path), "--input", Text, Ok);
+                  Loading.Read_Input
+                    (Env, To_String (Input_Path), Input, Ok);
                   if not Ok then
                      return 1;
                   end if;
-                  declare
-                     Parsed : constant JSON.Parse_Result :=
-                       JSON.Parse (To_String (Text));
-                  begin
-                     if not Parsed.Ok then
-                        Complain
-                          (Env,
-                           "error: --input " & To_String (Input_Path)
-                           & " is not JSON: "
-                           & JSON.Parse_Error_Kind'Image (Parsed.Error)
-                           & " at byte" & Natural'Image (Parsed.Offset) & LF);
-                        return 1;
-                     end if;
-                     Input := Parsed.Item;
-                  end;
                end if;
                Say
                  (Env,

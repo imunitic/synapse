@@ -63,19 +63,20 @@ package body Synapse.Pipeline.Commands.Definitions is
       begin
          for I in Found'Range loop
             declare
+               Name   : constant String := To_String (Names (I));
                Loaded : constant Namespaces.Loaded :=
-                 Namespaces.Element (Report.Definitions, To_String (Names (I)));
+                 Namespaces.Element (Report.Definitions, Name);
                Kind   : constant String := Kind_Word (Loaded.Item.Kind);
             begin
                Found (I) :=
                  JSON.Make_Object
                    ([Member ("kind", JSON.Make_String (Kind)),
-                     Member ("name", JSON.Make_String (To_String (Names (I)))),
+                     Member ("name", JSON.Make_String (Name)),
                      Member
                        ("file", JSON.Make_String (To_String (Loaded.Path)))]);
                Append
                  (Text,
-                  Kind & " " & To_String (Names (I)) & "  "
+                  Kind & " " & Name & "  "
                   & To_String (Loaded.Path) & LF);
             end;
          end loop;

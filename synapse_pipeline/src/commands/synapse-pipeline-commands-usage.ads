@@ -12,7 +12,8 @@ package Synapse.Pipeline.Commands.Usage is
      "usage: synapse-pipeline <subcommand> [args]" & LF & LF
      & "  check <pipeline>   validate a pipeline and show what it would run"
      & LF
-     & "  show <name> [--format json|text]" & LF
+     & "  show <name> [--format json|text] [--step <step> [--input <file>|-]]"
+     & LF
      & "         describe a pipeline (its steps, settings, edges and limits), "
      & "a system or an agent" & LF
      & "  definitions [--format json|text]" & LF
@@ -58,7 +59,8 @@ package Synapse.Pipeline.Commands.Usage is
      & "                            or Opencode" & LF;
 
    Show_Help : constant String :=
-     "usage: synapse-pipeline show <name> [--format json|text]" & LF & LF
+     "usage: synapse-pipeline show <name> [--format json|text] "
+     & "[--step <step> [--input <file>|-]]" & LF & LF
      & "Describes a pipeline that is not running the way a running one "
      & "describes itself:" & LF
      & "its steps with the settings each will run with, the edges between "
@@ -76,7 +78,20 @@ package Synapse.Pipeline.Commands.Usage is
      & "synapse-pipeline-description/v1," & LF
      & "                  plus its kind, file and an empty used_by; for a "
      & "system or an" & LF
-     & "                  agent format synapse-pipeline-definition/v1" & LF & LF
+     & "                  agent format synapse-pipeline-definition/v1" & LF
+     & "  --step <step>   print the prompt the step is started with: its "
+     & "role, its" & LF
+     & "                  assignment (a skill's SKILL.md in full), what the "
+     & "run was" & LF
+     & "                  started with and how it is to report. After the "
+     & "first step" & LF
+     & "                  what the step before reported is marked as a slot. "
+     & "With" & LF
+     & "                  --format json: format "
+     & "synapse-pipeline-prompt/v1" & LF
+     & "  --input <file>  with --step, the JSON the run is started with, "
+     & "or - for" & LF
+     & "                  standard input" & LF & LF
      & "Environment:" & LF
      & "  SYNAPSE_PIPELINE_PATH     directories of .synapse files besides "
      & "the default" & LF

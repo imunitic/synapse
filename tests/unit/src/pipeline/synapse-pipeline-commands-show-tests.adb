@@ -50,12 +50,18 @@ package body Synapse.Pipeline.Commands.Show.Tests is
       Assert (Run (Env (F), Args) = 2, "none");
       Assert
         (F.Base.Console.Err_Text =
-         "usage: synapse-pipeline show <name> [--format json|text]" & LF,
+         "usage: synapse-pipeline show <name> [--format json|text] "
+         & "[--step <step> [--input <file>|-]]" & LF,
          "says how");
       Assert (Run (Env (F), Args ("A", "B")) = 2, "two");
       Assert (Run (Env (F), Args ("A", "--format", "yaml")) = 2, "a format");
       Assert (Run (Env (F), Args ("A", "--format")) = 2, "a format missing");
       Assert (Run (Env (F), Args ("A", "--bogus")) = 2, "an option");
+      Assert (Run (Env (F), Args ("A", "--input", "x")) = 2, "input alone");
+      Assert (Run (Env (F), Args ("A", "--step")) = 2, "a step missing");
+      Assert
+        (Run (Env (F), Args ("A", "--step", "B", "--step", "C")) = 2,
+         "two steps");
    end It_Takes_One_Pipeline_And_A_Known_Format;
 
    procedure Json_Is_The_Description_Of_The_Resolved_Pipeline
@@ -287,6 +293,112 @@ package body Synapse.Pipeline.Commands.Show.Tests is
       end;
    end A_Pipeline_Names_Its_Kind_And_File;
 
+   procedure A_Step_Is_Shown_As_The_Prompt_It_Starts_With
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      F.Files.Add_File ("/in.json", "{""issue"":7}");
+      F.Files.Add_File
+        ("/cfg/synapse-pipeline/skills/triage/SKILL.md", "Triage it.");
+      F.Files.Add_File
+        ("/defs/Skilled.synapse",
+         "Pipeline Skilled { A [Harness => Claude, Skill => ""triage""];"
+         & " B [Harness => Claude, Prompt => ""Do B.""]; A -> B; }");
+      Assert
+        (Run (Env (F), Args ("Skilled", "--step", "A", "--input", "/in.json"))
+         = 0,
+         "the first step: " & F.Base.Console.Err_Text);
+      declare
+         Prompt : constant String := F.Base.Console.Out_Text;
+      begin
+         Assert (Has (Prompt, "Triage it."), "the skill is in it");
+         Assert (Has (Prompt, "step A of an automated pipeline"), "the step");
+         Assert
+           (Has (Prompt, "started with this input:" & LF & "{""issue"":7}"),
+            "the input");
+         Assert
+           (not Has (Prompt, "reported this result"),
+            "nothing came before the first step");
+      end;
+   end A_Step_Is_Shown_As_The_Prompt_It_Starts_With;
+
+   procedure A_Later_Step_Has_A_Marked_Slot_For_What_Came_Before
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Assert
+        (Run (Env (F), Args ("Develop_Feature", "--step", "Review")) = 0,
+         "a later step: " & F.Base.Console.Err_Text);
+      declare
+         Prompt : constant String := F.Base.Console.Out_Text;
+      begin
+         Assert (Has (Prompt, "The step before yours reported this result:"),
+                 "it says what is handed over");
+         Assert (Has (Prompt, "<the result of the step before"), "the slot");
+         Assert (Has (Prompt, "Review."), "its assignment");
+         Assert
+           (not Has (Prompt, "started with this input"),
+            "no input was given");
+      end;
+   end A_Later_Step_Has_A_Marked_Slot_For_What_Came_Before;
+
+   procedure A_Prompt_Can_Be_Had_As_Json_And_Bad_Asks_Are_Errors
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Assert
+        (Run (Env (F),
+              Args ("Develop_Feature", "--step", "Develop", "--format", "json"))
+         = 0,
+         "json");
+      declare
+         Parsed : constant JSON.Parse_Result :=
+           JSON.Parse (F.Base.Console.Out_Text);
+      begin
+         Assert
+           (Parsed.Ok
+            and then JSON.As_String (JSON.Member_Value (Parsed.Item, "format"))
+                     = "synapse-pipeline-prompt/v1"
+            and then JSON.As_String (JSON.Member_Value (Parsed.Item, "step"))
+                     = "Develop"
+            and then Has
+                       (JSON.As_String
+                          (JSON.Member_Value (Parsed.Item, "prompt")),
+                        "Implement."),
+            "the prompt is one member of the document");
+      end;
+      declare
+         G : aliased Fixture;
+      begin
+         Set_Up (G);
+         Assert
+           (Run (Env (G), Args ("Develop_Feature", "--step", "Nope")) = 1
+            and then G.Base.Console.Out_Text = ""
+            and then Has (G.Base.Console.Err_Text, "has no step Nope"),
+            "a step that is not there");
+      end;
+      declare
+         G : aliased Fixture;
+      begin
+         Set_Up (G);
+         Assert
+           (Run (Env (G),
+                 Args ("Develop_Feature", "--step", "Develop", "--input",
+                       "/missing.json")) = 1
+            and then G.Base.Console.Out_Text = "",
+            "an input that cannot be read");
+      end;
+   end A_Prompt_Can_Be_Had_As_Json_And_Bad_Asks_Are_Errors;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -324,6 +436,15 @@ package body Synapse.Pipeline.Commands.Show.Tests is
       Register_Routine
         (T, A_Pipeline_Names_Its_Kind_And_File'Access,
          "A pipeline names its kind and file");
+      Register_Routine
+        (T, A_Step_Is_Shown_As_The_Prompt_It_Starts_With'Access,
+         "A step is shown as the prompt it starts with");
+      Register_Routine
+        (T, A_Later_Step_Has_A_Marked_Slot_For_What_Came_Before'Access,
+         "A later step has a marked slot for what came before");
+      Register_Routine
+        (T, A_Prompt_Can_Be_Had_As_Json_And_Bad_Asks_Are_Errors'Access,
+         "A prompt can be had as JSON and bad asks are errors");
    end Register_Tests;
 
 end Synapse.Pipeline.Commands.Show.Tests;

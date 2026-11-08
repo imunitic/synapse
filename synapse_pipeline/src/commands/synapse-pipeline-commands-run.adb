@@ -308,35 +308,13 @@ package body Synapse.Pipeline.Commands.Run is
          begin
             if Has_Input then
                declare
-                  Path   : constant String := To_String (Input_Path);
-                  Text   : constant String :=
-                    (if Path = "-" then Env.Console.Read_Stdin else "");
-                  Found  : constant File_System.Maybe_Content :=
-                    (if Path = "-"
-                     then (Found => True,
-                           Value => To_Unbounded_String (Text))
-                     else Env.Files.Read (Path));
+                  Read : Boolean;
                begin
-                  if not Found.Found then
-                     Complain
-                       (Env,
-                        "error: --input " & Path & " cannot be read" & LF);
+                  Loading.Read_Input
+                    (Env, To_String (Input_Path), Input, Read);
+                  if not Read then
                      return 1;
                   end if;
-                  declare
-                     Parsed : constant JSON.Parse_Result :=
-                       JSON.Parse (To_String (Found.Value));
-                  begin
-                     if not Parsed.Ok then
-                        Complain
-                          (Env,
-                           "error: --input " & Path & " is not JSON: "
-                           & JSON.Parse_Error_Kind'Image (Parsed.Error)
-                           & " at byte" & Natural'Image (Parsed.Offset) & LF);
-                        return 1;
-                     end if;
-                     Input := Parsed.Item;
-                  end;
                end;
             end if;
 
