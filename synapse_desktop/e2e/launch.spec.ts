@@ -34,9 +34,9 @@ test.beforeEach(() => {
   mkdirSync(data, { recursive: true })
   const db = new DatabaseSync(join(data, 'opencode.db'))
   db.exec(
-    'create table session (id text primary key, parent_id text, directory text not null, time_updated integer not null)',
+    'create table session_v2 (id text primary key, parent_id text, directory text not null, time_updated integer not null)',
   )
-  db.prepare('insert into session values (?, ?, ?, ?)').run('s1', null, folder('alpha'), 5000)
+  db.prepare('insert into session_v2 values (?, ?, ?, ?)').run('s1', null, folder('alpha'), 5000)
   db.close()
 })
 

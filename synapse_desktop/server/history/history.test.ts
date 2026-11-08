@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -133,27 +133,51 @@ describe('the folders Codex trusts', () => {
 })
 
 describe('the folders OpenCode has sessions in', () => {
-  function database(): string {
-    const file = join(root, 'opencode.db')
+  const COLUMNS =
+    '(id text primary key, parent_id text, directory text not null, time_updated integer not null)'
+
+  function database(tables: readonly ('session' | 'session_v2')[], rows = ROWS): string {
+    const file = join(root, `opencode-${tables.join('-')}.db`)
     const db = new DatabaseSync(file)
-    db.exec(
-      'create table session (id text primary key, parent_id text, directory text not null, time_updated integer not null)',
-    )
-    const add = db.prepare('insert into session values (?, ?, ?, ?)')
-    add.run('1', null, '/old', 1000)
-    add.run('2', null, '/new', 5000)
-    add.run('3', null, '/new', 4000)
-    add.run('4', '1', '/child-only', 9000)
-    add.run('5', null, '', 8000)
+    for (const table of tables) {
+      db.exec(`create table ${table} ${COLUMNS}`)
+      const add = db.prepare(`insert into ${table} values (?, ?, ?, ?)`)
+      for (const row of rows) add.run(...row)
+    }
     db.close()
     return file
   }
 
+  const ROWS: readonly [string, string | null, string, number][] = [
+    ['1', null, '/old', 1000],
+    ['2', null, '/new', 5000],
+    ['3', null, '/new', 4000],
+    ['4', '1', '/child-only', 9000],
+    ['5', null, '', 8000],
+  ]
+
+  const EXPECTED = [
+    { path: '/new', lastUsed: new Date(5000).toISOString() },
+    { path: '/old', lastUsed: new Date(1000).toISOString() },
+  ]
+
   it('are the folders of its own sessions, once each, the most recent first', async () => {
-    expect(await opencodeWorkspaces(database())).toEqual([
-      { path: '/new', lastUsed: new Date(5000).toISOString() },
-      { path: '/old', lastUsed: new Date(1000).toISOString() },
-    ])
+    expect(await opencodeWorkspaces(database(['session_v2']))).toEqual(EXPECTED)
+  })
+
+  it('are read from the older table by a version that has no session_v2', async () => {
+    expect(await opencodeWorkspaces(database(['session']))).toEqual(EXPECTED)
+  })
+
+  it('are read from session_v2 and not from the older table when both are there', async () => {
+    const file = join(root, 'both.db')
+    const db = new DatabaseSync(file)
+    db.exec(`create table session ${COLUMNS}`)
+    db.exec(`create table session_v2 ${COLUMNS}`)
+    db.prepare('insert into session values (?, ?, ?, ?)').run('1', null, '/stale', 9000)
+    db.prepare('insert into session_v2 values (?, ?, ?, ?)').run('1', null, '/current', 1000)
+    db.close()
+    expect((await opencodeWorkspaces(file)).map((w) => w.path)).toEqual(['/current'])
   })
 
   it('are none when there is no database', async () => {
@@ -163,13 +187,14 @@ describe('the folders OpenCode has sessions in', () => {
   it('are read from XDG_DATA_HOME, else the share folder of the home folder', async () => {
     const data = folder('data')
     mkdirSync(join(data, 'opencode'))
-    const file = database()
-    writeFileSync(
-      join(data, 'opencode', 'opencode.db'),
-      (await import('node:fs')).readFileSync(file),
-    )
+    const source = database(['session_v2'])
+    copyFileSync(source, join(data, 'opencode', 'opencode.db'))
     const named = opencodeHistory({ env: { XDG_DATA_HOME: data }, home: '/nowhere' })
     expect(await named.workspaces()).toHaveLength(2)
+    const home = folder('home')
+    mkdirSync(join(home, '.local', 'share', 'opencode'), { recursive: true })
+    copyFileSync(source, join(home, '.local', 'share', 'opencode', 'opencode.db'))
+    expect(await opencodeHistory({ env: {}, home }).workspaces()).toHaveLength(2)
   })
 })
 
