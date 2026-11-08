@@ -2043,3 +2043,32 @@ div.activity-row {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.past-sessions {
+  margin-top: 12px;
+}
+
+.past-session {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 8px;
+}
+
+.past-session-title {
+  flex: 2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.past-session .workspace-path {
+  flex: 1;
+  text-align: left;
+}
+
+.past-session > .muted:last-of-type {
+  min-width: 6.5em;
+  text-align: right;
+}

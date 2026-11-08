@@ -85,11 +85,12 @@ export function Shell() {
                     id: Math.random().toString(36).slice(2, 8),
                   })
                 }
-                onStartIn={(kind, cwd) =>
+                onStartIn={(kind, cwd, resume) =>
                   dispatch({
                     type: 'openTerminal',
                     kind,
                     cwd,
+                    ...(resume === undefined ? {} : { resume }),
                     id: Math.random().toString(36).slice(2, 8),
                   })
                 }

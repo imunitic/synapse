@@ -1,10 +1,38 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { launchCard, openLaunch, world } from './helpers.ts'
 
 const folder = (name: string) => join(world().root, 'workspaces', name)
+
+const jsonl = (...records: unknown[]) => records.map((r) => JSON.stringify(r)).join('\n') + '\n'
+
+// A session file of Claude Code that says it was held in a folder, and was last used `daysAgo`.
+function claudeSession(id: string, cwd: string, title: string, daysAgo: number) {
+  const dir = join(world().home, '.claude', 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'))
+  mkdirSync(dir, { recursive: true })
+  const file = join(dir, `${id}.jsonl`)
+  writeFileSync(file, jsonl({ type: 'user', cwd }, { type: 'ai-title', aiTitle: title }))
+  const when = new Date(Date.now() - daysAgo * 86_400_000)
+  utimesSync(file, when, when)
+}
+
+// A rollout file of Codex.
+function codexSession(id: string, cwd: string, prompt: string) {
+  const dir = join(world().home, '.codex', 'sessions', '2026', '11', '08')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(
+    join(dir, `rollout-2026-11-08T10-00-00-${id}.jsonl`),
+    jsonl(
+      { type: 'session_meta', payload: { id, cwd } },
+      {
+        type: 'response_item',
+        payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: prompt }] },
+      },
+    ),
+  )
+}
 
 // What the harnesses remember of the folders they work in, as they keep it.
 test.beforeEach(() => {
@@ -30,19 +58,28 @@ test.beforeEach(() => {
     join(home, '.codex', 'config.toml'),
     `[projects."${folder('gamma')}"]\ntrust_level = "trusted"\n`,
   )
+  // What an earlier test of the world left.
+  rmSync(join(home, '.claude', 'projects'), { recursive: true, force: true })
+  for (let i = 1; i <= 7; i++) {
+    claudeSession(`claude-s${i}`, folder(i % 2 === 0 ? 'alpha' : 'beta'), `Claude work ${i}`, i)
+  }
+  codexSession('codex-s1', folder('gamma'), 'Review the design')
   const data = join(world().data, 'opencode')
   mkdirSync(data, { recursive: true })
   const db = new DatabaseSync(join(data, 'opencode.db'))
   db.exec(
-    'create table session_v2 (id text primary key, parent_id text, directory text not null, time_updated integer not null)',
+    'create table session_v2 (id text primary key, parent_id text, directory text not null, title text, time_updated integer not null)',
   )
-  db.prepare('insert into session_v2 values (?, ?, ?, ?)').run('s1', null, folder('alpha'), 5000)
+  const add = db.prepare('insert into session_v2 values (?, ?, ?, ?, ?)')
+  add.run('ses_one', null, folder('alpha'), 'Tidy the OpenCode notes', 5000)
+  add.run('ses_child', 'ses_one', folder('alpha'), 'A child session', 9000)
   db.close()
 })
 
 test.afterEach(() => {
   const { home } = world()
   rmSync(join(home, '.claude.json'), { force: true })
+  rmSync(join(home, '.claude', 'projects'), { recursive: true, force: true })
   rmSync(join(home, '.codex'), { recursive: true, force: true })
   rmSync(join(world().data, 'opencode'), { recursive: true, force: true })
   rmSync(join(world().root, 'workspaces'), { recursive: true, force: true })
@@ -66,10 +103,10 @@ test('each harness lists the folders it already works in, the newest first', asy
   await open(page)
   const claude = launchCard(page, 'Claude Code')
   // Allowed folders only: the one that is not allowed and the one that is gone are not there.
-  await expect(claude.getByRole('button')).toHaveCount(3)
-  await expect(claude.getByRole('button').nth(0)).toContainText('beta')
-  await expect(claude.getByRole('button').nth(0)).toContainText('1 minute ago')
-  await expect(claude.getByRole('button').nth(1)).toContainText('alpha')
+  await expect(claude.locator('.workspace')).toHaveCount(2)
+  await expect(claude.locator('.workspace').nth(0)).toContainText('beta')
+  await expect(claude.locator('.workspace').nth(0)).toContainText('1 minute ago')
+  await expect(claude.locator('.workspace').nth(1)).toContainText('alpha')
   await expect(claude).not.toContainText('gamma')
   await expect(claude).not.toContainText('deleted')
 
@@ -114,4 +151,59 @@ test('the launch tab stays beside the tab of the sessions', async ({ page }) => 
   await launchCard(page, 'OpenCode').getByRole('button', { name: /alpha/ }).click()
   await expect(page.getByRole('tab', { name: 'Terminals' })).toBeVisible()
   await expect(page.getByRole('tab', { name: 'New terminal' })).toBeVisible()
+})
+
+test('past sessions are listed under each harness, the newest first, five and then all', async ({
+  page,
+}) => {
+  await open(page)
+  const claude = launchCard(page, 'Claude Code')
+  const rows = claude.locator('.past-session')
+  await expect(rows).toHaveCount(5)
+  await expect(rows.nth(0)).toContainText('Claude work 1')
+  await expect(rows.nth(0)).toContainText('beta')
+  await expect(rows.nth(0)).toContainText('1 day ago')
+  await expect(rows.nth(4)).toContainText('Claude work 5')
+  await claude.getByRole('button', { name: 'Show all 7' }).click()
+  await expect(rows).toHaveCount(7)
+  await claude.getByRole('button', { name: 'Show fewer' }).click()
+  await expect(rows).toHaveCount(5)
+
+  await expect(launchCard(page, 'Codex').locator('.past-session')).toContainText(
+    'Review the design',
+  )
+  const opencode = launchCard(page, 'OpenCode').locator('.past-session')
+  await expect(opencode).toHaveCount(1)
+  await expect(opencode).toContainText('Tidy the OpenCode notes')
+})
+
+test('resuming a Claude session continues it in the folder it was held in', async ({ page }) => {
+  await open(page)
+  await launchCard(page, 'Claude Code')
+    .getByRole('button', { name: 'Resume Claude Code session Claude work 2' })
+    .click()
+  const terminal = page.locator('.terminal-view:not([hidden]) .terminal-host')
+  await expect(page.getByRole('tab', { name: 'Claude Code 1' })).toBeVisible()
+  await expect(terminal).toContainText('--resume claude-s2')
+  await expect(terminal).not.toContainText('--session-id')
+  await expect(terminal).toContainText(`cwd: ${folder('alpha')}`)
+})
+
+test('resuming a Codex session and an OpenCode session uses their own commands', async ({
+  page,
+}) => {
+  await open(page)
+  await launchCard(page, 'Codex')
+    .getByRole('button', { name: 'Resume Codex session Review the design' })
+    .click()
+  const terminal = page.locator('.terminal-view:not([hidden]) .terminal-host')
+  await expect(terminal).toContainText('resume codex-s1')
+  await expect(terminal).toContainText(`cwd: ${folder('gamma')}`)
+
+  await page.getByRole('tab', { name: 'New terminal' }).click()
+  await launchCard(page, 'OpenCode')
+    .getByRole('button', { name: 'Resume OpenCode session Tidy the OpenCode notes' })
+    .click()
+  await expect(terminal).toContainText('--session ses_one')
+  await expect(terminal).toContainText(`cwd: ${folder('alpha')}`)
 })

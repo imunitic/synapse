@@ -297,6 +297,19 @@ describe('terminals', () => {
     expect(pageTitle({ kind: 'launch' })).toBe('New terminal')
   })
 
+  it('can continue a session of the harness, which the session keeps', () => {
+    const state = reduce(initialState, {
+      type: 'openTerminal',
+      kind: 'Claude',
+      cwd: '/work',
+      id: 'a',
+      resume: 'abc-123',
+    })
+    expect(state.terminals[0]).toMatchObject({ kind: 'Claude', cwd: '/work', resume: 'abc-123' })
+    const plain = reduce(initialState, { type: 'openTerminal', kind: 'Shell', cwd: '', id: 'b' })
+    expect(plain.terminals[0]).not.toHaveProperty('resume')
+  })
+
   it('stay in their own tab when another one is started from the launch page', () => {
     const state = reduce(reduce(initialState, { type: 'openPage', page: { kind: 'launch' } }), {
       type: 'openTerminal',

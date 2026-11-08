@@ -134,6 +134,7 @@ export const callParams = {
   addProject: z.object({ name: z.string().min(1).max(64), prefix: z.string().min(1).max(32) }),
   getDiagnosis: z.object({}),
   listWorkspaces: z.object({}),
+  listSessions: z.object({}),
   seedVault: z.object({ path: z.string().min(1).max(4096) }),
   listConventions: z.object({}),
   addConvention: z.object({ id: z.string().min(1).max(64), entry: z.string().min(1).max(1000) }),

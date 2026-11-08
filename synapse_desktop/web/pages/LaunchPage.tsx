@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import type { Harness, TerminalKind, Workspace } from '../../shared/transport.ts'
+import type { Harness, PastSession, TerminalKind, Workspace } from '../../shared/transport.ts'
 import { timeAgo } from '../domain/format.ts'
 import { workspaceLabel, workspaceNames } from '../domain/workspaces.ts'
 import { useConfig } from '../state/config.tsx'
@@ -10,7 +10,61 @@ import { transport } from '../transport/index.ts'
 
 const HARNESSES: readonly Harness[] = ['Claude', 'Codex', 'Opencode']
 
-function ShellCard({ onStart }: { onStart: (kind: TerminalKind, cwd: string) => void }) {
+// How many past sessions a card shows before it is asked to show the rest.
+const SHOWN = 5
+
+type Start = (kind: TerminalKind, cwd: string, resume?: string) => void
+
+function PastSessionList({
+  harness,
+  sessions,
+  onStart,
+}: {
+  harness: Harness
+  sessions: readonly PastSession[]
+  onStart: Start
+}) {
+  const [all, setAll] = useState(false)
+  const now = new Date()
+  if (sessions.length === 0) return null
+  const shown = all ? sessions : sessions.slice(0, SHOWN)
+  const folders = workspaceNames(shown.map((s) => s.path))
+  const label = TERMINAL_LABELS[harness]
+  return (
+    <div className="past-sessions">
+      <h3 className="muted small">Past sessions</h3>
+      <ul className="workspace-list">
+        {shown.map((session, index) => (
+          <li key={session.id} className="past-session">
+            <span className="past-session-title" title={session.title ?? undefined}>
+              {session.title ?? 'No title'}
+            </span>
+            <span className="muted small mono workspace-path" title={session.path}>
+              {folders[index]}
+            </span>
+            {session.lastUsed !== null && (
+              <span className="muted small">{timeAgo(session.lastUsed, now)}</span>
+            )}
+            <button
+              className="secondary"
+              aria-label={`Resume ${label} session ${session.title ?? session.id}`}
+              onClick={() => onStart(harness, session.path, session.id)}
+            >
+              Resume
+            </button>
+          </li>
+        ))}
+      </ul>
+      {sessions.length > SHOWN && (
+        <button className="link" onClick={() => setAll(!all)}>
+          {all ? 'Show fewer' : `Show all ${sessions.length}`}
+        </button>
+      )}
+    </div>
+  )
+}
+
+function ShellCard({ onStart }: { onStart: Start }) {
   const { state: config } = useConfig()
   // Where a shell starts: what was typed here, else the default of the settings; empty is
   // the home folder.
@@ -46,11 +100,13 @@ function ShellCard({ onStart }: { onStart: (kind: TerminalKind, cwd: string) => 
 function HarnessCard({
   harness,
   workspaces,
+  sessions,
   onStart,
 }: {
   harness: Harness
   workspaces: readonly Workspace[]
-  onStart: (kind: TerminalKind, cwd: string) => void
+  sessions: readonly PastSession[]
+  onStart: Start
 }) {
   const label = TERMINAL_LABELS[harness]
   const missing = useHarnesses().reason(harness)
@@ -110,6 +166,7 @@ function HarnessCard({
             </button>
           </form>
           <p className="muted small">A folder it has not worked in is one it may ask to trust.</p>
+          <PastSessionList harness={harness} sessions={sessions} onStart={onStart} />
         </>
       )}
     </section>
@@ -117,9 +174,11 @@ function HarnessCard({
 }
 
 // Where a terminal is started: a shell, or a harness in a folder it already works in.
-export function LaunchPage({ onStart }: { onStart: (kind: TerminalKind, cwd: string) => void }) {
+export function LaunchPage({ onStart }: { onStart: Start }) {
   const load = useCallback(() => transport.listWorkspaces(), [])
   const { state } = useLoad(load)
+  const loadSessions = useCallback(() => transport.listSessions(), [])
+  const { state: sessions } = useLoad(loadSessions)
   return (
     <div className="page">
       <div className="page-head">
@@ -136,6 +195,7 @@ export function LaunchPage({ onStart }: { onStart: (kind: TerminalKind, cwd: str
           key={harness}
           harness={harness}
           workspaces={state.status === 'ready' ? state.data[harness] : []}
+          sessions={sessions.status === 'ready' ? sessions.data[harness] : []}
           onStart={onStart}
         />
       ))}

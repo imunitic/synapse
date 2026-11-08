@@ -84,7 +84,7 @@ export function PageView({
   // A harness is started in a folder for a task.
   onStartTask: (kind: TerminalKind, cwd: string, task: TerminalTask) => void
   // A terminal is started in a folder.
-  onStartIn: (kind: TerminalKind, cwd: string) => void
+  onStartIn: (kind: TerminalKind, cwd: string, resume?: string) => void
   // A shell tab is opened, and runs the command; its tab is called the title.
   onRunCommand: (command: string, title: string) => void
   // A definition was made; this is its page.

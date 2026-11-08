@@ -20,6 +20,11 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
     cwd: z.string().min(1).max(4096).optional(),
     // What a harness is started to do; a shell has nothing to be told.
     task: terminalTaskSchema.optional(),
+    // The id of a session of that harness to continue, as the harness lists it.
+    resume: z
+      .string()
+      .regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/)
+      .optional(),
     cols: z.number().int().min(1).max(1000),
     rows: z.number().int().min(1).max(1000),
   }),

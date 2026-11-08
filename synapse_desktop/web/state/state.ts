@@ -75,6 +75,8 @@ export interface TerminalSession {
   task?: TerminalTask
   // A line to run in it as soon as it starts, when it was opened to run one.
   command?: string
+  // The id of a session of the harness that it continues.
+  resume?: string
 }
 
 export type Page =
@@ -151,6 +153,8 @@ export type Action =
       // A line to run in it, and the name its tab has instead of `Shell 2`.
       command?: string
       title?: string
+      // A session of the harness that it continues.
+      resume?: string
     }
   | { type: 'selectTerminal'; id: string }
   | { type: 'closeTerminal'; id: string }
@@ -246,6 +250,7 @@ export function reduce(state: ShellState, action: Action): ShellState {
         cwd: action.cwd,
         ...(action.task === undefined ? {} : { task: action.task }),
         ...(action.command === undefined ? {} : { command: action.command }),
+        ...(action.resume === undefined ? {} : { resume: action.resume }),
       }
       return {
         ...reduce(state, { type: 'openPage', page: { kind: 'terminals' } }),

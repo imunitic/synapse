@@ -189,6 +189,17 @@ export interface Workspace {
 
 export type Workspaces = Record<Harness, Workspace[]>
 
+// A session a harness has kept, to be resumed in the folder it was held in.
+export interface PastSession {
+  id: string
+  // The folder it was held in.
+  path: string
+  title: string | null
+  lastUsed: string | null
+}
+
+export type PastSessions = Record<Harness, PastSession[]>
+
 // What a session of a harness is started to do: build a code graph, rebuild what
 // changed in it, or rebuild it from scratch.
 export type TerminalTask = 'init' | 'rebuild-diff' | 'rebuild-full'
@@ -199,6 +210,8 @@ export interface TerminalStart {
   cwd?: string
   // What a harness is started to do, given to it as its first prompt.
   task?: TerminalTask
+  // The id of a session of that harness to continue, as `listSessions` gives it.
+  resume?: string
   cols: number
   rows: number
 }
@@ -354,6 +367,7 @@ export interface Transport {
   // What `synapse doctor` says of the install, with the PATH of the user's login shell.
   getDiagnosis(): Promise<Diagnosis>
   listWorkspaces(): Promise<Workspaces>
+  listSessions(): Promise<PastSessions>
   // Makes a folder a vault when it is not one: the folder, and the `Index.md` that the
   // package ships a template of. What is there is left as it is.
   seedVault(path: string): Promise<VaultInfo>

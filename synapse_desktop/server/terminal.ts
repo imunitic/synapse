@@ -130,6 +130,10 @@ async function start(
     send(ws, { type: 'error', message: 'a shell has no task to start' })
     return null
   }
+  if (message.resume !== undefined && (message.kind === 'Shell' || message.task !== undefined)) {
+    send(ws, { type: 'error', message: 'only a harness without a task has a session to resume' })
+    return null
+  }
   const plan = await deps.plan(message.kind)
   const config = await loadConfig(deps.configFile, deps.environment)
   let args = plan.args
@@ -138,18 +142,23 @@ async function start(
   const extra: Record<string, string> =
     message.kind === 'Shell' ? { SYNAPSE_SESSIONS_DIR: sessionsDir } : {}
   if (message.kind === 'Claude') {
-    // A session of a name of our own, so that its file is known before it exists.
-    const id = randomUUID()
-    args = [...args, '--session-id', id]
+    // A session of a name of our own, so that its file is known before it exists; a session that
+    // is resumed has its own, and its file is the one that grows.
+    const id = message.resume ?? randomUUID()
+    args = [...args, ...(message.resume === undefined ? ['--session-id', id] : ['--resume', id])]
     follow = (watcher) =>
       watcher.register(id, { harness: 'claude', sessionId: id, cwd, startedAt: Date.now() })
   } else if (message.kind === 'Opencode') {
     // A session of an id of our own, which OpenCode makes when there is none: its messages
     // are asked for by it.
-    const id = `ses_${randomBytes(10).toString('hex')}`
+    // The same flag continues a session that is there.
+    const id = message.resume ?? `ses_${randomBytes(10).toString('hex')}`
     args = [...args, '--session', id]
     follow = (watcher) =>
       watcher.register(id, { harness: 'opencode', sessionId: id, cwd, startedAt: Date.now() })
+  } else if (message.kind === 'Codex' && message.resume !== undefined) {
+    // A resumed session goes on in its own file, which is not one that appears after the start.
+    args = [...args, 'resume', message.resume]
   } else if (message.kind === 'Codex') {
     follow = (watcher) =>
       watcher.register(`codex-${randomBytes(3).toString('hex')}`, {

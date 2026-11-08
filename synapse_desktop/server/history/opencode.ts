@@ -1,9 +1,9 @@
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Workspace } from '../../shared/transport.ts'
+import type { PastSession, Workspace } from '../../shared/transport.ts'
 import type { Environment } from '../roots.ts'
 import type { HarnessHistory } from './history.ts'
-import { MAX_WORKSPACES } from './order.ts'
+import { CANDIDATES, MAX_WORKSPACES, titleOf } from './order.ts'
 
 // The table the sessions are in: `session_v2` in the versions that have it, which holds every
 // session of the older `session` table as well, else `session`.
@@ -41,6 +41,35 @@ export async function opencodeWorkspaces(database: string): Promise<Workspace[]>
   }
 }
 
+// The newest sessions of OpenCode's database, which holds a title for each.
+export async function opencodeSessions(database: string): Promise<PastSession[]> {
+  if ((await stat(database).catch(() => null)) === null) return []
+  const { DatabaseSync } = await import('node:sqlite')
+  const db = new DatabaseSync(database, { readOnly: true })
+  try {
+    const rows = db
+      .prepare(
+        `select id, directory, title, time_updated as used from ${sessionTable(db)}
+         where parent_id is null and directory <> '' order by used desc limit ?`,
+      )
+      .all(CANDIDATES)
+    return rows.flatMap((row) =>
+      typeof row.id === 'string' && typeof row.directory === 'string'
+        ? [
+            {
+              id: row.id,
+              path: row.directory,
+              title: typeof row.title === 'string' ? titleOf(row.title) : null,
+              lastUsed: typeof row.used === 'number' ? new Date(row.used).toISOString() : null,
+            },
+          ]
+        : [],
+    )
+  } finally {
+    db.close()
+  }
+}
+
 export function opencodeHistory({ env, home }: Environment): HarnessHistory {
   const database = join(
     env.XDG_DATA_HOME || join(home, '.local', 'share'),
@@ -50,5 +79,6 @@ export function opencodeHistory({ env, home }: Environment): HarnessHistory {
   return {
     harness: 'Opencode',
     workspaces: () => opencodeWorkspaces(database),
+    sessions: () => opencodeSessions(database),
   }
 }

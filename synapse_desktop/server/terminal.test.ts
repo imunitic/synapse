@@ -204,12 +204,13 @@ function refusedWith(socket: WebSocket): Promise<number> {
   })
 }
 
-const start = (cwd?: string, kind = 'Claude', task?: string) =>
+const start = (cwd?: string, kind = 'Claude', task?: string, resume?: string) =>
   JSON.stringify({
     type: 'start',
     kind,
     ...(cwd === undefined ? {} : { cwd }),
     ...(task === undefined ? {} : { task }),
+    ...(resume === undefined ? {} : { resume }),
     cols: 100,
     rows: 30,
   })
@@ -276,6 +277,48 @@ describe('a session started for a task', () => {
     await opened(other)
     other.send(start(dir, 'Claude', 'rm -rf'))
     expect(await otherMessages.next()).toMatchObject({ type: 'error' })
+    expect(spawned).toEqual([])
+  })
+})
+
+describe('a session that is resumed', () => {
+  async function started(kind: string, resume: string, index = 0) {
+    const socket = connect()
+    const messages = inbox(socket)
+    await opened(socket)
+    socket.send(start(dir, kind, undefined, resume))
+    expect(await messages.next()).toMatchObject({ type: 'started' })
+    return spawned[index]?.args ?? []
+  }
+
+  it('continues the session by its id, in the way of each harness', async () => {
+    expect((await started('Claude', 'abc-123')).slice(-2)).toEqual(['--resume', 'abc-123'])
+    expect((await started('Opencode', 'ses_abc', 1)).slice(-2)).toEqual(['--session', 'ses_abc'])
+    expect((await started('Codex', 'def-456', 2)).slice(-2)).toEqual(['resume', 'def-456'])
+  })
+
+  it('is not given a new session of our own', async () => {
+    expect(await started('Claude', 'abc-123')).not.toContain('--session-id')
+  })
+
+  it('is refused for a shell, for a task, and for an id that could be taken for a flag', async () => {
+    const socket = connect()
+    const messages = inbox(socket)
+    await opened(socket)
+    socket.send(start(dir, 'Shell', undefined, 'abc'))
+    expect(await messages.next()).toMatchObject({ type: 'error' })
+
+    const other = connect()
+    const otherMessages = inbox(other)
+    await opened(other)
+    other.send(start(dir, 'Claude', 'init', 'abc'))
+    expect(await otherMessages.next()).toMatchObject({ type: 'error' })
+
+    const third = connect()
+    const thirdMessages = inbox(third)
+    await opened(third)
+    third.send(start(dir, 'Claude', undefined, '--dangerously-skip-permissions'))
+    expect(await thirdMessages.next()).toMatchObject({ type: 'error' })
     expect(spawned).toEqual([])
   })
 })

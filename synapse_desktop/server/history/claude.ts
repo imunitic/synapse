@@ -1,9 +1,9 @@
-import { readFile, stat } from 'node:fs/promises'
+import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Workspace } from '../../shared/transport.ts'
+import type { PastSession, Workspace } from '../../shared/transport.ts'
 import type { Environment } from '../roots.ts'
 import type { HarnessHistory } from './history.ts'
-import { newestFirst } from './order.ts'
+import { CANDIDATES, head, jsonLine, newestFirst, titleOf } from './order.ts'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -32,6 +32,28 @@ export function claudeWorkspaces(text: string): Workspace[] {
   return newestFirst(found)
 }
 
+// Where a session file says its folder is, and what it is called, from the start of the file.
+// A line that holds a whole request or a file is long and is not read.
+export function claudeSessionHead(text: string): { cwd: string | null; title: string | null } {
+  let cwd: string | null = null
+  let named: string | null = null
+  let prompt: string | null = null
+  for (const line of text.split('\n')) {
+    const record = jsonLine(line)
+    if (record === null) continue
+    if (cwd === null && typeof record.cwd === 'string') cwd = record.cwd
+    if (record.type === 'ai-title' && typeof record.aiTitle === 'string') named = record.aiTitle
+    if (record.type === 'last-prompt' && typeof record.lastPrompt === 'string') {
+      prompt = record.lastPrompt
+    }
+  }
+  return { cwd, title: titleOf(named ?? prompt ?? '') }
+}
+
+// How much of the start of a session file is read: the title is in the first few hundred
+// kilobytes of a file that can be tens of megabytes.
+const HEAD_BYTES = 1024 * 1024
+
 // The folder of the sessions of a working folder: its path with every character that is not
 // a letter or a digit made a hyphen.
 export function projectFolderName(path: string): string {
@@ -56,6 +78,26 @@ export function claudeHistory({ env, home }: Environment): HarnessHistory {
         }),
       )
       return newestFirst(timed)
+    },
+    async sessions() {
+      const files: { id: string; file: string; used: Date }[] = []
+      for (const folder of await readdir(projects).catch(() => [])) {
+        for (const name of await readdir(join(projects, folder)).catch(() => [])) {
+          if (!name.endsWith('.jsonl')) continue
+          const file = join(projects, folder, name)
+          const seen = await stat(file).catch(() => null)
+          if (seen?.isFile())
+            files.push({ id: name.slice(0, -'.jsonl'.length), file, used: seen.mtime })
+        }
+      }
+      files.sort((a, b) => b.used.getTime() - a.used.getTime())
+      const read = await Promise.all(
+        files.slice(0, CANDIDATES).map(async ({ id, file, used }): Promise<PastSession | null> => {
+          const { cwd, title } = claudeSessionHead(await head(file, HEAD_BYTES).catch(() => ''))
+          return cwd === null ? null : { id, path: cwd, title, lastUsed: used.toISOString() }
+        }),
+      )
+      return newestFirst(read.filter((s): s is PastSession => s !== null))
     },
   }
 }

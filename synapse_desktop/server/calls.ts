@@ -19,6 +19,7 @@ import type {
   NoteEdit,
   ConventionList,
   Diagnosis,
+  PastSessions,
   Workspaces,
   ProjectList,
   RunAnswer,
@@ -68,7 +69,7 @@ import {
 import { addProject, listProjects, ProjectRefused, projectsFile } from './projects.ts'
 import { inspectVault, seedVault, VaultRefused } from './vault.ts'
 import { diagnose } from './doctor.ts'
-import { histories, listWorkspaces } from './history/history.ts'
+import { histories, listSessions, listWorkspaces } from './history/history.ts'
 import { askRun, NotListening, socketPath } from './run-socket.ts'
 import { NotStartedHere, RunNotStarted, type RunStarter } from './runs.ts'
 
@@ -408,6 +409,11 @@ const handlers: Record<CallName, Handler> = {
     const path = expandHome(typed, context.environment.home)
     if (!isAbsolute(path)) throw new CallError('the path must be absolute', 400)
     return { ...(await inspectVault(path)), path }
+  },
+
+  async listSessions(raw, context): Promise<PastSessions> {
+    callParams.listSessions.parse(raw)
+    return listSessions(histories(context.environment))
   },
 
   async listWorkspaces(raw, context): Promise<Workspaces> {

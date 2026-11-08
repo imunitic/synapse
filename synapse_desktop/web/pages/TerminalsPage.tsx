@@ -151,6 +151,7 @@ function TerminalView({
           kind: session.kind,
           ...(session.cwd === '' ? {} : { cwd: session.cwd }),
           ...(session.task === undefined ? {} : { task: session.task }),
+          ...(session.resume === undefined ? {} : { resume: session.resume }),
           cols: terminal.cols,
           rows: terminal.rows,
         },
