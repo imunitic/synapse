@@ -66,6 +66,8 @@ export function fakeTransport(world: FakeWorld): Transport {
     restoreNote: unavailable,
     listProjects: unavailable,
     addProject: unavailable,
+    getDiagnosis: unavailable,
+    seedVault: unavailable,
     listConventions: unavailable,
     addConvention: unavailable,
     removeConvention: unavailable,

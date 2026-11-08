@@ -18,12 +18,13 @@ import { listGraphs } from '../domain/graph-search.ts'
 import { recentlyUpdated, titleOf } from '../domain/notes.ts'
 import { recentlyOpened } from '../domain/recent.ts'
 import { listExecutions, type ExecutionSummary } from '../domain/executions.ts'
-import { recentRuns, runCounts, setupSteps, vaultCounts } from '../domain/home.ts'
+import { recentRuns, runCounts, vaultCounts } from '../domain/home.ts'
 import { describeVault } from '../domain/vaults.ts'
 import { transport } from '../transport/index.ts'
 import { useConfig } from './config.tsx'
 import { remember } from './GraphPage.tsx'
 import { RefreshIcon } from './icons.tsx'
+import { SetupCheckCard } from './SetupCheckCard.tsx'
 import type { Page, TerminalKind, TerminalSession } from './state.ts'
 import { StatusBadge } from './StatusBadge.tsx'
 import { useLoad, type LoadState } from './useLoad.ts'
@@ -171,41 +172,6 @@ function Continue({ onOpen }: { onOpen: (page: Page) => void }) {
           </ul>
         </div>
       )}
-    </section>
-  )
-}
-
-// What the app needs to be useful, while something of it is not done.
-function SetupCard({ inputs, onOpen }: { inputs: AttentionInputs; onOpen: (page: Page) => void }) {
-  const steps = setupSteps(inputs)
-  if (steps.length === 0 || steps.every((step) => step.done)) return null
-  return (
-    <section className="card" aria-label="Get set up">
-      <div className="card-head">
-        <h2 className="card-title">Get set up</h2>
-        <span className="muted small">
-          {steps.filter((step) => step.done).length} of {steps.length} done
-        </span>
-      </div>
-      <ul className="attention-list">
-        {steps.map((step) => (
-          <li key={step.key}>
-            <button
-              className="attention-item attention-link"
-              disabled={step.done}
-              onClick={() => onOpen({ kind: 'settings', section: step.target.section })}
-            >
-              <span className="step">
-                <span className="step-mark" data-done={step.done} aria-hidden="true" />
-                <span className="attention-label" data-done={step.done}>
-                  {step.label}
-                </span>
-                <span className="visually-hidden">{step.done ? ' (done)' : ' (not done)'}</span>
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
     </section>
   )
 }
@@ -519,6 +485,7 @@ export function HomePage({
         <h1 className="page-title">Home</h1>
         <QuickActions onOpen={onOpen} onStartTerminal={onStartTerminal} />
       </header>
+      <SetupCheckCard onOpen={onOpen} onStartTerminal={onStartTerminal} />
       <RunningNow
         runs={runs.state}
         terminals={terminals}
@@ -529,11 +496,10 @@ export function HomePage({
         <div className="home-column">
           <NeedsAttention inputs={inputs} onRefresh={refresh} onOpen={onOpen} />
           <Continue onOpen={onOpen} />
-          <PipelinesSummary runs={runs.state} count={count.state} now={now} onOpen={onOpen} />
         </div>
         <div className="home-column">
-          <SetupCard inputs={inputs} onOpen={onOpen} />
           <VaultSummary vault={vault.state} onOpen={onOpen} />
+          <PipelinesSummary runs={runs.state} count={count.state} now={now} onOpen={onOpen} />
           <GraphSummary onOpen={onOpen} />
         </div>
       </div>

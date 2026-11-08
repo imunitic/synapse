@@ -17,6 +17,7 @@ import { dropQuestion, nothingToClean, removals } from '../domain/graph-manage.t
 import type { GraphPlan } from '../../shared/transport.ts'
 import { transport } from '../transport/index.ts'
 import { useConfig } from './config.tsx'
+import { useHarnesses } from './diagnosis.tsx'
 import { TERMINAL_LABELS, type Page, type TerminalKind, type TerminalTask } from './state.ts'
 import { useLoad } from './useLoad.ts'
 
@@ -696,11 +697,9 @@ const REBUILDS: {
 
 // The harness a graph is built with: the one chosen here, else the default.
 function useHarness(): { harness: TerminalKind; choose: (kind: TerminalKind) => void } {
-  const { state: config } = useConfig()
+  const { defaultHarness } = useHarnesses()
   const [chosen, setChosen] = useState<TerminalKind | null>(null)
-  const fallback: TerminalKind =
-    config.status === 'ready' ? (config.config.defaultHarness ?? 'Claude') : 'Claude'
-  return { harness: chosen ?? fallback, choose: setChosen }
+  return { harness: chosen ?? defaultHarness, choose: setChosen }
 }
 
 function HarnessSelect({
@@ -712,6 +711,7 @@ function HarnessSelect({
   harness: TerminalKind
   onChange: (kind: TerminalKind) => void
 }) {
+  const harnesses = useHarnesses()
   return (
     <label className="field">
       <span className="muted small">Harness</span>
@@ -721,8 +721,9 @@ function HarnessSelect({
         onChange={(event) => onChange(event.target.value as TerminalKind)}
       >
         {(['Claude', 'Codex', 'Opencode'] as const).map((kind) => (
-          <option key={kind} value={kind}>
+          <option key={kind} value={kind} disabled={harnesses.isMissing(kind)}>
             {TERMINAL_LABELS[kind]}
+            {harnesses.isMissing(kind) ? ' (not installed)' : ''}
           </option>
         ))}
       </select>

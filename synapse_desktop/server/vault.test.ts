@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { CallError, handleCall, type Context } from './calls.ts'
-import { inspectVault } from './vault.ts'
+import { inspectVault, seedVault, VaultRefused } from './vault.ts'
 
 let dir: string
 
@@ -101,5 +101,60 @@ describe('the inspectVault call', () => {
       notes: 1,
     })
     expect(await handleCall('inspectVault', { path: '~' }, context)).toMatchObject({ path: dir })
+  })
+})
+
+describe('seedVault', () => {
+  let template: string
+
+  beforeEach(async () => {
+    template = join(dir, 'Index.md.template')
+    await writeFile(template, '# Index\nthe template\n')
+  })
+
+  async function refusal(promise: Promise<unknown>): Promise<VaultRefused> {
+    const error = await promise.then(
+      () => null,
+      (e: unknown) => e,
+    )
+    expect(error).toBeInstanceOf(VaultRefused)
+    return error as VaultRefused
+  }
+
+  it('makes the folder, and an Index.md from the template, where there is nothing', async () => {
+    const vault = join(dir, 'a', 'deeper', 'vault')
+    await seedVault(vault, template)
+    expect(await readFile(join(vault, 'Index.md'), 'utf8')).toBe('# Index\nthe template\n')
+    expect(await inspectVault(vault)).toMatchObject({ exists: true, hasIndex: true })
+  })
+
+  it('adds the Index.md to a folder that has notes, and leaves the notes as they are', async () => {
+    await note('notes/one.md')
+    await seedVault(join(dir, 'notes'), template)
+    expect(await readFile(join(dir, 'notes', 'one.md'), 'utf8')).toBe('# note\n')
+    expect((await stat(join(dir, 'notes', 'Index.md'))).isFile()).toBe(true)
+  })
+
+  it('leaves the Index.md of a vault that has one, even when the template is not there', async () => {
+    await mkdir(join(dir, 'vault'))
+    await writeFile(join(dir, 'vault', 'Index.md'), 'mine\n')
+    await seedVault(join(dir, 'vault'), template)
+    await seedVault(join(dir, 'vault'), null)
+    expect(await readFile(join(dir, 'vault', 'Index.md'), 'utf8')).toBe('mine\n')
+  })
+
+  it('refuses a path that is a file', async () => {
+    await writeFile(join(dir, 'afile'), 'x')
+    expect((await refusal(seedVault(join(dir, 'afile'), template))).message).toContain(
+      'is not a folder',
+    )
+  })
+
+  it('makes nothing when the template is not there', async () => {
+    expect(
+      (await refusal(seedVault(join(dir, 'new-vault'), join(dir, 'no-template')))).message,
+    ).toContain('template')
+    expect((await refusal(seedVault(join(dir, 'new-vault'), null))).status).toBe(409)
+    expect(await stat(join(dir, 'new-vault')).catch(() => null)).toBeNull()
   })
 })

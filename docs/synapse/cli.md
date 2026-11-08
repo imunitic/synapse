@@ -506,9 +506,11 @@ usage: synapse context
 ### synapse doctor
 
 ```
-usage: synapse doctor [--repo <dir>] [--format text|json]
+usage: synapse doctor [--repo <dir>] [--install] [--format text|json]
 
   --repo    the checkout to examine. Default: the one containing $PWD.
+  --install only what the install needs: the programs, the harnesses,
+            the configuration and the vault; nothing of a checkout.
   --format  text (the default), or json: format synapse-doctor/v1,
             each check with its key, name, status, detail and value.
 

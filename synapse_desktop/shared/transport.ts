@@ -152,6 +152,23 @@ export interface ConventionList {
   conventions: Convention[]
 }
 
+// One thing `synapse doctor` found: what was looked at, whether it is fine, what was found or
+// is wrong and how to fix it, and for a program or a file where it is.
+export interface DoctorFinding {
+  // Stable; the name is for a reader and may be reworded.
+  key: string
+  name: string
+  status: 'ok' | 'warn' | 'fail'
+  detail: string
+  // The path of the program or file found, empty when there is none.
+  value: string
+}
+
+export interface Diagnosis {
+  findings: DoctorFinding[]
+  counts: { ok: number; warn: number; fail: number }
+}
+
 // A description to have an agent write a note of the vault from.
 export interface NoteRequest {
   kind: NoteKind
@@ -326,6 +343,11 @@ export interface Transport {
   addProject(name: string, prefix: string): Promise<ProjectList>
   // The configuration files Synapse keeps, with their entries; and one entry added to
   // or removed from a file that can be changed here, which answers with the list again.
+  // What `synapse doctor` says of the install, with the PATH of the user's login shell.
+  getDiagnosis(): Promise<Diagnosis>
+  // Makes a folder a vault when it is not one: the folder, and the `Index.md` that the
+  // package ships a template of. What is there is left as it is.
+  seedVault(path: string): Promise<VaultInfo>
   listConventions(): Promise<ConventionList>
   addConvention(id: string, entry: string): Promise<ConventionList>
   removeConvention(id: string, entry: string): Promise<ConventionList>

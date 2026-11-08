@@ -17,6 +17,7 @@ import { isAbsolutePath } from '../domain/vaults.ts'
 import { transport } from '../transport/index.ts'
 import { TEXT_SIZES } from '../domain/text-size.ts'
 import { useConfig } from './config.tsx'
+import { useDiagnosis, useHarnesses } from './diagnosis.tsx'
 import { EnvCard } from './EnvCard.tsx'
 import { Conventions } from './ConventionsPage.tsx'
 import { SettingsForm } from './SettingsForm.tsx'
@@ -89,15 +90,23 @@ const HARNESS_OPTIONS: readonly { value: Harness; label: string }[] = [
 // page that asks.
 function DefaultHarnessCard() {
   const { state, save } = useConfig()
+  const harnesses = useHarnesses()
   const [failure, setFailure] = useState<string | null>(null)
   if (state.status !== 'ready') return null
+  const chosen = state.config.defaultHarness
+  const used = HARNESS_OPTIONS.find((h) => h.value === harnesses.defaultHarness)?.label
   return (
     <section className="card" aria-label="Default harness">
       <h2 className="card-title">Default harness</h2>
       <p className="muted">
         The harness that writes a definition or a note when you ask an agent to, and that a step
-        uses when it names none. Without one, Claude Code is used.
+        uses when it names none. Without one, the first that is installed is used.
       </p>
+      {chosen !== null && harnesses.isMissing(chosen) && (
+        <p className="warn-line" role="status">
+          {harnesses.reason(chosen)}, so {used} is used instead.
+        </p>
+      )}
       <select
         aria-label="Default harness"
         value={state.config.defaultHarness ?? ''}
@@ -109,10 +118,11 @@ function DefaultHarnessCard() {
           )
         }}
       >
-        <option value="">Not chosen (Claude Code)</option>
+        <option value="">Not chosen ({used})</option>
         {HARNESS_OPTIONS.map((h) => (
-          <option key={h.value} value={h.value}>
+          <option key={h.value} value={h.value} disabled={harnesses.isMissing(h.value)}>
             {h.label}
+            {harnesses.isMissing(h.value) ? ' (not installed)' : ''}
           </option>
         ))}
       </select>
@@ -367,6 +377,8 @@ function Environment() {
 // of Synapse this app has. Nothing is written into a harness until one is
 // pressed.
 function IntegrationsPage() {
+  const harnessesNow = useHarnesses()
+  const { recheck } = useDiagnosis()
   const [version, setVersion] = useState(0)
   const [working, setWorking] = useState<Harness | null>(null)
   // The harness whose installing is being asked about.
@@ -388,6 +400,8 @@ function IntegrationsPage() {
     }
     setWorking(null)
     setVersion((v) => v + 1)
+    // Synapse in a harness is one of the things the setup check looks at.
+    recheck()
   }
 
   if (state.status === 'loading') return <p className="muted">Looking at the harnesses…</p>
@@ -425,6 +439,11 @@ function IntegrationsPage() {
               </span>
             )}
           </p>
+          {harnessesNow.isMissing(item.harness) && (
+            <p className="warn-line" role="status">
+              {harnessesNow.reason(item.harness)}, so there is nothing to install Synapse in.
+            </p>
+          )}
           {item.hook !== null && (
             <p className="muted small">
               Hook program <span className="mono">{item.hook}</span>
@@ -434,7 +453,11 @@ function IntegrationsPage() {
             <button
               className="primary"
               disabled={
-                working !== null || !ready || bundled.hook === null || isDowngrade(item.state)
+                working !== null ||
+                !ready ||
+                bundled.hook === null ||
+                isDowngrade(item.state) ||
+                harnessesNow.isMissing(item.harness)
               }
               title={
                 isDowngrade(item.state)

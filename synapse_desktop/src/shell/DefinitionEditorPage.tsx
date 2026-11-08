@@ -21,16 +21,13 @@ import { AgentCard } from './AgentCard.tsx'
 import { CodeEditor } from './CodeEditor.tsx'
 import { GraphView } from './GraphView.tsx'
 import { DEFINITION_LABELS, type DefinitionKind, type Page } from './state.ts'
+import { useHarnesses } from './diagnosis.tsx'
 import { useLoad } from './useLoad.ts'
 
 const DEBOUNCE_MS = 300
 
 // The names that are taken: definitions share one namespace, and skills have
 // their own.
-function loadConfig() {
-  return transport.getConfig()
-}
-
 async function loadTaken() {
   const [definitions, skills] = await Promise.all([
     listDefinitions(transport),
@@ -132,7 +129,7 @@ export function DefinitionEditorPage({
   // is put into the text at once, and then the text is what the field shows.
   const [nameDraft, setNameDraft] = useState<string | null>(null)
   const { state: taken } = useLoad(loadTaken)
-  const { state: config } = useLoad(loadConfig)
+  const harnesses = useHarnesses()
 
   const declared = isSkill ? null : declaredOf(text)
   const name = isSkill ? parseSkillMeta(text).name : (declared?.name ?? null)
@@ -296,9 +293,7 @@ export function DefinitionEditorPage({
           definition={definition}
           current={existing ? text : undefined}
           existing={taken.status === 'ready' ? taken.data.existing : null}
-          defaultHarness={
-            config.status === 'ready' ? (config.data.defaultHarness ?? 'Claude') : 'Claude'
-          }
+          defaultHarness={harnesses.defaultHarness}
           onWritten={(written) => setReplacement((r) => ({ id: (r?.id ?? 0) + 1, text: written }))}
         />
       )}

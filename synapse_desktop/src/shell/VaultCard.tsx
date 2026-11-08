@@ -4,6 +4,7 @@ import { saveSetting, type SynapseSetting } from '../domain/settings.ts'
 import { describeVault, isAbsolutePath, rememberVault } from '../domain/vaults.ts'
 import { transport } from '../transport/index.ts'
 import { useConfig } from './config.tsx'
+import { useDiagnosis } from './diagnosis.tsx'
 
 const LOOK_MS = 400
 
@@ -38,6 +39,7 @@ export function VaultCard({
   onChanged: () => void
 }) {
   const { state, save } = useConfig()
+  const { recheck } = useDiagnosis()
   const recent = state.status === 'ready' ? state.config.recentVaults : []
   const current = vault?.value ?? null
   const [path, setPath] = useState('')
@@ -48,14 +50,18 @@ export function VaultCard({
   // Where the folder is once a leading ~ is the home folder.
   const resolved = looked.info?.path ?? wanted
 
-  async function use() {
+  // `seed`: the folder is made a vault first, with an Index.md, when it is not one.
+  async function use(seed: boolean) {
     setSwitching(true)
     setFailure(null)
     try {
+      if (seed) await transport.seedVault(resolved)
       await saveSetting(transport, 'SYNAPSE_VAULT_DIR', resolved)
       await save({ recentVaults: rememberVault(recent, resolved) })
       setPath('')
       onChanged()
+      // The vault was one of the things the setup check looks at.
+      recheck()
     } catch (error) {
       setFailure(String(error).replace(/^Error: (synapse-config: )?/, ''))
     } finally {
@@ -118,10 +124,19 @@ export function VaultCard({
           disabled={
             switching || looked.info === null || !looked.info.exists || resolved === current
           }
-          onClick={() => void use()}
+          onClick={() => void use(false)}
         >
           {switching ? 'Switching…' : 'Use this vault'}
         </button>
+        {looked.info !== null && (!looked.info.exists || !looked.info.hasIndex) && (
+          <button
+            className="secondary"
+            disabled={switching || resolved === current}
+            onClick={() => void use(true)}
+          >
+            {looked.info.exists ? 'Add an Index.md and use it' : 'Create this vault'}
+          </button>
+        )}
       </div>
       {failure !== null && (
         <p className="error" role="alert">

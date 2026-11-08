@@ -132,6 +132,8 @@ export const callParams = {
   }),
   listProjects: z.object({}),
   addProject: z.object({ name: z.string().min(1).max(64), prefix: z.string().min(1).max(32) }),
+  getDiagnosis: z.object({}),
+  seedVault: z.object({ path: z.string().min(1).max(4096) }),
   listConventions: z.object({}),
   addConvention: z.object({ id: z.string().min(1).max(64), entry: z.string().min(1).max(1000) }),
   removeConvention: z.object({ id: z.string().min(1).max(64), entry: z.string().min(1).max(1000) }),

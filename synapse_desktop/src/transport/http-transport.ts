@@ -18,6 +18,7 @@ import type {
   NoteRequest,
   EditNoteRequest,
   ConventionList,
+  Diagnosis,
   ProjectList,
   Harness,
   Integrations,
@@ -93,6 +94,14 @@ export class HttpTransport implements Transport {
 
   addProject(name: string, prefix: string): Promise<ProjectList> {
     return this.call('addProject', { name, prefix })
+  }
+
+  getDiagnosis(): Promise<Diagnosis> {
+    return this.call('getDiagnosis', {})
+  }
+
+  seedVault(path: string): Promise<VaultInfo> {
+    return this.call('seedVault', { path })
   }
 
   listConventions(): Promise<ConventionList> {

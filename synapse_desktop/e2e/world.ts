@@ -198,6 +198,8 @@ export function resetSettings(world: World): void {
 const STUB = [
   '#!/bin/sh',
   'name=$(basename "$0")',
+  // Asked for its version, as `synapse doctor` does, it says one and touches nothing.
+  '[ "$1" = "--version" ] && { echo "$name 0.0.0-stub"; exit 0; }',
   'echo "STUB $name args: $*"',
   'echo "CODEX_HOME=${CODEX_HOME:-} OPENCODE_CONFIG_DIR=${OPENCODE_CONFIG_DIR:-} CONTENT_ROOT=${SYNAPSE_CONTENT_ROOT:-}"',
   'echo "cwd: $(pwd)"',

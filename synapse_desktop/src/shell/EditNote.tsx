@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import type { NoteEdit } from '../../shared/transport.ts'
 import { changeCount, diffLines, withContext } from '../domain/diff.ts'
 import { transport } from '../transport/index.ts'
-import { useConfig } from './config.tsx'
+import { useHarnesses } from './diagnosis.tsx'
 import { PencilIcon } from './icons.tsx'
 import { TERMINAL_LABELS } from './state.ts'
 
@@ -100,8 +100,7 @@ export function EditNote({
   title: string
   onChanged: () => void
 }) {
-  const { state: config } = useConfig()
-  const harness = config.status === 'ready' ? (config.config.defaultHarness ?? 'Claude') : 'Claude'
+  const { defaultHarness: harness } = useHarnesses()
   const [open, setOpen] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [working, setWorking] = useState(false)

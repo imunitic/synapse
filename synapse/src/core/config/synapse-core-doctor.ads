@@ -32,9 +32,8 @@ package Synapse.Core.Doctor is
       --  What was found, or what is missing and what to do. Empty is fine
       --  for an `ok` whose name says everything.
       Detail : Unbounded_String;
-      --  What was found, in the form a program can use: the version of a
-      --  program or the path of a file. Empty when the check found nothing
-      --  to hand on.
+      --  What was found, in the form a program can use: the path of the
+      --  program or the file that was. Empty when the check found none.
       Value  : Unbounded_String;
    end record;
 

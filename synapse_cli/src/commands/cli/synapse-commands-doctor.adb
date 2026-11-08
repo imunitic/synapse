@@ -37,8 +37,13 @@ package body Synapse.Commands.Doctor is
    LF   : constant Character := Character'Val (10);
 
    Usage_Text : constant String :=
-     "usage: synapse doctor [--repo <dir>] [--format text|json]" & LF & LF &
+     "usage: synapse doctor [--repo <dir>] [--install] [--format text|json]" &
+     LF & LF &
      "  --repo    the checkout to examine. Default: the one containing $PWD." &
+     LF &
+     "  --install only what the install needs: the programs, the harnesses," &
+     LF &
+     "            the configuration and the vault; nothing of a checkout." &
      LF &
      "  --format  text (the default), or json: format synapse-doctor/v1," &
      LF &
@@ -671,7 +676,7 @@ package body Synapse.Commands.Doctor is
          begin
             Add
               (Into, "pipeline", Report.Ok,
-               (if Version = "" then "installed" else Version), Version);
+               (if Version = "" then "installed" else Version), Path);
          end;
       end if;
    end Pipeline_Check;
@@ -719,13 +724,13 @@ package body Synapse.Commands.Doctor is
                Wired_Any := True;
                Add
                  (Into, Name, Report.Ok, Shown & ", Synapse installed",
-                  To_String (Version (I)));
+                  To_String (Path (I)));
             else
                Add
                  (Into, Name, Report.Warn,
                   Shown & ", Synapse is not installed in it -- run " &
                   "`synapse configure " & Name & "`",
-                  To_String (Version (I)));
+                  To_String (Path (I)));
             end if;
          end;
       end loop;
@@ -818,8 +823,8 @@ package body Synapse.Commands.Doctor is
    end Hook_Checks;
 
    function Diagnose
-     (Env : Environment; Repo : String; As_Json : Boolean := False)
-      return Exit_Code
+     (Env     : Environment; Repo : String; As_Json : Boolean := False;
+      Install : Boolean := False) return Exit_Code
    is
       Into                : Checks;
       Vault               : Unbounded_String;
@@ -831,7 +836,10 @@ package body Synapse.Commands.Doctor is
       Pipeline_Check (Env, Into);
       Harness_Checks (Env, Into, Claude_Found);
       Vault_Checks (Env, Into, Vault, Have_Vault);
-      Identity_Checks (Into, Repo, Resolved, Have_Id);
+      Have_Id := False;
+      if not Install then
+         Identity_Checks (Into, Repo, Resolved, Have_Id);
+      end if;
       if Have_Vault and then Have_Id then
          Namespace_Checks (Env, Into, To_String (Vault), Resolved);
       end if;
@@ -850,6 +858,7 @@ package body Synapse.Commands.Doctor is
    function Run (Env : Environment; Args : Lists.Vector) return Exit_Code is
       Repo    : Unbounded_String := To_Unbounded_String (".");
       As_Json : Boolean          := False;
+      Install : Boolean          := False;
       I       : Positive         := 1;
    begin
       while I <= Natural (Args.Length) loop
@@ -867,6 +876,8 @@ package body Synapse.Commands.Doctor is
                   return Usage_Error (Env, Usage_Text);
                end if;
                Repo := Value;
+            elsif Arg = "--install" then
+               Install := True;
             elsif Arg = "--format" then
                Cli_Args.Take_Value (Args, I, Value, Found);
                if not Found or else To_String (Value) not in "text" | "json"
@@ -880,7 +891,7 @@ package body Synapse.Commands.Doctor is
          end;
          I := I + 1;
       end loop;
-      return Diagnose (Env, To_String (Repo), As_Json);
+      return Diagnose (Env, To_String (Repo), As_Json, Install);
    end Run;
 
 end Synapse.Commands.Doctor;

@@ -58,6 +58,10 @@ package body Synapse.Commands.Doctor.Tests is
         (F, Dir, Name, "echo '" & Version & "'", "echo " & Version);
    end Install;
 
+   --  Where Install put the program.
+   function Program (Dir : Scratch; Name : String) return String is
+     (Path (Dir, "bin/" & Name & (if On_Windows then ".cmd" else "")));
+
    --  A file under the home folder, with its directories.
    procedure Put_Home (Dir : Scratch; Name, Text : String) is
       File : constant String := Path (Dir, "home/" & Name);
@@ -550,9 +554,15 @@ package body Synapse.Commands.Doctor.Tests is
       Install (F, Dir, "codex", "codex-cli 0.9.9");
       Code := Run (Env (F), Args ("--repo", Path (Dir), "--format", "json"));
       Assert (Code in 0 | 1, "it ran");
+      Assert
+        (Field (F, "claude", "value") = Program (Dir, "claude")
+         and then Field (F, "codex", "value") = Program (Dir, "codex"),
+         "where each was found");
       if not On_Windows then
-         Assert (Field (F, "claude", "value") = "2.1.0", "claude's version");
-         Assert (Field (F, "codex", "value") = "0.9.9", "codex's version");
+         Assert
+           (Has (Field (F, "claude", "detail"), "2.1.0")
+            and then Has (Field (F, "codex", "detail"), "0.9.9"),
+            "and which version it is");
       end if;
       Assert
         (Field (F, "claude", "status") = "warn"
@@ -751,13 +761,14 @@ package body Synapse.Commands.Doctor.Tests is
       Code := Run (Env (F), Args ("--repo", Path (Dir), "--format", "json"));
       Assert (Code in 0 | 1, "it ran");
       Assert
-        (Field (F, "opencode", "value") = "2.2.6",
+        (Has (Field (F, "opencode", "detail"), "2.2.6, Synapse is not"),
          "without the colour and the v: " & Field (F, "opencode", "detail"));
       Assert
-        (Field (F, "codex", "value") = "0.9.9", "the first word that is a number");
+        (Has (Field (F, "codex", "detail"), "0.9.9, Synapse is not"),
+         "the first word that is a number: " & Field (F, "codex", "detail"));
       Assert
         (Field (F, "pipeline", "status") = "ok"
-         and then Field (F, "pipeline", "value") = ""
+         and then Field (F, "pipeline", "value") = Program (Dir, "synapse-pipeline")
          and then Field (F, "pipeline", "detail") = "installed",
          "its complaint is not its version: " & Field (F, "pipeline", "detail"));
       Remove (Dir);
@@ -791,8 +802,12 @@ package body Synapse.Commands.Doctor.Tests is
       Code := Run (Env (F), Args ("--repo", Path (Dir), "--format", "json"));
       Assert (Code in 0 | 1, "it ran again");
       Assert (Field (F, "pipeline", "status") = "ok", "found");
+      Assert
+        (Field (F, "pipeline", "value") = Program (Dir, "synapse-pipeline"),
+         "where it is");
       if not On_Windows then
-         Assert (Field (F, "pipeline", "value") = "0.17.1", "with its version");
+         Assert
+           (Field (F, "pipeline", "detail") = "0.17.1", "and its version");
       end if;
       Remove (Dir);
    exception
@@ -831,6 +846,47 @@ package body Synapse.Commands.Doctor.Tests is
          Remove (Dir);
          raise;
    end Doctor_Says_Whether_The_Vault_Is_Seeded;
+
+   procedure Doctor_Checks_Only_The_Install_When_Asked
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Dir  : constant Scratch := Make;
+      F    : aliased Fixture;
+      Code : Natural;
+   begin
+      Setup (F, Dir);
+      Code :=
+        Run (Env (F), Args ("--repo", Repo (Dir), "--format", "json"));
+      Assert (Code in 0 | 1, "the whole thing runs");
+      Assert
+        (Field (F, "repository", "status") /= No_Check & "repository>"
+         and then Field (F, "namespace", "status") /= No_Check & "namespace>",
+         "with the checkout's own checks");
+
+      F.Console.Clear;
+      Code :=
+        Run
+          (Env (F),
+           Args ("--repo", Repo (Dir), "--install", "--format", "json"));
+      Assert (Code in 0 | 1, "the install runs");
+      Assert
+        (Field (F, "repository", "status") = No_Check & "repository>"
+         and then Field (F, "namespace", "status") = No_Check & "namespace>"
+         and then Field (F, "graph", "status") = No_Check & "graph>"
+         and then Field (F, "work-dir", "status") = No_Check & "work-dir>",
+         "none of them with --install");
+      Assert
+        (Field (F, "git", "status") = "ok"
+         and then Field (F, "claude", "status") /= No_Check & "claude>"
+         and then Field (F, "vault", "status") = "ok",
+         "and the install's own checks stay");
+      Remove (Dir);
+   exception
+      when others =>
+         Remove (Dir);
+         raise;
+   end Doctor_Checks_Only_The_Install_When_Asked;
 
    procedure Doctor_Prints_Json_On_Request (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
@@ -952,6 +1008,9 @@ package body Synapse.Commands.Doctor.Tests is
       Register_Routine
         (T, Doctor_Says_Whether_The_Vault_Is_Seeded'Access,
          "Doctor says whether the vault is seeded");
+      Register_Routine
+        (T, Doctor_Checks_Only_The_Install_When_Asked'Access,
+         "Doctor checks only the install when asked");
       Register_Routine
         (T, Doctor_Prints_Json_On_Request'Access,
          "Doctor prints JSON on request");

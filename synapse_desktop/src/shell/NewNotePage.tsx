@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import type { NoteKind } from '../../shared/transport.ts'
 import { transport } from '../transport/index.ts'
-import { useConfig } from './config.tsx'
+import { useHarnesses } from './diagnosis.tsx'
 import { AddProjectForm } from './ProjectForm.tsx'
 import { TERMINAL_LABELS, type Page } from './state.ts'
 import { useLoad } from './useLoad.ts'
@@ -84,8 +84,7 @@ function ProjectChoice({
 // Describe a note and have an agent write it into the vault the way the vault's
 // own commands do; the note opens when it is written.
 export function NewNotePage({ onCreated }: { onCreated: (page: Page) => void }) {
-  const { state: config } = useConfig()
-  const harness = config.status === 'ready' ? (config.config.defaultHarness ?? 'Claude') : 'Claude'
+  const { defaultHarness: harness } = useHarnesses()
   const [kind, setKind] = useState<NoteKind>('note')
   const [project, setProject] = useState('')
   const [prompt, setPrompt] = useState('')

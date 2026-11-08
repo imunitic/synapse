@@ -3,6 +3,7 @@ import { DefinitionsPanel } from './DefinitionsPanel.tsx'
 import { ExecutionsPanel } from './ExecutionsPanel.tsx'
 import { useState } from 'react'
 import { useConfig } from './config.tsx'
+import { useHarnesses } from './diagnosis.tsx'
 import { VaultPanel } from './VaultPanel.tsx'
 import {
   SETTINGS_SECTIONS,
@@ -41,6 +42,7 @@ function newTerminalId(): string {
 
 function TerminalsPanel({ dispatch }: { dispatch: Dispatch<Action> }) {
   const { state: config } = useConfig()
+  const harnesses = useHarnesses()
   // Where the next session starts: what was typed here, else the default of the
   // settings; empty is the home folder.
   const [typed, setTyped] = useState<string | null>(null)
@@ -65,11 +67,22 @@ function TerminalsPanel({ dispatch }: { dispatch: Dispatch<Action> }) {
             onChange={(event) => setTyped(event.target.value)}
           />
         </label>
-        {(['Shell', 'Claude', 'Codex', 'Opencode'] as const).map((kind) => (
-          <button key={kind} className="menu-item" onClick={() => start(kind)}>
-            {kind === 'Shell' ? 'New shell' : TERMINAL_LABELS[kind]}
-          </button>
-        ))}
+        {(['Shell', 'Claude', 'Codex', 'Opencode'] as const).map((kind) => {
+          // A harness that is not installed is there, and says why it cannot be started.
+          const reason = kind === 'Shell' ? null : harnesses.reason(kind)
+          return (
+            <button
+              key={kind}
+              className="menu-item"
+              disabled={reason !== null}
+              title={reason ?? undefined}
+              onClick={() => start(kind)}
+            >
+              {kind === 'Shell' ? 'New shell' : TERMINAL_LABELS[kind]}
+              {reason !== null && <span className="muted small"> · not found</span>}
+            </button>
+          )
+        })}
       </div>
     </>
   )

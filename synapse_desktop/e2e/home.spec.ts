@@ -27,16 +27,19 @@ test('the app opens on the home page, and the rail leads back to it', async ({ p
   await expect(page.getByRole('tab', { name: 'Home' })).toHaveAttribute('aria-selected', 'true')
 })
 
-test('what is not set up is listed, each step leading to the page that does it', async ({
+test('what is not set up is listed, each finding leading to the page that does it', async ({
   page,
 }) => {
   await page.goto('/')
-  const steps = page.getByLabel('Get set up')
-  await expect(steps).toContainText('Choose a vault')
-  await expect(steps).toContainText('Install Synapse in a harness')
-  // A work directory has a default, so it is not a step.
-  await expect(steps.getByRole('button', { name: /Choose a vault/ })).toBeEnabled()
-  await steps.getByRole('button', { name: /Choose a vault/ }).click()
+  const found = page.getByLabel('Setup check')
+  await expect(found).toContainText('Vault')
+  await expect(found).toContainText('Hooks')
+  // A work directory has a default, so it is not a finding.
+  await expect(found.getByRole('button', { name: 'Choose a vault' }).first()).toBeEnabled()
+  await expect(
+    found.getByRole('button', { name: 'Install Synapse in a harness' }).first(),
+  ).toBeVisible()
+  await found.getByRole('button', { name: 'Choose a vault' }).first().click()
   await expect(page.getByRole('heading', { level: 1, name: 'Vault' })).toBeVisible()
   // A missing vault is not a fault, so Needs attention does not list it.
   await page.getByRole('button', { name: 'Home', exact: true }).click()
@@ -98,10 +101,10 @@ test('the vault says what needs a decision', async ({ page }) => {
     await expect(summary).toContainText(vault)
     await expect(summary.locator('.count').filter({ hasText: 'Discussing' })).toContainText('1')
     await expect(summary.locator('.count').filter({ hasText: 'In progress' })).toContainText('1')
-    // The step is done now, and a done step is ticked and cannot be pressed.
+    // The vault is not a finding any more.
     await expect(
-      page.getByLabel('Get set up').getByRole('button', { name: /Choose a vault/ }),
-    ).toBeDisabled()
+      page.getByLabel('Setup check').getByRole('button', { name: 'Choose a vault' }),
+    ).toHaveCount(0)
   } finally {
     rmSync(vault, { recursive: true, force: true })
   }

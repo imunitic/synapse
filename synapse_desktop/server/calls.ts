@@ -18,6 +18,7 @@ import type {
   Integrations,
   NoteEdit,
   ConventionList,
+  Diagnosis,
   ProjectList,
   RunAnswer,
   VaultInfo,
@@ -64,7 +65,8 @@ import {
   removeConvention,
 } from './conventions.ts'
 import { addProject, listProjects, ProjectRefused, projectsFile } from './projects.ts'
-import { inspectVault } from './vault.ts'
+import { inspectVault, seedVault, VaultRefused } from './vault.ts'
+import { diagnose } from './doctor.ts'
 import { askRun, NotListening, socketPath } from './run-socket.ts'
 import { NotStartedHere, RunNotStarted, type RunStarter } from './runs.ts'
 
@@ -403,6 +405,27 @@ const handlers: Record<CallName, Handler> = {
     const typed = callParams.inspectVault.parse(raw).path
     const path = expandHome(typed, context.environment.home)
     if (!isAbsolute(path)) throw new CallError('the path must be absolute', 400)
+    return { ...(await inspectVault(path)), path }
+  },
+
+  async getDiagnosis(raw, context): Promise<Diagnosis> {
+    callParams.getDiagnosis.parse(raw)
+    const config = await loadConfig(context.configFile, context.environment)
+    return diagnose(config, { runCli: context.runCli, env: context.environment.env })
+  },
+
+  async seedVault(raw, context): Promise<VaultInfo> {
+    const typed = callParams.seedVault.parse(raw).path
+    const path = expandHome(typed, context.environment.home)
+    if (!isAbsolute(path)) throw new CallError('the path must be absolute', 400)
+    const config = await loadConfig(context.configFile, context.environment)
+    const root = await findContentRoot(cliEnvironment(context.environment.env, config))
+    try {
+      await seedVault(path, root === null ? null : join(root, 'Index.md.template'))
+    } catch (error) {
+      if (error instanceof VaultRefused) throw new CallError(error.message, error.status)
+      throw error
+    }
     return { ...(await inspectVault(path)), path }
   },
 

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Harness } from '../../shared/transport.ts'
 import type { Definition } from '../domain/definitions.ts'
 import { transport } from '../transport/index.ts'
+import { useHarnesses } from './diagnosis.tsx'
 import { DEFINITION_LABELS, type DefinitionKind } from './state.ts'
 
 const HARNESSES: readonly Harness[] = ['Claude', 'Codex', 'Opencode']
@@ -27,6 +28,7 @@ export function AgentCard({
   // What the person chose; until they do, the default harness.
   const [chosen, setChosen] = useState<Harness | null>(null)
   const harness = chosen ?? defaultHarness
+  const harnesses = useHarnesses()
   const [working, setWorking] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const label = DEFINITION_LABELS[definition].singular
@@ -82,7 +84,10 @@ export function AgentCard({
             onChange={(e) => setChosen(e.target.value as Harness)}
           >
             {HARNESSES.map((h) => (
-              <option key={h}>{h}</option>
+              <option key={h} value={h} disabled={harnesses.isMissing(h)}>
+                {h}
+                {harnesses.isMissing(h) ? ' (not installed)' : ''}
+              </option>
             ))}
           </select>
         </label>
