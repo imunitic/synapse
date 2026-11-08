@@ -126,7 +126,7 @@
 .confirm {
   margin-top: 8px;
   padding: 12px;
-  border: 1px solid var(--border, rgba(127, 127, 127, 0.3));
+  border: 1px solid var(--border);
   border-radius: 6px;
 }
 
@@ -2071,4 +2071,35 @@ div.activity-row {
 .past-session > .muted:last-of-type {
   min-width: 6.5em;
   text-align: right;
+}
+
+.tab[draggable='true'] {
+  cursor: grab;
+}
+
+.tab[data-dragging] {
+  opacity: 0.45;
+}
+
+/* Where a dragged tab would land: a line on the side of the tab it is dropped beside. */
+.tab[data-drop='before'] {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.tab[data-drop='after'] {
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+
+.tab-confirm {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.tab-confirm span {
+  flex: 1;
 }

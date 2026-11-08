@@ -48,6 +48,7 @@ export function Shell() {
                 visible={active?.page.kind === 'terminals'}
                 onSelect={(id) => dispatch({ type: 'selectTerminal', id })}
                 onClose={(id) => dispatch({ type: 'closeTerminal', id })}
+                onEnded={(id) => dispatch({ type: 'terminalEnded', id })}
                 onNew={() =>
                   dispatch({
                     type: 'openTerminal',

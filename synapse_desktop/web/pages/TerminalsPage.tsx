@@ -96,10 +96,12 @@ function TerminalView({
   session,
   visible,
   onClose,
+  onEnded,
 }: {
   session: TerminalSession
   visible: boolean
   onClose: () => void
+  onEnded: () => void
 }) {
   const host = useRef<HTMLDivElement>(null)
   const fit = useRef<FitAddon | null>(null)
@@ -165,11 +167,13 @@ function TerminalView({
             terminal.write(`\r\n\x1b[2m[the program ended with code ${code}]\x1b[0m\r\n`)
             handle = null
             setEnded(true)
+            onEnded()
           },
           onError: (message) => {
             terminal.write(`\r\n\x1b[31m${message}\x1b[0m\r\n`)
             handle = null
             setEnded(true)
+            onEnded()
           },
           onTranscript: (event: TerminalTranscript) => {
             setFollowed((all) =>
@@ -235,6 +239,7 @@ export function TerminalsPage({
   visible,
   onSelect,
   onClose,
+  onEnded,
   onNew,
 }: {
   sessions: readonly TerminalSession[]
@@ -242,6 +247,7 @@ export function TerminalsPage({
   visible: boolean
   onSelect: (id: string) => void
   onClose: (id: string) => void
+  onEnded: (id: string) => void
   onNew: () => void
 }) {
   return (
@@ -275,6 +281,7 @@ export function TerminalsPage({
           session={session}
           visible={visible && session.id === activeId}
           onClose={() => onClose(session.id)}
+          onEnded={() => onEnded(session.id)}
         />
       ))}
     </div>

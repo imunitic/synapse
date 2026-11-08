@@ -380,3 +380,69 @@ describe('tabs', () => {
     expect(state).toMatchObject({ tabs: [], activeId: null })
   })
 })
+
+describe('tabs', () => {
+  const open = (state: ShellState, ...names: string[]) =>
+    names.reduce(
+      (s, name) => reduce(s, { type: 'openPage', page: { kind: 'note', path: `${name}.md` } }),
+      state,
+    )
+  const ids = (state: ShellState) => state.tabs.map((t) => t.id)
+  const home = reduce(initialState, { type: 'openPage', page: { kind: 'home' } })
+
+  it('can be moved, to an index of the list once the tab is taken out', () => {
+    const state = open(home, 'a', 'b', 'c')
+    expect(ids(state)).toEqual(['home', 'note:a.md', 'note:b.md', 'note:c.md'])
+    expect(ids(reduce(state, { type: 'moveTab', id: 'note:c.md', to: 1 }))).toEqual([
+      'home',
+      'note:c.md',
+      'note:a.md',
+      'note:b.md',
+    ])
+    expect(ids(reduce(state, { type: 'moveTab', id: 'note:a.md', to: 3 }))).toEqual([
+      'home',
+      'note:b.md',
+      'note:c.md',
+      'note:a.md',
+    ])
+  })
+
+  it('never go before the Home tab, and the Home tab is not moved', () => {
+    const state = open(home, 'a', 'b')
+    expect(ids(reduce(state, { type: 'moveTab', id: 'note:b.md', to: 0 }))).toEqual([
+      'home',
+      'note:b.md',
+      'note:a.md',
+    ])
+    expect(reduce(state, { type: 'moveTab', id: 'home', to: 2 })).toBe(state)
+  })
+
+  it('keep the state when a tab is put where it is, or is not there', () => {
+    const state = open(home, 'a', 'b')
+    expect(reduce(state, { type: 'moveTab', id: 'note:a.md', to: 1 })).toBe(state)
+    expect(reduce(state, { type: 'moveTab', id: 'note:nope.md', to: 1 })).toBe(state)
+  })
+
+  it('keep the active tab when another is moved', () => {
+    const state = reduce(open(home, 'a', 'b'), { type: 'activateTab', id: 'note:a.md' })
+    expect(reduce(state, { type: 'moveTab', id: 'note:b.md', to: 1 }).activeId).toBe('note:a.md')
+  })
+
+  it('put the Home tab first when it is opened again', () => {
+    const state = reduce(open(home, 'a', 'b'), { type: 'closeTab', id: 'home' })
+    expect(ids(state)).toEqual(['note:a.md', 'note:b.md'])
+    expect(ids(reduce(state, { type: 'openPage', page: { kind: 'home' } }))).toEqual([
+      'home',
+      'note:a.md',
+      'note:b.md',
+    ])
+  })
+
+  it('note a session whose program ended, once', () => {
+    const state = reduce(initialState, { type: 'openTerminal', kind: 'Shell', cwd: '', id: 'a' })
+    const ended = reduce(state, { type: 'terminalEnded', id: 'a' })
+    expect(ended.terminals[0]?.ended).toBe(true)
+    expect(reduce(ended, { type: 'terminalEnded', id: 'a' })).toBe(ended)
+    expect(reduce(state, { type: 'terminalEnded', id: 'nope' })).toBe(state)
+  })
+})

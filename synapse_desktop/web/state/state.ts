@@ -3,6 +3,7 @@
 
 import type { TerminalTask } from '../../shared/transport.ts'
 import { titleOf } from '../domain/notes.ts'
+import { clampIndex } from '../domain/tabs.ts'
 
 export type RailSection = 'definitions' | 'executions' | 'vault' | 'settings'
 
@@ -77,6 +78,8 @@ export interface TerminalSession {
   command?: string
   // The id of a session of the harness that it continues.
   resume?: string
+  // Set when its program has ended, which leaves the tab for the person to read and close.
+  ended?: boolean
 }
 
 export type Page =
@@ -157,6 +160,11 @@ export type Action =
       resume?: string
     }
   | { type: 'selectTerminal'; id: string }
+  // The program of a session ended.
+  | { type: 'terminalEnded'; id: string }
+  // A tab is put at `to`, its index in the list of tabs once it is taken out. The Home tab stays
+  // first, and nothing goes before it.
+  | { type: 'moveTab'; id: string; to: number }
   | { type: 'closeTerminal'; id: string }
   // A definition was changed: the lists are read again.
   | { type: 'definitionsChanged' }
@@ -228,9 +236,13 @@ export function reduce(state: ShellState, action: Action): ShellState {
 
     case 'openPage': {
       const id = pageId(action.page)
+      // The Home tab is the first tab, wherever it was closed from.
+      const added = { id, page: action.page }
       const tabs = state.tabs.some((t) => t.id === id)
         ? state.tabs
-        : [...state.tabs, { id, page: action.page }]
+        : action.page.kind === 'home'
+          ? [added, ...state.tabs]
+          : [...state.tabs, added]
       return { ...state, tabs, activeId: id }
     }
 
@@ -258,6 +270,26 @@ export function reduce(state: ShellState, action: Action): ShellState {
         activeTerminal: session.id,
         terminalsOpened: opened,
       }
+    }
+
+    case 'terminalEnded':
+      return state.terminals.some((t) => t.id === action.id && t.ended !== true)
+        ? {
+            ...state,
+            terminals: state.terminals.map((t) => (t.id === action.id ? { ...t, ended: true } : t)),
+          }
+        : state
+
+    case 'moveTab': {
+      const from = state.tabs.findIndex((t) => t.id === action.id)
+      const moved = state.tabs[from]
+      if (moved === undefined || action.id === 'home') return state
+      const ids = state.tabs.map((t) => t.id)
+      const to = clampIndex(action.to, ids)
+      if (to === from) return state
+      const tabs = state.tabs.filter((t) => t.id !== action.id)
+      tabs.splice(to, 0, moved)
+      return { ...state, tabs }
     }
 
     case 'selectTerminal':
