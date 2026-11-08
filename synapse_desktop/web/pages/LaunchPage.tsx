@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import type { Harness, PastSession, TerminalKind, Workspace } from '../../shared/transport.ts'
 import { timeAgo } from '../domain/format.ts'
+import { launchView, rememberLaunchView, type LaunchView } from '../domain/launch-view.ts'
 import { workspaceLabel, workspaceNames } from '../domain/workspaces.ts'
 import { useConfig } from '../state/config.tsx'
 import { useHarnesses } from '../state/diagnosis.tsx'
@@ -9,9 +10,6 @@ import { useLoad } from '../state/useLoad.ts'
 import { transport } from '../transport/index.ts'
 
 const HARNESSES: readonly Harness[] = ['Claude', 'Codex', 'Opencode']
-
-// How many past sessions a card shows before it is asked to show the rest.
-const SHOWN = 5
 
 type Start = (kind: TerminalKind, cwd: string, resume?: string) => void
 
@@ -24,43 +22,33 @@ function PastSessionList({
   sessions: readonly PastSession[]
   onStart: Start
 }) {
-  const [all, setAll] = useState(false)
   const now = new Date()
-  if (sessions.length === 0) return null
-  const shown = all ? sessions : sessions.slice(0, SHOWN)
-  const folders = workspaceNames(shown.map((s) => s.path))
+  const folders = workspaceNames(sessions.map((s) => s.path))
   const label = TERMINAL_LABELS[harness]
+  if (sessions.length === 0) return <p className="muted small">No past sessions.</p>
   return (
-    <div className="past-sessions">
-      <h3 className="muted small">Past sessions</h3>
-      <ul className="workspace-list">
-        {shown.map((session, index) => (
-          <li key={session.id} className="past-session">
-            <span className="past-session-title" title={session.title ?? undefined}>
-              {session.title ?? 'No title'}
-            </span>
-            <span className="muted small mono workspace-path" title={session.path}>
-              {folders[index]}
-            </span>
-            {session.lastUsed !== null && (
-              <span className="muted small">{timeAgo(session.lastUsed, now)}</span>
-            )}
-            <button
-              className="secondary"
-              aria-label={`Resume ${label} session ${session.title ?? session.id}`}
-              onClick={() => onStart(harness, session.path, session.id)}
-            >
-              Resume
-            </button>
-          </li>
-        ))}
-      </ul>
-      {sessions.length > SHOWN && (
-        <button className="link" onClick={() => setAll(!all)}>
-          {all ? 'Show fewer' : `Show all ${sessions.length}`}
-        </button>
-      )}
-    </div>
+    <ul className="workspace-list">
+      {sessions.map((session, index) => (
+        <li key={session.id} className="past-session">
+          <span className="past-session-title" title={session.title ?? undefined}>
+            {session.title ?? 'No title'}
+          </span>
+          <span className="muted small mono workspace-path" title={session.path}>
+            {folders[index]}
+          </span>
+          {session.lastUsed !== null && (
+            <span className="muted small">{timeAgo(session.lastUsed, now)}</span>
+          )}
+          <button
+            className="secondary"
+            aria-label={`Resume ${label} session ${session.title ?? session.id}`}
+            onClick={() => onStart(harness, session.path, session.id)}
+          >
+            Resume
+          </button>
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -97,6 +85,76 @@ function ShellCard({ onStart }: { onStart: Start }) {
   )
 }
 
+function FolderList({
+  harness,
+  workspaces,
+  onStart,
+}: {
+  harness: Harness
+  workspaces: readonly Workspace[]
+  onStart: Start
+}) {
+  const label = TERMINAL_LABELS[harness]
+  const [other, setOther] = useState('')
+  const now = new Date()
+  const names = workspaceNames(workspaces.map((w) => w.path))
+  return (
+    <>
+      {workspaces.length === 0 ? (
+        <p className="muted small">No folder yet. Start in one below.</p>
+      ) : (
+        <ul className="workspace-list">
+          {workspaces.map((workspace, index) => {
+            const { parent } = workspaceLabel(workspace.path)
+            return (
+              <li key={workspace.path}>
+                <button
+                  className="workspace"
+                  title={workspace.path}
+                  aria-label={`${label} in ${workspace.path}`}
+                  onClick={() => onStart(harness, workspace.path)}
+                >
+                  <span className="workspace-name">{names[index]}</span>
+                  <span className="muted small mono workspace-path">{parent}</span>
+                  {workspace.lastUsed !== null && (
+                    <span className="muted small">{timeAgo(workspace.lastUsed, now)}</span>
+                  )}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      <form
+        className="launch-form"
+        onSubmit={(event) => {
+          event.preventDefault()
+          if (other.trim() !== '') onStart(harness, other.trim())
+        }}
+      >
+        <label className="field">
+          <span className="muted small">Another folder</span>
+          <input
+            className="mono"
+            value={other}
+            placeholder="/path/to/a/folder"
+            onChange={(event) => setOther(event.target.value)}
+          />
+        </label>
+        <button className="primary" type="submit" disabled={other.trim() === ''}>
+          Start
+        </button>
+      </form>
+      <p className="muted small">A folder it has not worked in is one it may ask to trust.</p>
+    </>
+  )
+}
+
+const VIEWS: readonly { view: LaunchView; label: string }[] = [
+  { view: 'folders', label: 'Folders' },
+  { view: 'sessions', label: 'Sessions' },
+]
+
 function HarnessCard({
   harness,
   workspaces,
@@ -110,9 +168,12 @@ function HarnessCard({
 }) {
   const label = TERMINAL_LABELS[harness]
   const missing = useHarnesses().reason(harness)
-  const [other, setOther] = useState('')
-  const now = new Date()
-  const names = workspaceNames(workspaces.map((w) => w.path))
+  const [view, setView] = useState<LaunchView>(() => launchView(harness))
+  const counts = { folders: workspaces.length, sessions: sessions.length }
+  function choose(next: LaunchView) {
+    setView(next)
+    rememberLaunchView(harness, next)
+  }
   return (
     <section className="card" aria-label={label}>
       <h2 className="card-title">{label}</h2>
@@ -120,53 +181,27 @@ function HarnessCard({
         <p className="muted small">Not found. {missing}</p>
       ) : (
         <>
-          {workspaces.length === 0 ? (
-            <p className="muted small">No folder yet. Start in one below.</p>
-          ) : (
-            <ul className="workspace-list">
-              {workspaces.map((workspace, index) => {
-                const { parent } = workspaceLabel(workspace.path)
-                return (
-                  <li key={workspace.path}>
-                    <button
-                      className="workspace"
-                      title={workspace.path}
-                      aria-label={`${label} in ${workspace.path}`}
-                      onClick={() => onStart(harness, workspace.path)}
-                    >
-                      <span className="workspace-name">{names[index]}</span>
-                      <span className="muted small mono workspace-path">{parent}</span>
-                      {workspace.lastUsed !== null && (
-                        <span className="muted small">{timeAgo(workspace.lastUsed, now)}</span>
-                      )}
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-          <form
-            className="launch-form"
-            onSubmit={(event) => {
-              event.preventDefault()
-              if (other.trim() !== '') onStart(harness, other.trim())
-            }}
-          >
-            <label className="field">
-              <span className="muted small">Another folder</span>
-              <input
-                className="mono"
-                value={other}
-                placeholder="/path/to/a/folder"
-                onChange={(event) => setOther(event.target.value)}
-              />
-            </label>
-            <button className="primary" type="submit" disabled={other.trim() === ''}>
-              Start
-            </button>
-          </form>
-          <p className="muted small">A folder it has not worked in is one it may ask to trust.</p>
-          <PastSessionList harness={harness} sessions={sessions} onStart={onStart} />
+          <div className="subtabs" role="tablist" aria-label={`${label} lists`}>
+            {VIEWS.map(({ view: v, label: name }) => (
+              <button
+                key={v}
+                className="subtab"
+                role="tab"
+                aria-selected={view === v}
+                aria-pressed={view === v}
+                onClick={() => choose(v)}
+              >
+                {name} <span className="muted">{counts[v]}</span>
+              </button>
+            ))}
+          </div>
+          <div role="tabpanel" aria-label={`${label} ${view}`}>
+            {view === 'folders' ? (
+              <FolderList harness={harness} workspaces={workspaces} onStart={onStart} />
+            ) : (
+              <PastSessionList harness={harness} sessions={sessions} onStart={onStart} />
+            )}
+          </div>
         </>
       )}
     </section>

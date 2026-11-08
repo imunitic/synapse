@@ -153,32 +153,88 @@ test('the launch tab stays beside the tab of the sessions', async ({ page }) => 
   await expect(page.getByRole('tab', { name: 'New terminal' })).toBeVisible()
 })
 
-test('past sessions are listed under each harness, the newest first, five and then all', async ({
+// The list of a card that is shown by its tab.
+async function showSessions(page: Page, name: 'Claude Code' | 'Codex' | 'OpenCode') {
+  await launchCard(page, name)
+    .getByRole('tab', { name: /^Sessions/ })
+    .click()
+}
+
+test('each card has two lists in tabs, the folders first, with how many each has', async ({
   page,
 }) => {
   await open(page)
   const claude = launchCard(page, 'Claude Code')
-  const rows = claude.locator('.past-session')
-  await expect(rows).toHaveCount(5)
+  await expect(claude.getByRole('tab', { name: 'Folders 2' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  await expect(claude.getByRole('tab', { name: 'Sessions 7' })).toHaveAttribute(
+    'aria-selected',
+    'false',
+  )
+  // Only the list that is chosen is there.
+  await expect(claude.locator('.workspace')).toHaveCount(2)
+  await expect(claude.locator('.past-session')).toHaveCount(0)
+  await expect(claude.getByLabel('Another folder')).toBeVisible()
+
+  await showSessions(page, 'Claude Code')
+  await expect(claude.getByRole('tab', { name: /^Sessions/ })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  await expect(claude.locator('.workspace')).toHaveCount(0)
+  await expect(claude.getByLabel('Another folder')).toHaveCount(0)
+})
+
+test('past sessions are listed under each harness, the newest first, all of them', async ({
+  page,
+}) => {
+  await open(page)
+  await showSessions(page, 'Claude Code')
+  const rows = launchCard(page, 'Claude Code').locator('.past-session')
+  await expect(rows).toHaveCount(7)
   await expect(rows.nth(0)).toContainText('Claude work 1')
   await expect(rows.nth(0)).toContainText('beta')
   await expect(rows.nth(0)).toContainText('1 day ago')
-  await expect(rows.nth(4)).toContainText('Claude work 5')
-  await claude.getByRole('button', { name: 'Show all 7' }).click()
-  await expect(rows).toHaveCount(7)
-  await claude.getByRole('button', { name: 'Show fewer' }).click()
-  await expect(rows).toHaveCount(5)
+  await expect(rows.nth(6)).toContainText('Claude work 7')
 
+  await showSessions(page, 'Codex')
   await expect(launchCard(page, 'Codex').locator('.past-session')).toContainText(
     'Review the design',
   )
+  await showSessions(page, 'OpenCode')
   const opencode = launchCard(page, 'OpenCode').locator('.past-session')
   await expect(opencode).toHaveCount(1)
   await expect(opencode).toContainText('Tidy the OpenCode notes')
 })
 
+test('a card opens on the list it showed last, for each harness on its own', async ({ page }) => {
+  await open(page)
+  await showSessions(page, 'Codex')
+  await page.reload()
+  await openLaunch(page)
+  await expect(launchCard(page, 'Codex').getByRole('tab', { name: /^Sessions/ })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  await expect(
+    launchCard(page, 'Claude Code').getByRole('tab', { name: /^Folders/ }),
+  ).toHaveAttribute('aria-selected', 'true')
+  await launchCard(page, 'Codex')
+    .getByRole('tab', { name: /^Folders/ })
+    .click()
+  await page.reload()
+  await openLaunch(page)
+  await expect(launchCard(page, 'Codex').getByRole('tab', { name: /^Folders/ })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+})
+
 test('resuming a Claude session continues it in the folder it was held in', async ({ page }) => {
   await open(page)
+  await showSessions(page, 'Claude Code')
   await launchCard(page, 'Claude Code')
     .getByRole('button', { name: 'Resume Claude Code session Claude work 2' })
     .click()
@@ -193,6 +249,7 @@ test('resuming a Codex session and an OpenCode session uses their own commands',
   page,
 }) => {
   await open(page)
+  await showSessions(page, 'Codex')
   await launchCard(page, 'Codex')
     .getByRole('button', { name: 'Resume Codex session Review the design' })
     .click()
@@ -201,6 +258,7 @@ test('resuming a Codex session and an OpenCode session uses their own commands',
   await expect(terminal).toContainText(`cwd: ${folder('gamma')}`)
 
   await page.getByRole('tab', { name: 'New terminal' }).click()
+  await showSessions(page, 'OpenCode')
   await launchCard(page, 'OpenCode')
     .getByRole('button', { name: 'Resume OpenCode session Tidy the OpenCode notes' })
     .click()
