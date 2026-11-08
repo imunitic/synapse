@@ -15,6 +15,8 @@ package body Synapse.Pipeline.Commands.Show.Tests is
 
    package JSON renames Synapse.Core.JSON;
 
+   use type JSON.Kind;
+
    subtype Test_Cases_Class is AUnit.Test_Cases.Test_Case'Class;
 
    LF : constant Character := Character'Val (10);
@@ -399,6 +401,79 @@ package body Synapse.Pipeline.Commands.Show.Tests is
       end;
    end A_Prompt_Can_Be_Had_As_Json_And_Bad_Asks_Are_Errors;
 
+   procedure Outcomes_Are_Reported_For_The_Step_That_Declares_Them
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      F.Files.Add_File
+        ("/defs/Judged.synapse",
+         "Pipeline Judged { A [Harness => Claude, Prompt => ""x"", Outcomes =>"
+         & " {""Approved"": ""Fine."", ""Rejected"": ""Not fine.""}];"
+         & " B [Harness => Claude, Prompt => ""y""]; A -> B [When => Approved];"
+         & " }");
+      Assert
+        (Run (Env (F), Args ("Judged", "--format", "json")) = 0,
+         "it can run: " & F.Base.Console.Err_Text);
+      declare
+         Parsed : constant JSON.Parse_Result :=
+           JSON.Parse (F.Base.Console.Out_Text);
+         Steps  : constant JSON.Value :=
+           JSON.Member_Value (Parsed.Item, "steps");
+         Given  : constant JSON.Value :=
+           JSON.Member_Value (JSON.Element (Steps, 1), "outcomes");
+      begin
+         Assert
+           (JSON.Length (Given) = 2
+            and then JSON.As_String
+                       (JSON.Member_Value (JSON.Element (Given, 2), "word")) =
+                     "Rejected"
+            and then JSON.As_String
+                       (JSON.Member_Value
+                          (JSON.Element (Given, 1), "meaning")) = "Fine.",
+            "the words, in order, with their meanings");
+         Assert
+           (JSON.Kind_Of
+              (JSON.Member_Value (JSON.Element (Steps, 2), "outcomes")) =
+            JSON.JSON_Null,
+            "null for a step that declares none");
+      end;
+      declare
+         G : aliased Fixture;
+      begin
+         Set_Up (G);
+         G.Files.Add_File
+           ("/defs/Judged.synapse",
+            "Pipeline Judged { A [Harness => Claude, Prompt => ""x"", "
+            & "Outcomes => {""Approved"": ""Fine.""}]; }");
+         Assert (Run (Env (G), Args ("Judged")) = 0, "text");
+         Assert
+           (Has (G.Base.Console.Out_Text, "    outcome Approved  Fine." & LF),
+            "a line for each outcome");
+      end;
+   end Outcomes_Are_Reported_For_The_Step_That_Declares_Them;
+
+   procedure A_Steps_Prompt_Lists_Its_Outcomes (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      F.Files.Add_File
+        ("/defs/Judged.synapse",
+         "Pipeline Judged { A [Harness => Claude, Prompt => ""x"", Outcomes =>"
+         & " {""Approved"": ""Fine."", ""Rejected"": ""Not fine.""}]; }");
+      Assert
+        (Run (Env (F), Args ("Judged", "--step", "A")) = 0,
+         "the prompt: " & F.Base.Console.Err_Text);
+      Assert
+        (Has (F.Base.Console.Out_Text,
+              "- Approved: Fine." & LF & "- Rejected: Not fine." & LF)
+         and then not Has (F.Base.Console.Out_Text, "<one word>"),
+         "the words and meanings replace the free word");
+   end A_Steps_Prompt_Lists_Its_Outcomes;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -436,6 +511,12 @@ package body Synapse.Pipeline.Commands.Show.Tests is
       Register_Routine
         (T, A_Pipeline_Names_Its_Kind_And_File'Access,
          "A pipeline names its kind and file");
+      Register_Routine
+        (T, Outcomes_Are_Reported_For_The_Step_That_Declares_Them'Access,
+         "Outcomes are reported for the step that declares them");
+      Register_Routine
+        (T, A_Steps_Prompt_Lists_Its_Outcomes'Access,
+         "A step's prompt lists its outcomes");
       Register_Routine
         (T, A_Step_Is_Shown_As_The_Prompt_It_Starts_With'Access,
          "A step is shown as the prompt it starts with");

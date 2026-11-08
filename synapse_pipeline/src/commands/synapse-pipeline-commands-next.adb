@@ -1,12 +1,14 @@
 with Ada.Strings.Unbounded;
 
 with Synapse.Core.JSON;
+with Synapse.Core.Optional_Text;
 with Synapse.Pipeline.Commands.Loading;
 with Synapse.Pipeline.Commands.Usage;
 with Synapse.Pipeline.Configs;
 with Synapse.Pipeline.Engine;
 with Synapse.Pipeline.Envelopes;
 with Synapse.Pipeline.File_System;
+with Synapse.Pipeline.Outcomes;
 with Synapse.Pipeline.Resolved;
 with Synapse.Pipeline.Search_Paths;
 with Synapse.Pipeline.States;
@@ -22,6 +24,19 @@ package body Synapse.Pipeline.Commands.Next is
 
    Usage : constant String :=
      Commands.Usage.Synopsis (Commands.Usage.Next_Help);
+
+   --  The outcomes the step called Step_Name declares, null when it declares
+   --  none or is not there.
+   function Outcomes_Of
+     (Item : Resolved.Pipeline; Step_Name : String) return JSON.Value is
+   begin
+      for S of Item.Steps loop
+         if To_String (S.Name) = Step_Name then
+            return S.Outcomes;
+         end if;
+      end loop;
+      return JSON.Null_Value;
+   end Outcomes_Of;
 
    --  The text of a file, or of standard input for `-`. Says what is wrong
    --  and leaves Ok False when it cannot be read.
@@ -195,6 +210,21 @@ package body Synapse.Pipeline.Commands.Next is
                      & LF);
                   return 1;
                end if;
+               declare
+                  Broken : constant Synapse.Core.Optional_Text.Option :=
+                    Outcomes.Violation
+                      (Outcomes_Of (Item, To_String (Run_State.Current_Step)),
+                       To_String
+                         (Envelopes.Envelope_Results.Value (Read).Outcome));
+               begin
+                  if Broken.Found then
+                     Complain
+                       (Env,
+                        "error: --result is not a valid result: "
+                        & To_String (Broken.Value) & LF);
+                     return 1;
+                  end if;
+               end;
                Output :=
                  Envelopes.To_JSON (Envelopes.Envelope_Results.Value (Read));
             end;

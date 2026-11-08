@@ -277,6 +277,66 @@ package body Synapse.Pipeline.Commands.Next.Tests is
       Assert (Has (Usage.Text, LF & "  next <pipeline>"), "listed");
    end Next_Is_In_The_Usage;
 
+   procedure A_Result_Off_The_Declared_Outcomes_Is_An_Error_And_No_Output
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      F.Files.Add_File
+        ("/defs/Judged.synapse",
+         "Pipeline Judged { Judge [Harness => Claude, Prompt => ""Judge."","
+         & " Outcomes => {""Approved"": ""Fine."", ""Rejected"": ""No.""}];"
+         & " Fix [Harness => Claude, Prompt => ""Fix.""];"
+         & " Judge -> Fix [When => Rejected]; }");
+      Assert (Run (Env (F), Args ("Judged")) = 0, "a run starts");
+      declare
+         G : aliased Fixture;
+      begin
+         Set_Up (G);
+         G.Files.Add_File
+           ("/defs/Judged.synapse",
+            "Pipeline Judged { Judge [Harness => Claude, Prompt => ""Judge."","
+            & " Outcomes => {""Approved"": ""Fine."", ""Rejected"": ""No.""}];"
+            & " Fix [Harness => Claude, Prompt => ""Fix.""];"
+            & " Judge -> Fix [When => Rejected]; }");
+         G.Files.Add_File ("/state.json", F.Base.Console.Out_Text);
+         G.Files.Add_File ("/bad.json", Done ("Maybe", "unsure"));
+         G.Files.Add_File ("/good.json", Done ("Rejected", "no good"));
+         Assert
+           (Run (Env (G),
+                 Args ("Judged", "--state", "/state.json", "--result",
+                       "/bad.json")) = 1
+            and then G.Base.Console.Out_Text = ""
+            and then Has
+                       (G.Base.Console.Err_Text,
+                        "--result is not a valid result: the outcome "
+                        & "'Maybe' is not one this step declares: Approved, "
+                        & "Rejected"),
+            "a word the step did not declare: " & G.Base.Console.Err_Text);
+      end;
+      declare
+         G : aliased Fixture;
+      begin
+         Set_Up (G);
+         G.Files.Add_File
+           ("/defs/Judged.synapse",
+            "Pipeline Judged { Judge [Harness => Claude, Prompt => ""Judge."","
+            & " Outcomes => {""Approved"": ""Fine."", ""Rejected"": ""No.""}];"
+            & " Fix [Harness => Claude, Prompt => ""Fix.""];"
+            & " Judge -> Fix [When => Rejected]; }");
+         G.Files.Add_File ("/state.json", F.Base.Console.Out_Text);
+         G.Files.Add_File ("/good.json", Done ("Rejected", "no good"));
+         Assert
+           (Run (Env (G),
+                 Args ("Judged", "--state", "/state.json", "--result",
+                       "/good.json")) = 0
+            and then Has (G.Base.Console.Out_Text, """current_step"":""Fix"""),
+            "a declared word goes on: " & G.Base.Console.Err_Text);
+      end;
+   end A_Result_Off_The_Declared_Outcomes_Is_An_Error_And_No_Output;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -288,6 +348,10 @@ package body Synapse.Pipeline.Commands.Next.Tests is
    procedure Register_Tests (T : in out Test_Case) is
       use AUnit.Test_Cases.Registration;
    begin
+      Register_Routine
+        (T,
+         A_Result_Off_The_Declared_Outcomes_Is_An_Error_And_No_Output'Access,
+         "A result off the declared outcomes is an error and no output");
       Register_Routine
         (T, It_Takes_An_Input_Or_A_State_And_Result'Access,
          "It takes a pipeline and either an input or a state and result");

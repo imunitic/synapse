@@ -18,7 +18,8 @@ package body Synapse.Pipeline.Commands.Loading is
       Ok          : out Boolean;
       Item        : out Resolved.Pipeline;
       File        : out Unbounded_String;
-      Skill_Roots : out Search_Paths.Root_Vectors.Vector)
+      Skill_Roots : out Search_Paths.Root_Vectors.Vector;
+      Advise      : Boolean := False)
    is
       Default : constant Harnesses.Default_Results.Result :=
         Harnesses.Default (Env.Vars.all);
@@ -50,6 +51,11 @@ package body Synapse.Pipeline.Commands.Loading is
                Complain (Env, "error: " & Source_Errors.Image (P) & LF);
             end loop;
             return;
+         end if;
+         if Advise then
+            for P of Validation.Advise (Report.Definitions, Name) loop
+               Complain (Env, Definitions.Warning (P) & LF);
+            end loop;
          end if;
          declare
             Made : constant Resolution.Resolve_Results.Result :=

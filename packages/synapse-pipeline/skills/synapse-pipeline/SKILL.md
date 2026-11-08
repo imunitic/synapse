@@ -34,8 +34,9 @@ A pipeline that stands alone is one file, with the role at the start of each ste
 ```
 -- Develop_Feature.synapse
 Pipeline Develop_Feature {
-   Develop [Harness => Claude, Prompt => "You are a careful engineer. Implement the supplied task and change nothing else. Report the outcome Done."];
-   Review  [Harness => Codex, Permissions => Read_Only, Prompt => "You are a reviewer. Find what is wrong with the change; do not fix it. Report the outcome Approved, or Changes_Requested with the problems in data."];
+   Develop [Harness => Claude, Prompt => "You are a careful engineer. Implement the supplied task and change nothing else."];
+   Review  [Harness => Codex, Permissions => Read_Only, Prompt => "You are a reviewer. Find what is wrong with the change; do not fix it. Put the problems in data.",
+            Outcomes => {"Approved": "Every requirement is met and the tests pass. Choose this only if you found nothing to fix.", "Changes_Requested": "At least one requirement is unmet or a test fails. List each problem in data.problems."}];
    Review -> Develop [When => Changes_Requested, Max_Iterations => 5];
 }
 ```
@@ -45,7 +46,8 @@ A pipeline that should stop when a condition is not met ends early by routing to
 ```
 -- Ready_Gate.synapse
 Pipeline Ready_Gate {
-   Check [Harness => Claude, Permissions => Read_Only, Prompt => "Look at the design note. Report the outcome Ready if its status is Ready, otherwise Discussing."];
+   Check [Harness => Claude, Permissions => Read_Only, Prompt => "Look at the design note and say whether it is ready to build.",
+          Outcomes => {"Ready": "The note's status is Ready and its Open Questions section is empty.", "Discussing": "The status is anything other than Ready, or a question is still open."}];
    Build [Harness => Claude, Prompt => "Implement the design note."];
    Check -> End [When => Discussing];
 }
@@ -85,6 +87,7 @@ Pipeline Review_Change {
 | `Permissions` | step, system | `Read_Only`, `Workspace_Write` (default) or `Full_Access` |
 | `Timeout` | step, system | quoted duration: `"90s"`, `"30m"`, `"2h"` (default 30 minutes) |
 | `Retries` | step, system | integer: extra tries after an execution error or an invalid result |
+| `Outcomes` | step, system | JSON object from each outcome word to a one-line meaning (optional, see below) |
 | `When` | edge | outcome name, or a JsonLogic rule |
 | `Max_Iterations` | edge | integer, at least 1 |
 
@@ -94,7 +97,7 @@ How a step is built: its own attributes override its system's; a `Prompt` or `Sk
 
 Every step ends with one result, `{"outcome": "<Word>", "summary": "<text>", "data": {...}}`. `outcome` is a single word naming what happened, `summary` is for a person, `data` is an object (empty when nothing is handed on). Any other member makes the result invalid. The next step is given the pipeline's input and the previous step's result.
 
-**The agent never picks the next step; guards on the outcome do.** So every step's prompt must state the exact outcome words it may report and when, using the same spelling as the `When` guards that route on them. A guard that names a word no step reports never fires. Say which fields `data` holds when a later step or guard reads them.
+**The agent never picks the next step; guards on the outcome do.** So the words a step may report must match the words its `When` guards test, and a guard that names a word no step reports never fires. The safe way is to give the step `Outcomes`, a JSON object from each word to a line saying what it means: the program then puts the words and meanings into the step's prompt itself, `check` rejects a guard that tests a word the step does not declare, and an answer with another word fails as a contract failure and is tried again as `Retries` says. A prompt or skill need not name the words, so one skill can serve pipelines that use different words. A word is a letter, then letters, digits and underscores. The meaning is the only guidance the session gets on when to choose the word, so write the condition for choosing it, not a restatement of the word (not `Done: It is done.`), and say what `data` holds when something reads it. A step takes its own `Outcomes`, else its system's; an agent has none. `Outcomes` is optional, but use it on every step whose outcome an edge tests: `check` warns when a step has such edges and declares none. Without `Outcomes` the outcome is any word, and the step's prompt must state the exact words it may report and when, spelled as in the `When` guards. Say which fields `data` holds when a later step or guard reads them.
 
 - `When => Changes_Requested` is shorthand for `{"==": [{"var": "outcome"}, "Changes_Requested"]}`.
 - `When => {">": [{"var": "data.failing"}, 0]}` is a JsonLogic rule over `outcome`, `summary` and `data` only; a missing field reads as `null`; a `var` path follows object members, not list positions. It must give true or false.

@@ -32,13 +32,20 @@ package body Synapse.Pipeline.Engine.Tests is
 
    procedure Add_Step
      (P : in out Resolved.Pipeline; Name : String; Retries : Natural := 0;
-      Timeout : Natural := 0) is
+      Timeout : Natural := 0; Outcomes : String := "") is
    begin
       P.Steps.Append
         (Resolved.Step'
            (Name => To_Unbounded_String (Name), Harness => Harnesses.Claude,
-            Retries => Retries, Timeout_Seconds => Timeout, others => <>));
+            Retries => Retries, Timeout_Seconds => Timeout,
+            Outcomes =>
+              (if Outcomes = "" then JSON.Null_Value
+               else JSON.Parse (Outcomes).Item),
+            others => <>));
    end Add_Step;
+
+   Two_Outcomes : constant String :=
+     "{""Done"": ""It is done."", ""Blocked"": ""It cannot go on.""}";
 
    procedure Add_Edge
      (P : in out Resolved.Pipeline; From, To : String; Guard : String := "";
@@ -605,6 +612,90 @@ package body Synapse.Pipeline.Engine.Tests is
       Assert (Final.Status = States.Completed, "and the run is complete");
    end A_Run_Ends_At_End_Without_Running_The_Rest;
 
+   procedure An_Undeclared_Outcome_Is_A_Bad_Result_And_Is_Retried
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P : Resolved.Pipeline;
+   begin
+      Add_Step (P, "A", Retries => 1, Outcomes => Two_Outcomes);
+      declare
+         R : Scripted_Runners.Scripted_Runner :=
+           Runner_For
+             ("{""A"":[" & Done ("Dnoe") & "," & Done ("Blocked") & "]}");
+         Run : constant States.State :=
+           Execute_Step (P, Start (P), Settings, R);
+      begin
+         Assert
+           (Run.Status = States.Completed
+            and then Scripted_Runners.Remaining (R, "A") = 0,
+            "the wrong word was tried again and the right one taken");
+      end;
+   end An_Undeclared_Outcome_Is_A_Bad_Result_And_Is_Retried;
+
+   procedure A_Step_That_Keeps_Answering_Off_Its_Outcomes_Fails_The_Run
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P : Resolved.Pipeline;
+   begin
+      Add_Step (P, "A", Outcomes => Two_Outcomes);
+      declare
+         R : Scripted_Runners.Scripted_Runner :=
+           Runner_For ("{""A"":[" & Done ("Approved") & "]}");
+         Run : constant States.State :=
+           Execute_Step (P, Start (P), Settings, R);
+      begin
+         Assert
+           (Run.Status = States.Failed
+            and then Run.Failure.Kind = Failures.Result_Contract_Failure
+            and then To_String (Run.Failure.Step) = "A"
+            and then Ada.Strings.Fixed.Index
+                       (To_String (Run.Failure.Message),
+                        "the outcome 'Approved' is not one this step "
+                        & "declares: Done, Blocked") > 0,
+            "the failure names the word and the ones there are");
+      end;
+   end A_Step_That_Keeps_Answering_Off_Its_Outcomes_Fails_The_Run;
+
+   procedure A_Step_Without_Outcomes_Takes_Any_Word (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P : Resolved.Pipeline;
+   begin
+      Add_Step (P, "A");
+      declare
+         R : Scripted_Runners.Scripted_Runner :=
+           Runner_For ("{""A"":[" & Done ("Anything_At_All") & "]}");
+         Run : constant States.State :=
+           Execute_Step (P, Start (P), Settings, R);
+      begin
+         Assert (Run.Status = States.Completed, "any word will do");
+      end;
+   end A_Step_Without_Outcomes_Takes_Any_Word;
+
+   procedure A_Result_Handed_In_From_Outside_Is_Held_To_The_Outcomes_Too
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P : Resolved.Pipeline;
+   begin
+      Add_Step (P, "A", Outcomes => Two_Outcomes);
+      declare
+         Bad  : constant States.State :=
+           Advance (P, Start (P), JSON.Parse (Done ("Approved")).Item);
+         Good : constant States.State :=
+           Advance (P, Start (P), JSON.Parse (Done ("Done")).Item);
+      begin
+         Assert
+           (Bad.Status = States.Failed
+            and then Bad.Failure.Kind = Failures.Result_Contract_Failure
+            and then Bad.Steps_Run = 0,
+            "an undeclared word fails the run without moving it");
+         Assert (Good.Status = States.Completed, "a declared one goes on");
+      end;
+   end A_Result_Handed_In_From_Outside_Is_Held_To_The_Outcomes_Too;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -628,6 +719,18 @@ package body Synapse.Pipeline.Engine.Tests is
       Register_Routine
         (T, A_Step_Is_Retried_After_An_Error_Or_A_Bad_Result'Access,
          "A step is retried after an error or a bad result");
+      Register_Routine
+        (T, An_Undeclared_Outcome_Is_A_Bad_Result_And_Is_Retried'Access,
+         "An undeclared outcome is a bad result and is retried");
+      Register_Routine
+        (T, A_Step_That_Keeps_Answering_Off_Its_Outcomes_Fails_The_Run'Access,
+         "A step that keeps answering off its outcomes fails the run");
+      Register_Routine
+        (T, A_Step_Without_Outcomes_Takes_Any_Word'Access,
+         "A step without outcomes takes any word");
+      Register_Routine
+        (T, A_Result_Handed_In_From_Outside_Is_Held_To_The_Outcomes_Too'Access,
+         "A result handed in from outside is held to the outcomes too");
       Register_Routine
         (T, A_Step_Out_Of_Retries_Fails_The_Run'Access,
          "A step out of retries fails the run");

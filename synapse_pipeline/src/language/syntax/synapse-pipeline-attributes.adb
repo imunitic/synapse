@@ -4,6 +4,7 @@ with Synapse.Pipeline.Durations;
 with Synapse.Pipeline.Guards;
 with Synapse.Pipeline.Harnesses;
 with Synapse.Pipeline.Limits;
+with Synapse.Pipeline.Outcomes;
 with Synapse.Pipeline.Permission_Levels;
 with Synapse.Pipeline.Skills;
 
@@ -58,6 +59,9 @@ package body Synapse.Pipeline.Attributes is
            (True, [Edge_Context => True, others => False],
             [Syntax.Name_Value | Syntax.JSON_Value => True,
              others => False]);
+      elsif Name = "Outcomes" then
+         return
+           (True, Both, [Syntax.JSON_Value => True, others => False]);
       elsif Name = "Max_Iterations" then
          return
            (True, [Edge_Context => True, others => False],
@@ -173,6 +177,11 @@ package body Synapse.Pipeline.Attributes is
            (Item,
             "'Max_Iterations' is at most"
             & Natural'Image (Limits.Largest_Repeat));
+      elsif Name = "Outcomes"
+        and then Outcomes.Problem (Item.Item.Json).Found
+      then
+         return At_Value
+           (Item, To_String (Outcomes.Problem (Item.Item.Json).Value));
       elsif Name = "When" and then Item.Item.Kind = Syntax.JSON_Value
         and then Guards.Problem (Item.Item.Json).Found
       then

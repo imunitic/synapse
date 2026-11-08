@@ -133,7 +133,8 @@ package body Synapse.Pipeline.Process_Runners is
               Assignment      => To_String (Task_Text),
               Step            => To_String (Step.Name),
               Initial_Input   => Request.Initial_Input,
-              Previous_Output => Request.Previous_Output);
+              Previous_Output => Request.Previous_Output,
+              Outcomes        => Step.Outcomes);
          Made   : constant Commands.Command_Results.Result :=
            Commands.Build
              (Harness, Step, Prompt,

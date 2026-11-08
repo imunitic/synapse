@@ -85,8 +85,9 @@ for a usage error.
 2. **Run the first step.** A session of the step's harness is started with a prompt made of the
    agent's role, the step's instructions, the pipeline's input, the previous step's result, and the
    contract for the answer. See [Harnesses](#harnesses).
-3. **Check the answer.** It must be one JSON object `{"outcome", "summary", "data"}`. An answer that
-   is not is a `result_contract_failure`.
+3. **Check the answer.** It must be one JSON object `{"outcome", "summary", "data"}`, and when the
+   step declares `Outcomes` its outcome must be one of them. An answer that is not is a
+   `result_contract_failure`.
 4. **Choose the next step.** The edges leaving the step are tried in the order they were written; the
    first whose guard holds is taken. When none is, the next declared step runs, and after the last the
    run is complete, as it is when an edge leads to `End`. The agent never decides this: it reports what
@@ -204,8 +205,9 @@ The state is the document `state` answers with over the socket (`synapse-pipelin
 `status` says whether the run is going, completed or failed. The result is the object
 `{"outcome", "summary", "data"}` a step ends with. `next` checks the result as `run` does, applies the
 edges, guards, `Max_Iterations` and the step ceiling exactly as `run` does, and exits 0 whenever it
-prints a state, so a failed run is a state with `status` `failed`. A result that is not valid, or a
-state of another pipeline or of a run that is over, prints nothing and exits 1.
+prints a state, so a failed run is a state with `status` `failed`. A result that is not valid, including an
+outcome the step does not declare, or a state of another pipeline or of a run that is over, prints
+nothing and exits 1.
 
 The `synapse-pipeline-execute` skill, installed by `synapse-pipeline-setup configure <harness>` with
 the skill for writing pipelines, tells the agent to do this: one fresh subagent per step, with the
@@ -237,7 +239,10 @@ Review
 `show` describes a pipeline that is not running, with the document a run answers `pipeline` with:
 `show Develop_Feature --format json` prints it as JSON, and without `--format` the same information is
 laid out for a person. The pipeline is found and validated as `check` does, and one that cannot run
-prints nothing on standard output.
+prints nothing on standard output. Each step reports the `outcomes` it declares. `show <system>` and
+`show <agent>` describe that definition and the definitions that use it, and `show <pipeline> --step
+<step>` prints the prompt the step is started with, a marked slot standing for the result of the step
+before. `definitions` lists every definition with its file and the files that did not load.
 
 `list` shows the runs that are going. A run that has ended, or that died without cleaning up, is not
 shown. `info --format json` gives the answer as JSON, and `--query` takes a

@@ -235,6 +235,20 @@ package body Synapse.Pipeline.Commands.Show is
                & "    role " & Instruction_Line (S, "role") & LF
                & "    assignment " & Instruction_Line (S, "assignment") & LF);
             declare
+               Declared : constant JSON.Value :=
+                 JSON.Member_Value (S, "outcomes");
+            begin
+               for K in 1 .. (if JSON.Kind_Of (Declared) = JSON.JSON_Array
+                              then JSON.Length (Declared) else 0)
+               loop
+                  Append
+                    (Result,
+                     "    outcome "
+                     & Text_Of (JSON.Element (Declared, K), "word") & "  "
+                     & Text_Of (JSON.Element (Declared, K), "meaning") & LF);
+               end loop;
+            end;
+            declare
                Origins : constant JSON.Value :=
                  JSON.Member_Value (S, "origins");
             begin
@@ -378,7 +392,8 @@ package body Synapse.Pipeline.Commands.Show is
                        Previous_Output =>
                          (if Index = Item.Steps.First_Index
                           then JSON.Null_Value
-                          else JSON.Make_String (Slot)));
+                          else JSON.Make_String (Slot)),
+                       Outcomes        => Chosen.Outcomes);
                begin
                   Say
                     (Env,
