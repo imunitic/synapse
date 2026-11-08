@@ -50,7 +50,7 @@
 
 /* Side panel */
 .panel {
-  width: clamp(15rem, 20vw, 17rem);
+  width: clamp(16.5rem, 21vw, 18rem);
   flex: none;
   display: flex;
   flex-direction: column;
@@ -86,6 +86,13 @@
   flex-wrap: wrap;
   gap: 4px;
   padding: 0 14px 10px;
+}
+
+/* The kinds of definition are four words in a row, which the panel has the width for. */
+.panel .subtabs {
+  flex-wrap: nowrap;
+  gap: 2px;
+  padding-inline: 10px;
 }
 
 .subtab {
@@ -1016,6 +1023,12 @@ div.activity-row {
   min-width: 0;
 }
 
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .field input {
   width: 100%;
   max-width: 32.5rem;
@@ -1415,8 +1428,26 @@ div.activity-row {
   font-weight: 600;
 }
 
-.page.note {
-  max-width: 51.25rem;
+.properties-box {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.properties-box > summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.properties-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .properties {
@@ -1425,9 +1456,7 @@ div.activity-row {
   gap: 4px 16px;
   margin: 0;
   padding: 12px 16px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border-top: 1px solid var(--border);
 }
 
 .properties dd {
@@ -1686,12 +1715,6 @@ div.activity-row {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-}
-
-.graph-page .field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }
 
 .graph-page .confirm .field {

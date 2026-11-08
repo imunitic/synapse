@@ -299,7 +299,7 @@ test('a vault is made from a folder that is not there, with an Index.md', async 
   const vault = join(root, 'my', 'vault')
   try {
     await openVaultSettings(page)
-    const section = page.getByLabel('Vault', { exact: true })
+    const section = page.getByLabel('Vault folder', { exact: true })
     await section.getByPlaceholder('/path/to/a/vault').fill(vault)
     // A folder that is not there cannot be used as it is, and can be made.
     await expect(section.getByRole('button', { name: 'Use this vault' })).toBeDisabled()
@@ -319,7 +319,7 @@ test('a folder with notes gets an Index.md and keeps its notes', async ({ page }
   writeFileSync(join(root, 'notes', 'one.md'), '# one\n')
   try {
     await openVaultSettings(page)
-    const section = page.getByLabel('Vault', { exact: true })
+    const section = page.getByLabel('Vault folder', { exact: true })
     await section.getByPlaceholder('/path/to/a/vault').fill(root)
     await section.getByRole('button', { name: 'Add an Index.md and use it' }).click()
     await expect(section.getByText(root, { exact: true }).first()).toBeVisible()

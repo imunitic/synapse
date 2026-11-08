@@ -14,6 +14,7 @@ import {
   wikilinkTarget,
   withoutTitleHeading,
 } from '../domain/notes.ts'
+import { noteSummary } from '../domain/note-summary.ts'
 import { recordOpened } from '../domain/recent.ts'
 import { transport } from '../transport/index.ts'
 import { EditNote } from '../components/EditNote.tsx'
@@ -94,6 +95,7 @@ export function NotePage({ path, onOpen }: { path: string; onOpen: (page: Page) 
   }
   const { title, frontmatter } = note.state.data
   const properties = Object.entries(frontmatter ?? {}).filter(([key]) => key !== 'title')
+  const summary = noteSummary(frontmatter, new Date())
 
   return (
     <div className="page note">
@@ -106,11 +108,28 @@ export function NotePage({ path, onOpen }: { path: string; onOpen: (page: Page) 
         <EditNote path={path} title={title} onChanged={note.reload} />
       )}
       {properties.length > 0 && (
-        <dl className="properties" aria-label="Properties">
-          {properties.map(([key, value]) => (
-            <Property key={key} name={key} value={value} />
-          ))}
-        </dl>
+        <details className="properties-box" aria-label="Properties">
+          <summary>
+            <span className="muted small">Properties</span>
+            <span className="properties-line">
+              {summary.id !== null && <span className="mono">{summary.id}</span>}
+              {summary.status !== null && <span className="chip-plain">{summary.status}</span>}
+              {summary.updated !== null && (
+                <span className="muted small">updated {summary.updated}</span>
+              )}
+              {summary.tags.map((tag) => (
+                <span key={tag} className="chip-plain">
+                  {tag}
+                </span>
+              ))}
+            </span>
+          </summary>
+          <dl className="properties">
+            {properties.map(([key, value]) => (
+              <Property key={key} name={key} value={value} />
+            ))}
+          </dl>
+        </details>
       )}
       <article className="note-body">
         <Markdown

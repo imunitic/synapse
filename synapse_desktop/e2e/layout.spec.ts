@@ -79,8 +79,8 @@ test('the side panel is a width that leaves the page room', async ({ page }) => 
   await page.goto('/')
   await openSection(page, 'Definitions')
   const panel = await sidePanel(page).boundingBox()
-  expect(panel!.width).toBeGreaterThanOrEqual(260)
-  expect(panel!.width).toBeLessThanOrEqual(310)
+  expect(panel!.width).toBeGreaterThanOrEqual(290)
+  expect(panel!.width).toBeLessThanOrEqual(330)
 })
 
 test('the texts name what is there: the Terminals page, not a panel that is gone', async ({
@@ -95,4 +95,49 @@ test('the texts name what is there: the Terminals page, not a panel that is gone
   await page.getByRole('button', { name: 'Close Home' }).click()
   await page.getByRole('button', { name: 'Close Terminals settings' }).click()
   await expect(page.getByText('Open a page from the rail or the side panel.')).toBeVisible()
+})
+
+test('every button of the rail says what it is when the pointer rests on it', async ({ page }) => {
+  await page.goto('/')
+  const buttons = await page.getByRole('navigation', { name: 'Sections' }).getByRole('button').all()
+  expect(buttons).toHaveLength(8)
+  for (const button of buttons) {
+    const name = await button.getAttribute('aria-label')
+    expect(name).not.toBeNull()
+    await expect(button).toHaveAttribute('title', name!)
+  }
+})
+
+test('a form puts its label above its input, on the Terminals page and in the settings', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Terminals', exact: true }).click()
+  for (const label of ['Start in', 'Another folder']) {
+    const field = page.getByLabel(label).first()
+    const text = page.locator('label.field', { has: field }).locator('span').first()
+    const above = await text.boundingBox()
+    const input = await field.boundingBox()
+    expect(above!.y + above!.height).toBeLessThanOrEqual(input!.y + 1)
+  }
+})
+
+test('the page of the vault does not call its first card by its own name', async ({ page }) => {
+  await page.goto('/')
+  await openSection(page, 'Settings')
+  await page.locator('.settings-item').filter({ hasText: 'Vault' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Vault' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 2, name: 'Vault folder' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Vault', exact: true })).toHaveCount(1)
+})
+
+test('the kinds of definition stay in one row in the side panel', async ({ page }) => {
+  await page.goto('/')
+  await openSection(page, 'Definitions')
+  const tops = await sidePanel(page)
+    .getByRole('group', { name: 'Kind of definition' })
+    .getByRole('button')
+    .evaluateAll((buttons) => buttons.map((b) => Math.round(b.getBoundingClientRect().top)))
+  expect(tops).toHaveLength(4)
+  expect(new Set(tops).size).toBe(1)
 })

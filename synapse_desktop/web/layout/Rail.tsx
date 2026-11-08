@@ -24,6 +24,7 @@ export function Rail({ state, dispatch }: { state: ShellState; dispatch: Dispatc
       <button
         className="rail-button"
         aria-label="Show or hide the side panel"
+        title="Show or hide the side panel"
         aria-pressed={state.panelOpen}
         onClick={() => dispatch({ type: 'togglePanel' })}
       >
@@ -32,6 +33,7 @@ export function Rail({ state, dispatch }: { state: ShellState; dispatch: Dispatc
       <button
         className="rail-button"
         aria-label="Home"
+        title="Home"
         aria-pressed={state.activeId === 'home'}
         onClick={() => dispatch({ type: 'openPage', page: { kind: 'home' } })}
       >
@@ -40,6 +42,7 @@ export function Rail({ state, dispatch }: { state: ShellState; dispatch: Dispatc
       <button
         className="rail-button"
         aria-label="Code graph"
+        title="Code graph"
         aria-pressed={state.activeId === 'graph'}
         onClick={() => dispatch({ type: 'openPage', page: { kind: 'graph' } })}
       >
@@ -48,6 +51,7 @@ export function Rail({ state, dispatch }: { state: ShellState; dispatch: Dispatc
       <button
         className="rail-button"
         aria-label="Terminals"
+        title="Terminals"
         aria-pressed={state.activeId === 'launch' || state.activeId === 'terminals'}
         onClick={() => dispatch({ type: 'openPage', page: { kind: 'launch' } })}
       >
@@ -59,6 +63,7 @@ export function Rail({ state, dispatch }: { state: ShellState; dispatch: Dispatc
           key={section}
           className="rail-button"
           aria-label={label}
+          title={label}
           aria-pressed={state.panelOpen && state.section === section}
           onClick={() => dispatch({ type: 'selectSection', section })}
         >

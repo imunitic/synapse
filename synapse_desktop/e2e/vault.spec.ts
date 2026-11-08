@@ -75,11 +75,30 @@ test('a note shows its properties and its text', async ({ page }) => {
   await page.keyboard.press('Enter')
   await sidePanel(page).getByLabel('Search results').getByRole('button', { name: /Talk/ }).click()
 
+  // A note is as wide as the other pages of text.
+  await page.locator('.page.note').waitFor()
+  const widths = await page.evaluate(`(() => {
+    const probe = document.createElement('div')
+    probe.className = 'page'
+    document.body.append(probe)
+    const plain = getComputedStyle(probe).maxWidth
+    probe.remove()
+    return { plain, note: getComputedStyle(document.querySelector('.page.note')).maxWidth }
+  })()`)
+  expect(widths).toEqual({
+    plain: expect.stringMatching(/px$/),
+    note: (widths as { plain: string }).plain,
+  })
+
+  // A line says what the note is, and the properties are there when they are opened.
   const props = page.getByLabel('Properties')
-  await expect(props).toContainText('note_id')
-  await expect(props).toContainText('p-1')
-  await expect(props.getByText('alpha', { exact: true })).toBeVisible()
-  await expect(props.getByText('beta', { exact: true })).toBeVisible()
+  await expect(props.locator('summary')).toContainText('p-1')
+  await expect(props.locator('summary').getByText('alpha', { exact: true })).toBeVisible()
+  await expect(props.locator('summary').getByText('beta', { exact: true })).toBeVisible()
+  await expect(props.locator('dl')).toBeHidden()
+  await props.locator('summary').click()
+  await expect(props.locator('dl')).toContainText('note_id')
+  await expect(props.locator('dl')).toContainText('p-1')
   // The table, the task list and the code are rendered, and not their text.
   await expect(page.getByRole('table')).toContainText('1')
   await expect(page.getByRole('checkbox')).toBeVisible()
@@ -103,7 +122,7 @@ test('a link between notes opens the note, a missing one is not a link, and the 
   await expect(body.getByText('Nope')).toBeVisible()
   await body.getByRole('link', { name: 'Work' }).click()
   await expect(page.getByRole('heading', { level: 1, name: 'Work' })).toBeVisible()
-  await expect(page.getByLabel('Properties')).toContainText('IN-PROGRESS')
+  await expect(page.getByLabel('Properties').locator('summary')).toContainText('IN-PROGRESS')
 
   // Work links back to Talk, and Talk links to Work.
   await expect(page.getByLabel('Linked from')).toContainText('Talk')

@@ -70,8 +70,8 @@ export function VaultCard({
   }
 
   return (
-    <section className="card" aria-label="Vault">
-      <h2 className="card-title">Vault</h2>
+    <section className="card" aria-label="Vault folder">
+      <h2 className="card-title">Vault folder</h2>
       <p>
         {current === null ? (
           <span className="muted">No vault is set.</span>

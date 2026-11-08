@@ -62,7 +62,7 @@ test('a value that does not fit is refused with the reason, and Escape puts back
 
 test('the vault is switched to a folder that looks like one', async ({ page }) => {
   await openSettings(page, 'Vault')
-  const card = page.getByRole('region', { name: 'Vault', exact: true })
+  const card = page.getByRole('region', { name: 'Vault folder', exact: true })
   await card.getByRole('textbox').fill(world().vault)
   // Three notes: the folders that start with a dot hold none.
   await expect(card).toContainText('A folder with 3 notes, has an Index.md, is a git repository')
