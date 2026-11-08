@@ -19,13 +19,25 @@ Open <http://127.0.0.1:5173>. `npm run check` is what CI runs: type-check, build
 
 ## Layout
 
-| Path       | What it holds                                                                                              |
-| ---------- | ---------------------------------------------------------------------------------------------------------- |
-| `shared/`  | The `Transport` contract, the API call parameters and the values both sides agree on.                      |
-| `web/`     | The React app. It reaches the machine only through a `Transport`.                                          |
-| `server/`  | The local API server of the web phase: guards, allowed directories, the CLI allowlist, the calls.          |
-| `scripts/` | `dev.ts`, which starts both servers with one per-launch token, and `e2e.ts`, which runs the browser tests. |
-| `e2e/`     | The browser tests and the world they run in.                                                               |
+| Path      | What it holds                                                                         |
+| --------- | ------------------------------------------------------------------------------------- |
+| `shared/` | The `Transport` contract, the API call parameters and the values both sides agree on. |
+| `web/`    | The React app. It reaches the machine only through a `Transport`.                     |
+
+The React app in `web/` is split by role:
+
+| Path              | What it holds                                                                                              |
+| ----------------- | ---------------------------------------------------------------------------------------------------------- |
+| `web/app/`        | The entry: `main.tsx`, `App.tsx` and the stylesheets.                                                      |
+| `web/layout/`     | The frame around the pages: the shell, rail, tab bar, status bar, side panel and its panels.               |
+| `web/pages/`      | One file per screen. A page can be embedded in another, such as the definition page in a pipeline.         |
+| `web/components/` | Parts a page uses: cards, badges, forms, dialogs, views and the code editor.                               |
+| `web/state/`      | What has no screen: the app state, the loading hook and the providers for config and diagnosis.            |
+| `web/domain/`     | Pure logic with its tests, and the fake transport.                                                         |
+| `web/transport/`  | The `Transport` implementation that talks to the local server.                                             |
+| `server/`         | The local API server of the web phase: guards, allowed directories, the CLI allowlist, the calls.          |
+| `scripts/`        | `dev.ts`, which starts both servers with one per-launch token, and `e2e.ts`, which runs the browser tests. |
+| `e2e/`            | The browser tests and the world they run in.                                                               |
 
 ## How the server protects itself
 
