@@ -61,3 +61,47 @@ export function splitReason(reason: string): Reason {
   if (items.length <= MOST_IN_A_LINE) return { text: reason, items: [] }
   return { text: `${reason.slice(0, at)} (${items.length})`, items }
 }
+
+// A check's findings by node: each node once, in the order its first finding came, with its
+// reasons. A node that is named for many reasons is one row to open, not many rows. The
+// repository is a node here too, called `(repo)`, so that its findings stay together.
+export interface NodeFindings {
+  node: string
+  reasons: string[]
+}
+
+export function groupFindings(findings: readonly GraphFinding[]): NodeFindings[] {
+  const groups = new Map<string, string[]>()
+  for (const { node, reason } of findings) {
+    const reasons = groups.get(node)
+    if (reasons === undefined) groups.set(node, [reason])
+    else if (!reasons.includes(reason)) reasons.push(reason)
+  }
+  return [...groups].map(([node, reasons]) => ({ node, reasons }))
+}
+
+// A node's reasons with those of the same kind made one: `grounding changed: a b` and
+// `grounding changed: c d e` are one reason, `grounding changed`, for the files a b c d e, so that
+// the same words are not read many times over. A reason that lists no files is kept once.
+export function mergeReasons(reasons: readonly string[]): Reason[] {
+  const kinds = new Map<string, string[]>()
+  for (const reason of reasons) {
+    const at = reason.indexOf(': ')
+    const kind = at < 0 ? reason : reason.slice(0, at)
+    const files =
+      at < 0
+        ? []
+        : reason
+            .slice(at + 2)
+            .split(/\s+/)
+            .filter(Boolean)
+    const known = kinds.get(kind)
+    if (known === undefined) kinds.set(kind, [...new Set(files)])
+    else for (const file of files) if (!known.includes(file)) known.push(file)
+  }
+  return [...kinds].map(([kind, files]) => {
+    if (files.length === 0) return { text: kind, items: [] }
+    if (files.length <= MOST_IN_A_LINE) return { text: `${kind}: ${files.join(' ')}`, items: [] }
+    return { text: `${kind} (${files.length})`, items: files }
+  })
+}

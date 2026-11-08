@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { CliResult, Transport } from '../../shared/transport.ts'
 import {
   filterPaths,
+  searchPaths,
   findSymbol,
   listCoveredPaths,
   listGraphs,
@@ -144,5 +145,19 @@ describe('the paths that match words', () => {
     expect(filterPaths(paths, '   ', 10)).toEqual([])
     expect(filterPaths(paths, 'adb', 1)).toHaveLength(1)
     expect(filterPaths(paths, 'zzz', 10)).toEqual([])
+  })
+})
+
+describe('searching the paths', () => {
+  const paths = ['src/a.adb', 'src/b.adb', 'src/c.ads', 'docs/a.md']
+
+  it('gives how many paths hold the words as well as the ones it returns', () => {
+    expect(searchPaths(paths, 'adb', 1)).toEqual({ paths: ['src/a.adb'], total: 2 })
+    expect(searchPaths(paths, 'src', 10).total).toBe(3)
+  })
+
+  it('finds nothing for words that are not there or no words', () => {
+    expect(searchPaths(paths, 'zzz', 10)).toEqual({ paths: [], total: 0 })
+    expect(searchPaths(paths, '  ', 10)).toEqual({ paths: [], total: 0 })
   })
 })

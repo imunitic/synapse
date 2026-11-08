@@ -3,7 +3,9 @@ import type { GraphCheck, GraphHealth } from '../../shared/transport.ts'
 import {
   anyCheckFailed,
   findingsOf,
+  groupFindings,
   healthLine,
+  mergeReasons,
   nodesNeedingAttention,
   splitReason,
   staleCount,
@@ -59,5 +61,68 @@ describe('the reason of a finding', () => {
       items: [],
     })
     expect(splitReason('content changed')).toEqual({ text: 'content changed', items: [] })
+  })
+})
+
+describe('the findings of a check by node', () => {
+  it('are one entry for each node, in the order they came, with each reason once', () => {
+    expect(
+      groupFindings([
+        { node: 'Build', reason: 'grounding changed (8)' },
+        { node: 'CLI', reason: 'grounding file gone: a.ads' },
+        { node: 'Build', reason: 'grounding file gone: b.ads' },
+        { node: 'Build', reason: 'grounding changed (8)' },
+      ]),
+    ).toEqual([
+      { node: 'Build', reasons: ['grounding changed (8)', 'grounding file gone: b.ads'] },
+      { node: 'CLI', reasons: ['grounding file gone: a.ads'] },
+    ])
+  })
+
+  it('keeps the repository findings together under its own name', () => {
+    expect(
+      groupFindings([
+        { node: '(repo)', reason: 'one' },
+        { node: 'Build', reason: 'x' },
+        { node: '(repo)', reason: 'two' },
+      ]),
+    ).toEqual([
+      { node: '(repo)', reasons: ['one', 'two'] },
+      { node: 'Build', reasons: ['x'] },
+    ])
+  })
+
+  it('are none for none', () => {
+    expect(groupFindings([])).toEqual([])
+  })
+})
+
+describe('the reasons of a node, made one for each kind', () => {
+  it('put the files of reasons of one kind together, once each', () => {
+    expect(
+      mergeReasons([
+        'grounding changed: a b c d',
+        'grounding changed: c d e f',
+        'grounding changed: g h i j',
+      ]),
+    ).toEqual([
+      { text: 'grounding changed (10)', items: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'] },
+    ])
+  })
+
+  it('keep the files in the line when there are few, and keep other kinds apart', () => {
+    expect(
+      mergeReasons(['source files gone: a b', 'content changed', 'source files gone: b c']),
+    ).toEqual([
+      { text: 'source files gone: a b c', items: [] },
+      { text: 'content changed', items: [] },
+    ])
+  })
+
+  it('keep a reason that lists no files once', () => {
+    expect(mergeReasons(['no commit recorded', 'no commit recorded'])).toEqual([
+      { text: 'no commit recorded', items: [] },
+    ])
+    expect(mergeReasons([])).toEqual([])
   })
 })

@@ -75,7 +75,7 @@ test('an exact symbol is searched, with its calls and with every definition and 
   await expect(calls).toContainText('Render (Current);')
   await expect(calls).toContainText('src/loop.adb:8')
 
-  await page.getByRole('checkbox', { name: /Definitions and every reference/ }).check()
+  await page.getByRole('radio', { name: 'Definitions and references' }).click()
   await page.getByRole('button', { name: 'Search' }).click()
   const defs = page.getByRole('region', { name: 'Definitions' })
   await expect(defs).toContainText('src/render.adb:12')
@@ -98,6 +98,7 @@ test('files are found by their words, and the node that covers one opens in the 
   await page.getByLabel('Namespace', { exact: true }).selectOption('widget@main')
   await page.getByRole('tab', { name: 'Files' }).click()
   await page.getByRole('textbox', { name: 'File path' }).fill('render')
+  await page.getByRole('button', { name: 'Search' }).click()
   await page.getByRole('button', { name: /src\/render\.adb/ }).click()
   const owners = page.getByRole('region', { name: 'Owners' })
   await expect(owners).toContainText('is covered by')
@@ -129,7 +130,7 @@ test('a namespace with no node index says so and leaves the other modes to symbo
   await expect(page.getByRole('tab', { name: 'Nodes' })).toBeDisabled()
   await expect(page.getByRole('tab', { name: 'Symbol' })).toHaveAttribute('aria-selected', 'true')
   await page.getByRole('textbox', { name: 'Symbol name' }).fill('Only')
-  await page.getByRole('checkbox', { name: /Definitions and every reference/ }).check()
+  await page.getByRole('radio', { name: 'Definitions and references' }).click()
   await page.getByRole('button', { name: 'Search' }).click()
   await expect(page.getByRole('region', { name: 'Definitions' })).toContainText('src/only.adb:1')
 })
@@ -170,6 +171,11 @@ test('health lists the stale nodes, the drift and what is not grounded, and a no
   await page.getByRole('tab', { name: 'Health' }).click()
 
   await expect(page.getByText('2 nodes need attention.')).toBeVisible()
+  // Every check is a tile and nothing of what they found is shown until one is opened.
+  await expect(page.getByRole('region')).toHaveCount(0)
+  for (const name of ['Stale nodes', 'Drift', 'Not grounded']) {
+    await page.getByRole('button', { name: new RegExp(name) }).click()
+  }
   const stale = page.getByRole('region', { name: 'Stale nodes' })
   await expect(stale).toContainText('Rendering')
   await expect(stale).toContainText('Game loop')
@@ -457,4 +463,127 @@ test('nothing is offered when no folder has been saved to look next to', async (
   await page.getByLabel('Namespace', { exact: true }).selectOption('widget@main')
   await expect(page.getByRole('textbox', { name: 'Repository folder' })).toBeVisible()
   await expect(page.getByLabel('Checkouts found')).toHaveCount(0)
+})
+
+test('a graph is added from beside the namespace, not from the far end of the page', async ({
+  page,
+}) => {
+  await openGraph(page)
+  const choice = await page.getByLabel('Namespace', { exact: true }).boundingBox()
+  const button = await page.getByRole('button', { name: 'New graph…' }).boundingBox()
+  expect(Math.abs(button!.y + button!.height / 2 - (choice!.y + choice!.height / 2))).toBeLessThan(
+    12,
+  )
+  expect(button!.x - (choice!.x + choice!.width)).toBeLessThan(40)
+  expect(button!.x).toBeGreaterThan(choice!.x)
+})
+
+test('the two searches of a symbol are two choices, and each says what it looks for', async ({
+  page,
+}) => {
+  await openGraph(page)
+  await page.getByLabel('Namespace', { exact: true }).selectOption('widget@main')
+  const calls = page.getByRole('radio', { name: 'Calls' })
+  const everything = page.getByRole('radio', { name: 'Definitions and references' })
+  await expect(calls).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByText('Where the name is called.')).toBeVisible()
+  await everything.click()
+  await expect(everything).toHaveAttribute('aria-checked', 'true')
+  await expect(calls).toHaveAttribute('aria-checked', 'false')
+  await expect(
+    page.getByText('Where the name is defined, and every place that refers to it.'),
+  ).toBeVisible()
+  await expect(page.getByRole('checkbox')).toHaveCount(0)
+})
+
+test('files are searched when it is asked for, with a button, and Enter asks too', async ({
+  page,
+}) => {
+  await openGraph(page)
+  await page.getByLabel('Namespace', { exact: true }).selectOption('widget@main')
+  await page.getByRole('tab', { name: 'Files' }).click()
+  const search = page.getByRole('button', { name: 'Search' })
+  await expect(search).toBeDisabled()
+
+  const box = page.getByRole('textbox', { name: 'File path' })
+  await box.fill('render')
+  // Typing alone shows nothing.
+  await expect(page.getByRole('button', { name: /src\/render\.adb/ })).toHaveCount(0)
+  await expect(search).toBeEnabled()
+  await search.click()
+  await expect(page.getByRole('button', { name: /src\/render\.adb/ })).toBeVisible()
+  await expect(page.getByText('1 file', { exact: true })).toBeVisible()
+
+  await box.fill('zzz')
+  await box.press('Enter')
+  await expect(page.getByText('No covered file has those words.')).toBeVisible()
+})
+
+test('the health checks are tiles with counts, closed until one is opened', async ({ page }) => {
+  const repo = repository('widget')
+  await openGraph(page)
+  await page.getByLabel('Namespace', { exact: true }).selectOption('widget@main')
+  await page.getByRole('textbox', { name: 'Repository folder' }).fill(repo)
+  await page.getByRole('button', { name: 'Save' }).click()
+  await page.getByRole('tab', { name: 'Health' }).click()
+
+  const checks = page.getByRole('group', { name: 'Checks' })
+  const stale = checks.getByRole('button', { name: /Stale nodes/ })
+  await expect(stale).toContainText('2')
+  await expect(stale).toHaveAttribute('aria-expanded', 'false')
+  await expect(checks.getByRole('button', { name: /Not grounded/ })).toContainText('none')
+  await expect(page.getByRole('region', { name: 'Stale nodes' })).toHaveCount(0)
+
+  await stale.click()
+  await expect(stale).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByRole('region', { name: 'Stale nodes' })).toContainText('Rendering')
+  // Opening one leaves the others closed, and it closes again.
+  await expect(page.getByRole('region', { name: 'Drift' })).toHaveCount(0)
+  await stale.click()
+  await expect(page.getByRole('region', { name: 'Stale nodes' })).toHaveCount(0)
+})
+
+test('each check is a row as well as a tile, and either one opens and closes it', async ({
+  page,
+}) => {
+  const repo = repository('widget')
+  await openGraph(page)
+  await page.getByLabel('Namespace', { exact: true }).selectOption('widget@main')
+  await page.getByRole('textbox', { name: 'Repository folder' }).fill(repo)
+  await page.getByRole('button', { name: 'Save' }).click()
+  await page.getByRole('tab', { name: 'Health' }).click()
+
+  const tile = page.getByRole('group', { name: 'Checks' }).getByRole('button', {
+    name: /Stale nodes/,
+  })
+  const row = page.locator('details.convention', { hasText: 'Stale nodes' })
+  // The rows are there, closed, with their counts.
+  await expect(page.locator('details.convention')).toHaveCount(3)
+  await expect(row).not.toHaveAttribute('open', '')
+  await expect(row.locator('.convention-count')).toHaveText('2')
+
+  await row.locator('summary').click()
+  await expect(row).toHaveAttribute('open', '')
+  await expect(tile).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByRole('region', { name: 'Stale nodes' })).toContainText('Rendering')
+
+  await tile.click()
+  await expect(row).not.toHaveAttribute('open', '')
+  await expect(tile).toHaveAttribute('aria-expanded', 'false')
+})
+
+test('the counts of the checks are not in the colour of an error', async ({ page }) => {
+  const repo = repository('widget')
+  await openGraph(page)
+  await page.getByLabel('Namespace', { exact: true }).selectOption('widget@main')
+  await page.getByRole('textbox', { name: 'Repository folder' }).fill(repo)
+  await page.getByRole('button', { name: 'Save' }).click()
+  await page.getByRole('tab', { name: 'Health' }).click()
+  // The count is shown, and it is not in the colour of an error.
+  await expect(page.locator('.health-tiles .tile-value').first()).toHaveText('2')
+  const colour = await page.evaluate(
+    "getComputedStyle(document.querySelector('.health-tiles .tile-value')).color",
+  )
+  expect(colour).toMatch(/^rgb\(/)
+  expect(colour).not.toBe('rgb(252, 165, 165)')
 })

@@ -128,14 +128,24 @@ export async function ownersOf(
 // path whose file name holds the text comes before one that only has it in a
 // folder.
 export function filterPaths(paths: readonly string[], query: string, limit: number): string[] {
+  return searchPaths(paths, query, limit).paths
+}
+
+// The same, with how many paths hold the words, which is more than are returned when there are
+// more than `limit`.
+export function searchPaths(
+  paths: readonly string[],
+  query: string,
+  limit: number,
+): { paths: string[]; total: number } {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
-  if (words.length === 0) return []
+  if (words.length === 0) return { paths: [], total: 0 }
   const name = (path: string) => path.slice(path.lastIndexOf('/') + 1).toLowerCase()
-  return paths
+  const found = paths
     .filter((path) => words.every((word) => path.toLowerCase().includes(word)))
     .sort((a, b) => {
       const inName = (p: string) => (words.every((w) => name(p).includes(w)) ? 0 : 1)
       return inName(a) - inName(b) || a.length - b.length || a.localeCompare(b)
     })
-    .slice(0, limit)
+  return { paths: found.slice(0, limit), total: found.length }
 }
