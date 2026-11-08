@@ -64,6 +64,38 @@ input {
   padding: 8px 10px;
 }
 
+/* A select is drawn as the other fields are, with an arrow of its own held away from the border,
+   since the one the browser draws is against it. */
+select {
+  appearance: none;
+  font: inherit;
+  color: var(--text);
+  background-color: var(--tabbar);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='none' stroke='%238b8b95' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M2.5 4.5 6 8l3.5-3.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 8px 34px 8px 10px;
+  cursor: pointer;
+}
+
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+select:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+
+select option {
+  background: var(--card);
+  color: var(--text);
+}
+
 input::placeholder {
   color: #8b8b95;
 }

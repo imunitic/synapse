@@ -602,3 +602,13 @@ test('the modes are tabs: a row on a line, the open one underlined, the others n
   expect(other).toBe('rgba(0, 0, 0, 0)')
   expect(open).not.toBe(other)
 })
+
+test('the namespace select is as high as the button beside it', async ({ page }) => {
+  await openGraph(page)
+  const select = (await page.getByLabel('Namespace', { exact: true }).boundingBox())!
+  const button = (await page.getByRole('button', { name: 'New graph…' }).boundingBox())!
+  expect(Math.abs(select.height - button.height)).toBeLessThanOrEqual(2)
+  expect(
+    Math.abs(select.y + select.height / 2 - (button.y + button.height / 2)),
+  ).toBeLessThanOrEqual(1)
+})

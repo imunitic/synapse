@@ -141,3 +141,28 @@ test('the kinds of definition stay in one row in the side panel', async ({ page 
   expect(tops).toHaveLength(4)
   expect(new Set(tops).size).toBe(1)
 })
+
+test('a select has an arrow of its own held away from the border, as every select does', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await openSection(page, 'Settings')
+  await sidePanel(page)
+    .getByRole('button', { name: /^General/ })
+    .click()
+  await expect(page.getByRole('heading', { level: 1, name: 'General' })).toBeVisible()
+  const style = (nth: number, property: string) =>
+    page.evaluate(`getComputedStyle(document.querySelectorAll('.page select')[${nth}]).${property}`)
+  const count = (await page.evaluate("document.querySelectorAll('.page select').length")) as number
+  expect(count).toBeGreaterThanOrEqual(2)
+  for (let i = 0; i < count; i++) {
+    expect(await style(i, 'appearance'), `select ${i}`).toBe('none')
+    expect(await style(i, 'backgroundImage'), `select ${i}`).toContain('svg')
+    // Room for the arrow, which is 12 px from the right edge.
+    expect(
+      parseFloat((await style(i, 'paddingRight')) as string),
+      `select ${i}`,
+    ).toBeGreaterThanOrEqual(30)
+    expect(await style(i, 'backgroundPositionX'), `select ${i}`).toContain('calc(100% - 12px)')
+  }
+})
