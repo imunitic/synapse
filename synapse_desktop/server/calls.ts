@@ -49,10 +49,10 @@ import {
 import { GenerationFailed, generateText, SkillNotFound, type AgentRunner } from './generate.ts'
 import {
   createdPath,
-  failureOf,
   NoteFailed,
   notePrompt,
   pathsOf,
+  reasonOf,
   vaultDirOf,
   type NoteSession,
 } from './note-agent.ts'
@@ -300,7 +300,7 @@ const handlers: Record<CallName, Handler> = {
       const run = await session(notePrompt(request.kind, request.prompt, harness, projects, chosen))
       const path = createdPath(run.stdout, before, await list())
       if (path !== null) return { path }
-      const why = failureOf(run.stdout) ?? (run.stderr.trim() || run.stdout.trim().slice(-300))
+      const why = reasonOf(run.stdout, run.stderr)
       throw new NoteFailed(`No note was written. ${why}`.trim())
     } catch (error) {
       if (error instanceof NoteFailed) throw new CallError(error.message, error.status)

@@ -5,7 +5,7 @@
 
 import type { AppConfig, CliResult, Harness, NoteEdit } from '../shared/transport.ts'
 import type { CliRunner } from './cli.ts'
-import { editPrompt, failureOf, pathsOf } from './note-agent.ts'
+import { editPrompt, pathsOf, reasonOf } from './note-agent.ts'
 
 // Why a note was not changed, with the status the caller should see.
 export class EditRefused extends Error {
@@ -104,8 +104,7 @@ export async function editNote(
   const result = await deps.session(editPrompt(path, description, deps.harness))
   const after = await readText(run, config, path)
   if (after === before) {
-    const why =
-      failureOf(result.stdout) ?? (result.stderr.trim() || result.stdout.trim().slice(-300))
+    const why = reasonOf(result.stdout, result.stderr)
     throw new EditRefused(`The note was not changed. ${why}`.trim(), 502)
   }
   const now = { stamps: await stamps(run, config), paths: await listing(run, config) }

@@ -8,6 +8,7 @@ import {
   notePrompt,
   OPENCODE_PERMISSION,
   pathsOf,
+  reasonOf,
   vaultDirOf,
 } from './note-agent.ts'
 
@@ -229,6 +230,29 @@ describe('what the session left', () => {
       'no project prefix could be found',
     )
     expect(failureOf('research/Cache keys.md')).toBeNull()
+  })
+
+  it('gives as the reason what the agent said, whatever the harness printed besides', () => {
+    // Codex prints its banner, the prompt and its hooks on standard error, and the reply on
+    // standard output.
+    const banner =
+      '\u001b[1mworkdir:\u001b[0m /w\nuser\nChange one note...\nhello\ntokens used\n8,015\n'
+    expect(reasonOf('hello\n', banner)).toBe('hello')
+    expect(reasonOf('thinking\nFAILED: no such note\n', banner)).toBe('no such note')
+  })
+
+  it('falls back to the end of standard error, without colours, when nothing was said', () => {
+    expect(reasonOf('', '\u001b[31mError:\u001b[0m the model refused\n')).toBe(
+      'Error: the model refused',
+    )
+    expect(reasonOf('  \n', '')).toBe('')
+  })
+
+  it('keeps only the end of a long reply', () => {
+    const long = 'x'.repeat(1000) + 'THE END'
+    const reason = reasonOf(long, '')
+    expect(reason).toHaveLength(300)
+    expect(reason.endsWith('THE END')).toBe(true)
   })
 
   it('reads a listing as one path to a line', () => {

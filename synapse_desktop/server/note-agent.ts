@@ -267,6 +267,23 @@ export function failureOf(stdout: string): string | null {
   return line.startsWith('FAILED:') ? line.slice('FAILED:'.length).trim() : null
 }
 
+// The colours a harness prints in.
+// eslint-disable-next-line no-control-regex -- the escape character is what starts a colour
+const COLOUR = /\u001b\[[0-9;]*m/g
+
+function lastWords(text: string): string {
+  return text.replace(COLOUR, '').trim().slice(-300)
+}
+
+// Why a session that was to write or change a note did not: the reason it gave on a line
+// that starts with FAILED:, else the end of what it said, else the end of what the harness
+// printed on standard error. What it said comes first because some harnesses print their whole
+// transcript on standard error, the banner and the prompt among it, and the agent's own words
+// are on standard output.
+export function reasonOf(stdout: string, stderr: string): string {
+  return failureOf(stdout) ?? (lastWords(stdout) || lastWords(stderr))
+}
+
 // The note that was written: the one the agent named when it is among the notes
 // that were not there before, else the first new note that is not a graph's.
 export function createdPath(
