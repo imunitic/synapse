@@ -2181,3 +2181,34 @@ div.activity-row {
 .way p {
   margin: 0;
 }
+
+/* Tabs, which are a row on a line with the open one underlined in the accent, so that they read as
+   tabs and not as the pills of the choices and filters, which are `.subtab` too. */
+.subtabs[role='tablist']:not(.terminal-tabs) {
+  gap: 2px;
+  padding: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.card .subtabs[role='tablist'] {
+  margin-bottom: 12px;
+}
+
+.subtabs[role='tablist']:not(.terminal-tabs) .subtab {
+  padding: 8px 14px;
+  margin-bottom: -1px;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font-size: 0.875rem;
+}
+
+.subtabs[role='tablist']:not(.terminal-tabs) .subtab:hover:not(:disabled) {
+  color: #fff;
+}
+
+.subtabs[role='tablist']:not(.terminal-tabs) .subtab[aria-pressed='true'] {
+  background: none;
+  color: #fff;
+  border-bottom-color: var(--accent);
+}

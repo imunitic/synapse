@@ -587,3 +587,18 @@ test('the counts of the checks are not in the colour of an error', async ({ page
   expect(colour).toMatch(/^rgb\(/)
   expect(colour).not.toBe('rgb(252, 165, 165)')
 })
+
+test('the modes are tabs: a row on a line, the open one underlined, the others not', async ({
+  page,
+}) => {
+  await openGraph(page)
+  await page.getByLabel('Namespace', { exact: true }).selectOption('widget@main')
+  await expect(page.getByRole('tab', { name: 'Symbol' })).toHaveAttribute('aria-selected', 'true')
+  const style = (selector: string, property: string) =>
+    page.evaluate(`getComputedStyle(document.querySelector('${selector}')).${property}`)
+  expect(await style('.graph-tabs', 'borderBottomWidth')).toBe('1px')
+  const open = await style('.graph-tabs .subtab[aria-selected=true]', 'borderBottomColor')
+  const other = await style('.graph-tabs .subtab[aria-selected=false]', 'borderBottomColor')
+  expect(other).toBe('rgba(0, 0, 0, 0)')
+  expect(open).not.toBe(other)
+})

@@ -265,3 +265,17 @@ test('resuming a Codex session and an OpenCode session uses their own commands',
   await expect(terminal).toContainText('--session ses_one')
   await expect(terminal).toContainText(`cwd: ${folder('alpha')}`)
 })
+
+test('the two lists of a card are tabs, with the open one underlined', async ({ page }) => {
+  await open(page)
+  const tabs = launchCard(page, 'Claude Code').getByRole('tablist')
+  await expect(tabs.getByRole('tab', { name: /^Folders/ })).toHaveAttribute('aria-selected', 'true')
+  const colour = (selected: boolean) =>
+    page.evaluate(
+      `getComputedStyle(document.querySelector('section[aria-label="Claude Code"] .subtab[aria-selected=${selected}]')).borderBottomColor`,
+    )
+  const underlined = await colour(true)
+  const other = await colour(false)
+  expect(other).toBe('rgba(0, 0, 0, 0)')
+  expect(underlined).not.toBe(other)
+})
