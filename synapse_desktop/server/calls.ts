@@ -17,6 +17,7 @@ import type {
   Harness,
   Integrations,
   NoteEdit,
+  ConventionList,
   ProjectList,
   RunAnswer,
   VaultInfo,
@@ -56,6 +57,12 @@ import {
 } from './note-agent.ts'
 import { previewDraft } from './preview.ts'
 import { EditRefused, editNote, restoreNote } from './note-edit.ts'
+import {
+  addConvention,
+  ConventionRefused,
+  listConventions,
+  removeConvention,
+} from './conventions.ts'
 import { addProject, listProjects, ProjectRefused, projectsFile } from './projects.ts'
 import { inspectVault } from './vault.ts'
 import { askRun, NotListening, socketPath } from './run-socket.ts'
@@ -343,6 +350,31 @@ const handlers: Record<CallName, Handler> = {
       return { projects, file: await projectsFile(context.environment) }
     } catch (error) {
       if (error instanceof ProjectRefused) throw new CallError(error.message, error.status)
+      throw error
+    }
+  },
+
+  async listConventions(raw, context): Promise<ConventionList> {
+    callParams.listConventions.parse(raw)
+    return listConventions(context.environment)
+  },
+
+  async addConvention(raw, context): Promise<ConventionList> {
+    const { id, entry } = callParams.addConvention.parse(raw)
+    try {
+      return await addConvention(context.environment, id, entry)
+    } catch (error) {
+      if (error instanceof ConventionRefused) throw new CallError(error.message, error.status)
+      throw error
+    }
+  },
+
+  async removeConvention(raw, context): Promise<ConventionList> {
+    const { id, entry } = callParams.removeConvention.parse(raw)
+    try {
+      return await removeConvention(context.environment, id, entry)
+    } catch (error) {
+      if (error instanceof ConventionRefused) throw new CallError(error.message, error.status)
       throw error
     }
   },

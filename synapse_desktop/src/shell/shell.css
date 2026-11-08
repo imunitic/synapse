@@ -1756,3 +1756,106 @@ div.activity-row {
   color: var(--muted);
   font-style: italic;
 }
+
+.conventions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.convention-group {
+  margin: 8px 0 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.convention-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.convention {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.convention > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 12px 20px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.convention > summary::-webkit-details-marker {
+  display: none;
+}
+
+.convention > summary::before {
+  content: '\25B8';
+  flex: none;
+  width: 1em;
+  color: var(--muted);
+}
+
+.convention[open] > summary::before {
+  content: '\25BE';
+}
+
+.convention-title {
+  flex: none;
+  font-weight: 600;
+}
+
+.convention-about {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.convention-count {
+  flex: none;
+  min-width: 2ch;
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.convention-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 20px 16px 52px;
+}
+
+.convention-entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.convention-entries li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.convention-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

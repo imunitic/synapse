@@ -3,9 +3,10 @@
 // (`tasks/<name>/`) and the prefix is in each note's `project` and its id (`sb-001`).
 // The skills read and append to the same file, so it is found the way they find it.
 
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { dirname } from 'node:path'
 import type { Project } from '../shared/transport.ts'
+import { confFile } from './conf-files.ts'
 import type { Environment } from './roots.ts'
 
 const FILE_NAME = 'synapse-projects.conf'
@@ -19,21 +20,9 @@ export class ProjectRefused extends Error {
   }
 }
 
-async function exists(path: string): Promise<boolean> {
-  return (await stat(path).catch(() => null))?.isFile() ?? false
-}
-
-// The file that is read, else where one is made: `$XDG_CONFIG_HOME/synapse/` (or
-// `~/.config/synapse/`), then `~/.claude/`; a new file goes in the first of them, or in
-// `~/.claude/` when `~/.config` is not there.
-export async function projectsFile({ env, home }: Environment): Promise<string> {
-  const base = env.XDG_CONFIG_HOME ? env.XDG_CONFIG_HOME : join(home, '.config')
-  const candidates = [join(base, 'synapse', FILE_NAME), join(home, '.claude', FILE_NAME)]
-  for (const candidate of candidates) {
-    if (await exists(candidate)) return candidate
-  }
-  const baseIsThere = (await stat(base).catch(() => null))?.isDirectory() ?? false
-  return env.XDG_CONFIG_HOME || baseIsThere ? candidates[0]! : candidates[1]!
+// The file that is read, else where one is made.
+export function projectsFile(environment: Environment): Promise<string> {
+  return confFile(environment, FILE_NAME)
 }
 
 // The pairs of the file, in order; comments and blank lines are left out.

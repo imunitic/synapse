@@ -122,6 +122,36 @@ export interface ProjectList {
   file: string
 }
 
+// One of Synapse's `synapse-*.conf` files, as a card of the Conventions page: what
+// Synapse has learned or been told, mostly written by an agent and sometimes by a person.
+export type ConventionGroup = 'Vault' | 'Code graph' | 'Prompts'
+
+export interface ConventionEntry {
+  // A line of the file, or for a file of JSON the key of an entry.
+  text: string
+  // For a file of JSON, the entry's value as one line.
+  detail?: string
+}
+
+export interface Convention {
+  id: string
+  group: ConventionGroup
+  title: string
+  about: string
+  // Where the file is, or where it is made when the first entry is added.
+  file: string
+  exists: boolean
+  // Whether entries can be added and removed here. A file of JSON is shown as it is.
+  editable: boolean
+  entries: ConventionEntry[]
+  // Why the file could not be read, when it could not.
+  problem: string | null
+}
+
+export interface ConventionList {
+  conventions: Convention[]
+}
+
 // A description to have an agent write a note of the vault from.
 export interface NoteRequest {
   kind: NoteKind
@@ -294,6 +324,11 @@ export interface Transport {
   // The file they are in is answered too, for a person who would edit it by hand.
   listProjects(): Promise<ProjectList>
   addProject(name: string, prefix: string): Promise<ProjectList>
+  // The configuration files Synapse keeps, with their entries; and one entry added to
+  // or removed from a file that can be changed here, which answers with the list again.
+  listConventions(): Promise<ConventionList>
+  addConvention(id: string, entry: string): Promise<ConventionList>
+  removeConvention(id: string, entry: string): Promise<ConventionList>
 
   // Starts the user's login shell, or a harness, in a pty. The bundled Synapse is
   // loaded for the session, or for the harnesses started from the shell, unless

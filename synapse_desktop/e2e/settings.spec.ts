@@ -16,7 +16,8 @@ async function openSettings(page: Page, category: string) {
 }
 
 async function openCategory(page: Page, category: string) {
-  const item = page.locator('.settings-item').filter({ hasText: category }).first()
+  // The item whose label is the category, not one whose line about it names the category.
+  const item = page.locator('.settings-item').filter({ hasText: new RegExp(`^${category}`) })
   if (!(await item.isVisible())) await openSection(page, 'Settings')
   await item.click()
   await expect(page.getByRole('heading', { level: 1, name: category })).toBeVisible()

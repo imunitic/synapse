@@ -18,7 +18,7 @@ import { transport } from '../transport/index.ts'
 import { TEXT_SIZES } from '../domain/text-size.ts'
 import { useConfig } from './config.tsx'
 import { EnvCard } from './EnvCard.tsx'
-import { AddProjectForm } from './ProjectForm.tsx'
+import { Conventions } from './ConventionsPage.tsx'
 import { SettingsForm } from './SettingsForm.tsx'
 import type { SettingsSection } from './state.ts'
 import { currentTextSize, setTextSize } from './text-size.ts'
@@ -290,51 +290,6 @@ function Vault() {
 
 // The projects notes belong to, which a person adds here by hand and the New note page
 // and the note skills read.
-function Projects() {
-  const load = useCallback(() => transport.listProjects(), [])
-  const { state, reload } = useLoad(load)
-  return (
-    <section className="card" aria-label="Projects">
-      <h2 className="card-title">Projects</h2>
-      <p className="muted">
-        A project is the folder its notes are in (<code>tasks/name/</code>) and the prefix that
-        starts the id of each note (<code>sb-001</code>). A task note and a design note belong to
-        one. They are kept in a file on this machine that the note skills read too, and a note
-        session never adds one: a project is made here or on the New note page.
-      </p>
-      {state.status === 'loading' && <p className="muted">Reading the projects…</p>}
-      {state.status === 'failed' && (
-        <p role="alert" className="error">
-          {state.error}
-        </p>
-      )}
-      {state.status === 'ready' && (
-        <>
-          {state.data.projects.length === 0 ? (
-            <p className="muted">No project is set yet.</p>
-          ) : (
-            <ul className="project-list" aria-label="The projects">
-              {state.data.projects.map((project) => (
-                <li key={project.name}>
-                  <span className="mono">{project.name}</span>
-                  <span className="muted small">prefix</span>
-                  <span className="mono">{project.prefix}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="muted small">
-            They are in <span className="mono">{state.data.file}</span>. A line can be changed or
-            removed there by hand.
-          </p>
-        </>
-      )}
-      <h3 className="card-title">Add a project</h3>
-      <AddProjectForm onAdded={reload} />
-    </section>
-  )
-}
-
 function Graph() {
   return (
     <WithSynapseSettings>
@@ -564,7 +519,7 @@ function Terminals() {
 const TITLES: Record<SettingsSection, string> = {
   general: 'General',
   vault: 'Vault',
-  projects: 'Projects',
+  conventions: 'Conventions',
   graph: 'Code graph',
   environment: 'Environment',
   integrations: 'Integrations',
@@ -585,7 +540,7 @@ export function SettingsPage({
       <h1 className="page-title">{TITLES[section]}</h1>
       {section === 'general' && <General onChanged={onChanged} />}
       {section === 'vault' && <Vault />}
-      {section === 'projects' && <Projects />}
+      {section === 'conventions' && <Conventions />}
       {section === 'graph' && <Graph />}
       {section === 'environment' && <Environment />}
       {section === 'integrations' && <IntegrationsPage />}
