@@ -45,7 +45,7 @@ export const SETTINGS_SECTIONS: readonly {
     label: 'Integrations',
     about: 'Synapse in Claude Code, Codex and OpenCode',
   },
-  { section: 'terminals', label: 'Terminals', about: 'Where a new terminal starts' },
+  { section: 'terminals', label: 'Terminals', about: 'Where a new shell starts' },
 ]
 
 export type TerminalKind = 'Shell' | 'Claude' | 'Codex' | 'Opencode'
@@ -142,6 +142,8 @@ export const startState: ShellState = {
 export type Action =
   | { type: 'selectSection'; section: RailSection }
   | { type: 'togglePanel' }
+  // The panel is put open or shut, as the width of the window asks.
+  | { type: 'setPanel'; open: boolean }
   | { type: 'selectDefinitionKind'; kind: DefinitionKind }
   | { type: 'openPage'; page: Page }
   | { type: 'activateTab'; id: string }
@@ -230,6 +232,9 @@ export function reduce(state: ShellState, action: Action): ShellState {
 
     case 'togglePanel':
       return { ...state, panelOpen: !state.panelOpen }
+
+    case 'setPanel':
+      return state.panelOpen === action.open ? state : { ...state, panelOpen: action.open }
 
     case 'selectDefinitionKind':
       return { ...state, definitionKind: action.kind }

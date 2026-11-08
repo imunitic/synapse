@@ -504,7 +504,7 @@ function Terminals() {
     <>
       <PathCard
         title="Start folder"
-        hint="Where a new terminal starts, unless you type another folder in the side panel. Empty is your home folder."
+        hint="Where a new shell starts, unless you type another folder on the Terminals page. Empty is your home folder."
         label="Start folder path"
         placeholder="your home folder"
         initial={state.config.terminalFolder ?? ''}

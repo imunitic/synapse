@@ -1,4 +1,4 @@
-import { useState, type Dispatch, type DragEvent } from 'react'
+import { useEffect, useRef, useState, type Dispatch, type DragEvent } from 'react'
 import { CloseIcon } from '../components/icons.tsx'
 import { listExecutions } from '../domain/executions.ts'
 import { closeWarning, firstMovableIndex, indexAfterMove, insertionPoint } from '../domain/tabs.ts'
@@ -21,6 +21,14 @@ export function TabBar({ state, dispatch }: { state: ShellState; dispatch: Dispa
   const [dragging, setDragging] = useState<string | null>(null)
   const [drop, setDrop] = useState<number | null>(null)
   const [asking, setAsking] = useState<Asking | null>(null)
+  const bar = useRef<HTMLDivElement>(null)
+
+  // The tab that is showing is in view, however many others there are.
+  useEffect(() => {
+    bar.current
+      ?.querySelector('.tab[data-selected="true"]')
+      ?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' })
+  }, [state.activeId, state.tabs.length])
 
   async function requestClose(tab: Tab) {
     const runs =
@@ -62,6 +70,7 @@ export function TabBar({ state, dispatch }: { state: ShellState; dispatch: Dispa
   return (
     <>
       <div
+        ref={bar}
         className="tabbar"
         role="tablist"
         aria-label="Open pages"
@@ -73,6 +82,12 @@ export function TabBar({ state, dispatch }: { state: ShellState; dispatch: Dispa
           }
         }}
         onDrop={release}
+        onWheel={(event) => {
+          // The wheel turns up and down, and the bar goes sideways.
+          if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+            event.currentTarget.scrollLeft += event.deltaY
+          }
+        }}
       >
         {state.tabs.map((tab, index) => {
           const selected = tab.id === state.activeId
@@ -113,6 +128,7 @@ export function TabBar({ state, dispatch }: { state: ShellState; dispatch: Dispa
               <button
                 role="tab"
                 className="tab-label"
+                title={title}
                 aria-selected={selected}
                 onClick={() => dispatch({ type: 'activateTab', id: tab.id })}
                 onKeyDown={(event) => {

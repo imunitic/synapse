@@ -446,3 +446,13 @@ describe('tabs', () => {
     expect(reduce(state, { type: 'terminalEnded', id: 'nope' })).toBe(state)
   })
 })
+
+describe('the side panel', () => {
+  it('is put open or shut, and is the same state when it already is', () => {
+    const open = reduce(initialState, { type: 'setPanel', open: true })
+    expect(open.panelOpen).toBe(true)
+    const shut = reduce(open, { type: 'setPanel', open: false })
+    expect(shut.panelOpen).toBe(false)
+    expect(reduce(shut, { type: 'setPanel', open: false })).toBe(shut)
+  })
+})

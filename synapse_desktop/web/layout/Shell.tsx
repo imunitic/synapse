@@ -1,4 +1,4 @@
-import { useReducer } from 'react'
+import { useEffect, useReducer } from 'react'
 import { useConfig } from '../state/config.tsx'
 import { PageView } from './PageView.tsx'
 import { Rail } from './Rail.tsx'
@@ -9,8 +9,21 @@ import { reduce, startState } from '../state/state.ts'
 import { TabBar } from './TabBar.tsx'
 import '../app/shell.css'
 
+// A window this narrow, or narrower, has no room for the side panel beside a page.
+const NARROW_PX = 1000
+
 export function Shell() {
   const [state, dispatch] = useReducer(reduce, startState)
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const narrow = window.matchMedia(`(max-width: ${NARROW_PX}px)`)
+    const shut = () => {
+      if (narrow.matches) dispatch({ type: 'setPanel', open: false })
+    }
+    shut()
+    narrow.addEventListener('change', shut)
+    return () => narrow.removeEventListener('change', shut)
+  }, [])
   const { state: config } = useConfig()
   const active = state.tabs.find((tab) => tab.id === state.activeId)
   const missingWorkDir = config.status === 'ready' && config.config.workDir === null
@@ -39,7 +52,9 @@ export function Shell() {
             </div>
           )}
           <div className="content" role="tabpanel">
-            {active === undefined && <p className="empty">Open a page from the side panel.</p>}
+            {active === undefined && (
+              <p className="empty">Open a page from the rail or the side panel.</p>
+            )}
             {/* A session goes on while another tab shows, so the terminals stay mounted. */}
             {state.terminals.length > 0 && (
               <TerminalsPage
