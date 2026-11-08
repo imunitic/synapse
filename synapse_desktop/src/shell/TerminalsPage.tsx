@@ -126,6 +126,8 @@ function TerminalView({
     let gone = false
     // What is typed before the session is asked for waits, and goes to it then.
     const typed: string[] = []
+    // A session opened to run a command has it typed, and run, when it starts.
+    if (session.command !== undefined) typed.push(`${session.command}\n`)
 
     terminal.onData((data) => (handle === null ? typed.push(data) : handle.write(data)))
     terminal.onResize(({ cols, rows }) => handle?.resize(cols, rows))

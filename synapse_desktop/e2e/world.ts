@@ -172,6 +172,13 @@ export function environmentFor(world: World, binDirs: readonly string[]): NodeJS
     SYNAPSE_VAULT_DIR: '',
     SYNAPSE_WORK_DIR: world.work,
     SYNAPSE_PIPELINE_PATH: '',
+    // A terminal of the app inherits this. The Integrations page types an `npm install -g`
+    // into one, and a test of it must never install anything on the machine it runs on, nor
+    // run the setup tools that come after it: npm only pretends, cannot reach the network and
+    // has nothing in its cache, so it fails at once and the rest of the line does not run.
+    npm_config_dry_run: 'true',
+    npm_config_offline: 'true',
+    npm_config_cache: join(world.root, 'npm-cache'),
   }
 }
 

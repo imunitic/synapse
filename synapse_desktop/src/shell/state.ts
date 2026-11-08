@@ -73,6 +73,8 @@ export interface TerminalSession {
   cwd: string
   // What it was started to do, when it was started for a task.
   task?: TerminalTask
+  // A line to run in it as soon as it starts, when it was opened to run one.
+  command?: string
 }
 
 export type Page =
@@ -138,7 +140,16 @@ export type Action =
   | { type: 'activateTab'; id: string }
   | { type: 'closeTab'; id: string }
   // A session is added to the terminals page, which shows with it selected.
-  | { type: 'openTerminal'; kind: TerminalKind; cwd: string; id: string; task?: TerminalTask }
+  | {
+      type: 'openTerminal'
+      kind: TerminalKind
+      cwd: string
+      id: string
+      task?: TerminalTask
+      // A line to run in it, and the name its tab has instead of `Shell 2`.
+      command?: string
+      title?: string
+    }
   | { type: 'selectTerminal'; id: string }
   | { type: 'closeTerminal'; id: string }
   // A definition was changed: the lists are read again.
@@ -221,11 +232,14 @@ export function reduce(state: ShellState, action: Action): ShellState {
       const session: TerminalSession = {
         id: action.id,
         kind: action.kind,
-        title: `${TERMINAL_LABELS[action.kind]} ${opened}${
-          action.task === undefined ? '' : ` · ${TASK_LABELS[action.task]}`
-        }`,
+        title:
+          action.title ??
+          `${TERMINAL_LABELS[action.kind]} ${opened}${
+            action.task === undefined ? '' : ` · ${TASK_LABELS[action.task]}`
+          }`,
         cwd: action.cwd,
         ...(action.task === undefined ? {} : { task: action.task }),
+        ...(action.command === undefined ? {} : { command: action.command }),
       }
       return {
         ...reduce(state, { type: 'openPage', page: { kind: 'terminals' } }),

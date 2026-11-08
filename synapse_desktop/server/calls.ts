@@ -35,7 +35,7 @@ import {
   planGraphDrop,
 } from './graph-manage.ts'
 import { findContentRoot } from './inject.ts'
-import { findPipelineRoot, inspectIntegrations, versionOfProgram } from './integrations.ts'
+import { inspectIntegrations, versionOfProgram } from './integrations.ts'
 import { loadConfig, loadStoredConfig, saveConfig } from './config-store.ts'
 import {
   allowedRoots,
@@ -486,40 +486,6 @@ const handlers: Record<CallName, Handler> = {
       home: context.environment.home,
       versionOf: versionOfProgram,
     })
-  },
-
-  async configureHarness(raw, context): Promise<{ output: string }> {
-    const { harness } = callParams.configureHarness.parse(raw)
-    const config = await loadConfig(context.configFile, context.environment)
-    const env = cliEnvironment(context.environment.env, config)
-    const contentRoot = await findContentRoot(env)
-    const pipelineRoot = await findPipelineRoot(env)
-    if (contentRoot === null)
-      throw new CallError('the skills and hooks of Synapse were not found', 409)
-    if (pipelineRoot === null) {
-      throw new CallError('the skills of synapse-pipeline were not found', 409)
-    }
-    const name = harness.toLowerCase()
-    const output: string[] = []
-    for (const [binary, root] of [
-      ['synapse', contentRoot],
-      ['synapse-pipeline', pipelineRoot],
-    ] as const) {
-      const result = await context.runCli({
-        binary,
-        args: ['configure', name],
-        config,
-        env: { SYNAPSE_CONTENT_ROOT: root },
-      })
-      if (result.code !== 0) {
-        throw new CallError(
-          `${binary} configure ${name} failed: ${(result.stderr || result.stdout).trim()}`,
-          502,
-        )
-      }
-      output.push(result.stdout.trim())
-    }
-    return { output: output.filter(Boolean).join('\n\n') }
   },
 
   async getConfig(raw, context): Promise<AppConfig> {

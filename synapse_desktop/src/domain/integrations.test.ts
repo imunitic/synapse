@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import type { IntegrationState } from '../../shared/transport.ts'
-import { actionLabel, HARNESS_NAMES, isDowngrade, stateLabel, writesFor } from './integrations.ts'
+import {
+  HARNESS_NAMES,
+  installCommand,
+  installOffer,
+  stateLabel,
+  writesFor,
+} from './integrations.ts'
 
 const STATES: IntegrationState[] = [
   'absent',
@@ -12,24 +18,36 @@ const STATES: IntegrationState[] = [
 ]
 
 describe('integrations', () => {
-  it('say each state in words, with a button that fits it', () => {
+  it('say each state in words', () => {
     expect(stateLabel('absent')).toBe('Not installed')
-    expect(actionLabel('absent')).toBe('Install')
-    expect(actionLabel('different')).toBe('Update')
-    expect(actionLabel('broken')).toBe('Repair')
-    expect(actionLabel('current')).toBe('Reinstall')
+    expect(stateLabel('current')).toBe('Installed, up to date')
+    expect(stateLabel('broken')).toBe('Its hook program is missing')
   })
 
   it('never say two states the same way, or leave one without words', () => {
     expect(new Set(STATES.map(stateLabel)).size).toBe(STATES.length)
-    for (const state of STATES) {
-      expect(stateLabel(state)).not.toBe('')
-      expect(actionLabel(state)).not.toBe('')
+    for (const state of STATES) expect(stateLabel(state)).not.toBe('')
+  })
+
+  it('offer an install, a repair or an update where Synapse is missing, broken or another copy', () => {
+    expect(installOffer('Claude', 'absent')?.label).toBe('Install')
+    expect(installOffer('Claude', 'broken')?.label).toBe('Repair')
+    expect(installOffer('Claude', 'different')?.label).toBe('Update')
+  })
+
+  it('offer nothing where it is current or newer, or where nothing can be said of it', () => {
+    for (const state of ['current', 'newer', 'installed'] as const) {
+      expect(installOffer('Codex', state)).toBeNull()
     }
   })
 
-  it('call it a downgrade only when what is installed is newer', () => {
-    expect(STATES.filter(isDowngrade)).toEqual(['newer'])
+  it('install from npm and configure each harness by its own name', () => {
+    expect(installCommand('Claude')).toBe(
+      'npm install -g @imunitic/synapse@latest @imunitic/synapse-pipeline@latest && synapse-setup configure claude && synapse-pipeline-setup configure claude',
+    )
+    expect(installCommand('Opencode')).toContain('synapse-setup configure opencode')
+    expect(installCommand('Opencode')).toContain('synapse-pipeline-setup configure opencode')
+    expect(installOffer('Codex', 'absent')?.command).toBe(installCommand('Codex'))
   })
 
   it('say which files of a harness installing writes, and keep a copy of the ones it merges into', () => {

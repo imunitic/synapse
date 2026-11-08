@@ -79,6 +79,26 @@ describe('a terminal started for a task', () => {
     expect(plain.terminals[1]?.title).toBe('Shell 2')
     expect(plain.terminals[1]).not.toHaveProperty('task')
   })
+
+  it('runs a command in a shell opened for it, with the tab called what it is for', () => {
+    const state = reduce(initialState, {
+      type: 'openTerminal',
+      kind: 'Shell',
+      cwd: '',
+      id: 'a',
+      command: 'npm install -g thing',
+      title: 'Install Claude Code',
+    })
+    expect(state.terminals[0]).toMatchObject({
+      kind: 'Shell',
+      title: 'Install Claude Code',
+      command: 'npm install -g thing',
+    })
+    // It counts as one of the terminals opened, so the next plain one is numbered after it.
+    const plain = reduce(state, { type: 'openTerminal', kind: 'Shell', cwd: '', id: 'b' })
+    expect(plain.terminals[1]?.title).toBe('Shell 2')
+    expect(plain.terminals[1]).not.toHaveProperty('command')
+  })
 })
 
 describe('the code graph page', () => {

@@ -71,6 +71,7 @@ export function PageView({
   onSelectTerminal,
   onStartTerminal,
   onStartTask,
+  onRunCommand,
 }: {
   page: Page
   onOpen: (page: Page) => void
@@ -80,6 +81,8 @@ export function PageView({
   onStartTerminal: (kind: TerminalKind) => void
   // A harness is started in a folder for a task.
   onStartTask: (kind: TerminalKind, cwd: string, task: TerminalTask) => void
+  // A shell tab is opened, and runs the command; its tab is called the title.
+  onRunCommand: (command: string, title: string) => void
   // A definition was made; this is its page.
   onCreated: (page: Page) => void
   // A definition was changed.
@@ -101,7 +104,9 @@ export function PageView({
     case 'note':
       return <NotePage key={page.path} path={page.path} onOpen={onOpen} />
     case 'settings':
-      return <SettingsPage section={page.section} onChanged={onChanged} />
+      return (
+        <SettingsPage section={page.section} onChanged={onChanged} onRunCommand={onRunCommand} />
+      )
     case 'create':
       return (
         <DefinitionEditorPage

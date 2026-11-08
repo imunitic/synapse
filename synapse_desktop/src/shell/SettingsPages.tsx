@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { Harness } from '../../shared/transport.ts'
 import {
   loadSettings,
@@ -7,11 +7,11 @@ import {
   type SynapseSettings,
 } from '../domain/settings.ts'
 import {
-  actionLabel,
   HARNESS_NAMES,
-  isDowngrade,
+  installOffer,
   stateLabel,
   writesFor,
+  type InstallOffer,
 } from '../domain/integrations.ts'
 import { isAbsolutePath } from '../domain/vaults.ts'
 import { transport } from '../transport/index.ts'
@@ -376,32 +376,24 @@ function Environment() {
 // What each harness has of Synapse, and a button that installs it from the copy
 // of Synapse this app has. Nothing is written into a harness until one is
 // pressed.
-function IntegrationsPage() {
+function IntegrationsPage({
+  onRunCommand,
+}: {
+  onRunCommand: (command: string, title: string) => void
+}) {
   const harnessesNow = useHarnesses()
   const { recheck } = useDiagnosis()
-  const [version, setVersion] = useState(0)
-  const [working, setWorking] = useState<Harness | null>(null)
   // The harness whose installing is being asked about.
   const [asking, setAsking] = useState<Harness | null>(null)
-  const [results, setResults] = useState<Partial<Record<Harness, { ok: boolean; text: string }>>>(
-    {},
-  )
   const load = useCallback(() => transport.getIntegrations(), [])
-  const { state } = useLoad(load, undefined, version)
+  const { state } = useLoad(load)
+  // What the page says is read again when it is opened, such as on coming back from the
+  // terminal tab that installed; the setup check is told as well.
+  useEffect(() => recheck(), [recheck])
 
-  async function configure(harness: Harness) {
+  function run(harness: Harness, offer: InstallOffer) {
     setAsking(null)
-    setWorking(harness)
-    try {
-      const { output } = await transport.configureHarness(harness)
-      setResults((all) => ({ ...all, [harness]: { ok: true, text: output } }))
-    } catch (error) {
-      setResults((all) => ({ ...all, [harness]: { ok: false, text: String(error) } }))
-    }
-    setWorking(null)
-    setVersion((v) => v + 1)
-    // Synapse in a harness is one of the things the setup check looks at.
-    recheck()
+    onRunCommand(offer.command, `${offer.label} ${HARNESS_NAMES[harness]}`)
   }
 
   if (state.status === 'loading') return <p className="muted">Looking at the harnesses…</p>
@@ -427,83 +419,76 @@ function IntegrationsPage() {
           <p role="alert">Its skills, commands and hook templates were not found.</p>
         )}
       </section>
-      {harnesses.map((item) => (
-        <section key={item.harness} className="card" aria-label={HARNESS_NAMES[item.harness]}>
-          <h2 className="card-title">{HARNESS_NAMES[item.harness]}</h2>
-          <p>
-            <span data-state={item.state}>{stateLabel(item.state)}</span>
-            {item.version !== null && (
-              <span className="muted">
-                {' '}
-                · version <span className="mono">{item.version}</span>
-              </span>
-            )}
-          </p>
-          {harnessesNow.isMissing(item.harness) && (
-            <p className="warn-line" role="status">
-              {harnessesNow.reason(item.harness)}, so there is nothing to install Synapse in.
+      {harnesses.map((item) => {
+        const offer = installOffer(item.harness, item.state)
+        const missing = harnessesNow.isMissing(item.harness)
+        return (
+          <section key={item.harness} className="card" aria-label={HARNESS_NAMES[item.harness]}>
+            <h2 className="card-title">{HARNESS_NAMES[item.harness]}</h2>
+            <p>
+              <span data-state={item.state}>{stateLabel(item.state)}</span>
+              {item.version !== null && (
+                <span className="muted">
+                  {' '}
+                  · version <span className="mono">{item.version}</span>
+                </span>
+              )}
             </p>
-          )}
-          {item.hook !== null && (
-            <p className="muted small">
-              Hook program <span className="mono">{item.hook}</span>
-            </p>
-          )}
-          <div className="row">
-            <button
-              className="primary"
-              disabled={
-                working !== null ||
-                !ready ||
-                bundled.hook === null ||
-                isDowngrade(item.state) ||
-                harnessesNow.isMissing(item.harness)
-              }
-              title={
-                isDowngrade(item.state)
-                  ? "A newer Synapse than this app's is already installed"
-                  : undefined
-              }
-              onClick={() => setAsking(item.harness)}
-            >
-              {working === item.harness ? 'Working…' : actionLabel(item.state)}
-            </button>
-          </div>
-          {asking === item.harness && (
-            <div className="confirm" role="alertdialog" aria-label="Are you sure?">
-              <p>
-                <strong>Are you sure?</strong> This writes into {HARNESS_NAMES[item.harness]}'s own
-                configuration:
+            {missing && (
+              <p className="warn-line" role="status">
+                {harnessesNow.reason(item.harness)}, so there is nothing to install Synapse in.
               </p>
-              <ul className="small">
-                {writesFor(item.harness).map((line) => (
-                  <li key={line}>{line}</li>
-                ))}
-              </ul>
+            )}
+            {item.hook !== null && (
+              <p className="muted small">
+                Hook program <span className="mono">{item.hook}</span>
+              </p>
+            )}
+            {offer !== null && (
               <div className="row">
-                <button className="primary" onClick={() => void configure(item.harness)}>
-                  Yes, {actionLabel(item.state).toLowerCase()}
-                </button>
-                <button className="secondary" onClick={() => setAsking(null)}>
-                  Cancel
+                <button
+                  className="primary"
+                  disabled={missing}
+                  onClick={() => setAsking(item.harness)}
+                >
+                  {offer.label}
                 </button>
               </div>
-            </div>
-          )}
-          {results[item.harness] !== undefined && (
-            <pre
-              className="mono small"
-              role={results[item.harness]?.ok === true ? 'status' : 'alert'}
-            >
-              {results[item.harness]?.text}
-            </pre>
-          )}
-        </section>
-      ))}
+            )}
+            {offer !== null && asking === item.harness && (
+              <div className="confirm" role="alertdialog" aria-label="Are you sure?">
+                <p>
+                  <strong>Are you sure?</strong> This opens a terminal tab and runs this in it:
+                </p>
+                <pre className="mono small">{offer.command}</pre>
+                <p>
+                  It installs the npm packages for every program on this machine, and writes into{' '}
+                  {HARNESS_NAMES[item.harness]}'s own configuration:
+                </p>
+                <ul className="small">
+                  {writesFor(item.harness).map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+                <div className="row">
+                  <button className="primary" onClick={() => run(item.harness, offer)}>
+                    Yes, {offer.label.toLowerCase()}
+                  </button>
+                  <button className="secondary" onClick={() => setAsking(null)}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+        )
+      })}
       <p className="muted small">
-        Installing writes into the harness's own configuration: its skills and commands, and a hook
-        program that Synapse runs. A harness started from the Terminals page loads Synapse for that
-        session without any of this.
+        Installing and updating run npm in a terminal tab, which you can watch and stop. Synapse is
+        installed from its npm package, so the hook path that a harness keeps stays where it is when
+        this app moves or updates, and the app writes no hook path of its own. Where Synapse is
+        current or newer than this app&apos;s, nothing is offered. A harness started from the
+        Terminals page loads Synapse for that session without any of this.
       </p>
     </>
   )
@@ -553,10 +538,13 @@ const TITLES: Record<SettingsSection, string> = {
 export function SettingsPage({
   section,
   onChanged,
+  onRunCommand,
 }: {
   section: SettingsSection
   // Something the lists of definitions or runs show has changed.
   onChanged: () => void
+  // A shell tab is opened and runs the command.
+  onRunCommand: (command: string, title: string) => void
 }) {
   return (
     <div className="page">
@@ -566,7 +554,7 @@ export function SettingsPage({
       {section === 'conventions' && <Conventions />}
       {section === 'graph' && <Graph />}
       {section === 'environment' && <Environment />}
-      {section === 'integrations' && <IntegrationsPage />}
+      {section === 'integrations' && <IntegrationsPage onRunCommand={onRunCommand} />}
       {section === 'terminals' && <Terminals />}
     </div>
   )

@@ -102,26 +102,6 @@ describe('the API', () => {
     })
   })
 
-  it('installs Synapse and the pipeline skills for a harness, each with its own content', async () => {
-    const reply = await post('configureHarness', { harness: 'Codex' })
-    expect(reply.status).toBe(200)
-    expect(cliCalls.map((c) => [c.binary, c.args])).toEqual([
-      ['synapse', ['configure', 'codex']],
-      ['synapse-pipeline', ['configure', 'codex']],
-    ])
-    const [first, second] = cliCalls
-    expect(first?.env?.SYNAPSE_CONTENT_ROOT).toMatch(/packages[\\/]synapse$/)
-    expect(second?.env?.SYNAPSE_CONTENT_ROOT).toMatch(/packages[\\/]synapse-pipeline$/)
-  })
-
-  it('refuses a harness it does not know, and reports a configure that failed', async () => {
-    expect((await post('configureHarness', { harness: 'Cursor' })).status).toBe(400)
-    cliResult = { code: 1, stdout: '', stderr: 'synapse-configure: no home' }
-    const failed = await post('configureHarness', { harness: 'Claude' })
-    expect(failed.status).toBe(502)
-    expect(failed.body.error).toContain('no home')
-  })
-
   it('reads a graph against the repository saved for it, and says when none is', async () => {
     const none = await post('graphHealth', { namespace: 'synapse@main' })
     expect(none.status).toBe(409)

@@ -20,7 +20,6 @@ import type {
   ConventionList,
   Diagnosis,
   ProjectList,
-  Harness,
   Integrations,
   NewDefinition,
   DirEntry,
@@ -150,10 +149,6 @@ export class HttpTransport implements Transport {
 
   getIntegrations(): Promise<Integrations> {
     return this.call('getIntegrations', {})
-  }
-
-  configureHarness(harness: Harness): Promise<{ output: string }> {
-    return this.call('configureHarness', { harness })
   }
 
   // A terminal is a WebSocket to the same host, which the dev server proxies to

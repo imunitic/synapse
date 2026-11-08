@@ -367,10 +367,6 @@ export interface Transport {
 
   // What each harness has installed of Synapse, and what this app would install.
   getIntegrations(): Promise<Integrations>
-  // Installs Synapse and its pipeline skills for the harness, as
-  // `synapse configure` and `synapse-pipeline configure` do. It writes into the
-  // harness's own configuration, so it is only done when asked for.
-  configureHarness(harness: Harness): Promise<{ output: string }>
 
   // The namespace of a folder that is the repository of a graph.
   checkGraphRepo(path: string): Promise<GraphRepoCheck>

@@ -139,7 +139,6 @@ export const callParams = {
   removeConvention: z.object({ id: z.string().min(1).max(64), entry: z.string().min(1).max(1000) }),
   inspectVault: z.object({ path: z.string().min(1).max(4096) }),
   getIntegrations: z.object({}),
-  configureHarness: z.object({ harness: harnessSchema }),
   checkGraphRepo: z.object({ path: z.string().min(1).max(4096) }),
   findGraphRepos: z.object({ namespace: namespaceSchema }),
   graphHealth: z.object({ namespace: namespaceSchema }),

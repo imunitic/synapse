@@ -9,26 +9,52 @@ export const HARNESS_NAMES: Record<Harness, string> = {
   Opencode: 'OpenCode',
 }
 
-const STATES: Record<IntegrationState, { label: string; action: string }> = {
-  absent: { label: 'Not installed', action: 'Install' },
-  current: { label: 'Installed, up to date', action: 'Reinstall' },
-  different: { label: 'Installed from another copy or version', action: 'Update' },
-  broken: { label: 'Its hook program is missing', action: 'Repair' },
-  installed: { label: 'Installed', action: 'Reinstall' },
-  newer: { label: "Installed, newer than this app's Synapse", action: 'Update' },
+const LABELS: Record<IntegrationState, string> = {
+  absent: 'Not installed',
+  current: 'Installed, up to date',
+  different: 'Installed from another copy or version',
+  broken: 'Its hook program is missing',
+  installed: 'Installed',
+  newer: "Installed, newer than this app's Synapse",
 }
 
 export function stateLabel(state: IntegrationState): string {
-  return STATES[state].label
+  return LABELS[state]
 }
 
-// Whether pressing the button would put an older Synapse over a newer one.
-export function isDowngrade(state: IntegrationState): boolean {
-  return state === 'newer'
+// What a card offers for a state: a button, and the command it runs in a terminal tab.
+export interface InstallOffer {
+  label: string
+  command: string
 }
 
-export function actionLabel(state: IntegrationState): string {
-  return STATES[state].action
+// The packages and their setup tools: Synapse from npm, so that the hook path in a harness is
+// the one the npm launchers keep, whatever happens to this app.
+const PACKAGES = '@imunitic/synapse@latest @imunitic/synapse-pipeline@latest'
+
+// The command that installs, repairs or updates Synapse for a harness: the npm packages,
+// then each one's `configure` for the harness.
+export function installCommand(harness: Harness): string {
+  const name = harness.toLowerCase()
+  return `npm install -g ${PACKAGES} && synapse-setup configure ${name} && synapse-pipeline-setup configure ${name}`
+}
+
+// What to offer for a harness whose Synapse is in `state`. Nothing when it is current or newer
+// than the app's, and nothing when there is no way to tell, since then it is not known to need
+// anything.
+export function installOffer(harness: Harness, state: IntegrationState): InstallOffer | null {
+  switch (state) {
+    case 'absent':
+      return { label: 'Install', command: installCommand(harness) }
+    case 'broken':
+      return { label: 'Repair', command: installCommand(harness) }
+    case 'different':
+      return { label: 'Update', command: installCommand(harness) }
+    case 'current':
+    case 'newer':
+    case 'installed':
+      return null
+  }
 }
 
 // What installing writes for a harness, which the person is told before it is.

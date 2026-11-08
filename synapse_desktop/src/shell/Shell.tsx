@@ -85,6 +85,16 @@ export function Shell() {
                     id: Math.random().toString(36).slice(2, 8),
                   })
                 }
+                onRunCommand={(command, title) =>
+                  dispatch({
+                    type: 'openTerminal',
+                    kind: 'Shell',
+                    cwd: config.status === 'ready' ? (config.config.terminalFolder ?? '') : '',
+                    command,
+                    title,
+                    id: Math.random().toString(36).slice(2, 8),
+                  })
+                }
                 onCreated={(page) =>
                   dispatch({ type: 'definitionCreated', closeId: active.id, page })
                 }

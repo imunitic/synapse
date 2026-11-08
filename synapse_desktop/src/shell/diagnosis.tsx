@@ -89,11 +89,13 @@ export function DiagnosisProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('focus', onFocus)
   }, [check])
 
+  const recheck = useCallback(() => void check(), [check])
+
   const api = useMemo<DiagnosisApi>(
     () => ({
       state,
       checking,
-      recheck: () => void check(),
+      recheck,
       dismissed,
       dismiss: (key) =>
         setDismissed((before) => {
@@ -107,7 +109,7 @@ export function DiagnosisProvider({ children }: { children: ReactNode }) {
         setDismissed(none)
       },
     }),
-    [state, checking, check, dismissed],
+    [state, checking, recheck, dismissed],
   )
   return <DiagnosisContext value={api}>{children}</DiagnosisContext>
 }

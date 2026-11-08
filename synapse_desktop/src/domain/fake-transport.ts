@@ -80,7 +80,6 @@ export function fakeTransport(world: FakeWorld): Transport {
     dropGraph: unavailable,
     planGraphClean: unavailable,
     cleanGraphs: unavailable,
-    configureHarness: unavailable,
     openTerminal: unavailable,
     getConfig: (): Promise<AppConfig> => unavailable(),
     setConfig: unavailable,
