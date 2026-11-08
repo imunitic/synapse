@@ -207,6 +207,12 @@ const STUB = [
   'name=$(basename "$0")',
   // Asked for its version, as `synapse doctor` does, it says one and touches nothing.
   '[ "$1" = "--version" ] && { echo "$name 0.0.0-stub"; exit 0; }',
+  // Asked for its models, as the app does to offer a choice of one: Claude Code answers its /model
+  // command, Codex renders its catalogue and OpenCode lists its models and its providers.
+  '[ "$name" = claude ] && [ "$1" = -p ] && [ "$2" = /model ] && { echo "Current model: Stub 1"; echo "Usage: /model <name>. Available: sonnet, opus, haiku, default, or a full model ID."; exit 0; }',
+  `[ "$name" = codex ] && [ "$1" = debug ] && [ "$2" = models ] && { echo '{"models":[{"slug":"gpt-stub-b","display_name":"Stub B","description":"The second.","visibility":"list","priority":2},{"slug":"gpt-stub-a","display_name":"Stub A","description":"The first.","visibility":"list","priority":1},{"slug":"gpt-stub-old","display_name":"Old","visibility":"hide","priority":3}]}'; exit 0; }`,
+  '[ "$name" = opencode ] && [ "$1" = models ] && { printf "%s\\n" opencode/glm-5.3-flash-free openrouter/z-ai/glm-5.3-flash openrouter/deepseek/deepseek-v4-flash anthropic/claude-sonnet-5; exit 0; }',
+  '[ "$name" = opencode ] && [ "$1" = auth ] && { echo "OpenRouter  API key  stored"; exit 0; }',
   'echo "STUB $name args: $*"',
   'echo "CODEX_HOME=${CODEX_HOME:-} OPENCODE_CONFIG_DIR=${OPENCODE_CONFIG_DIR:-} CONTENT_ROOT=${SYNAPSE_CONTENT_ROOT:-}"',
   'echo "cwd: $(pwd)"',

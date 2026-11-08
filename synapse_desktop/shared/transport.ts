@@ -18,6 +18,8 @@ export interface AppConfig {
   // Directories of .synapse files besides the default one.
   definitionPaths: string[]
   defaultHarness: Harness | null
+  // The model each harness is asked to use when nothing says another; none is its own default.
+  defaultModels: Partial<Record<Harness, string>>
   // Variables set for every process the app starts, over those it was started
   // with.
   env: Record<string, string>
@@ -85,6 +87,8 @@ export interface GenerateRequest {
   prompt: string
   // The harness that writes it; the default harness when absent.
   harness?: Harness
+  // The model it is asked to use; the default model of the harness when absent.
+  model?: string
   // The text to change, when the prompt asks for a change to a definition that
   // exists and not for a new one.
   current?: string
@@ -109,6 +113,8 @@ export interface EditNoteRequest {
   prompt: string
   // The harness that changes it; the default harness when absent.
   harness?: Harness
+  // The model it is asked to use; the default model of the harness when absent.
+  model?: string
 }
 
 // A project of the vault's notes: its name is the folder, its prefix is in each id.
@@ -177,6 +183,8 @@ export interface NoteRequest {
   project?: string
   // The harness that writes it; the default harness when absent.
   harness?: Harness
+  // The model it is asked to use; the default model of the harness when absent.
+  model?: string
 }
 
 export type TerminalKind = 'Shell' | Harness
@@ -188,6 +196,25 @@ export interface Workspace {
 }
 
 export type Workspaces = Record<Harness, Workspace[]>
+
+// A model a harness can be asked to use, as its own list names it.
+export interface ModelOption {
+  id: string
+  // The provider it is served by, when the name says.
+  provider: string | null
+  // Whether it can be used now: a provider that is not connected has models that are listed and
+  // would fail.
+  available: boolean
+  // A line about it, when its harness gives one: what the model is for.
+  detail: string | null
+}
+
+// The models of a harness. A harness with no list has none here, and a name is typed.
+export interface ModelCatalog {
+  models: ModelOption[]
+  // What to tell the person about the list, such as why it is empty.
+  note: string | null
+}
 
 // A session a harness has kept, to be resumed in the folder it was held in.
 export interface PastSession {
@@ -367,6 +394,7 @@ export interface Transport {
   // What `synapse doctor` says of the install, with the PATH of the user's login shell.
   getDiagnosis(): Promise<Diagnosis>
   listWorkspaces(): Promise<Workspaces>
+  listModels(harness: Harness): Promise<ModelCatalog>
   listSessions(): Promise<PastSessions>
   // Makes a folder a vault when it is not one: the folder, and the `Index.md` that the
   // package ships a template of. What is there is left as it is.

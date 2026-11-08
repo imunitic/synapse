@@ -98,6 +98,7 @@ describe('the API', () => {
       env: {},
       recentVaults: [],
       terminalFolder: null,
+      defaultModels: {},
       graphRepos: {},
     })
   })
@@ -188,6 +189,7 @@ describe('the API', () => {
       env: {},
       recentVaults: [],
       terminalFolder: null,
+      defaultModels: {},
       graphRepos: {},
     })
   })

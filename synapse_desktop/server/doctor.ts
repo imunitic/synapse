@@ -72,7 +72,7 @@ export interface DoctorDeps {
 const KEEP_MS = 30_000
 let kept: { at: number; shell: string; path: string | null } | null = null
 
-async function loginShellPath(env: NodeJS.ProcessEnv, platform: NodeJS.Platform) {
+export async function loginShellPath(env: NodeJS.ProcessEnv, platform: NodeJS.Platform) {
   if (platform === 'win32') return null
   const shell = env.SHELL ?? '/bin/sh'
   if (kept !== null && kept.shell === shell && Date.now() - kept.at < KEEP_MS) return kept.path

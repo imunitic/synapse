@@ -19,6 +19,7 @@ import { TEXT_SIZES } from '../domain/text-size.ts'
 import { useConfig } from '../state/config.tsx'
 import { useDiagnosis, useHarnesses } from '../state/diagnosis.tsx'
 import { EnvCard } from '../components/EnvCard.tsx'
+import { ModelPicker } from '../components/ModelPicker.tsx'
 import { Conventions } from './ConventionsPage.tsx'
 import { SettingsForm } from '../components/SettingsForm.tsx'
 import type { SettingsSection } from '../state/state.ts'
@@ -126,6 +127,53 @@ function DefaultHarnessCard() {
           </option>
         ))}
       </select>
+      {failure !== null && (
+        <p className="error" role="alert">
+          {failure}
+        </p>
+      )}
+    </section>
+  )
+}
+
+// The model each harness is asked to use when nothing says another, found among the models it
+// lists or typed. Without one the harness uses its own.
+function DefaultModelsCard() {
+  const { state, save } = useConfig()
+  const harnesses = useHarnesses()
+  const [failure, setFailure] = useState<string | null>(null)
+  if (state.status !== 'ready') return null
+  const models = state.config.defaultModels
+
+  function change(harness: Harness, model: string | null) {
+    const next = { ...models }
+    if (model === null) delete next[harness]
+    else next[harness] = model
+    save({ defaultModels: next }).then(
+      () => setFailure(null),
+      (error: unknown) => setFailure(String(error)),
+    )
+  }
+
+  return (
+    <section className="card" aria-label="Default models">
+      <h2 className="card-title">Default models</h2>
+      <p className="muted">
+        The model a harness is asked to use when an agent writes a definition or a note for you.
+        Without one, the harness uses its own. A step of a pipeline names its own in the definition.
+      </p>
+      {HARNESS_OPTIONS.map(({ value, label }) => (
+        <div key={value} className="model-row">
+          <span className="model-row-label">{label}</span>
+          <ModelPicker
+            harness={value}
+            label={`Default model of ${label}`}
+            value={models[value] ?? null}
+            onChange={(model) => change(value, model)}
+            disabled={harnesses.isMissing(value)}
+          />
+        </div>
+      ))}
       {failure !== null && (
         <p className="error" role="alert">
           {failure}
@@ -255,6 +303,7 @@ function General({ onChanged }: { onChanged: () => void }) {
       )}
       <TextSizeCard />
       <DefaultHarnessCard />
+      <DefaultModelsCard />
       <DefinitionFoldersCard onChanged={onChanged} />
     </>
   )

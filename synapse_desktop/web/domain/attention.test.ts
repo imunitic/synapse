@@ -92,6 +92,7 @@ const config = (workDir: string | null): AppConfig => ({
   workDir,
   definitionPaths: [],
   defaultHarness: null,
+  defaultModels: {},
   env: {},
   recentVaults: [],
   graphRepos: {},

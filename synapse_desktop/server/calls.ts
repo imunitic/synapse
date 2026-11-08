@@ -19,6 +19,7 @@ import type {
   NoteEdit,
   ConventionList,
   Diagnosis,
+  ModelCatalog,
   PastSessions,
   Workspaces,
   ProjectList,
@@ -70,6 +71,7 @@ import { addProject, listProjects, ProjectRefused, projectsFile } from './projec
 import { inspectVault, seedVault, VaultRefused } from './vault.ts'
 import { diagnose } from './doctor.ts'
 import { histories, listSessions, listWorkspaces } from './history/history.ts'
+import { listModels } from './models.ts'
 import { askRun, NotListening, socketPath } from './run-socket.ts'
 import { NotStartedHere, RunNotStarted, type RunStarter } from './runs.ts'
 
@@ -102,6 +104,7 @@ async function noteSessionOf(
   context: Context,
   config: AppConfig,
   harness: Harness,
+  model: string | undefined,
 ): Promise<(prompt: string) => Promise<CliResult>> {
   const settings = await context.runCli({
     binary: 'synapse',
@@ -120,7 +123,14 @@ async function noteSessionOf(
     join(context.environment.home, '.config', 'synapse'),
     config.workDir ?? join(context.environment.home, '.cache', 'synapse', 'work'),
   ])
-  return (prompt) => context.noteSession({ harness, prompt, env, writable })
+  return (prompt) =>
+    context.noteSession({
+      harness,
+      prompt,
+      env,
+      writable,
+      ...(model === undefined ? {} : { model }),
+    })
 }
 
 type Handler = (raw: unknown, context: Context) => Promise<unknown>
@@ -260,10 +270,16 @@ const handlers: Record<CallName, Handler> = {
 
   async generateDefinition(raw, context): Promise<{ text: string }> {
     const request = callParams.generateDefinition.parse(raw)
-    const { defaultHarness, env } = await loadConfig(context.configFile, context.environment)
+    const { defaultHarness, defaultModels, env } = await loadConfig(
+      context.configFile,
+      context.environment,
+    )
+    const harness = request.harness ?? defaultHarness ?? 'Claude'
+    const model = request.model ?? defaultModels[harness]
     try {
       const text = await generateText(request, {
-        harness: request.harness ?? defaultHarness ?? 'Claude',
+        harness,
+        ...(model === undefined ? {} : { model }),
         env,
         pathVariable: context.environment.env.PATH ?? '',
         agent: context.agent,
@@ -280,7 +296,12 @@ const handlers: Record<CallName, Handler> = {
     const request = callParams.createNote.parse(raw)
     const config = await loadConfig(context.configFile, context.environment)
     const harness = request.harness ?? config.defaultHarness ?? 'Claude'
-    const session = await noteSessionOf(context, config, harness)
+    const session = await noteSessionOf(
+      context,
+      config,
+      harness,
+      request.model ?? config.defaultModels[harness],
+    )
     // A task or design note belongs to a project, which a request names or the agent
     // matches from the ones there are.
     const projects = await listProjects(context.environment)
@@ -315,7 +336,12 @@ const handlers: Record<CallName, Handler> = {
     const request = callParams.editNote.parse(raw)
     const config = await loadConfig(context.configFile, context.environment)
     const harness = request.harness ?? config.defaultHarness ?? 'Claude'
-    const session = await noteSessionOf(context, config, harness)
+    const session = await noteSessionOf(
+      context,
+      config,
+      harness,
+      request.model ?? config.defaultModels[harness],
+    )
     try {
       return await editNote(
         { run: context.runCli, config, harness, session },
@@ -409,6 +435,11 @@ const handlers: Record<CallName, Handler> = {
     const path = expandHome(typed, context.environment.home)
     if (!isAbsolute(path)) throw new CallError('the path must be absolute', 400)
     return { ...(await inspectVault(path)), path }
+  },
+
+  async listModels(raw, context): Promise<ModelCatalog> {
+    const { harness } = callParams.listModels.parse(raw)
+    return listModels(harness, { env: context.environment.env })
   },
 
   async listSessions(raw, context): Promise<PastSessions> {

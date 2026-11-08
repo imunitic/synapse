@@ -182,6 +182,36 @@ describe('generateDefinition', () => {
     expect(harnesses).toEqual(['Claude', 'Codex', 'Opencode'])
   })
 
+  it('asks for the model the request names, else the default of that harness, else none', async () => {
+    const path = await pathWithSkill()
+    const models: (string | undefined)[] = []
+    const context = contextWith((run) => {
+      models.push(run.model)
+      return Promise.resolve({ code: 0, stdout: 'Agent A [Prompt => "x"];', stderr: '' })
+    }, path)
+    await handleCall('generateDefinition', request, context)
+    await handleCall(
+      'setConfig',
+      { patch: { defaultModels: { Claude: 'sonnet', Codex: 'gpt-x' } } },
+      context,
+    )
+    await handleCall('generateDefinition', request, context)
+    await handleCall('generateDefinition', { ...request, model: 'opus' }, context)
+    await handleCall('generateDefinition', { ...request, harness: 'Codex' }, context)
+    await handleCall('generateDefinition', { ...request, harness: 'Opencode' }, context)
+    expect(models).toEqual([undefined, 'sonnet', 'opus', 'gpt-x', undefined])
+  })
+
+  it('refuses a model that could be taken for a flag', async () => {
+    const context = contextWith(() => Promise.reject(new Error('not used')), await pathWithSkill())
+    await expect(
+      handleCall('generateDefinition', { ...request, model: '--dangerous' }, context),
+    ).rejects.toThrow()
+    await expect(
+      handleCall('setConfig', { patch: { defaultModels: { Claude: '-m x' } } }, context),
+    ).rejects.toThrow()
+  })
+
   it('gives the agent the variables set in the app', async () => {
     const seen: (Record<string, string> | undefined)[] = []
     const context = contextWith(
@@ -243,6 +273,33 @@ describe('generateDefinition', () => {
       await expect(handleCall('generateDefinition', bad, context)).rejects.toMatchObject({
         status: 400,
       })
+    }
+  })
+})
+
+describe('the model of a headless session', () => {
+  const run = { system: 'sys', prompt: 'p' }
+
+  it('is given to each harness by its own flag', () => {
+    const model = 'some/model'
+    expect(agentCommand({ ...run, harness: 'Claude', model }).args.slice(-2)).toEqual([
+      '--model',
+      model,
+    ])
+    expect(agentCommand({ ...run, harness: 'Codex', model }).args).toEqual(
+      expect.arrayContaining(['-m', model]),
+    )
+    const opencode = agentCommand({ ...run, harness: 'Opencode', model }).args
+    expect(opencode.slice(0, 5)).toEqual(['run', '--standalone', '--auto', '-m', model])
+    // The prompt is still the last argument, after the flag.
+    expect(opencode.at(-1)).toContain('p')
+  })
+
+  it('is left to the harness when there is none', () => {
+    for (const harness of ['Claude', 'Codex', 'Opencode'] as const) {
+      const args = agentCommand({ ...run, harness }).args
+      expect(args).not.toContain('--model')
+      expect(args).not.toContain('-m')
     }
   })
 })

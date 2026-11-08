@@ -11,6 +11,7 @@ import type {
   DraftDefinition,
   GenerateRequest,
   GraphHealth,
+  Harness,
   GraphPlan,
   GraphRepoCheck,
   GraphRepoMatches,
@@ -19,6 +20,7 @@ import type {
   EditNoteRequest,
   ConventionList,
   Diagnosis,
+  ModelCatalog,
   PastSessions,
   Workspaces,
   ProjectList,
@@ -107,6 +109,10 @@ export class HttpTransport implements Transport {
 
   listSessions(): Promise<PastSessions> {
     return this.call('listSessions', {})
+  }
+
+  listModels(harness: Harness): Promise<ModelCatalog> {
+    return this.call('listModels', { harness })
   }
 
   seedVault(path: string): Promise<VaultInfo> {

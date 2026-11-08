@@ -259,3 +259,22 @@ describe('what the session left', () => {
     expect(pathsOf('Index.md\n\nresearch/A.md\n')).toEqual(['Index.md', 'research/A.md'])
   })
 })
+
+describe('the model of a note session', () => {
+  it('is given to each harness by its own flag, before what ends the arguments', () => {
+    const claude = noteCommand('Claude', plan, 'p', ['/v'], 'sonnet').args
+    expect(claude.slice(-2)).toEqual(['--model', 'sonnet'])
+    const codex = noteCommand('Codex', plan, 'p', ['/v'], 'gpt-x').args
+    expect(codex.slice(-3)).toEqual(['-m', 'gpt-x', '-'])
+    const opencode = noteCommand('Opencode', plan, 'the prompt', ['/v'], 'prov/model').args
+    expect(opencode.slice(-3)).toEqual(['-m', 'prov/model', 'the prompt'])
+  })
+
+  it('is left to the harness when there is none', () => {
+    for (const harness of ['Claude', 'Codex', 'Opencode'] as const) {
+      const args = noteCommand(harness, plan, 'p', ['/v']).args
+      expect(args).not.toContain('--model')
+      expect(args).not.toContain('-m')
+    }
+  })
+})

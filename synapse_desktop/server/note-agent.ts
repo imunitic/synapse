@@ -164,6 +164,7 @@ export function noteCommand(
   plan: SessionPlan,
   prompt: string,
   writable: readonly string[],
+  model?: string,
 ): NoteCommand {
   switch (harness) {
     case 'Claude':
@@ -182,6 +183,7 @@ export function noteCommand(
             ? NOTE_TOOLS
             : `${NOTE_TOOLS},Read(${plan.env.SYNAPSE_CONTENT_ROOT}/**)`,
           ...plan.args,
+          ...(model === undefined ? [] : ['--model', model]),
         ],
         env: {},
         stdin: prompt,
@@ -198,6 +200,7 @@ export function noteCommand(
           'approval_policy="never"',
           ...writable.flatMap((dir) => ['--add-dir', dir]),
           ...plan.args,
+          ...(model === undefined ? [] : ['-m', model]),
           '-',
         ],
         env: {},
@@ -205,7 +208,14 @@ export function noteCommand(
       }
     case 'Opencode':
       return {
-        args: ['run', '--standalone', '--auto', ...plan.args, prompt],
+        args: [
+          'run',
+          '--standalone',
+          '--auto',
+          ...plan.args,
+          ...(model === undefined ? [] : ['-m', model]),
+          prompt,
+        ],
         env: { OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: OPENCODE_PERMISSION }) },
         stdin: '',
       }
@@ -215,6 +225,8 @@ export function noteCommand(
 export interface NoteSessionRun {
   harness: Harness
   prompt: string
+  // The model the session is asked to use; the harness's own when absent.
+  model?: string
   // The environment the session runs in.
   env: Record<string, string>
   // The folders the session writes in besides its own: the vault, and where the
@@ -229,7 +241,13 @@ export type NoteSession = (run: NoteSessionRun) => Promise<CliResult>
 export function createNoteSession(plan: (harness: Harness) => Promise<SessionPlan>): NoteSession {
   return async (run) => {
     const session = await plan(run.harness)
-    const { args, env, stdin } = noteCommand(run.harness, session, run.prompt, run.writable)
+    const { args, env, stdin } = noteCommand(
+      run.harness,
+      session,
+      run.prompt,
+      run.writable,
+      run.model,
+    )
     return new Promise((resolve, reject) => {
       const child = execFile(
         session.command,

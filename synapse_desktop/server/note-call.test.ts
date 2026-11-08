@@ -56,6 +56,42 @@ const failure = async (action: Promise<unknown>) =>
     (error: unknown) => error as CallError,
   )
 
+describe('the model of a note session', () => {
+  const run = (context: Context, extra: object = {}) =>
+    handleCall('createNote', { kind: 'note', prompt: 'x', ...extra }, context)
+
+  it('is the one the request names, else the default of the harness that is used, else none', async () => {
+    const { context, sessions } = contextFor(
+      [
+        'Index.md\n',
+        'Index.md\na.md\n',
+        'Index.md\n',
+        'Index.md\na.md\n',
+        'x\n',
+        'x\ny.md\n',
+        'x\n',
+        'x\nz.md\n',
+      ],
+      ok('a.md\n'),
+    )
+    await handleCall('setConfig', { patch: { defaultModels: { Claude: 'sonnet' } } }, context)
+    await run(context)
+    await run(context, { model: 'opus' })
+    await run(context, { harness: 'Codex' }).catch(() => null)
+    expect(sessions.map((s) => [s.harness, s.model])).toEqual([
+      ['Claude', 'sonnet'],
+      ['Claude', 'opus'],
+      ['Codex', undefined],
+    ])
+  })
+
+  it('is left out of the session when there is none', async () => {
+    const { context, sessions } = contextFor(['Index.md\n', 'Index.md\na.md\n'], ok('a.md\n'))
+    await run(context)
+    expect(sessions[0]).not.toHaveProperty('model')
+  })
+})
+
 describe('writing a note with an agent', () => {
   it('runs the session with the prompt of the kind, and answers with the note that is new', async () => {
     const { context, sessions, listed } = contextFor(

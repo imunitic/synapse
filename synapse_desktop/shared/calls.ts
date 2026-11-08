@@ -2,6 +2,7 @@
 // names are the Transport methods that travel over HTTP.
 
 import { z } from 'zod'
+import { MODEL_NAME } from './models.ts'
 import type { RunRequest } from './transport.ts'
 
 // `<repo>@<branch>`: a folder's name, with no separator and no dots alone.
@@ -15,10 +16,15 @@ export const envNameSchema = z
   .regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
   .max(128)
 
+// A model as a harness is given it on its command line.
+export const modelSchema = z.string().regex(MODEL_NAME)
+
 const configFields = {
   workDir: z.string().min(1).nullable(),
   definitionPaths: z.array(z.string().min(1)),
   defaultHarness: harnessSchema.nullable(),
+  // The model each harness is asked to use when nothing says another; none is its own default.
+  defaultModels: z.partialRecord(harnessSchema, modelSchema),
   env: z
     .record(envNameSchema, z.string().max(4096))
     .refine((env) => Object.keys(env).length <= 64, 'at most 64 variables'),
@@ -37,6 +43,7 @@ export const storedConfigSchema = z.object({
   env: configFields.env.default({}),
   recentVaults: configFields.recentVaults.default([]),
   terminalFolder: configFields.terminalFolder.default(null),
+  defaultModels: configFields.defaultModels.default({}),
   graphRepos: configFields.graphRepos.default({}),
 })
 
@@ -44,6 +51,7 @@ export const defaultConfig: z.infer<typeof appConfigSchema> = {
   workDir: null,
   definitionPaths: [],
   defaultHarness: null,
+  defaultModels: {},
   env: {},
   recentVaults: [],
   terminalFolder: null,
@@ -106,6 +114,7 @@ export const callParams = {
     kind: z.enum(['pipeline', 'system', 'agent', 'skill']),
     prompt: z.string().min(1).max(20_000),
     harness: harnessSchema.optional(),
+    model: modelSchema.optional(),
     current: draftText.optional(),
     definitions: z
       .array(
@@ -118,12 +127,14 @@ export const callParams = {
     kind: z.enum(['note', 'task', 'design']),
     prompt: z.string().min(1).max(20_000),
     harness: harnessSchema.optional(),
+    model: modelSchema.optional(),
     project: z.string().min(1).max(64).optional(),
   }),
   editNote: z.object({
     path: z.string().min(1).max(1024),
     prompt: z.string().min(1).max(20_000),
     harness: harnessSchema.optional(),
+    model: modelSchema.optional(),
   }),
   restoreNote: z.object({
     path: z.string().min(1).max(1024),
@@ -134,6 +145,7 @@ export const callParams = {
   addProject: z.object({ name: z.string().min(1).max(64), prefix: z.string().min(1).max(32) }),
   getDiagnosis: z.object({}),
   listWorkspaces: z.object({}),
+  listModels: z.object({ harness: harnessSchema }),
   listSessions: z.object({}),
   seedVault: z.object({ path: z.string().min(1).max(4096) }),
   listConventions: z.object({}),

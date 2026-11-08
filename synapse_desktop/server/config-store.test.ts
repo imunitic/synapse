@@ -42,6 +42,7 @@ describe('the configuration file', () => {
       env: {},
       recentVaults: [],
       terminalFolder: null,
+      defaultModels: {},
       graphRepos: {},
     })
   })

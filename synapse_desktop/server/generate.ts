@@ -15,6 +15,8 @@ export interface AgentRun {
   // Variables set in the app, over those the server has.
   env?: Record<string, string>
   harness: Harness
+  // The model the session is asked to use; the harness's own when absent.
+  model?: string
   // Added to the session's own instructions.
   system: string
   prompt: string
@@ -35,7 +37,7 @@ export interface AgentCommand {
 // The headless session of a harness that can read and answer but not change
 // anything or run anything. Codex and OpenCode have no flag for added
 // instructions, so those go in front of the prompt.
-export function agentCommand({ harness, system, prompt }: AgentRun): AgentCommand {
+export function agentCommand({ harness, model, system, prompt }: AgentRun): AgentCommand {
   const together = `${system}\n\n${prompt}`
   switch (harness) {
     case 'Claude':
@@ -52,6 +54,7 @@ export function agentCommand({ harness, system, prompt }: AgentRun): AgentComman
           '',
           '--append-system-prompt',
           system,
+          ...(model === undefined ? [] : ['--model', model]),
         ],
         env: {},
         stdin: prompt,
@@ -59,14 +62,27 @@ export function agentCommand({ harness, system, prompt }: AgentRun): AgentComman
     case 'Codex':
       return {
         program: 'codex',
-        args: ['exec', '--ephemeral', '--skip-git-repo-check', '-s', 'read-only'],
+        args: [
+          'exec',
+          '--ephemeral',
+          '--skip-git-repo-check',
+          '-s',
+          'read-only',
+          ...(model === undefined ? [] : ['-m', model]),
+        ],
         env: {},
         stdin: together,
       }
     case 'Opencode':
       return {
         program: 'opencode',
-        args: ['run', '--standalone', '--auto', together],
+        args: [
+          'run',
+          '--standalone',
+          '--auto',
+          ...(model === undefined ? [] : ['-m', model]),
+          together,
+        ],
         env: {
           OPENCODE_CONFIG_CONTENT: JSON.stringify({
             permission: {
@@ -198,6 +214,7 @@ export async function generateText(
     pathVariable: string
     agent: AgentRunner
     harness: Harness
+    model?: string
     env: Record<string, string>
   },
 ): Promise<string> {
@@ -205,6 +222,7 @@ export async function generateText(
   const result = await deps.agent({
     env: deps.env,
     harness: deps.harness,
+    ...(deps.model === undefined ? {} : { model: deps.model }),
     system: systemFor(request, skill),
     prompt: promptFor(request),
   })

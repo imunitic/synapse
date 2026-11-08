@@ -2268,3 +2268,67 @@ div.activity-row {
   flex-direction: column;
   gap: 6px;
 }
+
+/* The choice of a model: a box to type in with the list to search under it. */
+.model-picker {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.model-input {
+  flex: 1;
+  min-width: 12rem;
+  max-width: 32rem;
+}
+
+.model-list {
+  position: absolute;
+  z-index: 5;
+  top: 2.4rem;
+  left: 0;
+  right: 0;
+  max-width: 32rem;
+  max-height: 18rem;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  background: var(--card);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.model-list [role='option'] {
+  padding: 5px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.model-list [role='option'][aria-selected='true'] {
+  background: var(--raised);
+}
+
+.model-list [data-unavailable] {
+  opacity: 0.6;
+}
+
+.model-more {
+  padding: 5px 8px;
+}
+
+.model-row {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+
+.model-row-label {
+  padding-top: 6px;
+  font-weight: 500;
+}
