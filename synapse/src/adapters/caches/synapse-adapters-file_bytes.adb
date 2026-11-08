@@ -1,6 +1,7 @@
 with Ada.Calendar;
 with Ada.Directories;
 with Ada.Environment_Variables;
+with Ada.IO_Exceptions;
 with Ada.Streams;
 with Ada.Streams.Stream_IO;
 with Ada.Unchecked_Deallocation;
@@ -152,20 +153,46 @@ package body Synapse.Adapters.File_Bytes is
       end Next;
    end Sequence;
 
-   function Temp_File (Content : String := "") return String is
-      Stamp   : constant Natural :=
-        Natural (Ada.Calendar.Seconds (Ada.Calendar.Clock) * 1_000.0);
-      Counter : Natural;
+   function Create_New (Path : String) return Boolean is
+      use type GNAT.OS_Lib.File_Descriptor;
+      Descriptor : constant GNAT.OS_Lib.File_Descriptor :=
+        GNAT.OS_Lib.Create_New_File (Path, GNAT.OS_Lib.Binary);
    begin
-      Sequence.Next (Counter);
-      return
-        Path : constant String :=
-          Ada.Directories.Full_Name
-            (Temp_Dir & "/synapse-" & Core.Decimal_Image.Image (Stamp) & "-" &
-             Core.Decimal_Image.Image (Counter) & ".tmp")
-      do
-         Write (Path, Content);
-      end return;
+      if Descriptor = GNAT.OS_Lib.Invalid_FD then
+         return False;
+      end if;
+      GNAT.OS_Lib.Close (Descriptor);
+      return True;
+   end Create_New;
+
+   --  Other processes ask for temporary files at the same moment, so a name
+   --  is taken only by creating the file where nothing was.
+   Most_Attempts : constant := 1_000;
+
+   function Temp_File (Content : String := "") return String is
+   begin
+      for Attempt in 1 .. Most_Attempts loop
+         declare
+            Stamp   : constant Natural :=
+              Natural (Ada.Calendar.Seconds (Ada.Calendar.Clock) * 1_000.0);
+            Counter : Natural;
+         begin
+            Sequence.Next (Counter);
+            declare
+               Path : constant String :=
+                 Ada.Directories.Full_Name
+                   (Temp_Dir & "/synapse-" & Core.Decimal_Image.Image (Stamp)
+                    & "-" & Core.Decimal_Image.Image (Counter) & ".tmp");
+            begin
+               if Create_New (Path) then
+                  Write (Path, Content);
+                  return Path;
+               end if;
+            end;
+         end;
+      end loop;
+      raise Ada.IO_Exceptions.Use_Error
+        with "no free temporary file name in " & Temp_Dir;
    end Temp_File;
 
 end Synapse.Adapters.File_Bytes;

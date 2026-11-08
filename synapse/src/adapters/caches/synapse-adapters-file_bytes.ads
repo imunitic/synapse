@@ -22,6 +22,11 @@ package Synapse.Adapters.File_Bytes is
    --  No trailing separator.
    function Temp_Dir return String;
 
+   --  Creates an empty file at Path when nothing is there, and says whether it
+   --  did. Another process that asks for the same path at the same moment
+   --  does not get it too.
+   function Create_New (Path : String) return Boolean;
+
    --  A new, empty file in Temp_Dir named `synapse-...tmp`, holding Content
    --  when it is not empty; its absolute path. The caller deletes it.
    function Temp_File (Content : String := "") return String;
