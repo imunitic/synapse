@@ -223,7 +223,42 @@ export function pageTitle(page: Page): string {
   }
 }
 
+// The section of the rail a page belongs to, when it belongs to one: the notes are in the vault,
+// the runs are executions, a definition is a definition of its kind. The pages of the rail's own
+// buttons, above its divider, belong to no section.
+export function sectionOf(page: Page): { section: RailSection; kind?: DefinitionKind } | null {
+  switch (page.kind) {
+    case 'note':
+    case 'new-note':
+      return { section: 'vault' }
+    case 'execution':
+      return { section: 'executions' }
+    case 'definition':
+    case 'create':
+      return { section: 'definitions', kind: page.definition }
+    case 'settings':
+      return { section: 'settings' }
+    default:
+      return null
+  }
+}
+
+// The side panel follows the page that is showing: when another page comes to show, by being
+// opened, chosen or taken over from a closed one, the panel is on the section of that page. Whether
+// the panel is open is the person's.
 export function reduce(state: ShellState, action: Action): ShellState {
+  const next = step(state, action)
+  if (next.activeId === state.activeId) return next
+  const page = next.tabs.find((t) => t.id === next.activeId)?.page
+  const where = page === undefined ? null : sectionOf(page)
+  if (where === null) return next
+  const kind = where.kind ?? next.definitionKind
+  return where.section === next.section && kind === next.definitionKind
+    ? next
+    : { ...next, section: where.section, definitionKind: kind }
+}
+
+function step(state: ShellState, action: Action): ShellState {
   switch (action.type) {
     case 'selectSection':
       // Choosing the section that is already showing hides the panel.

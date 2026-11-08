@@ -33,7 +33,20 @@ export function ExecutionsPanel({
         </p>
       )}
       {load.status === 'ready' && load.data.length === 0 && (
-        <p className="panel-empty">No executions found.</p>
+        <>
+          <p className="panel-empty">No executions found. A run starts from a pipeline's page.</p>
+          <div className="panel-action">
+            <button
+              className="secondary"
+              onClick={() => {
+                dispatch({ type: 'selectDefinitionKind', kind: 'pipeline' })
+                dispatch({ type: 'selectSection', section: 'definitions' })
+              }}
+            >
+              Open the pipelines
+            </button>
+          </div>
+        </>
       )}
       {load.status === 'ready' && (
         <div className="list">

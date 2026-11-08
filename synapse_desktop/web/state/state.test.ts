@@ -456,3 +456,66 @@ describe('the side panel', () => {
     expect(reduce(shut, { type: 'setPanel', open: false })).toBe(shut)
   })
 })
+
+describe('the side panel following the page', () => {
+  const note = { kind: 'note', path: 'research/A.md' } as const
+  const definition = { kind: 'definition', definition: 'agent', name: 'Dev', path: '/x' } as const
+  const base = { ...initialState, section: 'definitions', panelOpen: true } as ShellState
+
+  it('is on the vault for a note, on the executions for a run, and on the kind of a definition', () => {
+    expect(reduce(base, { type: 'openPage', page: note }).section).toBe('vault')
+    expect(reduce(base, { type: 'openPage', page: { kind: 'execution', id: 'r1' } }).section).toBe(
+      'executions',
+    )
+    const opened = reduce(base, { type: 'openPage', page: definition })
+    expect(opened.section).toBe('definitions')
+    expect(opened.definitionKind).toBe('agent')
+    expect(
+      reduce(base, { type: 'openPage', page: { kind: 'settings', section: 'vault' } }).section,
+    ).toBe('settings')
+    expect(reduce(base, { type: 'openPage', page: { kind: 'new-note' } }).section).toBe('vault')
+  })
+
+  it('shows the kind of a definition that is being made', () => {
+    const state = reduce(base, { type: 'openPage', page: { kind: 'create', definition: 'skill' } })
+    expect(state.section).toBe('definitions')
+    expect(state.definitionKind).toBe('skill')
+  })
+
+  it('is left where it was by the pages that belong to no section', () => {
+    const onVault = { ...base, section: 'vault' } as ShellState
+    for (const page of [
+      { kind: 'home' },
+      { kind: 'graph' },
+      { kind: 'launch' },
+      { kind: 'terminals' },
+    ] as const) {
+      expect(reduce(onVault, { type: 'openPage', page }).section).toBe('vault')
+    }
+  })
+
+  it('does not open a panel that is shut, and does not shut one that is open', () => {
+    const shut = { ...base, panelOpen: false } as ShellState
+    const shown = reduce(shut, { type: 'openPage', page: note })
+    expect(shown.section).toBe('vault')
+    expect(shown.panelOpen).toBe(false)
+    expect(reduce(base, { type: 'openPage', page: note }).panelOpen).toBe(true)
+  })
+
+  it('goes with the tab that is chosen, and with the tab that takes the place of a closed one', () => {
+    const both = reduce(reduce(base, { type: 'openPage', page: note }), {
+      type: 'openPage',
+      page: { kind: 'execution', id: 'r1' },
+    })
+    expect(both.section).toBe('executions')
+    expect(reduce(both, { type: 'activateTab', id: 'note:research/A.md' }).section).toBe('vault')
+    expect(reduce(both, { type: 'closeTab', id: 'execution:r1' }).section).toBe('vault')
+  })
+
+  it('does not undo the person choosing another section for the page that is showing', () => {
+    const state = reduce(base, { type: 'openPage', page: note })
+    expect(reduce(state, { type: 'selectSection', section: 'executions' }).section).toBe(
+      'executions',
+    )
+  })
+})

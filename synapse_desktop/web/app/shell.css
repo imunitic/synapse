@@ -2212,3 +2212,8 @@ div.activity-row {
   color: #fff;
   border-bottom-color: var(--accent);
 }
+
+/* What a list that is empty offers to do. */
+.panel-action {
+  padding: 0 14px 12px;
+}

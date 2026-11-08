@@ -206,7 +206,10 @@ test('asks first for the page of a run that is going on, and says it goes on', a
     await expect(run).toBeVisible()
 
     // Once it has finished nothing is asked.
-    await expect(page.getByText('completed', { exact: true }).first()).toBeVisible({
+    // In the page of the run, and not the badges of the finished ones in the panel beside it.
+    await expect(
+      page.locator('.content').getByText('completed', { exact: true }).first(),
+    ).toBeVisible({
       timeout: 30_000,
     })
     await run.click({ button: 'middle' })

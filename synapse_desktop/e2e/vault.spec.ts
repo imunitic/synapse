@@ -179,3 +179,26 @@ test('with no vault there is nothing to continue from', async ({ page }) => {
   await expect(page.getByLabel('Needs attention')).toBeVisible()
   await expect(page.getByLabel('Continue')).toHaveCount(0)
 })
+
+test('the side panel is on the vault again when a note is the page that shows', async ({
+  page,
+}) => {
+  await openVault(page)
+  await sidePanel(page)
+    .getByLabel('Notes', { exact: true })
+    .getByRole('button', { name: 'Index' })
+    .click()
+  await expect(page.getByRole('tab', { name: 'Index' })).toHaveAttribute('aria-selected', 'true')
+
+  await openSection(page, 'Definitions')
+  await expect(
+    sidePanel(page).getByRole('heading', { level: 2, name: 'Definitions' }),
+  ).toBeVisible()
+  // Another page, and then the note again: the panel goes with the page that comes to show.
+  await page.getByRole('tab', { name: 'Home', exact: true }).click()
+  await expect(
+    sidePanel(page).getByRole('heading', { level: 2, name: 'Definitions' }),
+  ).toBeVisible()
+  await page.getByRole('tab', { name: 'Index', exact: true }).click()
+  await expect(sidePanel(page).getByRole('heading', { level: 2, name: 'Vault' })).toBeVisible()
+})

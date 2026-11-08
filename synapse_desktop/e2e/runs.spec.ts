@@ -13,7 +13,9 @@ test('a run is started from a pipeline and followed to its end', async ({ page }
 
   // The page of the execution, which goes through the loop once.
   await expect(page.getByText('Execution', { exact: true })).toBeVisible()
-  await expect(page.getByText('completed', { exact: true }).first()).toBeVisible({
+  await expect(
+    page.locator('.content').getByText('completed', { exact: true }).first(),
+  ).toBeVisible({
     timeout: 30_000,
   })
   const trace = page.getByLabel('Trace')
