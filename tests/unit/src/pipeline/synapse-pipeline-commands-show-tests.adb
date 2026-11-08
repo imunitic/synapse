@@ -1,4 +1,5 @@
 with Ada.Strings.Fixed;
+with Ada.Strings.Unbounded;
 
 with AUnit.Assertions;
 
@@ -8,6 +9,7 @@ with Synapse.Pipeline.Test_Environment;
 
 package body Synapse.Pipeline.Commands.Show.Tests is
 
+   use Ada.Strings.Unbounded;
    use AUnit.Assertions;
    use Synapse.Pipeline.Test_Environment;
 
@@ -48,7 +50,7 @@ package body Synapse.Pipeline.Commands.Show.Tests is
       Assert (Run (Env (F), Args) = 2, "none");
       Assert
         (F.Base.Console.Err_Text =
-         "usage: synapse-pipeline show <pipeline> [--format json|text]" & LF,
+         "usage: synapse-pipeline show <name> [--format json|text]" & LF,
          "says how");
       Assert (Run (Env (F), Args ("A", "B")) = 2, "two");
       Assert (Run (Env (F), Args ("A", "--format", "yaml")) = 2, "a format");
@@ -141,7 +143,7 @@ package body Synapse.Pipeline.Commands.Show.Tests is
    procedure Show_Is_In_The_Usage (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
    begin
-      Assert (Has (Usage.Text, LF & "  show <pipeline>"), "listed");
+      Assert (Has (Usage.Text, LF & "  show <name>"), "listed");
    end Show_Is_In_The_Usage;
 
    procedure An_Edge_To_End_Is_Shown_And_End_Is_Not_A_Step
@@ -177,6 +179,114 @@ package body Synapse.Pipeline.Commands.Show.Tests is
       end;
    end An_Edge_To_End_Is_Shown_And_End_Is_Not_A_Step;
 
+   --  The names in the `used_by` member of a document, as kind:name.
+   function Users (Document : JSON.Value) return String is
+      List   : constant JSON.Value := JSON.Member_Value (Document, "used_by");
+      Result : Unbounded_String;
+   begin
+      for I in 1 .. JSON.Length (List) loop
+         Append
+           (Result,
+            JSON.As_String (JSON.Member_Value (JSON.Element (List, I), "kind"))
+            & ":"
+            & JSON.As_String
+                (JSON.Member_Value (JSON.Element (List, I), "name")) & " ");
+      end loop;
+      return To_String (Result);
+   end Users;
+
+   procedure A_System_And_An_Agent_Are_Described_With_Who_Uses_Them
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Assert
+        (Run (Env (F), Args ("Strict_Reviewer", "--format", "json")) = 0,
+         "a system: " & F.Base.Console.Err_Text);
+      declare
+         System : constant JSON.Parse_Result :=
+           JSON.Parse (F.Base.Console.Out_Text);
+      begin
+         Assert (System.Ok, "one JSON document");
+         Assert
+           (JSON.As_String (JSON.Member_Value (System.Item, "format")) =
+            "synapse-pipeline-definition/v1"
+            and then JSON.As_String (JSON.Member_Value (System.Item, "kind"))
+                     = "system"
+            and then JSON.As_String
+                       (JSON.Member_Value (System.Item, "file")) =
+                     "/defs/Strict_Reviewer.synapse",
+            "its format, kind and file");
+         Assert
+           (JSON.Length (JSON.Member_Value (System.Item, "attributes")) = 2
+            and then JSON.As_String
+                       (JSON.Member_Value
+                          (JSON.Element
+                             (JSON.Member_Value (System.Item, "attributes"),
+                              1), "value")) = "Reviewer",
+            "its attributes as written");
+         Assert (Users (System.Item) = "pipeline:Develop_Feature ",
+                 "the pipeline that uses it: " & Users (System.Item));
+      end;
+
+      declare
+         G     : aliased Fixture;
+         Agent : JSON.Parse_Result;
+      begin
+         Set_Up (G);
+         Assert
+           (Run (Env (G), Args ("Reviewer", "--format", "json")) = 0,
+            "an agent");
+         Agent := JSON.Parse (G.Base.Console.Out_Text);
+         Assert
+           (JSON.As_String (JSON.Member_Value (Agent.Item, "kind")) = "agent"
+            and then Users (Agent.Item) = "system:Strict_Reviewer ",
+            "the system that uses an agent: " & Users (Agent.Item));
+      end;
+   end A_System_And_An_Agent_Are_Described_With_Who_Uses_Them;
+
+   procedure An_Unused_Definition_Is_Used_By_Nothing
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      F.Files.Add_File
+        ("/defs/Idle.synapse", "Agent Idle [Prompt => ""Wait.""];");
+      Assert (Run (Env (F), Args ("Idle")) = 0, "a definition in text");
+      Assert
+        (Has (F.Base.Console.Out_Text, "agent Idle  /defs/Idle.synapse")
+         and then Has (F.Base.Console.Out_Text, "used by nothing"),
+         "said in text");
+   end An_Unused_Definition_Is_Used_By_Nothing;
+
+   procedure A_Pipeline_Names_Its_Kind_And_File
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Assert
+        (Run (Env (F), Args ("Develop_Feature", "--format", "json")) = 0,
+         "it can run");
+      declare
+         Parsed : constant JSON.Parse_Result :=
+           JSON.Parse (F.Base.Console.Out_Text);
+      begin
+         Assert
+           (JSON.As_String (JSON.Member_Value (Parsed.Item, "kind")) =
+            "pipeline"
+            and then JSON.As_String (JSON.Member_Value (Parsed.Item, "file"))
+                     = "/defs/Develop_Feature.synapse"
+            and then Users (Parsed.Item) = "",
+            "kind, file and nothing uses it");
+      end;
+   end A_Pipeline_Names_Its_Kind_And_File;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -205,6 +315,15 @@ package body Synapse.Pipeline.Commands.Show.Tests is
       Register_Routine
         (T, An_Edge_To_End_Is_Shown_And_End_Is_Not_A_Step'Access,
          "An edge to End is shown and End is not a step");
+      Register_Routine
+        (T, A_System_And_An_Agent_Are_Described_With_Who_Uses_Them'Access,
+         "A system and an agent are described with who uses them");
+      Register_Routine
+        (T, An_Unused_Definition_Is_Used_By_Nothing'Access,
+         "An unused definition is used by nothing");
+      Register_Routine
+        (T, A_Pipeline_Names_Its_Kind_And_File'Access,
+         "A pipeline names its kind and file");
    end Register_Tests;
 
 end Synapse.Pipeline.Commands.Show.Tests;

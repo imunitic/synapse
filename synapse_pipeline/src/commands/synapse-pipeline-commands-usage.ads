@@ -12,9 +12,9 @@ package Synapse.Pipeline.Commands.Usage is
      "usage: synapse-pipeline <subcommand> [args]" & LF & LF
      & "  check <pipeline>   validate a pipeline and show what it would run"
      & LF
-     & "  show <pipeline> [--format json|text]" & LF
-     & "         describe a pipeline: its steps, settings, edges and limits"
-     & LF
+     & "  show <name> [--format json|text]" & LF
+     & "         describe a pipeline (its steps, settings, edges and limits), "
+     & "a system or an agent" & LF
      & "  next <pipeline> [--input <file>|-] | --state <file>|- --result "
      & "<file>|-" & LF
      & "         the state a run starts in, or the state after a step's "
@@ -55,7 +55,7 @@ package Synapse.Pipeline.Commands.Usage is
      & "                            or Opencode" & LF;
 
    Show_Help : constant String :=
-     "usage: synapse-pipeline show <pipeline> [--format json|text]" & LF & LF
+     "usage: synapse-pipeline show <name> [--format json|text]" & LF & LF
      & "Describes a pipeline that is not running the way a running one "
      & "describes itself:" & LF
      & "its steps with the settings each will run with, the edges between "
@@ -63,11 +63,17 @@ package Synapse.Pipeline.Commands.Usage is
      & "the limits that apply. The pipeline is found and validated as "
      & "'check' does, and" & LF
      & "nothing is printed on standard output when it cannot be run." & LF & LF
+     & "A system or an agent is described by its attributes as written, its "
+     & "file and the" & LF
+     & "definitions that use it." & LF & LF
      & "  --format text   for a person (the default)" & LF
-     & "  --format json   the document a running pipeline answers its "
-     & "'pipeline'" & LF
-     & "                  command with, format synapse-pipeline-description/v1"
-     & LF & LF
+     & "  --format json   for a pipeline the document a running pipeline "
+     & "answers its" & LF
+     & "                  'pipeline' command with, format "
+     & "synapse-pipeline-description/v1," & LF
+     & "                  plus its kind, file and an empty used_by; for a "
+     & "system or an" & LF
+     & "                  agent format synapse-pipeline-definition/v1" & LF & LF
      & "Environment:" & LF
      & "  SYNAPSE_PIPELINE_PATH     directories of .synapse files besides "
      & "the default" & LF

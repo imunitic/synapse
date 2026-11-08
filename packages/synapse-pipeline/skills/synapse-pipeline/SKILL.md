@@ -163,7 +163,7 @@ To run a pipeline inside the current session instead, with each step a subagent 
 ## Commands
 
 - `synapse-pipeline check <pipeline>`: validate; nothing is run.
-- `synapse-pipeline show <pipeline> [--format json|text]`: describe the steps, settings and edges.
+- `synapse-pipeline show <name> [--format json|text]`: describe a pipeline's steps, settings and edges, or a system or an agent with the definitions that use it.
 - `synapse-pipeline next <pipeline> [--input <file>|-] | --state <file>|- --result <file>|-`: the state a run starts in, or the state after a step's result; for running a pipeline in a session (see `synapse-pipeline-execute`).
 - `synapse-pipeline run <pipeline> [--input <file>|-] [--id <execution-id>]`: run it; `--id` names the execution instead of drawing an id.
 - `synapse-pipeline list`, `synapse-pipeline info <execution-id> [--format json|text] [--query <rule>]`: inspect runs in progress.

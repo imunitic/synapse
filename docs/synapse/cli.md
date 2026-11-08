@@ -568,8 +568,8 @@ usage: synapse-hook <hook>
 usage: synapse-pipeline <subcommand> [args]
 
   check <pipeline>   validate a pipeline and show what it would run
-  show <pipeline> [--format json|text]
-         describe a pipeline: its steps, settings, edges and limits
+  show <name> [--format json|text]
+         describe a pipeline (its steps, settings, edges and limits), a system or an agent
   next <pipeline> [--input <file>|-] | --state <file>|- --result <file>|-
          the state a run starts in, or the state after a step's result
   run <pipeline> [--input <file>|-] [--id <execution-id>]
@@ -608,16 +608,21 @@ Environment:
 ### synapse-pipeline show
 
 ```
-usage: synapse-pipeline show <pipeline> [--format json|text]
+usage: synapse-pipeline show <name> [--format json|text]
 
 Describes a pipeline that is not running the way a running one describes itself:
 its steps with the settings each will run with, the edges between them and
 the limits that apply. The pipeline is found and validated as 'check' does, and
 nothing is printed on standard output when it cannot be run.
 
+A system or an agent is described by its attributes as written, its file and the
+definitions that use it.
+
   --format text   for a person (the default)
-  --format json   the document a running pipeline answers its 'pipeline'
-                  command with, format synapse-pipeline-description/v1
+  --format json   for a pipeline the document a running pipeline answers its
+                  'pipeline' command with, format synapse-pipeline-description/v1,
+                  plus its kind, file and an empty used_by; for a system or an
+                  agent format synapse-pipeline-definition/v1
 
 Environment:
   SYNAPSE_PIPELINE_PATH     directories of .synapse files besides the default
