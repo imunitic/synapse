@@ -3,6 +3,7 @@ import type { RunEvent } from './executions.ts'
 import {
   commonFolder,
   harnessOf,
+  mergeSessionLines,
   readActivity,
   readSessionLog,
   replacementDiff,
@@ -659,5 +660,158 @@ describe('the conversation of a Codex rollout', () => {
     expect(activity.actions[4]?.detail).toContain('+test')
     expect(activity.actions[4]?.status).toBe('ok')
     expect(activity.changes).toEqual([{ path: 't.test.ts', change: 'add' }])
+  })
+})
+
+describe('the conversation of an OpenCode session export', () => {
+  // The messages as `opencode session export` lists them.
+  const user = {
+    id: 'msg_1',
+    type: 'user',
+    time: { created: 1 },
+    text: 'Read hello.txt and say what is in it.\n\n[SYNAPSE-SESSION-START]\n# Synapse Vault as permanent memory\nmore',
+    files: [],
+  }
+  const thinking = { type: 'reasoning', text: 'I should read the file.' }
+  const read = {
+    type: 'tool',
+    id: 'call-1',
+    name: 'read',
+    state: {
+      status: 'completed',
+      input: { path: 'hello.txt' },
+      content: [{ type: 'text', text: 'Read file hello.txt, lines 1-1\n1: blue green red' }],
+    },
+  }
+  const model = {
+    id: 'msg_2',
+    type: 'assistant',
+    content: [thinking, read],
+    cost: 0.004,
+    tokens: { input: 100, output: 7 },
+  }
+  const answer = {
+    id: 'msg_3',
+    type: 'assistant',
+    content: [{ type: 'text', text: 'blue green red' }],
+    cost: 0.001,
+    tokens: { input: 20, output: 3 },
+  }
+  const idle = { id: 'msg_4', type: 'idle', outcome: 'succeeded' }
+  const log = (...messages: object[]) =>
+    readSessionLog('Opencode', messages.map((m) => JSON.stringify(m)).join('\n'))
+
+  it('has what the person typed without what the Synapse plugin adds, then what the model did', () => {
+    const activity = log(user, model, answer, idle)
+    expect(activity.harness).toBe('Opencode')
+    expect(activity.actions.map((a) => [a.kind, a.title])).toEqual([
+      ['prompt', 'You'],
+      ['thinking', 'Thought'],
+      ['read', 'Read'],
+      ['message', 'Said'],
+    ])
+    expect(activity.actions[0]?.detail).toBe('Read hello.txt and say what is in it.')
+    expect(activity.actions[1]?.detail).toBe('I should read the file.')
+    expect(activity.actions[2]).toMatchObject({ target: 'hello.txt', status: 'ok', detail: null })
+    expect(activity.actions[3]?.detail).toBe('blue green red')
+  })
+
+  it('adds up the tokens and the cost of the model messages', () => {
+    const { stats } = log(user, model, answer, idle)
+    expect(stats.inputTokens).toBe(120)
+    expect(stats.outputTokens).toBe(10)
+    expect(stats.costUsd).toBeCloseTo(0.005)
+  })
+
+  it('shows a tool that has not finished as pending, a failed one as failed, with what it printed', () => {
+    const running = {
+      ...read,
+      state: { status: 'running', input: { command: 'make' } },
+      name: 'bash',
+    }
+    const failed = {
+      ...read,
+      name: 'bash',
+      state: {
+        status: 'error',
+        input: { command: 'make' },
+        content: [{ type: 'text', text: 'make: *** error' }],
+      },
+    }
+    const pending = log({ id: 'a', type: 'assistant', content: [running] })
+    expect(pending.actions[0]).toMatchObject({ kind: 'command', target: 'make', status: 'pending' })
+    const bad = log({ id: 'a', type: 'assistant', content: [failed] })
+    expect(bad.actions[0]).toMatchObject({ status: 'failed', detail: 'make: *** error' })
+  })
+
+  it('lists the files it wrote and edited as changes', () => {
+    const wrote = {
+      ...read,
+      name: 'write',
+      state: { status: 'completed', input: { path: 'a.txt', content: 'x' }, content: [] },
+    }
+    const edited = {
+      ...read,
+      name: 'edit',
+      state: {
+        status: 'completed',
+        input: { path: 'b.txt', oldString: 'x', newString: 'y' },
+        content: [],
+      },
+    }
+    const activity = log({ id: 'a', type: 'assistant', content: [wrote, edited] })
+    expect(activity.changes).toEqual([
+      { path: 'a.txt', change: 'add' },
+      { path: 'b.txt', change: 'update' },
+    ])
+  })
+
+  it('has a message that came again once, as it came last, where it first was', () => {
+    const early = { id: 'msg_3', type: 'assistant', content: [{ type: 'text', text: 'blue' }] }
+    const activity = log(user, early, model, {
+      ...early,
+      content: [{ type: 'text', text: 'blue green' }],
+    })
+    expect(activity.actions.map((a) => a.detail)).toEqual([
+      'Read hello.txt and say what is in it.',
+      'blue green',
+      'I should read the file.',
+      null,
+    ])
+  })
+
+  it('finds nothing in lines that are not messages', () => {
+    expect(readSessionLog('Opencode', 'nope\n{"id":1}\n\n').actions).toEqual([])
+  })
+})
+
+describe('mergeSessionLines', () => {
+  it('adds the lines of a session file, which only grows', () => {
+    expect(mergeSessionLines('Claude', ['a'], ['b', 'c'])).toEqual(['a', 'b', 'c'])
+    expect(mergeSessionLines('Codex', [], ['a'])).toEqual(['a'])
+  })
+
+  it('replaces an OpenCode message by its id, and adds one that is new', () => {
+    const have = ['{"id":"m1","t":"one"}', '{"id":"m2","t":"tw"}']
+    const merged = mergeSessionLines('Opencode', have, [
+      '{"id":"m2","t":"two"}',
+      '{"id":"m3","t":"3"}',
+    ])
+    expect(merged).toEqual([
+      '{"id":"m1","t":"one"}',
+      '{"id":"m2","t":"two"}',
+      '{"id":"m3","t":"3"}',
+    ])
+    // What it was given is left as it was.
+    expect(have[1]).toBe('{"id":"m2","t":"tw"}')
+  })
+
+  it('holds a message that comes twice in one batch once, and keeps a line without an id', () => {
+    const merged = mergeSessionLines(
+      'Opencode',
+      [],
+      ['{"id":"m1","t":"a"}', 'not json', '{"id":"m1","t":"b"}'],
+    )
+    expect(merged).toEqual(['{"id":"m1","t":"b"}', 'not json'])
   })
 })

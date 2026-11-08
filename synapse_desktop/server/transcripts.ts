@@ -4,13 +4,15 @@
 // terminal's own, which a wrapper command or this server writes when it starts
 // the harness.
 
+import { execFile } from 'node:child_process'
 import { open, readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 import { z } from 'zod'
 
 export interface Source {
   id: string
-  harness: 'Claude' | 'Codex'
+  harness: 'Claude' | 'Codex' | 'Opencode'
   cwd: string
 }
 
@@ -21,8 +23,9 @@ export interface TranscriptEvents {
 }
 
 const registrationSchema = z.object({
-  harness: z.enum(['claude', 'codex']),
-  // Claude: the id the run was started with, which names its file.
+  harness: z.enum(['claude', 'codex', 'opencode']),
+  // Claude: the id the run was started with, which names its file. OpenCode: the id of the
+  // session it was started with, which `opencode session export` takes.
   sessionId: z.string().optional(),
   cwd: z.string(),
   // Where the harness keeps its files: the folder of Claude, the home of Codex.
@@ -49,6 +52,10 @@ interface Follow {
   offset: number
   // The part of a last line that is not finished.
   partial: string
+  // OpenCode keeps no file to follow. Each message as it was last sent, by its id, and when
+  // the session was last exported.
+  sent: Map<string, string>
+  exportedAt: number
 }
 
 const MAX_LINES = 200
@@ -152,6 +159,48 @@ async function readMore(file: string, follow: Follow): Promise<{ lines: string[]
   }
 }
 
+const exportFile = promisify(execFile)
+
+// The session of OpenCode as JSON, or null when it cannot be exported, as before its first
+// message, when it is not there yet.
+export async function exportOpencodeSession(
+  registration: Registration,
+  id: string,
+): Promise<string | null> {
+  try {
+    const { stdout } = await exportFile('opencode', ['session', 'export', id, '--standalone'], {
+      cwd: registration.cwd,
+      timeout: 15_000,
+      maxBuffer: 64 * 1024 * 1024,
+    })
+    return stdout
+  } catch {
+    return null
+  }
+}
+
+// The messages of an exported session that are new, or are not as they were when they were
+// last sent, each as a line. `sent` is brought up to date.
+export function changedMessages(exported: string, sent: Map<string, string>): string[] {
+  let messages: unknown
+  try {
+    messages = (JSON.parse(exported) as { messages?: unknown }).messages
+  } catch {
+    return []
+  }
+  if (!Array.isArray(messages)) return []
+  const lines: string[] = []
+  for (const message of messages) {
+    const id = (message as { id?: unknown } | null)?.id
+    if (typeof id !== 'string') continue
+    const line = JSON.stringify(message)
+    if (sent.get(id) === line) continue
+    sent.set(id, line)
+    lines.push(line)
+  }
+  return lines
+}
+
 function batches(lines: readonly string[]): string[][] {
   const result: string[][] = []
   let current: string[] = []
@@ -176,6 +225,9 @@ export function watchTranscripts(options: {
   home: string
   events: TranscriptEvents
   intervalMs?: number
+  // How an OpenCode session is read, and how often it is: it is a program to run, not a file.
+  exportSession?: (registration: Registration, id: string) => Promise<string | null>
+  exportEveryMs?: number
 }): Watcher {
   const follows: Follow[] = []
   const seen = new Set<string>()
@@ -183,10 +235,19 @@ export function watchTranscripts(options: {
   let stopped = false
 
   function add(id: string, registration: Registration) {
-    follows.push({ id, registration, file: null, offset: 0, partial: '' })
+    follows.push({
+      id,
+      registration,
+      file: null,
+      offset: 0,
+      partial: '',
+      sent: new Map(),
+      exportedAt: 0,
+    })
     options.events.onSource({
       id,
-      harness: registration.harness === 'claude' ? 'Claude' : 'Codex',
+      harness: { claude: 'Claude', codex: 'Codex', opencode: 'Opencode' }[registration.harness] as
+        'Claude' | 'Codex' | 'Opencode',
       cwd: registration.cwd,
     })
   }
@@ -206,6 +267,23 @@ export function watchTranscripts(options: {
     }
   }
 
+  // The messages of an OpenCode session that are new or have changed since the last look,
+  // which is taken no more often than the export can be run.
+  async function pollOpencode(follow: Follow) {
+    const now = Date.now()
+    if (now - follow.exportedAt < (options.exportEveryMs ?? 1000)) return
+    follow.exportedAt = now
+    const sessionId = follow.registration.sessionId
+    if (sessionId === undefined) return
+    const exported = await (options.exportSession ?? exportOpencodeSession)(
+      follow.registration,
+      sessionId,
+    )
+    if (exported === null || stopped) return
+    const lines = changedMessages(exported, follow.sent)
+    for (const batch of batches(lines)) options.events.onLines(follow.id, batch)
+  }
+
   async function poll() {
     if (running || stopped) return
     running = true
@@ -213,6 +291,10 @@ export function watchTranscripts(options: {
       await readRegistrations()
       for (const follow of follows) {
         if (stopped) return
+        if (follow.registration.harness === 'opencode') {
+          await pollOpencode(follow)
+          continue
+        }
         if (follow.file === null) {
           const taken = new Set(follows.flatMap((f) => (f.file === null ? [] : [f.file])))
           follow.file =

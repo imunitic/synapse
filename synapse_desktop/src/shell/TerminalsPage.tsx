@@ -5,7 +5,7 @@ import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { TerminalHandle, TerminalTranscript } from '../../shared/transport.ts'
-import { readSessionLog } from '../domain/activity.ts'
+import { mergeSessionLines, readSessionLog, type FollowedHarness } from '../domain/activity.ts'
 import { transport } from '../transport/index.ts'
 import { ActivityBody } from './ActivityView.tsx'
 import { CloseIcon, PlusIcon } from './icons.tsx'
@@ -14,7 +14,7 @@ import type { TerminalSession } from './state.ts'
 // A conversation that is followed: the lines of the session file of a harness.
 interface Followed {
   id: string
-  harness: 'Claude' | 'Codex'
+  harness: FollowedHarness
   cwd: string
   lines: string[]
 }
@@ -30,14 +30,13 @@ function ConversationBox({ followed }: { followed: readonly Followed[] }) {
   // Whether the person is at the bottom, which is where new lines show.
   const atBottom = useRef(true)
   const current = followed.find((f) => f.id === chosen) ?? followed.at(-1)
-  const lineCount = current?.lines.length ?? 0
-
   const activity = useMemo(
     () =>
       current === undefined ? null : readSessionLog(current.harness, current.lines.join('\n')),
-    // The lines only grow, so their number says when they are not the ones that were read.
+    // Every change to the lines makes a new list, which is what says they are not the ones
+    // that were read.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [current?.id, lineCount],
+    [current?.id, current?.lines],
   )
 
   useEffect(() => {
@@ -176,7 +175,9 @@ function TerminalView({
                   ? all
                   : [...all, { id: event.id, harness: event.harness, cwd: event.cwd, lines: [] }]
                 : all.map((f) =>
-                    f.id === event.id ? { ...f, lines: [...f.lines, ...event.lines] } : f,
+                    f.id === event.id
+                      ? { ...f, lines: mergeSessionLines(f.harness, f.lines, event.lines) }
+                      : f,
                   ),
             )
           },

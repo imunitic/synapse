@@ -191,7 +191,7 @@ export interface TerminalListener {
 }
 
 export type TerminalTranscript =
-  | { kind: 'source'; id: string; harness: 'Claude' | 'Codex'; cwd: string }
+  | { kind: 'source'; id: string; harness: 'Claude' | 'Codex' | 'Opencode'; cwd: string }
   | { kind: 'lines'; id: string; lines: string[] }
 
 export interface TerminalHandle {

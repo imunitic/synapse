@@ -2,7 +2,7 @@ import { appendFile, mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { watchTranscripts, type Source, type Watcher } from './transcripts.ts'
+import { changedMessages, watchTranscripts, type Source, type Watcher } from './transcripts.ts'
 
 let dir: string
 let home: string
@@ -179,7 +179,7 @@ describe('registrations', () => {
       startedAt: 1,
     })
     await writeFile(join(sessions, 'notes.json'), 'not json')
-    await register('other.json', { harness: 'opencode', cwd: '/w', startedAt: 1 })
+    await register('other.json', { harness: 'gemini', cwd: '/w', startedAt: 1 })
     await register('.hidden.json', { harness: 'claude', sessionId: 'hhh', cwd: '/w', startedAt: 1 })
     await watcher.poll()
     await watcher.poll()
@@ -211,5 +211,104 @@ describe('registrations', () => {
     )
     await watcher.poll()
     expect(batches).toEqual([200, 200, 50])
+  })
+})
+
+describe('an OpenCode session', () => {
+  const message = (id: string, content: unknown) => ({ id, type: 'assistant', content })
+  const exported = (...messages: object[]) => JSON.stringify({ info: {}, messages })
+
+  // A watcher that is given the export to read, and counts how often it is asked.
+  function following(answers: (string | null)[], exportEveryMs = 0) {
+    let asked = 0
+    const sent: Record<string, string[]> = {}
+    watcher.stop()
+    watcher = watchTranscripts({
+      dir: sessions,
+      home,
+      intervalMs: 1_000_000,
+      exportEveryMs,
+      exportSession: (_registration, id) => {
+        expect(id).toBe('ses_one')
+        const answer = answers[Math.min(asked, answers.length - 1)] ?? null
+        asked += 1
+        return Promise.resolve(answer)
+      },
+      events: {
+        onSource: (source) => sources.push(source),
+        onLines: (id, batch) => {
+          sent[id] = [...(sent[id] ?? []), ...batch]
+        },
+      },
+    })
+    watcher.register('ses_one', {
+      harness: 'opencode',
+      sessionId: 'ses_one',
+      cwd: '/w',
+      startedAt: 1,
+    })
+    return { sent, asked: () => asked }
+  }
+
+  it('is made known as OpenCode, and has its messages sent as they come', async () => {
+    const first = message('m1', [{ type: 'text', text: 'one' }])
+    const second = message('m2', [{ type: 'text', text: 'two' }])
+    const { sent } = following([exported(first), exported(first, second)])
+    expect(sources).toEqual([{ id: 'ses_one', harness: 'Opencode', cwd: '/w' }])
+
+    await watcher.poll()
+    expect(sent.ses_one).toEqual([JSON.stringify(first)])
+    await watcher.poll()
+    // Only the message that is new.
+    expect(sent.ses_one).toEqual([JSON.stringify(first), JSON.stringify(second)])
+  })
+
+  it('sends a message again, whole, when it has changed, and not when it has not', async () => {
+    const early = message('m1', [{ type: 'text', text: 'Hel' }])
+    const later = message('m1', [{ type: 'text', text: 'Hello there' }])
+    const { sent } = following([exported(early), exported(early), exported(later)])
+    await watcher.poll()
+    await watcher.poll()
+    expect(sent.ses_one).toEqual([JSON.stringify(early)])
+    await watcher.poll()
+    expect(sent.ses_one).toEqual([JSON.stringify(early), JSON.stringify(later)])
+  })
+
+  it('waits for the session to be there, and for what it cannot read', async () => {
+    const first = message('m1', [{ type: 'text', text: 'one' }])
+    const { sent } = following([null, 'not json', '{"messages": 3}', exported(first)])
+    for (let i = 0; i < 3; i += 1) await watcher.poll()
+    expect(sent).toEqual({})
+    await watcher.poll()
+    expect(sent.ses_one).toEqual([JSON.stringify(first)])
+  })
+
+  it('does not run the export more often than it is allowed to', async () => {
+    const { asked } = following([exported()], 60_000)
+    await watcher.poll()
+    await watcher.poll()
+    await watcher.poll()
+    expect(asked()).toBe(1)
+  })
+})
+
+describe('changedMessages', () => {
+  it('lists the messages that are new or differ, in the order of the export, by the id they have', () => {
+    const sent = new Map<string, string>()
+    const a = { id: 'a', n: 1 }
+    const b = { id: 'b', n: 1 }
+    expect(changedMessages(JSON.stringify({ messages: [a, b] }), sent)).toEqual([
+      JSON.stringify(a),
+      JSON.stringify(b),
+    ])
+    expect(
+      changedMessages(JSON.stringify({ messages: [a, { ...b, n: 2 }, { id: 'c' }] }), sent),
+    ).toEqual([JSON.stringify({ ...b, n: 2 }), JSON.stringify({ id: 'c' })])
+  })
+
+  it('leaves out what has no id, and finds nothing in what is not an export', () => {
+    expect(changedMessages('{"messages":[{"x":1},"y",null]}', new Map())).toEqual([])
+    expect(changedMessages('nope', new Map())).toEqual([])
+    expect(changedMessages('{"messages":"no"}', new Map())).toEqual([])
   })
 })

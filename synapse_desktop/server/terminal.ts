@@ -146,6 +146,13 @@ async function start(
     args = [...args, '--session-id', id]
     follow = (watcher) =>
       watcher.register(id, { harness: 'claude', sessionId: id, cwd, startedAt: Date.now() })
+  } else if (message.kind === 'Opencode') {
+    // A session of an id of our own, which OpenCode makes when there is none: its messages
+    // are asked for by it.
+    const id = `ses_${randomBytes(10).toString('hex')}`
+    args = [...args, '--session', id]
+    follow = (watcher) =>
+      watcher.register(id, { harness: 'opencode', sessionId: id, cwd, startedAt: Date.now() })
   } else if (message.kind === 'Codex') {
     follow = (watcher) =>
       watcher.register(`codex-${randomBytes(3).toString('hex')}`, {

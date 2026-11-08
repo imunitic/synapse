@@ -430,6 +430,39 @@ function firstString(input: Json, fields: readonly string[]): string | null {
   return null
 }
 
+// What an OpenCode tool call did. `state` is its status and input; `output` is what it
+// printed, which the two forms of OpenCode's record keep in different places.
+function opencodeAction(name: string, state: Json, output: string | null): Action {
+  const input = obj(state.input) ?? {}
+  const known = OPENCODE_KINDS[name]
+  const status = str(state.status)
+  const action: Action = {
+    kind: known?.kind ?? 'other',
+    title: known?.title ?? name,
+    target: known === undefined ? shortJson(input) : firstString(input, known.fields),
+    detail: output,
+    status: status === 'completed' ? 'ok' : status === 'error' ? 'failed' : 'pending',
+  }
+  if (action.kind === 'write') {
+    action.detail = replacementDiff('', str(input.content) ?? '')
+  } else if (action.kind === 'edit') {
+    action.detail = replacementDiff(
+      str(input.oldString) ?? str(input.old_string) ?? '',
+      str(input.newString) ?? str(input.new_string) ?? '',
+    )
+  } else if (action.kind === 'read') {
+    action.detail = null
+  }
+  return action
+}
+
+// A file a tool call made or changed, when it did.
+function noteChange(action: Action, changes: FileChange[]): void {
+  if (action.status !== 'ok' || action.target === null) return
+  if (action.kind === 'write') changes.push({ path: action.target, change: 'add' })
+  else if (action.kind === 'edit') changes.push({ path: action.target, change: 'update' })
+}
+
 function readOpencode(events: readonly Json[]): Activity {
   const actions: Action[] = []
   const changes: FileChange[] = []
@@ -451,33 +484,10 @@ function readOpencode(events: readonly Json[]): Activity {
         actions.push({ kind: 'message', title: 'Said', target: null, detail: text, status: 'ok' })
       }
     } else if (type === 'tool_use' && part !== null) {
-      const name = str(part.tool) ?? 'tool'
       const state = obj(part.state) ?? {}
-      const input = obj(state.input) ?? {}
-      const known = OPENCODE_KINDS[name]
-      const status = str(state.status)
-      const action: Action = {
-        kind: known?.kind ?? 'other',
-        title: known?.title ?? name,
-        target: known === undefined ? shortJson(input) : firstString(input, known.fields),
-        detail: str(state.output),
-        status: status === 'completed' ? 'ok' : status === 'error' ? 'failed' : 'pending',
-      }
-      if (action.kind === 'write') {
-        action.detail = replacementDiff('', str(input.content) ?? '')
-      } else if (action.kind === 'edit') {
-        action.detail = replacementDiff(
-          str(input.oldString) ?? str(input.old_string) ?? '',
-          str(input.newString) ?? str(input.new_string) ?? '',
-        )
-      } else if (action.kind === 'read') {
-        action.detail = null
-      }
+      const action = opencodeAction(str(part.tool) ?? 'tool', state, str(state.output))
       actions.push(action)
-      if (action.status === 'ok' && action.target !== null) {
-        if (action.kind === 'write') changes.push({ path: action.target, change: 'add' })
-        else if (action.kind === 'edit') changes.push({ path: action.target, change: 'update' })
-      }
+      noteChange(action, changes)
     } else if (type === 'step_finish' && part !== null) {
       const tokens = obj(part.tokens)
       stats.inputTokens = (stats.inputTokens ?? 0) + (num(tokens?.input) ?? 0)
@@ -724,9 +734,132 @@ function readCodexRollout(events: readonly Json[]): Activity {
   return { harness: 'Codex', actions, changes: dedupe(changes), stats: emptyStats() }
 }
 
-// The conversation of a session file written by Claude Code or by Codex, which
-// is followed as the file grows.
-export function readSessionLog(harness: 'Claude' | 'Codex', text: string): Activity {
+// What the person typed, without what the Synapse plugin adds after it to the first message
+// of a session.
+function typedText(text: string): string {
+  const marker = text.indexOf('[SYNAPSE-SESSION-START]')
+  return (marker === -1 ? text : text.slice(0, marker)).trim()
+}
+
+// The messages of an OpenCode session as `opencode session export` lists them, each on a line:
+// the person's, the model's with its thoughts, tool calls and answers, and the markers of
+// when it was idle. A message that came again is the message as it is now.
+function readOpencodeSession(events: readonly Json[]): Activity {
+  const actions: Action[] = []
+  const changes: FileChange[] = []
+  const stats = emptyStats()
+  for (const message of latestById(events)) {
+    const type = str(message.type)
+    if (type === 'user') {
+      const said = typedText(str(message.text) ?? '')
+      if (said !== '') {
+        actions.push({ kind: 'prompt', title: 'You', target: null, detail: said, status: 'ok' })
+      }
+    } else if (type === 'assistant') {
+      for (const part of list(message.content).map(obj)) {
+        if (part === null) continue
+        if (part.type === 'reasoning') {
+          const thought = str(part.text) ?? ''
+          if (thought.trim() !== '') {
+            actions.push({
+              kind: 'thinking',
+              title: 'Thought',
+              target: null,
+              detail: thought,
+              status: 'ok',
+            })
+          }
+        } else if (part.type === 'text') {
+          const text = str(part.text) ?? ''
+          if (text.trim() !== '' && !isResultEnvelope(text)) {
+            actions.push({
+              kind: 'message',
+              title: 'Said',
+              target: null,
+              detail: text,
+              status: 'ok',
+            })
+          }
+        } else if (part.type === 'tool') {
+          const state = obj(part.state) ?? {}
+          const output = list(state.content)
+            .map((piece) => str(obj(piece)?.text))
+            .filter((text) => text !== null)
+            .join('\n')
+          const action = opencodeAction(
+            str(part.name) ?? 'tool',
+            state,
+            output === '' ? null : output,
+          )
+          actions.push(action)
+          noteChange(action, changes)
+        }
+      }
+      const tokens = obj(message.tokens)
+      stats.inputTokens = (stats.inputTokens ?? 0) + (num(tokens?.input) ?? 0)
+      stats.outputTokens = (stats.outputTokens ?? 0) + (num(tokens?.output) ?? 0)
+      stats.costUsd = (stats.costUsd ?? 0) + (num(message.cost) ?? 0)
+    }
+  }
+  return { harness: 'Opencode', actions, changes: dedupe(changes), stats }
+}
+
+// The messages of lines that may repeat a message that has changed since, in the order
+// they first came, each as it came last.
+function latestById(events: readonly Json[]): Json[] {
+  const byId = new Map<string, Json>()
+  const anonymous: Json[] = []
+  for (const event of events) {
+    const id = str(event.id)
+    if (id === null) anonymous.push(event)
+    else byId.set(id, event)
+  }
+  return [...byId.values(), ...anonymous]
+}
+
+export type FollowedHarness = 'Claude' | 'Codex' | 'Opencode'
+
+// The conversation of a harness's session, which is followed as it goes: the lines of the
+// session file of Claude Code or Codex, or the messages of an OpenCode session.
+export function readSessionLog(harness: FollowedHarness, text: string): Activity {
   const events = lines(text)
+  if (harness === 'Opencode') return readOpencodeSession(events)
   return harness === 'Claude' ? readClaude(events, true) : readCodexRollout(events)
+}
+
+// What a conversation's lines are after more have come. A session file only grows, so its
+// lines are added. OpenCode sends a message again each time it changes, whole, and the
+// new one takes the place of the one it replaces, so that a message that is written word by
+// word is held once.
+export function mergeSessionLines(
+  harness: FollowedHarness,
+  have: readonly string[],
+  more: readonly string[],
+): string[] {
+  if (harness !== 'Opencode') return [...have, ...more]
+  const merged = [...have]
+  const places = new Map<string, number>()
+  merged.forEach((line, index) => {
+    const id = messageId(line)
+    if (id !== null) places.set(id, index)
+  })
+  for (const line of more) {
+    const id = messageId(line)
+    const at = id === null ? undefined : places.get(id)
+    if (at !== undefined) {
+      merged[at] = line
+    } else {
+      if (id !== null) places.set(id, merged.length)
+      merged.push(line)
+    }
+  }
+  return merged
+}
+
+function messageId(line: string): string | null {
+  try {
+    return str(obj(JSON.parse(line))?.id)
+  } catch {
+    return null
+  }
 }

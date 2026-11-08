@@ -42,7 +42,7 @@ export const serverMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('transcript-source'),
     id: z.string(),
-    harness: z.enum(['Claude', 'Codex']),
+    harness: z.enum(['Claude', 'Codex', 'Opencode']),
     cwd: z.string(),
   }),
   // Lines of that conversation's session file, as they were appended.

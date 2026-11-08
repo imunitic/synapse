@@ -499,17 +499,27 @@ describe('following the conversation of a harness', () => {
     expect(spawned[0]?.args).toEqual(['--injected'])
   })
 
-  it('follows nothing for OpenCode, and gives a shell the folder its commands note runs in', async () => {
+  it('gives an OpenCode tab a session id of its own and follows that session', async () => {
     await startKind('Opencode')
-    expect(watchers[0]?.registered).toEqual([])
+    const args = spawned[0]?.args ?? []
+    expect(args.slice(0, 1)).toEqual(['--injected'])
+    expect(args[1]).toBe('--session')
+    const id = args[2] ?? ''
+    expect(id).toMatch(/^ses_[0-9a-f]{20}$/)
+    expect(watchers[0]?.registered).toEqual([
+      [id, expect.objectContaining({ harness: 'opencode', sessionId: id, cwd: dir })],
+    ])
+  })
 
+  it('gives a shell the folder its commands note runs in, and follows nothing itself', async () => {
     await startKind('Shell')
-    expect(watchers[1]?.registered).toEqual([])
-    const shell = spawned[1]
+    expect(watchers[0]?.registered).toEqual([])
+    const shell = spawned[0]
     expect(shell?.args).toEqual(['--injected'])
-    expect(shell?.env.SYNAPSE_SESSIONS_DIR).toBe(watchDirs[1])
-    expect(watchDirs[1]?.startsWith(join(dir, 'sessions') + '/')).toBe(true)
+    expect(shell?.env.SYNAPSE_SESSIONS_DIR).toBe(watchDirs[0])
+    expect(watchDirs[0]?.startsWith(join(dir, 'sessions') + '/')).toBe(true)
     // Each terminal has a folder of its own.
+    await startKind('Shell')
     expect(watchDirs[0]).not.toBe(watchDirs[1])
   })
 
