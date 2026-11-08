@@ -22,7 +22,7 @@ Open <http://127.0.0.1:5173>. `npm run check` is what CI runs: type-check, build
 | Path       | What it holds                                                                                              |
 | ---------- | ---------------------------------------------------------------------------------------------------------- |
 | `shared/`  | The `Transport` contract, the API call parameters and the values both sides agree on.                      |
-| `src/`     | The React app. It reaches the machine only through a `Transport`.                                          |
+| `web/`     | The React app. It reaches the machine only through a `Transport`.                                          |
 | `server/`  | The local API server of the web phase: guards, allowed directories, the CLI allowlist, the calls.          |
 | `scripts/` | `dev.ts`, which starts both servers with one per-launch token, and `e2e.ts`, which runs the browser tests. |
 | `e2e/`     | The browser tests and the world they run in.                                                               |

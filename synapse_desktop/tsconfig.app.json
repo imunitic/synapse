@@ -17,5 +17,5 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["src", "shared"]
+  "include": ["web", "shared"]
 }
