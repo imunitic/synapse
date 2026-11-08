@@ -9,6 +9,7 @@ import { runCli } from './cli.ts'
 import { configFile } from './config-store.ts'
 import { createHandler } from './http.ts'
 import { runAgent } from './generate.ts'
+import { createModelStore, modelCacheFile } from './model-store.ts'
 import { createNoteSession } from './note-agent.ts'
 import { createRunStarter } from './runs.ts'
 import { attachTerminals, defaultPlan, sessionsRoot, spawnPty } from './terminal.ts'
@@ -23,8 +24,11 @@ const policy = {
   token,
 }
 
+const models = createModelStore({ file: modelCacheFile(environment), env: process.env })
+
 const context = {
   environment,
+  models,
   configFile: configFile(environment),
   runCli,
   agent: runAgent,
@@ -46,5 +50,7 @@ attachTerminals(server, {
 })
 server.listen(SERVER_PORT, '127.0.0.1', () => {
   console.log(`synapse-desktop server on http://127.0.0.1:${SERVER_PORT}`)
+  // The models of the harnesses are read again, behind whatever is kept of them.
+  void models.refreshAll()
   if (!suppliedToken) console.log(`token: ${token}`)
 })

@@ -1,11 +1,10 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { modelSchema } from '../shared/calls.ts'
 import {
   claudeCatalog,
   codexCatalog,
   connectedProviders,
-  forgetModels,
-  listModels,
+  readModels,
   opencodeCatalog,
   parseClaudeModels,
   parseOpencodeModels,
@@ -20,8 +19,6 @@ const MODELS = [
 ].join('\n')
 
 const AUTH = '\u001b[1mOpenRouter\u001b[0m  API key  stored\n'
-
-beforeEach(() => forgetModels())
 
 describe('the models OpenCode lists', () => {
   it('are a line each, provider and model, without colours, blank lines or repeats', () => {
@@ -74,7 +71,11 @@ describe('the catalog of OpenCode', () => {
   })
 
   it('says when there is nothing listed', () => {
-    expect(opencodeCatalog('', AUTH)).toEqual({ models: [], note: 'OpenCode listed no models.' })
+    expect(opencodeCatalog('', AUTH)).toEqual({
+      models: [],
+      readAt: null,
+      note: 'OpenCode listed no models.',
+    })
   })
 })
 
@@ -93,7 +94,7 @@ describe('listing the models of a harness', () => {
       seen.push(env.PATH)
       return answering(MODELS, AUTH, calls)(program, args, env)
     }
-    const catalog = await listModels('Opencode', {
+    const catalog = await readModels('Opencode', {
       run,
       env: { PATH: '/own' },
       loginPath: async () => '/login',
@@ -103,30 +104,19 @@ describe('listing the models of a harness', () => {
     expect(seen).toEqual(['/login:/own', '/login:/own'])
   })
 
-  it('keeps the answer, so that the long list is printed once', async () => {
-    const calls: string[] = []
-    const run = answering(MODELS, AUTH, calls)
-    const deps = { run, env: {}, loginPath: async () => null }
-    await listModels('Opencode', deps)
-    await listModels('Opencode', deps)
-    expect(calls).toHaveLength(2)
-    forgetModels()
-    await listModels('Opencode', deps)
-    expect(calls).toHaveLength(4)
-  })
-
-  it('has none, and says so, when OpenCode cannot list them, and does not keep that', async () => {
+  it('has none, and says so, when OpenCode cannot list them', async () => {
     const failing: RunProgram = async () => ({ code: 127, stdout: '' })
-    const catalog = await listModels('Opencode', {
+    const catalog = await readModels('Opencode', {
       run: failing,
       env: {},
       loginPath: async () => null,
     })
     expect(catalog).toEqual({
       models: [],
+      readAt: null,
       note: 'OpenCode could not list its models. Type a name instead.',
     })
-    const working = await listModels('Opencode', {
+    const working = await readModels('Opencode', {
       run: answering(MODELS, AUTH),
       env: {},
       loginPath: async () => null,
@@ -137,7 +127,7 @@ describe('listing the models of a harness', () => {
   it('lists them all when the list of providers cannot be had', async () => {
     const run: RunProgram = async (_p, args) =>
       args[0] === 'models' ? { code: 0, stdout: MODELS } : { code: 1, stdout: '' }
-    const catalog = await listModels('Opencode', { run, env: {}, loginPath: async () => null })
+    const catalog = await readModels('Opencode', { run, env: {}, loginPath: async () => null })
     expect(catalog.models.filter((m) => m.available).map((m) => m.provider)).toEqual(['opencode'])
   })
 })
@@ -264,38 +254,25 @@ describe('listing the models of Claude Code and Codex', () => {
       return { code: 0, stdout: program === 'claude' ? CLAUDE_ANSWER : CODEX_ANSWER }
     }
     const deps = { run, env: {}, loginPath: async () => null }
-    const claude = await listModels('Claude', deps)
-    const codex = await listModels('Codex', deps)
+    const claude = await readModels('Claude', deps)
+    const codex = await readModels('Codex', deps)
     expect(calls).toEqual(['claude -p /model --no-session-persistence', 'codex debug models'])
     expect(claude.models).toHaveLength(10)
     expect(codex.models).toHaveLength(3)
   })
 
-  it('keeps each harness list on its own', async () => {
-    let calls = 0
-    const run: RunProgram = async () => {
-      calls += 1
-      return { code: 0, stdout: CLAUDE_ANSWER }
-    }
-    const deps = { run, env: {}, loginPath: async () => null }
-    await listModels('Claude', deps)
-    await listModels('Claude', deps)
-    expect(calls).toBe(1)
-    const codex: RunProgram = async () => ({ code: 0, stdout: CODEX_ANSWER })
-    expect((await listModels('Codex', { ...deps, run: codex })).models).toHaveLength(3)
-  })
-
-  it('says what to do when one cannot be had, and does not keep that', async () => {
+  it('says what to do when one cannot be had', async () => {
     const failing: RunProgram = async () => ({ code: 127, stdout: '' })
     const deps = { env: {}, loginPath: async () => null }
-    expect(await listModels('Claude', { ...deps, run: failing })).toEqual({
+    expect(await readModels('Claude', { ...deps, run: failing })).toEqual({
       models: [],
+      readAt: null,
       note: 'Claude Code could not list its models. Type a name instead.',
     })
-    expect((await listModels('Codex', { ...deps, run: failing })).note).toContain(
+    expect((await readModels('Codex', { ...deps, run: failing })).note).toContain(
       'Codex could not list its models.',
     )
     const working: RunProgram = async () => ({ code: 0, stdout: CLAUDE_ANSWER })
-    expect((await listModels('Claude', { ...deps, run: working })).models).toHaveLength(10)
+    expect((await readModels('Claude', { ...deps, run: working })).models).toHaveLength(10)
   })
 })

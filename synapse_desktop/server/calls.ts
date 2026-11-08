@@ -71,7 +71,7 @@ import { addProject, listProjects, ProjectRefused, projectsFile } from './projec
 import { inspectVault, seedVault, VaultRefused } from './vault.ts'
 import { diagnose } from './doctor.ts'
 import { histories, listSessions, listWorkspaces } from './history/history.ts'
-import { listModels } from './models.ts'
+import { createModelStore, modelCacheFile, type ModelStore } from './model-store.ts'
 import { askRun, NotListening, socketPath } from './run-socket.ts'
 import { NotStartedHere, RunNotStarted, type RunStarter } from './runs.ts'
 
@@ -85,6 +85,24 @@ export interface Context {
   agent: AgentRunner
   // Runs a headless session of a harness with Synapse loaded, to write a note.
   noteSession: NoteSession
+  // The models of the harnesses, kept between runs. One is made when there is none.
+  models?: ModelStore
+}
+
+// The store of a context that was not given one, made once for it.
+const stores = new WeakMap<Context, ModelStore>()
+
+function modelsOf(context: Context): ModelStore {
+  if (context.models !== undefined) return context.models
+  let store = stores.get(context)
+  if (store === undefined) {
+    store = createModelStore({
+      file: modelCacheFile(context.environment),
+      env: context.environment.env,
+    })
+    stores.set(context, store)
+  }
+  return store
 }
 
 // An error with the HTTP status the caller should see.
@@ -439,7 +457,12 @@ const handlers: Record<CallName, Handler> = {
 
   async listModels(raw, context): Promise<ModelCatalog> {
     const { harness } = callParams.listModels.parse(raw)
-    return listModels(harness, { env: context.environment.env })
+    return modelsOf(context).list(harness)
+  },
+
+  async refreshModels(raw, context): Promise<ModelCatalog> {
+    const { harness } = callParams.refreshModels.parse(raw)
+    return modelsOf(context).refresh(harness)
   },
 
   async listSessions(raw, context): Promise<PastSessions> {

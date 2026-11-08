@@ -22,7 +22,6 @@ import { DslReference } from '../components/DslReference.tsx'
 import { CodeEditor } from '../components/CodeEditor.tsx'
 import { GraphView } from '../components/GraphView.tsx'
 import { DEFINITION_LABELS, type DefinitionKind, type Page } from '../state/state.ts'
-import { useHarnesses } from '../state/diagnosis.tsx'
 import { useLoad } from '../state/useLoad.ts'
 
 const DEBOUNCE_MS = 300
@@ -130,7 +129,6 @@ export function DefinitionEditorPage({
   // is put into the text at once, and then the text is what the field shows.
   const [nameDraft, setNameDraft] = useState<string | null>(null)
   const { state: taken } = useLoad(loadTaken)
-  const harnesses = useHarnesses()
 
   const declared = isSkill ? null : declaredOf(text)
   const name = isSkill ? parseSkillMeta(text).name : (declared?.name ?? null)
@@ -294,7 +292,6 @@ export function DefinitionEditorPage({
           definition={definition}
           current={existing ? text : undefined}
           existing={taken.status === 'ready' ? taken.data.existing : null}
-          defaultHarness={harnesses.defaultHarness}
           onWritten={(written) => setReplacement((r) => ({ id: (r?.id ?? 0) + 1, text: written }))}
         />
       )}

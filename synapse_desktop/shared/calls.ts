@@ -146,6 +146,7 @@ export const callParams = {
   getDiagnosis: z.object({}),
   listWorkspaces: z.object({}),
   listModels: z.object({ harness: harnessSchema }),
+  refreshModels: z.object({ harness: harnessSchema }),
   listSessions: z.object({}),
   seedVault: z.object({ path: z.string().min(1).max(4096) }),
   listConventions: z.object({}),

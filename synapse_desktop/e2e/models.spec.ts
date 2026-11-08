@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { openSection, resetWorldSettings, sidePanel, world } from './helpers.ts'
@@ -164,4 +164,64 @@ test('says that a typed name that is not listed is used as it is', async ({ page
   await expect(page.getByText('No listed model has those words.')).toBeVisible()
   await box.press('Enter')
   await expect.poll(kept).toEqual({ Opencode: 'nothing/matches-this' })
+})
+
+// The programs the app ran to read the lists of models, a line for each.
+const reads = (): string[] => {
+  const log = join(world().root, 'model-reads.log')
+  return existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean) : []
+}
+
+test.describe('the lists of models are kept', () => {
+  test('and read for the three harnesses when the app starts, into a file', async ({ page }) => {
+    await page.goto('/')
+    // The app began before the page did, and has read each list.
+    await expect
+      .poll(() =>
+        reads()
+          .map((r) => r.split(' ')[0])
+          .sort(),
+      )
+      .toEqual(expect.arrayContaining(['claude', 'codex', 'opencode']))
+    const file = join(world().home, '.cache', 'synapse-desktop', 'models.json')
+    await expect.poll(() => existsSync(file)).toBe(true)
+    const kept = JSON.parse(readFileSync(file, 'utf8')) as {
+      harnesses: Record<string, { models: { id: string }[] }>
+    }
+    expect(Object.keys(kept.harnesses).sort()).toEqual(['Claude', 'Codex', 'Opencode'])
+    expect(kept.harnesses.Claude?.models.map((m) => m.id)).toContain('sonnet')
+    expect(kept.harnesses.Codex?.models.map((m) => m.id)).toContain('gpt-stub-a')
+  })
+
+  test('so that a picker is answered from what is kept, and no program is run for it', async ({
+    page,
+  }) => {
+    const before = reads().length
+    await openGeneral(page)
+    const box = picker(page, 'OpenCode')
+    await box.click()
+    await expect(page.getByRole('listbox').getByRole('option')).toHaveCount(4)
+    await picker(page, 'Claude Code').click()
+    await expect(page.getByRole('listbox').getByRole('option')).toHaveCount(4)
+    expect(reads().slice(before)).toEqual([])
+  })
+
+  test('and say when they were read, and are read again from the harness when asked to', async ({
+    page,
+  }) => {
+    await openGeneral(page)
+    const box = picker(page, 'OpenCode')
+    await box.click()
+    await expect(page.getByText(/^Read .+\./)).toBeVisible()
+    const before = reads().length
+
+    await page.getByRole('button', { name: 'Read again' }).click()
+    // Only OpenCode was read, with its models and its providers.
+    await expect
+      .poll(() => reads().slice(before).sort())
+      .toEqual(['opencode auth list', 'opencode models'])
+    await expect(page.getByRole('button', { name: 'Read again' })).toBeEnabled()
+    // The list is still there, and the box kept the focus, so that it stayed open.
+    await expect(page.getByRole('listbox').getByRole('option')).toHaveCount(4)
+  })
 })

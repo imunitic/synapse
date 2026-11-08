@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import type { NoteKind } from '../../shared/transport.ts'
 import { transport } from '../transport/index.ts'
-import { useHarnesses } from '../state/diagnosis.tsx'
+import { RunChoice, useRunChoice } from '../components/RunChoice.tsx'
 import { AddProjectForm } from '../components/ProjectForm.tsx'
 import { TERMINAL_LABELS, type Page } from '../state/state.ts'
 import { useLoad } from '../state/useLoad.ts'
@@ -84,7 +84,7 @@ function ProjectChoice({
 // Describe a note and have an agent write it into the vault the way the vault's
 // own commands do; the note opens when it is written.
 export function NewNotePage({ onCreated }: { onCreated: (page: Page) => void }) {
-  const { defaultHarness: harness } = useHarnesses()
+  const { harness, model, chooseHarness, chooseModel } = useRunChoice()
   const [kind, setKind] = useState<NoteKind>('note')
   const [project, setProject] = useState('')
   const [prompt, setPrompt] = useState('')
@@ -100,6 +100,7 @@ export function NewNotePage({ onCreated }: { onCreated: (page: Page) => void }) 
         kind,
         prompt,
         harness,
+        ...(model === null ? {} : { model }),
         ...(kind !== 'note' && project !== '' ? { project } : {}),
       })
       onCreated({ kind: 'note', path })
@@ -140,6 +141,13 @@ export function NewNotePage({ onCreated }: { onCreated: (page: Page) => void }) 
             placeholder={current?.placeholder}
           />
         </label>
+        <RunChoice
+          harness={harness}
+          model={model}
+          onHarness={chooseHarness}
+          onModel={chooseModel}
+          disabled={working}
+        />
         <p className="muted small">
           {TERMINAL_LABELS[harness]} writes it with Synapse&apos;s note skills: it picks the folder,
           tags it, links to the notes that exist and opens the result here. Nothing is asked of you

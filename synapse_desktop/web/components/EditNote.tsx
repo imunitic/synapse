@@ -1,8 +1,8 @@
+import { RunChoice, useRunChoice } from './RunChoice.tsx'
 import { useMemo, useState } from 'react'
 import type { NoteEdit } from '../../shared/transport.ts'
 import { changeCount, diffLines, withContext } from '../domain/diff.ts'
 import { transport } from '../transport/index.ts'
-import { useHarnesses } from '../state/diagnosis.tsx'
 import { PencilIcon } from './icons.tsx'
 import { TERMINAL_LABELS } from '../state/state.ts'
 
@@ -100,7 +100,7 @@ export function EditNote({
   title: string
   onChanged: () => void
 }) {
-  const { defaultHarness: harness } = useHarnesses()
+  const { harness, model, chooseHarness, chooseModel } = useRunChoice()
   const [open, setOpen] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [working, setWorking] = useState(false)
@@ -112,7 +112,12 @@ export function EditNote({
     setFailure(null)
     setEdit(null)
     try {
-      const result = await transport.editNote({ path, prompt, harness })
+      const result = await transport.editNote({
+        path,
+        prompt,
+        harness,
+        ...(model === null ? {} : { model }),
+      })
       setEdit(result)
       setPrompt('')
       setOpen(false)
@@ -155,6 +160,13 @@ export function EditNote({
               placeholder="For example: tick the first item and add a note about why."
             />
           </label>
+          <RunChoice
+            harness={harness}
+            model={model}
+            onHarness={chooseHarness}
+            onModel={chooseModel}
+            disabled={working}
+          />
           <p className="muted small">
             {TERMINAL_LABELS[harness]} changes this note with Synapse&apos;s skills and shows what
             it did, which you can undo. It is told to change only this note.

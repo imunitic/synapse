@@ -2281,8 +2281,8 @@ div.activity-row {
 
 .model-input {
   flex: 1;
-  min-width: 12rem;
-  max-width: 32rem;
+  min-width: 10rem;
+  max-width: 20rem;
 }
 
 .model-list {
@@ -2291,7 +2291,8 @@ div.activity-row {
   top: 2.4rem;
   left: 0;
   right: 0;
-  max-width: 32rem;
+  min-width: 18rem;
+  max-width: 28rem;
   max-height: 18rem;
   margin: 0;
   padding: 4px;
@@ -2331,4 +2332,34 @@ div.activity-row {
 .model-row-label {
   padding-top: 6px;
   font-weight: 500;
+}
+
+/* The harness and the model of a run, in a row: the two controls are as high as each other, and
+   each label is centred on its control. */
+.run-choice {
+  --control-height: 2.375rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px 20px;
+}
+
+.run-choice-part {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.run-choice-part > span {
+  display: flex;
+  align-items: center;
+  height: var(--control-height);
+}
+
+.run-choice select,
+.run-choice .model-input {
+  box-sizing: border-box;
+  height: var(--control-height);
+  padding-top: 0;
+  padding-bottom: 0;
 }

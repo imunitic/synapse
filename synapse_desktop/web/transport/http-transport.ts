@@ -115,6 +115,10 @@ export class HttpTransport implements Transport {
     return this.call('listModels', { harness })
   }
 
+  refreshModels(harness: Harness): Promise<ModelCatalog> {
+    return this.call('refreshModels', { harness })
+  }
+
   seedVault(path: string): Promise<VaultInfo> {
     return this.call('seedVault', { path })
   }

@@ -179,6 +179,8 @@ export function environmentFor(world: World, binDirs: readonly string[]): NodeJS
     npm_config_dry_run: 'true',
     npm_config_offline: 'true',
     npm_config_cache: join(world.root, 'npm-cache'),
+    SYNAPSE_STUB_LOG: join(world.root, 'stub-args.log'),
+    SYNAPSE_STUB_LIST_LOG: join(world.root, 'model-reads.log'),
   }
 }
 
@@ -207,6 +209,8 @@ const STUB = [
   'name=$(basename "$0")',
   // Asked for its version, as `synapse doctor` does, it says one and touches nothing.
   '[ "$1" = "--version" ] && { echo "$name 0.0.0-stub"; exit 0; }',
+  // A listing of models is logged, for a test to see which programs the app ran to read them.
+  '{ [ "$name" = claude ] && [ "$1" = -p ] && [ "$2" = /model ]; } || { [ "$name" = codex ] && [ "$1" = debug ]; } || { [ "$name" = opencode ] && { [ "$1" = models ] || [ "$1" = auth ]; }; } && [ -n "$SYNAPSE_STUB_LIST_LOG" ] && echo "$name $*" >> "$SYNAPSE_STUB_LIST_LOG"',
   // Asked for its models, as the app does to offer a choice of one: Claude Code answers its /model
   // command, Codex renders its catalogue and OpenCode lists its models and its providers.
   '[ "$name" = claude ] && [ "$1" = -p ] && [ "$2" = /model ] && { echo "Current model: Stub 1"; echo "Usage: /model <name>. Available: sonnet, opus, haiku, default, or a full model ID."; exit 0; }',
@@ -223,6 +227,8 @@ const STUB = [
   '[ "$name" = claude ] && [ "$1" = "-p" ] && headless=stdin',
   '[ "$name" = codex ] && [ "$1" = exec ] && headless=stdin',
   '[ "$name" = opencode ] && [ "$1" = run ] && headless=argument',
+  // The arguments of a background run are logged, for a test to see which model it was asked for.
+  '[ -n "$headless" ] && [ -n "$SYNAPSE_STUB_LOG" ] && echo "$name $*" >> "$SYNAPSE_STUB_LOG"',
   'if [ -n "$headless" ]; then',
   '  if [ "$headless" = stdin ]; then prompt=$(cat); else for a in "$@"; do prompt=$a; done; fi',
   '  case "$prompt" in',

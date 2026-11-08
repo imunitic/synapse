@@ -73,6 +73,7 @@ export function opencodeCatalog(modelsOutput: string, authOutput: string): Model
   const usable = models.filter((m) => m.available).length
   return {
     models,
+    readAt: null,
     note:
       models.length === 0
         ? 'OpenCode listed no models.'
@@ -99,6 +100,7 @@ export function claudeCatalog(stdout: string): ModelCatalog {
   const { current, names } = parseClaudeModels(stdout)
   return {
     models: names.map((id) => ({ id, provider: null, available: true, detail: null })),
+    readAt: null,
     note:
       names.length === 0
         ? null
@@ -126,10 +128,10 @@ export function codexCatalog(stdout: string): ModelCatalog {
   try {
     json = JSON.parse(stdout)
   } catch {
-    return { models: [], note: null }
+    return { models: [], note: null, readAt: null }
   }
   const parsed = codexCatalogSchema.safeParse(json)
-  if (!parsed.success) return { models: [], note: null }
+  if (!parsed.success) return { models: [], note: null, readAt: null }
   const shown = parsed.data.models
     .filter((m) => m.visibility === 'list' && MODEL_NAME.test(m.slug))
     .sort((a, b) => (a.priority ?? 1e9) - (b.priority ?? 1e9))
@@ -143,6 +145,7 @@ export function codexCatalog(stdout: string): ModelCatalog {
         null,
     })),
     note: shown.length === 0 ? null : 'Any model name can be typed as well.',
+    readAt: null,
   }
 }
 
@@ -168,15 +171,6 @@ const defaultRun: RunProgram = (program, args, env) =>
     )
   })
 
-// A list is long to read from a harness and does not change while the app is looked at. Only a list
-// that was had is kept.
-const KEEP_MS = 60_000
-const kept = new Map<Harness, { at: number; catalog: ModelCatalog }>()
-
-export function forgetModels(): void {
-  kept.clear()
-}
-
 export interface ModelDeps {
   env?: NodeJS.ProcessEnv
   platform?: NodeJS.Platform
@@ -198,36 +192,39 @@ async function readCatalog(
       ])
       return models.code === 0
         ? opencodeCatalog(models.stdout, auth.code === 0 ? auth.stdout : '')
-        : { models: [], note: null }
+        : { models: [], note: null, readAt: null }
     }
     case 'Claude': {
       // A command of the session that is answered here, without a call to a model, and kept out of
       // the sessions the person has.
       const answer = await run('claude', ['-p', '/model', '--no-session-persistence'], env)
-      return answer.code === 0 ? claudeCatalog(answer.stdout) : { models: [], note: null }
+      return answer.code === 0
+        ? claudeCatalog(answer.stdout)
+        : { models: [], note: null, readAt: null }
     }
     case 'Codex': {
       const answer = await run('codex', ['debug', 'models'], env)
-      return answer.code === 0 ? codexCatalog(answer.stdout) : { models: [], note: null }
+      return answer.code === 0
+        ? codexCatalog(answer.stdout)
+        : { models: [], note: null, readAt: null }
     }
   }
 }
 
-export async function listModels(harness: Harness, deps: ModelDeps = {}): Promise<ModelCatalog> {
-  const known = kept.get(harness)
-  if (known !== undefined && Date.now() - known.at < KEEP_MS) return known.catalog
+// The models of a harness, read from it now. A list that could not be read is empty and says what
+// to do, so that a person can type a name.
+export async function readModels(harness: Harness, deps: ModelDeps = {}): Promise<ModelCatalog> {
   const env = deps.env ?? process.env
   const login = await (
     deps.loginPath ?? (() => loginShellPath(env, deps.platform ?? process.platform))
   )()
   const where = { ...env, PATH: combinedPath(login, env.PATH) }
   const catalog = await readCatalog(harness, deps.run ?? defaultRun, where)
-  if (catalog.models.length === 0) {
-    return {
-      models: [],
-      note: catalog.note ?? `${NAMES[harness]} could not list its models. Type a name instead.`,
-    }
-  }
-  kept.set(harness, { at: Date.now(), catalog })
-  return catalog
+  return catalog.models.length > 0
+    ? catalog
+    : {
+        models: [],
+        readAt: null,
+        note: catalog.note ?? `${NAMES[harness]} could not list its models. Type a name instead.`,
+      }
 }

@@ -214,6 +214,9 @@ export interface ModelCatalog {
   models: ModelOption[]
   // What to tell the person about the list, such as why it is empty.
   note: string | null
+  // When the list was read from the harness, which is not when it was asked for: it is kept between
+  // runs of the app. Null for a list that could not be read.
+  readAt: string | null
 }
 
 // A session a harness has kept, to be resumed in the folder it was held in.
@@ -395,6 +398,8 @@ export interface Transport {
   getDiagnosis(): Promise<Diagnosis>
   listWorkspaces(): Promise<Workspaces>
   listModels(harness: Harness): Promise<ModelCatalog>
+  // Reads the list from the harness again, as it is now, and keeps it.
+  refreshModels(harness: Harness): Promise<ModelCatalog>
   listSessions(): Promise<PastSessions>
   // Makes a folder a vault when it is not one: the folder, and the `Index.md` that the
   // package ships a template of. What is there is left as it is.

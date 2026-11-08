@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useState } from 'react'
 import type { Harness, ModelCatalog } from '../../shared/transport.ts'
+import { timeAgo } from '../domain/format.ts'
 import { filterModels, isModelName } from '../domain/models.ts'
 import { transport } from '../transport/index.ts'
 
@@ -40,12 +41,19 @@ export function ModelPicker({
   onChange,
   label,
   disabled = false,
+  placeholder = 'The model the harness uses itself',
+  clearable,
+  clearLabel = "Use the harness's own",
 }: {
   harness: Harness
   value: string | null
   onChange: (model: string | null) => void
   label: string
   disabled?: boolean
+  placeholder?: string
+  // Whether there is a way back, which is when a model is chosen unless the caller says.
+  clearable?: boolean
+  clearLabel?: string
 }) {
   const id = useId()
   const [draft, setDraft] = useState(value ?? '')
@@ -53,6 +61,7 @@ export function ModelPicker({
   const [active, setActive] = useState(0)
   const [problem, setProblem] = useState<string | null>(null)
   const [catalog, setCatalog] = useState<Catalog>({ status: 'idle' })
+  const [reading, setReading] = useState(false)
 
   // The list is read as soon as a picker is there, since Claude Code takes a few seconds to
   // answer, and is ready by the time the box is used.
@@ -75,6 +84,19 @@ export function ModelPicker({
       (found) => setCatalog({ status: 'ready', catalog: found }),
       (error: unknown) => setCatalog({ status: 'failed', error: String(error) }),
     )
+  }
+
+  // Reads the list from the harness again, as it is now: a provider may have been connected since.
+  function readAgain() {
+    setReading(true)
+    const fresh = transport.refreshModels(harness)
+    catalogs.set(harness, fresh)
+    fresh
+      .then(
+        (found) => setCatalog({ status: 'ready', catalog: found }),
+        (error: unknown) => setCatalog({ status: 'failed', error: String(error) }),
+      )
+      .finally(() => setReading(false))
   }
 
   const found = useMemo(
@@ -108,6 +130,26 @@ export function ModelPicker({
   }
 
   const listed = open && found.shown.length > 0
+  // When the list was read, and a way to read it again. It is at the foot of the list when there is
+  // one, since the list lies over what is under the box, and under the box when there is not.
+  const reread =
+    catalog.status === 'ready' && open ? (
+      <>
+        {catalog.catalog.readAt === null
+          ? 'Not read from the harness.'
+          : `Read ${timeAgo(catalog.catalog.readAt, new Date())}.`}{' '}
+        <button
+          type="button"
+          className="link"
+          disabled={reading}
+          // The box keeps the focus, so that the list stays open.
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={readAgain}
+        >
+          {reading ? 'Reading…' : 'Read again'}
+        </button>
+      </>
+    ) : null
   const optionId = (index: number) => `${id}-option-${index}`
 
   return (
@@ -123,11 +165,13 @@ export function ModelPicker({
           aria-activedescendant={listed ? optionId(active) : undefined}
           value={draft}
           disabled={disabled}
-          placeholder="The model the harness uses itself"
+          placeholder={placeholder}
           onFocus={() => {
             load()
             setOpen(true)
           }}
+          // The box keeps the focus when a model is chosen, so a click opens the list again.
+          onClick={() => setOpen(true)}
           onChange={(event) => {
             setDraft(event.target.value)
             setProblem(null)
@@ -158,9 +202,9 @@ export function ModelPicker({
             }
           }}
         />
-        {value !== null && (
+        {(clearable ?? value !== null) && (
           <button type="button" className="link" disabled={disabled} onClick={() => commit('')}>
-            Use the harness's own
+            {clearLabel}
           </button>
         )}
       </div>
@@ -200,8 +244,12 @@ export function ModelPicker({
               {found.shown.length} of {found.total} models: type to narrow them
             </li>
           )}
+          <li className="model-more muted small" role="presentation">
+            {reread}
+          </li>
         </ul>
       )}
+      {!listed && reread !== null && <p className="muted small">{reread}</p>}
       {catalog.status === 'loading' && open && <p className="muted small">Reading the models…</p>}
       {catalog.status === 'failed' && (
         <p className="muted small">The models could not be listed. Type a name instead.</p>
