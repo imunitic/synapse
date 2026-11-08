@@ -106,9 +106,11 @@ package Synapse.Commands.Usage is
       "339 or built_at's shape" & LF &
       "  context                    this checkout's graph path an" &
       "d the question-to-command map" & LF &
-      "  doctor [--repo <dir>]      check every precondition the " &
+      "  doctor [--repo <dir>] [--format text|json]" & LF &
+      "                             check every precondition the " &
       "rest of the system" & LF &
-      "                             tolerates silently" & LF &
+      "                             tolerates silently, the harnesses " &
+      "among them" & LF &
       "  build-index                _index.bin from the work dir'" &
       "s lists" & LF &
       "  graph-clean [--dry-run]    drop namespaces whose branch " &

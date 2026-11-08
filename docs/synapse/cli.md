@@ -68,8 +68,9 @@ usage: synapse <subcommand> [args]
   namespace [--repo <dir>]   the {repo}@{branch} key for a checkout
   now [--built-at]           machine-local timestamp, RFC3339 or built_at's shape
   context                    this checkout's graph path and the question-to-command map
-  doctor [--repo <dir>]      check every precondition the rest of the system
-                             tolerates silently
+  doctor [--repo <dir>] [--format text|json]
+                             check every precondition the rest of the system
+                             tolerates silently, the harnesses among them
   build-index                _index.bin from the work dir's lists
   graph-clean [--dry-run]    drop namespaces whose branch is gone upstream
   graph-wipe [--dry-run]     drop this namespace, preserving hand Notes
@@ -505,9 +506,14 @@ usage: synapse context
 ### synapse doctor
 
 ```
-usage: synapse doctor [--repo <dir>]
+usage: synapse doctor [--repo <dir>] [--format text|json]
 
-  --repo  the checkout to examine. Default: the one containing $PWD.
+  --repo    the checkout to examine. Default: the one containing $PWD.
+  --format  text (the default), or json: format synapse-doctor/v1,
+            each check with its key, name, status, detail and value.
+
+Looks for claude, codex, opencode and synapse-pipeline on PATH. The
+exit code is 1 when anything failed, in either format.
 ```
 
 ### synapse build-index
