@@ -18,6 +18,7 @@ import type { PipelineDescription, Problem } from '../domain/pipelines.ts'
 import { parseSkillMeta } from '../domain/skills.ts'
 import { transport } from '../transport/index.ts'
 import { AgentCard } from '../components/AgentCard.tsx'
+import { DslReference } from '../components/DslReference.tsx'
 import { CodeEditor } from '../components/CodeEditor.tsx'
 import { GraphView } from '../components/GraphView.tsx'
 import { DEFINITION_LABELS, type DefinitionKind, type Page } from '../state/state.ts'
@@ -333,6 +334,8 @@ export function DefinitionEditorPage({
         />
         {checking && <p className="muted small">Checking…</p>}
       </section>
+
+      {definition !== 'skill' && <DslReference kind={definition} />}
 
       <section
         className={problems.length > 0 ? 'alert' : 'card'}

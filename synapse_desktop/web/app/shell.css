@@ -2217,3 +2217,54 @@ div.activity-row {
 .panel-action {
   padding: 0 14px 12px;
 }
+
+/* The language reference under the editor. */
+.dsl-reference .convention-body {
+  gap: 10px;
+}
+
+.dsl-reference .card-title {
+  margin: 8px 0 0;
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.dsl-shape {
+  margin: 0;
+  padding: 10px 14px;
+  overflow-x: auto;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  white-space: pre;
+}
+
+.dsl-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.dsl-table th,
+.dsl-table td {
+  padding: 6px 12px 6px 0;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.dsl-table thead th {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.dsl-rules {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
