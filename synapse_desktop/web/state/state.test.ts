@@ -290,10 +290,23 @@ describe('terminals', () => {
     expect(state.terminals.map((t) => t.title)).toEqual(['Shell 1', 'Shell 3'])
   })
 
-  it('have a section in the rail that shows its panel', () => {
-    const state = reduce(initialState, { type: 'selectSection', section: 'terminals' })
-    expect(state.section).toBe('terminals')
-    expect(state.panelOpen).toBe(true)
+  it('are started from a page of their own, which is a tab like the others', () => {
+    const state = reduce(initialState, { type: 'openPage', page: { kind: 'launch' } })
+    expect(state.tabs.map((t) => t.id)).toEqual(['launch'])
+    expect(state.activeId).toBe('launch')
+    expect(pageTitle({ kind: 'launch' })).toBe('New terminal')
+  })
+
+  it('stay in their own tab when another one is started from the launch page', () => {
+    const state = reduce(reduce(initialState, { type: 'openPage', page: { kind: 'launch' } }), {
+      type: 'openTerminal',
+      kind: 'Claude',
+      cwd: '/work',
+      id: 'a',
+    })
+    expect(state.tabs.map((t) => t.id)).toEqual(['launch', 'terminals'])
+    expect(state.activeId).toBe('terminals')
+    expect(state.terminals.map((t) => t.cwd)).toEqual(['/work'])
   })
 })
 

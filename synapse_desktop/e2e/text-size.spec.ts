@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { openSection, resetWorldSettings, sidePanel } from './helpers.ts'
+import { launchCard, openLaunch, openSection, resetWorldSettings, sidePanel } from './helpers.ts'
 
 test.beforeEach(() => resetWorldSettings())
 test.afterEach(() => resetWorldSettings())
@@ -61,8 +61,8 @@ test('a size that is not on offer is the default', async ({ page }) => {
 
 test('a terminal that is open follows the size of the text', async ({ page }) => {
   await page.goto('/')
-  await openSection(page, 'Terminals')
-  await sidePanel(page).getByRole('button', { name: 'New shell' }).click()
+  await openLaunch(page)
+  await launchCard(page, 'Shell').getByRole('button', { name: 'New shell' }).click()
   await expect(page.getByRole('tab', { name: 'Shell 1' })).toBeVisible()
   const terminalSize = (): Promise<string | null> =>
     page.evaluate(
@@ -77,7 +77,6 @@ test('a terminal that is open follows the size of the text', async ({ page }) =>
     .click()
   await page.getByRole('combobox', { name: 'Text size' }).selectOption('150')
   // The terminals are kept while another page shows; the page is reopened to see them.
-  await openSection(page, 'Terminals')
   await page.getByRole('tab', { name: 'Terminals' }).click()
   await expect.poll(terminalSize).toBe('20px')
 })

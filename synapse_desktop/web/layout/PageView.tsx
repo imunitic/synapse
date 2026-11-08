@@ -5,6 +5,7 @@ import { DefinitionEditorPage } from '../pages/DefinitionEditorPage.tsx'
 import { DefinitionPage } from '../pages/DefinitionPage.tsx'
 import { ExecutionPage } from '../pages/ExecutionPage.tsx'
 import { GraphPage } from '../pages/GraphPage.tsx'
+import { LaunchPage } from '../pages/LaunchPage.tsx'
 import { HomePage } from '../pages/HomePage.tsx'
 import { NewNotePage } from '../pages/NewNotePage.tsx'
 import { NotePage } from '../pages/NotePage.tsx'
@@ -71,6 +72,7 @@ export function PageView({
   onSelectTerminal,
   onStartTerminal,
   onStartTask,
+  onStartIn,
   onRunCommand,
 }: {
   page: Page
@@ -81,6 +83,8 @@ export function PageView({
   onStartTerminal: (kind: TerminalKind) => void
   // A harness is started in a folder for a task.
   onStartTask: (kind: TerminalKind, cwd: string, task: TerminalTask) => void
+  // A terminal is started in a folder.
+  onStartIn: (kind: TerminalKind, cwd: string) => void
   // A shell tab is opened, and runs the command; its tab is called the title.
   onRunCommand: (command: string, title: string) => void
   // A definition was made; this is its page.
@@ -99,6 +103,8 @@ export function PageView({
           onStartTerminal={onStartTerminal}
         />
       )
+    case 'launch':
+      return <LaunchPage onStart={onStartIn} />
     case 'graph':
       return <GraphPage onOpen={onOpen} onStartTask={onStartTask} />
     case 'note':

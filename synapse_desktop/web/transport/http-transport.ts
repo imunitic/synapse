@@ -19,6 +19,7 @@ import type {
   EditNoteRequest,
   ConventionList,
   Diagnosis,
+  Workspaces,
   ProjectList,
   Integrations,
   NewDefinition,
@@ -97,6 +98,10 @@ export class HttpTransport implements Transport {
 
   getDiagnosis(): Promise<Diagnosis> {
     return this.call('getDiagnosis', {})
+  }
+
+  listWorkspaces(): Promise<Workspaces> {
+    return this.call('listWorkspaces', {})
   }
 
   seedVault(path: string): Promise<VaultInfo> {

@@ -12,6 +12,7 @@ import type {
   Integrations,
 } from '../shared/transport.ts'
 import { findContentRoot, findExecutable } from './inject.ts'
+import { isDirectory } from './fs-checks.ts'
 
 const HOOK_NAME = 'synapse-hook'
 const EXE = process.platform === 'win32' ? '.exe' : ''
@@ -25,10 +26,6 @@ export interface IntegrationDeps {
 
 async function isFile(path: string): Promise<boolean> {
   return (await stat(path).catch(() => null))?.isFile() ?? false
-}
-
-async function isDirectory(path: string): Promise<boolean> {
-  return (await stat(path).catch(() => null))?.isDirectory() ?? false
 }
 
 // The first word of a hook command when it names the hook program.

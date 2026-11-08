@@ -1994,3 +1994,52 @@ div.activity-row {
 .setup-status[data-status='fail'] {
   color: #fecaca;
 }
+
+.launch-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.launch-form .field {
+  flex: 1;
+}
+
+.workspace-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.workspace {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.workspace:hover {
+  background: var(--hover, rgba(127, 127, 127, 0.15));
+}
+
+.workspace-name {
+  font-weight: 600;
+}
+
+.workspace-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

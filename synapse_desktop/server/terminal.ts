@@ -5,7 +5,7 @@
 
 import type { IncomingMessage, Server } from 'node:http'
 import { randomBytes, randomUUID } from 'node:crypto'
-import { rm, stat } from 'node:fs/promises'
+import { rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, sep } from 'node:path'
 import * as nodePty from '@lydell/node-pty'
@@ -21,6 +21,7 @@ import { checkUpgrade, type Policy } from './guards.ts'
 import { planSession, planShell, type SessionPlan } from './inject.ts'
 import type { Environment } from './roots.ts'
 import { watchTranscripts, type Watcher } from './transcripts.ts'
+import { isDirectory } from './fs-checks.ts'
 
 export interface Pty {
   onData(listener: (data: string) => void): void
@@ -84,10 +85,6 @@ function header(req: IncomingMessage, name: string): string | undefined {
 
 function send(ws: WebSocket, message: ServerMessage): void {
   if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(message))
-}
-
-async function isDirectory(path: string): Promise<boolean> {
-  return (await stat(path).catch(() => null))?.isDirectory() ?? false
 }
 
 // What a harness sets for the programs it starts, which tells one of them that it

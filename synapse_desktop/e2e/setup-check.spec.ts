@@ -2,7 +2,14 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { openSection, resetWorldSettings, sidePanel, world } from './helpers.ts'
+import {
+  launchCard,
+  openLaunch,
+  openSection,
+  resetWorldSettings,
+  sidePanel,
+  world,
+} from './helpers.ts'
 
 test.beforeEach(() => {
   resetWorldSettings()
@@ -124,17 +131,17 @@ test('with no harness none can be started or chosen, and a shell still can', asy
   await page.goto('/')
   await expect(card(page)).toBeVisible()
 
-  await openSection(page, 'Terminals')
-  const panel = sidePanel(page)
-  for (const name of ['Claude Code', 'Codex', 'OpenCode']) {
-    const button = panel.getByRole('button', { name: new RegExp(`^${name}`) })
-    await expect(button).toBeDisabled()
-    await expect(button).toContainText('not found')
-    await expect(button).toHaveAttribute('title', `${name} was not found on PATH`)
+  await openLaunch(page)
+  for (const name of ['Claude Code', 'Codex', 'OpenCode'] as const) {
+    const card = launchCard(page, name)
+    await expect(card).toContainText(`Not found. ${name} was not found on PATH`)
+    // Nothing in it can be started.
+    await expect(card.getByRole('button')).toHaveCount(0)
   }
-  await expect(panel.getByRole('button', { name: 'New shell' })).toBeEnabled()
+  await expect(launchCard(page, 'Shell').getByRole('button', { name: 'New shell' })).toBeEnabled()
 
   await openSection(page, 'Settings')
+  const panel = sidePanel(page)
   await panel.getByRole('button', { name: /^General/ }).click()
   const choice = page.getByLabel('Default harness', { exact: true })
   for (const value of ['Claude', 'Codex', 'Opencode']) {
@@ -152,11 +159,12 @@ test('one harness that is missing is held back and is not a finding', async ({ p
   await expect(page.getByRole('heading', { level: 1, name: 'Home' })).toBeVisible()
   await expect(card(page)).toHaveCount(0)
 
-  await openSection(page, 'Terminals')
-  const panel = sidePanel(page)
-  await expect(panel.getByRole('button', { name: /^Codex/ })).toBeDisabled()
-  await expect(panel.getByRole('button', { name: /^Claude Code/ })).toBeEnabled()
-  await expect(panel.getByRole('button', { name: /^OpenCode/ })).toBeEnabled()
+  await openLaunch(page)
+  await expect(launchCard(page, 'Codex')).toContainText('Not found.')
+  await expect(launchCard(page, 'Codex').getByRole('button')).toHaveCount(0)
+  await expect(launchCard(page, 'Claude Code')).not.toContainText('Not found.')
+  await expect(launchCard(page, 'Claude Code').getByLabel('Another folder')).toBeVisible()
+  await expect(launchCard(page, 'OpenCode')).not.toContainText('Not found.')
 })
 
 test('a harness without Synapse points to the page that installs it', async ({ page }) => {
@@ -272,8 +280,9 @@ test('a check that could not be made says so, and can be tried again', async ({ 
 test('until it is known nothing is held back', async ({ page }) => {
   await page.route('**/api/call/getDiagnosis', () => new Promise(() => undefined))
   await page.goto('/')
-  await openSection(page, 'Terminals')
-  await expect(sidePanel(page).getByRole('button', { name: /^Codex/ })).toBeEnabled()
+  await openLaunch(page)
+  await expect(launchCard(page, 'Codex')).not.toContainText('Not found.')
+  await expect(launchCard(page, 'Codex').getByLabel('Another folder')).toBeVisible()
 })
 
 async function openVaultSettings(page: Page) {

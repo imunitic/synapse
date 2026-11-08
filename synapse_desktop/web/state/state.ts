@@ -4,7 +4,7 @@
 import type { TerminalTask } from '../../shared/transport.ts'
 import { titleOf } from '../domain/notes.ts'
 
-export type RailSection = 'definitions' | 'executions' | 'vault' | 'terminals' | 'settings'
+export type RailSection = 'definitions' | 'executions' | 'vault' | 'settings'
 
 export type DefinitionKind = 'pipeline' | 'system' | 'agent' | 'skill'
 
@@ -93,6 +93,8 @@ export type Page =
   | { kind: 'note'; path: string }
   // The terminals: one page with a tab for each session.
   | { kind: 'terminals' }
+  // Where a shell, or a harness in a folder it works in, is started.
+  | { kind: 'launch' }
 
 export interface Tab {
   id: string
@@ -177,6 +179,8 @@ export function pageId(page: Page): string {
       return `note:${page.path}`
     case 'terminals':
       return 'terminals'
+    case 'launch':
+      return 'launch'
   }
 }
 
@@ -200,6 +204,8 @@ export function pageTitle(page: Page): string {
       return titleOf(page.path)
     case 'terminals':
       return 'Terminals'
+    case 'launch':
+      return 'New terminal'
   }
 }
 

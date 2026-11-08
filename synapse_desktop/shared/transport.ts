@@ -181,6 +181,14 @@ export interface NoteRequest {
 
 export type TerminalKind = 'Shell' | Harness
 
+// A folder a harness already works in, and when it was last used there, when it says.
+export interface Workspace {
+  path: string
+  lastUsed: string | null
+}
+
+export type Workspaces = Record<Harness, Workspace[]>
+
 // What a session of a harness is started to do: build a code graph, rebuild what
 // changed in it, or rebuild it from scratch.
 export type TerminalTask = 'init' | 'rebuild-diff' | 'rebuild-full'
@@ -345,6 +353,7 @@ export interface Transport {
   // or removed from a file that can be changed here, which answers with the list again.
   // What `synapse doctor` says of the install, with the PATH of the user's login shell.
   getDiagnosis(): Promise<Diagnosis>
+  listWorkspaces(): Promise<Workspaces>
   // Makes a folder a vault when it is not one: the folder, and the `Index.md` that the
   // package ships a template of. What is there is left as it is.
   seedVault(path: string): Promise<VaultInfo>

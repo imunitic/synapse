@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
-import { openSection, resetWorldSettings, world } from './helpers.ts'
+import { openLaunch, openSection, resetWorldSettings, world } from './helpers.ts'
 
 // Each test begins from the settings the world began with.
 test.beforeEach(() => {
@@ -116,7 +116,7 @@ test('a terminal starts in the folder the settings name', async ({ page }) => {
   await page.getByLabel('Start folder path').fill(world().root)
   await page.getByRole('button', { name: 'Save' }).click()
   await expect(page.getByRole('status')).toHaveText('Saved.')
-  await openSection(page, 'Terminals')
+  await openLaunch(page)
   await expect(page.getByLabel('Start in')).toHaveValue(world().root)
 })
 

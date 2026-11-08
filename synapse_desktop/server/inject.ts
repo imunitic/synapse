@@ -17,6 +17,7 @@ import {
 } from 'node:fs/promises'
 import { basename, delimiter, dirname, join, resolve } from 'node:path'
 import type { Harness } from '../shared/transport.ts'
+import { isDirectory } from './fs-checks.ts'
 
 export interface SessionPlan {
   // What to run, and what it is given besides the user's own environment.
@@ -48,10 +49,6 @@ const LABELS: Record<Harness, string> = {
   Claude: 'Claude Code',
   Codex: 'Codex',
   Opencode: 'OpenCode',
-}
-
-async function isDirectory(path: string): Promise<boolean> {
-  return (await stat(path).catch(() => null))?.isDirectory() ?? false
 }
 
 async function isFile(path: string): Promise<boolean> {

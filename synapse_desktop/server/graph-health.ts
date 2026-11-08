@@ -2,7 +2,6 @@
 // which nodes are stale, what has drifted and what is no longer grounded. These
 // read the real files of the repository, which `synapse` is told the folder of.
 
-import { stat } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import type {
   AppConfig,
@@ -12,6 +11,7 @@ import type {
   GraphRepoCheck,
 } from '../shared/transport.ts'
 import type { CliRunner } from './cli.ts'
+import { isDirectory } from './fs-checks.ts'
 
 // The rows of a check: a node's name, a tab and what is wrong with it. Nothing is
 // printed when nothing is.
@@ -25,10 +25,6 @@ export function parseFindings(text: string): GraphFinding[] {
         ? { node: line, reason: '' }
         : { node: line.slice(0, tab), reason: line.slice(tab + 1) }
     })
-}
-
-async function isDirectory(path: string): Promise<boolean> {
-  return (await stat(path).catch(() => null))?.isDirectory() ?? false
 }
 
 // The `<repo>@<branch>` of a folder as it is checked out now.

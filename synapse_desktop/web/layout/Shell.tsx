@@ -85,6 +85,14 @@ export function Shell() {
                     id: Math.random().toString(36).slice(2, 8),
                   })
                 }
+                onStartIn={(kind, cwd) =>
+                  dispatch({
+                    type: 'openTerminal',
+                    kind,
+                    cwd,
+                    id: Math.random().toString(36).slice(2, 8),
+                  })
+                }
                 onRunCommand={(command, title) =>
                   dispatch({
                     type: 'openTerminal',

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { openSection, world, sidePanel } from './helpers.ts'
+import { launchCard, openLaunch, openSection, world } from './helpers.ts'
 
 const injected = () => join(world().data, 'synapse-desktop', 'injected')
 
@@ -10,8 +10,17 @@ const screen = (page: Page) => page.locator('.terminal-view:not([hidden]) .termi
 
 async function openTerminals(page: Page, folder = '') {
   await page.goto('/')
-  await openSection(page, 'Terminals')
+  await openLaunch(page)
   await page.getByLabel('Start in').fill(folder)
+}
+
+// A harness started in a folder it has not worked in, typed into its card.
+async function startHarness(page: Page, name: 'Claude Code', folder: string) {
+  await page.goto('/')
+  await openLaunch(page)
+  const card = launchCard(page, name)
+  await card.getByLabel('Another folder').fill(folder)
+  await card.getByRole('button', { name: 'Start' }).click()
 }
 
 async function type(page: Page, text: string) {
@@ -22,7 +31,7 @@ async function type(page: Page, text: string) {
 
 test('a new shell starts in the home folder and runs what is typed', async ({ page }) => {
   await openTerminals(page)
-  await sidePanel(page).getByRole('button', { name: 'New shell' }).click()
+  await launchCard(page, 'Shell').getByRole('button', { name: 'New shell' }).click()
   await expect(page.getByRole('tab', { name: 'Shell 1' })).toBeVisible()
 
   // The sum is done by the shell: its result is not in the line that was typed.
@@ -34,7 +43,7 @@ test('a new shell starts in the home folder and runs what is typed', async ({ pa
 
 test('claude typed in the shell starts with Synapse loaded for that run only', async ({ page }) => {
   await openTerminals(page, world().root)
-  await sidePanel(page).getByRole('button', { name: 'New shell' }).click()
+  await launchCard(page, 'Shell').getByRole('button', { name: 'New shell' }).click()
   await expect(page.getByText('started here load Synapse for that run only')).toBeVisible()
 
   // The wrapper is the claude of this shell; nothing runs until it is.
@@ -58,7 +67,7 @@ test('claude typed in the shell starts with Synapse loaded for that run only', a
 
 test('codex and opencode typed in the shell get their homes of their own', async ({ page }) => {
   await openTerminals(page, world().root)
-  await sidePanel(page).getByRole('button', { name: 'New shell' }).click()
+  await launchCard(page, 'Shell').getByRole('button', { name: 'New shell' }).click()
   await type(page, 'codex')
   await expect(screen(page)).toContainText(`CODEX_HOME=${join(injected(), 'codex')}`)
   await type(page, 'quit')
@@ -76,7 +85,7 @@ test('a harness that has Synapse installed gets nothing loaded, and is still fol
   )
   try {
     await openTerminals(page, world().root)
-    await sidePanel(page).getByRole('button', { name: 'New shell' }).click()
+    await launchCard(page, 'Shell').getByRole('button', { name: 'New shell' }).click()
     await expect(page.getByText('codex, opencode started here')).toBeVisible()
     await type(page, 'claude hello')
     await expect(screen(page)).toContainText('STUB claude args: --session-id')
@@ -91,7 +100,7 @@ test('the conversation of a claude started in the shell shows under the terminal
   page,
 }) => {
   await openTerminals(page, world().root)
-  await sidePanel(page).getByRole('button', { name: 'New shell' }).click()
+  await launchCard(page, 'Shell').getByRole('button', { name: 'New shell' }).click()
   await expect(page.getByLabel('Conversation')).toHaveCount(0)
   await type(page, 'claude fix it')
 
@@ -114,15 +123,14 @@ test('the conversation of a claude started in the shell shows under the terminal
 })
 
 test('a claude started in a tab of its own has its conversation followed', async ({ page }) => {
-  await openTerminals(page, world().root)
-  await sidePanel(page).getByRole('button', { name: 'Claude Code' }).click()
+  await startHarness(page, 'Claude Code', world().root)
   await expect(page.getByLabel('Conversation')).toContainText('Fix the bug in a.txt')
   await expect(page.getByLabel('Conversation').locator('.activity-row')).toHaveCount(3)
 })
 
 test('a codex started in the shell has its conversation followed', async ({ page }) => {
   await openTerminals(page, world().root)
-  await sidePanel(page).getByRole('button', { name: 'New shell' }).click()
+  await launchCard(page, 'Shell').getByRole('button', { name: 'New shell' }).click()
   await type(page, 'codex')
   const conversation = page.getByLabel('Conversation')
   await expect(conversation).toContainText('Add a test')
@@ -135,7 +143,7 @@ test('a run that continues a session is not followed, and its arguments are unto
   page,
 }) => {
   await openTerminals(page, world().root)
-  await sidePanel(page).getByRole('button', { name: 'New shell' }).click()
+  await launchCard(page, 'Shell').getByRole('button', { name: 'New shell' }).click()
   await type(page, 'claude --resume')
   await expect(screen(page)).toContainText('STUB claude args: --add-dir')
   await expect(screen(page)).toContainText('--resume')
@@ -144,8 +152,7 @@ test('a run that continues a session is not followed, and its arguments are unto
 })
 
 test('a harness can be started directly in a tab of its own', async ({ page }) => {
-  await openTerminals(page, world().root)
-  await sidePanel(page).getByRole('button', { name: 'Claude Code' }).click()
+  await startHarness(page, 'Claude Code', world().root)
   await expect(page.getByRole('tab', { name: 'Claude Code 1' })).toBeVisible()
   await expect(page.getByText('Synapse is loaded for this session only')).toBeVisible()
   await expect(screen(page)).toContainText('STUB claude args: --add-dir')
@@ -164,7 +171,7 @@ test('shells have tabs: each goes on while the others show, and closing one leav
   page,
 }) => {
   await openTerminals(page, world().root)
-  await sidePanel(page).getByRole('button', { name: 'New shell' }).click()
+  await launchCard(page, 'Shell').getByRole('button', { name: 'New shell' }).click()
   await type(page, 'MARK=first; echo tab-$MARK')
   await expect(screen(page)).toContainText('tab-first')
 
@@ -185,7 +192,7 @@ test('shells have tabs: each goes on while the others show, and closing one leav
 
 test('sessions go on while another page of the app shows', async ({ page }) => {
   await openTerminals(page, world().root)
-  await sidePanel(page).getByRole('button', { name: 'New shell' }).click()
+  await launchCard(page, 'Shell').getByRole('button', { name: 'New shell' }).click()
   await type(page, 'MARK=kept')
 
   await openSection(page, 'Settings')
@@ -200,7 +207,7 @@ test('sessions go on while another page of the app shows', async ({ page }) => {
 
 test('a folder that is not one is said in the tab', async ({ page }) => {
   await openTerminals(page, join(world().root, 'nowhere'))
-  await sidePanel(page).getByRole('button', { name: 'New shell' }).click()
+  await launchCard(page, 'Shell').getByRole('button', { name: 'New shell' }).click()
   await expect(screen(page)).toContainText('is not a folder')
   await expect(page.getByText('The session ended.')).toBeVisible()
 })

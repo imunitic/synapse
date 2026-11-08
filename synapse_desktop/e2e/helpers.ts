@@ -19,10 +19,21 @@ export function sidePanel(page: Page) {
   return page.getByRole('complementary', { name: 'Side panel' })
 }
 
+// Opens the page where a terminal is started, from the rail.
+export async function openLaunch(page: Page) {
+  await page.getByRole('button', { name: 'Terminals', exact: true }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Terminals' })).toBeVisible()
+}
+
+// The card on that page for a shell or a harness.
+export function launchCard(page: Page, name: 'Shell' | 'Claude Code' | 'Codex' | 'OpenCode') {
+  return page.getByRole('tabpanel').getByLabel(name, { exact: true })
+}
+
 // Opens a section of the rail and its panel, whatever it showed before.
 export async function openSection(
   page: Page,
-  section: 'Definitions' | 'Executions' | 'Vault' | 'Terminals' | 'Settings',
+  section: 'Definitions' | 'Executions' | 'Vault' | 'Settings',
 ) {
   const button = page.getByRole('button', { name: section, exact: true })
   if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click()

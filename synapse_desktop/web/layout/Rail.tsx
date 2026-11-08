@@ -15,7 +15,6 @@ const SECTIONS: { section: RailSection; label: string; icon: ComponentType }[] =
   { section: 'definitions', label: 'Definitions', icon: DefinitionsIcon },
   { section: 'executions', label: 'Executions', icon: ExecutionsIcon },
   { section: 'vault', label: 'Vault', icon: VaultIcon },
-  { section: 'terminals', label: 'Terminals', icon: TerminalIcon },
   { section: 'settings', label: 'Settings', icon: SettingsIcon },
 ]
 
@@ -45,6 +44,14 @@ export function Rail({ state, dispatch }: { state: ShellState; dispatch: Dispatc
         onClick={() => dispatch({ type: 'openPage', page: { kind: 'graph' } })}
       >
         <GraphIcon />
+      </button>
+      <button
+        className="rail-button"
+        aria-label="Terminals"
+        aria-pressed={state.activeId === 'launch' || state.activeId === 'terminals'}
+        onClick={() => dispatch({ type: 'openPage', page: { kind: 'launch' } })}
+      >
+        <TerminalIcon />
       </button>
       <div className="rail-divider" />
       {SECTIONS.map(({ section, label, icon: Glyph }) => (
