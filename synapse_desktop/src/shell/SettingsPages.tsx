@@ -533,7 +533,10 @@ function IntegrationsPage() {
 
 function Terminals() {
   const { state, save } = useConfig()
-  if (state.status !== 'ready') return null
+  if (state.status === 'loading') return <p className="muted">Loading the settings…</p>
+  if (state.status === 'failed') {
+    return <p role="alert">The server did not answer: {state.error}</p>
+  }
   return (
     <>
       <PathCard
