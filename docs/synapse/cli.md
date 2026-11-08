@@ -570,6 +570,8 @@ usage: synapse-pipeline <subcommand> [args]
   check <pipeline>   validate a pipeline and show what it would run
   show <name> [--format json|text]
          describe a pipeline (its steps, settings, edges and limits), a system or an agent
+  definitions [--format json|text]
+         every pipeline, system and agent there is, and what is wrong with a file
   next <pipeline> [--input <file>|-] | --state <file>|- --result <file>|-
          the state a run starts in, or the state after a step's result
   run <pipeline> [--input <file>|-] [--id <execution-id>]
@@ -629,6 +631,25 @@ Environment:
   SYNAPSE_PIPELINE_HARNESS  the harness of a step that names none
   SYNAPSE_PIPELINE_TIMEOUT, SYNAPSE_PIPELINE_MAX_STEPS, SYNAPSE_PIPELINE_RUNNER
                             the limits the description reports
+```
+
+### synapse-pipeline definitions
+
+```
+usage: synapse-pipeline definitions [--format json|text]
+
+Lists every definition the search directories hold, in alphabetical order of name:
+its kind (pipeline, system or agent), name and file. A file that does not load
+is not a definition; it is a problem, with its file, line, column and message.
+Nothing is validated beyond loading, and the exit code is 0 whatever is found.
+
+  --format text   for a person (the default)
+  --format json   format synapse-pipeline-definitions/v1: `definitions`, each with
+                  kind, name and file, and `problems`, each with file, line, column
+                  and message
+
+Environment:
+  SYNAPSE_PIPELINE_PATH     directories of .synapse files besides the default
 ```
 
 ### synapse-pipeline next

@@ -15,6 +15,9 @@ package Synapse.Pipeline.Commands.Usage is
      & "  show <name> [--format json|text]" & LF
      & "         describe a pipeline (its steps, settings, edges and limits), "
      & "a system or an agent" & LF
+     & "  definitions [--format json|text]" & LF
+     & "         every pipeline, system and agent there is, and what is wrong "
+     & "with a file" & LF
      & "  next <pipeline> [--input <file>|-] | --state <file>|- --result "
      & "<file>|-" & LF
      & "         the state a run starts in, or the state after a step's "
@@ -162,6 +165,26 @@ package Synapse.Pipeline.Commands.Usage is
      & "                             session)" & LF
      & "  SYNAPSE_VAULT_DIR, SYNAPSE_CONTENT_ROOT" & LF
      & "                             given to every session" & LF;
+
+   Definitions_Help : constant String :=
+     "usage: synapse-pipeline definitions [--format json|text]" & LF & LF
+     & "Lists every definition the search directories hold, in alphabetical "
+     & "order of name:" & LF
+     & "its kind (pipeline, system or agent), name and file. A file that "
+     & "does not load" & LF
+     & "is not a definition; it is a problem, with its file, line, column "
+     & "and message." & LF
+     & "Nothing is validated beyond loading, and the exit code is 0 "
+     & "whatever is found." & LF & LF
+     & "  --format text   for a person (the default)" & LF
+     & "  --format json   format synapse-pipeline-definitions/v1: "
+     & "`definitions`, each with" & LF
+     & "                  kind, name and file, and `problems`, each with "
+     & "file, line, column" & LF
+     & "                  and message" & LF & LF
+     & "Environment:" & LF
+     & "  SYNAPSE_PIPELINE_PATH     directories of .synapse files besides "
+     & "the default" & LF;
 
    List_Help : constant String :=
      "usage: synapse-pipeline list [--all]" & LF & LF
