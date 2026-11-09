@@ -37,20 +37,17 @@ same short prefix `/synapse-note --task` uses for task IDs) — that field also 
 `synapse vault-search`. The title itself is plain `{Topic}` — no project prefix, no id.
 
 Same resolution `/synapse-note` uses for a missing task ID (its "Resolving a missing task ID"),
-reading the same file:
+using the same list:
 
 1. Infer the project from the current repo: check its project `CLAUDE.md` (title/"About" section) or
    `git remote`.
-2. Check the resolved `synapse-projects.conf` (plain `project-name=prefix` lines, read/appended
-   via Read/Edit, not the vault — resolve which file that is with the same tiered lookup as
-   `/synapse-note`'s "Resolving a missing task ID": `$XDG_CONFIG_HOME/synapse/synapse-projects.conf`
-   or `~/.config/synapse/synapse-projects.conf`, then `~/.claude/synapse-projects.conf`, first one
-   that exists) for a loosely-matching project name. If found, use that prefix directly.
+2. Check `synapse projects list` (plain `project-name=prefix` lines, not the vault) for a
+   loosely-matching project name. If found, use that prefix directly.
 3. If not in the file yet, fall back to searching the vault for a prefix already in use for this
-   project. If exactly one confidently matches, use it — and append the pair to the conf file.
+   project. If exactly one confidently matches, use it — and add the pair with `synapse projects add <name> <prefix>`.
 4. If nothing confidently matches, ask the user for a short project tag — plain free-text, not a
-   multiple-choice list, never hinting at any other project's tag as an example — then append the
-   resolved pair to the conf file.
+   multiple-choice list, never hinting at any other project's tag as an example — then add the
+   resolved pair with `synapse projects add <name> <prefix>`.
 5. Once the prefix is known, mint the note's `note_id` the same shared-counter way `/synapse-note`'s
    "Resolving a missing task ID" step 6 does: `task_id` and `note_id` share one counter per prefix, so
    check both fields (`synapse vault-search --fields frontmatter.task_id,frontmatter.note_id`, filter

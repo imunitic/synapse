@@ -72,7 +72,7 @@ duplicate that scaffolding here, just supply its inputs:
   --task` resolves the project prefix and `task_id` itself and puts them in frontmatter only.
 - **Project:** derive from the source design note's `project:` frontmatter — that prefix is already
   resolved (the design note went through `/synapse-design-note`'s resolution when it was created,
-  which reads/appends the resolved `synapse-projects.conf`, per `/synapse-note`'s tiered lookup),
+  which reads and adds to the project list with `synapse projects`),
   so supply it directly instead of
   re-deriving or re-asking. This is the *prefix* (`ecs`, `sb`, ...), not the `tasks/{project}/`
   folder name — `/synapse-note --task`'s own "Resolving the project folder" step turns it into

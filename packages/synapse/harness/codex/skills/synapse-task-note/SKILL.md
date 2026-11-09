@@ -73,8 +73,7 @@ don't duplicate that scaffolding here, just supply its inputs:
   frontmatter only.
 - **Project:** derive from the source design note's `project:` frontmatter — that prefix is already
   resolved (the design note went through the synapse-design-note skill's resolution when it was
-  created, which reads/appends the resolved `synapse-projects.conf`, per the synapse-note skill's
-  tiered lookup), so supply it directly instead of re-deriving or re-asking. This is the *prefix*
+  created, which reads and adds to the project list with `synapse projects`), so supply it directly instead of re-deriving or re-asking. This is the *prefix*
   (`ecs`, `sb`, ...), not the `tasks/{project}/` folder name — the synapse-note skill's task mode's
   own "Resolving the project folder" step turns it into the folder name. Never hardcode a specific
   project/prefix pair in this skill's own instructions — the conf file is machine-local and

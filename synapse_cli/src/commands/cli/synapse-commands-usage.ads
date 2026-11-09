@@ -50,6 +50,10 @@ package Synapse.Commands.Usage is
       "an decision" & LF &
       "  work-dir [--root | --list | --namespace <repo>@<branch>]   " &
       "where Synapse keeps its working files" & LF &
+      "  projects [list] [--format json|text]   the projects of s" &
+      "ynapse-projects.conf" & LF &
+      "  projects add <name> <prefix>   one more project, checked" &
+      " first" & LF &
       "  vault-read <path>          a note's full body" & LF &
       "  vault-write <path>         write a note's full body, fro" &
       "m stdin" & LF &

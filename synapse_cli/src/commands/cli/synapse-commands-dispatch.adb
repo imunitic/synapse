@@ -8,6 +8,7 @@ with Synapse.Commands.Comments_Sweep;
 with Synapse.Commands.Config;
 with Synapse.Commands.Configure;
 with Synapse.Commands.Doctor;
+with Synapse.Commands.Projects;
 with Synapse.Commands.Push_Nodes;
 with Synapse.Commands.Query;
 with Synapse.Commands.Status;
@@ -99,6 +100,7 @@ package body Synapse.Commands.Dispatch is
    Configure_Name           : aliased constant String := "configure";
    Status_Name              : aliased constant String := "status";
    Work_Dir_Name            : aliased constant String := "work-dir";
+   Projects_Name            : aliased constant String := "projects";
 
    Table : constant array (Positive range <>) of Entry_Type :=
      [(Namespace_Name'Access, Namespace.Run'Access),
@@ -121,6 +123,7 @@ package body Synapse.Commands.Dispatch is
      (Configure_Name'Access, Configure.Run'Access),
      (Status_Name'Access, Status.Run'Access),
      (Work_Dir_Name'Access, Work_Dir.Run'Access),
+     (Projects_Name'Access, Projects.Run'Access),
      (Vault_Write_Name'Access, Vault_Write.Run_Write'Access),
      (Vault_Patch_Name'Access, Vault_Write.Run_Patch'Access),
      (Vault_Rename_Name'Access, Vault_Write.Run_Rename'Access),

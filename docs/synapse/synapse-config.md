@@ -213,8 +213,9 @@ tier 1/2 either — a from-source checkout with nothing configured, or a hermeti
 - **`synapse-projects.conf`** — `project-name=prefix` pairs (e.g. `my-app=myapp`) resolving a
   repo to its task-note ID prefix for `/synapse-note --task` and friends. Deliberately outside the
   portable `packages/synapse/` package and never copied between machines, so contexts that shouldn't mix
-  (personal vs. work projects) never land in the same file. Self-managed by `/synapse-note` — it
-  appends a newly resolved pair the first time it has to ask — and safe to hand-edit any time. The
+  (personal vs. work projects) never land in the same file. Self-managed by `/synapse-note`, which
+  adds a newly resolved pair with `synapse projects add` the first time it has to ask (`synapse projects list`
+  prints the pairs), and safe to hand-edit any time. The
   authoring workflow reads it to resolve IDs and folders; `SchemaValidationStore` reads the values
   on schema-declaring writes to validate `project` frontmatter.
 

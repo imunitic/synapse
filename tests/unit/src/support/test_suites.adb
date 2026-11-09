@@ -17,6 +17,7 @@ with Synapse.Adapters.Schema_Validation_Store.Tests;
 with Synapse.Adapters.System_Clock.Tests;
 with Synapse.Adapters.System_Variables.Tests;
 with Synapse.Core.Conf.Tests;
+with Synapse.Core.Projects.Tests;
 with Synapse.Adapters.Git_Store.Tests;
 with Synapse.Adapters.Git_Sync.Tests;
 with Synapse.Adapters.System_Process.Tests;
@@ -82,6 +83,7 @@ with Synapse.Adapters.Fake_Console.Tests;
 with Synapse.Commands.Cli_Args.Tests;
 with Synapse.Commands.Context.Tests;
 with Synapse.Commands.Config.Tests;
+with Synapse.Commands.Projects.Tests;
 with Synapse.Commands.Configure.Tests;
 with Synapse.Commands.Now.Tests;
 with Synapse.Commands.Namespace.Tests;
@@ -239,6 +241,8 @@ package body Test_Suites is
    Store_Resolve_Tests            :
      aliased Synapse.Adapters.Store_Resolve.Tests.Test_Case;
    Conf_Tests                     : aliased Synapse.Core.Conf.Tests.Test_Case;
+   Projects_Core_Tests            : aliased Synapse.Core.Projects.Tests.Test_Case;
+   Projects_Command_Tests         : aliased Synapse.Commands.Projects.Tests.Test_Case;
    Disk_Link_Graph_Tests          :
      aliased Synapse.Adapters.Disk_Link_Graph.Tests.Test_Case;
    Disk_Renamer_Tests : aliased Synapse.Adapters.Disk_Renamer.Tests.Test_Case;
@@ -664,6 +668,8 @@ package body Test_Suites is
       Result.Add_Test (Disk_Link_Graph_Tests'Access);
       Result.Add_Test (System_Variables_Tests'Access);
       Result.Add_Test (Conf_Tests'Access);
+      Result.Add_Test (Projects_Core_Tests'Access);
+      Result.Add_Test (Projects_Command_Tests'Access);
       Result.Add_Test (Store_Resolve_Tests'Access);
       Result.Add_Test (Schema_Loader_Tests'Access);
       Result.Add_Test (Validation_Store_Tests'Access);

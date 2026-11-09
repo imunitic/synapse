@@ -54,27 +54,21 @@ Do not modify any files in search mode.
 Triggered when `--task` is given but the title doesn't match `{prefix}-\d+`.
 
 The known project/prefix pairs live in a plain local file named `synapse-projects.conf` (one
-`project-name=prefix` line each) — read/appended with the Read/Edit tools, not the `vault-*` subcommands,
-since it's outside the vault. It is deliberately **not** part of the portable
+`project-name=prefix` line each), outside the vault. It is deliberately **not** part of the portable
 Synapse package and never copied between machines, so contexts that shouldn't mix (e.g.
-personal vs. work projects) never end up in the same file. It's self-managed — this command appends
+personal vs. work projects) never end up in the same file. It's self-managed — this command adds
 newly resolved pairs to it — but also plain text, so the user can add, fix, or remove a line by hand
 at any time.
 
-Resolve *which* file that is with the same tiered lookup every `synapse-*.conf` file uses for
-reading: first `$XDG_CONFIG_HOME/synapse/synapse-projects.conf` if `$XDG_CONFIG_HOME` is set, else
-`~/.config/synapse/synapse-projects.conf`; then `~/.claude/synapse-projects.conf`. Read whichever of
-those exists first. Append a newly resolved pair (step 5 below) to that same file.
-
-If neither exists yet, decide where to create it fresh: `$XDG_CONFIG_HOME/synapse/synapse-projects.conf`
-if `$XDG_CONFIG_HOME` is set; else `~/.config/synapse/synapse-projects.conf` if `~/.config` already
-exists as a directory on this machine (it's adopted XDG conventions for other tools even without ever
-setting the env var); else `~/.claude/synapse-projects.conf` as the final fallback — today's default,
-unchanged for anyone who has never touched an XDG config directory.
+`synapse projects list` prints the pairs, one `project-name=prefix` line each (`--format json` also
+names the file), and `synapse projects add <name> <prefix>` adds one. The program finds the file
+through the same tiered lookup every `synapse-*.conf` file uses, makes it where one belongs when
+there is none, and refuses a name or prefix that is malformed or already taken. Use these two
+commands and do not edit the file yourself.
 
 1. Identify the current project from context: the repo's `CLAUDE.md` (title/"About" section) or
    `git remote`.
-2. Check the resolved `synapse-projects.conf` for a line whose project name matches (loosely —
+2. Check `synapse projects list` for a line whose project name matches (loosely —
    case/whitespace-insensitive). If found, use that prefix directly — no need to ask.
 3. If the file doesn't have it yet, fall back to deducing from the vault itself (useful the first
    time this runs, or for a project whose notes predate this file): `synapse vault-search-text` for
@@ -84,8 +78,9 @@ unchanged for anyone who has never touched an XDG config directory.
 4. If nothing confidently matches (new project, or an ambiguous/multiple match), ask the user
    directly: "What's the project prefix for this task?" — plain free-text, not a multiple-choice
    list. Don't offer or hint at any other project's prefix as an option.
-5. Whenever step 3 or step 4 resolves a pair not already in the conf file (including a fresh
-   `project-name=prefix` line matching what was just deduced or asked), append it — so the next task
+5. Whenever step 3 or step 4 resolves a pair not already in the list (including a fresh
+   `project-name=prefix` pair matching what was just deduced or asked), add it with
+   `synapse projects add <name> <prefix>` — so the next task
    for this project resolves from step 2 without a search or a question.
 6. Once the prefix is known, find the next number. `task_id` and `note_id` (the id every note gets —
    see "Assigning a note_id" below) share one counter per prefix, so this has to check both fields,
@@ -135,8 +130,8 @@ Task mode already gets its id via "Resolving a missing task ID" above. Bare mode
 every note gets a `note_id`, not just tasks — but unlike task mode, this step never blocks with a
 question: a quick bare note shouldn't require an interrupt just to get an id.
 
-1. Try steps 1-3 of "Resolving a missing task ID" above (repo context, the resolved
-   `synapse-projects.conf`, then deducing from the vault itself) to resolve a project prefix. Skip
+1. Try steps 1-3 of "Resolving a missing task ID" above (repo context, `synapse projects list`,
+   then deducing from the vault itself) to resolve a project prefix. Skip
    step 4 entirely — if none of the first three resolve one, fall through to step 2 below instead of
    asking.
 2. If a prefix resolved: mint the next number the same shared-counter way as that section's step 6
@@ -156,13 +151,12 @@ names the *task*, not the *project* — so resolve what project it belongs to, r
 the prefix became known (matched from the title, resolved in "Resolving a missing task ID" above,
 or supplied directly by a caller like `/synapse-task-note`):
 
-1. Reverse-lookup the prefix in the resolved `synapse-projects.conf` (same tiered lookup as
-   "Resolving a missing task ID" above) — find the line whose value after `=` equals the prefix;
-   its key is the project name.
+1. Reverse-lookup the prefix in `synapse projects list` — find the line whose value after `=`
+   equals the prefix; its key is the project name.
 2. If no line matches, check `Index.md`'s `tasks/` section, which documents the prefix-to-project
    mapping directly (e.g. `proj-NNN` → `widget`).
 3. If still unresolved (a genuinely new prefix with no mapping anywhere), ask the user for the
-   project name and append `{project-name}={prefix}` to the conf file — so the next task note
+   project name and add it with `synapse projects add {project-name} {prefix}` — so the next task note
    under this prefix resolves without asking.
 
 ## Creating the note

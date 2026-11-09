@@ -39,6 +39,8 @@ usage: synapse <subcommand> [args]
   configure <claude|codex|opencode>   install Synapse's hooks, skills and commands for a harness
   status [--format text|json]   what in the vault needs a human decision
   work-dir [--root | --list | --namespace <repo>@<branch>]   where Synapse keeps its working files
+  projects [list] [--format json|text]   the projects of synapse-projects.conf
+  projects add <name> <prefix>   one more project, checked first
   vault-read <path>          a note's full body
   vault-write <path>         write a note's full body, from stdin
   vault-list                 every note in the vault, recursively
@@ -235,6 +237,13 @@ they are folders of. The root is SYNAPSE_WORK_DIR, else .cache/synapse/work in
 the home directory. With --list, each namespace that has an index, a reference
 index or a tags cache there: its name, a tab and which of index, refs and tags it
 has. Nothing is created.
+```
+
+### synapse projects
+
+```
+usage: synapse projects [list] [--format json|text]
+       synapse projects add <name> <prefix>
 ```
 
 ### synapse vault-read

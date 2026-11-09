@@ -14,7 +14,7 @@ no conversion needed).
 Applies to any task note, in any project — a task note is identified by having
 `task_id` and `status` frontmatter fields, not by which prefix `task_id` uses
 (`proj-NNN`, `sb-NNN`, or any other project's prefix from
-`~/.claude/synapse-projects.conf`). Never gate this skill on a specific
+`synapse projects list`). Never gate this skill on a specific
 prefix.
 
 Invoke this skill **automatically** in two situations:
