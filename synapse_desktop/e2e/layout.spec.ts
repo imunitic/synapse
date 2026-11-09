@@ -91,10 +91,6 @@ test('the texts name what is there: the Terminals page, not a panel that is gone
   await page.locator('.settings-item').filter({ hasText: 'Terminals' }).click()
   await expect(page.getByText('unless you type another folder on the Terminals page')).toBeVisible()
   await expect(page.getByText('in the side panel')).toHaveCount(0)
-
-  await page.getByRole('button', { name: 'Close Home' }).click()
-  await page.getByRole('button', { name: 'Close Terminals settings' }).click()
-  await expect(page.getByText('Open a page from the rail or the side panel.')).toBeVisible()
 })
 
 test('every button of the rail says what it is when the pointer rests on it', async ({ page }) => {

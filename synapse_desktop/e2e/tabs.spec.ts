@@ -105,12 +105,25 @@ test.describe('moving a tab', () => {
     )
   })
 
-  test('has the Home tab first again when it is closed and opened', async ({ page }) => {
+  test('keeps the Home tab, which has no close button and is not closed by the middle button', async ({
+    page,
+  }) => {
     await openThree(page)
-    await page.getByRole('button', { name: 'Close Home' }).click()
-    await expect.poll(() => order(page)).toEqual(['Code graph', 'New terminal'])
-    await page.getByRole('button', { name: 'Home', exact: true }).click()
-    await expect.poll(() => order(page)).toEqual(['Home', 'Code graph', 'New terminal'])
+    await expect(page.getByRole('button', { name: 'Close Home' })).toHaveCount(0)
+    await expect(bar(page).getByRole('button', { name: /^Close / })).toHaveCount(2)
+    await tab(page, 'Home').click({ button: 'middle' })
+    await expect(tab(page, 'Home')).toBeVisible()
+    await expect(page.getByRole('alertdialog')).toHaveCount(0)
+    expect(await order(page)).toEqual(['Home', 'Code graph', 'New terminal'])
+  })
+
+  test('shows the Home page when every other tab is closed', async ({ page }) => {
+    await openThree(page)
+    await page.getByRole('button', { name: 'Close New terminal' }).click()
+    await page.getByRole('button', { name: 'Close Code graph' }).click()
+    await expect.poll(() => order(page)).toEqual(['Home'])
+    await expect(page.getByRole('heading', { level: 1, name: 'Home' })).toBeVisible()
+    await expect(page.getByRole('tab', { name: 'Home' })).toHaveAttribute('aria-selected', 'true')
   })
 })
 

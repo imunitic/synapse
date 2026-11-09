@@ -52,9 +52,6 @@ export function Shell() {
             </div>
           )}
           <div className="content" role="tabpanel">
-            {active === undefined && (
-              <p className="empty">Open a page from the rail or the side panel.</p>
-            )}
             {/* A session goes on while another tab shows, so the terminals stay mounted. */}
             {state.terminals.length > 0 && (
               <TerminalsPage

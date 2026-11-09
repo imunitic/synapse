@@ -5,6 +5,9 @@ import { closeWarning, firstMovableIndex, indexAfterMove, insertionPoint } from 
 import { pageTitle, type Action, type ShellState, type Tab } from '../state/state.ts'
 import { transport } from '../transport/index.ts'
 
+// The page that is always there, first, and is not closed.
+const HOME = 'home'
+
 // What a close that has to ask is asking about.
 interface Asking {
   id: string
@@ -31,6 +34,7 @@ export function TabBar({ state, dispatch }: { state: ShellState; dispatch: Dispa
   }, [state.activeId, state.tabs.length])
 
   async function requestClose(tab: Tab) {
+    if (tab.id === HOME) return
     const runs =
       tab.page.kind === 'execution' ? await listExecutions(transport).catch(() => []) : []
     const warning = closeWarning(tab.page, state.terminals, runs)
@@ -91,7 +95,7 @@ export function TabBar({ state, dispatch }: { state: ShellState; dispatch: Dispa
       >
         {state.tabs.map((tab, index) => {
           const selected = tab.id === state.activeId
-          const pinned = tab.id === 'home'
+          const pinned = tab.id === HOME
           const title = pageTitle(tab.page)
           const mark =
             marked === index
@@ -120,7 +124,7 @@ export function TabBar({ state, dispatch }: { state: ShellState; dispatch: Dispa
                 if (event.button === 1) event.preventDefault()
               }}
               onAuxClick={(event) => {
-                if (event.button !== 1) return
+                if (event.button !== 1 || pinned) return
                 event.preventDefault()
                 void requestClose(tab)
               }}
@@ -141,13 +145,15 @@ export function TabBar({ state, dispatch }: { state: ShellState; dispatch: Dispa
               >
                 {title}
               </button>
-              <button
-                className="icon-button"
-                aria-label={`Close ${title}`}
-                onClick={() => void requestClose(tab)}
-              >
-                <CloseIcon />
-              </button>
+              {!pinned && (
+                <button
+                  className="icon-button"
+                  aria-label={`Close ${title}`}
+                  onClick={() => void requestClose(tab)}
+                >
+                  <CloseIcon />
+                </button>
+              )}
             </div>
           )
         })}

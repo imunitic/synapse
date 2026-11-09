@@ -122,12 +122,28 @@ describe('the start', () => {
     expect(pageTitle({ kind: 'home' })).toBe('Home')
   })
 
-  it('opens the home page once, and again after it was closed', () => {
+  it('opens the home page once', () => {
     const twice = reduce(startState, { type: 'openPage', page: { kind: 'home' } })
     expect(twice.tabs).toHaveLength(1)
-    const closed = reduce(startState, { type: 'closeTab', id: 'home' })
-    expect(closed.tabs).toEqual([])
-    expect(reduce(closed, { type: 'openPage', page: { kind: 'home' } }).activeId).toBe('home')
+  })
+
+  it('cannot close the home page, so that there is always a page to come back to', () => {
+    expect(reduce(startState, { type: 'closeTab', id: 'home' })).toBe(startState)
+    const more = reduce(startState, { type: 'openPage', page: { kind: 'graph' } })
+    expect(reduce(more, { type: 'closeTab', id: 'home' })).toBe(more)
+  })
+
+  it('is the page that shows when the last of the others is closed', () => {
+    const state = reduce(reduce(startState, { type: 'openPage', page: { kind: 'graph' } }), {
+      type: 'openPage',
+      page: { kind: 'launch' },
+    })
+    const closed = reduce(reduce(state, { type: 'closeTab', id: 'launch' }), {
+      type: 'closeTab',
+      id: 'graph',
+    })
+    expect(closed.tabs.map((t) => t.id)).toEqual(['home'])
+    expect(closed.activeId).toBe('home')
   })
 })
 
@@ -426,16 +442,6 @@ describe('tabs', () => {
   it('keep the active tab when another is moved', () => {
     const state = reduce(open(home, 'a', 'b'), { type: 'activateTab', id: 'note:a.md' })
     expect(reduce(state, { type: 'moveTab', id: 'note:b.md', to: 1 }).activeId).toBe('note:a.md')
-  })
-
-  it('put the Home tab first when it is opened again', () => {
-    const state = reduce(open(home, 'a', 'b'), { type: 'closeTab', id: 'home' })
-    expect(ids(state)).toEqual(['note:a.md', 'note:b.md'])
-    expect(ids(reduce(state, { type: 'openPage', page: { kind: 'home' } }))).toEqual([
-      'home',
-      'note:a.md',
-      'note:b.md',
-    ])
   })
 
   it('note a session whose program ended, once', () => {

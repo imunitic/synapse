@@ -276,13 +276,9 @@ function step(state: ShellState, action: Action): ShellState {
 
     case 'openPage': {
       const id = pageId(action.page)
-      // The Home tab is the first tab, wherever it was closed from.
-      const added = { id, page: action.page }
       const tabs = state.tabs.some((t) => t.id === id)
         ? state.tabs
-        : action.page.kind === 'home'
-          ? [added, ...state.tabs]
-          : [...state.tabs, added]
+        : [...state.tabs, { id, page: action.page }]
       return { ...state, tabs, activeId: id }
     }
 
@@ -362,6 +358,8 @@ function step(state: ShellState, action: Action): ShellState {
     }
 
     case 'closeTab': {
+      // The Home tab is always there: there is a page to come back to, whatever else is closed.
+      if (action.id === 'home') return state
       const index = state.tabs.findIndex((t) => t.id === action.id)
       if (index === -1) return state
       const tabs = state.tabs.filter((t) => t.id !== action.id)
