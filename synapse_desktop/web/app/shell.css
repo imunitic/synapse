@@ -2354,3 +2354,10 @@ div.activity-row {
   padding-top: 0;
   padding-bottom: 0;
 }
+
+/* The tools beside the title of a note: read it again, and change it. */
+.note-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}

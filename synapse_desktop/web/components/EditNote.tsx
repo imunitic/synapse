@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import type { NoteEdit } from '../../shared/transport.ts'
 import { changeCount, diffLines, withContext } from '../domain/diff.ts'
 import { transport } from '../transport/index.ts'
-import { PencilIcon } from './icons.tsx'
+import { PencilIcon, RefreshIcon } from './icons.tsx'
 import { TERMINAL_LABELS } from '../state/state.ts'
 
 // What a change left, to be read and undone: the lines it added and removed, the other
@@ -94,11 +94,14 @@ export function EditNote({
   path,
   title,
   onChanged,
+  onRefresh,
 }: {
   path: string
   // The note's title, which the pencil sits beside.
   title: string
   onChanged: () => void
+  // Reads the note and what surrounds it again, as it is on disk now.
+  onRefresh: () => void
 }) {
   const { harness, model, chooseHarness, chooseModel } = useRunChoice()
   const [open, setOpen] = useState(false)
@@ -139,14 +142,24 @@ export function EditNote({
     <>
       <div className="note-head">
         <h1 className="page-title">{title}</h1>
-        <button
-          className="icon-button edit-note-button"
-          aria-label="Edit with an agent"
-          aria-expanded={open}
-          onClick={() => setOpen(!open)}
-        >
-          <PencilIcon />
-        </button>
+        <div className="note-tools">
+          <button
+            className="icon-button"
+            aria-label="Read the note again"
+            title="Read the note again"
+            onClick={onRefresh}
+          >
+            <RefreshIcon />
+          </button>
+          <button
+            className="icon-button edit-note-button"
+            aria-label="Edit with an agent"
+            aria-expanded={open}
+            onClick={() => setOpen(!open)}
+          >
+            <PencilIcon />
+          </button>
+        </div>
       </div>
       {open && (
         <section className="card agent-card" aria-label="Change this note with an agent">

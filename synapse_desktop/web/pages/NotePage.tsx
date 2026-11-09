@@ -17,6 +17,7 @@ import {
 import { noteSummary } from '../domain/note-summary.ts'
 import { recordOpened } from '../domain/recent.ts'
 import { transport } from '../transport/index.ts'
+import { RefreshIcon } from '../components/icons.tsx'
 import { EditNote } from '../components/EditNote.tsx'
 import type { Page } from '../state/state.ts'
 import { useLoad } from '../state/useLoad.ts'
@@ -89,6 +90,15 @@ export function NotePage({ path, onOpen }: { path: string; onOpen: (page: Page) 
     [note.state],
   )
 
+  // The note, the notes it links to and from, and the names links are matched with are read again,
+  // since a note can be changed by another program, and the app does not watch the vault.
+  function readAgain() {
+    note.reload()
+    links.reload()
+    backlinks.reload()
+    all.reload()
+  }
+
   if (note.state.status === 'loading') return <p className="muted">Loading…</p>
   if (note.state.status === 'failed') {
     return <p role="alert">Could not read the note: {note.state.error}</p>
@@ -103,9 +113,21 @@ export function NotePage({ path, onOpen }: { path: string; onOpen: (page: Page) 
         {path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : 'Vault'}
       </p>
       {isGraphNodePath(path) ? (
-        <h1 className="page-title">{title}</h1>
+        <div className="note-head">
+          <h1 className="page-title">{title}</h1>
+          <div className="note-tools">
+            <button
+              className="icon-button"
+              aria-label="Read the note again"
+              title="Read the note again"
+              onClick={readAgain}
+            >
+              <RefreshIcon />
+            </button>
+          </div>
+        </div>
       ) : (
-        <EditNote path={path} title={title} onChanged={note.reload} />
+        <EditNote path={path} title={title} onChanged={note.reload} onRefresh={readAgain} />
       )}
       {properties.length > 0 && (
         <details className="properties-box" aria-label="Properties">
