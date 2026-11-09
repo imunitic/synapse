@@ -57,6 +57,28 @@ package body Synapse.Pipeline.Descriptions is
       return JSON.Make_Array (Result);
    end Origins_JSON;
 
+   --  The outcomes a step declares, each as its word and meaning; null when it
+   --  declares none.
+   function Outcomes_JSON (Declared : JSON.Value) return JSON.Value is
+      use type JSON.Kind;
+   begin
+      if JSON.Kind_Of (Declared) /= JSON.JSON_Object then
+         return JSON.Null_Value;
+      end if;
+      declare
+         Items : JSON.Value_Array (1 .. JSON.Length (Declared));
+      begin
+         for I in Items'Range loop
+            Items (I) :=
+              JSON.Make_Object
+                ([Member
+                    ("word", JSON.Make_String (JSON.Member_Key (Declared, I))),
+                  Member ("meaning", JSON.Member_At (Declared, I))]);
+         end loop;
+         return JSON.Make_Array (Items);
+      end;
+   end Outcomes_JSON;
+
    function Step_JSON
      (Item : Resolved.Step; Settings : Configs.Config) return JSON.Value
    is
@@ -79,6 +101,7 @@ package body Synapse.Pipeline.Descriptions is
                (if Item.Timeout_Seconds > 0 then Item.Timeout_Seconds
                 else Settings.Default_Timeout_Seconds)),
           Member ("retries", Count (Item.Retries)),
+          Member ("outcomes", Outcomes_JSON (Item.Outcomes)),
           Member ("role", Instruction_JSON (Item.Role)),
           Member ("assignment", Instruction_JSON (Item.Assignment)),
           Member ("origins", Origins_JSON (Item.Origins))]));

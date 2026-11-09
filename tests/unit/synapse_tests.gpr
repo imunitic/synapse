@@ -28,7 +28,8 @@ project Synapse_Tests is
       "../../synapse/src/adapters/tree_sitter", "../../synapse_cli/src/commands", "../../synapse_cli/src/commands/checks",
       "../../synapse_cli/src/commands/cli", "../../synapse_cli/src/commands/graph", "../../synapse_cli/src/commands/orient",
       "../../synapse_cli/src/commands/tagging", "../../synapse_cli/src/commands/vault", "../../synapse_cli/src/hooks",
-      "../../synapse/" & Synapse_Platform.Platform_Dir, "config/");
+      "../../synapse/" & Synapse_Platform.Platform_Dir, "../../synapse/config",
+      "config/");
    for Object_Dir use "obj/" & Synapse_Tests_Config.Build_Profile;
    for Create_Missing_Dirs use "True";
    for Exec_Dir use "bin";

@@ -44,8 +44,8 @@ package body Synapse.Hooks.Staleness.Tests is
    procedure Work (Dir : Scratch; Name, Text : String) is
    begin
       Ada.Directories.Create_Path
-        (Ada.Directories.Containing_Directory (Path (Dir, "work/" & Name)));
-      Synapse.Adapters.File_Bytes.Write (Path (Dir, "work/" & Name), Text);
+        (Ada.Directories.Containing_Directory (Path (Dir, Synapse.Test_Repo.Work_Rel & "/" & Name)));
+      Synapse.Adapters.File_Bytes.Write (Path (Dir, Synapse.Test_Repo.Work_Rel & "/" & Name), Text);
    end Work;
 
    function Node (Dir : Scratch; File : String) return String is
@@ -57,7 +57,8 @@ package body Synapse.Hooks.Staleness.Tests is
    begin
       Use_Vault (F, Dir);
       F.Clock.Now := To_Unbounded_String ("2026-09-07T14:32:05+02:00");
-      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, "work"));
+      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, Synapse.Test_Repo.Root_Rel));
+      F.Vars.Set ("SYNAPSE_NAMESPACE", Synapse.Test_Repo.Namespace);
       Put_File (Dir, "src/engine.ext", Engine_Source);
       Put_File (Dir, "src/render.ext", "paint" & LF);
       Put_File (Dir, "README.md", "hello" & LF);
@@ -278,7 +279,7 @@ package body Synapse.Hooks.Staleness.Tests is
       declare
          Map : Synapse.Adapters.Index_Map.Map;
       begin
-         Synapse.Adapters.Index_Map.Open (Map, Path (Dir, "work/_index.bin"));
+         Synapse.Adapters.Index_Map.Open (Map, Path (Dir, Synapse.Test_Repo.Work_Rel & "/_index.bin"));
          Assert
            (Synapse.Adapters.Index_Map.Unassigned (Map).Contains
               (To_Unbounded_String ("extra.txt")),
@@ -358,7 +359,7 @@ package body Synapse.Hooks.Staleness.Tests is
       F   : aliased Fixture;
    begin
       Setup (F, Dir);
-      Ada.Directories.Delete_File (Path (Dir, "work/_index.bin"));
+      Ada.Directories.Delete_File (Path (Dir, Synapse.Test_Repo.Work_Rel & "/_index.bin"));
       Edit (Dir, "src/engine.ext", Engine_Source & "more" & LF);
       Feed
         (F,
@@ -370,7 +371,7 @@ package body Synapse.Hooks.Staleness.Tests is
         (Has (Node (Dir, "Engine core.md"), "stale: false" & LF),
          "nothing flagged");
       Assert
-        (not Ada.Directories.Exists (Path (Dir, "work/_index.bin")),
+        (not Ada.Directories.Exists (Path (Dir, Synapse.Test_Repo.Work_Rel & "/_index.bin")),
          "and no index written out of nothing");
       Remove (Dir);
    exception
@@ -437,7 +438,7 @@ package body Synapse.Hooks.Staleness.Tests is
          Doc    : constant String := "// Starts it.";
       begin
          Synapse.Adapters.Docstring_Cache.Open
-           (Cache, Path (Dir, "work/_docstring_index.bin"));
+           (Cache, Path (Dir, Synapse.Test_Repo.Work_Rel & "/_docstring_index.bin"));
          Update.Append
            (Synapse.Adapters.Docstring_Cache.Update'
               (Where =>
@@ -611,7 +612,7 @@ package body Synapse.Hooks.Staleness.Tests is
          Update : Synapse.Adapters.Docstring_Cache.Update_Vectors.Vector;
       begin
          Synapse.Adapters.Docstring_Cache.Open
-           (Cache, Path (Dir, "work/_docstring_index.bin"));
+           (Cache, Path (Dir, Synapse.Test_Repo.Work_Rel & "/_docstring_index.bin"));
          Update.Append
            (Synapse.Adapters.Docstring_Cache.Update'
               (Where =>

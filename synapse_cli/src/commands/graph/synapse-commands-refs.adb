@@ -29,9 +29,9 @@ package body Synapse.Commands.Refs is
    Build_Usage : constant String :=
      "usage: synapse build-refs [--cache <path>] [--out <path>]" & LF & LF &
      "  --cache  the tags cache to project. Default " &
-     "$SYNAPSE_WORK_DIR/_tags_cache.bin." & LF &
+     "<work dir>/_tags_cache.bin." & LF &
      "  --out    where to write the index. Default " &
-     "$SYNAPSE_WORK_DIR/_refs.tsv." & LF;
+     "<work dir>/_refs.tsv." & LF;
 
    Rows : Unbounded_String;
 

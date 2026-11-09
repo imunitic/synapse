@@ -77,7 +77,8 @@ Markdown — nothing else installed anywhere.
    design — a hook that errors is worse than one that quietly does nothing, so a half-installed
    machine looks exactly like a working one with nothing to say. `doctor` is the one place that
    speaks: a namespace whose recorded remote no longer matches, a hook registered twice (which makes
-   it fire twice).
+   it fire twice), and which of Claude Code, Codex and OpenCode are installed and have Synapse in
+   them. `synapse doctor --format json` gives the same findings to a program.
 
 Giving the vault its own git lifecycle — commit on every write, push/pull in the background — is
 optional too; see [extended store](docs/synapse/synapse-extended-store.md).

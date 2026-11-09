@@ -1,0 +1,160 @@
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { CallError, handleCall, type Context } from './calls.ts'
+import { inspectVault, seedVault, VaultRefused } from './vault.ts'
+
+let dir: string
+
+beforeEach(async () => {
+  dir = await mkdtemp(join(tmpdir(), 'synapse-desktop-vault-'))
+})
+
+afterEach(async () => {
+  await rm(dir, { recursive: true, force: true })
+})
+
+async function note(path: string): Promise<void> {
+  await mkdir(join(dir, path, '..'), { recursive: true })
+  await writeFile(join(dir, path), '# note\n')
+}
+
+describe('inspectVault', () => {
+  it('says a folder that is not there is not there', async () => {
+    expect(await inspectVault(join(dir, 'nowhere'))).toEqual({
+      exists: false,
+      hasIndex: false,
+      isGit: false,
+      notes: 0,
+      capped: false,
+    })
+  })
+
+  it('says a file is not a folder', async () => {
+    await note('plain.md')
+    expect((await inspectVault(join(dir, 'plain.md'))).exists).toBe(false)
+  })
+
+  it('counts the notes of a vault, in every folder, and finds its index and git', async () => {
+    await note('Index.md')
+    await note('designs/a.md')
+    await note('designs/deep/b.md')
+    await note('readme.txt')
+    await mkdir(join(dir, '.git'))
+    expect(await inspectVault(dir)).toEqual({
+      exists: true,
+      hasIndex: true,
+      isGit: true,
+      notes: 3,
+      capped: false,
+    })
+  })
+
+  it('leaves out the folders that start with a dot', async () => {
+    await note('a.md')
+    await note('.obsidian/workspace.md')
+    await note('.git/notes.md')
+    expect((await inspectVault(dir)).notes).toBe(1)
+  })
+
+  it('has no index or git when there are none', async () => {
+    await note('a.md')
+    expect(await inspectVault(dir)).toMatchObject({ exists: true, hasIndex: false, isGit: false })
+  })
+})
+
+describe('the inspectVault call', () => {
+  // The folder the test makes is the home folder of this context.
+  const context = {
+    get environment() {
+      return { env: {}, home: dir }
+    },
+  } as unknown as Context
+
+  it('refuses a path that is not absolute, and an empty one', async () => {
+    await expect(
+      handleCall('inspectVault', { path: 'relative/dir' }, context),
+    ).rejects.toMatchObject({
+      status: 400,
+    })
+    await expect(handleCall('inspectVault', { path: '' }, context)).rejects.toBeInstanceOf(
+      CallError,
+    )
+  })
+
+  it('answers for an absolute path', async () => {
+    await note('a.md')
+    expect(await handleCall('inspectVault', { path: dir }, context)).toMatchObject({
+      path: dir,
+      exists: true,
+      notes: 1,
+    })
+  })
+
+  it('takes ~ for the home folder and says which folder that made it', async () => {
+    await mkdir(join(dir, 'vault'))
+    await note('vault/a.md')
+    expect(await handleCall('inspectVault', { path: '~/vault' }, context)).toMatchObject({
+      path: join(dir, 'vault'),
+      exists: true,
+      notes: 1,
+    })
+    expect(await handleCall('inspectVault', { path: '~' }, context)).toMatchObject({ path: dir })
+  })
+})
+
+describe('seedVault', () => {
+  let template: string
+
+  beforeEach(async () => {
+    template = join(dir, 'Index.md.template')
+    await writeFile(template, '# Index\nthe template\n')
+  })
+
+  async function refusal(promise: Promise<unknown>): Promise<VaultRefused> {
+    const error = await promise.then(
+      () => null,
+      (e: unknown) => e,
+    )
+    expect(error).toBeInstanceOf(VaultRefused)
+    return error as VaultRefused
+  }
+
+  it('makes the folder, and an Index.md from the template, where there is nothing', async () => {
+    const vault = join(dir, 'a', 'deeper', 'vault')
+    await seedVault(vault, template)
+    expect(await readFile(join(vault, 'Index.md'), 'utf8')).toBe('# Index\nthe template\n')
+    expect(await inspectVault(vault)).toMatchObject({ exists: true, hasIndex: true })
+  })
+
+  it('adds the Index.md to a folder that has notes, and leaves the notes as they are', async () => {
+    await note('notes/one.md')
+    await seedVault(join(dir, 'notes'), template)
+    expect(await readFile(join(dir, 'notes', 'one.md'), 'utf8')).toBe('# note\n')
+    expect((await stat(join(dir, 'notes', 'Index.md'))).isFile()).toBe(true)
+  })
+
+  it('leaves the Index.md of a vault that has one, even when the template is not there', async () => {
+    await mkdir(join(dir, 'vault'))
+    await writeFile(join(dir, 'vault', 'Index.md'), 'mine\n')
+    await seedVault(join(dir, 'vault'), template)
+    await seedVault(join(dir, 'vault'), null)
+    expect(await readFile(join(dir, 'vault', 'Index.md'), 'utf8')).toBe('mine\n')
+  })
+
+  it('refuses a path that is a file', async () => {
+    await writeFile(join(dir, 'afile'), 'x')
+    expect((await refusal(seedVault(join(dir, 'afile'), template))).message).toContain(
+      'is not a folder',
+    )
+  })
+
+  it('makes nothing when the template is not there', async () => {
+    expect(
+      (await refusal(seedVault(join(dir, 'new-vault'), join(dir, 'no-template')))).message,
+    ).toContain('template')
+    expect((await refusal(seedVault(join(dir, 'new-vault'), null))).status).toBe(409)
+    expect(await stat(join(dir, 'new-vault')).catch(() => null)).toBeNull()
+  })
+})

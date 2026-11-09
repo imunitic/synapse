@@ -23,7 +23,9 @@ package body Synapse.Pipeline.Commands.Check.Tests is
         ("/defs/Reviewer.synapse", "Agent Reviewer [Prompt => ""Review.""];");
       F.Files.Add_File
         ("/defs/Strict_Reviewer.synapse",
-         "System Strict_Reviewer [Agent => Reviewer, Harness => Codex];");
+         "System Strict_Reviewer [Agent => Reviewer, Harness => Codex, "
+         & "Outcomes => {""Approved"": ""Fine."", "
+         & """Changes_Requested"": ""Not fine.""}];");
       F.Files.Add_File
         ("/defs/Develop_Feature.synapse",
          "Pipeline Develop_Feature {"
@@ -163,6 +165,60 @@ package body Synapse.Pipeline.Commands.Check.Tests is
       Assert (Has (Usage.Text, LF & "  check <pipeline>"), "listed");
    end Check_Is_In_The_Usage;
 
+   procedure A_Step_That_Tests_Outcomes_It_Never_Declared_Is_A_Warning
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      F.Files.Add_File
+        ("/defs/Free.synapse",
+         "Pipeline Free { Review [Harness => Claude, Prompt => ""Review.""];"
+         & " Fix [Harness => Claude, Prompt => ""Fix.""];"
+         & " Review -> Fix [When => Changes_Requested]; }");
+      Assert
+        (Run (Env (F), Args ("Free")) = 0
+         and then Has
+                    (F.Base.Console.Err_Text,
+                     "warning: /defs/Free.synapse:1:")
+         and then Has
+                    (F.Base.Console.Err_Text,
+                     "step 'Review' has edges that test its outcome but "
+                     & "declares no Outcomes"),
+         "it still passes, and says so: " & F.Base.Console.Err_Text);
+      declare
+         G : aliased Fixture;
+      begin
+         Set_Up (G);
+         G.Files.Add_File
+           ("/defs/Declared.synapse",
+            "Pipeline Declared { A [Harness => Claude, Prompt => ""x"", "
+            & "Outcomes => {""Done"": ""Done.""}]; B [Harness => Claude, "
+            & "Prompt => ""y""]; A -> B [When => Done]; }");
+         Assert
+           (Run (Env (G), Args ("Declared")) = 0
+            and then G.Base.Console.Err_Text = "",
+            "nothing to say when the outcomes are declared");
+      end;
+      declare
+         G : aliased Fixture;
+      begin
+         Set_Up (G);
+         G.Files.Add_File
+           ("/defs/Misspelt.synapse",
+            "Pipeline Misspelt { A [Harness => Claude, Prompt => ""x"", "
+            & "Outcomes => {""Done"": ""Done.""}]; B [Harness => Claude, "
+            & "Prompt => ""y""]; A -> B [When => Dnoe]; }");
+         Assert
+           (Run (Env (G), Args ("Misspelt")) = 1
+            and then Has (G.Base.Console.Err_Text,
+                          "does not declare the outcome 'Dnoe'")
+            and then G.Base.Console.Out_Text = "",
+            "a word the step does not declare is an error");
+      end;
+   end A_Step_That_Tests_Outcomes_It_Never_Declared_Is_A_Warning;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -174,6 +230,9 @@ package body Synapse.Pipeline.Commands.Check.Tests is
    procedure Register_Tests (T : in out Test_Case) is
       use AUnit.Test_Cases.Registration;
    begin
+      Register_Routine
+        (T, A_Step_That_Tests_Outcomes_It_Never_Declared_Is_A_Warning'Access,
+         "A step that tests outcomes it never declared is a warning");
       Register_Routine
         (T, It_Takes_Exactly_One_Pipeline_Name'Access,
          "It takes exactly one pipeline name");

@@ -4,6 +4,8 @@ with Synapse.Core.Regex_Lite.Tests;
 with Synapse.Adapters.Disk_Store.Tests;
 with Synapse.Adapters.Dir_Lock.Tests;
 with Synapse.Adapters.Conf_Files.Tests;
+with Synapse.Adapters.Work_Dirs.Tests;
+with Synapse.Commands.Work_Dir.Tests;
 with Synapse.Adapters.Disk_Link_Graph.Tests;
 with Synapse.Adapters.Disk_Renamer.Tests;
 with Synapse.Adapters.Git_Capabilities.Tests;
@@ -15,6 +17,7 @@ with Synapse.Adapters.Schema_Validation_Store.Tests;
 with Synapse.Adapters.System_Clock.Tests;
 with Synapse.Adapters.System_Variables.Tests;
 with Synapse.Core.Conf.Tests;
+with Synapse.Core.Projects.Tests;
 with Synapse.Adapters.Git_Store.Tests;
 with Synapse.Adapters.Git_Sync.Tests;
 with Synapse.Adapters.System_Process.Tests;
@@ -79,6 +82,9 @@ with Synapse.Core.Timestamps.Tests;
 with Synapse.Adapters.Fake_Console.Tests;
 with Synapse.Commands.Cli_Args.Tests;
 with Synapse.Commands.Context.Tests;
+with Synapse.Commands.Config.Tests;
+with Synapse.Commands.Projects.Tests;
+with Synapse.Commands.Configure.Tests;
 with Synapse.Commands.Now.Tests;
 with Synapse.Commands.Namespace.Tests;
 with Synapse.Commands.Show_Context.Tests;
@@ -98,6 +104,7 @@ with Synapse.Pipeline.Attributes.Tests;
 with Synapse.Pipeline.Validation.Tests;
 with Synapse.Pipeline.Harnesses.Tests;
 with Synapse.Pipeline.Recorders.Tests;
+with Synapse.Pipeline.Definition_Copies.Tests;
 with Synapse.Pipeline.Recording_Runners.Tests;
 with Synapse.Pipeline.Resolution.Tests;
 with Synapse.Pipeline.Retrying_Registry.Tests;
@@ -112,6 +119,10 @@ with Synapse.Pipeline.Scripted_Runners.Tests;
 with Synapse.Pipeline.Engine.Tests;
 with Synapse.Pipeline.Commands.Check.Tests;
 with Synapse.Pipeline.Commands.Cleanup.Tests;
+with Synapse.Pipeline.Commands.Configure.Tests;
+with Synapse.Pipeline.Commands.Definitions.Tests;
+with Synapse.Pipeline.Outcomes.Tests;
+with Synapse.Pipeline.Prompts.Tests;
 with Synapse.Pipeline.Commands.Show.Tests;
 with Synapse.Pipeline.Commands.Next.Tests;
 with Synapse.Pipeline.Descriptions.Tests;
@@ -181,6 +192,8 @@ with Synapse.Core.Schema_Rules.Tests;
 with Synapse.Core.Schema_YAML.Tests;
 with Synapse.Core.Frontmatter.Tests;
 with Synapse.Core.JSON.Tests;
+with Synapse.Core.Vault_Status.Tests;
+with Synapse.Commands.Status.Tests;
 with Synapse.Core.JSON_Logic.Tests;
 with Synapse.Core.UTF8.Tests;
 with Synapse.Core.Unicode.Tests;
@@ -192,6 +205,8 @@ package body Test_Suites is
    Unicode_Tests : aliased Synapse.Core.Unicode.Tests.Test_Case;
    Tree_Sitter_Tests : aliased Synapse.Adapters.Tree_Sitter.Tests.Test_Case;
    JSON_Tests                     : aliased Synapse.Core.JSON.Tests.Test_Case;
+   Vault_Status_Tests : aliased Synapse.Core.Vault_Status.Tests.Test_Case;
+   Status_Command_Tests : aliased Synapse.Commands.Status.Tests.Test_Case;
    Regex_Lite_Tests : aliased Synapse.Core.Regex_Lite.Tests.Test_Case;
    Schema_Pattern_Tests : aliased Synapse.Core.Schema_Pattern.Tests.Test_Case;
    JSON_Logic_Tests : aliased Synapse.Core.JSON_Logic.Tests.Test_Case;
@@ -216,6 +231,8 @@ package body Test_Suites is
    System_Variables_Tests         :
      aliased Synapse.Adapters.System_Variables.Tests.Test_Case;
    Conf_Files_Tests : aliased Synapse.Adapters.Conf_Files.Tests.Test_Case;
+   Work_Dirs_Tests : aliased Synapse.Adapters.Work_Dirs.Tests.Test_Case;
+   Work_Dir_Command_Tests : aliased Synapse.Commands.Work_Dir.Tests.Test_Case;
    Schema_Loader_Tests            :
      aliased Synapse.Adapters.Schema_Loader.Tests.Test_Case;
    Validation_Store_Tests         :
@@ -224,6 +241,8 @@ package body Test_Suites is
    Store_Resolve_Tests            :
      aliased Synapse.Adapters.Store_Resolve.Tests.Test_Case;
    Conf_Tests                     : aliased Synapse.Core.Conf.Tests.Test_Case;
+   Projects_Core_Tests            : aliased Synapse.Core.Projects.Tests.Test_Case;
+   Projects_Command_Tests         : aliased Synapse.Commands.Projects.Tests.Test_Case;
    Disk_Link_Graph_Tests          :
      aliased Synapse.Adapters.Disk_Link_Graph.Tests.Test_Case;
    Disk_Renamer_Tests : aliased Synapse.Adapters.Disk_Renamer.Tests.Test_Case;
@@ -305,6 +324,8 @@ package body Test_Suites is
    Fake_Console_Tests : aliased Synapse.Adapters.Fake_Console.Tests.Test_Case;
    Cli_Args_Tests : aliased Synapse.Commands.Cli_Args.Tests.Test_Case;
    Commands_Context_Tests : aliased Synapse.Commands.Context.Tests.Test_Case;
+   Config_Tests : aliased Synapse.Commands.Config.Tests.Test_Case;
+   Configure_Tests : aliased Synapse.Commands.Configure.Tests.Test_Case;
    Now_Tests : aliased Synapse.Commands.Now.Tests.Test_Case;
    Commands_Namespace_Tests       :
      aliased Synapse.Commands.Namespace.Tests.Test_Case;
@@ -337,6 +358,8 @@ package body Test_Suites is
      aliased Synapse.Pipeline.Harnesses.Tests.Test_Case;
    Pipeline_Recorders_Tests :
      aliased Synapse.Pipeline.Recorders.Tests.Test_Case;
+   Pipeline_Definition_Copies_Tests :
+     aliased Synapse.Pipeline.Definition_Copies.Tests.Test_Case;
    Pipeline_Recording_Runners_Tests :
      aliased Synapse.Pipeline.Recording_Runners.Tests.Test_Case;
    Pipeline_Resolution_Tests :
@@ -361,6 +384,14 @@ package body Test_Suites is
      aliased Synapse.Pipeline.Commands.Check.Tests.Test_Case;
    Pipeline_Cleanup_Tests :
      aliased Synapse.Pipeline.Commands.Cleanup.Tests.Test_Case;
+   Pipeline_Configure_Tests :
+     aliased Synapse.Pipeline.Commands.Configure.Tests.Test_Case;
+   Pipeline_Outcomes_Tests :
+     aliased Synapse.Pipeline.Outcomes.Tests.Test_Case;
+   Pipeline_Prompts_Tests :
+     aliased Synapse.Pipeline.Prompts.Tests.Test_Case;
+   Pipeline_Definitions_Command_Tests :
+     aliased Synapse.Pipeline.Commands.Definitions.Tests.Test_Case;
    Pipeline_Show_Tests :
      aliased Synapse.Pipeline.Commands.Show.Tests.Test_Case;
    Pipeline_Next_Tests :
@@ -464,6 +495,8 @@ package body Test_Suites is
       Result.Add_Test (Unicode_Tests'Access);
       Result.Add_Test (Tree_Sitter_Tests'Access);
       Result.Add_Test (JSON_Tests'Access);
+      Result.Add_Test (Vault_Status_Tests'Access);
+      Result.Add_Test (Status_Command_Tests'Access);
       Result.Add_Test (Regex_Lite_Tests'Access);
       Result.Add_Test (Schema_Pattern_Tests'Access);
       Result.Add_Test (JSON_Logic_Tests'Access);
@@ -482,6 +515,8 @@ package body Test_Suites is
       Result.Add_Test (Cli_Args_Tests'Access);
       Result.Add_Test (Commands_Context_Tests'Access);
       Result.Add_Test (Now_Tests'Access);
+      Result.Add_Test (Config_Tests'Access);
+      Result.Add_Test (Configure_Tests'Access);
       Result.Add_Test (Namespace_Tests'Access);
       Result.Add_Test (Show_Context_Tests'Access);
       Result.Add_Test (Dispatch_Tests'Access);
@@ -500,6 +535,7 @@ package body Test_Suites is
       Result.Add_Test (Pipeline_Validation_Tests'Access);
       Result.Add_Test (Pipeline_Harnesses_Tests'Access);
       Result.Add_Test (Pipeline_Recorders_Tests'Access);
+      Result.Add_Test (Pipeline_Definition_Copies_Tests'Access);
       Result.Add_Test (Pipeline_Recording_Runners_Tests'Access);
       Result.Add_Test (Pipeline_Resolution_Tests'Access);
       Result.Add_Test (Pipeline_Retrying_Registry_Tests'Access);
@@ -514,6 +550,10 @@ package body Test_Suites is
       Result.Add_Test (Pipeline_Engine_Tests'Access);
       Result.Add_Test (Pipeline_Check_Tests'Access);
       Result.Add_Test (Pipeline_Cleanup_Tests'Access);
+      Result.Add_Test (Pipeline_Configure_Tests'Access);
+      Result.Add_Test (Pipeline_Outcomes_Tests'Access);
+      Result.Add_Test (Pipeline_Prompts_Tests'Access);
+      Result.Add_Test (Pipeline_Definitions_Command_Tests'Access);
       Result.Add_Test (Pipeline_Show_Tests'Access);
       Result.Add_Test (Pipeline_Next_Tests'Access);
       Result.Add_Test (Pipeline_Descriptions_Tests'Access);
@@ -628,11 +668,15 @@ package body Test_Suites is
       Result.Add_Test (Disk_Link_Graph_Tests'Access);
       Result.Add_Test (System_Variables_Tests'Access);
       Result.Add_Test (Conf_Tests'Access);
+      Result.Add_Test (Projects_Core_Tests'Access);
+      Result.Add_Test (Projects_Command_Tests'Access);
       Result.Add_Test (Store_Resolve_Tests'Access);
       Result.Add_Test (Schema_Loader_Tests'Access);
       Result.Add_Test (Validation_Store_Tests'Access);
       Result.Add_Test (System_Clock_Tests'Access);
       Result.Add_Test (Conf_Files_Tests'Access);
+      Result.Add_Test (Work_Dirs_Tests'Access);
+      Result.Add_Test (Work_Dir_Command_Tests'Access);
       Result.Add_Test (Git_Store_Tests'Access);
       Result.Add_Test (Git_Sync_Tests'Access);
       Result.Add_Test (Dir_Lock_Tests'Access);

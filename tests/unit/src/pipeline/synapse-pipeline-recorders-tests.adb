@@ -206,6 +206,79 @@ package body Synapse.Pipeline.Recorders.Tests is
          "and the context is as if it had been");
    end A_Registry_That_Cannot_Write_Does_Not_Stop_The_Run;
 
+   procedure What_The_Run_Ran_Is_Kept_With_Its_Record
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context : aliased Contexts.Execution_Context;
+      Store   : aliased Fake_Registry.Fake_Registry;
+      Clock   : aliased Counting_Clock;
+      R       : Recorder (Context'Access, Store'Access, Clock'Access);
+   begin
+      Assert (Store.Create ("exec-1") = Registry_Store.Created, "made");
+      R.Start
+        ("exec-1", True, JSON.Parse ("{""name"":""P""}").Item,
+         Initial_State);
+      R.Record_Definition ("synapse-pipeline/P.synapse", "Pipeline P {}");
+      Assert
+        (Store.Read_Description ("exec-1").Found
+         and then To_String (Store.Read_Description ("exec-1").Value) =
+                  "{""name"":""P""}",
+         "the description is kept as the run began with it");
+      Assert
+        (Store.Read_Definition ("exec-1", "synapse-pipeline/P.synapse").Found
+         and then To_String
+                    (Store.Read_Definition
+                       ("exec-1", "synapse-pipeline/P.synapse").Value) =
+                  "Pipeline P {}",
+         "and so is a definition file");
+   end What_The_Run_Ran_Is_Kept_With_Its_Record;
+
+   procedure A_Run_Without_A_Directory_Keeps_Nothing_Of_What_It_Ran
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context : aliased Contexts.Execution_Context;
+      Store   : aliased Fake_Registry.Fake_Registry;
+      Clock   : aliased Counting_Clock;
+      R       : Recorder (Context'Access, Store'Access, Clock'Access);
+   begin
+      R.Start
+        ("exec-1", False, JSON.Parse ("{""name"":""P""}").Item,
+         Initial_State);
+      R.Record_Definition ("synapse-pipeline/P.synapse", "Pipeline P {}");
+      Assert
+        (Store.Held.Is_Empty
+         and then Store.Attempts (Fake_Registry.Description_Op) = 0
+         and then Store.Attempts (Fake_Registry.Definition_Op) = 0,
+         "nothing is written and nothing is tried");
+   end A_Run_Without_A_Directory_Keeps_Nothing_Of_What_It_Ran;
+
+   procedure A_Registry_That_Cannot_Keep_What_The_Run_Ran_Does_Not_Stop_It
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context : aliased Contexts.Execution_Context;
+      Store   : aliased Fake_Registry.Fake_Registry;
+      Clock   : aliased Counting_Clock;
+      R       : Recorder (Context'Access, Store'Access, Clock'Access);
+   begin
+      Assert (Store.Create ("exec-1") = Registry_Store.Created, "made");
+      Store.Fail (Fake_Registry.Description_Op);
+      Store.Fail (Fake_Registry.Definition_Op);
+      R.Start ("exec-1", True, JSON.Null_Value, Initial_State);
+      R.Record_Definition ("synapse-pipeline/P.synapse", "Pipeline P {}");
+      Assert
+        (not Store.Read_Description ("exec-1").Found
+         and then not Store.Read_Definition
+                        ("exec-1", "synapse-pipeline/P.synapse").Found,
+         "nothing was written");
+      Assert
+        (Store.Read_Summary ("exec-1").Found
+         and then Context.Current.Run.Status = States.Running,
+         "and the summary and the run are as they would have been");
+   end A_Registry_That_Cannot_Keep_What_The_Run_Ran_Does_Not_Stop_It;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -232,6 +305,16 @@ package body Synapse.Pipeline.Recorders.Tests is
       Register_Routine
         (T, A_Registry_That_Cannot_Write_Does_Not_Stop_The_Run'Access,
          "A registry that cannot write does not stop the run");
+      Register_Routine
+        (T, What_The_Run_Ran_Is_Kept_With_Its_Record'Access,
+         "What the run ran is kept with its record");
+      Register_Routine
+        (T, A_Run_Without_A_Directory_Keeps_Nothing_Of_What_It_Ran'Access,
+         "A run without a directory keeps nothing of what it ran");
+      Register_Routine
+        (T,
+         A_Registry_That_Cannot_Keep_What_The_Run_Ran_Does_Not_Stop_It'Access,
+         "A registry that cannot keep what the run ran does not stop it");
    end Register_Tests;
 
 end Synapse.Pipeline.Recorders.Tests;

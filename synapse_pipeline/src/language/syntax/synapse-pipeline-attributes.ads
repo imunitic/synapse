@@ -16,6 +16,8 @@ with Synapse.Pipeline.Syntax;
 --    Permissions      step, system   a name
 --    Timeout          step, system   a string such as "30m", at most 30 days
 --    Retries          step, system   an integer, at most 100
+--    Outcomes         step, system   a JSON object from each outcome to its
+--                                    meaning, see Outcomes
 --    When             edge           a name or a JSON value
 --    Max_Iterations   edge           an integer, from 1 to 100
 

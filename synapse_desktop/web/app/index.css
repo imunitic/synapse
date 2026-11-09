@@ -1,0 +1,115 @@
+:root {
+  --ground: #1b1b1f;
+  --rail: #151518;
+  --panel: #202024;
+  --main: #1e1e22;
+  --tabbar: #18181b;
+  --card: #232328;
+  --raised: #2c2c33;
+  --border: #2e2e34;
+  --border-strong: #3a3a42;
+  --text: #e4e4e7;
+  --muted: #a1a1aa;
+  --accent: #6d5ce8;
+  --accent-text: #b0a6ff;
+  --warn-bg: #3a2f12;
+  --warn-border: #6b5416;
+  --warn-text: #fde68a;
+  --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Every size of the text is in rem, so this one value scales the app; the Text size setting
+   replaces it. */
+html {
+  font-size: 112.5%;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--ground);
+  color: var(--text);
+  font: 0.875rem/1.45 var(--font);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+input {
+  font: inherit;
+  color: var(--text);
+  background: var(--tabbar);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+/* A select is drawn as the other fields are, with an arrow of its own held away from the border,
+   since the one the browser draws is against it. */
+select {
+  appearance: none;
+  font: inherit;
+  color: var(--text);
+  background-color: var(--tabbar);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='none' stroke='%238b8b95' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M2.5 4.5 6 8l3.5-3.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 8px 34px 8px 10px;
+  cursor: pointer;
+}
+
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+select:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+
+select option {
+  background: var(--card);
+  color: var(--text);
+}
+
+input::placeholder {
+  color: #8b8b95;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+
+.mono {
+  font-family: var(--mono);
+}
+
+.muted {
+  color: var(--muted);
+}

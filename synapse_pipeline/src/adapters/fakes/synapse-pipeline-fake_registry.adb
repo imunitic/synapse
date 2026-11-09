@@ -140,6 +140,46 @@ package body Synapse.Pipeline.Fake_Registry is
    end Write_Transcript;
 
    overriding
+   function Write_Description
+     (F : in out Fake_Registry; Id, Content : String) return Boolean
+   is
+      Found : Boolean;
+
+      procedure Change (Item : in out Execution) is
+      begin
+         Item.Description := To_Unbounded_String (Content);
+         Item.Has_Description := True;
+      end Change;
+   begin
+      if not Attempt (F, Description_Op) then
+         return False;
+      end if;
+      Update (F, Id, Change'Access, Found);
+      return Found;
+   end Write_Description;
+
+   overriding
+   function Write_Definition
+     (F : in out Fake_Registry; Id, Path, Content : String) return Boolean
+   is
+      Found : Boolean;
+
+      procedure Change (Item : in out Execution) is
+      begin
+         Item.Definitions.Include (Path, Content);
+      end Change;
+   begin
+      if not Attempt (F, Definition_Op) then
+         return False;
+      end if;
+      if not Registry_Store.Is_Plain_Path (Path) then
+         return False;
+      end if;
+      Update (F, Id, Change'Access, Found);
+      return Found;
+   end Write_Definition;
+
+   overriding
    function Remove (F : in out Fake_Registry; Id : String) return Boolean is
    begin
       if not Attempt (F, Remove_Op) then
@@ -188,6 +228,44 @@ package body Synapse.Pipeline.Fake_Registry is
       end if;
       return Registry_Store.Maybe_Content'(Found => False);
    end Read_Events;
+
+   overriding
+   function Read_Description
+     (F : Fake_Registry; Id : String) return Registry_Store.Maybe_Content
+   is
+      Place : constant Executions.Cursor := F.Held.Find (Id);
+   begin
+      if Executions.Has_Element (Place)
+        and then Executions.Element (Place).Has_Description
+      then
+         return Registry_Store.Maybe_Content'
+           (Found => True, Value => Executions.Element (Place).Description);
+      end if;
+      return Registry_Store.Maybe_Content'(Found => False);
+   end Read_Description;
+
+   overriding
+   function Read_Definition
+     (F : Fake_Registry; Id, Path : String) return Registry_Store.Maybe_Content
+   is
+      Place : constant Executions.Cursor := F.Held.Find (Id);
+   begin
+      if Executions.Has_Element (Place)
+        and then Registry_Store.Is_Plain_Path (Path)
+      then
+         declare
+            Item : constant Execution := Executions.Element (Place);
+            Held : constant Contents.Cursor := Item.Definitions.Find (Path);
+         begin
+            if Contents.Has_Element (Held) then
+               return Registry_Store.Maybe_Content'
+                 (Found => True,
+                  Value => To_Unbounded_String (Contents.Element (Held)));
+            end if;
+         end;
+      end if;
+      return Registry_Store.Maybe_Content'(Found => False);
+   end Read_Definition;
 
    overriding
    function Transcript_Path

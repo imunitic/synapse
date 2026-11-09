@@ -10,7 +10,8 @@ package body Synapse.Test_Repo is
    is
    begin
       F.Vars.Set ("HOME", Synapse.Test_Scratch.Path (Dir, "home"));
-      F.Vars.Set ("SYNAPSE_WORK_DIR", Synapse.Test_Scratch.Path (Dir, "work"));
+      F.Vars.Set ("SYNAPSE_WORK_DIR", Synapse.Test_Scratch.Path (Dir, Root_Rel));
+      F.Vars.Set ("SYNAPSE_NAMESPACE", Namespace);
    end Use_Work;
 
    function Repo (Dir : Synapse.Test_Scratch.Scratch) return String is
@@ -35,6 +36,6 @@ package body Synapse.Test_Repo is
    function Work_File
      (Dir : Synapse.Test_Scratch.Scratch; Name : String) return String is
      (Synapse.Adapters.File_Bytes.Read
-        (Synapse.Test_Scratch.Path (Dir, "work/" & Name), 10_000_000));
+        (Synapse.Test_Scratch.Path (Dir, Work_Rel & "/" & Name), 10_000_000));
 
 end Synapse.Test_Repo;

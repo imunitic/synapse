@@ -21,7 +21,9 @@ npm install -g @imunitic/synapse-pipeline
 
 The package depends on a package per platform (`@imunitic/synapse-pipeline-darwin-arm64` and so on)
 that npm picks for the machine, so there is nothing to build or download afterwards. The harnesses a
-pipeline uses are installed separately and must be on `PATH` when it runs.
+pipeline uses are installed separately and must be on `PATH` when it runs. `synapse-pipeline --version`
+says which version is installed; a release sets it from its tag, and a build from a checkout says
+`0.0.0-dev`.
 
 ### The skill for writing pipelines
 
@@ -36,7 +38,9 @@ synapse-pipeline-setup configure claude     # or codex, or opencode
 
 and then ask the agent to craft a pipeline for a workflow. The skill goes to the harness's skills
 directory (`~/.claude/skills`, `~/.codex/skills`, `~/.config/opencode/skill`) and only ever replaces or
-removes what an earlier `synapse-pipeline-setup` put there.
+removes what an earlier install put there. The work is done by the program itself,
+`synapse-pipeline configure <harness>`, which installs the skills found under `skills/` in the folder
+`SYNAPSE_CONTENT_ROOT` names; `synapse-pipeline-setup` runs it with the folder of its own package.
 
 ## A first run
 
@@ -58,7 +62,9 @@ echo '{"task": "add a --verbose flag"}' | synapse-pipeline run Develop_Feature -
 ```
 
 `run` prints one line per step to standard error as it finishes, and the last step's result as JSON to
-standard output:
+standard output. `--id <execution-id>` gives the run its id, of 1 to 64 letters, digits, `_` and `-`, instead of
+one drawn, so a caller knows it before the run begins: `info <execution-id>` and the record's directory are
+named by it. It needs a work directory, which there is unless there is no home directory either, and an id that is taken is an error, not replaced by another:
 
 ```
 step Develop: Done -> Review
@@ -79,8 +85,9 @@ for a usage error.
 2. **Run the first step.** A session of the step's harness is started with a prompt made of the
    agent's role, the step's instructions, the pipeline's input, the previous step's result, and the
    contract for the answer. See [Harnesses](#harnesses).
-3. **Check the answer.** It must be one JSON object `{"outcome", "summary", "data"}`. An answer that
-   is not is a `result_contract_failure`.
+3. **Check the answer.** It must be one JSON object `{"outcome", "summary", "data"}`, and when the
+   step declares `Outcomes` its outcome must be one of them. An answer that is not is a
+   `result_contract_failure`.
 4. **Choose the next step.** The edges leaving the step are tried in the order they were written; the
    first whose guard holds is taken. When none is, the next declared step runs, and after the last the
    run is complete, as it is when an edge leads to `End`. The agent never decides this: it reports what
@@ -108,7 +115,7 @@ Everything is read from the environment when a run starts.
 | `SYNAPSE_PIPELINE_MAX_STEPS` | The most steps one run may take. | `50` |
 | `SYNAPSE_PIPELINE_RUNNER` | `process` runs the harnesses; `scripted` answers from a file. | `process` |
 | `SYNAPSE_PIPELINE_SCRIPT` | The file a scripted run answers from. | |
-| `SYNAPSE_WORK_DIR` | Where a running pipeline can be inspected from. Also given to every session. | |
+| `SYNAPSE_WORK_DIR` | The root of Synapse's working files: runs are recorded in `pipelines/` under it, and the code graph keeps a folder in it for each namespace. Also given to every session. | `~/.cache/synapse/work` |
 | `SYNAPSE_VAULT_DIR`, `SYNAPSE_CONTENT_ROOT` | Given to every session, so that it works in the same vault. | |
 
 `run` rejects a value that is wrong before it does anything, and says which variable it came from. Each of
@@ -198,8 +205,9 @@ The state is the document `state` answers with over the socket (`synapse-pipelin
 `status` says whether the run is going, completed or failed. The result is the object
 `{"outcome", "summary", "data"}` a step ends with. `next` checks the result as `run` does, applies the
 edges, guards, `Max_Iterations` and the step ceiling exactly as `run` does, and exits 0 whenever it
-prints a state, so a failed run is a state with `status` `failed`. A result that is not valid, or a
-state of another pipeline or of a run that is over, prints nothing and exits 1.
+prints a state, so a failed run is a state with `status` `failed`. A result that is not valid, including an
+outcome the step does not declare, or a state of another pipeline or of a run that is over, prints
+nothing and exits 1.
 
 The `synapse-pipeline-execute` skill, installed by `synapse-pipeline-setup configure <harness>` with
 the skill for writing pipelines, tells the agent to do this: one fresh subagent per step, with the
@@ -231,7 +239,10 @@ Review
 `show` describes a pipeline that is not running, with the document a run answers `pipeline` with:
 `show Develop_Feature --format json` prints it as JSON, and without `--format` the same information is
 laid out for a person. The pipeline is found and validated as `check` does, and one that cannot run
-prints nothing on standard output.
+prints nothing on standard output. Each step reports the `outcomes` it declares. `show <system>` and
+`show <agent>` describe that definition and the definitions that use it, and `show <pipeline> --step
+<step>` prints the prompt the step is started with, a marked slot standing for the result of the step
+before. `definitions` lists every definition with its file and the files that did not load.
 
 `list` shows the runs that are going. A run that has ended, or that died without cleaning up, is not
 shown. `info --format json` gives the answer as JSON, and `--query` takes a
@@ -240,9 +251,11 @@ shows), its state under `state` and its events under `events`. A `var` path goes
 not into a list.
 
 The run listens on a Unix domain socket at `$SYNAPSE_WORK_DIR/pipelines/<execution-id>/execution.sock`, in
-the directory of its record, which only the user can enter, and removes the socket when it ends. A run without a work directory, or
-whose socket cannot be made, is not inspectable and goes on exactly as it would have; the second case
-is reported with one warning line when it starts. On Windows the run listens on a named pipe instead; see
+the directory of its record, which only the user can enter, and removes the socket when it ends. A run with no
+work directory, which only happens with no home directory to hold the default, or whose socket cannot be made, is not
+inspectable and goes on exactly as it would have; the second case is reported with one warning line when it
+starts. The default work directory adds about 60 characters to the socket's path, so a home directory with a very long path can make
+it too long for a Unix socket; set `SYNAPSE_WORK_DIR` to a short one then. On Windows the run listens on a named pipe instead; see
 Platforms.
 
 ### The record of a run
@@ -254,6 +267,11 @@ which only the user can enter and which stays after the run has ended:
 execution.sock      only while the run is going
 execution.json      the summary, replaced as the run goes on
 events.jsonl        one event a line, as the socket gives them
+description.json    the pipeline the run began with, as the socket answers `pipeline`
+definitions/        the definition files the run was made from, laid out as a configuration directory
+  synapse-pipeline/
+    Develop_Feature.synapse    the pipeline, and every system and agent a step was built from
+    skills/review-code/SKILL.md    the SKILL.md of each skill a step names
 transcripts/
   1-Develop-1.jsonl   what a harness printed for one step attempt, as it printed it
   2-Review-1.jsonl
@@ -262,8 +280,21 @@ transcripts/
 `execution.json` has `format` `synapse-pipeline-execution/v1`, the execution's `id` and `pipeline`, when it
 `started` and `ended`, its `status` (`running`, `completed` or `failed`), its `current_step` and the run's
 `state`. Each try of a step has a transcript of its own, named for the run's step count, the step and the try, and a
-`session.finished` event that says where it is. For Claude the transcript is the final result the harness
-prints, not the conversation.
+`session.finished` event that says where it is. A transcript is what the harness printed, one JSON event per
+line: Claude's session events ending with its `result`, Codex's `--json` events and OpenCode's `--format json`
+events. They hold the tool calls and file changes as well as the messages.
+
+`description.json` is the `synapse-pipeline-description/v1` document that `show --format json` prints, as the
+run resolved it when it began: its steps and edges with the harness, permissions and timeout each step runs with,
+and the limits. `definitions/` holds the files as they were when the run began, so editing or removing a
+definition afterwards does not change what the record says. A file that cannot be read when the run begins is
+left out. `XDG_CONFIG_HOME=<record>/definitions synapse-pipeline check <pipeline>`, with `SYNAPSE_PIPELINE_PATH`
+unset, resolves the pipeline from those files; what comes from the environment, such as the default harness and
+the limits, is the environment's of the moment, and `description.json` is what the run had.
+
+These copies are history. Nothing runs from them: `run` resolves a pipeline from the definition directories as
+they are when it starts, so running a pipeline again runs the files as they are then, not the ones an earlier
+record kept.
 
 - `list --all` lists the executions that are over as well, with the status they ended in. One whose record
   says `running` while nothing answers on its socket is shown as `interrupted`, and one with no summary as

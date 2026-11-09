@@ -13,14 +13,18 @@ package body Synapse.Adapters.System_Spawner.Tests is
 
    use Ada.Strings.Unbounded;
    use Synapse.Test_Scratch;
+   use type Ada.Directories.File_Size;
 
    LF : constant Character := Character'Val (10);
 
-   --  Waits up to five seconds for a file to appear.
+   --  Waits up to five seconds for a file to appear with something in it: a
+   --  shell creates the file it redirects to before it writes the text.
    function Appears (File : String) return Boolean is
    begin
       for Attempt in 1 .. 50 loop
-         if Ada.Directories.Exists (File) then
+         if Ada.Directories.Exists (File)
+           and then Ada.Directories.Size (File) > 0
+         then
             return True;
          end if;
          delay 0.1;

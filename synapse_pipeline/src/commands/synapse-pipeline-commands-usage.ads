@@ -12,21 +12,29 @@ package Synapse.Pipeline.Commands.Usage is
      "usage: synapse-pipeline <subcommand> [args]" & LF & LF
      & "  check <pipeline>   validate a pipeline and show what it would run"
      & LF
-     & "  show <pipeline> [--format json|text]" & LF
-     & "         describe a pipeline: its steps, settings, edges and limits"
+     & "  show <name> [--format json|text] [--step <step> [--input <file>|-]]"
      & LF
+     & "         describe a pipeline (its steps, settings, edges and limits), "
+     & "a system or an agent" & LF
+     & "  definitions [--format json|text]" & LF
+     & "         every pipeline, system and agent there is, and what is wrong "
+     & "with a file" & LF
      & "  next <pipeline> [--input <file>|-] | --state <file>|- --result "
      & "<file>|-" & LF
      & "         the state a run starts in, or the state after a step's "
      & "result" & LF
-     & "  run <pipeline> [--input <file>|-]   run a pipeline to its end" & LF
+     & "  run <pipeline> [--input <file>|-] [--id <execution-id>]" & LF
+     & "         run a pipeline to its end" & LF
      & "  list [--all]   the pipelines running now, or all that were run" & LF
      & "  info <execution-id> [--format json|text] [--query <rule>] | "
      & "--events" & LF
      & "         what a pipeline says about itself, running or not" & LF
      & "  cleanup [--older-than <duration>] [--dry-run] [--all]" & LF
-     & "         remove the records of executions that are over" & LF & LF
-     & "'synapse-pipeline <subcommand> --help' says more." & LF;
+     & "         remove the records of executions that are over" & LF
+     & "  configure <claude|codex|opencode>" & LF
+     & "         install the skills of this program for a harness" & LF & LF
+     & "'synapse-pipeline <subcommand> --help' says more." & LF
+     & "'synapse-pipeline --version' says which version this is." & LF;
 
    Check_Help : constant String :=
      "usage: synapse-pipeline check <pipeline>" & LF & LF
@@ -51,7 +59,8 @@ package Synapse.Pipeline.Commands.Usage is
      & "                            or Opencode" & LF;
 
    Show_Help : constant String :=
-     "usage: synapse-pipeline show <pipeline> [--format json|text]" & LF & LF
+     "usage: synapse-pipeline show <name> [--format json|text] "
+     & "[--step <step> [--input <file>|-]]" & LF & LF
      & "Describes a pipeline that is not running the way a running one "
      & "describes itself:" & LF
      & "its steps with the settings each will run with, the edges between "
@@ -59,11 +68,31 @@ package Synapse.Pipeline.Commands.Usage is
      & "the limits that apply. The pipeline is found and validated as "
      & "'check' does, and" & LF
      & "nothing is printed on standard output when it cannot be run." & LF & LF
+     & "A system or an agent is described by its attributes as written, its "
+     & "file and the" & LF
+     & "definitions that use it, a pipeline with the steps that name it." & LF
+     & LF
      & "  --format text   for a person (the default)" & LF
-     & "  --format json   the document a running pipeline answers its "
-     & "'pipeline'" & LF
-     & "                  command with, format synapse-pipeline-description/v1"
-     & LF & LF
+     & "  --format json   for a pipeline the document a running pipeline "
+     & "answers its" & LF
+     & "                  'pipeline' command with, format "
+     & "synapse-pipeline-description/v1," & LF
+     & "                  plus its kind, file and an empty used_by; for a "
+     & "system or an" & LF
+     & "                  agent format synapse-pipeline-definition/v1" & LF
+     & "  --step <step>   print the prompt the step is started with: its "
+     & "role, its" & LF
+     & "                  assignment (a skill's SKILL.md in full), what the "
+     & "run was" & LF
+     & "                  started with and how it is to report. After the "
+     & "first step" & LF
+     & "                  what the step before reported is marked as a slot. "
+     & "With" & LF
+     & "                  --format json: format "
+     & "synapse-pipeline-prompt/v1" & LF
+     & "  --input <file>  with --step, the JSON the run is started with, "
+     & "or - for" & LF
+     & "                  standard input" & LF & LF
      & "Environment:" & LF
      & "  SYNAPSE_PIPELINE_PATH     directories of .synapse files besides "
      & "the default" & LF
@@ -109,7 +138,8 @@ package Synapse.Pipeline.Commands.Usage is
      & "50)" & LF;
 
    Run_Help : constant String :=
-     "usage: synapse-pipeline run <pipeline> [--input <file>|-]" & LF & LF
+     "usage: synapse-pipeline run <pipeline> [--input <file>|-] "
+     & "[--id <execution-id>]" & LF & LF
      & "Runs the pipeline from its first step, one agent session per step, "
      & "and prints" & LF
      & "the last step's result as JSON on standard output. One line per step "
@@ -119,7 +149,12 @@ package Synapse.Pipeline.Commands.Usage is
      & "1 when a step fails or the pipeline cannot be run." & LF & LF
      & "  --input <file>   JSON handed to the first step; '-' reads it from "
      & "standard" & LF
-     & "                   input" & LF & LF
+     & "                   input" & LF
+     & "  --id <id>        the id of the execution, 1 to 64 letters, digits, "
+     & "'_' and" & LF
+     & "                   '-', instead of one drawn; it needs a work "
+     & "directory, and" & LF
+     & "                   an id that is taken is an error" & LF & LF
      & "While it runs, the run can be inspected with 'list' and 'info' when "
      & "a work" & LF
      & "directory is set." & LF & LF
@@ -137,11 +172,35 @@ package Synapse.Pipeline.Commands.Usage is
      & "answer from a file" & LF
      & "  SYNAPSE_PIPELINE_SCRIPT    the file a scripted run answers from"
      & LF
-     & "  SYNAPSE_WORK_DIR           where a run can be inspected from "
-     & "(also given to" & LF
-     & "                             every session)" & LF
+     & "  SYNAPSE_WORK_DIR           where Synapse keeps its working files; "
+     & "runs are" & LF
+     & "                             recorded in pipelines/ under it (default "
+     & LF
+     & "                             ~/.cache/synapse/work, also given to "
+     & "every" & LF
+     & "                             session)" & LF
      & "  SYNAPSE_VAULT_DIR, SYNAPSE_CONTENT_ROOT" & LF
      & "                             given to every session" & LF;
+
+   Definitions_Help : constant String :=
+     "usage: synapse-pipeline definitions [--format json|text]" & LF & LF
+     & "Lists every definition the search directories hold, in alphabetical "
+     & "order of name:" & LF
+     & "its kind (pipeline, system or agent), name and file. A file that "
+     & "does not load" & LF
+     & "is not a definition; it is a problem, with its file, line, column "
+     & "and message." & LF
+     & "Nothing is validated beyond loading, and the exit code is 0 "
+     & "whatever is found." & LF & LF
+     & "  --format text   for a person (the default)" & LF
+     & "  --format json   format synapse-pipeline-definitions/v1: "
+     & "`definitions`, each with" & LF
+     & "                  kind, name and file, and `problems`, each with "
+     & "file, line, column" & LF
+     & "                  and message" & LF & LF
+     & "Environment:" & LF
+     & "  SYNAPSE_PIPELINE_PATH     directories of .synapse files besides "
+     & "the default" & LF;
 
    List_Help : constant String :=
      "usage: synapse-pipeline list [--all]" & LF & LF
@@ -159,7 +218,9 @@ package Synapse.Pipeline.Commands.Usage is
      & "          interrupted when the record says running and nothing "
      & "answers" & LF & LF
      & "Environment:" & LF
-     & "  SYNAPSE_WORK_DIR  the work directory runs are started with" & LF;
+     & "  SYNAPSE_WORK_DIR  the work directory runs are recorded under "
+     & "(default" & LF
+     & "                    ~/.cache/synapse/work)" & LF;
 
    Info_Help : constant String :=
      "usage: synapse-pipeline info <execution-id> [--format json|text] "
@@ -185,7 +246,9 @@ package Synapse.Pipeline.Commands.Usage is
      & "                  from its record; for a run in progress or one that "
      & "is over" & LF & LF
      & "Environment:" & LF
-     & "  SYNAPSE_WORK_DIR  the work directory the run was started with" & LF;
+     & "  SYNAPSE_WORK_DIR  the work directory the run was recorded under "
+     & "(default" & LF
+     & "                    ~/.cache/synapse/work)" & LF;
 
    Cleanup_Help : constant String :=
      "usage: synapse-pipeline cleanup [--older-than <duration>] [--dry-run] "
@@ -207,8 +270,24 @@ package Synapse.Pipeline.Commands.Usage is
      & "interrupted is still" & LF
      & "                           kept until it is old enough" & LF & LF
      & "Environment:" & LF
-     & "  SYNAPSE_WORK_DIR  the work directory the runs were started with"
-     & LF;
+     & "  SYNAPSE_WORK_DIR  the work directory the runs were recorded under "
+     & "(default" & LF
+     & "                    ~/.cache/synapse/work)" & LF;
+
+   Configure_Help : constant String :=
+     "usage: synapse-pipeline configure <claude|codex|opencode>" & LF & LF
+     & "Installs the skills of this program for a harness: each skill is "
+     & "copied, with" & LF
+     & "everything beside its SKILL.md, into the harness's skills folder in "
+     & "your home" & LF
+     & "directory (~/.claude/skills, ~/.codex/skills or "
+     & "~/.config/opencode/skill)," & LF
+     & "replacing the copy that is there. A skill that an earlier run "
+     & "installed and this" & LF
+     & "one does not ship is removed; anything else in the folder is left "
+     & "as it is." & LF & LF
+     & "Environment:" & LF
+     & "  SYNAPSE_CONTENT_ROOT  the folder that holds skills/" & LF;
 
    --  The first line of a help text, which is the subcommand's synopsis.
    function Synopsis (Help : String) return String;

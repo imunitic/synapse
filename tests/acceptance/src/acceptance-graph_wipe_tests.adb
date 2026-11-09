@@ -76,7 +76,7 @@ package body Acceptance.Graph_Wipe_Tests is
            (Boolean'Image (Exists (Staging)), "TRUE", "the notes are staged");
 
          --  A fresh build over the wiped repository.
-         Set_Env (F, "SYNAPSE_WORK_DIR", Work (F));
+         Set_Env (F, "SYNAPSE_WORK_DIR", Work_Root (F));
          Write_Work_File
            (F, "manifest.tsv",
             "Src " & Dash & " the source module" & ASCII.HT & "^src/" &

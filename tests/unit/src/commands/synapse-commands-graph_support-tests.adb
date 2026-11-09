@@ -27,7 +27,8 @@ package body Synapse.Commands.Graph_Support.Tests is
          Got : constant Maybe_Path := Work_Dir (Env (F), "p");
       begin
          Assert
-           (Got.Found and then To_String (Got.Value) = "/w/here", "as set");
+           (Got.Found and then To_String (Got.Value) = "/w/here/x@y",
+            "the namespace's folder in the root that is set");
       end;
    end The_Configured_Work_Directory_Wins;
 
@@ -98,8 +99,9 @@ package body Synapse.Commands.Graph_Support.Tests is
       end;
       F.Vars.Set ("SYNAPSE_WORK_DIR", "/w");
       Assert
-        (To_String (Work_Dir_For_Namespace (Env (F), "a@b", "p").Value) = "/w",
-         "the setting wins");
+        (To_String (Work_Dir_For_Namespace (Env (F), "a@b", "p").Value) =
+         "/w/a@b",
+         "the root that is set");
       Assert
         (not Work_Dir_For_Namespace (Env (F), "ab", "p").Found, "no at sign");
       Assert

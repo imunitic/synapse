@@ -1,4 +1,5 @@
 with Synapse.Pipeline.Definitions;
+with Synapse.Pipeline.File_System;
 with Synapse.Pipeline.Harnesses;
 with Synapse.Pipeline.Namespaces;
 with Synapse.Pipeline.Resolution;
@@ -17,7 +18,8 @@ package body Synapse.Pipeline.Commands.Loading is
       Ok          : out Boolean;
       Item        : out Resolved.Pipeline;
       File        : out Unbounded_String;
-      Skill_Roots : out Search_Paths.Root_Vectors.Vector)
+      Skill_Roots : out Search_Paths.Root_Vectors.Vector;
+      Advise      : Boolean := False)
    is
       Default : constant Harnesses.Default_Results.Result :=
         Harnesses.Default (Env.Vars.all);
@@ -50,6 +52,11 @@ package body Synapse.Pipeline.Commands.Loading is
             end loop;
             return;
          end if;
+         if Advise then
+            for P of Validation.Advise (Report.Definitions, Name) loop
+               Complain (Env, Definitions.Warning (P) & LF);
+            end loop;
+         end if;
          declare
             Made : constant Resolution.Resolve_Results.Result :=
               Resolution.Resolve
@@ -71,5 +78,40 @@ package body Synapse.Pipeline.Commands.Loading is
          end;
       end;
    end Load;
+
+   procedure Read_Input
+     (Env   : Environment;
+      Path  : String;
+      Input : out Synapse.Core.JSON.Value;
+      Ok    : out Boolean)
+   is
+      Found : constant File_System.Maybe_Content :=
+        (if Path = "-"
+         then (Found => True,
+               Value => To_Unbounded_String (Env.Console.Read_Stdin))
+         else Env.Files.Read (Path));
+   begin
+      Input := Synapse.Core.JSON.Null_Value;
+      Ok := False;
+      if not Found.Found then
+         Complain (Env, "error: --input " & Path & " cannot be read" & LF);
+         return;
+      end if;
+      declare
+         Parsed : constant Synapse.Core.JSON.Parse_Result :=
+           Synapse.Core.JSON.Parse (To_String (Found.Value));
+      begin
+         if not Parsed.Ok then
+            Complain
+              (Env,
+               "error: --input " & Path & " is not JSON: "
+               & Synapse.Core.JSON.Parse_Error_Kind'Image (Parsed.Error)
+               & " at byte" & Natural'Image (Parsed.Offset) & LF);
+            return;
+         end if;
+         Input := Parsed.Item;
+         Ok := True;
+      end;
+   end Read_Input;
 
 end Synapse.Pipeline.Commands.Loading;

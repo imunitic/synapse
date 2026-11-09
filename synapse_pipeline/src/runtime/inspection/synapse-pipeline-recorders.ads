@@ -11,6 +11,10 @@ with Synapse.Ports.Clock;
 --  the context and to the execution's record in the registry, so the pipeline
 --  itself does not know there is a registry.
 --
+--  The record also keeps the description of the pipeline the run began with
+--  and the definition files it was made from, beside the summary, as
+--  `description.json` and `definitions/`.
+--
 --  The record is best effort: a write the registry cannot make is left out,
 --  and the context, which answers the socket, is changed all the same.
 --
@@ -41,6 +45,10 @@ package Synapse.Pipeline.Recorders is
       Registered  : Boolean;
       Description : Synapse.Core.JSON.Value;
       Initial     : States.State);
+
+   --  Keeps the definition file Path of the run, as the store lays them out.
+   --  Written when the run is recorded and left out when it is not.
+   procedure Record_Definition (R : in out Recorder; Path, Content : String);
 
    --  The run has a new state.
    procedure Publish (R : in out Recorder; Item : States.State);

@@ -33,6 +33,14 @@ usage: synapse <subcommand> [args]
   frontmatter get <path> <key>             read one frontmatter field
   frontmatter set <path> <key> <value>    set one frontmatter field, byte-preserving
   frontmatter set <path> --add-tag|--remove-tag <tag>   same, for the tags field
+  config list [--format json|text]   every setting of synapse.conf, its value and where it comes from
+  config set <KEY> <value>   write one setting into the file that holds it, byte-preserving
+  config unset <KEY>         remove one setting from that file
+  configure <claude|codex|opencode>   install Synapse's hooks, skills and commands for a harness
+  status [--format text|json]   what in the vault needs a human decision
+  work-dir [--root | --list | --namespace <repo>@<branch>]   where Synapse keeps its working files
+  projects [list] [--format json|text]   the projects of synapse-projects.conf
+  projects add <name> <prefix>   one more project, checked first
   vault-read <path>          a note's full body
   vault-write <path>         write a note's full body, from stdin
   vault-list                 every note in the vault, recursively
@@ -62,8 +70,9 @@ usage: synapse <subcommand> [args]
   namespace [--repo <dir>]   the {repo}@{branch} key for a checkout
   now [--built-at]           machine-local timestamp, RFC3339 or built_at's shape
   context                    this checkout's graph path and the question-to-command map
-  doctor [--repo <dir>]      check every precondition the rest of the system
-                             tolerates silently
+  doctor [--repo <dir>] [--format text|json]
+                             check every precondition the rest of the system
+                             tolerates silently, the harnesses among them
   build-index                _index.bin from the work dir's lists
   graph-clean [--dry-run]    drop namespaces whose branch is gone upstream
   graph-wipe [--dry-run]     drop this namespace, preserving hand Notes
@@ -179,6 +188,62 @@ usage: synapse frontmatter get <path> <key>
 
   <path>   the note's full vault-relative path, e.g. tasks/proj/foo.md
   <value>  bare sets a scalar field; comma-separated sets an array
+```
+
+### synapse config
+
+```
+usage: synapse config list [--format json|text]
+       synapse config set <KEY> <value>
+       synapse config unset <KEY>
+```
+
+### synapse configure
+
+```
+usage: synapse configure <claude|codex|opencode>
+
+Installs Synapse for a harness: its skills and commands, and its hooks, which
+run the synapse-hook beside this program. A hooks file that holds more than
+Synapse's own is merged into, and a copy is kept beside it as .bak.
+A synapse.conf is made from its template when there is none.
+
+Environment:
+  SYNAPSE_CONTENT_ROOT  the folder that holds skills/, commands/, harness/ and
+                        synapse.conf.template; the folder above this program's
+                        own when not set
+```
+
+### synapse status
+
+```
+usage: synapse status [--format text|json]
+
+Prints what in the vault needs a human decision: design notes still being
+discussed, ready ones with no compiled task, ready ones with open questions,
+open tasks with unchecked items, and tasks waiting for review. Only designs/
+and tasks/ are looked at, and nothing is written. --format json gives
+synapse-status/v1, every category with its items and their paths.
+```
+
+### synapse work-dir
+
+```
+usage: synapse work-dir [--root | --list | --namespace <repo>@<branch>]
+
+Prints where Synapse keeps its working files: the folder of this repository's
+namespace, or with --namespace that of another, or with --root the directory
+they are folders of. The root is SYNAPSE_WORK_DIR, else .cache/synapse/work in
+the home directory. With --list, each namespace that has an index, a reference
+index or a tags cache there: its name, a tab and which of index, refs and tags it
+has. Nothing is created.
+```
+
+### synapse projects
+
+```
+usage: synapse projects [list] [--format json|text]
+       synapse projects add <name> <prefix>
 ```
 
 ### synapse vault-read
@@ -329,8 +394,8 @@ usage: synapse vault-delete <path>
 ```
 usage: synapse build-refs [--cache <path>] [--out <path>]
 
-  --cache  the tags cache to project. Default $SYNAPSE_WORK_DIR/_tags_cache.bin.
-  --out    where to write the index. Default $SYNAPSE_WORK_DIR/_refs.tsv.
+  --cache  the tags cache to project. Default <work dir>/_tags_cache.bin.
+  --out    where to write the index. Default <work dir>/_refs.tsv.
 ```
 
 ### synapse build-deps
@@ -339,7 +404,7 @@ usage: synapse build-refs [--cache <path>] [--out <path>]
 usage: synapse build-deps [--repo <path>] [--out <path>]
 
   --repo   the checkout to scan. Default: the one containing $PWD.
-  --out    where to write the index. Default $SYNAPSE_WORK_DIR/_deps.tsv.
+  --out    where to write the index. Default <work dir>/_deps.tsv.
 ```
 
 ### synapse build-namespaces
@@ -348,7 +413,7 @@ usage: synapse build-deps [--repo <path>] [--out <path>]
 usage: synapse build-namespaces [--repo <path>] [--out <path>]
 
   --repo   the checkout to scan. Default: the one containing $PWD.
-  --out    where to write the index. Default $SYNAPSE_WORK_DIR/_namespaces.tsv.
+  --out    where to write the index. Default <work dir>/_namespaces.tsv.
 ```
 
 ### synapse callers
@@ -382,14 +447,14 @@ usage: synapse gate --vocab <groupwords.tsv> [--parseable <parseable.tsv>] [--al
 usage: synapse link-graph --refs <_refs.tsv> --lists <dir> [--deps <f>] [--namespaces <f>]
                           [--top N] [--out <dir>]
 
-  --refs        synapse build-refs's index. Default $SYNAPSE_WORK_DIR/_refs.tsv.
+  --refs        synapse build-refs's index. Default <work dir>/_refs.tsv.
   --lists       the NN.txt/NN.title path lists synapse build-lists wrote.
-  --deps        synapse build-deps's index. Default $SYNAPSE_WORK_DIR/_deps.tsv,
+  --deps        synapse build-deps's index. Default <work dir>/_deps.tsv,
                 skipped silently if absent.
   --namespaces  synapse build-namespaces's index. Default
-                $SYNAPSE_WORK_DIR/_namespaces.tsv, skipped silently if absent.
+                <work dir>/_namespaces.tsv, skipped silently if absent.
   --top         edges kept per node, strongest first, default 8. 0 means no cap.
-  --out         where to write links.tsv. Default $SYNAPSE_WORK_DIR.
+  --out         where to write links.tsv. Default <work dir>.
 ```
 
 ### synapse brief
@@ -399,10 +464,10 @@ usage: synapse brief --lists <dir> [--rank <dir>] [--links <file>] [--repo <path
 
   --lists  the NN.txt/NN.title path lists synapse build-lists wrote.
   --rank   where synapse rank --lists wrote NN.summary.tsv/NN.crux.tsv.
-           Default $SYNAPSE_WORK_DIR/rank.
-  --links  synapse link-graph's output. Default $SYNAPSE_WORK_DIR/links.tsv.
+           Default <work dir>/rank.
+  --links  synapse link-graph's output. Default <work dir>/links.tsv.
            A missing file warns and leaves every node's edges empty.
-  --out    where to write brief/NN.md. Default $SYNAPSE_WORK_DIR.
+  --out    where to write brief/NN.md. Default <work dir>.
 ```
 
 ### synapse push-nodes
@@ -450,9 +515,16 @@ usage: synapse context
 ### synapse doctor
 
 ```
-usage: synapse doctor [--repo <dir>]
+usage: synapse doctor [--repo <dir>] [--install] [--format text|json]
 
-  --repo  the checkout to examine. Default: the one containing $PWD.
+  --repo    the checkout to examine. Default: the one containing $PWD.
+  --install only what the install needs: the programs, the harnesses,
+            the configuration and the vault; nothing of a checkout.
+  --format  text (the default), or json: format synapse-doctor/v1,
+            each check with its key, name, status, detail and value.
+
+Looks for claude, codex, opencode and synapse-pipeline on PATH. The
+exit code is 1 when anything failed, in either format.
 ```
 
 ### synapse build-index
@@ -513,18 +585,24 @@ usage: synapse-hook <hook>
 usage: synapse-pipeline <subcommand> [args]
 
   check <pipeline>   validate a pipeline and show what it would run
-  show <pipeline> [--format json|text]
-         describe a pipeline: its steps, settings, edges and limits
+  show <name> [--format json|text] [--step <step> [--input <file>|-]]
+         describe a pipeline (its steps, settings, edges and limits), a system or an agent
+  definitions [--format json|text]
+         every pipeline, system and agent there is, and what is wrong with a file
   next <pipeline> [--input <file>|-] | --state <file>|- --result <file>|-
          the state a run starts in, or the state after a step's result
-  run <pipeline> [--input <file>|-]   run a pipeline to its end
+  run <pipeline> [--input <file>|-] [--id <execution-id>]
+         run a pipeline to its end
   list [--all]   the pipelines running now, or all that were run
   info <execution-id> [--format json|text] [--query <rule>] | --events
          what a pipeline says about itself, running or not
   cleanup [--older-than <duration>] [--dry-run] [--all]
          remove the records of executions that are over
+  configure <claude|codex|opencode>
+         install the skills of this program for a harness
 
 'synapse-pipeline <subcommand> --help' says more.
+'synapse-pipeline --version' says which version this is.
 ```
 
 ### synapse-pipeline check
@@ -549,22 +627,53 @@ Environment:
 ### synapse-pipeline show
 
 ```
-usage: synapse-pipeline show <pipeline> [--format json|text]
+usage: synapse-pipeline show <name> [--format json|text] [--step <step> [--input <file>|-]]
 
 Describes a pipeline that is not running the way a running one describes itself:
 its steps with the settings each will run with, the edges between them and
 the limits that apply. The pipeline is found and validated as 'check' does, and
 nothing is printed on standard output when it cannot be run.
 
+A system or an agent is described by its attributes as written, its file and the
+definitions that use it, a pipeline with the steps that name it.
+
   --format text   for a person (the default)
-  --format json   the document a running pipeline answers its 'pipeline'
-                  command with, format synapse-pipeline-description/v1
+  --format json   for a pipeline the document a running pipeline answers its
+                  'pipeline' command with, format synapse-pipeline-description/v1,
+                  plus its kind, file and an empty used_by; for a system or an
+                  agent format synapse-pipeline-definition/v1
+  --step <step>   print the prompt the step is started with: its role, its
+                  assignment (a skill's SKILL.md in full), what the run was
+                  started with and how it is to report. After the first step
+                  what the step before reported is marked as a slot. With
+                  --format json: format synapse-pipeline-prompt/v1
+  --input <file>  with --step, the JSON the run is started with, or - for
+                  standard input
 
 Environment:
   SYNAPSE_PIPELINE_PATH     directories of .synapse files besides the default
   SYNAPSE_PIPELINE_HARNESS  the harness of a step that names none
   SYNAPSE_PIPELINE_TIMEOUT, SYNAPSE_PIPELINE_MAX_STEPS, SYNAPSE_PIPELINE_RUNNER
                             the limits the description reports
+```
+
+### synapse-pipeline definitions
+
+```
+usage: synapse-pipeline definitions [--format json|text]
+
+Lists every definition the search directories hold, in alphabetical order of name:
+its kind (pipeline, system or agent), name and file. A file that does not load
+is not a definition; it is a problem, with its file, line, column and message.
+Nothing is validated beyond loading, and the exit code is 0 whatever is found.
+
+  --format text   for a person (the default)
+  --format json   format synapse-pipeline-definitions/v1: `definitions`, each with
+                  kind, name and file, and `problems`, each with file, line, column
+                  and message
+
+Environment:
+  SYNAPSE_PIPELINE_PATH     directories of .synapse files besides the default
 ```
 
 ### synapse-pipeline next
@@ -598,7 +707,7 @@ Environment:
 ### synapse-pipeline run
 
 ```
-usage: synapse-pipeline run <pipeline> [--input <file>|-]
+usage: synapse-pipeline run <pipeline> [--input <file>|-] [--id <execution-id>]
 
 Runs the pipeline from its first step, one agent session per step, and prints
 the last step's result as JSON on standard output. One line per step goes to
@@ -607,6 +716,9 @@ standard error as it finishes. The exit code is 0 when the run completes and
 
   --input <file>   JSON handed to the first step; '-' reads it from standard
                    input
+  --id <id>        the id of the execution, 1 to 64 letters, digits, '_' and
+                   '-', instead of one drawn; it needs a work directory, and
+                   an id that is taken is an error
 
 While it runs, the run can be inspected with 'list' and 'info' when a work
 directory is set.
@@ -619,8 +731,10 @@ Environment:
   SYNAPSE_PIPELINE_MAX_STEPS the most steps a run may take (default 50)
   SYNAPSE_PIPELINE_RUNNER    process (default), or scripted to answer from a file
   SYNAPSE_PIPELINE_SCRIPT    the file a scripted run answers from
-  SYNAPSE_WORK_DIR           where a run can be inspected from (also given to
-                             every session)
+  SYNAPSE_WORK_DIR           where Synapse keeps its working files; runs are
+                             recorded in pipelines/ under it (default 
+                             ~/.cache/synapse/work, also given to every
+                             session)
   SYNAPSE_VAULT_DIR, SYNAPSE_CONTENT_ROOT
                              given to every session
 ```
@@ -640,7 +754,8 @@ there is none.
           interrupted when the record says running and nothing answers
 
 Environment:
-  SYNAPSE_WORK_DIR  the work directory runs are started with
+  SYNAPSE_WORK_DIR  the work directory runs are recorded under (default
+                    ~/.cache/synapse/work)
 ```
 
 ### synapse-pipeline info
@@ -662,7 +777,8 @@ Nothing can be started, stopped or changed this way.
                   from its record; for a run in progress or one that is over
 
 Environment:
-  SYNAPSE_WORK_DIR  the work directory the run was started with
+  SYNAPSE_WORK_DIR  the work directory the run was recorded under (default
+                    ~/.cache/synapse/work)
 ```
 
 ### synapse-pipeline cleanup
@@ -682,6 +798,22 @@ write is older than the age given, 30 days when none is.
                            kept until it is old enough
 
 Environment:
-  SYNAPSE_WORK_DIR  the work directory the runs were started with
+  SYNAPSE_WORK_DIR  the work directory the runs were recorded under (default
+                    ~/.cache/synapse/work)
+```
+
+### synapse-pipeline configure
+
+```
+usage: synapse-pipeline configure <claude|codex|opencode>
+
+Installs the skills of this program for a harness: each skill is copied, with
+everything beside its SKILL.md, into the harness's skills folder in your home
+directory (~/.claude/skills, ~/.codex/skills or ~/.config/opencode/skill),
+replacing the copy that is there. A skill that an earlier run installed and this
+one does not ship is removed; anything else in the folder is left as it is.
+
+Environment:
+  SYNAPSE_CONTENT_ROOT  the folder that holds skills/
 ```
 

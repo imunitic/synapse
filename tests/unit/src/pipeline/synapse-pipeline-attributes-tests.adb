@@ -197,7 +197,7 @@ package body Synapse.Pipeline.Attributes.Tests is
          "a guard is a single JsonLogic rule", "a list for a guard");
    end Some_Values_Are_Checked_Further;
 
-   procedure Is_Known_Knows_The_Eleven (T : in out Test_Cases_Class) is
+   procedure Is_Known_Knows_The_Twelve (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
    begin
       Assert (Is_Known ("Agent") and then Is_Known ("System"), "Agent System");
@@ -213,11 +213,56 @@ package body Synapse.Pipeline.Attributes.Tests is
       Assert
         (Is_Known ("When") and then Is_Known ("Max_Iterations"),
          "When Max_Iterations");
+      Assert (Is_Known ("Outcomes"), "Outcomes");
       Assert
         (not Is_Known ("Colour") and then not Is_Known ("")
          and then not Is_Known ("agent"),
          "and only those, spelled so");
-   end Is_Known_Knows_The_Eleven;
+   end Is_Known_Knows_The_Twelve;
+
+   procedure Outcomes_Belong_To_A_Step_Or_A_System
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Declared : constant Syntax.Value :=
+        A_JSON ("{""Done"": ""It is done."", ""Blocked"": ""Cannot go on.""}");
+   begin
+      Assert_Fine (Step_Context, Named ("Outcomes", Declared), "a step");
+      Assert_Fine (System_Context, Named ("Outcomes", Declared), "a system");
+      Assert_Wrong
+        (Agent_Context, Named ("Outcomes", Declared), 1,
+         "'Outcomes' is not an attribute of an agent", "an agent");
+      Assert_Wrong
+        (Edge_Context, Named ("Outcomes", Declared), 1,
+         "'Outcomes' is not an attribute of an edge", "an edge");
+      Assert_Wrong
+        (Step_Context, Named ("Outcomes", A_String ("Done")), 9,
+         "'Outcomes' takes a JSON value, not a string", "not JSON");
+   end Outcomes_Belong_To_A_Step_Or_A_System;
+
+   procedure Outcomes_Are_Words_With_A_Line_Of_Meaning
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+
+      procedure Wrong (Text, Message, Label : String) is
+      begin
+         Assert_Wrong
+           (Step_Context, Named ("Outcomes", A_JSON (Text)), 9, Message,
+            Label);
+      end Wrong;
+   begin
+      Wrong ("[""Done""]", "is an object from each outcome", "a list");
+      Wrong ("{}", "declares no outcome", "an empty object");
+      Wrong ("{""Do ne"": ""x""}", "'Do ne' is not an outcome", "a space");
+      Wrong ("{""1st"": ""x""}", "'1st' is not an outcome", "a digit first");
+      Wrong ("{""End"": ""x""}", "'End' is not an outcome", "a keyword");
+      Wrong ("{""Done"": 3}", "the meaning of 'Done' is one line", "a number");
+      Wrong ("{""Done"": """"}", "the meaning of 'Done' is one line", "empty");
+      Wrong
+        ("{""Done"": ""a\nb""}", "the meaning of 'Done' is one line",
+         "two lines");
+   end Outcomes_Are_Words_With_A_Line_Of_Meaning;
 
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
@@ -243,7 +288,13 @@ package body Synapse.Pipeline.Attributes.Tests is
         (T, Some_Values_Are_Checked_Further'Access,
          "Some values are checked further");
       Register_Routine
-        (T, Is_Known_Knows_The_Eleven'Access, "Is_Known knows the eleven");
+        (T, Is_Known_Knows_The_Twelve'Access, "Is_Known knows the twelve");
+      Register_Routine
+        (T, Outcomes_Belong_To_A_Step_Or_A_System'Access,
+         "Outcomes belong to a step or a system");
+      Register_Routine
+        (T, Outcomes_Are_Words_With_A_Line_Of_Meaning'Access,
+         "Outcomes are words with a line of meaning");
    end Register_Tests;
 
 end Synapse.Pipeline.Attributes.Tests;

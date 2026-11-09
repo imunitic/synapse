@@ -22,7 +22,9 @@ package Synapse.Pipeline.Configs is
 
    --  Synapse's own settings that a session is given, so that it works in the
    --  same vault and work directory as the run that started it. Each is the
-   --  variable of that name or else the setting the configuration files give.
+   --  variable of that name or else the setting the configuration files give;
+   --  the work directory is the root of Synapse.Adapters.Work_Dirs, which has a
+   --  default, so it is given whenever there is a home directory.
    Vault_Dir_Key     : constant String := "SYNAPSE_VAULT_DIR";
    Work_Dir_Key      : constant String := "SYNAPSE_WORK_DIR";
    Content_Root_Key  : constant String := "SYNAPSE_CONTENT_ROOT";

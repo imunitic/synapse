@@ -11,7 +11,7 @@ package body Synapse.Core.Doctor.Tests is
    function Make
      (Name : String; State : Status; Detail : String := "") return Check is
      (Name   => To_Unbounded_String (Name), State => State,
-      Detail => To_Unbounded_String (Detail));
+      Detail => To_Unbounded_String (Detail), Value => Null_Unbounded_String);
 
    procedure A_Warning_Never_Fails_The_Command_And_A_Failure_Always_Does
      (T : in out Test_Cases_Class)
@@ -45,6 +45,46 @@ package body Synapse.Core.Doctor.Tests is
          "1 ok, 1 warning(s), 1 failure(s)" & LF,
          "the report");
    end The_Report_Puts_The_Status_First_And_Aligns_The_Details;
+
+   procedure A_Key_Is_The_Name_As_A_Program_Refers_To_It
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert (Key_Of ("git") = "git", "a word as it is");
+      Assert (Key_Of ("work dir") = "work-dir", "a space is a hyphen");
+      Assert (Key_Of ("Hook Wiring") = "hook-wiring", "lower case");
+      Assert (Key_Of ("") = "", "nothing");
+   end A_Key_Is_The_Name_As_A_Program_Refers_To_It;
+
+   procedure The_Json_Report_Has_Each_Check_And_The_Counts
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Checks : Check_Vectors.Vector;
+      Item   : Check := Make ("work dir", Warn, "no ""cache"" yet");
+   begin
+      Item.Value := To_Unbounded_String ("/w");
+      Checks.Append (Make ("git", Ok, "git version 2"));
+      Checks.Append (Item);
+      Checks.Append (Make ("vault", Fail));
+      Assert
+        (Json (Checks) =
+         "{""format"":""synapse-doctor/v1"",""checks"":["
+         & "{""key"":""git"",""name"":""git"",""status"":""ok"","
+         & """detail"":""git version 2"",""value"":""""},"
+         & "{""key"":""work-dir"",""name"":""work dir"",""status"":""warn"","
+         & """detail"":""no \""cache\"" yet"",""value"":""/w""},"
+         & "{""key"":""vault"",""name"":""vault"",""status"":""fail"","
+         & """detail"":"""",""value"":""""}],"
+         & """counts"":{""ok"":1,""warn"":1,""fail"":1}}",
+         "the document: " & Json (Checks));
+      Assert
+        (Json (Check_Vectors.Empty_Vector) =
+         "{""format"":""synapse-doctor/v1"",""checks"":[],"
+         & """counts"":{""ok"":0,""warn"":0,""fail"":0}}",
+         "nothing checked");
+   end The_Json_Report_Has_Each_Check_And_The_Counts;
 
    procedure A_Check_With_No_Detail_Prints_Only_Its_Name
      (T : in out Test_Cases_Class)
@@ -100,6 +140,12 @@ package body Synapse.Core.Doctor.Tests is
       Register_Routine
         (T, The_Report_Puts_The_Status_First_And_Aligns_The_Details'Access,
          "The report puts the status first and aligns the details");
+      Register_Routine
+        (T, A_Key_Is_The_Name_As_A_Program_Refers_To_It'Access,
+         "A key is the name as a program refers to it");
+      Register_Routine
+        (T, The_Json_Report_Has_Each_Check_And_The_Counts'Access,
+         "The JSON report has each check and the counts");
       Register_Routine
         (T, A_Check_With_No_Detail_Prints_Only_Its_Name'Access,
          "A check with no detail prints only its name");

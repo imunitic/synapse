@@ -66,8 +66,28 @@ package body Synapse.Pipeline.Recorders is
       R.Context.Start (Id, Description, Initial);
       if R.Registered then
          Write_Summary (R, Initial);
+         declare
+            Written : constant Boolean :=
+              R.Store.Write_Description (Id, JSON.To_String (Description));
+            pragma Unreferenced (Written);
+         begin
+            null;
+         end;
       end if;
    end Start;
+
+   procedure Record_Definition (R : in out Recorder; Path, Content : String) is
+   begin
+      if R.Registered then
+         declare
+            Written : constant Boolean :=
+              R.Store.Write_Definition (To_String (R.Id), Path, Content);
+            pragma Unreferenced (Written);
+         begin
+            null;
+         end;
+      end if;
+   end Record_Definition;
 
    procedure Publish (R : in out Recorder; Item : States.State) is
    begin

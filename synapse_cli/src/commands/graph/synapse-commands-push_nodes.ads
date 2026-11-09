@@ -1,7 +1,7 @@
 with Synapse.Commands.Context;
 
 --  `push-nodes [NN ...]`: one node written for each authored body, pairing
---  `$SYNAPSE_WORK_DIR/b-NN.md` with `lists/NN.txt` and `lists/NN.title`.
+--  `<work dir>/b-NN.md` with `lists/NN.txt` and `lists/NN.title`.
 --  With no numbers the nodes are the union of the staged lists and the
 --  authored bodies, so a node with no body reports as skipped and does not
 --  vanish. Any node that fails makes the run fail, and so does a run that

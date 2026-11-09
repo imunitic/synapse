@@ -43,8 +43,8 @@ package body Synapse.Commands.Query.Tests is
    procedure Work (Dir : Scratch; Name, Text : String) is
    begin
       Ada.Directories.Create_Path
-        (Ada.Directories.Containing_Directory (Path (Dir, "work/" & Name)));
-      Synapse.Adapters.File_Bytes.Write (Path (Dir, "work/" & Name), Text);
+        (Ada.Directories.Containing_Directory (Path (Dir, Synapse.Test_Repo.Work_Rel & "/" & Name)));
+      Synapse.Adapters.File_Bytes.Write (Path (Dir, Synapse.Test_Repo.Work_Rel & "/" & Name), Text);
    end Work;
 
    function Node_Path (Dir : Scratch; File : String) return String is
@@ -73,7 +73,8 @@ package body Synapse.Commands.Query.Tests is
         (Dir, "graph-node/v1",
          Synapse.Adapters.File_Bytes.Read
            ("../../packages/synapse/schema/graph-node/v1.yaml", 100_000));
-      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, "work"));
+      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, Synapse.Test_Repo.Root_Rel));
+      F.Vars.Set ("SYNAPSE_NAMESPACE", Synapse.Test_Repo.Namespace);
       Put_File (Dir, "src/engine.ext", Engine_Source);
       Put_File (Dir, "src/render.ext", "paint" & LF);
       Put_File (Dir, "README.md", "hello" & LF);
@@ -501,7 +502,7 @@ package body Synapse.Commands.Query.Tests is
       Assert
         (Run
            (Env (F),
-            Args ("field", "--file", Path (Dir, "work/b-001.md"), "summary")) =
+            Args ("field", "--file", Path (Dir, Synapse.Test_Repo.Work_Rel & "/b-001.md"), "summary")) =
          0,
          "success");
       Assert
@@ -514,7 +515,7 @@ package body Synapse.Commands.Query.Tests is
          1,
          "no such file");
       Assert
-        (Run (Env (F), Args ("field", "--file", Path (Dir, "work/b-001.md"))) =
+        (Run (Env (F), Args ("field", "--file", Path (Dir, Synapse.Test_Repo.Work_Rel & "/b-001.md"))) =
          2,
          "no key");
       Remove (Dir);
@@ -575,12 +576,12 @@ package body Synapse.Commands.Query.Tests is
       F   : aliased Fixture;
    begin
       Setup (F, Dir);
-      Ada.Directories.Delete_File (Path (Dir, "work/_index.bin"));
+      Ada.Directories.Delete_File (Path (Dir, Synapse.Test_Repo.Work_Rel & "/_index.bin"));
       Assert
         (Run (Env (F), Args ("stale")) = 0, "no index file lists no nodes");
       Assert (F.Console.Out_Text = "", "and says nothing");
       Synapse.Adapters.File_Bytes.Write
-        (Path (Dir, "work/_index.bin"), "junk");
+        (Path (Dir, Synapse.Test_Repo.Work_Rel & "/_index.bin"), "junk");
       Assert (Run (Env (F), Args ("stale")) = 1, "a damaged index");
       Assert (Run (Env (F), Args ("stale", "x")) = 2, "takes nothing");
       Remove (Dir);
@@ -716,7 +717,7 @@ package body Synapse.Commands.Query.Tests is
             LF),
          "uncovered: " & F.Console.Out_Text);
       F.Console.Clear;
-      Ada.Directories.Delete_File (Path (Dir, "work/manifest.tsv"));
+      Ada.Directories.Delete_File (Path (Dir, Synapse.Test_Repo.Work_Rel & "/manifest.tsv"));
       Assert (Run (Env (F), Args ("drift")) = 0, "no manifest");
       Assert
         (Has

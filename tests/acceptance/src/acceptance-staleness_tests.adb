@@ -37,7 +37,7 @@ package body Acceptance.Staleness_Tests is
       pragma Unreferenced (T);
       F : Fixture;
    begin
-      Set_Env (F, "SYNAPSE_WORK_DIR", Work (F));
+      Set_Env (F, "SYNAPSE_WORK_DIR", Work_Root (F));
       Make_Repo (F);
       declare
          Name : constant String := Repo_Name (F);

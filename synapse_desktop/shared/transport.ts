@@ -1,0 +1,443 @@
+// The contract between the UI and whatever gives it access to the machine: the
+// local Node server in the web phase, Tauri commands later. The UI and the
+// domain layer depend on this interface only.
+
+export type Unsubscribe = () => void
+
+export type Harness = 'Claude' | 'Codex' | 'Opencode'
+
+export interface DirEntry {
+  name: string
+  isDir: boolean
+  mtimeMs: number
+}
+
+export interface AppConfig {
+  // Where runs keep their records; null until set.
+  workDir: string | null
+  // Directories of .synapse files besides the default one.
+  definitionPaths: string[]
+  defaultHarness: Harness | null
+  // The model each harness is asked to use when nothing says another; none is its own default.
+  defaultModels: Partial<Record<Harness, string>>
+  // Variables set for every process the app starts, over those it was started
+  // with.
+  env: Record<string, string>
+  // Vaults the app has switched to, newest first.
+  recentVaults: string[]
+  // Where a new terminal starts; the home folder without one.
+  terminalFolder: string | null
+  // The folder of the repository a code graph was built from, by namespace.
+  graphRepos: Record<string, string>
+}
+
+// What a folder that may be a vault holds.
+export interface VaultInfo {
+  // The folder asked about, with a leading ~ made the home folder.
+  path: string
+  // The folder is there.
+  exists: boolean
+  hasIndex: boolean
+  isGit: boolean
+  // Markdown files outside the folders that start with a dot.
+  notes: number
+  // The count stopped before the end of the folder.
+  capped: boolean
+}
+
+// What a running pipeline answers over its socket (a named pipe on Windows):
+// one request, one answer.
+export type RunRequest =
+  | { command: 'info' }
+  | { command: 'state' }
+  | { command: 'pipeline' }
+  | { command: 'events'; after?: number }
+  | { command: 'query'; expression: unknown }
+
+// Where the app looks, with only the directories that exist.
+export interface AppPaths {
+  // Directories of .synapse files.
+  definitionDirs: string[]
+  skillsDir: string | null
+  // The work directory's pipelines folder, where each run keeps its record.
+  recordsDir: string | null
+}
+
+export type RunAnswer = { ok: true; result: unknown } | { ok: false; error: string }
+
+// Text that is being written and is not saved: a pipeline, a system or an agent.
+export interface DraftDefinition {
+  kind: 'pipeline' | 'system' | 'agent'
+  // The name the text declares, which is the name of its file.
+  name: string
+  text: string
+}
+
+// A definition file, or the SKILL.md of a skill, to be made.
+export interface NewDefinition {
+  kind: 'definition' | 'skill'
+  name: string
+  text: string
+}
+
+// A description to have an agent write a definition from. What exists is given
+// so that the text reuses it and does not take a name that is used.
+export interface GenerateRequest {
+  kind: 'pipeline' | 'system' | 'agent' | 'skill'
+  prompt: string
+  // The harness that writes it; the default harness when absent.
+  harness?: Harness
+  // The model it is asked to use; the default model of the harness when absent.
+  model?: string
+  // The text to change, when the prompt asks for a change to a definition that
+  // exists and not for a new one.
+  current?: string
+  definitions: { name: string; kind: 'pipeline' | 'system' | 'agent' }[]
+  skills: string[]
+}
+
+// The kinds of note an agent can be asked to write.
+export type NoteKind = 'note' | 'task' | 'design'
+
+// What an agent's change to a note left: the note as it was and as it is, to be shown
+// and undone, and the other notes that moved, which a change should not touch.
+export interface NoteEdit {
+  before: string
+  after: string
+  touched: string[]
+}
+
+// A description of a change to a note that is there already.
+export interface EditNoteRequest {
+  path: string
+  prompt: string
+  // The harness that changes it; the default harness when absent.
+  harness?: Harness
+  // The model it is asked to use; the default model of the harness when absent.
+  model?: string
+}
+
+// A project of the vault's notes: its name is the folder, its prefix is in each id.
+export interface Project {
+  name: string
+  prefix: string
+}
+
+export interface ProjectList {
+  projects: Project[]
+  file: string
+}
+
+// One of Synapse's `synapse-*.conf` files, as a card of the Conventions page: what
+// Synapse has learned or been told, mostly written by an agent and sometimes by a person.
+export type ConventionGroup = 'Vault' | 'Code graph' | 'Prompts'
+
+export interface ConventionEntry {
+  // A line of the file, or for a file of JSON the key of an entry.
+  text: string
+  // For a file of JSON, the entry's value as one line.
+  detail?: string
+}
+
+export interface Convention {
+  id: string
+  group: ConventionGroup
+  title: string
+  about: string
+  // Where the file is, or where it is made when the first entry is added.
+  file: string
+  exists: boolean
+  // Whether entries can be added and removed here. A file of JSON is shown as it is.
+  editable: boolean
+  entries: ConventionEntry[]
+  // Why the file could not be read, when it could not.
+  problem: string | null
+}
+
+export interface ConventionList {
+  conventions: Convention[]
+}
+
+// One thing `synapse doctor` found: what was looked at, whether it is fine, what was found or
+// is wrong and how to fix it, and for a program or a file where it is.
+export interface DoctorFinding {
+  // Stable; the name is for a reader and may be reworded.
+  key: string
+  name: string
+  status: 'ok' | 'warn' | 'fail'
+  detail: string
+  // The path of the program or file found, empty when there is none.
+  value: string
+}
+
+export interface Diagnosis {
+  findings: DoctorFinding[]
+  counts: { ok: number; warn: number; fail: number }
+}
+
+// A description to have an agent write a note of the vault from.
+export interface NoteRequest {
+  kind: NoteKind
+  prompt: string
+  // The project of a task or design note, by name; the agent matches one when absent.
+  project?: string
+  // The harness that writes it; the default harness when absent.
+  harness?: Harness
+  // The model it is asked to use; the default model of the harness when absent.
+  model?: string
+}
+
+export type TerminalKind = 'Shell' | Harness
+
+// A folder a harness already works in, and when it was last used there, when it says.
+export interface Workspace {
+  path: string
+  lastUsed: string | null
+}
+
+export type Workspaces = Record<Harness, Workspace[]>
+
+// A model a harness can be asked to use, as its own list names it.
+export interface ModelOption {
+  id: string
+  // The provider it is served by, when the name says.
+  provider: string | null
+  // Whether it can be used now: a provider that is not connected has models that are listed and
+  // would fail.
+  available: boolean
+  // A line about it, when its harness gives one: what the model is for.
+  detail: string | null
+}
+
+// The models of a harness. A harness with no list has none here, and a name is typed.
+export interface ModelCatalog {
+  models: ModelOption[]
+  // What to tell the person about the list, such as why it is empty.
+  note: string | null
+  // When the list was read from the harness, which is not when it was asked for: it is kept between
+  // runs of the app. Null for a list that could not be read.
+  readAt: string | null
+}
+
+// A session a harness has kept, to be resumed in the folder it was held in.
+export interface PastSession {
+  id: string
+  // The folder it was held in.
+  path: string
+  title: string | null
+  lastUsed: string | null
+}
+
+export type PastSessions = Record<Harness, PastSession[]>
+
+// What a session of a harness is started to do: build a code graph, rebuild what
+// changed in it, or rebuild it from scratch.
+export type TerminalTask = 'init' | 'rebuild-diff' | 'rebuild-full'
+
+export interface TerminalStart {
+  kind: TerminalKind
+  // Where to start it; the home folder without one.
+  cwd?: string
+  // What a harness is started to do, given to it as its first prompt.
+  task?: TerminalTask
+  // The id of a session of that harness to continue, as `listSessions` gives it.
+  resume?: string
+  cols: number
+  rows: number
+}
+
+export interface TerminalListener {
+  onStarted(info: { loaded: boolean; note: string }): void
+  onOutput(data: string): void
+  // The program ended, with its exit code.
+  onExit(code: number): void
+  // The session could not start, or the connection failed.
+  onError(message: string): void
+  // The conversation of a harness started in the session: its source is made
+  // known, and then lines of its session file come as they are appended.
+  onTranscript(event: TerminalTranscript): void
+}
+
+export type TerminalTranscript =
+  | { kind: 'source'; id: string; harness: 'Claude' | 'Codex' | 'Opencode'; cwd: string }
+  | { kind: 'lines'; id: string; lines: string[] }
+
+export interface TerminalHandle {
+  write(data: string): void
+  resize(cols: number, rows: number): void
+  // Ends the session and the program with it.
+  close(): void
+}
+
+// Whether a harness has Synapse installed, and from where.
+export type IntegrationState =
+  // The harness has no hook of Synapse.
+  | 'absent'
+  // The hook is the one of the Synapse this app runs, or of the same version.
+  | 'current'
+  // The hook is of another copy, or another version.
+  | 'different'
+  // The harness names a hook program that is not there.
+  | 'broken'
+  // There is a hook, and no Synapse of the app's own to compare it with.
+  | 'installed'
+  // The hook is of a newer version than the Synapse the app has.
+  | 'newer'
+
+export interface Integration {
+  harness: Harness
+  state: IntegrationState
+  // The hook program the harness runs, as it names it.
+  hook: string | null
+  // The version of the Synapse that program belongs to.
+  version: string | null
+}
+
+// The Synapse this app would install, found as the programs on PATH and the
+// packages they belong to.
+export interface BundledSynapse {
+  version: string | null
+  hook: string | null
+  contentRoot: string | null
+  pipelineRoot: string | null
+}
+
+export interface Integrations {
+  bundled: BundledSynapse
+  harnesses: Integration[]
+}
+
+// What a folder says about the code graph it is the repository of.
+// The checkouts found that are on a graph's namespace.
+export interface GraphRepoMatches {
+  paths: string[]
+}
+
+export interface GraphRepoCheck {
+  // The `<repo>@<branch>` of the folder as it is checked out now, or null when
+  // it is not a repository on a branch.
+  key: string | null
+  // Why there is no key.
+  error: string | null
+}
+
+// A finding about a node of a graph, or about the repository as a whole.
+export interface GraphFinding {
+  // The node's name, or `(repo)` for the repository.
+  node: string
+  reason: string
+}
+
+// What one of the health checks found, or why it could not run.
+export type GraphCheck = { ok: true; findings: GraphFinding[] } | { ok: false; error: string }
+
+export interface GraphHealth {
+  // Nodes whose files no longer match what they were written from.
+  stale: GraphCheck
+  // What changed since each node's commit.
+  drift: GraphCheck
+  // Nodes whose evidence no longer matches.
+  grounding: GraphCheck
+}
+
+// What deleting a graph, or cleaning up the graphs of branches that are gone,
+// would remove: the lines the program prints for a dry run.
+export interface GraphPlan {
+  lines: string[]
+}
+
+export type CliBinary = 'synapse-pipeline' | 'synapse'
+
+export interface CliOptions {
+  stdin?: string
+}
+
+export interface CliResult {
+  code: number
+  stdout: string
+  stderr: string
+}
+
+export interface Transport {
+  // Files, limited to the allowed roots: the work directory's pipelines folder
+  // and the definition directories.
+  readText(path: string): Promise<string>
+  readDir(path: string): Promise<DirEntry[]>
+  watch(path: string, onChange: () => void): Unsubscribe
+
+  runRequest(executionId: string, request: RunRequest): Promise<RunAnswer>
+
+  // A typed allowlist of binaries and subcommands, never a generic exec.
+  cli(binary: CliBinary, args: string[], options?: CliOptions): Promise<CliResult>
+  // What `synapse-pipeline` says about the draft as if it were saved among the
+  // definitions: `show --format json` for a pipeline, and `check` of a pipeline
+  // that stands for the others, whose warnings name the draft when it is wrong.
+  previewDraft(draft: DraftDefinition): Promise<CliResult>
+  // Makes the file in the default definition directory. It never replaces one.
+  writeDefinition(item: NewDefinition): Promise<{ path: string }>
+
+  // The text of a definition, or of a skill's SKILL.md, that an agent wrote from
+  // the description. Nothing is saved.
+  // Replaces the text of a definition file, or a skill's SKILL.md, in the
+  // definition directories. It is refused when the file no longer holds what
+  // `previous` says it did.
+  saveDefinition(path: string, previous: string, text: string): Promise<void>
+  generateDefinition(request: GenerateRequest): Promise<{ text: string }>
+  // Has an agent write a note of the vault; the note's path when it is written.
+  createNote(request: NoteRequest): Promise<{ path: string }>
+  // Has an agent change a note that exists, and puts the text from before back.
+  editNote(request: EditNoteRequest): Promise<NoteEdit>
+  restoreNote(path: string, before: string, after: string): Promise<void>
+  // The projects of this machine's synapse-projects.conf, and one more added to it.
+  // The file they are in is answered too, for a person who would edit it by hand.
+  listProjects(): Promise<ProjectList>
+  addProject(name: string, prefix: string): Promise<ProjectList>
+  // The configuration files Synapse keeps, with their entries; and one entry added to
+  // or removed from a file that can be changed here, which answers with the list again.
+  // What `synapse doctor` says of the install, with the PATH of the user's login shell.
+  getDiagnosis(): Promise<Diagnosis>
+  listWorkspaces(): Promise<Workspaces>
+  listModels(harness: Harness): Promise<ModelCatalog>
+  // Reads the list from the harness again, as it is now, and keeps it.
+  refreshModels(harness: Harness): Promise<ModelCatalog>
+  listSessions(): Promise<PastSessions>
+  // Makes a folder a vault when it is not one: the folder, and the `Index.md` that the
+  // package ships a template of. What is there is left as it is.
+  seedVault(path: string): Promise<VaultInfo>
+  listConventions(): Promise<ConventionList>
+  addConvention(id: string, entry: string): Promise<ConventionList>
+  removeConvention(id: string, entry: string): Promise<ConventionList>
+
+  // Starts the user's login shell, or a harness, in a pty. The bundled Synapse is
+  // loaded for the session, or for the harnesses started from the shell, unless
+  // a harness has it installed. What the program prints comes to the
+  // listener; what is typed goes through the handle.
+  openTerminal(start: TerminalStart, listener: TerminalListener): TerminalHandle
+
+  startRun(pipeline: string, input: unknown): Promise<{ executionId: string }>
+  // Only for runs this app started.
+  stopRun(executionId: string): Promise<void>
+
+  // Looks at a folder, which may be anywhere, and changes nothing.
+  inspectVault(path: string): Promise<VaultInfo>
+
+  // What each harness has installed of Synapse, and what this app would install.
+  getIntegrations(): Promise<Integrations>
+
+  // The namespace of a folder that is the repository of a graph.
+  checkGraphRepo(path: string): Promise<GraphRepoCheck>
+  // The checkouts next to the saved ones that are on this namespace now.
+  findGraphRepos(namespace: string): Promise<GraphRepoMatches>
+  // Reads a graph against the repository saved for its namespace.
+  graphHealth(namespace: string): Promise<GraphHealth>
+  // What deleting the graph of a namespace would remove, and then removing it.
+  planGraphDrop(namespace: string): Promise<GraphPlan>
+  dropGraph(namespace: string): Promise<{ output: string }>
+  // The same for the graphs of the saved repository whose branch is gone upstream.
+  planGraphClean(namespace: string): Promise<GraphPlan>
+  cleanGraphs(namespace: string): Promise<{ output: string }>
+
+  getConfig(): Promise<AppConfig>
+  getPaths(): Promise<AppPaths>
+  setConfig(patch: Partial<AppConfig>): Promise<AppConfig>
+}

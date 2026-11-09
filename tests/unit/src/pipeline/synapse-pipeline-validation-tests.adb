@@ -458,6 +458,125 @@ package body Synapse.Pipeline.Validation.Tests is
       end;
    end An_Edge_To_End_Needs_No_Step_And_No_Bound;
 
+   procedure A_Step_That_Declares_Outcomes_Is_Held_To_Them
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Declared.synapse",
+         "Pipeline Declared { A [Prompt => ""x"", Outcomes => "
+         & "{""Done"": ""It is done."", ""Blocked"": ""It cannot go on.""}];"
+         & " B [Prompt => ""x""];"
+         & " A -> B [When => Done];"
+         & " A -> End [When => {""=="": [{""var"": ""outcome""}, ""Blocked""]}];"
+         & " A -> End [When => {"">"": [{""var"": ""data.n""}, 0]}]; }");
+      Assert_Count
+        (Problems_Of (F, "Declared"), 0,
+         "declared words, and a rule over data that is not about outcomes");
+      F.Add_File
+        ("/defs/Misspelt.synapse",
+         "Pipeline Misspelt { A [Prompt => ""x"", Outcomes => "
+         & "{""Done"": ""It is done.""}]; B [Prompt => ""x""];"
+         & " A -> B [When => Dnoe];"
+         & " A -> End [When => {""=="": [{""var"": ""outcome""}, ""Nope""]}]; }");
+      declare
+         P : constant Problem_List := Problems_Of (F, "Misspelt");
+      begin
+         Assert_Count (P, 2, "both guards name words that are not declared");
+         Assert_Has
+           (P, "/defs/Misspelt.synapse",
+            "step 'A' does not declare the outcome 'Dnoe'", "a bare name");
+         Assert_Has
+           (P, "/defs/Misspelt.synapse",
+            "step 'A' does not declare the outcome 'Nope'", "a rule");
+      end;
+   end A_Step_That_Declares_Outcomes_Is_Held_To_Them;
+
+   procedure Outcomes_Come_From_The_Step_Else_Its_System
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Judge.synapse",
+         "System Judge [Prompt => ""Judge."", Harness => Claude, Outcomes => "
+         & "{""Approved"": ""Fine."", ""Rejected"": ""Not fine.""}];");
+      F.Add_File
+        ("/defs/Judged.synapse",
+         "Pipeline Judged { A [System => Judge]; B [Prompt => ""x""];"
+         & " C [System => Judge, Outcomes => {""Maybe"": ""Unsure.""}];"
+         & " A -> B [When => Approved]; A -> B [When => Maybe];"
+         & " C -> End [When => Maybe]; C -> End [When => Approved]; }");
+      declare
+         P : constant Problem_List := Problems_Of (F, "Judged");
+      begin
+         Assert_Count (P, 2, "A holds its system's words, C holds its own");
+         Assert_Has
+           (P, "/defs/Judged.synapse",
+            "step 'A' does not declare the outcome 'Maybe'",
+            "the system's set");
+         Assert_Has
+           (P, "/defs/Judged.synapse",
+            "step 'C' does not declare the outcome 'Approved'",
+            "the step's own set replaces the system's");
+      end;
+   end Outcomes_Come_From_The_Step_Else_Its_System;
+
+   procedure A_Step_Without_Outcomes_Is_Not_Held_To_Any
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Free.synapse",
+         "Pipeline Free { A [Prompt => ""x""]; B [Prompt => ""x""];"
+         & " A -> B [When => Anything_At_All]; }");
+      Assert_Count
+        (Problems_Of (F, "Free"), 0, "any word is fine when none is declared");
+   end A_Step_Without_Outcomes_Is_Not_Held_To_Any;
+
+   procedure Advice_Names_A_Step_That_Tests_Outcomes_It_Never_Declared
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Files.Fake_Files;
+
+      function Advice_For (Name : String) return Problem_List is
+        (Advise (Definitions.Load (F, Defs_Roots).Definitions, Name));
+   begin
+      Add_Sound_Files (F);
+      F.Add_File
+        ("/defs/Free.synapse",
+         "Pipeline Free { A [Prompt => ""x""]; B [Prompt => ""x""];"
+         & " A -> B [When => Done]; A -> End [When => Stop]; }");
+      declare
+         P : constant Problem_List := Advice_For ("Free");
+      begin
+         Assert_Count (P, 1, "once for the step, not once for each edge");
+         Assert_Has
+           (P, "/defs/Free.synapse",
+            "step 'A' has edges that test its outcome but declares no "
+            & "Outcomes", "the step is named");
+      end;
+      F.Add_File
+        ("/defs/Careful.synapse",
+         "Pipeline Careful { A [Prompt => ""x"", Outcomes => "
+         & "{""Done"": ""It is done.""}]; B [Prompt => ""x""];"
+         & " A -> B [When => Done]; B -> End [When => {"">"": "
+         & "[{""var"": ""data.n""}, 0]}]; B -> End; }");
+      Assert_Count
+        (Advice_For ("Careful"), 0,
+         "a step that declares them, a rule over data and no guard");
+      Assert_Count (Advice_For ("Nothing_Like_It"), 0, "no such pipeline");
+   end Advice_Names_A_Step_That_Tests_Outcomes_It_Never_Declared;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -513,6 +632,18 @@ package body Synapse.Pipeline.Validation.Tests is
       Register_Routine
         (T, An_Edge_To_End_Needs_No_Step_And_No_Bound'Access,
          "An edge to End needs no step and no bound");
+      Register_Routine
+        (T, A_Step_That_Declares_Outcomes_Is_Held_To_Them'Access,
+         "A step that declares outcomes is held to them");
+      Register_Routine
+        (T, Outcomes_Come_From_The_Step_Else_Its_System'Access,
+         "Outcomes come from the step, else its system");
+      Register_Routine
+        (T, A_Step_Without_Outcomes_Is_Not_Held_To_Any'Access,
+         "A step without outcomes is not held to any");
+      Register_Routine
+        (T, Advice_Names_A_Step_That_Tests_Outcomes_It_Never_Declared'Access,
+         "Advice names a step that tests outcomes it never declared");
    end Register_Tests;
 
 end Synapse.Pipeline.Validation.Tests;

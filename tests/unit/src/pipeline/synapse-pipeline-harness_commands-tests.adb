@@ -93,7 +93,8 @@ package body Synapse.Pipeline.Harness_Commands.Tests is
    begin
       Assert (To_String (Made.Program) = "claude", "the program");
       Assert
-        (Has (Args, "-p ") and then Has (Args, "--output-format json ")
+        (Has (Args, "-p ")
+         and then Has (Args, "--output-format stream-json --verbose ")
          and then Has (Args, "--json-schema {""type"":""object""")
          and then Has (Args, "--no-session-persistence")
          and then Has (Args, "--model m1"),
@@ -235,6 +236,32 @@ package body Synapse.Pipeline.Harness_Commands.Tests is
          "the input tokens include what was cached");
    end A_Claude_Answer_Is_Its_Structured_Output;
 
+   --  The events Claude writes before its result are not the answer, whatever
+   --  they hold.
+   procedure A_Claude_Answer_Is_Read_From_The_Result_Of_A_Stream
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Stream : constant String :=
+        J ("{'type':'system','subtype':'init'}") & LF
+        & J ("{'type':'assistant','message':{'content':[{'type':'tool_use',"
+             & "'name':'Read','input':{'file_path':'a'}}]}}") & LF
+        & J ("{'type':'user','is_error':true,'message':{'content':[]}}") & LF
+        & Claude_Done & LF;
+      Said   : constant Reply := Interpret (Harnesses.Claude, Ended (Stream));
+      Cut    : constant Reply :=
+        Interpret
+          (Harnesses.Claude,
+           Ended (J ("{'type':'system','subtype':'init'}") & LF, Code => 1));
+   begin
+      Assert (Said.Succeeded, "it succeeded");
+      Assert
+        (To_String (Said.Answer) =
+         J ("{'outcome':'Done','summary':'hi','data':{}}"),
+         "the answer is that of the result: " & To_String (Said.Answer));
+      Assert (not Cut.Succeeded, "a stream with no result is a failure");
+   end A_Claude_Answer_Is_Read_From_The_Result_Of_A_Stream;
+
    procedure Without_Structured_Output_The_Result_Text_Is_The_Answer
      (T : in out Test_Cases_Class)
    is
@@ -242,7 +269,8 @@ package body Synapse.Pipeline.Harness_Commands.Tests is
       Said : constant Reply :=
         Interpret
           (Harnesses.Claude,
-           Ended (J ("{'is_error':false,'result':'the text'}")));
+           Ended (J ("{'type':'result',"
+             & "'is_error':false,'result':'the text'}")));
    begin
       Assert
         (Said.Succeeded and then To_String (Said.Answer) = "the text",
@@ -257,17 +285,20 @@ package body Synapse.Pipeline.Harness_Commands.Tests is
         Interpret
           (Harnesses.Claude,
            Ended
-             (J ("{'is_error':true,'subtype':'error_during_execution',"
+             (J ("{'type':'result',"
+               & "'is_error':true,'subtype':'error_during_execution',"
                  & "'result':'You have hit your limit - resets 3pm "
                  & "(Europe/Zagreb)'}")));
       Status : constant Reply :=
         Interpret
           (Harnesses.Claude,
-           Ended (J ("{'is_error':true,'api_error_status':429,'result':'x'}")));
+           Ended (J ("{'type':'result',"
+             & "'is_error':true,'api_error_status':429,'result':'x'}")));
       Other  : constant Reply :=
         Interpret
           (Harnesses.Claude,
-           Ended (J ("{'is_error':true,'result':'the model broke'}")));
+           Ended (J ("{'type':'result',"
+             & "'is_error':true,'result':'the model broke'}")));
    begin
       Assert
         (not Limit.Succeeded
@@ -462,6 +493,9 @@ package body Synapse.Pipeline.Harness_Commands.Tests is
       Register_Routine
         (T, A_Claude_Answer_Is_Its_Structured_Output'Access,
          "A Claude answer is its structured output");
+      Register_Routine
+        (T, A_Claude_Answer_Is_Read_From_The_Result_Of_A_Stream'Access,
+         "A Claude answer is read from the result of a stream");
       Register_Routine
         (T, Without_Structured_Output_The_Result_Text_Is_The_Answer'Access,
          "Without structured output the result text is the answer");

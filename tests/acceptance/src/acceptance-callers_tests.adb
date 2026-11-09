@@ -41,7 +41,7 @@ package body Acceptance.Callers_Tests is
       F : Fixture;
    begin
       Make_Repo (F, "ssh://git@example.invalid/x/repo.git");
-      Set_Env (F, "SYNAPSE_WORK_DIR", Work (F));
+      Set_Env (F, "SYNAPSE_WORK_DIR", Work_Root (F));
       Seed_Index (F, Work (F));
 
       --  No vault is configured, and no vault directory exists.

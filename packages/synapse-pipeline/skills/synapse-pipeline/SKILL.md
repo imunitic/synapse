@@ -34,8 +34,9 @@ A pipeline that stands alone is one file, with the role at the start of each ste
 ```
 -- Develop_Feature.synapse
 Pipeline Develop_Feature {
-   Develop [Harness => Claude, Prompt => "You are a careful engineer. Implement the supplied task and change nothing else. Report the outcome Done."];
-   Review  [Harness => Codex, Permissions => Read_Only, Prompt => "You are a reviewer. Find what is wrong with the change; do not fix it. Report the outcome Approved, or Changes_Requested with the problems in data."];
+   Develop [Harness => Claude, Prompt => "You are a careful engineer. Implement the supplied task and change nothing else."];
+   Review  [Harness => Codex, Permissions => Read_Only, Prompt => "You are a reviewer. Find what is wrong with the change; do not fix it. Put the problems in data.",
+            Outcomes => {"Approved": "Every requirement is met and the tests pass. Choose this only if you found nothing to fix.", "Changes_Requested": "At least one requirement is unmet or a test fails. List each problem in data.problems."}];
    Review -> Develop [When => Changes_Requested, Max_Iterations => 5];
 }
 ```
@@ -45,7 +46,8 @@ A pipeline that should stop when a condition is not met ends early by routing to
 ```
 -- Ready_Gate.synapse
 Pipeline Ready_Gate {
-   Check [Harness => Claude, Permissions => Read_Only, Prompt => "Look at the design note. Report the outcome Ready if its status is Ready, otherwise Discussing."];
+   Check [Harness => Claude, Permissions => Read_Only, Prompt => "Look at the design note and say whether it is ready to build.",
+          Outcomes => {"Ready": "The note's status is Ready and its Open Questions section is empty.", "Discussing": "The status is anything other than Ready, or a question is still open."}];
    Build [Harness => Claude, Prompt => "Implement the design note."];
    Check -> End [When => Discussing];
 }
@@ -85,6 +87,7 @@ Pipeline Review_Change {
 | `Permissions` | step, system | `Read_Only`, `Workspace_Write` (default) or `Full_Access` |
 | `Timeout` | step, system | quoted duration: `"90s"`, `"30m"`, `"2h"` (default 30 minutes) |
 | `Retries` | step, system | integer: extra tries after an execution error or an invalid result |
+| `Outcomes` | step, system | JSON object from each outcome word to a one-line meaning (optional, see below) |
 | `When` | edge | outcome name, or a JsonLogic rule |
 | `Max_Iterations` | edge | integer, at least 1 |
 
@@ -94,7 +97,7 @@ How a step is built: its own attributes override its system's; a `Prompt` or `Sk
 
 Every step ends with one result, `{"outcome": "<Word>", "summary": "<text>", "data": {...}}`. `outcome` is a single word naming what happened, `summary` is for a person, `data` is an object (empty when nothing is handed on). Any other member makes the result invalid. The next step is given the pipeline's input and the previous step's result.
 
-**The agent never picks the next step; guards on the outcome do.** So every step's prompt must state the exact outcome words it may report and when, using the same spelling as the `When` guards that route on them. A guard that names a word no step reports never fires. Say which fields `data` holds when a later step or guard reads them.
+**The agent never picks the next step; guards on the outcome do.** So the words a step may report must match the words its `When` guards test, and a guard that names a word no step reports never fires. The safe way is to give the step `Outcomes`, a JSON object from each word to a line saying what it means: the program then puts the words and meanings into the step's prompt itself, `check` rejects a guard that tests a word the step does not declare, and an answer with another word fails as a contract failure and is tried again as `Retries` says. A prompt or skill need not name the words, so one skill can serve pipelines that use different words. A word is a letter, then letters, digits and underscores. The meaning is the only guidance the session gets on when to choose the word, so write the condition for choosing it, not a restatement of the word (not `Done: It is done.`), and say what `data` holds when something reads it. A step takes its own `Outcomes`, else its system's; an agent has none. `Outcomes` is optional, but use it on every step whose outcome an edge tests: `check` warns when a step has such edges and declares none. Without `Outcomes` the outcome is any word, and the step's prompt must state the exact words it may report and when, spelled as in the `When` guards. Say which fields `data` holds when a later step or guard reads them.
 
 - `When => Changes_Requested` is shorthand for `{"==": [{"var": "outcome"}, "Changes_Requested"]}`.
 - `When => {">": [{"var": "data.failing"}, 0]}` is a JsonLogic rule over `outcome`, `summary` and `data` only; a missing field reads as `null`; a `var` path follows object members, not list positions. It must give true or false.
@@ -138,7 +141,7 @@ An answer may instead be a failure, `{"fail": "timeout"}` (also `execution_error
 
 A run takes as long as its sessions do, often many minutes, so **run it as a background job** and watch it, instead of blocking on it. Use the host's own facility for a background command (in Claude Code, a Bash call with `run_in_background`).
 
-1. **Make the run inspectable.** Set `SYNAPSE_WORK_DIR` for the job to an existing directory with a **short path**: the run listens on `$SYNAPSE_WORK_DIR/pipelines/<execution-id>/execution.sock`, and a Unix socket path over 100 bytes cannot be made (a long scratch path gives "introspection is unavailable" on standard error, and the run goes on uninspectable). A directory made with `mktemp -d` under `/tmp` is short enough. Give the monitoring commands the same `SYNAPSE_WORK_DIR`. On Windows the run listens on a named pipe, which has no path limit.
+1. **Make the run inspectable.** Runs are recorded under the work directory, `~/.cache/synapse/work` unless `SYNAPSE_WORK_DIR` names another, and that is fine as it is. Set `SYNAPSE_WORK_DIR` for the job to an existing directory with a **short path** only when the default is long (a home directory with a long path) or you want the records kept apart: the run listens on `$SYNAPSE_WORK_DIR/pipelines/<execution-id>/execution.sock`, and a Unix socket path over 100 bytes cannot be made (a long scratch path gives "introspection is unavailable" on standard error, and the run goes on uninspectable). A directory made with `mktemp -d` under `/tmp` is short enough. Give the monitoring commands the same work directory (the default is the same every time). On Windows the run listens on a named pipe, which has no path limit.
 2. **Find the run**: `synapse-pipeline list` prints one line per run in progress for that work directory: execution id, pipeline, status, current step. `list --all` adds the executions that are over (completed, failed, or interrupted when a record says running and nothing answers). `synapse-pipeline cleanup` removes old records: those of executions that are not running and were last written over 30 days ago (`--older-than`, `--dry-run` and `--all` change that).
 3. **Ask it questions**; all of these only read, and nothing here can start, stop or change the run:
    - `synapse-pipeline info <id>` is the brief: status, current step, steps run, the failure if there is one. For an execution that is over it reads the record kept in `$SYNAPSE_WORK_DIR/pipelines/<id>/`, and `info <id> --events` prints the events recorded for it.
@@ -163,7 +166,8 @@ To run a pipeline inside the current session instead, with each step a subagent 
 ## Commands
 
 - `synapse-pipeline check <pipeline>`: validate; nothing is run.
-- `synapse-pipeline show <pipeline> [--format json|text]`: describe the steps, settings and edges.
+- `synapse-pipeline show <name> [--format json|text] [--step <step> [--input <file>|-]]`: describe a pipeline's steps, settings and edges, or a system or an agent with the definitions that use it; with `--step`, print the prompt that step is started with.
+- `synapse-pipeline definitions [--format json|text]`: every pipeline, system and agent there is, with its file, and the files that did not load.
 - `synapse-pipeline next <pipeline> [--input <file>|-] | --state <file>|- --result <file>|-`: the state a run starts in, or the state after a step's result; for running a pipeline in a session (see `synapse-pipeline-execute`).
-- `synapse-pipeline run <pipeline> [--input <file>|-]`: run it.
+- `synapse-pipeline run <pipeline> [--input <file>|-] [--id <execution-id>]`: run it; `--id` names the execution instead of drawing an id.
 - `synapse-pipeline list`, `synapse-pipeline info <execution-id> [--format json|text] [--query <rule>]`: inspect runs in progress.

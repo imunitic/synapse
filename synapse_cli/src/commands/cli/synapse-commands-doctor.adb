@@ -1,6 +1,9 @@
 with Ada.Calendar;
 with Ada.Directories;
+with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
+
+with GNAT.OS_Lib;
 
 with Synapse.Adapters.Conf_Files;
 with Synapse.Adapters.Git_Identity;
@@ -34,9 +37,20 @@ package body Synapse.Commands.Doctor is
    LF   : constant Character := Character'Val (10);
 
    Usage_Text : constant String :=
-     "usage: synapse doctor [--repo <dir>]" & LF & LF &
-     "  --repo  the checkout to examine. Default: the one containing $PWD." &
-     LF;
+     "usage: synapse doctor [--repo <dir>] [--install] [--format text|json]" &
+     LF & LF &
+     "  --repo    the checkout to examine. Default: the one containing $PWD." &
+     LF &
+     "  --install only what the install needs: the programs, the harnesses," &
+     LF &
+     "            the configuration and the vault; nothing of a checkout." &
+     LF &
+     "  --format  text (the default), or json: format synapse-doctor/v1," &
+     LF &
+     "            each check with its key, name, status, detail and value." &
+     LF & LF &
+     "Looks for claude, codex, opencode and synapse-pipeline on PATH. The" &
+     LF & "exit code is 1 when anything failed, in either format." & LF;
 
    Largest_File : constant := 64 * 1_024 * 1_024;
 
@@ -46,13 +60,14 @@ package body Synapse.Commands.Doctor is
 
    procedure Add
      (Into   : in out Checks; Name : String; State : Report.Status;
-      Detail :        String)
+      Detail :        String; Value : String := "")
    is
    begin
       Into.Items.Append
         (Report.Check'
            (Name   => To_Unbounded_String (Name), State => State,
-            Detail => To_Unbounded_String (Detail)));
+            Detail => To_Unbounded_String (Detail),
+            Value  => To_Unbounded_String (Value)));
    end Add;
 
    function Exists (Path : String) return Boolean is
@@ -134,7 +149,9 @@ package body Synapse.Commands.Doctor is
              (Env.Vars.all, Adapters.Conf_Files.Legacy_Name);
       end if;
       if Config.Found then
-         Add (Into, "config", Report.Ok, To_String (Config.Value));
+         Add
+           (Into, "config", Report.Ok, To_String (Config.Value),
+            To_String (Config.Value));
       elsif Env.Vars.Get ("SYNAPSE_VAULT_DIR").Found then
          Add
            (Into, "config", Report.Warn,
@@ -142,7 +159,8 @@ package body Synapse.Commands.Doctor is
       else
          Add
            (Into, "config", Report.Fail,
-            "no synapse.conf found -- create one at " &
+            "no synapse.conf found -- `synapse configure <harness>` makes " &
+            "one from its template, or create one at " &
             "$XDG_CONFIG_HOME/synapse/synapse.conf (or " &
             "~/.config/synapse/synapse.conf), or ~/.claude/synapse.conf");
       end if;
@@ -154,7 +172,8 @@ package body Synapse.Commands.Doctor is
          if not Dir.Found then
             Add
               (Into, "vault", Report.Fail,
-               "SYNAPSE_VAULT_DIR is not set anywhere");
+               "SYNAPSE_VAULT_DIR is not set anywhere -- `synapse config " &
+               "set SYNAPSE_VAULT_DIR <folder>` chooses the vault");
             return;
          end if;
          declare
@@ -165,7 +184,18 @@ package body Synapse.Commands.Doctor is
             elsif Ada.Directories.Kind (Path) /= Ada.Directories.Directory then
                Add (Into, "vault", Report.Fail, Path & " is not a directory");
             else
-               Add (Into, "vault", Report.Ok, Path);
+               Add (Into, "vault", Report.Ok, Path, Path);
+               if Exists (Path & "/Index.md") then
+                  Add
+                    (Into, "vault index", Report.Ok, "Index.md",
+                     Path & "/Index.md");
+               else
+                  Add
+                    (Into, "vault index", Report.Warn,
+                     "no Index.md -- the vault is not seeded yet; the " &
+                     "session hook offers to seed it from the shipped " &
+                     "template");
+               end if;
                Vault := Dir.Value;
                Found := True;
             end if;
@@ -482,10 +512,250 @@ package body Synapse.Commands.Doctor is
    Staleness      : aliased constant String := "staleness";
    Stop_Nudge     : aliased constant String := "stop-nudge";
 
+   ---------------------------------------------------------------------------
+   --  The programs: synapse-pipeline and the harnesses.
+   ---------------------------------------------------------------------------
+
+   --  The program called Name on the PATH this command runs with, as the path
+   --  to it, or "" when there is none.
+   function Locate (Env : Environment; Name : String) return String is
+      Search : constant Ports.Variables.Maybe_Value := Env.Vars.Get ("PATH");
+      Exe    : constant String := GNAT.OS_Lib.Get_Executable_Suffix.all;
+      --  On Windows a program installed with npm is a .cmd script.
+      Suffixes : constant array (1 .. 3) of access constant String :=
+        [new String'(Exe), new String'(".cmd"), new String'(".bat")];
+      Count    : constant Positive :=
+        (if GNAT.OS_Lib.Directory_Separator = '\' then 3 else 1);
+   begin
+      if not Search.Found then
+         return "";
+      end if;
+      declare
+         Dirs  : constant String := To_String (Search.Value);
+         Start : Natural         := Dirs'First;
+      begin
+         for I in Dirs'First .. Dirs'Last + 1 loop
+            if I > Dirs'Last or else Dirs (I) = GNAT.OS_Lib.Path_Separator
+            then
+               if I > Start then
+                  for Which in 1 .. Count loop
+                     declare
+                        Candidate : constant String :=
+                          Dirs (Start .. I - 1) & "/" & Name
+                          & Suffixes (Which).all;
+                     begin
+                        if GNAT.OS_Lib.Is_Executable_File (Candidate) then
+                           return Candidate;
+                        end if;
+                     end;
+                  end loop;
+               end if;
+               Start := I + 1;
+            end if;
+         end loop;
+      end;
+      return "";
+   end Locate;
+
+   --  Text without the escape sequences a program colours it with.
+   function Plain (Text : String) return String is
+      Result : String (1 .. Text'Length);
+      Last   : Natural := 0;
+      I      : Natural := Text'First;
+   begin
+      while I <= Text'Last loop
+         if Text (I) = ASCII.ESC and then I < Text'Last
+           and then Text (I + 1) = '['
+         then
+            I := I + 2;
+            while I <= Text'Last
+              and then Text (I) not in 'A' .. 'Z' | 'a' .. 'z'
+            loop
+               I := I + 1;
+            end loop;
+         else
+            Last := Last + 1;
+            Result (Last) := Text (I);
+         end if;
+         I := I + 1;
+      end loop;
+      return Result (1 .. Last);
+   end Plain;
+
+   --  The version `Path --version` says: the first word of its first line
+   --  that is a number, with a leading `v` taken off. The whole line when no
+   --  word is. Empty when the program cannot be run, fails, or says nothing.
+   function Version_Of (Env : Environment; Path : String) return String is
+      Args : Lists.Vector;
+   begin
+      Args.Append (To_Unbounded_String ("--version"));
+      declare
+         Done  : constant Runner.Result :=
+           Env.Runner.Run (Path, Args, Runner.Options'(others => <>));
+         Text  : constant String        := Plain (To_String (Done.Output));
+         Break : constant Natural       :=
+           Ada.Strings.Fixed.Index (Text, "" & LF);
+         Line  : constant String        :=
+           Trimmed
+             (if Break = 0 then Text else Text (Text'First .. Break - 1));
+         First : Natural                := Line'First;
+      begin
+         if not Runner.Succeeded (Done) then
+            return "";
+         end if;
+         for I in Line'First .. Line'Last + 1 loop
+            if I > Line'Last or else Line (I) = ' ' then
+               if I > First then
+                  declare
+                     Word  : constant String := Line (First .. I - 1);
+                     Start : constant Positive :=
+                       (if Word'Length > 1
+                          and then Word (Word'First) in 'v' | 'V'
+                        then Word'First + 1
+                        else Word'First);
+                  begin
+                     if Word (Start) in '0' .. '9' then
+                        return Word (Start .. Word'Last);
+                     end if;
+                  end;
+               end if;
+               First := I + 1;
+            end if;
+         end loop;
+         return Line;
+      end;
+   exception
+      when others =>
+         return "";
+   end Version_Of;
+
+   Harness_Names : constant array (1 .. 3) of access constant String :=
+     [new String'("claude"), new String'("codex"), new String'("opencode")];
+
+   --  Whether Synapse is installed in a harness: its hook is in the file the
+   --  harness reads, or for OpenCode its plugin is in its folder.
+   function Synapse_Installed
+     (Env : Environment; Harness : String) return Boolean
+   is
+      Home : constant Ports.Variables.Maybe_Value := Env.Vars.Get ("HOME");
+   begin
+      if not Home.Found then
+         return False;
+      end if;
+      declare
+         Base : constant String := To_String (Home.Value);
+         Text : Unbounded_String;
+         Have : Boolean;
+      begin
+         if Harness = "opencode" then
+            return Exists (Base & "/.config/opencode/plugin/synapse.js");
+         end if;
+         Read
+           (Env,
+            Base &
+            (if Harness = "claude" then "/.claude/settings.json"
+             else "/.codex/hooks.json"),
+            Text, Have);
+         return
+           Have and then Occurrences (To_String (Text), "synapse-hook") > 0;
+      end;
+   end Synapse_Installed;
+
+   --  synapse-pipeline, which runs pipelines.
+   procedure Pipeline_Check (Env : Environment; Into : in out Checks) is
+      Path : constant String := Locate (Env, "synapse-pipeline");
+   begin
+      if Path = "" then
+         Add
+           (Into, "pipeline", Report.Warn,
+            "synapse-pipeline is not on PATH -- pipelines cannot run; " &
+            "`npm install -g @imunitic/synapse-pipeline` installs it");
+      else
+         declare
+            Version : constant String := Version_Of (Env, Path);
+         begin
+            Add
+              (Into, "pipeline", Report.Ok,
+               (if Version = "" then "installed" else Version), Path);
+         end;
+      end if;
+   end Pipeline_Check;
+
+   --  Which of the harnesses are installed, with their versions and whether
+   --  Synapse is in them. A harness that is missing is only said so, unless
+   --  none is there, which is a failure. Claude_Found says whether Claude Code
+   --  is.
+   procedure Harness_Checks
+     (Env          :        Environment; Into : in out Checks;
+      Claude_Found : out    Boolean)
+   is
+      Path      : array (Harness_Names'Range) of Unbounded_String;
+      Version   : array (Harness_Names'Range) of Unbounded_String;
+      Found_Any : Boolean := False;
+      Wired_Any : Boolean := False;
+      First     : Natural := 0;
+   begin
+      for I in Harness_Names'Range loop
+         Path (I) :=
+           To_Unbounded_String (Locate (Env, Harness_Names (I).all));
+         if Length (Path (I)) > 0 then
+            Found_Any := True;
+            if First = 0 then
+               First := I;
+            end if;
+            Version (I) :=
+              To_Unbounded_String (Version_Of (Env, To_String (Path (I))));
+         end if;
+      end loop;
+      Claude_Found := Length (Path (1)) > 0;
+      for I in Harness_Names'Range loop
+         declare
+            Name  : constant String := Harness_Names (I).all;
+            Shown : constant String :=
+              (if Length (Version (I)) > 0 then To_String (Version (I))
+               else "installed");
+         begin
+            if Length (Path (I)) = 0 then
+               Add
+                 (Into, Name,
+                  (if Found_Any then Report.Ok else Report.Warn),
+                  "not installed");
+            elsif Synapse_Installed (Env, Name) then
+               Wired_Any := True;
+               Add
+                 (Into, Name, Report.Ok, Shown & ", Synapse installed",
+                  To_String (Path (I)));
+            else
+               Add
+                 (Into, Name, Report.Warn,
+                  Shown & ", Synapse is not installed in it -- run " &
+                  "`synapse configure " & Name & "`",
+                  To_String (Path (I)));
+            end if;
+         end;
+      end loop;
+      if not Found_Any then
+         Add
+           (Into, "harness", Report.Fail,
+            "none of claude, codex or opencode is installed -- Synapse " &
+            "needs one, and nothing will work without it");
+      elsif not Wired_Any then
+         --  One harness without Synapse is only said on its own line; in none
+         --  of them it does nothing.
+         Add
+           (Into, "hooks", Report.Fail,
+            "Synapse is installed in none of the harnesses found -- run " &
+            "`synapse configure " & Harness_Names (First).all & "`");
+      end if;
+   end Harness_Checks;
+
    Hook_Names : constant array (1 .. 4) of access constant String :=
      [Session_Start'Access, Prompt_Context'Access, Staleness'Access,
      Stop_Nudge'Access];
 
+   --  What Claude Code's settings.json says of Synapse's hooks, which is only
+   --  looked at when there is one. That Synapse is in the harness at all is
+   --  the harness's own line; this is for a setup that is half there.
    procedure Hook_Checks (Env : Environment; Into : in out Checks) is
       Home : constant Ports.Variables.Maybe_Value := Env.Vars.Get ("HOME");
    begin
@@ -499,10 +769,9 @@ package body Synapse.Commands.Doctor is
          Have : Boolean;
       begin
          Read (Env, Path, Text, Have);
-         if not Have then
-            Add
-              (Into, "hooks", Report.Fail,
-               "no settings.json -- run `synapse-setup configure claude`");
+         if not Have
+           or else Occurrences (To_String (Text), "synapse-hook") = 0
+         then
             return;
          end if;
          declare
@@ -553,15 +822,24 @@ package body Synapse.Commands.Doctor is
       end;
    end Hook_Checks;
 
-   function Diagnose (Env : Environment; Repo : String) return Exit_Code is
+   function Diagnose
+     (Env     : Environment; Repo : String; As_Json : Boolean := False;
+      Install : Boolean := False) return Exit_Code
+   is
       Into                : Checks;
       Vault               : Unbounded_String;
       Have_Vault, Have_Id : Boolean;
+      Claude_Found        : Boolean;
       Resolved            : Core.Identity.Resolved;
    begin
       Dependencies (Env, Into);
+      Pipeline_Check (Env, Into);
+      Harness_Checks (Env, Into, Claude_Found);
       Vault_Checks (Env, Into, Vault, Have_Vault);
-      Identity_Checks (Into, Repo, Resolved, Have_Id);
+      Have_Id := False;
+      if not Install then
+         Identity_Checks (Into, Repo, Resolved, Have_Id);
+      end if;
       if Have_Vault and then Have_Id then
          Namespace_Checks (Env, Into, To_String (Vault), Resolved);
       end if;
@@ -570,13 +848,18 @@ package body Synapse.Commands.Doctor is
       end if;
       Grammar_Lock_Checks (Env, Into);
       Hook_Checks (Env, Into);
-      Say (Env, Report.Report (Into.Items));
+      Say
+        (Env,
+         (if As_Json then Report.Json (Into.Items) & LF
+          else Report.Report (Into.Items)));
       return Report.Exit_Code (Into.Items);
    end Diagnose;
 
    function Run (Env : Environment; Args : Lists.Vector) return Exit_Code is
-      Repo : Unbounded_String := To_Unbounded_String (".");
-      I    : Positive         := 1;
+      Repo    : Unbounded_String := To_Unbounded_String (".");
+      As_Json : Boolean          := False;
+      Install : Boolean          := False;
+      I       : Positive         := 1;
    begin
       while I <= Natural (Args.Length) loop
          declare
@@ -593,13 +876,22 @@ package body Synapse.Commands.Doctor is
                   return Usage_Error (Env, Usage_Text);
                end if;
                Repo := Value;
+            elsif Arg = "--install" then
+               Install := True;
+            elsif Arg = "--format" then
+               Cli_Args.Take_Value (Args, I, Value, Found);
+               if not Found or else To_String (Value) not in "text" | "json"
+               then
+                  return Usage_Error (Env, Usage_Text);
+               end if;
+               As_Json := To_String (Value) = "json";
             else
                return Usage_Error (Env, Usage_Text);
             end if;
          end;
          I := I + 1;
       end loop;
-      return Diagnose (Env, To_String (Repo));
+      return Diagnose (Env, To_String (Repo), As_Json, Install);
    end Run;
 
 end Synapse.Commands.Doctor;

@@ -32,6 +32,9 @@ package Synapse.Core.Doctor is
       --  What was found, or what is missing and what to do. Empty is fine
       --  for an `ok` whose name says everything.
       Detail : Unbounded_String;
+      --  What was found, in the form a program can use: the path of the
+      --  program or the file that was. Empty when the check found none.
+      Value  : Unbounded_String;
    end record;
 
    package Check_Vectors is new Ada.Containers.Vectors (Positive, Check);
@@ -46,6 +49,15 @@ package Synapse.Core.Doctor is
    end record;
 
    function Count (Checks : Check_Vectors.Vector) return Counts;
+
+   --  The name of a check as a program refers to it: lower case, a space a
+   --  hyphen. The name is for a reader and may be reworded; the key is not.
+   function Key_Of (Name : String) return String;
+
+   --  The report as one JSON document, format `synapse-doctor/v1`: each check
+   --  with its key, name, status (`ok`, `warn` or `fail`), detail and value,
+   --  in the order they were made, and the counts.
+   function Json (Checks : Check_Vectors.Vector) return String;
 
    --  One line per check, the status first so a reader scans the left edge
    --  and the details aligned, then a blank line and the totals.

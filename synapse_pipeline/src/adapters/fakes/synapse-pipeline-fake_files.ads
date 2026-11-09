@@ -50,4 +50,21 @@ package Synapse.Pipeline.Fake_Files is
    function Read
      (F : Fake_Files; Path : String) return File_System.Maybe_Content;
 
+   overriding
+   function Subdirectories
+     (F : Fake_Files; Directory : String)
+      return Synapse.Core.Text_Lists.Vector;
+
+   overriding
+   procedure Write
+     (F : in out Fake_Files; Path, Text : String; Done : out Boolean);
+
+   overriding
+   procedure Replace_Tree
+     (F : in out Fake_Files; Source, Destination : String;
+      Done : out Boolean);
+
+   overriding
+   procedure Remove_Tree (F : in out Fake_Files; Path : String);
+
 end Synapse.Pipeline.Fake_Files;

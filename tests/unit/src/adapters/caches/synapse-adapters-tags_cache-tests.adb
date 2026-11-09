@@ -1,3 +1,4 @@
+with Synapse.Test_Repo;
 with Ada.Containers.Indefinite_Ordered_Maps;
 with Ada.Directories;
 with Ada.Numerics.Discrete_Random;
@@ -130,7 +131,7 @@ package body Synapse.Adapters.Tags_Cache.Tests is
    is
       pragma Unreferenced (T);
       Dir     : constant Scratch := Make;
-      P       : constant String  := Path (Dir, "work/_tags_cache.bin");
+      P       : constant String  := Path (Dir, Synapse.Test_Repo.Work_Rel & "/_tags_cache.bin");
       C, R    : Cache;
       Dropped : Natural;
    begin

@@ -74,7 +74,8 @@ package body Synapse.Pipeline.Commands.Check is
          return Usage_Error (Env, Usage);
       end if;
       Loading.Load
-        (Env, To_String (Args.First_Element), Ok, Item, File, Skill_Roots);
+        (Env, To_String (Args.First_Element), Ok, Item, File, Skill_Roots,
+         Advise => True);
       if not Ok then
          return 1;
       end if;

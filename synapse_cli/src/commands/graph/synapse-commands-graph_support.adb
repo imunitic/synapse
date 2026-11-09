@@ -27,54 +27,45 @@ package body Synapse.Commands.Graph_Support is
    function Work_Dir
      (Env : Environment; Prog : String; Repo : String := ".") return Maybe_Path
    is
-      Configured : constant String := Set_Variable (Env, "SYNAPSE_WORK_DIR");
-      Namespace  : constant String := Set_Variable (Env, "SYNAPSE_NAMESPACE");
+      Namespace : constant String := Set_Variable (Env, "SYNAPSE_NAMESPACE");
+      Key       : Unbounded_String;
    begin
-      if Configured /= "" then
-         return (Found => True, Value => To_Unbounded_String (Configured));
+      if Namespace /= "" then
+         Key := To_Unbounded_String (Namespace);
+      else
+         begin
+            Key := Adapters.Git_Identity.Resolve (Repo).Key;
+         exception
+            when Core.Identity.Not_A_Git_Repo =>
+               Complain (Env, Prog & ": not inside a git repo" & ASCII.LF);
+               return (Found => False);
+
+            when Core.Identity.Detached_Head =>
+               Complain (Env, Core.Identity.Detached_Message & ASCII.LF);
+               return (Found => False);
+
+            when others =>
+               Complain
+                 (Env, Prog & ": could not resolve the namespace" & ASCII.LF);
+               return (Found => False);
+         end;
       end if;
       declare
-         Key : Unbounded_String;
+         Where : constant String :=
+           Context.Work_Dir_For (Env, To_String (Key));
       begin
-         if Namespace /= "" then
-            Key := To_Unbounded_String (Namespace);
-         else
-            begin
-               Key := Adapters.Git_Identity.Resolve (Repo).Key;
-            exception
-               when Core.Identity.Not_A_Git_Repo =>
-                  Complain (Env, Prog & ": not inside a git repo" & ASCII.LF);
-                  return (Found => False);
-
-               when Core.Identity.Detached_Head =>
-                  Complain (Env, Core.Identity.Detached_Message & ASCII.LF);
-                  return (Found => False);
-
-               when others =>
-                  Complain
-                    (Env,
-                     Prog & ": could not resolve the namespace" & ASCII.LF);
-                  return (Found => False);
-            end;
-         end if;
-         if not Env.Vars.Get ("HOME").Found then
+         if Where = "" then
             Complain
               (Env, Prog & ": no HOME, so no default work dir" & ASCII.LF);
             return (Found => False);
          end if;
-         return
-           (Found => True,
-            Value =>
-              To_Unbounded_String
-                (Set_Variable (Env, "HOME") & "/.cache/synapse/work/" &
-                 To_String (Key)));
+         return (Found => True, Value => To_Unbounded_String (Where));
       end;
    end Work_Dir;
 
    function Work_Dir_For_Namespace
      (Env : Environment; Namespace : String; Prog : String) return Maybe_Path
    is
-      Configured : constant String := Set_Variable (Env, "SYNAPSE_WORK_DIR");
    begin
       if (for all C of Namespace => C /= '@') then
          Complain
@@ -83,16 +74,16 @@ package body Synapse.Commands.Graph_Support is
             "'" & ASCII.LF);
          return (Found => False);
       end if;
-      if Configured /= "" then
-         return (Found => True, Value => To_Unbounded_String (Configured));
-      end if;
-      if not Env.Vars.Get ("HOME").Found then
-         Complain (Env, Prog & ": no HOME, so no default work dir" & ASCII.LF);
-         return (Found => False);
-      end if;
-      return
-        (Found => True,
-         Value => To_Unbounded_String (Context.Work_Dir_For (Env, Namespace)));
+      declare
+         Where : constant String := Context.Work_Dir_For (Env, Namespace);
+      begin
+         if Where = "" then
+            Complain
+              (Env, Prog & ": no HOME, so no default work dir" & ASCII.LF);
+            return (Found => False);
+         end if;
+         return (Found => True, Value => To_Unbounded_String (Where));
+      end;
    end Work_Dir_For_Namespace;
 
    function Repo_Root (Env : Environment; Repo : String) return String is

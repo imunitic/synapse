@@ -8,14 +8,13 @@ with Synapse.Pipeline.Envelopes;
 with Synapse.Pipeline.Failures;
 with Synapse.Pipeline.Harness_Commands;
 with Synapse.Pipeline.Harnesses;
+with Synapse.Pipeline.Instructions;
 with Synapse.Pipeline.Prompts;
 with Synapse.Pipeline.Resolved;
-with Synapse.Pipeline.Skills;
 
 package body Synapse.Pipeline.Process_Runners is
 
    use Ada.Strings.Unbounded;
-   use type Resolved.Instruction_Kind;
 
    package Commands renames Harness_Commands;
 
@@ -72,56 +71,6 @@ package body Synapse.Pipeline.Process_Runners is
         (To_Unbounded_String (R.Registry.Transcript_Path (Id, Name)));
    end Keep_Transcript;
 
-   --  What an instruction says, ready for a prompt, and the directory of the
-   --  skill it names when it names one. Problem is not empty when a skill
-   --  cannot be read.
-   procedure Text_Of
-     (R         : Process_Runner;
-      Item      : Resolved.Instruction;
-      Text      : out Unbounded_String;
-      Directory : out Unbounded_String;
-      Problem   : out Unbounded_String)
-   is
-   begin
-      Text := Null_Unbounded_String;
-      Directory := Null_Unbounded_String;
-      Problem := Null_Unbounded_String;
-      if not Item.Present then
-         return;
-      elsif Item.Kind = Resolved.Prompt_Text then
-         Text := Item.Text;
-         return;
-      end if;
-      declare
-         Name  : constant String := To_String (Item.Text);
-         Found : constant Synapse.Core.Optional_Text.Option :=
-           Skills.Find (R.Files.all, R.Skill_Roots, Name);
-      begin
-         if not Found.Found then
-            Problem := To_Unbounded_String
-              ("skill '" & Name & "' was not found in "
-               & Skills.Searched (R.Skill_Roots));
-            return;
-         end if;
-         declare
-            Where   : constant String := To_String (Found.Value);
-            Content : constant File_System.Maybe_Content :=
-              R.Files.Read (Where & "/SKILL.md");
-         begin
-            if not Content.Found then
-               Problem := To_Unbounded_String
-                 ("skill '" & Name & "' has no readable SKILL.md in "
-                  & Where);
-               return;
-            end if;
-            Directory := Found.Value;
-            Text := To_Unbounded_String
-              ("Follow this skill. Its files are in " & Where & "." & LF & LF)
-              & Content.Value;
-         end;
-      end;
-   end Text_Of;
-
    --  An answer without the code fence a model sometimes puts round it.
    function Unfenced (Text : String) return String is
       Whole : constant String :=
@@ -163,12 +112,15 @@ package body Synapse.Pipeline.Process_Runners is
       Task_Dir  : Unbounded_String;
       Problem   : Unbounded_String;
    begin
-      Text_Of (R, Step.Role, Role, Role_Dir, Problem);
+      Instructions.Text_Of
+        (R.Files.all, R.Skill_Roots, Step.Role, Role, Role_Dir, Problem);
       if Length (Problem) > 0 then
          return Failed_Session
            (Request, Failures.Execution_Error, To_String (Problem));
       end if;
-      Text_Of (R, Step.Assignment, Task_Text, Task_Dir, Problem);
+      Instructions.Text_Of
+        (R.Files.all, R.Skill_Roots, Step.Assignment, Task_Text, Task_Dir,
+         Problem);
       if Length (Problem) > 0 then
          return Failed_Session
            (Request, Failures.Execution_Error, To_String (Problem));
@@ -181,7 +133,8 @@ package body Synapse.Pipeline.Process_Runners is
               Assignment      => To_String (Task_Text),
               Step            => To_String (Step.Name),
               Initial_Input   => Request.Initial_Input,
-              Previous_Output => Request.Previous_Output);
+              Previous_Output => Request.Previous_Output,
+              Outcomes        => Step.Outcomes);
          Made   : constant Commands.Command_Results.Result :=
            Commands.Build
              (Harness, Step, Prompt,

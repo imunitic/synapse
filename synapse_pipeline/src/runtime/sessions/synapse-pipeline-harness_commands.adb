@@ -260,7 +260,8 @@ package body Synapse.Pipeline.Harness_Commands is
       Made.Program := To_Unbounded_String ("claude");
       Add (Made.Arguments, "-p");
       Add (Made.Arguments, "--output-format");
-      Add (Made.Arguments, "json");
+      Add (Made.Arguments, "stream-json");
+      Add (Made.Arguments, "--verbose");
       Add (Made.Arguments, "--json-schema");
       Add (Made.Arguments, JSON.To_String (Envelopes.Schema));
       Add (Made.Arguments, "--no-session-persistence");
@@ -380,17 +381,25 @@ package body Synapse.Pipeline.Harness_Commands is
    --  Replies
    ---------------------------------------------------------------------------
 
+   --  Claude writes its session as one event per line and ends with a
+   --  `result` event, which holds what the session came to.
    function Claude_Reply (Ended : Session_Process.Process_Outcome) return Reply
    is
-      Parsed : constant JSON.Parse_Result :=
-        JSON.Parse (To_String (Ended.Output));
+      Final : Unbounded_String;
+
+      procedure Read (Event : JSON.Value) is
+      begin
+         if Text_Member (Event, "type") = "result" then
+            Final := To_Unbounded_String (JSON.To_String (Event));
+         end if;
+      end Read;
    begin
-      if not Parsed.Ok or else JSON.Kind_Of (Parsed.Item) /= JSON.JSON_Object
-      then
+      For_Each_Line (To_String (Ended.Output), Read'Access);
+      if Length (Final) = 0 then
          return Ended_Badly ("claude", Ended);
       end if;
       declare
-         Document : constant JSON.Value := Parsed.Item;
+         Document : constant JSON.Value := JSON.Parse (To_String (Final)).Item;
          Used     : constant JSON.Value := Object_Member (Document, "usage");
          Result   : Reply (True);
       begin

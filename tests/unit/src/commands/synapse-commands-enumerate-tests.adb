@@ -67,9 +67,9 @@ package body Synapse.Commands.Enumerate.Tests is
    begin
       Use_Work (F, Dir);
       Mixed_Repo (Dir);
-      Ada.Directories.Create_Path (Path (Dir, "work"));
+      Ada.Directories.Create_Path (Path (Dir, Synapse.Test_Repo.Work_Rel));
       Synapse.Adapters.File_Bytes.Write
-        (Path (Dir, "work/all.txt"), "old.txt" & LF);
+        (Path (Dir, Synapse.Test_Repo.Work_Rel & "/all.txt"), "old.txt" & LF);
       Assert (Enumerate (Env (F), Repo (Dir), False) = 0, "reuse");
       Assert
         (F.Console.Out_Text = "enumerated: 1" & LF,
@@ -97,8 +97,8 @@ package body Synapse.Commands.Enumerate.Tests is
    begin
       Use_Work (F, Dir);
       Mixed_Repo (Dir);
-      Ada.Directories.Create_Path (Path (Dir, "work"));
-      Synapse.Adapters.File_Bytes.Write (Path (Dir, "work/all.txt"), "");
+      Ada.Directories.Create_Path (Path (Dir, Synapse.Test_Repo.Work_Rel));
+      Synapse.Adapters.File_Bytes.Write (Path (Dir, Synapse.Test_Repo.Work_Rel & "/all.txt"), "");
       Assert (Enumerate (Env (F), Repo (Dir), False) = 0, "success");
       Assert
         (Ada.Strings.Fixed.Index (Work_File (Dir, "all.txt"), "stray.txt") > 0,
@@ -287,7 +287,7 @@ package body Synapse.Commands.Enumerate.Tests is
          Tracked_Files (Env (F), Repo (Dir), Paths, Failure);
          Assert
            (Failure = Grep_Failed and then Paths.Is_Empty, "a bad pattern");
-         Tracked_Files (Env (F), Path (Dir, "work"), Paths, Failure);
+         Tracked_Files (Env (F), Path (Dir, Synapse.Test_Repo.Work_Rel), Paths, Failure);
          Assert (Failure = Git_Failed, "not a repository");
       end;
       Remove (Dir);

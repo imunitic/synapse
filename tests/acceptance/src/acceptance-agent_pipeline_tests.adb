@@ -35,7 +35,7 @@ package body Acceptance.Agent_Pipeline_Tests is
       Unset_Env (F, "SYNAPSE_PIPELINE_RUNNER");
       Unset_Env (F, "SYNAPSE_PIPELINE_SCRIPT");
       Set_Env (F, "SYNAPSE_PIPELINE_PATH", Root (F) & "/defs");
-      Set_Env (F, "SYNAPSE_WORK_DIR", Work (F));
+      Set_Env (F, "SYNAPSE_WORK_DIR", Work_Root (F));
    end Set_Up;
 
    procedure Define (F : Fixture; Name, Text : String) is
@@ -89,7 +89,8 @@ package body Acceptance.Agent_Pipeline_Tests is
    end Install_Claude;
 
    Says_Done : constant String :=
-     "printf '%s' '{""is_error"":false,""structured_output"":"
+     "printf '%s' '{""type"":""result"","
+       & """is_error"":false,""structured_output"":"
      & "{""outcome"":""Done"",""summary"":""did it"",""data"":{}},"
      & """usage"":{""input_tokens"":1,""output_tokens"":1}}'";
 
@@ -265,7 +266,7 @@ package body Acceptance.Agent_Pipeline_Tests is
             or else Contains (Seen, "cwd:/private" & Repo (F)),
             "in the working directory: " & Seen);
          Assert_Contains
-           (Seen, "work:" & Work (F), "with the work directory it was given");
+           (Seen, "work:" & Work_Root (F), "with the work directory it was given");
          Assert_Contains (Seen, "Do it.", "the step's prompt");
       end;
    end A_Harness_Is_Run_As_A_Program_With_The_Settings_It_Needs;
@@ -284,7 +285,8 @@ package body Acceptance.Agent_Pipeline_Tests is
         (F,
          "case ""$prompt"" in *'""task"":""build""'*) s=input-seen;;"
          & " *) s=input-missing;; esac" & LF
-         & "printf '{""is_error"":false,""structured_output"":"
+         & "printf '{""type"":""result"","
+           & """is_error"":false,""structured_output"":"
          & "{""outcome"":""Done"",""summary"":""%s"",""data"":{}}}' ""$s""");
       Write_File (Root (F) & "/input.json", "{""task"":""build""}");
       declare
@@ -342,7 +344,8 @@ package body Acceptance.Agent_Pipeline_Tests is
          & LF);
       Install_Claude
         (F,
-         "printf '%s' '{""is_error"":true,""result"":""You have hit your "
+         "printf '%s' '{""type"":""result"","
+           & """is_error"":true,""result"":""You have hit your "
          & "limit. resets 9am""}'; exit 1");
       declare
          R : constant Result := Run_Pipeline (F, "run", "Limited");
@@ -520,6 +523,33 @@ package body Acceptance.Agent_Pipeline_Tests is
       return False;
    end Holds;
 
+   procedure A_Run_Can_Be_Given_Its_Id (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : Fixture;
+   begin
+      Set_Up (F);
+      Define_Dev (F);
+      Use_Script (F, Review_Loop);
+      Assert_Exit
+        (Run_Pipeline (F, "run", "Dev", "--id", "nightly-1"), 0, "the run");
+      declare
+         Dir  : constant String := Work (F) & "/pipelines/nightly-1";
+         Info : constant Result := Run_Pipeline (F, "info", "nightly-1");
+      begin
+         Assert
+           (Holds (Files_In (Dir), "execution.json"),
+            "its record is under the id it was given");
+         Assert_Exit (Info, 0, "info reads it by that id");
+         Assert_Contains (Out_Of (Info), "status     completed", "info");
+      end;
+      Assert_Exit
+        (Run_Pipeline (F, "run", "Dev", "--id", "nightly-1"), 1,
+         "the same id again is refused");
+      Assert_Exit
+        (Run_Pipeline (F, "run", "Dev", "--id", "../escape"), 2,
+         "an id that is not plain is a usage error");
+   end A_Run_Can_Be_Given_Its_Id;
+
    procedure A_Run_Leaves_A_Record_That_Can_Be_Read_And_Removed
      (T : in out Test_Cases_Class)
    is
@@ -542,6 +572,13 @@ package body Acceptance.Agent_Pipeline_Tests is
            (Holds (Files_In (Dir), "execution.json")
             and then Holds (Files_In (Dir), "events.jsonl"),
             "its directory holds the summary and the events");
+         Assert
+           (Holds (Files_In (Dir), "description.json")
+            and then Holds
+              (Files_In (Dir & "/definitions/synapse-pipeline"),
+               "Dev.synapse"),
+            "and the pipeline it ran is described and the file it was loaded "
+            & "from is kept");
          Assert
            (Sockets_In (Work (F) & "/pipelines") = 0,
             "and no socket is left in it");
@@ -696,6 +733,8 @@ package body Acceptance.Agent_Pipeline_Tests is
       Register_Routine
         (T, A_Run_Leaves_A_Record_That_Can_Be_Read_And_Removed'Access,
          "A run leaves a record that can be read and removed");
+      Register_Routine
+        (T, A_Run_Can_Be_Given_Its_Id'Access, "A run can be given its id");
       Register_Routine
         (T, A_Sessions_Output_Is_Kept_As_A_Transcript'Access,
          "A session's output is kept as a transcript");

@@ -1,4 +1,5 @@
 with Ada.Strings.Fixed;
+with Ada.Strings.Unbounded;
 
 with AUnit.Assertions;
 
@@ -8,10 +9,13 @@ with Synapse.Pipeline.Test_Environment;
 
 package body Synapse.Pipeline.Commands.Show.Tests is
 
+   use Ada.Strings.Unbounded;
    use AUnit.Assertions;
    use Synapse.Pipeline.Test_Environment;
 
    package JSON renames Synapse.Core.JSON;
+
+   use type JSON.Kind;
 
    subtype Test_Cases_Class is AUnit.Test_Cases.Test_Case'Class;
 
@@ -48,12 +52,18 @@ package body Synapse.Pipeline.Commands.Show.Tests is
       Assert (Run (Env (F), Args) = 2, "none");
       Assert
         (F.Base.Console.Err_Text =
-         "usage: synapse-pipeline show <pipeline> [--format json|text]" & LF,
+         "usage: synapse-pipeline show <name> [--format json|text] "
+         & "[--step <step> [--input <file>|-]]" & LF,
          "says how");
       Assert (Run (Env (F), Args ("A", "B")) = 2, "two");
       Assert (Run (Env (F), Args ("A", "--format", "yaml")) = 2, "a format");
       Assert (Run (Env (F), Args ("A", "--format")) = 2, "a format missing");
       Assert (Run (Env (F), Args ("A", "--bogus")) = 2, "an option");
+      Assert (Run (Env (F), Args ("A", "--input", "x")) = 2, "input alone");
+      Assert (Run (Env (F), Args ("A", "--step")) = 2, "a step missing");
+      Assert
+        (Run (Env (F), Args ("A", "--step", "B", "--step", "C")) = 2,
+         "two steps");
    end It_Takes_One_Pipeline_And_A_Known_Format;
 
    procedure Json_Is_The_Description_Of_The_Resolved_Pipeline
@@ -141,7 +151,7 @@ package body Synapse.Pipeline.Commands.Show.Tests is
    procedure Show_Is_In_The_Usage (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
    begin
-      Assert (Has (Usage.Text, LF & "  show <pipeline>"), "listed");
+      Assert (Has (Usage.Text, LF & "  show <name>"), "listed");
    end Show_Is_In_The_Usage;
 
    procedure An_Edge_To_End_Is_Shown_And_End_Is_Not_A_Step
@@ -177,6 +187,304 @@ package body Synapse.Pipeline.Commands.Show.Tests is
       end;
    end An_Edge_To_End_Is_Shown_And_End_Is_Not_A_Step;
 
+   --  The names in the `used_by` member of a document, as kind:name.
+   function Users (Document : JSON.Value) return String is
+      List   : constant JSON.Value := JSON.Member_Value (Document, "used_by");
+      Result : Unbounded_String;
+   begin
+      for I in 1 .. JSON.Length (List) loop
+         Append
+           (Result,
+            JSON.As_String (JSON.Member_Value (JSON.Element (List, I), "kind"))
+            & ":"
+            & JSON.As_String
+                (JSON.Member_Value (JSON.Element (List, I), "name")) & " ");
+      end loop;
+      return To_String (Result);
+   end Users;
+
+   procedure A_System_And_An_Agent_Are_Described_With_Who_Uses_Them
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Assert
+        (Run (Env (F), Args ("Strict_Reviewer", "--format", "json")) = 0,
+         "a system: " & F.Base.Console.Err_Text);
+      declare
+         System : constant JSON.Parse_Result :=
+           JSON.Parse (F.Base.Console.Out_Text);
+      begin
+         Assert (System.Ok, "one JSON document");
+         Assert
+           (JSON.As_String (JSON.Member_Value (System.Item, "format")) =
+            "synapse-pipeline-definition/v1"
+            and then JSON.As_String (JSON.Member_Value (System.Item, "kind"))
+                     = "system"
+            and then JSON.As_String
+                       (JSON.Member_Value (System.Item, "file")) =
+                     "/defs/Strict_Reviewer.synapse",
+            "its format, kind and file");
+         Assert
+           (JSON.Length (JSON.Member_Value (System.Item, "attributes")) = 2
+            and then JSON.As_String
+                       (JSON.Member_Value
+                          (JSON.Element
+                             (JSON.Member_Value (System.Item, "attributes"),
+                              1), "value")) = "Reviewer",
+            "its attributes as written");
+         Assert (Users (System.Item) = "pipeline:Develop_Feature ",
+                 "the pipeline that uses it: " & Users (System.Item));
+         declare
+            Steps : constant JSON.Value :=
+              JSON.Member_Value
+                (JSON.Element (JSON.Member_Value (System.Item, "used_by"), 1),
+                 "steps");
+         begin
+            Assert
+              (JSON.Length (Steps) = 1
+               and then JSON.As_String (JSON.Element (Steps, 1)) = "Review",
+               "and the step that names it");
+         end;
+      end;
+
+      declare
+         G     : aliased Fixture;
+         Agent : JSON.Parse_Result;
+      begin
+         Set_Up (G);
+         Assert
+           (Run (Env (G), Args ("Reviewer", "--format", "json")) = 0,
+            "an agent");
+         Agent := JSON.Parse (G.Base.Console.Out_Text);
+         Assert
+           (JSON.As_String (JSON.Member_Value (Agent.Item, "kind")) = "agent"
+            and then Users (Agent.Item) = "system:Strict_Reviewer ",
+            "the system that uses an agent: " & Users (Agent.Item));
+      end;
+   end A_System_And_An_Agent_Are_Described_With_Who_Uses_Them;
+
+   procedure An_Unused_Definition_Is_Used_By_Nothing
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      F.Files.Add_File
+        ("/defs/Idle.synapse", "Agent Idle [Prompt => ""Wait.""];");
+      Assert (Run (Env (F), Args ("Idle")) = 0, "a definition in text");
+      Assert
+        (Has (F.Base.Console.Out_Text, "agent Idle  /defs/Idle.synapse")
+         and then Has (F.Base.Console.Out_Text, "used by nothing"),
+         "said in text");
+   end An_Unused_Definition_Is_Used_By_Nothing;
+
+   procedure A_Pipeline_Names_Its_Kind_And_File
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Assert
+        (Run (Env (F), Args ("Develop_Feature", "--format", "json")) = 0,
+         "it can run");
+      declare
+         Parsed : constant JSON.Parse_Result :=
+           JSON.Parse (F.Base.Console.Out_Text);
+      begin
+         Assert
+           (JSON.As_String (JSON.Member_Value (Parsed.Item, "kind")) =
+            "pipeline"
+            and then JSON.As_String (JSON.Member_Value (Parsed.Item, "file"))
+                     = "/defs/Develop_Feature.synapse"
+            and then Users (Parsed.Item) = "",
+            "kind, file and nothing uses it");
+      end;
+   end A_Pipeline_Names_Its_Kind_And_File;
+
+   procedure A_Step_Is_Shown_As_The_Prompt_It_Starts_With
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      F.Files.Add_File ("/in.json", "{""issue"":7}");
+      F.Files.Add_File
+        ("/cfg/synapse-pipeline/skills/triage/SKILL.md", "Triage it.");
+      F.Files.Add_File
+        ("/defs/Skilled.synapse",
+         "Pipeline Skilled { A [Harness => Claude, Skill => ""triage""];"
+         & " B [Harness => Claude, Prompt => ""Do B.""]; A -> B; }");
+      Assert
+        (Run (Env (F), Args ("Skilled", "--step", "A", "--input", "/in.json"))
+         = 0,
+         "the first step: " & F.Base.Console.Err_Text);
+      declare
+         Prompt : constant String := F.Base.Console.Out_Text;
+      begin
+         Assert (Has (Prompt, "Triage it."), "the skill is in it");
+         Assert (Has (Prompt, "step A of an automated pipeline"), "the step");
+         Assert
+           (Has (Prompt, "started with this input:" & LF & "{""issue"":7}"),
+            "the input");
+         Assert
+           (not Has (Prompt, "reported this result"),
+            "nothing came before the first step");
+      end;
+   end A_Step_Is_Shown_As_The_Prompt_It_Starts_With;
+
+   procedure A_Later_Step_Has_A_Marked_Slot_For_What_Came_Before
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Assert
+        (Run (Env (F), Args ("Develop_Feature", "--step", "Review")) = 0,
+         "a later step: " & F.Base.Console.Err_Text);
+      declare
+         Prompt : constant String := F.Base.Console.Out_Text;
+      begin
+         Assert (Has (Prompt, "The step before yours reported this result:"),
+                 "it says what is handed over");
+         Assert (Has (Prompt, "<the result of the step before"), "the slot");
+         Assert (Has (Prompt, "Review."), "its assignment");
+         Assert
+           (not Has (Prompt, "started with this input"),
+            "no input was given");
+      end;
+   end A_Later_Step_Has_A_Marked_Slot_For_What_Came_Before;
+
+   procedure A_Prompt_Can_Be_Had_As_Json_And_Bad_Asks_Are_Errors
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Assert
+        (Run (Env (F),
+              Args ("Develop_Feature", "--step", "Develop", "--format", "json"))
+         = 0,
+         "json");
+      declare
+         Parsed : constant JSON.Parse_Result :=
+           JSON.Parse (F.Base.Console.Out_Text);
+      begin
+         Assert
+           (Parsed.Ok
+            and then JSON.As_String (JSON.Member_Value (Parsed.Item, "format"))
+                     = "synapse-pipeline-prompt/v1"
+            and then JSON.As_String (JSON.Member_Value (Parsed.Item, "step"))
+                     = "Develop"
+            and then Has
+                       (JSON.As_String
+                          (JSON.Member_Value (Parsed.Item, "prompt")),
+                        "Implement."),
+            "the prompt is one member of the document");
+      end;
+      declare
+         G : aliased Fixture;
+      begin
+         Set_Up (G);
+         Assert
+           (Run (Env (G), Args ("Develop_Feature", "--step", "Nope")) = 1
+            and then G.Base.Console.Out_Text = ""
+            and then Has (G.Base.Console.Err_Text, "has no step Nope"),
+            "a step that is not there");
+      end;
+      declare
+         G : aliased Fixture;
+      begin
+         Set_Up (G);
+         Assert
+           (Run (Env (G),
+                 Args ("Develop_Feature", "--step", "Develop", "--input",
+                       "/missing.json")) = 1
+            and then G.Base.Console.Out_Text = "",
+            "an input that cannot be read");
+      end;
+   end A_Prompt_Can_Be_Had_As_Json_And_Bad_Asks_Are_Errors;
+
+   procedure Outcomes_Are_Reported_For_The_Step_That_Declares_Them
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      F.Files.Add_File
+        ("/defs/Judged.synapse",
+         "Pipeline Judged { A [Harness => Claude, Prompt => ""x"", Outcomes =>"
+         & " {""Approved"": ""Fine."", ""Rejected"": ""Not fine.""}];"
+         & " B [Harness => Claude, Prompt => ""y""]; A -> B [When => Approved];"
+         & " }");
+      Assert
+        (Run (Env (F), Args ("Judged", "--format", "json")) = 0,
+         "it can run: " & F.Base.Console.Err_Text);
+      declare
+         Parsed : constant JSON.Parse_Result :=
+           JSON.Parse (F.Base.Console.Out_Text);
+         Steps  : constant JSON.Value :=
+           JSON.Member_Value (Parsed.Item, "steps");
+         Given  : constant JSON.Value :=
+           JSON.Member_Value (JSON.Element (Steps, 1), "outcomes");
+      begin
+         Assert
+           (JSON.Length (Given) = 2
+            and then JSON.As_String
+                       (JSON.Member_Value (JSON.Element (Given, 2), "word")) =
+                     "Rejected"
+            and then JSON.As_String
+                       (JSON.Member_Value
+                          (JSON.Element (Given, 1), "meaning")) = "Fine.",
+            "the words, in order, with their meanings");
+         Assert
+           (JSON.Kind_Of
+              (JSON.Member_Value (JSON.Element (Steps, 2), "outcomes")) =
+            JSON.JSON_Null,
+            "null for a step that declares none");
+      end;
+      declare
+         G : aliased Fixture;
+      begin
+         Set_Up (G);
+         G.Files.Add_File
+           ("/defs/Judged.synapse",
+            "Pipeline Judged { A [Harness => Claude, Prompt => ""x"", "
+            & "Outcomes => {""Approved"": ""Fine.""}]; }");
+         Assert (Run (Env (G), Args ("Judged")) = 0, "text");
+         Assert
+           (Has (G.Base.Console.Out_Text, "    outcome Approved  Fine." & LF),
+            "a line for each outcome");
+      end;
+   end Outcomes_Are_Reported_For_The_Step_That_Declares_Them;
+
+   procedure A_Steps_Prompt_Lists_Its_Outcomes (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      F.Files.Add_File
+        ("/defs/Judged.synapse",
+         "Pipeline Judged { A [Harness => Claude, Prompt => ""x"", Outcomes =>"
+         & " {""Approved"": ""Fine."", ""Rejected"": ""Not fine.""}]; }");
+      Assert
+        (Run (Env (F), Args ("Judged", "--step", "A")) = 0,
+         "the prompt: " & F.Base.Console.Err_Text);
+      Assert
+        (Has (F.Base.Console.Out_Text,
+              "- Approved: Fine." & LF & "- Rejected: Not fine." & LF)
+         and then not Has (F.Base.Console.Out_Text, "<one word>"),
+         "the words and meanings replace the free word");
+   end A_Steps_Prompt_Lists_Its_Outcomes;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -205,6 +513,30 @@ package body Synapse.Pipeline.Commands.Show.Tests is
       Register_Routine
         (T, An_Edge_To_End_Is_Shown_And_End_Is_Not_A_Step'Access,
          "An edge to End is shown and End is not a step");
+      Register_Routine
+        (T, A_System_And_An_Agent_Are_Described_With_Who_Uses_Them'Access,
+         "A system and an agent are described with who uses them");
+      Register_Routine
+        (T, An_Unused_Definition_Is_Used_By_Nothing'Access,
+         "An unused definition is used by nothing");
+      Register_Routine
+        (T, A_Pipeline_Names_Its_Kind_And_File'Access,
+         "A pipeline names its kind and file");
+      Register_Routine
+        (T, Outcomes_Are_Reported_For_The_Step_That_Declares_Them'Access,
+         "Outcomes are reported for the step that declares them");
+      Register_Routine
+        (T, A_Steps_Prompt_Lists_Its_Outcomes'Access,
+         "A step's prompt lists its outcomes");
+      Register_Routine
+        (T, A_Step_Is_Shown_As_The_Prompt_It_Starts_With'Access,
+         "A step is shown as the prompt it starts with");
+      Register_Routine
+        (T, A_Later_Step_Has_A_Marked_Slot_For_What_Came_Before'Access,
+         "A later step has a marked slot for what came before");
+      Register_Routine
+        (T, A_Prompt_Can_Be_Had_As_Json_And_Bad_Asks_Are_Errors'Access,
+         "A prompt can be had as JSON and bad asks are errors");
    end Register_Tests;
 
 end Synapse.Pipeline.Commands.Show.Tests;

@@ -26,8 +26,8 @@ package body Synapse.Commands.Index.Tests is
    procedure Put_Work (Dir : Scratch; Name, Text : String) is
    begin
       Ada.Directories.Create_Path
-        (Ada.Directories.Containing_Directory (Path (Dir, "work/" & Name)));
-      Synapse.Adapters.File_Bytes.Write (Path (Dir, "work/" & Name), Text);
+        (Ada.Directories.Containing_Directory (Path (Dir, Synapse.Test_Repo.Work_Rel & "/" & Name)));
+      Synapse.Adapters.File_Bytes.Write (Path (Dir, Synapse.Test_Repo.Work_Rel & "/" & Name), Text);
    end Put_Work;
 
    --  An index of the work directory with three claimed paths and one that
@@ -40,7 +40,7 @@ package body Synapse.Commands.Index.Tests is
       Assert
         (Run
            (Env (F),
-            Args ("build", "--unassigned", Path (Dir, "work/un.txt"))) =
+            Args ("build", "--unassigned", Path (Dir, Synapse.Test_Repo.Work_Rel & "/un.txt"))) =
          0,
          "the index builds: " & F.Console.Err_Text);
       F.Console.Clear;
@@ -59,7 +59,7 @@ package body Synapse.Commands.Index.Tests is
       Assert
         (Run
            (Env (F),
-            Args ("build", "--unassigned", Path (Dir, "work/un.txt"))) =
+            Args ("build", "--unassigned", Path (Dir, Synapse.Test_Repo.Work_Rel & "/un.txt"))) =
          0,
          "success: " & F.Console.Err_Text);
       Assert
@@ -69,7 +69,7 @@ package body Synapse.Commands.Index.Tests is
          and then F.Console.Out_Text (F.Console.Out_Text'Last) = LF,
          "the counts: " & F.Console.Out_Text);
       Assert
-        (Ada.Directories.Exists (Path (Dir, "work/_index.bin")), "written");
+        (Ada.Directories.Exists (Path (Dir, Synapse.Test_Repo.Work_Rel & "/_index.bin")), "written");
       Remove (Dir);
    exception
       when others =>
@@ -89,11 +89,11 @@ package body Synapse.Commands.Index.Tests is
         ("a" & HT & "b" & HT & "N.md" & ASCII.CR & LF & HT & "x" & LF & "p" &
          HT & LF & "no tab" & LF);
       Assert
-        (Run (Env (F), Args ("build", "--out", Path (Dir, "work/i.bin"))) = 0,
+        (Run (Env (F), Args ("build", "--out", Path (Dir, Synapse.Test_Repo.Work_Rel & "/i.bin"))) = 0,
          "success");
       F.Console.Clear;
       Assert
-        (Run (Env (F), Args ("paths", "--file", Path (Dir, "work/i.bin"))) = 0,
+        (Run (Env (F), Args ("paths", "--file", Path (Dir, Synapse.Test_Repo.Work_Rel & "/i.bin"))) = 0,
          "paths");
       Assert
         (F.Console.Out_Text = "a" & HT & "b" & LF,
@@ -120,7 +120,7 @@ package body Synapse.Commands.Index.Tests is
       Put_Work (Dir, "lists/002.txt", "src/a.ext" & LF);
       Put_Work (Dir, "lists/003.txt", "no/title.ext" & LF);
       Assert
-        (Run (Env (F), Args ("build", "--lists", Path (Dir, "work/lists"))) =
+        (Run (Env (F), Args ("build", "--lists", Path (Dir, Synapse.Test_Repo.Work_Rel & "/lists"))) =
          0,
          "success: " & F.Console.Err_Text);
       F.Console.Clear;
@@ -150,16 +150,16 @@ package body Synapse.Commands.Index.Tests is
       Use_Work (F, Dir);
       Put_Work (Dir, "lists/003.txt", "no/title.ext" & LF);
       Assert
-        (Run (Env (F), Args ("build", "--lists", Path (Dir, "work/lists"))) =
+        (Run (Env (F), Args ("build", "--lists", Path (Dir, Synapse.Test_Repo.Work_Rel & "/lists"))) =
          1,
          "no pairs");
       Assert
-        (Run (Env (F), Args ("build", "--lists", Path (Dir, "work/none"))) = 1,
+        (Run (Env (F), Args ("build", "--lists", Path (Dir, Synapse.Test_Repo.Work_Rel & "/none"))) = 1,
          "no directory");
       Assert
         (F.Console.Err_Text =
          "synapse-index: no (path, node) pairs" & LF &
-         "synapse-index: cannot read --lists " & Path (Dir, "work/none") & LF &
+         "synapse-index: cannot read --lists " & Path (Dir, Synapse.Test_Repo.Work_Rel & "/none") & LF &
          "synapse-index: no (path, node) pairs" & LF,
          "the messages: " & F.Console.Err_Text);
       Remove (Dir);
@@ -181,13 +181,13 @@ package body Synapse.Commands.Index.Tests is
       Assert
         (Run
            (Env (F),
-            Args ("build", "--unassigned", Path (Dir, "work/gone.txt"))) =
+            Args ("build", "--unassigned", Path (Dir, Synapse.Test_Repo.Work_Rel & "/gone.txt"))) =
          1,
          "code 1");
       Assert
         (F.Console.Err_Text =
          "synapse-index: cannot read --unassigned " &
-         Path (Dir, "work/gone.txt") & LF,
+         Path (Dir, Synapse.Test_Repo.Work_Rel & "/gone.txt") & LF,
          "the message");
       Remove (Dir);
    exception
@@ -294,7 +294,7 @@ package body Synapse.Commands.Index.Tests is
       Assert
         (Run (Env (F), Args ("add-unassigned", "new.txt")) = 0, "success");
       Assert
-        (not Ada.Directories.Exists (Path (Dir, "work/_index.bin")),
+        (not Ada.Directories.Exists (Path (Dir, Synapse.Test_Repo.Work_Rel & "/_index.bin")),
          "nothing created");
       Assert
         (F.Console.Out_Text = "" and then F.Console.Err_Text = "", "silent");
@@ -318,7 +318,7 @@ package body Synapse.Commands.Index.Tests is
       Assert
         (F.Console.Err_Text =
          "synapse-index: unreadable index (NotAnIndex): " &
-         Path (Dir, "work/_index.bin") & LF,
+         Path (Dir, Synapse.Test_Repo.Work_Rel & "/_index.bin") & LF,
          "named: " & F.Console.Err_Text);
       F.Console.Clear;
       Assert
@@ -344,7 +344,7 @@ package body Synapse.Commands.Index.Tests is
         (Path (Dir, "home/.cache/synapse/work/widget@main"));
       Synapse.Adapters.File_Bytes.Write
         (Path (Dir, "home/.cache/synapse/work/widget@main/_index.bin"),
-         Synapse.Adapters.File_Bytes.Read (Path (Dir, "work/unused.txt"), 10));
+         Synapse.Adapters.File_Bytes.Read (Path (Dir, Synapse.Test_Repo.Work_Rel & "/unused.txt"), 10));
       Assert
         (Run (Env (F), Args ("nodes", "--namespace", "widget@main")) = 0,
          "an empty index reads");
@@ -406,7 +406,7 @@ package body Synapse.Commands.Index.Tests is
       Assert
         (F.Console.Err_Text =
          "synapse-index: no HOME, so no default work dir" & LF &
-         "synapse-index: no SYNAPSE_WORK_DIR and no --out/--file" & LF,
+         "synapse-index: no work directory and no --out/--file" & LF,
          "both messages: " & F.Console.Err_Text);
       Remove (Dir);
    exception
@@ -472,7 +472,7 @@ package body Synapse.Commands.Index.Tests is
          1,
          "the line: " & F.Console.Out_Text);
       Assert
-        (Ada.Directories.Exists (Path (Dir, "work/_index.bin")), "written");
+        (Ada.Directories.Exists (Path (Dir, Synapse.Test_Repo.Work_Rel & "/_index.bin")), "written");
       Remove (Dir);
    exception
       when others =>
@@ -492,14 +492,14 @@ package body Synapse.Commands.Index.Tests is
       F.Vars.Set ("SYNAPSE_NAMESPACE", "widget@main");
       F.Vars.Set ("SYNAPSE_REPO_ROOT", "/r");
       F.Vars.Set ("SYNAPSE_BRANCH", "main");
-      Ada.Directories.Create_Path (Path (Dir, "work"));
+      Ada.Directories.Create_Path (Path (Dir, Synapse.Test_Repo.Work_Rel));
       Assert (Run_Build_Index (Env (F), Args) = 1, "no lists");
-      Ada.Directories.Create_Path (Path (Dir, "work/lists"));
+      Ada.Directories.Create_Path (Path (Dir, Synapse.Test_Repo.Work_Rel & "/lists"));
       Assert (Run_Build_Index (Env (F), Args) = 1, "no unassigned");
       Assert
         (F.Console.Err_Text =
-         "synapse-build-index: no lists/ in " & Path (Dir, "work") & LF &
-         "synapse-build-index: no unassigned.txt in " & Path (Dir, "work") &
+         "synapse-build-index: no lists/ in " & Path (Dir, Synapse.Test_Repo.Work_Rel) & LF &
+         "synapse-build-index: no unassigned.txt in " & Path (Dir, Synapse.Test_Repo.Work_Rel) &
          LF,
          "the messages: " & F.Console.Err_Text);
       Remove (Dir);
