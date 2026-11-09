@@ -71,10 +71,21 @@ export function ModelPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [harness, disabled])
 
+  // What this box last gave to `onChange`, until the caller's `value` is that. The value comes back
+  // once the caller has kept it, which can be after the person has begun to type another name:
+  // what was given is what is chosen meanwhile, and its return must not replace the text typed.
+  const [sent, setSent] = useState<{ model: string | null } | null>(null)
+  const chosen = sent === null ? value : sent.model
+
   // What was chosen elsewhere, or was saved, is what is shown.
   useEffect(() => {
+    const returned = sent !== null && sent.model === value
+    setSent(null)
+    if (returned) return
     setDraft(value ?? '')
     setProblem(null)
+    // Only a new `value` is read here; `sent` is what that value is compared with.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value])
 
   function load() {
@@ -102,9 +113,9 @@ export function ModelPicker({
   const found = useMemo(
     () =>
       catalog.status === 'ready'
-        ? filterModels(catalog.catalog.models, draft === value ? '' : draft, SHOWN)
+        ? filterModels(catalog.catalog.models, draft === chosen ? '' : draft, SHOWN)
         : { shown: [], total: 0 },
-    [catalog, draft, value],
+    [catalog, draft, chosen],
   )
 
   function commit(text: string) {
@@ -112,7 +123,10 @@ export function ModelPicker({
     if (name === '') {
       setProblem(null)
       setDraft('')
-      if (value !== null) onChange(null)
+      if (chosen !== null) {
+        setSent({ model: null })
+        onChange(null)
+      }
       return
     }
     if (!isModelName(name)) {
@@ -121,7 +135,10 @@ export function ModelPicker({
     }
     setProblem(null)
     setDraft(name)
-    if (name !== value) onChange(name)
+    if (name !== chosen) {
+      setSent({ model: name })
+      onChange(name)
+    }
   }
 
   function choose(model: string) {
@@ -180,7 +197,7 @@ export function ModelPicker({
           }}
           onBlur={() => {
             setOpen(false)
-            if (draft.trim() !== (value ?? '')) commit(draft)
+            if (draft.trim() !== (chosen ?? '')) commit(draft)
           }}
           onKeyDown={(event) => {
             if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -197,7 +214,7 @@ export function ModelPicker({
               else choose(picked.id)
             } else if (event.key === 'Escape') {
               setOpen(false)
-              setDraft(value ?? '')
+              setDraft(chosen ?? '')
               setProblem(null)
             }
           }}

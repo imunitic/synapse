@@ -23,6 +23,10 @@ export interface World {
   // machine does not matter.
   home: string
   data: string
+  // A `synapse-pipeline` launcher with the program's skill beside it, as the npm package has
+  // them: the app finds the skill by the launcher on PATH. It is after the built programs on
+  // PATH, so it is only where the skill is looked for, never the program that runs.
+  pipelinePackage: string
 }
 
 export function worldAt(root: string): World {
@@ -38,6 +42,7 @@ export function worldAt(root: string): World {
     bin: join(root, 'bin'),
     home: join(root, 'home'),
     data: join(root, 'data'),
+    pipelinePackage: join(root, 'pipeline-package'),
   }
 }
 
@@ -163,7 +168,9 @@ function claudeTranscript(folder: string): string {
 export function environmentFor(world: World, binDirs: readonly string[]): NodeJS.ProcessEnv {
   return {
     ...process.env,
-    PATH: [world.bin, ...binDirs, process.env.PATH ?? ''].join(delimiter),
+    PATH: [world.bin, ...binDirs, join(world.pipelinePackage, 'bin'), process.env.PATH ?? ''].join(
+      delimiter,
+    ),
     XDG_CONFIG_HOME: world.xdg,
     SYNAPSE_PIPELINE_RUNNER: 'scripted',
     SYNAPSE_PIPELINE_SCRIPT: world.script,
@@ -299,6 +306,23 @@ export function buildWorld(root: string, binDirs: readonly string[]): World {
   for (const [name, text] of Object.entries(SKILLS)) {
     write(join(world.definitions, 'skills', name, 'SKILL.md'), text)
   }
+  write(join(world.pipelinePackage, 'bin', 'synapse-pipeline'), '')
+  write(
+    join(world.pipelinePackage, 'skills', 'synapse-pipeline', 'SKILL.md'),
+    readFileSync(
+      join(
+        import.meta.dirname,
+        '..',
+        '..',
+        'packages',
+        'synapse-pipeline',
+        'skills',
+        'synapse-pipeline',
+        'SKILL.md',
+      ),
+      'utf8',
+    ),
+  )
   write(world.script, JSON.stringify(ANSWERS, null, 2))
   resetSettings(world)
   mkdirSync(world.work, { recursive: true })

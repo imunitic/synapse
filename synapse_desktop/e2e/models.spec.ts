@@ -81,6 +81,28 @@ test('lists the aliases Claude Code takes, from its own /model, and takes a full
   await expect.poll(kept).toEqual({ Claude: 'claude-full-id-1' })
 })
 
+test('keeps the name being typed when an earlier choice is given back late', async ({ page }) => {
+  // The answer to a save arrives after the person has begun to type another name.
+  await page.route('**/api/call/setConfig', async (route) => {
+    const response = await route.fetch()
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    await route.fulfill({ response })
+  })
+  await openGeneral(page)
+  const box = picker(page, 'Claude Code')
+  await box.click()
+  await page
+    .getByRole('listbox', { name: 'Models of Default model of Claude Code' })
+    .getByRole('option', { name: 'opus' })
+    .click()
+  await box.fill('claude-full-id-1')
+  // The way back is shown once the box is given the choice that was kept.
+  await expect(page.getByRole('button', { name: "Use the harness's own" })).toBeVisible()
+  await expect(box).toHaveValue('claude-full-id-1')
+  await box.press('Enter')
+  await expect.poll(kept).toEqual({ Claude: 'claude-full-id-1' })
+})
+
 test('lists the models Codex shows, in its order, each with what it says of it', async ({
   page,
 }) => {
