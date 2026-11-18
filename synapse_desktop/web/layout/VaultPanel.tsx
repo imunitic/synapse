@@ -149,14 +149,6 @@ export function VaultPanel({ state, dispatch }: { state: ShellState; dispatch: D
           </button>
         </div>
       </div>
-      <button
-        className="list-item"
-        aria-current={state.activeId === 'vault' ? 'true' : undefined}
-        onClick={() => dispatch({ type: 'openPage', page: { kind: 'vault' } })}
-      >
-        <span className="list-name">Status</span>
-        <span className="muted small">What needs a decision</span>
-      </button>
       <form className="panel-search" role="search" onSubmit={(event) => void search(event)}>
         <input
           type="search"

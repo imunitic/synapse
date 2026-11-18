@@ -57,11 +57,10 @@ test('the vault page says what needs a decision, and a click opens the note', as
     await expect(page.getByRole('tab', { name: 'Talk' })).toBeVisible()
 
     // A page that is not the status page is left alone by a second click, which hides the panel,
-    // and the Status entry of the panel leads back.
+    // and the click after it shows the panel again and leads back to the status page.
     await page.getByRole('button', { name: 'Vault', exact: true }).first().click()
     await expect(page.getByRole('tab', { name: 'Talk' })).toHaveAttribute('aria-selected', 'true')
     await page.getByRole('button', { name: 'Vault', exact: true }).first().click()
-    await page.getByRole('button', { name: /Status\s+What needs a decision/ }).click()
     await expect(page.getByRole('tab', { name: 'Vault', exact: true })).toHaveAttribute(
       'aria-selected',
       'true',
