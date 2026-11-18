@@ -365,6 +365,18 @@ jobs:
           tar -czf "installers/synapse-desktop_${VERSION}_${PLATFORM}.tar.gz" \
             -C synapse_desktop/src-tauri/target/release/bundle/macos "Synapse Desktop.app"
 
+      # `curl ... | sh` on a Mac installs the tarball. The script is stamped with
+      # this release's version and download folder, and keeps the same name on
+      # every release so that releases/latest/download/install.sh is a stable link.
+      - name: Make install.sh
+        if: matrix.platform == 'macos-arm64'
+        env:
+          VERSION: ${{ steps.what.outputs.app }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          ci/desktop-release.sh stamp-install "$VERSION" \
+            "https://github.com/$REPOSITORY/releases/download/v$VERSION" installers/install.sh
+
       # Tauri names an installer "Synapse Desktop_<version>_<arch>.<ext>", and
       # GitHub may rewrite the space in an uploaded asset's name. Each installer
       # is renamed to a name that is the same on every release.
@@ -399,6 +411,8 @@ jobs:
             "synapse_desktop/src-tauri/target/release/bundle/macos/Synapse Desktop.app" \
             "$PROGRAMS" "$VERSION"
           ci/desktop-release.sh check-tarball \
+            "installers/synapse-desktop_${VERSION}_macos-arm64.tar.gz" "$PROGRAMS" "$VERSION"
+          ci/desktop-release.sh check-install \
             "installers/synapse-desktop_${VERSION}_macos-arm64.tar.gz" "$PROGRAMS" "$VERSION"
 
       - name: Check the Linux package

@@ -18,6 +18,16 @@
 #       Extracts the macOS tarball into a temporary folder and runs `check` on
 #       the "Synapse Desktop.app" in it.
 #
+#   ci/desktop-release.sh stamp-install <version> <base-url> <out>
+#       Writes ci/install.sh to <out> with <version> and <base-url> (the folder
+#       the release's files download from) filled in.
+#
+#   ci/desktop-release.sh check-install <tar.gz> <programs-version> <app-version>
+#       macOS: installs the tarball with a stamped ci/install.sh into a
+#       temporary HOME, from a folder of local files, and runs `check` on the
+#       installed app. Also checks that the installed app has no quarantine
+#       attribute and that a wrong checksum installs nothing.
+#
 #   ci/desktop-release.sh check-deb <.deb> <programs-version> <app-version>
 #       Linux: unpacks the package with dpkg-deb, runs the bundled programs from
 #       the unpacked tree, compares the package's version with <app-version>,
@@ -162,6 +172,50 @@ check_tarball() {
   rm -rf "$dir"
 }
 
+stamp_install() {
+  local version="$1" base_url="$2" out="$3"
+  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] ||
+    die "'$version' is not a version such as 0.18.0"
+  # `|` is the delimiter: a URL has no | in it.
+  sed -e "s|@VERSION@|$version|" -e "s|@BASE_URL@|$base_url|" ci/install.sh >"$out"
+  grep -q '@VERSION@\|@BASE_URL@' "$out" && die "$out still has a placeholder"
+  return 0
+}
+
+check_install() {
+  local tarball="$1" programs_version="$2" app_version="$3"
+  [ -f "$tarball" ] || die "$tarball is not there"
+  local dir
+  dir=$(mktemp -d)
+  mkdir "$dir/release" "$dir/home"
+
+  # The release's files, as the script finds them at its base URL.
+  local name="synapse-desktop_${app_version}_macos-arm64.tar.gz"
+  cp "$tarball" "$dir/release/$name"
+  (cd "$dir/release" && shasum -a 256 "$name" >SHA256SUMS)
+  stamp_install "$app_version" "file://$dir/release" "$dir/install.sh"
+
+  HOME="$dir/home" sh "$dir/install.sh"
+  local app="$dir/home/Applications/Synapse Desktop.app"
+  check "$app" "$programs_version" "$app_version"
+  if xattr -p com.apple.quarantine "$app" >/dev/null 2>&1; then
+    die "the installed app has a quarantine attribute"
+  fi
+  echo "no quarantine attribute"
+
+  # A tarball that is not the listed one installs nothing.
+  rm -rf "${dir:?}/home"
+  mkdir "$dir/home"
+  echo "0000000000000000000000000000000000000000000000000000000000000000  $name" >"$dir/release/SHA256SUMS"
+  if HOME="$dir/home" sh "$dir/install.sh" >/dev/null 2>&1; then
+    die "install.sh installed a tarball whose checksum is not the listed one"
+  fi
+  [ ! -e "$dir/home/Applications/Synapse Desktop.app" ] ||
+    die "install.sh left an app behind after a checksum mismatch"
+  echo "a wrong checksum installs nothing"
+  rm -rf "$dir"
+}
+
 check_deb() {
   local deb="$1" programs_version="$2" app_version="$3"
   [ -f "$deb" ] || die "$deb is not there"
@@ -223,11 +277,15 @@ case "${1:-}" in
     [ $# -eq 4 ] || die "usage: $0 check <app> <programs-version> <app-version>"
     check "$2" "$3" "$4"
     ;;
-  check-tarball | check-deb | check-nsis)
+  stamp-install)
+    [ $# -eq 4 ] || die "usage: $0 stamp-install <version> <base-url> <out>"
+    stamp_install "$2" "$3" "$4"
+    ;;
+  check-tarball | check-install | check-deb | check-nsis)
     [ $# -eq 4 ] || die "usage: $0 $1 <file> <programs-version> <app-version>"
     "${1//-/_}" "$2" "$3" "$4"
     ;;
   *)
-    die "usage: $0 set-version <version> | check | check-tarball | check-deb | check-nsis <file> <programs-version> <app-version>"
+    die "usage: $0 set-version <version> | stamp-install <version> <base-url> <out> | check | check-tarball | check-install | check-deb | check-nsis <file> <programs-version> <app-version>"
     ;;
 esac
