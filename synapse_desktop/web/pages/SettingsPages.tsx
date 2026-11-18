@@ -15,6 +15,7 @@ import {
   type InstallOffer,
 } from '../domain/integrations.ts'
 import { isAbsolutePath } from '../domain/vaults.ts'
+import { PathInput } from '../components/PathInput.tsx'
 import { transport } from '../transport/index.ts'
 import { TEXT_SIZES } from '../domain/text-size.ts'
 import { THEMES, type ThemeChoice } from '../domain/theme.ts'
@@ -64,13 +65,13 @@ function PathCard({
     <form className="card" aria-label={title} onSubmit={(event) => void submit(event)}>
       <h2 className="card-title">{title}</h2>
       <p className="muted">{hint}</p>
-      <input
+      <PathInput
         aria-label={label}
         className="mono"
         value={draft}
         placeholder={placeholder}
-        onChange={(event) => {
-          setDraft(event.target.value)
+        onChange={(value) => {
+          setDraft(value)
           setMessage(null)
         }}
       />
@@ -239,12 +240,12 @@ function DefinitionFoldersCard({ onChanged }: { onChanged: () => void }) {
         ))}
       </ul>
       <form className="row" onSubmit={(event) => void add(event)}>
-        <input
+        <PathInput
           className="mono"
           aria-label="Folder to add"
           placeholder="/path/to/definitions"
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={setDraft}
         />
         <button type="submit" className="secondary" disabled={draft.trim() === ''}>
           Add

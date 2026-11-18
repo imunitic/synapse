@@ -11,6 +11,7 @@ import {
 } from '../domain/run-input.ts'
 import { transport } from '../transport/index.ts'
 import { PromptView } from './PromptView.tsx'
+import { PathInput } from './PathInput.tsx'
 
 // What a pipeline is to work on, as a sentence or as JSON, and the button that starts it. A native
 // dialog gives the focus handling and the Escape key. A run can be started on the terminal of the
@@ -179,14 +180,12 @@ export function RunDialog({
             <label htmlFor="run-folder" className="muted">
               Folder its agents work in (empty is your home folder)
             </label>
-            <input
+            <PathInput
               id="run-folder"
               className="mono"
-              type="text"
               value={folder}
-              spellCheck={false}
               placeholder="/path/to/a/project"
-              onChange={(event) => setFolder(event.target.value)}
+              onChange={setFolder}
             />
           </>
         )}

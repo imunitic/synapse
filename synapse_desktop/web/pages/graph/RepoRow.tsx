@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
 import { transport } from '../../transport/index.ts'
+import { PathInput } from '../../components/PathInput.tsx'
 import { useConfig } from '../../state/config.tsx'
 import { useLoad } from '../../state/useLoad.ts'
 
@@ -118,13 +119,13 @@ export function RepoRow({ namespace }: { namespace: string }) {
     <>
       <span className="muted small">Repository</span>
       <form className="repo-row" aria-label="Repository" onSubmit={(event) => void submit(event)}>
-        <input
+        <PathInput
           className="mono grow"
           aria-label="Repository folder"
           placeholder="/path/to/the/repository this graph was built from"
           value={draft}
-          onChange={(event) => {
-            setDraft(event.target.value)
+          onChange={(value) => {
+            setDraft(value)
             setMessage(null)
           }}
         />

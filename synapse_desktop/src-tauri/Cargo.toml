@@ -19,7 +19,7 @@ path = "src/app_main.rs"
 required-features = ["app"]
 
 [features]
-app = ["dep:tauri", "dep:tauri-build"]
+app = ["dep:tauri", "dep:tauri-build", "dep:tauri-plugin-dialog"]
 custom-protocol = ["tauri/custom-protocol"]
 
 [dependencies]
@@ -35,6 +35,7 @@ vt100 = "0.16"
 rusqlite = { version = "0.34", features = ["bundled"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "fs", "process", "io-util", "net"] }
 tauri = { version = "2", optional = true, features = [] }
+tauri-plugin-dialog = { version = "2", optional = true }
 
 [build-dependencies]
 tauri-build = { version = "2", optional = true , features = [] }

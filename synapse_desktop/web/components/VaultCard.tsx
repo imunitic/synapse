@@ -5,6 +5,7 @@ import { describeVault, isAbsolutePath, rememberVault } from '../domain/vaults.t
 import { transport } from '../transport/index.ts'
 import { useConfig } from '../state/config.tsx'
 import { useDiagnosis } from '../state/diagnosis.tsx'
+import { PathInput } from './PathInput.tsx'
 
 const LOOK_MS = 400
 
@@ -92,11 +93,11 @@ export function VaultCard({
           Switch to another folder. Every Synapse command reads the new vault, in this app and in a
           terminal.
         </span>
-        <input
+        <PathInput
           className="mono"
           value={path}
           placeholder="/path/to/a/vault"
-          onChange={(event) => setPath(event.target.value)}
+          onChange={setPath}
         />
       </label>
       {wanted !== '' && !isAbsolutePath(wanted) && (

@@ -3093,3 +3093,24 @@ button.activity-file:hover {
   color: var(--warn-text);
   font-size: 0.8125rem;
 }
+
+/* A path input with the folder button beside it (desktop app only) */
+.path-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.path-input input {
+  flex: 1;
+  min-width: 0;
+}
+
+.path-pick {
+  padding: 8px 10px;
+}
+
+.field .path-input {
+  width: 100%;
+  max-width: 32.5rem;
+}
