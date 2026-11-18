@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { transport } from '../../transport/index.ts'
+import { PathInput } from '../../components/PathInput.tsx'
 import { useConfig } from '../../state/config.tsx'
 import { TERMINAL_LABELS, type TerminalKind, type TerminalTask } from '../../state/state.ts'
 import { HarnessSelect, useHarness } from './harness.tsx'
@@ -60,12 +61,12 @@ export function NewGraph({
     <section className="card" aria-label="New graph">
       <h3 className="card-title">New graph</h3>
       <form className="row" onSubmit={(event) => void check(event)}>
-        <input
+        <PathInput
           className="grow"
           aria-label="Folder of the repository to build from"
           placeholder="/path/to/the/repository"
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={setDraft}
         />
         <button className="secondary" type="submit" disabled={draft.trim() === ''}>
           Check

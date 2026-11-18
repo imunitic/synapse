@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import { baselineOf, followFolder, onBaselineChange } from '../state/change-baselines.ts'
+import { PathInput } from '../components/PathInput.tsx'
 import { transport } from '../transport/index.ts'
 
 // The folder a terminal session's changes and commits are of, with a way to move to another one: an
@@ -39,15 +40,14 @@ export function FolderBar({ session }: { session: string }) {
     <div className="folder-bar">
       {typing ? (
         <form onSubmit={submit} onKeyDown={keys}>
-          <input
+          <PathInput
             className="folder-input"
             aria-label="Folder to look at"
             placeholder="Absolute path of a folder in a git repository"
             list="folder-bar-known"
             value={text}
             autoFocus
-            spellCheck={false}
-            onChange={(event) => setText(event.target.value)}
+            onChange={setText}
             onFocus={(event) => event.target.select()}
           />
           <datalist id="folder-bar-known">

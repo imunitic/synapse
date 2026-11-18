@@ -116,6 +116,7 @@ fn login_environment() -> Environment {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let resources = app.path().resource_dir()?;
             let (environment, roots) = bundled(&resources, login_environment());

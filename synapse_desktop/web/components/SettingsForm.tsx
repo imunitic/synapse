@@ -7,6 +7,7 @@ import {
   type SynapseSettings,
 } from '../domain/settings.ts'
 import { transport } from '../transport/index.ts'
+import { PathInput } from './PathInput.tsx'
 
 // Where a setting's value in force comes from, in words.
 function sourceText(setting: SynapseSetting): string {
@@ -55,6 +56,15 @@ function SettingRow({ setting, onChanged }: { setting: SynapseSetting; onChanged
     }
   }
 
+  function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'Enter') event.currentTarget.blur()
+    if (event.key === 'Escape') {
+      // Back to what the file says, with the refusal gone.
+      setDraft(inFile)
+      setFailure(null)
+    }
+  }
+
   const id = `setting-${setting.key}`
   return (
     <div className="setting">
@@ -76,6 +86,18 @@ function SettingRow({ setting, onChanged }: { setting: SynapseSetting; onChanged
           />
           <span>On</span>
         </label>
+      ) : setting.kind === 'path' ? (
+        <PathInput
+          id={id}
+          className="mono"
+          value={draft}
+          disabled={saving}
+          placeholder={setting.default ?? 'not set'}
+          onChange={setDraft}
+          onPick={(chosen) => void commit(chosen)}
+          onBlur={() => void commit(draft.trim())}
+          onKeyDown={onKeyDown}
+        />
       ) : (
         <input
           id={id}
@@ -86,14 +108,7 @@ function SettingRow({ setting, onChanged }: { setting: SynapseSetting; onChanged
           placeholder={setting.default ?? 'not set'}
           onChange={(event) => setDraft(event.target.value)}
           onBlur={() => void commit(draft.trim())}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') event.currentTarget.blur()
-            if (event.key === 'Escape') {
-              // Back to what the file says, with the refusal gone.
-              setDraft(inFile)
-              setFailure(null)
-            }
-          }}
+          onKeyDown={onKeyDown}
         />
       )}
       <p className="muted small" aria-live="polite">

@@ -10,6 +10,7 @@ import {
   type LaunchView,
 } from '../domain/launch-view.ts'
 import { ChevronIcon } from '../components/icons.tsx'
+import { PathInput } from '../components/PathInput.tsx'
 import { workspaceLabel, workspaceNames } from '../domain/workspaces.ts'
 import { useConfig } from '../state/config.tsx'
 import { useHarnesses } from '../state/diagnosis.tsx'
@@ -115,11 +116,11 @@ function ShellCard({ onStart }: { onStart: Start }) {
       >
         <label className="field">
           <span className="muted small">Start in</span>
-          <input
+          <PathInput
             className="mono"
             value={folder}
             placeholder="your home folder"
-            onChange={(event) => setTyped(event.target.value)}
+            onChange={setTyped}
           />
         </label>
         <button className="primary" type="submit">
@@ -179,11 +180,11 @@ function FolderList({
       >
         <label className="field">
           <span className="muted small">Another folder</span>
-          <input
+          <PathInput
             className="mono"
             value={other}
             placeholder="/path/to/a/folder"
-            onChange={(event) => setOther(event.target.value)}
+            onChange={setOther}
           />
         </label>
         <button className="primary" type="submit" disabled={other.trim() === ''}>

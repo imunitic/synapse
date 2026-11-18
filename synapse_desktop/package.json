@@ -30,6 +30,7 @@
     "@lezer/highlight": "^1.2.5",
     "@lydell/node-pty": "^1.2.0-beta.18",
     "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/plugin-dialog": "^2.8.4",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
