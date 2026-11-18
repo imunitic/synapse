@@ -27,12 +27,19 @@ test('each harness is listed with what it has, and the app says which Synapse it
   for (const name of ['Claude Code', 'Codex', 'OpenCode']) {
     const card = page.getByLabel(name, { exact: true })
     await expect(card).toContainText('Not installed')
-    await expect(card.getByRole('button', { name: 'Install' })).toBeEnabled()
+    await expect(card.getByRole('button')).toHaveCount(0)
   }
+  // One button, for every harness, with the harnesses it covers said beside it.
+  const action = page.getByLabel('Install and update')
+  await expect(action).toContainText('Claude Code, Codex, OpenCode')
+  await expect(action.getByRole('button', { name: 'Install in all harnesses' })).toBeEnabled()
 })
 
 const INSTALL =
-  'npm install -g @imunitic/synapse@latest @imunitic/synapse-pipeline@latest && synapse-setup configure claude && synapse-pipeline-setup configure claude'
+  'npm install -g @imunitic/synapse@latest @imunitic/synapse-pipeline@latest && synapse-setup configure claude && synapse-pipeline-setup configure claude && synapse-setup configure codex && synapse-pipeline-setup configure codex && synapse-setup configure opencode && synapse-pipeline-setup configure opencode'
+
+// The card with the one button that installs and updates.
+const actionOf = (page: import('@playwright/test').Page) => page.getByLabel('Install and update')
 
 // The terminal of the tab that is showing.
 const screen = (page: import('@playwright/test').Page) =>
@@ -40,15 +47,17 @@ const screen = (page: import('@playwright/test').Page) =>
 
 test('installing asks first, naming the command and what it writes', async ({ page }) => {
   await openIntegrations(page)
-  const card = page.getByLabel('Claude Code', { exact: true })
-  await card.getByRole('button', { name: 'Install' }).click()
-  const question = card.getByRole('alertdialog')
+  const action = actionOf(page)
+  await action.getByRole('button', { name: 'Install in all harnesses' }).click()
+  const question = action.getByRole('alertdialog')
   await expect(question).toContainText('Are you sure?')
   await expect(question).toContainText('opens a terminal tab')
   await expect(question).toContainText(INSTALL)
   await expect(question).toContainText('settings.json.bak')
+  await expect(question).toContainText('hooks.json.bak')
+  await expect(question).toContainText('plugin/synapse.js')
   // Nothing has been opened, or written.
-  await expect(page.getByRole('tab', { name: /Install Claude Code/ })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: /Install in all harnesses/ })).toHaveCount(0)
   expect(existsSync(join(world().home, '.claude', 'settings.json'))).toBe(false)
 })
 
@@ -56,35 +65,34 @@ test('saying yes opens a shell tab that runs the npm install, and writes nothing
   page,
 }) => {
   await openIntegrations(page)
-  const card = page.getByLabel('Claude Code', { exact: true })
-  await card.getByRole('button', { name: 'Install' }).click()
-  await card.getByRole('button', { name: 'Yes, install' }).click()
+  const action = actionOf(page)
+  await action.getByRole('button', { name: 'Install in all harnesses' }).click()
+  await action.getByRole('button', { name: 'Yes, install in all harnesses' }).click()
 
-  await expect(page.getByRole('tab', { name: 'Install Claude Code' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Install in all harnesses' })).toBeVisible()
   // What was typed is on the screen, and it was run: npm's own words are there as well.
   await expect(screen(page)).toContainText('npm install -g @imunitic/synapse@latest')
   await expect(screen(page)).toContainText('synapse-pipeline-setup configure claude')
   await expect(screen(page)).toContainText(/ENOTCACHED|npm error/)
-  // The app wrote nothing into the harness, and no other harness was touched.
+  // The app wrote nothing into any harness; the command in the tab does.
   expect(existsSync(join(world().home, '.claude', 'settings.json'))).toBe(false)
   expect(existsSync(join(world().home, '.codex'))).toBe(false)
 })
 
-test('each harness gets its own command, and the tab says what it is for', async ({ page }) => {
+test('the one command configures each harness by its own name', async ({ page }) => {
   await openIntegrations(page)
-  await page.getByLabel('Codex', { exact: true }).getByRole('button', { name: 'Install' }).click()
-  await expect(page.getByLabel('Codex', { exact: true }).getByRole('alertdialog')).toContainText(
-    'synapse-setup configure codex && synapse-pipeline-setup configure codex',
-  )
-  await page
-    .getByLabel('Codex', { exact: true })
-    .getByRole('button', { name: 'Yes, install' })
-    .click()
-  await expect(page.getByRole('tab', { name: 'Install Codex' })).toBeVisible()
+  const action = actionOf(page)
+  await action.getByRole('button', { name: 'Install in all harnesses' }).click()
+  const question = action.getByRole('alertdialog')
+  for (const name of ['claude', 'codex', 'opencode']) {
+    await expect(question).toContainText(`synapse-setup configure ${name}`)
+    await expect(question).toContainText(`synapse-pipeline-setup configure ${name}`)
+  }
+  await action.getByRole('button', { name: 'Yes, install in all harnesses' }).click()
   await expect(screen(page)).toContainText('synapse-setup configure codex')
 })
 
-test('a hook program that is gone is shown, and repairing runs the same command', async ({
+test('a hook program that is gone is shown, and the one button runs the command for every harness', async ({
   page,
 }) => {
   mkdirSync(join(world().home, '.claude'), { recursive: true })
@@ -100,9 +108,10 @@ test('a hook program that is gone is shown, and repairing runs the same command'
   await openIntegrations(page)
   const card = page.getByLabel('Claude Code', { exact: true })
   await expect(card).toContainText('Its hook program is missing')
-  await card.getByRole('button', { name: 'Repair' }).click()
-  await card.getByRole('button', { name: 'Yes, repair' }).click()
-  await expect(page.getByRole('tab', { name: 'Repair Claude Code' })).toBeVisible()
+  // Claude's hook is gone and the others have none, so it is more than a repair.
+  await actionOf(page).getByRole('button', { name: 'Update in all harnesses' }).click()
+  await actionOf(page).getByRole('button', { name: 'Yes, update in all harnesses' }).click()
+  await expect(page.getByRole('tab', { name: 'Update in all harnesses' })).toBeVisible()
   await expect(screen(page)).toContainText('synapse-setup configure claude')
   // The file is the person's, and the app left it as it was.
   expect(readFileSync(join(world().home, '.claude', 'settings.json'), 'utf8')).toBe(settings)
@@ -161,16 +170,16 @@ test('a copy whose version cannot be told is shown, and can be replaced by the n
     await openIntegrations(page)
     const card = page.getByLabel('Claude Code', { exact: true })
     await expect(card).toContainText('Installed from another copy or version')
-    await card.getByRole('button', { name: 'Update' }).click()
-    await expect(card.getByRole('alertdialog')).toContainText(INSTALL)
-    await card.getByRole('button', { name: 'Yes, update' }).click()
-    await expect(page.getByRole('tab', { name: 'Update Claude Code' })).toBeVisible()
+    await actionOf(page).getByRole('button', { name: 'Update in all harnesses' }).click()
+    await expect(actionOf(page).getByRole('alertdialog')).toContainText(INSTALL)
+    await actionOf(page).getByRole('button', { name: 'Yes, update in all harnesses' }).click()
+    await expect(page.getByRole('tab', { name: 'Update in all harnesses' })).toBeVisible()
   } finally {
     rmSync(copy, { recursive: true, force: true })
   }
 })
 
-test('a newer Synapse than the app has is shown with its version, and nothing is offered', async ({
+test('a newer Synapse than the app has is shown with its version, and is not replaced by a development build', async ({
   page,
 }) => {
   const pkg = packageOf('9.0.0')
@@ -185,7 +194,7 @@ test('a newer Synapse than the app has is shown with its version, and nothing is
   }
 })
 
-test('a Synapse that is the one this app has is up to date, and nothing is offered', async ({
+test('a Synapse that is the one this app has is up to date, and its card offers nothing', async ({
   page,
 }) => {
   await openIntegrations(page)
@@ -208,13 +217,13 @@ test('a Synapse that is the one this app has is up to date, and nothing is offer
 
 test('cancelling the question runs nothing', async ({ page }) => {
   await openIntegrations(page)
-  const card = page.getByLabel('Claude Code', { exact: true })
-  await card.getByRole('button', { name: 'Install' }).click()
-  await expect(card.getByRole('alertdialog')).toBeVisible()
-  await card.getByRole('button', { name: 'Cancel' }).click()
-  await expect(card.getByRole('alertdialog')).toHaveCount(0)
-  await expect(card).toContainText('Not installed')
-  await expect(page.getByRole('tab', { name: /Install Claude Code/ })).toHaveCount(0)
+  const action = actionOf(page)
+  await action.getByRole('button', { name: 'Install in all harnesses' }).click()
+  await expect(action.getByRole('alertdialog')).toBeVisible()
+  await action.getByRole('button', { name: 'Cancel' }).click()
+  await expect(action.getByRole('alertdialog')).toHaveCount(0)
+  await expect(page.getByLabel('Claude Code', { exact: true })).toContainText('Not installed')
+  await expect(page.getByRole('tab', { name: /Install in all harnesses/ })).toHaveCount(0)
   expect(existsSync(join(world().home, '.claude', 'settings.json'))).toBe(false)
 })
 

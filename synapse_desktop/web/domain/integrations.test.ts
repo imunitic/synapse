@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { IntegrationState } from '../../shared/transport.ts'
 import {
   HARNESS_NAMES,
+  harnessesToConfigure,
   installCommand,
   installOffer,
   stateLabel,
@@ -29,44 +30,67 @@ describe('integrations', () => {
     for (const state of STATES) expect(stateLabel(state)).not.toBe('')
   })
 
-  it('offer an install, a repair or an update where Synapse is missing, broken or another copy', () => {
-    expect(installOffer('Claude', 'absent', '0.18.0')?.label).toBe('Install')
-    expect(installOffer('Claude', 'broken', '0.18.0')?.label).toBe('Repair')
-    expect(installOffer('Claude', 'different', '0.18.0')?.label).toBe('Update')
+  const ALL = ['Claude', 'Codex', 'Opencode'] as const
+  const states = (claude: IntegrationState, codex = claude, opencode = claude) =>
+    ({ Claude: claude, Codex: codex, Opencode: opencode }) as const
+
+  it('offer one button: an install where none has Synapse, a repair where all that need it are broken, else an update', () => {
+    expect(installOffer(states('absent'), ALL, '0.18.0')?.label).toBe('Install in all harnesses')
+    expect(installOffer(states('broken', 'current'), ALL, '0.18.0')?.label).toBe(
+      'Repair in all harnesses',
+    )
+    expect(installOffer(states('different', 'current', 'absent'), ALL, '0.18.0')?.label).toBe(
+      'Update in all harnesses',
+    )
   })
 
-  it('offer nothing where it is current, or where nothing can be said of it', () => {
-    for (const state of ['current', 'installed'] as const) {
-      expect(installOffer('Codex', state, '0.18.0')).toBeNull()
-    }
+  it('offer nothing where every harness is current, or where nothing can be said of it', () => {
+    expect(installOffer(states('current', 'installed', 'current'), ALL, '0.18.0')).toBeNull()
+    // A harness that is not available does not count, whatever state it is in.
+    expect(installOffer(states('different'), [], '0.18.0')).toBeNull()
+    expect(installOffer(states('absent', 'current'), ['Codex'], '0.18.0')).toBeNull()
   })
 
   it("say a newer Synapse is not supported, and offer this app's version in its place", () => {
-    const offer = installOffer('Claude', 'newer', '0.18.0')
-    expect(offer?.label).toBe('Install 0.18.0')
-    expect(offer?.command).toBe(installCommand('Claude', '0.18.0'))
+    const offer = installOffer(states('newer', 'current'), ALL, '0.18.0')
+    expect(offer?.label).toBe('Update in all harnesses')
+    expect(offer?.command).toBe(installCommand(ALL, '0.18.0'))
+    expect(offer?.warning).toContain('Claude Code')
     expect(offer?.warning).toContain('not supported')
     // A development build has no version of its own on npm to offer.
-    expect(installOffer('Claude', 'newer', '0.0.0-dev')).toBeNull()
-    expect(installOffer('Claude', 'newer', null)).toBeNull()
+    expect(installOffer(states('newer'), ALL, '0.0.0-dev')).toBeNull()
+    expect(installOffer(states('newer'), ALL, null)).toBeNull()
   })
 
   it("install the npm packages at this app's version, and configure each harness by its own name", () => {
-    expect(installCommand('Claude', '0.18.0')).toBe(
+    expect(installCommand(['Claude'], '0.18.0')).toBe(
       'npm install -g @imunitic/synapse@0.18.0 @imunitic/synapse-pipeline@0.18.0 && synapse-setup configure claude && synapse-pipeline-setup configure claude',
     )
-    expect(installCommand('Opencode', '0.18.0')).toContain('synapse-setup configure opencode')
-    expect(installCommand('Opencode', '0.18.0')).toContain(
+    expect(installCommand(['Opencode'], '0.18.0')).toContain('synapse-setup configure opencode')
+    expect(installCommand(['Opencode'], '0.18.0')).toContain(
       'synapse-pipeline-setup configure opencode',
     )
-    expect(installOffer('Codex', 'absent', '0.18.0')?.command).toBe(
-      installCommand('Codex', '0.18.0'),
-    )
+  })
+
+  it('install once and configure every available harness, in the same order each time', () => {
+    const offer = installOffer(states('different', 'current', 'absent'), ALL, '0.18.0')
+    expect(offer?.command.match(/npm install/g)).toHaveLength(1)
+    expect(
+      offer?.command.endsWith(
+        'synapse-setup configure claude && synapse-pipeline-setup configure claude && synapse-setup configure codex && synapse-pipeline-setup configure codex && synapse-setup configure opencode && synapse-pipeline-setup configure opencode',
+      ),
+    ).toBe(true)
+  })
+
+  it('cover the harnesses that are available, and none that is missing', () => {
+    expect(harnessesToConfigure(() => false)).toEqual(['Claude', 'Codex', 'Opencode'])
+    expect(harnessesToConfigure((h) => h === 'Codex')).toEqual(['Claude', 'Opencode'])
+    expect(harnessesToConfigure(() => true)).toEqual([])
   })
 
   it('install the latest packages from a development build, whose version is not on npm', () => {
     for (const version of ['0.0.0-dev', null]) {
-      expect(installCommand('Claude', version)).toContain(
+      expect(installCommand(['Claude'], version)).toContain(
         '@imunitic/synapse@latest @imunitic/synapse-pipeline@latest',
       )
     }
