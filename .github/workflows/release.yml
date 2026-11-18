@@ -15,13 +15,14 @@ name: release
 # instead, for the one run that creates a new package; after that run each new
 # package is given its Trusted Publisher and the input is not used again.
 #
-# The `desktop` job builds Synapse Desktop for macOS on Apple Silicon around the
-# macOS programs of `build` (`ci/desktop-release.sh`), checks that they and the
-# app report the tag's version, and puts the .dmg on the tag's GitHub Release.
+# The `desktop` job builds Synapse Desktop for each platform in its matrix around
+# the programs of `build` (`ci/desktop-release.sh`), checks that they and the
+# app report the tag's version, and puts the installer on the tag's GitHub
+# Release; the `checksums` job then adds `SHA256SUMS` for the installers there.
 #
 # A pull request that touches how the binaries are built runs the `build` job,
 # the three platforms, the glibc floor and the package check, with the binaries
-# kept as artifacts, and the `desktop` job, which keeps its .dmg as an artifact.
+# kept as artifacts, and the `desktop` job, which keeps its installers as artifacts.
 # `publish` never runs for a pull request, and nothing is put on a release.
 #
 # The Linux binaries are built by `ci/linux-release.sh`, which compiles and
@@ -220,19 +221,55 @@ jobs:
           mv "$tmp" packages/synapse-pipeline/package.json
           publish_if_new "packages/synapse-pipeline" "@imunitic/synapse-pipeline"
 
-  # Synapse Desktop for macOS on Apple Silicon: the app with the programs of the
-  # `build` job inside, so it ships what the npm packages ship, at the tag's
-  # version. The bundle is ad-hoc signed and not notarized; the README says how
-  # to open it. For a tag the .dmg goes on the tag's GitHub Release; for a pull
-  # request or a `dry_run` it is kept as an artifact. It does not wait for
-  # `publish`, so either can fail without stopping the other.
+  # Synapse Desktop: the app with the programs of the `build` job inside, so it
+  # ships what the npm packages ship, at the tag's version. The macOS bundle is
+  # ad-hoc signed and not notarized; the README says how to open it. For a tag
+  # the installers go on the tag's GitHub Release; for a pull request or a
+  # `dry_run` they are kept as an artifact. It does not wait for `publish`, so
+  # either can fail without stopping the other.
   desktop:
     needs: build
-    # macos-15 like the macOS build above, whose programs it bundles.
-    runs-on: macos-15
-    # One run at a time for a tag, so that two never create its release at once.
+    name: desktop (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # `programs` names the platform of the `build` job whose programs the app
+        # bundles. `installers` lists what Tauri builds as <folder and glob>=<end
+        # of the installer's name on the Release>, separated by spaces.
+        include:
+          # macos-15 like the macOS build above, whose programs it bundles.
+          - platform: macos-arm64
+            runner: macos-15
+            programs: darwin-arm64
+            exe: ""
+            bundles: app,dmg
+            installers: "dmg/*.dmg=.dmg"
+          # The oldest Ubuntu runner: the app links the glibc and WebKitGTK of
+          # the machine it is built on.
+          - platform: linux-x64
+            runner: ubuntu-22.04
+            programs: linux-x64
+            exe: ""
+            bundles: deb,appimage
+            installers: "deb/*.deb=.deb appimage/*.AppImage=.AppImage"
+          - platform: windows-x64
+            runner: windows-latest
+            programs: win32-x64
+            exe: .exe
+            bundles: nsis
+            installers: "nsis/*-setup.exe=-setup.exe"
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        # Git Bash on Windows; the steps and ci/desktop-release.sh are bash.
+        shell: bash
+    env:
+      # A CI runner has no FUSE, which the AppImage bundler would need.
+      APPIMAGE_EXTRACT_AND_RUN: 1
+    # One run per platform at a time for a tag. The platforms share one group
+    # name otherwise, and one would run while the rest were cancelled.
     concurrency:
-      group: desktop-${{ github.event.inputs.tag || github.ref }}
+      group: desktop-${{ matrix.platform }}-${{ github.event.inputs.tag || github.ref }}
       cancel-in-progress: false
 
     steps:
@@ -268,6 +305,14 @@ jobs:
           cache: npm
           cache-dependency-path: synapse_desktop/package-lock.json
 
+      # xvfb gives the check a display to start the app on.
+      - name: Install what the app is built and run with
+        if: matrix.platform == 'linux-x64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev patchelf libxdo-dev libssl-dev xvfb
+
       - name: Toolchain
         run: rustup toolchain install stable --profile minimal
 
@@ -277,22 +322,25 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             synapse_desktop/src-tauri/target
-          key: cargo-desktop-release-${{ hashFiles('synapse_desktop/src-tauri/Cargo.lock') }}
-          restore-keys: cargo-desktop-release-
+          key: cargo-desktop-release-${{ matrix.platform }}-${{ hashFiles('synapse_desktop/src-tauri/Cargo.lock') }}
+          restore-keys: cargo-desktop-release-${{ matrix.platform }}-
 
       - uses: actions/download-artifact@v4
         with:
-          name: bin-darwin-arm64
+          name: bin-${{ matrix.programs }}
           path: synapse_cli/bin
 
       - uses: actions/download-artifact@v4
         with:
-          name: pipeline-darwin-arm64
+          name: pipeline-${{ matrix.programs }}
           path: synapse_pipeline/bin
 
       # An artifact does not keep the executable bit.
       - name: Make the programs executable
-        run: chmod +x synapse_cli/bin/synapse synapse_cli/bin/synapse-hook synapse_pipeline/bin/synapse-pipeline
+        run: |
+          chmod +x "synapse_cli/bin/synapse${{ matrix.exe }}" \
+            "synapse_cli/bin/synapse-hook${{ matrix.exe }}" \
+            "synapse_pipeline/bin/synapse-pipeline${{ matrix.exe }}"
 
       - name: Set the app's version
         if: steps.what.outputs.tag != ''
@@ -303,37 +351,128 @@ jobs:
         run: |
           npm ci
           npm run stage
-          npx tauri build --features app --bundles app,dmg -- --bin synapse-desktop
+          npx tauri build --features app --bundles ${{ matrix.bundles }} -- --bin synapse-desktop
 
-      - name: Check the app
+      # The .app itself, without a .dmg, for the install script. `tar` keeps the
+      # signature and the symlinks of the bundle.
+      - name: Pack the app as a tarball
+        if: matrix.platform == 'macos-arm64'
+        env:
+          VERSION: ${{ steps.what.outputs.app }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          mkdir -p installers
+          tar -czf "installers/synapse-desktop_${VERSION}_${PLATFORM}.tar.gz" \
+            -C synapse_desktop/src-tauri/target/release/bundle/macos "Synapse Desktop.app"
+
+      # `curl ... | sh` on a Mac installs the tarball. The script is stamped with
+      # this release's version and download folder, and keeps the same name on
+      # every release so that releases/latest/download/install.sh is a stable link.
+      - name: Make install.sh
+        if: matrix.platform == 'macos-arm64'
+        env:
+          VERSION: ${{ steps.what.outputs.app }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          ci/desktop-release.sh stamp-install "$VERSION" \
+            "https://github.com/$REPOSITORY/releases/download/v$VERSION" installers/install.sh
+
+      # Tauri names an installer "Synapse Desktop_<version>_<arch>.<ext>", and
+      # GitHub may rewrite the space in an uploaded asset's name. Each installer
+      # is renamed to a name that is the same on every release.
+      - name: Collect the installers
+        env:
+          VERSION: ${{ steps.what.outputs.app }}
+          PLATFORM: ${{ matrix.platform }}
+          INSTALLERS: ${{ matrix.installers }}
+        run: |
+          shopt -s nullglob
+          mkdir -p installers
+          bundle=synapse_desktop/src-tauri/target/release/bundle
+          read -ra items <<< "$INSTALLERS"
+          for item in "${items[@]}"; do
+            pattern="${item%%=*}"
+            ending="${item#*=}"
+            # The pattern is a glob on purpose.
+            # shellcheck disable=SC2206
+            found=("$bundle"/$pattern)
+            [ "${#found[@]}" -eq 1 ] || { echo "expected one $pattern, found ${#found[@]}" >&2; exit 1; }
+            cp "${found[0]}" "installers/synapse-desktop_${VERSION}_${PLATFORM}${ending}"
+          done
+          ls -l installers
+
+      - name: Check the macOS app and tarball
+        if: matrix.platform == 'macos-arm64'
+        env:
+          PROGRAMS: ${{ steps.what.outputs.programs }}
+          VERSION: ${{ steps.what.outputs.app }}
         run: |
           ci/desktop-release.sh check \
             "synapse_desktop/src-tauri/target/release/bundle/macos/Synapse Desktop.app" \
-            "${{ steps.what.outputs.programs }}" "${{ steps.what.outputs.app }}"
+            "$PROGRAMS" "$VERSION"
+          ci/desktop-release.sh check-tarball \
+            "installers/synapse-desktop_${VERSION}_macos-arm64.tar.gz" "$PROGRAMS" "$VERSION"
+          ci/desktop-release.sh check-install \
+            "installers/synapse-desktop_${VERSION}_macos-arm64.tar.gz" "$PROGRAMS" "$VERSION"
 
-      - name: Find the .dmg
-        id: dmg
+      - name: Check the Linux package
+        if: matrix.platform == 'linux-x64'
+        env:
+          PROGRAMS: ${{ steps.what.outputs.programs }}
+          VERSION: ${{ steps.what.outputs.app }}
         run: |
-          shopt -s nullglob
-          found=(synapse_desktop/src-tauri/target/release/bundle/dmg/*.dmg)
-          [ "${#found[@]}" -eq 1 ] || { echo "expected one .dmg, found ${#found[@]}" >&2; exit 1; }
-          echo "path=${found[0]}" >> "$GITHUB_OUTPUT"
+          ci/desktop-release.sh check-deb \
+            "installers/synapse-desktop_${VERSION}_linux-x64.deb" "$PROGRAMS" "$VERSION"
 
-      - name: Keep the .dmg
+      - name: Check the Windows installer
+        if: matrix.platform == 'windows-x64'
+        env:
+          PROGRAMS: ${{ steps.what.outputs.programs }}
+          VERSION: ${{ steps.what.outputs.app }}
+        run: |
+          ci/desktop-release.sh check-nsis \
+            "installers/synapse-desktop_${VERSION}_windows-x64-setup.exe" "$PROGRAMS" "$VERSION"
+
+      - name: Keep the installers
         if: steps.what.outputs.publish != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: synapse-desktop-darwin-arm64
-          path: ${{ steps.dmg.outputs.path }}
+          name: synapse-desktop-${{ matrix.platform }}
+          path: installers/
           if-no-files-found: error
 
-      - name: Put the .dmg on the tag's GitHub Release
+      # The platforms reach this at about the same time, so creating the
+      # release must not fail when another got there first.
+      - name: Put the installers on the tag's GitHub Release
         if: steps.what.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.what.outputs.tag }}
-          DMG: ${{ steps.dmg.outputs.path }}
         run: |
-          gh release view "$TAG" >/dev/null 2>&1 ||
-            gh release create "$TAG" --verify-tag --title "$TAG" --notes ""
-          gh release upload "$TAG" "$DMG" --clobber
+          sed "s|@TAG@|$TAG|" ci/release-notes.md > release-notes.md
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file release-notes.md ||
+            gh release view "$TAG" >/dev/null
+          gh release upload "$TAG" installers/* --clobber
+
+  # The one integrity signal an unsigned download can carry: the SHA-256 of
+  # every installer on the tag's Release, as uploaded. A tag only, and only when
+  # every platform of `desktop` succeeded.
+  checksums:
+    needs: desktop
+    if: >-
+      github.event_name != 'pull_request'
+      && startsWith(github.event.inputs.tag || github.ref_name, 'v')
+      && github.event.inputs.dry_run != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write SHA256SUMS and put it on the Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          mkdir installers
+          gh release download "$TAG" --dir installers --pattern 'synapse-desktop_*'
+          (cd installers && sha256sum synapse-desktop_* > ../SHA256SUMS)
+          cat SHA256SUMS
+          gh release upload "$TAG" SHA256SUMS --clobber
