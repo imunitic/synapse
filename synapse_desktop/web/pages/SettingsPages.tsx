@@ -1,6 +1,6 @@
 import { useCapabilities } from '../state/capabilities.ts'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import type { Harness } from '../../shared/transport.ts'
+import type { Harness, IntegrationState } from '../../shared/transport.ts'
 import {
   loadSettings,
   settingsOf,
@@ -9,6 +9,7 @@ import {
 } from '../domain/settings.ts'
 import {
   HARNESS_NAMES,
+  harnessesToConfigure,
   installOffer,
   stateLabel,
   writesFor,
@@ -468,23 +469,33 @@ function IntegrationsPage({
   const harnessesNow = useHarnesses()
   const { recheck } = useDiagnosis()
   const capabilities = useCapabilities()
-  // The harness whose installing is being asked about.
-  const [asking, setAsking] = useState<Harness | null>(null)
+  // Whether installing is being asked about.
+  const [asking, setAsking] = useState(false)
   const load = useCallback(() => transport.getIntegrations(), [])
   const { state } = useLoad(load)
   // What the page says is read again when it is opened, such as on coming back from the
   // terminal tab that installed; the setup check is told as well.
   useEffect(() => recheck(), [recheck])
 
-  function run(harness: Harness, offer: InstallOffer) {
-    setAsking(null)
-    onRunCommand(offer.command, `${offer.label} ${HARNESS_NAMES[harness]}`)
+  function run(offer: InstallOffer) {
+    setAsking(false)
+    onRunCommand(offer.command, offer.label)
   }
 
   if (state.status === 'loading') return <p className="muted">Looking at the harnesses…</p>
   if (state.status === 'failed') return <p role="alert">Could not look: {state.error}</p>
   const { bundled, harnesses } = state.data
   const ready = bundled.contentRoot !== null && bundled.pipelineRoot !== null
+  const states = Object.fromEntries(harnesses.map((h) => [h.harness, h.state])) as Record<
+    Harness,
+    IntegrationState
+  >
+  // A host that cannot install from the app offers nothing to press.
+  const configured = harnessesToConfigure(harnessesNow.isMissing)
+  const skipped = harnesses.map((h) => h.harness).filter((h) => !configured.includes(h))
+  const offer = capabilities.installActions
+    ? installOffer(states, configured, bundled.version)
+    : null
   return (
     <>
       <section className="card" aria-label="This app's Synapse">
@@ -504,78 +515,83 @@ function IntegrationsPage({
           <p role="alert">Its skills, commands and hook templates were not found.</p>
         )}
       </section>
-      {harnesses.map((item) => {
-        // A host that cannot install from the app offers nothing to press.
-        const offer = capabilities.installActions
-          ? installOffer(item.harness, item.state, bundled.version)
-          : null
-        const missing = harnessesNow.isMissing(item.harness)
-        return (
-          <section key={item.harness} className="card" aria-label={HARNESS_NAMES[item.harness]}>
-            <h2 className="card-title">{HARNESS_NAMES[item.harness]}</h2>
-            <p>
-              <span data-state={item.state}>{stateLabel(item.state)}</span>
-              {item.version !== null && (
-                <span className="muted">
-                  {' '}
-                  · version <span className="mono">{item.version}</span>
-                </span>
-              )}
+      {offer !== null && (
+        <section className="card" aria-label="Install and update">
+          <h2 className="card-title">Install and update in every harness</h2>
+          <p>
+            One command covers every harness found on this machine:{' '}
+            <strong>{configured.map((h) => HARNESS_NAMES[h]).join(', ')}</strong>.
+          </p>
+          {skipped.length > 0 && (
+            <p className="muted small">
+              Left out, because it was not found on PATH:{' '}
+              {skipped.map((h) => HARNESS_NAMES[h]).join(', ')}.
             </p>
-            {missing && (
-              <p className="warn-line" role="status">
-                {harnessesNow.reason(item.harness)}, so there is nothing to install Synapse in.
+          )}
+          {offer.warning !== undefined && (
+            <p className="warn-line" role="status">
+              {offer.warning}
+            </p>
+          )}
+          <div className="row">
+            <button className="primary" onClick={() => setAsking(true)}>
+              {offer.label}
+            </button>
+          </div>
+          {asking && (
+            <div className="confirm" role="alertdialog" aria-label="Are you sure?">
+              <p>
+                <strong>Are you sure?</strong> This opens a terminal tab and runs this in it:
               </p>
-            )}
-            {item.hook !== null && (
-              <p className="muted small">
-                Hook program <span className="mono">{item.hook}</span>
+              <pre className="mono small">{offer.command}</pre>
+              <p>
+                It installs the npm packages for every program on this machine, and writes into the
+                own configuration of {configured.map((h) => HARNESS_NAMES[h]).join(', ')}:
               </p>
-            )}
-            {offer?.warning !== undefined && (
-              <p className="warn-line" role="status">
-                {offer.warning}
-              </p>
-            )}
-            {offer !== null && (
+              <ul className="small">
+                {configured.flatMap(writesFor).map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
               <div className="row">
-                <button
-                  className="primary"
-                  disabled={missing}
-                  onClick={() => setAsking(item.harness)}
-                >
-                  {offer.label}
+                <button className="primary" onClick={() => run(offer)}>
+                  Yes, {offer.label.toLowerCase()}
+                </button>
+                <button className="secondary" onClick={() => setAsking(false)}>
+                  Cancel
                 </button>
               </div>
+            </div>
+          )}
+        </section>
+      )}
+      {offer === null && capabilities.installActions && configured.length > 0 && (
+        <p className="muted">Nothing needs installing or updating.</p>
+      )}
+      {harnesses.map((item) => (
+        <section key={item.harness} className="card" aria-label={HARNESS_NAMES[item.harness]}>
+          <h2 className="card-title">{HARNESS_NAMES[item.harness]}</h2>
+          <p>
+            <span data-state={item.state}>{stateLabel(item.state)}</span>
+            {item.version !== null && (
+              <span className="muted">
+                {' '}
+                · version <span className="mono">{item.version}</span>
+              </span>
             )}
-            {offer !== null && asking === item.harness && (
-              <div className="confirm" role="alertdialog" aria-label="Are you sure?">
-                <p>
-                  <strong>Are you sure?</strong> This opens a terminal tab and runs this in it:
-                </p>
-                <pre className="mono small">{offer.command}</pre>
-                <p>
-                  It installs the npm packages for every program on this machine, and writes into{' '}
-                  {HARNESS_NAMES[item.harness]}'s own configuration:
-                </p>
-                <ul className="small">
-                  {writesFor(item.harness).map((line) => (
-                    <li key={line}>{line}</li>
-                  ))}
-                </ul>
-                <div className="row">
-                  <button className="primary" onClick={() => run(item.harness, offer)}>
-                    Yes, {offer.label.toLowerCase()}
-                  </button>
-                  <button className="secondary" onClick={() => setAsking(null)}>
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-          </section>
-        )
-      })}
+          </p>
+          {harnessesNow.isMissing(item.harness) && (
+            <p className="warn-line" role="status">
+              {harnessesNow.reason(item.harness)}, so there is nothing to install Synapse in.
+            </p>
+          )}
+          {item.hook !== null && (
+            <p className="muted small">
+              Hook program <span className="mono">{item.hook}</span>
+            </p>
+          )}
+        </section>
+      ))}
       <p className="muted small">
         {capabilities.installActions
           ? ''
