@@ -8,6 +8,8 @@
 #   just acceptance   the subprocess suite and text checks, against the built programs
 #   just check        the full gate -- before PUSHING, not before every commit
 #   just fix          regenerate whatever `check` verifies
+#   just desktop      the desktop app in dev mode; code changes apply while it runs
+#   just desktop-launcher  a macOS Dock app that runs `just desktop` detached
 #
 # WHAT TO RUN WHEN:
 #
@@ -17,6 +19,8 @@
 #   changed docs/ or README     nothing -- prose has no test to fail
 #   changed packages/**/*.md    just acceptance -- a "shipped instruction names
 #                               a real command" check covers them
+#   changed synapse_desktop/    just desktop-check
+#   changed synapse_desktop/src-tauri/  just desktop-host-check
 #   about to push               just check
 #
 # Needs Alire (`alr`) on PATH; it fetches GNAT, gprbuild, AUnit and GNATprove
@@ -164,6 +168,37 @@ npm-check:
     node ci/check-skill-frontmatter.cjs packages/*/skills/*/SKILL.md packages/synapse/harness/codex/skills/*/SKILL.md
     echo "npm-check ok"
 
+# Run the desktop app in dev mode, with this checkout's programs: web changes apply live, a change under src-tauri/ rebuilds and relaunches it.
+desktop: build
+    cd synapse_desktop && { [ -d node_modules ] || npm ci; } && npm run app:dev
+
+# Make ~/Applications/Synapse Desktop Dev.app (macOS): a Dock launcher that runs `just desktop` in this checkout with no terminal, logging to ~/Library/Logs/synapse-desktop-dev.log.
+desktop-launcher:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ "$(uname)" != Darwin ]]; then echo "desktop-launcher is for macOS" >&2; exit 1; fi
+    app="$HOME/Applications/Synapse Desktop Dev.app"
+    rm -rf "$app"
+    mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+    cp synapse_desktop/scripts/launcher/Info.plist "$app/Contents/Info.plist"
+    cp synapse_desktop/scripts/launcher/launch.sh "$app/Contents/MacOS/launch"
+    chmod +x "$app/Contents/MacOS/launch"
+    cp synapse_desktop/src-tauri/icons/icon.icns "$app/Contents/Resources/icon.icns"
+    pwd > "$app/Contents/Resources/repo"
+    echo "Made $app. Drag it to the Dock to keep it there."
+
+# Type-check, build, lint, format-check and test the desktop app; needs Node 24 and npm.
+desktop-check:
+    cd synapse_desktop && npm ci && npm run check
+
+# Format-check, lint and test the Rust host of the desktop app; needs a Rust toolchain.
+desktop-host-check:
+    cd synapse_desktop/src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test --no-fail-fast
+
+# Run the desktop app's end-to-end tests in a browser, on the programs `just build` made, against the host `node` or `rust`.
+desktop-e2e host="node":
+    cd synapse_desktop && npm ci && npx playwright install chromium && npm run e2e -- --host {{host}}
+
 # Show what changed against the pushed branch.
 diff:
     @git --no-pager diff --stat @{u}.. 2>/dev/null || git --no-pager diff --stat
@@ -174,5 +209,5 @@ fix:
     ./docs/synapse/generate-diagrams.sh
 
 # The full gate -- run before pushing (see WHAT TO RUN WHEN at the top).
-check: build test prove gen-check acceptance syntax docs-check npm-check
+check: build test prove gen-check acceptance syntax docs-check npm-check desktop-check desktop-host-check
     @echo "all green"
