@@ -146,7 +146,9 @@ test('with no harness none can be started or chosen, and a shell still can', asy
   await panel.getByRole('button', { name: /^Integrations/ }).click()
   const integration = page.getByLabel('Codex', { exact: true })
   await expect(integration).toContainText('was not found on PATH')
-  await expect(integration.getByRole('button').first()).toBeDisabled()
+  // With no harness there is nothing to install in: no card with the button, and none in a card.
+  await expect(integration.getByRole('button')).toHaveCount(0)
+  await expect(page.getByLabel('Install and update')).toHaveCount(0)
 })
 
 test('one harness that is missing is held back and is not a finding', async ({ page }) => {
