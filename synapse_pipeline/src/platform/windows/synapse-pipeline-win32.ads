@@ -287,6 +287,19 @@ package Synapse.Pipeline.Win32 is
      (Process : HANDLE; Code : System.Address) return BOOL
    with Import, Convention => Stdcall, External_Name => "GetExitCodeProcess";
 
+   Std_Input_Handle  : constant DWORD := 16#FFFF_FFF6#;
+   Std_Output_Handle : constant DWORD := 16#FFFF_FFF5#;
+
+   function Get_Std_Handle (Which : DWORD) return HANDLE
+   with Import, Convention => Stdcall, External_Name => "GetStdHandle";
+
+   function Get_Console_Mode
+     (Console : HANDLE; Mode : System.Address) return BOOL
+   with Import, Convention => Stdcall, External_Name => "GetConsoleMode";
+
+   function Set_Console_Mode (Console : HANDLE; Mode : DWORD) return BOOL
+   with Import, Convention => Stdcall, External_Name => "SetConsoleMode";
+
    function Find_First_File
      (Pattern : C.wchar_array; Data : System.Address) return HANDLE
    with Import, Convention => Stdcall, External_Name => "FindFirstFileW";

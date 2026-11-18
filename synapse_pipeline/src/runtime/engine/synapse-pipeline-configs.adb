@@ -1,4 +1,5 @@
 with Synapse.Adapters.Conf_Files;
+with Synapse.Adapters.Work_Dirs;
 with Synapse.Pipeline.Durations;
 
 package body Synapse.Pipeline.Configs is
@@ -88,6 +89,19 @@ package body Synapse.Pipeline.Configs is
       end;
 
       declare
+         Text : constant String := Setting (V, Changes_Variable);
+      begin
+         if Text /= "" then
+            if Text /= "0" and then Positive_Of (Text) = 0 then
+               return Fail
+                 (Changes_Variable & " is '" & Text
+                  & "', which is not a whole number of bytes");
+            end if;
+            Result.Changes_File_Limit := Positive_Of (Text);
+         end if;
+      end;
+
+      declare
          Text   : constant String := Setting (V, Runner_Variable);
          Script : constant String := Setting (V, Script_Variable);
       begin
@@ -109,7 +123,13 @@ package body Synapse.Pipeline.Configs is
       end;
 
       Capture (Vault_Dir_Key);
-      Capture (Work_Dir_Key);
+      declare
+         Root : constant String := Synapse.Adapters.Work_Dirs.Root (V);
+      begin
+         if Root /= "" then
+            Result.Environment.Include (Work_Dir_Key, Root);
+         end if;
+      end;
       Capture (Content_Root_Key);
       return Config_Results.Success (Result);
    end Resolve;

@@ -17,6 +17,7 @@ package body Synapse.Pipeline.Resolution.Tests is
    use type Resolved.Origin_Kind;
    use type Harnesses.Harness_Kind;
    use type Synapse.Core.JSON.Value;
+   use type Synapse.Core.JSON.Kind;
 
    subtype Test_Cases_Class is AUnit.Test_Cases.Test_Case'Class;
 
@@ -55,6 +56,15 @@ package body Synapse.Pipeline.Resolution.Tests is
          & " A -> B; B -> A [When => Changes_Requested, Max_Iterations => 3];"
          & " A -> A [When => {""=="": [{""var"": ""data.n""}, 1]}, "
          & "Max_Iterations => 2]; }");
+      F.Add_File
+        ("/defs/Judge.synapse",
+         "System Judge [Harness => Claude, Prompt => ""Judge."", Outcomes => "
+         & "{""Approved"": ""Fine."", ""Rejected"": ""Not fine.""}];");
+      F.Add_File
+        ("/defs/Judged.synapse",
+         "Pipeline Judged { A [System => Judge];"
+         & " B [System => Judge, Outcomes => {""Maybe"": ""Unsure.""}];"
+         & " C [Harness => Claude, Prompt => ""x""]; }");
       F.Add_File
         ("/defs/Bare.synapse", "Pipeline Bare { A [Prompt => ""x""]; }");
       F.Add_File
@@ -275,6 +285,28 @@ package body Synapse.Pipeline.Resolution.Tests is
       end;
    end What_Cannot_Be_Resolved_Is_A_Failure_Not_A_Raise;
 
+   procedure Outcomes_Come_From_The_Step_Else_Its_System
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      P : constant Resolved.Pipeline := Resolve_OK ("Judged");
+   begin
+      Assert
+        (JSON.Has_Member (P.Steps (1).Outcomes, "Approved")
+         and then JSON.Has_Member (P.Steps (1).Outcomes, "Rejected")
+         and then JSON.As_String
+                    (JSON.Member_Value (P.Steps (1).Outcomes, "Approved")) =
+                  "Fine.",
+         "a step takes its system's outcomes with their meanings");
+      Assert
+        (JSON.Length (P.Steps (2).Outcomes) = 1
+         and then JSON.Has_Member (P.Steps (2).Outcomes, "Maybe"),
+         "its own replace the system's whole");
+      Assert
+        (JSON.Kind_Of (P.Steps (3).Outcomes) = JSON.JSON_Null,
+         "a step that declares none has none");
+   end Outcomes_Come_From_The_Step_Else_Its_System;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -286,6 +318,9 @@ package body Synapse.Pipeline.Resolution.Tests is
    procedure Register_Tests (T : in out Test_Case) is
       use AUnit.Test_Cases.Registration;
    begin
+      Register_Routine
+        (T, Outcomes_Come_From_The_Step_Else_Its_System'Access,
+         "Outcomes come from the step, else its system");
       Register_Routine
         (T, A_Step_With_Everything_Inline_Needs_No_System'Access,
          "A step with everything inline needs no system");

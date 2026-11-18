@@ -16,7 +16,8 @@ with Synapse.Pipeline.Sessions;
 --  Permission levels become what the harness can enforce: Claude's permission
 --  modes and tool set, Codex's sandbox modes, and OpenCode's permission
 --  settings. Which program a harness is run as, and where its output is found,
---  is the only place a harness is told from another.
+--  is the only place a harness is told from another: each harness is one type
+--  implementing `Headless`.
 
 package Synapse.Pipeline.Harness_Commands is
 
@@ -32,16 +33,6 @@ package Synapse.Pipeline.Harness_Commands is
    package Command_Results is new Synapse.Core.Results
      (Command, Ada.Strings.Unbounded.Unbounded_String);
 
-   --  The command that runs Prompt as the session of Item. Skill_Directory is
-   --  the directory of the step's skill, empty when it has none. Fails, saying
-   --  why, when the step asks for something the harness cannot do: a tool
-   --  allowlist for a harness that has none.
-   function Build
-     (Harness         : Harnesses.Harness_Kind;
-      Item            : Resolved.Step;
-      Prompt          : String;
-      Skill_Directory : String) return Command_Results.Result;
-
    --  What a process that ran said.
    type Reply (Succeeded : Boolean := False) is record
       Usage : Sessions.Usage_Report;
@@ -56,11 +47,44 @@ package Synapse.Pipeline.Harness_Commands is
       end case;
    end record;
 
-   --  What the process of Harness that ended as Ended came to. A harness
+   --  A harness that can run one bounded, non-interactive session of a step.
+   type Headless is interface;
+
+   --  The command that runs Prompt as the session of Step. Skill_Directory is
+   --  the directory of the step's skill, empty when it has none. Fails, saying
+   --  why, when the step asks for something the harness cannot do: a tool
+   --  allowlist for a harness that has none.
+   function Build
+     (Item            : Headless;
+      Step            : Resolved.Step;
+      Prompt          : String;
+      Skill_Directory : String) return Command_Results.Result is abstract;
+
+   --  What the process of this harness that ended as Ended came to. A harness
    --  that reports a quota or a rate limit is told from one that failed.
    function Interpret
-     (Harness : Harnesses.Harness_Kind;
-      Ended   : Session_Process.Process_Outcome) return Reply;
+     (Item  : Headless;
+      Ended : Session_Process.Process_Outcome) return Reply is abstract;
+
+   --  The implementation of Kind. It lives as long as the program.
+   function For_Harness
+     (Kind : Harnesses.Harness_Kind) return not null access constant
+     Headless'Class;
+
+   --  Adds the arguments that give Claude Code the permission level of Step:
+   --  its permission mode and, for a read-only step, the tools that read.
+   procedure Add_Claude_Permissions
+     (Into : in out Synapse.Core.Text_Lists.Vector; Step : Resolved.Step);
+
+   --  The name of the sandbox Codex gives Step: the level of its permissions.
+   function Codex_Sandbox (Step : Resolved.Step) return String;
+
+   --  The configuration an OpenCode session of Step is given in
+   --  OPENCODE_CONFIG_CONTENT: the permissions of its level and, when
+   --  With_Model is set and the step names one, its model. Empty when there is
+   --  nothing to set.
+   function Opencode_Config
+     (Step : Resolved.Step; With_Model : Boolean) return String;
 
    --  Whether a harness's message says a quota or a rate limit was reached.
    function Is_Quota_Message (Text : String) return Boolean;

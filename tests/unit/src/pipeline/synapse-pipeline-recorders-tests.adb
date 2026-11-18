@@ -1,3 +1,4 @@
+with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
 
 with AUnit.Assertions;
@@ -97,6 +98,148 @@ package body Synapse.Pipeline.Recorders.Tests is
         (To_String (Context.Current.Execution_Id) = "exec-1",
          "the context knows the run too");
    end A_Run_Is_Recorded_From_Its_Start;
+
+   procedure A_Run_Records_The_Folder_Its_Steps_Work_In
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context : aliased Contexts.Execution_Context;
+      Store   : aliased Fake_Registry.Fake_Registry;
+      Clock   : aliased Counting_Clock;
+      R       : Recorder (Context'Access, Store'Access, Clock'Access);
+   begin
+      Ticks := 0;
+      Assert (Store.Create ("exec-1") = Registry_Store.Created, "made");
+      R.Start ("exec-1", True, JSON.Null_Value, Initial_State, "/work/widget");
+      Assert
+        (Text (Summary_Of (Store, "exec-1"), "directory") = "/work/widget",
+         "the summary has the folder");
+      R.Publish (Initial_State);
+      Assert
+        (Text (Summary_Of (Store, "exec-1"), "directory") = "/work/widget",
+         "and keeps it when the summary is written again");
+      Assert
+        (Text (Summary_Of (Store, "exec-1"), "pipeline") = "P"
+         and then Text (Summary_Of (Store, "exec-1"), "started") /= "",
+         "beside the rest");
+   end A_Run_Records_The_Folder_Its_Steps_Work_In;
+
+   procedure A_Run_Told_No_Folder_Records_None (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Context : aliased Contexts.Execution_Context;
+      Store   : aliased Fake_Registry.Fake_Registry;
+      Clock   : aliased Counting_Clock;
+      R       : Recorder (Context'Access, Store'Access, Clock'Access);
+   begin
+      Ticks := 0;
+      Assert (Store.Create ("exec-1") = Registry_Store.Created, "made");
+      R.Start ("exec-1", True, JSON.Null_Value, Initial_State);
+      Assert
+        (not JSON.Has_Member (Summary_Of (Store, "exec-1"), "directory"),
+         "a summary of a run told no folder has none");
+   end A_Run_Told_No_Folder_Records_None;
+
+   procedure A_Patch_Is_Kept_Only_For_A_Run_That_Is_Recorded
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context : aliased Contexts.Execution_Context;
+      Store   : aliased Fake_Registry.Fake_Registry;
+      Clock   : aliased Counting_Clock;
+      R       : Recorder (Context'Access, Store'Access, Clock'Access);
+   begin
+      Assert (Store.Create ("exec-1") = Registry_Store.Created, "made");
+      R.Start ("exec-1", False, JSON.Null_Value, Initial_State);
+      R.Record_Patch ("1-A-1.patch", "diff");
+      Assert
+        (not Store.Read_Patch ("exec-1", "1-A-1.patch").Found,
+         "a run that is not recorded keeps no patch");
+      R.Start ("exec-1", True, JSON.Null_Value, Initial_State);
+      R.Record_Patch ("1-A-1.patch", "diff");
+      Assert
+        (Store.Read_Patch ("exec-1", "1-A-1.patch").Found,
+         "one that is has it");
+   end A_Patch_Is_Kept_Only_For_A_Run_That_Is_Recorded;
+
+   function Has (Text, Part : String) return Boolean is
+     (Ada.Strings.Fixed.Index (Text, Part) > 0);
+
+   function Q (Word : String) return String is
+     (Character'Val (34) & Word & Character'Val (34));
+
+   function Answer (Seen : Inspection.Snapshot; Rule : String) return String is
+     (Inspection.Respond
+        (Seen,
+         "{""command"":""query"",""expression"":" & Rule & "}"));
+
+   procedure A_Run_That_Waits_For_A_Person_Says_So
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context : aliased Contexts.Execution_Context;
+      Store   : aliased Fake_Registry.Fake_Registry;
+      Clock   : aliased Counting_Clock;
+      R       : Recorder (Context'Access, Store'Access, Clock'Access);
+      Done    : States.State := Initial_State;
+   begin
+      Assert (Store.Create ("exec-1") = Registry_Store.Created, "made");
+      R.Start ("exec-1", True, JSON.Null_Value, Initial_State);
+      Assert
+        (not Has (Answer (Context.Current, "{""var"":""attention""}"),
+                  "state")
+         and then JSON.Kind_Of
+                    (JSON.Member_Value (Summary_Of (Store, "exec-1"), "state"))
+                  = JSON.JSON_Object
+         and then not JSON.Has_Member
+                        (Summary_Of (Store, "exec-1"), "attention"),
+         "a run that is not interactive has no attention");
+
+      R.Attend ("A", Inspection.Running);
+      Assert
+        (Has (Answer (Context.Current, "{""var"":""attention.state""}"),
+              Q ("running"))
+         and then Context.Current.Events.Is_Empty,
+         "it works, which is not an event");
+
+      R.Attend ("A", Inspection.Waiting, "Which one?");
+      Assert
+        (Has (Answer (Context.Current, "{""var"":""attention.state""}"),
+              Q ("waiting"))
+         and then Has
+                    (Answer
+                       (Context.Current, "{""var"":""attention.reason""}"),
+                     "Which one?"),
+         "it waits, and says what the agent said");
+      Assert
+        (Text (JSON.Member_Value (Summary_Of (Store, "exec-1"), "attention"),
+               "state") = "waiting",
+         "the summary says so too");
+      Assert
+        (Context.Current.Events.Last_Element.Kind = "session.waiting"
+         and then Has
+                    (JSON.To_String
+                       (Context.Current.Events.Last_Element.Detail),
+                     "Which one?"),
+         "and an event");
+
+      R.Attend ("A", Inspection.Running);
+      Assert
+        (Has (Answer (Context.Current, "{""var"":""attention.state""}"),
+              Q ("running"))
+         and then Context.Current.Events.Last_Element.Kind =
+                  "session.resumed",
+         "it works again, which is an event after waiting");
+
+      R.Attend ("A", Inspection.Waiting, "Again?");
+      Done.Status := States.Completed;
+      R.Publish (Done);
+      Assert
+        (not Has (JSON.To_String (Inspection.Info (Context.Current)),
+                  "attention")
+         and then not JSON.Has_Member
+                        (Summary_Of (Store, "exec-1"), "attention"),
+         "a run that is over is waiting for nobody");
+   end A_Run_That_Waits_For_A_Person_Says_So;
 
    procedure Events_Are_Kept_As_The_Socket_Gives_Them
      (T : in out Test_Cases_Class)
@@ -206,6 +349,79 @@ package body Synapse.Pipeline.Recorders.Tests is
          "and the context is as if it had been");
    end A_Registry_That_Cannot_Write_Does_Not_Stop_The_Run;
 
+   procedure What_The_Run_Ran_Is_Kept_With_Its_Record
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context : aliased Contexts.Execution_Context;
+      Store   : aliased Fake_Registry.Fake_Registry;
+      Clock   : aliased Counting_Clock;
+      R       : Recorder (Context'Access, Store'Access, Clock'Access);
+   begin
+      Assert (Store.Create ("exec-1") = Registry_Store.Created, "made");
+      R.Start
+        ("exec-1", True, JSON.Parse ("{""name"":""P""}").Item,
+         Initial_State);
+      R.Record_Definition ("synapse-pipeline/P.synapse", "Pipeline P {}");
+      Assert
+        (Store.Read_Description ("exec-1").Found
+         and then To_String (Store.Read_Description ("exec-1").Value) =
+                  "{""name"":""P""}",
+         "the description is kept as the run began with it");
+      Assert
+        (Store.Read_Definition ("exec-1", "synapse-pipeline/P.synapse").Found
+         and then To_String
+                    (Store.Read_Definition
+                       ("exec-1", "synapse-pipeline/P.synapse").Value) =
+                  "Pipeline P {}",
+         "and so is a definition file");
+   end What_The_Run_Ran_Is_Kept_With_Its_Record;
+
+   procedure A_Run_Without_A_Directory_Keeps_Nothing_Of_What_It_Ran
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context : aliased Contexts.Execution_Context;
+      Store   : aliased Fake_Registry.Fake_Registry;
+      Clock   : aliased Counting_Clock;
+      R       : Recorder (Context'Access, Store'Access, Clock'Access);
+   begin
+      R.Start
+        ("exec-1", False, JSON.Parse ("{""name"":""P""}").Item,
+         Initial_State);
+      R.Record_Definition ("synapse-pipeline/P.synapse", "Pipeline P {}");
+      Assert
+        (Store.Held.Is_Empty
+         and then Store.Attempts (Fake_Registry.Description_Op) = 0
+         and then Store.Attempts (Fake_Registry.Definition_Op) = 0,
+         "nothing is written and nothing is tried");
+   end A_Run_Without_A_Directory_Keeps_Nothing_Of_What_It_Ran;
+
+   procedure A_Registry_That_Cannot_Keep_What_The_Run_Ran_Does_Not_Stop_It
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context : aliased Contexts.Execution_Context;
+      Store   : aliased Fake_Registry.Fake_Registry;
+      Clock   : aliased Counting_Clock;
+      R       : Recorder (Context'Access, Store'Access, Clock'Access);
+   begin
+      Assert (Store.Create ("exec-1") = Registry_Store.Created, "made");
+      Store.Fail (Fake_Registry.Description_Op);
+      Store.Fail (Fake_Registry.Definition_Op);
+      R.Start ("exec-1", True, JSON.Null_Value, Initial_State);
+      R.Record_Definition ("synapse-pipeline/P.synapse", "Pipeline P {}");
+      Assert
+        (not Store.Read_Description ("exec-1").Found
+         and then not Store.Read_Definition
+                        ("exec-1", "synapse-pipeline/P.synapse").Found,
+         "nothing was written");
+      Assert
+        (Store.Read_Summary ("exec-1").Found
+         and then Context.Current.Run.Status = States.Running,
+         "and the summary and the run are as they would have been");
+   end A_Registry_That_Cannot_Keep_What_The_Run_Ran_Does_Not_Stop_It;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -218,8 +434,20 @@ package body Synapse.Pipeline.Recorders.Tests is
       use AUnit.Test_Cases.Registration;
    begin
       Register_Routine
+        (T, A_Run_Records_The_Folder_Its_Steps_Work_In'Access,
+         "A run records the folder its steps work in");
+      Register_Routine
+        (T, A_Run_Told_No_Folder_Records_None'Access,
+         "A run told no folder records none");
+      Register_Routine
+        (T, A_Patch_Is_Kept_Only_For_A_Run_That_Is_Recorded'Access,
+         "A patch is kept only for a run that is recorded");
+      Register_Routine
         (T, A_Run_Is_Recorded_From_Its_Start'Access,
          "A run is recorded from its start");
+      Register_Routine
+        (T, A_Run_That_Waits_For_A_Person_Says_So'Access,
+         "A run that waits for a person says so");
       Register_Routine
         (T, Events_Are_Kept_As_The_Socket_Gives_Them'Access,
          "Events are kept as the socket gives them");
@@ -232,6 +460,16 @@ package body Synapse.Pipeline.Recorders.Tests is
       Register_Routine
         (T, A_Registry_That_Cannot_Write_Does_Not_Stop_The_Run'Access,
          "A registry that cannot write does not stop the run");
+      Register_Routine
+        (T, What_The_Run_Ran_Is_Kept_With_Its_Record'Access,
+         "What the run ran is kept with its record");
+      Register_Routine
+        (T, A_Run_Without_A_Directory_Keeps_Nothing_Of_What_It_Ran'Access,
+         "A run without a directory keeps nothing of what it ran");
+      Register_Routine
+        (T,
+         A_Registry_That_Cannot_Keep_What_The_Run_Ran_Does_Not_Stop_It'Access,
+         "A registry that cannot keep what the run ran does not stop it");
    end Register_Tests;
 
 end Synapse.Pipeline.Recorders.Tests;

@@ -6,6 +6,7 @@ with GNAT.OS_Lib;
 
 with Synapse.Pipeline.Inspection;
 with Synapse.Pipeline.Private_Access;
+with Synapse.Pipeline.Socket_Folders;
 
 package body Synapse.Pipeline.System_Inspector is
 
@@ -15,9 +16,6 @@ package body Synapse.Pipeline.System_Inspector is
    use type GNAT.Sockets.Socket_Type;
 
    LF : constant Character := Character'Val (10);
-
-   --  The socket's name in the directory of its execution.
-   Socket_Name : constant String := "execution.sock";
 
    --  How long a client may take to say its request, and how often the
    --  listener looks up to see whether it was told to stop.
@@ -39,8 +37,11 @@ package body Synapse.Pipeline.System_Inspector is
      (T : System_Transport; Work_Directory, Id : String) return String
    is
       pragma Unreferenced (T);
+      Record_Folder : constant String := Work_Directory & "/pipelines/" & Id;
    begin
-      return Work_Directory & "/pipelines/" & Id & "/" & Socket_Name;
+      return
+        Socket_Paths.Endpoint
+          (Socket_Folders.Real_Path (Record_Folder), Socket_Folders.User_Id);
    end Endpoint_For;
 
    overriding
@@ -51,6 +52,7 @@ package body Synapse.Pipeline.System_Inspector is
       Reason    : out Unbounded_String)
    is
       Directory : constant String := Directory_Of (Endpoint);
+      Removed   : Boolean;
    begin
       Listening := False;
       Reason := Null_Unbounded_String;
@@ -62,7 +64,22 @@ package body Synapse.Pipeline.System_Inspector is
               & Natural'Image (Max_Endpoint_Length) & "): " & Endpoint);
          return;
       end if;
-      if Directory /= "" then
+      if Socket_Paths.Is_Short (Endpoint, Socket_Folders.User_Id) then
+         declare
+            Problem : constant String :=
+              Socket_Folders.Make_Private (Directory);
+         begin
+            if Problem /= "" then
+               Reason :=
+                 To_Unbounded_String
+                   ("the folder of the socket cannot be used: " & Problem);
+               return;
+            end if;
+         end;
+         --  A socket left by a run of the same record folder that died. Not
+         --  Ada.Directories.Delete_File, which will not remove a socket.
+         GNAT.OS_Lib.Delete_File (Endpoint, Removed);
+      elsif Directory /= "" then
          Ada.Directories.Create_Path (Directory);
          Private_Access.Directory (Directory);
       end if;
@@ -202,7 +219,6 @@ package body Synapse.Pipeline.System_Inspector is
      (T : System_Transport; Work_Directory : String)
       return Synapse.Core.Text_Lists.Vector
    is
-      pragma Unreferenced (T);
       Directory : constant String := Work_Directory & "/pipelines";
       Names     : Synapse.Core.Text_Lists.Sets.Set;
       Result    : Synapse.Core.Text_Lists.Vector;
@@ -223,7 +239,7 @@ package body Synapse.Pipeline.System_Inspector is
          begin
             if Name /= "." and then Name /= ".."
               and then Ada.Directories.Exists
-                         (Directory & "/" & Name & "/" & Socket_Name)
+                         (T.Endpoint_For (Work_Directory, Name))
             then
                Names.Include (Name);
             end if;

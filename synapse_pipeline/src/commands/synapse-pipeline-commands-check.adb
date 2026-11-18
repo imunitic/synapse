@@ -1,7 +1,9 @@
 with Ada.Strings.Unbounded;
 
 with Synapse.Core.Optional_Text;
+with Synapse.Core.Text_Lists;
 with Synapse.Pipeline.Harnesses;
+with Synapse.Pipeline.Interactive_Harnesses;
 with Synapse.Pipeline.Resolved;
 with Synapse.Pipeline.Search_Paths;
 with Synapse.Pipeline.Skills;
@@ -69,14 +71,44 @@ package body Synapse.Pipeline.Commands.Check is
       Item        : Resolved.Pipeline;
       File        : Unbounded_String;
       Skill_Roots : Search_Paths.Root_Vectors.Vector;
+      Interactive : Boolean := False;
+      Name        : Unbounded_String;
+      Named       : Boolean := False;
    begin
-      if Natural (Args.Length) /= 1 then
+      for Arg of Args loop
+         if To_String (Arg) = "--interactive" then
+            if Interactive then
+               return Usage_Error (Env, Usage);
+            end if;
+            Interactive := True;
+         elsif not Named then
+            Name := Arg;
+            Named := True;
+         else
+            return Usage_Error (Env, Usage);
+         end if;
+      end loop;
+      if not Named then
          return Usage_Error (Env, Usage);
       end if;
       Loading.Load
-        (Env, To_String (Args.First_Element), Ok, Item, File, Skill_Roots);
+        (Env, To_String (Name), Ok, Item, File, Skill_Roots, Advise => True);
       if not Ok then
          return 1;
+      end if;
+      if Interactive then
+         declare
+            Problems : constant Synapse.Core.Text_Lists.Vector :=
+              Interactive_Harnesses.Problems (Item);
+         begin
+            for Problem of Problems loop
+               Complain
+                 (Env, To_String (Problem) & Character'Val (10));
+            end loop;
+            if not Problems.Is_Empty then
+               return 1;
+            end if;
+         end;
       end if;
       Say (Env, Describe (Item, To_String (File), Env.Files.all, Skill_Roots));
       return 0;

@@ -38,6 +38,22 @@ package Synapse.Commands.Usage is
       "ter field, byte-preserving" & LF &
       "  frontmatter set <path> --add-tag|--remove-tag <tag>   sa" &
       "me, for the tags field" & LF &
+      "  config list [--format json|text]   every setting of sy" &
+      "napse.conf, its value and where it comes from" & LF &
+      "  config set <KEY> <value>   write one setting into the " &
+      "file that holds it, byte-preserving" & LF &
+      "  config unset <KEY>         remove one setting from tha" &
+      "t file" & LF &
+      "  configure <claude|codex|opencode>   install Synapse's hook" &
+      "s, skills and commands for a harness" & LF &
+      "  status [--format text|json]   what in the vault needs a hum" &
+      "an decision" & LF &
+      "  work-dir [--root | --list | --namespace <repo>@<branch>]   " &
+      "where Synapse keeps its working files" & LF &
+      "  projects [list] [--format json|text]   the projects of s" &
+      "ynapse-projects.conf" & LF &
+      "  projects add <name> <prefix>   one more project, checked" &
+      " first" & LF &
       "  vault-read <path>          a note's full body" & LF &
       "  vault-write <path>         write a note's full body, fro" &
       "m stdin" & LF &
@@ -94,9 +110,11 @@ package Synapse.Commands.Usage is
       "339 or built_at's shape" & LF &
       "  context                    this checkout's graph path an" &
       "d the question-to-command map" & LF &
-      "  doctor [--repo <dir>]      check every precondition the " &
+      "  doctor [--repo <dir>] [--format text|json]" & LF &
+      "                             check every precondition the " &
       "rest of the system" & LF &
-      "                             tolerates silently" & LF &
+      "                             tolerates silently, the harnesses " &
+      "among them" & LF &
       "  build-index                _index.bin from the work dir'" &
       "s lists" & LF &
       "  graph-clean [--dry-run]    drop namespaces whose branch " &

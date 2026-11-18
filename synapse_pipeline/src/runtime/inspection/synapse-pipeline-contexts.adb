@@ -15,13 +15,22 @@ package body Synapse.Pipeline.Contexts is
          Data.Description := Description;
          Data.Run := Initial;
          Data.Events.Clear;
+         Data.Attention := (others => <>);
          Next := 1;
       end Start;
 
       procedure Publish (Item : States.State) is
       begin
          Data.Run := Item;
+         if States.Is_Terminal (Item) then
+            Data.Attention := (others => <>);
+         end if;
       end Publish;
+
+      procedure Set_Attention (Item : Inspection.Attention) is
+      begin
+         Data.Attention := Item;
+      end Set_Attention;
 
       procedure Record_Event
         (Kind, Step : String; Detail : Synapse.Core.JSON.Value) is

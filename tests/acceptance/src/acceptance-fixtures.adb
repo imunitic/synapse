@@ -242,7 +242,10 @@ package body Acceptance.Fixtures is
 
    function Vault (F : Fixture) return String is (Root (F) & "/vault");
 
-   function Work (F : Fixture) return String is (Root (F) & "/work");
+   function Work_Root (F : Fixture) return String is (Root (F) & "/work");
+
+   function Work (F : Fixture) return String is
+     (Work_Root (F) & "/" & Repo_Name (F));
 
    function Home (F : Fixture) return String is (Root (F) & "/home");
 

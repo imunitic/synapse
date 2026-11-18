@@ -24,17 +24,17 @@ package body Synapse.Commands.Link_Graph is
      "[--deps <f>] [--namespaces <f>]" & LF &
      "                          [--top N] [--out <dir>]" & LF & LF &
      "  --refs        synapse build-refs's index. Default " &
-     "$SYNAPSE_WORK_DIR/_refs.tsv." & LF &
+     "<work dir>/_refs.tsv." & LF &
      "  --lists       the NN.txt/NN.title path lists synapse build-lists " &
      "wrote." & LF & "  --deps        synapse build-deps's index. Default " &
-     "$SYNAPSE_WORK_DIR/_deps.tsv," & LF &
+     "<work dir>/_deps.tsv," & LF &
      "                skipped silently if absent." & LF &
      "  --namespaces  synapse build-namespaces's index. Default" & LF &
-     "                $SYNAPSE_WORK_DIR/_namespaces.tsv, skipped silently " &
+     "                <work dir>/_namespaces.tsv, skipped silently " &
      "if absent." & LF &
      "  --top         edges kept per node, strongest first, default 8. 0 " &
      "means no cap." & LF &
-     "  --out         where to write links.tsv. Default $SYNAPSE_WORK_DIR." &
+     "  --out         where to write links.tsv. Default <work dir>." &
      LF;
 
    --  `path<TAB>value` rows folded into the set of values of each path: the

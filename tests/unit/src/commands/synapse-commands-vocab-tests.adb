@@ -58,7 +58,9 @@ package body Synapse.Commands.Vocab.Tests is
    procedure Setup (F : aliased in out Fixture; Dir : Scratch) is
    begin
       F.Vars.Set ("HOME", Path (Dir, "home"));
-      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, "out"));
+      --  The work directory is `Dir/out`: the root is `Dir` and its folder `out`.
+      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir));
+      F.Vars.Set ("SYNAPSE_NAMESPACE", "out");
       Put_Config (Dir, "synapse-grammars.conf", Registry);
       Put_File (Dir, "alpha/src/a.ext", "a");
       Put_File (Dir, "alpha/src/b.ext", "b");
@@ -218,7 +220,9 @@ package body Synapse.Commands.Vocab.Tests is
       F   : aliased Fixture;
    begin
       F.Vars.Set ("HOME", Path (Dir, "home"));
-      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, "out"));
+      --  The work directory is `Dir/out`: the root is `Dir` and its folder `out`.
+      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir));
+      F.Vars.Set ("SYNAPSE_NAMESPACE", "out");
       Put_Config (Dir, "synapse-grammars.conf", "{}");
       Put_File (Dir, "a/x.md", "x");
       Commit_All (Dir);

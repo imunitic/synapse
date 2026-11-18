@@ -15,6 +15,8 @@ with Synapse.Pipeline.Harnesses;
 with Synapse.Pipeline.Inspection;
 with Synapse.Pipeline.Inspectors;
 with Synapse.Pipeline.Resolved;
+with Synapse.Pipeline.Socket_Folders;
+with Synapse.Pipeline.Socket_Paths;
 with Synapse.Pipeline.States;
 with Synapse.Test_Scratch;
 
@@ -91,6 +93,10 @@ package body Synapse.Pipeline.System_Inspector.Tests is
       GNAT.Sockets.Close_Socket (Sock);
       return To_String (Reply);
    end Ask;
+
+   function Directory_Of (Path : String) return String is
+     (Path (Path'First .. Ada.Strings.Fixed.Index
+                             (Path, "/", Ada.Strings.Backward) - 1));
 
    function Has (Text, Part : String) return Boolean is
      (Ada.Strings.Fixed.Index (Text, Part) > 0);
@@ -311,6 +317,108 @@ package body Synapse.Pipeline.System_Inspector.Tests is
       end;
    end A_Run_Is_Reached_Over_A_Named_Pipe;
 
+   --  A work directory deep enough that a record folder in it is past the
+   --  limit of a Unix socket's path.
+   function Deep_Work_Directory (Scratch : String) return String is
+      Deep : constant String := Scratch & "/" & [1 .. 90 => 'd'];
+   begin
+      Ada.Directories.Create_Path (Deep);
+      return Deep;
+   end Deep_Work_Directory;
+
+   procedure A_Run_Too_Deep_For_A_Socket_Path_Is_Answered
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Scratch   : constant Synapse.Test_Scratch.Scratch :=
+        Synapse.Test_Scratch.Make_Outside_Git;
+      Work      : constant String :=
+        Deep_Work_Directory (Synapse.Test_Scratch.Path (Scratch));
+      Transport : System_Transport;
+      Context   : aliased Contexts.Execution_Context;
+      Listening : Boolean := False;
+      Reason    : Unbounded_String;
+      Reply     : Unbounded_String;
+      Listed    : Boolean := False;
+      Endpoint  : Unbounded_String;
+
+      procedure Action (Is_Listening : Boolean; Why : String) is
+      begin
+         Listening := Is_Listening;
+         Reason := To_Unbounded_String (Why);
+         Context.Start ("exec-deep", JSON.Null_Value, Initial_State);
+         Reply :=
+           To_Unbounded_String
+             (Ask (To_String (Endpoint), "{""command"":""info""}"));
+         for Id of Transport.Ids (Work) loop
+            Listed := Listed or else To_String (Id) = "exec-deep";
+         end loop;
+      end Action;
+   begin
+      if On_Windows then
+         Synapse.Test_Scratch.Remove (Scratch);
+         return;
+      end if;
+      --  The recorder makes the record folder before the run listens.
+      Ada.Directories.Create_Path (Work & "/pipelines/exec-deep");
+      Endpoint :=
+        To_Unbounded_String (Transport.Endpoint_For (Work, "exec-deep"));
+      Assert
+        (Socket_Paths.Is_Short
+           (To_String (Endpoint), Socket_Folders.User_Id),
+         "the endpoint is in the short folder: " & To_String (Endpoint));
+      Inspectors.Serve_While
+        (Transport, To_String (Endpoint), Context, Action'Access);
+      Assert (Listening, "it listened: " & To_String (Reason));
+      Assert
+        (Has (To_String (Reply), """execution_id"":""exec-deep"""),
+         "and is answered there: " & To_String (Reply));
+      Assert (Listed, "the run is listed while it listens");
+      Assert
+        (not Ada.Directories.Exists (To_String (Endpoint)),
+         "the socket file is gone once serving is done");
+      Synapse.Test_Scratch.Remove (Scratch);
+   end A_Run_Too_Deep_For_A_Socket_Path_Is_Answered;
+
+   procedure A_Socket_Left_In_The_Short_Folder_Is_Replaced
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Scratch   : constant Synapse.Test_Scratch.Scratch :=
+        Synapse.Test_Scratch.Make_Outside_Git;
+      Work      : constant String :=
+        Deep_Work_Directory (Synapse.Test_Scratch.Path (Scratch));
+      Transport : System_Transport;
+      Listening : Boolean := False;
+      Reason    : Unbounded_String;
+      Left      : Ada.Text_IO.File_Type;
+   begin
+      if On_Windows then
+         Synapse.Test_Scratch.Remove (Scratch);
+         return;
+      end if;
+      Ada.Directories.Create_Path (Work & "/pipelines/exec-left");
+      declare
+         Endpoint : constant String :=
+           Transport.Endpoint_For (Work, "exec-left");
+      begin
+         Assert
+           (Socket_Folders.Make_Private (Directory_Of (Endpoint)) = "",
+            "the short folder can be used");
+         Ada.Text_IO.Create (Left, Ada.Text_IO.Out_File, Endpoint);
+         Ada.Text_IO.Close (Left);
+         Transport.Listen (Endpoint, Listening, Reason);
+         Assert
+           (Listening,
+            "what a run that died left there is replaced: "
+            & To_String (Reason));
+         Transport.Close;
+         Assert
+           (not Ada.Directories.Exists (Endpoint), "and removed on close");
+      end;
+      Synapse.Test_Scratch.Remove (Scratch);
+   end A_Socket_Left_In_The_Short_Folder_Is_Replaced;
+
    procedure The_Directory_Is_Private (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Scratch   : constant Synapse.Test_Scratch.Scratch :=
@@ -384,6 +492,12 @@ package body Synapse.Pipeline.System_Inspector.Tests is
          "A silent client does not block the next");
       Register_Routine
         (T, The_Directory_Is_Private'Access, "The directory is private");
+      Register_Routine
+        (T, A_Run_Too_Deep_For_A_Socket_Path_Is_Answered'Access,
+         "A run too deep for a socket path is answered");
+      Register_Routine
+        (T, A_Socket_Left_In_The_Short_Folder_Is_Replaced'Access,
+         "A socket left in the short folder is replaced");
    end Register_Tests;
 
 end Synapse.Pipeline.System_Inspector.Tests;

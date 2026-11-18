@@ -3,6 +3,7 @@ with Ada.Strings.Unbounded;
 
 with Synapse.Core.Results;
 with Synapse.Pipeline.Harnesses;
+with Synapse.Pipeline.Patches;
 with Synapse.Ports.Variables;
 
 --  What a run is configured with, settled once before its first session and
@@ -19,10 +20,14 @@ package Synapse.Pipeline.Configs is
    Ceiling_Variable : constant String := "SYNAPSE_PIPELINE_MAX_STEPS";
    Runner_Variable  : constant String := "SYNAPSE_PIPELINE_RUNNER";
    Script_Variable  : constant String := "SYNAPSE_PIPELINE_SCRIPT";
+   Changes_Variable : constant String :=
+     "SYNAPSE_PIPELINE_CHANGES_FILE_LIMIT";
 
    --  Synapse's own settings that a session is given, so that it works in the
    --  same vault and work directory as the run that started it. Each is the
-   --  variable of that name or else the setting the configuration files give.
+   --  variable of that name or else the setting the configuration files give;
+   --  the work directory is the root of Synapse.Adapters.Work_Dirs, which has a
+   --  default, so it is given whenever there is a home directory.
    Vault_Dir_Key     : constant String := "SYNAPSE_VAULT_DIR";
    Work_Dir_Key      : constant String := "SYNAPSE_WORK_DIR";
    Content_Root_Key  : constant String := "SYNAPSE_CONTENT_ROOT";
@@ -55,6 +60,10 @@ package Synapse.Pipeline.Configs is
 
       --  Where sessions run.
       Working_Directory       : Ada.Strings.Unbounded.Unbounded_String;
+
+      --  The most bytes of a new file that a session's patch keeps: past it
+      --  the patch holds only the file's path and number of lines.
+      Changes_File_Limit      : Natural := Patches.Default_Largest;
    end record;
 
    package Config_Results is new Synapse.Core.Results

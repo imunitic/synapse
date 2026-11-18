@@ -9,6 +9,7 @@ package body Synapse.Pipeline.Id_Claims.Tests is
    use AUnit.Assertions;
    use Ada.Strings.Unbounded;
    use type Registry_Store.Create_Result;
+   use type Named_Result;
 
    subtype Test_Cases_Class is AUnit.Test_Cases.Test_Case'Class;
 
@@ -90,6 +91,42 @@ package body Synapse.Pipeline.Id_Claims.Tests is
          "a failure is not a taken id, so no other id is drawn");
    end A_Directory_That_Cannot_Be_Made_Is_Not_Tried_Again;
 
+   procedure Ids_Are_Plain_Names_Of_Up_To_64_Characters
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert (Is_Valid ("exec-1a2b3c4d"), "an id that is drawn");
+      Assert (Is_Valid ("Nightly_2026-11-07"), "letters, digits, _ and -");
+      Assert (Is_Valid ("a") and then Is_Valid ([1 .. 64 => 'a']), "1 to 64");
+      Assert (not Is_Valid ("") and then not Is_Valid ([1 .. 65 => 'a']),
+              "not empty and not 65");
+      Assert
+        (not Is_Valid ("../x") and then not Is_Valid ("a/b")
+         and then not Is_Valid ("a\b") and then not Is_Valid ("a:b")
+         and then not Is_Valid ("a b") and then not Is_Valid (".hidden"),
+         "nothing that could leave a directory");
+   end Ids_Are_Plain_Names_Of_Up_To_64_Characters;
+
+   procedure A_Named_Id_Is_Claimed_Or_Refused_And_Never_Replaced
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fake_Registry.Fake_Registry;
+   begin
+      Assert (Take_Named (F, "nightly-1") = Named_Claimed, "a free id");
+      Assert (F.Held.Contains ("nightly-1"), "its directory is made");
+      Assert (Take_Named (F, "nightly-1") = Named_Taken, "a taken id");
+      Assert
+        (Natural (F.Held.Length) = 1,
+         "and no other id was made in its place");
+      F.Fail (Fake_Registry.Create_Op);
+      Assert
+        (Take_Named (F, "nightly-2") = Named_Failed
+         and then not F.Held.Contains ("nightly-2"),
+         "a directory that cannot be made");
+   end A_Named_Id_Is_Claimed_Or_Refused_And_Never_Replaced;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -101,6 +138,12 @@ package body Synapse.Pipeline.Id_Claims.Tests is
    procedure Register_Tests (T : in out Test_Case) is
       use AUnit.Test_Cases.Registration;
    begin
+      Register_Routine
+        (T, Ids_Are_Plain_Names_Of_Up_To_64_Characters'Access,
+         "Ids are plain names of up to 64 characters");
+      Register_Routine
+        (T, A_Named_Id_Is_Claimed_Or_Refused_And_Never_Replaced'Access,
+         "A named id is claimed or refused and never replaced");
       Register_Routine
         (T, A_Free_Id_Is_Claimed_At_Once'Access,
          "A free id is claimed at once");

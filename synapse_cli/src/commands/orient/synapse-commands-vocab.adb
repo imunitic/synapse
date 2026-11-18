@@ -607,14 +607,10 @@ package body Synapse.Commands.Vocab is
 
       --  Keyed on the repository being read, not where the command ran.
       declare
-         Configured : constant Ports.Variables.Maybe_Value :=
-           Env.Vars.Get ("SYNAPSE_WORK_DIR");
-         Out_Dir    : Unbounded_String;
+         Out_Dir : Unbounded_String;
       begin
          if Opts.Has_Out then
             Out_Dir := Opts.Out_Dir;
-         elsif Configured.Found then
-            Out_Dir := Configured.Value;
          else
             declare
                Derived : constant Support.Maybe_Path :=
@@ -623,8 +619,6 @@ package body Synapse.Commands.Vocab is
                     (if Opts.Has_Repo then To_String (Opts.Repo) else "."));
             begin
                if not Derived.Found then
-                  Complain
-                    (Env, Prog & ": no --out and no SYNAPSE_WORK_DIR" & LF);
                   return 1;
                end if;
                Out_Dir := Derived.Value;

@@ -98,7 +98,7 @@ package body Acceptance.Rebuild_Diff_Tests is
 
    procedure Set_Up (F : in out Fixture) is
    begin
-      Set_Env (F, "SYNAPSE_WORK_DIR", Work (F));
+      Set_Env (F, "SYNAPSE_WORK_DIR", Work_Root (F));
       Use_Schema_Content_Root (F);
    end Set_Up;
 

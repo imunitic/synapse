@@ -33,7 +33,7 @@ package body Acceptance.Pipeline_Tests is
       Write_Repo_File (F, "assets/logo.png", "PNG" & LF);
       Write_Repo_File (F, "leftover.txt", "orphan" & LF);
       Commit_All (F, "tree");
-      Set_Env (F, "SYNAPSE_WORK_DIR", Work (F));
+      Set_Env (F, "SYNAPSE_WORK_DIR", Work_Root (F));
       Use_Schema_Content_Root (F);
    end Set_Up_Tree;
 

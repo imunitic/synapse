@@ -19,6 +19,8 @@ with Synapse.Pipeline.Search_Paths;
 --    * every step ends up with instructions, from itself, its system or its
 --      agent, and with a harness, from itself, its system or the default
 --      harness;
+--    * a step that declares `Outcomes` has edges that test only those
+--      outcomes;
 --    * a step is declared once, every edge joins steps of the pipeline, and
 --      every edge back to an earlier step or to its own step says how many
 --      times it may fire, so that every cycle is bounded.
@@ -34,6 +36,14 @@ package Synapse.Pipeline.Validation is
       Skill_Roots : Search_Paths.Root_Vectors.Vector;
       Name        : String;
       Default_Harness : Harnesses.Kind_Options.Option)
+      return Definitions.Problem_Vectors.Vector;
+
+   --  What is worth saying about the pipeline called Name that does not stop
+   --  it running, each in its file: a step with edges that test its outcome
+   --  and no `Outcomes`, where a declared set would turn a misspelt outcome
+   --  into an error. Empty when the pipeline is not there.
+   function Advise
+     (Defs : Namespaces.Namespace; Name : String)
       return Definitions.Problem_Vectors.Vector;
 
 end Synapse.Pipeline.Validation;

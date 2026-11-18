@@ -1,4 +1,6 @@
 with Synapse.Core.Decimal_Image;
+with Synapse.Core.JSON;
+
 package body Synapse.Core.Doctor is
 
    LF : constant Character := Character'Val (10);
@@ -33,6 +35,59 @@ package body Synapse.Core.Doctor is
       end loop;
       return Result;
    end Count;
+
+   function Key_Of (Name : String) return String is
+      Result : String := Name;
+   begin
+      for C of Result loop
+         if C in 'A' .. 'Z' then
+            C := Character'Val (Character'Pos (C) + 32);
+         elsif C = ' ' then
+            C := '-';
+         end if;
+      end loop;
+      return Result;
+   end Key_Of;
+
+   function Json (Checks : Check_Vectors.Vector) return String is
+      package J renames Synapse.Core.JSON;
+
+      function Member (Key : String; Item : J.Value) return J.Member is
+        (Key => To_Unbounded_String (Key), Item => Item);
+
+      function Whole (Item : Natural) return J.Value is
+        (J.Make_Integer (Long_Long_Integer (Item)));
+
+      function Words (Item : Status) return String is
+        (case Item is when Ok => "ok", when Warn => "warn", when Fail => "fail");
+
+      Items : J.Value_Array (1 .. Natural (Checks.Length));
+      N     : constant Counts := Count (Checks);
+   begin
+      for I in Items'Range loop
+         declare
+            C : constant Check := Checks (I);
+         begin
+            Items (I) :=
+              J.Make_Object
+                ([Member ("key", J.Make_String (Key_Of (To_String (C.Name)))),
+                  Member ("name", J.Make_String (To_String (C.Name))),
+                  Member ("status", J.Make_String (Words (C.State))),
+                  Member ("detail", J.Make_String (To_String (C.Detail))),
+                  Member ("value", J.Make_String (To_String (C.Value)))]);
+         end;
+      end loop;
+      return J.To_String
+        (J.Make_Object
+           ([Member ("format", J.Make_String ("synapse-doctor/v1")),
+             Member ("checks", J.Make_Array (Items)),
+             Member
+               ("counts",
+                J.Make_Object
+                  ([Member ("ok", Whole (N.Ok)),
+                    Member ("warn", Whole (N.Warn)),
+                    Member ("fail", Whole (N.Fail))]))]));
+   end Json;
 
    function Report (Checks : Check_Vectors.Vector) return String is
       Text  : Unbounded_String;

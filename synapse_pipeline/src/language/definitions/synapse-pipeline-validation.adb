@@ -2,7 +2,9 @@ with Ada.Containers.Indefinite_Ordered_Maps;
 with Ada.Strings.Unbounded;
 
 with Synapse.Core.Text_Lists;
+with Synapse.Core.JSON;
 with Synapse.Pipeline.Attributes;
+with Synapse.Pipeline.Outcomes;
 with Synapse.Pipeline.Skills;
 with Synapse.Pipeline.Source_Errors;
 with Synapse.Pipeline.Syntax;
@@ -32,6 +34,98 @@ package body Synapse.Pipeline.Validation is
    function Has_Instructions
      (List : Syntax.Attribute_Vectors.Vector) return Boolean is
      (Has_Attribute (List, "Prompt") or else Has_Attribute (List, "Skill"));
+
+   --  The value of the attribute called Key in List, null when there is none.
+   function Json_Of
+     (List : Syntax.Attribute_Vectors.Vector; Key : String)
+      return Synapse.Core.JSON.Value is
+   begin
+      for A of List loop
+         if Name_Of (A.Name) = Key and then A.Item.Kind = Syntax.JSON_Value
+         then
+            return A.Item.Json;
+         end if;
+      end loop;
+      return Synapse.Core.JSON.Null_Value;
+   end Json_Of;
+
+   function Declared_Outcomes
+     (Defs : Namespaces.Namespace; Step : Syntax.Step)
+      return Synapse.Core.JSON.Value
+   is
+      use type Synapse.Core.JSON.Kind;
+      Own : constant Synapse.Core.JSON.Value :=
+        Json_Of (Step.Attributes, "Outcomes");
+   begin
+      if Synapse.Core.JSON.Kind_Of (Own) /= Synapse.Core.JSON.JSON_Null then
+         return Own;
+      end if;
+      for A of Step.Attributes loop
+         if Name_Of (A.Name) = "System"
+           and then A.Item.Kind = Syntax.Name_Value
+           and then Namespaces.Contains (Defs, To_String (A.Item.Name))
+         then
+            declare
+               Named : constant Syntax.Definition :=
+                 Namespaces.Element (Defs, To_String (A.Item.Name)).Item;
+            begin
+               if Named.Kind = Syntax.System_Definition then
+                  return Json_Of (Named.Attributes, "Outcomes");
+               end if;
+            end;
+         end if;
+      end loop;
+      return Synapse.Core.JSON.Null_Value;
+   end Declared_Outcomes;
+
+   --  The outcome the guard of Item tests and where it is written, when the
+   --  edge has a guard that does nothing but test the outcome.
+   procedure Tested_Outcome
+     (Item  : Syntax.Edge;
+      Found : out Boolean;
+      Word  : out Unbounded_String;
+      Where : out Syntax.Value)
+   is
+   begin
+      Found := False;
+      Word := Null_Unbounded_String;
+      for A of Item.Attributes loop
+         if Name_Of (A.Name) = "When" then
+            Where := A.Item;
+            if A.Item.Kind = Syntax.Name_Value then
+               Found := True;
+               Word := A.Item.Name;
+            elsif A.Item.Kind = Syntax.JSON_Value
+              and then Outcomes.Tested_Word (A.Item.Json).Found
+            then
+               Found := True;
+               Word := Outcomes.Tested_Word (A.Item.Json).Value;
+            end if;
+         end if;
+      end loop;
+   end Tested_Outcome;
+
+   function Has_Step
+     (Item : Syntax.Definition; Step_Name : String) return Boolean is
+   begin
+      for S of Item.Steps loop
+         if Name_Of (S.Name) = Step_Name then
+            return True;
+         end if;
+      end loop;
+      return False;
+   end Has_Step;
+
+   function Step_Called
+     (Item : Syntax.Definition; Step_Name : String) return Syntax.Step is
+   begin
+      for S of Item.Steps loop
+         if Name_Of (S.Name) = Step_Name then
+            return S;
+         end if;
+      end loop;
+      raise Program_Error with "no such step";
+   end Step_Called;
 
    function Validate
      (Defs        : Namespaces.Namespace;
@@ -364,6 +458,29 @@ package body Synapse.Pipeline.Validation is
                      "there is no step named '" & Name_Of (E.To) & "'");
                end if;
                Check_Attributes (File, Attributes.Edge_Context, E.Attributes);
+               if From_Known then
+                  declare
+                     Tests    : Boolean;
+                     Word     : Unbounded_String;
+                     Where    : Syntax.Value;
+                     Declared : constant Synapse.Core.JSON.Value :=
+                       Declared_Outcomes
+                         (Defs, Step_Called (Item, Name_Of (E.From)));
+                  begin
+                     Tested_Outcome (E, Tests, Word, Where);
+                     if Tests and then Outcomes.Is_Declared (Declared)
+                       and then not Outcomes.Has_Word
+                                      (Declared, To_String (Word))
+                     then
+                        Add
+                          (File,
+                           Source_Errors.Make
+                             ("step '" & Name_Of (E.From) & "' does not "
+                              & "declare the outcome '" & To_String (Word)
+                              & "'", Where.Line, Where.Column));
+                     end if;
+                  end;
+               end if;
                if From_Known and then To_Known and then not Ends
                  and then Index.Element (Name_Of (E.To)) <=
                           Index.Element (Name_Of (E.From))
@@ -400,5 +517,61 @@ package body Synapse.Pipeline.Validation is
       end if;
       return Problems;
    end Validate;
+
+   function Advise
+     (Defs : Namespaces.Namespace; Name : String)
+      return Definitions.Problem_Vectors.Vector
+   is
+      use type Synapse.Core.JSON.Kind;
+      Advice : Definitions.Problem_Vectors.Vector;
+   begin
+      if not Namespaces.Contains (Defs, Name)
+        or else Namespaces.Element (Defs, Name).Item.Kind /=
+                Syntax.Pipeline_Definition
+      then
+         return Advice;
+      end if;
+      declare
+         Loaded : constant Namespaces.Loaded :=
+           Namespaces.Element (Defs, Name);
+         Item   : Syntax.Definition renames Loaded.Item;
+         Said   : Synapse.Core.Text_Lists.Set;
+      begin
+         for E of Item.Edges loop
+            declare
+               Tests : Boolean;
+               Word  : Unbounded_String;
+               Where : Syntax.Value;
+            begin
+               Tested_Outcome (E, Tests, Word, Where);
+               if Tests and then Has_Step (Item, Name_Of (E.From))
+                 and then not Said.Contains (Name_Of (E.From))
+               then
+                  declare
+                     From : constant Syntax.Step :=
+                       Step_Called (Item, Name_Of (E.From));
+                  begin
+                     if Synapse.Core.JSON.Kind_Of
+                          (Declared_Outcomes (Defs, From)) =
+                        Synapse.Core.JSON.JSON_Null
+                     then
+                        Said.Insert (Name_Of (E.From));
+                        Advice.Append
+                          (Source_Errors.With_File
+                             (Source_Errors.Make
+                                ("step '" & Name_Of (From.Name) & "' has "
+                                 & "edges that test its outcome but "
+                                 & "declares no Outcomes; declaring them "
+                                 & "makes a misspelt outcome an error",
+                                 From.Name.Line, From.Name.Column),
+                              To_String (Loaded.Path)));
+                     end if;
+                  end;
+               end if;
+            end;
+         end loop;
+      end;
+      return Advice;
+   end Advise;
 
 end Synapse.Pipeline.Validation;

@@ -111,40 +111,57 @@ package body Synapse.Adapters.Conf_Files is
       raise No_Home;
    end Resolve_Write_Path;
 
-   function Resolve (V : Variables; Key : String) return Maybe_Path is
-      Direct : constant String := Setting (V, Key);
+   function Describe
+     (V : Variables; Key : String; Use_Variable : Boolean := True)
+      return Detail
+   is
+      Result : Detail;
+      Direct : constant String :=
+        (if Use_Variable then Setting (V, Key) else "");
+
+      function Name_At (N : Positive) return String is
+        (if N = 1 then Primary_Name else Legacy_Name);
    begin
+      for N in 1 .. 2 loop
+         declare
+            Path : constant Maybe_Path :=
+              Resolve_Conf_Path (V, Name_At (N));
+         begin
+            if Path.Found then
+               declare
+                  Text  : constant String               :=
+                    File_Bytes.Read (To_String (Path.Value), Largest_File);
+                  Value : constant Core.Conf.Maybe_Text :=
+                    Core.Conf.Value (Text, Key, V);
+               begin
+                  if Value.Found and then Length (Value.Value) > 0 then
+                     Result.File  := Path;
+                     Result.Raw   := Core.Conf.Get (Text, Key);
+                     Result.Value := Value;
+                     Result.From  := From_File;
+                     exit;
+                  end if;
+               end;
+            end if;
+         exception
+            when others =>
+               null;  --  unreadable or too large: try the next
+         end;
+      end loop;
       if Direct /= "" then
-         return (Found => True, Value => To_Unbounded_String (Direct));
+         Result.Shadowed := Result.From = From_File;
+         Result.From     := From_Variable;
+         Result.Value    :=
+           (Found => True, Value => To_Unbounded_String (Direct));
       end if;
-      declare
-         function Name_At (N : Positive) return String is
-           (if N = 1 then Primary_Name else Legacy_Name);
-      begin
-         for N in 1 .. 2 loop
-            declare
-               Path : constant Maybe_Path :=
-                 Resolve_Conf_Path (V, Name_At (N));
-            begin
-               if Path.Found then
-                  declare
-                     Text  : constant String               :=
-                       File_Bytes.Read (To_String (Path.Value), Largest_File);
-                     Value : constant Core.Conf.Maybe_Text :=
-                       Core.Conf.Value (Text, Key, V);
-                  begin
-                     if Value.Found and then Length (Value.Value) > 0 then
-                        return (Found => True, Value => Value.Value);
-                     end if;
-                  end;
-               end if;
-            exception
-               when others =>
-                  null;  --  unreadable or too large: try the next
-            end;
-         end loop;
-      end;
-      return (Found => False);
+      return Result;
+   end Describe;
+
+   function Resolve (V : Variables; Key : String) return Maybe_Path is
+      Found : constant Detail := Describe (V, Key);
+   begin
+      return
+        (if Found.From = Nowhere then (Found => False) else Found.Value);
    end Resolve;
 
    function Vault_Dir (V : Variables) return Maybe_Path is

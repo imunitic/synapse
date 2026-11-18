@@ -9,6 +9,8 @@ with Synapse.Pipeline.File_System;
 with Synapse.Pipeline.Inspector_Transport;
 with Synapse.Pipeline.Registry_Store;
 with Synapse.Pipeline.Session_Process;
+with Synapse.Pipeline.Terminal_Process;
+with Synapse.Pipeline.Working_Trees;
 
 --  The subcommands of the `synapse-pipeline` executable. Each is a function
 --  of its arguments and an Environment: what it may read, run and write, all
@@ -36,7 +38,11 @@ package Synapse.Pipeline.Commands is
       Sessions  :
         not null access Synapse.Pipeline.Session_Process.Process'Class;
       Registry  :
-        not null access Synapse.Pipeline.Registry_Store.Store'Class)
+        not null access Synapse.Pipeline.Registry_Store.Store'Class;
+      Terminal  :
+        not null access Synapse.Pipeline.Terminal_Process.Terminal'Class;
+      Trees     :
+        not null access Synapse.Pipeline.Working_Trees.Working_Tree'Class)
    is limited record
       --  How this program was started.
       Argv0 : Ada.Strings.Unbounded.Unbounded_String;

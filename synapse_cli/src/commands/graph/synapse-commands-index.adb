@@ -52,7 +52,7 @@ package body Synapse.Commands.Index is
 
    function No_Work_Dir (Env : Environment) return Exit_Code is
    begin
-      Complain (Env, Prog & ": no SYNAPSE_WORK_DIR and no --out/--file" & LF);
+      Complain (Env, Prog & ": no work directory and no --out/--file" & LF);
       return 1;
    end No_Work_Dir;
 

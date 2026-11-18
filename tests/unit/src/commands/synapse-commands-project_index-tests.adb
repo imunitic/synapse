@@ -1,3 +1,4 @@
+with Synapse.Test_Repo;
 with Ada.Directories;
 with Ada.Strings.Fixed;
 with Synapse.Adapters.File_Bytes;
@@ -22,7 +23,8 @@ package body Synapse.Commands.Project_Index.Tests is
    procedure Pin (F : aliased in out Fixture; Dir : Scratch) is
    begin
       Use_Vault (F, Dir);
-      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, "work"));
+      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, Synapse.Test_Repo.Root_Rel));
+      F.Vars.Set ("SYNAPSE_NAMESPACE", Synapse.Test_Repo.Namespace);
       F.Vars.Set ("SYNAPSE_NAMESPACE", "widget@main");
       F.Vars.Set ("SYNAPSE_REPO_ROOT", "/r");
       F.Vars.Set ("SYNAPSE_BRANCH", "main");
@@ -38,11 +40,11 @@ package body Synapse.Commands.Project_Index.Tests is
 
    procedure List (Dir : Scratch; Stem, Title, Paths : String) is
    begin
-      Ada.Directories.Create_Path (Path (Dir, "work/lists"));
+      Ada.Directories.Create_Path (Path (Dir, Synapse.Test_Repo.Work_Rel & "/lists"));
       Synapse.Adapters.File_Bytes.Write
-        (Path (Dir, "work/lists/" & Stem & ".title"), Title & LF);
+        (Path (Dir, Synapse.Test_Repo.Work_Rel & "/lists/" & Stem & ".title"), Title & LF);
       Synapse.Adapters.File_Bytes.Write
-        (Path (Dir, "work/lists/" & Stem & ".txt"), Paths);
+        (Path (Dir, Synapse.Test_Repo.Work_Rel & "/lists/" & Stem & ".txt"), Paths);
    end List;
 
    procedure Node (Dir : Scratch; File, Title, Summary : String) is
@@ -71,7 +73,7 @@ package body Synapse.Commands.Project_Index.Tests is
       Node (Dir, "Core", "Core", "The core.");
       Node (Dir, "Bee_Two", "Bee/Two", "Bee two.");
       Synapse.Adapters.File_Bytes.Write
-        (Path (Dir, "work/all.txt"),
+        (Path (Dir, Synapse.Test_Repo.Work_Rel & "/all.txt"),
          "a" & LF & "b" & LF & "c" & LF & "d" & LF);
       Assert (Run (Env (F), Args) = 0, "success: " & F.Console.Err_Text);
       Assert
@@ -131,7 +133,7 @@ package body Synapse.Commands.Project_Index.Tests is
       Pin (F, Dir);
       List (Dir, "001", "Core", "a" & LF & "b" & LF);
       Node (Dir, "Core", "Core", "Core.");
-      Synapse.Adapters.File_Bytes.Write (Path (Dir, "work/all.txt"), "");
+      Synapse.Adapters.File_Bytes.Write (Path (Dir, Synapse.Test_Repo.Work_Rel & "/all.txt"), "");
       Assert (Run (Env (F), Args) = 0, "success");
       Assert
         (Ada.Strings.Fixed.Index (F.Console.Out_Text, "2 tracked files") > 0,
@@ -201,7 +203,7 @@ package body Synapse.Commands.Project_Index.Tests is
       Assert
         (F.Console.Err_Text =
          "synapse-build-project-index: no lists/NN.title in " &
-         Path (Dir, "work") & LF,
+         Path (Dir, Synapse.Test_Repo.Work_Rel) & LF,
          "the message");
       Remove (Dir);
    exception

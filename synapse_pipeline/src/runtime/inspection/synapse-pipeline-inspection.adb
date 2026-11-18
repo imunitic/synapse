@@ -40,18 +40,36 @@ package body Synapse.Pipeline.Inspection is
       end;
    end Events_JSON;
 
+   function Attention_JSON (Item : Attention) return JSON.Value is
+     (if Item.State = Absent then JSON.Null_Value
+      else JSON.Make_Object
+        ([Member
+            ("state",
+             JSON.Make_String
+               (if Item.State = Waiting then "waiting" else "running")),
+          Member
+            ("reason",
+             (if Item.State = Waiting
+              then JSON.Make_String (To_String (Item.Reason))
+              else JSON.Null_Value)),
+          Member ("since", JSON.Make_String (To_String (Item.Since)))]));
+
    function Info (Seen : Snapshot) return JSON.Value is
       Document : constant JSON.Value := States.To_JSON (Seen.Run);
-   begin
-      return JSON.Make_Object
-        ([Member
-            ("execution_id", JSON.Make_String (To_String (Seen.Execution_Id))),
+      Brief    : constant JSON.Member_Array :=
+        [Member
+           ("execution_id", JSON.Make_String (To_String (Seen.Execution_Id))),
          Member ("pipeline", JSON.Member_Value (Document, "pipeline")),
          Member ("status", JSON.Member_Value (Document, "status")),
          Member
            ("current_step", JSON.Member_Value (Document, "current_step")),
          Member ("steps_run", JSON.Member_Value (Document, "steps_run")),
-         Member ("failure", JSON.Member_Value (Document, "failure"))]);
+         Member ("failure", JSON.Member_Value (Document, "failure")),
+         Member ("attention", Attention_JSON (Seen.Attention))];
+   begin
+      return JSON.Make_Object
+        (if Seen.Attention.State = Absent
+         then Brief (Brief'First .. Brief'Last - 1) else Brief);
    end Info;
 
    --  What a query is evaluated over.

@@ -34,8 +34,9 @@ package body Acceptance.Agent_Pipeline_Tests is
       Unset_Env (F, "SYNAPSE_PIPELINE_MAX_STEPS");
       Unset_Env (F, "SYNAPSE_PIPELINE_RUNNER");
       Unset_Env (F, "SYNAPSE_PIPELINE_SCRIPT");
+      Unset_Env (F, "SYNAPSE_PIPELINE_CHANGES_FILE_LIMIT");
       Set_Env (F, "SYNAPSE_PIPELINE_PATH", Root (F) & "/defs");
-      Set_Env (F, "SYNAPSE_WORK_DIR", Work (F));
+      Set_Env (F, "SYNAPSE_WORK_DIR", Work_Root (F));
    end Set_Up;
 
    procedure Define (F : Fixture; Name, Text : String) is
@@ -89,7 +90,8 @@ package body Acceptance.Agent_Pipeline_Tests is
    end Install_Claude;
 
    Says_Done : constant String :=
-     "printf '%s' '{""is_error"":false,""structured_output"":"
+     "printf '%s' '{""type"":""result"","
+       & """is_error"":false,""structured_output"":"
      & "{""outcome"":""Done"",""summary"":""did it"",""data"":{}},"
      & """usage"":{""input_tokens"":1,""output_tokens"":1}}'";
 
@@ -265,7 +267,7 @@ package body Acceptance.Agent_Pipeline_Tests is
             or else Contains (Seen, "cwd:/private" & Repo (F)),
             "in the working directory: " & Seen);
          Assert_Contains
-           (Seen, "work:" & Work (F), "with the work directory it was given");
+           (Seen, "work:" & Work_Root (F), "with the work directory it was given");
          Assert_Contains (Seen, "Do it.", "the step's prompt");
       end;
    end A_Harness_Is_Run_As_A_Program_With_The_Settings_It_Needs;
@@ -284,7 +286,8 @@ package body Acceptance.Agent_Pipeline_Tests is
         (F,
          "case ""$prompt"" in *'""task"":""build""'*) s=input-seen;;"
          & " *) s=input-missing;; esac" & LF
-         & "printf '{""is_error"":false,""structured_output"":"
+         & "printf '{""type"":""result"","
+           & """is_error"":false,""structured_output"":"
          & "{""outcome"":""Done"",""summary"":""%s"",""data"":{}}}' ""$s""");
       Write_File (Root (F) & "/input.json", "{""task"":""build""}");
       declare
@@ -342,7 +345,8 @@ package body Acceptance.Agent_Pipeline_Tests is
          & LF);
       Install_Claude
         (F,
-         "printf '%s' '{""is_error"":true,""result"":""You have hit your "
+         "printf '%s' '{""type"":""result"","
+           & """is_error"":true,""result"":""You have hit your "
          & "limit. resets 9am""}'; exit 1");
       declare
          R : constant Result := Run_Pipeline (F, "run", "Limited");
@@ -520,6 +524,33 @@ package body Acceptance.Agent_Pipeline_Tests is
       return False;
    end Holds;
 
+   procedure A_Run_Can_Be_Given_Its_Id (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : Fixture;
+   begin
+      Set_Up (F);
+      Define_Dev (F);
+      Use_Script (F, Review_Loop);
+      Assert_Exit
+        (Run_Pipeline (F, "run", "Dev", "--id", "nightly-1"), 0, "the run");
+      declare
+         Dir  : constant String := Work (F) & "/pipelines/nightly-1";
+         Info : constant Result := Run_Pipeline (F, "info", "nightly-1");
+      begin
+         Assert
+           (Holds (Files_In (Dir), "execution.json"),
+            "its record is under the id it was given");
+         Assert_Exit (Info, 0, "info reads it by that id");
+         Assert_Contains (Out_Of (Info), "status     completed", "info");
+      end;
+      Assert_Exit
+        (Run_Pipeline (F, "run", "Dev", "--id", "nightly-1"), 1,
+         "the same id again is refused");
+      Assert_Exit
+        (Run_Pipeline (F, "run", "Dev", "--id", "../escape"), 2,
+         "an id that is not plain is a usage error");
+   end A_Run_Can_Be_Given_Its_Id;
+
    procedure A_Run_Leaves_A_Record_That_Can_Be_Read_And_Removed
      (T : in out Test_Cases_Class)
    is
@@ -542,6 +573,13 @@ package body Acceptance.Agent_Pipeline_Tests is
            (Holds (Files_In (Dir), "execution.json")
             and then Holds (Files_In (Dir), "events.jsonl"),
             "its directory holds the summary and the events");
+         Assert
+           (Holds (Files_In (Dir), "description.json")
+            and then Holds
+              (Files_In (Dir & "/definitions/synapse-pipeline"),
+               "Dev.synapse"),
+            "and the pipeline it ran is described and the file it was loaded "
+            & "from is kept");
          Assert
            (Sockets_In (Work (F) & "/pipelines") = 0,
             "and no socket is left in it");
@@ -624,6 +662,130 @@ package body Acceptance.Agent_Pipeline_Tests is
    --  help
    ---------------------------------------------------------------------------
 
+   ---------------------------------------------------------------------------
+   --  changes
+   ---------------------------------------------------------------------------
+
+   --  A repository with a pipeline of one step, Edit, whose agent runs Script
+   --  in the repository and then answers.
+   procedure Edit_Pipeline (F : in out Fixture; Script : String) is
+   begin
+      Set_Up (F);
+      Make_Repo (F);
+      Define
+        (F, "Solo",
+         "Pipeline Solo { Edit [Harness => Claude, Prompt => ""Edit.""]; }"
+         & LF);
+      Install_Claude (F, Script & LF & Says_Done);
+   end Edit_Pipeline;
+
+   procedure A_Steps_Changes_Are_Recorded_And_Printed
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fixture;
+   begin
+      Edit_Pipeline
+        (F,
+         "printf 'let x = 2\n' > src/foo.aa" & LF
+         & "mkdir -p src/new" & LF
+         & "printf 'one\ntwo\n' > src/new/b.aa");
+      Assert_Exit
+        (Run_Pipeline (F, "run", "Solo", "--id", "exec-chg"), 0, "run");
+      declare
+         R : constant Result := Run_Pipeline (F, "changes", "exec-chg");
+      begin
+         Assert_Exit (R, 0, "changes");
+         Assert_Contains
+           (Out_Of (R), "== step Edit (visit 1, attempt 1)", "the step");
+         Assert_Contains
+           (Out_Of (R), "diff --git a/src/foo.aa b/src/foo.aa",
+            "the file that was changed");
+         Assert_Contains
+           (Out_Of (R), "-let x = 1" & LF & "+let x = 2", "what changed in it");
+         Assert_Contains
+           (Out_Of (R), "diff --git a/src/new/b.aa b/src/new/b.aa",
+            "the file that is new");
+         Assert_Contains
+           (Out_Of (R), "+one" & LF & "+two", "with its content");
+      end;
+      declare
+         R : constant Result :=
+           Run_Pipeline (F, "changes", "exec-chg", "--format", "json");
+      begin
+         Assert_Exit (R, 0, "changes as data");
+         Assert_Contains
+           (Out_Of (R), "synapse-pipeline-changes/v1", "its format");
+         Assert_Contains (Out_Of (R), """directory"":""", "the folder");
+         Assert_Contains
+           (Out_Of (R), """step"":""Edit""", "and the step of each patch");
+      end;
+      Assert
+        (Git_Output (F, "stash", "list") = "",
+         "with nothing stashed");
+      Assert
+        (Contains
+           (Git_Output
+              (F, "status", "--porcelain=v1", "--untracked-files=all"),
+            "src/new/b.aa"),
+         "and the files as the agent left them");
+   end A_Steps_Changes_Are_Recorded_And_Printed;
+
+   procedure A_New_File_Past_The_Limit_Keeps_Only_Its_Path_And_Lines
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fixture;
+   begin
+      Edit_Pipeline
+        (F,
+         "printf 'let x = 2\n' > src/foo.aa" & LF
+         & "printf 'one\ntwo\nthree\n' > src/big.dat");
+      Set_Env (F, "SYNAPSE_PIPELINE_CHANGES_FILE_LIMIT", "30");
+      Assert_Exit
+        (Run_Pipeline (F, "run", "Solo", "--id", "exec-big"), 0, "run");
+      declare
+         R : constant Result := Run_Pipeline (F, "changes", "exec-big");
+      begin
+         Assert_Exit (R, 0, "changes");
+         Assert_Contains
+           (Out_Of (R), "+let x = 2",
+            "a file that existed is kept whole, whatever the limit");
+         Assert_Contains
+           (Out_Of (R), "diff --git a/src/big.dat b/src/big.dat",
+            "the new file is there");
+         Assert_Contains
+           (Out_Of (R), "@@ -0,0 +1,3 @@", "with its number of lines");
+         Assert_Contains
+           (Out_Of (R), "Content not kept", "and that its content is not kept");
+         Assert
+           (not Contains (Out_Of (R), "+one"), "and not the content itself");
+      end;
+   end A_New_File_Past_The_Limit_Keeps_Only_Its_Path_And_Lines;
+
+   procedure A_Step_That_Changes_Nothing_Leaves_No_Patch
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : Fixture;
+   begin
+      Edit_Pipeline (F, "true");
+      --  What was there before the step is not the step's.
+      Write_Repo_File (F, "src/foo.aa", "let x = 7" & LF);
+      Write_Repo_File (F, "src/untracked.aa", "was here" & LF);
+      Assert_Exit
+        (Run_Pipeline (F, "run", "Solo", "--id", "exec-none"), 0, "run");
+      declare
+         R : constant Result := Run_Pipeline (F, "changes", "exec-none");
+      begin
+         Assert_Exit (R, 0, "changes");
+         Assert
+           (Out_Of (R) = "no changes were recorded" & LF,
+            "a tree that was dirty already and was not changed: " & Out_Of (R));
+      end;
+      Assert_Exit (Run_Pipeline (F, "changes", "exec-nope"), 1, "no such run");
+   end A_Step_That_Changes_Nothing_Leaves_No_Patch;
+
    procedure Every_Help_Needs_No_Environment (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       F : Fixture;
@@ -697,8 +859,19 @@ package body Acceptance.Agent_Pipeline_Tests is
         (T, A_Run_Leaves_A_Record_That_Can_Be_Read_And_Removed'Access,
          "A run leaves a record that can be read and removed");
       Register_Routine
+        (T, A_Run_Can_Be_Given_Its_Id'Access, "A run can be given its id");
+      Register_Routine
         (T, A_Sessions_Output_Is_Kept_As_A_Transcript'Access,
          "A session's output is kept as a transcript");
+      Register_Routine
+        (T, A_Steps_Changes_Are_Recorded_And_Printed'Access,
+         "a step's changes are recorded and printed");
+      Register_Routine
+        (T, A_New_File_Past_The_Limit_Keeps_Only_Its_Path_And_Lines'Access,
+         "a new file past the limit keeps only its path and lines");
+      Register_Routine
+        (T, A_Step_That_Changes_Nothing_Leaves_No_Patch'Access,
+         "a step that changes nothing leaves no patch");
       Register_Routine
         (T, Every_Help_Needs_No_Environment'Access,
          "every help needs no environment");

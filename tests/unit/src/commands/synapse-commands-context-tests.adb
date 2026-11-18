@@ -83,8 +83,8 @@ package body Synapse.Commands.Context.Tests is
       Assert
         (Ada.Strings.Unbounded.To_String
            (Resolve (Env (F), "p").Value.Work_Dir) =
-         "/elsewhere",
-         "the variable wins");
+         "/elsewhere/widget@main",
+         "the namespace's folder in the root the variable names");
       F.Vars.Set ("SYNAPSE_WORK_DIR", "");
       Assert
         (Ada.Strings.Unbounded.To_String

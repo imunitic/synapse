@@ -3,6 +3,8 @@ with Ada.Strings.Unbounded;
 
 with AUnit.Assertions;
 
+with Synapse_Config;
+
 with Synapse.Commands.Usage;
 with Synapse.Test_Environment;
 
@@ -126,6 +128,19 @@ package body Synapse.Commands.Dispatch.Tests is
          "one line feed at the end, after the last subcommand");
    end The_Usage_Starts_The_Way_Callers_Expect;
 
+   procedure Version_Names_The_Program_And_Its_Version
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Assert (Run (Env (F), Args ("--version")) = 0, "it succeeds");
+      Assert
+        (F.Console.Out_Text = "synapse " & Synapse_Config.Crate_Version & LF
+         and then F.Console.Err_Text = "",
+         "one line on standard output: " & F.Console.Out_Text);
+   end Version_Names_The_Program_And_Its_Version;
+
    overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
@@ -159,6 +174,9 @@ package body Synapse.Commands.Dispatch.Tests is
       Register_Routine
         (T, The_Usage_Starts_The_Way_Callers_Expect'Access,
          "The usage starts the way callers expect");
+      Register_Routine
+        (T, Version_Names_The_Program_And_Its_Version'Access,
+         "Version names the program and its version");
    end Register_Tests;
 
 end Synapse.Commands.Dispatch.Tests;

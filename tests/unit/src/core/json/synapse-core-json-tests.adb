@@ -7,6 +7,7 @@ with Interfaces;
 
 with AUnit.Assertions;
 
+with Synapse.Core.JSON_Indent;
 with Synapse.Core.JSON_Lexical;
 
 package body Synapse.Core.JSON.Tests is
@@ -623,6 +624,47 @@ package body Synapse.Core.JSON.Tests is
 
    ---------------------------------------------------------------------------
 
+   procedure Indents_As_A_Person_Writes_It (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      LF : constant Character := Character'Val (10);
+   begin
+      Assert
+        (Synapse.Core.JSON_Indent.Indented
+           (Parsed
+              ("{""a"":[1,2,{""b"":null}],""c"":{},""d"":[],""e"":""x\""y"","
+               & """f"":1.5,""g"":true}"))
+         = "{" & LF
+         & "  ""a"": [" & LF
+         & "    1," & LF
+         & "    2," & LF
+         & "    {" & LF
+         & "      ""b"": null" & LF
+         & "    }" & LF
+         & "  ]," & LF
+         & "  ""c"": {}," & LF
+         & "  ""d"": []," & LF
+         & "  ""e"": ""x\""y""," & LF
+         & "  ""f"": 1.5," & LF
+         & "  ""g"": true" & LF
+         & "}",
+         "two spaces a level, a line a member, empty ones on one line");
+      Assert
+        (Synapse.Core.JSON_Indent.Indented (Parsed ("5")) = "5",
+         "a scalar is itself");
+      Assert
+        (Synapse.Core.JSON_Indent.Indented (Parsed ("[]")) = "[]",
+         "an empty list");
+      Assert
+        (Parsed (Synapse.Core.JSON_Indent.Indented
+                   (Parsed ("{""k"":[true,{""z"":0}]}"))) =
+         Parsed ("{""k"":[true,{""z"":0}]}"),
+         "it reads back as the same value");
+      Assert
+        (Synapse.Core.JSON_Indent.Indented (Parsed ("{""b"":1,""a"":2}"))
+         = "{" & LF & "  ""b"": 1," & LF & "  ""a"": 2" & LF & "}",
+         "members keep the order they have");
+   end Indents_As_A_Person_Writes_It;
+
    overriding function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
    begin
@@ -701,6 +743,9 @@ package body Synapse.Core.JSON.Tests is
         (T, Measures_Escaped_Length'Access, "Measures escaped length");
       Register_Routine
         (T, Tasks_Share_One_Value'Access, "Tasks share one value");
+      Register_Routine
+        (T, Indents_As_A_Person_Writes_It'Access,
+         "Indents as a person writes it");
    end Register_Tests;
 
 end Synapse.Core.JSON.Tests;
