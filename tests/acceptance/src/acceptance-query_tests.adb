@@ -31,7 +31,7 @@ package body Acceptance.Query_Tests is
       pragma Unreferenced (T);
       F : Fixture;
    begin
-      Set_Env (F, "SYNAPSE_WORK_DIR", Work (F));
+      Set_Env (F, "SYNAPSE_WORK_DIR", Work_Root (F));
       Write_Repo_File (F, "mod-a/a.bb", "class A {}" & LF);
       Write_Repo_File (F, "mod-a/b.bb", "class B {}" & LF);
       Write_Repo_File (F, "docs/guide.md", "# guide" & LF);
@@ -91,7 +91,7 @@ package body Acceptance.Query_Tests is
         (F, Repo_Name (F), "ssh://git@example.com/SOMEONE-ELSE.git");
       Write_Index_Bin
         (F, Work (F), "src/foo.aa" & ASCII.HT & "Foo Node.md" & LF);
-      Set_Env (F, "SYNAPSE_WORK_DIR", Work (F));
+      Set_Env (F, "SYNAPSE_WORK_DIR", Work_Root (F));
       declare
          R : constant Result := Run_Synapse (F, "query", "stale");
       begin
@@ -118,7 +118,7 @@ package body Acceptance.Query_Tests is
       end;
       Git_Commit (F, "init");
       Write_Synapse_Index (F, Repo_Name (F), "ssh://git@example.com/mine.git");
-      Set_Env (F, "SYNAPSE_WORK_DIR", Work (F));
+      Set_Env (F, "SYNAPSE_WORK_DIR", Work_Root (F));
       declare
          R : constant Result :=
            Run_Synapse

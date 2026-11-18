@@ -188,8 +188,9 @@ package body Synapse.Commands.Brief.Tests is
    begin
       Brief_Args (F, Dir);
       Inputs (Dir);
-      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, "work"));
-      Ada.Directories.Create_Path (Path (Dir, "work"));
+      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, Synapse.Test_Repo.Root_Rel));
+      F.Vars.Set ("SYNAPSE_NAMESPACE", Synapse.Test_Repo.Namespace);
+      Ada.Directories.Create_Path (Path (Dir, Synapse.Test_Repo.Work_Rel));
       Assert
         (Run
            (Env (F),
@@ -197,7 +198,7 @@ package body Synapse.Commands.Brief.Tests is
          0,
          "success");
       Assert
-        (Ada.Directories.Exists (Path (Dir, "work/brief/001.md")),
+        (Ada.Directories.Exists (Path (Dir, Synapse.Test_Repo.Work_Rel & "/brief/001.md")),
          "under the work directory");
       Remove (Dir);
    exception
@@ -219,7 +220,8 @@ package body Synapse.Commands.Brief.Tests is
          "no lists dir");
       Ada.Directories.Create_Path (Path (Dir, "empty"));
       Ada.Directories.Create_Path (Path (Away, "empty"));
-      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, "work"));
+      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, Synapse.Test_Repo.Root_Rel));
+      F.Vars.Set ("SYNAPSE_NAMESPACE", Synapse.Test_Repo.Namespace);
       Assert
         (Run
            (Env (F),

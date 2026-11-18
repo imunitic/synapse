@@ -110,6 +110,7 @@ Pipeline Name {
 | `Permissions` | step, system | `Read_Only`, `Workspace_Write` or `Full_Access` | What the session may do. Default `Workspace_Write`. |
 | `Timeout` | step, system | duration | The most one session may take. |
 | `Retries` | step, system | integer | Extra tries after an execution error or a result that breaks the contract. |
+| `Outcomes` | step, system | JSON object | The outcomes the step may end with, each with what it means. Optional; see [Declaring outcomes](#declaring-outcomes). |
 | `When` | edge | outcome name or JSON | The guard. |
 | `Max_Iterations` | edge | integer, at least 1 | How many times the edge may fire. |
 
@@ -177,6 +178,37 @@ whose guard holds is taken. An edge that has already fired `Max_Iterations` time
 without its guard being evaluated. When no edge is taken, control moves to the next declared step, and
 from the last step the run is complete.
 
+### Declaring outcomes
+
+A step may say which outcomes it can end with:
+
+```
+Review [System => Reviewer, Outcomes => {
+  "Approved": "Every requirement is met and the tests pass. Choose this only if you found nothing to fix.",
+  "Changes_Requested": "At least one requirement is unmet or a test fails. List each problem in data.problems."
+}];
+Review -> Develop [When => Changes_Requested, Max_Iterations => 5];
+```
+
+`Outcomes` is optional. A step without it ends with any word, and a guard can test any word. Declaring
+them is strongly suggested wherever an edge tests the outcome, because then:
+
+- the prompt lists the words and what each means, so a prompt or a skill need not name them and one
+  skill can serve pipelines that use different words;
+- an edge whose guard tests a word the step does not declare is an error in the definition, so a
+  misspelt outcome cannot make an edge that never fires;
+- an answer with any other word is a `result_contract_failure`, tried again as `Retries` says.
+
+A word is written like a name: a letter, then letters, digits and underscores, and not a keyword. Each
+meaning is one line of text, and it is all the guidance the session gets on when to choose the word, so
+it should state the condition for choosing it and, where something follows from it, what `data` holds. A step takes its own `Outcomes`, else its system's; an agent has none, so a
+role can be used in pipelines that choose different words. Only a guard that tests nothing but the
+outcome counts: a bare name or `{"==": [{"var": "outcome"}, "Word"]}`. A rule over `data` is not checked
+against the words.
+
+`check` warns, and still succeeds, when a step has edges that test its outcome and declares no
+`Outcomes`. `show` reports them as `outcomes` on each step.
+
 ### Ending a run early
 
 `End` is not a step but a place an edge can lead to: `Check -> End [When => Discussing]`. Taking that
@@ -203,7 +235,7 @@ nothing in the pipeline can catch the failure.
 | Failure | Meaning |
 |---|---|
 | `execution_error` | The session could not be run, ran past its time limit, or failed. Retried as many times as `Retries` says. |
-| `result_contract_failure` | The session ended but its answer is not a valid result. Retried as many times as `Retries` says. |
+| `result_contract_failure` | The session ended but its answer is not a valid result, or its outcome is not one the step declares. Retried as many times as `Retries` says. |
 | `quota_exhausted` | The harness said a limit was reached. Never retried; the harness's reset time is reported when it gives one. |
 | `ceiling_reached` | The run took `SYNAPSE_PIPELINE_MAX_STEPS` steps (default 50) without completing. |
 
@@ -215,6 +247,7 @@ nothing in the pipeline can catch the failure.
 - that every step, edge, system, agent and skill that is named exists, and is of the right kind (an edge may also lead to `End`);
 - that every step has a harness, a known permission level and a well-formed duration;
 - that `Prompt` and `Skill` are not both given, and that a system does not name a system;
-- that every guard is a rule the evaluator can run, and every back-edge is bounded.
+- that every guard is a rule the evaluator can run, and every back-edge is bounded;
+- that a step that declares `Outcomes` declares well (words and one-line meanings) and has no edge testing a word it does not declare.
 
 All the problems found are reported together.

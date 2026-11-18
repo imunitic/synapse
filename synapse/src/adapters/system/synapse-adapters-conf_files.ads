@@ -45,6 +45,31 @@ package Synapse.Adapters.Conf_Files is
    --  nothing names it. A file over 1 MiB is ignored.
    function Resolve (V : Variables; Key : String) return Maybe_Path;
 
+   --  Where a key's value comes from.
+   type Origin is (Nowhere, From_Variable, From_File);
+
+   type Detail is record
+      --  Where the value Resolve gives comes from.
+      From      : Origin := Nowhere;
+
+      --  That value, expanded.
+      Value     : Core.Optional_Text.Option;
+
+      --  The file that defines the key, as it is written there, and which
+      --  file it is, whether or not a variable shadows it.
+      File      : Maybe_Path;
+      Raw       : Core.Optional_Text.Option;
+
+      --  A variable of the key's name is set and the file defines it too.
+      Shadowed  : Boolean := False;
+   end record;
+
+   --  Everything Resolve looks at, and where it found the value. A variable
+   --  of the key's name is looked at only when Use_Variable.
+   function Describe
+     (V : Variables; Key : String; Use_Variable : Boolean := True)
+      return Detail;
+
    function Vault_Dir (V : Variables) return Maybe_Path;
 
    --  How many commits ahead of the upstream make a push due: the value of

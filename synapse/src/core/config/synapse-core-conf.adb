@@ -65,61 +65,198 @@ package body Synapse.Core.Conf is
       return S (First .. Last);
    end Trim;
 
-   function Get (Text, Key : String) return Maybe_Text is
-      Result : Maybe_Text;
-      Start  : Natural := Text'First;
+   Blanks : constant String := " " & Character'Val (9) & Character'Val (13);
 
-      procedure Take (Raw : String) is
-         Blanks : constant String :=
-           " " & Character'Val (9) & Character'Val (13);
-         Line   : constant String := Trim (Raw, Blanks);
-         First  : Natural         := Line'First;
-      begin
-         if Line'Length = 0 or else Line (Line'First) = '#' then
-            return;
-         end if;
-         if Line'Length >= 7
-           and then Line (Line'First .. Line'First + 6) = "export "
-         then
-            First := Line'First + 7;
-            while First <= Line'Last
-              and then Line (First) in ' ' | Character'Val (9)
-            loop
-               First := First + 1;
-            end loop;
-         end if;
-         declare
-            Body_Text : constant String := Line (First .. Line'Last);
-         begin
-            if Body_Text'Length > Key'Length
-              and then
-                Body_Text
-                  (Body_Text'First .. Body_Text'First + Key'Length - 1) =
-                Key
-              and then Body_Text (Body_Text'First + Key'Length) = '='
-            then
-               Result :=
-                 (Found => True,
-                  Value =>
-                    To_Unbounded_String
-                      (Unquote
-                         (Trim
-                            (Body_Text
-                               (Body_Text'First + Key'Length + 1 ..
-                                    Body_Text'Last),
-                             " " & Character'Val (9)))));
-            end if;
-         end;
-      end Take;
+   --  Where the name of the key starts in Line when Line assigns Key, else
+   --  zero: after any indentation and an `export `; a comment or a longer
+   --  key is not an assignment of Key.
+   function Key_Start (Line, Key : String) return Natural is
+      First : Natural := Line'First;
+   begin
+      while First <= Line'Last and then Line (First) in ' ' | Character'Val (9)
+      loop
+         First := First + 1;
+      end loop;
+      if First > Line'Last or else Line (First) = '#' then
+         return 0;
+      end if;
+      if First + 6 <= Line'Last and then Line (First .. First + 6) = "export "
+      then
+         First := First + 7;
+         while First <= Line'Last
+           and then Line (First) in ' ' | Character'Val (9)
+         loop
+            First := First + 1;
+         end loop;
+      end if;
+      if First + Key'Length <= Line'Last
+        and then Line (First .. First + Key'Length - 1) = Key
+        and then Line (First + Key'Length) = '='
+      then
+         return First;
+      end if;
+      return 0;
+   end Key_Start;
+
+   --  Calls Each with every line of Text, without its line feed, and whether
+   --  that line feed was there.
+   procedure For_Each_Line
+     (Text : String;
+      Each : not null access procedure (Line : String; Ended : Boolean))
+   is
+      Start : Natural := Text'First;
    begin
       for I in Text'First .. Text'Last + 1 loop
-         if I > Text'Last or else Text (I) = Character'Val (10) then
-            Take (Text (Start .. I - 1));
+         if I > Text'Last then
+            if Start <= Text'Last then
+               Each (Text (Start .. Text'Last), False);
+            end if;
+         elsif Text (I) = Character'Val (10) then
+            Each (Text (Start .. I - 1), True);
             Start := I + 1;
          end if;
       end loop;
+   end For_Each_Line;
+
+   function Get (Text, Key : String) return Maybe_Text is
+      Result : Maybe_Text;
+
+      procedure Take (Line : String; Ended : Boolean) is
+         pragma Unreferenced (Ended);
+         At_Key : constant Natural := Key_Start (Line, Key);
+      begin
+         if At_Key /= 0 then
+            Result :=
+              (Found => True,
+               Value =>
+                 To_Unbounded_String
+                   (Unquote
+                      (Trim (Line (At_Key + Key'Length + 1 .. Line'Last),
+                             Blanks))));
+         end if;
+      end Take;
+   begin
+      For_Each_Line (Text, Take'Access);
       return Result;
    end Get;
+
+   --  Value as it is written after the `=`.
+   function Written (Value : String) return String is
+      Has_Single : Boolean := False;
+      Has_Double : Boolean := False;
+      Needs      : Boolean := Value'Length = 0;
+   begin
+      for C of Value loop
+         if C = Character'Val (10) then
+            raise Unrepresentable;
+         elsif C = '"' then
+            Has_Double := True;
+         elsif C = ''' then
+            Has_Single := True;
+         elsif C in ' ' | Character'Val (9) | '#' then
+            Needs := True;
+         end if;
+      end loop;
+      if Has_Double and then Has_Single then
+         raise Unrepresentable;
+      elsif Has_Double then
+         return "'" & Value & "'";
+      elsif Has_Single or else Needs then
+         return '"' & Value & '"';
+      end if;
+      return Value;
+   end Written;
+
+   --  Where what follows the value of Key's assignment starts in Line: after
+   --  the closing quote of a quoted value, else at the first blank, tab, `#`
+   --  or carriage return. At_Key is where the name of the key starts.
+   function After_Value (Line, Key : String; At_Key : Positive) return Positive
+   is
+      First : constant Positive := At_Key + Key'Length + 1;
+   begin
+      if First <= Line'Last and then Line (First) in '"' | ''' then
+         for I in First + 1 .. Line'Last loop
+            if Line (I) = Line (First) then
+               return I + 1;
+            end if;
+         end loop;
+      end if;
+      for I in First .. Line'Last loop
+         if Line (I) in ' ' | Character'Val (9) | '#' | Character'Val (13)
+         then
+            return I;
+         end if;
+      end loop;
+      return Line'Last + 1;
+   end After_Value;
+
+   function Set (Text, Key, Value : String) return String is
+      Last_Line : Natural := 0;
+      Count     : Natural := 0;
+      Seen      : Natural := 0;
+      Result    : Unbounded_String;
+      Quoted    : constant String := Written (Value);
+
+      procedure Find (Line : String; Ended : Boolean) is
+         pragma Unreferenced (Ended);
+      begin
+         Count := Count + 1;
+         if Key_Start (Line, Key) /= 0 then
+            Last_Line := Count;
+         end if;
+      end Find;
+
+      procedure Copy (Line : String; Ended : Boolean) is
+      begin
+         Seen := Seen + 1;
+         if Seen = Last_Line then
+            declare
+               At_Key : constant Positive := Key_Start (Line, Key);
+            begin
+               Append (Result, Line (Line'First .. At_Key - 1));
+               Append (Result, Key & "=" & Quoted);
+               Append
+                 (Result,
+                  Line (After_Value (Line, Key, At_Key) .. Line'Last));
+            end;
+         else
+            Append (Result, Line);
+         end if;
+         if Ended then
+            Append (Result, Character'Val (10));
+         end if;
+      end Copy;
+   begin
+      For_Each_Line (Text, Find'Access);
+      if Last_Line = 0 then
+         Append (Result, Text);
+         if Text'Length > 0 and then Text (Text'Last) /= Character'Val (10)
+         then
+            Append (Result, Character'Val (10));
+         end if;
+         Append (Result, Key & "=" & Quoted & Character'Val (10));
+      else
+         For_Each_Line (Text, Copy'Access);
+      end if;
+      return To_String (Result);
+   end Set;
+
+   function Unset (Text, Key : String) return String is
+      Result : Unbounded_String;
+
+      procedure Copy (Line : String; Ended : Boolean) is
+      begin
+         if Key_Start (Line, Key) = 0 then
+            Append (Result, Line);
+            if Ended then
+               Append (Result, Character'Val (10));
+            end if;
+         end if;
+      end Copy;
+   begin
+      For_Each_Line (Text, Copy'Access);
+      return To_String (Result);
+   end Unset;
 
    function Expand
      (Raw : String; Vars : Ports.Variables.Variables'Class) return String

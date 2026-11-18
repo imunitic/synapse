@@ -1,7 +1,9 @@
 with Ada.Strings.Unbounded;
 
+with Synapse.Core.Optional_Text;
 with Synapse.Pipeline.Envelopes;
 with Synapse.Pipeline.Failures;
+with Synapse.Pipeline.Outcomes;
 with Synapse.Pipeline.Routing;
 with Synapse.Pipeline.Sessions;
 with Synapse.Pipeline.Syntax;
@@ -10,6 +12,7 @@ package body Synapse.Pipeline.Engine is
 
    use Ada.Strings.Unbounded;
    use type Failures.Failure_Kind;
+   use type Synapse.Core.JSON.Kind;
 
    --  The position of the step called Name, or 0.
    function Index_Of (Pipeline : Resolved.Pipeline; Name : String)
@@ -66,6 +69,16 @@ package body Synapse.Pipeline.Engine is
      (if Run.Status = States.Running and then Over_Ceiling (Run, Settings)
       then Ceiling_Reached (Run) else Run);
 
+   --  The outcome a step's result holds, empty when it has none.
+   function Outcome_Of (Output : Synapse.Core.JSON.Value) return String is
+     (if Synapse.Core.JSON.Has_Member (Output, "outcome")
+        and then Synapse.Core.JSON.Kind_Of
+                   (Synapse.Core.JSON.Member_Value (Output, "outcome")) =
+                 Synapse.Core.JSON.JSON_String
+      then Synapse.Core.JSON.As_String
+             (Synapse.Core.JSON.Member_Value (Output, "outcome"))
+      else "");
+
    function Advance
      (Pipeline : Resolved.Pipeline;
       Run      : States.State;
@@ -77,6 +90,17 @@ package body Synapse.Pipeline.Engine is
       if Index = 0 then
          return Unknown_Step (Run);
       end if;
+      declare
+         Broken : constant Synapse.Core.Optional_Text.Option :=
+           Outcomes.Violation
+             (Pipeline.Steps (Index).Outcomes, Outcome_Of (Output));
+      begin
+         if Broken.Found then
+            return Failed_Run
+              (Run, Failures.Result_Contract_Failure, Name,
+               To_String (Broken.Value));
+         end if;
+      end;
       declare
          Route : constant Routing.Route_Results.Result :=
            Routing.Route_After (Pipeline.Edges, Run.Fired, Name, Output);
@@ -139,6 +163,23 @@ package body Synapse.Pipeline.Engine is
             Answer :=
               Runner.Run_Session
                 (Sessions.Request_For (Step, Run, Settings, Attempt));
+            if Answer.Succeeded then
+               declare
+                  Broken : constant Synapse.Core.Optional_Text.Option :=
+                    Outcomes.Violation
+                      (Step.Outcomes, To_String (Answer.Result.Outcome));
+               begin
+                  if Broken.Found then
+                     Answer :=
+                       Sessions.Failed
+                         ((Kind    => Failures.Result_Contract_Failure,
+                           Step    => Step.Name,
+                           Message => Broken.Value,
+                           Reset   => Synapse.Core.Optional_Text.None),
+                          Answer.Usage, Answer.Transcript);
+                  end if;
+               end;
+            end if;
             exit when Answer.Succeeded
               or else Answer.Failure.Kind = Failures.Quota_Exhausted;
          end loop;

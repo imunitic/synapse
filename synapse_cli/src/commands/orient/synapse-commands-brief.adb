@@ -22,11 +22,11 @@ package body Synapse.Commands.Brief is
      "  --lists  the NN.txt/NN.title path lists synapse build-lists wrote." &
      LF & "  --rank   where synapse rank --lists wrote " &
      "NN.summary.tsv/NN.crux.tsv." & LF &
-     "           Default $SYNAPSE_WORK_DIR/rank." & LF &
+     "           Default <work dir>/rank." & LF &
      "  --links  synapse link-graph's output. Default " &
-     "$SYNAPSE_WORK_DIR/links.tsv." & LF &
+     "<work dir>/links.tsv." & LF &
      "           A missing file warns and leaves every node's edges empty." &
-     LF & "  --out    where to write brief/NN.md. Default $SYNAPSE_WORK_DIR." &
+     LF & "  --out    where to write brief/NN.md. Default <work dir>." &
      LF;
 
    function Trimmed (Text : String) return String is

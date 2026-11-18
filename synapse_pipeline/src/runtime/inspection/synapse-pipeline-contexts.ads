@@ -26,6 +26,9 @@ package Synapse.Pipeline.Contexts is
       procedure Record_Event
         (Kind, Step : String; Detail : Synapse.Core.JSON.Value);
 
+      --  Whether the run is waiting for a person.
+      procedure Set_Attention (Item : Inspection.Attention);
+
       function Current return Inspection.Snapshot;
 
    private

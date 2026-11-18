@@ -3,12 +3,15 @@ with Ada.Strings.Unbounded;
 with AUnit.Assertions;
 
 with Synapse.Core.JSON;
+with Synapse.Core.Text_Lists;
 with Synapse.Core.Optional_Text;
 with Synapse.Pipeline.Contexts;
 with Synapse.Pipeline.Envelopes;
 with Synapse.Pipeline.Failures;
 with Synapse.Pipeline.Fake_Registry;
+with Synapse.Pipeline.Fake_Working_Trees;
 with Synapse.Pipeline.Harnesses;
+with Synapse.Pipeline.Registry_Store;
 with Synapse.Pipeline.Resolved;
 with Synapse.Pipeline.States;
 with Synapse.Pipeline.Sessions;
@@ -18,6 +21,7 @@ package body Synapse.Pipeline.Recording_Runners.Tests is
 
    use AUnit.Assertions;
    use Ada.Strings.Unbounded;
+   use type Registry_Store.Create_Result;
 
    package JSON renames Synapse.Core.JSON;
 
@@ -74,6 +78,198 @@ package body Synapse.Pipeline.Recording_Runners.Tests is
       return To_String (Text);
    end Events_Text;
 
+   --  A session of the step A, the Visit'th step of the run, in /work.
+   function Request_In_Work (Visit : Positive) return Sessions.Session_Request
+   is
+      Result : Sessions.Session_Request := Request_For_A (1);
+   begin
+      Result.Visit := Visit;
+      Result.Settings.Working_Directory := To_Unbounded_String ("/work");
+      return Result;
+   end Request_In_Work;
+
+   function Joined (Items : Synapse.Core.Text_Lists.Vector) return String is
+      Text : Unbounded_String;
+   begin
+      for Item of Items loop
+         Append (Text, To_String (Item) & "|");
+      end loop;
+      return To_String (Text);
+   end Joined;
+
+   procedure A_Session_That_Changed_Files_Leaves_A_Patch
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context  : aliased Contexts.Execution_Context;
+      Store    : aliased Fake_Registry.Fake_Registry;
+      Clock    : aliased Fixed_Clock;
+      Recorder : aliased Recorders.Recorder
+        (Context'Access, Store'Access, Clock'Access);
+      Inner    : aliased Stub_Runner;
+      Trees    : aliased Fake_Working_Trees.Fake_Working_Trees;
+      R        : Recording_Runner
+        (Inner'Access, Recorder'Access, Trees'Access);
+      Diff     : constant String := "diff --git a/x b/x" & ASCII.LF;
+   begin
+      Inner.Answer := Sessions.Success (Envelopes.Envelope'(others => <>));
+      Trees.Snapshots.Append (To_Unbounded_String ("tree1"));
+      Trees.Snapshots.Append (To_Unbounded_String ("tree2"));
+      Trees.Patch := To_Unbounded_String (Diff);
+      Trees.Patch_Known := True;
+      Assert (Store.Create ("exec-1") = Registry_Store.Created, "made");
+      R.Id := To_Unbounded_String ("exec-1");
+      Recorder.Start ("exec-1", True, JSON.Null_Value, Initial_State);
+      Assert
+        (R.Run_Session (Request_In_Work (2)).Succeeded,
+         "the inner runner's answer comes back");
+      Assert
+        (Joined (Trees.Directories) = "/work|/work|",
+         "the folder the session works in is looked at before and after: "
+         & Joined (Trees.Directories));
+      Assert
+        (Joined (Trees.Names) = "exec-1-2-1-before|exec-1-2-1-after|",
+         "by snapshots named for the run, the visit and the attempt: "
+         & Joined (Trees.Names));
+      Assert
+        (Joined (Trees.Compared) = "tree1..tree2|",
+         "and the two are compared");
+      Assert
+        (Store.Read_Patch ("exec-1", "2-A-1.patch").Found
+         and then To_String (Store.Read_Patch ("exec-1", "2-A-1.patch").Value)
+                  = Diff,
+         "what changed is the patch of the visit, the step and the attempt");
+   end A_Session_That_Changed_Files_Leaves_A_Patch;
+
+   procedure A_Session_That_Changed_Nothing_Leaves_No_Patch
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context  : aliased Contexts.Execution_Context;
+      Store    : aliased Fake_Registry.Fake_Registry;
+      Clock    : aliased Fixed_Clock;
+      Recorder : aliased Recorders.Recorder
+        (Context'Access, Store'Access, Clock'Access);
+      Inner    : aliased Stub_Runner;
+      Trees    : aliased Fake_Working_Trees.Fake_Working_Trees;
+      R        : Recording_Runner
+        (Inner'Access, Recorder'Access, Trees'Access);
+   begin
+      Inner.Answer := Sessions.Success (Envelopes.Envelope'(others => <>));
+      Trees.Snapshots.Append (To_Unbounded_String ("same"));
+      Trees.Snapshots.Append (To_Unbounded_String ("same"));
+      Trees.Patch_Known := True;
+      Assert (Store.Create ("exec-1") = Registry_Store.Created, "made");
+      R.Id := To_Unbounded_String ("exec-1");
+      Recorder.Start ("exec-1", True, JSON.Null_Value, Initial_State);
+      Assert (R.Run_Session (Request_In_Work (1)).Succeeded, "it ran");
+      Assert
+        (Trees.Compared.Is_Empty
+         and then Store.Patch_Names ("exec-1").Is_Empty,
+         "two snapshots that are the same are not compared, and leave none");
+   end A_Session_That_Changed_Nothing_Leaves_No_Patch;
+
+   procedure A_Folder_That_Is_Not_In_A_Repository_Leaves_No_Patch
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context  : aliased Contexts.Execution_Context;
+      Store    : aliased Fake_Registry.Fake_Registry;
+      Clock    : aliased Fixed_Clock;
+      Recorder : aliased Recorders.Recorder
+        (Context'Access, Store'Access, Clock'Access);
+      Inner    : aliased Stub_Runner;
+      Trees    : aliased Fake_Working_Trees.Fake_Working_Trees;
+      R        : Recording_Runner
+        (Inner'Access, Recorder'Access, Trees'Access);
+   begin
+      Inner.Answer := Sessions.Success (Envelopes.Envelope'(others => <>));
+      Assert (Store.Create ("exec-1") = Registry_Store.Created, "made");
+      R.Id := To_Unbounded_String ("exec-1");
+      Recorder.Start ("exec-1", True, JSON.Null_Value, Initial_State);
+      Assert (R.Run_Session (Request_In_Work (1)).Succeeded, "it ran");
+      Assert
+        (Natural (Trees.Directories.Length) = 1
+         and then Trees.Compared.Is_Empty
+         and then Store.Patch_Names ("exec-1").Is_Empty,
+         "a folder with no snapshot is not looked at again, and leaves none");
+   end A_Folder_That_Is_Not_In_A_Repository_Leaves_No_Patch;
+
+   procedure A_Run_That_Is_Not_Recorded_Keeps_No_Patch
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context  : aliased Contexts.Execution_Context;
+      Store    : aliased Fake_Registry.Fake_Registry;
+      Clock    : aliased Fixed_Clock;
+      Recorder : aliased Recorders.Recorder
+        (Context'Access, Store'Access, Clock'Access);
+      Inner    : aliased Stub_Runner;
+      Trees    : aliased Fake_Working_Trees.Fake_Working_Trees;
+      R        : Recording_Runner
+        (Inner'Access, Recorder'Access, Trees'Access);
+   begin
+      Inner.Answer := Sessions.Success (Envelopes.Envelope'(others => <>));
+      Trees.Snapshots.Append (To_Unbounded_String ("a"));
+      Trees.Snapshots.Append (To_Unbounded_String ("b"));
+      Trees.Patch := To_Unbounded_String ("diff --git a/x b/x" & ASCII.LF);
+      Trees.Patch_Known := True;
+      Assert (Store.Create ("exec-1") = Registry_Store.Created, "made");
+      R.Id := To_Unbounded_String ("exec-1");
+      Recorder.Start ("exec-1", False, JSON.Null_Value, Initial_State);
+      Assert (R.Run_Session (Request_In_Work (1)).Succeeded, "it ran");
+      Assert
+        (Store.Patch_Names ("exec-1").Is_Empty,
+         "a run that is not recorded keeps no patch");
+   end A_Run_That_Is_Not_Recorded_Keeps_No_Patch;
+
+   procedure A_Large_New_File_Is_Kept_As_Its_Path_And_Lines
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context  : aliased Contexts.Execution_Context;
+      Store    : aliased Fake_Registry.Fake_Registry;
+      Clock    : aliased Fixed_Clock;
+      Recorder : aliased Recorders.Recorder
+        (Context'Access, Store'Access, Clock'Access);
+      Inner    : aliased Stub_Runner;
+      Trees    : aliased Fake_Working_Trees.Fake_Working_Trees;
+      R        : Recording_Runner
+        (Inner'Access, Recorder'Access, Trees'Access);
+      Big      : constant String :=
+        "diff --git a/big.dat b/big.dat" & ASCII.LF
+        & "new file mode 100644" & ASCII.LF
+        & "--- /dev/null" & ASCII.LF
+        & "+++ b/big.dat" & ASCII.LF
+        & "@@ -0,0 +1,2 @@" & ASCII.LF
+        & "+" & String'(1 .. 200 => 'x') & ASCII.LF
+        & "+" & String'(1 .. 200 => 'y') & ASCII.LF;
+   begin
+      Inner.Answer := Sessions.Success (Envelopes.Envelope'(others => <>));
+      Trees.Snapshots.Append (To_Unbounded_String ("a"));
+      Trees.Snapshots.Append (To_Unbounded_String ("b"));
+      Trees.Patch := To_Unbounded_String (Big);
+      Trees.Patch_Known := True;
+      Assert (Store.Create ("exec-1") = Registry_Store.Created, "made");
+      R.Id := To_Unbounded_String ("exec-1");
+      R.Largest := 100;
+      Recorder.Start ("exec-1", True, JSON.Null_Value, Initial_State);
+      Assert (R.Run_Session (Request_In_Work (1)).Succeeded, "it ran");
+      declare
+         Kept : constant Registry_Store.Maybe_Content :=
+           Store.Read_Patch ("exec-1", "1-A-1.patch");
+      begin
+         Assert (Kept.Found, "there is a patch");
+         Assert
+           (Ada.Strings.Unbounded.Index (Kept.Value, "yyyy") = 0
+            and then Ada.Strings.Unbounded.Index
+                       (Kept.Value, "@@ -0,0 +1,2 @@") > 0
+            and then Ada.Strings.Unbounded.Index
+                       (Kept.Value, "Content not kept") > 0,
+            "the lines of a file past the limit are left out, and it says so");
+      end;
+   end A_Large_New_File_Is_Kept_As_Its_Path_And_Lines;
+
    procedure A_Session_Is_Stamped_And_Recorded (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Context  : aliased Contexts.Execution_Context;
@@ -82,7 +278,7 @@ package body Synapse.Pipeline.Recording_Runners.Tests is
       Recorder : aliased Recorders.Recorder
         (Context'Access, Store'Access, Clock'Access);
       Inner    : aliased Stub_Runner;
-      R        : Recording_Runner (Inner'Access, Recorder'Access);
+      R        : Recording_Runner (Inner'Access, Recorder'Access, null);
    begin
       Inner.Answer :=
         Sessions.Success
@@ -123,7 +319,7 @@ package body Synapse.Pipeline.Recording_Runners.Tests is
       Recorder : aliased Recorders.Recorder
         (Context'Access, Store'Access, Clock'Access);
       Inner    : aliased Stub_Runner;
-      R        : Recording_Runner (Inner'Access, Recorder'Access);
+      R        : Recording_Runner (Inner'Access, Recorder'Access, null);
    begin
       Inner.Answer :=
         Sessions.Failed (Failures.Failure'(others => <>));
@@ -157,6 +353,21 @@ package body Synapse.Pipeline.Recording_Runners.Tests is
       Register_Routine
         (T, A_Session_That_Fails_Is_Recorded_Too'Access,
          "A session that fails is recorded too");
+      Register_Routine
+        (T, A_Session_That_Changed_Files_Leaves_A_Patch'Access,
+         "A session that changed files leaves a patch");
+      Register_Routine
+        (T, A_Session_That_Changed_Nothing_Leaves_No_Patch'Access,
+         "A session that changed nothing leaves no patch");
+      Register_Routine
+        (T, A_Folder_That_Is_Not_In_A_Repository_Leaves_No_Patch'Access,
+         "A folder that is not in a repository leaves no patch");
+      Register_Routine
+        (T, A_Run_That_Is_Not_Recorded_Keeps_No_Patch'Access,
+         "A run that is not recorded keeps no patch");
+      Register_Routine
+        (T, A_Large_New_File_Is_Kept_As_Its_Path_And_Lines'Access,
+         "A large new file is kept as its path and lines");
    end Register_Tests;
 
 end Synapse.Pipeline.Recording_Runners.Tests;

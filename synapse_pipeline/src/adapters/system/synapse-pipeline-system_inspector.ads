@@ -7,12 +7,15 @@ with System;
 with Synapse.Core.Text_Lists;
 
 with Synapse.Pipeline.Inspector_Transport;
+with Synapse.Pipeline.Socket_Paths;
 
 --  The inspector's transport on the machine the program runs on. On a POSIX
 --  system it is a Unix domain socket in the directory of its execution, which
---  only the user can enter:
---  `<work directory>/pipelines/<id>/execution.sock`. Where there is nothing
---  to listen with, listening reports that and the run goes on without.
+--  only the user can enter: `<work directory>/pipelines/<id>/execution.sock`.
+--  When that path is too long for a Unix socket, it is in a short folder
+--  only the user can use, `/tmp/synapse-pipeline-<uid>`, instead (see
+--  Synapse.Pipeline.Socket_Paths). Where there is nothing to listen with,
+--  listening reports that and the run goes on without.
 
 package Synapse.Pipeline.System_Inspector is
 
@@ -54,8 +57,8 @@ package Synapse.Pipeline.System_Inspector is
 
    --  The longest endpoint a Unix socket can be given, with room to spare
    --  under the operating systems' own limits (104 bytes on macOS, 108 on
-   --  Linux).
-   Max_Endpoint_Length : constant := 100;
+   --  Linux). Endpoint_For keeps within it; Listen refuses a longer one.
+   Max_Endpoint_Length : constant := Socket_Paths.Max_Length;
 
 private
 

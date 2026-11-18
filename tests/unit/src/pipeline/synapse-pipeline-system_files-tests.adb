@@ -68,6 +68,72 @@ package body Synapse.Pipeline.System_Files.Tests is
       Synapse.Test_Scratch.Remove (S);
    end Files_Are_Listed_And_Read;
 
+   procedure A_Tree_Is_Written_Copied_And_Removed (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      S : constant Synapse.Test_Scratch.Scratch := Synapse.Test_Scratch.Make;
+      F : System_Files;
+      Dir  : constant String := Synapse.Test_Scratch.Path (S, "skills");
+      Dest : constant String := Synapse.Test_Scratch.Path (S, "out/skills/a");
+      Done : Boolean;
+   begin
+      Ada.Directories.Create_Directory (Dir);
+      Ada.Directories.Create_Directory (Dir & "/a");
+      Ada.Directories.Create_Directory (Dir & "/a/deep");
+      Ada.Directories.Create_Directory (Dir & "/b");
+      Write (Dir & "/a/SKILL.md", "alpha");
+      Write (Dir & "/a/deep/more.md", "deeper");
+      Write (Dir & "/loose.md", "not a skill");
+
+      declare
+         Names : constant Synapse.Core.Text_Lists.Vector :=
+           F.Subdirectories (Dir);
+      begin
+         Assert
+           (Natural (Names.Length) = 2
+            and then To_String (Names (1)) = "a"
+            and then To_String (Names (2)) = "b",
+            "the directories, sorted, without the files or . and ..");
+      end;
+      Assert (F.Subdirectories (Dir & "/none").Is_Empty, "no directory");
+
+      F.Replace_Tree (Dir & "/a", Dest, Done);
+      Assert (Done, "the copy was made, with the directories above it");
+      Assert
+        (To_String (F.Read (Dest & "/SKILL.md").Value) = "alpha"
+         and then To_String (F.Read (Dest & "/deep/more.md").Value) =
+                  "deeper",
+         "with every file, in the folders it was in");
+
+      Write (Dest & "/left-over.md", "old");
+      F.Replace_Tree (Dir & "/a", Dest, Done);
+      Assert
+        (Done and then not F.Is_File (Dest & "/left-over.md"),
+         "a second copy replaces the first whole");
+
+      F.Replace_Tree (Dir & "/none", Dest, Done);
+      Assert
+        (not Done and then F.Is_File (Dest & "/SKILL.md"),
+         "a source that is not there is a failure that changes nothing");
+
+      F.Write (Dest & "/manifest.json", "[]", Done);
+      Assert
+        (Done and then To_String (F.Read (Dest & "/manifest.json").Value) =
+                       "[]",
+         "a file is written");
+      F.Write (Synapse.Test_Scratch.Path (S, "new/dir/x.txt"), "x", Done);
+      Assert (Done, "with the directories above it");
+      F.Write (Dir & "/loose.md/under.txt", "x", Done);
+      Assert (not Done, "but not under a file");
+
+      F.Remove_Tree (Dest);
+      Assert (not F.Is_Directory (Dest), "a directory goes with what is in it");
+      F.Remove_Tree (Dir & "/loose.md");
+      Assert (not F.Is_File (Dir & "/loose.md"), "so does a file");
+      F.Remove_Tree (Dir & "/none");
+      Synapse.Test_Scratch.Remove (S);
+   end A_Tree_Is_Written_Copied_And_Removed;
+
    procedure A_File_Over_The_Limit_Is_Not_Read (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       S : constant Synapse.Test_Scratch.Scratch := Synapse.Test_Scratch.Make;
@@ -80,6 +146,32 @@ package body Synapse.Pipeline.System_Files.Tests is
       Assert (F.Read (Big).Found, "exactly the limit");
       Synapse.Test_Scratch.Remove (S);
    end A_File_Over_The_Limit_Is_Not_Read;
+
+   procedure The_End_Of_A_File_Of_Any_Size_Is_Read
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      S    : constant Synapse.Test_Scratch.Scratch :=
+        Synapse.Test_Scratch.Make;
+      F    : System_Files;
+      Path : constant String := Synapse.Test_Scratch.Path (S, "big.jsonl");
+      Size : constant Natural := File_System.Max_File_Size + 100;
+   begin
+      Write (Path, [1 .. Size - 4 => 'x'] & "end" & Character'Val (10));
+      Assert (not F.Read (Path).Found, "the whole file is over the limit");
+      Assert
+        (F.Read_End (Path, 4).Found
+         and then To_String (F.Read_End (Path, 4).Value) =
+                  "end" & Character'Val (10),
+         "its last bytes are read all the same");
+      Assert
+        (To_String (F.Read_End (Path, Size * 2).Value)'Length = Size,
+         "asking for more than there is gives all of it");
+      Assert
+        (not F.Read_End (Synapse.Test_Scratch.Path (S, "none"), 4).Found,
+         "a file that is not there has no end");
+      Synapse.Test_Scratch.Remove (S);
+   end The_End_Of_A_File_Of_Any_Size_Is_Read;
 
    procedure Definitions_Load_From_A_Real_Directory
      (T : in out Test_Cases_Class)
@@ -123,8 +215,14 @@ package body Synapse.Pipeline.System_Files.Tests is
       Register_Routine
         (T, Files_Are_Listed_And_Read'Access, "Files are listed and read");
       Register_Routine
+        (T, A_Tree_Is_Written_Copied_And_Removed'Access,
+         "A tree is written, copied and removed");
+      Register_Routine
         (T, A_File_Over_The_Limit_Is_Not_Read'Access,
          "A file over the limit is not read");
+      Register_Routine
+        (T, The_End_Of_A_File_Of_Any_Size_Is_Read'Access,
+         "The end of a file of any size is read");
       Register_Routine
         (T, Definitions_Load_From_A_Real_Directory'Access,
          "Definitions load from a real directory");

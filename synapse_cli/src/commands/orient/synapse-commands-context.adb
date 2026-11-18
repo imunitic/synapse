@@ -4,6 +4,7 @@ with Ada.IO_Exceptions;
 with Synapse.Adapters.Conf_Files;
 with Synapse.Adapters.File_Bytes;
 with Synapse.Adapters.Git_Identity;
+with Synapse.Adapters.Work_Dirs;
 with Synapse.Core.Identity;
 with Synapse.Core.Node_Query;
 
@@ -35,9 +36,7 @@ package body Synapse.Commands.Context is
 
    function Work_Dir_For
      (Env : Environment; Namespace : String) return String is
-     (Value_Or
-        (Non_Empty (Env, "SYNAPSE_WORK_DIR"),
-         Home (Env) & "/.cache/synapse/work/" & Namespace));
+     (Synapse.Adapters.Work_Dirs.Of_Namespace (Env.Vars.all, Namespace));
 
    procedure Load_Chains (Env : Environment; Into : in out Context) is
       Configured : constant Ports_Vars.Maybe_Value         :=

@@ -60,6 +60,9 @@ package body Synapse.Pipeline.Configs.Tests is
         (C.Environment.Is_Empty
          and then To_String (C.Working_Directory) = "/w",
          "nothing captured, and where the caller is");
+      Assert
+        (C.Changes_File_Limit = 1_000_000,
+         "a megabyte of a new file kept in a patch");
    end Nothing_Set_Gives_The_Defaults;
 
    procedure Every_Variable_Is_Read (T : in out Test_Cases_Class) is
@@ -68,6 +71,7 @@ package body Synapse.Pipeline.Configs.Tests is
    begin
       V.Set (Timeout_Variable, "45m");
       V.Set (Ceiling_Variable, "12");
+      V.Set (Changes_Variable, "250000");
       V.Set (Runner_Variable, "scripted");
       V.Set (Script_Variable, "/answers.json");
       V.Set (Harnesses.Default_Variable, "Codex");
@@ -81,6 +85,9 @@ package body Synapse.Pipeline.Configs.Tests is
          Assert
            (C.Default_Timeout_Seconds = 2700 and then C.Step_Ceiling = 12,
             "the limits");
+         Assert
+           (C.Changes_File_Limit = 250_000,
+            "the most of a new file a patch keeps");
          Assert
            (C.Runner = Scripted_Runner
             and then To_String (C.Script) = "/answers.json",
@@ -120,6 +127,15 @@ package body Synapse.Pipeline.Configs.Tests is
       Assert_Fails
         (V, "SYNAPSE_PIPELINE_MAX_STEPS is 'many'", "a ceiling in words");
       V.Set (Ceiling_Variable, "50");
+      V.Set (Changes_Variable, "-1");
+      Assert_Fails
+        (V, "SYNAPSE_PIPELINE_CHANGES_FILE_LIMIT is '-1'",
+         "a limit that is not a number");
+      V.Set (Changes_Variable, "0");
+      Assert
+        (Resolved_From (V).Changes_File_Limit = 0,
+         "nothing of a new file is a limit that can be asked for");
+      V.Set (Changes_Variable, "");
       V.Set (Runner_Variable, "fast");
       Assert_Fails
         (V, "which is not 'process' or 'scripted'", "a runner");
@@ -132,6 +148,26 @@ package body Synapse.Pipeline.Configs.Tests is
       Assert_Fails
         (V, "SYNAPSE_PIPELINE_HARNESS is 'Cluade'", "a default harness");
    end A_Variable_That_Is_Wrong_Is_Said_To_Be;
+
+   procedure The_Work_Directory_Has_A_Default_Under_The_Home
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      V : Synapse.Adapters.Fake_Variables.Fake_Variables;
+   begin
+      Assert
+        (not Resolved_From (V).Environment.Contains (Work_Dir_Key),
+         "no home and no variable: no work directory");
+      V.Set ("HOME", "/home/u");
+      Assert
+        (Resolved_From (V).Environment.Element (Work_Dir_Key) =
+         "/home/u/.cache/synapse/work",
+         "the root under the home, which sessions are given");
+      V.Set ("SYNAPSE_WORK_DIR", "/named");
+      Assert
+        (Resolved_From (V).Environment.Element (Work_Dir_Key) = "/named",
+         "a variable is the root when there is one");
+   end The_Work_Directory_Has_A_Default_Under_The_Home;
 
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
@@ -152,6 +188,9 @@ package body Synapse.Pipeline.Configs.Tests is
       Register_Routine
         (T, A_Variable_That_Is_Wrong_Is_Said_To_Be'Access,
          "A variable that is wrong is said to be");
+      Register_Routine
+        (T, The_Work_Directory_Has_A_Default_Under_The_Home'Access,
+         "The work directory has a default under the home");
    end Register_Tests;
 
 end Synapse.Pipeline.Configs.Tests;

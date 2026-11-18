@@ -41,7 +41,8 @@ package body Synapse.Commands.Push_Nodes.Tests is
         (Dir, "graph-node/v1",
          Synapse.Adapters.File_Bytes.Read
            ("../../packages/synapse/schema/graph-node/v1.yaml", 100_000));
-      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, "work"));
+      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, Synapse.Test_Repo.Root_Rel));
+      F.Vars.Set ("SYNAPSE_NAMESPACE", Synapse.Test_Repo.Namespace);
       F.Vars.Set ("SYNAPSE_DISABLE_SYMBOL_CACHE", "1");
       Put_File (Dir, "README.md", "hello" & LF);
       Put_File (Dir, "src/a.ext", "a" & LF);
@@ -55,8 +56,8 @@ package body Synapse.Commands.Push_Nodes.Tests is
    procedure Work (Dir : Scratch; Name, Text : String) is
    begin
       Ada.Directories.Create_Path
-        (Ada.Directories.Containing_Directory (Path (Dir, "work/" & Name)));
-      Synapse.Adapters.File_Bytes.Write (Path (Dir, "work/" & Name), Text);
+        (Ada.Directories.Containing_Directory (Path (Dir, Synapse.Test_Repo.Work_Rel & "/" & Name)));
+      Synapse.Adapters.File_Bytes.Write (Path (Dir, Synapse.Test_Repo.Work_Rel & "/" & Name), Text);
    end Work;
 
    --  Node NN: a title, one path and a body with a summary.
@@ -171,7 +172,7 @@ package body Synapse.Commands.Push_Nodes.Tests is
       Setup (F, Dir);
       Stage (Dir, "001", "Node One", "README.md");
       Stage (Dir, "002", "Node Two", "src/a.ext");
-      Ada.Directories.Delete_File (Path (Dir, "work/b-002.md"));
+      Ada.Directories.Delete_File (Path (Dir, Synapse.Test_Repo.Work_Rel & "/b-002.md"));
       Assert (Run (Env (F), Args) = 0, "the other pushes");
       Assert
         (Has (F.Console.Out_Text, "002" & HT & "SKIP (no body)" & LF),
@@ -199,8 +200,8 @@ package body Synapse.Commands.Push_Nodes.Tests is
       Stage (Dir, "002", "Node Two", "src/a.ext");
       Stage (Dir, "003", "Node Three", "README.md");
       Stage (Dir, "004", "Node Four", "README.md");
-      Ada.Directories.Delete_File (Path (Dir, "work/lists/002.txt"));
-      Ada.Directories.Delete_File (Path (Dir, "work/lists/003.title"));
+      Ada.Directories.Delete_File (Path (Dir, Synapse.Test_Repo.Work_Rel & "/lists/002.txt"));
+      Ada.Directories.Delete_File (Path (Dir, Synapse.Test_Repo.Work_Rel & "/lists/003.title"));
       Work (Dir, "lists/004.txt", "");
       Assert (Run (Env (F), Args) = 0, "the first pushes");
       Assert
@@ -296,21 +297,21 @@ package body Synapse.Commands.Push_Nodes.Tests is
       Assert
         (Has
            (F.Console.Err_Text,
-            "synapse-push-nodes: no lists/ in " & Path (Dir, "work") &
+            "synapse-push-nodes: no lists/ in " & Path (Dir, Synapse.Test_Repo.Work_Rel) &
             " -- run `synapse build-lists` first" & LF),
          "named: " & F.Console.Err_Text);
       F.Console.Clear;
-      Ada.Directories.Create_Path (Path (Dir, "work/lists"));
+      Ada.Directories.Create_Path (Path (Dir, Synapse.Test_Repo.Work_Rel & "/lists"));
       Assert (Run (Env (F), Args) = 1, "an empty directory");
       Assert
         (Has
            (F.Console.Err_Text,
             "synapse-push-nodes: nothing to push (no lists/NN.title or b-NN.md in " &
-            Path (Dir, "work") & ")" & LF),
+            Path (Dir, Synapse.Test_Repo.Work_Rel) & ")" & LF),
          "empty: " & F.Console.Err_Text);
       F.Console.Clear;
       Stage (Dir, "001", "Node One", "README.md");
-      Ada.Directories.Delete_File (Path (Dir, "work/b-001.md"));
+      Ada.Directories.Delete_File (Path (Dir, Synapse.Test_Repo.Work_Rel & "/b-001.md"));
       Assert (Run (Env (F), Args) = 1, "only skips");
       Assert
         (Has

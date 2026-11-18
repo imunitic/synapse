@@ -68,7 +68,8 @@ package body Synapse.Commands.Write_Node.Tests is
         (Dir, "graph-node/v1",
          Synapse.Adapters.File_Bytes.Read
            ("../../packages/synapse/schema/graph-node/v1.yaml", 100_000));
-      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, "work"));
+      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, Synapse.Test_Repo.Root_Rel));
+      F.Vars.Set ("SYNAPSE_NAMESPACE", Synapse.Test_Repo.Namespace);
       Put_File (Dir, "src/engine.ext", Engine_Source);
       Put_File (Dir, "README.md", "hello" & LF);
       Commit_All (Dir);
@@ -723,7 +724,7 @@ package body Synapse.Commands.Write_Node.Tests is
       Setup (F, Dir);
       Assert (Run (Env (F), Write_Args (Dir)) = 0, "success");
       Assert
-        (Ada.Directories.Exists (Path (Dir, "work/_tags_cache.bin")),
+        (Ada.Directories.Exists (Path (Dir, Synapse.Test_Repo.Work_Rel & "/_tags_cache.bin")),
          "the cache exists");
       Assert (F.Extractors.Source.Calls <= 1, "at most one batch");
       declare
@@ -751,7 +752,7 @@ package body Synapse.Commands.Write_Node.Tests is
       F.Vars.Set ("SYNAPSE_DISABLE_SYMBOL_CACHE", "1");
       Assert (Run (Env (F), Write_Args (Dir)) = 0, "success");
       Assert
-        (not Ada.Directories.Exists (Path (Dir, "work/_tags_cache.bin")),
+        (not Ada.Directories.Exists (Path (Dir, Synapse.Test_Repo.Work_Rel & "/_tags_cache.bin")),
          "no cache");
       Remove (Dir);
    exception

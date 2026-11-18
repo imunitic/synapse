@@ -5,7 +5,11 @@ with Synapse.Core.Options;
 with Synapse.Core.Text_Lists;
 
 --  Where the record of each execution is kept: one directory per execution,
---  holding its summary, its event history and one transcript per step attempt.
+--  holding its summary, its event history and one transcript, and one patch
+--  of the changes it made, per step attempt.
+--  The record also keeps what the execution ran: the description of its
+--  pipeline and the definition files it was made from, so that it can be
+--  looked at later as it was, whatever has happened to those files since.
 --  Everything that writes or reads that record goes through this port, so the
 --  disk is reached in one place and a test can stand in for it.
 --
@@ -24,6 +28,16 @@ package Synapse.Pipeline.Registry_Store is
    subtype Maybe_Content is Synapse.Core.Optional_Text.Option;
 
    package Time_Options is new Synapse.Core.Options (Ada.Calendar.Time);
+
+   --  Whether Name is one plain name: not empty, not starting with a dot and
+   --  holding no slash, backslash or colon, so that it cannot leave the
+   --  directory it is given in.
+   function Is_Plain_Name (Name : String) return Boolean;
+
+   --  Whether Path names a file inside a directory: plain names separated by
+   --  '/', none empty, none starting with a dot and none holding a backslash
+   --  or a colon, so that it cannot leave the directory it is given in.
+   function Is_Plain_Path (Path : String) return Boolean;
 
    type Store is limited interface;
 
@@ -54,6 +68,29 @@ package Synapse.Pipeline.Registry_Store is
      (S : in out Store; Id, Name, Content : String) return Boolean
    is abstract;
 
+   --  Keeps Content as the description of the pipeline the execution ran,
+   --  replacing one, whole as Replace_Summary does. True when it was written.
+   function Write_Description
+     (S : in out Store; Id, Content : String) return Boolean is abstract;
+
+   --  Keeps Content as the definition file Path of the execution: a
+   --  `.synapse` file of its pipeline, a system or an agent, or the `SKILL.md`
+   --  of a skill, laid out as a configuration directory is, so that Path is
+   --  `synapse-pipeline/Name.synapse` or
+   --  `synapse-pipeline/skills/name/SKILL.md`. A Path that Is_Plain_Path does
+   --  not accept is refused. True when it was written. The files are history:
+   --  nothing runs from them.
+   function Write_Definition
+     (S : in out Store; Id, Path, Content : String) return Boolean
+   is abstract;
+
+   --  Keeps Content as the patch called Name of the execution: what one
+   --  session changed in its working tree, as `git diff` prints it. Replaces
+   --  one of that name. Name is a plain name. True when it was written.
+   function Write_Patch
+     (S : in out Store; Id, Name, Content : String) return Boolean
+   is abstract;
+
    --  Removes the execution's directory and everything in it. True when it
    --  is gone, which includes when it was never there.
    function Remove (S : in out Store; Id : String) return Boolean is abstract;
@@ -69,6 +106,26 @@ package Synapse.Pipeline.Registry_Store is
    --  The execution's event history, each event ended by a line break, or
    --  nothing when there is none or it cannot be read.
    function Read_Events (S : Store; Id : String) return Maybe_Content
+   is abstract;
+
+   --  The description of the pipeline the execution ran, or nothing when
+   --  there is none or it cannot be read.
+   function Read_Description (S : Store; Id : String) return Maybe_Content
+   is abstract;
+
+   --  The definition file Path of the execution, or nothing when there is none
+   --  or it cannot be read.
+   function Read_Definition
+     (S : Store; Id, Path : String) return Maybe_Content is abstract;
+
+   --  The patch called Name of the execution, or nothing when there is none or
+   --  it cannot be read.
+   function Read_Patch (S : Store; Id, Name : String) return Maybe_Content
+   is abstract;
+
+   --  The names of the execution's patches, in alphabetical order.
+   function Patch_Names
+     (S : Store; Id : String) return Synapse.Core.Text_Lists.Vector
    is abstract;
 
    --  Where the transcript called Name of the execution is kept, whether or

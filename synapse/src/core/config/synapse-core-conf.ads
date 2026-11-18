@@ -27,4 +27,19 @@ package Synapse.Core.Conf is
      (Text, Key : String; Vars : Ports.Variables.Variables'Class)
       return Maybe_Text;
 
+   --  A value that cannot be written as one line of a file: it has a line
+   --  feed, or it has both kinds of quote.
+   Unrepresentable : exception;
+
+   --  Text with Key set to Value, every other byte as it was. The last
+   --  assignment of the key, which is the one that is read, is replaced in
+   --  place and keeps its indentation and its `export`; a key that is not
+   --  there is added as a last line. A value with a blank, a tab, a `#` or
+   --  a quote is written in quotes, so that Get reads back what was given.
+   --  Raises Unrepresentable.
+   function Set (Text, Key, Value : String) return String;
+
+   --  Text without any assignment of Key, every other byte as it was.
+   function Unset (Text, Key : String) return String;
+
 end Synapse.Core.Conf;

@@ -1,5 +1,6 @@
---  `synapse-pipeline show <pipeline> [--format json|text]`: a pipeline that
---  is not running, described as a running one describes itself.
+--  `synapse-pipeline show <name> [--format json|text]`: a pipeline that is
+--  not running, described as a running one describes itself, or a system or
+--  an agent described by its attributes and the definitions that use it.
 --
 --  The pipeline is found as `check` finds it, and a pipeline that does not
 --  resolve prints nothing on standard output and exits with 1 after the same

@@ -7,10 +7,12 @@ with Synapse.Adapters.System_Process;
 with Synapse.Adapters.System_Variables;
 with Synapse.Pipeline.Commands.Dispatch;
 with Synapse.Pipeline.Disk_Registry;
+with Synapse.Pipeline.Git_Working_Trees;
 with Synapse.Pipeline.Retrying_Registry;
 with Synapse.Pipeline.System_Files;
 with Synapse.Pipeline.System_Inspector;
 with Synapse.Pipeline.System_Process;
+with Synapse.Pipeline.System_Terminal;
 
 --  The `synapse-pipeline` executable: the subcommands over the real console,
 --  process environment, clock and process runner.
@@ -26,6 +28,9 @@ procedure Synapse_Pipeline_Main is
    Inspector :
      aliased Synapse.Pipeline.System_Inspector.System_Transport;
    Sessions : aliased Synapse.Pipeline.System_Process.System_Process;
+   Trees    :
+     aliased Synapse.Pipeline.Git_Working_Trees.Git_Working_Trees
+       (Sessions'Access);
 
    --  What the registry says when it gives up on a write, and how it waits.
    procedure Warn (Message : String) is
@@ -38,6 +43,7 @@ procedure Synapse_Pipeline_Main is
       delay Seconds;
    end Pause;
 
+   Terminal : aliased Synapse.Pipeline.System_Terminal.System_Terminal;
    Disk     : aliased Synapse.Pipeline.Disk_Registry.Disk_Registry;
    Registry :
      aliased Synapse.Pipeline.Retrying_Registry.Retrying_Registry
@@ -48,6 +54,7 @@ procedure Synapse_Pipeline_Main is
       Runner  => Runner'Access, Clock => Clock'Access,
       Files   => Files'Access, Inspector => Inspector'Access,
       Sessions => Sessions'Access, Registry => Registry'Access,
+      Terminal => Terminal'Access, Trees => Trees'Access,
       Argv0   =>
         Ada.Strings.Unbounded.To_Unbounded_String
           (Ada.Command_Line.Command_Name));

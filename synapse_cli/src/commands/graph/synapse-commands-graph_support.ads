@@ -9,9 +9,10 @@ package Synapse.Commands.Graph_Support is
 
    subtype Maybe_Path is Synapse.Core.Optional_Text.Option;
 
-   --  The work directory of the repository at Repo: `SYNAPSE_WORK_DIR` when
-   --  set, else the cache directory named for the namespace, which is
-   --  `SYNAPSE_NAMESPACE` when set and the checkout's own otherwise. Not
+   --  The work directory of the repository at Repo: the folder of its
+   --  namespace in the work directory root, which `SYNAPSE_WORK_DIR` names or
+   --  else is under the home's cache. The namespace is `SYNAPSE_NAMESPACE`
+   --  when set and the checkout's own otherwise. Not
    --  found, after saying why on standard error with Prog in front, when
    --  there is no repository, the head is detached or there is no home.
    function Work_Dir

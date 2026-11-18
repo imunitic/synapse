@@ -57,6 +57,10 @@ package Synapse.Pipeline.Resolved is
       Timeout_Seconds : Durations.Timeout_Seconds := 0;
       Retries     : Limits.Repeat_Count := 0;
 
+      --  The outcomes the step may end with, an object from each word to its
+      --  meaning; null when the step declares none and may end with any word.
+      Outcomes    : Synapse.Core.JSON.Value := Synapse.Core.JSON.Null_Value;
+
       --  The system and the agent the step's values came from.
       Origins     : Origin_Vectors.Vector;
    end record;

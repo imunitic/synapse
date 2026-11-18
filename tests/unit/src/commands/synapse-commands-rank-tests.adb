@@ -74,7 +74,8 @@ package body Synapse.Commands.Rank.Tests is
       end Add;
    begin
       F.Vars.Set ("HOME", Path (Dir, "home"));
-      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, "work"));
+      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, Synapse.Test_Repo.Root_Rel));
+      F.Vars.Set ("SYNAPSE_NAMESPACE", Synapse.Test_Repo.Namespace);
       Put_Config (Dir, "synapse-grammars.conf", Registry);
       Put_File (Dir, "src/big.ext", [1 .. 1_000 => 'x']);
       Put_File (Dir, "src/dense.ext", [1 .. 100 => 'x']);
@@ -85,13 +86,13 @@ package body Synapse.Commands.Rank.Tests is
       Put_File (Dir, "src/Widget.decl", "x");
       Put_File (Dir, "src/WidgetHandler.ext", [1 .. 100 => 'x']);
       Commit_All (Dir);
-      Ada.Directories.Create_Path (Path (Dir, "work"));
+      Ada.Directories.Create_Path (Path (Dir, Synapse.Test_Repo.Work_Rel));
       Add ("src/big.ext", 2);
       Add ("src/dense.ext", 3);
       Add ("src/engine_test.ext", 5);
       Add ("src/odd.ext", 7, True);
       Synapse.Adapters.Tags_Cache.Open
-        (Cache, Path (Dir, "work/_tags_cache.bin"));
+        (Cache, Path (Dir, Synapse.Test_Repo.Work_Rel & "/_tags_cache.bin"));
       declare
          Written : constant Natural :=
            Synapse.Adapters.Tags_Cache.Commit
@@ -293,11 +294,11 @@ package body Synapse.Commands.Rank.Tests is
    begin
       Setup (F, Dir);
       Synapse.Adapters.File_Bytes.Write
-        (Path (Dir, "work/001.txt"),
+        (Path (Dir, Synapse.Test_Repo.Work_Rel & "/001.txt"),
          "src/dense.ext" & LF & "src/engine_test.ext" & LF);
       Ada.Directories.Create_Path (Path (Dir, "lists"));
       Ada.Directories.Copy_File
-        (Path (Dir, "work/001.txt"), Path (Dir, "lists/001.txt"));
+        (Path (Dir, Synapse.Test_Repo.Work_Rel & "/001.txt"), Path (Dir, "lists/001.txt"));
       Assert
         (Run
            (Env (F),
@@ -306,13 +307,13 @@ package body Synapse.Commands.Rank.Tests is
          "success: " & F.Console.Err_Text);
       Assert
         (Synapse.Adapters.File_Bytes.Read
-           (Path (Dir, "work/rank/001.summary.tsv"), 1_000) =
+           (Path (Dir, Synapse.Test_Repo.Work_Rel & "/rank/001.summary.tsv"), 1_000) =
          "code" & HT & "50.000" & HT & "src/engine_test.ext" & LF & "code" &
          HT & "30.000" & HT & "src/dense.ext" & LF,
          "the summary pool");
       Assert
         (Synapse.Adapters.File_Bytes.Read
-           (Path (Dir, "work/rank/001.crux.tsv"), 1_000) =
+           (Path (Dir, Synapse.Test_Repo.Work_Rel & "/rank/001.crux.tsv"), 1_000) =
          "code" & HT & "30.000" & HT & "src/dense.ext" & LF,
          "the crux pool has no test");
       Assert
@@ -323,7 +324,7 @@ package body Synapse.Commands.Rank.Tests is
          and then
            Ada.Strings.Fixed.Index
              (F.Console.Err_Text,
-              "1 nodes ranked -> " & Path (Dir, "work/rank")) >
+              "1 nodes ranked -> " & Path (Dir, Synapse.Test_Repo.Work_Rel & "/rank")) >
            0,
          "the report: " & F.Console.Err_Text);
       Remove (Dir);
@@ -382,7 +383,7 @@ package body Synapse.Commands.Rank.Tests is
       F   : aliased Fixture;
    begin
       Setup (F, Dir);
-      Ada.Directories.Delete_File (Path (Dir, "work/_tags_cache.bin"));
+      Ada.Directories.Delete_File (Path (Dir, Synapse.Test_Repo.Work_Rel & "/_tags_cache.bin"));
       Sources (Dir, "src/big.ext" & LF);
       Assert
         (Run
@@ -398,7 +399,7 @@ package body Synapse.Commands.Rank.Tests is
         (Ada.Strings.Fixed.Index
            (F.Console.Err_Text,
             "synapse-rank: tags cache is empty (" &
-            Path (Dir, "work/_tags_cache.bin") &
+            Path (Dir, Synapse.Test_Repo.Work_Rel & "/_tags_cache.bin") &
             ") -- every code-tier score will be zero; run synapse vocab first") =
          1,
          "the warning: " & F.Console.Err_Text);

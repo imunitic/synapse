@@ -4,6 +4,7 @@ with Ada.Strings.Fixed;
 with Synapse.Core.JSON;
 with Synapse.Core.Optional_Text;
 with Synapse.Pipeline.Envelopes;
+with Synapse.Pipeline.Json_Lines;
 with Synapse.Pipeline.Permission_Levels;
 
 package body Synapse.Pipeline.Harness_Commands is
@@ -133,18 +134,11 @@ package body Synapse.Pipeline.Harness_Commands is
          & (if Brief (Errors) = "" then "" else ": " & Brief (Errors)));
    end Ended_Badly;
 
-   function Text_Member (Item : JSON.Value; Key : String) return String is
-     (if JSON.Kind_Of (Item) = JSON.JSON_Object
-        and then JSON.Has_Member (Item, Key)
-        and then JSON.Kind_Of (JSON.Member_Value (Item, Key)) =
-                 JSON.JSON_String
-      then JSON.As_String (JSON.Member_Value (Item, Key)) else "");
+   function Text_Member (Item : JSON.Value; Key : String) return String
+   renames Json_Lines.Text_Member;
 
    function Object_Member (Item : JSON.Value; Key : String) return JSON.Value
-   is
-     (if JSON.Kind_Of (Item) = JSON.JSON_Object
-        and then JSON.Has_Member (Item, Key)
-      then JSON.Member_Value (Item, Key) else JSON.Null_Value);
+   renames Json_Lines.Object_Member;
 
    function Count_Member (Item : JSON.Value; Key : String) return Natural is
    begin
@@ -171,37 +165,9 @@ package body Synapse.Pipeline.Harness_Commands is
    function Sum (A, B : Natural) return Natural is
      (if A > Natural'Last - B then Natural'Last else A + B);
 
-   --  Calls Each with every line of Text that is a JSON object.
    procedure For_Each_Line
      (Text : String; Each : not null access procedure (Item : JSON.Value))
-   is
-      Start : Positive := Text'First;
-
-      procedure One (Line : String) is
-      begin
-         if Stripped (Line) = "" then
-            return;
-         end if;
-         declare
-            Parsed : constant JSON.Parse_Result := JSON.Parse (Line);
-         begin
-            if Parsed.Ok and then JSON.Kind_Of (Parsed.Item) = JSON.JSON_Object
-            then
-               Each (Parsed.Item);
-            end if;
-         end;
-      end One;
-   begin
-      for I in Text'Range loop
-         if Text (I) = LF then
-            One (Text (Start .. I - 1));
-            Start := I + 1;
-         end if;
-      end loop;
-      if Start <= Text'Last then
-         One (Text (Start .. Text'Last));
-      end if;
-   end For_Each_Line;
+   renames Json_Lines.For_Each_Line;
 
    --  The message in an error a harness reported. It is often itself a JSON
    --  document with the message inside it.
@@ -250,31 +216,37 @@ package body Synapse.Pipeline.Harness_Commands is
       return Permission_Levels.Default;
    end Level_Of;
 
+   procedure Add_Claude_Permissions
+     (Into : in out Synapse.Core.Text_Lists.Vector; Step : Resolved.Step) is
+   begin
+      Add (Into, "--permission-mode");
+      case Level_Of (Step) is
+         when Permission_Levels.Read_Only =>
+            Add (Into, "dontAsk");
+            Add (Into, "--tools");
+            Add (Into, "Read,Grep,Glob");
+         when Permission_Levels.Workspace_Write =>
+            Add (Into, "auto");
+         when Permission_Levels.Full_Access =>
+            Add (Into, "bypassPermissions");
+      end case;
+   end Add_Claude_Permissions;
+
    function Claude_Command
      (Item : Resolved.Step; Prompt : String; Skill_Directory : String)
       return Command_Results.Result
    is
-      Made  : Command;
-      Level : constant Permission_Levels.Level := Level_Of (Item);
+      Made : Command;
    begin
       Made.Program := To_Unbounded_String ("claude");
       Add (Made.Arguments, "-p");
       Add (Made.Arguments, "--output-format");
-      Add (Made.Arguments, "json");
+      Add (Made.Arguments, "stream-json");
+      Add (Made.Arguments, "--verbose");
       Add (Made.Arguments, "--json-schema");
       Add (Made.Arguments, JSON.To_String (Envelopes.Schema));
       Add (Made.Arguments, "--no-session-persistence");
-      Add (Made.Arguments, "--permission-mode");
-      case Level is
-         when Permission_Levels.Read_Only =>
-            Add (Made.Arguments, "dontAsk");
-            Add (Made.Arguments, "--tools");
-            Add (Made.Arguments, "Read,Grep,Glob");
-         when Permission_Levels.Workspace_Write =>
-            Add (Made.Arguments, "auto");
-         when Permission_Levels.Full_Access =>
-            Add (Made.Arguments, "bypassPermissions");
-      end case;
+      Add_Claude_Permissions (Made.Arguments, Item);
       if Item.Model.Found then
          Add (Made.Arguments, "--model");
          Add (Made.Arguments, To_String (Item.Model.Value));
@@ -287,11 +259,16 @@ package body Synapse.Pipeline.Harness_Commands is
       return Command_Results.Success (Made);
    end Claude_Command;
 
+   function Codex_Sandbox (Step : Resolved.Step) return String is
+     (case Level_Of (Step) is
+        when Permission_Levels.Read_Only       => "read-only",
+        when Permission_Levels.Workspace_Write => "workspace-write",
+        when Permission_Levels.Full_Access     => "danger-full-access");
+
    function Codex_Command
      (Item : Resolved.Step; Prompt : String) return Command_Results.Result
    is
-      Made  : Command;
-      Level : constant Permission_Levels.Level := Level_Of (Item);
+      Made : Command;
    begin
       Made.Program := To_Unbounded_String ("codex");
       Add (Made.Arguments, "exec");
@@ -299,12 +276,7 @@ package body Synapse.Pipeline.Harness_Commands is
       Add (Made.Arguments, "--ephemeral");
       Add (Made.Arguments, "--skip-git-repo-check");
       Add (Made.Arguments, "-s");
-      Add
-        (Made.Arguments,
-         (case Level is
-            when Permission_Levels.Read_Only       => "read-only",
-            when Permission_Levels.Workspace_Write => "workspace-write",
-            when Permission_Levels.Full_Access     => "danger-full-access"));
+      Add (Made.Arguments, Codex_Sandbox (Item));
       if Item.Model.Found then
          Add (Made.Arguments, "-m");
          Add (Made.Arguments, To_String (Item.Model.Value));
@@ -313,40 +285,56 @@ package body Synapse.Pipeline.Harness_Commands is
       return Command_Results.Success (Made);
    end Codex_Command;
 
-   --  The OpenCode settings that make a level hold: file tools stay inside
-   --  the working directory, and a read-only session may not edit, run
-   --  commands or fetch.
-   function Opencode_Settings (Level : Permission_Levels.Level) return String
+   --  What makes a level hold in OpenCode: file tools stay inside the working
+   --  directory, and a read-only session may not edit, run commands or fetch.
+   --  Null when the level has no restriction.
+   function Opencode_Permission
+     (Level : Permission_Levels.Level) return JSON.Value
    is
       function Deny (Key : String) return JSON.Member is
         (Key => To_Unbounded_String (Key), Item => JSON.Make_String ("deny"));
    begin
       case Level is
          when Permission_Levels.Read_Only =>
-            return JSON.To_String
-              (JSON.Make_Object
-                 ([1 =>
-                     (Key  => To_Unbounded_String ("permission"),
-                      Item => JSON.Make_Object
-                        ([Deny ("edit"), Deny ("bash"), Deny ("webfetch"),
-                          Deny ("external_directory")]))]));
+            return JSON.Make_Object
+              ([Deny ("edit"), Deny ("bash"), Deny ("webfetch"),
+                Deny ("external_directory")]);
          when Permission_Levels.Workspace_Write =>
-            return JSON.To_String
-              (JSON.Make_Object
-                 ([1 =>
-                     (Key  => To_Unbounded_String ("permission"),
-                      Item => JSON.Make_Object
-                        ([1 => Deny ("external_directory")]))]));
+            return JSON.Make_Object ([1 => Deny ("external_directory")]);
          when Permission_Levels.Full_Access =>
-            return "";
+            return JSON.Null_Value;
       end case;
-   end Opencode_Settings;
+   end Opencode_Permission;
+
+   function Opencode_Config
+     (Step : Resolved.Step; With_Model : Boolean) return String
+   is
+      Permission : constant JSON.Value :=
+        Opencode_Permission (Level_Of (Step));
+      Members    : JSON.Member_Array (1 .. 2);
+      Count      : Natural := 0;
+   begin
+      if JSON.Kind_Of (Permission) = JSON.JSON_Object then
+         Count := Count + 1;
+         Members (Count) :=
+           (Key => To_Unbounded_String ("permission"), Item => Permission);
+      end if;
+      if With_Model and then Step.Model.Found then
+         Count := Count + 1;
+         Members (Count) :=
+           (Key  => To_Unbounded_String ("model"),
+            Item => JSON.Make_String (To_String (Step.Model.Value)));
+      end if;
+      return (if Count = 0 then ""
+              else JSON.To_String (JSON.Make_Object (Members (1 .. Count))));
+   end Opencode_Config;
 
    function Opencode_Command
      (Item : Resolved.Step; Prompt : String) return Command_Results.Result
    is
       Made     : Command;
-      Settings : constant String := Opencode_Settings (Level_Of (Item));
+      Settings : constant String :=
+        Opencode_Config (Item, With_Model => False);
    begin
       Made.Program := To_Unbounded_String ("opencode");
       Add (Made.Arguments, "run");
@@ -365,32 +353,29 @@ package body Synapse.Pipeline.Harness_Commands is
       return Command_Results.Success (Made);
    end Opencode_Command;
 
-   function Build
-     (Harness         : Harnesses.Harness_Kind;
-      Item            : Resolved.Step;
-      Prompt          : String;
-      Skill_Directory : String) return Command_Results.Result is
-     (case Harness is
-        when Harnesses.Claude   =>
-          Claude_Command (Item, Prompt, Skill_Directory),
-        when Harnesses.Codex    => Codex_Command (Item, Prompt),
-        when Harnesses.Opencode => Opencode_Command (Item, Prompt));
-
    ---------------------------------------------------------------------------
    --  Replies
    ---------------------------------------------------------------------------
 
+   --  Claude writes its session as one event per line and ends with a
+   --  `result` event, which holds what the session came to.
    function Claude_Reply (Ended : Session_Process.Process_Outcome) return Reply
    is
-      Parsed : constant JSON.Parse_Result :=
-        JSON.Parse (To_String (Ended.Output));
+      Final : Unbounded_String;
+
+      procedure Read (Event : JSON.Value) is
+      begin
+         if Text_Member (Event, "type") = "result" then
+            Final := To_Unbounded_String (JSON.To_String (Event));
+         end if;
+      end Read;
    begin
-      if not Parsed.Ok or else JSON.Kind_Of (Parsed.Item) /= JSON.JSON_Object
-      then
+      For_Each_Line (To_String (Ended.Output), Read'Access);
+      if Length (Final) = 0 then
          return Ended_Badly ("claude", Ended);
       end if;
       declare
-         Document : constant JSON.Value := Parsed.Item;
+         Document : constant JSON.Value := JSON.Parse (To_String (Final)).Item;
          Used     : constant JSON.Value := Object_Member (Document, "usage");
          Result   : Reply (True);
       begin
@@ -568,12 +553,62 @@ package body Synapse.Pipeline.Harness_Commands is
       return (Succeeded => True, Usage => Used, Answer => Answer);
    end Opencode_Reply;
 
-   function Interpret
-     (Harness : Harnesses.Harness_Kind;
-      Ended   : Session_Process.Process_Outcome) return Reply is
-     (case Harness is
-        when Harnesses.Claude   => Claude_Reply (Ended),
-        when Harnesses.Codex    => Codex_Reply (Ended),
-        when Harnesses.Opencode => Opencode_Reply (Ended));
+   ---------------------------------------------------------------------------
+   --  The harnesses
+   ---------------------------------------------------------------------------
+
+   type Claude is new Headless with null record;
+
+   overriding function Build
+     (Item            : Claude;
+      Step            : Resolved.Step;
+      Prompt          : String;
+      Skill_Directory : String) return Command_Results.Result is
+     (Claude_Command (Step, Prompt, Skill_Directory));
+
+   overriding function Interpret
+     (Item  : Claude;
+      Ended : Session_Process.Process_Outcome) return Reply is
+     (Claude_Reply (Ended));
+
+   type Codex is new Headless with null record;
+
+   overriding function Build
+     (Item            : Codex;
+      Step            : Resolved.Step;
+      Prompt          : String;
+      Skill_Directory : String) return Command_Results.Result is
+     (Codex_Command (Step, Prompt));
+
+   overriding function Interpret
+     (Item  : Codex;
+      Ended : Session_Process.Process_Outcome) return Reply is
+     (Codex_Reply (Ended));
+
+   type Opencode is new Headless with null record;
+
+   overriding function Build
+     (Item            : Opencode;
+      Step            : Resolved.Step;
+      Prompt          : String;
+      Skill_Directory : String) return Command_Results.Result is
+     (Opencode_Command (Step, Prompt));
+
+   overriding function Interpret
+     (Item  : Opencode;
+      Ended : Session_Process.Process_Outcome) return Reply is
+     (Opencode_Reply (Ended));
+
+   Claude_Harness   : aliased constant Claude := (null record);
+   Codex_Harness    : aliased constant Codex := (null record);
+   Opencode_Harness : aliased constant Opencode := (null record);
+
+   function For_Harness
+     (Kind : Harnesses.Harness_Kind) return not null access constant
+     Headless'Class is
+     (case Kind is
+        when Harnesses.Claude   => Claude_Harness'Access,
+        when Harnesses.Codex    => Codex_Harness'Access,
+        when Harnesses.Opencode => Opencode_Harness'Access);
 
 end Synapse.Pipeline.Harness_Commands;

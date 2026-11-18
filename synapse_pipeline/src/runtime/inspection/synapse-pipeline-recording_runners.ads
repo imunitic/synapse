@@ -1,8 +1,10 @@
 with Ada.Strings.Unbounded;
 
+with Synapse.Pipeline.Patches;
 with Synapse.Pipeline.Recorders;
 with Synapse.Pipeline.Session_Runner;
 with Synapse.Pipeline.Sessions;
+with Synapse.Pipeline.Working_Trees;
 
 --  A runner that runs its inner runner and keeps a record of each session.
 --  Every request it passes on names the execution it belongs to, so the inner
@@ -10,15 +12,26 @@ with Synapse.Pipeline.Sessions;
 --  a `session.finished` event: the step, the attempt, whether it succeeded
 --  and where its transcript is. A step with retries has one such event for
 --  each try.
+--
+--  When it is given working trees it takes a snapshot of the folder the
+--  session works in before the session and another after it, and keeps what
+--  changed between them as the session's patch, `Visit-Step-Attempt.patch`,
+--  with the content of a new file kept only up to Largest bytes. A session
+--  that changed nothing, a folder that is not in a git repository and a
+--  snapshot that could not be taken leave no patch.
 
 package Synapse.Pipeline.Recording_Runners is
 
    type Recording_Runner
      (Inner    : not null access Session_Runner.Runner'Class;
-      Recorder : not null access Recorders.Recorder)
+      Recorder : not null access Recorders.Recorder;
+      Trees    : access Working_Trees.Working_Tree'Class)
    is limited new Session_Runner.Runner with record
       --  The execution the sessions belong to.
-      Id : Ada.Strings.Unbounded.Unbounded_String;
+      Id      : Ada.Strings.Unbounded.Unbounded_String;
+
+      --  The most bytes of a new file a patch keeps.
+      Largest : Natural := Patches.Default_Largest;
    end record;
 
    overriding

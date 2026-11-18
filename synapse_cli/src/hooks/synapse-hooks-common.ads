@@ -63,8 +63,9 @@ package Synapse.Hooks.Common is
    function Resolve_Namespace
      (Env : Environment; Cwd : String) return Maybe_Namespace;
 
-   --  `$SYNAPSE_WORK_DIR`, else the cache directory named for the key under
-   --  the home; none without one.
+   --  The namespace's folder in the work directory root, which
+   --  `SYNAPSE_WORK_DIR` names or else is under the home's cache; none without
+   --  either.
    function Work_Dir (Env : Environment; Key : String) return Maybe_Text;
 
    --  Whether the namespace's index names this repository and this branch.

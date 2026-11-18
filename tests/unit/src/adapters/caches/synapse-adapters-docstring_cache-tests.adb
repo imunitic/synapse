@@ -1,3 +1,4 @@
+with Synapse.Test_Repo;
 with Ada.Directories;
 with GNAT.OS_Lib;
 
@@ -106,7 +107,7 @@ package body Synapse.Adapters.Docstring_Cache.Tests is
    is
       pragma Unreferenced (T);
       Dir  : constant Scratch := Make;
-      P    : constant String  := Path (Dir, "work/_docstring_index.bin");
+      P    : constant String  := Path (Dir, Synapse.Test_Repo.Work_Rel & "/_docstring_index.bin");
       C, R : Cache;
    begin
       Open (C, P);

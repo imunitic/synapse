@@ -84,7 +84,9 @@ package body Synapse.Commands.Link_Graph.Tests is
    begin
       Fixture_Files (Dir);
       Synapse.Adapters.File_Bytes.Write (Path (Dir, "work_refs"), "");
-      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir, "w"));
+      --  The work directory is `Dir/w`: the root is `Dir` and its folder `w`.
+      F.Vars.Set ("SYNAPSE_WORK_DIR", Path (Dir));
+      F.Vars.Set ("SYNAPSE_NAMESPACE", "w");
       Ada.Directories.Create_Path (Path (Dir, "w"));
       Ada.Directories.Copy_File
         (Path (Dir, "_refs.tsv"), Path (Dir, "w/_refs.tsv"));

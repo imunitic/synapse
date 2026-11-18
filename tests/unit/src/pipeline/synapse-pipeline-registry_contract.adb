@@ -27,6 +27,11 @@ package body Synapse.Pipeline.Registry_Contract is
       return False;
    end Has_Id;
 
+   --  Whether the store turns the path of a definition away.
+   function Refuses
+     (S : in out Registry_Store.Store'Class; Id, Path : String) return Boolean
+   is (not S.Write_Definition (Id, Path, "x"));
+
    procedure Check
      (S      : in out Registry_Store.Store'Class;
       Prefix : String)
@@ -46,6 +51,7 @@ package body Synapse.Pipeline.Registry_Contract is
          "a fresh execution has no summary");
       Assert (not S.Read_Events (A).Found, "and no events");
       Assert (S.Transcript_Names (A).Is_Empty, "and no transcripts");
+      Assert (S.Patch_Names (A).Is_Empty, "and no patches");
 
       Assert (S.Replace_Summary (A, "one"), "a summary is written");
       Assert (Text_Of (S.Read_Summary (A)) = "one", "and read back");
@@ -82,17 +88,102 @@ package body Synapse.Pipeline.Registry_Contract is
       end;
 
       Assert
+        (not S.Read_Description (A).Found,
+         "a fresh execution has no description");
+      Assert (S.Write_Description (A, "d1"), "a description is written");
+      Assert (S.Write_Description (A, "d2"), "a description is replaced");
+      Assert
+        (Text_Of (S.Read_Description (A)) = "d2",
+         "the new description is all there is: "
+         & Text_Of (S.Read_Description (A)));
+
+      Assert
+        (not S.Read_Definition (A, "synapse-pipeline/P.synapse").Found,
+         "a fresh execution has no definitions");
+      Assert
+        (S.Write_Definition (A, "synapse-pipeline/P.synapse", "p1"),
+         "a definition is written");
+      Assert
+        (S.Write_Definition (A, "synapse-pipeline/skills/s/SKILL.md", "k"),
+         "one in a directory of its own is written");
+      Assert
+        (S.Write_Definition (A, "synapse-pipeline/P.synapse", "p2"),
+         "a definition is replaced");
+      Assert
+        (Text_Of (S.Read_Definition (A, "synapse-pipeline/P.synapse")) = "p2"
+         and then Text_Of
+                    (S.Read_Definition
+                       (A, "synapse-pipeline/skills/s/SKILL.md")) = "k",
+         "each definition is read back by its path");
+      Assert
+        (not S.Read_Definition (A, "synapse-pipeline/Q.synapse").Found,
+         "and one that was not written is not there");
+      Assert
+        (not S.Read_Patch (A, "1-Step-1.patch").Found,
+         "a fresh execution has no patch");
+      Assert
+        (S.Write_Patch (A, "1-Step-1.patch", "p1"), "a patch is written");
+      Assert
+        (S.Write_Patch (A, "2-Step-1.patch", "q"),
+         "one of another visit is written");
+      Assert
+        (S.Write_Patch (A, "1-Step-1.patch", "p2"), "a patch is replaced");
+      Assert
+        (Text_Of (S.Read_Patch (A, "1-Step-1.patch")) = "p2"
+         and then Text_Of (S.Read_Patch (A, "2-Step-1.patch")) = "q",
+         "each patch is read back by its name");
+      Assert
+        (Natural (S.Patch_Names (A).Length) = 2
+         and then Ada.Strings.Unbounded.To_String
+                    (S.Patch_Names (A).First_Element) = "1-Step-1.patch",
+         "the names of the patches are listed in order");
+      for Name of S.Transcript_Names (A) loop
+         Assert
+           (Ada.Strings.Unbounded.Index (Name, ".patch") = 0,
+            "and a patch is not a transcript");
+      end loop;
+      Assert
+        (not S.Write_Patch (A, "../x", "x")
+         and then not S.Write_Patch (A, "a/b", "x")
+         and then not S.Write_Patch (A, ".hidden", "x")
+         and then not S.Read_Patch (A, "../execution.json").Found,
+         "a patch name that could leave the directory is refused");
+      Assert
+        (Refuses (S, A, "../x") and then Refuses (S, A, "/x")
+         and then Refuses (S, A, "a//b") and then Refuses (S, A, ".hidden")
+         and then Refuses (S, A, "a/../b") and then Refuses (S, A, "a\b")
+         and then Refuses (S, A, "c:x") and then Refuses (S, A, "")
+         and then Refuses (S, A, "a/"),
+         "a path that could leave the directory is refused");
+      Assert
+        (not S.Read_Definition (A, "../execution.json").Found,
+         "and cannot be read either");
+
+      Assert
         (not S.Replace_Summary (B, "x") and then not S.Append_Event (B, "x")
-         and then not S.Write_Transcript (B, "t", "x"),
+         and then not S.Write_Transcript (B, "t", "x")
+         and then not S.Write_Description (B, "x")
+         and then not S.Write_Patch (B, "1-S-1.patch", "x")
+         and then not S.Write_Definition (B, "synapse-pipeline/P", "x"),
          "nothing is written for an execution that was not made");
       Assert
         (not S.Read_Summary (B).Found and then not S.Read_Events (B).Found
-         and then S.Transcript_Names (B).Is_Empty,
+         and then S.Transcript_Names (B).Is_Empty
+         and then S.Patch_Names (B).Is_Empty
+         and then not S.Read_Patch (B, "1-S-1.patch").Found
+         and then not S.Read_Description (B).Found
+         and then not S.Read_Definition (B, "synapse-pipeline/P.synapse").Found,
          "and nothing is read for it");
 
       Assert (S.Remove (A), "an execution is removed");
       Assert (not Has_Id (S, A), "and is no longer listed");
       Assert (not S.Read_Summary (A).Found, "with nothing left to read");
+      Assert
+        (not S.Read_Description (A).Found
+         and then not S.Read_Patch (A, "1-Step-1.patch").Found
+         and then S.Patch_Names (A).Is_Empty
+         and then not S.Read_Definition (A, "synapse-pipeline/P.synapse").Found,
+         "of what it ran and changed as well");
       Assert (S.Remove (A), "removing it again is not a failure");
       Assert
         (S.Create (A) = Registry_Store.Created,

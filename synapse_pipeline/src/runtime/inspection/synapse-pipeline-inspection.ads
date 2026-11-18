@@ -17,6 +17,12 @@ with Synapse.Pipeline.States;
 --                                            the run
 --    answers: {"ok": true, "result": ...} or {"ok": false, "error": "..."}
 --
+--  The brief of a run that is interactive has one more member, `attention`:
+--  `{"state": "running" | "waiting", "reason": null | text, "since": time}`.
+--  A run is waiting when the agent has handed control to a person, with what
+--  it said as the reason, and running when it works. A run that is not
+--  interactive, or is over, has none.
+--
 --  Every command reads and none changes anything: there is no command that
 --  runs, advances, retries or cancels, and a name that is not one of the five
 --  is an error. A query is evaluated over the info members, the state under
@@ -43,7 +49,8 @@ package Synapse.Pipeline.Inspection is
    type Event is record
       Sequence : Positive := 1;
 
-      --  `run.started`, `step.started`, `session.finished`, `step.finished`,
+      --  `run.started`, `step.started`, `session.waiting`,
+      --  `session.resumed`, `session.finished`, `step.finished`,
       --  `run.completed` or `run.failed`.
       Kind     : Ada.Strings.Unbounded.Unbounded_String;
       Step     : Ada.Strings.Unbounded.Unbounded_String;
@@ -51,6 +58,23 @@ package Synapse.Pipeline.Inspection is
    end record;
 
    package Event_Vectors is new Ada.Containers.Vectors (Positive, Event);
+
+   --  Whether the run is waiting for a person. Absent for a run that is not
+   --  interactive.
+   type Attention_State is (Absent, Running, Waiting);
+
+   type Attention is record
+      State  : Attention_State := Absent;
+
+      --  What the agent said when it handed control over; empty when running.
+      Reason : Ada.Strings.Unbounded.Unbounded_String;
+
+      --  When the state began.
+      Since  : Ada.Strings.Unbounded.Unbounded_String;
+   end record;
+
+   --  The attention as the brief gives it; null when absent.
+   function Attention_JSON (Item : Attention) return JSON.Value;
 
    --  The run as it was at one moment.
    type Snapshot is record
@@ -61,6 +85,7 @@ package Synapse.Pipeline.Inspection is
       Description  : JSON.Value;
       Run          : States.State;
       Events       : Event_Vectors.Vector;
+      Attention    : Inspection.Attention;
    end record;
 
    function Event_JSON (Item : Event) return JSON.Value;

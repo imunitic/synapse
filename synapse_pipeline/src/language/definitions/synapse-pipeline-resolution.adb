@@ -1,9 +1,9 @@
 with Ada.Strings.Unbounded;
 
-with Synapse.Core.JSON;
 with Synapse.Core.Optional_Text;
 with Synapse.Pipeline.Durations;
 with Synapse.Pipeline.Limits;
+with Synapse.Pipeline.Outcomes;
 with Synapse.Pipeline.Syntax;
 
 package body Synapse.Pipeline.Resolution is
@@ -12,8 +12,6 @@ package body Synapse.Pipeline.Resolution is
    use type Syntax.Definition_Kind;
    use type Syntax.Value_Kind;
    use type Syntax.Attribute_Vectors.Cursor;
-
-   package JSON renames Synapse.Core.JSON;
 
    function Find
      (List : Syntax.Attribute_Vectors.Vector; Name : String)
@@ -58,19 +56,6 @@ package body Synapse.Pipeline.Resolution is
       end if;
       return (Present => False);
    end Instruction_Of;
-
-   --  `outcome == Name`, as JsonLogic.
-   function Outcome_Test (Name : String) return JSON.Value is
-      Variable : constant JSON.Value :=
-        JSON.Make_Object
-          ([1 => (Key  => To_Unbounded_String ("var"),
-                  Item => JSON.Make_String ("outcome"))]);
-   begin
-      return JSON.Make_Object
-        ([1 => (Key  => To_Unbounded_String ("=="),
-                Item => JSON.Make_Array
-                          ([1 => Variable, 2 => JSON.Make_String (Name)]))]);
-   end Outcome_Test;
 
    function Resolve
      (Defs            : Namespaces.Namespace;
@@ -242,6 +227,9 @@ package body Synapse.Pipeline.Resolution is
          if Given ("Retries") then
             Made.Retries := Limits.Repeat_Count (Picked ("Retries").Number);
          end if;
+         if Given ("Outcomes") then
+            Made.Outcomes := Picked ("Outcomes").Json;
+         end if;
          return Resolve_Results.Success (Result);
       end Merge_Step;
 
@@ -262,7 +250,7 @@ package body Synapse.Pipeline.Resolution is
                Made.Has_Guard := True;
                Made.Guard :=
                  (if Guard.Kind = Syntax.Name_Value
-                  then Outcome_Test (To_String (Guard.Name))
+                  then Outcomes.Test_For (To_String (Guard.Name))
                   else Guard.Json);
             end;
          end if;
@@ -293,7 +281,7 @@ package body Synapse.Pipeline.Resolution is
                Made   : Resolved.Step :=
                  (Name => <>, Harness => Harnesses.Claude, Role => <>,
                   Assignment => <>, Model => <>, Permissions => <>,
-                  Timeout_Seconds => 0, Retries => 0,
+                  Timeout_Seconds => 0, Retries => 0, Outcomes => <>,
                   Origins => <>);
                Merged : constant Resolve_Results.Result :=
                  Merge_Step (S, File, Made);
