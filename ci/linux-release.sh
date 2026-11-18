@@ -41,7 +41,15 @@ trap 'rm -rf "$work"' EXIT
 
 echo "sysroot from almalinux:8"
 "$runtime" run --rm -v "$work:/out" almalinux:8 sh -ec '
-    dnf -y -q install glibc-devel kernel-headers gcc tar gzip
+    # A mirror that answers with nothing fails one try and not the next, and what it
+    # answered with is kept until the cache is cleared.
+    for attempt in 1 2 3 4; do
+        dnf -y -q install glibc-devel kernel-headers gcc tar gzip && break
+        [ "$attempt" = 4 ] && exit 1
+        echo "dnf failed, trying again" >&2
+        dnf clean all >/dev/null 2>&1
+        sleep $((attempt * 10))
+    done
     mkdir -p /usr/lib64/eh
     cp /usr/lib/gcc/*-redhat-linux/8/libgcc_eh.a /usr/lib64/eh/
     tar -C / -cf /out/sysroot.tar usr/include usr/lib64 lib64

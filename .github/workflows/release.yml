@@ -15,9 +15,14 @@ name: release
 # instead, for the one run that creates a new package; after that run each new
 # package is given its Trusted Publisher and the input is not used again.
 #
-# A pull request that touches how the binaries are built runs the `build` job
-# alone: the three platforms, the glibc floor and the package check, with the
-# binaries kept as artifacts. `publish` never runs for a pull request.
+# The `desktop` job builds Synapse Desktop for macOS on Apple Silicon around the
+# macOS programs of `build` (`ci/desktop-release.sh`), checks that they and the
+# app report the tag's version, and puts the .dmg on the tag's GitHub Release.
+#
+# A pull request that touches how the binaries are built runs the `build` job,
+# the three platforms, the glibc floor and the package check, with the binaries
+# kept as artifacts, and the `desktop` job, which keeps its .dmg as an artifact.
+# `publish` never runs for a pull request, and nothing is put on a release.
 #
 # The Linux binaries are built by `ci/linux-release.sh`, which compiles and
 # links against a glibc 2.28 sysroot from an AlmaLinux 8 image; the script and
@@ -79,6 +84,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+
+      # The programs report the version of their crate, which is the tag.
+      - name: Set the version the programs report
+        if: startsWith(github.event.inputs.tag || github.ref_name, 'v')
+        shell: bash
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          v="${TAG#v}"
+          for crate in synapse synapse_cli synapse_pipeline; do
+            sed -i.bak "s/^version = \".*\"/version = \"$v\"/" "$crate/alire.toml"
+            rm "$crate/alire.toml.bak"
+          done
 
       - name: Build the Linux binaries against glibc 2.28
         if: runner.os == 'Linux'
@@ -201,3 +219,121 @@ jobs:
             packages/synapse-pipeline/package.json > "$tmp"
           mv "$tmp" packages/synapse-pipeline/package.json
           publish_if_new "packages/synapse-pipeline" "@imunitic/synapse-pipeline"
+
+  # Synapse Desktop for macOS on Apple Silicon: the app with the programs of the
+  # `build` job inside, so it ships what the npm packages ship, at the tag's
+  # version. The bundle is ad-hoc signed and not notarized; the README says how
+  # to open it. For a tag the .dmg goes on the tag's GitHub Release; for a pull
+  # request or a `dry_run` it is kept as an artifact. It does not wait for
+  # `publish`, so either can fail without stopping the other.
+  desktop:
+    needs: build
+    # macos-15 like the macOS build above, whose programs it bundles.
+    runs-on: macos-15
+    # One run at a time for a tag, so that two never create its release at once.
+    concurrency:
+      group: desktop-${{ github.event.inputs.tag || github.ref }}
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      # A tag releases its version; anything else is a build of the checkout,
+      # whose programs say 0.0.0-dev and whose app says 0.0.0.
+      - name: Decide what this run releases
+        id: what
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          EVENT: ${{ github.event_name }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          if [ "$EVENT" != pull_request ] && [[ "$TAG" == v* ]]; then
+            v="${TAG#v}"
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+            echo "programs=$v" >> "$GITHUB_OUTPUT"
+            echo "app=$v" >> "$GITHUB_OUTPUT"
+            if [ "$DRY_RUN" = true ]; then publish=false; else publish=true; fi
+          else
+            echo "programs=0.0.0-dev" >> "$GITHUB_OUTPUT"
+            echo "app=0.0.0" >> "$GITHUB_OUTPUT"
+            publish=false
+          fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: synapse_desktop/package-lock.json
+
+      - name: Toolchain
+        run: rustup toolchain install stable --profile minimal
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            synapse_desktop/src-tauri/target
+          key: cargo-desktop-release-${{ hashFiles('synapse_desktop/src-tauri/Cargo.lock') }}
+          restore-keys: cargo-desktop-release-
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-darwin-arm64
+          path: synapse_cli/bin
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: pipeline-darwin-arm64
+          path: synapse_pipeline/bin
+
+      # An artifact does not keep the executable bit.
+      - name: Make the programs executable
+        run: chmod +x synapse_cli/bin/synapse synapse_cli/bin/synapse-hook synapse_pipeline/bin/synapse-pipeline
+
+      - name: Set the app's version
+        if: steps.what.outputs.tag != ''
+        run: ci/desktop-release.sh set-version "${{ steps.what.outputs.app }}"
+
+      - name: Build the app
+        working-directory: synapse_desktop
+        run: |
+          npm ci
+          npm run stage
+          npx tauri build --features app --bundles app,dmg -- --bin synapse-desktop
+
+      - name: Check the app
+        run: |
+          ci/desktop-release.sh check \
+            "synapse_desktop/src-tauri/target/release/bundle/macos/Synapse Desktop.app" \
+            "${{ steps.what.outputs.programs }}" "${{ steps.what.outputs.app }}"
+
+      - name: Find the .dmg
+        id: dmg
+        run: |
+          shopt -s nullglob
+          found=(synapse_desktop/src-tauri/target/release/bundle/dmg/*.dmg)
+          [ "${#found[@]}" -eq 1 ] || { echo "expected one .dmg, found ${#found[@]}" >&2; exit 1; }
+          echo "path=${found[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the .dmg
+        if: steps.what.outputs.publish != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: synapse-desktop-darwin-arm64
+          path: ${{ steps.dmg.outputs.path }}
+          if-no-files-found: error
+
+      - name: Put the .dmg on the tag's GitHub Release
+        if: steps.what.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.what.outputs.tag }}
+          DMG: ${{ steps.dmg.outputs.path }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 ||
+            gh release create "$TAG" --verify-tag --title "$TAG" --notes ""
+          gh release upload "$TAG" "$DMG" --clobber
