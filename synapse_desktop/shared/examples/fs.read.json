@@ -1,0 +1,9 @@
+{
+  "name": "fs.read",
+  "params": {
+    "path": "/w/a.json"
+  },
+  "result": {
+    "text": "{}"
+  }
+}

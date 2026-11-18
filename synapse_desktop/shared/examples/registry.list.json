@@ -1,0 +1,18 @@
+{
+  "name": "registry.list",
+  "params": {
+    "kind": "projects"
+  },
+  "result": {
+    "kind": "projects",
+    "list": {
+      "projects": [
+        {
+          "name": "synapse",
+          "prefix": "sb"
+        }
+      ],
+      "file": "/c/synapse-projects.conf"
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "name": "registry.add",
+  "params": {
+    "kind": "conventions",
+    "id": "tags",
+    "entry": "architecture"
+  },
+  "result": {
+    "kind": "conventions",
+    "list": {
+      "conventions": [
+        {
+          "id": "tags",
+          "group": "Vault",
+          "title": "Tags",
+          "about": "The tag vocabulary",
+          "file": "/c/tags.conf",
+          "exists": true,
+          "editable": true,
+          "entries": [
+            {
+              "text": "synapse"
+            },
+            {
+              "text": "k",
+              "detail": "v"
+            }
+          ],
+          "problem": null
+        }
+      ]
+    }
+  }
+}

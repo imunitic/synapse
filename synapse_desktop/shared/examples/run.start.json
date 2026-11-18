@@ -1,0 +1,12 @@
+{
+  "name": "run.start",
+  "params": {
+    "pipeline": "Develop",
+    "input": {
+      "task": "x"
+    }
+  },
+  "result": {
+    "executionId": "exec-0a1b2c3d"
+  }
+}

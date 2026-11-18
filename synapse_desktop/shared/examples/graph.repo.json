@@ -1,0 +1,13 @@
+{
+  "name": "graph.repo",
+  "params": {
+    "action": "find",
+    "namespace": "synapse@main"
+  },
+  "result": {
+    "action": "find",
+    "matches": {
+      "paths": ["/r"]
+    }
+  }
+}

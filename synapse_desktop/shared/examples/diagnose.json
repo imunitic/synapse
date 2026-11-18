@@ -1,0 +1,20 @@
+{
+  "name": "diagnose",
+  "params": {},
+  "result": {
+    "findings": [
+      {
+        "key": "git",
+        "name": "git",
+        "status": "ok",
+        "detail": "found",
+        "value": "/usr/bin/git"
+      }
+    ],
+    "counts": {
+      "ok": 1,
+      "warn": 0,
+      "fail": 0
+    }
+  }
+}

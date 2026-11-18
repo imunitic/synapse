@@ -1,0 +1,25 @@
+{
+  "name": "graph.health",
+  "params": {
+    "namespace": "synapse@main"
+  },
+  "result": {
+    "stale": {
+      "ok": true,
+      "findings": []
+    },
+    "drift": {
+      "ok": false,
+      "error": "no commit"
+    },
+    "grounding": {
+      "ok": true,
+      "findings": [
+        {
+          "node": "(repo)",
+          "reason": "x"
+        }
+      ]
+    }
+  }
+}

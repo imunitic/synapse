@@ -1,0 +1,27 @@
+{
+  "name": "config.get",
+  "params": {},
+  "result": {
+    "config": {
+      "workDir": "/w",
+      "definitionPaths": ["/defs"],
+      "defaultHarness": "Claude",
+      "defaultModels": {
+        "Codex": "gpt-x"
+      },
+      "env": {
+        "A": "1"
+      },
+      "recentVaults": ["/v"],
+      "terminalFolder": null,
+      "graphRepos": {
+        "synapse@main": "/r"
+      }
+    },
+    "paths": {
+      "definitionDirs": ["/defs"],
+      "skillsDir": null,
+      "recordsDir": "/w/pipelines"
+    }
+  }
+}

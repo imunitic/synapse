@@ -1,0 +1,7 @@
+{
+  "name": "terminal.close",
+  "params": {
+    "session": "t1"
+  },
+  "result": null
+}

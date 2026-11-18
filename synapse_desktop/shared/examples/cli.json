@@ -1,0 +1,13 @@
+{
+  "name": "cli",
+  "params": {
+    "binary": "synapse-pipeline",
+    "args": ["list"],
+    "stdin": ""
+  },
+  "result": {
+    "code": 0,
+    "stdout": "",
+    "stderr": ""
+  }
+}

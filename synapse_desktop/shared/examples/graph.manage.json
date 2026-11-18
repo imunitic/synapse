@@ -1,0 +1,14 @@
+{
+  "name": "graph.manage",
+  "params": {
+    "action": "plan",
+    "what": "drop",
+    "namespace": "synapse@main"
+  },
+  "result": {
+    "action": "plan",
+    "plan": {
+      "lines": ["would remove 3 nodes"]
+    }
+  }
+}

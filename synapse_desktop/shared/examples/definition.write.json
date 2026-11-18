@@ -1,0 +1,12 @@
+{
+  "name": "definition.write",
+  "params": {
+    "mode": "replace",
+    "path": "/defs/Develop.synapse",
+    "previous": "a",
+    "text": "b"
+  },
+  "result": {
+    "path": "/defs/Develop.synapse"
+  }
+}

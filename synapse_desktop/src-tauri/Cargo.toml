@@ -1,0 +1,49 @@
+[package]
+name = "synapse-desktop-host"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "The host of Synapse Desktop: the messages the page sends it and what it does with them."
+build = "build.rs"
+default-run = "synapse-desktop"
+
+[lib]
+name = "synapse_desktop_host"
+path = "src/lib.rs"
+
+# The desktop app, with the host in its own process. It needs the Tauri libraries, which the host
+# and its tests do not, so it is built only with the `app` feature.
+[[bin]]
+name = "synapse-desktop"
+path = "src/app_main.rs"
+required-features = ["app"]
+
+[features]
+app = ["dep:tauri", "dep:tauri-build"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+dunce = "1"
+getrandom = "0.3"
+notify = "8"
+portable-pty = "0.9"
+regex = "1"
+tempfile = "3"
+vt100 = "0.16"
+rusqlite = { version = "0.34", features = ["bundled"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "fs", "process", "io-util", "net"] }
+tauri = { version = "2", optional = true, features = [] }
+
+[build-dependencies]
+tauri-build = { version = "2", optional = true , features = [] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+tokio-tungstenite = "0.26"
+filetime = "0.2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }

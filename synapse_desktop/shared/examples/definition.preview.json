@@ -1,0 +1,15 @@
+{
+  "name": "definition.preview",
+  "params": {
+    "draft": {
+      "kind": "pipeline",
+      "name": "Develop",
+      "text": "Pipeline Develop { A [Harness => Claude]; }"
+    }
+  },
+  "result": {
+    "code": 0,
+    "stdout": "",
+    "stderr": ""
+  }
+}

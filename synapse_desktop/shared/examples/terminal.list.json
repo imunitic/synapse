@@ -1,0 +1,17 @@
+{
+  "name": "terminal.list",
+  "params": {},
+  "result": {
+    "sessions": [
+      {
+        "session": "t1",
+        "title": "Claude 1",
+        "kind": "Claude",
+        "cwd": "/p",
+        "loaded": true,
+        "note": "loaded for this session",
+        "exited": null
+      }
+    ]
+  }
+}

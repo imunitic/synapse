@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "What the window may do on its own: nothing but show itself. Everything the app does on the machine is done by the host, which the page reaches only by the messages of the protocol.",
+  "windows": ["main"],
+  "permissions": ["core:window:default"]
+}
