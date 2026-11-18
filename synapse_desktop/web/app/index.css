@@ -1,0 +1,205 @@
+:root {
+  --ground: #1b1b1f;
+  --rail: #151518;
+  --panel: #202024;
+  --main: #1e1e22;
+  --tabbar: #18181b;
+  --card: #232328;
+  --raised: #2c2c33;
+  --border: #2e2e34;
+  --border-strong: #3a3a42;
+  --text: #e4e4e7;
+  --muted: #a1a1aa;
+  --accent: #6d5ce8;
+  --accent-text: #b0a6ff;
+  --warn-bg: #3a2f12;
+  --warn-border: #6b5416;
+  --warn-text: #fde68a;
+  /* Text that stands out from the rest, as a tab that is chosen or a button under the pointer. */
+  --strong: #fff;
+  /* Text on the accent colour, as a primary button's. */
+  --on-accent: #fff;
+  --text-soft: #d4d4d8;
+  --faint: #8b8b95;
+  --line: #6b6b75;
+  --chip: #2a2a30;
+  --chip-selected: #2a2740;
+  --code-bg: #18181b;
+  /* The terminal is dark in either theme; the light theme's is a softer dark, so it does not
+     stand out of a white page so hard. */
+  --terminal-bg: #18181b;
+  --folder: #d4a85f;
+  --selection: #3b3470;
+  --active-line: rgba(255, 255, 255, 0.04);
+  --caret: #fff;
+  /* What went well, what failed, what needs care, and what is going on. */
+  --good: #86efac;
+  --good-bg: #1f2a24;
+  --good-border: #2f6f49;
+  --prompt-bg: #1f3329;
+  --bad: #fca5a5;
+  --bad-text: #fecaca;
+  --bad-bg: #2e2020;
+  --bad-bg-strong: #3a2020;
+  --bad-border: #7f3a3a;
+  --bad-line: #f87171;
+  --caution: #fcd34d;
+  --caution-strong: #fbbf24;
+  --caution-border: #7a6a2f;
+  --caution-deep: #b45309;
+  --interrupted-bg: #33290f;
+  --info: #93c5fd;
+  --info-line: #60a5fa;
+  --info-bg: #1f2733;
+  --command-bg: #1f2d33;
+  --font: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+
+/* The light theme: the same variables, so every page follows. Settings > General chooses it. */
+:root[data-theme='light'] {
+  --ground: #f4f4f5;
+  --rail: #e9e9ec;
+  --panel: #fafafa;
+  --main: #fff;
+  --tabbar: #f1f1f3;
+  --card: #fff;
+  --raised: #e8e8ec;
+  --border: #e2e2e6;
+  --border-strong: #d0d0d6;
+  --text: #18181b;
+  --muted: #5f5f6b;
+  --accent: #6d5ce8;
+  --accent-text: #5443d1;
+  --warn-bg: #fef3c7;
+  --warn-border: #f59e0b;
+  --warn-text: #92400e;
+  --strong: #09090b;
+  --on-accent: #fff;
+  --text-soft: #3f3f46;
+  --faint: #71717a;
+  --line: #a1a1aa;
+  --chip: #e4e4e7;
+  --chip-selected: #e0dcfb;
+  --code-bg: #f4f4f5;
+  --terminal-bg: #363a42;
+  --folder: #b7791f;
+  --selection: #ddd6fe;
+  --active-line: rgba(0, 0, 0, 0.04);
+  --caret: #18181b;
+  --good: #15803d;
+  --good-bg: #dcfce7;
+  --good-border: #4ade80;
+  --prompt-bg: #dcfce7;
+  --bad: #dc2626;
+  --bad-text: #991b1b;
+  --bad-bg: #fee2e2;
+  --bad-bg-strong: #fecaca;
+  --bad-border: #fca5a5;
+  --bad-line: #dc2626;
+  --caution: #b45309;
+  --caution-strong: #d97706;
+  --caution-border: #fcd34d;
+  --caution-deep: #f59e0b;
+  --interrupted-bg: #fef3c7;
+  --info: #1d4ed8;
+  --info-line: #2563eb;
+  --info-bg: #dbeafe;
+  --command-bg: #e0f2fe;
+  color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Every size of the text is in rem, so this one value scales the app; the Text size setting
+   replaces it. */
+html {
+  font-size: 112.5%;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--ground);
+  color: var(--text);
+  font: 0.875rem/1.45 var(--font);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+input {
+  font: inherit;
+  color: var(--text);
+  background: var(--tabbar);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+/* A select is drawn as the other fields are, with an arrow of its own held away from the border,
+   since the one the browser draws is against it. */
+select {
+  appearance: none;
+  font: inherit;
+  color: var(--text);
+  background-color: var(--tabbar);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='none' stroke='%238b8b95' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M2.5 4.5 6 8l3.5-3.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 8px 34px 8px 10px;
+  cursor: pointer;
+}
+
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+select:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+
+select option {
+  background: var(--card);
+  color: var(--text);
+}
+
+input::placeholder {
+  color: #8b8b95;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+
+.mono {
+  font-family: var(--mono);
+}
+
+.muted {
+  color: var(--muted);
+}
