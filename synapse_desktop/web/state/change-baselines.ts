@@ -1,7 +1,8 @@
 // Where a terminal session's folder stood when the session started: the snapshot that its changes
 // are taken against, kept for the life of the tab so that a page that is loaded again still has it.
 // One snapshot is kept for each branch the session has been on: when the harness switches branches a
-// new one is taken, and switching back restores the one kept for that branch.
+// new one is taken, and switching back restores the one kept for that branch. The baseline of each
+// other folder the session has worked in, such as a worktree it entered, is kept the same way.
 
 import type { Transport } from '../../shared/transport.ts'
 
@@ -20,6 +21,8 @@ export interface Baseline {
   switched?: boolean
   // The snapshots of the other positions the session has been on.
   kept?: Record<string, KeptSnapshot>
+  // The baselines of the other folders the session has been in, by folder.
+  others?: Record<string, Baseline>
 }
 
 export interface KeptSnapshot {
@@ -159,5 +162,50 @@ export async function followHead(
     // The sidebar goes on with the baseline it has, and is asked again at the next look.
   } finally {
     following.delete(session)
+  }
+}
+
+// The sessions whose baseline for a new folder is being taken, so that one is taken at a time.
+const moving = new Set<string>()
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+// Moves the session's baseline to the folder a person typed. The baseline of the folder it leaves is
+// kept, and is the one restored when it comes back; a folder not been in before is snapshotted now.
+// Null when the session is in the folder, and otherwise why it could not move.
+export async function followFolder(
+  transport: Pick<Transport, 'snapshotChanges'>,
+  session: string,
+  typed: string,
+): Promise<string | null> {
+  const folder = typed.trim()
+  if (folder === '') return 'Type the path of a folder.'
+  const start = baselineOf(session)
+  if (start === null) return 'The starting point of this session is not taken yet.'
+  if (start.folder === folder) return null
+  if (moving.has(session)) return 'The folder is being changed.'
+  moving.add(session)
+  try {
+    let next: Baseline | undefined = start.others?.[folder]
+    if (next === undefined) {
+      const { tree, head } = await transport.snapshotChanges(folder)
+      if (tree === null) return 'That folder is not in a git repository.'
+      next = { folder, tree, head, ...(start.source === undefined ? {} : { source: start.source }) }
+    }
+    // Let go when the session took another baseline meanwhile.
+    const now = baselineOf(session)
+    if (now?.folder !== start.folder) return 'The session changed folder meanwhile.'
+    const { others, ...left } = now
+    const rest: Record<string, Baseline> = { ...others }
+    delete rest[folder]
+    rest[left.folder] = left
+    keepBaseline(session, { ...next, others: rest })
+    return null
+  } catch (error) {
+    return messageOf(error)
+  } finally {
+    moving.delete(session)
   }
 }

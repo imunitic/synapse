@@ -3,6 +3,7 @@ import {
   baselineOf,
   ensureBaseline,
   followBaseline,
+  followFolder,
   followHead,
   keepBaseline,
   onBaselineChange,
@@ -181,5 +182,46 @@ describe('a session that switches branches', () => {
     }
     await followHead(transport, 's1', 'other')
     expect(baselineOf('s1')).toEqual({ folder: '/v', tree: THIRD, head: 'main', source: 'codex-2' })
+  })
+})
+
+describe('the baseline of a session moved to a folder a person typed', () => {
+  const at = (trees: Record<string, string | null>, asked: string[] = []) => ({
+    snapshotChanges: (folder: string) => {
+      asked.push(folder)
+      const tree = trees[folder] === undefined ? TREE : trees[folder]
+      return Promise.resolve({ tree, head: 'main' })
+    },
+  })
+
+  it('moves to the folder, keeps the one it leaves, and restores it on the way back', async () => {
+    const asked: string[] = []
+    keepBaseline('s1', { folder: '/w/widget', tree: 'aaa', head: 'main', source: 'claude-1' })
+    expect(
+      await followFolder(at({ '/w/widget-2': 'bbb' }, asked), 's1', ' /w/widget-2 '),
+    ).toBeNull()
+    expect(baselineOf('s1')).toMatchObject({
+      folder: '/w/widget-2',
+      tree: 'bbb',
+      source: 'claude-1',
+    })
+    expect(await followFolder(at({}, asked), 's1', '/w/widget')).toBeNull()
+    expect(baselineOf('s1')).toMatchObject({ folder: '/w/widget', tree: 'aaa' })
+    expect(baselineOf('s1')?.others?.['/w/widget-2']).toMatchObject({ tree: 'bbb' })
+    expect(asked).toEqual(['/w/widget-2'])
+  })
+
+  it('says why it did not move, and changes nothing', async () => {
+    const asked: string[] = []
+    expect(await followFolder(at({}, asked), 's1', '/w/a')).toMatch(/not taken yet/)
+    keepBaseline('s1', { folder: '/w/a', tree: 'aaa' })
+    expect(await followFolder(at({}, asked), 's1', '  ')).toMatch(/Type the path/)
+    expect(await followFolder(at({ '/plain': null }, asked), 's1', '/plain')).toMatch(
+      /not in a git repository/,
+    )
+    const refusing = { snapshotChanges: () => Promise.reject(new Error('the folder is not there')) }
+    expect(await followFolder(refusing, 's1', '/gone')).toBe('the folder is not there')
+    expect(await followFolder(at({}, asked), 's1', '/w/a')).toBeNull()
+    expect(baselineOf('s1')).toEqual({ folder: '/w/a', tree: 'aaa' })
   })
 })
