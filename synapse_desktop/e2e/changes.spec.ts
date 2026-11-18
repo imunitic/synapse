@@ -585,3 +585,48 @@ test('what is not committed can be shown, whatever was changed before the sessio
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('the folder of the Changes sidebar is moved by typing the path of another one', async ({
+  page,
+}) => {
+  const first = repository()
+  const second = repository()
+  const plain = mkdtempSync(join(tmpdir(), 'sd-plain-'))
+  try {
+    await startShellIn(page, first)
+    await toggle(page).click()
+    const folder = sidebar(page).getByRole('button', { name: /^Folder: .* Change it$/ })
+    await expect(folder).toContainText(first)
+
+    // A folder that is not in a repository is refused, and the sidebar stays where it was.
+    await folder.click()
+    const input = sidebar(page).getByLabel('Folder to look at')
+    await input.fill(plain)
+    await input.press('Enter')
+    await expect(sidebar(page).getByRole('alert')).toContainText('not in a git repository')
+    await input.press('Escape')
+    await expect(folder).toContainText(first)
+
+    // The changes of the folder moved to are the ones shown, from the moment it is moved to.
+    await folder.click()
+    await input.fill(second)
+    await input.press('Enter')
+    await expect(folder).toContainText(second)
+    writeFileSync(join(second, 'moved.txt'), 'here\n')
+    await expect(sidebar(page)).toContainText('1 file changed')
+    await expect(sidebar(page)).toContainText('moved.txt')
+
+    // Going back restores the folder that was left.
+    writeFileSync(join(first, 'first-only.txt'), 'there\n')
+    await folder.click()
+    await input.fill(first)
+    await input.press('Enter')
+    await expect(folder).toContainText(first)
+    await expect(sidebar(page)).toContainText('first-only.txt')
+    await expect(sidebar(page)).not.toContainText('moved.txt')
+  } finally {
+    rmSync(first, { recursive: true, force: true })
+    rmSync(second, { recursive: true, force: true })
+    rmSync(plain, { recursive: true, force: true })
+  }
+})

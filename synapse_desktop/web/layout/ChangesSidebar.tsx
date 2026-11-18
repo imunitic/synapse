@@ -10,6 +10,7 @@ import type { ChangeGroup, ChangesState } from '../state/useChanges.ts'
 import { GitTab } from './GitTab.tsx'
 import { ActivityTab } from './ActivityTab.tsx'
 import type { ActionKind } from '../domain/activity.ts'
+import { FolderBar } from './FolderBar.tsx'
 import { ReviewBar, useReview } from './ReviewBar.tsx'
 import type { DiffReview } from '../components/FileChanges.tsx'
 import type { ReviewComment } from '../domain/review.ts'
@@ -207,6 +208,7 @@ export function ChangesSidebar({
           </button>
         )}
       </div>
+      {reviewSession !== null && !onActivity && <FolderBar session={reviewSession} />}
       {onActivity && reviewSession !== null && (
         <ActivityTab
           session={reviewSession}
