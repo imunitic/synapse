@@ -1,0 +1,21 @@
+{
+  "name": "history.get",
+  "params": {
+    "what": "sessions"
+  },
+  "result": {
+    "what": "sessions",
+    "sessions": {
+      "Claude": [
+        {
+          "id": "s1",
+          "path": "/p",
+          "title": null,
+          "lastUsed": "2026-11-15T10:00:00+01:00"
+        }
+      ],
+      "Codex": [],
+      "Opencode": []
+    }
+  }
+}

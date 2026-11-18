@@ -1,0 +1,14 @@
+{
+  "name": "vault.seed",
+  "params": {
+    "path": "/v"
+  },
+  "result": {
+    "path": "/v",
+    "exists": true,
+    "hasIndex": true,
+    "isGit": false,
+    "notes": 12,
+    "capped": false
+  }
+}

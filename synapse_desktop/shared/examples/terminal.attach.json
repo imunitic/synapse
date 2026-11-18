@@ -1,0 +1,17 @@
+{
+  "name": "terminal.attach",
+  "params": {
+    "session": "t1",
+    "cols": 100,
+    "rows": 30
+  },
+  "result": {
+    "session": "t1",
+    "title": "Claude 1",
+    "kind": "Claude",
+    "cwd": "/p",
+    "loaded": true,
+    "note": "loaded for this session",
+    "exited": 3
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "terminal.start",
+  "params": {
+    "session": "t1",
+    "title": "Claude 1",
+    "kind": "Claude",
+    "cwd": "/p",
+    "cols": 100,
+    "rows": 30
+  },
+  "result": {
+    "session": "t1",
+    "title": "Claude 1",
+    "kind": "Claude",
+    "cwd": "/p",
+    "loaded": true,
+    "note": "loaded for this session",
+    "exited": null
+  }
+}

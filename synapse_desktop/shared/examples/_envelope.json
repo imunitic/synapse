@@ -1,0 +1,54 @@
+{
+  "request": {
+    "kind": "request",
+    "id": "r1",
+    "name": "fs.read",
+    "params": {
+      "path": "/w/a.json"
+    }
+  },
+  "subscribe": {
+    "kind": "subscribe",
+    "topic": "run.exec-0a1b2c3d",
+    "after": 4
+  },
+  "hello": {
+    "kind": "hello",
+    "protocol": 1,
+    "capabilities": {
+      "host": "node",
+      "shell": true,
+      "installActions": true
+    }
+  },
+  "reply": {
+    "kind": "reply",
+    "id": "r1",
+    "result": {
+      "text": "{}"
+    }
+  },
+  "error": {
+    "kind": "reply",
+    "id": "r1",
+    "error": {
+      "code": "not_found",
+      "message": "no such file"
+    }
+  },
+  "event": {
+    "kind": "event",
+    "topic": "files.vault",
+    "data": {
+      "path": "research/A.md"
+    }
+  },
+  "stream": {
+    "kind": "stream",
+    "session": "t1",
+    "data": {
+      "type": "output",
+      "data": "hello"
+    }
+  }
+}

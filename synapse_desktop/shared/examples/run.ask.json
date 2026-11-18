@@ -1,0 +1,15 @@
+{
+  "name": "run.ask",
+  "params": {
+    "executionId": "exec-0a1b2c3d",
+    "request": {
+      "command": "info"
+    }
+  },
+  "result": {
+    "ok": true,
+    "result": {
+      "status": "running"
+    }
+  }
+}

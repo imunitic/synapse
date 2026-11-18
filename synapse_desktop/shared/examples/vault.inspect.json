@@ -1,0 +1,14 @@
+{
+  "name": "vault.inspect",
+  "params": {
+    "path": "/v"
+  },
+  "result": {
+    "path": "/v",
+    "exists": true,
+    "hasIndex": true,
+    "isGit": false,
+    "notes": 12,
+    "capped": false
+  }
+}

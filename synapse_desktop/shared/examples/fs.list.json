@@ -1,0 +1,15 @@
+{
+  "name": "fs.list",
+  "params": {
+    "path": "/w"
+  },
+  "result": {
+    "entries": [
+      {
+        "name": "pipelines",
+        "isDir": true,
+        "mtimeMs": 1700000000000
+      }
+    ]
+  }
+}

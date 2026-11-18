@@ -1,0 +1,4 @@
+/target
+# What `npm run stage` copies in to be bundled, and what Tauri generates.
+/resources
+/gen

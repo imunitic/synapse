@@ -1,0 +1,9 @@
+{
+  "name": "note.restore",
+  "params": {
+    "path": "research/A.md",
+    "before": "a",
+    "after": "b"
+  },
+  "result": null
+}

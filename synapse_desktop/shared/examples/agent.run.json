@@ -1,0 +1,16 @@
+{
+  "name": "agent.run",
+  "params": {
+    "kind": "note-edit",
+    "path": "research/A.md",
+    "prompt": "Fix the title."
+  },
+  "result": {
+    "kind": "note-edit",
+    "edit": {
+      "before": "a",
+      "after": "b",
+      "touched": []
+    }
+  }
+}

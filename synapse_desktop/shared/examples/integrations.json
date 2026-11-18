@@ -1,0 +1,20 @@
+{
+  "name": "integrations",
+  "params": {},
+  "result": {
+    "bundled": {
+      "version": "0.17.0",
+      "hook": "/b/synapse-hook",
+      "contentRoot": null,
+      "pipelineRoot": null
+    },
+    "harnesses": [
+      {
+        "harness": "Claude",
+        "state": "current",
+        "hook": "/b/synapse-hook",
+        "version": "0.17.0"
+      }
+    ]
+  }
+}

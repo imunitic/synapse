@@ -1,0 +1,8 @@
+{
+  "name": "note.status",
+  "params": {
+    "path": "tasks/widget/Make the widget.md",
+    "status": "DONE"
+  },
+  "result": null
+}
