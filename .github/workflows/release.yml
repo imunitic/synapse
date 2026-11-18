@@ -449,7 +449,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.what.outputs.tag }}
         run: |
-          gh release create "$TAG" --verify-tag --title "$TAG" --notes "" ||
+          sed "s|@TAG@|$TAG|" ci/release-notes.md > release-notes.md
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file release-notes.md ||
             gh release view "$TAG" >/dev/null
           gh release upload "$TAG" installers/* --clobber
 

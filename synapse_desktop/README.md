@@ -4,13 +4,21 @@ A desktop client for `synapse-pipeline`, developed as a web app first and wrappe
 
 ## Download
 
-Each release of Synapse has a `Synapse Desktop_<version>_aarch64.dmg` on its [GitHub Release](https://github.com/imunitic/synapse/releases), for macOS on Apple Silicon. Open it and drag Synapse Desktop to Applications.
+Each release of Synapse has installers for macOS on Apple Silicon, Linux x64 and Windows x64 on its [GitHub Release](https://github.com/imunitic/synapse/releases), with a `SHA256SUMS` file. The release's notes say how to install each one; the short form:
 
-The app is not notarized by Apple, so macOS blocks a downloaded copy the first time. Run this once after copying it:
+| Platform | Install                                                                                                                                         |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| macOS    | `curl -fsSL https://github.com/imunitic/synapse/releases/latest/download/install.sh \| sh`, or open the `.dmg` and drag the app to Applications |
+| Linux    | `sudo apt install ./synapse-desktop_<version>_linux-x64.deb`, or run the `.AppImage` (it needs FUSE 2)                                          |
+| Windows  | Run `synapse-desktop_<version>_windows-x64-setup.exe`; it installs for the current user                                                         |
+
+The installers are not signed with a paid certificate. On macOS the `curl` install opens without a prompt; a `.dmg` is blocked the first time, so open the app from its context menu, or run this once after copying it:
 
 ```sh
 xattr -dr com.apple.quarantine "/Applications/Synapse Desktop.app"
 ```
+
+On Windows, SmartScreen asks for a confirmation the first time: choose "More info", then "Run anyway".
 
 The app brings its own `synapse`, `synapse-hook` and `synapse-pipeline`, of the same version as the app. It needs no Node, Rust or Synapse installed to run.
 
