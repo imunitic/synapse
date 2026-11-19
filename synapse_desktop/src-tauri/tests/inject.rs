@@ -590,6 +590,54 @@ mod wrappers {
         assert!(text.contains(" one env="));
     }
 
+    #[test]
+    fn a_shell_started_from_a_shell_of_the_app_reads_the_users_own_zsh_files_once() {
+        if !zsh_available() {
+            return;
+        }
+        let w = World::new();
+        put(&w.home.join(".zshrc"), "export FROM_USER_ZSHRC=yes\n");
+        let path = format!("{}:/usr/bin:/bin", w.bin());
+        let outer = plan_shell(&w.deps(&path, &[("SHELL", "/bin/zsh")])).unwrap();
+        // The app started again from that shell: it has the shell's ZDOTDIR, the app's own folder.
+        let inner = plan_shell(&w.deps(
+            &path,
+            &[
+                ("SHELL", "/bin/zsh"),
+                ("ZDOTDIR", &outer.plan.env["ZDOTDIR"]),
+                (
+                    "SYNAPSE_USER_ZDOTDIR",
+                    &outer.plan.env["SYNAPSE_USER_ZDOTDIR"],
+                ),
+            ],
+        ))
+        .unwrap();
+        assert_eq!(inner.plan.env["SYNAPSE_USER_ZDOTDIR"], s(&w.home));
+        let mut command = Command::new("zsh");
+        command
+            .args(["-l", "-i", "-c", "echo \"user=$FROM_USER_ZSHRC\""])
+            .env_clear()
+            .env("HOME", &w.home);
+        for (k, v) in &inner.plan.env {
+            command.env(k, v);
+        }
+        let o = command.output().unwrap();
+        let errors = String::from_utf8_lossy(&o.stderr);
+        assert!(out(&o).contains("user=yes"), "{}", out(&o));
+        assert!(!errors.contains("recursion"), "{errors}");
+    }
+
+    #[test]
+    fn a_shell_reads_the_users_zsh_files_from_their_zdotdir_else_the_home_folder() {
+        let w = World::new();
+        let path = format!("{}:/usr/bin:/bin", w.bin());
+        let mine =
+            plan_shell(&w.deps(&path, &[("SHELL", "/bin/zsh"), ("ZDOTDIR", "/mine")])).unwrap();
+        assert_eq!(mine.plan.env["SYNAPSE_USER_ZDOTDIR"], "/mine");
+        let home = plan_shell(&w.deps(&path, &[("SHELL", "/bin/zsh")])).unwrap();
+        assert_eq!(home.plan.env["SYNAPSE_USER_ZDOTDIR"], s(&w.home));
+    }
+
     // Following a conversation ---------------------------------------------------------------
 
     struct Follow {

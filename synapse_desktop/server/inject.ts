@@ -490,7 +490,9 @@ export async function planShell(deps: InjectDeps): Promise<ShellPlan> {
     const zdotdir = join(deps.dataDir, 'zdotdir')
     await resetDir(deps.dataDir, zdotdir)
     for (const name of ZSH_FILES) await writeFile(join(zdotdir, name), zshFile(name))
-    env.SYNAPSE_USER_ZDOTDIR = deps.env.ZDOTDIR || deps.home
+    // A shell of the app started from one of its own shells has the app's ZDOTDIR, whose
+    // files would read themselves; the user's own folder is the one that shell was given.
+    env.SYNAPSE_USER_ZDOTDIR = deps.env.SYNAPSE_USER_ZDOTDIR || deps.env.ZDOTDIR || deps.home
     env.ZDOTDIR = zdotdir
   }
   const names = wrapped.filter((w) => w.plan.loaded).map((w) => w.name)
