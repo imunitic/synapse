@@ -10,6 +10,7 @@ import { HostError } from '../shared/dispatch.ts'
 import type { TerminalStartParams } from '../shared/terminal.ts'
 import type { TerminalKind } from '../shared/transport.ts'
 import { cliEnvironment } from './cli.ts'
+import { harnessEnvironment, readLoginEnvironment } from './doctor.ts'
 import { expandHome } from './home.ts'
 import { taskArgs } from './tasks.ts'
 import { loadConfig } from './config-store.ts'
@@ -46,6 +47,16 @@ export interface TerminalDeps {
   sessionsRoot: string
   // Follows the conversations of the harnesses started in a terminal.
   watch?: typeof watchTranscripts
+  // The environment of the user's login shell, read for each harness that is started, so
+  // that what the user's start-up files export reaches it; the real one asks the shell.
+  loginEnvironment?: () => Promise<Record<string, string> | null>
+}
+
+// Asks the user's own shell; there is none to ask on Windows.
+function askLoginShell(environment: Environment): Promise<Record<string, string> | null> {
+  if (process.platform === 'win32') return Promise.resolve(null)
+  const shell = environment.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/sh')
+  return readLoginEnvironment(shell)
 }
 
 // Where the app keeps what it makes for the harnesses it injects Synapse into.
@@ -191,9 +202,18 @@ export async function prepare(
       args = [...args, '--input', file]
     }
   }
+  // A shell is the user's own and reads its start-up files itself; a harness is given what
+  // they export.
+  const base =
+    message.kind === 'Shell'
+      ? deps.environment.env
+      : harnessEnvironment(
+          await (deps.loginEnvironment ?? (() => askLoginShell(deps.environment)))(),
+          deps.environment.env,
+        )
   const env = {
     ...Object.fromEntries(
-      Object.entries(strings(cliEnvironment(deps.environment.env, config))).filter(
+      Object.entries(strings(cliEnvironment(base, config))).filter(
         ([name]) => !OF_ANOTHER_SESSION.includes(name),
       ),
     ),

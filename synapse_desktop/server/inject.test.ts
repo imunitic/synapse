@@ -378,6 +378,43 @@ describe('wrapper commands', () => {
   )
 })
 
+describe('the zsh files of a shell', () => {
+  it('are read from the user’s ZDOTDIR, else the home folder', async () => {
+    const mine = await planShell({
+      ...deps,
+      env: { ...deps.env, SHELL: '/bin/zsh', ZDOTDIR: '/mine' },
+    })
+    expect(mine.env.SYNAPSE_USER_ZDOTDIR).toBe('/mine')
+    const home = await planShell({ ...deps, env: { ...deps.env, SHELL: '/bin/zsh' } })
+    expect(home.env.SYNAPSE_USER_ZDOTDIR).toBe(deps.home)
+  })
+
+  it.skipIf(!zshAvailable)(
+    'are the user’s own, read once, in a shell started from a shell of the app',
+    async () => {
+      await put(join(deps.home, '.zshrc'), 'export FROM_USER_ZSHRC=yes\n')
+      const env = { ...deps.env, SHELL: '/bin/zsh', PATH: `${deps.env.PATH}:/usr/bin:/bin` }
+      const outer = await planShell({ ...deps, env })
+      // The app started again from that shell: it has the shell's ZDOTDIR, the app's own folder.
+      const inner = await planShell({
+        ...deps,
+        env: {
+          ...env,
+          ZDOTDIR: outer.env.ZDOTDIR,
+          SYNAPSE_USER_ZDOTDIR: outer.env.SYNAPSE_USER_ZDOTDIR,
+        },
+      })
+      expect(inner.env.SYNAPSE_USER_ZDOTDIR).toBe(deps.home)
+      const out = spawnSync('zsh', ['-l', '-i', '-c', 'echo "user=$FROM_USER_ZSHRC"'], {
+        env: { ...inner.env, HOME: deps.home },
+        encoding: 'utf8',
+      })
+      expect(out.stdout).toContain('user=yes')
+      expect(out.stderr).not.toContain('recursion')
+    },
+  )
+})
+
 describe('following a conversation', () => {
   let sessions: string
   let shims: string

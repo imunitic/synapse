@@ -123,6 +123,120 @@ impl LoginPath {
     }
 }
 
+const ENV_MARK: &str = "__SYNAPSE_ENV__";
+
+/// The variables that describe the shell the environment was read from, not the user's settings, and
+/// those of the shell terminal's own start-up.
+pub const SHELL_INTERNAL: [&str; 8] = [
+    "PWD",
+    "OLDPWD",
+    "SHLVL",
+    "_",
+    "TERM",
+    "ZDOTDIR",
+    "SYNAPSE_USER_ZDOTDIR",
+    "SYNAPSE_SHIM_DIR",
+];
+
+/// The whole environment a login shell has, or none when it cannot be had. The shell is asked as an
+/// interactive login shell, so that what its start-up files export is there. `printf` and `env` are
+/// named by their paths so that no shell's built-in of the same name answers instead, and `;` parts
+/// the commands in every shell; the answer is marked, since the start-up files may print, and its
+/// entries are parted by NUL, so that a value may hold a newline.
+pub async fn read_login_environment(shell: &str) -> Option<BTreeMap<String, String>> {
+    let script = format!(
+        "/usr/bin/printf '%s' {ENV_MARK}; /usr/bin/env -0; /usr/bin/printf '%s' {ENV_MARK}"
+    );
+    let mut command = tokio::process::Command::new(shell);
+    command
+        .args(["-ilc", &script])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(LOOK, command.output())
+        .await
+        .ok()?
+        .ok()?;
+    parse_login_environment(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// The variables between the first and the last mark of `stdout`, an entry for each NUL-ended
+/// `NAME=value`; none when the marks are not there or nothing is between them.
+pub fn parse_login_environment(stdout: &str) -> Option<BTreeMap<String, String>> {
+    let start = stdout.find(ENV_MARK)?;
+    let end = stdout.rfind(ENV_MARK)?;
+    if end <= start {
+        return None;
+    }
+    let variables: BTreeMap<String, String> = stdout[start + ENV_MARK.len()..end]
+        .split('\0')
+        .filter_map(|entry| entry.split_once('='))
+        .filter(|(name, _)| !name.is_empty())
+        .map(|(name, value)| (name.to_string(), value.to_string()))
+        .collect();
+    (!variables.is_empty()).then_some(variables)
+}
+
+/// The environment a harness is started with: the login shell's, without the variables of the shell
+/// itself, its PATH first and then the directories only this host has; this host's own when the
+/// login shell's could not be had.
+pub fn harness_environment(
+    captured: Option<&BTreeMap<String, String>>,
+    own: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let Some(captured) = captured else {
+        return own.clone();
+    };
+    let mut environment: BTreeMap<String, String> = captured
+        .iter()
+        .filter(|(name, _)| !SHELL_INTERNAL.contains(&name.as_str()))
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect();
+    let path = combined_path(
+        captured.get("PATH").map(String::as_str),
+        own.get("PATH").map(String::as_str),
+    );
+    environment.insert("PATH".into(), path);
+    environment
+}
+
+type Captured = Pin<Box<dyn Future<Output = Option<BTreeMap<String, String>>> + Send>>;
+
+/// How the environment of the login shell is had for a harness; the real one asks the user's shell
+/// each time, and a test says.
+#[derive(Clone)]
+pub struct LoginEnvironment(Arc<dyn Fn() -> Captured + Send + Sync>);
+
+impl LoginEnvironment {
+    pub fn new<F, Fut>(read: F) -> LoginEnvironment
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Option<BTreeMap<String, String>>> + Send + 'static,
+    {
+        LoginEnvironment(Arc::new(move || Box::pin(read())))
+    }
+
+    /// Asks the user's own shell; there is none to ask on Windows.
+    pub fn shell(environment: &Environment) -> LoginEnvironment {
+        let shell = user_shell(environment);
+        let none = cfg!(windows);
+        LoginEnvironment::new(move || {
+            let shell = shell.clone();
+            async move {
+                if none {
+                    None
+                } else {
+                    read_login_environment(&shell).await
+                }
+            }
+        })
+    }
+
+    pub async fn read(&self) -> Option<BTreeMap<String, String>> {
+        (self.0)().await
+    }
+}
+
 /// What `synapse doctor --install` says, with the harnesses looked for on the PATH of the user's login
 /// shell as well as the one this host has: a program started from the desktop has the short PATH the
 /// system gives it, and a terminal has the one the user's own files make.

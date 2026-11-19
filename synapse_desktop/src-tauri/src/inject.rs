@@ -665,8 +665,11 @@ pub fn plan_shell(deps: &InjectDeps) -> std::io::Result<ShellPlan> {
         for name in ZSH_FILES {
             fs::write(zdotdir.join(name), zsh_file(name))?;
         }
+        // A shell of the app started from one of its own shells has the app's ZDOTDIR, whose files
+        // would read themselves; the user's own folder is the one that shell was given.
         let user = env
-            .var("ZDOTDIR")
+            .var("SYNAPSE_USER_ZDOTDIR")
+            .or_else(|| env.var("ZDOTDIR"))
             .map(String::from)
             .unwrap_or_else(|| text(&env.home));
         vars.insert("SYNAPSE_USER_ZDOTDIR".into(), user);
