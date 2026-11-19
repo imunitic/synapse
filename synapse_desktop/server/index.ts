@@ -15,6 +15,9 @@ import { createNoteSession } from './note-agent.ts'
 import { createRunStarter } from './runs.ts'
 import { defaultPlan, sessionsRoot, spawnPty } from './terminal.ts'
 import { createSessions } from './terminal-sessions.ts'
+import { requireSupportedHostMode } from './host-mode.ts'
+
+requireSupportedHostMode(process.env)
 
 const { web: WEB_PORT, server: SERVER_PORT } = ports(process.env)
 const environment = { env: process.env, home: homedir() }
