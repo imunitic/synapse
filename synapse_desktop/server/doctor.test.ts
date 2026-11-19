@@ -3,7 +3,15 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { AppConfig, CliResult } from '../shared/transport.ts'
-import { combinedPath, diagnose, forgetLoginPath, readLoginPath } from './doctor.ts'
+import {
+  combinedPath,
+  diagnose,
+  forgetLoginPath,
+  harnessEnvironment,
+  parseLoginEnvironment,
+  readLoginEnvironment,
+  readLoginPath,
+} from './doctor.ts'
 
 let dir: string
 
@@ -55,6 +63,57 @@ describe('the PATH of a login shell', () => {
     expect(await readLoginPath(await shell('echo nothing'))).toBeNull()
     expect(await readLoginPath(await shell('exit 3'))).toBeNull()
     expect(await readLoginPath(join(dir, 'no-such-shell'))).toBeNull()
+  })
+})
+
+describe('the environment of a login shell, for a harness', () => {
+  it('is what env prints in the shell, whatever its start-up files print', async () => {
+    // A shell whose start-up files print and export, then run the command it is given.
+    const path = await shell(
+      `[ "$1" = -ilc ] || exit 9; echo "welcome"; export FROM_RC='two\nlines'; shift; eval "$1"; echo " bye"`,
+    )
+    const got = await readLoginEnvironment(path)
+    expect(got?.FROM_RC).toBe('two\nlines')
+    expect(got).toHaveProperty('PATH')
+  })
+
+  it('is nothing when the shell says nothing, fails, or is not there', async () => {
+    expect(await readLoginEnvironment(await shell('echo nothing'))).toBeNull()
+    expect(await readLoginEnvironment(await shell('exit 3'))).toBeNull()
+    expect(await readLoginEnvironment(join(dir, 'no-such-shell'))).toBeNull()
+  })
+
+  it('is the entries between the marks, each ended by NUL', () => {
+    expect(
+      parseLoginEnvironment(
+        'hello\n__SYNAPSE_ENV__A=1\0B=x=y\0C=two\nlines\0EMPTY=\0not an entry\0=nameless\0__SYNAPSE_ENV__bye',
+      ),
+    ).toEqual({ A: '1', B: 'x=y', C: 'two\nlines', EMPTY: '' })
+    expect(parseLoginEnvironment('A=1\0')).toBeNull()
+    expect(parseLoginEnvironment('__SYNAPSE_ENV__A=1\0')).toBeNull()
+    expect(parseLoginEnvironment('__SYNAPSE_ENV____SYNAPSE_ENV__')).toBeNull()
+  })
+
+  it('is given to a harness without the shell’s own variables, its PATH first', () => {
+    const join = (parts: string[]) => parts.join(delimiter)
+    const own = { PATH: join(['/app/bundled', '/usr/bin']), ONLY_APP: 'a' }
+    const captured = {
+      PATH: join(['/opt/homebrew/bin', '/usr/bin']),
+      FROM_RC: 'r',
+      PWD: '/x',
+      OLDPWD: '/y',
+      SHLVL: '2',
+      _: '/usr/bin/env',
+      TERM: 'dumb',
+      ZDOTDIR: '/z',
+      SYNAPSE_USER_ZDOTDIR: '/u',
+      SYNAPSE_SHIM_DIR: '/s',
+    }
+    expect(harnessEnvironment(captured, own)).toEqual({
+      PATH: join(['/opt/homebrew/bin', '/usr/bin', '/app/bundled']),
+      FROM_RC: 'r',
+    })
+    expect(harnessEnvironment(null, own)).toEqual(own)
   })
 })
 

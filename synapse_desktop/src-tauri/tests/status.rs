@@ -18,8 +18,9 @@ use synapse_desktop_host::messages::{
 };
 use synapse_desktop_host::protocol::ErrorCode;
 use synapse_desktop_host::status::{
-    combined_path, compare_versions, diagnose, hook_of, inspect_integrations, read_login_path,
-    user_shell, version_in, with_login_path, LoginPath, VersionOf,
+    combined_path, compare_versions, diagnose, harness_environment, hook_of, inspect_integrations,
+    parse_login_environment, read_login_environment, read_login_path, user_shell, version_in,
+    with_login_path, LoginPath, VersionOf,
 };
 use tempfile::tempdir;
 
@@ -99,6 +100,116 @@ mod login {
             .to_string();
         assert_eq!(read_login_path(&missing).await, None);
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The environment of a login shell, for a harness
+// ---------------------------------------------------------------------------------------------
+
+fn variables(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+}
+
+#[cfg(unix)]
+mod login_environment {
+    use super::*;
+
+    fn shell(dir: &Path, body: &str) -> String {
+        let path = dir.join("shell");
+        support::executable(&path, &format!("#!/bin/sh\n{body}\n"));
+        path.to_string_lossy().to_string()
+    }
+
+    #[tokio::test]
+    async fn is_what_env_prints_in_the_shell_whatever_its_start_up_files_print() {
+        let dir = tempdir().unwrap();
+        // A shell whose start-up files print and export, then run the command it is given.
+        let path = shell(
+            dir.path(),
+            r#"[ "$1" = -ilc ] || exit 9; echo "welcome"; export FROM_RC='two
+lines'; shift; eval "$1"; echo " bye""#,
+        );
+        let got = read_login_environment(&path).await.expect("an environment");
+        assert_eq!(got.get("FROM_RC").map(String::as_str), Some("two\nlines"));
+        assert!(got.contains_key("PATH"));
+    }
+
+    #[tokio::test]
+    async fn is_nothing_when_the_shell_says_nothing_fails_or_is_not_there() {
+        let dir = tempdir().unwrap();
+        assert_eq!(
+            read_login_environment(&shell(dir.path(), "echo nothing")).await,
+            None
+        );
+        assert_eq!(
+            read_login_environment(&shell(dir.path(), "exit 3")).await,
+            None
+        );
+        let missing = dir.path().join("no-such-shell");
+        assert_eq!(
+            read_login_environment(&missing.to_string_lossy()).await,
+            None
+        );
+    }
+}
+
+#[test]
+fn the_login_environment_is_the_entries_between_the_marks_each_ended_by_nul() {
+    let got = parse_login_environment(
+        "hello\n__SYNAPSE_ENV__A=1\0B=x=y\0C=two\nlines\0EMPTY=\0not an entry\0=nameless\0__SYNAPSE_ENV__bye",
+    );
+    assert_eq!(
+        got,
+        Some(variables(&[
+            ("A", "1"),
+            ("B", "x=y"),
+            ("C", "two\nlines"),
+            ("EMPTY", ""),
+        ]))
+    );
+    assert_eq!(parse_login_environment("A=1\0"), None);
+    assert_eq!(parse_login_environment("__SYNAPSE_ENV__A=1\0"), None);
+    assert_eq!(
+        parse_login_environment("__SYNAPSE_ENV____SYNAPSE_ENV__"),
+        None
+    );
+}
+
+#[test]
+fn a_harness_has_the_login_environment_without_the_shells_own_and_its_path_first() {
+    let separator = if cfg!(windows) { ";" } else { ":" };
+    let join = |parts: &[&str]| parts.join(separator);
+    let own = variables(&[
+        ("PATH", &join(&["/app/bundled", "/usr/bin"])),
+        ("ONLY_APP", "a"),
+    ]);
+    let captured = variables(&[
+        ("PATH", &join(&["/opt/homebrew/bin", "/usr/bin"])),
+        ("FROM_RC", "r"),
+        ("PWD", "/x"),
+        ("OLDPWD", "/y"),
+        ("SHLVL", "2"),
+        ("_", "/usr/bin/env"),
+        ("TERM", "dumb"),
+        ("ZDOTDIR", "/z"),
+        ("SYNAPSE_USER_ZDOTDIR", "/u"),
+        ("SYNAPSE_SHIM_DIR", "/s"),
+    ]);
+    let got = harness_environment(Some(&captured), &own);
+    assert_eq!(
+        got,
+        variables(&[
+            (
+                "PATH",
+                &join(&["/opt/homebrew/bin", "/usr/bin", "/app/bundled"])
+            ),
+            ("FROM_RC", "r"),
+        ])
+    );
+    assert_eq!(harness_environment(None, &own), own);
 }
 
 #[test]

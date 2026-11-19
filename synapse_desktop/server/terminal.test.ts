@@ -74,6 +74,9 @@ let sessions: Sessions
 let expiries: { ms: number; action: () => void; cancelled: boolean }[]
 let connections: { close: () => void }[]
 let counter: number
+// What the login shell is said to export; null, as when it cannot be read, until a test sets it.
+let login: Record<string, string> | null
+let loginReads: number
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'synapse-desktop-terminal-'))
@@ -87,6 +90,8 @@ beforeEach(async () => {
   expiries = []
   connections = []
   counter = 0
+  login = null
+  loginReads = 0
   await writeFile(
     join(dir, 'config.json'),
     JSON.stringify({
@@ -131,6 +136,10 @@ beforeEach(async () => {
       return maxTerminals
     },
     sessionsRoot: join(dir, 'sessions'),
+    loginEnvironment: () => {
+      loginReads += 1
+      return Promise.resolve(login)
+    },
     watch: (options) => {
       const watcher = new FakeWatcher()
       watchers.push(watcher)
@@ -373,6 +382,44 @@ describe('a session', () => {
     expect(spawned[0]?.env).not.toHaveProperty('CLAUDE_CODE_MESSAGING_TOKEN')
     // The rest of the environment is as it was.
     expect(spawned[0]?.env).toMatchObject({ INHERITED: 'i', CLAUDE_EFFORT: 'high' })
+  })
+
+  it('gives a harness what the login shell exports, under what the app and the plan set', async () => {
+    login = {
+      PATH: '/opt/bin:/usr/bin',
+      FROM_ZSHRC: 'z',
+      PLAN_ENV: 'from the shell',
+      FROM_APP: 'from the shell',
+      SHLVL: '2',
+      PWD: '/somewhere',
+      CLAUDECODE: '1',
+    }
+    await begin(connect(), { resume: '8d6c1e52-0f0a-4b8e-9a51-2f4c9d1e7b3a' })
+    expect(spawned[0]?.env).toMatchObject({
+      FROM_ZSHRC: 'z',
+      PATH: '/opt/bin:/usr/bin',
+      PLAN_ENV: 'p',
+      FROM_APP: 'yes',
+      TERM: 'xterm-256color',
+    })
+    for (const name of ['SHLVL', 'PWD', 'CLAUDECODE', 'INHERITED']) {
+      expect(spawned[0]?.env).not.toHaveProperty(name)
+    }
+    expect(loginReads).toBe(1)
+  })
+
+  it('does not give a shell the login shell environment, since it reads its own files', async () => {
+    login = { FROM_ZSHRC: 'z' }
+    await begin(connect(), { kind: 'Shell' })
+    expect(spawned[0]?.env).not.toHaveProperty('FROM_ZSHRC')
+    expect(spawned[0]?.env).toMatchObject({ INHERITED: 'i' })
+    expect(loginReads).toBe(0)
+  })
+
+  it('gives a harness the app environment when the login shell cannot be read', async () => {
+    await begin(connect())
+    expect(spawned[0]?.env).toMatchObject({ INHERITED: 'i', PATH: '/usr/bin' })
+    expect(loginReads).toBe(1)
   })
 
   it('says how the program ended, and keeps the session to be read until its tab is closed', async () => {

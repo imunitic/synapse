@@ -48,6 +48,72 @@ export function readLoginPath(shell: string): Promise<string | null> {
   })
 }
 
+const ENV_MARK = '__SYNAPSE_ENV__'
+const ENV_BUFFER = 4 * 1024 * 1024
+
+// The variables that describe the shell the environment was read from, not the user's
+// settings, and those of the shell terminal's own start-up.
+export const SHELL_INTERNAL: readonly string[] = [
+  'PWD',
+  'OLDPWD',
+  'SHLVL',
+  '_',
+  'TERM',
+  'ZDOTDIR',
+  'SYNAPSE_USER_ZDOTDIR',
+  'SYNAPSE_SHIM_DIR',
+]
+
+// The whole environment a login shell has, or null when it cannot be had. The shell is
+// asked as an interactive login shell, so that what its start-up files export is there.
+// `printf` and `env` are named by their paths so that no shell's built-in of the same name
+// answers instead, and `;` parts the commands in every shell; the answer is marked, since
+// the start-up files may print, and its entries are parted by NUL, so that a value may hold
+// a newline.
+export function readLoginEnvironment(shell: string): Promise<Record<string, string> | null> {
+  const script = `/usr/bin/printf '%s' ${ENV_MARK}; /usr/bin/env -0; /usr/bin/printf '%s' ${ENV_MARK}`
+  return new Promise((resolve) => {
+    const child = execFile(
+      shell,
+      ['-ilc', script],
+      { timeout: LOOK_MS, maxBuffer: ENV_BUFFER, env: process.env },
+      (_error, stdout) => resolve(parseLoginEnvironment(stdout)),
+    )
+    // Nothing is typed to it, so a start-up file that asks does not wait for an answer.
+    child.stdin?.end()
+  })
+}
+
+// The variables between the first and the last mark of `stdout`, an entry for each
+// NUL-ended `NAME=value`; null when the marks are not there or nothing is between them.
+export function parseLoginEnvironment(stdout: string): Record<string, string> | null {
+  const start = stdout.indexOf(ENV_MARK)
+  const end = stdout.lastIndexOf(ENV_MARK)
+  if (start === -1 || end <= start) return null
+  const variables: Record<string, string> = {}
+  for (const entry of stdout.slice(start + ENV_MARK.length, end).split('\0')) {
+    const equals = entry.indexOf('=')
+    if (equals <= 0) continue
+    variables[entry.slice(0, equals)] = entry.slice(equals + 1)
+  }
+  return Object.keys(variables).length > 0 ? variables : null
+}
+
+// The environment a harness is started with: the login shell's, without the variables of
+// the shell itself, its PATH first and then the directories only this host has; this
+// host's own when the login shell's could not be had.
+export function harnessEnvironment(
+  captured: Record<string, string> | null,
+  own: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  if (captured === null) return own
+  const environment: Record<string, string | undefined> = Object.fromEntries(
+    Object.entries(captured).filter(([name]) => !SHELL_INTERNAL.includes(name)),
+  )
+  environment.PATH = combinedPath(captured.PATH, own.PATH)
+  return environment
+}
+
 // The directories of `first`, then those of `then` that are not there.
 export function combinedPath(
   first: string | null | undefined,

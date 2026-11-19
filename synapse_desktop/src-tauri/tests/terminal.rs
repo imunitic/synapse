@@ -14,6 +14,7 @@ use synapse_desktop_host::protocol::{
     Capabilities, ClientMessage, ErrorCode, HostKind, HostMessage, ReplyError,
 };
 use synapse_desktop_host::pty::{OnEvent, Pty, PtyEvent, SpawnOptions, SpawnPty};
+use synapse_desktop_host::status::LoginEnvironment;
 use synapse_desktop_host::terminal::{PlanFn, Schedule, Sessions, TerminalDeps, DETACHED_TTL};
 use synapse_desktop_host::terminal_bus::{terminal_handlers, terminal_stream, ChannelSink};
 use synapse_desktop_host::transcripts::{
@@ -106,6 +107,9 @@ struct Rig {
     watch_events: Arc<Mutex<Vec<TranscriptEvents>>>,
     watch_dirs: Arc<Mutex<Vec<PathBuf>>>,
     expiries: Arc<Mutex<Vec<Expiry>>>,
+    /// What the login shell is said to export; none, as when it cannot be read, until a test sets it.
+    login: Arc<Mutex<Option<BTreeMap<String, String>>>>,
+    login_reads: Arc<AtomicUsize>,
     sessions: Sessions,
     counter: AtomicUsize,
 }
@@ -172,6 +176,14 @@ fn rig() -> Rig {
         });
         Box::new(move || cancelled.store(true, Ordering::SeqCst))
     });
+    let login: Arc<Mutex<Option<BTreeMap<String, String>>>> = Default::default();
+    let login_reads = Arc::new(AtomicUsize::new(0));
+    let (l, r) = (login.clone(), login_reads.clone());
+    let login_environment = LoginEnvironment::new(move || {
+        r.fetch_add(1, Ordering::SeqCst);
+        let captured = l.lock().unwrap().clone();
+        async move { captured }
+    });
     let max_terminals = Arc::new(AtomicUsize::new(8));
     let env: BTreeMap<String, String> = [
         ("PATH", "/usr/bin"),
@@ -196,6 +208,7 @@ fn rig() -> Rig {
         sessions_root: dir.path().join("sessions"),
         watch,
         schedule,
+        login_environment,
     });
     Rig {
         dir,
@@ -207,6 +220,8 @@ fn rig() -> Rig {
         watch_events,
         watch_dirs,
         expiries,
+        login,
+        login_reads,
         sessions,
         counter: AtomicUsize::new(0),
     }
@@ -670,6 +685,75 @@ async fn a_session_is_not_given_the_identity_of_the_session_the_host_runs_in() {
     }
     assert_eq!(env.get("INHERITED").map(String::as_str), Some("i"));
     assert_eq!(env.get("CLAUDE_EFFORT").map(String::as_str), Some("high"));
+}
+
+fn variables(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+}
+
+#[tokio::test]
+async fn a_harness_is_given_what_the_login_shell_exports_under_what_the_app_and_the_plan_set() {
+    let rig = rig();
+    *rig.login.lock().unwrap() = Some(variables(&[
+        ("PATH", "/opt/bin:/usr/bin"),
+        ("FROM_ZSHRC", "z"),
+        ("PLAN_ENV", "from the shell"),
+        ("FROM_APP", "from the shell"),
+        ("SHLVL", "2"),
+        ("PWD", "/somewhere"),
+        ("CLAUDECODE", "1"),
+    ]));
+    rig.begin(
+        &connect(&rig, "local"),
+        json!({ "resume": "8d6c1e52-0f0a-4b8e-9a51-2f4c9d1e7b3a" }),
+    )
+    .await
+    .unwrap();
+    let spawned = rig.spawned.lock().unwrap();
+    let env = &spawned[0].options.env;
+    for (name, value) in [
+        ("FROM_ZSHRC", "z"),
+        ("PATH", "/opt/bin:/usr/bin"),
+        ("PLAN_ENV", "p"),
+        ("FROM_APP", "yes"),
+        ("TERM", "xterm-256color"),
+    ] {
+        assert_eq!(env.get(name).map(String::as_str), Some(value), "{name}");
+    }
+    for name in ["SHLVL", "PWD", "CLAUDECODE", "INHERITED"] {
+        assert!(!env.contains_key(name), "{name}");
+    }
+    assert_eq!(rig.login_reads.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn a_shell_is_not_given_the_login_shell_environment_since_it_reads_its_own_files() {
+    let rig = rig();
+    *rig.login.lock().unwrap() = Some(variables(&[("FROM_ZSHRC", "z")]));
+    rig.begin(&connect(&rig, "local"), json!({ "kind": "Shell" }))
+        .await
+        .unwrap();
+    let spawned = rig.spawned.lock().unwrap();
+    assert!(!spawned[0].options.env.contains_key("FROM_ZSHRC"));
+    assert_eq!(
+        spawned[0].options.env.get("INHERITED").map(String::as_str),
+        Some("i")
+    );
+    assert_eq!(rig.login_reads.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn a_harness_is_given_the_app_environment_when_the_login_shell_cannot_be_read() {
+    let rig = rig();
+    rig.begin(&connect(&rig, "local"), json!({})).await.unwrap();
+    let spawned = rig.spawned.lock().unwrap();
+    let env = &spawned[0].options.env;
+    assert_eq!(env.get("INHERITED").map(String::as_str), Some("i"));
+    assert_eq!(env.get("PATH").map(String::as_str), Some("/usr/bin"));
+    assert_eq!(rig.login_reads.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]

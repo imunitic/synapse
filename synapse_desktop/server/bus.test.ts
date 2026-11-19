@@ -39,6 +39,7 @@ beforeEach(async () => {
       plan: () => Promise.reject(new Error('no terminals here')),
       maxTerminals: 1,
       sessionsRoot: join(dir, 'sessions'),
+      loginEnvironment: () => Promise.resolve(null),
     }),
     policy: { allowedHosts: hosts, allowedOrigins: new Set([ORIGIN]), token: TOKEN },
     context: {

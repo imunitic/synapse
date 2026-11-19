@@ -11,6 +11,7 @@ use crate::inject::{plan_session, plan_shell, InjectDeps, SessionPlan};
 use crate::messages::{Harness, TerminalInfo, TerminalKind, TerminalStartParams, TerminalTask};
 use crate::pty::{OnEvent, Pty, PtyEvent, SpawnOptions, SpawnPty};
 use crate::screen::Screen;
+use crate::status::{harness_environment, LoginEnvironment};
 use crate::transcripts::{
     RegisteredHarness, Registration, Source, SourceHarness, TranscriptEvents, TranscriptWatcher,
     WatchFactory, WatchOptions,
@@ -160,6 +161,9 @@ pub struct TerminalDeps {
     pub watch: WatchFactory,
     /// The clock of the 12 hours, injected so that the tests do not wait for it.
     pub schedule: Schedule,
+    /// The environment of the user's login shell, read for each harness that is started, so that what
+    /// the user's start-up files export reaches it.
+    pub login_environment: LoginEnvironment,
 }
 
 impl TerminalDeps {
@@ -173,6 +177,7 @@ impl TerminalDeps {
             .join("..")
             .join("sessions");
         let watch = crate::transcripts::file_watchers(environment.clone());
+        let login_environment = LoginEnvironment::shell(&environment);
         TerminalDeps {
             environment,
             config_file,
@@ -182,6 +187,7 @@ impl TerminalDeps {
             sessions_root,
             watch,
             schedule: tokio_schedule(),
+            login_environment,
         }
     }
 }
@@ -388,7 +394,14 @@ async fn prepare(
         }
         execution_id = Some(id);
     }
-    let mut env: BTreeMap<String, String> = cli_environment(&deps.environment.env, &config)
+    // A shell is the user's own and reads its start-up files itself; a harness is given what they export.
+    let base = if kind == TerminalKind::Shell {
+        deps.environment.env.clone()
+    } else {
+        let captured = deps.login_environment.read().await;
+        harness_environment(captured.as_ref(), &deps.environment.env)
+    };
+    let mut env: BTreeMap<String, String> = cli_environment(&base, &config)
         .into_iter()
         .filter(|(name, _)| !OF_ANOTHER_SESSION.contains(&name.as_str()))
         .collect();
