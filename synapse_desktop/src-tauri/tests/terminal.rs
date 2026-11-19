@@ -697,8 +697,10 @@ fn variables(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
 #[tokio::test]
 async fn a_harness_is_given_what_the_login_shell_exports_under_what_the_app_and_the_plan_set() {
     let rig = rig();
+    let separator = if cfg!(windows) { ";" } else { ":" };
+    let login_path = ["/opt/bin", "/usr/bin"].join(separator);
     *rig.login.lock().unwrap() = Some(variables(&[
-        ("PATH", "/opt/bin:/usr/bin"),
+        ("PATH", &login_path),
         ("FROM_ZSHRC", "z"),
         ("PLAN_ENV", "from the shell"),
         ("FROM_APP", "from the shell"),
@@ -716,7 +718,7 @@ async fn a_harness_is_given_what_the_login_shell_exports_under_what_the_app_and_
     let env = &spawned[0].options.env;
     for (name, value) in [
         ("FROM_ZSHRC", "z"),
-        ("PATH", "/opt/bin:/usr/bin"),
+        ("PATH", login_path.as_str()),
         ("PLAN_ENV", "p"),
         ("FROM_APP", "yes"),
         ("TERM", "xterm-256color"),

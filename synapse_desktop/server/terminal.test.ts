@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Bus } from '../shared/bus.ts'
 import { serve, type Connection } from '../shared/dispatch.ts'
@@ -386,7 +386,7 @@ describe('a session', () => {
 
   it('gives a harness what the login shell exports, under what the app and the plan set', async () => {
     login = {
-      PATH: '/opt/bin:/usr/bin',
+      PATH: ['/opt/bin', '/usr/bin'].join(delimiter),
       FROM_ZSHRC: 'z',
       PLAN_ENV: 'from the shell',
       FROM_APP: 'from the shell',
@@ -397,7 +397,7 @@ describe('a session', () => {
     await begin(connect(), { resume: '8d6c1e52-0f0a-4b8e-9a51-2f4c9d1e7b3a' })
     expect(spawned[0]?.env).toMatchObject({
       FROM_ZSHRC: 'z',
-      PATH: '/opt/bin:/usr/bin',
+      PATH: ['/opt/bin', '/usr/bin'].join(delimiter),
       PLAN_ENV: 'p',
       FROM_APP: 'yes',
       TERM: 'xterm-256color',
