@@ -180,14 +180,6 @@ jobs:
       - name: Desktop app checks
         run: just desktop-check
 
-      # TEMPORARY: determine exact Prettier output for the session store; remove in next commit.
-      - name: Show session formatting diff
-        if: failure()
-        working-directory: synapse_desktop
-        run: |
-          npx prettier --write server/gateway-sessions.ts server/gateway-sessions.test.ts
-          git diff -- server/gateway-sessions.ts server/gateway-sessions.test.ts
-
   # The Rust host of the desktop app: format, lint and its tests, on the platforms
   # the app is built for. It always runs, like `desktop`.
   desktop-host:
