@@ -30,6 +30,21 @@ describe('operator-provisioned gateway credentials', () => {
     expect(await verify('bob', 'fixture-long-password')).toBe('user-bob')
   })
 
+  it('limits concurrent expensive password checks and recovers after they settle', async () => {
+    const passwordHash = await hashGatewayPassword('fixture-long-password')
+    const verify = createPasswordVerifier([
+      { username: 'alice', userId: 'user-alice', passwordHash },
+    ])
+    const checks = [
+      verify('alice', 'fixture-long-password'),
+      verify('alice', 'fixture-long-password'),
+      verify('alice', 'fixture-long-password'),
+    ]
+    expect(await checks[2]).toBeNull()
+    expect(await Promise.all(checks.slice(0, 2))).toEqual(['user-alice', 'user-alice'])
+    expect(await verify('alice', 'fixture-long-password')).toBe('user-alice')
+  })
+
   it('rejects duplicate identities and unsupported or malformed hash parameters', async () => {
     const passwordHash = await hashGatewayPassword('fixture-long-password')
     const first = { username: 'alice', userId: 'user-alice', passwordHash }
