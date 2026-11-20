@@ -12,12 +12,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Keep only the newest CI run for each pull request. Main/tag/manual runs
-# remain independent, so unrelated releases and explicit checks are preserved.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
   # Builds the programs, runs the AUnit suite with contracts checked at run
   # time and proves the SPARK units, on the platforms that have a release, then
