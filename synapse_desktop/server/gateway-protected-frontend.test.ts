@@ -24,7 +24,12 @@ async function fixture() {
   })
   return {
     sessions,
-    request: (path: string, cookie?: string, method = 'GET', headers: Record<string, string> = {}) =>
+    request: (
+      path: string,
+      cookie?: string,
+      method = 'GET',
+      headers: Record<string, string> = {},
+    ) =>
       fetch(`http://${host}${path}`, {
         method,
         headers: { ...(cookie ? { Cookie: cookie } : {}), ...headers },
