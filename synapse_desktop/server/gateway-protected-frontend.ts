@@ -49,7 +49,9 @@ export function attachProtectedFrontend(server: Server, options: ProtectedFronte
 
   server.on('request', (request, response) => {
     const path = request.url ?? ''
-    if (path.startsWith('/auth/') || path.startsWith('/api/')) return
+    // Only the three auth endpoints have a separate HTTP request handler.
+    // The WebSocket bus is handled by an upgrade listener, not plain HTTP.
+    if (RESERVED.includes(path) && path !== '/api/bus') return
 
     const respond = (status: number, body = '') => {
       response.writeHead(status, {
