@@ -49,28 +49,40 @@ function privateBackend(name: string, token: string, increment: (headers: typeof
   return server
 }
 
-function connect(cookie?: string, headers: Record<string, string> = {}): Promise<{ socket: WebSocket } | { refused: number }> {
+interface Connected {
+  socket: WebSocket
+  next: () => Promise<unknown>
+}
+
+function connect(
+  cookie?: string,
+  headers: Record<string, string> = {},
+  origin = ORIGIN,
+): Promise<Connected | { refused: number }> {
   return new Promise((resolve) => {
     const socket = new WebSocket(`ws://127.0.0.1:${gatewayPort}${BUS_PATH}`, {
-      origin: ORIGIN,
+      origin,
       headers: { ...(cookie ? { cookie } : {}), ...headers },
     })
     clients.push(socket)
-    socket.once('open', () => resolve({ socket }))
+    const queued: unknown[] = []
+    const waiting: Array<(value: unknown) => void> = []
+    socket.on('message', (data) => {
+      const value: unknown = JSON.parse(String(data))
+      const listener = waiting.shift()
+      if (listener === undefined) queued.push(value)
+      else listener(value)
+    })
+    const next = (): Promise<unknown> => new Promise((done) => {
+      const value = queued.shift()
+      if (value === undefined) waiting.push(done)
+      else done(value)
+    })
+    socket.once('open', () => resolve({ socket, next }))
     socket.once('unexpected-response', (_request, response) => {
       resolve({ refused: response.statusCode ?? 0 })
     })
     socket.once('error', () => resolve({ refused: 0 }))
-  })
-}
-
-function message(socket: WebSocket): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('no WebSocket message received')), 2000)
-    socket.once('message', (data) => {
-      clearTimeout(timeout)
-      resolve(JSON.parse(String(data)))
-    })
   })
 }
 
@@ -117,8 +129,8 @@ describe('private Synapse WebSocket gateway', () => {
     const result = await connect('sid=a', { 'x-user-id': 'b', [TOKEN_HEADER]: TOKEN_B })
     if (!('socket' in result)) throw new Error('gateway refused the authenticated session')
     const { socket } = result
-    expect(await message(socket)).toEqual({ kind: 'hello', from: 'a' })
-    const reply = message(socket)
+    expect(await result.next()).toEqual({ kind: 'hello', from: 'a' })
+    const reply = result.next()
     socket.send(JSON.stringify({ kind: 'request', id: 'one', params: {} }))
     expect(await reply).toEqual({ kind: 'request', id: 'one', params: {} })
     expect(aCount).toBe(1)
@@ -131,7 +143,7 @@ describe('private Synapse WebSocket gateway', () => {
   it('routes the other user to their own backend', async () => {
     const result = await connect('sid=b')
     if (!('socket' in result)) throw new Error('gateway refused the authenticated session')
-    expect(await message(result.socket)).toEqual({ kind: 'hello', from: 'b' })
+    expect(await result.next()).toEqual({ kind: 'hello', from: 'b' })
     expect(aCount).toBe(0)
     expect(bCount).toBe(1)
     expect(bHeaders[TOKEN_HEADER]).toBe(TOKEN_B)
@@ -145,7 +157,7 @@ describe('private Synapse WebSocket gateway', () => {
   })
 
   it('refuses a foreign browser Origin before authenticating', async () => {
-    expect(await connect('sid=a', { origin: 'https://attacker.example' })).toEqual({ refused: 403 })
+    expect(await connect('sid=a', {}, 'https://attacker.example')).toEqual({ refused: 403 })
     expect(aCount).toBe(0)
     expect(bCount).toBe(0)
   })
@@ -165,7 +177,7 @@ describe('private Synapse WebSocket gateway', () => {
   it('closes an existing WebSocket when its server-side session is revoked', async () => {
     const result = await connect('sid=a')
     if (!('socket' in result)) throw new Error('gateway refused the authenticated session')
-    await message(result.socket)
+    await result.next()
     const closed = new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('revoked socket remained open')), 1000)
       result.socket.once('close', () => { clearTimeout(timeout); resolve() })
