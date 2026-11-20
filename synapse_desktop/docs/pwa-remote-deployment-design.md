@@ -131,6 +131,18 @@ The branch includes `server/gateway-password-verifier.ts` and `server/gateway-pr
 
 **Not deployment-ready:** verify and harden the provisioning process and secret storage, add identity recovery and password rotation, evaluate multi-factor authentication, complete reverse-proxy controls and HTTP request lifecycle limits, protect all static app assets, and finish per-user backend/container isolation. No usable public login service exists yet.
 
+## Protected PWA frontend foundation (2026-11-20)
+
+The feature branch adds `server/gateway-protected-frontend.ts` and tests. It is an opt-in, detached handler on a caller-provided HTTP server, not a remotely runnable gateway.
+
+- Requests for `/`, versioned frontend scripts, and the web manifest must present a valid server-side session cookie. Missing or revoked sessions are rejected.
+- Frontend content comes from an explicit operator-supplied in-memory asset manifest. Request paths are matched exactly: no filesystem traversal, directory listing, implicit SPA fallback, or user-controlled filesystem paths.
+- Only exact known authentication endpoints pass to the separate HTTP authentication handler. Other unhandled paths fail closed; the WebSocket bus remains an upgrade-only route.
+- Valid authenticated assets receive no-store cache headers and restrictive browser security headers. Only GET and HEAD are accepted.
+- Integration tests cover denial before login, delivery after session issuance, revocation, unexpected paths, malformed/encoded paths, reserved paths and missing assets.
+
+**Remaining work:** securely load a real Vite build manifest and assets, compose the detached frontend/auth/WebSocket handlers on a single HTTPS-only gateway, ensure correct CSP and service-worker behavior, implement an unauthenticated login view without exposing the application bundle, and perform a browser/PWA integration test. Remote mode still refuses startup; no live listener, private containers, or deployment exists.
+
 ## Host and deployment constraints
 
 - The new remote mode must continue to fail closed until these protections are implemented and tested.
