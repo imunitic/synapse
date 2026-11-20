@@ -42,7 +42,12 @@ export function attachGatewayFlow(
   let upstreamPausedAt: number | null = null
   let stopped = false
 
-  const relay = (source: WebSocket, destination: WebSocket, data: Buffer | ArrayBuffer | Buffer[], binary: boolean) => {
+  const relay = (
+    source: WebSocket,
+    destination: WebSocket,
+    data: Buffer | ArrayBuffer | Buffer[],
+    binary: boolean,
+  ) => {
     if (stopped) return
     if (binary || destination.readyState !== WebSocket.OPEN) {
       fail()
@@ -65,8 +70,10 @@ export function attachGatewayFlow(
     }
   }
 
-  const fromClient = (data: Buffer | ArrayBuffer | Buffer[], binary: boolean) => relay(client, upstream, data, binary)
-  const fromUpstream = (data: Buffer | ArrayBuffer | Buffer[], binary: boolean) => relay(upstream, client, data, binary)
+  const fromClient = (data: Buffer | ArrayBuffer | Buffer[], binary: boolean) =>
+    relay(client, upstream, data, binary)
+  const fromUpstream = (data: Buffer | ArrayBuffer | Buffer[], binary: boolean) =>
+    relay(upstream, client, data, binary)
   client.on('message', fromClient)
   upstream.on('message', fromUpstream)
   const timer = setInterval(() => {
