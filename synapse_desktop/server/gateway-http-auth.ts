@@ -29,6 +29,8 @@ export interface GatewayHttpAuthOptions {
   readonly maxAttempts?: number
   readonly attemptWindowMs?: number
   readonly maxTrackedPeers?: number
+  // Optional finite read deadline, primarily useful for deterministic tests.
+  readonly loginBodyTimeoutMs?: number
 }
 
 function respond(response: ServerResponse, status: number, body: object, cookie?: string): void {
@@ -45,6 +47,7 @@ function respond(response: ServerResponse, status: number, body: object, cookie?
 
 async function readCredentials(
   request: IncomingMessage,
+  timeoutMs: number,
 ): Promise<{ username: string; password: string } | null> {
   if (request.headers['content-type']?.split(';')[0]?.trim().toLowerCase() !== 'application/json')
     return null
@@ -52,7 +55,7 @@ async function readCredentials(
   let size = 0
   // Total read deadline, not merely an idle-socket timeout. Closing a slow
   // request releases the parser; no login verification runs on a partial body.
-  const deadline = setTimeout(() => request.destroy(), 10_000)
+  const deadline = setTimeout(() => request.destroy(), timeoutMs)
   deadline.unref()
   try {
     for await (const part of request) {
@@ -87,6 +90,10 @@ async function readCredentials(
 }
 
 export function createGatewayHttpAuthHandler(options: GatewayHttpAuthOptions) {
+  const readTimeoutMs = options.loginBodyTimeoutMs ?? 10_000
+  if (!Number.isSafeInteger(readTimeoutMs) || readTimeoutMs < 1 || readTimeoutMs > 60_000) {
+    throw new Error('invalid login body deadline')
+  }
   const limiter = createLoginLimiter({
     maxAttempts: options.maxAttempts ?? 5,
     windowMs: options.attemptWindowMs ?? 60_000,
@@ -118,7 +125,7 @@ export function createGatewayHttpAuthHandler(options: GatewayHttpAuthOptions) {
             respond(response, 429, { error: 'too_many_attempts' })
             return
           }
-          const credentials = await readCredentials(request)
+          const credentials = await readCredentials(request, readTimeoutMs)
           if (!credentials) {
             if (!response.destroyed) respond(response, 400, { error: 'invalid_request' })
             return
