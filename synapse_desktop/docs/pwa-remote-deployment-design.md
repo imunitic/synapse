@@ -69,6 +69,21 @@ The total configured Synapse memory ceiling is **3.25 GiB**; it is not a reserva
 - Authentication provider and session persistence mechanism remain design choices; no login UI or listener is enabled by the routing-policy helper.
 - Testing needs end-to-end cases for forged user headers, cookie replay, revoked sessions during an open WebSocket, cross-container routing, and direct backend bypass.
 
+## Gateway WebSocket implementation status (2026-11-20)
+
+The branch includes a **detached, opt-in gateway transport** in `server/gateway.ts`, with integration tests in `server/gateway.test.ts`.
+
+- Attaches to a provided Node HTTP server's existing `/api/bus` WebSocket upgrade path. Does **not** create a public listener, expose a login endpoint or replace any existing Synapse host.
+- Requires exact public Host and Origin; rejects unknown paths.
+- Requires caller-supplied *server-side* session authentication and an independent session-validity callback. Both must be implemented securely before a remotely runnable gateway exists.
+- Selects the per-user backend using `hostForPrincipal` and an operator-owned map. Never accepts target container selection from the browser.
+- Connects to the existing private Node WebSocket with a gateway-owned per-container token and Origin; does not forward browser cookies or identity headers.
+- Relays text WebSocket messages in both directions without interpreting or replacing Synapse's protocol. Refuses binary frames and bounds message/queued-byte sizes.
+- Revalidates the session periodically and terminates both sockets on revocation, failure or disconnection.
+- Integration tests use fake private hosts and test-only session lookup; they verify routes, message relay, forged headers, refusal and revocation.
+
+**Not yet implemented:** actual login and credential issuance, shared/restart-safe session store, private gateway HTTP frontend, backend remote-mode listener/Origin policy, container image/network/isolation, deployment and production hardening. Current `SYNAPSE_DESKTOP_HOST_MODE=remote` continues to refuse startup. None of this work is deployable yet.
+
 ## Host and deployment constraints
 
 - The new remote mode must continue to fail closed until these protections are implemented and tested.
