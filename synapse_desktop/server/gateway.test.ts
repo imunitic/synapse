@@ -27,14 +27,21 @@ async function listen(server: Server): Promise<number> {
   return address.port
 }
 
-function privateBackend(name: string, token: string, increment: (headers: typeof aHeaders) => void): Server {
+function privateBackend(
+  name: string,
+  token: string,
+  increment: (headers: typeof aHeaders) => void,
+): Server {
   const server = createServer((_req, res) => {
     res.writeHead(404).end()
   })
   const sockets = new WebSocketServer({ noServer: true })
   server.on('upgrade', (req, socket, head) => {
-    if (req.url !== BUS_PATH || req.headers[TOKEN_HEADER] !== token ||
-        req.headers.origin !== 'http://gateway.internal') {
+    if (
+      req.url !== BUS_PATH ||
+      req.headers[TOKEN_HEADER] !== token ||
+      req.headers.origin !== 'http://gateway.internal'
+    ) {
       socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
       socket.destroy()
       return
@@ -73,11 +80,12 @@ function connect(
       if (listener === undefined) queued.push(value)
       else listener(value)
     })
-    const next = (): Promise<unknown> => new Promise((done) => {
-      const value = queued.shift()
-      if (value === undefined) waiting.push(done)
-      else done(value)
-    })
+    const next = (): Promise<unknown> =>
+      new Promise((done) => {
+        const value = queued.shift()
+        if (value === undefined) waiting.push(done)
+        else done(value)
+      })
     socket.once('open', () => resolve({ socket, next }))
     socket.once('unexpected-response', (_request, response) => {
       resolve({ refused: response.statusCode ?? 0 })
@@ -94,15 +102,37 @@ beforeEach(async () => {
   aHeaders = {}
   bHeaders = {}
   revoked = new Set()
-  backendA = privateBackend('a', TOKEN_A, (headers) => { aCount++; aHeaders = headers })
-  backendB = privateBackend('b', TOKEN_B, (headers) => { bCount++; bHeaders = headers })
+  backendA = privateBackend('a', TOKEN_A, (headers) => {
+    aCount++
+    aHeaders = headers
+  })
+  backendB = privateBackend('b', TOKEN_B, (headers) => {
+    bCount++
+    bHeaders = headers
+  })
   const aPort = await listen(backendA)
   const bPort = await listen(backendB)
   gateway = createServer((_req, res) => res.writeHead(404).end())
   gatewayPort = await listen(gateway)
   const hosts = new Map<string, GatewayHost>([
-    ['a', { userId: 'a', backend: `http://127.0.0.1:${aPort}`, backendOrigin: 'http://gateway.internal', backendToken: TOKEN_A }],
-    ['b', { userId: 'b', backend: `http://127.0.0.1:${bPort}`, backendOrigin: 'http://gateway.internal', backendToken: TOKEN_B }],
+    [
+      'a',
+      {
+        userId: 'a',
+        backend: `http://127.0.0.1:${aPort}`,
+        backendOrigin: 'http://gateway.internal',
+        backendToken: TOKEN_A,
+      },
+    ],
+    [
+      'b',
+      {
+        userId: 'b',
+        backend: `http://127.0.0.1:${bPort}`,
+        backendOrigin: 'http://gateway.internal',
+        backendToken: TOKEN_B,
+      },
+    ],
   ])
   attachGateway(gateway, {
     publicHost: `127.0.0.1:${gatewayPort}`,
@@ -121,7 +151,11 @@ beforeEach(async () => {
 
 afterEach(async () => {
   for (const socket of [...clients, ...upstreams]) socket.terminate()
-  await Promise.all([gateway, backendA, backendB].map((server) => new Promise<void>((resolve) => server.close(() => resolve()))))
+  await Promise.all(
+    [gateway, backendA, backendB].map(
+      (server) => new Promise<void>((resolve) => server.close(() => resolve())),
+    ),
+  )
 })
 
 describe('private Synapse WebSocket gateway', () => {
@@ -180,7 +214,10 @@ describe('private Synapse WebSocket gateway', () => {
     await result.next()
     const closed = new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('revoked socket remained open')), 1000)
-      result.socket.once('close', () => { clearTimeout(timeout); resolve() })
+      result.socket.once('close', () => {
+        clearTimeout(timeout)
+        resolve()
+      })
     })
     revoked.add('a')
     await closed
