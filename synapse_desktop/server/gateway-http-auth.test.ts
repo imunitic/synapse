@@ -1,4 +1,4 @@
-import { createServer, type Server } from 'node:http'
+import { createServer, request as httpRequest, type Server } from 'node:http'
 import { afterEach, describe, expect, it } from 'vitest'
 import { attachGatewayHttpAuth } from './gateway-http-auth.ts'
 import { createGatewaySessions } from './gateway-sessions.ts'
@@ -148,6 +148,49 @@ describe('private gateway HTTP authentication', () => {
     })
     expect(response.status).toBe(503)
     expect(await response.json()).toEqual({ error: 'service_busy' })
+  })
+
+  it('cuts off a stalled login body before credential verification', async () => {
+    const server = createServer()
+    openServers.push(server)
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('invalid address')
+    let verifications = 0
+    attachGatewayHttpAuth(server, {
+      publicHost: `127.0.0.1:${address.port}`,
+      publicOrigin: ORIGIN,
+      sessions: createGatewaySessions(),
+      loginBodyTimeoutMs: 75,
+      verifyCredentials: async () => {
+        verifications += 1
+        return 'alice'
+      },
+    })
+    await new Promise<void>((resolve, reject) => {
+      const watchdog = setTimeout(() => reject(new Error('stalled request was not cut off')), 1500)
+      const req = httpRequest({
+        hostname: '127.0.0.1',
+        port: address.port,
+        path: '/auth/session',
+        method: 'POST',
+        headers: {
+          Origin: ORIGIN,
+          'Content-Type': 'application/json',
+          'Transfer-Encoding': 'chunked',
+        },
+      })
+      req.on('error', () => {
+        clearTimeout(watchdog)
+        resolve()
+      })
+      req.on('response', () => {
+        clearTimeout(watchdog)
+        reject(new Error('stalled request unexpectedly received a successful response'))
+      })
+      req.write('{"username":"alice",')
+    })
+    expect(verifications).toBe(0)
   })
 
   it('limits login attempts and never invokes verifier once rate limited', async () => {
