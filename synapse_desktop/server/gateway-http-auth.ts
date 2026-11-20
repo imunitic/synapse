@@ -19,7 +19,10 @@ export interface GatewayHttpAuthOptions {
   readonly sessions: SessionStore
   // Return a trusted, fixed user ID or null. Never trust the submitted username
   // as an authenticated identity without checking its credential.
-  readonly verifyCredentials: (username: string, password: string) => Promise<string | null | typeof VERIFIER_BUSY>
+  readonly verifyCredentials: (
+    username: string,
+    password: string,
+  ) => Promise<string | null | typeof VERIFIER_BUSY>
   // The configured reverse proxy must validate and replace forwarding headers.
   // Never select a key directly from an arbitrary client-supplied header.
   readonly peerKey?: (request: IncomingMessage) => string | null
@@ -43,7 +46,8 @@ function respond(response: ServerResponse, status: number, body: object, cookie?
 async function readCredentials(
   request: IncomingMessage,
 ): Promise<{ username: string; password: string } | null> {
-  if (request.headers['content-type']?.split(';')[0]?.trim().toLowerCase() !== 'application/json') return null
+  if (request.headers['content-type']?.split(';')[0]?.trim().toLowerCase() !== 'application/json')
+    return null
   const chunks: Buffer[] = []
   let size = 0
   // Total read deadline, not merely an idle-socket timeout. Closing a slow
@@ -94,7 +98,8 @@ export function createGatewayHttpAuthHandler(options: GatewayHttpAuthOptions) {
     if (
       request.headers.host !== options.publicHost ||
       (request.method !== 'GET' && request.headers.origin !== options.publicOrigin) ||
-      (request.method === 'GET' && request.headers.origin !== undefined &&
+      (request.method === 'GET' &&
+        request.headers.origin !== undefined &&
         request.headers.origin !== options.publicOrigin)
     ) {
       respond(response, 403, { error: 'forbidden' })
