@@ -64,6 +64,8 @@ describe('protected PWA frontend assets', () => {
     expect((await f.request('/assets/main.js', cookie)).status).toBe(200)
     expect((await f.request('/manifest.webmanifest', cookie)).status).toBe(200)
     expect((await f.request('/private-key', cookie)).status).toBe(404)
+    expect((await f.request('/auth/unknown', cookie)).status).toBe(404)
+    expect((await f.request('/api/unexpected', cookie)).status).toBe(404)
     const head = await f.request('/', cookie, 'HEAD')
     expect(head.status).toBe(200)
     expect(await head.text()).toBe('')
