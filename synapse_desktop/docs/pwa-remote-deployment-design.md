@@ -95,7 +95,7 @@ The development branch adds `server/gateway-sessions.ts` with tests. It is a bou
 - Enforce a configurable fixed expiry (default eight hours), bounded active sessions (default 32), per-session revocation and per-user revocation.
 - The gateway already revalidates active WebSockets periodically; its session callbacks are intentionally **not wired** to any public login listener yet.
 
-**Not a production authentication system:** there is no verified login identity provider, brute-force protection, durable session persistence, key rotation, HTTPS gateway entry point, or container deployment. Restarting the gateway clears all sessions. A later hardened service must arrange secure login and session issuance, request authentication on *all* HTTP and WebSocket paths, and logout/revocation across running sockets.
+**Not a production authentication system:** there is no verified login identity provider, brute-force protection, durable session persistence, key rotation, HTTPS gateway entry point, or container deployment. Restarting the gateway clears all sessions. A later hardened service must arrange secure login and session issuance, request authentication on _all_ HTTP and WebSocket paths, and logout/revocation across running sockets.
 
 ## Detached HTTP authentication handlers (2026-11-20)
 
