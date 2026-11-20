@@ -9,6 +9,8 @@ const KEY_BYTES = 32
 const MAX_MEMORY = 64 * 1024 * 1024
 const HASH_PATTERN = /^scrypt\$16384\$8\$1\$([0-9a-f]{32})\$([0-9a-f]{64})$/
 
+export const VERIFIER_BUSY = 'busy' as const
+
 export interface PasswordAccount {
   readonly username: string
   readonly userId: string
@@ -39,7 +41,8 @@ async function derive(password: string, salt: Buffer): Promise<Buffer> {
  * with real passwords in CI, command-line arguments, logs or source files.
  */
 export async function hashGatewayPassword(password: string): Promise<string> {
-  if (password.length < 12 || password.length > 1024) {
+  password = password.normalize('NFC')
+  if (password.length < 12 || Buffer.byteLength(password, 'utf8') > 1024) {
     throw new Error('password must be between 12 and 1024 characters')
   }
   const salt = randomBytes(16)
@@ -74,12 +77,13 @@ export function createPasswordVerifier(accounts: readonly PasswordAccount[]) {
   let pending = 0
   const MAX_CONCURRENT_HASHES = 2
 
-  return async (username: string, password: string): Promise<string | null> => {
-    if (password.length < 1 || password.length > 1024) return null
+  return async (username: string, password: string): Promise<string | null | typeof VERIFIER_BUSY> => {
+    password = password.normalize('NFC')
+    if (password.length < 1 || Buffer.byteLength(password, 'utf8') > 1024) return null
     // Bound the amount of memory-intensive scrypt work scheduled at once.
     // Refusing excess requests is safer than allowing an authentication flood
     // to exhaust the gateway's constrained memory budget.
-    if (pending >= MAX_CONCURRENT_HASHES) return null
+    if (pending >= MAX_CONCURRENT_HASHES) return VERIFIER_BUSY
     pending += 1
     try {
       const entry = known.get(username) ?? fallback
