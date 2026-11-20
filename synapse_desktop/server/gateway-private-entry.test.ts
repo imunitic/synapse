@@ -62,7 +62,7 @@ describe('private PWA gateway HTTP composition', () => {
       body: JSON.stringify({ username: 'alice', password: 'fixture-password-long' }),
     })
     expect(login.status).toBe(200)
-    const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0]
+    const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0] ?? ''
     expect((await request('/', { headers: { Cookie: cookie } })).status).toBe(200)
     expect((await request('/assets/app.js', { headers: { Cookie: cookie } })).status).toBe(200)
     expect((await request('/auth/me', {
