@@ -46,7 +46,7 @@ describe('provisioned gateway authentication', () => {
     expect(refused.status).toBe(401)
     const accepted = await login('fixture-long-password')
     expect(accepted.status).toBe(200)
-    const cookie = (accepted.headers.get('set-cookie') ?? '').split(';')[0]
+    const cookie = (accepted.headers.get('set-cookie') ?? '').split(';')[0] ?? ''
     const status = await fetch(`http://${host}/auth/me`, {
       headers: { Origin: ORIGIN, Cookie: cookie },
     })
