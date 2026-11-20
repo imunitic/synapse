@@ -28,6 +28,7 @@ export interface GatewayOptions {
   // Must re-check revocation and expiry, not merely whether an ID still exists.
   readonly sessionValid: (session: GatewaySession) => Promise<boolean>
   readonly recheckMs?: number
+  readonly maxConnectionsPerUser?: number
 }
 
 function refusal(socket: Duplex, status: number): void {
@@ -55,7 +56,10 @@ function targetUrl(host: GatewayHost): string {
   return url.href
 }
 
-const MAX_BUFFERED = 2 * 1024 * 1024
+const HIGH_WATER = 1024 * 1024
+const LOW_WATER = 512 * 1024
+const MAX_BUFFERED = 8 * 1024 * 1024
+const BACKPRESSURE_TIMEOUT_MS = 20_000
 const MAX_FRAME = 1024 * 1024
 
 // The caller serves the PWA over authenticated HTTPS on this same server and
@@ -63,6 +67,11 @@ const MAX_FRAME = 1024 * 1024
 export function attachGateway(server: Server, options: GatewayOptions): void {
   const sockets = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME })
   const interval = options.recheckMs ?? 15_000
+  const maxConnectionsPerUser = options.maxConnectionsPerUser ?? 2
+  const activeByUser = new Map<string, number>()
+  if (!Number.isSafeInteger(maxConnectionsPerUser) || maxConnectionsPerUser < 1) {
+    throw new Error('invalid per-user connection limit')
+  }
   if (!Number.isFinite(interval) || interval < 10) {
     throw new Error('invalid session check interval')
   }
@@ -112,6 +121,19 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
         return
       }
       if (socket.destroyed) return
+      if ((activeByUser.get(verifiedSession.userId) ?? 0) >= maxConnectionsPerUser) {
+        refusal(socket, 403)
+        return
+      }
+      activeByUser.set(verifiedSession.userId, (activeByUser.get(verifiedSession.userId) ?? 0) + 1)
+      let released = false
+      const release = () => {
+        if (released) return
+        released = true
+        const count = (activeByUser.get(verifiedSession.userId) ?? 1) - 1
+        if (count <= 0) activeByUser.delete(verifiedSession.userId)
+        else activeByUser.set(verifiedSession.userId, count)
+      }
 
       // Only gateway-generated headers travel to the backend. Browser cookies,
       // Authorization, Host, user IDs and chosen target URLs are never forwarded.
@@ -124,6 +146,7 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
           maxPayload: MAX_FRAME,
         })
       } catch {
+        release()
         refusal(socket, 502)
         return
       }
@@ -131,15 +154,20 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
       const fail = () => {
         if (completed) return
         completed = true
+        release()
         upstream.terminate()
         refusal(socket, 502)
       }
-      const onSocketClose = () => upstream.terminate()
+      const onSocketClose = () => {
+        release()
+        upstream.terminate()
+      }
       socket.once('close', onSocketClose)
       upstream.once('error', fail)
       upstream.once('close', fail)
       upstream.once('open', () => {
         if (completed || socket.destroyed) {
+          release()
           upstream.terminate()
           return
         }
@@ -150,10 +178,16 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
         sockets.handleUpgrade(req, socket, head, (client) => {
           let closing = false
           let validating = false
+          let clientAlive = true
+          let upstreamAlive = true
+          let clientPausedAt = 0
+          let upstreamPausedAt = 0
           const shut = () => {
             if (closing) return
             closing = true
             clearInterval(timer)
+            clearInterval(flowTimer)
+            release()
             client.terminate()
             upstream.terminate()
           }
@@ -161,30 +195,67 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
           upstream.on('close', shut)
           client.on('error', shut)
           upstream.on('error', shut)
-          client.on('message', (bytes, binary) => {
-            if (
-              binary ||
-              upstream.readyState !== WebSocket.OPEN ||
-              upstream.bufferedAmount > MAX_BUFFERED
-            ) {
+          const relay = (source: WebSocket, destination: WebSocket, bytes: Buffer | ArrayBuffer | Buffer[], binary: boolean) => {
+            if (binary || destination.readyState !== WebSocket.OPEN) {
               shut()
               return
             }
-            upstream.send(bytes, { binary: false })
-          })
-          upstream.on('message', (bytes, binary) => {
-            if (
-              binary ||
-              client.readyState !== WebSocket.OPEN ||
-              client.bufferedAmount > MAX_BUFFERED
-            ) {
+            const size = Array.isArray(bytes)
+              ? bytes.reduce((total, chunk) => total + chunk.length, 0)
+              : bytes.byteLength
+            if (destination.bufferedAmount + size > MAX_BUFFERED) {
               shut()
               return
             }
-            client.send(bytes, { binary: false })
-          })
+            destination.send(bytes, { binary: false }, (error) => {
+              if (error) shut()
+            })
+            if (destination.bufferedAmount >= HIGH_WATER && !source.isPaused) {
+              source.pause()
+              if (source === client) clientPausedAt = Date.now()
+              else upstreamPausedAt = Date.now()
+            }
+          }
+          client.on('message', (bytes, binary) => relay(client, upstream, bytes, binary))
+          upstream.on('message', (bytes, binary) => relay(upstream, client, bytes, binary))
+          client.on('pong', () => { clientAlive = true })
+          upstream.on('pong', () => { upstreamAlive = true })
+          // Pausing the source applies actual socket backpressure. Resume only
+          // after the destination's buffered bytes drain below the low watermark.
+          // A prolonged blocked peer is disconnected to bound memory and time.
+          const flowTimer = setInterval(() => {
+            if (closing) return
+            const now = Date.now()
+            if (client.isPaused) {
+              if (upstream.bufferedAmount < LOW_WATER) {
+                client.resume()
+                clientPausedAt = 0
+              } else if (now - clientPausedAt > BACKPRESSURE_TIMEOUT_MS) shut()
+            }
+            if (upstream.isPaused) {
+              if (client.bufferedAmount < LOW_WATER) {
+                upstream.resume()
+                upstreamPausedAt = 0
+              } else if (now - upstreamPausedAt > BACKPRESSURE_TIMEOUT_MS) shut()
+            }
+          }, 100)
+          flowTimer.unref()
+          let heartbeatChecks = 0
           const timer = setInterval(() => {
-            if (validating || closing) return
+            if (closing) return
+            heartbeatChecks += 1
+            if (heartbeatChecks * interval >= 30_000) {
+              heartbeatChecks = 0
+              if (!clientAlive || !upstreamAlive) {
+                shut()
+                return
+              }
+              clientAlive = false
+              upstreamAlive = false
+              client.ping()
+              upstream.ping()
+            }
+            if (validating) return
             validating = true
             void options
               .sessionValid(verifiedSession)
