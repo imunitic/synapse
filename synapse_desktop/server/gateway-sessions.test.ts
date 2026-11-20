@@ -54,7 +54,9 @@ describe('private gateway sessions', () => {
     const token = 'a'.repeat(43)
     expect(sessionTokenFromCookie(`${SESSION_COOKIE}=${token}`)).toBe(token)
     expect(sessionTokenFromCookie(`foo=1; ${SESSION_COOKIE}=${token}`)).toBe(token)
-    expect(sessionTokenFromCookie(`${SESSION_COOKIE}=${token}; ${SESSION_COOKIE}=${token}`)).toBeNull()
+    expect(
+      sessionTokenFromCookie(`${SESSION_COOKIE}=${token}; ${SESSION_COOKIE}=${token}`),
+    ).toBeNull()
     expect(sessionTokenFromCookie(`${SESSION_COOKIE}=${token}%0a`)).toBeNull()
     expect(sessionTokenFromCookie(`${SESSION_COOKIE}=${token}; ${'x'.repeat(4096)}`)).toBeNull()
     expect(sessionTokenFromCookie(undefined)).toBeNull()
