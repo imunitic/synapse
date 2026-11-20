@@ -42,7 +42,9 @@ function refusal(socket: Duplex, status: number): void {
           ? 'Too Many Requests'
           : 'Bad Gateway'
   const retryAfter = status === 429 ? 'Retry-After: 5\r\n' : ''
-  socket.end(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\n${retryAfter}Content-Length: 0\r\n\r\n`)
+  socket.end(
+    `HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\n${retryAfter}Content-Length: 0\r\n\r\n`,
+  )
 }
 
 function targetUrl(host: GatewayHost): string {
