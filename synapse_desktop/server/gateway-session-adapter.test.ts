@@ -36,9 +36,9 @@ function connect(port: number, cookie?: string): Promise<WebSocket | number> {
 afterEach(async () => {
   for (const socket of openSockets.splice(0)) socket.terminate()
   await Promise.all(
-    openServers.splice(0).map(
-      (server) => new Promise<void>((resolve) => server.close(() => resolve())),
-    ),
+    openServers
+      .splice(0)
+      .map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
   )
 })
 
