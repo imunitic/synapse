@@ -1,5 +1,5 @@
 import { createServer, type Server } from 'node:http'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { attachGatewayHttpAuth } from './gateway-http-auth.ts'
 import { createGatewaySessions } from './gateway-sessions.ts'
 import { VERIFIER_BUSY } from './gateway-password-verifier.ts'
@@ -168,14 +168,22 @@ describe('private gateway HTTP authentication', () => {
         return 'alice'
       },
     })
-    const response = await fetch(`http://${host}/auth/session`, {
-      method: 'POST',
-      headers: { Origin: ORIGIN, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'alice', password: 'some-password' }),
-    })
-    expect(response.status).toBe(503)
-    expect(await response.json()).toEqual({ error: 'service_unavailable' })
-    expect(verified).toBe(false)
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const response = await fetch(`http://${host}/auth/session`, {
+          method: 'POST',
+          headers: { Origin: ORIGIN, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: 'alice', password: 'some-password' }),
+        })
+        expect(response.status).toBe(503)
+        expect(await response.json()).toEqual({ error: 'service_unavailable' })
+      }
+      expect(errorLog).toHaveBeenCalledTimes(1)
+      expect(verified).toBe(false)
+    } finally {
+      errorLog.mockRestore()
+    }
   })
 
   it('limits login attempts and never invokes verifier once rate limited', async () => {
