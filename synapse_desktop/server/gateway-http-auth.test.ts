@@ -44,7 +44,11 @@ async function fixture(maxAttempts = 5) {
 afterEach(async () => {
   await Promise.all(
     openServers.splice(0).map(
-      (server) => new Promise<void>((resolve) => server.closeAllConnections() || server.close(() => resolve())),
+      (server) =>
+        new Promise<void>((resolve) => {
+          server.closeAllConnections()
+          server.close(() => resolve())
+        }),
     ),
   )
 })
