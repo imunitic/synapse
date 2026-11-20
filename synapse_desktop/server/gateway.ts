@@ -83,10 +83,11 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
         return
       }
 
+      const verifiedSession = session
       let host: GatewayHost
       try {
         host = hostForPrincipal(session, options.hosts) as GatewayHost
-        if (!(await options.sessionValid(session))) {
+        if (!(await options.sessionValid(verifiedSession))) {
           refusal(socket, 401)
           return
         }
@@ -166,7 +167,7 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
           timer = setInterval(() => {
             if (validating || closing) return
             validating = true
-            void options.sessionValid(session).then((valid) => {
+            void options.sessionValid(verifiedSession).then((valid) => {
               if (!valid) shut()
             }).catch(shut).finally(() => { validating = false })
           }, interval)
