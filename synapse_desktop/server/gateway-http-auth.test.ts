@@ -56,11 +56,19 @@ afterEach(async () => {
 describe('private gateway HTTP authentication', () => {
   it('issues an opaque, secure cookie only after trusted verification', async () => {
     const f = await fixture()
-    const invalid = await f.request('/auth/session', 'POST', JSON.stringify({ username: 'alice', password: 'bad' }))
+    const invalid = await f.request(
+      '/auth/session',
+      'POST',
+      JSON.stringify({ username: 'alice', password: 'bad' }),
+    )
     expect(invalid.status).toBe(401)
     expect(invalid.headers.get('set-cookie')).toBeNull()
 
-    const good = await f.request('/auth/session', 'POST', JSON.stringify({ username: 'alice', password: 'fixture-password' }))
+    const good = await f.request(
+      '/auth/session',
+      'POST',
+      JSON.stringify({ username: 'alice', password: 'fixture-password' }),
+    )
     expect(good.status).toBe(200)
     const cookie = good.headers.get('set-cookie') ?? ''
     expect(cookie).toContain('HttpOnly; Secure; SameSite=Strict')
@@ -73,7 +81,11 @@ describe('private gateway HTTP authentication', () => {
 
   it('revokes on logout, clears cookie and denies session reuse', async () => {
     const f = await fixture()
-    const login = await f.request('/auth/session', 'POST', JSON.stringify({ username: 'alice', password: 'fixture-password' }))
+    const login = await f.request(
+      '/auth/session',
+      'POST',
+      JSON.stringify({ username: 'alice', password: 'fixture-password' }),
+    )
     const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0]
     expect((await f.request('/auth/me', 'GET', undefined, cookie)).status).toBe(200)
     const logout = await f.request('/auth/logout', 'POST', undefined, cookie)
@@ -85,8 +97,14 @@ describe('private gateway HTTP authentication', () => {
   it('refuses cross-origin requests and disallowed methods', async () => {
     const f = await fixture()
     const credentials = JSON.stringify({ username: 'alice', password: 'fixture-password' })
-    expect((await f.request('/auth/session', 'POST', credentials, undefined, 'https://attacker.example')).status).toBe(403)
-    expect((await f.request('/auth/logout', 'POST', undefined, undefined, 'https://attacker.example')).status).toBe(403)
+    expect(
+      (await f.request('/auth/session', 'POST', credentials, undefined, 'https://attacker.example'))
+        .status,
+    ).toBe(403)
+    expect(
+      (await f.request('/auth/logout', 'POST', undefined, undefined, 'https://attacker.example'))
+        .status,
+    ).toBe(403)
     expect((await f.request('/auth/session', 'GET')).status).toBe(405)
     expect((await f.request('/auth/logout', 'GET')).status).toBe(405)
     expect((await f.request('/auth/me', 'POST')).status).toBe(405)
