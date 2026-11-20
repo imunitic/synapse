@@ -8,9 +8,7 @@ import {
 describe('operator-provisioned gateway credentials', () => {
   it('verifies scrypt password hashes without trusting the submitted identity', async () => {
     const passwordHash = await hashGatewayPassword('fixture-long-password')
-    const accounts: PasswordAccount[] = [
-      { username: 'alice', userId: 'user-alice', passwordHash },
-    ]
+    const accounts: PasswordAccount[] = [{ username: 'alice', userId: 'user-alice', passwordHash }]
     const verify = createPasswordVerifier(accounts)
     expect(await verify('alice', 'fixture-long-password')).toBe('user-alice')
     expect(await verify('alice', 'wrong-password')).toBeNull()
@@ -54,7 +52,9 @@ describe('operator-provisioned gateway credentials', () => {
       createPasswordVerifier([first, { username: 'bob', userId: 'user-alice', passwordHash }]),
     ).toThrow()
     expect(() =>
-      createPasswordVerifier([{ ...first, passwordHash: passwordHash.replace('16384', '1048576') }]),
+      createPasswordVerifier([
+        { ...first, passwordHash: passwordHash.replace('16384', '1048576') },
+      ]),
     ).toThrow()
     expect(() => createPasswordVerifier([{ ...first, username: '../alice' }])).toThrow()
     await expect(hashGatewayPassword('short')).rejects.toThrow()
