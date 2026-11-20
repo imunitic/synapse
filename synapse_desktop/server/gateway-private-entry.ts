@@ -13,7 +13,7 @@ import { createTrustedPeerKey } from './gateway-trusted-peer.ts'
 
 export interface PrivateGatewayOptions
   extends
-    Pick<SessionGatewayOptions, 'hosts' | 'recheckMs'>,
+    Pick<SessionGatewayOptions, 'hosts' | 'recheckMs' | 'maxConnectionsPerUser'>,
     Pick<ProtectedFrontendOptions, 'assets'>,
     Pick<GatewayHttpAuthOptions, 'maxAttempts' | 'attemptWindowMs' | 'maxTrackedPeers'> {
   readonly publicHost: string
@@ -68,5 +68,6 @@ export function attachPrivateGateway(server: Server, options: PrivateGatewayOpti
     hosts: options.hosts,
     sessions: options.sessions,
     recheckMs: options.recheckMs,
+    maxConnectionsPerUser: options.maxConnectionsPerUser,
   })
 }
