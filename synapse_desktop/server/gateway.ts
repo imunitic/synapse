@@ -150,6 +150,8 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
           return
         }
         previous.terminate()
+        // Terminating a single-slot user removes their empty tracking set.
+        activeByUser.set(verifiedSession.userId, userConnections)
       }
       const connections = userConnections
       let released = false
