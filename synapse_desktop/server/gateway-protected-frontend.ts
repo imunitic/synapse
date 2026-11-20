@@ -41,8 +41,14 @@ export function createProtectedFrontendHandler(options: ProtectedFrontendOptions
     throw new Error('missing protected frontend index')
   }
   for (const [path, asset] of options.assets) {
-    if (!validPath(path) || RESERVED.includes(path) || path.startsWith('/auth/') ||
-        path.startsWith('/api/') || !asset.contentType || /[\r\n]/.test(asset.contentType)) {
+    if (
+      !validPath(path) ||
+      RESERVED.includes(path) ||
+      path.startsWith('/auth/') ||
+      path.startsWith('/api/') ||
+      !asset.contentType ||
+      /[\r\n]/.test(asset.contentType)
+    ) {
       throw new Error('invalid protected frontend manifest')
     }
   }
@@ -96,7 +102,8 @@ export function createProtectedFrontendHandler(options: ProtectedFrontendOptions
           'Content-Length': bytes.length,
           'Cache-Control': 'private, no-store',
           'X-Content-Type-Options': 'nosniff',
-          'Content-Security-Policy': "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'",
+          'Content-Security-Policy':
+            "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'",
         })
         response.end(request.method === 'HEAD' ? undefined : bytes)
       } catch {
