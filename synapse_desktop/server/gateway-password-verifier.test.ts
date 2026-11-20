@@ -32,6 +32,14 @@ describe('operator-provisioned gateway credentials', () => {
     expect(await verifyOther('alice', composed)).toBe('alice')
   })
 
+  it('does not confuse the reserved busy result with a legitimate user ID', async () => {
+    const hash = await hashGatewayPassword('fixture-long-password')
+    const verify = createPasswordVerifier([
+      { username: 'alice', userId: 'busy', passwordHash: hash },
+    ])
+    expect(await verify('alice', 'fixture-long-password')).toBe('busy')
+  })
+
   it('uses random salts even when passwords match', async () => {
     const first = await hashGatewayPassword('fixture-long-password')
     const second = await hashGatewayPassword('fixture-long-password')
