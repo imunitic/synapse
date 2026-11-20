@@ -1,6 +1,6 @@
 # Private PWA remote-host design (proposed)
 
-**Status:** design only. The remote host is not implemented or safe to expose.
+**Status:** detached implementation under review. Remote mode remains disabled and is not safe to expose.
 
 ## Preserve the current architecture
 
@@ -80,7 +80,7 @@ The branch includes a **detached, opt-in gateway transport** in `server/gateway.
 - Selects the per-user backend using `hostForPrincipal` and an operator-owned map. Never accepts target container selection from the browser.
 - Connects to the existing private Node WebSocket with a gateway-owned per-container token and Origin; does not forward browser cookies or identity headers.
 - Relays text WebSocket messages in both directions without interpreting or replacing Synapse's protocol. Refuses binary frames and bounds message/queued-byte sizes.
-- Revalidates the session periodically and terminates both sockets on revocation, failure or disconnection.
+- Revalidates the session periodically and terminates both sockets on revocation, failure or disconnection. Applies per-user concurrent WebSocket caps (default two), protocol keepalive pings and pause/resume flow control between a high and low buffer watermark; disconnects a persistently stalled client after 20 seconds.
 - Integration tests use fake private hosts and test-only session lookup; they verify routes, message relay, forged headers, refusal and revocation.
 
 **Not yet implemented:** actual login and credential issuance, shared/restart-safe session store, private gateway HTTP frontend, backend remote-mode listener/Origin policy, container image/network/isolation, deployment and production hardening. Current `SYNAPSE_DESKTOP_HOST_MODE=remote` continues to refuse startup. None of this work is deployable yet.
@@ -92,7 +92,7 @@ The development branch adds `server/gateway-sessions.ts` with tests. It is a bou
 - Issue a 256-bit random, opaque session token; store only a SHA-256 digest for lookups, and map the record to one fixed user identity.
 - Accept the token from a single strictly validated `synapse_session` cookie; reject absent, malformed and duplicated session cookies.
 - Produce `Secure`, `HttpOnly`, `SameSite=Strict`, root-scoped cookie attributes; provide a matching cookie-clearing value.
-- Enforce a configurable fixed expiry (default eight hours), bounded active sessions (default 32), per-session revocation and per-user revocation.
+- Enforce a configurable fixed expiry (default eight hours), bounded active sessions (default 32), per-user cap (default eight), per-session revocation and per-user revocation. When a user reaches their cap, the oldest *same-user* session is evicted, and the WebSocket revalidation callback sees it as revoked.
 - The gateway already revalidates active WebSockets periodically; its session callbacks are intentionally **not wired** to any public login listener yet.
 
 **Not a production authentication system:** there is no verified login identity provider, brute-force protection, durable session persistence, key rotation, HTTPS gateway entry point, or container deployment. Restarting the gateway clears all sessions. A later hardened service must arrange secure login and session issuance, request authentication on _all_ HTTP and WebSocket paths, and logout/revocation across running sockets.
@@ -104,10 +104,12 @@ The feature branch includes `server/gateway-http-auth.ts` and integration tests 
 - Login uses a caller-supplied asynchronous `verifyCredentials(username, password)` function; only a verified, server-assigned user ID can acquire a session. No default credentials or passwords are included.
 - Login returns a secure opaque session cookie and never exposes the raw token in a JSON response.
 - Logout revokes the presented token and issues a clearing cookie. Session status returns only authenticated true/false, not credential or container details.
-- Requests must match an exact configured Host and Origin. Login uses a bounded JSON payload, generic invalid-credential errors, and a bounded in-memory per-peer login limiter that refuses new peers when saturated.
+- Requests require exact Host; state-changing POST requires exact Origin. GET `/auth/me` accepts an absent Origin, as normal same-origin browser GET does, while rejecting a mismatched supplied Origin.
+- Login accepts JSON media types with a charset parameter, limits request bytes, and enforces a 10-second total request-body read deadline (slow clients are disconnected).
+- Login uses a bounded in-memory per-peer limiter. `gateway-trusted-peer.ts` accepts forwarded client addresses only from configured trusted TCP proxies, and rejects ambiguous or malformed forwarded addresses. Operators must configure the reverse proxy to strip untrusted forwarding headers. All login attempts, including successful ones, remain counted to bound expensive authentication work.
 - Tests cover valid and invalid credentials, missing/expired cookies, logout reuse, origin rejection, method rejection, and rate limiting.
 
-**Hardening required before deployment:** trusted identity provider integration and credentials storage; an HTTPS entrypoint that owns this exact Host/Origin; authenticated static application and asset delivery; network-facing rate-limit and connection controls; robust request timeout/body-size error responses; non-replica-safe in-memory state replacement or a deliberate single-instance deployment; session store cleanup and application lifecycle; and strict reverse-proxy configuration. The current per-peer rate limiting uses the TCP peer address, **not** untrusted `X-Forwarded-For`; it must be reviewed when a reverse proxy is introduced. No remote mode may be enabled solely by attaching these handlers.
+**Hardening required before deployment:** trusted identity provider integration and credentials storage; an HTTPS entrypoint that owns this exact Host/Origin; authenticated static application and asset delivery; network-facing rate-limit and connection controls; robust request timeout/body-size error responses; non-replica-safe in-memory state replacement or a deliberate single-instance deployment; session store cleanup and application lifecycle; and strict reverse-proxy configuration. The gateway's opt-in trusted-proxy resolver requires an explicit proxy IP allowlist. Reverse-proxy configuration and network isolation remain deployment prerequisites. No remote mode may be enabled solely by attaching these handlers.
 
 ## Operator-provisioned password verifier (2026-11-20)
 
@@ -116,20 +118,9 @@ The feature branch adds `server/gateway-password-verifier.ts` and unit tests, an
 - The operator must explicitly provide the username, stable user ID, and scrypt password hash through **external protected configuration**. No default account, password, hash, or environment fallback is embedded in the repository.
 - Reject duplicate or malformed user IDs, usernames, and hash settings at initialization; no account auto-provisioning or browser-supplied user IDs.
 - A provisioning workflow will later collect passwords without command-line arguments, shell history, CI logs, or commits. The supplied `hashGatewayPassword` helper is a library primitive, **not** an authenticated account-management interface.
+- Unicode passwords are normalized to NFC during provisioning and verification for cross-device consistency. Scrypt concurrency is limited to two operations; saturation produces a distinct HTTP 503 busy response rather than claiming credentials are invalid.
 - A deployed gateway must protect the account configuration on disk, validate backend host mappings against those fixed user IDs, and support credential changes and revocation.
 - This verifier has not been attached to a public HTTP server or PWA login interface. Authentication remains **not deployable** until reverse-proxy, per-user container, login UI, static asset authorization, timeout, and network constraints are addressed.
-
-## Operator-provisioned password verification (2026-11-20)
-
-The branch includes `server/gateway-password-verifier.ts` and `server/gateway-provisioned-auth.ts`, with tests.
-
-- Operator-provisioned accounts contain a fixed username, internal user ID, and a salted scrypt hash. No real credentials, password hashes, account names, or default login secrets are committed.
-- Only the operator-supplied account mapping determines the authenticated user ID. Unknown usernames undergo a dummy scrypt comparison; comparisons use timing-safe digest equality.
-- The password verifier limits concurrent expensive hash operations to two, returning a failed verification if saturated to protect the small gateway memory budget.
-- An explicit adapter wires the verifier into the existing detached HTTP login/logout handlers. It does not load configuration, create a listener, change the local desktop host, or enable remote mode.
-- Test fixtures use synthetic accounts only; the operator must provision real secrets offline, outside source control and CI.
-
-**Not deployment-ready:** verify and harden the provisioning process and secret storage, add identity recovery and password rotation, evaluate multi-factor authentication, complete reverse-proxy controls and HTTP request lifecycle limits, protect all static app assets, and finish per-user backend/container isolation. No usable public login service exists yet.
 
 ## Protected PWA frontend foundation (2026-11-20)
 
@@ -152,7 +143,7 @@ The feature branch now includes `server/gateway-private-entry.ts` and an HTTP in
 - The integration test exercises a missing session, login using a synthetic password hash, authenticated asset delivery, session status, logout, and denial after revocation.
 - Existing direct handler APIs remain available to preserve standalone test coverage and compatibility.
 
-**Review gate:** ask an independent security reviewer to examine the exact HTTP dispatch, authentication/session coupling, websocket upgrade path, backend isolation assumptions, and resource/timeout behavior before implementing a publicly reachable service. A safe unauthenticated login UI, a real build manifest loader, reverse-proxy configuration, hardened security headers, and Docker isolation are still outstanding.
+**Review gate:** an independent code-reading review identified browser Origin behavior, trusted-proxy rate limiting, NFC password normalization, session eviction, WebSocket buffering, and redundant attachment concerns. These have implementation changes and tests, but browser-level behavior, proxy configuration, actual slow-client conditions, and macOS execution still require independent validation. Ask the reviewer to re-check the exact HTTP dispatch, authentication/session coupling, websocket upgrade path, backend isolation assumptions, and resource/timeout behavior before implementing a publicly reachable service. A safe unauthenticated login UI, a real build manifest loader, reverse-proxy configuration, hardened security headers, and Docker isolation are still outstanding.
 
 ## Host and deployment constraints
 
