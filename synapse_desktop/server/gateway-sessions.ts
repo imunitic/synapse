@@ -62,8 +62,12 @@ export function createGatewaySessions(options: SessionStoreOptions = {}) {
   const now = options.now ?? Date.now
   const ttlMs = options.ttlMs ?? 8 * 60 * 60 * 1000
   const maxSessions = options.maxSessions ?? 32
-  if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0 ||
-      !Number.isSafeInteger(maxSessions) || maxSessions <= 0) {
+  if (
+    !Number.isSafeInteger(ttlMs) ||
+    ttlMs <= 0 ||
+    !Number.isSafeInteger(maxSessions) ||
+    maxSessions <= 0
+  ) {
     throw new Error('invalid gateway session limits')
   }
   const sessions = new Map<string, RecordEntry>()
@@ -107,7 +111,8 @@ export function createGatewaySessions(options: SessionStoreOptions = {}) {
         if (
           entry.session.sessionId === session.sessionId &&
           entry.session.userId === session.userId
-        ) return Promise.resolve(true)
+        )
+          return Promise.resolve(true)
       }
       return Promise.resolve(false)
     },
