@@ -5,6 +5,7 @@
 ## Preserve the current architecture
 
 Synapse already serves the same React interface through two transports:
+
 - Tauri desktop IPC to its embedded Rust host.
 - Browser WebSocket to the Node host, using a token injected by the localhost Vite proxy.
 
@@ -45,11 +46,11 @@ The backend must not be reachable directly from the public interface or another 
 
 These are **initial caps, not measured requirements**. Both users may run at the same time. Limit the Synapse workloads while retaining room for ReadBack and the operating system:
 
-| Service | Memory cap | CPU cap | PID cap |
-|---|---:|---:|---:|
-| User A Synapse Node host, CLI and PTYs (combined) | 1.5 GiB | 1.0 CPU | 256 |
-| User B Synapse Node host, CLI and PTYs (combined) | 1.5 GiB | 1.0 CPU | 256 |
-| Gateway | 256 MiB | 0.25 CPU | 64 |
+| Service                                           | Memory cap |  CPU cap | PID cap |
+| ------------------------------------------------- | ---------: | -------: | ------: |
+| User A Synapse Node host, CLI and PTYs (combined) |    1.5 GiB |  1.0 CPU |     256 |
+| User B Synapse Node host, CLI and PTYs (combined) |    1.5 GiB |  1.0 CPU |     256 |
+| Gateway                                           |    256 MiB | 0.25 CPU |      64 |
 
 The total configured Synapse memory ceiling is **3.25 GiB**; it is not a reservation and does not mean that 4.75 GiB is guaranteed available for ReadBack. Host memory, filesystem cache, ReadBack's worker processes and other services must all be observed. CPU caps are quotas, not dedicated cores. Disk quotas, temporary build-space limits and per-user agent concurrency must be added before actual deployment.
 
@@ -104,6 +105,7 @@ The branch includes a **detached, opt-in gateway transport** in `server/gateway.
 ## Work tracking
 
 The design and intake task are in the separate private `dainalogue/aeris-synapse-vault` repository:
+
 - `research/Synapse PWA architecture - initial audit.md`
 - `inbox/Secure remote Node host for Synapse PWA - task draft.md`
 
