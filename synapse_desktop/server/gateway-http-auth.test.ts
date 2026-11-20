@@ -29,11 +29,11 @@ async function fixture(maxAttempts = 5) {
   return {
     sessions,
     checks: () => checks,
-    request: (path: string, method = 'GET', body?: string, cookie?: string, origin: string | undefined = ORIGIN) =>
+    request: (path: string, method = 'GET', body?: string, cookie?: string, origin: string | null = ORIGIN) =>
       fetch(`http://${host}${path}`, {
         method,
         headers: {
-          ...(origin === undefined ? {} : { Origin: origin }),
+          ...(origin === null ? {} : { Origin: origin }),
           ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
           ...(cookie === undefined ? {} : { Cookie: cookie }),
         },
@@ -116,7 +116,7 @@ describe('private gateway HTTP authentication', () => {
     const f = await fixture()
     const issued = f.sessions.issue('alice')
     const cookie = `synapse_session=${issued.token}`
-    expect((await f.request('/auth/me', 'GET', undefined, cookie, undefined)).status).toBe(200)
+    expect((await f.request('/auth/me', 'GET', undefined, cookie, null)).status).toBe(200)
     expect(
       (await f.request('/auth/me', 'GET', undefined, cookie, 'https://attacker.example')).status,
     ).toBe(403)
