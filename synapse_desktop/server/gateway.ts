@@ -32,16 +32,22 @@ export interface GatewayOptions {
 
 function refusal(socket: Duplex, status: number): void {
   if (socket.destroyed) return
-  const reason =
-    status === 401 ? 'Unauthorized' : status === 403 ? 'Forbidden' : 'Bad Gateway'
+  const reason = status === 401 ? 'Unauthorized' : status === 403 ? 'Forbidden' : 'Bad Gateway'
   socket.end(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`)
 }
 
 function targetUrl(host: GatewayHost): string {
   const url = new URL(host.backend)
-  if (!['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol) ||
-      url.username || url.password || (url.pathname !== '/' && url.pathname !== '') ||
-      url.search || url.hash || !host.backendToken || !host.backendOrigin) {
+  if (
+    !['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol) ||
+    url.username ||
+    url.password ||
+    (url.pathname !== '/' && url.pathname !== '') ||
+    url.search ||
+    url.hash ||
+    !host.backendToken ||
+    !host.backendOrigin
+  ) {
     throw new RouteDenied()
   }
   url.protocol = url.protocol === 'https:' || url.protocol === 'wss:' ? 'wss:' : 'ws:'
@@ -57,7 +63,9 @@ const MAX_FRAME = 1024 * 1024
 export function attachGateway(server: Server, options: GatewayOptions): void {
   const sockets = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME })
   const interval = options.recheckMs ?? 15_000
-  if (!Number.isFinite(interval) || interval < 10) throw new Error('invalid session check interval')
+  if (!Number.isFinite(interval) || interval < 10) {
+    throw new Error('invalid session check interval')
+  }
 
   server.on('upgrade', (req, socket, head) => {
     if (req.url !== BUS_PATH) {
@@ -107,12 +115,18 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
 
       // Only gateway-generated headers travel to the backend. Browser cookies,
       // Authorization, Host, user IDs and chosen target URLs are never forwarded.
-      const upstream = new WebSocket(target, {
-        origin: host.backendOrigin,
-        headers: { [TOKEN_HEADER]: host.backendToken },
-        handshakeTimeout: 5000,
-        maxPayload: MAX_FRAME,
-      })
+      let upstream: WebSocket
+      try {
+        upstream = new WebSocket(target, {
+          origin: host.backendOrigin,
+          headers: { [TOKEN_HEADER]: host.backendToken },
+          handshakeTimeout: 5000,
+          maxPayload: MAX_FRAME,
+        })
+      } catch {
+        refusal(socket, 502)
+        return
+      }
       let completed = false
       const fail = () => {
         if (completed) return
@@ -149,16 +163,22 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
           client.on('error', shut)
           upstream.on('error', shut)
           client.on('message', (bytes, binary) => {
-            if (binary || upstream.readyState !== WebSocket.OPEN ||
-                upstream.bufferedAmount > MAX_BUFFERED) {
+            if (
+              binary ||
+              upstream.readyState !== WebSocket.OPEN ||
+              upstream.bufferedAmount > MAX_BUFFERED
+            ) {
               shut()
               return
             }
             upstream.send(bytes, { binary: false })
           })
           upstream.on('message', (bytes, binary) => {
-            if (binary || client.readyState !== WebSocket.OPEN ||
-                client.bufferedAmount > MAX_BUFFERED) {
+            if (
+              binary ||
+              client.readyState !== WebSocket.OPEN ||
+              client.bufferedAmount > MAX_BUFFERED
+            ) {
               shut()
               return
             }
@@ -167,9 +187,15 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
           timer = setInterval(() => {
             if (validating || closing) return
             validating = true
-            void options.sessionValid(verifiedSession).then((valid) => {
-              if (!valid) shut()
-            }).catch(shut).finally(() => { validating = false })
+            void options
+              .sessionValid(verifiedSession)
+              .then((valid) => {
+                if (!valid) shut()
+              })
+              .catch(shut)
+              .finally(() => {
+                validating = false
+              })
           }, interval)
           timer.unref()
         })
