@@ -10,8 +10,10 @@ export type GatewaySessionSource = Pick<
   'authenticate' | 'sessionValid'
 >
 
-export interface SessionGatewayOptions
-  extends Omit<GatewayOptions, 'authenticate' | 'sessionValid'> {
+export interface SessionGatewayOptions extends Omit<
+  GatewayOptions,
+  'authenticate' | 'sessionValid'
+> {
   readonly sessions: GatewaySessionSource
 }
 
