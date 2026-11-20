@@ -65,10 +65,12 @@ function connect(
   cookie?: string,
   headers: Record<string, string> = {},
   origin = ORIGIN,
+  autoPong = true,
 ): Promise<Connected | { refused: number }> {
   return new Promise((resolve) => {
     const socket = new WebSocket(`ws://127.0.0.1:${gatewayPort}${BUS_PATH}`, {
       origin,
+      autoPong,
       headers: { ...(cookie ? { cookie } : {}), ...headers },
     })
     clients.push(socket)
@@ -139,6 +141,7 @@ beforeEach(async () => {
     publicOrigin: ORIGIN,
     hosts,
     recheckMs: 20,
+    heartbeatMs: 80,
     authenticate: async (request): Promise<GatewaySession | null> => {
       // This is a test-only session store stub, not production login logic.
       const match = /(?:^|;\s*)sid=(a|b)(?:;|$)/.exec(request.headers.cookie ?? '')
@@ -226,6 +229,30 @@ describe('private Synapse WebSocket gateway', () => {
     const other = await connect('sid=b')
     if (!('socket' in other)) throw new Error('other user incorrectly blocked')
     expect(await other.next()).toEqual({ kind: 'hello', from: 'b' })
+  })
+
+  it('tears down both gateway sides after an actual missed heartbeat, then permits reconnect', async () => {
+    const result = await connect('sid=a', {}, ORIGIN, false)
+    if (!('socket' in result)) throw new Error('gateway refused authenticated session')
+    await result.next()
+    const backend = upstreams[upstreams.length - 1]
+    if (!backend) throw new Error('missing backend socket')
+    const closed = (socket: WebSocket) =>
+      new Promise<void>((resolve, reject) => {
+        if (socket.readyState === WebSocket.CLOSED) {
+          resolve()
+          return
+        }
+        const timeout = setTimeout(() => reject(new Error('gateway did not close both sockets')), 1500)
+        socket.once('close', () => {
+          clearTimeout(timeout)
+          resolve()
+        })
+      })
+    await Promise.all([closed(result.socket), closed(backend)])
+    const reconnected = await connect('sid=a')
+    if (!('socket' in reconnected)) throw new Error('heartbeat shutdown did not free user slot')
+    expect(await reconnected.next()).toEqual({ kind: 'hello', from: 'a' })
   })
 
   it('closes an existing WebSocket when its server-side session is revoked', async () => {
