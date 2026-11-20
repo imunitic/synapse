@@ -186,14 +186,6 @@ jobs:
       - name: Desktop app checks
         run: just desktop-check
 
-      # TEMPORARY: report formatter's exact diff; remove after applying it.
-      - name: Show gateway formatting fixes
-        if: failure()
-        working-directory: synapse_desktop
-        run: |
-          npx prettier --write server/gateway-password-verifier.test.ts server/gateway-private-entry.test.ts server/gateway-private-entry.ts server/gateway-protected-frontend.test.ts server/gateway-protected-frontend.ts server/gateway-provisioned-auth.ts
-          git diff -- server/gateway-password-verifier.test.ts server/gateway-private-entry.test.ts server/gateway-private-entry.ts server/gateway-protected-frontend.test.ts server/gateway-protected-frontend.ts server/gateway-provisioned-auth.ts
-
   # The Rust host of the desktop app: format, lint and its tests, on the platforms
   # the app is built for. It always runs, like `desktop`.
   desktop-host:
