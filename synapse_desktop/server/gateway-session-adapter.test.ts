@@ -60,7 +60,7 @@ describe('gateway session integration', () => {
       }
       backendSockets.handleUpgrade(request, socket, head, (ws) => {
         openSockets.push(ws)
-        ws.on('message', (data) => ws.send(data))
+        ws.on('message', (data) => ws.send(String(data)))
       })
     })
     const backendPort = await listen(backend)
