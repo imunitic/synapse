@@ -67,12 +67,23 @@ export function createPasswordVerifier(accounts: readonly PasswordAccount[]) {
   // Unknown usernames still perform an expensive hash comparison to avoid
   // trivially exposing configured account names through response latency.
   const fallback = { userId: '', salt: randomBytes(16), digest: randomBytes(KEY_BYTES) }
+  let pending = 0
+  const MAX_CONCURRENT_HASHES = 2
 
   return async (username: string, password: string): Promise<string | null> => {
     if (password.length < 1 || password.length > 1024) return null
-    const entry = known.get(username) ?? fallback
-    const candidate = await derive(password, entry.salt)
-    const matched = timingSafeEqual(candidate, entry.digest)
-    return matched && known.has(username) ? entry.userId : null
+    // Bound the amount of memory-intensive scrypt work scheduled at once.
+    // Refusing excess requests is safer than allowing an authentication flood
+    // to exhaust the gateway's constrained memory budget.
+    if (pending >= MAX_CONCURRENT_HASHES) return null
+    pending += 1
+    try {
+      const entry = known.get(username) ?? fallback
+      const candidate = await derive(password, entry.salt)
+      const matched = timingSafeEqual(candidate, entry.digest)
+      return matched && known.has(username) ? entry.userId : null
+    } finally {
+      pending -= 1
+    }
   }
 }
