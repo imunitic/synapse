@@ -1,0 +1,108 @@
+import { createServer, type Server } from 'node:http'
+import { afterEach, describe, expect, it } from 'vitest'
+import { attachGatewayHttpAuth } from './gateway-http-auth.ts'
+import { createGatewaySessions } from './gateway-sessions.ts'
+
+const ORIGIN = 'https://synapse.example.test'
+const openServers: Server[] = []
+
+async function fixture(maxAttempts = 5) {
+  const server = createServer()
+  openServers.push(server)
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  if (address === null || typeof address === 'string') throw new Error('invalid listen address')
+  const host = `127.0.0.1:${address.port}`
+  const sessions = createGatewaySessions()
+  let checks = 0
+  attachGatewayHttpAuth(server, {
+    publicHost: host,
+    publicOrigin: ORIGIN,
+    sessions,
+    maxAttempts,
+    verifyCredentials: async (username, password) => {
+      checks += 1
+      return username === 'alice' && password === 'fixture-password' ? 'alice' : null
+    },
+  })
+  return {
+    sessions,
+    checks: () => checks,
+    request: (path: string, method = 'GET', body?: string, cookie?: string, origin = ORIGIN) =>
+      fetch(`http://${host}${path}`, {
+        method,
+        headers: {
+          Origin: origin,
+          ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+          ...(cookie === undefined ? {} : { Cookie: cookie }),
+        },
+        body,
+      }),
+  }
+}
+
+afterEach(async () => {
+  await Promise.all(
+    openServers.splice(0).map(
+      (server) => new Promise<void>((resolve) => server.closeAllConnections() || server.close(() => resolve())),
+    ),
+  )
+})
+
+describe('private gateway HTTP authentication', () => {
+  it('issues an opaque, secure cookie only after trusted verification', async () => {
+    const f = await fixture()
+    const invalid = await f.request('/auth/session', 'POST', JSON.stringify({ username: 'alice', password: 'bad' }))
+    expect(invalid.status).toBe(401)
+    expect(invalid.headers.get('set-cookie')).toBeNull()
+
+    const good = await f.request('/auth/session', 'POST', JSON.stringify({ username: 'alice', password: 'fixture-password' }))
+    expect(good.status).toBe(200)
+    const cookie = good.headers.get('set-cookie') ?? ''
+    expect(cookie).toContain('HttpOnly; Secure; SameSite=Strict')
+    const tokenCookie = cookie.split(';')[0]
+    expect(tokenCookie).toMatch(/^synapse_session=[A-Za-z0-9_-]{43}$/)
+    expect(cookie).not.toContain('fixture-password')
+    expect((await f.request('/auth/me', 'GET', undefined, tokenCookie)).status).toBe(200)
+    expect(f.checks()).toBe(2)
+  })
+
+  it('revokes on logout, clears cookie and denies session reuse', async () => {
+    const f = await fixture()
+    const login = await f.request('/auth/session', 'POST', JSON.stringify({ username: 'alice', password: 'fixture-password' }))
+    const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0]
+    expect((await f.request('/auth/me', 'GET', undefined, cookie)).status).toBe(200)
+    const logout = await f.request('/auth/logout', 'POST', undefined, cookie)
+    expect(logout.status).toBe(200)
+    expect(logout.headers.get('set-cookie')).toContain('Max-Age=0')
+    expect((await f.request('/auth/me', 'GET', undefined, cookie)).status).toBe(401)
+  })
+
+  it('refuses cross-origin requests and disallowed methods', async () => {
+    const f = await fixture()
+    const credentials = JSON.stringify({ username: 'alice', password: 'fixture-password' })
+    expect((await f.request('/auth/session', 'POST', credentials, undefined, 'https://attacker.example')).status).toBe(403)
+    expect((await f.request('/auth/logout', 'POST', undefined, undefined, 'https://attacker.example')).status).toBe(403)
+    expect((await f.request('/auth/session', 'GET')).status).toBe(405)
+    expect((await f.request('/auth/logout', 'GET')).status).toBe(405)
+    expect((await f.request('/auth/me', 'POST')).status).toBe(405)
+    expect(f.checks()).toBe(0)
+  })
+
+  it('limits login attempts and never invokes verifier once rate limited', async () => {
+    const f = await fixture(2)
+    const body = JSON.stringify({ username: 'alice', password: 'wrong' })
+    expect((await f.request('/auth/session', 'POST', body)).status).toBe(401)
+    expect((await f.request('/auth/session', 'POST', body)).status).toBe(401)
+    expect((await f.request('/auth/session', 'POST', body)).status).toBe(429)
+    expect(f.checks()).toBe(2)
+  })
+
+  it('rejects malformed payloads and an unauthenticated status check', async () => {
+    const f = await fixture()
+    expect((await f.request('/auth/me')).status).toBe(401)
+    expect((await f.request('/auth/session', 'POST', '{}')).status).toBe(400)
+    expect((await f.request('/auth/session', 'POST', 'not-json')).status).toBe(400)
+    expect(f.checks()).toBe(0)
+  })
+})
