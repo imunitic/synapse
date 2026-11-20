@@ -2,6 +2,7 @@ import { createServer, type Server } from 'node:http'
 import { afterEach, describe, expect, it } from 'vitest'
 import { attachGatewayHttpAuth } from './gateway-http-auth.ts'
 import { createGatewaySessions } from './gateway-sessions.ts'
+import { VERIFIER_BUSY } from './gateway-password-verifier.ts'
 
 const ORIGIN = 'https://synapse.example.test'
 const openServers: Server[] = []
@@ -28,11 +29,11 @@ async function fixture(maxAttempts = 5) {
   return {
     sessions,
     checks: () => checks,
-    request: (path: string, method = 'GET', body?: string, cookie?: string, origin = ORIGIN) =>
+    request: (path: string, method = 'GET', body?: string, cookie?: string, origin: string | undefined = ORIGIN) =>
       fetch(`http://${host}${path}`, {
         method,
         headers: {
-          Origin: origin,
+          ...(origin === undefined ? {} : { Origin: origin }),
           ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
           ...(cookie === undefined ? {} : { Cookie: cookie }),
         },
@@ -109,6 +110,38 @@ describe('private gateway HTTP authentication', () => {
     expect((await f.request('/auth/logout', 'GET')).status).toBe(405)
     expect((await f.request('/auth/me', 'POST')).status).toBe(405)
     expect(f.checks()).toBe(0)
+  })
+
+  it('accepts same-origin browser GET without Origin but rejects a foreign Origin', async () => {
+    const f = await fixture()
+    const issued = f.sessions.issue('alice')
+    const cookie = `synapse_session=${issued.token}`
+    expect((await f.request('/auth/me', 'GET', undefined, cookie, undefined)).status).toBe(200)
+    expect(
+      (await f.request('/auth/me', 'GET', undefined, cookie, 'https://attacker.example')).status,
+    ).toBe(403)
+  })
+
+  it('reports password verifier saturation as busy rather than bad credentials', async () => {
+    const server = createServer()
+    openServers.push(server)
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('invalid address')
+    const host = `127.0.0.1:${address.port}`
+    attachGatewayHttpAuth(server, {
+      publicHost: host,
+      publicOrigin: ORIGIN,
+      sessions: createGatewaySessions(),
+      verifyCredentials: async () => VERIFIER_BUSY,
+    })
+    const response = await fetch(`http://${host}/auth/session`, {
+      method: 'POST',
+      headers: { Origin: ORIGIN, 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ username: 'alice', password: 'some-password' }),
+    })
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ error: 'service_busy' })
   })
 
   it('limits login attempts and never invokes verifier once rate limited', async () => {
