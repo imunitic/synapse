@@ -150,11 +150,10 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
         sockets.handleUpgrade(req, socket, head, (client) => {
           let closing = false
           let validating = false
-          let timer: ReturnType<typeof setInterval> | undefined
           const shut = () => {
             if (closing) return
             closing = true
-            if (timer !== undefined) clearInterval(timer)
+            clearInterval(timer)
             client.terminate()
             upstream.terminate()
           }
@@ -184,7 +183,7 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
             }
             client.send(bytes, { binary: false })
           })
-          timer = setInterval(() => {
+          const timer = setInterval(() => {
             if (validating || closing) return
             validating = true
             void options
