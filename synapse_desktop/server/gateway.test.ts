@@ -90,9 +90,7 @@ function connect(
     socket.once('unexpected-response', (_request, response) => {
       const refused = response.statusCode ?? 0
       resolve(
-        refused === 429
-          ? { refused, retryAfter: response.headers['retry-after'] }
-          : { refused },
+        refused === 429 ? { refused, retryAfter: response.headers['retry-after'] } : { refused },
       )
     })
     socket.once('error', () => resolve({ refused: 0 }))
