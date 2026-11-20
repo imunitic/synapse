@@ -32,6 +32,8 @@ export default defineConfig({
       SHELL: '/bin/sh',
       // Ports of their own, so that they run beside a dev build.
       SYNAPSE_DESKTOP_E2E: '1',
+      // E2E always exercises the existing localhost host, regardless of the launcher's environment.
+      SYNAPSE_DESKTOP_HOST_MODE: 'local',
     },
     reuseExistingServer: false,
     timeout: 30_000,
