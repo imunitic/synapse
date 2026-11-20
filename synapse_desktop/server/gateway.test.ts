@@ -1,0 +1,176 @@
+import { createServer, type Server } from 'node:http'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { WebSocket, WebSocketServer } from 'ws'
+import { BUS_PATH, TOKEN_HEADER } from '../shared/constants.ts'
+import { attachGateway, type GatewayHost, type GatewaySession } from './gateway.ts'
+
+const ORIGIN = 'https://synapse.example.test'
+const TOKEN_A = 'private-token-a'
+const TOKEN_B = 'private-token-b'
+
+let gateway: Server
+let backendA: Server
+let backendB: Server
+let gatewayPort: number
+let aCount: number
+let bCount: number
+let aHeaders: Record<string, string | string[] | undefined>
+let bHeaders: Record<string, string | string[] | undefined>
+let revoked: Set<string>
+let clients: WebSocket[]
+let upstreams: WebSocket[]
+
+async function listen(server: Server): Promise<number> {
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  if (address === null || typeof address === 'string') throw new Error('no server port')
+  return address.port
+}
+
+function privateBackend(name: string, token: string, increment: (headers: typeof aHeaders) => void): Server {
+  const server = createServer((_req, res) => {
+    res.writeHead(404).end()
+  })
+  const sockets = new WebSocketServer({ noServer: true })
+  server.on('upgrade', (req, socket, head) => {
+    if (req.url !== BUS_PATH || req.headers[TOKEN_HEADER] !== token ||
+        req.headers.origin !== 'http://gateway.internal') {
+      socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+      socket.destroy()
+      return
+    }
+    increment(req.headers)
+    sockets.handleUpgrade(req, socket, head, (ws) => {
+      upstreams.push(ws)
+      ws.send(JSON.stringify({ kind: 'hello', from: name }))
+      ws.on('message', (data) => ws.send(data.toString()))
+    })
+  })
+  return server
+}
+
+function connect(cookie?: string, headers: Record<string, string> = {}): Promise<{ socket: WebSocket } | { refused: number }> {
+  return new Promise((resolve) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${gatewayPort}${BUS_PATH}`, {
+      origin: ORIGIN,
+      headers: { ...(cookie ? { cookie } : {}), ...headers },
+    })
+    clients.push(socket)
+    socket.once('open', () => resolve({ socket }))
+    socket.once('unexpected-response', (_request, response) => {
+      resolve({ refused: response.statusCode ?? 0 })
+    })
+    socket.once('error', () => resolve({ refused: 0 }))
+  })
+}
+
+function message(socket: WebSocket): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('no WebSocket message received')), 2000)
+    socket.once('message', (data) => {
+      clearTimeout(timeout)
+      resolve(JSON.parse(String(data)))
+    })
+  })
+}
+
+beforeEach(async () => {
+  clients = []
+  upstreams = []
+  aCount = 0
+  bCount = 0
+  aHeaders = {}
+  bHeaders = {}
+  revoked = new Set()
+  backendA = privateBackend('a', TOKEN_A, (headers) => { aCount++; aHeaders = headers })
+  backendB = privateBackend('b', TOKEN_B, (headers) => { bCount++; bHeaders = headers })
+  const aPort = await listen(backendA)
+  const bPort = await listen(backendB)
+  gateway = createServer((_req, res) => res.writeHead(404).end())
+  gatewayPort = await listen(gateway)
+  const hosts = new Map<string, GatewayHost>([
+    ['a', { userId: 'a', backend: `http://127.0.0.1:${aPort}`, backendOrigin: 'http://gateway.internal', backendToken: TOKEN_A }],
+    ['b', { userId: 'b', backend: `http://127.0.0.1:${bPort}`, backendOrigin: 'http://gateway.internal', backendToken: TOKEN_B }],
+  ])
+  attachGateway(gateway, {
+    publicHost: `127.0.0.1:${gatewayPort}`,
+    publicOrigin: ORIGIN,
+    hosts,
+    recheckMs: 20,
+    authenticate: async (request): Promise<GatewaySession | null> => {
+      // This is a test-only session store stub, not production login logic.
+      const match = /(?:^|;\s*)sid=(a|b)(?:;|$)/.exec(request.headers.cookie ?? '')
+      const userId = match?.[1]
+      return userId ? { userId, sessionId: userId } : null
+    },
+    sessionValid: async (session) => !revoked.has(session.sessionId),
+  })
+})
+
+afterEach(async () => {
+  for (const socket of [...clients, ...upstreams]) socket.terminate()
+  await Promise.all([gateway, backendA, backendB].map((server) => new Promise<void>((resolve) => server.close(() => resolve()))))
+})
+
+describe('private Synapse WebSocket gateway', () => {
+  it('routes an authenticated user to their own host and preserves the Synapse message payload', async () => {
+    const result = await connect('sid=a', { 'x-user-id': 'b', [TOKEN_HEADER]: TOKEN_B })
+    if (!('socket' in result)) throw new Error('gateway refused the authenticated session')
+    const { socket } = result
+    expect(await message(socket)).toEqual({ kind: 'hello', from: 'a' })
+    const reply = message(socket)
+    socket.send(JSON.stringify({ kind: 'request', id: 'one', params: {} }))
+    expect(await reply).toEqual({ kind: 'request', id: 'one', params: {} })
+    expect(aCount).toBe(1)
+    expect(bCount).toBe(0)
+    expect(aHeaders.cookie).toBeUndefined()
+    expect(aHeaders['x-user-id']).toBeUndefined()
+    expect(aHeaders[TOKEN_HEADER]).toBe(TOKEN_A)
+  })
+
+  it('routes the other user to their own backend', async () => {
+    const result = await connect('sid=b')
+    if (!('socket' in result)) throw new Error('gateway refused the authenticated session')
+    expect(await message(result.socket)).toEqual({ kind: 'hello', from: 'b' })
+    expect(aCount).toBe(0)
+    expect(bCount).toBe(1)
+    expect(bHeaders[TOKEN_HEADER]).toBe(TOKEN_B)
+  })
+
+  it('refuses unauthenticated and forged-identity requests without contacting a host', async () => {
+    expect(await connect(undefined, { 'x-user-id': 'a' })).toEqual({ refused: 401 })
+    expect(await connect('sid=invalid')).toEqual({ refused: 401 })
+    expect(aCount).toBe(0)
+    expect(bCount).toBe(0)
+  })
+
+  it('refuses a foreign browser Origin before authenticating', async () => {
+    expect(await connect('sid=a', { origin: 'https://attacker.example' })).toEqual({ refused: 403 })
+    expect(aCount).toBe(0)
+    expect(bCount).toBe(0)
+  })
+
+  it('cannot connect directly to the private backend without its gateway credential', async () => {
+    const aPort = (backendA.address() as { port: number }).port
+    const result = await new Promise<number>((resolve) => {
+      const socket = new WebSocket(`ws://127.0.0.1:${aPort}${BUS_PATH}`, { origin: ORIGIN })
+      clients.push(socket)
+      socket.once('unexpected-response', (_request, response) => resolve(response.statusCode ?? 0))
+      socket.once('error', () => resolve(0))
+    })
+    expect(result).toBe(401)
+    expect(aCount).toBe(0)
+  })
+
+  it('closes an existing WebSocket when its server-side session is revoked', async () => {
+    const result = await connect('sid=a')
+    if (!('socket' in result)) throw new Error('gateway refused the authenticated session')
+    await message(result.socket)
+    const closed = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('revoked socket remained open')), 1000)
+      result.socket.once('close', () => { clearTimeout(timeout); resolve() })
+    })
+    revoked.add('a')
+    await closed
+  })
+})
