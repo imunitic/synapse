@@ -214,6 +214,20 @@ describe('private Synapse WebSocket gateway', () => {
     expect(aCount).toBe(0)
   })
 
+  it('enforces a per-user WebSocket connection cap without rejecting another user', async () => {
+    const first = await connect('sid=a')
+    const second = await connect('sid=a')
+    if (!('socket' in first) || !('socket' in second)) {
+      throw new Error('expected initial connections')
+    }
+    await first.next()
+    await second.next()
+    expect(await connect('sid=a')).toEqual({ refused: 403 })
+    const other = await connect('sid=b')
+    if (!('socket' in other)) throw new Error('other user incorrectly blocked')
+    expect(await other.next()).toEqual({ kind: 'hello', from: 'b' })
+  })
+
   it('closes an existing WebSocket when its server-side session is revoked', async () => {
     const result = await connect('sid=a')
     if (!('socket' in result)) throw new Error('gateway refused the authenticated session')
