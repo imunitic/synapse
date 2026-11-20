@@ -235,9 +235,14 @@ describe('private Synapse WebSocket gateway', () => {
     if (!('socket' in first)) throw new Error('expected open first connection')
     first.socket.terminate()
     await new Promise<void>((resolve) => first.socket.once('close', resolve))
-    // The gateway may need a network turn to observe the peer close.
-    await new Promise((resolve) => setTimeout(resolve, 50))
-    const reconnect = await connect('sid=a; instance=6')
+    // Give the gateway a bounded chance to observe the TCP close rather
+    // than relying on a fixed wall-clock sleep on slower CI runners.
+    const deadline = Date.now() + 1500
+    let reconnect = await connect('sid=a; instance=6')
+    while (!('socket' in reconnect) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      reconnect = await connect('sid=a; instance=6')
+    }
     if (!('socket' in reconnect)) throw new Error('reconnect did not reclaim freed slot')
     expect(await reconnect.next()).toEqual({ kind: 'hello', from: 'a' })
   })
