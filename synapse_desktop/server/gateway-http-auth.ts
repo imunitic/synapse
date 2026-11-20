@@ -70,13 +70,13 @@ async function readCredentials(
   }
 }
 
-export function attachGatewayHttpAuth(server: Server, options: GatewayHttpAuthOptions): void {
+export function createGatewayHttpAuthHandler(options: GatewayHttpAuthOptions) {
   const limiter = createLoginLimiter({
     maxAttempts: options.maxAttempts ?? 5,
     windowMs: options.attemptWindowMs ?? 60_000,
     maxPeers: options.maxTrackedPeers ?? 1024,
   })
-  server.on('request', (request, response) => {
+  return (request: IncomingMessage, response: ServerResponse) => {
     if (!['/auth/session', '/auth/logout', '/auth/me'].includes(request.url ?? '')) return
 
     if (
@@ -139,5 +139,9 @@ export function attachGatewayHttpAuth(server: Server, options: GatewayHttpAuthOp
         }
       }
     })()
-  })
+  }
+}
+
+export function attachGatewayHttpAuth(server: Server, options: GatewayHttpAuthOptions): void {
+  server.on('request', createGatewayHttpAuthHandler(options))
 }
