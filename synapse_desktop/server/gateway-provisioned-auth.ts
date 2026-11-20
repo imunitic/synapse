@@ -2,17 +2,13 @@
 // The caller supplies password hashes from a protected operator-managed
 // source; this module never opens a port, loads secrets, or enables remote mode.
 import type { Server } from 'node:http'
-import {
-  attachGatewayHttpAuth,
-  type GatewayHttpAuthOptions,
-} from './gateway-http-auth.ts'
-import {
-  createPasswordVerifier,
-  type PasswordAccount,
-} from './gateway-password-verifier.ts'
+import { attachGatewayHttpAuth, type GatewayHttpAuthOptions } from './gateway-http-auth.ts'
+import { createPasswordVerifier, type PasswordAccount } from './gateway-password-verifier.ts'
 
-export interface ProvisionedGatewayAuthOptions
-  extends Omit<GatewayHttpAuthOptions, 'verifyCredentials'> {
+export interface ProvisionedGatewayAuthOptions extends Omit<
+  GatewayHttpAuthOptions,
+  'verifyCredentials'
+> {
   readonly accounts: readonly PasswordAccount[]
 }
 
