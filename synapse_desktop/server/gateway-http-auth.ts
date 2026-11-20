@@ -3,6 +3,7 @@
 // Do not mount these handlers on the existing localhost Node or Tauri hosts.
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { createLoginLimiter } from './gateway-login-limiter.ts'
+import { VERIFIER_BUSY } from './gateway-password-verifier.ts'
 import {
   clearSessionCookie,
   createGatewaySessions,
@@ -18,7 +19,10 @@ export interface GatewayHttpAuthOptions {
   readonly sessions: SessionStore
   // Return a trusted, fixed user ID or null. Never trust the submitted username
   // as an authenticated identity without checking its credential.
-  readonly verifyCredentials: (username: string, password: string) => Promise<string | null>
+  readonly verifyCredentials: (username: string, password: string) => Promise<string | null | typeof VERIFIER_BUSY>
+  // The configured reverse proxy must validate and replace forwarding headers.
+  // Never select a key directly from an arbitrary client-supplied header.
+  readonly peerKey?: (request: IncomingMessage) => string | null
   readonly maxAttempts?: number
   readonly attemptWindowMs?: number
   readonly maxTrackedPeers?: number
@@ -39,7 +43,7 @@ function respond(response: ServerResponse, status: number, body: object, cookie?
 async function readCredentials(
   request: IncomingMessage,
 ): Promise<{ username: string; password: string } | null> {
-  if (request.headers['content-type'] !== 'application/json') return null
+  if (request.headers['content-type']?.split(';')[0]?.trim().toLowerCase() !== 'application/json') return null
   const chunks: Buffer[] = []
   let size = 0
   for await (const part of request) {
@@ -81,7 +85,9 @@ export function createGatewayHttpAuthHandler(options: GatewayHttpAuthOptions) {
 
     if (
       request.headers.host !== options.publicHost ||
-      request.headers.origin !== options.publicOrigin
+      (request.method !== 'GET' && request.headers.origin !== options.publicOrigin) ||
+      (request.method === 'GET' && request.headers.origin !== undefined &&
+        request.headers.origin !== options.publicOrigin)
     ) {
       respond(response, 403, { error: 'forbidden' })
       return
@@ -94,7 +100,8 @@ export function createGatewayHttpAuthHandler(options: GatewayHttpAuthOptions) {
             respond(response, 405, { error: 'method_not_allowed' })
             return
           }
-          if (!limiter.allow(request.socket.remoteAddress ?? 'unknown')) {
+          const peer = options.peerKey ? options.peerKey(request) : request.socket.remoteAddress
+          if (!peer || !limiter.allow(peer)) {
             respond(response, 429, { error: 'too_many_attempts' })
             return
           }
@@ -105,6 +112,10 @@ export function createGatewayHttpAuthHandler(options: GatewayHttpAuthOptions) {
           }
           // A verifier must establish identity independently of the browser.
           const userId = await options.verifyCredentials(credentials.username, credentials.password)
+          if (userId === VERIFIER_BUSY) {
+            respond(response, 503, { error: 'service_busy' })
+            return
+          }
           if (!userId) {
             respond(response, 401, { error: 'invalid_credentials' })
             return
