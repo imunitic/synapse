@@ -80,6 +80,7 @@ describe('private PWA gateway HTTP composition', () => {
     const server = createServer(() => {})
     servers.push(server)
     const sessions = createGatewaySessions()
+    const passwordHash = await hashGatewayPassword('fixture-password-long')
     expect(() =>
       attachPrivateGateway(server, {
         publicHost: 'synapse.example.test',
@@ -88,7 +89,7 @@ describe('private PWA gateway HTTP composition', () => {
         accounts: [{
           username: 'alice',
           userId: 'alice',
-          passwordHash: await hashGatewayPassword('fixture-password-long'),
+          passwordHash,
         }],
         hosts: new Map(),
         assets: new Map([['/', { content: '<html></html>', contentType: 'text/html' }]]),
