@@ -88,7 +88,12 @@ function connect(
       })
     socket.once('open', () => resolve({ socket, next }))
     socket.once('unexpected-response', (_request, response) => {
-      resolve({ refused: response.statusCode ?? 0 })
+      const refused = response.statusCode ?? 0
+      resolve(
+        refused === 429
+          ? { refused, retryAfter: response.headers['retry-after'] }
+          : { refused },
+      )
     })
     socket.once('error', () => resolve({ refused: 0 }))
   })
@@ -214,18 +219,28 @@ describe('private Synapse WebSocket gateway', () => {
     expect(aCount).toBe(0)
   })
 
-  it('enforces a per-user WebSocket connection cap without rejecting another user', async () => {
+  it('reserves reconnect headroom and returns retry advice at the per-user cap', async () => {
     const first = await connect('sid=a')
     const second = await connect('sid=a')
-    if (!('socket' in first) || !('socket' in second)) {
-      throw new Error('expected initial connections')
+    const third = await connect('sid=a')
+    const fourth = await connect('sid=a')
+    for (const result of [first, second, third, fourth]) {
+      if (!('socket' in result)) throw new Error('expected initial connections')
+      expect(await result.next()).toEqual({ kind: 'hello', from: 'a' })
     }
-    await first.next()
-    await second.next()
-    expect(await connect('sid=a')).toEqual({ refused: 403 })
+    expect(await connect('sid=a')).toEqual({ refused: 429, retryAfter: '5' })
     const other = await connect('sid=b')
     if (!('socket' in other)) throw new Error('other user incorrectly blocked')
     expect(await other.next()).toEqual({ kind: 'hello', from: 'b' })
+    // Closed connections must free the slot for a legitimate reconnect.
+    if (!('socket' in first)) throw new Error('expected open first connection')
+    first.socket.terminate()
+    await new Promise<void>((resolve) => first.socket.once('close', resolve))
+    // The gateway may need a network turn to observe the peer close.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const reconnect = await connect('sid=a')
+    if (!('socket' in reconnect)) throw new Error('reconnect did not reclaim freed slot')
+    expect(await reconnect.next()).toEqual({ kind: 'hello', from: 'a' })
   })
 
   it('closes an existing WebSocket when its server-side session is revoked', async () => {
