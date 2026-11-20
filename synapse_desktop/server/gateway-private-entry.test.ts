@@ -32,11 +32,13 @@ describe('private PWA gateway HTTP composition', () => {
       publicHost: host,
       publicOrigin: ORIGIN,
       sessions,
-      accounts: [{
-        username: 'alice',
-        userId: 'alice',
-        passwordHash: await hashGatewayPassword('fixture-password-long'),
-      }],
+      accounts: [
+        {
+          username: 'alice',
+          userId: 'alice',
+          passwordHash: await hashGatewayPassword('fixture-password-long'),
+        },
+      ],
       hosts: new Map(),
       assets: new Map([
         ['/', { content: '<html>private</html>', contentType: 'text/html' }],
@@ -51,11 +53,15 @@ describe('private PWA gateway HTTP composition', () => {
     expect((await request('/assets/app.js')).status).toBe(401)
     expect((await request('/auth/me', { headers: { Origin: ORIGIN } })).status).toBe(401)
     expect((await request('/api/bus')).status).toBe(401)
-    expect((await request('/auth/session', {
-      method: 'POST',
-      headers: { Origin: ORIGIN, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'alice', password: 'fixture-password-long' }),
-    })).status).toBe(200)
+    expect(
+      (
+        await request('/auth/session', {
+          method: 'POST',
+          headers: { Origin: ORIGIN, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: 'alice', password: 'fixture-password-long' }),
+        })
+      ).status,
+    ).toBe(200)
     const login = await request('/auth/session', {
       method: 'POST',
       headers: { Origin: ORIGIN, 'Content-Type': 'application/json' },
@@ -65,13 +71,21 @@ describe('private PWA gateway HTTP composition', () => {
     const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0] ?? ''
     expect((await request('/', { headers: { Cookie: cookie } })).status).toBe(200)
     expect((await request('/assets/app.js', { headers: { Cookie: cookie } })).status).toBe(200)
-    expect((await request('/auth/me', {
-      headers: { Origin: ORIGIN, Cookie: cookie },
-    })).status).toBe(200)
-    expect((await request('/auth/logout', {
-      method: 'POST',
-      headers: { Origin: ORIGIN, Cookie: cookie },
-    })).status).toBe(200)
+    expect(
+      (
+        await request('/auth/me', {
+          headers: { Origin: ORIGIN, Cookie: cookie },
+        })
+      ).status,
+    ).toBe(200)
+    expect(
+      (
+        await request('/auth/logout', {
+          method: 'POST',
+          headers: { Origin: ORIGIN, Cookie: cookie },
+        })
+      ).status,
+    ).toBe(200)
     expect((await request('/', { headers: { Cookie: cookie } })).status).toBe(401)
     expect((await request('/auth/unknown', { headers: { Cookie: cookie } })).status).toBe(401)
   })
@@ -86,11 +100,13 @@ describe('private PWA gateway HTTP composition', () => {
         publicHost: 'synapse.example.test',
         publicOrigin: ORIGIN,
         sessions,
-        accounts: [{
-          username: 'alice',
-          userId: 'alice',
-          passwordHash,
-        }],
+        accounts: [
+          {
+            username: 'alice',
+            userId: 'alice',
+            passwordHash,
+          },
+        ],
         hosts: new Map(),
         assets: new Map([['/', { content: '<html></html>', contentType: 'text/html' }]]),
       }),
