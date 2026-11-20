@@ -109,6 +109,16 @@ The feature branch includes `server/gateway-http-auth.ts` and integration tests 
 
 **Hardening required before deployment:** trusted identity provider integration and credentials storage; an HTTPS entrypoint that owns this exact Host/Origin; authenticated static application and asset delivery; network-facing rate-limit and connection controls; robust request timeout/body-size error responses; non-replica-safe in-memory state replacement or a deliberate single-instance deployment; session store cleanup and application lifecycle; and strict reverse-proxy configuration. The current per-peer rate limiting uses the TCP peer address, **not** untrusted `X-Forwarded-For`; it must be reviewed when a reverse proxy is introduced. No remote mode may be enabled solely by attaching these handlers.
 
+## Operator-provisioned password verifier (2026-11-20)
+
+The feature branch adds `server/gateway-password-verifier.ts` and unit tests, an optional verifier that may be injected into the HTTP auth layer's existing `verifyCredentials` callback. It uses Node's asynchronous scrypt with a 128-bit random salt, fixed `N=16384, r=8, p=1`, a 256-bit derived key, and timing-safe comparison. Unknown usernames follow the same derivation path using a dummy record.
+
+- The operator must explicitly provide the username, stable user ID, and scrypt password hash through **external protected configuration**. No default account, password, hash, or environment fallback is embedded in the repository.
+- Reject duplicate or malformed user IDs, usernames, and hash settings at initialization; no account auto-provisioning or browser-supplied user IDs.
+- A provisioning workflow will later collect passwords without command-line arguments, shell history, CI logs, or commits. The supplied `hashGatewayPassword` helper is a library primitive, **not** an authenticated account-management interface.
+- A deployed gateway must protect the account configuration on disk, validate backend host mappings against those fixed user IDs, and support credential changes and revocation.
+- This verifier has not been attached to a public HTTP server or PWA login interface. Authentication remains **not deployable** until reverse-proxy, per-user container, login UI, static asset authorization, timeout, and network constraints are addressed.
+
 ## Host and deployment constraints
 
 - The new remote mode must continue to fail closed until these protections are implemented and tested.
