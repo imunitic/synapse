@@ -34,7 +34,9 @@ function respond(response: ServerResponse, status: number, body: object, cookie?
   response.end(payload)
 }
 
-async function readCredentials(request: IncomingMessage): Promise<{ username: string; password: string } | null> {
+async function readCredentials(
+  request: IncomingMessage,
+): Promise<{ username: string; password: string } | null> {
   if (request.headers['content-type'] !== 'application/json') return null
   const chunks: Buffer[] = []
   let size = 0
@@ -58,7 +60,8 @@ async function readCredentials(request: IncomingMessage): Promise<{ username: st
       fields.username.length > 128 ||
       fields.password.length < 1 ||
       fields.password.length > 1024
-    ) return null
+    )
+      return null
     return { username: fields.username, password: fields.password }
   } catch {
     return null
@@ -68,8 +71,12 @@ async function readCredentials(request: IncomingMessage): Promise<{ username: st
 export function attachGatewayHttpAuth(server: Server, options: GatewayHttpAuthOptions): void {
   const maxAttempts = options.maxAttempts ?? 5
   const windowMs = options.attemptWindowMs ?? 60_000
-  if (!Number.isSafeInteger(maxAttempts) || maxAttempts < 1 ||
-      !Number.isSafeInteger(windowMs) || windowMs < 1) {
+  if (
+    !Number.isSafeInteger(maxAttempts) ||
+    maxAttempts < 1 ||
+    !Number.isSafeInteger(windowMs) ||
+    windowMs < 1
+  ) {
     throw new Error('invalid login rate limits')
   }
 
@@ -95,9 +102,8 @@ export function attachGatewayHttpAuth(server: Server, options: GatewayHttpAuthOp
           const key = request.socket.remoteAddress ?? 'unknown'
           const now = Date.now()
           const current = attempts.get(key)
-          const entry = current && now - current.start < windowMs
-            ? current
-            : { start: now, count: 0 }
+          const entry =
+            current && now - current.start < windowMs ? current : { start: now, count: 0 }
           entry.count += 1
           attempts.set(key, entry)
           if (entry.count > maxAttempts) {
@@ -134,8 +140,11 @@ export function attachGatewayHttpAuth(server: Server, options: GatewayHttpAuthOp
           return
         }
         const session = await options.sessions.authenticate(request)
-        respond(response, session === null ? 401 : 200,
-          session === null ? { authenticated: false } : { authenticated: true })
+        respond(
+          response,
+          session === null ? 401 : 200,
+          session === null ? { authenticated: false } : { authenticated: true },
+        )
       } catch {
         if (!response.headersSent && !response.destroyed) {
           respond(response, 503, { error: 'service_unavailable' })
