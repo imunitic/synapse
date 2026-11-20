@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createPasswordVerifier,
   hashGatewayPassword,
+  VERIFIER_BUSY,
   type PasswordAccount,
 } from './gateway-password-verifier.ts'
 
@@ -14,6 +15,21 @@ describe('operator-provisioned gateway credentials', () => {
     expect(await verify('alice', 'wrong-password')).toBeNull()
     expect(await verify('unknown', 'fixture-long-password')).toBeNull()
     expect(await verify('alice', '')).toBeNull()
+  })
+
+  it('normalizes Unicode password input consistently between provisioning and login', async () => {
+    const composed = 'pássword-very-long'
+    const decomposed = composed.normalize('NFD')
+    const hash = await hashGatewayPassword(composed)
+    const verify = createPasswordVerifier([
+      { username: 'alice', userId: 'alice', passwordHash: hash },
+    ])
+    expect(await verify('alice', decomposed)).toBe('alice')
+    const other = await hashGatewayPassword(decomposed)
+    const verifyOther = createPasswordVerifier([
+      { username: 'alice', userId: 'alice', passwordHash: other },
+    ])
+    expect(await verifyOther('alice', composed)).toBe('alice')
   })
 
   it('uses random salts even when passwords match', async () => {
@@ -38,7 +54,7 @@ describe('operator-provisioned gateway credentials', () => {
       verify('alice', 'fixture-long-password'),
       verify('alice', 'fixture-long-password'),
     ]
-    expect(await checks[2]).toBeNull()
+    expect(await checks[2]).toBe(VERIFIER_BUSY)
     expect(await Promise.all(checks.slice(0, 2))).toEqual(['user-alice', 'user-alice'])
     expect(await verify('alice', 'fixture-long-password')).toBe('user-alice')
   })
