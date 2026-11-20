@@ -33,8 +33,16 @@ export interface GatewayOptions {
 
 function refusal(socket: Duplex, status: number): void {
   if (socket.destroyed) return
-  const reason = status === 401 ? 'Unauthorized' : status === 403 ? 'Forbidden' : 'Bad Gateway'
-  socket.end(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`)
+  const reason =
+    status === 401
+      ? 'Unauthorized'
+      : status === 403
+        ? 'Forbidden'
+        : status === 429
+          ? 'Too Many Requests'
+          : 'Bad Gateway'
+  const retryAfter = status === 429 ? 'Retry-After: 5\r\n' : ''
+  socket.end(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\n${retryAfter}Content-Length: 0\r\n\r\n`)
 }
 
 function targetUrl(host: GatewayHost): string {
@@ -67,7 +75,7 @@ const MAX_FRAME = 1024 * 1024
 export function attachGateway(server: Server, options: GatewayOptions): void {
   const sockets = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME })
   const interval = options.recheckMs ?? 15_000
-  const maxConnectionsPerUser = options.maxConnectionsPerUser ?? 2
+  const maxConnectionsPerUser = options.maxConnectionsPerUser ?? 4
   const activeByUser = new Map<string, number>()
   if (!Number.isSafeInteger(maxConnectionsPerUser) || maxConnectionsPerUser < 1) {
     throw new Error('invalid per-user connection limit')
@@ -122,7 +130,7 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
       }
       if (socket.destroyed) return
       if ((activeByUser.get(verifiedSession.userId) ?? 0) >= maxConnectionsPerUser) {
-        refusal(socket, 403)
+        refusal(socket, 429)
         return
       }
       activeByUser.set(verifiedSession.userId, (activeByUser.get(verifiedSession.userId) ?? 0) + 1)
