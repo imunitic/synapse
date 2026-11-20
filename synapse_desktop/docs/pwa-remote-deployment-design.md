@@ -104,7 +104,7 @@ The feature branch includes `server/gateway-http-auth.ts` and integration tests 
 - Login uses a caller-supplied asynchronous `verifyCredentials(username, password)` function; only a verified, server-assigned user ID can acquire a session. No default credentials or passwords are included.
 - Login returns a secure opaque session cookie and never exposes the raw token in a JSON response.
 - Logout revokes the presented token and issues a clearing cookie. Session status returns only authenticated true/false, not credential or container details.
-- Requests must match an exact configured Host and Origin. Login uses a bounded JSON payload, generic invalid-credential errors, and per-peer attempt limits.
+- Requests must match an exact configured Host and Origin. Login uses a bounded JSON payload, generic invalid-credential errors, and a bounded in-memory per-peer login limiter that refuses new peers when saturated.
 - Tests cover valid and invalid credentials, missing/expired cookies, logout reuse, origin rejection, method rejection, and rate limiting.
 
 **Hardening required before deployment:** trusted identity provider integration and credentials storage; an HTTPS entrypoint that owns this exact Host/Origin; authenticated static application and asset delivery; network-facing rate-limit and connection controls; robust request timeout/body-size error responses; non-replica-safe in-memory state replacement or a deliberate single-instance deployment; session store cleanup and application lifecycle; and strict reverse-proxy configuration. The current per-peer rate limiting uses the TCP peer address, **not** untrusted `X-Forwarded-For`; it must be reviewed when a reverse proxy is introduced. No remote mode may be enabled solely by attaching these handlers.
