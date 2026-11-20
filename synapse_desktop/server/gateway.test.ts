@@ -196,6 +196,12 @@ describe('private Synapse WebSocket gateway', () => {
     expect(bCount).toBe(0)
   })
 
+  it('rejects a forged public Host even with a valid session', async () => {
+    expect(await connect('sid=a', { host: 'untrusted.example' })).toEqual({ refused: 403 })
+    expect(aCount).toBe(0)
+    expect(bCount).toBe(0)
+  })
+
   it('cannot connect directly to the private backend without its gateway credential', async () => {
     const aPort = (backendA.address() as { port: number }).port
     const result = await new Promise<number>((resolve) => {
