@@ -7,7 +7,7 @@ import { isIP } from 'node:net'
 function canonicalIp(address: string): string {
   // Node's dual-stack listeners report IPv4 peers in IPv6-mapped form.
   const unwrapped = /^::ffff:/i.test(address) ? address.slice(7) : address
-  return isIP(unwrapped) === 4 ? unwrapped : address
+  return isIP(unwrapped) === 4 ? unwrapped : address.toLowerCase()
 }
 
 export function createTrustedPeerKey(trustedProxyAddresses: readonly string[]) {
