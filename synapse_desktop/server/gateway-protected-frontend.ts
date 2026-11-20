@@ -1,7 +1,7 @@
 // Detached authenticated frontend delivery for the future private PWA gateway.
 // The operator provides a *fixed* build manifest: no URL-to-filesystem lookup,
 // path traversal, directory listing, implicit index fallback, or dynamic proxy.
-import type { Server } from 'node:http'
+import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import type { createGatewaySessions } from './gateway-sessions.ts'
 
 type SessionStore = Pick<ReturnType<typeof createGatewaySessions>, 'authenticate'>
@@ -36,7 +36,7 @@ function validPath(path: string): boolean {
   )
 }
 
-export function attachProtectedFrontend(server: Server, options: ProtectedFrontendOptions): void {
+export function createProtectedFrontendHandler(options: ProtectedFrontendOptions) {
   if (options.assets.size === 0 || !options.assets.has('/')) {
     throw new Error('missing protected frontend index')
   }
@@ -47,7 +47,7 @@ export function attachProtectedFrontend(server: Server, options: ProtectedFronte
     }
   }
 
-  server.on('request', (request, response) => {
+  return (request: IncomingMessage, response: ServerResponse) => {
     const path = request.url ?? ''
     // Only the three auth endpoints have a separate HTTP request handler.
     // The WebSocket bus is handled by an upgrade listener, not plain HTTP.
@@ -103,5 +103,9 @@ export function attachProtectedFrontend(server: Server, options: ProtectedFronte
         if (!response.headersSent && !response.destroyed) respond(503)
       }
     })()
-  })
+  }
+}
+
+export function attachProtectedFrontend(server: Server, options: ProtectedFrontendOptions): void {
+  server.on('request', createProtectedFrontendHandler(options))
 }
