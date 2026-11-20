@@ -106,7 +106,9 @@ export function createGatewaySessions(options: SessionStoreOptions = {}) {
       }
       // Preserve space for other users: never evict their sessions.
       if (sessions.size >= maxSessions) {
-        const oldestOwn = [...sessions.entries()].find(([, entry]) => entry.session.userId === userId)
+        const oldestOwn = [...sessions.entries()].find(
+          ([, entry]) => entry.session.userId === userId,
+        )
         if (!oldestOwn) throw new Error('gateway session limit reached')
         sessions.delete(oldestOwn[0])
       }
