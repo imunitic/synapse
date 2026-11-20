@@ -92,7 +92,7 @@ The development branch adds `server/gateway-sessions.ts` with tests. It is a bou
 - Issue a 256-bit random, opaque session token; store only a SHA-256 digest for lookups, and map the record to one fixed user identity.
 - Accept the token from a single strictly validated `synapse_session` cookie; reject absent, malformed and duplicated session cookies.
 - Produce `Secure`, `HttpOnly`, `SameSite=Strict`, root-scoped cookie attributes; provide a matching cookie-clearing value.
-- Enforce a configurable fixed expiry (default eight hours), bounded active sessions (default 32), per-user cap (default eight), per-session revocation and per-user revocation. When a user reaches their cap, the oldest *same-user* session is evicted, and the WebSocket revalidation callback sees it as revoked.
+- Enforce a configurable fixed expiry (default eight hours), bounded active sessions (default 32), per-user cap (default eight), per-session revocation and per-user revocation. When a user reaches their cap, the oldest _same-user_ session is evicted, and the WebSocket revalidation callback sees it as revoked.
 - The gateway already revalidates active WebSockets periodically; its session callbacks are intentionally **not wired** to any public login listener yet.
 
 **Not a production authentication system:** there is no verified login identity provider, brute-force protection, durable session persistence, key rotation, HTTPS gateway entry point, or container deployment. Restarting the gateway clears all sessions. A later hardened service must arrange secure login and session issuance, request authentication on _all_ HTTP and WebSocket paths, and logout/revocation across running sockets.
