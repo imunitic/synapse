@@ -65,7 +65,7 @@ function connect(
   cookie?: string,
   headers: Record<string, string> = {},
   origin = ORIGIN,
-): Promise<Connected | { refused: number }> {
+): Promise<Connected | { refused: number; retryAfter?: string }> {
   return new Promise((resolve) => {
     const socket = new WebSocket(`ws://127.0.0.1:${gatewayPort}${BUS_PATH}`, {
       origin,
