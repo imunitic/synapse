@@ -29,7 +29,7 @@ iPad / Android / browser (PWA)
   and storage volumes     and storage volumes
 ```
 
-**One Node host per user.** Existing single-user terminal/session semantics may remain local to each host. The remote gateway owns authentication, session expiry and *authorization of the mapping* between an authenticated principal and its host. The browser must never supply a trusted target container ID.
+**One Node host per user.** Existing single-user terminal/session semantics may remain local to each host. The remote gateway owns authentication, session expiry and _authorization of the mapping_ between an authenticated principal and its host. The browser must never supply a trusted target container ID.
 
 The backend must not be reachable directly from the public interface or another user's container, and the gateway-to-backend link must be independently authenticated or otherwise strongly bound to that isolated backend. No direct WebSocket upgrade may bypass gateway policy. Preserve Origin/Host checks and account for proxy headers, WebSocket reconnect, logout and session revocation.
 
@@ -76,7 +76,7 @@ The branch includes a **detached, opt-in gateway transport** in `server/gateway.
 
 - Attaches to a provided Node HTTP server's existing `/api/bus` WebSocket upgrade path. Does **not** create a public listener, expose a login endpoint or replace any existing Synapse host.
 - Requires exact public Host and Origin; rejects unknown paths.
-- Requires caller-supplied *server-side* session authentication and an independent session-validity callback. Both must be implemented securely before a remotely runnable gateway exists.
+- Requires caller-supplied _server-side_ session authentication and an independent session-validity callback. Both must be implemented securely before a remotely runnable gateway exists.
 - Selects the per-user backend using `hostForPrincipal` and an operator-owned map. Never accepts target container selection from the browser.
 - Connects to the existing private Node WebSocket with a gateway-owned per-container token and Origin; does not forward browser cookies or identity headers.
 - Relays text WebSocket messages in both directions without interpreting or replacing Synapse's protocol. Refuses binary frames and bounds message/queued-byte sizes.
