@@ -146,7 +146,8 @@ beforeEach(async () => {
       // This is a test-only session store stub, not production login logic.
       const match = /(?:^|;\s*)sid=(a|b)(?:;|$)/.exec(request.headers.cookie ?? '')
       const userId = match?.[1]
-      return userId ? { userId, sessionId: userId } : null
+      const instance = /(?:^|;\s*)instance=([0-9]+)(?:;|$)/.exec(request.headers.cookie ?? '')?.[1]
+      return userId ? { userId, sessionId: instance ? `${userId}-${instance}` : userId } : null
     },
     sessionValid: async (session) => !revoked.has(session.sessionId),
   })
@@ -218,15 +219,15 @@ describe('private Synapse WebSocket gateway', () => {
   })
 
   it('reserves reconnect headroom and returns retry advice at the per-user cap', async () => {
-    const first = await connect('sid=a')
-    const second = await connect('sid=a')
-    const third = await connect('sid=a')
-    const fourth = await connect('sid=a')
+    const first = await connect('sid=a; instance=1')
+    const second = await connect('sid=a; instance=2')
+    const third = await connect('sid=a; instance=3')
+    const fourth = await connect('sid=a; instance=4')
     for (const result of [first, second, third, fourth]) {
       if (!('socket' in result)) throw new Error('expected initial connections')
       expect(await result.next()).toEqual({ kind: 'hello', from: 'a' })
     }
-    expect(await connect('sid=a')).toEqual({ refused: 429, retryAfter: '5' })
+    expect(await connect('sid=a; instance=5')).toEqual({ refused: 429, retryAfter: '5' })
     const other = await connect('sid=b')
     if (!('socket' in other)) throw new Error('other user incorrectly blocked')
     expect(await other.next()).toEqual({ kind: 'hello', from: 'b' })
@@ -236,9 +237,36 @@ describe('private Synapse WebSocket gateway', () => {
     await new Promise<void>((resolve) => first.socket.once('close', resolve))
     // The gateway may need a network turn to observe the peer close.
     await new Promise((resolve) => setTimeout(resolve, 50))
-    const reconnect = await connect('sid=a')
+    const reconnect = await connect('sid=a; instance=6')
     if (!('socket' in reconnect)) throw new Error('reconnect did not reclaim freed slot')
     expect(await reconnect.next()).toEqual({ kind: 'hello', from: 'a' })
+  })
+
+  it('replaces only a previous socket from the same login session at capacity', async () => {
+    const first = await connect('sid=a; instance=1')
+    const second = await connect('sid=a; instance=2')
+    const third = await connect('sid=a; instance=3')
+    const fourth = await connect('sid=a; instance=4')
+    for (const result of [first, second, third, fourth]) {
+      if (!('socket' in result)) throw new Error('initial connection refused')
+      await result.next()
+    }
+    if (!('socket' in first) || !('socket' in second)) {
+      throw new Error('missing initial WebSocket')
+    }
+    const firstClosed = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('old session socket remained open')), 1500)
+      first.socket.once('close', () => {
+        clearTimeout(timeout)
+        resolve()
+      })
+    })
+    const replacement = await connect('sid=a; instance=1')
+    if (!('socket' in replacement)) throw new Error('same-session reconnect was refused')
+    expect(await replacement.next()).toEqual({ kind: 'hello', from: 'a' })
+    await firstClosed
+    expect(second.socket.readyState).toBe(WebSocket.OPEN)
+    expect(await connect('sid=a; instance=5')).toEqual({ refused: 429, retryAfter: '5' })
   })
 
   it('closes an existing WebSocket when its server-side session is revoked', async () => {
