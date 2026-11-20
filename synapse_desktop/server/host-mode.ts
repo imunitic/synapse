@@ -1,9 +1,7 @@
 // The served Node host is local-only until the remote authentication and execution
 // boundaries are implemented. A requested remote mode must never silently fall back
 // to the localhost token-based host and appear to have been enabled.
-export function requireSupportedHostMode(
-  env: Readonly<Record<string, string | undefined>>,
-): void {
+export function requireSupportedHostMode(env: Readonly<Record<string, string | undefined>>): void {
   const value = env.SYNAPSE_DESKTOP_HOST_MODE
   if (value === undefined || value === 'local') return
   if (value === 'remote') {
