@@ -85,6 +85,18 @@ The branch includes a **detached, opt-in gateway transport** in `server/gateway.
 
 **Not yet implemented:** actual login and credential issuance, shared/restart-safe session store, private gateway HTTP frontend, backend remote-mode listener/Origin policy, container image/network/isolation, deployment and production hardening. Current `SYNAPSE_DESKTOP_HOST_MODE=remote` continues to refuse startup. None of this work is deployable yet.
 
+## Opaque session-store foundation (2026-11-20)
+
+The development branch adds `server/gateway-sessions.ts` with tests. It is a bounded, **in-memory** session store intended to be connected to the existing `attachGateway` callbacks later:
+
+- Issue a 256-bit random, opaque session token; store only a SHA-256 digest for lookups, and map the record to one fixed user identity.
+- Accept the token from a single strictly validated `synapse_session` cookie; reject absent, malformed and duplicated session cookies.
+- Produce `Secure`, `HttpOnly`, `SameSite=Strict`, root-scoped cookie attributes; provide a matching cookie-clearing value.
+- Enforce a configurable fixed expiry (default eight hours), bounded active sessions (default 32), per-session revocation and per-user revocation.
+- The gateway already revalidates active WebSockets periodically; its session callbacks are intentionally **not wired** to any public login listener yet.
+
+**Not a production authentication system:** there is no verified login identity provider, brute-force protection, durable session persistence, key rotation, HTTPS gateway entry point, or container deployment. Restarting the gateway clears all sessions. A later hardened service must arrange secure login and session issuance, request authentication on *all* HTTP and WebSocket paths, and logout/revocation across running sockets.
+
 ## Host and deployment constraints
 
 - The new remote mode must continue to fail closed until these protections are implemented and tested.
