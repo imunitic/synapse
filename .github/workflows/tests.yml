@@ -186,14 +186,6 @@ jobs:
       - name: Desktop app checks
         run: just desktop-check
 
-      # TEMPORARY: capture exact Prettier changes for security review fixes.
-      - name: Show gateway formatting diff
-        if: failure()
-        working-directory: synapse_desktop
-        run: |
-          npx prettier --write server/gateway-http-auth.test.ts server/gateway-http-auth.ts server/gateway-password-verifier.ts server/gateway-sessions.ts server/gateway.ts
-          git diff -- server/gateway-http-auth.test.ts server/gateway-http-auth.ts server/gateway-password-verifier.ts server/gateway-sessions.ts server/gateway.ts
-
   # The Rust host of the desktop app: format, lint and its tests, on the platforms
   # the app is built for. It always runs, like `desktop`.
   desktop-host:
