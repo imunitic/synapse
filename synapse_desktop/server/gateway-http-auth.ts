@@ -46,14 +46,22 @@ async function readCredentials(
   if (request.headers['content-type']?.split(';')[0]?.trim().toLowerCase() !== 'application/json') return null
   const chunks: Buffer[] = []
   let size = 0
-  for await (const part of request) {
-    const chunk = Buffer.isBuffer(part) ? part : Buffer.from(part as Uint8Array)
-    size += chunk.length
-    if (size > 4096) {
-      request.destroy()
-      return null
+  // Total read deadline, not merely an idle-socket timeout. Closing a slow
+  // request releases the parser; no login verification runs on a partial body.
+  const deadline = setTimeout(() => request.destroy(), 10_000)
+  deadline.unref()
+  try {
+    for await (const part of request) {
+      const chunk = Buffer.isBuffer(part) ? part : Buffer.from(part as Uint8Array)
+      size += chunk.length
+      if (size > 4096) {
+        request.destroy()
+        return null
+      }
+      chunks.push(chunk)
     }
-    chunks.push(chunk)
+  } finally {
+    clearTimeout(deadline)
   }
   try {
     const value: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'))
