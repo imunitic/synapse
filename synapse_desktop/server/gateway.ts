@@ -195,7 +195,12 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
           upstream.on('close', shut)
           client.on('error', shut)
           upstream.on('error', shut)
-          const relay = (source: WebSocket, destination: WebSocket, bytes: Buffer | ArrayBuffer | Buffer[], binary: boolean) => {
+          const relay = (
+            source: WebSocket,
+            destination: WebSocket,
+            bytes: Buffer | ArrayBuffer | Buffer[],
+            binary: boolean,
+          ) => {
             if (binary || destination.readyState !== WebSocket.OPEN) {
               shut()
               return
@@ -218,8 +223,12 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
           }
           client.on('message', (bytes, binary) => relay(client, upstream, bytes, binary))
           upstream.on('message', (bytes, binary) => relay(upstream, client, bytes, binary))
-          client.on('pong', () => { clientAlive = true })
-          upstream.on('pong', () => { upstreamAlive = true })
+          client.on('pong', () => {
+            clientAlive = true
+          })
+          upstream.on('pong', () => {
+            upstreamAlive = true
+          })
           // Pausing the source applies actual socket backpressure. Resume only
           // after the destination's buffered bytes drain below the low watermark.
           // A prolonged blocked peer is disconnected to bound memory and time.
