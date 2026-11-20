@@ -2,9 +2,6 @@
 // No passwords or account hashes are bundled with Synapse. The gateway entry
 // point must load records from a protected external configuration at startup.
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto'
-import { promisify } from 'node:util'
-
-const scrypt = promisify(scryptCallback)
 const COST = 16384
 const BLOCK_SIZE = 8
 const PARALLEL = 1
@@ -23,12 +20,18 @@ function validIdentifier(value: string): boolean {
 }
 
 async function derive(password: string, salt: Buffer): Promise<Buffer> {
-  return (await scrypt(password, salt, KEY_BYTES, {
-    N: COST,
-    r: BLOCK_SIZE,
-    p: PARALLEL,
-    maxmem: MAX_MEMORY,
-  })) as Buffer
+  return new Promise<Buffer>((resolve, reject) => {
+    scryptCallback(
+      password,
+      salt,
+      KEY_BYTES,
+      { N: COST, r: BLOCK_SIZE, p: PARALLEL, maxmem: MAX_MEMORY },
+      (error, key) => {
+        if (error) reject(error)
+        else resolve(key)
+      },
+    )
+  })
 }
 
 /**
@@ -53,7 +56,8 @@ export function createPasswordVerifier(accounts: readonly PasswordAccount[]) {
     if (
       !validIdentifier(account.username) ||
       !validIdentifier(account.userId) ||
-      !parsed ||
+      !parsed?.[1] ||
+      !parsed[2] ||
       known.has(account.username) ||
       userIds.has(account.userId)
     ) {
