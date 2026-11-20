@@ -180,6 +180,14 @@ jobs:
       - name: Desktop app checks
         run: just desktop-check
 
+      # TEMPORARY diagnostic only: remove immediately after capturing the formatting diff.
+      - name: Report required Prettier changes
+        if: failure()
+        working-directory: synapse_desktop
+        run: |
+          npx prettier --write docs/pwa-remote-deployment-design.md server/gateway-http-auth.test.ts server/gateway-http-auth.ts server/gateway-session-adapter.test.ts server/gateway-session-adapter.ts
+          git diff -- docs/pwa-remote-deployment-design.md server/gateway-http-auth.test.ts server/gateway-http-auth.ts server/gateway-session-adapter.test.ts server/gateway-session-adapter.ts
+
   # The Rust host of the desktop app: format, lint and its tests, on the platforms
   # the app is built for. It always runs, like `desktop`.
   desktop-host:
