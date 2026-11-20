@@ -143,6 +143,17 @@ The feature branch adds `server/gateway-protected-frontend.ts` and tests. It is 
 
 **Remaining work:** securely load a real Vite build manifest and assets, compose the detached frontend/auth/WebSocket handlers on a single HTTPS-only gateway, ensure correct CSP and service-worker behavior, implement an unauthenticated login view without exposing the application bundle, and perform a browser/PWA integration test. Remote mode still refuses startup; no live listener, private containers, or deployment exists.
 
+## Unified detached gateway composition (2026-11-20)
+
+The feature branch now includes `server/gateway-private-entry.ts` and an HTTP integration test. Instead of attaching independent HTTP `request` listeners, the composer obtains the authentication and protected asset handlers and registers exactly **one** request dispatcher. Only the three exact auth endpoint paths reach the login/status/logout handler; all other HTTP requests go through the protected frontend allowlist (including ordinary requests to the WebSocket bus path, which are not upgrades). The WebSocket gateway remains a separate `upgrade` handler on the same server.
+
+- The composer refuses a server with existing `request` or `upgrade` listeners, to avoid attaching to a live desktop host or causing overlapping HTTP responses.
+- Account configuration, protected assets, identity mapping and the session store are supplied explicitly. The composer does not start an HTTP listener, read real secrets, enable remote mode or deploy services.
+- The integration test exercises a missing session, login using a synthetic password hash, authenticated asset delivery, session status, logout, and denial after revocation.
+- Existing direct handler APIs remain available to preserve standalone test coverage and compatibility.
+
+**Review gate:** ask an independent security reviewer to examine the exact HTTP dispatch, authentication/session coupling, websocket upgrade path, backend isolation assumptions, and resource/timeout behavior before implementing a publicly reachable service. A safe unauthenticated login UI, a real build manifest loader, reverse-proxy configuration, hardened security headers, and Docker isolation are still outstanding.
+
 ## Host and deployment constraints
 
 - The new remote mode must continue to fail closed until these protections are implemented and tested.
