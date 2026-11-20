@@ -19,6 +19,7 @@ export interface SessionStoreOptions {
   readonly now?: () => number
   readonly ttlMs?: number
   readonly maxSessions?: number
+  readonly maxSessionsPerUser?: number
 }
 
 export interface IssuedSession {
@@ -62,11 +63,14 @@ export function createGatewaySessions(options: SessionStoreOptions = {}) {
   const now = options.now ?? Date.now
   const ttlMs = options.ttlMs ?? 8 * 60 * 60 * 1000
   const maxSessions = options.maxSessions ?? 32
+  const maxSessionsPerUser = options.maxSessionsPerUser ?? 8
   if (
     !Number.isSafeInteger(ttlMs) ||
     ttlMs <= 0 ||
     !Number.isSafeInteger(maxSessions) ||
-    maxSessions <= 0
+    maxSessions <= 0 ||
+    !Number.isSafeInteger(maxSessionsPerUser) ||
+    maxSessionsPerUser <= 0
   ) {
     throw new Error('invalid gateway session limits')
   }
@@ -93,7 +97,19 @@ export function createGatewaySessions(options: SessionStoreOptions = {}) {
     issue(userId: string): IssuedSession {
       if (!userId.trim()) throw new Error('user ID required')
       purgeExpired()
-      if (sessions.size >= maxSessions) throw new Error('gateway session limit reached')
+      // Drop the oldest session belonging to this user once at the per-user
+      // limit. Invalidation is visible to the WebSocket recheck callback.
+      const owned = [...sessions.entries()].filter(([, entry]) => entry.session.userId === userId)
+      if (owned.length >= maxSessionsPerUser) {
+        const oldest = owned[0]
+        if (oldest) sessions.delete(oldest[0])
+      }
+      // Preserve space for other users: never evict their sessions.
+      if (sessions.size >= maxSessions) {
+        const oldestOwn = [...sessions.entries()].find(([, entry]) => entry.session.userId === userId)
+        if (!oldestOwn) throw new Error('gateway session limit reached')
+        sessions.delete(oldestOwn[0])
+      }
       const token = randomBytes(32).toString('base64url')
       const session = { userId, sessionId: randomBytes(16).toString('hex') }
       const expiresAt = now() + ttlMs
