@@ -2,6 +2,7 @@
 // The operator MUST provide a secure, externally configured credentials verifier.
 // Do not mount these handlers on the existing localhost Node or Tauri hosts.
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
+import { createLoginLimiter } from './gateway-login-limiter.ts'
 import {
   clearSessionCookie,
   createGatewaySessions,
@@ -20,6 +21,7 @@ export interface GatewayHttpAuthOptions {
   readonly verifyCredentials: (username: string, password: string) => Promise<string | null>
   readonly maxAttempts?: number
   readonly attemptWindowMs?: number
+  readonly maxTrackedPeers?: number
 }
 
 function respond(response: ServerResponse, status: number, body: object, cookie?: string): void {
@@ -69,18 +71,11 @@ async function readCredentials(
 }
 
 export function attachGatewayHttpAuth(server: Server, options: GatewayHttpAuthOptions): void {
-  const maxAttempts = options.maxAttempts ?? 5
-  const windowMs = options.attemptWindowMs ?? 60_000
-  if (
-    !Number.isSafeInteger(maxAttempts) ||
-    maxAttempts < 1 ||
-    !Number.isSafeInteger(windowMs) ||
-    windowMs < 1
-  ) {
-    throw new Error('invalid login rate limits')
-  }
-
-  const attempts = new Map<string, { start: number; count: number }>()
+  const limiter = createLoginLimiter({
+    maxAttempts: options.maxAttempts ?? 5,
+    windowMs: options.attemptWindowMs ?? 60_000,
+    maxPeers: options.maxTrackedPeers ?? 1024,
+  })
   server.on('request', (request, response) => {
     if (!['/auth/session', '/auth/logout', '/auth/me'].includes(request.url ?? '')) return
 
@@ -99,14 +94,7 @@ export function attachGatewayHttpAuth(server: Server, options: GatewayHttpAuthOp
             respond(response, 405, { error: 'method_not_allowed' })
             return
           }
-          const key = request.socket.remoteAddress ?? 'unknown'
-          const now = Date.now()
-          const current = attempts.get(key)
-          const entry =
-            current && now - current.start < windowMs ? current : { start: now, count: 0 }
-          entry.count += 1
-          attempts.set(key, entry)
-          if (entry.count > maxAttempts) {
+          if (!limiter.allow(request.socket.remoteAddress ?? 'unknown')) {
             respond(response, 429, { error: 'too_many_attempts' })
             return
           }
