@@ -9,7 +9,7 @@ const KEY_BYTES = 32
 const MAX_MEMORY = 64 * 1024 * 1024
 const HASH_PATTERN = /^scrypt\$16384\$8\$1\$([0-9a-f]{32})\$([0-9a-f]{64})$/
 
-export const VERIFIER_BUSY = 'busy' as const
+export const VERIFIER_BUSY = Symbol('verifier_busy')
 
 export interface PasswordAccount {
   readonly username: string
