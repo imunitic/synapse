@@ -77,7 +77,10 @@ export function createPasswordVerifier(accounts: readonly PasswordAccount[]) {
   let pending = 0
   const MAX_CONCURRENT_HASHES = 2
 
-  return async (username: string, password: string): Promise<string | null | typeof VERIFIER_BUSY> => {
+  return async (
+    username: string,
+    password: string,
+  ): Promise<string | null | typeof VERIFIER_BUSY> => {
     password = password.normalize('NFC')
     if (password.length < 1 || Buffer.byteLength(password, 'utf8') > 1024) return null
     // Bound the amount of memory-intensive scrypt work scheduled at once.
