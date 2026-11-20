@@ -7,7 +7,7 @@ import type { Duplex } from 'node:stream'
 import { WebSocket, WebSocketServer } from 'ws'
 import { BUS_PATH, TOKEN_HEADER } from '../shared/constants.ts'
 import { hostForPrincipal, RouteDenied, type PrivateHost } from './gateway-routing.ts'
-import { attachGatewayFlow } from './gateway-flow-control.ts'
+import { attachGatewayFlow, type GatewayFlowOptions } from './gateway-flow-control.ts'
 import { attachGatewayHeartbeat } from './gateway-heartbeat.ts'
 
 export interface GatewaySession {
@@ -31,6 +31,8 @@ export interface GatewayOptions {
   readonly sessionValid: (session: GatewaySession) => Promise<boolean>
   readonly recheckMs?: number
   readonly maxConnectionsPerUser?: number
+  readonly heartbeatMs?: number
+  readonly flowOptions?: GatewayFlowOptions
 }
 
 function refusal(socket: Duplex, status: number): void {
@@ -192,8 +194,8 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
           upstream.on('close', shut)
           client.on('error', shut)
           upstream.on('error', shut)
-          stopFlow = attachGatewayFlow(client, upstream, shut)
-          stopHeartbeat = attachGatewayHeartbeat(client, upstream, shut)
+          stopFlow = attachGatewayFlow(client, upstream, shut, options.flowOptions)
+          stopHeartbeat = attachGatewayHeartbeat(client, upstream, shut, options.heartbeatMs)
           const timer = setInterval(() => {
             if (closing) return
             if (validating) return
