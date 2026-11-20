@@ -119,6 +119,18 @@ The feature branch adds `server/gateway-password-verifier.ts` and unit tests, an
 - A deployed gateway must protect the account configuration on disk, validate backend host mappings against those fixed user IDs, and support credential changes and revocation.
 - This verifier has not been attached to a public HTTP server or PWA login interface. Authentication remains **not deployable** until reverse-proxy, per-user container, login UI, static asset authorization, timeout, and network constraints are addressed.
 
+## Operator-provisioned password verification (2026-11-20)
+
+The branch includes `server/gateway-password-verifier.ts` and `server/gateway-provisioned-auth.ts`, with tests.
+
+- Operator-provisioned accounts contain a fixed username, internal user ID, and a salted scrypt hash. No real credentials, password hashes, account names, or default login secrets are committed.
+- Only the operator-supplied account mapping determines the authenticated user ID. Unknown usernames undergo a dummy scrypt comparison; comparisons use timing-safe digest equality.
+- The password verifier limits concurrent expensive hash operations to two, returning a failed verification if saturated to protect the small gateway memory budget.
+- An explicit adapter wires the verifier into the existing detached HTTP login/logout handlers. It does not load configuration, create a listener, change the local desktop host, or enable remote mode.
+- Test fixtures use synthetic accounts only; the operator must provision real secrets offline, outside source control and CI.
+
+**Not deployment-ready:** verify and harden the provisioning process and secret storage, add identity recovery and password rotation, evaluate multi-factor authentication, complete reverse-proxy controls and HTTP request lifecycle limits, protect all static app assets, and finish per-user backend/container isolation. No usable public login service exists yet.
+
 ## Host and deployment constraints
 
 - The new remote mode must continue to fail closed until these protections are implemented and tested.
