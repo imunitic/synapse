@@ -80,6 +80,19 @@ describe('private gateway sessions', () => {
     expect(() => store.issue('bob')).not.toThrow()
   })
 
+  it('evicts the oldest session for the same user and invalidates its open-socket identity', async () => {
+    const store = createGatewaySessions({ maxSessions: 3, maxSessionsPerUser: 2 })
+    const first = store.issue('alice')
+    const second = store.issue('alice')
+    const bob = store.issue('bob')
+    const third = store.issue('alice')
+    expect(await store.sessionValid(first.session)).toBe(false)
+    expect(await store.authenticate(request(`${SESSION_COOKIE}=${first.token}`))).toBeNull()
+    expect(await store.sessionValid(second.session)).toBe(true)
+    expect(await store.sessionValid(third.session)).toBe(true)
+    expect(await store.sessionValid(bob.session)).toBe(true)
+  })
+
   it('rejects missing user identity and invalid store limits', () => {
     const store = createGatewaySessions()
     expect(() => store.issue('')).toThrow()
