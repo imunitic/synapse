@@ -29,7 +29,13 @@ async function fixture(maxAttempts = 5) {
   return {
     sessions,
     checks: () => checks,
-    request: (path: string, method = 'GET', body?: string, cookie?: string, origin: string | null = ORIGIN) =>
+    request: (
+      path: string,
+      method = 'GET',
+      body?: string,
+      cookie?: string,
+      origin: string | null = ORIGIN,
+    ) =>
       fetch(`http://${host}${path}`, {
         method,
         headers: {
