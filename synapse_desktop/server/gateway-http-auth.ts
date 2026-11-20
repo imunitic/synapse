@@ -1,0 +1,146 @@
+// Private gateway HTTP auth endpoints. This file never starts a public listener.
+// The operator MUST provide a secure, externally configured credentials verifier.
+// Do not mount these handlers on the existing localhost Node or Tauri hosts.
+import type { IncomingMessage, Server, ServerResponse } from 'node:http'
+import {
+  clearSessionCookie,
+  createGatewaySessions,
+  sessionCookie,
+  sessionTokenFromCookie,
+} from './gateway-sessions.ts'
+
+type SessionStore = ReturnType<typeof createGatewaySessions>
+
+export interface GatewayHttpAuthOptions {
+  readonly publicHost: string
+  readonly publicOrigin: string
+  readonly sessions: SessionStore
+  // Return a trusted, fixed user ID or null. Never trust the submitted username
+  // as an authenticated identity without checking its credential.
+  readonly verifyCredentials: (username: string, password: string) => Promise<string | null>
+  readonly maxAttempts?: number
+  readonly attemptWindowMs?: number
+}
+
+function respond(response: ServerResponse, status: number, body: object, cookie?: string): void {
+  const payload = JSON.stringify(body)
+  response.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(payload),
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    ...(cookie === undefined ? {} : { 'Set-Cookie': cookie }),
+  })
+  response.end(payload)
+}
+
+async function readCredentials(request: IncomingMessage): Promise<{ username: string; password: string } | null> {
+  if (request.headers['content-type'] !== 'application/json') return null
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const part of request) {
+    const chunk = Buffer.isBuffer(part) ? part : Buffer.from(part as Uint8Array)
+    size += chunk.length
+    if (size > 4096) {
+      request.destroy()
+      return null
+    }
+    chunks.push(chunk)
+  }
+  try {
+    const value: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null
+    const fields = value as Record<string, unknown>
+    if (
+      typeof fields.username !== 'string' ||
+      typeof fields.password !== 'string' ||
+      fields.username.length < 1 ||
+      fields.username.length > 128 ||
+      fields.password.length < 1 ||
+      fields.password.length > 1024
+    ) return null
+    return { username: fields.username, password: fields.password }
+  } catch {
+    return null
+  }
+}
+
+export function attachGatewayHttpAuth(server: Server, options: GatewayHttpAuthOptions): void {
+  const maxAttempts = options.maxAttempts ?? 5
+  const windowMs = options.attemptWindowMs ?? 60_000
+  if (!Number.isSafeInteger(maxAttempts) || maxAttempts < 1 ||
+      !Number.isSafeInteger(windowMs) || windowMs < 1) {
+    throw new Error('invalid login rate limits')
+  }
+
+  const attempts = new Map<string, { start: number; count: number }>()
+  server.on('request', (request, response) => {
+    if (!['/auth/session', '/auth/logout', '/auth/me'].includes(request.url ?? '')) return
+
+    if (
+      request.headers.host !== options.publicHost ||
+      request.headers.origin !== options.publicOrigin
+    ) {
+      respond(response, 403, { error: 'forbidden' })
+      return
+    }
+
+    void (async () => {
+      try {
+        if (request.url === '/auth/session') {
+          if (request.method !== 'POST') {
+            respond(response, 405, { error: 'method_not_allowed' })
+            return
+          }
+          const key = request.socket.remoteAddress ?? 'unknown'
+          const now = Date.now()
+          const current = attempts.get(key)
+          const entry = current && now - current.start < windowMs
+            ? current
+            : { start: now, count: 0 }
+          entry.count += 1
+          attempts.set(key, entry)
+          if (entry.count > maxAttempts) {
+            respond(response, 429, { error: 'too_many_attempts' })
+            return
+          }
+          const credentials = await readCredentials(request)
+          if (!credentials) {
+            if (!response.destroyed) respond(response, 400, { error: 'invalid_request' })
+            return
+          }
+          // A verifier must establish identity independently of the browser.
+          const userId = await options.verifyCredentials(credentials.username, credentials.password)
+          if (!userId) {
+            respond(response, 401, { error: 'invalid_credentials' })
+            return
+          }
+          const issued = options.sessions.issue(userId)
+          respond(response, 200, { authenticated: true }, sessionCookie(issued.token))
+          return
+        }
+        if (request.url === '/auth/logout') {
+          if (request.method !== 'POST') {
+            respond(response, 405, { error: 'method_not_allowed' })
+            return
+          }
+          const token = sessionTokenFromCookie(request.headers.cookie)
+          if (token !== null) options.sessions.revoke(token)
+          respond(response, 200, { authenticated: false }, clearSessionCookie())
+          return
+        }
+        if (request.method !== 'GET') {
+          respond(response, 405, { error: 'method_not_allowed' })
+          return
+        }
+        const session = await options.sessions.authenticate(request)
+        respond(response, session === null ? 401 : 200,
+          session === null ? { authenticated: false } : { authenticated: true })
+      } catch {
+        if (!response.headersSent && !response.destroyed) {
+          respond(response, 503, { error: 'service_unavailable' })
+        }
+      }
+    })()
+  })
+}
