@@ -3,10 +3,7 @@
 // user container or remote desktop host is started here.
 import type { Server } from 'node:http'
 import { attachSessionGateway, type SessionGatewayOptions } from './gateway-session-adapter.ts'
-import {
-  createGatewayHttpAuthHandler,
-  type GatewayHttpAuthOptions,
-} from './gateway-http-auth.ts'
+import { createGatewayHttpAuthHandler, type GatewayHttpAuthOptions } from './gateway-http-auth.ts'
 import {
   createProtectedFrontendHandler,
   type ProtectedFrontendOptions,
@@ -14,7 +11,8 @@ import {
 import { createPasswordVerifier, type PasswordAccount } from './gateway-password-verifier.ts'
 
 export interface PrivateGatewayOptions
-  extends Pick<SessionGatewayOptions, 'hosts' | 'recheckMs'>,
+  extends
+    Pick<SessionGatewayOptions, 'hosts' | 'recheckMs'>,
     Pick<ProtectedFrontendOptions, 'assets'>,
     Pick<GatewayHttpAuthOptions, 'maxAttempts' | 'attemptWindowMs' | 'maxTrackedPeers'> {
   readonly publicHost: string
