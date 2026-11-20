@@ -9,6 +9,7 @@ import {
   type ProtectedFrontendOptions,
 } from './gateway-protected-frontend.ts'
 import { createPasswordVerifier, type PasswordAccount } from './gateway-password-verifier.ts'
+import { createTrustedPeerKey } from './gateway-trusted-peer.ts'
 
 export interface PrivateGatewayOptions
   extends
@@ -19,6 +20,7 @@ export interface PrivateGatewayOptions
   readonly publicOrigin: string
   readonly sessions: SessionGatewayOptions['sessions'] & GatewayHttpAuthOptions['sessions']
   readonly accounts: readonly PasswordAccount[]
+  readonly trustedProxyAddresses?: readonly string[]
 }
 
 export function attachPrivateGateway(server: Server, options: PrivateGatewayOptions): void {
@@ -30,11 +32,13 @@ export function attachPrivateGateway(server: Server, options: PrivateGatewayOpti
 
   // Validate all operator configuration before registering any handlers.
   const verifyCredentials = createPasswordVerifier(options.accounts)
+  const peerKey = createTrustedPeerKey(options.trustedProxyAddresses ?? [])
   const auth = createGatewayHttpAuthHandler({
     publicHost: options.publicHost,
     publicOrigin: options.publicOrigin,
     sessions: options.sessions,
     verifyCredentials,
+    peerKey,
     maxAttempts: options.maxAttempts,
     attemptWindowMs: options.attemptWindowMs,
     maxTrackedPeers: options.maxTrackedPeers,
