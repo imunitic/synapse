@@ -66,9 +66,7 @@ describe('private PWA gateway HTTP composition', () => {
     expect(navigation.status).toBe(302)
     expect(navigation.headers.get('location')).toBe('/login')
     expect((await request('/')).status).toBe(401)
-    expect((await request('/assets/app.js', { headers: { Accept: 'text/html' } })).status).toBe(
-      401,
-    )
+    expect((await request('/assets/app.js', { headers: { Accept: 'text/html' } })).status).toBe(401)
     expect((await request('/auth/me', { headers: { Origin: ORIGIN } })).status).toBe(401)
     expect((await request('/api/bus')).status).toBe(401)
     expect(
