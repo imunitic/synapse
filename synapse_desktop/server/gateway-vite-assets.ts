@@ -99,5 +99,17 @@ export async function loadViteProtectedAssets(
     if (!contentType) throw new Error('unsupported Vite asset type')
     assets.set(`/${path}`, { content, contentType })
   }
+  // Vite rewrites HTML script and stylesheet references to output asset URLs.
+  // Fail closed if a build references a file we would refuse to serve. This
+  // does not parse arbitrary HTML; it checks the generated Vite index contract.
+  const html = index.toString('utf8')
+  const resourceTags = html.match(/<(?:script|link)\b[^>]*>/gi) ?? []
+  for (const tag of resourceTags) {
+    const reference = /\b(?:src|href)\s*=\s*(["'])([^"']+)\1/i.exec(tag)?.[2]
+    if (reference === undefined) continue
+    if (!reference.startsWith('/assets/') || !assets.has(reference)) {
+      throw new Error('Vite HTML references an unserved asset')
+    }
+  }
   return assets
 }
