@@ -58,7 +58,7 @@ describe('private PWA gateway HTTP composition', () => {
     expect(await script.text()).toContain("fetch('/auth/session'")
     expect((await request('/login.css')).status).toBe(200)
     expect((await request('/login', { method: 'POST' })).status).toBe(405)
-    expect((await request('/login?next=//other.example')).status).toBe(401)
+    expect((await request('/login?next=//other.example')).status).toBe(404)
     expect((await request('/')).status).toBe(401)
     expect((await request('/assets/app.js')).status).toBe(401)
     expect((await request('/auth/me', { headers: { Origin: ORIGIN } })).status).toBe(401)
