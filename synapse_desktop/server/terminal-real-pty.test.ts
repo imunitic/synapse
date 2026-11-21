@@ -104,6 +104,16 @@ describe.skipIf(process.platform === 'win32')('real local PTY', () => {
     }
     sessions.attach(sessionId, 'owner', second, { cols: 80, rows: 24 })
     await expect.poll(() => restored.join('')).toContain(marker)
+    // The reattached sink must be able to continue controlling the same real PTY.
+    const continued: string[] = []
+    const nextMarker = 'SYNAPSE_REATTACHED_INPUT'
+    const originalSend = second.send
+    second.send = (id, message) => {
+      originalSend(id, message)
+      if (message.type === 'output') continued.push(message.data)
+    }
+    sessions.input(sessionId, 'owner', second, `printf '%s\\n' '${nextMarker}'\n`)
+    await expect.poll(() => continued.join('')).toContain(nextMarker)
     expect(sessions.list('owner')).toHaveLength(1)
     expect(sessions.list('other')).toHaveLength(0)
     expect(() => sessions.attach(sessionId, 'other', second, { cols: 80, rows: 24 })).toThrow(
