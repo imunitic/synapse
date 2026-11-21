@@ -35,6 +35,27 @@ describe('private Vite build asset loader', () => {
     expect(assets.has('/.vite/manifest.json')).toBe(false)
   })
 
+  it('accepts Vite-rewritten HTML when every referenced resource is protected', async () => {
+    const root = await fixture()
+    await writeFile(
+      join(root, 'index.html'),
+      '<html><script type="module" src="/assets/index-a1.js"></script><link rel="stylesheet" href="/assets/index-a1.css"></html>',
+    )
+    const assets = await loadViteProtectedAssets(root)
+    expect(assets.has('/assets/index-a1.js')).toBe(true)
+    expect(assets.has('/assets/index-a1.css')).toBe(true)
+  })
+
+  it('refuses HTML references to unlisted or public build resources', async () => {
+    for (const reference of ['/assets/unlisted.js', '/favicon.svg', 'https://other.example/a.js']) {
+      const root = await fixture()
+      await writeFile(join(root, 'index.html'), `<html><script src="${reference}"></script></html>`)
+      await expect(loadViteProtectedAssets(root)).rejects.toThrow(
+        'Vite HTML references an unserved asset',
+      )
+    }
+  })
+
   it('refuses manifest entry files that escape the build directory', async () => {
     for (const filename of [
       '../secrets.txt',
