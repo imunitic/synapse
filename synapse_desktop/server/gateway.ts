@@ -7,6 +7,8 @@ import type { Duplex } from 'node:stream'
 import { WebSocket, WebSocketServer } from 'ws'
 import { BUS_PATH, TOKEN_HEADER } from '../shared/constants.ts'
 import { hostForPrincipal, RouteDenied, type PrivateHost } from './gateway-routing.ts'
+import { attachGatewayFlow, type GatewayFlowOptions } from './gateway-flow-control.ts'
+import { attachGatewayHeartbeat } from './gateway-heartbeat.ts'
 
 export interface GatewaySession {
   readonly userId: string
@@ -29,6 +31,8 @@ export interface GatewayOptions {
   readonly sessionValid: (session: GatewaySession) => Promise<boolean>
   readonly recheckMs?: number
   readonly maxConnectionsPerUser?: number
+  readonly heartbeatMs?: number
+  readonly flowOptions?: GatewayFlowOptions
 }
 
 function refusal(socket: Duplex, status: number): void {
@@ -66,10 +70,6 @@ function targetUrl(host: GatewayHost): string {
   return url.href
 }
 
-const HIGH_WATER = 1024 * 1024
-const LOW_WATER = 512 * 1024
-const MAX_BUFFERED = 8 * 1024 * 1024
-const BACKPRESSURE_TIMEOUT_MS = 20_000
 const MAX_FRAME = 1024 * 1024
 
 // The caller serves the PWA over authenticated HTTPS on this same server and
@@ -215,15 +215,14 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
         sockets.handleUpgrade(req, socket, head, (client) => {
           let closing = false
           let validating = false
-          let clientAlive = true
-          let upstreamAlive = true
-          let clientPausedAt = 0
-          let upstreamPausedAt = 0
+          let stopFlow = () => {}
+          let stopHeartbeat = () => {}
           const shut = () => {
             if (closing) return
             closing = true
             clearInterval(timer)
-            clearInterval(flowTimer)
+            stopFlow()
+            stopHeartbeat()
             release()
             client.terminate()
             upstream.terminate()
@@ -233,75 +232,10 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
           upstream.on('close', shut)
           client.on('error', shut)
           upstream.on('error', shut)
-          const relay = (
-            source: WebSocket,
-            destination: WebSocket,
-            bytes: Buffer | ArrayBuffer | Buffer[],
-            binary: boolean,
-          ) => {
-            if (binary || destination.readyState !== WebSocket.OPEN) {
-              shut()
-              return
-            }
-            const size = Array.isArray(bytes)
-              ? bytes.reduce((total, chunk) => total + chunk.length, 0)
-              : bytes.byteLength
-            if (destination.bufferedAmount + size > MAX_BUFFERED) {
-              shut()
-              return
-            }
-            destination.send(bytes, { binary: false }, (error) => {
-              if (error) shut()
-            })
-            if (destination.bufferedAmount >= HIGH_WATER && !source.isPaused) {
-              source.pause()
-              if (source === client) clientPausedAt = Date.now()
-              else upstreamPausedAt = Date.now()
-            }
-          }
-          client.on('message', (bytes, binary) => relay(client, upstream, bytes, binary))
-          upstream.on('message', (bytes, binary) => relay(upstream, client, bytes, binary))
-          client.on('pong', () => {
-            clientAlive = true
-          })
-          upstream.on('pong', () => {
-            upstreamAlive = true
-          })
-          // Pausing the source applies actual socket backpressure. Resume only
-          // after the destination's buffered bytes drain below the low watermark.
-          // A prolonged blocked peer is disconnected to bound memory and time.
-          const flowTimer = setInterval(() => {
-            if (closing) return
-            const now = Date.now()
-            if (client.isPaused) {
-              if (upstream.bufferedAmount < LOW_WATER) {
-                client.resume()
-                clientPausedAt = 0
-              } else if (now - clientPausedAt > BACKPRESSURE_TIMEOUT_MS) shut()
-            }
-            if (upstream.isPaused) {
-              if (client.bufferedAmount < LOW_WATER) {
-                upstream.resume()
-                upstreamPausedAt = 0
-              } else if (now - upstreamPausedAt > BACKPRESSURE_TIMEOUT_MS) shut()
-            }
-          }, 100)
-          flowTimer.unref()
-          let heartbeatChecks = 0
+          stopFlow = attachGatewayFlow(client, upstream, shut, options.flowOptions)
+          stopHeartbeat = attachGatewayHeartbeat(client, upstream, shut, options.heartbeatMs)
           const timer = setInterval(() => {
             if (closing) return
-            heartbeatChecks += 1
-            if (heartbeatChecks * interval >= 30_000) {
-              heartbeatChecks = 0
-              if (!clientAlive || !upstreamAlive) {
-                shut()
-                return
-              }
-              clientAlive = false
-              upstreamAlive = false
-              client.ping()
-              upstream.ping()
-            }
             if (validating) return
             validating = true
             void options
