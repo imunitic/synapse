@@ -36,9 +36,7 @@ afterEach(async () => {
     server.closeAllConnections()
     await new Promise<void>((resolve) => server.close(() => resolve()))
   }
-  await Promise.all(
-    directories.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
-  )
+  await Promise.all(directories.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
 })
 
 describe('authenticated gateway to real Node bus', () => {
@@ -59,13 +57,7 @@ describe('authenticated gateway to real Node bus', () => {
       configFile,
       sessionsRoot: join(home, 'sessions'),
       maxTerminals: 2,
-      plan: async () => ({
-        command: 'fake-shell',
-        args: [],
-        env: {},
-        loaded: false,
-        note: '',
-      }),
+      plan: async () => ({ command: 'fake-shell', args: [], env: {}, loaded: false, note: '' }),
       spawn: () => ({
         onData: (listener) => {
           output = listener
