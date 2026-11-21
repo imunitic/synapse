@@ -95,10 +95,9 @@ export async function loadViteProtectedAssets(
     const content = await loadBounded(root, path)
     totalBytes += content.length
     if (totalBytes > MAX_TOTAL_BYTES) throw new Error('Vite build exceeds asset budget')
-    assets.set(`/${path}`, {
-      content,
-      contentType: CONTENT_TYPES[extname(path).toLowerCase()],
-    })
+    const contentType = CONTENT_TYPES[extname(path).toLowerCase()]
+    if (!contentType) throw new Error('unsupported Vite asset type')
+    assets.set(`/${path}`, { content, contentType })
   }
   return assets
 }
