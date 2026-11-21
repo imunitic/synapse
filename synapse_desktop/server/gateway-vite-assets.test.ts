@@ -36,7 +36,12 @@ describe('private Vite build asset loader', () => {
   })
 
   it('refuses manifest entry files that escape the build directory', async () => {
-    for (const filename of ['../secrets.txt', 'assets/../secret.js', '/etc/passwd', 'assets/%2e%2e.js']) {
+    for (const filename of [
+      '../secrets.txt',
+      'assets/../secret.js',
+      '/etc/passwd',
+      'assets/%2e%2e.js',
+    ]) {
       const root = await fixture({ 'index.html': { file: filename } })
       await expect(loadViteProtectedAssets(root)).rejects.toThrow('unsafe Vite asset path')
     }
