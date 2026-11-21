@@ -78,10 +78,7 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
   const sockets = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME })
   const interval = options.recheckMs ?? 15_000
   const maxConnectionsPerUser = options.maxConnectionsPerUser ?? 4
-  const activeByUser = new Map<
-    string,
-    Set<{ sessionId: string; terminate: () => void }>
-  >()
+  const activeByUser = new Map<string, Set<{ sessionId: string; terminate: () => void }>>()
   if (!Number.isSafeInteger(maxConnectionsPerUser) || maxConnectionsPerUser < 1) {
     throw new Error('invalid per-user connection limit')
   }
