@@ -90,6 +90,7 @@ async function readCredentials(
 }
 
 export function createGatewayHttpAuthHandler(options: GatewayHttpAuthOptions) {
+  let lastPeerWarningAt = Number.NEGATIVE_INFINITY
   const readTimeoutMs = options.loginBodyTimeoutMs ?? 10_000
   if (!Number.isSafeInteger(readTimeoutMs) || readTimeoutMs < 1 || readTimeoutMs > 60_000) {
     throw new Error('invalid login body deadline')
@@ -121,7 +122,19 @@ export function createGatewayHttpAuthHandler(options: GatewayHttpAuthOptions) {
             return
           }
           const peer = options.peerKey ? options.peerKey(request) : request.socket.remoteAddress
-          if (!peer || !limiter.allow(peer)) {
+          if (!peer) {
+            // Do not echo the malformed forwarded header or other request
+            // secrets into logs. A missing trusted client identity is an
+            // operator/proxy failure, not a rate-limit violation.
+            const time = Date.now()
+            if (time - lastPeerWarningAt >= 60_000) {
+              lastPeerWarningAt = time
+              console.error('Synapse gateway: missing or invalid trusted client address')
+            }
+            respond(response, 503, { error: 'service_unavailable' })
+            return
+          }
+          if (!limiter.allow(peer)) {
             respond(response, 429, { error: 'too_many_attempts' })
             return
           }
