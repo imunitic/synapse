@@ -166,6 +166,63 @@ afterEach(async () => {
 })
 
 describe('private Synapse WebSocket gateway', () => {
+  it('refuses a shared Node backend for separate authenticated accounts', () => {
+    const shared = 'http://127.0.0.1:43210'
+    const hosts = new Map<string, GatewayHost>([
+      [
+        'a',
+        {
+          userId: 'a',
+          backend: shared,
+          backendOrigin: 'http://gateway.internal',
+          backendToken: TOKEN_A,
+        },
+      ],
+      [
+        'b',
+        {
+          userId: 'b',
+          backend: shared + '/',
+          backendOrigin: 'http://gateway.internal',
+          backendToken: TOKEN_B,
+        },
+      ],
+    ])
+    const isolated = createServer()
+    expect(() =>
+      attachGateway(isolated, {
+        publicHost: '127.0.0.1:12345',
+        publicOrigin: ORIGIN,
+        hosts,
+        authenticate: async () => null,
+        sessionValid: async () => false,
+      }),
+    ).toThrow('gateway accounts must not share a private backend')
+  })
+
+  it('refuses a mismatched account-to-host ownership mapping', () => {
+    const isolated = createServer()
+    expect(() =>
+      attachGateway(isolated, {
+        publicHost: '127.0.0.1:12345',
+        publicOrigin: ORIGIN,
+        hosts: new Map([
+          [
+            'a',
+            {
+              userId: 'b',
+              backend: 'http://127.0.0.1:43210',
+              backendOrigin: 'http://gateway.internal',
+              backendToken: TOKEN_A,
+            },
+          ],
+        ]),
+        authenticate: async () => null,
+        sessionValid: async () => false,
+      }),
+    ).toThrow('gateway host mapping user does not match its account')
+  })
+
   it('routes an authenticated user to their own host and preserves the Synapse message payload', async () => {
     const result = await connect('sid=a', { 'x-user-id': 'b', [TOKEN_HEADER]: TOKEN_B })
     if (!('socket' in result)) throw new Error('gateway refused the authenticated session')
