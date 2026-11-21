@@ -106,9 +106,9 @@ describe.skipIf(process.platform === 'win32')('real local PTY', () => {
     await expect.poll(() => restored.join('')).toContain(marker)
     expect(sessions.list('owner')).toHaveLength(1)
     expect(sessions.list('other')).toHaveLength(0)
-    expect(() =>
-      sessions.attach(sessionId, 'other', second, { cols: 80, rows: 24 }),
-    ).toThrow('the session belongs to another user')
+    expect(() => sessions.attach(sessionId, 'other', second, { cols: 80, rows: 24 })).toThrow(
+      'the session belongs to another user',
+    )
     sessions.close(sessionId, 'owner')
   }, 15_000)
 })
