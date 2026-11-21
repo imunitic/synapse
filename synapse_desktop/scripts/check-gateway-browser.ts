@@ -24,6 +24,8 @@ const backend = createServer((_request, response) => response.writeHead(404).end
 const backendSockets = new WebSocketServer({ noServer: true })
 let backendConnections = 0
 const fakeTerminals = new Map<string, Record<string, unknown>>()
+let terminalStarts = 0
+let terminalAttaches = 0
 backend.on('upgrade', (request, socket, head) => {
   if (
     request.url !== BUS_PATH ||
@@ -79,6 +81,7 @@ backend.on('upgrade', (request, socket, head) => {
         } else if (received.name === 'terminal.list') {
           result = { sessions: [...fakeTerminals.values()] }
         } else if (received.name === 'terminal.start' && received.params?.session) {
+          terminalStarts++
           const terminal = {
             session: received.params.session,
             title: received.params.title ?? 'Shell',
@@ -91,6 +94,7 @@ backend.on('upgrade', (request, socket, head) => {
           fakeTerminals.set(terminal.session, terminal)
           result = terminal
         } else if (received.name === 'terminal.attach' && received.params?.session) {
+          terminalAttaches++
           result = fakeTerminals.get(received.params.session) ?? null
         } else if (received.name === 'terminal.close' && received.params?.session) {
           fakeTerminals.delete(received.params.session)
@@ -224,6 +228,21 @@ try {
         element.textContent?.includes('browser-input-check'),
       ),
     )
+    // A browser reload must adopt the server-held terminal instead of
+    // starting a duplicate. Its xterm.js view must restore the snapshot.
+    assert.equal(terminalStarts, 1, 'unexpected number of terminal starts before reload')
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.locator('.shell').waitFor()
+    await page.locator('section[aria-label="Running now"] button').last().click()
+    await page.locator('.terminal-host .xterm-screen').first().waitFor()
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('.xterm-rows')].some((element) =>
+        element.textContent?.includes('Synapse PWA terminal ready'),
+      ),
+    )
+    assert.equal(terminalStarts, 1, 'browser reload started a duplicate terminal')
+    assert.equal(fakeTerminals.size, 1, 'browser reload lost its existing terminal')
+    assert.ok(terminalAttaches > 0, 'browser reload did not reattach to its terminal')
     assert.deepEqual(pageErrors, [], 'uncaught page errors during application mount')
     // Exercise the real browser WebSocket path, with a private backend that
     // refuses direct access and requires a gateway-owned credential.
