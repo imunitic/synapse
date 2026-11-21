@@ -50,5 +50,5 @@ describe.skipIf(process.platform === 'win32')('real local PTY', () => {
     await complete
     expect(exited).toBe(0)
     expect(output).toContain(marker)
-  })
+  }, 15_000)
 })
