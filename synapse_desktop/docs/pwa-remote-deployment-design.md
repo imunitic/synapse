@@ -151,7 +151,7 @@ The foundation now includes a minimal login page served from **three fixed publi
 
 - The login page embeds no application bundle, backend mapping, account list, credential, or session token. Successful sign-in navigates to `/` so the authenticated frontend handler—not the public login handler—serves application assets.
 - Exact Host matching, GET/HEAD-only methods, fixed responses, no-store headers and a restricted CSP apply to the public login assets. Login errors do not echo submitted credentials.
-- Regression coverage checks that the three login assets are available unauthenticated while `/` and application scripts remain denied.
+- Regression coverage checks that the three login assets are available unauthenticated. Only an unauthenticated GET navigation to `/` requesting HTML is redirected to `/login`; application scripts, APIs and other private assets remain denied.
 - **Not a deployed PWA:** no listener, real Vite manifest loader, service worker or public reverse proxy has been enabled. Login usability still requires a real browser/CSP integration test before deployment.
 
 ## Production Vite asset allowlist (2026-11-21)
