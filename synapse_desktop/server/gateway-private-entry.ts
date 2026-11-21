@@ -10,6 +10,7 @@ import {
 } from './gateway-protected-frontend.ts'
 import { createPasswordVerifier, type PasswordAccount } from './gateway-password-verifier.ts'
 import { createTrustedPeerKey } from './gateway-trusted-peer.ts'
+import { createGatewayLoginPageHandler } from './gateway-login-page.ts'
 
 export interface PrivateGatewayOptions
   extends
@@ -44,6 +45,7 @@ export function attachPrivateGateway(server: Server, options: PrivateGatewayOpti
     attemptWindowMs: options.attemptWindowMs,
     maxTrackedPeers: options.maxTrackedPeers,
   })
+  const loginPage = createGatewayLoginPageHandler(options.publicHost)
   const frontend = createProtectedFrontendHandler({
     publicHost: options.publicHost,
     sessions: options.sessions,
@@ -56,6 +58,11 @@ export function attachPrivateGateway(server: Server, options: PrivateGatewayOpti
       case '/auth/logout':
       case '/auth/me':
         auth(request, response)
+        break
+      case '/login':
+      case '/login.js':
+      case '/login.css':
+        loginPage(request, response)
         break
       default:
         frontend(request, response)
