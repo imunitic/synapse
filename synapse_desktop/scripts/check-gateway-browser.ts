@@ -150,13 +150,9 @@ try {
         method: 'POST',
         credentials: 'same-origin',
       })
-      assertLogout(response.status)
+      if (response.status !== 200) throw new Error(`logout returned ${response.status}`)
       await closed
       return response.status
-
-      function assertLogout(status: number) {
-        if (status !== 200) throw new Error(`logout returned ${status}`)
-      }
     })
     assert.equal(revokedSocket, 200)
     await page.goto(origin, { waitUntil: 'domcontentloaded' })
