@@ -12,10 +12,9 @@ import { createPasswordVerifier, type PasswordAccount } from './gateway-password
 import { createTrustedPeerKey } from './gateway-trusted-peer.ts'
 
 export interface PrivateGatewayOptions
-  extends Pick<
-      SessionGatewayOptions,
-      'hosts' | 'recheckMs' | 'maxConnectionsPerUser' | 'heartbeatMs' | 'flowOptions'
-    >,
+  extends
+    Pick<SessionGatewayOptions, 'hosts' | 'recheckMs' | 'maxConnectionsPerUser'>,
+    Pick<SessionGatewayOptions, 'heartbeatMs' | 'flowOptions'>,
     Pick<ProtectedFrontendOptions, 'assets'>,
     Pick<GatewayHttpAuthOptions, 'maxAttempts' | 'attemptWindowMs' | 'maxTrackedPeers'> {
   readonly publicHost: string
