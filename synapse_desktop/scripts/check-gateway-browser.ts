@@ -23,6 +23,7 @@ const backendOrigin = 'http://gateway.internal'
 const backend = createServer((_request, response) => response.writeHead(404).end())
 const backendSockets = new WebSocketServer({ noServer: true })
 let backendConnections = 0
+const fakeTerminals = new Map<string, Record<string, unknown>>()
 backend.on('upgrade', (request, socket, head) => {
   if (
     request.url !== BUS_PATH ||
@@ -35,8 +36,111 @@ backend.on('upgrade', (request, socket, head) => {
   }
   backendSockets.handleUpgrade(request, socket, head, (ws) => {
     backendConnections++
+    ws.send(
+      JSON.stringify({
+        kind: 'hello',
+        protocol: 1,
+        capabilities: { host: 'node', shell: true, installActions: false },
+      }),
+    )
     ws.on('message', (data, binary) => {
-      if (!binary) ws.send(data.toString())
+      if (binary) return
+      let message: unknown
+      try {
+        message = JSON.parse(data.toString()) as unknown
+      } catch {
+        return
+      }
+      if (!message || typeof message !== 'object') return
+      const received = message as {
+        kind?: string
+        id?: string
+        name?: string
+        session?: string
+        params?: { session?: string; title?: string; kind?: string }
+        data?: { type?: string; data?: string }
+      }
+      if (received.kind === 'request' && received.id) {
+        let result: unknown = null
+        if (received.name === 'config.get') {
+          result = {
+            config: {
+              workDir: null,
+              definitionPaths: [],
+              defaultHarness: null,
+              defaultModels: {},
+              env: {},
+              recentVaults: [],
+              terminalFolder: null,
+              graphRepos: {},
+            },
+            paths: { definitionDirs: [], skillsDir: null, recordsDir: null },
+          }
+        } else if (received.name === 'terminal.list') {
+          result = { sessions: [...fakeTerminals.values()] }
+        } else if (received.name === 'terminal.start' && received.params?.session) {
+          const terminal = {
+            session: received.params.session,
+            title: received.params.title ?? 'Shell',
+            kind: 'Shell',
+            cwd: '/tmp',
+            loaded: false,
+            note: '',
+            exited: null,
+          }
+          fakeTerminals.set(terminal.session, terminal)
+          result = terminal
+        } else if (received.name === 'terminal.attach' && received.params?.session) {
+          result = fakeTerminals.get(received.params.session) ?? null
+        } else if (received.name === 'terminal.close' && received.params?.session) {
+          fakeTerminals.delete(received.params.session)
+        } else if (received.name === 'changes.snapshot') {
+          ws.send(
+            JSON.stringify({
+              kind: 'reply',
+              id: received.id,
+              error: { code: 'unavailable', message: 'test snapshot unavailable' },
+            }),
+          )
+          return
+        }
+        ws.send(JSON.stringify({ kind: 'reply', id: received.id, result }))
+        if (received.name === 'terminal.start' && received.params?.session) {
+          ws.send(
+            JSON.stringify({
+              kind: 'stream',
+              session: received.params.session,
+              data: { type: 'output', data: 'Synapse PWA terminal ready\\r\\n' },
+            }),
+          )
+        }
+        if (received.name === 'terminal.attach' && received.params?.session) {
+          ws.send(
+            JSON.stringify({
+              kind: 'stream',
+              session: received.params.session,
+              data: { type: 'snapshot', data: 'Synapse PWA terminal ready\\r\\n' },
+            }),
+          )
+        }
+        return
+      }
+      if (
+        received.kind === 'stream' &&
+        received.session &&
+        received.data?.type === 'input' &&
+        typeof received.data.data === 'string'
+      ) {
+        ws.send(
+          JSON.stringify({
+            kind: 'stream',
+            session: received.session,
+            data: { type: 'output', data: received.data.data },
+          }),
+        )
+        return
+      }
+      ws.send(data.toString())
     })
   })
 })
@@ -102,6 +206,23 @@ try {
       bundle.headers()['content-security-policy'] ?? '',
       /default-src 'self'/,
       'protected bundle is missing CSP',
+    )
+    // Exercise the actual React terminal component and xterm.js DOM using
+    // the protected gateway and a deterministic protocol-level fake backend.
+    await page.getByRole('button', { name: 'New shell' }).click()
+    const terminalHost = page.locator('.terminal-host').first()
+    await terminalHost.locator('.xterm-screen').waitFor({ timeout: 15_000 })
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('.xterm-rows')].some((element) =>
+        element.textContent?.includes('Synapse PWA terminal ready'),
+      ),
+    )
+    await terminalHost.locator('.xterm-helper-textarea').focus()
+    await page.keyboard.type('browser-input-check')
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('.xterm-rows')].some((element) =>
+        element.textContent?.includes('browser-input-check'),
+      ),
     )
     assert.deepEqual(pageErrors, [], 'uncaught page errors during application mount')
     // Exercise the real browser WebSocket path, with a private backend that
