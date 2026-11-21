@@ -24,6 +24,7 @@ const backend = createServer((_request, response) => response.writeHead(404).end
 const backendSockets = new WebSocketServer({ noServer: true })
 let backendConnections = 0
 const fakeTerminals = new Map<string, Record<string, unknown>>()
+const terminalScreens = new Map<string, string>()
 let terminalStarts = 0
 let terminalAttaches = 0
 backend.on('upgrade', (request, socket, head) => {
@@ -92,12 +93,14 @@ backend.on('upgrade', (request, socket, head) => {
             exited: null,
           }
           fakeTerminals.set(terminal.session, terminal)
+          terminalScreens.set(terminal.session, 'Synapse PWA terminal ready\r\n')
           result = terminal
         } else if (received.name === 'terminal.attach' && received.params?.session) {
           terminalAttaches++
           result = fakeTerminals.get(received.params.session) ?? null
         } else if (received.name === 'terminal.close' && received.params?.session) {
           fakeTerminals.delete(received.params.session)
+          terminalScreens.delete(received.params.session)
         } else if (received.name === 'changes.snapshot') {
           ws.send(
             JSON.stringify({
@@ -114,7 +117,10 @@ backend.on('upgrade', (request, socket, head) => {
             JSON.stringify({
               kind: 'stream',
               session: received.params.session,
-              data: { type: 'output', data: 'Synapse PWA terminal ready\r\n' },
+              data: {
+                type: 'output',
+                data: terminalScreens.get(received.params.session) ?? '',
+              }
             }),
           )
         }
@@ -123,7 +129,10 @@ backend.on('upgrade', (request, socket, head) => {
             JSON.stringify({
               kind: 'stream',
               session: received.params.session,
-              data: { type: 'snapshot', data: 'Synapse PWA terminal ready\r\n' },
+              data: {
+                type: 'snapshot',
+                data: terminalScreens.get(received.params.session) ?? '',
+              }
             }),
           )
         }
@@ -135,6 +144,11 @@ backend.on('upgrade', (request, socket, head) => {
         received.data?.type === 'input' &&
         typeof received.data.data === 'string'
       ) {
+        if (!terminalScreens.has(received.session)) return
+        terminalScreens.set(
+          received.session,
+          (terminalScreens.get(received.session) ?? '') + received.data.data,
+        )
         ws.send(
           JSON.stringify({
             kind: 'stream',
@@ -237,12 +251,22 @@ try {
     await page.locator('.terminal-host .xterm-screen').first().waitFor()
     await page.waitForFunction(() =>
       [...document.querySelectorAll('.xterm-rows')].some((element) =>
-        element.textContent?.includes('Synapse PWA terminal ready'),
+        element.textContent?.includes('browser-input-check'),
       ),
     )
     assert.equal(terminalStarts, 1, 'browser reload started a duplicate terminal')
     assert.equal(fakeTerminals.size, 1, 'browser reload lost its existing terminal')
     assert.ok(terminalAttaches > 0, 'browser reload did not reattach to its terminal')
+    // Check that typing still works after restoration, not just that the old
+    // screen can be displayed.
+    await page.locator('.terminal-host .xterm-helper-textarea').first().focus()
+    await page.keyboard.type('after-reload-check')
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('.xterm-rows')].some((element) =>
+        element.textContent?.includes('after-reload-check'),
+      ),
+    )
+    assert.equal(fakeTerminals.size, 1, 'continued input created a second terminal')
     assert.deepEqual(pageErrors, [], 'uncaught page errors during application mount')
     // Exercise the real browser WebSocket path, with a private backend that
     // refuses direct access and requires a gateway-owned credential.
