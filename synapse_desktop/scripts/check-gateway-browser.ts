@@ -110,7 +110,7 @@ backend.on('upgrade', (request, socket, head) => {
             JSON.stringify({
               kind: 'stream',
               session: received.params.session,
-              data: { type: 'output', data: 'Synapse PWA terminal ready\\r\\n' },
+              data: { type: 'output', data: 'Synapse PWA terminal ready\r\n' },
             }),
           )
         }
@@ -119,7 +119,7 @@ backend.on('upgrade', (request, socket, head) => {
             JSON.stringify({
               kind: 'stream',
               session: received.params.session,
-              data: { type: 'snapshot', data: 'Synapse PWA terminal ready\\r\\n' },
+              data: { type: 'snapshot', data: 'Synapse PWA terminal ready\r\n' },
             }),
           )
         }
@@ -237,6 +237,18 @@ try {
           }, 5000)
           socket.onopen = () => socket.send(JSON.stringify({ kind: 'browser-smoke' }))
           socket.onmessage = (event) => {
+            try {
+              const message: unknown = JSON.parse(String(event.data))
+              if (
+                !message ||
+                typeof message !== 'object' ||
+                (message as { kind?: string }).kind !== 'browser-smoke'
+              ) {
+                return
+              }
+            } catch {
+              return
+            }
             clearTimeout(timeout)
             socket.close()
             resolve(String(event.data))
