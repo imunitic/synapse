@@ -1,0 +1,88 @@
+// Opt-in, loopback-only Chromium smoke test for the detached private gateway.
+// Requires `npm run build` and `npx playwright install chromium`.
+// Does NOT enable remote host mode, contact the VPS or start a public listener.
+import assert from 'node:assert/strict'
+import { createServer } from 'node:http'
+import { join } from 'node:path'
+import { chromium } from '@playwright/test'
+import { attachPrivateGateway } from '../server/gateway-private-entry.ts'
+import { hashGatewayPassword } from '../server/gateway-password-verifier.ts'
+import { createGatewaySessions } from '../server/gateway-sessions.ts'
+import { loadViteProtectedAssets } from '../server/gateway-vite-assets.ts'
+
+const assets = await loadViteProtectedAssets(join(import.meta.dirname, '..', 'dist'))
+const scriptPath = [...assets.keys()].find((path) => path.startsWith('/assets/') && path.endsWith('.js'))
+assert.ok(scriptPath, 'missing production JavaScript bundle')
+
+const server = createServer()
+let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
+try {
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  if (!address || typeof address === 'string') throw new Error('invalid loopback address')
+  const origin = `http://127.0.0.1:${address.port}`
+  const sessions = createGatewaySessions()
+  attachPrivateGateway(server, {
+    publicHost: `127.0.0.1:${address.port}`,
+    publicOrigin: origin,
+    sessions,
+    accounts: [
+      {
+        username: 'browser-test',
+        userId: 'browser-test',
+        passwordHash: await hashGatewayPassword('browser-test-only-password'),
+      },
+    ],
+    hosts: new Map(),
+    assets,
+  })
+
+  browser = await chromium.launch({ headless: true })
+  const context = await browser.newContext()
+  try {
+    const page = await context.newPage()
+    const pageErrors: string[] = []
+    page.on('pageerror', (error) => pageErrors.push(error.message))
+    const beforeLogin = await context.request.get(`${origin}${scriptPath}`)
+    assert.equal(beforeLogin.status(), 401, 'production bundle leaked before sign-in')
+    await page.goto(origin, { waitUntil: 'domcontentloaded' })
+    await page.locator('#login-form').waitFor()
+    assert.equal(new URL(page.url()).pathname, '/login')
+    await page.locator('#username').fill('browser-test')
+    await page.locator('#password').fill('browser-test-only-password')
+    await page.getByRole('button', { name: 'Sign in' }).click()
+    await page.locator('.shell').waitFor({ timeout: 15_000 })
+    assert.equal(new URL(page.url()).pathname, '/', 'login did not reach protected app')
+    const bundle = await context.request.get(`${origin}${scriptPath}`)
+    assert.equal(bundle.status(), 200, 'authenticated browser cannot fetch its JS')
+    assert.match(
+      bundle.headers()['content-security-policy'] ?? '',
+      /default-src 'self'/,
+      'protected bundle is missing CSP',
+    )
+    assert.deepEqual(pageErrors, [], 'uncaught page errors during application mount')
+    const logout = await page.evaluate(async () => {
+      const response = await fetch('/auth/logout', {
+        method: 'POST',
+        credentials: 'same-origin',
+      })
+      return response.status
+    })
+    assert.equal(logout, 200)
+    await page.goto(origin, { waitUntil: 'domcontentloaded' })
+    await page.locator('#login-form').waitFor()
+    assert.equal(new URL(page.url()).pathname, '/login', 'logout did not revoke page access')
+    assert.equal(
+      (await context.request.get(`${origin}${scriptPath}`)).status(),
+      401,
+      'logout did not revoke access to the bundle',
+    )
+    console.log('Chromium: protected production UI mounted, logout revoked access')
+  } finally {
+    await context.close()
+  }
+} finally {
+  await browser?.close()
+  server.closeAllConnections()
+  await new Promise<void>((resolve) => server.close(() => resolve()))
+}
