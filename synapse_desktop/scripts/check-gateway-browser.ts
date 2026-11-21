@@ -120,7 +120,7 @@ backend.on('upgrade', (request, socket, head) => {
               data: {
                 type: 'output',
                 data: terminalScreens.get(received.params.session) ?? '',
-              }
+              },
             }),
           )
         }
@@ -132,7 +132,7 @@ backend.on('upgrade', (request, socket, head) => {
               data: {
                 type: 'snapshot',
                 data: terminalScreens.get(received.params.session) ?? '',
-              }
+              },
             }),
           )
         }
