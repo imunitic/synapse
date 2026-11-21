@@ -1,10 +1,11 @@
 // Real OS PTY smoke test. No AI agent, gateway listener, or remote mode.
 // The shell runs a fixed command in a temporary directory and is killed on cleanup.
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { spawnPty, type Pty } from './terminal.ts'
+import { createSessions, type Sink } from './terminal-sessions.ts'
 
 const directories: string[] = []
 const processes: Pty[] = []
@@ -51,4 +52,59 @@ describe.skipIf(process.platform === 'win32')('real local PTY', () => {
     expect(exited).toBe(0)
     expect(output).toContain(marker)
   }, 15_000)
+  it('preserves a real shell across detach and reattach with a screen snapshot', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'synapse-pty-reconnect-'))
+    directories.push(home)
+    const configFile = join(home, 'config.json')
+    await writeFile(configFile, JSON.stringify({ workDir: home, definitionPaths: [] }))
+    const sessions = createSessions({
+      environment: { env: { PATH: '/usr/bin:/bin', HOME: home, SHELL: '/bin/sh' }, home },
+      configFile,
+      sessionsRoot: join(home, 'sessions'),
+      maxTerminals: 1,
+      plan: async () => ({
+        command: '/bin/sh',
+        args: [],
+        env: {},
+        loaded: false,
+        note: '',
+      }),
+      spawn: (file, args, options) => {
+        const pty = spawnPty(file, args, options)
+        processes.push(pty)
+        return pty
+      },
+      watch: () => ({
+        stop: () => undefined,
+        poll: async () => undefined,
+        register: () => undefined,
+      }),
+    })
+    const initial: string[] = []
+    const first: Sink = { send: (_id, message) => {
+      if (message.type === 'output') initial.push(message.data)
+    } }
+    const sessionId = 'real-pty-reconnect'
+    await sessions.start(
+      { session: sessionId, title: 'Shell', kind: 'Shell', cwd: home, cols: 80, rows: 24 },
+      'owner',
+      first,
+    )
+    const marker = 'SYNAPSE_RECONNECT_MARKER'
+    sessions.input(sessionId, 'owner', first, `printf '%s\\n' '${marker}'\\n`)
+    await expect.poll(() => initial.join('')).toContain(marker)
+    sessions.detachAll(first)
+    const restored: string[] = []
+    const second: Sink = { send: (_id, message) => {
+      if (message.type === 'snapshot') restored.push(message.data)
+    } }
+    sessions.attach(sessionId, 'owner', second, { cols: 80, rows: 24 })
+    await expect.poll(() => restored.join('')).toContain(marker)
+    expect(sessions.list('owner')).toHaveLength(1)
+    expect(sessions.list('other')).toHaveLength(0)
+    expect(() => sessions.attach(sessionId, 'other', second, { cols: 80, rows: 24 }))
+      .toThrow('the session belongs to another user')
+    sessions.close(sessionId, 'owner')
+  }, 15_000)
+
 })
