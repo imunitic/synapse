@@ -188,3 +188,10 @@ The design and intake task are in the separate private `dainalogue/aeris-synapse
 - `inbox/Secure remote Node host for Synapse PWA - task draft.md`
 
 Formal Synapse task registration still requires a configured local Synapse CLI.
+
+
+## Opt-in production Chromium smoke test (2026-11-21)
+
+After `npm run build` and `npx playwright install chromium`, run `npm run check:gateway-browser` from `synapse_desktop`. The test creates a **temporary loopback-only** HTTP server with synthetic credentials and the **real protected Vite production build**, then exercises Chrome/Chromium login and secure-cookie behavior, protected app and JS loading, React shell mount, and logout revocation. It shuts down the browser and server afterward. It does not start Synapse remote mode, containers, the VPS gateway or any public listener.
+
+This command is intentionally separate from `npm run check` until Chromium availability and cross-platform behavior are verified; the existing desktop CI/build check is unaffected. It is an HTTP loopback test relying on Chromium's potentially special treatment of loopback secure cookies, **not a substitute for a production HTTPS certificate or reverse proxy**. It also does not prove functioning terminal/PTY or xterm.js, because no user backend is attached; those require a dedicated authenticated WebSocket/backend browser test. A passing smoke test is not a deployment approval.
