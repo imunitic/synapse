@@ -81,9 +81,11 @@ describe.skipIf(process.platform === 'win32')('real local PTY', () => {
       }),
     })
     const initial: string[] = []
-    const first: Sink = { send: (_id, message) => {
-      if (message.type === 'output') initial.push(message.data)
-    } }
+    const first: Sink = {
+      send: (_id, message) => {
+        if (message.type === 'output') initial.push(message.data)
+      },
+    }
     const sessionId = 'real-pty-reconnect'
     await sessions.start(
       { session: sessionId, title: 'Shell', kind: 'Shell', cwd: home, cols: 80, rows: 24 },
@@ -91,20 +93,22 @@ describe.skipIf(process.platform === 'win32')('real local PTY', () => {
       first,
     )
     const marker = 'SYNAPSE_RECONNECT_MARKER'
-    sessions.input(sessionId, 'owner', first, `printf '%s\\n' '${marker}'\\n`)
+    sessions.input(sessionId, 'owner', first, `printf '%s\\n' '${marker}'\n`)
     await expect.poll(() => initial.join('')).toContain(marker)
     sessions.detachAll(first)
     const restored: string[] = []
-    const second: Sink = { send: (_id, message) => {
-      if (message.type === 'snapshot') restored.push(message.data)
-    } }
+    const second: Sink = {
+      send: (_id, message) => {
+        if (message.type === 'snapshot') restored.push(message.data)
+      },
+    }
     sessions.attach(sessionId, 'owner', second, { cols: 80, rows: 24 })
     await expect.poll(() => restored.join('')).toContain(marker)
     expect(sessions.list('owner')).toHaveLength(1)
     expect(sessions.list('other')).toHaveLength(0)
-    expect(() => sessions.attach(sessionId, 'other', second, { cols: 80, rows: 24 }))
-      .toThrow('the session belongs to another user')
+    expect(() =>
+      sessions.attach(sessionId, 'other', second, { cols: 80, rows: 24 }),
+    ).toThrow('the session belongs to another user')
     sessions.close(sessionId, 'owner')
   }, 15_000)
-
 })
