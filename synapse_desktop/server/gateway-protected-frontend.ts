@@ -88,6 +88,21 @@ export function createProtectedFrontendHandler(options: ProtectedFrontendOptions
         // They must rely on the exact Host and an authenticated HttpOnly cookie.
         const session = await options.sessions.authenticate(request)
         if (!session) {
+          // Only an ordinary browser navigation to the application root may
+          // discover the public login page. Never redirect scripts or APIs.
+          if (
+            path === '/' &&
+            request.method === 'GET' &&
+            request.headers.accept?.split(',').some((value) => value.trim().startsWith('text/html'))
+          ) {
+            response.writeHead(302, {
+              Location: '/login',
+              'Cache-Control': 'no-store',
+              'X-Content-Type-Options': 'nosniff',
+            })
+            response.end()
+            return
+          }
           respond(401)
           return
         }
