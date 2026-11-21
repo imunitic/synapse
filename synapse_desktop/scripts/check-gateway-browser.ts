@@ -5,6 +5,8 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { join } from 'node:path'
 import { chromium } from '@playwright/test'
+import { WebSocketServer } from 'ws'
+import { BUS_PATH, TOKEN_HEADER } from '../shared/constants.ts'
 import { attachPrivateGateway } from '../server/gateway-private-entry.ts'
 import { hashGatewayPassword } from '../server/gateway-password-verifier.ts'
 import { createGatewaySessions } from '../server/gateway-sessions.ts'
@@ -16,6 +18,29 @@ const scriptPath = [...assets.keys()].find(
 )
 assert.ok(scriptPath, 'missing production JavaScript bundle')
 
+const backendToken = 'browser-test-internal-credential'
+const backendOrigin = 'http://gateway.internal'
+const backend = createServer((_request, response) => response.writeHead(404).end())
+const backendSockets = new WebSocketServer({ noServer: true })
+let backendConnections = 0
+backend.on('upgrade', (request, socket, head) => {
+  if (
+    request.url !== BUS_PATH ||
+    request.headers[TOKEN_HEADER] !== backendToken ||
+    request.headers.origin !== backendOrigin ||
+    request.headers.cookie !== undefined
+  ) {
+    socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+    return
+  }
+  backendSockets.handleUpgrade(request, socket, head, (ws) => {
+    backendConnections++
+    ws.on('message', (data, binary) => {
+      if (!binary) ws.send(data.toString())
+    })
+  })
+})
+
 const server = createServer()
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined
 try {
@@ -23,6 +48,11 @@ try {
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('invalid loopback address')
   const origin = `http://127.0.0.1:${address.port}`
+  await new Promise<void>((resolve) => backend.listen(0, '127.0.0.1', resolve))
+  const backendAddress = backend.address()
+  if (!backendAddress || typeof backendAddress === 'string') {
+    throw new Error('invalid test backend address')
+  }
   const sessions = createGatewaySessions()
   attachPrivateGateway(server, {
     publicHost: `127.0.0.1:${address.port}`,
@@ -35,7 +65,18 @@ try {
         passwordHash: await hashGatewayPassword('browser-test-only-password'),
       },
     ],
-    hosts: new Map(),
+    hosts: new Map([
+      [
+        'browser-test',
+        {
+          userId: 'browser-test',
+          backend: `http://127.0.0.1:${backendAddress.port}`,
+          backendToken,
+          backendOrigin,
+        },
+      ],
+    ]),
+    recheckMs: 50,
     assets,
   })
 
@@ -63,6 +104,30 @@ try {
       'protected bundle is missing CSP',
     )
     assert.deepEqual(pageErrors, [], 'uncaught page errors during application mount')
+    // Exercise the real browser WebSocket path, with a private backend that
+    // refuses direct access and requires a gateway-owned credential.
+    const relay = page.evaluate(
+      () =>
+        new Promise<string>((resolve, reject) => {
+          const socket = new WebSocket(`ws://${location.host}/api/bus`)
+          const timeout = setTimeout(() => {
+            socket.close()
+            reject(new Error('gateway WebSocket echo timed out'))
+          }, 5000)
+          socket.onopen = () => socket.send(JSON.stringify({ kind: 'browser-smoke' }))
+          socket.onmessage = (event) => {
+            clearTimeout(timeout)
+            socket.close()
+            resolve(String(event.data))
+          }
+          socket.onerror = () => {
+            clearTimeout(timeout)
+            reject(new Error('gateway WebSocket connection failed'))
+          }
+        }),
+    )
+    assert.deepEqual(JSON.parse(await relay), { kind: 'browser-smoke' })
+    assert.ok(backendConnections > 0, 'authenticated browser did not reach its private backend')
     const logout = await page.evaluate(async () => {
       const response = await fetch('/auth/logout', {
         method: 'POST',
@@ -87,4 +152,7 @@ try {
   await browser?.close()
   server.closeAllConnections()
   await new Promise<void>((resolve) => server.close(() => resolve()))
+  for (const socket of backendSockets.clients) socket.terminate()
+  backend.closeAllConnections()
+  await new Promise<void>((resolve) => backend.close(() => resolve()))
 }
