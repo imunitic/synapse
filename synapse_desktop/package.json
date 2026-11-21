@@ -16,6 +16,7 @@
     "e2e": "node scripts/e2e.ts",
     "build": "npm run typecheck && vite build",
     "check:gateway-build": "node scripts/check-gateway-build.ts",
+    "check:gateway-browser": "node scripts/check-gateway-browser.ts",
     "check": "npm run build && npm run check:gateway-build && npm run lint && npm run format:check && npm run test",
     "tauri": "tauri",
     "stage": "node scripts/stage-resources.ts",
