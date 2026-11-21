@@ -11,7 +11,9 @@ import { createGatewaySessions } from '../server/gateway-sessions.ts'
 import { loadViteProtectedAssets } from '../server/gateway-vite-assets.ts'
 
 const assets = await loadViteProtectedAssets(join(import.meta.dirname, '..', 'dist'))
-const scriptPath = [...assets.keys()].find((path) => path.startsWith('/assets/') && path.endsWith('.js'))
+const scriptPath = [...assets.keys()].find(
+  (path) => path.startsWith('/assets/') && path.endsWith('.js'),
+)
 assert.ok(scriptPath, 'missing production JavaScript bundle')
 
 const server = createServer()
