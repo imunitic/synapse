@@ -79,6 +79,20 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
   const interval = options.recheckMs ?? 15_000
   const maxConnectionsPerUser = options.maxConnectionsPerUser ?? 4
   const activeByUser = new Map<string, Set<{ sessionId: string; terminate: () => void }>>()
+  // The Node host currently owns terminals as one local user. Sharing its
+  // backend across gateway accounts would therefore share their terminal
+  // namespace. Reject even an accidental duplicate private host mapping.
+  const routedBackends = new Set<string>()
+  for (const [userId, host] of options.hosts) {
+    if (userId !== host.userId) {
+      throw new Error('gateway host mapping user does not match its account')
+    }
+    const target = targetUrl(host)
+    if (routedBackends.has(target)) {
+      throw new Error('gateway accounts must not share a private backend')
+    }
+    routedBackends.add(target)
+  }
   if (!Number.isSafeInteger(maxConnectionsPerUser) || maxConnectionsPerUser < 1) {
     throw new Error('invalid per-user connection limit')
   }
