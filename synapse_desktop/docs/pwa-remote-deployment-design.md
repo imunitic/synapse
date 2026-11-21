@@ -145,6 +145,15 @@ The feature branch now includes `server/gateway-private-entry.ts` and an HTTP in
 
 **Review gate:** an independent code-reading review identified browser Origin behavior, trusted-proxy rate limiting, NFC password normalization, session eviction, WebSocket buffering, and redundant attachment concerns. These have implementation changes and tests, but browser-level behavior, proxy configuration, actual slow-client conditions, and macOS execution still require independent validation. Ask the reviewer to re-check the exact HTTP dispatch, authentication/session coupling, websocket upgrade path, backend isolation assumptions, and resource/timeout behavior before implementing a publicly reachable service. A safe unauthenticated login UI, a real build manifest loader, reverse-proxy configuration, hardened security headers, and Docker isolation are still outstanding.
 
+## Detached unauthenticated sign-in page (2026-11-21)
+
+The foundation now includes a minimal login page served from **three fixed public paths** (`/login`, `/login.js`, `/login.css`) by `server/gateway-login-page.ts`. The single private gateway dispatcher routes these explicit paths to the login-page handler; the existing `POST /auth/session` endpoint still owns authentication and issues only an HttpOnly session cookie.
+
+- The login page embeds no application bundle, backend mapping, account list, credential, or session token. Successful sign-in navigates to `/` so the authenticated frontend handler—not the public login handler—serves application assets.
+- Exact Host matching, GET/HEAD-only methods, fixed responses, no-store headers and a restricted CSP apply to the public login assets. Login errors do not echo submitted credentials.
+- Regression coverage checks that the three login assets are available unauthenticated while `/` and application scripts remain denied.
+- **Not a deployed PWA:** no listener, real Vite manifest loader, service worker or public reverse proxy has been enabled. Login usability still requires a real browser/CSP integration test before deployment.
+
 ## Host and deployment constraints
 
 - The new remote mode must continue to fail closed until these protections are implemented and tested.
