@@ -36,7 +36,9 @@ afterEach(async () => {
     server.closeAllConnections()
     await new Promise<void>((resolve) => server.close(() => resolve()))
   }
-  await Promise.all(directories.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
+  await Promise.all(
+    directories.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
+  )
 })
 
 describe('authenticated gateway to real Node bus', () => {
@@ -57,7 +59,13 @@ describe('authenticated gateway to real Node bus', () => {
       configFile,
       sessionsRoot: join(home, 'sessions'),
       maxTerminals: 2,
-      plan: async () => ({ command: 'fake-shell', args: [], env: {}, loaded: false, note: '' }),
+      plan: async () => ({
+        command: 'fake-shell',
+        args: [],
+        env: {},
+        loaded: false,
+        note: '',
+      }),
       spawn: () => ({
         onData: (listener) => {
           output = listener
@@ -170,7 +178,14 @@ describe('authenticated gateway to real Node bus', () => {
         kind: 'request',
         id: 'r1',
         name: 'terminal.start',
-        params: { session: 'fixture', title: 'Fixture', kind: 'Shell', cwd: home, cols: 80, rows: 24 },
+        params: {
+          session: 'fixture',
+          title: 'Fixture',
+          kind: 'Shell',
+          cwd: home,
+          cols: 80,
+          rows: 24,
+        },
       }),
     )
     expect(await next()).toMatchObject({
@@ -192,7 +207,11 @@ describe('authenticated gateway to real Node bus', () => {
       result: { sessions: [{ session: 'fixture' }] },
     })
     socket.send(
-      JSON.stringify({ kind: 'stream', session: 'fixture', data: { type: 'input', data: 'hello' } }),
+      JSON.stringify({
+        kind: 'stream',
+        session: 'fixture',
+        data: { type: 'input', data: 'hello' },
+      }),
     )
     expect(await next()).toMatchObject({
       kind: 'stream',
