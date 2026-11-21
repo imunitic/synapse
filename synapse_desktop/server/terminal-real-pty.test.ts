@@ -46,7 +46,7 @@ describe.skipIf(process.platform === 'win32')('real local PTY', () => {
     pty.onData((data) => {
       output += data
     })
-    pty.write(`printf '%s\\n' '${marker}'\\nexit 0\\n`)
+    pty.write(`printf '%s\\n' '${marker}'\nexit 0\n`)
     await complete
     expect(exited).toBe(0)
     expect(output).toContain(marker)
