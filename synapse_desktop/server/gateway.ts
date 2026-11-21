@@ -37,8 +37,18 @@ export interface GatewayOptions {
 
 function refusal(socket: Duplex, status: number): void {
   if (socket.destroyed) return
-  const reason = status === 401 ? 'Unauthorized' : status === 403 ? 'Forbidden' : 'Bad Gateway'
-  socket.end(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`)
+  const reason =
+    status === 401
+      ? 'Unauthorized'
+      : status === 403
+        ? 'Forbidden'
+        : status === 429
+          ? 'Too Many Requests'
+          : 'Bad Gateway'
+  const retryAfter = status === 429 ? 'Retry-After: 5\r\n' : ''
+  socket.end(
+    `HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\n${retryAfter}Content-Length: 0\r\n\r\n`,
+  )
 }
 
 function targetUrl(host: GatewayHost): string {
@@ -67,8 +77,8 @@ const MAX_FRAME = 1024 * 1024
 export function attachGateway(server: Server, options: GatewayOptions): void {
   const sockets = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME })
   const interval = options.recheckMs ?? 15_000
-  const maxConnectionsPerUser = options.maxConnectionsPerUser ?? 2
-  const activeByUser = new Map<string, number>()
+  const maxConnectionsPerUser = options.maxConnectionsPerUser ?? 4
+  const activeByUser = new Map<string, Set<{ sessionId: string; terminate: () => void }>>()
   if (!Number.isSafeInteger(maxConnectionsPerUser) || maxConnectionsPerUser < 1) {
     throw new Error('invalid per-user connection limit')
   }
@@ -121,19 +131,41 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
         return
       }
       if (socket.destroyed) return
-      if ((activeByUser.get(verifiedSession.userId) ?? 0) >= maxConnectionsPerUser) {
-        refusal(socket, 403)
-        return
+      let userConnections = activeByUser.get(verifiedSession.userId)
+      if (!userConnections) {
+        userConnections = new Set()
+        activeByUser.set(verifiedSession.userId, userConnections)
       }
-      activeByUser.set(verifiedSession.userId, (activeByUser.get(verifiedSession.userId) ?? 0) + 1)
+      if (userConnections.size >= maxConnectionsPerUser) {
+        // An identical server-issued session reconnect is allowed to replace
+        // one of its own older sockets. Never displace another login session.
+        const previous = [...userConnections].find(
+          (entry) => entry.sessionId === verifiedSession.sessionId,
+        )
+        if (!previous) {
+          refusal(socket, 429)
+          return
+        }
+        previous.terminate()
+        // Terminating a single-slot user removes their empty tracking set.
+        activeByUser.set(verifiedSession.userId, userConnections)
+      }
+      const connections = userConnections
       let released = false
       const release = () => {
         if (released) return
         released = true
-        const count = (activeByUser.get(verifiedSession.userId) ?? 1) - 1
-        if (count <= 0) activeByUser.delete(verifiedSession.userId)
-        else activeByUser.set(verifiedSession.userId, count)
+        connections.delete(tracked)
+        if (connections.size === 0) activeByUser.delete(verifiedSession.userId)
       }
+      const tracked = {
+        sessionId: verifiedSession.sessionId,
+        terminate: () => {
+          release()
+          socket.destroy()
+        },
+      }
+      connections.add(tracked)
 
       // Only gateway-generated headers travel to the backend. Browser cookies,
       // Authorization, Host, user IDs and chosen target URLs are never forwarded.
@@ -149,6 +181,11 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
         release()
         refusal(socket, 502)
         return
+      }
+      tracked.terminate = () => {
+        release()
+        socket.destroy()
+        upstream.terminate()
       }
       let completed = false
       const fail = () => {
@@ -190,6 +227,7 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
             client.terminate()
             upstream.terminate()
           }
+          tracked.terminate = shut
           client.on('close', shut)
           upstream.on('close', shut)
           client.on('error', shut)
