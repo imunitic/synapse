@@ -24,6 +24,8 @@ export function attachSessionGateway(server: Server, options: SessionGatewayOpti
     hosts: options.hosts,
     recheckMs: options.recheckMs,
     maxConnectionsPerUser: options.maxConnectionsPerUser,
+    heartbeatMs: options.heartbeatMs,
+    flowOptions: options.flowOptions,
     authenticate: (request) => options.sessions.authenticate(request),
     sessionValid: (session) => options.sessions.sessionValid(session),
   })
