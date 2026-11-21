@@ -9,6 +9,7 @@ const { web, server } = ports(process.env)
 // token: the page never holds it, and the server still checks Host and Origin.
 export default defineConfig({
   plugins: [react()],
+  build: { manifest: true },
   server: {
     host: '127.0.0.1',
     port: web,
