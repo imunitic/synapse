@@ -180,6 +180,33 @@ jobs:
       - name: Desktop app checks
         run: just desktop-check
 
+  # Detached, loopback-only private PWA gateway browser smoke. No VPS, agent,
+  # private production credentials or remote host mode involved.
+  gateway-browser:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: synapse_desktop/package-lock.json
+
+      - name: Install Chromium and desktop dependencies
+        working-directory: synapse_desktop
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Build production frontend
+        working-directory: synapse_desktop
+        run: npm run build
+
+      - name: Verify protected gateway in Chromium
+        working-directory: synapse_desktop
+        run: npm run check:gateway-browser
+
   # The Rust host of the desktop app: format, lint and its tests, on the platforms
   # the app is built for. It always runs, like `desktop`.
   desktop-host:
