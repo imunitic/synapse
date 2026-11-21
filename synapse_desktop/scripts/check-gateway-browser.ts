@@ -128,14 +128,46 @@ try {
     )
     assert.deepEqual(JSON.parse(await relay), { kind: 'browser-smoke' })
     assert.ok(backendConnections > 0, 'authenticated browser did not reach its private backend')
-    const logout = await page.evaluate(async () => {
-      const response = await fetch('/auth/logout', {
-        method: 'POST',
-        credentials: 'same-origin',
-      })
-      return response.status
-    })
-    assert.equal(logout, 200)
+    // A logged-out browser must lose an *already open* gateway connection,
+    // not just access to new upgrades and protected HTTP assets.
+    const revokedSocket = await page.evaluate(
+      () =>
+        new Promise<{ logout: number; closed: boolean }>((resolve, reject) => {
+          const socket = new WebSocket(`ws://${location.host}/api/bus`)
+          const deadline = setTimeout(() => {
+            socket.close()
+            reject(new Error('revoked WebSocket remained open'))
+          }, 5000)
+          socket.onerror = () => {
+            clearTimeout(deadline)
+            reject(new Error('WebSocket failed before logout'))
+          }
+          socket.onopen = () => {
+            // Attach close handler before logout to avoid missing an early close.
+            socket.onclose = () => {
+              clearTimeout(deadline)
+              resolve({ logout: 200, closed: true })
+            }
+            void fetch('/auth/logout', {
+              method: 'POST',
+              credentials: 'same-origin',
+            })
+              .then((response) => {
+                if (response.status !== 200) {
+                  clearTimeout(deadline)
+                  socket.close()
+                  reject(new Error(`logout returned ${response.status}`))
+                }
+              })
+              .catch((error: unknown) => {
+                clearTimeout(deadline)
+                socket.close()
+                reject(error)
+              })
+          }
+        }),
+    )
+    assert.deepEqual(revokedSocket, { logout: 200, closed: true })
     await page.goto(origin, { waitUntil: 'domcontentloaded' })
     await page.locator('#login-form').waitFor()
     assert.equal(new URL(page.url()).pathname, '/login', 'logout did not revoke page access')
