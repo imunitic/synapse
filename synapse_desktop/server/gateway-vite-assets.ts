@@ -70,17 +70,18 @@ export async function loadViteProtectedAssets(
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('invalid Vite production manifest')
   }
+  if (!Object.hasOwn(parsed, 'index.html')) throw new Error('missing Vite entrypoint')
   const files = new Set<string>()
   for (const entry of Object.values(parsed as Record<string, ManifestEntry>)) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
       throw new Error('invalid Vite manifest entry')
     }
-    if (entry.file !== undefined) files.add(String(entry.file))
+    if (entry.file !== undefined) files.add(entry.file as string)
     for (const key of ['css', 'assets'] as const) {
       const array = entry[key]
       if (array === undefined) continue
       if (!Array.isArray(array)) throw new Error('invalid Vite manifest asset list')
-      for (const file of array) files.add(String(file))
+      for (const file of array) files.add(file as string)
     }
   }
   if (files.size === 0 || files.size > MAX_ASSETS) throw new Error('invalid asset count')
