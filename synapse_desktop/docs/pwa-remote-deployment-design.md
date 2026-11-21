@@ -189,7 +189,6 @@ The design and intake task are in the separate private `dainalogue/aeris-synapse
 
 Formal Synapse task registration still requires a configured local Synapse CLI.
 
-
 ## Opt-in production Chromium smoke test (2026-11-21)
 
 After `npm run build` and `npx playwright install chromium`, run `npm run check:gateway-browser` from `synapse_desktop`. The test creates a **temporary loopback-only** HTTP server with synthetic credentials and the **real protected Vite production build**, then exercises Chrome/Chromium login and secure-cookie behavior, protected app and JS loading, React shell mount, and logout revocation. It shuts down the browser and server afterward. It does not start Synapse remote mode, containers, the VPS gateway or any public listener.
