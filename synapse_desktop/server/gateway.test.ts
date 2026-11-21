@@ -243,7 +243,10 @@ describe('private Synapse WebSocket gateway', () => {
           resolve()
           return
         }
-        const timeout = setTimeout(() => reject(new Error('gateway did not close both sockets')), 1500)
+        const timeout = setTimeout(
+          () => reject(new Error('gateway did not close both sockets')),
+          1500,
+        )
         socket.once('close', () => {
           clearTimeout(timeout)
           resolve()
