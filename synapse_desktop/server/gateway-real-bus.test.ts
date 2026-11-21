@@ -210,7 +210,82 @@ describe('authenticated gateway to real Node bus', () => {
       session: 'fixture',
       data: { type: 'output', data: 'hello' },
     })
-    socket.send(
+    // Simulate closing the browser tab: the host-owned terminal must remain.
+    const disconnected = new Promise<void>((resolve) => socket.once('close', () => resolve()))
+    socket.close()
+    await disconnected
+    expect(killed).toBe(false)
+
+    // A new browser connection uses the same authenticated session and must
+    // re-attach to the existing terminal, receiving its saved screen snapshot.
+    const returned = new WebSocket(`ws://127.0.0.1:${gatewayPort}${BUS_PATH}`, {
+      origin: ORIGIN,
+      headers: { Cookie: sessionCookie(issued.token).split(';')[0] ?? '' },
+    })
+    clients.push(returned)
+    const returnedQueue: unknown[] = []
+    const returnedWaiters: Array<(value: unknown) => void> = []
+    returned.on('message', (data) => {
+      const message: unknown = JSON.parse(String(data))
+      const waiter = returnedWaiters.shift()
+      if (waiter) waiter(message)
+      else returnedQueue.push(message)
+    })
+    const nextReturned = () =>
+      new Promise<unknown>((resolve, reject) => {
+        const value = returnedQueue.shift()
+        if (value !== undefined) return resolve(value)
+        const timeout = setTimeout(() => reject(new Error('reconnected bus timeout')), 5000)
+        returnedWaiters.push((message) => {
+          clearTimeout(timeout)
+          resolve(message)
+        })
+      })
+    await new Promise<void>((resolve, reject) => {
+      returned.once('open', () => resolve())
+      returned.once('error', reject)
+    })
+    expect(await nextReturned()).toMatchObject({ kind: 'hello', capabilities: { host: 'node' } })
+    returned.send(
+      JSON.stringify({
+        kind: 'request',
+        id: 'reconnect',
+        name: 'terminal.attach',
+        params: { session: 'fixture', cols: 80, rows: 24 },
+      }),
+    )
+    // The snapshot can arrive before or after the attachment reply.
+    const resumed = [await nextReturned(), await nextReturned()]
+    expect(resumed).toContainEqual(
+      expect.objectContaining({
+        kind: 'reply',
+        id: 'reconnect',
+        result: expect.objectContaining({ session: 'fixture' }),
+      }),
+    )
+    expect(resumed).toContainEqual(
+      expect.objectContaining({
+        kind: 'stream',
+        session: 'fixture',
+        data: expect.objectContaining({
+          type: 'snapshot',
+          data: expect.stringContaining('hello'),
+        }),
+      }),
+    )
+    returned.send(
+      JSON.stringify({
+        kind: 'stream',
+        session: 'fixture',
+        data: { type: 'input', data: 'again' },
+      }),
+    )
+    expect(await nextReturned()).toMatchObject({
+      kind: 'stream',
+      session: 'fixture',
+      data: { type: 'output', data: 'again' },
+    })
+    returned.send(
       JSON.stringify({
         kind: 'request',
         id: 'r3',
@@ -218,7 +293,7 @@ describe('authenticated gateway to real Node bus', () => {
         params: { session: 'fixture' },
       }),
     )
-    expect(await next()).toMatchObject({ kind: 'reply', id: 'r3', result: null })
+    expect(await nextReturned()).toMatchObject({ kind: 'reply', id: 'r3', result: null })
     expect(killed).toBe(true)
   })
 })
