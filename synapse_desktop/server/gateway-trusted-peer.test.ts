@@ -23,6 +23,15 @@ describe('trusted proxy rate limit peer resolution', () => {
     expect(key(request('127.0.0.1'))).toBeNull()
   })
 
+  it('matches IPv4 proxy addresses delivered as IPv6-mapped TCP peers', () => {
+    const key = createTrustedPeerKey(['172.18.0.2'])
+    expect(key(request('::ffff:172.18.0.2', '198.51.100.19'))).toBe('198.51.100.19')
+    expect(key(request('::FFFF:172.18.0.2', '198.51.100.21'))).toBe('198.51.100.21')
+    const reverse = createTrustedPeerKey(['::ffff:172.18.0.2'])
+    expect(reverse(request('172.18.0.2', '198.51.100.20'))).toBe('198.51.100.20')
+    expect(key(request('::ffff:198.51.100.7', '203.0.113.45'))).toBe('198.51.100.7')
+  })
+
   it('rejects invalid trusted proxy configuration', () => {
     expect(() => createTrustedPeerKey(['not-an-ip'])).toThrow()
   })
