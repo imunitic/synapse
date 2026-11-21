@@ -154,6 +154,15 @@ The foundation now includes a minimal login page served from **three fixed publi
 - Regression coverage checks that the three login assets are available unauthenticated while `/` and application scripts remain denied.
 - **Not a deployed PWA:** no listener, real Vite manifest loader, service worker or public reverse proxy has been enabled. Login usability still requires a real browser/CSP integration test before deployment.
 
+## Production Vite asset allowlist (2026-11-21)
+
+The detached `server/gateway-vite-assets.ts` loader accepts an operator-supplied Vite `dist` directory, parses the generated `.vite/manifest.json` (enabled through `vite.config.ts`), and constructs a bounded in-memory `ReadonlyMap<string, ProtectedAsset>`. It never resolves HTTP request URLs to filesystem paths.
+
+- Only `/` from the built `index.html` and paths explicitly listed in Vite's manifest under `assets/` are included. The manifest itself, source maps, undeclared files, encoded paths and dot-segments are not served.
+- Asset types, file and aggregate byte budgets, asset count and symlink containment are validated before the map is returned. Invalid/incomplete builds fail closed.
+- Unit tests cover exact asset selection, malicious paths, malformed manifests, symlinks escaping the build directory and oversize files.
+- The loader has **not** been wired to a live operator configuration, gateway listener, container or reverse proxy. The existing authenticated frontend handler takes this map as an input; deploy-time asset lifecycle and browser/PWA validation remain outstanding.
+
 ## Host and deployment constraints
 
 - The new remote mode must continue to fail closed until these protections are implemented and tested.
