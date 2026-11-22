@@ -128,7 +128,7 @@ describe.skipIf(process.platform === 'win32')('authenticated gateway to real Nod
     )).toBe(true)
     connected.send(JSON.stringify({
       kind: 'stream', session: 'gateway-shell',
-      data: { type: 'input', data: "printf 'SYNAPSE_GATEWAY_REAL_PTY_OK\\n'\\n" },
+      data: { type: 'input', data: "printf 'SYNAPSE_GATEWAY_REAL_PTY_OK\\n'\n" },
     }))
     await expect.poll(() => JSON.stringify(messages)).toContain('SYNAPSE_GATEWAY_REAL_PTY_OK')
     sessions.close('gateway-shell', 'local')
