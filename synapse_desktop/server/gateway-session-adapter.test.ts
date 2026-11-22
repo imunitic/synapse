@@ -120,4 +120,68 @@ describe('gateway session integration', () => {
     await closed
     expect(await connect(gatewayPort, sessionCookie(issued.token).split(';')[0])).toBe(401)
   })
+  it('routes two authenticated users to separate private buses and denies cross-user cookies', async () => {
+    const sessions = createGatewaySessions()
+    const alice = sessions.issue('alice')
+    const bob = sessions.issue('bob')
+    const received = new Map<string, string[]>()
+    const hosts = new Map<string, {
+      userId: string
+      backend: string
+      backendToken: string
+      backendOrigin: string
+    }>()
+
+    for (const userId of ['alice', 'bob']) {
+      const backend = createServer()
+      const sockets = new WebSocketServer({ noServer: true })
+      received.set(userId, [])
+      backend.on('upgrade', (request, socket, head) => {
+        if (
+          request.url !== BUS_PATH ||
+          request.headers[TOKEN_HEADER] !== TOKEN ||
+          request.headers.origin !== INTERNAL_ORIGIN
+        ) {
+          socket.destroy()
+          return
+        }
+        sockets.handleUpgrade(request, socket, head, (ws) => {
+          openSockets.push(ws)
+          ws.on('message', (data) => {
+            received.get(userId)?.push(String(data))
+            ws.send(userId)
+          })
+        })
+      })
+      const port = await listen(backend)
+      hosts.set(userId, {
+        userId,
+        backend: `http://127.0.0.1:${port}`,
+        backendToken: TOKEN,
+        backendOrigin: INTERNAL_ORIGIN,
+      })
+    }
+
+    const gateway = createServer()
+    const gatewayPort = await listen(gateway)
+    attachSessionGateway(gateway, {
+      publicHost: `127.0.0.1:${gatewayPort}`,
+      publicOrigin: ORIGIN,
+      hosts,
+      sessions,
+      recheckMs: 20,
+    })
+
+    for (const [issued, expected] of [[alice, 'alice'], [bob, 'bob']] as const) {
+      const socket = await connect(gatewayPort, sessionCookie(issued.token).split(';')[0])
+      if (typeof socket === 'number') throw new Error(`${expected} connection refused`)
+      const reply = new Promise<string>((resolve) => socket.once('message', (data) => resolve(String(data))))
+      socket.send(`from-${expected}`)
+      expect(await reply).toBe(expected)
+    }
+    expect(received.get('alice')).toEqual(['from-alice'])
+    expect(received.get('bob')).toEqual(['from-bob'])
+    expect(await connect(gatewayPort, 'synapse_session=invalid')).toBe(401)
+  })
+
 })
