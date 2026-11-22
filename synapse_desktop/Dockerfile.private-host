@@ -10,8 +10,8 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY synapse_desktop/server ./server
 COPY synapse_desktop/shared ./shared
 
-ENV NODE_ENV=production \\
-    SYNAPSE_DESKTOP_HOST_MODE=local
+ENV NODE_ENV=production
+ENV SYNAPSE_DESKTOP_HOST_MODE=local
 
 # No EXPOSE and no published ports: the gateway and per-user isolation are not
 # yet wired into a deployable stack. Never bake backend tokens into this image.
