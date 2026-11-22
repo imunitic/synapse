@@ -10,7 +10,9 @@ export function privateBackendOrigin(
   const invalidProtocol = url.protocol !== 'http:' && url.protocol !== 'https:'
   const invalidOrigin = url.origin !== value
   if (invalidProtocol || invalidOrigin) {
-    throw new Error('SYNAPSE_DESKTOP_PRIVATE_BACKEND_ORIGIN must be an exact HTTP(S) origin')
+    throw new Error(
+      'SYNAPSE_DESKTOP_PRIVATE_BACKEND_ORIGIN must be an exact HTTP(S) origin',
+    )
   }
   return [value]
 }
