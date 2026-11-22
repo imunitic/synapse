@@ -17,6 +17,7 @@ import { createRunStarter } from './runs.ts'
 import { defaultPlan, sessionsRoot, spawnPty } from './terminal.ts'
 import { createSessions } from './terminal-sessions.ts'
 import { requireSupportedHostMode } from './host-mode.ts'
+import { privateBackendOrigin } from './private-backend-origin.ts'
 
 requireSupportedHostMode(process.env)
 
@@ -27,7 +28,11 @@ const token = suppliedToken ? suppliedToken : randomBytes(24).toString('hex')
 
 const policy = {
   allowedHosts: new Set([`127.0.0.1:${SERVER_PORT}`, `localhost:${SERVER_PORT}`]),
-  allowedOrigins: new Set([`http://127.0.0.1:${WEB_PORT}`, `http://localhost:${WEB_PORT}`]),
+  allowedOrigins: new Set([
+    `http://127.0.0.1:${WEB_PORT}`,
+    `http://localhost:${WEB_PORT}`,
+    ...privateBackendOrigin(process.env),
+  ]),
   token,
 }
 
