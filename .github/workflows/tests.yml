@@ -180,6 +180,21 @@ jobs:
       - name: Desktop app checks
         run: just desktop-check
 
+      # Preserve Prettier's actual output when the desktop check fails, so a
+      # formatting-only failure can be repaired without guessing its layout.
+      - name: Generate formatter output for failed desktop check
+        if: failure()
+        working-directory: synapse_desktop
+        run: npx prettier --write server/gateway-real-pty.test.ts
+
+      - name: Upload formatter output
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-prettier-output
+          path: synapse_desktop/server/gateway-real-pty.test.ts
+          retention-days: 1
+
   # Detached, loopback-only private PWA gateway browser smoke. No VPS, agent,
   # private production credentials or remote host mode involved.
   gateway-browser:
