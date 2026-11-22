@@ -170,7 +170,11 @@ describe('gateway session integration', () => {
       recheckMs: 20,
     })
 
-    for (const [issued, expected] of [[alice, 'alice'], [bob, 'bob']] as const) {
+    const users = [
+      [alice, 'alice'],
+      [bob, 'bob'],
+    ] as const
+    for (const [issued, expected] of users) {
       const socket = await connect(gatewayPort, sessionCookie(issued.token).split(';')[0])
       if (typeof socket === 'number') throw new Error(`${expected} connection refused`)
       const reply = new Promise<string>((resolve) =>
