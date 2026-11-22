@@ -1,6 +1,6 @@
 // Real OS PTY smoke test. No AI agent, gateway listener, or remote mode.
 // The shell runs a fixed command in a temporary directory and is killed on cleanup.
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -56,7 +56,6 @@ describe.skipIf(process.platform === 'win32')('real local PTY', () => {
     const home = await mkdtemp(join(tmpdir(), 'synapse-pty-reconnect-'))
     directories.push(home)
     const configFile = join(home, 'config.json')
-    await writeFile(configFile, JSON.stringify({ workDir: home, definitionPaths: [] }))
     const sessions = createSessions({
       environment: { env: { PATH: '/usr/bin:/bin', HOME: home, SHELL: '/bin/sh' }, home },
       configFile,
