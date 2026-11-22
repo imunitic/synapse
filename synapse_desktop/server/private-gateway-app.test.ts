@@ -46,4 +46,33 @@ describe('private gateway composition', () => {
     sessions.revoke(issued.token)
     expect((await fetch(url, { headers: { cookie } })).status).toBe(401)
   })
+  it('serves protected frontend assets only with an authenticated cookie', async () => {
+    const sessions = createGatewaySessions()
+    const issued = sessions.issue('alice')
+    const gateway = createPrivateGatewayApp({
+      publicHost: 'synapse.test',
+      publicOrigin: 'https://synapse.test',
+      hosts: new Map(),
+      sessions,
+      assets: new Map([
+        ['/', { content: '<html>private app</html>', contentType: 'text/html' }],
+        ['/assets/app.js', { content: 'console.log(1)', contentType: 'text/javascript' }],
+      ]),
+    })
+    servers.push(gateway)
+    await new Promise<void>((resolve) => gateway.listen(0, '127.0.0.1', resolve))
+    const address = gateway.address()
+    if (!address || typeof address === 'string') throw new Error('invalid address')
+    const url = `http://127.0.0.1:${address.port}/assets/app.js`
+    const headers = { host: 'synapse.test' }
+    expect((await fetch(url, { headers })).status).toBe(401)
+    const cookie = sessionCookie(issued.token).split(';')[0]!
+    const response = await fetch(url, { headers: { ...headers, cookie } })
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe('console.log(1)')
+    expect((await fetch(url, { headers: { ...headers, cookie, host: 'wrong.test' } })).status).toBe(403)
+    expect((await fetch(`http://127.0.0.1:${address.port}/auth/session`, {
+      headers,
+    })).status).toBe(404)
+  })
 })
