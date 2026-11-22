@@ -7,8 +7,9 @@ export function privateBackendOrigin(
   const value = env.SYNAPSE_DESKTOP_PRIVATE_BACKEND_ORIGIN
   if (value === undefined) return []
   const url = new URL(value)
+  const invalidProtocol = url.protocol !== 'http:' && url.protocol !== 'https:'
   if (
-    (url.protocol !== 'http:' && url.protocol !== 'https:') ||
+    invalidProtocol ||
     url.origin !== value ||
     url.username ||
     url.password ||
