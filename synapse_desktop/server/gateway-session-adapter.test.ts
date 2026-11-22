@@ -173,7 +173,9 @@ describe('gateway session integration', () => {
     for (const [issued, expected] of [[alice, 'alice'], [bob, 'bob']] as const) {
       const socket = await connect(gatewayPort, sessionCookie(issued.token).split(';')[0])
       if (typeof socket === 'number') throw new Error(`${expected} connection refused`)
-      const reply = new Promise<string>((resolve) => socket.once('message', (data) => resolve(String(data))))
+      const reply = new Promise<string>((resolve) =>
+        socket.once('message', (data) => resolve(String(data))),
+      )
       socket.send(`from-${expected}`)
       expect(await reply).toBe(expected)
     }
