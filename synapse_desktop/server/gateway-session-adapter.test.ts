@@ -95,9 +95,23 @@ describe('gateway session integration', () => {
     connected.send(JSON.stringify({ kind: 'request', id: 'test' }))
     expect(await echoed).toBe(JSON.stringify({ kind: 'request', id: 'test' }))
 
+    // A browser reload closes the old socket; the same authenticated session
+    // must be able to reconnect to its original private backend.
+    const disconnected = new Promise<void>((resolve) => connected.once('close', () => resolve()))
+    connected.close()
+    await disconnected
+    const reconnected = await connect(gatewayPort, sessionCookie(issued.token).split(';')[0])
+    if (typeof reconnected === 'number') throw new Error('valid reconnect refused')
+    const afterReload = new Promise<string>((resolve) => {
+      reconnected.once('message', (data) => resolve(String(data)))
+    })
+    const reloadMessage = JSON.stringify({ kind: 'request', id: 'after-reload' })
+    reconnected.send(reloadMessage)
+    expect(await afterReload).toBe(reloadMessage)
+
     const closed = new Promise<void>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('revoked session stayed connected')), 1000)
-      connected.once('close', () => {
+      reconnected.once('close', () => {
         clearTimeout(timeout)
         resolve()
       })
