@@ -23,7 +23,7 @@ describe('private gateway HTTP', () => {
     expect((await fetch(url)).status).toBe(401)
     expect((await fetch(url.replace('/api/session', '/'))).status).toBe(404)
     const issued = sessions.issue('alice')
-    const cookie = sessionCookie(issued.token).split(';')[0]
+    const cookie = sessionCookie(issued.token).split(';')[0]!
     const authenticated = await fetch(url, { headers: { cookie } })
     expect(authenticated.status).toBe(200)
     expect(await authenticated.json()).toEqual({ authenticated: true })
