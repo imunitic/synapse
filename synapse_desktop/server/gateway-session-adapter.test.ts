@@ -125,12 +125,10 @@ describe('gateway session integration', () => {
     const alice = sessions.issue('alice')
     const bob = sessions.issue('bob')
     const received = new Map<string, string[]>()
-    const hosts = new Map<string, {
-      userId: string
-      backend: string
-      backendToken: string
-      backendOrigin: string
-    }>()
+    const hosts = new Map<
+      string,
+      { userId: string; backend: string; backendToken: string; backendOrigin: string }
+    >()
 
     for (const userId of ['alice', 'bob']) {
       const backend = createServer()
@@ -183,5 +181,4 @@ describe('gateway session integration', () => {
     expect(received.get('bob')).toEqual(['from-bob'])
     expect(await connect(gatewayPort, 'synapse_session=invalid')).toBe(401)
   })
-
 })
