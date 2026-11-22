@@ -23,6 +23,11 @@ export function createPrivateGatewayApp(options: PrivateGatewayAppOptions): Serv
       sessionHandler(request, response)
       return
     }
+    if (request.url?.startsWith('/auth/')) {
+      response.writeHead(404, { 'cache-control': 'no-store' })
+      response.end()
+      return
+    }
     if (frontendHandler) {
       frontendHandler(request, response)
       return
