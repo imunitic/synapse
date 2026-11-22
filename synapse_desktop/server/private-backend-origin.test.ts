@@ -7,9 +7,9 @@ describe('private Node backend origin', () => {
   })
 
   it('permits one explicit gateway-generated Origin', () => {
-    expect(
-      privateBackendOrigin({ SYNAPSE_DESKTOP_PRIVATE_BACKEND_ORIGIN: 'http://gateway.internal' }),
-    ).toEqual(['http://gateway.internal'])
+    const origin = 'http://gateway.internal'
+    const env = { SYNAPSE_DESKTOP_PRIVATE_BACKEND_ORIGIN: origin }
+    expect(privateBackendOrigin(env)).toEqual([origin])
   })
 
   it.each([
@@ -20,8 +20,7 @@ describe('private Node backend origin', () => {
     'http://gateway.internal/',
     'not-an-origin',
   ])('rejects a non-origin value: %s', (value) => {
-    expect(() =>
-      privateBackendOrigin({ SYNAPSE_DESKTOP_PRIVATE_BACKEND_ORIGIN: value }),
-    ).toThrow()
+    const env = { SYNAPSE_DESKTOP_PRIVATE_BACKEND_ORIGIN: value }
+    expect(() => privateBackendOrigin(env)).toThrow()
   })
 })
