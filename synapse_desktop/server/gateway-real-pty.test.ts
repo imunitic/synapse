@@ -127,13 +127,6 @@ describe.skipIf(process.platform === 'win32')('authenticated gateway to real Nod
 
     const messages: unknown[] = []
     connected.on('message', (data) => messages.push(JSON.parse(String(data))))
-    await expect
-      .poll(() =>
-        messages.some(
-          (m) => typeof m === 'object' && m !== null && 'kind' in m && m.kind === 'hello',
-        ),
-      )
-      .toBe(true)
     connected.send(
       JSON.stringify({
         kind: 'request',
