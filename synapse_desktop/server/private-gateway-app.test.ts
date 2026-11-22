@@ -30,7 +30,7 @@ describe('private gateway composition', () => {
     const address = gateway.address()
     if (!address || typeof address === 'string') throw new Error('invalid address')
     const port = address.port
-    const cookie = sessionCookie(issued.token).split(';')[0]
+    const cookie = sessionCookie(issued.token).split(';')[0]!
     const url = `http://127.0.0.1:${port}/api/session`
     expect((await fetch(url)).status).toBe(401)
     expect((await fetch(url, { headers: { cookie } })).status).toBe(200)
