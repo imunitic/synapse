@@ -118,6 +118,19 @@ describe.skipIf(process.platform === 'win32')('real local PTY', () => {
     expect(() => sessions.attach(sessionId, 'other', second, { cols: 80, rows: 24 })).toThrow(
       'the session belongs to another user',
     )
+    expect(() => sessions.input(sessionId, 'other', second, 'exit 1\\n')).toThrow(
+      'the session belongs to another user',
+    )
+    expect(() => sessions.resize(sessionId, 'other', second, 20, 10)).toThrow(
+      'the session belongs to another user',
+    )
+    expect(() => sessions.close(sessionId, 'other')).toThrow(
+      'the session belongs to another user',
+    )
+    // Denied operations must not kill or corrupt the owner's live PTY.
+    const stillAlive = 'SYNAPSE_OWNER_STILL_ACTIVE'
+    sessions.input(sessionId, 'owner', second, `printf '%s\\n' '${stillAlive}'\n`)
+    await expect.poll(() => continued.join('')).toContain(stillAlive)
     sessions.close(sessionId, 'owner')
   }, 15_000)
 })
