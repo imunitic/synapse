@@ -33,9 +33,11 @@ async function listen(server: Server): Promise<number> {
 afterEach(async () => {
   for (const socket of sockets.splice(0)) socket.terminate()
   for (const process of processes.splice(0)) process.kill()
-  await Promise.all(servers.splice(0).map((server) =>
-    new Promise<void>((resolve) => server.close(() => resolve())),
-  ))
+  await Promise.all(
+    servers
+      .splice(0)
+      .map((server) => new Promise<void>((resolve) => server.close(() => resolve()))),
+  )
   await Promise.all(directories.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
 })
 
@@ -71,7 +73,9 @@ describe.skipIf(process.platform === 'win32')('authenticated gateway to real Nod
         configFile,
         runs: {
           start: () => Promise.reject(new RunNotStarted('not used')),
-          stop: () => { throw new NotStartedHere('not used') },
+          stop: () => {
+            throw new NotStartedHere('not used')
+          },
         },
         agent: () => Promise.reject(new Error('not used')),
         noteSession: () => Promise.reject(new Error('not used')),
@@ -89,47 +93,83 @@ describe.skipIf(process.platform === 'win32')('authenticated gateway to real Nod
     attachSessionGateway(gateway, {
       publicHost: `127.0.0.1:${gatewayPort}`,
       publicOrigin: ORIGIN,
-      hosts: new Map([['alice', {
-        userId: 'alice',
-        backend: `http://127.0.0.1:${backendPort}`,
-        backendToken: TOKEN,
-        backendOrigin: INTERNAL_ORIGIN,
-      }]]),
+      hosts: new Map([
+        [
+          'alice',
+          {
+            userId: 'alice',
+            backend: `http://127.0.0.1:${backendPort}`,
+            backendToken: TOKEN,
+            backendOrigin: INTERNAL_ORIGIN,
+          },
+        ],
+      ]),
       sessions: auth,
       recheckMs: 20,
     })
 
-    const open = (cookie?: string) => new Promise<WebSocket | number>((resolve) => {
-      const socket = new WebSocket(`ws://127.0.0.1:${gatewayPort}${BUS_PATH}`, {
-        origin: ORIGIN,
-        headers: cookie ? { cookie } : {},
+    const open = (cookie?: string) =>
+      new Promise<WebSocket | number>((resolve) => {
+        const socket = new WebSocket(`ws://127.0.0.1:${gatewayPort}${BUS_PATH}`, {
+          origin: ORIGIN,
+          headers: cookie ? { cookie } : {},
+        })
+        sockets.push(socket)
+        socket.once('open', () => resolve(socket))
+        socket.once('unexpected-response', (_request, response) =>
+          resolve(response.statusCode ?? 0),
+        )
+        socket.once('error', () => resolve(0))
       })
-      sockets.push(socket)
-      socket.once('open', () => resolve(socket))
-      socket.once('unexpected-response', (_request, response) => resolve(response.statusCode ?? 0))
-      socket.once('error', () => resolve(0))
-    })
     expect(await open()).toBe(401)
     const connected = await open(sessionCookie(issued.token).split(';')[0])
     if (typeof connected === 'number') throw new Error('authenticated connection refused')
 
     const messages: unknown[] = []
     connected.on('message', (data) => messages.push(JSON.parse(String(data))))
-    await expect.poll(() => messages.some((m) =>
-      typeof m === 'object' && m !== null && 'kind' in m && m.kind === 'hello',
-    )).toBe(true)
-    connected.send(JSON.stringify({
-      kind: 'request', id: 'start', name: 'terminal.start',
-      params: { session: 'gateway-shell', title: 'Shell', kind: 'Shell', cwd: home, cols: 80, rows: 24 },
-    }))
-    await expect.poll(() => messages.some((m) =>
-      typeof m === 'object' && m !== null && 'kind' in m && m.kind === 'reply' &&
-      'id' in m && m.id === 'start' && 'result' in m,
-    )).toBe(true)
-    connected.send(JSON.stringify({
-      kind: 'stream', session: 'gateway-shell',
-      data: { type: 'input', data: "printf 'SYNAPSE_GATEWAY_REAL_PTY_OK\\n'\n" },
-    }))
+    await expect
+      .poll(() =>
+        messages.some(
+          (m) => typeof m === 'object' && m !== null && 'kind' in m && m.kind === 'hello',
+        ),
+      )
+      .toBe(true)
+    connected.send(
+      JSON.stringify({
+        kind: 'request',
+        id: 'start',
+        name: 'terminal.start',
+        params: {
+          session: 'gateway-shell',
+          title: 'Shell',
+          kind: 'Shell',
+          cwd: home,
+          cols: 80,
+          rows: 24,
+        },
+      }),
+    )
+    await expect
+      .poll(() =>
+        messages.some(
+          (m) =>
+            typeof m === 'object' &&
+            m !== null &&
+            'kind' in m &&
+            m.kind === 'reply' &&
+            'id' in m &&
+            m.id === 'start' &&
+            'result' in m,
+        ),
+      )
+      .toBe(true)
+    connected.send(
+      JSON.stringify({
+        kind: 'stream',
+        session: 'gateway-shell',
+        data: { type: 'input', data: "printf 'SYNAPSE_GATEWAY_REAL_PTY_OK\\n'\n" },
+      }),
+    )
     await expect.poll(() => JSON.stringify(messages)).toContain('SYNAPSE_GATEWAY_REAL_PTY_OK')
     sessions.close('gateway-shell', 'local')
   }, 20_000)
