@@ -1,4 +1,4 @@
-import { createServer, type Server } from 'node:http'
+import type { Server } from 'node:http'
 import { afterEach, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { BUS_PATH } from '../shared/constants.ts'
