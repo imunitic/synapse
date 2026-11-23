@@ -185,14 +185,14 @@ jobs:
       - name: Generate formatter output for failed desktop check
         if: failure()
         working-directory: synapse_desktop
-        run: npx prettier --write server/gateway-real-pty.test.ts
+        run: npx prettier --write server/private-gateway-server.test.ts
 
       - name: Upload formatter output
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: desktop-prettier-output
-          path: synapse_desktop/server/gateway-real-pty.test.ts
+          path: synapse_desktop/server/private-gateway-server.test.ts
           retention-days: 1
 
   # Detached, loopback-only private PWA gateway browser smoke. No VPS, agent,
