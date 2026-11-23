@@ -77,8 +77,12 @@ describe('private gateway executable', () => {
     })
     children.push(child)
     let output = ''
-    child.stdout?.on('data', (chunk: Buffer) => { output += chunk.toString() })
-    child.stderr?.on('data', (chunk: Buffer) => { output += chunk.toString() })
+    child.stdout?.on('data', (chunk: Buffer) => {
+      output += chunk.toString()
+    })
+    child.stderr?.on('data', (chunk: Buffer) => {
+      output += chunk.toString()
+    })
     let lastStatus = 0
     const url = `http://127.0.0.1:${port}`
     let ready = false
