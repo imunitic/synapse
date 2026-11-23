@@ -1122,9 +1122,12 @@ div.activity-row {
 }
 
 /* xterm.css gives its viewport a black background, and the viewport covers the padding of the terminal
-   element too, which shows the host's colour where the text is not. */
+   element too, which shows the host's colour where the text is not. It also makes the viewport scroll,
+   which xterm 6 does not use (it scrolls and draws its own scrollbar), but a webview that shows classic
+   scrollbars, as macOS does with a mouse attached, draws an empty pale track down the right edge. */
 .terminal-host .xterm .xterm-viewport {
   background-color: transparent;
+  overflow: hidden;
 }
 
 .terminal-host[data-phase='form'] {

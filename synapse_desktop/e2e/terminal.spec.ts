@@ -363,3 +363,18 @@ test('the terminal shows every row and column it has: none is cut off by its box
     })
   await expect.poll(edges).toBeGreaterThanOrEqual(0)
 })
+
+test('the terminal draws no scrollbar of the browser at its edge, only its own', async ({
+  page,
+}) => {
+  await openTerminals(page)
+  await launchCard(page, 'Shell').getByRole('button', { name: 'New shell' }).click()
+  await expect(screen(page).locator('.xterm-screen')).toBeVisible()
+  // xterm.css makes its viewport scroll, which xterm 6 does not use, and a webview with classic
+  // scrollbars draws an empty track down the right edge. Headless Chromium hides scrollbars, so
+  // the style is what is looked at.
+  const viewport = screen(page).locator('.xterm-viewport')
+  await expect(viewport).toHaveCSS('overflow-y', 'hidden')
+  // Scrolling still works, through xterm's own scrollbar.
+  await expect(screen(page).locator('.xterm-scrollable-element')).toHaveCount(1)
+})
