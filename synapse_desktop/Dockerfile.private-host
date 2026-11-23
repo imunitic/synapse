@@ -13,6 +13,12 @@ COPY synapse_desktop/shared ./shared
 ENV NODE_ENV=production
 ENV SYNAPSE_DESKTOP_HOST_MODE=local
 
+# The private host must not execute agent commands or PTYs as root. Keep
+# writable user state outside the image; mount an isolated workspace/home for
+# each user when the private staging topology is implemented.
+RUN mkdir -p /home/node/.config && chown -R node:node /home/node
+USER node
+
 # No EXPOSE and no published ports: the gateway and per-user isolation are not
 # yet wired into a deployable stack. Never bake backend tokens into this image.
 CMD ["node", "server/index.ts"]
