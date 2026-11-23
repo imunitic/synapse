@@ -54,19 +54,19 @@ describe('private gateway executable', () => {
         publicOrigin: origin,
         buildDirectory: dist,
         accounts: [
-        {
-          username: 'fixture',
-          userId: 'fixture',
-          passwordHash: await hashGatewayPassword('fixture-password-long'),
-        },
+          {
+            username: 'fixture',
+            userId: 'fixture',
+            passwordHash: await hashGatewayPassword('fixture-password-long'),
+          },
         ],
         hosts: [
-        {
-          userId: 'fixture',
-          backend: `http://127.0.0.1:${backendPort}`,
-          backendToken: 'fixture-backend-token',
-          backendOrigin: 'http://gateway.internal',
-        },
+          {
+            userId: 'fixture',
+            backend: `http://127.0.0.1:${backendPort}`,
+            backendToken: 'fixture-backend-token',
+            backendOrigin: 'http://gateway.internal',
+          },
         ],
       }),
     )
