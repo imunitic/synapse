@@ -261,6 +261,13 @@ const STUB = [
   `    printf '%s\\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"edited"}]}}' >> "$f" ;;`,
   '  esac',
   'fi',
+  // Resumed by its id, it carries on the session file of that id, in whichever project it is.
+  'rid=""; prev=""',
+  'for a in "$@"; do [ "$prev" = "--resume" ] && rid="$a"; prev="$a"; done',
+  'if [ "$name" = claude ] && [ -n "$rid" ] && [ -z "$sid" ]; then',
+  '  f=$(ls "$HOME"/.claude/projects/*/"$rid".jsonl 2>/dev/null | head -n 1)',
+  `  [ -n "$f" ] && printf '{"type":"user","cwd":"%s","message":{"role":"user","content":"Carry on"}}\\n' "$(pwd)" >> "$f"`,
+  'fi',
   'if [ "$name" = codex ]; then',
   '  d="${CODEX_HOME:-$HOME/.codex}/sessions/$(date +%Y/%m/%d)"; mkdir -p "$d"; f="$d/rollout-stub-$$.jsonl"',
   `  printf '{"type":"session_meta","payload":{"cwd":"%s"}}\\n' "$(pwd)" > "$f"`,

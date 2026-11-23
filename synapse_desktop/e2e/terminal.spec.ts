@@ -186,18 +186,28 @@ test('a codex started in the shell has its conversation followed', async ({ page
   await expect(conversation.locator('.activity-row')).toHaveCount(3)
 })
 
-test('a run that continues a session is not followed, and its arguments are untouched', async ({
+test('a run that resumes a session by its id follows that session, and its arguments are untouched', async ({
   page,
 }) => {
-  await openTerminals(page, world().root)
-  await launchCard(page, 'Shell').getByRole('button', { name: 'New shell' }).click()
-  await type(page, 'claude --resume')
-  await expect(screen(page)).toContainText('STUB claude args: --add-dir')
-  await expect(screen(page)).toContainText('--resume')
-  await expect(screen(page)).not.toContainText('--session-id')
-  await expect(await showConversation(page)).toContainText(
-    'No harness conversation is followed in this session.',
+  const id = '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0'
+  const project = join(world().home, '.claude', 'projects', '-elsewhere')
+  mkdirSync(project, { recursive: true })
+  writeFileSync(
+    join(project, `${id}.jsonl`),
+    '{"type":"user","message":{"role":"user","content":"Earlier work"}}\n',
   )
+  try {
+    await openTerminals(page, world().root)
+    await launchCard(page, 'Shell').getByRole('button', { name: 'New shell' }).click()
+    await type(page, `claude --resume ${id}`)
+    await expect(screen(page)).toContainText(`--resume ${id}`)
+    await expect(screen(page)).not.toContainText('--session-id')
+    const conversation = await showConversation(page)
+    await expect(conversation).toContainText('Earlier work')
+    await expect(conversation).toContainText('Carry on')
+  } finally {
+    rmSync(project, { recursive: true, force: true })
+  }
 })
 
 test('a harness can be started directly in a tab of its own', async ({ page }) => {

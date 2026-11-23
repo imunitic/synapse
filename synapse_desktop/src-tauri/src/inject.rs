@@ -441,9 +441,11 @@ fn quoted(text: &str) -> String {
 const JSON_ESCAPE: &str = r#"sed 's/\\/\\\\/g; s/"/\\"/g'"#;
 
 /// What a wrapper writes when it starts a session whose conversation is followed: one file in the
-/// folder SYNAPSE_SESSIONS_DIR names, which the app reads. Claude is given a session id of the
-/// wrapper's choosing, so that the file is known before it exists; a run that continues another
-/// session is not followed.
+/// folder SYNAPSE_SESSIONS_DIR names, which the app reads. A new session is given an id of the
+/// wrapper's choosing, so that the file is known before it exists; so is a resumed one that is forked,
+/// which Claude allows. A session resumed by its id keeps that id, and its file is the one followed. A
+/// session resumed without one (`--continue`, the picker, a name) is written down with no id, and the
+/// app finds its file by where and when it was written.
 fn claude_tracking() -> String {
     r#"track=""
 if [ -n "$SYNAPSE_SESSIONS_DIR" ]; then
@@ -452,17 +454,51 @@ if [ -n "$SYNAPSE_SESSIONS_DIR" ]; then
     mcp|plugin|plugins|config|doctor|update|install|setup-token|migrate-installer|auth|agents|api-key|help) skip=1 ;;
   esac
   case " $* " in
-    *" -p "*|*" --print"*|*" -r "*|*" --resume"*|*" -c "*|*" --continue"*|*" --session-id"*|*" --version"*|*" -v "*|*" --help"*|*" -h "*) skip=1 ;;
+    *" -p "*|*" --print"*|*" --version"*|*" -v "*|*" --help"*|*" -h "*) skip=1 ;;
   esac
+  resumed=""
+  named=""
+  given=""
+  fork=""
+  after=""
+  for arg in "$@"; do
+    case "$after" in
+      resume) case "$arg" in -*) ;; *) named=$arg ;; esac ;;
+      id) given=$arg ;;
+    esac
+    after=""
+    case "$arg" in
+      -r|--resume) resumed=1; after=resume ;;
+      --resume=*) resumed=1; named=${arg#--resume=} ;;
+      -c|--continue|--from-pr|--from-pr=*) resumed=1 ;;
+      --fork-session) fork=1 ;;
+      --session-id) after=id ;;
+      --session-id=*) given=${arg#--session-id=} ;;
+    esac
+  done
   if [ -z "$skip" ]; then
-    id=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null)
-    id=$(printf %s "$id" | tr 'A-Z' 'a-z')
-    if [ -n "$id" ]; then
-      track="--session-id $id"
+    id=""
+    name=""
+    if [ -n "$given" ]; then
+      id=$given
+    elif [ -n "$resumed" ] && [ -z "$fork" ]; then
+      id=$(printf %s "$named" | tr 'A-Z' 'a-z' | grep -Ex '[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}')
+      name=$$
+    else
+      id=$(uuidgen 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null)
+      id=$(printf %s "$id" | tr 'A-Z' 'a-z')
+      [ -n "$id" ] && track="--session-id $id"
+    fi
+    if [ -n "$id" ] || [ -n "$name" ]; then
+      field=""
+      if [ -n "$id" ]; then
+        name=$(printf %s "$id" | tr -c 'A-Za-z0-9-' '_')
+        field=$(printf '"sessionId":"%s",' "$(printf %s "$id" | @JSON_ESCAPE@)")
+      fi
       cwd=$(pwd | @JSON_ESCAPE@)
       cfg=$(printf %s "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" | @JSON_ESCAPE@)
       mkdir -p "$SYNAPSE_SESSIONS_DIR" 2>/dev/null
-      printf '{"harness":"claude","sessionId":"%s","cwd":"%s","configDir":"%s","startedAt":%s000}\n' "$id" "$cwd" "$cfg" "$(date +%s)" > "$SYNAPSE_SESSIONS_DIR/.claude-$id.tmp" && mv "$SYNAPSE_SESSIONS_DIR/.claude-$id.tmp" "$SYNAPSE_SESSIONS_DIR/claude-$id.json"
+      printf '{"harness":"claude",%s"cwd":"%s","configDir":"%s","startedAt":%s000}\n' "$field" "$cwd" "$cfg" "$(date +%s)" > "$SYNAPSE_SESSIONS_DIR/.claude-$name.tmp" && mv "$SYNAPSE_SESSIONS_DIR/.claude-$name.tmp" "$SYNAPSE_SESSIONS_DIR/claude-$name.json"
     fi
   fi
 fi

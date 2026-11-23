@@ -52,8 +52,9 @@ pub enum RegisteredHarness {
 #[serde(rename_all = "camelCase")]
 pub struct Registration {
     pub harness: RegisteredHarness,
-    /// Claude: the id the run was started with, which names its file. OpenCode: the id of the session it
-    /// was started with, which `opencode session export` takes.
+    /// Claude: the id the run was started or resumed with, which names its file; none for a session
+    /// resumed without its id. OpenCode: the id of the session it was started with, which
+    /// `opencode session export` takes.
     pub session_id: Option<String>,
     pub cwd: String,
     /// Where the harness keeps its files: the folder of Claude.
@@ -157,6 +158,66 @@ fn claude_file(registration: &Registration, default_home: &Path) -> Option<PathB
         }
     }
     None
+}
+
+/// How much of the end of a session file is read to see the folder its last lines were written in.
+const TAIL_BYTES: u64 = 256 * 1024;
+
+/// Whether a line near the end of the file was written by a run in `cwd`.
+fn written_in(path: &Path, cwd: &str) -> bool {
+    let Ok(mut file) = fs::File::open(path) else {
+        return false;
+    };
+    let size = file.metadata().map(|m| m.len()).unwrap_or(0);
+    if file
+        .seek(SeekFrom::Start(size.saturating_sub(TAIL_BYTES)))
+        .is_err()
+    {
+        return false;
+    }
+    let mut buffer = Vec::new();
+    let _ = file.take(TAIL_BYTES).read_to_end(&mut buffer);
+    String::from_utf8_lossy(&buffer).lines().rev().any(|line| {
+        serde_json::from_str::<serde_json::Value>(line)
+            .is_ok_and(|value| value["cwd"].as_str() == Some(cwd))
+    })
+}
+
+/// The file of a Claude session resumed without its id (`--continue`, the picker, a name): of the
+/// session files of every project, one written to since the run started, that no other run here has,
+/// and whose last lines were written in the run's folder. The newest of them, when there are more.
+fn resumed_claude_file(
+    registration: &Registration,
+    default_home: &Path,
+    taken: &BTreeSet<PathBuf>,
+) -> Option<PathBuf> {
+    let projects = registration
+        .config_dir
+        .as_ref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| default_home.join(".claude"))
+        .join("projects");
+    let mut found: Vec<(PathBuf, i64)> = Vec::new();
+    for folder in fs::read_dir(projects).into_iter().flatten().flatten() {
+        for entry in fs::read_dir(folder.path()).into_iter().flatten().flatten() {
+            let file = entry.path();
+            if file.extension().is_none_or(|e| e != "jsonl") || taken.contains(&file) {
+                continue;
+            }
+            let Ok(info) = entry.metadata() else {
+                continue;
+            };
+            let modified = info.modified().map(millis).unwrap_or(0);
+            if !info.is_file() || modified < registration.started_at - SLACK_MS {
+                continue;
+            }
+            if written_in(&file, &registration.cwd) {
+                found.push((file, modified));
+            }
+        }
+    }
+    found.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
+    found.into_iter().next().map(|(file, _)| file)
 }
 
 fn first_line(path: &Path) -> String {
@@ -488,10 +549,12 @@ impl FileWatcher {
                     .collect();
                 let follow = &mut state.follows[index];
                 if follow.file.is_none() {
-                    follow.file = if harness == RegisteredHarness::Claude {
+                    follow.file = if harness != RegisteredHarness::Claude {
+                        codex_file(&follow.registration, &self.options.home, &taken)
+                    } else if follow.registration.session_id.is_some() {
                         claude_file(&follow.registration, &self.options.home)
                     } else {
-                        codex_file(&follow.registration, &self.options.home, &taken)
+                        resumed_claude_file(&follow.registration, &self.options.home, &taken)
                     };
                 }
                 let Some(file) = follow.file.clone() else {

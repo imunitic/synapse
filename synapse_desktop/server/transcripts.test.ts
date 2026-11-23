@@ -110,6 +110,43 @@ describe('a Claude session', () => {
   })
 })
 
+describe('a Claude session resumed without its id', () => {
+  const now = Date.now()
+  const registration = { harness: 'claude', cwd: '/work', startedAt: now }
+  const line = (cwd: string, n: number) => JSON.stringify({ cwd, n })
+
+  async function session(id: string, project: string, text: string, mtime = now + 1000) {
+    const file = claudeFile(id, project)
+    await mkdir(join(file, '..'), { recursive: true })
+    await writeFile(file, text)
+    await utimes(file, mtime / 1000, mtime / 1000)
+    return file
+  }
+
+  it('is the session file written to since the run started, last in the folder of the run, read from its start', async () => {
+    await session('old', '-work', `${line('/work', 1)}\n`, now - 600_000)
+    await session('elsewhere', '-other', `${line('/other', 1)}\n`)
+    // Resumed from another folder than the one it began in.
+    await session('mine', '-before', `${line('/before', 1)}\n${line('/work', 2)}\n`)
+    await register('claude-77.json', registration)
+    await watcher.poll()
+    expect(sources).toEqual([{ id: 'claude-77', harness: 'Claude', cwd: '/work' }])
+    expect(lines['claude-77']).toEqual([line('/before', 1), line('/work', 2)])
+  })
+
+  it('waits until it is written to, and is not a file another run has', async () => {
+    await register('claude-1.json', { ...registration, sessionId: 'taken' })
+    await register('claude-2.json', registration)
+    await watcher.poll()
+    expect(lines).toEqual({})
+
+    await session('taken', '-work', `${line('/work', 1)}\n`)
+    await session('picked', '-work', `${line('/work', 2)}\n`, now + 500)
+    await watcher.poll()
+    expect(lines).toEqual({ taken: [line('/work', 1)], 'claude-2': [line('/work', 2)] })
+  })
+})
+
 describe('a Codex session', () => {
   const now = Date.now()
   const registration = (cwd = '/work') => ({ harness: 'codex', cwd, startedAt: now })
