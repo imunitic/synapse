@@ -24,8 +24,9 @@ export interface TranscriptEvents {
 
 const registrationSchema = z.object({
   harness: z.enum(['claude', 'codex', 'opencode']),
-  // Claude: the id the run was started with, which names its file. OpenCode: the id of the
-  // session it was started with, which `opencode session export` takes.
+  // Claude: the id the run was started or resumed with, which names its file; none for a
+  // session resumed without its id. OpenCode: the id of the session it was started with, which
+  // `opencode session export` takes.
   sessionId: z.string().optional(),
   cwd: z.string(),
   // Where the harness keeps its files: the folder of Claude, the home of Codex.
@@ -78,6 +79,60 @@ async function claudeFile(registration: Registration, defaultHome: string): Prom
     if (await isFile(file)) return file
   }
   return null
+}
+
+// How much of the end of a session file is read to see the folder its last lines were written in.
+const TAIL_BYTES = 256 * 1024
+
+// Whether a line near the end of the file was written by a run in `cwd`.
+async function writtenIn(path: string, cwd: string): Promise<boolean> {
+  const handle = await open(path, 'r').catch(() => null)
+  if (handle === null) return false
+  try {
+    const { size } = await handle.stat()
+    const start = Math.max(0, size - TAIL_BYTES)
+    const buffer = Buffer.alloc(size - start)
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, start)
+    return buffer
+      .toString('utf8', 0, bytesRead)
+      .split('\n')
+      .reverse()
+      .some((line) => {
+        try {
+          return (JSON.parse(line) as { cwd?: unknown } | null)?.cwd === cwd
+        } catch {
+          return false
+        }
+      })
+  } finally {
+    await handle.close()
+  }
+}
+
+// The file of a Claude session resumed without its id (`--continue`, the picker, a name): of
+// the session files of every project, one written to since the run started, that no other run
+// here has, and whose last lines were written in the run's folder. The newest of them, when
+// there are more.
+async function resumedClaudeFile(
+  registration: Registration,
+  defaultHome: string,
+  taken: ReadonlySet<string>,
+): Promise<string | null> {
+  const projects = join(registration.configDir ?? join(defaultHome, '.claude'), 'projects')
+  const found: { file: string; time: number }[] = []
+  for (const folder of await readdir(projects).catch(() => [])) {
+    for (const name of await readdir(join(projects, folder)).catch(() => [])) {
+      if (!name.endsWith('.jsonl')) continue
+      const file = join(projects, folder, name)
+      if (taken.has(file)) continue
+      const info = await stat(file).catch(() => null)
+      if (info === null || !info.isFile() || info.mtimeMs < registration.startedAt - SLACK_MS) {
+        continue
+      }
+      if (await writtenIn(file, registration.cwd)) found.push({ file, time: info.mtimeMs })
+    }
+  }
+  return found.sort((a, b) => b.time - a.time)[0]?.file ?? null
 }
 
 async function firstLine(path: string): Promise<string> {
@@ -298,9 +353,11 @@ export function watchTranscripts(options: {
         if (follow.file === null) {
           const taken = new Set(follows.flatMap((f) => (f.file === null ? [] : [f.file])))
           follow.file =
-            follow.registration.harness === 'claude'
-              ? await claudeFile(follow.registration, options.home)
-              : await codexFile(follow.registration, options.home, taken)
+            follow.registration.harness !== 'claude'
+              ? await codexFile(follow.registration, options.home, taken)
+              : follow.registration.sessionId !== undefined
+                ? await claudeFile(follow.registration, options.home)
+                : await resumedClaudeFile(follow.registration, options.home, taken)
           if (follow.file === null) continue
         }
         const read = await readMore(follow.file, follow).catch(() => null)

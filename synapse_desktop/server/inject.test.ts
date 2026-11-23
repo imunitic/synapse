@@ -491,23 +491,60 @@ describe('following a conversation', () => {
     expect(registration?.cwd).toBe(odd)
   })
 
-  it('does not follow a run that is not a new session, and leaves the arguments as they were', async () => {
+  it('does not follow a run that is not a session, and leaves the arguments as they were', async () => {
     await install('claude')
-    for (const args of [
-      ['--resume'],
-      ['-c'],
-      ['--continue'],
-      ['-p', 'hi'],
-      ['mcp', 'list'],
-      ['doctor'],
-      ['--version'],
-      ['--session-id', 'abc'],
-      ['-h'],
-    ]) {
+    for (const args of [['-p', 'hi'], ['mcp', 'list'], ['doctor'], ['--version'], ['-h']]) {
       const out = start('claude', args)
       expect(out.stdout.trim()).toBe(`REAL claude ${args.join(' ')}`)
     }
     expect(await registrations()).toEqual([])
+  })
+
+  const RESUMED = '0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0'
+
+  it('follows a session resumed by its id, or given one, by that id and leaves the arguments as they were', async () => {
+    await install('claude')
+    for (const [args, id] of [
+      [['--resume', RESUMED, '--add-dir', '/x'], RESUMED.toLowerCase()],
+      [['-r', RESUMED], RESUMED.toLowerCase()],
+      [[`--resume=${RESUMED}`], RESUMED.toLowerCase()],
+      [['--session-id', 'abc'], 'abc'],
+    ] as const) {
+      await rm(sessions, { recursive: true, force: true })
+      const out = start('claude', [...args])
+      expect(out.stdout.trim()).toBe(`REAL claude ${args.join(' ')}`)
+      const [registration, ...more] = await registrations()
+      expect(more).toEqual([])
+      expect(registration).toMatchObject({ harness: 'claude', sessionId: id, cwd: dir })
+    }
+  })
+
+  it('notes a session resumed without its id with no id, and leaves the arguments as they were', async () => {
+    await install('claude')
+    for (const args of [
+      ['--resume'],
+      ['-r', 'my session'],
+      ['-c'],
+      ['--continue', '--add-dir', '/x'],
+    ]) {
+      await rm(sessions, { recursive: true, force: true })
+      const out = start('claude', args)
+      expect(out.stdout.trim()).toBe(`REAL claude ${args.join(' ')}`)
+      const [registration, ...more] = await registrations()
+      expect(more).toEqual([])
+      expect(registration).toMatchObject({ harness: 'claude', cwd: dir })
+      expect(registration).not.toHaveProperty('sessionId')
+    }
+  })
+
+  it('gives a resumed session that is forked an id of its own', async () => {
+    await install('claude')
+    const out = start('claude', ['--resume', RESUMED, '--fork-session'])
+    const id = /--session-id ([0-9a-f-]{36})/.exec(out.stdout)?.[1]
+    expect(id).toBeDefined()
+    expect(id).not.toBe(RESUMED.toLowerCase())
+    expect(out.stdout.trim().endsWith(`--resume ${RESUMED} --fork-session`)).toBe(true)
+    expect(await registrations()).toMatchObject([{ sessionId: id }])
   })
 
   it('follows nothing when it is not asked to, and still starts the program', async () => {

@@ -761,24 +761,88 @@ mod wrappers {
     }
 
     #[test]
-    fn a_run_that_is_not_a_new_session_is_not_followed_and_its_arguments_are_as_they_were() {
+    fn a_run_that_is_not_a_session_is_not_followed_and_its_arguments_are_as_they_were() {
         let f = follow();
         f.install("claude", Tracking::Claude, empty_plan());
         for args in [
-            vec!["--resume"],
-            vec!["-c"],
-            vec!["--continue"],
             vec!["-p", "hi"],
             vec!["mcp", "list"],
             vec!["doctor"],
             vec!["--version"],
-            vec!["--session-id", "abc"],
             vec!["-h"],
         ] {
             let o = f.start("claude", &args, &f.w.base, true);
             assert_eq!(out(&o).trim(), format!("REAL claude {}", args.join(" ")));
         }
         assert!(f.registrations().is_empty());
+    }
+
+    const RESUMED: &str = "0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0";
+
+    #[test]
+    fn a_session_resumed_by_its_id_or_given_one_is_followed_by_that_id_and_its_arguments_are_as_they_were(
+    ) {
+        let f = follow();
+        f.install("claude", Tracking::Claude, empty_plan());
+        let lower = RESUMED.to_lowercase();
+        let resume_eq = format!("--resume={RESUMED}");
+        for (args, id) in [
+            (vec!["--resume", RESUMED, "--add-dir", "/x"], lower.as_str()),
+            (vec!["-r", RESUMED], lower.as_str()),
+            (vec![resume_eq.as_str()], lower.as_str()),
+            (vec!["--session-id", "abc"], "abc"),
+        ] {
+            let _ = fs::remove_dir_all(&f.sessions);
+            let o = f.start("claude", &args, &f.w.base, true);
+            assert_eq!(out(&o).trim(), format!("REAL claude {}", args.join(" ")));
+            let registrations = f.registrations();
+            assert_eq!(registrations.len(), 1, "{args:?}");
+            assert_eq!(registrations[0]["harness"], "claude");
+            assert_eq!(registrations[0]["sessionId"], id);
+        }
+    }
+
+    #[test]
+    fn a_session_resumed_without_its_id_is_noted_with_no_id_and_its_arguments_are_as_they_were() {
+        let f = follow();
+        f.install("claude", Tracking::Claude, empty_plan());
+        for args in [
+            vec!["--resume"],
+            vec!["-r", "my session"],
+            vec!["-c"],
+            vec!["--continue", "--add-dir", "/x"],
+        ] {
+            let _ = fs::remove_dir_all(&f.sessions);
+            let o = f.start("claude", &args, &f.w.base, true);
+            assert_eq!(out(&o).trim(), format!("REAL claude {}", args.join(" ")));
+            let registrations = f.registrations();
+            assert_eq!(registrations.len(), 1, "{args:?}");
+            assert_eq!(registrations[0]["harness"], "claude");
+            assert!(registrations[0].get("sessionId").is_none(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn a_resumed_session_that_is_forked_is_given_an_id_of_its_own() {
+        let f = follow();
+        f.install("claude", Tracking::Claude, empty_plan());
+        let o = f.start(
+            "claude",
+            &["--resume", RESUMED, "--fork-session"],
+            &f.w.base,
+            true,
+        );
+        let text = out(&o);
+        let id = regex::Regex::new(r"--session-id ([0-9a-f-]{36})")
+            .unwrap()
+            .captures(&text)
+            .map(|c| c[1].to_string())
+            .unwrap();
+        assert_ne!(id, RESUMED.to_lowercase());
+        assert!(text
+            .trim()
+            .ends_with(&format!("--resume {RESUMED} --fork-session")));
+        assert_eq!(f.registrations()[0]["sessionId"], id);
     }
 
     #[test]

@@ -186,18 +186,28 @@ test('a codex started in the shell has its conversation followed', async ({ page
   await expect(conversation.locator('.activity-row')).toHaveCount(3)
 })
 
-test('a run that continues a session is not followed, and its arguments are untouched', async ({
+test('a run that resumes a session by its id follows that session, and its arguments are untouched', async ({
   page,
 }) => {
-  await openTerminals(page, world().root)
-  await launchCard(page, 'Shell').getByRole('button', { name: 'New shell' }).click()
-  await type(page, 'claude --resume')
-  await expect(screen(page)).toContainText('STUB claude args: --add-dir')
-  await expect(screen(page)).toContainText('--resume')
-  await expect(screen(page)).not.toContainText('--session-id')
-  await expect(await showConversation(page)).toContainText(
-    'No harness conversation is followed in this session.',
+  const id = '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0'
+  const project = join(world().home, '.claude', 'projects', '-elsewhere')
+  mkdirSync(project, { recursive: true })
+  writeFileSync(
+    join(project, `${id}.jsonl`),
+    '{"type":"user","message":{"role":"user","content":"Earlier work"}}\n',
   )
+  try {
+    await openTerminals(page, world().root)
+    await launchCard(page, 'Shell').getByRole('button', { name: 'New shell' }).click()
+    await type(page, `claude --resume ${id}`)
+    await expect(screen(page)).toContainText(`--resume ${id}`)
+    await expect(screen(page)).not.toContainText('--session-id')
+    const conversation = await showConversation(page)
+    await expect(conversation).toContainText('Earlier work')
+    await expect(conversation).toContainText('Carry on')
+  } finally {
+    rmSync(project, { recursive: true, force: true })
+  }
 })
 
 test('a harness can be started directly in a tab of its own', async ({ page }) => {
@@ -352,4 +362,19 @@ test('the terminal shows every row and column it has: none is cut off by its box
       return Math.min(box.bottom - text.bottom, box.right - text.right)
     })
   await expect.poll(edges).toBeGreaterThanOrEqual(0)
+})
+
+test('the terminal draws no scrollbar of the browser at its edge, only its own', async ({
+  page,
+}) => {
+  await openTerminals(page)
+  await launchCard(page, 'Shell').getByRole('button', { name: 'New shell' }).click()
+  await expect(screen(page).locator('.xterm-screen')).toBeVisible()
+  // xterm.css makes its viewport scroll, which xterm 6 does not use, and a webview with classic
+  // scrollbars draws an empty track down the right edge. Headless Chromium hides scrollbars, so
+  // the style is what is looked at.
+  const viewport = screen(page).locator('.xterm-viewport')
+  await expect(viewport).toHaveCSS('overflow-y', 'hidden')
+  // Scrolling still works, through xterm's own scrollbar.
+  await expect(screen(page).locator('.xterm-scrollable-element')).toHaveCount(1)
 })

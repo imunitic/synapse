@@ -190,6 +190,88 @@ async fn a_file_that_was_replaced_is_read_from_its_start() {
 
 // Codex -------------------------------------------------------------------------------------------
 
+fn line(cwd: &str, n: i64) -> String {
+    json!({ "cwd": cwd, "n": n }).to_string()
+}
+
+fn session(rig: &Rig, id: &str, project: &str, text: &str, mtime_ms: i64) -> PathBuf {
+    let file = rig.claude_file(id, project);
+    put(&file, text);
+    set_file_mtime(&file, FileTime::from_unix_time(mtime_ms / 1000, 0)).unwrap();
+    file
+}
+
+#[tokio::test]
+async fn a_claude_session_resumed_without_its_id_is_the_file_written_since_the_run_started_last_in_its_folder(
+) {
+    let rig = rig().await;
+    let started = now();
+    session(
+        &rig,
+        "old",
+        "-work",
+        &format!("{}\n", line("/work", 1)),
+        started - 600_000,
+    );
+    session(
+        &rig,
+        "elsewhere",
+        "-other",
+        &format!("{}\n", line("/other", 1)),
+        started + 1000,
+    );
+    // Resumed from another folder than the one it began in.
+    let text = format!("{}\n{}\n", line("/before", 1), line("/work", 2));
+    session(&rig, "mine", "-before", &text, started + 1000);
+    rig.register(
+        "claude-77.json",
+        json!({ "harness": "claude", "cwd": "/work", "startedAt": started }),
+    );
+    rig.watcher.poll().await;
+    assert_eq!(
+        rig.sources(),
+        vec![source("claude-77", SourceHarness::Claude, "/work")]
+    );
+    assert_eq!(
+        rig.lines_of("claude-77"),
+        [line("/before", 1), line("/work", 2)]
+    );
+}
+
+#[tokio::test]
+async fn a_claude_session_resumed_without_its_id_is_waited_for_and_is_not_a_file_another_run_has() {
+    let rig = rig().await;
+    let started = now();
+    rig.register(
+        "claude-1.json",
+        json!({ "harness": "claude", "sessionId": "taken", "cwd": "/work", "startedAt": started }),
+    );
+    rig.register(
+        "claude-2.json",
+        json!({ "harness": "claude", "cwd": "/work", "startedAt": started }),
+    );
+    rig.watcher.poll().await;
+    assert!(rig.lines.lock().unwrap().is_empty());
+
+    session(
+        &rig,
+        "taken",
+        "-work",
+        &format!("{}\n", line("/work", 1)),
+        started + 2000,
+    );
+    session(
+        &rig,
+        "picked",
+        "-work",
+        &format!("{}\n", line("/work", 2)),
+        started + 1000,
+    );
+    rig.watcher.poll().await;
+    assert_eq!(rig.lines_of("taken"), [line("/work", 1)]);
+    assert_eq!(rig.lines_of("claude-2"), [line("/work", 2)]);
+}
+
 fn rollout(rig: &Rig, day: &str, name: &str, cwd: &str, mtime_ms: i64) -> PathBuf {
     let file = rig
         .home
