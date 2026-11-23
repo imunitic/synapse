@@ -21,7 +21,8 @@
     "tauri": "tauri",
     "stage": "node scripts/stage-resources.ts",
     "app:dev": "npm run stage && tauri dev --features app",
-    "app:build": "npm run stage && tauri build --features app --bundles app -- --bin synapse-desktop"
+    "app:build": "npm run stage && tauri build --features app --bundles app -- --bin synapse-desktop",
+    "gateway:private": "node server/private-gateway-server.ts"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",
