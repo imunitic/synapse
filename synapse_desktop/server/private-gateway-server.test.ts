@@ -33,21 +33,43 @@ describe('private gateway executable', () => {
     const dist = join(root, 'dist')
     await mkdir(join(dist, '.vite'), { recursive: true })
     await mkdir(join(dist, 'assets'), { recursive: true })
-    await writeFile(join(dist, '.vite', 'manifest.json'), JSON.stringify({ 'index.html': { file: 'assets/main.js' } }))
-    await writeFile(join(dist, 'index.html'), '<html><script src="/assets/main.js"></script></html>')
+    await writeFile(
+      join(dist, '.vite', 'manifest.json'),
+      JSON.stringify({ 'index.html': { file: 'assets/main.js' } }),
+    )
+    await writeFile(
+      join(dist, 'index.html'),
+      '<html><script src="/assets/main.js"></script></html>',
+    )
     await writeFile(join(dist, 'assets', 'main.js'), 'console.log("fixture")')
     const port = await freePort()
     const backendPort = await freePort()
     const origin = 'https://synapse.example.test'
     const configPath = join(root, 'gateway.json')
-    await writeFile(configPath, JSON.stringify({
+    await writeFile(
+      configPath,
+      JSON.stringify({
       port,
       publicHost: 'synapse.example.test',
       publicOrigin: origin,
       buildDirectory: dist,
-      accounts: [{ username: 'fixture', userId: 'fixture', passwordHash: await hashGatewayPassword('fixture-password-long') }],
-      hosts: [{ userId: 'fixture', backend: `http://127.0.0.1:${backendPort}`, backendToken: 'fixture-backend-token', backendOrigin: 'http://gateway.internal' }],
-    }))
+      accounts: [
+        {
+          username: 'fixture',
+          userId: 'fixture',
+          passwordHash: await hashGatewayPassword('fixture-password-long'),
+        },
+      ],
+      hosts: [
+        {
+          userId: 'fixture',
+          backend: `http://127.0.0.1:${backendPort}`,
+          backendToken: 'fixture-backend-token',
+          backendOrigin: 'http://gateway.internal',
+        },
+      ],
+      }),
+    )
     const child = spawn(process.execPath, ['server/private-gateway-server.ts'], {
       cwd: join(import.meta.dirname, '..'),
       env: { ...process.env, SYNAPSE_PRIVATE_GATEWAY_CONFIG: configPath },
@@ -60,13 +82,20 @@ describe('private gateway executable', () => {
       if (child.exitCode !== null) throw new Error('private gateway exited before becoming ready')
       try {
         const response = await fetch(`${url}/login`, { headers: { Host: 'synapse.example.test' } })
-        if (response.status === 200) { ready = true; break }
-      } catch { /* listener not yet ready */ }
+        if (response.status === 200) {
+          ready = true
+          break
+        }
+      } catch {
+        /* listener not yet ready */
+      }
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
     expect(ready).toBe(true)
     expect((await fetch(url, { headers: { Host: 'synapse.example.test' } })).status).toBe(401)
-    expect((await fetch(`${url}/assets/main.js`, { headers: { Host: 'synapse.example.test' } })).status).toBe(401)
+    expect(
+      (await fetch(`${url}/assets/main.js`, { headers: { Host: 'synapse.example.test' } })).status,
+    ).toBe(401)
     const login = await fetch(`${url}/auth/session`, {
       method: 'POST',
       headers: { Host: 'synapse.example.test', Origin: origin, 'Content-Type': 'application/json' },
@@ -75,7 +104,10 @@ describe('private gateway executable', () => {
     expect(login.status).toBe(200)
     const cookie = login.headers.get('set-cookie')?.split(';')[0]
     expect(cookie).toBeTruthy()
-    expect((await fetch(url, { headers: { Host: 'synapse.example.test', Cookie: cookie ?? '' } })).status).toBe(200)
+    expect(
+      (await fetch(url, { headers: { Host: 'synapse.example.test', Cookie: cookie ?? '' } }))
+        .status,
+    ).toBe(200)
     expect((await fetch(`${url}/assets/main.js`, { headers: { Cookie: cookie ?? '' } })).status).toBe(200)
   }, 20_000)
 })
