@@ -49,25 +49,25 @@ describe('private gateway executable', () => {
     await writeFile(
       configPath,
       JSON.stringify({
-      port,
-      publicHost: 'synapse.example.test',
-      publicOrigin: origin,
-      buildDirectory: dist,
-      accounts: [
+        port,
+        publicHost: 'synapse.example.test',
+        publicOrigin: origin,
+        buildDirectory: dist,
+        accounts: [
         {
           username: 'fixture',
           userId: 'fixture',
           passwordHash: await hashGatewayPassword('fixture-password-long'),
         },
-      ],
-      hosts: [
+        ],
+        hosts: [
         {
           userId: 'fixture',
           backend: `http://127.0.0.1:${backendPort}`,
           backendToken: 'fixture-backend-token',
           backendOrigin: 'http://gateway.internal',
         },
-      ],
+        ],
       }),
     )
     const child = spawn(process.execPath, ['server/private-gateway-server.ts'], {
@@ -108,6 +108,12 @@ describe('private gateway executable', () => {
       (await fetch(url, { headers: { Host: 'synapse.example.test', Cookie: cookie ?? '' } }))
         .status,
     ).toBe(200)
-    expect((await fetch(`${url}/assets/main.js`, { headers: { Cookie: cookie ?? '' } })).status).toBe(200)
+    expect(
+      (
+        await fetch(`${url}/assets/main.js`, {
+          headers: { Host: 'synapse.example.test', Cookie: cookie ?? '' },
+        })
+      ).status,
+    ).toBe(200)
   }, 20_000)
 })
