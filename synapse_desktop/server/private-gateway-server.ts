@@ -43,6 +43,15 @@ function validateConfig(value: unknown): PrivateGatewayConfig {
   if (config.hosts.length !== config.accounts.length) {
     throw new Error('each gateway account requires an isolated private host')
   }
+  const accountIds = new Set(config.accounts.map((account) => account.userId))
+  const hostIds = new Set(config.hosts.map((host) => host.userId))
+  if (
+    accountIds.size !== config.accounts.length ||
+    hostIds.size !== config.hosts.length ||
+    [...accountIds].some((userId) => !hostIds.has(userId))
+  ) {
+    throw new Error('gateway account and private host IDs must match exactly')
+  }
   for (const host of config.hosts) {
     const backend = new URL(host.backend)
     if (
