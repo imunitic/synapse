@@ -23,6 +23,7 @@ describe('refuseCli', () => {
     expect(refuseCli('synapse', ['vault-search-text', 'two words'])).toBeNull()
     expect(refuseCli('synapse', ['vault-links', 'a.md'])).toBeNull()
     expect(refuseCli('synapse', ['vault-backlinks', 'a.md'])).toBeNull()
+    expect(refuseCli('synapse', ['vault-doc-map', 'a.md'])).toBeNull()
     expect(
       refuseCli('synapse', ['vault-search', '--fields', 'frontmatter.title,frontmatter.updated']),
     ).toBeNull()
