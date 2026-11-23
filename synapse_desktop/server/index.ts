@@ -29,7 +29,11 @@ const bindAddress = privateNetworkBind(process.env)
 const token = suppliedToken ? suppliedToken : randomBytes(24).toString('hex')
 
 const policy = {
-  allowedHosts: new Set([`127.0.0.1:${SERVER_PORT}`, `localhost:${SERVER_PORT}`]),
+  allowedHosts: new Set([
+    `127.0.0.1:${SERVER_PORT}`,
+    `localhost:${SERVER_PORT}`,
+    `${bindAddress}:${SERVER_PORT}`,
+  ]),
   allowedOrigins: new Set([
     `http://127.0.0.1:${WEB_PORT}`,
     `http://localhost:${WEB_PORT}`,
