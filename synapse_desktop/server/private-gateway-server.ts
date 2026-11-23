@@ -26,11 +26,12 @@ function validateConfig(value: unknown): PrivateGatewayConfig {
   if (!Number.isSafeInteger(config.port) || config.port < 1 || config.port > 65535) {
     throw new Error('invalid private gateway port')
   }
-  if (config.publicHost !== `127.0.0.1:${config.port}`) {
-    throw new Error('private gateway Host must match its loopback listener')
-  }
   const origin = new URL(config.publicOrigin)
-  if (origin.protocol !== 'https:' || origin.origin !== config.publicOrigin) {
+  if (
+    origin.protocol !== 'https:' ||
+    origin.origin !== config.publicOrigin ||
+    origin.host !== config.publicHost
+  ) {
     throw new Error('private gateway requires an exact HTTPS public Origin')
   }
   if (!config.buildDirectory || typeof config.buildDirectory !== 'string') {
