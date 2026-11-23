@@ -59,23 +59,23 @@ describe('private gateway executable', () => {
     for (let attempt = 0; attempt < 100; attempt++) {
       if (child.exitCode !== null) throw new Error('private gateway exited before becoming ready')
       try {
-        const response = await fetch(`${url}/login`)
+        const response = await fetch(`${url}/login`, { headers: { Host: 'synapse.example.test' } })
         if (response.status === 200) { ready = true; break }
       } catch { /* listener not yet ready */ }
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
     expect(ready).toBe(true)
-    expect((await fetch(url)).status).toBe(401)
-    expect((await fetch(`${url}/assets/main.js`)).status).toBe(401)
+    expect((await fetch(url, { headers: { Host: 'synapse.example.test' } })).status).toBe(401)
+    expect((await fetch(`${url}/assets/main.js`, { headers: { Host: 'synapse.example.test' } })).status).toBe(401)
     const login = await fetch(`${url}/auth/session`, {
       method: 'POST',
-      headers: { Origin: origin, 'Content-Type': 'application/json' },
+      headers: { Host: 'synapse.example.test', Origin: origin, 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: 'fixture', password: 'fixture-password-long' }),
     })
     expect(login.status).toBe(200)
     const cookie = login.headers.get('set-cookie')?.split(';')[0]
     expect(cookie).toBeTruthy()
-    expect((await fetch(url, { headers: { Cookie: cookie ?? '' } })).status).toBe(200)
+    expect((await fetch(url, { headers: { Host: 'synapse.example.test', Cookie: cookie ?? '' } })).status).toBe(200)
     expect((await fetch(`${url}/assets/main.js`, { headers: { Cookie: cookie ?? '' } })).status).toBe(200)
   }, 20_000)
 })
