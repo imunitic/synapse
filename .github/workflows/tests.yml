@@ -233,7 +233,7 @@ jobs:
         run: docker build -f synapse_desktop/Dockerfile.private-host -t synapse-private-host:ci .
       - name: Verify native PTY module loads as unprivileged user
         run: |
-          docker run --rm --network none --entrypoint node synapse-private-host:ci \\
+          docker run --rm --network none --entrypoint node synapse-private-host:ci \
             -e "import('@lydell/node-pty').then(() => console.log('private PTY dependency loaded'))"
 
   # The Rust host of the desktop app: format, lint and its tests, on the platforms
