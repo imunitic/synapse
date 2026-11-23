@@ -8,6 +8,7 @@ import { createGatewaySessions } from './gateway-sessions.ts'
 import { loadViteProtectedAssets } from './gateway-vite-assets.ts'
 import type { GatewayHost } from './gateway.ts'
 import type { PasswordAccount } from './gateway-password-verifier.ts'
+import { isPrivateIpv4 } from './private-network-bind.ts'
 
 interface PrivateGatewayConfig {
   readonly port: number
@@ -56,14 +57,14 @@ function validateConfig(value: unknown): PrivateGatewayConfig {
     const backend = new URL(host.backend)
     if (
       backend.protocol !== 'http:' ||
-      backend.hostname !== '127.0.0.1' ||
+      (backend.hostname !== '127.0.0.1' && !isPrivateIpv4(backend.hostname)) ||
       backend.pathname !== '/' ||
       backend.search ||
       backend.hash ||
       !host.backendToken ||
       !host.backendOrigin
     ) {
-      throw new Error('private host must use a loopback-only backend')
+      throw new Error('private host must use a loopback or RFC1918 IPv4 backend')
     }
   }
   return config
