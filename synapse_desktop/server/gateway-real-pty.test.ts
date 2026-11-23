@@ -8,8 +8,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
 import { BUS_PATH } from '../shared/constants.ts'
 import { attachBus } from './bus.ts'
-import { attachSessionGateway } from './gateway-session-adapter.ts'
-import { createGatewaySessions, sessionCookie } from './gateway-sessions.ts'
+import { attachPrivateGateway } from './gateway-private-entry.ts'
+import { hashGatewayPassword } from './gateway-password-verifier.ts'
+import { createGatewaySessions } from './gateway-sessions.ts'
 import { createSessions } from './terminal-sessions.ts'
 import { spawnPty, type Pty } from './terminal.ts'
 import { NotStartedHere, RunNotStarted } from './runs.ts'
@@ -87,10 +88,9 @@ describe.skipIf(process.platform === 'win32')('authenticated gateway to real Nod
     allowedHosts.add(`127.0.0.1:${backendPort}`)
 
     const auth = createGatewaySessions()
-    const issued = auth.issue('alice')
     const gateway = createServer()
     const gatewayPort = await listen(gateway)
-    attachSessionGateway(gateway, {
+    attachPrivateGateway(gateway, {
       publicHost: `127.0.0.1:${gatewayPort}`,
       publicOrigin: ORIGIN,
       hosts: new Map([
@@ -105,6 +105,14 @@ describe.skipIf(process.platform === 'win32')('authenticated gateway to real Nod
         ],
       ]),
       sessions: auth,
+      accounts: [
+        {
+          username: 'alice',
+          userId: 'alice',
+          passwordHash: await hashGatewayPassword('fixture-password-long'),
+        },
+      ],
+      assets: new Map([['/', { content: '<html>private</html>', contentType: 'text/html' }]]),
       recheckMs: 20,
     })
 
@@ -122,7 +130,14 @@ describe.skipIf(process.platform === 'win32')('authenticated gateway to real Nod
         socket.once('error', () => resolve(0))
       })
     expect(await open()).toBe(401)
-    const connected = await open(sessionCookie(issued.token).split(';')[0])
+    const login = await fetch(`http://127.0.0.1:${gatewayPort}/auth/session`, {
+      method: 'POST',
+      headers: { Origin: ORIGIN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'alice', password: 'fixture-password-long' }),
+    })
+    expect(login.status).toBe(200)
+    const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0] ?? ''
+    const connected = await open(cookie)
     if (typeof connected === 'number') throw new Error('authenticated connection refused')
 
     const messages: unknown[] = []
