@@ -105,9 +105,7 @@ describe('private gateway executable', () => {
       true,
     )
     expect((await fetch(url, {})).status).toBe(401)
-    expect(
-      (await fetch(`${url}/assets/main.js`, {})).status,
-    ).toBe(401)
+    expect((await fetch(`${url}/assets/main.js`, {})).status).toBe(401)
     const login = await fetch(`${url}/auth/session`, {
       method: 'POST',
       headers: { Origin: origin, 'Content-Type': 'application/json' },
@@ -116,10 +114,7 @@ describe('private gateway executable', () => {
     expect(login.status).toBe(200)
     const cookie = login.headers.get('set-cookie')?.split(';')[0]
     expect(cookie).toBeTruthy()
-    expect(
-      (await fetch(url, { headers: { Cookie: cookie ?? '' } }))
-        .status,
-    ).toBe(200)
+    expect((await fetch(url, { headers: { Cookie: cookie ?? '' } })).status).toBe(200)
     expect(
       (
         await fetch(`${url}/assets/main.js`, {
