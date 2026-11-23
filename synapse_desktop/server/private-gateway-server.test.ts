@@ -73,15 +73,20 @@ describe('private gateway executable', () => {
     const child = spawn(process.execPath, ['server/private-gateway-server.ts'], {
       cwd: join(import.meta.dirname, '..'),
       env: { ...process.env, SYNAPSE_PRIVATE_GATEWAY_CONFIG: configPath },
-      stdio: 'ignore',
+      stdio: ['ignore', 'pipe', 'pipe'],
     })
     children.push(child)
+    let output = ''
+    child.stdout?.on('data', (chunk: Buffer) => { output += chunk.toString() })
+    child.stderr?.on('data', (chunk: Buffer) => { output += chunk.toString() })
+    let lastStatus = 0
     const url = `http://127.0.0.1:${port}`
     let ready = false
     for (let attempt = 0; attempt < 100; attempt++) {
       if (child.exitCode !== null) throw new Error('private gateway exited before becoming ready')
       try {
         const response = await fetch(`${url}/login`, { headers: { Host: 'synapse.example.test' } })
+        lastStatus = response.status
         if (response.status === 200) {
           ready = true
           break
@@ -91,7 +96,7 @@ describe('private gateway executable', () => {
       }
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
-    expect(ready).toBe(true)
+    expect(ready, `gateway readiness failed: HTTP ${lastStatus}; child output: ${output}`).toBe(true)
     expect((await fetch(url, { headers: { Host: 'synapse.example.test' } })).status).toBe(401)
     expect(
       (await fetch(`${url}/assets/main.js`, { headers: { Host: 'synapse.example.test' } })).status,
