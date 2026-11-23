@@ -96,7 +96,9 @@ describe('private gateway executable', () => {
       }
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
-    expect(ready, `gateway readiness failed: HTTP ${lastStatus}; child output: ${output}`).toBe(true)
+    expect(ready, `gateway readiness failed: HTTP ${lastStatus}; child output: ${output}`).toBe(
+      true,
+    )
     expect((await fetch(url, { headers: { Host: 'synapse.example.test' } })).status).toBe(401)
     expect(
       (await fetch(`${url}/assets/main.js`, { headers: { Host: 'synapse.example.test' } })).status,
