@@ -141,7 +141,7 @@ describe('a harness that has Synapse installed', () => {
     await put(join(deps.home, '.claude', 'settings.json'), '{"hooks":{"x":"synapse-hook start"}}')
     const plan = await planSession('Claude', deps)
     expect(plan).toMatchObject({ command: 'claude', args: [], env: {}, loaded: false })
-    expect(plan.note).toContain('installed in Claude Code')
+    expect(plan.note).toBe('')
     expect(await stat(deps.dataDir).catch(() => null)).toBeNull()
   })
 })

@@ -292,6 +292,19 @@ describe('terminals', () => {
     expect(reduce(state, { type: 'selectTerminal', id: 'zz' })).toBe(state)
   })
 
+  it('are put in another order, within the list, and the selection stays', () => {
+    const three = open(open(open(initialState, 'a'), 'b'), 'c')
+    const ids = (s: typeof three) => s.terminals.map((t) => t.id)
+    const moved = reduce(three, { type: 'moveTerminal', id: 'c', to: 0 })
+    expect(ids(moved)).toEqual(['c', 'a', 'b'])
+    expect(moved.activeTerminal).toBe(three.activeTerminal)
+    expect(ids(reduce(three, { type: 'moveTerminal', id: 'a', to: 99 }))).toEqual(['b', 'c', 'a'])
+    expect(ids(reduce(three, { type: 'moveTerminal', id: 'b', to: -5 }))).toEqual(['b', 'a', 'c'])
+    // Nowhere new, or a session that is not there, leaves the state alone.
+    expect(reduce(three, { type: 'moveTerminal', id: 'b', to: 1 })).toBe(three)
+    expect(reduce(three, { type: 'moveTerminal', id: 'zz', to: 0 })).toBe(three)
+  })
+
   it('give their place to a neighbour when the selected one closes, and go away with the last', () => {
     const three = open(open(open(initialState, 'a'), 'b'), 'c')
     const middle = reduce(reduce(three, { type: 'selectTerminal', id: 'b' }), {

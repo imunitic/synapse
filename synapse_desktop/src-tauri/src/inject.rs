@@ -388,7 +388,7 @@ pub fn plan_session(harness: Harness, deps: &InjectDeps) -> std::io::Result<Sess
             args: vec![],
             env: BTreeMap::new(),
             loaded: false,
-            note: format!("Synapse is installed in {label} and is used as it is."),
+            note: String::new(),
         });
     }
     let Some(root) = find_content_root(&deps.environment, &deps.bundled_roots) else {
@@ -423,9 +423,7 @@ pub fn plan_session(harness: Harness, deps: &InjectDeps) -> std::io::Result<Sess
         args: made.args,
         env: made.env,
         loaded: true,
-        note: format!(
-            "Synapse is loaded for this session only and nothing is installed in {label}.{hooks}{trust}"
-        ),
+        note: format!("{hooks}{trust}").trim().to_string(),
     })
 }
 

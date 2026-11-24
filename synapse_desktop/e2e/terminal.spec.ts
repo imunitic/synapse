@@ -213,7 +213,7 @@ test('a run that resumes a session by its id follows that session, and its argum
 test('a harness can be started directly in a tab of its own', async ({ page }) => {
   await startHarness(page, 'Claude Code', world().root)
   await expect(page.getByRole('tab', { name: 'Claude Code 1' })).toBeVisible()
-  await expect(page.getByText('Synapse is loaded for this session only')).toBeVisible()
+  await expect(page.locator('.terminal-note')).toHaveCount(0)
   await expect(screen(page)).toContainText('STUB claude args: --add-dir')
   await expect(screen(page)).toContainText(`cwd: ${world().root}`)
 
@@ -247,6 +247,33 @@ test('shells have tabs: each goes on while the others show, and closing one leav
   await page.getByRole('button', { name: 'Close Shell 1' }).click()
   await expect(page.getByRole('tab', { name: 'Shell 1' })).toHaveCount(0)
   await expect(page.getByRole('tab', { name: 'Shell 2' })).toHaveAttribute('aria-selected', 'true')
+})
+
+test('shell tabs are put in another order by dragging, or with Alt and the arrow keys', async ({
+  page,
+}) => {
+  await openTerminals(page, world().root)
+  await launchCard(page, 'Shell').getByRole('button', { name: 'New shell' }).click()
+  await page.getByRole('button', { name: 'New shell', exact: true }).first().click()
+  await page.getByRole('button', { name: 'New shell', exact: true }).first().click()
+  const names = () =>
+    page
+      .getByRole('tablist', { name: 'Terminal tabs' })
+      .getByRole('tab')
+      .allInnerTexts()
+      .then((texts) => texts.map((t) => t.trim()))
+  await expect.poll(names).toEqual(['Shell 1', 'Shell 2', 'Shell 3'])
+
+  await page
+    .getByRole('tab', { name: 'Shell 3' })
+    .dragTo(page.getByRole('tab', { name: 'Shell 1' }), { targetPosition: { x: 2, y: 10 } })
+  await expect.poll(names).toEqual(['Shell 3', 'Shell 1', 'Shell 2'])
+  // The tab that was selected is still the one showing.
+  await expect(page.getByRole('tab', { name: 'Shell 3' })).toHaveAttribute('aria-selected', 'true')
+
+  await page.getByRole('tab', { name: 'Shell 3' }).focus()
+  await page.keyboard.press('Alt+ArrowRight')
+  await expect.poll(names).toEqual(['Shell 1', 'Shell 3', 'Shell 2'])
 })
 
 test('sessions go on while another page of the app shows', async ({ page }) => {

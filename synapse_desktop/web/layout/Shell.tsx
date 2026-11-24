@@ -160,6 +160,7 @@ export function Shell() {
                   storeName(id, name)
                   dispatch({ type: 'renameTerminal', id, name })
                 }}
+                onMove={(id, to) => dispatch({ type: 'moveTerminal', id, to })}
                 onRun={(id, executionId) => dispatch({ type: 'terminalRun', id, executionId })}
                 onNew={() =>
                   dispatch({

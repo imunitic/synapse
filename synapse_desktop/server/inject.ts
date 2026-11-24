@@ -284,7 +284,7 @@ export async function planSession(harness: Harness, deps: InjectDeps): Promise<S
       args: [],
       env: {},
       loaded: false,
-      note: `Synapse is installed in ${label} and is used as it is.`,
+      note: '',
     }
   }
   const root = await findContentRoot(deps.env)
@@ -315,7 +315,7 @@ export async function planSession(harness: Harness, deps: InjectDeps): Promise<S
     command,
     ...made,
     loaded: true,
-    note: `Synapse is loaded for this session only and nothing is installed in ${label}.${hooks}${trust}`,
+    note: `${hooks}${trust}`.trim(),
   }
 }
 
