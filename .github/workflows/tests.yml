@@ -256,6 +256,9 @@ jobs:
           docker logs synapse-private-host-smoke
           exit 1
 
+      - name: Verify private Compose networking and isolation
+        run: bash synapse_desktop/scripts/private-staging-smoke.sh
+
   # The Rust host of the desktop app: format, lint and its tests, on the platforms
   # the app is built for. It always runs, like `desktop`.
   desktop-host:
