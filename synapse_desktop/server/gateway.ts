@@ -101,6 +101,8 @@ export function attachGateway(server: Server, options: GatewayOptions) {
   }
 
   server.on('upgrade', (req, socket, head) => {
+    socket.on('error', () => socket.destroy())
+    let abort = () => socket.destroy()
     if (req.url !== BUS_PATH) {
       socket.destroy()
       return
@@ -180,6 +182,7 @@ export function attachGateway(server: Server, options: GatewayOptions) {
         },
       }
       connections.add(tracked)
+      abort = () => tracked.terminate()
 
       // Only gateway-generated headers travel to the backend. Browser cookies,
       // Authorization, Host, user IDs and chosen target URLs are never forwarded.
@@ -223,49 +226,61 @@ export function attachGateway(server: Server, options: GatewayOptions) {
           return
         }
         completed = true
-        sockets.handleUpgrade(req, socket, head, (client) => {
-          socket.off('close', onSocketClose)
-          upstream.off('error', fail)
-          upstream.off('close', fail)
-          let closing = false
-          let validating = false
-          let stopFlow = () => {}
-          let stopHeartbeat = () => {}
-          const shut = () => {
-            if (closing) return
-            closing = true
-            clearInterval(timer)
-            stopFlow()
-            stopHeartbeat()
-            release()
-            client.terminate()
-            upstream.terminate()
-          }
-          tracked.terminate = shut
-          client.on('close', shut)
-          upstream.on('close', shut)
-          client.on('error', shut)
-          upstream.on('error', shut)
-          stopFlow = attachGatewayFlow(client, upstream, shut, options.flowOptions)
-          stopHeartbeat = attachGatewayHeartbeat(client, upstream, shut, options.heartbeatMs)
-          const timer = setInterval(() => {
-            if (closing) return
-            if (validating) return
-            validating = true
-            void options
-              .sessionValid(verifiedSession)
-              .then((valid) => {
-                if (!valid) shut()
-              })
-              .catch(shut)
-              .finally(() => {
-                validating = false
-              })
-          }, interval)
-          timer.unref()
-        })
+        try {
+          sockets.handleUpgrade(req, socket, head, (client) => {
+            socket.off('close', onSocketClose)
+            upstream.off('error', fail)
+            upstream.off('close', fail)
+            let timer: ReturnType<typeof setInterval> | undefined
+            let closing = false
+            let validating = false
+            let stopFlow = () => {}
+            let stopHeartbeat = () => {}
+            const shut = () => {
+              if (closing) return
+              closing = true
+              clearInterval(timer)
+              stopFlow()
+              stopHeartbeat()
+              release()
+              client.terminate()
+              upstream.terminate()
+            }
+            tracked.terminate = shut
+            client.on('close', shut)
+            upstream.on('close', shut)
+            client.on('error', shut)
+            upstream.on('error', shut)
+            try {
+              stopFlow = attachGatewayFlow(client, upstream, shut, options.flowOptions)
+              stopHeartbeat = attachGatewayHeartbeat(client, upstream, shut, options.heartbeatMs)
+            } catch {
+              shut()
+              return
+            }
+            timer = setInterval(() => {
+              if (closing) return
+              if (validating) return
+              validating = true
+              void options
+                .sessionValid(verifiedSession)
+                .then((valid) => {
+                  if (!valid) shut()
+                })
+                .catch(shut)
+                .finally(() => {
+                  validating = false
+                })
+            }, interval)
+            timer.unref()
+          })
+        } catch {
+          abort()
+        }
       })
-    })()
+    })().catch(() => {
+      abort()
+    })
   })
   return (session: GatewaySession) => {
     const connections = activeByUser.get(session.userId)
