@@ -14,8 +14,8 @@ use synapse_desktop_host::agents::{
     agent_command, created_path, edit_note, edit_prompt, failure_of, find_pipeline_skill,
     folder_sentence, generate_text, note_command, note_path_problem, note_prompt, note_tools,
     opencode_permission, paths_of, prompt_for, reason_of, reference_from, restore_note,
-    session_prompt, stream_result, system_for, text_of, touched_elsewhere, vault_dir_of, AgentRun,
-    AgentRunner, GenerateRequest, NoteSession, NoteSessionRun, Seen,
+    session_prompt, stream_result, system_for, text_of, touched_elsewhere, vault_dir_of,
+    AgentChoice, AgentRun, AgentRunner, GenerateRequest, NoteSession, NoteSessionRun, Seen,
 };
 use synapse_desktop_host::cli::{CliRun, CliRunner};
 use synapse_desktop_host::dispatch::{serve, Handlers, ServeOptions};
@@ -1924,9 +1924,11 @@ async fn a_definition_run_that_was_stopped_says_the_run_was_stopped() {
                 env,
                 &[],
                 agent,
-                Harness::Claude,
-                None,
-                BTreeMap::new(),
+                AgentChoice {
+                    harness: Harness::Claude,
+                    model: None,
+                    env: BTreeMap::new(),
+                },
                 None,
                 move || stopped,
             )
@@ -2031,9 +2033,10 @@ async fn a_claude_edit_publishes_the_lines_it_prints_and_the_others_are_not_stre
         let sessions = rig.sessions.lock().unwrap();
         assert!(sessions[0].stream && sessions[0].on_line.is_some());
     }
-    let seen: Arc<Mutex<Vec<(Value, Option<u64>)>>> = Arc::new(Mutex::new(vec![]));
+    type Seen = Arc<Mutex<Vec<(Value, Option<u64>)>>>;
+    let seen: Seen = Arc::new(Mutex::new(vec![]));
     let sink = seen.clone();
-    rig.runs.subscribe(
+    let _unsubscribe = rig.runs.subscribe(
         "r-5",
         None,
         Arc::new(move |data, cursor| sink.lock().unwrap().push((data, cursor))),

@@ -449,18 +449,29 @@ pub fn text_of(answer: &str) -> String {
     format!("{}\n", inner.trim())
 }
 
+/// Which agent answers a generation: the harness, the model it is asked to use (its own when
+/// absent) and the variables set in the app.
+pub struct AgentChoice {
+    pub harness: Harness,
+    pub model: Option<String>,
+    pub env: BTreeMap<String, String>,
+}
+
 /// Asks the agent for the text of a definition.
 pub async fn generate_text(
     request: &GenerateRequest<'_>,
     environment: &Environment,
     bundled: &[PathBuf],
     agent: &AgentRunner,
-    harness: Harness,
-    model: Option<String>,
-    env: BTreeMap<String, String>,
+    choice: AgentChoice,
     stop: Option<oneshot::Receiver<()>>,
     stopped: impl Fn() -> bool,
 ) -> Result<String, HostError> {
+    let AgentChoice {
+        harness,
+        model,
+        env,
+    } = choice;
     let skill = if request.kind == DefinitionKind::Skill {
         String::new()
     } else {

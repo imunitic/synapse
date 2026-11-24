@@ -3,8 +3,8 @@
 
 use crate::agents::{
     created_path, edit_note, generate_text, note_prompt, paths_of, reason_of, restore_note,
-    set_note_status, vault_dir_of, AgentRunner, GenerateRequest, NoteSession, NoteSessionRun,
-    OnLine,
+    set_note_status, vault_dir_of, AgentChoice, AgentRunner, GenerateRequest, NoteSession,
+    NoteSessionRun, OnLine,
 };
 use crate::cli::{refuse_cli, CliRun, CliRunner};
 use crate::config::{config_file, load_config, load_stored, merged, save_config};
@@ -581,9 +581,11 @@ async fn run_agent(
                 &c.environment,
                 &c.bundled_roots,
                 &c.agent,
-                harness,
-                model,
-                config.env.clone(),
+                AgentChoice {
+                    harness,
+                    model,
+                    env: config.env.clone(),
+                },
                 stop,
                 stopped,
             )
