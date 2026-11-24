@@ -1248,7 +1248,8 @@ pub async fn restore_note(
     Ok(())
 }
 
-#[cfg(test)]
+// These run `/bin/sh`, which Windows does not have.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::sync::Mutex;
