@@ -8,9 +8,7 @@ export function attachGatewayHeartbeat(
   onTimeout: () => void,
   heartbeatMs = 30_000,
 ): () => void {
-  if (!Number.isSafeInteger(heartbeatMs) || heartbeatMs < 1) {
-    throw new Error('invalid gateway heartbeat interval')
-  }
+  validateGatewayHeartbeat(heartbeatMs)
   let clientAlive = true
   let upstreamAlive = true
   const clientPong = () => {
@@ -36,5 +34,11 @@ export function attachGatewayHeartbeat(
     clearInterval(timer)
     client.off('pong', clientPong)
     upstream.off('pong', upstreamPong)
+  }
+}
+
+export function validateGatewayHeartbeat(heartbeatMs = 30_000): void {
+  if (!Number.isSafeInteger(heartbeatMs) || heartbeatMs < 1) {
+    throw new Error('invalid gateway heartbeat interval')
   }
 }
