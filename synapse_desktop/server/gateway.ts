@@ -223,10 +223,10 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
           return
         }
         completed = true
-        socket.off('close', onSocketClose)
-        upstream.off('error', fail)
-        upstream.off('close', fail)
         sockets.handleUpgrade(req, socket, head, (client) => {
+          socket.off('close', onSocketClose)
+          upstream.off('error', fail)
+          upstream.off('close', fail)
           let closing = false
           let validating = false
           let stopFlow = () => {}
