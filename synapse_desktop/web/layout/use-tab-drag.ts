@@ -8,15 +8,18 @@ const DRAG_THRESHOLD_PX = 4
 // drag and drop, which the desktop window keeps for files dropped on it. A press past a few pixels
 // is a drag, which ends with no move on Escape, or when the pointer is let go off the row.
 // `ids` are the tabs left to right; each tab is a direct child of `row` that matches `tabSelector`.
+// No tab goes before the index `first`, for a row whose first tabs are pinned.
 export function useTabDrag({
   row,
   tabSelector,
   ids,
+  first = 0,
   onMove,
 }: {
   row: RefObject<HTMLElement | null>
   tabSelector: string
   ids: readonly string[]
+  first?: number
   onMove: (id: string, to: number) => void
 }) {
   const [dragging, setDragging] = useState<string | null>(null)
@@ -43,7 +46,7 @@ export function useTabDrag({
         const rect = tab.getBoundingClientRect()
         return { left: rect.left, width: rect.width }
       })
-      return insertionAt(spans, x, 0)
+      return insertionAt(spans, x, first)
     }
     function move(moved: globalThis.PointerEvent) {
       if (!active) {
