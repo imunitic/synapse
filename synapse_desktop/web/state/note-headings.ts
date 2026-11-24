@@ -5,8 +5,8 @@
 export interface NoteHeadings {
   // Scrolls the note body to the heading with this doc-map path.
   scrollTo: (section: string) => void
-  // Opens the comment box under the heading with this path, or the whole-note one for null.
-  comment: (section: string | null) => void
+  // Opens the comment box under the heading with this path.
+  comment: (section: string) => void
 }
 
 // Kept on the global object, so that a copy of this module loaded again in development (a hot
