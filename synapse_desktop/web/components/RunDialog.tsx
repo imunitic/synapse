@@ -3,10 +3,10 @@ import {
   interactiveProblem,
   previewInput,
   readFolder,
-  readInteractive,
+  readAutonomous,
   runInput,
   writeFolder,
-  writeInteractive,
+  writeAutonomous,
   type InputMode,
 } from '../domain/run-input.ts'
 import { transport } from '../transport/index.ts'
@@ -40,7 +40,7 @@ export function RunDialog({
   const [json, setJson] = useState('{}')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [interactive, setInteractive] = useState(() => readInteractive(localStorage, pipeline))
+  const [autonomous, setAutonomous] = useState(() => readAutonomous(localStorage, pipeline))
   const [folder, setFolder] = useState(() => readFolder(localStorage, pipeline, defaultFolder))
   // Why the pipeline cannot be run interactively, once that is known.
   const [problem, setProblem] = useState<string | null>(null)
@@ -63,7 +63,7 @@ export function RunDialog({
   }, [pipeline])
 
   const canBeInteractive = checked && problem === null
-  const wantsInteractive = interactive && canBeInteractive
+  const wantsInteractive = canBeInteractive && !autonomous
 
   async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -161,18 +161,18 @@ export function RunDialog({
             openAdded
           />
         )}
-        <label className="check-row" htmlFor="run-interactive">
+        <label className="check-row" htmlFor="run-autonomous">
           <input
-            id="run-interactive"
+            id="run-autonomous"
             type="checkbox"
-            checked={wantsInteractive}
+            checked={autonomous || !canBeInteractive}
             disabled={!canBeInteractive}
             onChange={(event) => {
-              setInteractive(event.target.checked)
-              writeInteractive(localStorage, pipeline, event.target.checked)
+              setAutonomous(event.target.checked)
+              writeAutonomous(localStorage, pipeline, event.target.checked)
             }}
           />
-          <span>Interactive: watch it in a terminal and answer when it asks</span>
+          <span>Run without a terminal: nothing will ask me anything</span>
         </label>
         {checked && problem !== null && <p className="muted small">{problem}</p>}
         {wantsInteractive && (
@@ -199,7 +199,7 @@ export function RunDialog({
             Cancel
           </button>
           <button type="submit" className="primary" disabled={busy}>
-            {busy ? 'Starting…' : wantsInteractive ? 'Start interactive run' : 'Start run'}
+            {busy ? 'Starting…' : 'Start run'}
           </button>
         </div>
       </form>

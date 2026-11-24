@@ -5,11 +5,12 @@ import { readExecution, waitingFor, type ExecutionRecord } from '../domain/execu
 import { layoutGraph } from '../domain/graph.ts'
 import { progressOf, visitsOf, type StepProgress, type Visit } from '../domain/progress.ts'
 import { describeRun } from '../domain/run-graph.ts'
-import type { TerminalSession } from '../state/state.ts'
+import { isLiveRun, type TerminalSession } from '../state/state.ts'
 import { transport } from '../transport/index.ts'
 import { ActivityView } from '../components/ActivityView.tsx'
 import { SourceCard } from './DefinitionPage.tsx'
 import { GraphView } from '../components/GraphView.tsx'
+import { TerminalView } from '../components/TerminalView.tsx'
 import { StatusBadge } from '../components/StatusBadge.tsx'
 import { useLoad } from '../state/useLoad.ts'
 import { useWatch } from '../state/useWatch.ts'
@@ -208,13 +209,23 @@ function RecordedFiles({ id }: { id: string }) {
 export function ExecutionPage({
   id,
   terminals,
-  onSelectTerminal,
+  waiting,
+  onStopTerminal,
+  onTerminalEnded,
+  onTerminalClaimed,
+  onTerminalRun,
   onShowChanges,
 }: {
   id: string
   // The sessions of the terminals, one of which may be an interactive run of this execution.
   terminals: readonly TerminalSession[]
-  onSelectTerminal: (id: string) => void
+  // What the agent of each interactive run that waits for a person said, by execution.
+  waiting: ReadonlyMap<string, string>
+  // A session is closed: it ends, and so does the run in it if it is going on.
+  onStopTerminal: (session: string) => void
+  onTerminalEnded: (session: string) => void
+  onTerminalClaimed: (session: string) => void
+  onTerminalRun: (session: string, executionId: string) => void
   // The Changes sidebar is opened at a visit of this run.
   onShowChanges: (visit: number, path?: string) => void
 }) {
@@ -223,6 +234,9 @@ export function ExecutionPage({
   const { state, reload } = useLoad(load, REFRESH_MS)
   useWatch('work', reload)
   const [stopError, setStopError] = useState<string | null>(null)
+  // Whether the person opened or closed the card of the terminal; until then it is open while the
+  // run goes on.
+  const [terminalOpen, setTerminalOpen] = useState<boolean | null>(null)
 
   async function stop() {
     try {
@@ -241,6 +255,10 @@ export function ExecutionPage({
   const { summary, events } = record
   const visits = visitsOf(events)
   const sessions = sessionsByVisit(events)
+  const live = terminal !== undefined && isLiveRun(terminal)
+  // A run is read before its record is complete, so a live session also counts as going on.
+  const open = terminalOpen ?? (live || summary.status === 'running')
+  const waitingText = waitingFor(summary)
   return (
     <div className="page full">
       <div className="page-head">
@@ -248,10 +266,20 @@ export function ExecutionPage({
           <p className="eyebrow">Execution</p>
           <h1 className="page-title mono">{summary.id}</h1>
         </div>
-        {terminal !== undefined && (
+        {terminal !== undefined && live && (
           <div className="head-actions">
-            <button className="secondary" onClick={() => onSelectTerminal(terminal.id)}>
-              Show terminal
+            <button
+              className="danger"
+              onClick={() => {
+                // Ending a run that is going on stops it, so it is asked.
+                if (
+                  window.confirm(`Stop the run of ${summary.pipeline ?? id}? Its agent is ended.`)
+                ) {
+                  onStopTerminal(terminal.id)
+                }
+              }}
+            >
+              Stop run
             </button>
           </div>
         )}
@@ -269,10 +297,11 @@ export function ExecutionPage({
           Could not stop the run: {stopError}
         </p>
       )}
-      {waitingFor(summary) !== null && (
+      {/* A run with its terminal open says it there, in the view of the terminal. */}
+      {waitingText !== null && (terminal === undefined || !open) && (
         <p className="attention-banner" role="status">
           <strong>Waiting for you.</strong>
-          {waitingFor(summary) !== '' && <span> {waitingFor(summary)}</span>}
+          {waitingText !== '' && <span> {waitingText}</span>}
         </p>
       )}
       <div className="row">
@@ -285,6 +314,30 @@ export function ExecutionPage({
         </div>
       )}
       <RunGraph id={id} record={record} />
+      {terminal !== undefined && (
+        <section className="card terminal-card" aria-label="Terminal">
+          <div className="terminal-card-head">
+            <h2 className="card-title">Terminal</h2>
+            <button
+              className="secondary"
+              aria-expanded={open}
+              onClick={() => setTerminalOpen(!open)}
+            >
+              {open ? 'Hide terminal' : 'Show terminal'}
+            </button>
+          </div>
+          {/* Hidden, the view stays mounted, so that the session stays attached. */}
+          <TerminalView
+            session={terminal}
+            visible={open}
+            onClose={() => onStopTerminal(terminal.id)}
+            onEnded={() => onTerminalEnded(terminal.id)}
+            onClaimed={() => onTerminalClaimed(terminal.id)}
+            onRun={(executionId) => onTerminalRun(terminal.id, executionId)}
+            waitingFor={waiting.get(id) ?? null}
+          />
+        </section>
+      )}
       <section className="card" aria-label="Summary">
         <h2 className="card-title">Summary</h2>
         <dl className="facts">

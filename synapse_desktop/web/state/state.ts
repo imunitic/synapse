@@ -126,6 +126,8 @@ export type Page =
   // A definition's file: a .synapse file, or a skill's SKILL.md.
   | { kind: 'definition'; definition: DefinitionKind; name: string; path: string }
   | { kind: 'execution'; id: string }
+  // An interactive run that has started and is not named yet; it gives way to its execution page.
+  | { kind: 'run-starting'; session: string }
   // A note of the vault, by its path.
   | { kind: 'note'; path: string }
   // What the vault says needs a decision.
@@ -270,6 +272,8 @@ export function pageId(page: Page): string {
       return `definition:${page.definition}:${page.name}`
     case 'execution':
       return `execution:${page.id}`
+    case 'run-starting':
+      return `run-starting:${page.session}`
     case 'note':
       return `note:${page.path}`
     case 'terminals':
@@ -297,6 +301,9 @@ export function pageTitle(page: Page): string {
       return page.name
     case 'execution':
       return page.id
+    // The tab shows the session's pipeline instead: see `tabTitle`.
+    case 'run-starting':
+      return 'Starting run'
     case 'note':
       return titleOf(page.path)
     case 'terminals':
@@ -304,6 +311,14 @@ export function pageTitle(page: Page): string {
     case 'launch':
       return 'New terminal'
   }
+}
+
+// What a tab is called: a page's title, except that a run that is starting is called after its
+// pipeline.
+export function tabTitle(page: Page, terminals: readonly TerminalSession[]): string {
+  if (page.kind !== 'run-starting') return pageTitle(page)
+  const session = terminals.find((t) => t.id === page.session)
+  return session === undefined ? pageTitle(page) : (session.pipeline ?? terminalName(session))
 }
 
 // The section of the rail a page belongs to, when it belongs to one: the notes are in the vault,
@@ -418,6 +433,17 @@ function step(state: ShellState, action: Action): ShellState {
         ...(action.pipeline === undefined ? {} : { pipeline: action.pipeline }),
         ...(action.input === undefined ? {} : { input: action.input }),
       }
+      // A run is shown on its own page, until it is named, and not among the terminals.
+      if (action.kind === 'Pipeline') {
+        return {
+          ...reduce(state, {
+            type: 'openPage',
+            page: { kind: 'run-starting', session: session.id },
+          }),
+          terminals: [...state.terminals, session],
+          terminalsOpened: opened,
+        }
+      }
       return {
         ...reduce(state, { type: 'openPage', page: { kind: 'terminals' } }),
         terminals: [...state.terminals, session],
@@ -441,27 +467,45 @@ function step(state: ShellState, action: Action): ShellState {
         attach: true,
       }))
       // Their page is among the tabs, and the one that shows stays what it is.
+      // A run's session is not among the terminals, so it brings no page and is not selected.
+      const shells = adopted.filter((t) => t.kind !== 'Pipeline')
       const id = pageId({ kind: 'terminals' })
       return {
         ...state,
-        tabs: state.tabs.some((t) => t.id === id)
-          ? state.tabs
-          : [...state.tabs, { id, page: { kind: 'terminals' } }],
+        tabs:
+          shells.length === 0 || state.tabs.some((t) => t.id === id)
+            ? state.tabs
+            : [...state.tabs, { id, page: { kind: 'terminals' } }],
         terminals: [...state.terminals, ...adopted],
-        activeTerminal: state.activeTerminal ?? adopted[0]?.id ?? null,
+        activeTerminal: state.activeTerminal ?? shells[0]?.id ?? null,
         terminalsOpened: state.terminalsOpened + adopted.length,
       }
     }
 
-    case 'terminalRun':
-      return state.terminals.some((t) => t.id === action.id && t.executionId === undefined)
-        ? {
-            ...state,
-            terminals: state.terminals.map((t) =>
-              t.id === action.id ? { ...t, executionId: action.executionId } : t,
-            ),
-          }
-        : state
+    case 'terminalRun': {
+      if (!state.terminals.some((t) => t.id === action.id && t.executionId === undefined)) {
+        return state
+      }
+      const named: ShellState = {
+        ...state,
+        terminals: state.terminals.map((t) =>
+          t.id === action.id ? { ...t, executionId: action.executionId } : t,
+        ),
+      }
+      // Its page, if a tab shows it, becomes the page of the run, where it is.
+      const startingId = pageId({ kind: 'run-starting', session: action.id })
+      if (!state.tabs.some((t) => t.id === startingId)) return named
+      const page: Page = { kind: 'execution', id: action.executionId }
+      const id = pageId(page)
+      const swapped = state.tabs.some((t) => t.id === id)
+        ? state.tabs.filter((t) => t.id !== startingId)
+        : state.tabs.map((t) => (t.id === startingId ? { id, page } : t))
+      return {
+        ...named,
+        tabs: swapped,
+        activeId: state.activeId === startingId ? id : state.activeId,
+      }
+    }
 
     case 'renameTerminal': {
       const session = state.terminals.find((t) => t.id === action.id)
@@ -521,7 +565,8 @@ function step(state: ShellState, action: Action): ShellState {
     }
 
     case 'selectTerminal':
-      return state.terminals.some((t) => t.id === action.id)
+      // A run's session is shown on the run's page, not selected among the terminals.
+      return state.terminals.some((t) => t.id === action.id && t.kind !== 'Pipeline')
         ? { ...state, activeTerminal: action.id }
         : state
 
@@ -529,9 +574,11 @@ function step(state: ShellState, action: Action): ShellState {
       const index = state.terminals.findIndex((t) => t.id === action.id)
       if (index === -1) return state
       const terminals = state.terminals.filter((t) => t.id !== action.id)
+      // The terminals page lists the sessions that are not runs.
+      const shells = terminals.filter((t) => t.kind !== 'Pipeline')
       const activeTerminal =
         state.activeTerminal === action.id
-          ? (terminals[Math.min(index, terminals.length - 1)]?.id ?? null)
+          ? (shells[Math.min(index, shells.length - 1)]?.id ?? null)
           : state.activeTerminal
       // What its sidebar showed goes with it.
       const next = {
@@ -544,7 +591,7 @@ function step(state: ShellState, action: Action): ShellState {
         activityFiles: without(state.activityFiles, action.id),
       }
       // The page has nothing to show without a session.
-      return terminals.length === 0 ? reduce(next, { type: 'closeTab', id: 'terminals' }) : next
+      return shells.length === 0 ? reduce(next, { type: 'closeTab', id: 'terminals' }) : next
     }
 
     case 'definitionsChanged':
@@ -559,6 +606,15 @@ function step(state: ShellState, action: Action): ShellState {
     }
 
     case 'closeTab': {
+      // A run that is starting has no other place: closing its page lets go of its session. The
+      // session goes first, so that the tab is closed once, below.
+      const closing = state.tabs.find((t) => t.id === action.id)?.page
+      if (
+        closing?.kind === 'run-starting' &&
+        state.terminals.some((t) => t.id === closing.session)
+      ) {
+        return reduce(reduce(state, { type: 'closeTerminal', id: closing.session }), action)
+      }
       // The Home tab is always there: there is a page to come back to, whatever else is closed.
       if (action.id === 'home') return state
       const index = state.tabs.findIndex((t) => t.id === action.id)
@@ -580,7 +636,7 @@ function step(state: ShellState, action: Action): ShellState {
         terminals,
         activeTerminal: terminals.some((t) => t.id === state.activeTerminal)
           ? state.activeTerminal
-          : (terminals[0]?.id ?? null),
+          : (terminals.find((t) => t.kind !== 'Pipeline')?.id ?? null),
       }
     }
   }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type Dispatch } from 'react'
 import { CloseIcon } from '../components/icons.tsx'
 import { listExecutions } from '../domain/executions.ts'
 import { closeWarning, firstMovableIndex } from '../domain/tabs.ts'
-import { pageTitle, type Action, type ShellState, type Tab } from '../state/state.ts'
+import { tabTitle, type Action, type ShellState, type Tab } from '../state/state.ts'
 import { transport } from '../transport/index.ts'
 import { useTabDrag } from './use-tab-drag.ts'
 
@@ -55,7 +55,7 @@ export function TabBar({
     if (warning === null) {
       dispatch({ type: 'closeTab', id: tab.id })
     } else {
-      setAsking({ id: tab.id, title: pageTitle(tab.page), warning })
+      setAsking({ id: tab.id, title: tabTitle(tab.page, state.terminals), warning })
     }
   }
 
@@ -76,7 +76,7 @@ export function TabBar({
         {state.tabs.map((tab, index) => {
           const selected = tab.id === state.activeId
           const pinned = tab.id === HOME
-          const title = pageTitle(tab.page)
+          const title = tabTitle(tab.page, state.terminals)
           // A tab shows a person is wanted in what it holds: the terminals, or the run.
           const wanted =
             tab.page.kind === 'terminals'

@@ -42,7 +42,12 @@ test.beforeEach(() => {
 })
 
 test.afterEach(() => {
-  rmSync(join(world().root, 'repos'), { recursive: true, force: true })
+  rmSync(join(world().root, 'repos'), {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 200,
+  })
   rmSync(vault, { recursive: true, force: true })
   resetWorldSettings()
 })

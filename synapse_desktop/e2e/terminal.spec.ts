@@ -405,3 +405,28 @@ test('the terminal draws no scrollbar of the browser at its edge, only its own',
   // Scrolling still works, through xterm's own scrollbar.
   await expect(screen(page).locator('.xterm-scrollable-element')).toHaveCount(1)
 })
+
+test('an interactive run has no tab on the Terminals page, and brings no Terminals page', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await openSection(page, 'Definitions')
+  await page
+    .getByLabel('Side panel')
+    .getByRole('button', { name: /Fixture_Run/ })
+    .click()
+  await page.getByRole('button', { name: 'Run', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  // The dialog starts an interactive run, without the box touched.
+  await dialog.getByLabel(/Folder its agents work in/).fill(world().root)
+  await dialog.getByRole('button', { name: 'Start run' }).click()
+  // The run is shown on its own page; no page of terminals opens for it, and it has no tab there.
+  await expect(page.getByRole('tab', { name: 'Terminals' })).toHaveCount(0)
+  await expect(page.getByRole('tablist', { name: 'Terminal tabs' })).toHaveCount(0)
+  // Opening the Terminals page lists a new shell only.
+  await openLaunch(page)
+  await launchCard(page, 'Shell').getByRole('button', { name: 'New shell' }).click()
+  // The run counted as one opened, so the shell is not "Shell 1".
+  await expect(page.getByRole('tab', { name: /^Shell \d/ })).toBeVisible()
+  await expect(page.getByRole('tablist', { name: 'Terminal tabs' }).getByRole('tab')).toHaveCount(1)
+})

@@ -77,6 +77,7 @@ function run(id: string, status: ExecutionSummary['status']): ExecutionSummary {
     failureStep: null,
     fired: [],
     attention: null,
+    interactive: null,
   }
 }
 
@@ -118,6 +119,14 @@ describe('what closing a tab asks about', () => {
     )
     expect(closeWarning(page, [], [run('r1', 'completed')])).toBeNull()
     expect(closeWarning(page, [], [run('other', 'running')])).toBeNull()
+    expect(closeWarning(page, [], [])).toBeNull()
+  })
+
+  it('says that closing the page of a run that is starting ends the run', () => {
+    const run: TerminalSession = { ...session('r'), kind: 'Pipeline' }
+    const page = { kind: 'run-starting', session: 'r' } as const
+    expect(closeWarning(page, [run], [])).toMatch(/stops it/)
+    expect(closeWarning(page, [{ ...run, ended: true }], [])).toBeNull()
     expect(closeWarning(page, [], [])).toBeNull()
   })
 

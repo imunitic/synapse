@@ -3,10 +3,10 @@ import {
   interactiveProblem,
   previewInput,
   readFolder,
-  readInteractive,
+  readAutonomous,
   runInput,
   writeFolder,
-  writeInteractive,
+  writeAutonomous,
 } from './run-input.ts'
 
 describe('the input of a run', () => {
@@ -54,27 +54,34 @@ describe('whether a pipeline can be run interactively', () => {
   })
 })
 
-describe('the choice of Interactive', () => {
+describe('the choice to run without a terminal', () => {
   function storage() {
     const held = new Map<string, string>()
     return {
+      held,
       getItem: (key: string) => held.get(key) ?? null,
       setItem: (key: string, value: string) => void held.set(key, value),
       removeItem: (key: string) => void held.delete(key),
     }
   }
 
-  it('is kept for each pipeline and is off until it was made', () => {
+  it('is false until it was made, and is kept for each pipeline', () => {
     const s = storage()
-    expect(readInteractive(s, 'A')).toBe(false)
-    writeInteractive(s, 'A', true)
-    expect(readInteractive(s, 'A')).toBe(true)
-    expect(readInteractive(s, 'B')).toBe(false)
-    writeInteractive(s, 'A', false)
-    expect(readInteractive(s, 'A')).toBe(false)
+    expect(readAutonomous(s, 'A')).toBe(false)
+    writeAutonomous(s, 'A', true)
+    expect(readAutonomous(s, 'A')).toBe(true)
+    expect(readAutonomous(s, 'B')).toBe(false)
   })
 
-  it('is off where the storage cannot be used', () => {
+  it('is forgotten when written false', () => {
+    const s = storage()
+    writeAutonomous(s, 'A', true)
+    writeAutonomous(s, 'A', false)
+    expect(readAutonomous(s, 'A')).toBe(false)
+    expect(s.held.size).toBe(0)
+  })
+
+  it('is false where the storage cannot be used', () => {
     const broken = {
       getItem: () => {
         throw new Error('no storage')
@@ -86,8 +93,14 @@ describe('the choice of Interactive', () => {
         throw new Error('no storage')
       },
     }
-    expect(readInteractive(broken, 'A')).toBe(false)
-    expect(() => writeInteractive(broken, 'A', true)).not.toThrow()
+    expect(readAutonomous(broken, 'A')).toBe(false)
+    expect(() => writeAutonomous(broken, 'A', true)).not.toThrow()
+  })
+
+  it('does not read the old run-interactive key', () => {
+    const s = storage()
+    s.setItem('run-interactive:A', '1')
+    expect(readAutonomous(s, 'A')).toBe(false)
   })
 })
 

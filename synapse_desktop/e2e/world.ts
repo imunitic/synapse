@@ -340,6 +340,29 @@ rm -f "$tmp"
 ev_end EDITED
 `
 
+// `synapse-pipeline` as the tests see it: an interactive run needs the process runner, which runs
+// the stub harness in a terminal, so it is run without the scripted one that every other run has.
+const PIPELINE_WRAPPER = String.raw`#!/bin/sh
+self=$(cd "$(dirname "$0")" && pwd)
+whole=$PATH
+rest=""
+IFS=:
+for d in $PATH; do
+  [ "$d" = "$self" ] && continue
+  if [ -n "$rest" ]; then rest="$rest:$d"; else rest="$d"; fi
+done
+unset IFS
+PATH=$rest
+real=$(command -v synapse-pipeline)
+PATH=$whole
+for a in "$@"; do
+  if [ "$a" = "--interactive" ]; then
+    unset SYNAPSE_PIPELINE_RUNNER SYNAPSE_PIPELINE_SCRIPT
+  fi
+done
+exec "$real" "$@"
+`
+
 export function buildWorld(root: string, binDirs: readonly string[]): World {
   const world = worldAt(root)
   mkdirSync(world.home, { recursive: true })
@@ -348,6 +371,7 @@ export function buildWorld(root: string, binDirs: readonly string[]): World {
   for (const name of ['claude', 'codex', 'opencode']) {
     writeFileSync(join(world.bin, name), STUB, { mode: 0o755, flag: 'w' })
   }
+  writeFileSync(join(world.bin, 'synapse-pipeline'), PIPELINE_WRAPPER, { mode: 0o755, flag: 'w' })
   writeFileSync(join(world.bin, 'stub-edit'), EDIT_STUB, { mode: 0o755, flag: 'w' })
   for (const [name, text] of Object.entries(DEFINITIONS)) write(join(world.definitions, name), text)
   for (const [name, text] of Object.entries(SKILLS)) {
