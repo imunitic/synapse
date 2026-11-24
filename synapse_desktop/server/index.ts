@@ -26,6 +26,8 @@ const { web: WEB_PORT, server: SERVER_PORT } = ports(process.env)
 const environment = { env: process.env, home: homedir() }
 const suppliedToken = process.env.SYNAPSE_DESKTOP_TOKEN
 const bindAddress = privateNetworkBind(process.env)
+// The backend credential belongs to the bus policy, not to spawned programs.
+delete process.env.SYNAPSE_DESKTOP_TOKEN
 const token = suppliedToken ? suppliedToken : randomBytes(24).toString('hex')
 
 const policy = {
