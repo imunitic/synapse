@@ -1,6 +1,18 @@
 import { TaskStatus } from '../components/TaskStatus.tsx'
-import { useCallback, useEffect, useMemo, useReducer, type ReactNode } from 'react'
-import Markdown from 'react-markdown'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react'
+import Markdown, { type Components, type ExtraProps } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
   isGraphNodePath,
@@ -16,6 +28,7 @@ import {
   withoutTitleHeading,
 } from '../domain/notes.ts'
 import { noteSummary } from '../domain/note-summary.ts'
+import { duplicatePaths, noteOutline, pairHeadings } from '../domain/outline.ts'
 import { recordOpened } from '../domain/recent.ts'
 import { isWide, setWide } from '../domain/wide-notes.ts'
 import { transport } from '../transport/index.ts'
@@ -23,6 +36,8 @@ import { RefreshIcon } from '../components/icons.tsx'
 import { EditNote } from '../components/EditNote.tsx'
 import { WideSwitch } from '../components/WideSwitch.tsx'
 import type { Page } from '../state/state.ts'
+import { addNoteComment } from '../state/note-reviews.ts'
+import { registerNoteHeadings } from '../state/note-headings.ts'
 import { useLoad } from '../state/useLoad.ts'
 import { useWatch } from '../state/useWatch.ts'
 
@@ -57,6 +72,124 @@ function Property({ name, value }: { name: string; value: unknown }) {
   )
 }
 
+// A box to write a comment in: Save keeps it in the note's review, Cancel or Esc drops it, and
+// Cmd or Ctrl+Enter saves.
+function CommentBox({
+  label,
+  onSave,
+  onCancel,
+}: {
+  label: string
+  onSave: (text: string) => void
+  onCancel: () => void
+}) {
+  const [text, setText] = useState('')
+  const empty = text.trim() === ''
+
+  function handleKey(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      onCancel()
+    } else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && !empty) {
+      event.preventDefault()
+      onSave(text)
+    }
+  }
+
+  return (
+    <section className="card note-comment-box" aria-label={label}>
+      <textarea
+        rows={3}
+        autoFocus
+        aria-label="Comment"
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={handleKey}
+      />
+      <div className="row">
+        <button className="primary" disabled={empty} onClick={() => onSave(text)}>
+          Save
+        </button>
+        <button className="secondary" onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </section>
+  )
+}
+
+// What the headings of the note body need from the page: the doc-map path each rendered heading
+// is paired with (by its offset in the markdown), the paths several headings share (offered no
+// comment, see `duplicatePaths`), whether comments are offered, which heading's
+// comment box is open, and how to open, save and close it.
+interface BodyHeadings {
+  paths: ReadonlyMap<number, string | null>
+  shared: ReadonlySet<string>
+  commentable: boolean
+  commenting: string | null | undefined
+  comment: (section: string) => void
+  save: (section: string, text: string) => void
+  cancel: () => void
+}
+
+const BodyHeadingsContext = createContext<BodyHeadings | null>(null)
+
+// A heading of the note body, with a Comment button when it is paired with a doc-map path.
+function BodyHeading({
+  level,
+  node,
+  children,
+}: {
+  level: 1 | 2 | 3 | 4 | 5 | 6
+  children?: ReactNode
+} & ExtraProps) {
+  const headings = useContext(BodyHeadingsContext)
+  const offset = node?.position?.start.offset
+  const section = offset === undefined ? null : (headings?.paths.get(offset) ?? null)
+  const Tag = `h${level}` as const
+  return (
+    <>
+      <div className="note-heading" data-section={section ?? undefined}>
+        <Tag data-heading={offset}>{children}</Tag>
+        {headings !== null &&
+          headings.commentable &&
+          section !== null &&
+          !headings.shared.has(section) && (
+            <button
+              className="secondary note-heading-comment"
+              title={`Comment on ${section}`}
+              onClick={() => headings.comment(section)}
+            >
+              Comment
+            </button>
+          )}
+      </div>
+      {headings !== null && section !== null && headings.commenting === section && (
+        <CommentBox
+          label={`Comment on ${section}`}
+          onSave={(text) => headings.save(section, text)}
+          onCancel={headings.cancel}
+        />
+      )}
+    </>
+  )
+}
+
+const HEADING_COMPONENTS: Components = {
+  h1: (props) => <BodyHeading level={1} {...props} />,
+  h2: (props) => <BodyHeading level={2} {...props} />,
+  h3: (props) => <BodyHeading level={3} {...props} />,
+  h4: (props) => <BodyHeading level={4} {...props} />,
+  h5: (props) => <BodyHeading level={5} {...props} />,
+  h6: (props) => <BodyHeading level={6} {...props} />,
+}
+
+function samePaths(a: ReadonlyMap<number, string | null>, b: ReadonlyMap<number, string | null>) {
+  if (a.size !== b.size) return false
+  for (const [key, value] of a) if (b.get(key) !== value) return false
+  return true
+}
+
 // A note of the vault: its properties, its text, and the notes it links to and
 // is linked from.
 export function NotePage({ path, onOpen }: { path: string; onOpen: (page: Page) => void }) {
@@ -64,7 +197,9 @@ export function NotePage({ path, onOpen }: { path: string; onOpen: (page: Page) 
   const readLinks = useCallback(() => noteLinks(transport, path), [path])
   const readBacklinks = useCallback(() => noteBacklinks(transport, path), [path])
   const readAll = useCallback(() => listNotes(transport), [])
+  const readOutline = useCallback(() => noteOutline(transport, path), [path])
   const note = useLoad(read)
+  const outline = useLoad(readOutline)
   // A note that was read is one that was opened, which the home page offers again.
   useEffect(() => {
     if (note.state.status === 'ready') recordOpened(path)
@@ -111,11 +246,82 @@ export function NotePage({ path, onOpen }: { path: string; onOpen: (page: Page) 
   // when the vault changes, since a note can be changed by another program, and on request.
   function readAgain() {
     note.reload()
+    outline.reload()
     links.reload()
     backlinks.reload()
     all.reload()
   }
   useWatch('vault', readAgain)
+
+  function readChanged() {
+    note.reload()
+    outline.reload()
+  }
+
+  // The rendered headings are paired with the doc-map's paths by their titles in order, after
+  // they are on the page; a heading with no path offers no comment.
+  const article = useRef<HTMLElement>(null)
+  const [paths, setPaths] = useState<ReadonlyMap<number, string | null>>(new Map())
+  useLayoutEffect(() => {
+    const elements = [...(article.current?.querySelectorAll<HTMLElement>('[data-heading]') ?? [])]
+    const headings = outline.state.status === 'ready' ? outline.state.data : []
+    const paired = pairHeadings(
+      headings,
+      elements.map((element) => element.textContent ?? ''),
+    )
+    const next = new Map(
+      elements.map((element, i) => [Number(element.dataset.heading), paired[i] ?? null]),
+    )
+    setPaths((current) => (samePaths(current, next) ? current : next))
+  }, [body, outline.state])
+
+  // The open comment box: a heading's path, null for the whole note, undefined for none.
+  const [commenting, setCommenting] = useState<string | null | undefined>(undefined)
+  useEffect(() => setCommenting(undefined), [path])
+  const commentable = !isGraphNodePath(path)
+  const shared = useMemo(
+    () => duplicatePaths(outline.state.status === 'ready' ? outline.state.data : []),
+    [outline.state],
+  )
+  // A section the outline offers but no body heading is paired with (the H1 the page strips, a
+  // heading the pairing could not match) gets its comment box at the top, where the whole-note one
+  // is, and scrolling to it goes to the top of the page.
+  const page = useRef<HTMLDivElement>(null)
+  const unpaired =
+    typeof commenting === 'string' && ![...paths.values()].includes(commenting) ? commenting : null
+
+  const bodyHeadings = useMemo<BodyHeadings>(
+    () => ({
+      paths,
+      shared,
+      commentable,
+      commenting,
+      comment: setCommenting,
+      save: (section, text) => {
+        addNoteComment(path, { section, text })
+        setCommenting(undefined)
+      },
+      cancel: () => setCommenting(undefined),
+    }),
+    [paths, shared, commentable, commenting, path],
+  )
+
+  // The Outline sidebar reaches the headings through the registry while this page shows the note.
+  useEffect(
+    () =>
+      registerNoteHeadings(path, {
+        scrollTo: (section) => {
+          const element = [
+            ...(article.current?.querySelectorAll<HTMLElement>('[data-section]') ?? []),
+          ].find((candidate) => candidate.dataset.section === section)
+          ;(element ?? page.current)?.scrollIntoView({ block: 'start' })
+        },
+        comment: (section) => {
+          if (commentable && (section === null || !shared.has(section))) setCommenting(section)
+        },
+      }),
+    [path, commentable, shared],
+  )
 
   if (note.state.status === 'loading') return <p className="muted">Loading…</p>
   if (note.state.status === 'failed') {
@@ -131,7 +337,7 @@ export function NotePage({ path, onOpen }: { path: string; onOpen: (page: Page) 
       : null
 
   return (
-    <div className={wide ? 'page note wide' : 'page note'}>
+    <div ref={page} className={wide ? 'page note wide' : 'page note'}>
       <p className="eyebrow">
         {path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : 'Vault'}
       </p>
@@ -154,16 +360,45 @@ export function NotePage({ path, onOpen }: { path: string; onOpen: (page: Page) 
         <EditNote
           path={path}
           title={title}
-          onChanged={note.reload}
+          onChanged={readChanged}
           onRefresh={readAgain}
           tools={
             <>
+              <button
+                className="secondary"
+                aria-label="Comment on the whole note"
+                title="Comment on the whole note"
+                aria-expanded={commenting === null}
+                onClick={() => setCommenting(commenting === null ? undefined : null)}
+              >
+                Comment
+              </button>
               {wideSwitch}
               {taskStatus !== null && (
                 <TaskStatus path={path} status={taskStatus} onChanged={readAgain} />
               )}
             </>
           }
+        />
+      )}
+      {commentable && commenting === null && (
+        <CommentBox
+          label="Comment on the whole note"
+          onSave={(text) => {
+            addNoteComment(path, { section: null, text })
+            setCommenting(undefined)
+          }}
+          onCancel={() => setCommenting(undefined)}
+        />
+      )}
+      {commentable && unpaired !== null && (
+        <CommentBox
+          label={`Comment on ${unpaired}`}
+          onSave={(text) => {
+            addNoteComment(path, { section: unpaired, text })
+            setCommenting(undefined)
+          }}
+          onCancel={() => setCommenting(undefined)}
         />
       )}
       {properties.length > 0 && (
@@ -190,42 +425,45 @@ export function NotePage({ path, onOpen }: { path: string; onOpen: (page: Page) 
           </dl>
         </details>
       )}
-      <article className="note-body">
-        <Markdown
-          remarkPlugins={[remarkGfm]}
-          urlTransform={safeUrl}
-          components={{
-            a({ href, children }) {
-              const target = wikilinkTarget(href ?? '')
-              if (target !== null) {
-                const where = resolveLink(index, target, linked)
-                return where === null ? (
-                  <span className="muted" title="There is no such note">
-                    {children}
-                  </span>
-                ) : (
-                  <a
-                    href={`#${where}`}
-                    className="wikilink"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      onOpen({ kind: 'note', path: where })
-                    }}
-                  >
+      <article className="note-body" ref={article}>
+        <BodyHeadingsContext value={bodyHeadings}>
+          <Markdown
+            remarkPlugins={[remarkGfm]}
+            urlTransform={safeUrl}
+            components={{
+              ...HEADING_COMPONENTS,
+              a({ href, children }) {
+                const target = wikilinkTarget(href ?? '')
+                if (target !== null) {
+                  const where = resolveLink(index, target, linked)
+                  return where === null ? (
+                    <span className="muted" title="There is no such note">
+                      {children}
+                    </span>
+                  ) : (
+                    <a
+                      href={`#${where}`}
+                      className="wikilink"
+                      onClick={(event) => {
+                        event.preventDefault()
+                        onOpen({ kind: 'note', path: where })
+                      }}
+                    >
+                      {children}
+                    </a>
+                  )
+                }
+                return (
+                  <a href={href} target="_blank" rel="noreferrer noopener">
                     {children}
                   </a>
                 )
-              }
-              return (
-                <a href={href} target="_blank" rel="noreferrer noopener">
-                  {children}
-                </a>
-              )
-            },
-          }}
-        >
-          {body}
-        </Markdown>
+              },
+            }}
+          >
+            {body}
+          </Markdown>
+        </BodyHeadingsContext>
       </article>
       <div className="note-links">
         {links.state.status === 'ready' && links.state.data.length > 0 && (

@@ -2912,6 +2912,118 @@ button.activity-file:hover {
   white-space: pre-wrap;
 }
 
+/* The Outline sidebar of a note's page: its headings, nested, with the review at its bottom */
+.outline {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 8px 8px;
+}
+
+.outline-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.outline-list .outline-list {
+  padding-left: 12px;
+}
+
+.outline-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.outline-heading {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 3px 4px;
+  border-radius: 4px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outline-heading:hover {
+  color: var(--strong);
+  background: var(--raised);
+}
+
+.outline-count {
+  flex: none;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+
+.outline-comment {
+  flex: none;
+  padding: 1px 4px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  opacity: 0;
+}
+
+.outline-row:hover .outline-comment,
+.outline-comment:focus-visible {
+  opacity: 1;
+}
+
+.outline-comment:hover {
+  color: var(--strong);
+}
+
+.review-bar .run-choice {
+  margin-top: 8px;
+}
+
+/* A heading of the note body with its Comment button, and the box a comment is written in */
+.note-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.note-heading > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.note-heading-comment {
+  flex: none;
+  font-size: 0.75rem;
+  opacity: 0;
+}
+
+.note-heading:hover .note-heading-comment,
+.note-heading-comment:focus-visible {
+  opacity: 1;
+}
+
+.note-comment-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+
+.note-comment-box textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+}
+
 /* The steps of a run that the Changes sidebar can show, one at a time */
 .changes-steps {
   display: flex;

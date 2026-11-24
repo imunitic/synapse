@@ -17,6 +17,7 @@ const ALLOWED_SUBCOMMANDS: Record<CliBinary, readonly string[]> = {
     'vault-search-text',
     'vault-links',
     'vault-backlinks',
+    'vault-doc-map',
     'work-dir',
     'callers',
     'index',

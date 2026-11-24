@@ -72,6 +72,9 @@ fn of_synapse_only_config_status_and_the_read_only_commands_of_the_vault_are_all
     allowed(Synapse, &["vault-search-text", "two words"]);
     allowed(Synapse, &["vault-links", "a.md"]);
     allowed(Synapse, &["vault-backlinks", "a.md"]);
+    allowed(Synapse, &["vault-doc-map", "a.md"]);
+    refuses(Synapse, &["vault-doc-map", "--x"], "one argument");
+    refuses(Synapse, &["vault-doc-map"], "one argument");
     allowed(
         Synapse,
         &[

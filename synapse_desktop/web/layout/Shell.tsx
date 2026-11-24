@@ -4,6 +4,7 @@ import { transport } from '../transport/index.ts'
 import { PageView } from './PageView.tsx'
 import { ChangesSidebar } from './ChangesSidebar.tsx'
 import { ChangesToggle } from './ChangesToggle.tsx'
+import { OutlineSidebar } from './OutlineSidebar.tsx'
 import { Rail } from './Rail.tsx'
 import { SidePanel } from './SidePanel.tsx'
 import { StatusBar } from './StatusBar.tsx'
@@ -15,6 +16,7 @@ import { isLiveRun, reduce, startState } from '../state/state.ts'
 import { fileCount, useChanges, type ChangesSource } from '../state/useChanges.ts'
 import { useCommits } from '../state/useCommits.ts'
 import { clearReview } from '../state/reviews.ts'
+import { useNoteReview } from '../state/note-reviews.ts'
 import { useWaitingRuns } from '../state/useWaitingRuns.ts'
 import { TabBar } from './TabBar.tsx'
 import '../app/shell.css'
@@ -95,6 +97,9 @@ export function Shell() {
   const changesTab = gitSession === null ? 'changes' : (state.changesTabs[gitSession] ?? 'changes')
   const gitCommit = gitSession === null ? null : (state.gitCommits[gitSession] ?? null)
   const commits = useCommits(gitSession, state.changesOpen && changesTab === 'git', gitCommit)
+  // On a note page the sidebar is the note's outline, with its review comments.
+  const notePath = active?.page.kind === 'note' ? active.page.path : null
+  const noteComments = useNoteReview(notePath)
   const missingWorkDir = config.status === 'ready' && config.config.workDir === null
 
   return (
@@ -103,11 +108,21 @@ export function Shell() {
         <Rail state={state} dispatch={dispatch} />
         {state.panelOpen && <SidePanel state={state} dispatch={dispatch} />}
         <main className="main">
-          <ChangesToggle
-            open={state.changesOpen}
-            count={fileCount(changes.state)}
-            onToggle={() => dispatch({ type: 'toggleChanges' })}
-          />
+          {notePath === null ? (
+            <ChangesToggle
+              open={state.changesOpen}
+              count={fileCount(changes.state)}
+              onToggle={() => dispatch({ type: 'toggleChanges' })}
+            />
+          ) : (
+            <ChangesToggle
+              open={state.changesOpen}
+              count={noteComments.length}
+              onToggle={() => dispatch({ type: 'toggleChanges' })}
+              label="Show or hide the outline"
+              counted={noteComments.length === 1 ? 'comment' : 'comments'}
+            />
+          )}
           <TabBar state={state} dispatch={dispatch} waiting={waiting} />
           {missingWorkDir && (
             <div className="banner" role="status">
@@ -225,7 +240,8 @@ export function Shell() {
             )}
           </div>
         </main>
-        {state.changesOpen && (
+        {state.changesOpen && notePath !== null && <OutlineSidebar path={notePath} />}
+        {state.changesOpen && notePath === null && (
           <ChangesSidebar
             state={changes.state}
             onRefresh={changes.refresh}
