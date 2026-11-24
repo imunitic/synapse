@@ -4,7 +4,6 @@ import { ConfigProvider } from '../state/ConfigProvider.tsx'
 import { DiagnosisProvider } from '../state/DiagnosisProvider.tsx'
 import { Shell } from '../layout/Shell.tsx'
 
-
 export function App() {
   const [privateSession, setPrivateSession] = useState(false)
   const [logoutError, setLogoutError] = useState(false)
@@ -26,6 +25,7 @@ export function App() {
   }, [])
 
   async function signOut() {
+    if (!window.confirm('Sign out? Any unsent draft comments in this tab will be lost.')) return
     setSigningOut(true)
     setLogoutError(false)
     try {
