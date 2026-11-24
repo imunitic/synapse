@@ -47,14 +47,17 @@ function reasonOf(stderr: string, stdout: string): string {
 }
 
 // The changes of a run. Throws with the CLI's own words when it cannot say, and when it answers in a
-// format this app does not know.
+// format this app does not know. With a step, the attempt of that step that is running is included,
+// as the folder is now against what it was when the attempt started.
 export async function readRunChanges(
   transport: Transport,
   executionId: string,
+  step?: string,
 ): Promise<RunChanges> {
   const result = await transport.cli('synapse-pipeline', [
     'changes',
     executionId,
+    ...(step === undefined ? [] : ['--step', step]),
     '--format',
     'json',
   ])
@@ -79,6 +82,14 @@ export async function readRunChanges(
       }))
       .filter((c) => c.set.files.length > 0),
   }
+}
+
+// The change of the attempt that is running, which only an answer asked for with its step has.
+export function liveChange(
+  run: RunChanges,
+  live: { visit: number; attempt: number },
+): RecordedChange | null {
+  return run.changes.find((c) => c.visit === live.visit && c.attempt === live.attempt) ?? null
 }
 
 // A name for a recorded patch in a list: the step, and which visit and try when it was one of

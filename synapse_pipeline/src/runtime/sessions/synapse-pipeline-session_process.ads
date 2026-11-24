@@ -24,6 +24,11 @@ package Synapse.Pipeline.Session_Process is
       Standard_Input  : Ada.Strings.Unbounded.Unbounded_String;
 
       Timeout_Seconds : Positive := 30 * 60;
+
+      --  When set, the program's standard output goes straight to this
+      --  file, which is created or truncated, and is not removed when the
+      --  program ends. Outcome.Output still holds what was read from it.
+      Output_Path     : Ada.Strings.Unbounded.Unbounded_String;
    end record;
 
    type Process_Outcome is record

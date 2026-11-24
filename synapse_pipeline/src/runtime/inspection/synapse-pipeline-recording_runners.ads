@@ -8,10 +8,13 @@ with Synapse.Pipeline.Working_Trees;
 
 --  A runner that runs its inner runner and keeps a record of each session.
 --  Every request it passes on names the execution it belongs to, so the inner
---  runner can keep the session's transcript there, and every session ends in
---  a `session.finished` event: the step, the attempt, whether it succeeded
---  and where its transcript is. A step with retries has one such event for
---  each try.
+--  runner can keep the session's transcript there. Every session begins with
+--  a `session.started` event: the step, the attempt, the visit, where the
+--  runner will write its transcript and the snapshot taken before it (null
+--  when there is none). A runner that writes no transcript there leaves the
+--  file missing. Every session ends in a `session.finished` event: the step,
+--  the attempt, whether it succeeded and where its transcript is. A step with
+--  retries has one such pair of events for each try.
 --
 --  When it is given working trees it takes a snapshot of the folder the
 --  session works in before the session and another after it, and keeps what
@@ -33,6 +36,12 @@ package Synapse.Pipeline.Recording_Runners is
       --  The most bytes of a new file a patch keeps.
       Largest : Natural := Patches.Default_Largest;
    end record;
+
+   --  What names the snapshots of a session of Request in the run Id: the run,
+   --  the visit and the attempt, with only the characters a file name may
+   --  have.
+   function Label (Id : String; Request : Sessions.Session_Request)
+      return String;
 
    overriding
    function Run_Session

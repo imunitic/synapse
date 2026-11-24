@@ -1,5 +1,6 @@
 with Ada.Calendar;
 with Ada.Directories;
+with Ada.Environment_Variables;
 with Ada.Streams.Stream_IO;
 with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
@@ -346,6 +347,144 @@ package body Synapse.Pipeline.System_Process.Tests is
       end;
    end On_Windows_A_Command_Script_Is_Run;
 
+   function Read_All (Path : String) return String is
+      use Ada.Streams.Stream_IO;
+      File : File_Type;
+   begin
+      Open (File, In_File, Path);
+      declare
+         Data : String (1 .. Natural (Size (File)));
+      begin
+         String'Read (Stream (File), Data);
+         Close (File);
+         return Data;
+      end;
+   end Read_All;
+
+   procedure Output_Goes_To_The_Path_It_Is_Given
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Scratch : constant Synapse.Test_Scratch.Scratch :=
+        Synapse.Test_Scratch.Make_Outside_Git;
+      Target  : constant String :=
+        Synapse.Test_Scratch.Path (Scratch, "kept.jsonl");
+      P       : System_Process;
+      Request : Session_Process.Process_Request :=
+        Shell ("echo one; echo two");
+   begin
+      if not Has_Posix then
+         return;
+      end if;
+      Request.Output_Path := To_Unbounded_String (Target);
+      declare
+         Got : constant Session_Process.Process_Outcome := P.Run (Request);
+      begin
+         Assert
+           (Got.Started
+            and then To_String (Got.Output) = "one" & LF & "two" & LF,
+            "the outcome still holds the output: " & To_String (Got.Output));
+         Assert
+           (Ada.Directories.Exists (Target)
+            and then Read_All (Target) = "one" & LF & "two" & LF,
+            "the file is kept with both lines");
+      end;
+      Synapse.Test_Scratch.Remove (Scratch);
+   end Output_Goes_To_The_Path_It_Is_Given;
+
+   function Entries_In (Dir : String) return Natural is
+      Search : Ada.Directories.Search_Type;
+      Item   : Ada.Directories.Directory_Entry_Type;
+      Count  : Natural := 0;
+   begin
+      Ada.Directories.Start_Search
+        (Search, Dir, "",
+         [Ada.Directories.Ordinary_File => True, others => False]);
+      while Ada.Directories.More_Entries (Search) loop
+         Ada.Directories.Get_Next_Entry (Search, Item);
+         Count := Count + 1;
+      end loop;
+      Ada.Directories.End_Search (Search);
+      return Count;
+   end Entries_In;
+
+   --  Runs the request with TMPDIR pointing at an empty directory, and
+   --  says how many files the run left in it.
+   function Left_In_Temp
+     (Scratch : Synapse.Test_Scratch.Scratch;
+      Request : Session_Process.Process_Request;
+      Got     : out Session_Process.Process_Outcome) return Natural
+   is
+      Temp : constant String := Synapse.Test_Scratch.Path (Scratch, "tmp");
+      Had  : constant Boolean := Ada.Environment_Variables.Exists ("TMPDIR");
+      Old  : constant String :=
+        (if Had then Ada.Environment_Variables.Value ("TMPDIR") else "");
+      P    : System_Process;
+   begin
+      Ada.Directories.Create_Path (Temp);
+      Ada.Environment_Variables.Set ("TMPDIR", Temp);
+      Got := P.Run (Request);
+      if Had then
+         Ada.Environment_Variables.Set ("TMPDIR", Old);
+      else
+         Ada.Environment_Variables.Clear ("TMPDIR");
+      end if;
+      return Entries_In (Temp);
+   exception
+      when others =>
+         if Had then
+            Ada.Environment_Variables.Set ("TMPDIR", Old);
+         else
+            Ada.Environment_Variables.Clear ("TMPDIR");
+         end if;
+         raise;
+   end Left_In_Temp;
+
+   procedure A_Run_Without_A_Path_Leaves_No_File
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Scratch : constant Synapse.Test_Scratch.Scratch :=
+        Synapse.Test_Scratch.Make_Outside_Git;
+      Got     : Session_Process.Process_Outcome;
+   begin
+      if not Has_Posix then
+         return;
+      end if;
+      Assert
+        (Left_In_Temp (Scratch, Shell ("echo one"), Got) = 0
+         and then Got.Started
+         and then To_String (Got.Output) = "one" & LF,
+         "no temporary file is left behind");
+      Synapse.Test_Scratch.Remove (Scratch);
+   end A_Run_Without_A_Path_Leaves_No_File;
+
+   procedure Too_Much_Output_Does_Not_Keep_The_File
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Scratch : constant Synapse.Test_Scratch.Scratch :=
+        Synapse.Test_Scratch.Make_Outside_Git;
+      Target  : constant String :=
+        Synapse.Test_Scratch.Path (Scratch, "big.jsonl");
+      Request : Session_Process.Process_Request :=
+        Shell ("head -c 70000000 /dev/zero");
+      Got     : Session_Process.Process_Outcome;
+   begin
+      if not Has_Posix then
+         return;
+      end if;
+      Request.Output_Path := To_Unbounded_String (Target);
+      Assert
+        (Left_In_Temp (Scratch, Request, Got) = 0
+         and then not Got.Started,
+         "the run is reported as not started");
+      Assert
+        (not Ada.Directories.Exists (Target),
+         "the oversized file is not kept");
+      Synapse.Test_Scratch.Remove (Scratch);
+   end Too_Much_Output_Does_Not_Keep_The_File;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -360,6 +499,15 @@ package body Synapse.Pipeline.System_Process.Tests is
       Register_Routine
         (T, What_The_Program_Wrote_Is_Returned'Access,
          "What the program wrote is returned");
+      Register_Routine
+        (T, Output_Goes_To_The_Path_It_Is_Given'Access,
+         "Output goes to the path it is given");
+      Register_Routine
+        (T, A_Run_Without_A_Path_Leaves_No_File'Access,
+         "A run without an output path leaves no file");
+      Register_Routine
+        (T, Too_Much_Output_Does_Not_Keep_The_File'Access,
+         "Too much output does not keep the file");
       Register_Routine
         (T, The_Program_Is_Given_Its_Input_Directory_And_Environment'Access,
          "The program is given its input, directory and environment");

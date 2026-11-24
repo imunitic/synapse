@@ -69,11 +69,14 @@ package body Synapse.Pipeline.Recording_Runners.Tests is
       return Result;
    end Request_For_A;
 
+   --  The detail of each `session.finished` event.
    function Events_Text (Context : Contexts.Execution_Context) return String is
       Text : Unbounded_String;
    begin
       for Item of Context.Current.Events loop
-         Append (Text, JSON.To_String (Item.Detail) & "|");
+         if To_String (Item.Kind) = "session.finished" then
+            Append (Text, JSON.To_String (Item.Detail) & "|");
+         end if;
       end loop;
       return To_String (Text);
    end Events_Text;
@@ -303,11 +306,80 @@ package body Synapse.Pipeline.Recording_Runners.Tests is
          & """transcript"":""/w/exec-1/transcripts/1-A-2.jsonl""}|",
          "and the session is an event: " & Events_Text (Context));
       Assert
-        (To_String (Context.Current.Events.First_Element.Step) = "A"
-         and then To_String (Context.Current.Events.First_Element.Kind) =
+        (To_String (Context.Current.Events.Last_Element.Step) = "A"
+         and then To_String (Context.Current.Events.Last_Element.Kind) =
                   "session.finished",
          "of the kind and for the step");
    end A_Session_Is_Stamped_And_Recorded;
+
+   --  The kinds of the events, in order, each with its detail.
+   function Kinds_And_Details
+     (Context : Contexts.Execution_Context) return String
+   is
+      Text : Unbounded_String;
+   begin
+      for Item of Context.Current.Events loop
+         Append
+           (Text,
+            To_String (Item.Kind) & " " & JSON.To_String (Item.Detail) & "|");
+      end loop;
+      return To_String (Text);
+   end Kinds_And_Details;
+
+   procedure A_Session_Starts_With_An_Event_Before_It_Finishes
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context  : aliased Contexts.Execution_Context;
+      Store    : aliased Fake_Registry.Fake_Registry;
+      Clock    : aliased Fixed_Clock;
+      Recorder : aliased Recorders.Recorder
+        (Context'Access, Store'Access, Clock'Access);
+      Inner    : aliased Stub_Runner;
+      Trees    : aliased Fake_Working_Trees.Fake_Working_Trees;
+      R        : Recording_Runner
+        (Inner'Access, Recorder'Access, Trees'Access);
+   begin
+      Inner.Answer := Sessions.Success (Envelopes.Envelope'(others => <>));
+      Trees.Snapshots.Append (To_Unbounded_String ("tree1"));
+      Trees.Snapshots.Append (To_Unbounded_String ("tree1"));
+      Assert (Store.Create ("exec-1") = Registry_Store.Created, "made");
+      R.Id := To_Unbounded_String ("exec-1");
+      Recorder.Start ("exec-1", True, JSON.Null_Value, Initial_State);
+      Assert (R.Run_Session (Request_In_Work (2)).Succeeded, "it ran");
+      Assert
+        (Kinds_And_Details (Context) =
+         "session.started {""attempt"":1,""visit"":2,"
+         & """transcript"":""memory:exec-1/transcripts/2-A-1.jsonl"","
+         & """before"":""tree1""}|"
+         & "session.finished {""attempt"":1,""succeeded"":true,"
+         & """transcript"":null}|",
+         "the start comes first, with the attempt, the visit, the transcript "
+         & "path and the before tree: " & Kinds_And_Details (Context));
+   end A_Session_Starts_With_An_Event_Before_It_Finishes;
+
+   procedure A_Session_With_No_Working_Trees_Starts_With_No_Before
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context  : aliased Contexts.Execution_Context;
+      Store    : aliased Fake_Registry.Fake_Registry;
+      Clock    : aliased Fixed_Clock;
+      Recorder : aliased Recorders.Recorder
+        (Context'Access, Store'Access, Clock'Access);
+      Inner    : aliased Stub_Runner;
+      R        : Recording_Runner (Inner'Access, Recorder'Access, null);
+   begin
+      Inner.Answer := Sessions.Success (Envelopes.Envelope'(others => <>));
+      R.Id := To_Unbounded_String ("exec-1");
+      Recorder.Start ("exec-1", False, JSON.Null_Value, Initial_State);
+      Assert (R.Run_Session (Request_For_A (1)).Succeeded, "it ran");
+      Assert
+        (Ada.Strings.Unbounded.Index
+           (To_Unbounded_String (Kinds_And_Details (Context)),
+            """before"":null}|") > 0,
+         "before is null: " & Kinds_And_Details (Context));
+   end A_Session_With_No_Working_Trees_Starts_With_No_Before;
 
    procedure A_Session_That_Fails_Is_Recorded_Too
      (T : in out Test_Cases_Class)
@@ -353,6 +425,12 @@ package body Synapse.Pipeline.Recording_Runners.Tests is
       Register_Routine
         (T, A_Session_That_Fails_Is_Recorded_Too'Access,
          "A session that fails is recorded too");
+      Register_Routine
+        (T, A_Session_Starts_With_An_Event_Before_It_Finishes'Access,
+         "A session starts with an event before it finishes");
+      Register_Routine
+        (T, A_Session_With_No_Working_Trees_Starts_With_No_Before'Access,
+         "A session with no working trees starts with no before");
       Register_Routine
         (T, A_Session_That_Changed_Files_Leaves_A_Patch'Access,
          "A session that changed files leaves a patch");

@@ -122,3 +122,30 @@ describe('visitsOf', () => {
     expect(visits).toEqual([{ n: 1, step: 'Develop', outcome: null, next: null }])
   })
 })
+
+describe('a session.started event', () => {
+  const text = (withStarted: boolean): string =>
+    [
+      '{"sequence":1,"kind":"step.started","step":"Develop","detail":null}',
+      withStarted
+        ? '{"sequence":2,"kind":"session.started","step":"Develop","detail":{"attempt":1,"visit":1,"transcript":"/w/t.jsonl","before":null}}'
+        : '',
+      '{"sequence":3,"kind":"session.finished","step":"Develop","detail":{"attempt":1,"succeeded":true,"transcript":null}}',
+      '',
+    ]
+      .filter((l) => l !== '')
+      .join('\n') + '\n'
+  const summary: Parameters<typeof progressOf>[2] = {
+    status: 'running',
+    currentStep: 'Develop',
+    failureStep: null,
+    fired: [0],
+  }
+
+  it('changes nothing in the progress or the visits', () => {
+    expect(progressOf(develop, parseEvents(text(true)), summary)).toEqual(
+      progressOf(develop, parseEvents(text(false)), summary),
+    )
+    expect(visitsOf(parseEvents(text(true)))).toEqual(visitsOf(parseEvents(text(false))))
+  })
+})

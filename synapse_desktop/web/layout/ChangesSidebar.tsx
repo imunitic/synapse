@@ -74,6 +74,7 @@ export interface SessionGit {
 export function ChangesSidebar({
   state,
   onRefresh,
+  live,
   focusVisit,
   focusFile,
   onBase,
@@ -83,6 +84,8 @@ export function ChangesSidebar({
 }: {
   state: ChangesState
   onRefresh: () => void
+  // A step of the run is running: its changes are asked for after each tool call, and on Refresh.
+  live: boolean
   // The visit of a run that was asked for, which is the one shown until another is chosen.
   focusVisit: number | null
   // The file an activity asked for, by the whole path it names it with.
@@ -289,6 +292,13 @@ export function ChangesSidebar({
                     ? 'Nothing has changed since this session started.'
                     : `Nothing has changed ${sinceLabel(state.position).toLowerCase()}.`}
             </p>
+          )}
+          {state.status === 'ready' && live && state.kind === 'run' && (
+            <div className="changes-steps">
+              <button className="changes-step" onClick={onRefresh}>
+                Refresh
+              </button>
+            </div>
           )}
           {state.status === 'ready' && groups.length > 1 && (
             <div className="changes-steps" role="group" aria-label="Steps">

@@ -27,6 +27,8 @@ export interface World {
   // them: the app finds the skill by the launcher on PATH. It is after the built programs on
   // PATH, so it is only where the skill is looked for, never the program that runs.
   pipelinePackage: string
+  // The folder the Live_Run pipeline works in: a repository with one commit.
+  live: string
 }
 
 export function worldAt(root: string): World {
@@ -43,6 +45,7 @@ export function worldAt(root: string): World {
     home: join(root, 'home'),
     data: join(root, 'data'),
     pipelinePackage: join(root, 'pipeline-package'),
+    live: join(root, 'live-project'),
   }
 }
 
@@ -59,6 +62,10 @@ Pipeline Develop_Feature {
   'Tester.synapse': `Agent Tester [Prompt => "You are a tester. Run the tests and report what fails."];\n`,
   'Reviewer.synapse': `Agent Reviewer [Prompt => "You are a reviewer. Find what is wrong with the change; do not fix it."];\n`,
   'Strict_Reviewer.synapse': `System Strict_Reviewer [Agent => Reviewer, Harness => Codex, Permissions => Read_Only, Skill => "review-code"];\n`,
+  'Live_Run.synapse': `Pipeline Live_Run {
+   Work [Harness => Claude, Prompt => "LIVECASE change a.txt, then take your time."];
+}
+`,
   'Fixture_Run.synapse': `Pipeline Fixture_Run {
    Work [Harness => Claude, Prompt => "Read notes.txt, write result.txt and list the folder."];
 }
@@ -267,6 +274,7 @@ const STUB = [
   '  if [ "$headless" = stdin ]; then prompt=$(cat); else for a in "$@"; do prompt=$a; done; fi',
   '  case "$prompt" in',
   '    *FAILCASE*) ev_end "FAILED: the stub was asked to fail"; exit 0 ;;',
+  '    *LIVECASE*) exec "$(dirname "$0")/stub-live" ;;',
   '    *"Change one note that already exists"*) exec "$(dirname "$0")/stub-edit" "$prompt" ;;',
   '  esac',
   '  ev_start; ev_slow "$prompt"',
@@ -340,8 +348,23 @@ rm -f "$tmp"
 ev_end EDITED
 `
 
+// A headless session of Claude that says something, edits a.txt in its folder, and then takes
+// its time before it answers, so a test can look at the step while it runs. It prints each event
+// as it happens, as `claude --output-format stream-json` does.
+const LIVE_STUB = String.raw`#!/bin/sh
+cat > /dev/null
+printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Looking at a.txt."}]}}'
+sleep 2
+printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"l1","name":"Edit","input":{"file_path":"%s/a.txt","old_string":"two","new_string":"TWO"}}]}}\n' "$(pwd)"
+sed 's/two/TWO/' a.txt > a.txt.new && mv a.txt.new a.txt
+printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"l1","content":"edited"}]}}'
+sleep 12
+printf '%s\n' '{"type":"result","subtype":"success","result":"{\"outcome\":\"Done\",\"summary\":\"changed a.txt\",\"data\":{}}"}'
+`
+
 // `synapse-pipeline` as the tests see it: an interactive run needs the process runner, which runs
 // the stub harness in a terminal, so it is run without the scripted one that every other run has.
+// The same goes for the Live_Run pipeline, which runs the stub harness headless in its own folder.
 const PIPELINE_WRAPPER = String.raw`#!/bin/sh
 self=$(cd "$(dirname "$0")" && pwd)
 whole=$PATH
@@ -359,6 +382,10 @@ for a in "$@"; do
   if [ "$a" = "--interactive" ]; then
     unset SYNAPSE_PIPELINE_RUNNER SYNAPSE_PIPELINE_SCRIPT
   fi
+  if [ "$a" = "Live_Run" ]; then
+    unset SYNAPSE_PIPELINE_RUNNER SYNAPSE_PIPELINE_SCRIPT
+    cd "$self/../live-project" || exit 1
+  fi
 done
 exec "$real" "$@"
 `
@@ -373,6 +400,7 @@ export function buildWorld(root: string, binDirs: readonly string[]): World {
   }
   writeFileSync(join(world.bin, 'synapse-pipeline'), PIPELINE_WRAPPER, { mode: 0o755, flag: 'w' })
   writeFileSync(join(world.bin, 'stub-edit'), EDIT_STUB, { mode: 0o755, flag: 'w' })
+  writeFileSync(join(world.bin, 'stub-live'), LIVE_STUB, { mode: 0o755, flag: 'w' })
   for (const [name, text] of Object.entries(DEFINITIONS)) write(join(world.definitions, name), text)
   for (const [name, text] of Object.entries(SKILLS)) {
     write(join(world.definitions, 'skills', name, 'SKILL.md'), text)
@@ -397,6 +425,24 @@ export function buildWorld(root: string, binDirs: readonly string[]): World {
   write(world.script, JSON.stringify(ANSWERS, null, 2))
   resetSettings(world)
   mkdirSync(world.work, { recursive: true })
+
+  // The folder of the Live_Run pipeline, a repository with one commit.
+  write(join(world.live, 'a.txt'), 'one\ntwo\nthree\n')
+  for (const args of [
+    ['init', '-q'],
+    ['add', '-A'],
+    ['commit', '-q', '-m', 'first'],
+  ]) {
+    const made = spawnSync(
+      'git',
+      ['-c', 'user.name=A', '-c', 'user.email=a@example.com', ...args],
+      {
+        cwd: world.live,
+        encoding: 'utf8',
+      },
+    )
+    if (made.status !== 0) throw new Error(`git ${args[0]} failed: ${made.stderr}`)
+  }
 
   // A folder that looks like a vault: an index, three notes, git and Obsidian
   // folders that hold no notes.

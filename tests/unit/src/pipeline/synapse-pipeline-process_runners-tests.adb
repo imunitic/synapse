@@ -123,6 +123,9 @@ package body Synapse.Pipeline.Process_Runners.Tests is
               (To_Unbounded_String ("SYNAPSE_WORK_DIR=/work")),
             "given the configuration's environment");
          Assert
+           (Length (Ran.Output_Path) = 0,
+            "no output path without an execution to keep a transcript in");
+         Assert
            (Has (Prompt, "You are a developer.")
             and then Has (Prompt, "Implement the feature.")
             and then Has (Prompt, "step Develop")
@@ -161,6 +164,10 @@ package body Synapse.Pipeline.Process_Runners.Tests is
         (Registry.Held.Element ("exec-1").Transcripts.Element
            ("1-Develop-2.jsonl") = Claude_Said ("Done"),
          "which holds what the harness printed, as it printed it");
+      Assert
+        (To_String (Process.Requests (1).Output_Path) =
+         "memory:exec-1/transcripts/1-Develop-2.jsonl",
+         "the process was told to write its output to that transcript");
    end A_Sessions_Output_Is_Kept_As_Its_Transcript;
 
    procedure A_Session_That_Fails_Keeps_Its_Transcript_Too

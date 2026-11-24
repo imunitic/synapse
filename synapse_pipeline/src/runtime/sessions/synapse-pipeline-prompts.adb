@@ -58,7 +58,13 @@ package body Synapse.Pipeline.Prompts is
               & "decision or a permission that you cannot reasonably make "
               & "yourself, ask in plain text and wait for the answer, and "
               & "give the reply below only when you are done, never with a "
-              & "question."
+              & "question. If you are stuck, cannot finish, or a command was "
+              & "denied, do not end with an outcome that says so while the "
+              & "person can help: say what stopped you and what you need, ask "
+              & "in plain text, wait, and carry on from the answer. A message "
+              & "that tells you to stop and explain to the user means: "
+              & "explain it here and wait. Report such an outcome only when "
+              & "the person tells you to stop."
             else
               "Nobody is available to answer questions, so make reasonable "
               & "decisions and carry on."));

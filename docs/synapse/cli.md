@@ -812,7 +812,9 @@ worked elsewhere, or changed nothing, has no patch. A file that is new is kept
 with its content up to a limit for each file; past it the patch has only its
 path and the number of its lines, and says the content was not kept.
 
-  --step <name>   only the patches of that step
+  --step <name>   only the patches of that step, and what the
+                  attempt of that step that is running has
+                  changed so far
   --format text   for a person (the default)
   --format json   format synapse-pipeline-changes/v1: `execution_id`, the
                   `directory` the steps worked in, or null, and `steps`, each with

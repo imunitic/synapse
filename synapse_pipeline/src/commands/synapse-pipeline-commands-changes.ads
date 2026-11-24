@@ -6,7 +6,9 @@
 --  diff` prints it. They are printed in the order the steps ran, one after
 --  another, each under a line that names its step, visit and attempt. A new
 --  file whose content was over the limit is there as its path and number of
---  lines. The format `json` is for a program: a `steps` list with the step,
+--  lines. With `--step`, the attempt of that step that is running is
+--  included too, as what it has changed so far. The format `json` is for a
+--  program: a `steps` list with the step,
 --  visit, attempt and patch of each, and the `directory` the steps worked in.
 
 package Synapse.Pipeline.Commands.Changes is
