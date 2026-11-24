@@ -6,8 +6,10 @@ import { transport } from '../transport/index.ts'
 import { useLoad } from './useLoad.ts'
 import { useWatch } from './useWatch.ts'
 
-// What no file shows, such as a run that died, is looked for now and then.
-const REFRESH_MS = 10_000
+// The record of a run that is going on is read again this often, whether or not a session has
+// started yet: the folder watch cannot be relied on for it (a host may not report the change in
+// time), and waiting for a session before polling would never see the session start.
+const REFRESH_MS = 2000
 
 // The transcript of a session that is going on is read again this often. The folder watch cannot be
 // relied on for it: a file that grows through a handle the writer keeps open raises no event on
@@ -27,14 +29,14 @@ const NONE: LiveRun = { live: null, activity: null, calls: 0 }
 // The session of a headless run that is going on, and its transcript as it grows. Reads nothing
 // when there is no run; a transcript that is not there yet is no activity, not an error.
 export function useLiveRun(executionId: string | null): LiveRun {
-  // Whether the last read of the record showed a session going on: only then is there anything to poll.
+  // Whether the last read of the record showed the run going on: only then is there anything to poll.
   const [running, setRunning] = useState(false)
   const loadRecord = useCallback(
     () =>
       executionId === null
         ? Promise.resolve(null)
         : readExecution(transport, executionId).then((record) => {
-            setRunning(liveSession(record.events, record.summary) !== null)
+            setRunning(record.summary.status === 'running')
             return { id: executionId, record }
           }),
     [executionId],
