@@ -7,14 +7,15 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use support::environment;
 use synapse_desktop_host::agents::{
-    agent_command, created_path, edit_prompt, failure_of, find_pipeline_skill, folder_sentence,
-    note_command, note_path_problem, note_prompt, note_tools, opencode_permission, paths_of,
-    prompt_for, reason_of, reference_from, restore_note, session_prompt, system_for, text_of,
-    touched_elsewhere, vault_dir_of, AgentRun, AgentRunner, GenerateRequest, NoteSession,
-    NoteSessionRun, Seen,
+    agent_command, created_path, edit_note, edit_prompt, failure_of, find_pipeline_skill,
+    folder_sentence, generate_text, note_command, note_path_problem, note_prompt, note_tools,
+    opencode_permission, paths_of, prompt_for, reason_of, reference_from, restore_note,
+    session_prompt, stream_result, system_for, text_of, touched_elsewhere, vault_dir_of,
+    AgentChoice, AgentRun, AgentRunner, GenerateRequest, NoteSession, NoteSessionRun, Seen,
 };
 use synapse_desktop_host::cli::{CliRun, CliRunner};
 use synapse_desktop_host::dispatch::{serve, Handlers, ServeOptions};
@@ -26,6 +27,7 @@ use synapse_desktop_host::messages::{
     Project,
 };
 use synapse_desktop_host::models::ModelStore;
+use synapse_desktop_host::note_runs::NoteRuns;
 use synapse_desktop_host::protocol::{
     Capabilities, ClientMessage, ErrorCode, HostKind, HostMessage,
 };
@@ -130,6 +132,7 @@ fn run(harness: Harness, model: Option<&str>) -> AgentRun {
         model: model.map(String::from),
         system: "RULES".into(),
         prompt: "ASK".into(),
+        stop: None,
     }
 }
 
@@ -434,6 +437,7 @@ fn claude_reads_the_prompt_from_standard_input_refuses_what_is_not_allowed_and_l
         "the prompt",
         &["/vault".into()],
         None,
+        false,
     );
     assert_eq!(command.stdin, "the prompt");
     for flag in [
@@ -455,7 +459,7 @@ fn claude_reads_the_prompt_from_standard_input_refuses_what_is_not_allowed_and_l
 #[test]
 fn it_may_also_read_the_synapse_package_folder_when_it_is_loaded_for_the_session() {
     let loaded = plan("claude", &[], &[("SYNAPSE_CONTENT_ROOT", "/pkg/synapse")]);
-    let command = note_command(Harness::Claude, &loaded, "p", &[], None);
+    let command = note_command(Harness::Claude, &loaded, "p", &[], None, false);
     assert_eq!(
         arg_after(&command.args, "--allowedTools"),
         format!("{},Read(/pkg/synapse/**)", note_tools())
@@ -522,6 +526,7 @@ fn codex_gets_the_prompt_on_standard_input_its_sandbox_and_the_folders_it_may_wr
         "the prompt",
         &["/vault".into(), "/cfg".into()],
         None,
+        false,
     );
     assert_eq!(command.stdin, "the prompt");
     assert_eq!(
@@ -555,6 +560,7 @@ fn opencode_gets_the_prompt_as_its_message_and_is_held_to_the_commands_that_are_
         "the prompt",
         &["/vault".into()],
         None,
+        false,
     );
     assert_eq!(command.stdin, "");
     assert_eq!(
@@ -579,6 +585,7 @@ fn the_model_of_a_note_session_is_given_by_the_flag_of_each_harness_before_what_
         "p",
         &["/v".into()],
         Some("sonnet"),
+        false,
     )
     .args;
     assert_eq!(&claude[claude.len() - 2..], ["--model", "sonnet"]);
@@ -588,6 +595,7 @@ fn the_model_of_a_note_session_is_given_by_the_flag_of_each_harness_before_what_
         "p",
         &["/v".into()],
         Some("gpt-x"),
+        false,
     )
     .args;
     assert_eq!(&codex[codex.len() - 3..], ["-m", "gpt-x", "-"]);
@@ -597,6 +605,7 @@ fn the_model_of_a_note_session_is_given_by_the_flag_of_each_harness_before_what_
         "the prompt",
         &["/v".into()],
         Some("prov/model"),
+        false,
     )
     .args;
     assert_eq!(
@@ -604,7 +613,7 @@ fn the_model_of_a_note_session_is_given_by_the_flag_of_each_harness_before_what_
         ["-m", "prov/model", "the prompt"]
     );
     for harness in [Harness::Claude, Harness::Codex, Harness::Opencode] {
-        let args = note_command(harness, &claude_plan(), "p", &["/v".into()], None).args;
+        let args = note_command(harness, &claude_plan(), "p", &["/v".into()], None, false).args;
         assert!(!args.contains(&"--model".to_string()) && !args.contains(&"-m".to_string()));
     }
 }
@@ -790,12 +799,26 @@ struct Rig {
     session_answer: Arc<Mutex<CliResult>>,
     /// Run when the note session is, to change the vault as the agent would.
     session_effect: Effect,
+    /// While set, a fake agent that was given a stop waits for it, and ends with code 143.
+    hold: Arc<AtomicBool>,
+    /// The lines a fake note session prints through `on_line`, when it was given one.
+    session_lines: Arc<Mutex<Vec<String>>>,
+    /// The registry of the host's runs.
+    runs: NoteRuns,
 }
 
 fn ok(stdout: &str) -> CliResult {
     CliResult {
         code: 0,
         stdout: stdout.into(),
+        stderr: String::new(),
+    }
+}
+
+fn stopped_result() -> CliResult {
+    CliResult {
+        code: 143,
+        stdout: String::new(),
         stderr: String::new(),
     }
 }
@@ -888,10 +911,22 @@ impl Rig {
         let agent_runs = Arc::new(Mutex::new(Vec::<AgentRun>::new()));
         let agent_answer = Arc::new(Mutex::new(ok("Agent A [Prompt => \"x\"];")));
         let (kept, answer) = (agent_runs.clone(), agent_answer.clone());
-        let agent = AgentRunner::new(move |run| {
+        let hold = Arc::new(AtomicBool::new(false));
+        let agent_hold = hold.clone();
+        let agent = AgentRunner::new(move |mut run| {
+            let stop = run.stop.take();
             kept.lock().unwrap().push(run);
             let answer = answer.lock().unwrap().clone();
-            async move { Ok(answer) }
+            let held = agent_hold.load(Ordering::SeqCst);
+            async move {
+                match stop {
+                    Some(stop) if held => {
+                        let _ = stop.await;
+                        Ok(stopped_result())
+                    }
+                    _ => Ok(answer),
+                }
+            }
         });
         let sessions = Arc::new(Mutex::new(Vec::<NoteSessionRun>::new()));
         let session_answer = Arc::new(Mutex::new(ok("EDITED")));
@@ -902,14 +937,32 @@ impl Rig {
             session_effect.clone(),
             vault.clone(),
         );
-        let note_session = NoteSession::new(move |run| {
+        let session_lines = Arc::new(Mutex::new(Vec::<String>::new()));
+        let (session_hold, printed) = (hold.clone(), session_lines.clone());
+        let note_session = NoteSession::new(move |mut run| {
+            let stop = run.stop.take();
+            if let Some(on_line) = &run.on_line {
+                for line in printed.lock().unwrap().iter() {
+                    on_line(line.clone());
+                }
+            }
             kept.lock().unwrap().push(run);
             if let Some(effect) = effect.lock().unwrap().as_ref() {
                 effect(&mut session_vault.lock().unwrap());
             }
             let answer = answer.lock().unwrap().clone();
-            async move { Ok(answer) }
+            let held = session_hold.load(Ordering::SeqCst);
+            async move {
+                match stop {
+                    Some(stop) if held => {
+                        let _ = stop.await;
+                        Ok(stopped_result())
+                    }
+                    _ => Ok(answer),
+                }
+            }
         });
+        let runs = NoteRuns::new();
         let env = environment(
             dir.path(),
             &[
@@ -932,6 +985,7 @@ impl Rig {
             }),
             agent,
             note_session,
+            note_runs: runs.clone(),
             runs: synapse_desktop_host::runs::RunStarter::new(
                 "synapse-pipeline",
                 Default::default(),
@@ -967,7 +1021,64 @@ impl Rig {
             sessions,
             session_answer,
             session_effect,
+            hold,
+            session_lines,
+            runs,
         }
+    }
+
+    /// Sends an `agent.run`, waits until `started` says the run is going, stops it, and gives the answer
+    /// of the run.
+    async fn ask_stopping(
+        &mut self,
+        params: Value,
+        started: impl Fn(&Rig) -> bool,
+    ) -> Result<Value, (ErrorCode, String)> {
+        self.hold.store(true, Ordering::SeqCst);
+        let run = params["run"].as_str().unwrap().to_string();
+        self.client
+            .outgoing
+            .send(ClientMessage::Request {
+                id: "run".into(),
+                name: "agent.run".into(),
+                params,
+            })
+            .unwrap();
+        for _ in 0..200 {
+            if started(self) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(started(self), "the run did not start");
+        self.client
+            .outgoing
+            .send(ClientMessage::Request {
+                id: "stop".into(),
+                name: "agent.stop".into(),
+                params: json!({ "run": run }),
+            })
+            .unwrap();
+        let mut answer = None;
+        let mut stopped = false;
+        while answer.is_none() || !stopped {
+            match self.client.incoming.recv().await.unwrap() {
+                HostMessage::Reply { id, result, error } if id == "stop" => {
+                    assert!(error.is_none());
+                    assert_eq!(result, Some(Value::Null));
+                    stopped = true;
+                }
+                HostMessage::Reply {
+                    result: Some(result),
+                    ..
+                } => answer = Some(Ok(result)),
+                HostMessage::Reply {
+                    error: Some(error), ..
+                } => answer = Some(Err((error.code, error.message))),
+                other => panic!("not a reply: {other:?}"),
+            }
+        }
+        answer.unwrap()
     }
 
     async fn ask(&mut self, name: &str, params: Value) -> Result<Value, (ErrorCode, String)> {
@@ -1601,4 +1712,373 @@ async fn a_status_is_refused_for_a_note_that_is_not_a_task_a_path_that_is_not_a_
         .unwrap_err();
     assert_eq!(wrong.0, ErrorCode::BadRequest);
     assert!(rig.vault.lock().unwrap().sets.is_empty());
+}
+
+// ---------------------------------------------------------------------------------------------
+// Stopping and streaming
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn claude_streams_events_in_place_of_text_and_keeps_every_other_flag() {
+    let plain = note_command(
+        Harness::Claude,
+        &claude_plan(),
+        "p",
+        &["/v".into()],
+        None,
+        false,
+    );
+    let streamed = note_command(
+        Harness::Claude,
+        &claude_plan(),
+        "p",
+        &["/v".into()],
+        None,
+        true,
+    );
+    assert_eq!(arg_after(&plain.args, "--output-format"), "text");
+    assert_eq!(arg_after(&streamed.args, "--output-format"), "stream-json");
+    assert!(streamed.args.contains(&"--verbose".to_string()));
+    assert!(!streamed.args.contains(&"text".to_string()));
+    assert!(streamed
+        .args
+        .contains(&"--no-session-persistence".to_string()));
+    let without: Vec<String> = streamed
+        .args
+        .iter()
+        .filter(|a| *a != "--verbose")
+        .map(|a| {
+            if a == "stream-json" {
+                "text".to_string()
+            } else {
+                a.clone()
+            }
+        })
+        .collect();
+    assert_eq!(without, plain.args);
+    assert!(!plain.args.contains(&"--verbose".to_string()));
+}
+
+#[test]
+fn codex_and_opencode_ignore_the_stream_flag() {
+    for (harness, program) in [(Harness::Codex, "codex"), (Harness::Opencode, "opencode")] {
+        let p = plan(program, &[], &[]);
+        let a = note_command(harness, &p, "p", &["/v".into()], None, false);
+        let b = note_command(harness, &p, "p", &["/v".into()], None, true);
+        assert_eq!(a, b);
+    }
+}
+
+#[test]
+fn the_result_of_a_stream_is_the_text_of_its_last_result_event() {
+    let transcript = [
+        r#"{"type":"system","subtype":"init"}"#,
+        r#"{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}"#,
+        r#"{"type":"result","subtype":"success","result":"EDITED"}"#,
+    ]
+    .join("\n");
+    assert_eq!(stream_result(&transcript), "EDITED");
+    let none = r#"{"type":"assistant"}"#;
+    assert_eq!(stream_result(none), "");
+    let failed = r#"{"type":"result","result":"I tried.\nFAILED: why"}"#;
+    assert_eq!(failure_of(&stream_result(failed)).as_deref(), Some("why"));
+    assert_eq!(stream_result("not json\nstill not\n"), "");
+    assert_eq!(stream_result(r#"{"type":"result","result":5}"#), "");
+}
+
+fn plain_config() -> AppConfig {
+    AppConfig {
+        work_dir: None,
+        definition_paths: vec![],
+        default_harness: None,
+        default_models: BTreeMap::new(),
+        env: BTreeMap::new(),
+        recent_vaults: vec![],
+        terminal_folder: None,
+        graph_repos: BTreeMap::new(),
+    }
+}
+
+/// A note that reads as `texts` in turn, the last one for every read after.
+fn edit_cli(texts: &[&str]) -> CliRunner {
+    let texts: Vec<String> = texts.iter().map(|t| t.to_string()).collect();
+    let reads = Arc::new(Mutex::new(0usize));
+    CliRunner::new(move |run: CliRun| {
+        let result = match run.args[0].as_str() {
+            "vault-read" => {
+                let mut n = reads.lock().unwrap();
+                let text = texts[(*n).min(texts.len() - 1)].clone();
+                *n += 1;
+                ok(&text)
+            }
+            _ => ok(""),
+        };
+        async move { Ok(result) }
+    })
+}
+
+fn session_of(
+    result: CliResult,
+) -> impl Fn(
+    String,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<CliResult, String>> + Send>> {
+    move |_| {
+        let result = result.clone();
+        Box::pin(async move { Ok(result) })
+    }
+}
+
+#[tokio::test]
+async fn a_stopped_edit_that_left_the_note_alone_says_it_was_stopped() {
+    let cli = edit_cli(&["old\n"]);
+    let stopped = CliResult {
+        code: 143,
+        stdout: String::new(),
+        stderr: String::new(),
+    };
+    let error = edit_note(
+        &cli,
+        &plain_config(),
+        Harness::Claude,
+        session_of(stopped),
+        "a.md",
+        "x",
+        || true,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        error.message,
+        "The run was stopped and the note was not changed."
+    );
+}
+
+#[tokio::test]
+async fn a_stopped_edit_that_changed_the_note_gives_the_edit() {
+    let cli = edit_cli(&["old\n", "new\n"]);
+    let stopped = CliResult {
+        code: 143,
+        stdout: String::new(),
+        stderr: String::new(),
+    };
+    let edit = edit_note(
+        &cli,
+        &plain_config(),
+        Harness::Claude,
+        session_of(stopped),
+        "a.md",
+        "x",
+        || true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        (edit.before.as_str(), edit.after.as_str()),
+        ("old\n", "new\n")
+    );
+}
+
+#[tokio::test]
+async fn an_edit_that_was_not_stopped_and_left_the_note_alone_keeps_the_old_message() {
+    let cli = edit_cli(&["old\n"]);
+    let error = edit_note(
+        &cli,
+        &plain_config(),
+        Harness::Claude,
+        session_of(ok("EDITED")),
+        "a.md",
+        "x",
+        || false,
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        error.message.starts_with("The note was not changed."),
+        "{}",
+        error.message
+    );
+}
+
+#[tokio::test]
+async fn a_definition_run_that_was_stopped_says_the_run_was_stopped() {
+    let agent = AgentRunner::new(|_| async {
+        Ok(CliResult {
+            code: 143,
+            stdout: String::new(),
+            stderr: String::new(),
+        })
+    });
+    let request = GenerateRequest {
+        kind: DefinitionKind::Skill,
+        prompt: "x",
+        current: None,
+        definitions: &[],
+        skills: &[],
+    };
+    let env = environment(Path::new("/nowhere"), &[]);
+    let call = |stopped: bool| {
+        let (agent, env, request) = (&agent, &env, &request);
+        async move {
+            generate_text(
+                request,
+                env,
+                &[],
+                agent,
+                AgentChoice {
+                    harness: Harness::Claude,
+                    model: None,
+                    env: BTreeMap::new(),
+                },
+                None,
+                move || stopped,
+            )
+            .await
+        }
+    };
+    let error = call(true).await.unwrap_err();
+    assert_eq!(error.message, "the run was stopped");
+    let other = call(false).await.unwrap_err();
+    assert!(
+        other.message.starts_with("the agent failed"),
+        "{}",
+        other.message
+    );
+}
+
+// Stopping and watching a run -------------------------------------------------------------------
+
+fn sessions_started(rig: &Rig) -> bool {
+    !rig.sessions.lock().unwrap().is_empty()
+}
+
+#[tokio::test]
+async fn stopping_a_run_that_changed_nothing_says_it_was_stopped_and_the_note_was_not_changed() {
+    let mut rig = Rig::new(vault_of(&[("a.md", note("1", "old"))])).await;
+    let error = rig
+        .ask_stopping(
+            json!({ "kind": "note-edit", "path": "a.md", "prompt": "x", "run": "r-1" }),
+            sessions_started,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error,
+        (
+            ErrorCode::Unavailable,
+            "The run was stopped and the note was not changed.".to_string()
+        )
+    );
+}
+
+#[tokio::test]
+async fn stopping_a_run_after_the_note_changed_answers_the_change() {
+    let mut rig = Rig::new(vault_of(&[("a.md", note("1", "old"))])).await;
+    *rig.session_effect.lock().unwrap() = Some(Box::new(|v: &mut Vault| {
+        v.files.insert("a.md".into(), note("2", "new"));
+    }));
+    let edit = rig
+        .ask_stopping(
+            json!({ "kind": "note-edit", "path": "a.md", "prompt": "x", "run": "r-2" }),
+            sessions_started,
+        )
+        .await
+        .unwrap();
+    assert_eq!(edit["edit"]["after"], json!(note("2", "new")));
+}
+
+#[tokio::test]
+async fn stopping_a_new_note_and_a_definition_says_so() {
+    let mut rig = Rig::new(vault_of(&[])).await;
+    let error = rig
+        .ask_stopping(
+            json!({ "kind": "note", "what": "note", "prompt": "x", "run": "r-3" }),
+            sessions_started,
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error,
+        (
+            ErrorCode::Unavailable,
+            "The run was stopped. No note was written.".to_string()
+        )
+    );
+
+    let dir = tempdir().unwrap();
+    let mut rig = Rig::with_path(Vault::default(), &pipeline_path(dir.path())).await;
+    let error = rig
+        .ask_stopping(define(json!({ "run": "r-4" })), |rig| {
+            !rig.agent_runs.lock().unwrap().is_empty()
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error,
+        (ErrorCode::Unavailable, "the run was stopped".to_string())
+    );
+}
+
+#[tokio::test]
+async fn a_claude_edit_publishes_the_lines_it_prints_and_the_others_are_not_streamed() {
+    let mut rig = Rig::new(vault_of(&[("a.md", note("1", "old"))])).await;
+    *rig.session_lines.lock().unwrap() = vec!["one".into(), "two".into()];
+    *rig.session_effect.lock().unwrap() = Some(Box::new(|v: &mut Vault| {
+        v.files.insert("a.md".into(), note("2", "new"));
+    }));
+    let edit = json!({ "kind": "note-edit", "path": "a.md", "prompt": "x" });
+    let mut with_run = edit.clone();
+    with_run["run"] = json!("r-5");
+    rig.ask("agent.run", with_run).await.unwrap();
+    {
+        let sessions = rig.sessions.lock().unwrap();
+        assert!(sessions[0].stream && sessions[0].on_line.is_some());
+    }
+    type Seen = Arc<Mutex<Vec<(Value, Option<u64>)>>>;
+    let seen: Seen = Arc::new(Mutex::new(vec![]));
+    let sink = seen.clone();
+    let _unsubscribe = rig.runs.subscribe(
+        "r-5",
+        None,
+        Arc::new(move |data, cursor| sink.lock().unwrap().push((data, cursor))),
+    );
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec![
+            (json!({ "line": "one" }), Some(0)),
+            (json!({ "line": "two" }), Some(1))
+        ]
+    );
+
+    // Without an id, and for Codex, nothing is streamed.
+    *rig.session_effect.lock().unwrap() = Some(Box::new(|v: &mut Vault| {
+        v.files.insert("a.md".into(), note("3", "newer"));
+    }));
+    rig.ask("agent.run", edit.clone()).await.unwrap();
+    let mut codex = edit;
+    codex["run"] = json!("r-6");
+    codex["harness"] = json!("Codex");
+    *rig.session_effect.lock().unwrap() = Some(Box::new(|v: &mut Vault| {
+        v.files.insert("a.md".into(), note("4", "newest"));
+    }));
+    rig.ask("agent.run", codex).await.unwrap();
+    let sessions = rig.sessions.lock().unwrap();
+    assert!(!sessions[1].stream && sessions[1].on_line.is_none());
+    assert!(!sessions[2].stream && sessions[2].on_line.is_none());
+}
+
+#[tokio::test]
+async fn a_run_id_that_is_running_cannot_be_started_again_and_stopping_an_unknown_id_is_fine() {
+    let mut rig = Rig::new(vault_of(&[("a.md", note("1", "old"))])).await;
+    rig.ask("agent.stop", json!({ "run": "nobody" }))
+        .await
+        .unwrap();
+    let _held = rig.runs.start("busy").unwrap();
+    let error = rig
+        .ask(
+            "agent.run",
+            json!({ "kind": "note-edit", "path": "a.md", "prompt": "x", "run": "busy" }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.0, ErrorCode::Conflict);
 }

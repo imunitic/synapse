@@ -126,7 +126,7 @@ interface BodyHeadings {
   paths: ReadonlyMap<number, string | null>
   shared: ReadonlySet<string>
   commentable: boolean
-  commenting: string | null | undefined
+  commenting: string | undefined
   comment: (section: string) => void
   save: (section: string, text: string) => void
   cancel: () => void
@@ -275,8 +275,8 @@ export function NotePage({ path, onOpen }: { path: string; onOpen: (page: Page) 
     setPaths((current) => (samePaths(current, next) ? current : next))
   }, [body, outline.state])
 
-  // The open comment box: a heading's path, null for the whole note, undefined for none.
-  const [commenting, setCommenting] = useState<string | null | undefined>(undefined)
+  // The open comment box: a heading's path, undefined for none.
+  const [commenting, setCommenting] = useState<string | undefined>(undefined)
   useEffect(() => setCommenting(undefined), [path])
   const commentable = !isGraphNodePath(path)
   const shared = useMemo(
@@ -284,11 +284,11 @@ export function NotePage({ path, onOpen }: { path: string; onOpen: (page: Page) 
     [outline.state],
   )
   // A section the outline offers but no body heading is paired with (the H1 the page strips, a
-  // heading the pairing could not match) gets its comment box at the top, where the whole-note one
-  // is, and scrolling to it goes to the top of the page.
+  // heading the pairing could not match) gets its comment box at the top, and scrolling to it goes
+  // to the top of the page.
   const page = useRef<HTMLDivElement>(null)
   const unpaired =
-    typeof commenting === 'string' && ![...paths.values()].includes(commenting) ? commenting : null
+    commenting !== undefined && ![...paths.values()].includes(commenting) ? commenting : null
 
   const bodyHeadings = useMemo<BodyHeadings>(
     () => ({
@@ -317,7 +317,7 @@ export function NotePage({ path, onOpen }: { path: string; onOpen: (page: Page) 
           ;(element ?? page.current)?.scrollIntoView({ block: 'start' })
         },
         comment: (section) => {
-          if (commentable && (section === null || !shared.has(section))) setCommenting(section)
+          if (commentable && !shared.has(section)) setCommenting(section)
         },
       }),
     [path, commentable, shared],
@@ -364,31 +364,12 @@ export function NotePage({ path, onOpen }: { path: string; onOpen: (page: Page) 
           onRefresh={readAgain}
           tools={
             <>
-              <button
-                className="secondary"
-                aria-label="Comment on the whole note"
-                title="Comment on the whole note"
-                aria-expanded={commenting === null}
-                onClick={() => setCommenting(commenting === null ? undefined : null)}
-              >
-                Comment
-              </button>
               {wideSwitch}
               {taskStatus !== null && (
                 <TaskStatus path={path} status={taskStatus} onChanged={readAgain} />
               )}
             </>
           }
-        />
-      )}
-      {commentable && commenting === null && (
-        <CommentBox
-          label="Comment on the whole note"
-          onSave={(text) => {
-            addNoteComment(path, { section: null, text })
-            setCommenting(undefined)
-          }}
-          onCancel={() => setCommenting(undefined)}
         />
       )}
       {commentable && unpaired !== null && (

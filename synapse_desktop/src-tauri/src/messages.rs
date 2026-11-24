@@ -484,6 +484,8 @@ pub enum AgentRunParams {
         current: Option<String>,
         definitions: Vec<DefinitionName>,
         skills: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<String>,
     },
     Note {
         what: NoteKind,
@@ -494,6 +496,8 @@ pub enum AgentRunParams {
         model: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         project: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<String>,
     },
     NoteEdit {
         path: String,
@@ -502,7 +506,15 @@ pub enum AgentRunParams {
         harness: Option<Harness>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         model: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<String>,
     },
+}
+
+/// Ends the agent run the client started with this id.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct StopRunParams {
+    pub run: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -968,6 +980,13 @@ fn agent_choice(model: &Option<String>) -> Result<(), String> {
     }
 }
 
+fn run_choice(run: &Option<String>) -> Result<(), String> {
+    match run {
+        Some(run) => named("run id", is_execution_id(run), run),
+        None => Ok(()),
+    }
+}
+
 impl Validate for AgentRunParams {
     fn check(&self) -> Result<(), String> {
         match self {
@@ -977,10 +996,12 @@ impl Validate for AgentRunParams {
                 current,
                 definitions,
                 skills,
+                run,
                 ..
             } => {
                 within("the prompt", prompt, 1, 20_000)?;
                 agent_choice(model)?;
+                run_choice(run)?;
                 if let Some(current) = current {
                     at_most("the text", current, DRAFT)?;
                 }
@@ -1003,10 +1024,12 @@ impl Validate for AgentRunParams {
                 prompt,
                 model,
                 project,
+                run,
                 ..
             } => {
                 within("the prompt", prompt, 1, 20_000)?;
                 agent_choice(model)?;
+                run_choice(run)?;
                 match project {
                     Some(project) => within("the project", project, 1, 64),
                     None => Ok(()),
@@ -1016,10 +1039,12 @@ impl Validate for AgentRunParams {
                 path,
                 prompt,
                 model,
+                run,
                 ..
             } => {
                 within("the path", path, 1, 1024)?;
                 within("the prompt", prompt, 1, 20_000)?;
+                run_choice(run)?;
                 agent_choice(model)
             }
         }
@@ -1085,6 +1110,12 @@ impl Validate for RunStartParams {
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '_');
         named("pipeline name", ok, &self.pipeline)
+    }
+}
+
+impl Validate for StopRunParams {
+    fn check(&self) -> Result<(), String> {
+        named("run id", is_execution_id(&self.run), &self.run)
     }
 }
 
@@ -1328,6 +1359,7 @@ messages! {
     "models.get" => ModelsParams, ModelCatalog;
     "history.get" => HistoryParams, HistoryAnswer;
     "agent.run" => AgentRunParams, AgentRunAnswer;
+    "agent.stop" => StopRunParams, ();
     "note.status" => NoteStatusParams, ();
     "note.restore" => NoteRestoreParams, ();
     "definition.preview" => PreviewParams, CliResult;

@@ -136,6 +136,18 @@ export class BusTransport implements Transport {
     return answer.edit
   }
 
+  async stopAgentRun(run: string): Promise<void> {
+    await this.bus.request('agent.stop', { run })
+  }
+
+  // The lines a run publishes, as the host got them from the agent.
+  watchNoteRun(run: string, onLine: (line: string) => void): Unsubscribe {
+    return this.bus.subscribe(`note-run.${run}`, (data) => {
+      const line = (data as { line?: unknown } | null)?.line
+      if (typeof line === 'string') onLine(line)
+    })
+  }
+
   async setNoteStatus(path: string, status: NoteStatus): Promise<void> {
     await this.bus.request('note.status', { path, status })
   }

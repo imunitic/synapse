@@ -81,7 +81,7 @@ async function writeComment(page: Page, box: string, text: string) {
 }
 
 // Three comments: on Evidence from the outline, on Fix from its heading in the body, and on the
-// whole note.
+// title, which is the whole note.
 async function commentThree(page: Page) {
   await headings(page).getByRole('button', { name: 'Comment on Evidence' }).click()
   await writeComment(page, 'Comment on Target::Evidence', 'Say where it was seen')
@@ -90,8 +90,8 @@ async function commentThree(page: Page) {
     .getByRole('button', { name: 'Comment' })
     .click()
   await writeComment(page, 'Comment on Target::Fix', 'Name the owner')
-  await page.getByRole('button', { name: 'Comment on the whole note' }).click()
-  await writeComment(page, 'Comment on the whole note', 'Shorten it')
+  await headings(page).getByRole('button', { name: 'Comment on Target', exact: true }).click()
+  await writeComment(page, 'Comment on Target', 'Shorten it')
   await expect(bar(page).getByRole('button', { name: '3 comments' })).toBeVisible()
 }
 
@@ -130,7 +130,7 @@ test('comments from the outline, a heading and the whole note gather in the revi
   await expect(items).toHaveCount(3)
   await expect(items.nth(0)).toContainText('Target::Evidence')
   await expect(items.nth(1)).toContainText('Target::Fix')
-  await expect(items.nth(2)).toContainText('Whole note')
+  await expect(items.nth(2)).toContainText('Target')
 
   await items.nth(0).getByRole('button', { name: 'Edit' }).click()
   await items.nth(0).getByLabel('Comment').fill('Say where and when it was seen')
@@ -167,7 +167,7 @@ test('Send to agent changes the note in one run, shows what it did, and the revi
   const written = readFileSync(join(vault, 'research', 'Target.md'), 'utf8')
   expect(written).toContain('Stub edit:')
   expect(written).toContain('Section: Target::Evidence')
-  expect(written).toContain('Whole note')
+  expect(written).toMatch(/Section: Target\n/)
 })
 
 test('when the agent leaves the note unchanged the comments stay and the failure is shown', async ({
@@ -179,6 +179,22 @@ test('when the agent leaves the note unchanged the comments stay and the failure
   await bar(page).getByRole('button', { name: 'Send to agent' }).click()
 
   await expect(bar(page).getByRole('alert')).toContainText('The note was not changed.')
+  await expect(bar(page).getByRole('button', { name: '1 comment' })).toBeVisible()
+  expect(readFileSync(join(vault, 'research', 'Target.md'), 'utf8')).toBe(TARGET)
+})
+
+test('a review sent from the sidebar shows the working line and Stop in the sidebar, and Stop keeps the comments', async ({
+  page,
+}) => {
+  await openTarget(page)
+  await headings(page).getByRole('button', { name: 'Comment on Fix' }).click()
+  await writeComment(page, 'Comment on Target::Fix', 'SLOWCASE')
+  await bar(page).getByRole('button', { name: 'Send to agent' }).click()
+
+  await expect(bar(page).getByRole('status')).toContainText('is changing the note')
+  await bar(page).getByRole('button', { name: 'Stop' }).click()
+
+  await expect(bar(page).getByRole('alert')).toContainText('The run was stopped')
   await expect(bar(page).getByRole('button', { name: '1 comment' })).toBeVisible()
   expect(readFileSync(join(vault, 'research', 'Target.md'), 'utf8')).toBe(TARGET)
 })
@@ -246,7 +262,6 @@ test('a node of a code graph shows its outline but offers no comments', async ({
 
   await expect(headings(page).getByRole('button', { name: 'Purpose', exact: true })).toBeVisible()
   await expect(outline(page).getByRole('button', { name: /^Comment/ })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Comment on the whole note' })).toHaveCount(0)
   await expect(page.locator('.note-heading-comment')).toHaveCount(0)
   await expect(bar(page)).toHaveCount(0)
 })

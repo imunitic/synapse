@@ -49,7 +49,7 @@ describe('the messages', () => {
   })
 
   it('have a place for every method of the interface the pages used', () => {
-    expect(Object.keys(methodHomes)).toHaveLength(43)
+    expect(Object.keys(methodHomes)).toHaveLength(44)
     for (const [method, home] of Object.entries(methodHomes)) {
       expect(home === 'subscribe' || isMessageName(home), method).toBe(true)
     }
@@ -105,11 +105,63 @@ describe('the envelope', () => {
   })
 
   it('names the topics there are, files of a place and the events of a run', () => {
-    for (const topic of ['files.work', 'files.definitions', 'files.vault', 'run.exec-1a2b']) {
+    for (const topic of [
+      'files.work',
+      'files.definitions',
+      'files.vault',
+      'run.exec-1a2b',
+      'note-run.abc_1',
+    ]) {
       expect(topicSchema.safeParse(topic).success, topic).toBe(true)
     }
-    for (const topic of ['files.root', 'run.', 'run.a b', 'anything']) {
+    for (const topic of [
+      'files.root',
+      'run.',
+      'run.a b',
+      'anything',
+      'note-run.',
+      'note-run.a/b',
+    ]) {
       expect(topicSchema.safeParse(topic).success, topic).toBe(false)
     }
+  })
+})
+
+describe('the run id of an agent run', () => {
+  const base = {
+    definition: {
+      kind: 'definition',
+      what: 'agent',
+      prompt: 'p',
+      definitions: [],
+      skills: [],
+    },
+    note: { kind: 'note', what: 'note', prompt: 'p' },
+    'note-edit': { kind: 'note-edit', path: 'a.md', prompt: 'p' },
+  }
+
+  it('is accepted by each of the three kinds', () => {
+    for (const [kind, params] of Object.entries(base)) {
+      const parsed = messages['agent.run'].params.safeParse({ ...params, run: 'abc-1_X' })
+      expect(parsed.success, kind).toBe(true)
+      expect(messages['agent.run'].params.safeParse(params).success, `${kind} without`).toBe(true)
+    }
+  })
+
+  it('is refused with a slash, empty, or 65 characters', () => {
+    for (const [kind, params] of Object.entries(base)) {
+      for (const run of ['a/b', '', 'a'.repeat(65)]) {
+        expect(
+          messages['agent.run'].params.safeParse({ ...params, run }).success,
+          `${kind} ${run}`,
+        ).toBe(false)
+      }
+    }
+  })
+
+  it('is what agent.stop needs', () => {
+    expect(messages['agent.stop'].params.safeParse({ run: 'abc' }).success).toBe(true)
+    expect(messages['agent.stop'].params.safeParse({}).success).toBe(false)
+    expect(messages['agent.stop'].params.safeParse({ run: 'a/b' }).success).toBe(false)
   })
 })

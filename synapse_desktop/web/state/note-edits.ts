@@ -3,7 +3,7 @@
 // either is the one both see, and a second is not started while it is in progress.
 
 import { useEffect, useState } from 'react'
-import type { EditNoteRequest, NoteEdit } from '../../shared/transport.ts'
+import type { EditNoteRequest, Harness, NoteEdit } from '../../shared/transport.ts'
 import { transport } from '../transport/index.ts'
 
 export interface NoteEditState {
@@ -13,9 +13,17 @@ export interface NoteEditState {
   edit: NoteEdit | null
   // Why the last run failed, until it is dismissed or another starts.
   failure: string | null
+  // The run in progress: its id, when it started (ms since the epoch), the harness it runs with,
+  // whether a stop was asked for, and the stream lines it has published so far. Empty when idle.
+  run: string | null
+  startedAt: number | null
+  harness: Harness | null
+  stopping: boolean
+  lines: readonly string[]
 }
 
-const idle: NoteEditState = { working: false, edit: null, failure: null }
+const noRun = { run: null, startedAt: null, harness: null, stopping: false, lines: [] } as const
+const idle: NoteEditState = { working: false, edit: null, failure: null, ...noRun }
 const states = new Map<string, NoteEditState>()
 const listeners = new Set<() => void>()
 
@@ -37,18 +45,44 @@ export function startNoteEdit(
   onDone?: (ok: boolean) => void,
 ): boolean {
   if (noteEditOf(path).working) return false
-  set(path, { working: true, edit: null, failure: null })
-  transport.editNote(request).then(
+  const run = crypto.randomUUID()
+  set(path, {
+    working: true,
+    edit: null,
+    failure: null,
+    run,
+    startedAt: Date.now(),
+    harness: request.harness ?? null,
+    stopping: false,
+    lines: [],
+  })
+  // Watched before the request is sent, so no line is missed.
+  const unwatch = transport.watchNoteRun(run, (line) => {
+    const state = noteEditOf(path)
+    if (state.run === run) set(path, { ...state, lines: [...state.lines, line] })
+  })
+  transport.editNote({ ...request, run }).then(
     (edit) => {
-      set(path, { working: false, edit, failure: null })
+      unwatch()
+      set(path, { ...idle, edit })
       onDone?.(true)
     },
     (error: unknown) => {
-      set(path, { working: false, edit: null, failure: String(error).replace(/^Error: /, '') })
+      unwatch()
+      set(path, { ...idle, failure: String(error).replace(/^Error: /, '') })
       onDone?.(false)
     },
   )
   return true
+}
+
+// Asks the host to end the note's run in progress. The run then ends through the edit's own
+// result or failure, as any run does.
+export function stopNoteEdit(path: string): void {
+  const state = noteEditOf(path)
+  if (!state.working || state.run === null || state.stopping) return
+  set(path, { ...state, stopping: true })
+  transport.stopAgentRun(state.run).catch(() => {})
 }
 
 // Forgets the result or the failure of the note's last run; a run in progress is kept.

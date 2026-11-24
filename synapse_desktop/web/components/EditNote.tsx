@@ -5,7 +5,10 @@ import { changeCount, diffLines, withContext } from '../domain/diff.ts'
 import { transport } from '../transport/index.ts'
 import { PencilIcon, RefreshIcon } from './icons.tsx'
 import { TERMINAL_LABELS } from '../state/state.ts'
-import { dismissNoteEdit, startNoteEdit, useNoteEdit } from '../state/note-edits.ts'
+import { dismissNoteEdit, startNoteEdit, stopNoteEdit, useNoteEdit } from '../state/note-edits.ts'
+import { activityOfRun, latestAction } from '../domain/note-run.ts'
+import { ActivityBody } from './ActivityView.tsx'
+import { WorkingLine } from './WorkingLine.tsx'
 
 // What a change left, to be read and undone: the lines it added and removed, the other
 // notes that moved, which it should not have, and a way to put the note back.
@@ -111,7 +114,17 @@ export function EditNote({
   const { harness, model, chooseHarness, chooseModel } = useRunChoice()
   const [open, setOpen] = useState(false)
   const [prompt, setPrompt] = useState('')
-  const { working, edit, failure } = useNoteEdit(path)
+  const {
+    working,
+    edit,
+    failure,
+    startedAt,
+    harness: runHarness,
+    stopping,
+    lines,
+  } = useNoteEdit(path)
+  const [showActivity, setShowActivity] = useState(false)
+  const activity = useMemo(() => activityOfRun(lines), [lines])
 
   // Nothing starts while a run on this note is in progress; the button is disabled then.
   function change() {
@@ -153,10 +166,29 @@ export function EditNote({
           </button>
         </div>
       </div>
-      {working && !open && (
-        <p className="muted small" role="status">
-          An agent is changing it, this can take a few minutes.
-        </p>
+      {working && startedAt !== null && (
+        <>
+          <WorkingLine
+            harness={runHarness ?? harness}
+            startedAt={startedAt}
+            doing="changing the note"
+            action={latestAction(activity)}
+            stopping={stopping}
+            onStop={() => stopNoteEdit(path)}
+          />
+          {activity.actions.length > 0 && (
+            <>
+              <button
+                className="link"
+                aria-expanded={showActivity}
+                onClick={() => setShowActivity(!showActivity)}
+              >
+                {showActivity ? 'Hide activity' : 'Show activity'}
+              </button>
+              {showActivity && <ActivityBody activity={activity} empty="Nothing yet." />}
+            </>
+          )}
+        </>
       )}
       {open && (
         <section className="card agent-card" aria-label="Change this note with an agent">
@@ -188,11 +220,6 @@ export function EditNote({
             <button className="secondary" disabled={working} onClick={cancel}>
               Cancel
             </button>
-            {working && (
-              <span className="muted small" role="status">
-                An agent is changing it, this can take a few minutes.
-              </span>
-            )}
           </div>
           {failure !== null && (
             <p className="error" role="alert">

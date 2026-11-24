@@ -4,6 +4,7 @@ import {
   createdPath,
   failureOf,
   folderSentence,
+  lineSplitter,
   NOTE_TOOLS,
   noteCommand,
   notePrompt,
@@ -11,6 +12,7 @@ import {
   pathsOf,
   reasonOf,
   sessionPrompt,
+  streamResult,
   vaultDirOf,
 } from './note-agent.ts'
 
@@ -304,5 +306,80 @@ describe('the model of a note session', () => {
       expect(args).not.toContain('--model')
       expect(args).not.toContain('-m')
     }
+  })
+})
+
+describe('the stream of a Claude note session', () => {
+  it('prints stream-json events and keeps every other flag', () => {
+    const plain = noteCommand('Claude', plan, 'p', ['/v']).args
+    const streamed = noteCommand('Claude', plan, 'p', ['/v'], undefined, true).args
+    const at = streamed.indexOf('--output-format')
+    expect(streamed.slice(at, at + 3)).toEqual(['--output-format', 'stream-json', '--verbose'])
+    expect(streamed).not.toContain('text')
+    expect(streamed).toContain('--no-session-persistence')
+    const without = (args: string[]) =>
+      args.filter((arg) => !['text', 'stream-json', '--verbose'].includes(arg))
+    expect(without(streamed)).toEqual(without(plain))
+    expect(plain).toContain('text')
+    expect(plain).not.toContain('--verbose')
+  })
+
+  it('leaves the Codex and OpenCode commands as they are', () => {
+    for (const harness of ['Codex', 'Opencode'] as const) {
+      expect(noteCommand(harness, plan, 'p', ['/v'], undefined, true)).toEqual(
+        noteCommand(harness, plan, 'p', ['/v']),
+      )
+    }
+  })
+})
+
+describe('the result of a stream', () => {
+  const event = (value: object) => JSON.stringify(value)
+
+  it('is the text of the last result event', () => {
+    const transcript = [
+      event({ type: 'system', subtype: 'init' }),
+      event({ type: 'assistant', message: { content: [] } }),
+      event({ type: 'result', result: 'first' }),
+      event({ type: 'result', result: 'EDITED' }),
+    ].join('\n')
+    expect(streamResult(transcript)).toBe('EDITED')
+  })
+
+  it('is empty without a result event', () => {
+    expect(streamResult(event({ type: 'assistant' }))).toBe('')
+    expect(streamResult('')).toBe('')
+  })
+
+  it('keeps the reason of a failed run readable', () => {
+    const transcript = `${event({ type: 'assistant' })}\n${event({ type: 'result', result: 'tried\nFAILED: no such note' })}\n`
+    expect(failureOf(streamResult(transcript))).toBe('no such note')
+  })
+
+  it('skips lines that are not JSON', () => {
+    expect(streamResult(`oops\n${event({ type: 'result', result: 'ok' })}\n{broken`)).toBe('ok')
+    expect(streamResult('plain\ntext')).toBe('')
+  })
+})
+
+describe('the line splitter', () => {
+  it('hands over whole lines, also when a chunk splits one', () => {
+    const lines: string[] = []
+    const splitter = lineSplitter((line) => lines.push(line))
+    splitter.write('one\ntw')
+    expect(lines).toEqual(['one'])
+    splitter.write('o\n\n  \nthree\n')
+    expect(lines).toEqual(['one', 'two', 'three'])
+    splitter.end()
+    expect(lines).toEqual(['one', 'two', 'three'])
+  })
+
+  it('hands over a last line with no newline on end', () => {
+    const lines: string[] = []
+    const splitter = lineSplitter((line) => lines.push(line))
+    splitter.write('a\nlast')
+    expect(lines).toEqual(['a'])
+    splitter.end()
+    expect(lines).toEqual(['a', 'last'])
   })
 })

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { defaultConfig } from '../shared/calls.ts'
 import { handleMessage, type Context } from './calls.ts'
 import { loadConfig, loadStoredConfig } from './config-store.ts'
+import { createNoteRuns } from './note-runs.ts'
 
 let dir: string
 let file: string
@@ -26,6 +27,7 @@ function contextFor(): Context {
     runs: { start: () => Promise.reject(new Error('not used')), stop: () => undefined },
     agent: () => Promise.reject(new Error('not used')),
     noteSession: () => Promise.reject(new Error('not used')),
+    noteRuns: createNoteRuns(),
   }
 }
 

@@ -22,6 +22,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::oneshot;
 
 const AGENT_TIMEOUT: Duration = Duration::from_secs(180);
 const NOTE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
@@ -41,13 +42,58 @@ pub struct Command {
     pub stdin: String,
 }
 
+/// Handed each complete non-empty line a session prints.
+pub type OnLine = Arc<dyn Fn(String) + Send + Sync>;
+
+/// The exit code of a run that was stopped, as the Node host reports it.
+pub const STOPPED_CODE: i32 = 143;
+
+/// Reads `from` to its end into `kept`, handing each complete non-empty line to `on_line` (and the
+/// last one, which may have no newline, at the end). `kept` is filled as it goes, so that what was
+/// read is there when the run is stopped before the end.
+async fn read_into(
+    from: &mut (impl AsyncReadExt + Unpin),
+    kept: &mut Vec<u8>,
+    on_line: Option<&OnLine>,
+) -> Result<(), String> {
+    let mut chunk = [0u8; 16 * 1024];
+    let mut from_line = 0;
+    let hand_over = |line: &[u8]| {
+        if let Some(on_line) = on_line {
+            let text = String::from_utf8_lossy(line);
+            let text = text.trim_end_matches('\r');
+            if !text.trim().is_empty() {
+                on_line(text.to_string());
+            }
+        }
+    };
+    loop {
+        let n = from.read(&mut chunk).await.map_err(|e| e.to_string())?;
+        if n == 0 {
+            hand_over(&kept[from_line..]);
+            return Ok(());
+        }
+        kept.extend_from_slice(&chunk[..n]);
+        if kept.len() > MAX_OUTPUT_BYTES {
+            return Err("the output is too large".to_string());
+        }
+        while let Some(at) = kept[from_line..].iter().position(|b| *b == b'\n') {
+            hand_over(&kept[from_line..from_line + at]);
+            from_line += at + 1;
+        }
+    }
+}
+
 /// Runs a command in `folder`, which is empty, so that no project instructions are loaded into it. A
-/// non-zero exit is a result, not an error.
+/// non-zero exit is a result, not an error. When `stop` fires the process is killed and the result is
+/// code 143 with what was read so far.
 async fn run_command(
     command: Command,
     env: BTreeMap<String, String>,
     limit: Duration,
     folder: &Path,
+    stop: Option<oneshot::Receiver<()>>,
+    on_line: Option<OnLine>,
 ) -> Result<CliResult, String> {
     let failed = |why: String| format!("{} could not be run: {why}", command.program);
     let mut child = tokio::process::Command::new(&command.program);
@@ -74,32 +120,56 @@ async fn run_command(
         .take()
         .ok_or_else(|| failed("no standard error".into()))?;
     let input = command.stdin.clone();
-    let work = async {
-        let write = async move {
-            let _ = stdin.write_all(input.as_bytes()).await;
-            drop(stdin);
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    enum Ended {
+        Done(Result<std::process::ExitStatus, String>),
+        TimedOut,
+        Stopped,
+    }
+    let ended = {
+        let work = async {
+            let write = async move {
+                let _ = stdin.write_all(input.as_bytes()).await;
+                drop(stdin);
+            };
+            let (_, read_out, read_err) = tokio::join!(
+                write,
+                read_into(&mut stdout, &mut out, on_line.as_ref()),
+                read_into(&mut stderr, &mut err, None)
+            );
+            read_out?;
+            read_err?;
+            child.wait().await.map_err(|e| e.to_string())
         };
-        async fn read(from: &mut (impl AsyncReadExt + Unpin)) -> Result<Vec<u8>, String> {
-            let mut kept = Vec::new();
-            let mut chunk = [0u8; 16 * 1024];
-            loop {
-                let n = from.read(&mut chunk).await.map_err(|e| e.to_string())?;
-                if n == 0 {
-                    return Ok(kept);
-                }
-                kept.extend_from_slice(&chunk[..n]);
-                if kept.len() > MAX_OUTPUT_BYTES {
-                    return Err("the output is too large".to_string());
+        // Only a stop that is sent counts: a sender that is dropped is not a stop.
+        let stopping = async move {
+            if let Some(stop) = stop {
+                if stop.await.is_ok() {
+                    return;
                 }
             }
+            std::future::pending::<()>().await
+        };
+        tokio::select! {
+            done = tokio::time::timeout(limit, work) => match done {
+                Ok(done) => Ended::Done(done),
+                Err(_) => Ended::TimedOut,
+            },
+            _ = stopping => Ended::Stopped,
         }
-        let (_, out, err) = tokio::join!(write, read(&mut stdout), read(&mut stderr));
-        let status = child.wait().await.map_err(|e| e.to_string())?;
-        Ok::<_, String>((status, out?, err?))
     };
-    let (status, out, err) = match tokio::time::timeout(limit, work).await {
-        Ok(done) => done.map_err(failed)?,
-        Err(_) => return Err(failed("it did not finish in time".into())),
+    let status = match ended {
+        Ended::Done(done) => done.map_err(failed)?,
+        Ended::TimedOut => return Err(failed("it did not finish in time".into())),
+        Ended::Stopped => {
+            let _ = child.kill().await;
+            return Ok(CliResult {
+                code: STOPPED_CODE,
+                stdout: String::from_utf8_lossy(&out).to_string(),
+                stderr: String::from_utf8_lossy(&err).to_string(),
+            });
+        }
     };
     let code = status
         .code()
@@ -115,7 +185,6 @@ async fn run_command(
 // A definition from a description
 // ---------------------------------------------------------------------------------------------
 
-#[derive(Clone, Debug)]
 pub struct AgentRun {
     /// Variables set in the app, over those the host has.
     pub env: BTreeMap<String, String>,
@@ -125,6 +194,8 @@ pub struct AgentRun {
     /// Added to the session's own instructions.
     pub system: String,
     pub prompt: String,
+    /// Fires when the person stops the run.
+    pub stop: Option<oneshot::Receiver<()>>,
 }
 
 type Running = Pin<Box<dyn Future<Output = Result<CliResult, String>> + Send>>;
@@ -151,11 +222,20 @@ impl AgentRunner {
         AgentRunner::new(move |run| {
             let base = base.clone();
             async move {
+                let mut run = run;
                 let command = agent_command(&run);
                 let mut env = base;
                 env.extend(run.env.clone());
                 env.extend(command.env.clone());
-                run_command(command, env, AGENT_TIMEOUT, &std::env::temp_dir()).await
+                run_command(
+                    command,
+                    env,
+                    AGENT_TIMEOUT,
+                    &std::env::temp_dir(),
+                    run.stop.take(),
+                    None,
+                )
+                .await
             }
         })
     }
@@ -369,16 +449,29 @@ pub fn text_of(answer: &str) -> String {
     format!("{}\n", inner.trim())
 }
 
+/// Which agent answers a generation: the harness, the model it is asked to use (its own when
+/// absent) and the variables set in the app.
+pub struct AgentChoice {
+    pub harness: Harness,
+    pub model: Option<String>,
+    pub env: BTreeMap<String, String>,
+}
+
 /// Asks the agent for the text of a definition.
 pub async fn generate_text(
     request: &GenerateRequest<'_>,
     environment: &Environment,
     bundled: &[PathBuf],
     agent: &AgentRunner,
-    harness: Harness,
-    model: Option<String>,
-    env: BTreeMap<String, String>,
+    choice: AgentChoice,
+    stop: Option<oneshot::Receiver<()>>,
+    stopped: impl Fn() -> bool,
 ) -> Result<String, HostError> {
+    let AgentChoice {
+        harness,
+        model,
+        env,
+    } = choice;
     let skill = if request.kind == DefinitionKind::Skill {
         String::new()
     } else {
@@ -391,9 +484,13 @@ pub async fn generate_text(
             model,
             system: system_for(request, &skill)?,
             prompt: prompt_for(request),
+            stop,
         })
         .await
         .map_err(HostError::unavailable)?;
+    if result.code == STOPPED_CODE && stopped() {
+        return Err(HostError::unavailable("the run was stopped"));
+    }
     if result.code != 0 {
         let reason = result
             .stderr
@@ -603,13 +700,14 @@ pub fn session_prompt(prompt: &str, folder: &Path) -> String {
 /// The headless session of a harness for a note, with what the session plan adds to load Synapse.
 /// Claude Code and OpenCode are held to the commands above. Codex runs in its sandbox, which writes
 /// only to its working folder and the folders in `writable`, where the vault and the skills' files are,
-/// and has no network.
+/// and has no network. With `stream` Claude Code prints each event as a line; the other two ignore it.
 pub fn note_command(
     harness: Harness,
     plan: &SessionPlan,
     prompt: &str,
     writable: &[String],
     model: Option<&str>,
+    stream: bool,
 ) -> Command {
     let strings = |items: &[&str]| -> Vec<String> { items.iter().map(|s| s.to_string()).collect() };
     let model_args = |flag: &str| -> Vec<String> {
@@ -629,10 +727,14 @@ pub fn note_command(
             Command {
                 program: plan.command.clone(),
                 args: [
+                    strings(&["-p", "--output-format"]),
+                    // Streamed, every event is printed as a line, which needs --verbose.
+                    strings(if stream {
+                        &["stream-json", "--verbose"]
+                    } else {
+                        &["text"]
+                    }),
                     strings(&[
-                        "-p",
-                        "--output-format",
-                        "text",
                         "--no-session-persistence",
                         "--permission-mode",
                         "dontAsk",
@@ -689,7 +791,6 @@ pub fn note_command(
     }
 }
 
-#[derive(Clone, Debug)]
 pub struct NoteSessionRun {
     pub harness: Harness,
     pub prompt: String,
@@ -700,6 +801,12 @@ pub struct NoteSessionRun {
     /// The folders the session writes in besides its own: the vault, and where the skills keep their
     /// files.
     pub writable: Vec<String>,
+    /// Fires when the person stops the run.
+    pub stop: Option<oneshot::Receiver<()>>,
+    /// Handed each line the session prints, as it prints it.
+    pub on_line: Option<OnLine>,
+    /// Whether Claude Code prints its events as lines; `stdout` is then its final result.
+    pub stream: bool,
 }
 
 type NoteRunning = Pin<Box<dyn Future<Output = Result<CliResult, String>> + Send>>;
@@ -733,7 +840,7 @@ impl NoteSession {
                 .await
                 .map_err(|e| e.to_string())?
                 .map_err(|e| e.to_string())?;
-                let (session, run) = plan;
+                let (session, mut run) = plan;
                 // A folder of the session's own, removed when it ends, for the files it makes. Its
                 // real path: the permission rules compare it with the path a file is made at.
                 let folder = tempfile::Builder::new()
@@ -747,14 +854,45 @@ impl NoteSession {
                     &session_prompt(&run.prompt, &path),
                     &run.writable,
                     run.model.as_deref(),
+                    run.stream,
                 );
                 let mut env = run.env.clone();
                 env.extend(session.env.clone());
                 env.extend(command.env.clone());
-                run_command(command, env, NOTE_TIMEOUT, &path).await
+                let streaming = run.stream && run.harness == Harness::Claude;
+                let mut result = run_command(
+                    command,
+                    env,
+                    NOTE_TIMEOUT,
+                    &path,
+                    run.stop.take(),
+                    run.on_line.take(),
+                )
+                .await?;
+                if streaming {
+                    result.stdout = stream_result(&result.stdout);
+                }
+                Ok(result)
             }
         })
     }
+}
+
+/// The text of the final `result` event of a stream-json transcript, empty when there is none.
+pub fn stream_result(stdout: &str) -> String {
+    for line in stdout.lines().rev() {
+        let Ok(event) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if event.get("type").and_then(|t| t.as_str()) == Some("result") {
+            return event
+                .get("result")
+                .and_then(|r| r.as_str())
+                .unwrap_or("")
+                .to_string();
+        }
+    }
+    String::new()
 }
 
 fn last_line(text: &str) -> String {
@@ -971,6 +1109,8 @@ pub async fn edit_note(
     session: impl Fn(String) -> Pin<Box<dyn Future<Output = Result<CliResult, String>> + Send>>,
     path: &str,
     description: &str,
+    // Whether the run was stopped by the person, which the registry knows and the exit code does not.
+    stopped: impl Fn() -> bool,
 ) -> Result<NoteEdit, HostError> {
     if let Some(problem) = note_path_problem(path) {
         return Err(HostError::bad_request(problem));
@@ -982,6 +1122,11 @@ pub async fn edit_note(
         .map_err(HostError::unavailable)?;
     let after = read_note(run, config, path).await?;
     if after == before {
+        if stopped() {
+            return Err(HostError::unavailable(
+                "The run was stopped and the note was not changed.",
+            ));
+        }
         let why = reason_of(&result.stdout, &result.stderr);
         return Err(HostError::unavailable(
             format!("The note was not changed. {why}")
@@ -1101,4 +1246,86 @@ pub async fn restore_note(
         ));
     }
     Ok(())
+}
+
+// These run `/bin/sh`, which Windows does not have.
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    fn shell(script: &str) -> Command {
+        Command {
+            program: "/bin/sh".into(),
+            args: vec!["-c".into(), script.into()],
+            env: BTreeMap::new(),
+            stdin: String::new(),
+        }
+    }
+
+    fn env() -> BTreeMap<String, String> {
+        BTreeMap::from([("PATH".to_string(), "/bin:/usr/bin".to_string())])
+    }
+
+    #[tokio::test]
+    async fn each_complete_non_empty_line_is_handed_over_and_the_whole_text_is_kept() {
+        let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+        let kept = lines.clone();
+        let on_line: OnLine = Arc::new(move |line| kept.lock().unwrap().push(line));
+        let result = run_command(
+            shell("printf 'a\\n\\nb\\nc'"),
+            env(),
+            Duration::from_secs(10),
+            &std::env::temp_dir(),
+            None,
+            Some(on_line),
+        )
+        .await
+        .unwrap();
+        assert_eq!(*lines.lock().unwrap(), ["a", "b", "c"]);
+        assert_eq!(result.code, 0);
+        assert_eq!(result.stdout, "a\n\nb\nc");
+    }
+
+    #[tokio::test]
+    async fn a_stopped_run_ends_with_code_143_and_what_it_had_printed() {
+        let (stop, stopped) = oneshot::channel::<()>();
+        let stop_once = Arc::new(Mutex::new(Some(stop)));
+        let on_line: OnLine = Arc::new(move |_| {
+            if let Some(stop) = stop_once.lock().unwrap().take() {
+                let _ = stop.send(());
+            }
+        });
+        let started = std::time::Instant::now();
+        let result = run_command(
+            shell("echo one; sleep 30; echo two"),
+            env(),
+            Duration::from_secs(60),
+            &std::env::temp_dir(),
+            Some(stopped),
+            Some(on_line),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.code, STOPPED_CODE);
+        assert_eq!(result.stdout, "one\n");
+        assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[tokio::test]
+    async fn a_stop_that_is_dropped_without_being_sent_does_not_end_the_run() {
+        let (stop, stopped) = oneshot::channel::<()>();
+        drop(stop);
+        let result = run_command(
+            shell("echo done"),
+            env(),
+            Duration::from_secs(10),
+            &std::env::temp_dir(),
+            Some(stopped),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!((result.code, result.stdout.as_str()), (0, "done\n"));
+    }
 }

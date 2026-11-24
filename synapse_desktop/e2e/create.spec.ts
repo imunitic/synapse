@@ -66,3 +66,23 @@ test('the Name field changes the name in the text, and waits for a name that fit
   await setEditorText(page, 'Pipeline Written_There { A [Harness => Claude, Prompt => "x"]; }')
   await expect(field).toHaveValue('Written_There')
 })
+
+test('an agent that writes the text of a definition shows a working line, and Stop ends it', async ({
+  page,
+}) => {
+  await page.goto('/')
+  await openSection(page, 'Definitions')
+  await sidePanel(page).getByRole('button', { name: 'New pipeline' }).click()
+  await page.getByRole('button', { name: 'Build with an agent' }).click()
+  await page.getByLabel('Describe what it should do').fill('SLOWCASE a slow pipeline')
+  await page.getByRole('button', { name: 'Build', exact: true }).click()
+  const line = page.getByRole('status').filter({ hasText: 'is writing the text' })
+  await expect(line).toContainText('Claude Code is writing the text')
+  await expect(line).toContainText(/· 0:0[2-9]/)
+  await expect(page.getByRole('button', { name: 'Show activity' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Stop' }).click()
+  await expect(page.locator('.agent-card .error')).toContainText('the run was stopped')
+  await expect(line).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Build', exact: true })).toBeEnabled()
+})

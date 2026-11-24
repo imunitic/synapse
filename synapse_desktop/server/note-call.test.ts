@@ -6,6 +6,7 @@ import type { CliResult } from '../shared/transport.ts'
 import { handleMessage, type Context } from './calls.ts'
 import type { CliRun } from './cli.ts'
 import type { NoteSessionRun } from './note-agent.ts'
+import { createNoteRuns } from './note-runs.ts'
 import { HostError } from '../shared/dispatch.ts'
 
 let dir: string
@@ -85,6 +86,7 @@ function contextFor(
     },
     runs: { start: () => Promise.reject(new Error('not used')), stop: () => undefined },
     agent: () => Promise.reject(new Error('not used')),
+    noteRuns: createNoteRuns(),
     noteSession: (run) => {
       sessions.push(run)
       return Promise.resolve(answer)
@@ -323,5 +325,134 @@ describe('writing a note with an agent', () => {
         handleMessage('agent.run', { kind: 'note', what: 'note', prompt: '' }, context),
       ),
     ).toMatchObject({ code: 'bad_request' })
+  })
+})
+
+// A session that waits for its signal, the way a stopped harness ends, and answers code 143.
+function waitingSession(
+  context: Context,
+  seen: NoteSessionRun[],
+  after: () => void = () => undefined,
+): void {
+  context.noteSession = (run) => {
+    seen.push(run)
+    return new Promise((resolve) => {
+      run.signal?.addEventListener('abort', () => {
+        after()
+        resolve({ code: 143, stdout: '', stderr: '' })
+      })
+    })
+  }
+}
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 10))
+
+describe('a run that can be stopped', () => {
+  it('gives the session a signal, ends it on agent.stop and is finished afterwards, for a new note', async () => {
+    const { context, sessions } = contextFor(['Index.md\n', 'Index.md\n'], ok(''))
+    waitingSession(context, sessions)
+    const running = failure(
+      handleMessage('agent.run', { kind: 'note', what: 'note', prompt: 'x', run: 'r1' }, context),
+    )
+    await tick()
+    expect(sessions[0]?.signal?.aborted).toBe(false)
+    await handleMessage('agent.stop', { run: 'r1' }, context)
+    expect(sessions[0]?.signal?.aborted).toBe(true)
+    const refused = await running
+    expect(refused).toMatchObject({ code: 'unavailable' })
+    expect(refused?.message).toBe('The run was stopped. No note was written.')
+    // The run is finished, so its id can be used again.
+    expect(() => context.noteRuns.start('r1')).not.toThrow()
+  })
+
+  it('refuses a second run with an id that is running', async () => {
+    const { context, sessions } = contextFor(['Index.md\n', 'Index.md\n'], ok(''))
+    waitingSession(context, sessions)
+    const first = failure(
+      handleMessage('agent.run', { kind: 'note', what: 'note', prompt: 'x', run: 'r1' }, context),
+    )
+    await tick()
+    const refused = await failure(
+      handleMessage('agent.run', { kind: 'note', what: 'note', prompt: 'x', run: 'r1' }, context),
+    )
+    expect(refused).toMatchObject({ code: 'conflict' })
+    await handleMessage('agent.stop', { run: 'r1' }, context)
+    await first
+  })
+
+  it('answers agent.stop for an id that is not running with null', async () => {
+    const { context } = contextFor([], ok(''))
+    expect(await handleMessage('agent.stop', { run: 'nope' }, context)).toBeNull()
+  })
+
+  it('still works without an id: no signal, no line handler', async () => {
+    const { context, sessions } = contextFor(['Index.md\n', 'Index.md\na.md\n'], ok('a.md\n'))
+    await handleMessage('agent.run', { kind: 'note', what: 'note', prompt: 'x' }, context)
+    expect(sessions[0]?.signal).toBeUndefined()
+    expect(sessions[0]?.onLine).toBeUndefined()
+  })
+})
+
+describe('the run of a note edit', () => {
+  // A vault whose note changes when the session ends, and the sessions that ran.
+  function editContext(change: boolean) {
+    const { context, sessions } = contextFor([], ok(''))
+    let text = '# a\n'
+    const base = context.runCli
+    context.runCli = (run) =>
+      run.args[0] === 'vault-read'
+        ? Promise.resolve({ code: 0, stdout: text, stderr: '' })
+        : run.args[0] === 'vault-search' || run.args[0] === 'vault-list'
+          ? Promise.resolve({ code: 0, stdout: '', stderr: '' })
+          : base(run)
+    return { context, sessions, change: () => (text = change ? '# b\n' : text) }
+  }
+  const edit = (context: Context, extra: object = {}) =>
+    handleMessage('agent.run', { kind: 'note-edit', path: 'a.md', prompt: 'x', ...extra }, context)
+
+  it('gives Claude a signal and a line handler that publishes to the run, and Codex only the signal', async () => {
+    for (const harness of ['Claude', 'Codex'] as const) {
+      const { context, sessions } = editContext(false)
+      const lines: string[] = []
+      context.noteRuns.subscribe('r2', undefined, (data) =>
+        lines.push((data as { line: string }).line),
+      )
+      context.noteSession = (run) => {
+        sessions.push(run)
+        run.onLine?.('{"type":"system"}')
+        return Promise.resolve({ code: 0, stdout: 'EDITED', stderr: '' })
+      }
+      await failure(edit(context, { harness, run: 'r2' }))
+      expect(sessions[0]?.signal).toBeDefined()
+      if (harness === 'Claude') {
+        expect(sessions[0]?.onLine).toBeDefined()
+        expect(lines).toEqual(['{"type":"system"}'])
+      } else {
+        expect(sessions[0]?.onLine).toBeUndefined()
+        expect(lines).toEqual([])
+      }
+    }
+  })
+
+  it('answers that the run was stopped when it was stopped and the note did not change', async () => {
+    const { context, sessions } = editContext(false)
+    waitingSession(context, sessions)
+    const running = failure(edit(context, { harness: 'Claude', run: 'r3' }))
+    await tick()
+    await handleMessage('agent.stop', { run: 'r3' }, context)
+    const refused = await running
+    expect(refused?.message).toBe('The run was stopped and the note was not changed.')
+  })
+
+  it('returns the edit when it was stopped after the note changed', async () => {
+    const { context, sessions, change } = editContext(true)
+    waitingSession(context, sessions, change)
+    const running = edit(context, { harness: 'Claude', run: 'r4' })
+    await tick()
+    await handleMessage('agent.stop', { run: 'r4' }, context)
+    expect(await running).toMatchObject({
+      kind: 'note-edit',
+      edit: { before: '# a\n', after: '# b\n' },
+    })
   })
 })

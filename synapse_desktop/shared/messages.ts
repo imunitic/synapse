@@ -3,6 +3,7 @@
 // that has nothing to say answers `null`.
 
 import { z } from 'zod'
+import { runIdSchema } from './protocol.ts'
 import {
   commitIdSchema,
   commitLogSchema,
@@ -307,6 +308,7 @@ export const messages = {
           )
           .max(1000),
         skills: z.array(skillNameSchema).max(1000),
+        run: runIdSchema.optional(),
       }),
       z.object({
         kind: z.literal('note'),
@@ -314,12 +316,14 @@ export const messages = {
         prompt: z.string().min(1).max(20_000),
         ...agentChoice,
         project: z.string().min(1).max(64).optional(),
+        run: runIdSchema.optional(),
       }),
       z.object({
         kind: z.literal('note-edit'),
         path: z.string().min(1).max(1024),
         prompt: z.string().min(1).max(20_000),
         ...agentChoice,
+        run: runIdSchema.optional(),
       }),
     ]),
     result: z.union([
@@ -328,6 +332,8 @@ export const messages = {
       z.object({ kind: z.literal('note-edit'), edit: noteEditSchema }),
     ]),
   },
+  // Ends the run of an agent that has this id; an id that is not running is not an error.
+  'agent.stop': { params: z.object({ run: runIdSchema }), result: nullResult },
   // Sets the status of a task note, which only a person does: an agent that changes a note never
   // sets DONE, so this is not one of the things an agent is asked to do.
   'note.status': {
@@ -494,6 +500,7 @@ export const methodHomes = {
   generateDefinition: 'agent.run',
   createNote: 'agent.run',
   editNote: 'agent.run',
+  stopAgentRun: 'agent.stop',
   restoreNote: 'note.restore',
   setNoteStatus: 'note.status',
   listProjects: 'registry.list',

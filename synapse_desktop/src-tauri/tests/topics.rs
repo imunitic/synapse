@@ -61,6 +61,7 @@ fn world_in(dir: TempDir) -> World {
         }),
         agent: AgentRunner::new(|_| async { Err("not used".to_string()) }),
         note_session: NoteSession::new(|_| async { Err("not used".to_string()) }),
+        note_runs: synapse_desktop_host::note_runs::NoteRuns::new(),
         runs: RunStarter::new("synapse-pipeline", Default::default()),
         bundled_roots: vec![],
         environment: environment(
@@ -302,4 +303,28 @@ mod run {
         assert!(seen.lock().unwrap().is_empty());
         stop_all(stops);
     }
+}
+
+#[tokio::test]
+async fn a_note_run_topic_gives_the_lines_the_run_published_from_the_cursor_on() {
+    let w = world();
+    let handle = w.context.note_runs.start("abc_1").unwrap();
+    handle.publish("one".into());
+    let mut stops = vec![];
+    let seen = subscribed(&w, "note-run.abc_1", None, &mut stops).await;
+    handle.publish("two".into());
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec![
+            (json!({ "line": "one" }), Some(0)),
+            (json!({ "line": "two" }), Some(1))
+        ]
+    );
+    let later = subscribed(&w, "note-run.abc_1", Some(0), &mut stops).await;
+    assert_eq!(
+        *later.lock().unwrap(),
+        vec![(json!({ "line": "two" }), Some(1))]
+    );
+    stop_all(stops);
+    handle.finish();
 }

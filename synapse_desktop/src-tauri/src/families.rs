@@ -3,7 +3,8 @@
 
 use crate::agents::{
     created_path, edit_note, generate_text, note_prompt, paths_of, reason_of, restore_note,
-    set_note_status, vault_dir_of, AgentRunner, GenerateRequest, NoteSession, NoteSessionRun,
+    set_note_status, vault_dir_of, AgentChoice, AgentRunner, GenerateRequest, NoteSession,
+    NoteSessionRun, OnLine,
 };
 use crate::cli::{refuse_cli, CliRun, CliRunner};
 use crate::config::{config_file, load_config, load_stored, merged, save_config};
@@ -20,6 +21,7 @@ use crate::history::{list_sessions, list_workspaces};
 use crate::inject::{injected_dir, InjectDeps};
 use crate::messages::*;
 use crate::models::{model_cache_file, ModelStore, ProgramRunner};
+use crate::note_runs::{NoteRunHandle, NoteRuns};
 use crate::registries::{
     add_convention, add_project, list_conventions, load_projects, remove_convention, split_project,
     Projects,
@@ -28,7 +30,8 @@ use crate::runs::{ask_run, socket_path, AskError, RunStarter};
 use crate::status::{diagnose, find_content_root, inspect_integrations, LoginPath, VersionOf};
 use crate::vault::{inspect_vault, seed_vault};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use tokio::sync::oneshot;
 
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
 
@@ -47,6 +50,8 @@ pub struct Context {
     pub agent: AgentRunner,
     /// Writes and changes notes of the vault, with Synapse loaded.
     pub note_session: NoteSession,
+    /// The runs of an agent on a note, a new note or a definition, which a client can watch and stop.
+    pub note_runs: NoteRuns,
     /// The folders the app is bundled with, where its skills and harness files are when no program
     /// on the PATH says.
     pub bundled_roots: Vec<PathBuf>,
@@ -74,6 +79,7 @@ impl Context {
                 bundled_roots: bundled_roots.clone(),
                 environment: environment.clone(),
             }),
+            note_runs: NoteRuns::new(),
             bundled_roots,
             environment,
         }
@@ -399,6 +405,9 @@ async fn note_session_of(
     config: &AppConfig,
     harness: Harness,
     model: Option<String>,
+    stop: Option<oneshot::Receiver<()>>,
+    on_line: Option<OnLine>,
+    stream: bool,
 ) -> Result<
     impl Fn(
         String,
@@ -430,6 +439,8 @@ async fn note_session_of(
         PathBuf::from(work),
     ]);
     let session = context.note_session.clone();
+    // The session is run once, and a stop signal can be taken only once.
+    let stop = Mutex::new(stop);
     Ok(move |prompt: String| {
         let session = session.clone();
         let run = NoteSessionRun {
@@ -438,6 +449,9 @@ async fn note_session_of(
             model: model.clone(),
             env: env.clone(),
             writable: writable.clone(),
+            stop: stop.lock().unwrap().take(),
+            on_line: on_line.clone(),
+            stream,
         };
         Box::pin(async move { session.run(run).await })
             as std::pin::Pin<
@@ -451,6 +465,8 @@ async fn create_note(
     context: &Context,
     config: &AppConfig,
     request: &AgentRunParams,
+    stop: Option<oneshot::Receiver<()>>,
+    stopped: impl Fn() -> bool,
 ) -> Result<String, HostError> {
     let AgentRunParams::Note {
         what,
@@ -458,6 +474,7 @@ async fn create_note(
         harness,
         model,
         project,
+        ..
     } = request
     else {
         return Err(HostError::bad_request("not a note"));
@@ -468,7 +485,7 @@ async fn create_note(
     let model = model
         .clone()
         .or_else(|| config.default_models.get(&harness).cloned());
-    let session = note_session_of(context, config, harness, model).await?;
+    let session = note_session_of(context, config, harness, model, stop, None, false).await?;
     // A task or design note belongs to a project, which a request names or the agent matches from the
     // ones there are.
     let projects = load_projects(&context.cli, config).await?.projects;
@@ -505,10 +522,107 @@ async fn create_note(
     if let Some(path) = created_path(&run.stdout, &before, &list().await?) {
         return Ok(path);
     }
+    if stopped() {
+        return Err(HostError::unavailable(
+            "The run was stopped. No note was written.",
+        ));
+    }
     let why = reason_of(&run.stdout, &run.stderr);
     Err(HostError::unavailable(
         format!("No note was written. {why}").trim().to_string(),
     ))
+}
+
+/// The id the client gave the run, when it gave one.
+fn run_of(request: &AgentRunParams) -> Option<&str> {
+    match request {
+        AgentRunParams::Definition { run, .. }
+        | AgentRunParams::Note { run, .. }
+        | AgentRunParams::NoteEdit { run, .. } => run.as_deref(),
+    }
+}
+
+/// What an agent run does for one request. `handle` is the run's entry in the registry, when the client
+/// gave an id: it says when the person stopped the run and takes the lines of a streaming session.
+async fn run_agent(
+    c: &Context,
+    config: &AppConfig,
+    request: &AgentRunParams,
+    handle: Option<&Arc<NoteRunHandle>>,
+    stop: Option<oneshot::Receiver<()>>,
+) -> Result<AgentRunAnswer, HostError> {
+    let stopped = || handle.is_some_and(|h| h.stopped());
+    match request {
+        AgentRunParams::Definition {
+            what,
+            prompt,
+            harness,
+            model,
+            current,
+            definitions,
+            skills,
+            ..
+        } => {
+            let harness = harness
+                .or(config.default_harness)
+                .unwrap_or(Harness::Claude);
+            let model = model
+                .clone()
+                .or_else(|| config.default_models.get(&harness).cloned());
+            let generate = GenerateRequest {
+                kind: *what,
+                prompt,
+                current: current.as_deref(),
+                definitions,
+                skills,
+            };
+            let text = generate_text(
+                &generate,
+                &c.environment,
+                &c.bundled_roots,
+                &c.agent,
+                AgentChoice {
+                    harness,
+                    model,
+                    env: config.env.clone(),
+                },
+                stop,
+                stopped,
+            )
+            .await?;
+            Ok(AgentRunAnswer::Definition { text })
+        }
+        AgentRunParams::Note { .. } => Ok(AgentRunAnswer::Note {
+            path: create_note(c, config, request, stop, stopped).await?,
+        }),
+        AgentRunParams::NoteEdit {
+            path,
+            prompt,
+            harness,
+            model,
+            ..
+        } => {
+            let harness = harness
+                .or(config.default_harness)
+                .unwrap_or(Harness::Claude);
+            let model = model
+                .clone()
+                .or_else(|| config.default_models.get(&harness).cloned());
+            // Only a Claude edit prints its events, which the page reads as actions.
+            let streaming = harness == Harness::Claude && handle.is_some();
+            let on_line: Option<OnLine> = match handle {
+                Some(h) if streaming => {
+                    let h = h.clone();
+                    Some(Arc::new(move |line| h.publish(line)))
+                }
+                _ => None,
+            };
+            let session =
+                note_session_of(c, config, harness, model, stop, on_line, streaming).await?;
+            let edit = edit_note(&c.cli, config, harness, session, path, prompt, stopped).await?;
+            Ok(AgentRunAnswer::NoteEdit { edit })
+        }
+    }
 }
 
 /// Makes `handlers` answer what an agent writes: a definition, a note, a change to a note.
@@ -518,61 +632,27 @@ pub fn agent_families(handlers: &mut Handlers, context: Arc<Context>) {
         let c = c.clone();
         async move {
             let config = c.config()?;
-            match &request {
-                AgentRunParams::Definition {
-                    what,
-                    prompt,
-                    harness,
-                    model,
-                    current,
-                    definitions,
-                    skills,
-                } => {
-                    let harness = harness
-                        .or(config.default_harness)
-                        .unwrap_or(Harness::Claude);
-                    let model = model
-                        .clone()
-                        .or_else(|| config.default_models.get(&harness).cloned());
-                    let generate = GenerateRequest {
-                        kind: *what,
-                        prompt,
-                        current: current.as_deref(),
-                        definitions,
-                        skills,
-                    };
-                    let text = generate_text(
-                        &generate,
-                        &c.environment,
-                        &c.bundled_roots,
-                        &c.agent,
-                        harness,
-                        model,
-                        config.env.clone(),
-                    )
-                    .await?;
-                    Ok(AgentRunAnswer::Definition { text })
-                }
-                AgentRunParams::Note { .. } => Ok(AgentRunAnswer::Note {
-                    path: create_note(&c, &config, &request).await?,
-                }),
-                AgentRunParams::NoteEdit {
-                    path,
-                    prompt,
-                    harness,
-                    model,
-                } => {
-                    let harness = harness
-                        .or(config.default_harness)
-                        .unwrap_or(Harness::Claude);
-                    let model = model
-                        .clone()
-                        .or_else(|| config.default_models.get(&harness).cloned());
-                    let session = note_session_of(&c, &config, harness, model).await?;
-                    let edit = edit_note(&c.cli, &config, harness, session, path, prompt).await?;
-                    Ok(AgentRunAnswer::NoteEdit { edit })
-                }
+            let mut handle = match run_of(&request) {
+                Some(id) => Some(c.note_runs.start(id)?),
+                None => None,
+            };
+            let stop = handle.as_mut().and_then(|h| h.stop.take());
+            let handle = handle.map(Arc::new);
+            let answer = run_agent(&c, &config, &request, handle.as_ref(), stop).await;
+            // The session and its closures are gone by now, so this is the only holder.
+            if let Some(handle) = handle.and_then(|h| Arc::try_unwrap(h).ok()) {
+                handle.finish();
             }
+            answer
+        }
+    });
+
+    let c = context.clone();
+    handlers.on::<StopRunParams, (), _, _>("agent.stop", move |params| {
+        let c = c.clone();
+        async move {
+            c.note_runs.stop(&params.run);
+            Ok(())
         }
     });
 

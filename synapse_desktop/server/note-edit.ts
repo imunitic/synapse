@@ -41,6 +41,8 @@ export interface EditDeps {
   harness: Harness
   // Runs the session with the prompt it is given.
   session: (prompt: string) => Promise<CliResult>
+  // Whether the run was stopped by the person, which the registry knows and the exit code does not.
+  stopped?: () => boolean
 }
 
 async function readText(run: CliRunner, config: AppConfig, path: string): Promise<string> {
@@ -104,6 +106,9 @@ export async function editNote(
   const result = await deps.session(editPrompt(path, description, deps.harness))
   const after = await readText(run, config, path)
   if (after === before) {
+    if (deps.stopped?.() === true) {
+      throw new EditRefused('The run was stopped and the note was not changed.', 'unavailable')
+    }
     const why = reasonOf(result.stdout, result.stderr)
     throw new EditRefused(`The note was not changed. ${why}`.trim(), 'unavailable')
   }

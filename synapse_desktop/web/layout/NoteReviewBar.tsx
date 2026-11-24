@@ -6,9 +6,11 @@
 
 import { useState } from 'react'
 import { RunChoice, useRunChoice } from '../components/RunChoice.tsx'
+import { WorkingLine } from '../components/WorkingLine.tsx'
+import { activityOfRun, latestAction } from '../domain/note-run.ts'
 import { composeNoteReview, orphaned, type NoteComment } from '../domain/note-review.ts'
 import type { OutlineHeading } from '../domain/outline.ts'
-import { startNoteEdit, useNoteEdit } from '../state/note-edits.ts'
+import { startNoteEdit, stopNoteEdit, useNoteEdit } from '../state/note-edits.ts'
 import { noteHeadings } from '../state/note-headings.ts'
 import {
   clearNoteReview,
@@ -96,7 +98,7 @@ export function NoteReviewBar({
   outline: readonly OutlineHeading[] | null
 }) {
   const { harness, model, chooseHarness, chooseModel } = useRunChoice()
-  const { working, failure } = useNoteEdit(path)
+  const { working, failure, startedAt, harness: runHarness, stopping, lines } = useNoteEdit(path)
   const [open, setOpen] = useState(false)
   const gone = outline === null ? new Set<string>() : orphaned(comments, outline)
 
@@ -127,10 +129,15 @@ export function NoteReviewBar({
           </button>
         </span>
       </div>
-      {working && (
-        <p className="muted small review-note" role="status">
-          An agent is changing the note, this can take a few minutes.
-        </p>
+      {working && startedAt !== null && (
+        <WorkingLine
+          harness={runHarness ?? harness}
+          startedAt={startedAt}
+          doing="changing the note"
+          action={latestAction(activityOfRun(lines))}
+          stopping={stopping}
+          onStop={() => stopNoteEdit(path)}
+        />
       )}
       {!working && failure !== null && (
         <p className="error small review-note" role="alert">

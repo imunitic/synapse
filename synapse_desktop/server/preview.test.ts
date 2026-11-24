@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { handleMessage, type Context } from './calls.ts'
 import type { CliRun } from './cli.ts'
 import { HostError } from '../shared/dispatch.ts'
+import { createNoteRuns } from './note-runs.ts'
 
 let dir: string
 let defaults: string
@@ -31,6 +32,7 @@ beforeEach(async () => {
     },
     agent: () => Promise.reject(new Error('not used')),
     noteSession: () => Promise.reject(new Error('not used')),
+    noteRuns: createNoteRuns(),
     runs: {
       start: () => Promise.reject(new Error('not used')),
       stop: () => undefined,

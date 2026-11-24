@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Context } from './calls.ts'
 import { shortSocketFolder, socketPath } from './run-socket.ts'
+import { createNoteRuns } from './note-runs.ts'
 import { createTopics } from './topics.ts'
 
 let dir: string
@@ -33,6 +34,7 @@ beforeEach(async () => {
     configFile: join(dir, 'config.json'),
     runs: { start: () => Promise.reject(new Error('no')), stop: () => undefined },
     agent: () => Promise.reject(new Error('no')),
+    noteRuns: createNoteRuns(),
     noteSession: () => Promise.reject(new Error('no')),
     runCli: () =>
       Promise.resolve({
@@ -163,5 +165,19 @@ describe('the topic of a run', () => {
     const seen = subscribed('run.exec-none')
     await sleep(200)
     expect(seen).toEqual([])
+  })
+})
+
+describe('the topic of an agent run', () => {
+  it('replays the lines published before the subscription and gives the ones after, with their index as cursor', async () => {
+    const handle = context.noteRuns.start('abc_1')
+    handle.publish('one')
+    const seen = subscribed('note-run.abc_1')
+    expect(seen).toEqual([{ data: { line: 'one' }, cursor: 0 }])
+    handle.publish('two')
+    expect(seen.at(-1)).toEqual({ data: { line: 'two' }, cursor: 1 })
+    const later = subscribed('note-run.abc_1', 0)
+    expect(later).toEqual([{ data: { line: 'two' }, cursor: 1 }])
+    handle.finish()
   })
 })

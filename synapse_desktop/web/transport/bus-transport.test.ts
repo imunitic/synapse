@@ -56,6 +56,57 @@ describe('the Transport over a bus', () => {
     ])
   })
 
+  it('passes the run id of an agent call on to the message', async () => {
+    const { transport, asked } = host()
+    await expect(
+      transport.generateDefinition({
+        kind: 'pipeline',
+        prompt: 'p',
+        definitions: [],
+        skills: [],
+        run: 'r1',
+      }),
+    ).rejects.toThrow('another message')
+    await expect(transport.createNote({ kind: 'note', prompt: 'p', run: 'r2' })).rejects.toThrow(
+      'another message',
+    )
+    await transport.editNote({ path: 'a.md', prompt: 'p', run: 'r3' })
+    expect(asked.map((a) => (a.params as { run?: string }).run)).toEqual(['r1', 'r2', 'r3'])
+  })
+
+  it('stops an agent run with agent.stop and its id', async () => {
+    const { transport, asked } = host()
+    await transport.stopAgentRun('run_1')
+    expect(asked).toEqual([{ name: 'agent.stop', params: { run: 'run_1' } }])
+  })
+
+  it('watches a note run as the topic of its id, hands over its lines and stops', async () => {
+    const { client, host: end } = linkPair()
+    const topics: string[] = []
+    let unsubscribed = 0
+    serve(end, {
+      handlers: {},
+      capabilities: { host: 'fake', shell: true, installActions: false },
+      subscribe: (topic, _after, push) => {
+        topics.push(topic)
+        push({ line: 'one' }, 0)
+        push({ line: 'two' }, 1)
+        return () => {
+          unsubscribed++
+        }
+      },
+    })
+    const transport = new BusTransport(new Bus(client))
+    const lines: string[] = []
+    const stop = transport.watchNoteRun('abc_1', (line) => lines.push(line))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(topics).toEqual(['note-run.abc_1'])
+    expect(lines).toEqual(['one', 'two'])
+    stop()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(unsubscribed).toBe(1)
+  })
+
   it('reads the settings and the paths from one message', async () => {
     const { transport, asked } = host()
     expect((await transport.getConfig()).workDir).toBe('/w')
