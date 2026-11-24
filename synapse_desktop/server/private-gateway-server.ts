@@ -9,6 +9,7 @@ import { loadViteProtectedAssets } from './gateway-vite-assets.ts'
 import type { GatewayHost } from './gateway.ts'
 import type { PasswordAccount } from './gateway-password-verifier.ts'
 import { isPrivateIpv4 } from './private-network-bind.ts'
+import { privateGatewayBind } from './private-gateway-bind.ts'
 
 interface PrivateGatewayConfig {
   readonly port: number
@@ -85,8 +86,9 @@ async function main(): Promise<void> {
     hosts: new Map(config.hosts.map((host) => [host.userId, host])),
     assets,
   })
-  server.listen(config.port, '127.0.0.1', () => {
-    console.log(`private Synapse gateway listening on 127.0.0.1:${config.port}`)
+  const bindAddress = privateGatewayBind(process.env)
+  server.listen(config.port, bindAddress, () => {
+    console.log(`private Synapse gateway listening on ${bindAddress}:${config.port}`)
   })
 }
 
