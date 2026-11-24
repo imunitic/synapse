@@ -6,7 +6,14 @@ describe('private container bind address', () => {
     expect(isPrivateIpv4('10.42.0.2')).toBe(true)
     expect(isPrivateIpv4('172.31.0.4')).toBe(true)
     expect(isPrivateIpv4('192.168.1.3')).toBe(true)
-    for (const address of ['127.0.0.1', '0.0.0.0', '10.0.0.999', '10.01.0.2', '8.8.8.8', 'localhost']) {
+    for (const address of [
+      '127.0.0.1',
+      '0.0.0.0',
+      '10.0.0.999',
+      '10.01.0.2',
+      '8.8.8.8',
+      'localhost',
+    ]) {
       expect(isPrivateIpv4(address)).toBe(false)
     }
   })
