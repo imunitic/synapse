@@ -17,6 +17,7 @@ export interface GatewayHttpAuthOptions {
   readonly publicHost: string
   readonly publicOrigin: string
   readonly sessions: SessionStore
+  readonly onLogout?: (session: NonNullable<Awaited<ReturnType<SessionStore['authenticate']>>>) => void
   // Return a trusted, fixed user ID or null. Never trust the submitted username
   // as an authenticated identity without checking its credential.
   readonly verifyCredentials: (
@@ -163,7 +164,9 @@ export function createGatewayHttpAuthHandler(options: GatewayHttpAuthOptions) {
             return
           }
           const token = sessionTokenFromCookie(request.headers.cookie)
+          const session = await options.sessions.authenticate(request)
           if (token !== null) options.sessions.revoke(token)
+          if (session !== null) options.onLogout?.(session)
           respond(response, 200, { authenticated: false }, clearSessionCookie())
           return
         }
