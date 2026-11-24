@@ -573,6 +573,9 @@ package body Acceptance.Agent_Pipeline_Tests is
            (Holds (Files_In (Dir), "execution.json")
             and then Holds (Files_In (Dir), "events.jsonl"),
             "its directory holds the summary and the events");
+         Assert_Contains
+           (Read_File (Dir & "/execution.json"), """interactive"":false",
+            "and the summary says the run was not interactive");
          Assert
            (Holds (Files_In (Dir), "description.json")
             and then Holds

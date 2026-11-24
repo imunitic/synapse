@@ -208,7 +208,7 @@ package body Synapse.Pipeline.Commands.Run is
       Recording.Largest := Settings.Changes_File_Limit;
       Recorder.Start
         (Id, Claimed.Registered, Descriptions.Describe (Pipeline, Settings),
-         Run, To_String (Settings.Working_Directory));
+         Run, To_String (Settings.Working_Directory), Attended /= null);
       for Item of Copies loop
          Recorder.Record_Definition
            (To_String (Item.Path), To_String (Item.Content));
