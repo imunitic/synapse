@@ -11,6 +11,7 @@ import { attachBus } from './bus.ts'
 import { attachPrivateGateway } from './gateway-private-entry.ts'
 import { hashGatewayPassword } from './gateway-password-verifier.ts'
 import { createGatewaySessions } from './gateway-sessions.ts'
+import { createNoteRuns } from './note-runs.ts'
 import { createSessions } from './terminal-sessions.ts'
 import { spawnPty, type Pty } from './terminal.ts'
 import { NotStartedHere, RunNotStarted } from './runs.ts'
@@ -79,6 +80,7 @@ describe.skipIf(process.platform === 'win32')('authenticated gateway to real Nod
           },
         },
         agent: () => Promise.reject(new Error('not used')),
+        noteRuns: createNoteRuns(),
         noteSession: () => Promise.reject(new Error('not used')),
         runCli: () => Promise.resolve({ code: 0, stdout: '', stderr: '' }),
       },
