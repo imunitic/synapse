@@ -17,26 +17,7 @@ export function attachGatewayFlow(
   fail: () => void,
   options: GatewayFlowOptions = {},
 ): () => void {
-  const high = options.highWaterBytes ?? 1024 * 1024
-  const low = options.lowWaterBytes ?? 512 * 1024
-  const maximum = options.maxBufferedBytes ?? 8 * 1024 * 1024
-  const timeout = options.timeoutMs ?? 20_000
-  const poll = options.pollMs ?? 100
-  const now = options.now ?? Date.now
-  if (
-    !Number.isSafeInteger(high) ||
-    !Number.isSafeInteger(low) ||
-    !Number.isSafeInteger(maximum) ||
-    !Number.isSafeInteger(timeout) ||
-    !Number.isSafeInteger(poll) ||
-    low < 0 ||
-    low >= high ||
-    high >= maximum ||
-    timeout <= 0 ||
-    poll <= 0
-  ) {
-    throw new Error('invalid gateway WebSocket flow limits')
-  }
+  const { high, low, maximum, timeout, poll, now } = validateGatewayFlowOptions(options)
 
   let clientPausedAt: number | null = null
   let upstreamPausedAt: number | null = null
@@ -99,4 +80,29 @@ export function attachGatewayFlow(
     client.off('message', fromClient)
     upstream.off('message', fromUpstream)
   }
+}
+
+export function validateGatewayFlowOptions(options: GatewayFlowOptions = {}) {
+  const high = options.highWaterBytes ?? 1024 * 1024
+  const low = options.lowWaterBytes ?? 512 * 1024
+  const maximum = options.maxBufferedBytes ?? 8 * 1024 * 1024
+  const timeout = options.timeoutMs ?? 20_000
+  const poll = options.pollMs ?? 100
+  const now = options.now ?? Date.now
+  if (
+    !Number.isSafeInteger(high) ||
+    !Number.isSafeInteger(low) ||
+    !Number.isSafeInteger(maximum) ||
+    !Number.isSafeInteger(timeout) ||
+    !Number.isSafeInteger(poll) ||
+    low < 0 ||
+    low >= high ||
+    high >= maximum ||
+    timeout <= 0 ||
+    poll <= 0
+  ) {
+    throw new Error('invalid gateway WebSocket flow limits')
+  }
+
+  return { high, low, maximum, timeout, poll, now }
 }
