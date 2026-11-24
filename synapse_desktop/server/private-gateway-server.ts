@@ -16,6 +16,7 @@ interface PrivateGatewayConfig {
   readonly publicHost: string
   readonly publicOrigin: string
   readonly buildDirectory: string
+  readonly trustedProxyAddresses?: readonly string[]
   readonly accounts: PasswordAccount[]
   readonly hosts: GatewayHost[]
 }
@@ -44,6 +45,12 @@ function validateConfig(value: unknown): PrivateGatewayConfig {
   }
   if (config.hosts.length !== config.accounts.length) {
     throw new Error('each gateway account requires an isolated private host')
+  }
+  if (
+    config.trustedProxyAddresses !== undefined &&
+    !Array.isArray(config.trustedProxyAddresses)
+  ) {
+    throw new Error('trusted proxy addresses must be an array')
   }
   const accountIds = new Set(config.accounts.map((account) => account.userId))
   const hostIds = new Set(config.hosts.map((host) => host.userId))
@@ -83,6 +90,7 @@ async function main(): Promise<void> {
     publicOrigin: config.publicOrigin,
     sessions,
     accounts: config.accounts,
+    trustedProxyAddresses: config.trustedProxyAddresses,
     hosts: new Map(config.hosts.map((host) => [host.userId, host])),
     assets,
   })
