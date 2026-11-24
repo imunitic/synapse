@@ -48,6 +48,7 @@ form.addEventListener('submit', async (event) => {
       cache: 'no-store',
     })
     if (response.ok) {
+      sessionStorage.clear()
       window.location.replace('/')
       return
     }
