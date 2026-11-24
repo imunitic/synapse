@@ -7,8 +7,12 @@ import type { Duplex } from 'node:stream'
 import { WebSocket, WebSocketServer } from 'ws'
 import { BUS_PATH, TOKEN_HEADER } from '../shared/constants.ts'
 import { hostForPrincipal, RouteDenied, type PrivateHost } from './gateway-routing.ts'
-import { attachGatewayFlow, type GatewayFlowOptions } from './gateway-flow-control.ts'
-import { attachGatewayHeartbeat } from './gateway-heartbeat.ts'
+import {
+  attachGatewayFlow,
+  validateGatewayFlowOptions,
+  type GatewayFlowOptions,
+} from './gateway-flow-control.ts'
+import { attachGatewayHeartbeat, validateGatewayHeartbeat } from './gateway-heartbeat.ts'
 
 export interface GatewaySession {
   readonly userId: string
@@ -75,6 +79,8 @@ const MAX_FRAME = 1024 * 1024
 // The caller serves the PWA over authenticated HTTPS on this same server and
 // must attach this handler only to its *private* application gateway.
 export function attachGateway(server: Server, options: GatewayOptions) {
+  validateGatewayFlowOptions(options.flowOptions)
+  validateGatewayHeartbeat(options.heartbeatMs)
   const sockets = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME })
   const interval = options.recheckMs ?? 15_000
   const maxConnectionsPerUser = options.maxConnectionsPerUser ?? 4
@@ -102,7 +108,7 @@ export function attachGateway(server: Server, options: GatewayOptions) {
 
   server.on('upgrade', (req, socket, head) => {
     socket.on('error', () => socket.destroy())
-    let abort = () => socket.destroy()
+    let abort: () => void = () => socket.destroy()
     if (req.url !== BUS_PATH) {
       socket.destroy()
       return
