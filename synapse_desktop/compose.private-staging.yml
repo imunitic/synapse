@@ -14,7 +14,9 @@ services:
       - '127.0.0.1:5180:5180'
     networks:
       user_a:
+        ipv4_address: 172.29.101.3
       user_b:
+        ipv4_address: 172.29.102.3
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
   backend_a:
