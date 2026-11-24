@@ -46,10 +46,7 @@ function validateConfig(value: unknown): PrivateGatewayConfig {
   if (config.hosts.length !== config.accounts.length) {
     throw new Error('each gateway account requires an isolated private host')
   }
-  if (
-    config.trustedProxyAddresses !== undefined &&
-    !Array.isArray(config.trustedProxyAddresses)
-  ) {
+  if (config.trustedProxyAddresses !== undefined && !Array.isArray(config.trustedProxyAddresses)) {
     throw new Error('trusted proxy addresses must be an array')
   }
   const accountIds = new Set(config.accounts.map((account) => account.userId))
