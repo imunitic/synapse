@@ -7,7 +7,8 @@ export function isPrivateIpv4(address: string): boolean {
   }
   const octets = parts.map(Number)
   if (octets.some((part) => part > 255)) return false
-  const [first, second] = octets
+  const first = octets[0]!
+  const second = octets[1]!
   return (
     first === 10 ||
     (first === 172 && second >= 16 && second <= 31) ||
