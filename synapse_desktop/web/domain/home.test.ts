@@ -21,6 +21,7 @@ function run(
     failureStep: null,
     fired: [],
     attention: null,
+    interactive: null,
   }
 }
 

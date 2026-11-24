@@ -1322,6 +1322,19 @@ div.activity-row {
   min-height: 160px;
 }
 
+/* The terminal of a run, in a card on its page */
+.terminal-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.terminal-card .terminal-view {
+  height: 28rem;
+}
+
 /* The Activity tab of the Changes sidebar: a terminal session's followed conversation */
 .activity-tab-head {
   display: flex;

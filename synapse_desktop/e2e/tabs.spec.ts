@@ -208,6 +208,9 @@ test('asks first for the page of a run that is going on, and says it goes on', a
       .getByRole('button', { name: /Fixture_Run/ })
       .click()
     await page.getByRole('button', { name: 'Run', exact: true }).click()
+    // The box is ticked and disabled until the pipeline is checked, so wait for it to be free.
+    await expect(page.getByLabel(/Run without a terminal/)).toBeEnabled()
+    await page.getByLabel(/Run without a terminal/).check()
     await page.getByRole('button', { name: 'Start run' }).click()
     await expect(page.getByText('Execution', { exact: true })).toBeVisible()
     // The tab of the run is the one showing, and is found by its name when it is not.

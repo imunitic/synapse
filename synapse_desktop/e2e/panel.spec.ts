@@ -1,6 +1,8 @@
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { overrideBus } from './bus.ts'
 import { expect, test, type Page } from './fixtures.ts'
-import { openSection, sidePanel } from './helpers.ts'
+import { openSection, sidePanel, world } from './helpers.ts'
 
 const panelTitle = (page: Page, name: string) =>
   sidePanel(page).getByRole('heading', { level: 2, name })
@@ -123,5 +125,49 @@ test.describe('a list with nothing in it', () => {
     await expect(sidePanel(page).locator('.list-item').first()).toBeVisible()
     await expect(sidePanel(page).getByRole('button', { name: /^New pipeline$/ })).toHaveCount(1)
     await expect(sidePanel(page).locator('.panel-action')).toHaveCount(0)
+  })
+})
+
+test.describe('the label of a run in the Executions list', () => {
+  const runs = [
+    { id: 'exec-label-a', interactive: true as boolean | undefined },
+    { id: 'exec-label-b', interactive: false as boolean | undefined },
+    { id: 'exec-label-c', interactive: undefined as boolean | undefined },
+  ]
+
+  test('says interactive or autonomous, and nothing for a record without the field', async ({
+    page,
+  }) => {
+    const dirs = runs.map((run) => join(world().work, 'pipelines', run.id))
+    runs.forEach((run) => {
+      const dir = join(world().work, 'pipelines', run.id)
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(
+        join(dir, 'execution.json'),
+        JSON.stringify({
+          format: 'synapse-pipeline-execution/v1',
+          id: run.id,
+          pipeline: 'Label_Run',
+          started: new Date().toISOString(),
+          ended: new Date().toISOString(),
+          status: 'completed',
+          current_step: null,
+          state: { steps_run: 1 },
+          ...(run.interactive === undefined ? {} : { interactive: run.interactive }),
+        }),
+      )
+    })
+    try {
+      await page.goto('/')
+      await openSection(page, 'Executions')
+      const row = (id: string) => sidePanel(page).locator('.list-item').filter({ hasText: id })
+      await expect(row('exec-label-a')).toContainText('interactive')
+      await expect(row('exec-label-b')).toContainText('autonomous')
+      await expect(row('exec-label-c')).toBeVisible()
+      await expect(row('exec-label-c')).not.toContainText('interactive')
+      await expect(row('exec-label-c')).not.toContainText('autonomous')
+    } finally {
+      dirs.forEach((dir) => rmSync(dir, { recursive: true, force: true }))
+    }
   })
 })

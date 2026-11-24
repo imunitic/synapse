@@ -64,6 +64,11 @@ export function ExecutionsPanel({
             >
               <span className="list-line">
                 <span className="list-name">{run.pipeline ?? 'unknown pipeline'}</span>
+                {run.interactive !== null && (
+                  <span className="muted small">
+                    {run.interactive ? 'interactive' : 'autonomous'}
+                  </span>
+                )}
                 {waitingFor(run) !== null ? (
                   <span className="badge" data-status="waiting">
                     needs you

@@ -42,8 +42,8 @@ export function clampIndex(index: number, tabIds: readonly string[]): number {
 
 // What closing a tab would cut short, in a sentence, or null when it would cut nothing short: the
 // page of the terminals ends the sessions whose program is still running, but not an interactive
-// run that is going on, and the page of a run that is going on is shown without the run being
-// stopped.
+// run that is going on, the page of a run that is going on is shown without the run being
+// stopped, and the page of a run that is starting ends it.
 export function closeWarning(
   page: Page,
   terminals: readonly TerminalSession[],
@@ -66,6 +66,12 @@ export function closeWarning(
           : `${runs} interactive runs are going on, and closing the tab does not stop them.`
     const said = [sessions, interactive].filter((s) => s !== null)
     return said.length === 0 ? null : said.join(' ')
+  }
+  // Closing the page of a run that is starting lets go of its session, which ends the run.
+  if (page.kind === 'run-starting') {
+    return terminals.some((t) => t.id === page.session && t.ended !== true)
+      ? 'This run is starting. Closing the tab stops it.'
+      : null
   }
   if (page.kind === 'execution') {
     const run = runs.find((r) => r.id === page.id)

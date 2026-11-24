@@ -14,6 +14,8 @@ const executionSchema = z.object({
   ended: z.string().nullable(),
   status: z.enum(['running', 'completed', 'failed']),
   current_step: z.string().nullable(),
+  // Whether the run has a terminal; absent from records written before the field existed.
+  interactive: z.boolean().optional(),
   // Whether an interactive run is waiting for a person; absent for one that is not interactive.
   attention: z
     .object({
@@ -61,6 +63,8 @@ export interface ExecutionSummary {
   // An interactive run that is going on: whether it is waiting for a person, and what its agent
   // said. Null for any other run.
   attention: Attention | null
+  // Whether the run was started with a terminal; null when the record does not say.
+  interactive: boolean | null
 }
 
 export interface Attention {
@@ -82,6 +86,7 @@ function incomplete(id: string): ExecutionSummary {
     failureStep: null,
     fired: [],
     attention: null,
+    interactive: null,
   }
 }
 
@@ -116,6 +121,7 @@ export function parseExecution(id: string, text: string): ExecutionSummary | nul
             reason: data.attention.reason ?? null,
             since: data.attention.since,
           },
+    interactive: data.interactive ?? null,
   }
 }
 

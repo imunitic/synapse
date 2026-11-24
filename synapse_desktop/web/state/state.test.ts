@@ -7,6 +7,7 @@ import {
   sectionOf,
   SETTINGS_SECTIONS,
   startState,
+  tabTitle,
   terminalName,
   type Action,
   type ShellState,
@@ -292,6 +293,23 @@ describe('terminals', () => {
     expect(reduce(state, { type: 'selectTerminal', id: 'zz' })).toBe(state)
   })
 
+  it('leave the selection alone when a run is selected: a run is not among the terminals', () => {
+    const state = reduce(open(initialState, 'a'), {
+      type: 'openTerminal',
+      kind: 'Pipeline',
+      cwd: '',
+      id: 'r',
+      pipeline: 'Develop',
+    })
+    expect(state.activeTerminal).toBe('a')
+    expect(reduce(state, { type: 'selectTerminal', id: 'r' })).toBe(state)
+    // Closing the last shell closes the page, though a run's session is still there.
+    const closed = reduce(state, { type: 'closeTerminal', id: 'a' })
+    expect(closed.terminals.map((t) => t.id)).toEqual(['r'])
+    expect(closed.activeTerminal).toBeNull()
+    expect(closed.tabs.some((t) => t.id === 'terminals')).toBe(false)
+  })
+
   it('are put in another order, within the list, and the selection stays', () => {
     const three = open(open(open(initialState, 'a'), 'b'), 'c')
     const ids = (s: typeof three) => s.terminals.map((t) => t.id)
@@ -346,14 +364,9 @@ describe('terminals', () => {
     })
     const closed = reduce(run, { type: 'closeTab', id: 'terminals' })
     expect(closed.terminals.map((t) => t.id)).toEqual(['r'])
-    expect(closed.activeTerminal).toBe('r')
+    // A run is not among the terminals, so none of them is selected.
+    expect(closed.activeTerminal).toBeNull()
     expect(closed.tabs.some((t) => t.id === 'terminals')).toBe(false)
-    // Shown again, it is the same session.
-    const shown = reduce(reduce(closed, { type: 'openPage', page: { kind: 'terminals' } }), {
-      type: 'selectTerminal',
-      id: 'r',
-    })
-    expect(shown.terminals).toBe(closed.terminals)
     // Once it has ended, closing the page lets it go.
     const ended = reduce(reduce(run, { type: 'terminalEnded', id: 'r' }), {
       type: 'closeTab',
@@ -375,6 +388,97 @@ describe('terminals', () => {
     expect(told.terminals[0]?.executionId).toBe('exec-1')
     expect(reduce(told, { type: 'terminalRun', id: 'r', executionId: 'exec-2' })).toBe(told)
     expect(reduce(told, { type: 'terminalRun', id: 'other', executionId: 'x' })).toBe(told)
+  })
+
+  it('of a pipeline open a page of their own, and leave the terminals alone', () => {
+    const shell = reduce(initialState, { type: 'openTerminal', kind: 'Shell', cwd: '', id: 's' })
+    const run = reduce(shell, {
+      type: 'openTerminal',
+      kind: 'Pipeline',
+      cwd: '',
+      id: 'r',
+      pipeline: 'Develop',
+    })
+    expect(run.tabs.map((t) => t.id)).toEqual(['terminals', 'run-starting:r'])
+    expect(run.activeId).toBe('run-starting:r')
+    expect(run.activeTerminal).toBe('s')
+    expect(run.terminals.map((t) => t.id)).toEqual(['s', 'r'])
+    const alone = reduce(initialState, {
+      type: 'openTerminal',
+      kind: 'Pipeline',
+      cwd: '',
+      id: 'r',
+      pipeline: 'Develop',
+    })
+    expect(alone.tabs.map((t) => t.id)).toEqual(['run-starting:r'])
+    expect(alone.activeTerminal).toBeNull()
+  })
+
+  it('of a pipeline swap their page for the execution page once the run is named', () => {
+    const run = reduce(reduce(initialState, { type: 'openPage', page: { kind: 'launch' } }), {
+      type: 'openTerminal',
+      kind: 'Pipeline',
+      cwd: '',
+      id: 'r',
+      pipeline: 'Develop',
+    })
+    const told = reduce(run, { type: 'terminalRun', id: 'r', executionId: 'exec-1' })
+    expect(told.tabs.map((t) => t.id)).toEqual(['launch', 'execution:exec-1'])
+    expect(told.activeId).toBe('execution:exec-1')
+    expect(told.terminals[0]?.executionId).toBe('exec-1')
+  })
+
+  it('of a pipeline keep the page that shows when the run is named behind another tab', () => {
+    const run = reduce(
+      reduce(initialState, { type: 'openTerminal', kind: 'Pipeline', cwd: '', id: 'r' }),
+      { type: 'openPage', page: { kind: 'launch' } },
+    )
+    const told = reduce(run, { type: 'terminalRun', id: 'r', executionId: 'exec-1' })
+    expect(told.tabs.map((t) => t.id)).toEqual(['execution:exec-1', 'launch'])
+    expect(told.activeId).toBe('launch')
+  })
+
+  it('learn the run they started without a page for it, and change only that', () => {
+    const run = reduce(initialState, {
+      type: 'openTerminal',
+      kind: 'Pipeline',
+      cwd: '',
+      id: 'r',
+      pipeline: 'Develop',
+    })
+    const closed = { ...run, tabs: run.tabs.filter((t) => t.id !== 'run-starting:r') }
+    const told = reduce(closed, { type: 'terminalRun', id: 'r', executionId: 'exec-1' })
+    expect(told.terminals[0]?.executionId).toBe('exec-1')
+    expect(told.tabs).toBe(closed.tabs)
+    expect(told.activeId).toBe(closed.activeId)
+  })
+
+  it('let go of the session of a run that is starting when its page is closed', () => {
+    const run = reduce(initialState, {
+      type: 'openTerminal',
+      kind: 'Pipeline',
+      cwd: '',
+      id: 'r',
+      pipeline: 'Develop',
+    })
+    const closed = reduce(run, { type: 'closeTab', id: 'run-starting:r' })
+    expect(closed.terminals).toEqual([])
+    expect(closed.tabs).toEqual([])
+    expect(closed.activeId).toBeNull()
+  })
+
+  it('name a run that is starting after its pipeline', () => {
+    const page = { kind: 'run-starting', session: 'r' } as const
+    const run = reduce(initialState, {
+      type: 'openTerminal',
+      kind: 'Pipeline',
+      cwd: '',
+      id: 'r',
+      pipeline: 'Develop',
+    })
+    expect(tabTitle(page, run.terminals)).toBe('Develop')
+    expect(tabTitle(page, [])).toBe('Starting run')
+    expect(tabTitle({ kind: 'graph' }, [])).toBe('Code graph')
   })
 
   it('never give two sessions the same title, even after one closes', () => {

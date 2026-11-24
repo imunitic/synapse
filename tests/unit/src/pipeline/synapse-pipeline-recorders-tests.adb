@@ -124,6 +124,53 @@ package body Synapse.Pipeline.Recorders.Tests is
          "beside the rest");
    end A_Run_Records_The_Folder_Its_Steps_Work_In;
 
+   function Is_Interactive (V : JSON.Value) return Boolean is
+     (JSON.Has_Member (V, "interactive")
+      and then JSON.Kind_Of (JSON.Member_Value (V, "interactive"))
+               = JSON.JSON_Boolean
+      and then JSON.As_Boolean (JSON.Member_Value (V, "interactive")));
+
+   function Says_Not_Interactive (V : JSON.Value) return Boolean is
+     (JSON.Has_Member (V, "interactive")
+      and then JSON.Kind_Of (JSON.Member_Value (V, "interactive"))
+               = JSON.JSON_Boolean
+      and then not JSON.As_Boolean (JSON.Member_Value (V, "interactive")));
+
+   procedure A_Run_Records_Whether_It_Is_Interactive
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context : aliased Contexts.Execution_Context;
+      Store   : aliased Fake_Registry.Fake_Registry;
+      Clock   : aliased Counting_Clock;
+      R       : Recorder (Context'Access, Store'Access, Clock'Access);
+      Plain_Context : aliased Contexts.Execution_Context;
+      Plain_Store   : aliased Fake_Registry.Fake_Registry;
+      Plain         : Recorder
+        (Plain_Context'Access, Plain_Store'Access, Clock'Access);
+   begin
+      Ticks := 0;
+      Assert (Store.Create ("exec-1") = Registry_Store.Created, "made");
+      R.Start
+        ("exec-1", True, JSON.Null_Value, Initial_State, Interactive => True);
+      Assert
+        (Is_Interactive (Summary_Of (Store, "exec-1")),
+         "an interactive run says so after Start");
+      R.Publish (Initial_State);
+      Assert
+        (Is_Interactive (Summary_Of (Store, "exec-1")),
+         "and after Publish");
+      Assert (Plain_Store.Create ("exec-2") = Registry_Store.Created, "made");
+      Plain.Start ("exec-2", True, JSON.Null_Value, Initial_State);
+      Assert
+        (Says_Not_Interactive (Summary_Of (Plain_Store, "exec-2")),
+         "a run started without it says false after Start");
+      Plain.Publish (Initial_State);
+      Assert
+        (Says_Not_Interactive (Summary_Of (Plain_Store, "exec-2")),
+         "and after Publish");
+   end A_Run_Records_Whether_It_Is_Interactive;
+
    procedure A_Run_Told_No_Folder_Records_None (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       Context : aliased Contexts.Execution_Context;
@@ -436,6 +483,9 @@ package body Synapse.Pipeline.Recorders.Tests is
       Register_Routine
         (T, A_Run_Records_The_Folder_Its_Steps_Work_In'Access,
          "A run records the folder its steps work in");
+      Register_Routine
+        (T, A_Run_Records_Whether_It_Is_Interactive'Access,
+         "A run records whether it is interactive");
       Register_Routine
         (T, A_Run_Told_No_Folder_Records_None'Access,
          "A run told no folder records none");

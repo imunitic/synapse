@@ -42,11 +42,11 @@ export function interactiveProblem(result: CliResult): string | null {
     : 'This pipeline cannot be run interactively.'
 }
 
-// The choice of Interactive is kept for each pipeline in the browser, and is off where nothing
-// was kept or the storage cannot be used.
-const choiceKey = (pipeline: string) => `run-interactive:${pipeline}`
+// The choice to run without a terminal is kept for each pipeline in the browser, and is off where
+// nothing was kept or the storage cannot be used.
+const choiceKey = (pipeline: string) => `run-autonomous:${pipeline}`
 
-export function readInteractive(storage: Pick<Storage, 'getItem'>, pipeline: string): boolean {
+export function readAutonomous(storage: Pick<Storage, 'getItem'>, pipeline: string): boolean {
   try {
     return storage.getItem(choiceKey(pipeline)) === '1'
   } catch {
@@ -54,7 +54,7 @@ export function readInteractive(storage: Pick<Storage, 'getItem'>, pipeline: str
   }
 }
 
-export function writeInteractive(
+export function writeAutonomous(
   storage: Pick<Storage, 'setItem' | 'removeItem'>,
   pipeline: string,
   on: boolean,

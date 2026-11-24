@@ -105,28 +105,31 @@ test('the run dialog shows the first step prompt with the input that is typed', 
   await expect(dialog).toContainText('The input is not valid JSON')
 })
 
-test('the run dialog offers to run interactively, and says what the button will do', async ({
+test('the run dialog starts interactive by default, and keeps the choice of no terminal', async ({
   page,
 }) => {
   await openDefinition(page, 'Pipelines', /Develop_Feature/)
   await page.getByRole('button', { name: 'Run', exact: true }).click()
   const dialog = page.getByRole('dialog')
-  const interactive = dialog.getByLabel(/Interactive: watch it in a terminal/)
-  await expect(interactive).toBeEnabled()
-  await expect(interactive).not.toBeChecked()
+  const autonomous = dialog.getByLabel(/Run without a terminal/)
+  await expect(autonomous).toBeEnabled()
+  await expect(autonomous).not.toBeChecked()
   await expect(dialog.getByRole('button', { name: 'Start run' })).toBeVisible()
-  await interactive.check()
-  await expect(dialog.getByRole('button', { name: 'Start interactive run' })).toBeVisible()
-  // The folder its agents work in is asked for once it is interactive.
+  // The folder its agents work in is asked for while the run is interactive.
   await expect(dialog.getByLabel(/Folder its agents work in/)).toBeVisible()
+  await autonomous.check()
+  await expect(dialog.getByLabel(/Folder its agents work in/)).toBeHidden()
   // The choice is kept for the pipeline.
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await page.getByRole('button', { name: 'Run', exact: true }).click()
-  await expect(page.getByRole('dialog').getByLabel(/Interactive: watch it/)).toBeChecked()
+  await expect(page.getByRole('dialog').getByLabel(/Run without a terminal/)).toBeChecked()
+  await expect(page.getByRole('dialog').getByLabel(/Folder its agents work in/)).toBeHidden()
+  // Unticking restores the interactive run.
   await page
     .getByRole('dialog')
-    .getByLabel(/Interactive: watch it/)
+    .getByLabel(/Run without a terminal/)
     .uncheck()
+  await expect(page.getByRole('dialog').getByLabel(/Folder its agents work in/)).toBeVisible()
 })
 
 test('a file that does not load is listed under the definitions, and the others still are', async ({

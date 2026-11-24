@@ -10,6 +10,7 @@ import { LaunchPage } from '../pages/LaunchPage.tsx'
 import { HomePage } from '../pages/HomePage.tsx'
 import { NewNotePage } from '../pages/NewNotePage.tsx'
 import { NotePage } from '../pages/NotePage.tsx'
+import { RunStartingPage } from '../pages/RunStartingPage.tsx'
 import { PipelinePage } from '../pages/PipelinePage.tsx'
 import { VaultPage } from '../pages/VaultPage.tsx'
 import { SettingsPage } from '../pages/SettingsPages.tsx'
@@ -91,6 +92,12 @@ export function PageView({
   onStartIn,
   onRunCommand,
   onStartRun,
+  onDismissRun,
+  waiting,
+  onStopTerminal,
+  onTerminalEnded,
+  onTerminalClaimed,
+  onTerminalRun,
 }: {
   page: Page
   onOpen: (page: Page) => void
@@ -108,6 +115,15 @@ export function PageView({
   onRunCommand: (command: string, title: string) => void
   // An interactive run of a pipeline is started in the terminals, with this input.
   onStartRun: (pipeline: string, input: unknown, folder: string) => void
+  // A run that did not start is let go: its session and its page.
+  onDismissRun: (session: string) => void
+  // What the agent of each interactive run that waits for a person said, by execution.
+  waiting: ReadonlyMap<string, string>
+  // The terminal of a run, shown on its page: closed, ended, held by the host, and named a run.
+  onStopTerminal: (session: string) => void
+  onTerminalEnded: (session: string) => void
+  onTerminalClaimed: (session: string) => void
+  onTerminalRun: (session: string, executionId: string) => void
   // A definition was made; this is its page.
   onCreated: (page: Page) => void
   // A definition was changed.
@@ -156,8 +172,19 @@ export function PageView({
         <ExecutionPage
           id={page.id}
           terminals={terminals}
-          onSelectTerminal={onSelectTerminal}
+          waiting={waiting}
+          onStopTerminal={onStopTerminal}
+          onTerminalEnded={onTerminalEnded}
+          onTerminalClaimed={onTerminalClaimed}
+          onTerminalRun={onTerminalRun}
           onShowChanges={onShowChanges}
+        />
+      )
+    case 'run-starting':
+      return (
+        <RunStartingPage
+          session={terminals.find((t) => t.id === page.session)}
+          onDismiss={() => onDismissRun(page.session)}
         />
       )
     // The terminals are kept by the shell, which does not unmount them.

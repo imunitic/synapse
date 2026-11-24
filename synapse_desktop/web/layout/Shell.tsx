@@ -9,6 +9,7 @@ import { Rail } from './Rail.tsx'
 import { SidePanel } from './SidePanel.tsx'
 import { StatusBar } from './StatusBar.tsx'
 import { TerminalsPage } from '../pages/TerminalsPage.tsx'
+import { TerminalView } from '../components/TerminalView.tsx'
 import { storedName, storeName } from '../domain/terminal-names.ts'
 import { defaultBase } from '../domain/changes.ts'
 import { keepBaseline } from '../state/change-baselines.ts'
@@ -79,7 +80,9 @@ export function Shell() {
   const active = state.tabs.find((tab) => tab.id === state.activeId)
   // The changes shown are those of the terminal session that is showing, or of the run whose page it
   // is.
-  const activeSession = state.terminals.find((t) => t.id === state.activeTerminal)
+  const activeSession = state.terminals.find(
+    (t) => t.id === state.activeTerminal && t.kind !== 'Pipeline',
+  )
   const changesSource: ChangesSource | null =
     active?.page.kind === 'terminals' && activeSession !== undefined
       ? {
@@ -142,7 +145,7 @@ export function Shell() {
           )}
           <div className="content" role="tabpanel">
             {/* A session goes on while another tab shows, so the terminals stay mounted. */}
-            {state.terminals.length > 0 && (
+            {state.terminals.some((t) => t.kind !== 'Pipeline') && (
               <TerminalsPage
                 sessions={state.terminals}
                 activeId={state.activeTerminal}
@@ -172,12 +175,49 @@ export function Shell() {
                 }
               />
             )}
+            {/* A run's session starts while its page says "Starting", so its view is mounted out
+                of sight until the run is named; the page of the run takes it from there. */}
+            {state.terminals
+              .filter((t) => t.kind === 'Pipeline' && t.executionId === undefined)
+              .map((session) => (
+                <div key={session.id} hidden>
+                  <TerminalView
+                    session={session}
+                    visible={false}
+                    onClose={() => {
+                      clearReview(session.id)
+                      dispatch({ type: 'closeTerminal', id: session.id })
+                    }}
+                    onEnded={() => dispatch({ type: 'terminalEnded', id: session.id })}
+                    onClaimed={() => dispatch({ type: 'terminalClaimed', id: session.id })}
+                    onRun={(executionId) =>
+                      dispatch({ type: 'terminalRun', id: session.id, executionId })
+                    }
+                    waitingFor={null}
+                  />
+                </div>
+              ))}
             {active !== undefined && active.page.kind !== 'terminals' && (
               <PageView
                 key={active.id}
                 page={active.page}
                 onOpen={(page) => dispatch({ type: 'openPage', page })}
                 terminals={state.terminals}
+                waiting={waiting}
+                onStopTerminal={(session) => {
+                  clearReview(session)
+                  dispatch({ type: 'closeTerminal', id: session })
+                }}
+                onTerminalEnded={(session) => dispatch({ type: 'terminalEnded', id: session })}
+                onTerminalClaimed={(session) => dispatch({ type: 'terminalClaimed', id: session })}
+                onTerminalRun={(session, executionId) =>
+                  dispatch({ type: 'terminalRun', id: session, executionId })
+                }
+                onDismissRun={(session) => {
+                  clearReview(session)
+                  dispatch({ type: 'closeTerminal', id: session })
+                  dispatch({ type: 'closeTab', id: `run-starting:${session}` })
+                }}
                 onSelectTerminal={(id) => {
                   dispatch({ type: 'openPage', page: { kind: 'terminals' } })
                   dispatch({ type: 'selectTerminal', id })

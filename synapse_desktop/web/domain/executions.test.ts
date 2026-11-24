@@ -43,7 +43,17 @@ describe('parseExecution', () => {
       failureStep: null,
       fired: [1],
       attention: null,
+      interactive: null,
     })
+  })
+
+  it('reads whether a run is interactive, and null when the record does not say', () => {
+    const record = JSON.parse(COMPLETED)
+    const read = (extra: object) =>
+      parseExecution('exec-04b1adfc', JSON.stringify({ ...record, ...extra }))
+    expect(read({ interactive: true })?.interactive).toBe(true)
+    expect(read({ interactive: false })?.interactive).toBe(false)
+    expect(read({})?.interactive).toBeNull()
   })
 
   it('reads whether an interactive run is waiting for a person, and what its agent said', () => {
@@ -142,6 +152,27 @@ describe('listExecutions', () => {
       ['exec-04b1adfc', 'completed'],
       ['exec-dead', 'interrupted'],
       ['exec-torn', 'incomplete'],
+    ])
+  })
+
+  it('shows an interactive run that answers on its socket as running, and one that does not as interrupted', async () => {
+    const interactive = (id: string) =>
+      JSON.stringify({
+        ...JSON.parse(running(id, '2026-11-07T08:00:00+01:00')),
+        attention: { state: 'running', reason: null, since: '2026-11-07T08:00:00+01:00' },
+      })
+    const transport = fakeTransport({
+      paths,
+      listening: ['exec-asking'],
+      files: {
+        '/w/pipelines/exec-asking/execution.json': interactive('exec-asking'),
+        '/w/pipelines/exec-gone/execution.json': interactive('exec-gone'),
+      },
+    })
+    const list = await listExecutions(transport)
+    expect(list.map((e) => [e.id, e.status, e.attention?.state])).toEqual([
+      ['exec-asking', 'running', 'running'],
+      ['exec-gone', 'interrupted', 'running'],
     ])
   })
 

@@ -25,7 +25,8 @@ with Synapse.Ports.Clock;
 --     "pipeline": "Name", "directory": "/where/the/steps/worked",
 --     "started": timestamp, "ended": null | timestamp,
 --     "status": "running" | "completed" | "failed",
---     "current_step": null | "Name", "state": the run's state}
+--     "current_step": null | "Name", "state": the run's state,
+--     "interactive": whether a person can answer in the run's terminal}
 --
 --  with one more member, "attention", while an interactive run goes on (see
 --  Inspection). "directory" is there when the run was told where its steps
@@ -51,7 +52,8 @@ package Synapse.Pipeline.Recorders is
       Registered  : Boolean;
       Description : Synapse.Core.JSON.Value;
       Initial     : States.State;
-      Directory   : String := "");
+      Directory   : String := "";
+      Interactive : Boolean := False);
 
    --  Keeps the definition file Path of the run, as the store lays them out.
    --  Written when the run is recorded and left out when it is not.
@@ -86,7 +88,8 @@ package Synapse.Pipeline.Recorders is
      (Id, Started, Ended : String;
       Item               : States.State;
       Attention          : Inspection.Attention := (others => <>);
-      Directory          : String := "")
+      Directory          : String := "";
+      Interactive        : Boolean := False)
       return Synapse.Core.JSON.Value;
 
 private
@@ -96,10 +99,11 @@ private
       Store   : not null access Registry_Store.Store'Class;
       Clock   : not null access Synapse.Ports.Clock.Clock'Class)
    is tagged limited record
-      Id         : Ada.Strings.Unbounded.Unbounded_String;
-      Registered : Boolean := False;
-      Started    : Ada.Strings.Unbounded.Unbounded_String;
-      Directory  : Ada.Strings.Unbounded.Unbounded_String;
+      Id          : Ada.Strings.Unbounded.Unbounded_String;
+      Registered  : Boolean := False;
+      Started     : Ada.Strings.Unbounded.Unbounded_String;
+      Directory   : Ada.Strings.Unbounded.Unbounded_String;
+      Interactive : Boolean := False;
    end record;
 
 end Synapse.Pipeline.Recorders;

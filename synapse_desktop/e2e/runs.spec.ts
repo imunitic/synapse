@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures.ts'
-import { openSection } from './helpers.ts'
+import { openSection, world } from './helpers.ts'
 
 test('a run is started from a pipeline and followed to its end', async ({ page }) => {
   await page.goto('/')
@@ -9,6 +9,9 @@ test('a run is started from a pipeline and followed to its end', async ({ page }
     .getByRole('button', { name: /Develop_Feature/ })
     .click()
   await page.getByRole('button', { name: 'Run', exact: true }).click()
+  // The box is ticked and disabled until the pipeline is checked, so wait for it to be free.
+  await expect(page.getByLabel(/Run without a terminal/)).toBeEnabled()
+  await page.getByLabel(/Run without a terminal/).check()
   await page.getByRole('button', { name: 'Start run' }).click()
 
   // The page of the execution, which goes through the loop once.
@@ -49,4 +52,56 @@ test('what an agent did in a step is read from its transcript', async ({ page })
   await expect(actions.nth(3)).toContainText('Wrote the word.')
   await page.getByRole('button', { name: 'Hide activity' }).click()
   await expect(actions).toHaveCount(0)
+})
+
+test('an interactive run has its terminal on the page of the run', async ({ page }) => {
+  await page.goto('/')
+  await openSection(page, 'Definitions')
+  await page
+    .getByLabel('Side panel')
+    .getByRole('button', { name: /Fixture_Run/ })
+    .click()
+  await page.getByRole('button', { name: 'Run', exact: true }).click()
+  // The dialog starts an interactive run, without the box touched.
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel(/Folder its agents work in/).fill(world().root)
+  await dialog.getByRole('button', { name: 'Start run' }).click()
+
+  // The page of the run, with its terminal in a card under the graph, open.
+  await expect(page.getByText('Execution', { exact: true })).toBeVisible({ timeout: 30_000 })
+  const card = page.getByRole('region', { name: 'Terminal', exact: true })
+  const toggle = card.getByRole('button', { name: 'Hide terminal' })
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  const screen = card.locator('.terminal-host')
+  await expect(screen).toContainText('STUB claude args', { timeout: 30_000 })
+  const graph = await page.getByRole('region', { name: 'Run graph' }).boundingBox()
+  const terminal = await card.boundingBox()
+  expect(graph).not.toBeNull()
+  expect(terminal).not.toBeNull()
+  expect(terminal!.y).toBeGreaterThan(graph!.y)
+  // The run has no tab on the Terminals page.
+  await expect(page.getByRole('tab', { name: 'Terminals' })).toHaveCount(0)
+
+  // Collapsed, the card hides the terminal, and opened it is there again.
+  await toggle.click()
+  const show = card.getByRole('button', { name: 'Show terminal' })
+  await expect(show).toHaveAttribute('aria-expanded', 'false')
+  await expect(screen).toBeHidden()
+  await show.click()
+  await expect(screen).toBeVisible()
+  await expect(screen).toContainText('STUB claude args')
+
+  // Away to Home and back, the screen is drawn again.
+  const runTab = page.locator('.tabbar .tab[data-selected="true"] [role="tab"]')
+  const name = await runTab.innerText()
+  await page.getByRole('tab', { name: 'Home' }).click()
+  await page.getByRole('tab', { name }).click()
+  await expect(
+    page.getByRole('region', { name: 'Terminal', exact: true }).locator('.terminal-host'),
+  ).toContainText('STUB claude args', { timeout: 30_000 })
+
+  // The run is stopped from its page; its terminal goes with it.
+  page.once('dialog', (d) => void d.accept())
+  await page.getByRole('button', { name: 'Stop run' }).click()
+  await expect(page.getByRole('region', { name: 'Terminal', exact: true })).toHaveCount(0)
 })

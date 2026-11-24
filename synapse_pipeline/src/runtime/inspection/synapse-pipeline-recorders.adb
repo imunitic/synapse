@@ -12,7 +12,8 @@ package body Synapse.Pipeline.Recorders is
      (Id, Started, Ended : String;
       Item               : States.State;
       Attention          : Inspection.Attention := (others => <>);
-      Directory          : String := "")
+      Directory          : String := "";
+      Interactive        : Boolean := False)
       return JSON.Value
    is
       use type Inspection.Attention_State;
@@ -44,6 +45,7 @@ package body Synapse.Pipeline.Recorders is
              then JSON.Make_String (To_String (Item.Current_Step))
              else JSON.Null_Value)),
          Member ("state", States.To_JSON (Item)),
+         Member ("interactive", JSON.Make_Boolean (Interactive)),
          Member ("attention", Inspection.Attention_JSON (Attention))];
       Members : constant JSON.Member_Array := Head & Where & Tail;
    begin
@@ -64,7 +66,8 @@ package body Synapse.Pipeline.Recorders is
            JSON.To_String
              (Summary
                 (To_String (R.Id), To_String (R.Started), Ended, Item,
-                 R.Context.Current.Attention, To_String (R.Directory))));
+                 R.Context.Current.Attention, To_String (R.Directory),
+                 R.Interactive)));
       pragma Unreferenced (Written);
    begin
       null;
@@ -76,8 +79,10 @@ package body Synapse.Pipeline.Recorders is
       Registered  : Boolean;
       Description : JSON.Value;
       Initial     : States.State;
-      Directory   : String := "") is
+      Directory   : String := "";
+      Interactive : Boolean := False) is
    begin
+      R.Interactive := Interactive;
       R.Id := To_Unbounded_String (Id);
       R.Directory := To_Unbounded_String (Directory);
       R.Registered := Registered;
