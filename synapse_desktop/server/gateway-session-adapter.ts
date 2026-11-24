@@ -17,8 +17,8 @@ export interface SessionGatewayOptions extends Omit<
   readonly sessions: GatewaySessionSource
 }
 
-export function attachSessionGateway(server: Server, options: SessionGatewayOptions): void {
-  attachGateway(server, {
+export function attachSessionGateway(server: Server, options: SessionGatewayOptions) {
+  return attachGateway(server, {
     publicHost: options.publicHost,
     publicOrigin: options.publicOrigin,
     hosts: options.hosts,
