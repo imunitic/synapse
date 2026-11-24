@@ -3,15 +3,29 @@
 // then while the window is in use. Each answer says where HEAD is, and a session that has switched
 // branches is compared with the snapshot of the branch it is on (see change-baselines.ts).
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { changeSet, type ChangeSet, type ChangesBase } from '../domain/changes.ts'
-import { changeLabel, readRunChanges } from '../domain/run-changes.ts'
+import {
+  changeLabel,
+  liveChange,
+  readRunChanges,
+  type RecordedChange,
+} from '../domain/run-changes.ts'
 import { transport } from '../transport/index.ts'
 import { baselineOf, followHead, onBaselineChange, type Baseline } from './change-baselines.ts'
 
 // What is being looked at.
 export type ChangesSource =
   { kind: 'session'; session: string; base: ChangesBase } | { kind: 'run'; executionId: string }
+
+// The step of a run that is running, for the changes it has made so far. `calls` goes up when a tool
+// call that can change files has finished, which is when they are asked for again.
+export interface LiveChanges {
+  step: string
+  visit: number
+  attempt: number
+  calls: number
+}
 
 // The changes of one part of what is looked at: a session has one, a run one for each recorded
 // session of a step.
@@ -78,8 +92,14 @@ function keyOf(source: ChangesSource | null): string | null {
 export function useChanges(
   source: ChangesSource | null,
   open: boolean,
+  live: LiveChanges | null = null,
 ): { state: ChangesState; refresh: () => void } {
-  const [state, setState] = useState<ChangesState>({ status: 'none' })
+  const [recorded, setState] = useState<ChangesState>({ status: 'none' })
+  // What the recorded patches of the run are, to name the live one among them.
+  const [patches, setPatches] = useState<RecordedChange[]>([])
+  // The changes of the running step, asked for apart from the clock: each answer writes the folder
+  // into git objects. It is kept with the session it is of.
+  const [liveGroup, setLiveGroup] = useState<{ key: string; change: RecordedChange } | null>(null)
   // Changes when the snapshot of a session is taken, and asks for the changes again at once.
   const [tick, setTick] = useState(0)
   const asking = useRef(false)
@@ -89,6 +109,15 @@ export function useChanges(
   // What is being looked at, so that the answer for another is let go.
   const latest = useRef<ChangesSource | null>(null)
   const key = keyOf(source)
+  const liveKey =
+    live === null || source === null || source.kind !== 'run'
+      ? null
+      : `${key}:${live.step}:${live.visit}:${live.attempt}`
+  const liveRef = useRef<{ key: string | null; live: LiveChanges | null }>({
+    key: null,
+    live: null,
+  })
+  liveRef.current = { key: liveKey, live }
 
   useEffect(() => onBaselineChange(() => setTick((n) => n + 1)), [])
 
@@ -157,6 +186,7 @@ export function useChanges(
       } else if (what.kind === 'run') {
         const run = await readRunChanges(transport, what.executionId)
         if (current()) {
+          setPatches(run.changes)
           setState({
             status: 'ready',
             kind: 'run',
@@ -182,6 +212,39 @@ export function useChanges(
       }
     }
   }, [])
+
+  // The changes of the running step, with what it has made so far. A failed read keeps what was
+  // shown: the next one will say.
+  const askLive = useCallback(async () => {
+    const { key: asked, live: now } = liveRef.current
+    const what = latest.current
+    if (asked === null || now === null || what === null || what.kind !== 'run') return
+    try {
+      const run = await readRunChanges(transport, what.executionId, now.step)
+      if (liveRef.current.key !== asked) return
+      const change = liveChange(run, now)
+      setLiveGroup(change === null ? null : { key: asked, change })
+    } catch {
+      // Left as it was.
+    }
+  }, [])
+
+  // The running step is asked for once when the sidebar opens or the step starts, and after each
+  // tool call that can have changed files; never while it is shut, never on the clock.
+  const liveCalls = live?.calls ?? 0
+  useEffect(() => {
+    if (open && liveKey !== null) void askLive()
+  }, [open, liveKey, liveCalls, askLive])
+
+  // The step ended: its live changes go, and the patch it saved is read.
+  const wasLive = useRef(false)
+  useEffect(() => {
+    if (liveKey === null) {
+      setLiveGroup(null)
+      if (wasLive.current) void ask(latest.current, false)
+    }
+    wasLive.current = liveKey !== null
+  }, [liveKey, ask])
 
   // Another thing, or a session's snapshot arriving, is looked at from the start.
   useEffect(() => {
@@ -210,6 +273,34 @@ export function useChanges(
     }
   }, [key, open, ask])
 
-  const refresh = useCallback(() => void ask(latest.current, false), [ask])
+  const refresh = useCallback(() => {
+    void ask(latest.current, false)
+    void askLive()
+  }, [ask, askLive])
+
+  // The recorded groups of a run, and the live one while its step is still running.
+  const state = useMemo<ChangesState>(() => {
+    if (
+      recorded.status !== 'ready' ||
+      recorded.kind !== 'run' ||
+      liveGroup === null ||
+      liveGroup.key !== liveKey
+    )
+      return recorded
+    const id = `${liveGroup.change.visit}-${liveGroup.change.attempt}`
+    if (recorded.groups.some((g) => g.id === id)) return recorded
+    return {
+      ...recorded,
+      groups: [
+        ...recorded.groups,
+        {
+          id,
+          label: changeLabel(liveGroup.change, [...patches, liveGroup.change]),
+          visit: liveGroup.change.visit,
+          set: liveGroup.change.set,
+        },
+      ],
+    }
+  }, [recorded, liveGroup, liveKey, patches])
   return { state, refresh }
 }

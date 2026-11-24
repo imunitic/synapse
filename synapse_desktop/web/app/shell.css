@@ -1335,6 +1335,12 @@ div.activity-row {
   height: 28rem;
 }
 
+/* The live step of a run on its page: bounded, so it scrolls */
+.live-card-body {
+  max-height: 24rem;
+  overflow: auto;
+}
+
 /* The Activity tab of the Changes sidebar: a terminal session's followed conversation */
 .activity-tab-head {
   display: flex;

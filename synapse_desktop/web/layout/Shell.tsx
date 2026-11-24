@@ -19,6 +19,7 @@ import { useCommits } from '../state/useCommits.ts'
 import { clearReview } from '../state/reviews.ts'
 import { useNoteReview } from '../state/note-reviews.ts'
 import { useWaitingRuns } from '../state/useWaitingRuns.ts'
+import { useLiveRun } from '../state/useLiveRun.ts'
 import { TabBar } from './TabBar.tsx'
 import '../app/shell.css'
 
@@ -93,7 +94,20 @@ export function Shell() {
       : active?.page.kind === 'execution'
         ? { kind: 'run', executionId: active.page.id }
         : null
-  const changes = useChanges(changesSource, state.changesOpen)
+  // The running session of the run whose page shows, followed through its transcript.
+  const liveRun = useLiveRun(active?.page.kind === 'execution' ? active.page.id : null)
+  const changes = useChanges(
+    changesSource,
+    state.changesOpen,
+    liveRun.live === null
+      ? null
+      : {
+          step: liveRun.live.step,
+          visit: liveRun.live.visit,
+          attempt: liveRun.live.attempt,
+          calls: liveRun.calls,
+        },
+  )
   // A terminal session also has the Git tab: the commits of the branch its harness is on.
   const gitSession =
     active?.page.kind === 'terminals' && activeSession !== undefined ? activeSession.id : null
@@ -204,6 +218,8 @@ export function Shell() {
                 onOpen={(page) => dispatch({ type: 'openPage', page })}
                 terminals={state.terminals}
                 waiting={waiting}
+                live={liveRun.live}
+                activity={liveRun.activity}
                 onStopTerminal={(session) => {
                   clearReview(session)
                   dispatch({ type: 'closeTerminal', id: session })
@@ -286,6 +302,7 @@ export function Shell() {
           <ChangesSidebar
             state={changes.state}
             onRefresh={changes.refresh}
+            live={liveRun.live !== null}
             focusVisit={state.changesVisit}
             focusFile={state.changesFile}
             onBase={(base) =>

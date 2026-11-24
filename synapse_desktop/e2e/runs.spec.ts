@@ -73,7 +73,7 @@ test('an interactive run has its terminal on the page of the run', async ({ page
   const toggle = card.getByRole('button', { name: 'Hide terminal' })
   await expect(toggle).toHaveAttribute('aria-expanded', 'true')
   const screen = card.locator('.terminal-host')
-  await expect(screen).toContainText('STUB claude args', { timeout: 30_000 })
+  await expect(screen).toContainText('cwd: ', { timeout: 30_000 })
   const graph = await page.getByRole('region', { name: 'Run graph' }).boundingBox()
   const terminal = await card.boundingBox()
   expect(graph).not.toBeNull()
@@ -89,7 +89,7 @@ test('an interactive run has its terminal on the page of the run', async ({ page
   await expect(screen).toBeHidden()
   await show.click()
   await expect(screen).toBeVisible()
-  await expect(screen).toContainText('STUB claude args')
+  await expect(screen).toContainText('cwd: ')
 
   // Away to Home and back, the screen is drawn again.
   const runTab = page.locator('.tabbar .tab[data-selected="true"] [role="tab"]')
@@ -98,7 +98,7 @@ test('an interactive run has its terminal on the page of the run', async ({ page
   await page.getByRole('tab', { name }).click()
   await expect(
     page.getByRole('region', { name: 'Terminal', exact: true }).locator('.terminal-host'),
-  ).toContainText('STUB claude args', { timeout: 30_000 })
+  ).toContainText('cwd: ', { timeout: 30_000 })
 
   // The run is stopped from its page; its terminal goes with it.
   page.once('dialog', (d) => void d.accept())

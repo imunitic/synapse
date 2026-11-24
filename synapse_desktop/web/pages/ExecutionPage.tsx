@@ -1,13 +1,14 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { listRecordedDefinitions } from '../domain/definitions.ts'
-import { sessionsByVisit, type RecordedSession } from '../domain/activity.ts'
+import { sessionsByVisit, type Activity, type RecordedSession } from '../domain/activity.ts'
 import { readExecution, waitingFor, type ExecutionRecord } from '../domain/executions.ts'
 import { layoutGraph } from '../domain/graph.ts'
+import type { LiveSession } from '../domain/live.ts'
 import { progressOf, visitsOf, type StepProgress, type Visit } from '../domain/progress.ts'
 import { describeRun } from '../domain/run-graph.ts'
 import { isLiveRun, type TerminalSession } from '../state/state.ts'
 import { transport } from '../transport/index.ts'
-import { ActivityView } from '../components/ActivityView.tsx'
+import { ActivityBody, ActivityView } from '../components/ActivityView.tsx'
 import { SourceCard } from './DefinitionPage.tsx'
 import { GraphView } from '../components/GraphView.tsx'
 import { TerminalView } from '../components/TerminalView.tsx'
@@ -170,6 +171,38 @@ function RunGraph({ id, record }: { id: string; record: ExecutionRecord }) {
   )
 }
 
+// The step that is running now and what it has done so far, read from the transcript as it grows.
+// It stays at the bottom while new actions come, unless the person has scrolled up.
+function LiveCard({ live, activity }: { live: LiveSession; activity: Activity | null }) {
+  const body = useRef<HTMLDivElement>(null)
+  const atBottom = useRef(true)
+  useEffect(() => {
+    const element = body.current
+    if (element !== null && atBottom.current) element.scrollTop = element.scrollHeight
+  }, [activity])
+  return (
+    <section className="card" aria-label="Live step">
+      <h2 className="card-title">
+        Running: {live.step} <span className="muted small">attempt {live.attempt}</span>
+      </h2>
+      <div
+        ref={body}
+        className="live-card-body"
+        onScroll={(event) => {
+          const e = event.currentTarget
+          atBottom.current = e.scrollHeight - e.scrollTop - e.clientHeight < 24
+        }}
+      >
+        {activity === null || activity.actions.length === 0 ? (
+          <p className="muted small">Nothing has been said yet.</p>
+        ) : (
+          <ActivityBody activity={activity} empty="Nothing has been said yet." />
+        )}
+      </div>
+    </section>
+  )
+}
+
 // The definition files the run's record keeps, as they were when it began. A
 // record made before it kept them has none, and shows nothing here.
 function RecordedFiles({ id }: { id: string }) {
@@ -210,6 +243,8 @@ export function ExecutionPage({
   id,
   terminals,
   waiting,
+  live,
+  activity,
   onStopTerminal,
   onTerminalEnded,
   onTerminalClaimed,
@@ -221,6 +256,9 @@ export function ExecutionPage({
   terminals: readonly TerminalSession[]
   // What the agent of each interactive run that waits for a person said, by execution.
   waiting: ReadonlyMap<string, string>
+  // The running session of a run without a terminal and what it has done so far.
+  live: LiveSession | null
+  activity: Activity | null
   // A session is closed: it ends, and so does the run in it if it is going on.
   onStopTerminal: (session: string) => void
   onTerminalEnded: (session: string) => void
@@ -255,9 +293,9 @@ export function ExecutionPage({
   const { summary, events } = record
   const visits = visitsOf(events)
   const sessions = sessionsByVisit(events)
-  const live = terminal !== undefined && isLiveRun(terminal)
+  const terminalLive = terminal !== undefined && isLiveRun(terminal)
   // A run is read before its record is complete, so a live session also counts as going on.
-  const open = terminalOpen ?? (live || summary.status === 'running')
+  const open = terminalOpen ?? (terminalLive || summary.status === 'running')
   const waitingText = waitingFor(summary)
   return (
     <div className="page full">
@@ -266,7 +304,7 @@ export function ExecutionPage({
           <p className="eyebrow">Execution</p>
           <h1 className="page-title mono">{summary.id}</h1>
         </div>
-        {terminal !== undefined && live && (
+        {terminal !== undefined && terminalLive && (
           <div className="head-actions">
             <button
               className="danger"
@@ -314,6 +352,7 @@ export function ExecutionPage({
         </div>
       )}
       <RunGraph id={id} record={record} />
+      {live !== null && terminal === undefined && <LiveCard live={live} activity={activity} />}
       {terminal !== undefined && (
         <section className="card terminal-card" aria-label="Terminal">
           <div className="terminal-card-head">

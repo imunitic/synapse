@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CliResult } from '../../shared/transport.ts'
 import { fakeTransport } from './fake-transport.ts'
-import { changeLabel, readRunChanges } from './run-changes.ts'
+import { changeLabel, liveChange, readRunChanges } from './run-changes.ts'
 
 const PATCH = `diff --git a/a.txt b/a.txt
 --- a/a.txt
@@ -46,6 +46,15 @@ describe('readRunChanges', () => {
     ])
   })
 
+  it('passes the step it is asked for, so that the running attempt of it is included', async () => {
+    const seen: string[][] = []
+    const stdout = document([{ step: 'Develop', visit: 1, attempt: 2, patch: PATCH }])
+    await readRunChanges(answering({ code: 0, stdout, stderr: '' }, seen), 'exec-1', 'Develop')
+    expect(seen).toEqual([
+      ['synapse-pipeline', 'changes', 'exec-1', '--step', 'Develop', '--format', 'json'],
+    ])
+  })
+
   it('leaves out a patch that has no files in it', async () => {
     const stdout = document([{ step: 'Develop', visit: 1, attempt: 1, patch: '' }])
     const changes = await readRunChanges(answering({ code: 0, stdout, stderr: '' }), 'exec-1')
@@ -81,5 +90,21 @@ describe('changeLabel', () => {
     expect(changeLabel(all[1]!, all)).toBe('Review')
     expect(changeLabel(all[0]!, all)).toBe('Develop · visit 1')
     expect(changeLabel(all[2]!, all)).toBe('Develop · visit 3, try 2')
+  })
+})
+
+describe('liveChange', () => {
+  const run = {
+    directory: '/work/widget',
+    changes: [
+      { step: 'Develop', visit: 1, attempt: 1, set: { files: [], diffs: new Map() } },
+      { step: 'Develop', visit: 1, attempt: 2, set: { files: [], diffs: new Map() } },
+    ],
+  }
+
+  it('picks the entry of the visit and try that is running, or none', () => {
+    expect(liveChange(run, { visit: 1, attempt: 2 })).toBe(run.changes[1])
+    expect(liveChange(run, { visit: 1, attempt: 3 })).toBeNull()
+    expect(liveChange(run, { visit: 2, attempt: 1 })).toBeNull()
   })
 })

@@ -14,6 +14,8 @@ import { RunStartingPage } from '../pages/RunStartingPage.tsx'
 import { PipelinePage } from '../pages/PipelinePage.tsx'
 import { VaultPage } from '../pages/VaultPage.tsx'
 import { SettingsPage } from '../pages/SettingsPages.tsx'
+import type { Activity } from '../domain/activity.ts'
+import type { LiveSession } from '../domain/live.ts'
 import type { Page, TerminalKind, TerminalSession, TerminalTask } from '../state/state.ts'
 
 // A definition's page, which turns into its editor while it is edited. After a
@@ -94,6 +96,8 @@ export function PageView({
   onStartRun,
   onDismissRun,
   waiting,
+  live,
+  activity,
   onStopTerminal,
   onTerminalEnded,
   onTerminalClaimed,
@@ -119,6 +123,9 @@ export function PageView({
   onDismissRun: (session: string) => void
   // What the agent of each interactive run that waits for a person said, by execution.
   waiting: ReadonlyMap<string, string>
+  // The running session of this page's run and what it has done so far; the execution page shows them.
+  live: LiveSession | null
+  activity: Activity | null
   // The terminal of a run, shown on its page: closed, ended, held by the host, and named a run.
   onStopTerminal: (session: string) => void
   onTerminalEnded: (session: string) => void
@@ -173,6 +180,8 @@ export function PageView({
           id={page.id}
           terminals={terminals}
           waiting={waiting}
+          live={live}
+          activity={activity}
           onStopTerminal={onStopTerminal}
           onTerminalEnded={onTerminalEnded}
           onTerminalClaimed={onTerminalClaimed}
