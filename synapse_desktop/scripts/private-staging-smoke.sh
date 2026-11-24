@@ -12,16 +12,35 @@ cleanup() {
   rm -f "$config"
 }
 trap cleanup EXIT
-cat > "$config" <<'JSON'
-{
-  "port": 5180,
-  "publicHost": "staging.example.test",
-  "publicOrigin": "https://staging.example.test",
-  "buildDirectory": "/opt/synapse/dist",
-  "accounts": [],
-  "hosts": []
+node --input-type=module > "$config" <<'JS'
+import { hashGatewayPassword } from './server/gateway-password-verifier.ts'
+const accounts = []
+const hosts = []
+for (const [id, address, token] of [
+  ['a', '172.29.101.2', process.env.SYNAPSE_BACKEND_A_TOKEN],
+  ['b', '172.29.102.2', process.env.SYNAPSE_BACKEND_B_TOKEN],
+]) {
+  accounts.push({
+    username: 'fixture-' + id,
+    userId: id,
+    passwordHash: await hashGatewayPassword('ci-fixture-password-' + id),
+  })
+  hosts.push({
+    userId: id,
+    backend: 'http://' + address + ':5174',
+    backendToken: token,
+    backendOrigin: 'http://gateway.internal',
+  })
 }
-JSON
+console.log(JSON.stringify({
+  port: 5180,
+  publicHost: 'staging.example.test',
+  publicOrigin: 'https://staging.example.test',
+  buildDirectory: '/opt/synapse/dist',
+  accounts,
+  hosts,
+}))
+JS
 chmod 644 "$config"
 "${compose[@]}" config --quiet
 "${compose[@]}" up -d --build
