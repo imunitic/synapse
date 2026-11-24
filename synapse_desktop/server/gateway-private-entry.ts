@@ -36,6 +36,7 @@ export function attachPrivateGateway(server: Server, options: PrivateGatewayOpti
   const verifyCredentials = createPasswordVerifier(options.accounts)
   const peerKey = createTrustedPeerKey(options.trustedProxyAddresses ?? [])
   const auth = createGatewayHttpAuthHandler({
+    onLogout: (session) => disconnectSession(session),
     publicHost: options.publicHost,
     publicOrigin: options.publicOrigin,
     sessions: options.sessions,
@@ -70,7 +71,7 @@ export function attachPrivateGateway(server: Server, options: PrivateGatewayOpti
     }
   })
 
-  attachSessionGateway(server, {
+  const disconnectSession = attachSessionGateway(server, {
     publicHost: options.publicHost,
     publicOrigin: options.publicOrigin,
     hosts: options.hosts,
