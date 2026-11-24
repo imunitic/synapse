@@ -20,6 +20,8 @@ export interface AgentRun {
   // Added to the session's own instructions.
   system: string
   prompt: string
+  // Ends the session when aborted; the result is then code 143.
+  signal?: AbortSignal
 }
 
 export type AgentRunner = (run: AgentRun) => Promise<CliResult>
@@ -111,9 +113,11 @@ export const runAgent: AgentRunner = (run) =>
         env: { ...process.env, ...run.env, ...env },
         timeout: TIMEOUT_MS,
         maxBuffer: MAX_OUTPUT_BYTES,
+        ...(run.signal === undefined ? {} : { signal: run.signal }),
       },
       (error, stdout, stderr) => {
         if (error === null) resolve({ code: 0, stdout, stderr })
+        else if (error.name === 'AbortError') resolve({ code: 143, stdout, stderr })
         else if (typeof error.code === 'number') resolve({ code: error.code, stdout, stderr })
         else reject(new Error(`${program} could not be run: ${error.message}`))
       },
@@ -216,6 +220,7 @@ export async function generateText(
     harness: Harness
     model?: string
     env: Record<string, string>
+    signal?: AbortSignal
   },
 ): Promise<string> {
   const skill = request.kind === 'skill' ? '' : await findPipelineSkill(deps.pathVariable)
@@ -225,7 +230,11 @@ export async function generateText(
     ...(deps.model === undefined ? {} : { model: deps.model }),
     system: systemFor(request, skill),
     prompt: promptFor(request),
+    ...(deps.signal === undefined ? {} : { signal: deps.signal }),
   })
+  if (result.code === 143 && deps.signal?.aborted === true) {
+    throw new GenerationFailed('the run was stopped')
+  }
   if (result.code !== 0) {
     const reason = result.stderr.trim().split('\n').pop() ?? ''
     throw new GenerationFailed(`the agent failed${reason === '' ? '' : `: ${reason}`}`)

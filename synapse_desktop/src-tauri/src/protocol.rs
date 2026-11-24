@@ -47,14 +47,16 @@ pub struct Topic(String);
 
 impl Topic {
     pub fn parse(text: &str) -> Option<Topic> {
-        let valid = match text.strip_prefix("run.") {
-            Some(id) => {
-                (1..=64).contains(&id.len())
-                    && id
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-            }
-            None => matches!(text, "files.work" | "files.definitions" | "files.vault"),
+        let id = |id: &str| {
+            (1..=64).contains(&id.len())
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        };
+        let valid = match (text.strip_prefix("run."), text.strip_prefix("note-run.")) {
+            (Some(run), _) => id(run),
+            (_, Some(run)) => id(run),
+            _ => matches!(text, "files.work" | "files.definitions" | "files.vault"),
         };
         valid.then(|| Topic(text.to_string()))
     }

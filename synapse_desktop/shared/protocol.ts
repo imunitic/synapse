@@ -27,11 +27,16 @@ export const errorCodeSchema = z.enum([
 
 export type ErrorCode = z.infer<typeof errorCodeSchema>
 
+// The id a client makes for a run of an agent, so it can watch and stop it.
+export const runIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/)
+
 // What a client subscribes to. The files of a place change (no cursor: a client that reconnects
 // reads again what it shows), and a run publishes its events, each with its own index as cursor.
 export const topicSchema = z
   .string()
-  .regex(/^(files\.(work|definitions|vault)|run\.[A-Za-z0-9_-]{1,64})$/)
+  .regex(
+    /^(files\.(work|definitions|vault)|run\.[A-Za-z0-9_-]{1,64}|note-run\.[A-Za-z0-9_-]{1,64})$/,
+  )
 
 export type Topic = z.infer<typeof topicSchema>
 

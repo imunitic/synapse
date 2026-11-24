@@ -1,0 +1,7 @@
+{
+  "name": "agent.stop",
+  "params": {
+    "run": "run-0a1b2c3d"
+  },
+  "result": null
+}

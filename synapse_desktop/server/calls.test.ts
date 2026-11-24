@@ -7,6 +7,7 @@ import { handleMessage, type CallMessage, type Context } from './calls.ts'
 import type { CliRun } from './cli.ts'
 import { NotStartedHere, RunNotStarted } from './runs.ts'
 import { HostError } from '../shared/dispatch.ts'
+import { createNoteRuns } from './note-runs.ts'
 
 let dir: string
 let context: Context
@@ -28,6 +29,7 @@ beforeEach(async () => {
     },
     agent: () => Promise.reject(new Error('not used')),
     noteSession: () => Promise.reject(new Error('not used')),
+    noteRuns: createNoteRuns(),
     runCli: (run) => {
       cliCalls.push(run)
       return Promise.resolve(cliResult)

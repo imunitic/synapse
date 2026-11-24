@@ -208,12 +208,39 @@ export function resetSettings(world: World): void {
   )
 }
 
+// The shell functions both stubs use to answer a headless run. Started with `--output-format
+// stream-json` the stub prints events the way Claude Code does: first an action, and at the end
+// its result and the final `result` line. Otherwise it prints plain text as before. A prompt with
+// SLOWCASE waits 30 seconds after the first event, so a test can see the action and then stop it.
+const STREAM_SH = String.raw`
+ev_start() {
+  if [ "$STUB_STREAM" = 1 ]; then
+    printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"s1","name":"Bash","input":{"command":"synapse vault-read research/Target.md"}}]}}'
+  fi
+}
+ev_slow() {
+  case "$1" in *SLOWCASE*) sleep 30 ;; esac
+}
+ev_end() {
+  if [ "$STUB_STREAM" = 1 ]; then
+    printf '%s\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"s1","content":"read"}]}}'
+    printf '{"type":"result","subtype":"success","result":"%s"}\n' "$1"
+  else
+    printf '%s\n' "$1"
+  fi
+}
+`
+
 // A harness that prints what it was started with, writes a session file in the
 // form of the real one, and then echoes each line that is typed, until the line
 // `quit`, which ends it with code 7.
 const STUB = [
   '#!/bin/sh',
   'name=$(basename "$0")',
+  STREAM_SH,
+  'STUB_STREAM=0',
+  'case "$*" in *stream-json*) STUB_STREAM=1 ;; esac',
+  'export STUB_STREAM',
   // Asked for its version, as `synapse doctor` does, it says one and touches nothing.
   '[ "$1" = "--version" ] && { echo "$name 0.0.0-stub"; exit 0; }',
   // A listing of models is logged, for a test to see which programs the app ran to read them.
@@ -239,11 +266,12 @@ const STUB = [
   'if [ -n "$headless" ]; then',
   '  if [ "$headless" = stdin ]; then prompt=$(cat); else for a in "$@"; do prompt=$a; done; fi',
   '  case "$prompt" in',
-  '    *FAILCASE*) echo "FAILED: the stub was asked to fail"; exit 0 ;;',
+  '    *FAILCASE*) ev_end "FAILED: the stub was asked to fail"; exit 0 ;;',
   '    *"Change one note that already exists"*) exec "$(dirname "$0")/stub-edit" "$prompt" ;;',
   '  esac',
+  '  ev_start; ev_slow "$prompt"',
   `  printf '%s\\n' "# Stub note" "" "Written by $name" "$prompt" | synapse vault-write "research/Stub note.md"`,
-  '  echo "research/Stub note.md"; exit 0',
+  '  ev_end "research/Stub note.md"; exit 0',
   'fi',
   'sid=""; prev=""',
   'for a in "$@"; do [ "$prev" = "--session-id" ] && sid="$a"; prev="$a"; done',
@@ -286,12 +314,18 @@ const STUB = [
 // What the stub harness does when it is asked to change a note: it adds a line that holds
 // the description to the note named in the prompt, or changes nothing, or also moves the
 // date of another note, as the description says.
-const EDIT_STUB = String.raw`#!/bin/sh
+const EDIT_STUB =
+  String.raw`#!/bin/sh
 prompt="$1"
+` +
+  STREAM_SH +
+  String.raw`
 path=$(printf '%s\n' "$prompt" | sed -n 's/.*The note is .\(.*\).: read it first.*/\1/p')
 desc=$(printf '%s\n' "$prompt" | sed -n '/^Description:$/,$p' | tail -n +2)
+ev_start
+ev_slow "$prompt"
 case "$desc" in
-  *NOCHANGE*) echo EDITED; exit 0 ;;
+  *NOCHANGE*) ev_end EDITED; exit 0 ;;
 esac
 tmp=$(mktemp)
 synapse vault-read "$path" > "$tmp"
@@ -303,7 +337,7 @@ case "$desc" in
     synapse vault-write "research/Other.md" < "$tmp" ;;
 esac
 rm -f "$tmp"
-echo EDITED
+ev_end EDITED
 `
 
 export function buildWorld(root: string, binDirs: readonly string[]): World {

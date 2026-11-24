@@ -181,6 +181,7 @@ export function noteCommand(
   prompt: string,
   writable: readonly string[],
   model?: string,
+  stream = false,
 ): NoteCommand {
   switch (harness) {
     case 'Claude':
@@ -188,7 +189,7 @@ export function noteCommand(
         args: [
           '-p',
           '--output-format',
-          'text',
+          ...(stream ? ['stream-json', '--verbose'] : ['text']),
           '--no-session-persistence',
           '--permission-mode',
           'dontAsk',
@@ -248,6 +249,11 @@ export interface NoteSessionRun {
   // The folders the session writes in besides its own: the vault, and where the
   // skills keep their files.
   writable: readonly string[]
+  // Ends the session when aborted; the result is then code 143.
+  signal?: AbortSignal
+  // Called with each line the session prints, as it prints it. For Claude the session
+  // prints its events as stream-json, and the stdout of the result is the final text.
+  onLine?: (line: string) => void
 }
 
 export type NoteSession = (run: NoteSessionRun) => Promise<CliResult>
@@ -267,6 +273,42 @@ export function sessionPrompt(prompt: string, folder: string): string {
   return `${folderSentence(folder)}\n\n${prompt}`
 }
 
+// The text of the final `result` event of a stream-json transcript, '' when there is none.
+export function streamResult(stdout: string): string {
+  const lines = stdout.split('\n')
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    try {
+      const event = JSON.parse(lines[index] ?? '') as { type?: unknown; result?: unknown }
+      if (event !== null && typeof event === 'object' && event.type === 'result') {
+        return typeof event.result === 'string' ? event.result : ''
+      }
+    } catch {
+      // Not an event: the line is skipped.
+    }
+  }
+  return ''
+}
+
+// Hands over each complete non-empty line of the chunks written to it, and the last line,
+// which may have no newline, on `end`.
+export function lineSplitter(onLine: (line: string) => void): {
+  write(chunk: string): void
+  end(): void
+} {
+  let rest = ''
+  return {
+    write(chunk) {
+      const parts = (rest + chunk).split('\n')
+      rest = parts.pop() ?? ''
+      for (const part of parts) if (part.trim() !== '') onLine(part)
+    },
+    end() {
+      if (rest.trim() !== '') onLine(rest)
+      rest = ''
+    },
+  }
+}
+
 export function createNoteSession(plan: (harness: Harness) => Promise<SessionPlan>): NoteSession {
   return async (run) => {
     const session = await plan(run.harness)
@@ -278,7 +320,10 @@ export function createNoteSession(plan: (harness: Harness) => Promise<SessionPla
       sessionPrompt(run.prompt, folder),
       run.writable,
       run.model,
+      run.onLine !== undefined && run.harness === 'Claude',
     )
+    const streaming = run.onLine !== undefined && run.harness === 'Claude'
+    const lines = run.onLine === undefined ? undefined : lineSplitter(run.onLine)
     const running = new Promise<CliResult>((resolve, reject) => {
       const child = execFile(
         session.command,
@@ -288,13 +333,19 @@ export function createNoteSession(plan: (harness: Harness) => Promise<SessionPla
           env: { ...run.env, ...session.env, ...env },
           timeout: TIMEOUT_MS,
           maxBuffer: MAX_OUTPUT_BYTES,
+          ...(run.signal === undefined ? {} : { signal: run.signal }),
         },
         (error, stdout, stderr) => {
-          if (error === null) resolve({ code: 0, stdout, stderr })
-          else if (typeof error.code === 'number') resolve({ code: error.code, stdout, stderr })
-          else reject(new Error(`${session.command} could not be run: ${error.message}`))
+          lines?.end()
+          const text = streaming ? streamResult(stdout) : stdout
+          if (error === null) resolve({ code: 0, stdout: text, stderr })
+          else if (error.name === 'AbortError') resolve({ code: 143, stdout: text, stderr })
+          else if (typeof error.code === 'number') {
+            resolve({ code: error.code, stdout: text, stderr })
+          } else reject(new Error(`${session.command} could not be run: ${error.message}`))
         },
       )
+      if (lines !== undefined) child.stdout?.on('data', (chunk) => lines.write(String(chunk)))
       child.stdin?.end(stdin)
     })
     try {

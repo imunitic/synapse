@@ -1,5 +1,5 @@
 import { expect, test, type Page } from './fixtures.ts'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { openSection, resetWorldSettings, sidePanel, world } from './helpers.ts'
 
@@ -102,6 +102,25 @@ test('says why when the agent could not write the note, and keeps what was typed
   await expect(page.getByRole('alert')).toContainText('the stub was asked to fail')
   await expect(page.getByLabel('Describe the note')).toHaveValue('FAILCASE please')
   await expect(page.getByRole('button', { name: 'Write the note' })).toBeEnabled()
+})
+
+test('a running agent shows a working line with Stop, which ends it with no note written', async ({
+  page,
+}) => {
+  await openNewNote(page)
+  await page.getByLabel('Describe the note').fill('SLOWCASE a slow note')
+  await page.getByRole('button', { name: 'Write the note' }).click()
+  const line = page.getByRole('status').filter({ hasText: 'is writing the note' })
+  await expect(line).toContainText('Claude Code is writing the note')
+  await expect(line).toContainText(/· 0:0[2-9]/)
+  await expect(page.getByRole('button', { name: 'Show activity' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Stop' }).click()
+  await expect(page.getByRole('alert')).toContainText('The run was stopped. No note was written.')
+  await expect(line).toHaveCount(0)
+  await expect(page.getByLabel('Describe the note')).toHaveValue('SLOWCASE a slow note')
+  await expect(page.getByRole('button', { name: 'Write the note' })).toBeEnabled()
+  expect(existsSync(join(vault, 'research', 'Stub note.md'))).toBe(false)
 })
 
 test('a task or design note asks for its project, a plain note does not', async ({ page }) => {

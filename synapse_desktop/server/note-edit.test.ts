@@ -177,6 +177,42 @@ describe('having an agent change a note', () => {
     expect(refused?.message).toBe('The note was not changed. not allowed to do that')
   })
 
+  it('says that the run was stopped when it was and the note is unchanged, and returns the edit when the note changed', async () => {
+    const fake = vault({ 'a.md': note('1') })
+    const refused = await editNote(
+      {
+        run: fake.run,
+        config: defaultConfig,
+        harness: 'Claude',
+        session: () => Promise.resolve({ code: 143, stdout: '', stderr: '' }),
+        stopped: () => true,
+      },
+      'a.md',
+      'x',
+    ).then(
+      () => null,
+      (error: unknown) => error as EditRefused,
+    )
+    expect(refused).toBeInstanceOf(EditRefused)
+    expect(refused?.code).toBe('unavailable')
+    expect(refused?.message).toBe('The run was stopped and the note was not changed.')
+    const edit = await editNote(
+      {
+        run: fake.run,
+        config: defaultConfig,
+        harness: 'Claude',
+        session: () => {
+          fake.files.set('a.md', note('2', 'new'))
+          return Promise.resolve({ code: 143, stdout: '', stderr: '' })
+        },
+        stopped: () => true,
+      },
+      'a.md',
+      'x',
+    )
+    expect(edit.after).toBe(note('2', 'new'))
+  })
+
   it('does not start for a node of a code graph or a note that is not there', async () => {
     const fake = vault({ 'a.md': note('1') })
     let started = false

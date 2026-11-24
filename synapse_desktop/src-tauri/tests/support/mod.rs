@@ -193,6 +193,7 @@ impl Host {
                 "synapse-pipeline",
                 Default::default(),
             ),
+            note_runs: synapse_desktop_host::note_runs::NoteRuns::new(),
             bundled_roots: vec![],
             environment,
         };

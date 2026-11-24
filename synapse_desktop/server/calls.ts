@@ -57,6 +57,7 @@ import { diagnose } from './doctor.ts'
 import { histories, listSessions, listWorkspaces } from './history/history.ts'
 import { createModelStore, modelCacheFile, type ModelStore } from './model-store.ts'
 import { askRun, NotListening, socketPath } from './run-socket.ts'
+import type { NoteRunHandle, NoteRuns } from './note-runs.ts'
 import { NotStartedHere, RunNotStarted, type RunStarter } from './runs.ts'
 
 const MAX_FILE_BYTES = 4 * 1024 * 1024
@@ -69,6 +70,8 @@ export interface Context {
   agent: AgentRunner
   // Runs a headless session of a harness with Synapse loaded, to write a note.
   noteSession: NoteSession
+  // The runs of an agent that a client can watch and stop.
+  noteRuns: NoteRuns
   // The models of the harnesses, kept between runs. One is made when there is none.
   models?: ModelStore
 }
@@ -97,7 +100,7 @@ async function noteSessionOf(
   config: AppConfig,
   harness: Harness,
   model: string | undefined,
-): Promise<(prompt: string) => Promise<CliResult>> {
+): Promise<(prompt: string, extra?: NoteSessionExtra) => Promise<CliResult>> {
   const settings = await context.runCli({
     binary: 'synapse',
     args: ['config', 'list', '--format', 'json'],
@@ -115,14 +118,31 @@ async function noteSessionOf(
     join(context.environment.home, '.config', 'synapse'),
     config.workDir ?? join(context.environment.home, '.cache', 'synapse', 'work'),
   ])
-  return (prompt) =>
+  return (prompt, extra) =>
     context.noteSession({
       harness,
       prompt,
       env,
       writable,
       ...(model === undefined ? {} : { model }),
+      ...(extra?.signal === undefined ? {} : { signal: extra.signal }),
+      ...(extra?.onLine === undefined ? {} : { onLine: extra.onLine }),
     })
+}
+
+// What a caller adds to a session: a way to stop it and where to send what it prints.
+interface NoteSessionExtra {
+  signal?: AbortSignal
+  onLine?: (line: string) => void
+}
+
+// The run a request names, started in the registry; none when the request has no id. The run is
+// finished by the caller when the session ends.
+function startRun(
+  request: { run?: string | undefined },
+  context: Context,
+): NoteRunHandle | undefined {
+  return request.run === undefined ? undefined : context.noteRuns.start(request.run)
 }
 
 async function insideRoots(path: string, context: Context): Promise<string> {
@@ -281,6 +301,7 @@ const handlers: Handlers = {
         )
         const harness = request.harness ?? defaultHarness ?? 'Claude'
         const model = request.model ?? defaultModels[harness]
+        const handle = startRun(request, context)
         try {
           const text = await generateText(
             {
@@ -296,6 +317,7 @@ const handlers: Handlers = {
               env,
               pathVariable: context.environment.env.PATH ?? '',
               agent: context.agent,
+              ...(handle === undefined ? {} : { signal: handle.signal }),
             },
           )
           return { kind: 'definition', text }
@@ -303,6 +325,8 @@ const handlers: Handlers = {
           if (error instanceof SkillNotFound) throw new HostError('conflict', error.message)
           if (error instanceof GenerationFailed) throw new HostError('unavailable', error.message)
           throw error
+        } finally {
+          handle?.finish()
         }
       }
       case 'note':
@@ -316,14 +340,36 @@ const handlers: Handlers = {
           harness,
           request.model ?? config.defaultModels[harness],
         )
-        const edit = await editNote(
-          { run: context.runCli, config, harness, session },
-          request.path,
-          request.prompt,
-        )
-        return { kind: 'note-edit', edit }
+        const handle = startRun(request, context)
+        try {
+          const edit = await editNote(
+            {
+              run: context.runCli,
+              config,
+              harness,
+              session: (prompt) =>
+                session(prompt, {
+                  ...(handle === undefined ? {} : { signal: handle.signal }),
+                  ...(handle === undefined || harness !== 'Claude'
+                    ? {}
+                    : { onLine: handle.publish }),
+                }),
+              ...(handle === undefined ? {} : { stopped: handle.stopped }),
+            },
+            request.path,
+            request.prompt,
+          )
+          return { kind: 'note-edit', edit }
+        } finally {
+          handle?.finish()
+        }
       }
     }
+  },
+
+  async 'agent.stop'({ run }, context) {
+    context.noteRuns.stop(run)
+    return null
   },
 
   async 'note.restore'({ path, before, after }, context) {
@@ -550,9 +596,19 @@ async function createNoteFrom(
     return pathsOf(result.stdout)
   }
   const before = new Set(await list())
-  const run = await session(notePrompt(request.what, request.prompt, harness, projects, chosen))
+  const handle = startRun(request, context)
+  let run: CliResult
+  try {
+    run = await session(
+      notePrompt(request.what, request.prompt, harness, projects, chosen),
+      handle === undefined ? undefined : { signal: handle.signal },
+    )
+  } finally {
+    handle?.finish()
+  }
   const path = createdPath(run.stdout, before, await list())
   if (path !== null) return path
+  if (handle?.stopped() === true) throw new NoteFailed('The run was stopped. No note was written.')
   const why = reasonOf(run.stdout, run.stderr)
   throw new NoteFailed(`No note was written. ${why}`.trim())
 }

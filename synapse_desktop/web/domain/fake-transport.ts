@@ -20,11 +20,20 @@ export interface FakeWorld {
   cli?: (binary: CliBinary, args: readonly string[], options?: CliOptions) => CliResult
 }
 
+// The fake, with what a test reads of it: the runs that were stopped, and a way to publish a line
+// to the watchers of a run.
+export interface FakeTransport extends Transport {
+  stoppedRuns: string[]
+  emitRunLine(run: string, line: string): void
+}
+
 function unavailable(): never {
   throw new Error('not used by the tests')
 }
 
-export function fakeTransport(world: FakeWorld): Transport {
+export function fakeTransport(world: FakeWorld): FakeTransport {
+  const stoppedRuns: string[] = []
+  const watchers = new Map<string, Set<(line: string) => void>>()
   const paths = Object.keys(world.files)
 
   function readDir(dir: string): Promise<DirEntry[]> {
@@ -41,6 +50,20 @@ export function fakeTransport(world: FakeWorld): Transport {
   }
 
   return {
+    stoppedRuns,
+    emitRunLine(run, line) {
+      for (const onLine of watchers.get(run) ?? []) onLine(line)
+    },
+    stopAgentRun(run) {
+      stoppedRuns.push(run)
+      return Promise.resolve()
+    },
+    watchNoteRun(run, onLine) {
+      const held = watchers.get(run) ?? new Set()
+      held.add(onLine)
+      watchers.set(run, held)
+      return () => held.delete(onLine)
+    },
     readText(path) {
       const text = world.files[path]
       return text === undefined ? Promise.reject(new Error('not found')) : Promise.resolve(text)

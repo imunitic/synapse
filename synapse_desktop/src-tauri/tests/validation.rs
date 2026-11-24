@@ -7,6 +7,7 @@ mod support;
 use serde_json::{json, Value};
 use support::examples;
 use synapse_desktop_host::messages::check_params;
+use synapse_desktop_host::protocol::Topic;
 
 fn example(name: &str) -> Value {
     examples()
@@ -148,4 +149,39 @@ fn a_snapshot_must_be_a_tree_id_so_that_it_can_never_be_taken_for_an_option() {
     }
     refused("changes.snapshot", "folder", json!(""));
     refused("changes.diff", "path", json!(""));
+}
+
+#[test]
+fn a_run_id_of_an_agent_run_is_the_form_of_a_run_name_and_a_stop_needs_one() {
+    let kinds = [
+        json!({ "kind": "definition", "what": "pipeline", "prompt": "x", "definitions": [], "skills": [] }),
+        json!({ "kind": "note", "what": "note", "prompt": "x" }),
+        json!({ "kind": "note-edit", "path": "a.md", "prompt": "x" }),
+    ];
+    for kind in kinds {
+        let with = |run: Value| {
+            let mut params = kind.clone();
+            params["run"] = run;
+            params
+        };
+        assert!(check_params("agent.run", &with(json!("abc_1-2"))).is_ok());
+        assert!(check_params("agent.run", &kind).is_ok());
+        for id in ["a/b", "", "x".repeat(65).as_str()] {
+            assert!(check_params("agent.run", &with(json!(id))).is_err(), "{id}");
+        }
+    }
+    allowed("agent.stop", "run", json!("abc_1"));
+    for id in ["a/b", "", "x".repeat(65).as_str()] {
+        refused("agent.stop", "run", json!(id));
+    }
+    assert!(check_params("agent.stop", &json!({})).is_err());
+}
+
+#[test]
+fn the_topic_of_the_lines_of_an_agent_run_names_a_run_id() {
+    assert!(Topic::parse("note-run.abc_1").is_some());
+    let long = format!("note-run.{}", "x".repeat(65));
+    for topic in ["note-run.", "note-run.a/b", "note-run.a b", long.as_str()] {
+        assert!(Topic::parse(topic).is_none(), "{topic}");
+    }
 }

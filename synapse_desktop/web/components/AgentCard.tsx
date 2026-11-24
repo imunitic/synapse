@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Definition } from '../domain/definitions.ts'
 import { transport } from '../transport/index.ts'
 import { RunChoice, useRunChoice } from './RunChoice.tsx'
+import { WorkingLine, useRun } from './WorkingLine.tsx'
 import { DEFINITION_LABELS, type DefinitionKind } from '../state/state.ts'
 
 // Describe what is wanted and have an agent write the text, which goes into the
@@ -23,14 +24,17 @@ export function AgentCard({
   const { harness, model, chooseHarness, chooseModel } = useRunChoice()
   const [working, setWorking] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
+  const run = useRun()
   const label = DEFINITION_LABELS[definition].singular
 
   async function generate() {
     if (existing === null) return
     setWorking(true)
     setFailure(null)
+    const runId = run.begin()
     try {
       const { text } = await transport.generateDefinition({
+        run: runId,
         kind: definition,
         prompt,
         harness,
@@ -44,6 +48,7 @@ export function AgentCard({
       setFailure(String(error))
     } finally {
       setWorking(false)
+      run.end()
     }
   }
 
@@ -83,10 +88,16 @@ export function AgentCard({
         >
           {working ? 'Building…' : 'Build'}
         </button>
-        {working && (
-          <span className="muted small">An agent is writing, this can take a minute.</span>
-        )}
       </div>
+      {working && run.startedAt !== null && (
+        <WorkingLine
+          harness={harness}
+          startedAt={run.startedAt}
+          doing="writing the text"
+          stopping={run.stopping}
+          onStop={run.stop}
+        />
+      )}
       {failure !== null && <p className="error">{failure}</p>}
     </section>
   )

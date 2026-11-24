@@ -19,6 +19,7 @@ pub mod inject;
 pub mod link;
 pub mod messages;
 pub mod models;
+pub mod note_runs;
 pub mod protocol;
 pub mod pty;
 pub mod registries;

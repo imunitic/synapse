@@ -14,6 +14,7 @@ import {
   type AgentRun,
 } from './generate.ts'
 import { HostError } from '../shared/dispatch.ts'
+import { createNoteRuns } from './note-runs.ts'
 
 const SKILL = [
   '---',
@@ -162,6 +163,7 @@ describe('generateDefinition', () => {
       runCli: () => Promise.reject(new Error('not used')),
       runs: { start: () => Promise.reject(new Error('not used')), stop: () => undefined },
       agent,
+      noteRuns: createNoteRuns(),
       noteSession: () => Promise.reject(new Error('not used')),
     }
   }
@@ -243,6 +245,30 @@ describe('generateDefinition', () => {
     const answer = await define(request, context)
     expect(answer).toEqual({ kind: 'definition', text: 'Pipeline P {}\n' })
     expect((seen as AgentRun | null)?.prompt).toContain('Build, then review.')
+  })
+
+  it('gives the agent a signal for a run with an id and answers that the run was stopped when it is aborted', async () => {
+    const seen: (AbortSignal | undefined)[] = []
+    const context = contextWith(
+      (run) => {
+        seen.push(run.signal)
+        return new Promise((resolve) => {
+          run.signal?.addEventListener('abort', () =>
+            resolve({ code: 143, stdout: '', stderr: '' }),
+          )
+        })
+      },
+      await pathWithSkill(),
+    )
+    const running = define({ ...request, run: 'g1' }, context).then(
+      () => null,
+      (error: unknown) => error as HostError,
+    )
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await handleMessage('agent.stop', { run: 'g1' }, context)
+    const refused = await running
+    expect(seen[0]?.aborted).toBe(true)
+    expect(refused).toMatchObject({ code: 'unavailable', message: 'the run was stopped' })
   })
 
   it('answers 502 when the agent fails or says nothing', async () => {

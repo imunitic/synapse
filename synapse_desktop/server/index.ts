@@ -12,6 +12,7 @@ import { dropUnclaimedUpgrades } from './upgrade.ts'
 import { runAgent } from './generate.ts'
 import { createModelStore, modelCacheFile } from './model-store.ts'
 import { createNoteSession } from './note-agent.ts'
+import { createNoteRuns } from './note-runs.ts'
 import { createRunStarter } from './runs.ts'
 import { defaultPlan, sessionsRoot, spawnPty } from './terminal.ts'
 import { createSessions } from './terminal-sessions.ts'
@@ -36,6 +37,7 @@ const context = {
   runCli,
   agent: runAgent,
   runs: createRunStarter('synapse-pipeline', process.env),
+  noteRuns: createNoteRuns(),
   noteSession: createNoteSession((harness) => defaultPlan(environment)(harness)),
 }
 

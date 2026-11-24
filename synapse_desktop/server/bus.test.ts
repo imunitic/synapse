@@ -9,6 +9,7 @@ import { hostMessageSchema, type HostMessage } from '../shared/protocol.ts'
 import { attachBus } from './bus.ts'
 import { createSessions } from './terminal-sessions.ts'
 import { NotStartedHere, RunNotStarted } from './runs.ts'
+import { createNoteRuns } from './note-runs.ts'
 
 const TOKEN = 'test-token'
 const ORIGIN = 'http://localhost:5173'
@@ -53,6 +54,7 @@ beforeEach(async () => {
       },
       agent: () => Promise.reject(new Error('not used')),
       noteSession: () => Promise.reject(new Error('not used')),
+      noteRuns: createNoteRuns(),
       runCli: () => Promise.resolve({ code: 0, stdout: 'ok', stderr: '' }),
     },
     report: () => undefined,

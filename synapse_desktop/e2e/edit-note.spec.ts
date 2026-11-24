@@ -160,6 +160,93 @@ test('says why when the note was not changed, and keeps the box and what was typ
   await expect(page.getByRole('alert')).toContainText('The note was not changed.')
 })
 
+// The line that shows the agent at work, which the Result card's own status is not.
+const workingLine = (page: Page, doing = 'changing the note') =>
+  page.getByRole('status').filter({ hasText: `is ${doing}` })
+
+// The harness the app keeps as the default, which is what changes the note.
+function useDefaultHarness(harness: string) {
+  const file = join(world().xdg, 'synapse-desktop', 'config.json')
+  const stored = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
+  writeFileSync(file, JSON.stringify({ ...stored, defaultHarness: harness }))
+}
+
+test('while the agent works a line shows who, for how long and what it does, and the activity can be listed', async ({
+  page,
+}) => {
+  await openTarget(page)
+  await change(page, 'Add a line, SLOWCASE')
+  const line = workingLine(page)
+  await expect(line).toContainText('Claude Code is changing the note')
+  await expect(line).toContainText('Running synapse vault-read research/Target.md')
+  // The time ticks.
+  await expect(line).toContainText(/· 0:0[2-9]/)
+  await expect(page.getByRole('button', { name: 'Changing…' })).toBeDisabled()
+
+  await page.getByRole('button', { name: 'Show activity' }).click()
+  await expect(page.getByText('synapse vault-read research/Target.md').last()).toBeVisible()
+  await page.getByRole('button', { name: 'Hide activity' }).click()
+  await expect(page.getByRole('button', { name: 'Show activity' })).toBeVisible()
+})
+
+test('a finished run takes the working line away and shows the result', async ({ page }) => {
+  await openTarget(page)
+  await change(page, 'Add a line')
+  await expect(page.getByRole('region', { name: 'What the change did' })).toContainText(
+    'The note is changed',
+  )
+  await expect(workingLine(page)).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Show activity' })).toHaveCount(0)
+})
+
+test('Stop ends the run, and says so when the note was not changed', async ({ page }) => {
+  await openTarget(page)
+  await change(page, 'Add a line, SLOWCASE')
+  await expect(workingLine(page)).toContainText('Running synapse vault-read')
+  await page.getByRole('button', { name: 'Stop' }).click()
+  await expect(page.getByRole('alert')).toContainText(
+    'The run was stopped and the note was not changed.',
+  )
+  await expect(workingLine(page)).toHaveCount(0)
+  expect(readFileSync(join(vault, 'research', 'Target.md'), 'utf8')).toBe(TARGET)
+  await expect(page.getByLabel('What should change?')).toHaveValue('Add a line, SLOWCASE')
+})
+
+test('a run that is stopped after the note changed shows the result, which can be undone', async ({
+  page,
+}) => {
+  await openTarget(page)
+  await change(page, 'Add a line, SLOWCASE')
+  await expect(workingLine(page)).toContainText('Running synapse vault-read')
+  // What the agent had written before it was stopped.
+  const changed = `${TARGET}\nA line it wrote.\n`
+  writeFileSync(join(vault, 'research', 'Target.md'), changed)
+  await page.getByRole('button', { name: 'Stop' }).click()
+  const result = page.getByRole('region', { name: 'What the change did' })
+  await expect(result).toContainText('The note is changed')
+  await result.getByRole('button', { name: 'Undo' }).click()
+  await expect(result).toContainText('The note is put back as it was.')
+  expect(readFileSync(join(vault, 'research', 'Target.md'), 'utf8')).toBe(TARGET)
+})
+
+for (const [harness, label] of [
+  ['Codex', 'Codex'],
+  ['Opencode', 'OpenCode'],
+] as const) {
+  test(`with ${label} the line shows the harness and the time, and no action`, async ({ page }) => {
+    useDefaultHarness(harness)
+    await openTarget(page)
+    await change(page, 'Add a line, SLOWCASE')
+    const line = workingLine(page)
+    await expect(line).toContainText(`${label} is changing the note`)
+    await expect(line).toContainText(/· 0:0[2-9]/)
+    await expect(line.locator('.working-action')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Show activity' })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Stop' }).click()
+    await expect(page.getByRole('alert')).toContainText('The run was stopped')
+  })
+}
+
 test.describe('in a wide window', () => {
   test.use({ viewport: { width: 1600, height: 900 } })
 

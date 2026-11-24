@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import type { NoteKind } from '../../shared/transport.ts'
 import { transport } from '../transport/index.ts'
 import { RunChoice, useRunChoice } from '../components/RunChoice.tsx'
+import { WorkingLine, useRun } from '../components/WorkingLine.tsx'
 import { AddProjectForm } from '../components/ProjectForm.tsx'
 import { TERMINAL_LABELS, type Page } from '../state/state.ts'
 import { useLoad } from '../state/useLoad.ts'
@@ -90,13 +91,16 @@ export function NewNotePage({ onCreated }: { onCreated: (page: Page) => void }) 
   const [prompt, setPrompt] = useState('')
   const [working, setWorking] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
+  const run = useRun()
   const current = KINDS.find((k) => k.kind === kind) ?? KINDS[0]
 
   async function write() {
     setWorking(true)
     setFailure(null)
+    const runId = run.begin()
     try {
       const { path } = await transport.createNote({
+        run: runId,
         kind,
         prompt,
         harness,
@@ -107,6 +111,7 @@ export function NewNotePage({ onCreated }: { onCreated: (page: Page) => void }) 
     } catch (error) {
       setFailure(String(error))
       setWorking(false)
+      run.end()
     }
   }
 
@@ -161,12 +166,16 @@ export function NewNotePage({ onCreated }: { onCreated: (page: Page) => void }) 
           >
             {working ? 'Writing…' : 'Write the note'}
           </button>
-          {working && (
-            <span className="muted small" role="status">
-              An agent is writing, this can take a few minutes.
-            </span>
-          )}
         </div>
+        {working && run.startedAt !== null && (
+          <WorkingLine
+            harness={harness}
+            startedAt={run.startedAt}
+            doing="writing the note"
+            stopping={run.stopping}
+            onStop={run.stop}
+          />
+        )}
         {failure !== null && (
           <p className="error" role="alert">
             {failure}

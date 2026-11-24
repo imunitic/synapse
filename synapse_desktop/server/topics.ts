@@ -156,6 +156,9 @@ export function createTopics(options: TopicOptions) {
   }
 
   return function subscribe(topic: Topic, after: Cursor | undefined, push: Push): () => void {
+    if (topic.startsWith('note-run.')) {
+      return context.noteRuns.subscribe(topic.slice('note-run.'.length), after, push)
+    }
     if (topic.startsWith('files.')) return files(topic.slice('files.'.length), push)
     return run(topic.slice('run.'.length), after, push)
   }

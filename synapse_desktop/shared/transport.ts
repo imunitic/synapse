@@ -102,6 +102,8 @@ export interface GenerateRequest {
   current?: string
   definitions: { name: string; kind: 'pipeline' | 'system' | 'agent' }[]
   skills: string[]
+  // The id the client made for this run, to watch and stop it by.
+  run?: string
 }
 
 // The kinds of note an agent can be asked to write.
@@ -123,6 +125,8 @@ export interface EditNoteRequest {
   harness?: Harness
   // The model it is asked to use; the default model of the harness when absent.
   model?: string
+  // The id the client made for this run, to watch and stop it by.
+  run?: string
 }
 
 // A project of the vault's notes: its name is the folder, its prefix is in each id.
@@ -193,6 +197,8 @@ export interface NoteRequest {
   harness?: Harness
   // The model it is asked to use; the default model of the harness when absent.
   model?: string
+  // The id the client made for this run, to watch and stop it by.
+  run?: string
 }
 
 export type TerminalKind = 'Shell' | 'Pipeline' | Harness
@@ -423,6 +429,11 @@ export interface Transport {
   createNote(request: NoteRequest): Promise<{ path: string }>
   // Has an agent change a note that exists, and puts the text from before back.
   editNote(request: EditNoteRequest): Promise<NoteEdit>
+  // Ends the run of an agent that has this id. The call that started it then ends as it does
+  // after any run; an id that is not running is not an error.
+  stopAgentRun(run: string): Promise<void>
+  // The lines a note edit run prints, one by one, as the agent works; ends with the returned call.
+  watchNoteRun(run: string, onLine: (line: string) => void): Unsubscribe
   restoreNote(path: string, before: string, after: string): Promise<void>
   // Sets the status of a task note. It is not asked of an agent: DONE is set by a person.
   setNoteStatus(path: string, status: NoteStatus): Promise<void>

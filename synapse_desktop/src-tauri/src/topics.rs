@@ -273,6 +273,9 @@ pub fn subscriber(
         let context = context.clone();
         Box::pin(async move {
             let name = topic.as_str().to_string();
+            if let Some(id) = name.strip_prefix("note-run.") {
+                return context.note_runs.subscribe(id, after, push);
+            }
             match name.strip_prefix("files.") {
                 Some(place) => files(place.to_string(), push, context, timing),
                 None => run(
