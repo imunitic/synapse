@@ -237,7 +237,7 @@ export function attachGateway(server: Server, options: GatewayOptions) {
             socket.off('close', onSocketClose)
             upstream.off('error', fail)
             upstream.off('close', fail)
-            let timer: ReturnType<typeof setInterval> | undefined
+            let stopSessionCheck = () => {}
             let closing = false
             let validating = false
             let stopFlow = () => {}
@@ -245,7 +245,7 @@ export function attachGateway(server: Server, options: GatewayOptions) {
             const shut = () => {
               if (closing) return
               closing = true
-              clearInterval(timer)
+              stopSessionCheck()
               stopFlow()
               stopHeartbeat()
               release()
@@ -264,7 +264,7 @@ export function attachGateway(server: Server, options: GatewayOptions) {
               shut()
               return
             }
-            timer = setInterval(() => {
+            const timer = setInterval(() => {
               if (closing) return
               if (validating) return
               validating = true
@@ -278,6 +278,7 @@ export function attachGateway(server: Server, options: GatewayOptions) {
                   validating = false
                 })
             }, interval)
+            stopSessionCheck = () => clearInterval(timer)
             timer.unref()
           })
         } catch {
