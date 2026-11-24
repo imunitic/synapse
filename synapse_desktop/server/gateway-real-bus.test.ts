@@ -12,6 +12,7 @@ import { attachBus } from './bus.ts'
 import { attachPrivateGateway } from './gateway-private-entry.ts'
 import { hashGatewayPassword } from './gateway-password-verifier.ts'
 import { createGatewaySessions, sessionCookie } from './gateway-sessions.ts'
+import { createNoteRuns } from './note-runs.ts'
 import { createSessions } from './terminal-sessions.ts'
 
 const ORIGIN = 'https://synapse.example.test'
@@ -99,6 +100,7 @@ describe('authenticated gateway to real Node bus', () => {
         agent: async () => {
           throw new Error('agent execution disabled in gateway integration test')
         },
+        noteRuns: createNoteRuns(),
         noteSession: async () => {
           throw new Error('agent execution disabled in gateway integration test')
         },
