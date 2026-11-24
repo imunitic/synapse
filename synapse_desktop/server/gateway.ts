@@ -74,7 +74,7 @@ const MAX_FRAME = 1024 * 1024
 
 // The caller serves the PWA over authenticated HTTPS on this same server and
 // must attach this handler only to its *private* application gateway.
-export function attachGateway(server: Server, options: GatewayOptions): void {
+export function attachGateway(server: Server, options: GatewayOptions) {
   const sockets = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME })
   const interval = options.recheckMs ?? 15_000
   const maxConnectionsPerUser = options.maxConnectionsPerUser ?? 4
@@ -267,4 +267,10 @@ export function attachGateway(server: Server, options: GatewayOptions): void {
       })
     })()
   })
+  return (session: GatewaySession) => {
+    const connections = activeByUser.get(session.userId)
+    for (const entry of connections ?? []) {
+      if (entry.sessionId === session.sessionId) entry.terminate()
+    }
+  }
 }
