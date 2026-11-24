@@ -479,11 +479,6 @@ fi
 `
 }
 
-// Names as prose: "a", "a or b", "a, b or c".
-function orList(names: string[]): string {
-  return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`
-}
-
 export interface ShellPlan extends SessionPlan {
   // The programs that start with Synapse loaded.
   wrapped: string[]
@@ -512,7 +507,7 @@ export async function planShell(deps: InjectDeps): Promise<ShellPlan> {
       harness === 'Claude' ? 'claude' : harness === 'Codex' ? 'codex' : 'opencode'
     wrapped.push({ name: plan.command, plan, tracking })
   }
-  if (wrapped.length === 0) return plain('Your login shell.')
+  if (wrapped.length === 0) return plain('')
 
   const shims = join(deps.dataDir, 'shims')
   await resetDir(deps.dataDir, shims)
@@ -533,17 +528,12 @@ export async function planShell(deps: InjectDeps): Promise<ShellPlan> {
     env.ZDOTDIR = zdotdir
   }
   const names = wrapped.filter((w) => w.plan.loaded).map((w) => w.name)
-  const followed = wrapped.filter((w) => w.tracking !== null).map((w) => w.name)
-  const loads =
-    names.length === 0
-      ? ''
-      : ` ${names.join(', ')} started here load Synapse for that run only and nothing is installed.`
   return {
     command: shell,
     args: ['-l'],
     env,
     loaded: names.length > 0,
-    note: `Your login shell.${loads} The conversation of a ${orList(followed)} started here shows in the Activity tab of the Changes sidebar.`,
+    note: '',
     wrapped: names,
   }
 }

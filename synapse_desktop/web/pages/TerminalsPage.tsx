@@ -224,8 +224,12 @@ function TerminalView({
           {waitingFor !== '' && <span> {waitingFor}</span>}
         </p>
       )}
-      {note !== null && note !== '' && <p className="muted small terminal-note">{note}</p>}
       <div ref={host} className="terminal-host" aria-label={`Terminal ${terminalName(session)}`} />
+      {note !== null && note !== '' && (
+        <p className="terminal-note" role="status">
+          {note}
+        </p>
+      )}
       {ended && (
         <p className="terminal-ended" role="status">
           <span>The session ended.</span>

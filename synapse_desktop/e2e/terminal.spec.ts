@@ -54,7 +54,7 @@ test('a new shell starts in the home folder and runs what is typed', async ({ pa
 test('claude typed in the shell starts with Synapse loaded for that run only', async ({ page }) => {
   await openTerminals(page, world().root)
   await launchCard(page, 'Shell').getByRole('button', { name: 'New shell' }).click()
-  await expect(page.getByText('started here load Synapse for that run only')).toBeVisible()
+  await expect(page.locator('.terminal-note')).toHaveCount(0)
 
   // The wrapper is the claude of this shell; nothing runs until it is.
   const wrapper = join(injected(), 'shims', 'claude')
@@ -96,7 +96,7 @@ test('a harness that has Synapse installed gets nothing loaded, and is still fol
   try {
     await openTerminals(page, world().root)
     await launchCard(page, 'Shell').getByRole('button', { name: 'New shell' }).click()
-    await expect(page.getByText('codex, opencode started here')).toBeVisible()
+    await expect(page.locator('.terminal-note')).toHaveCount(0)
     await type(page, 'claude hello')
     await expect(screen(page)).toContainText('STUB claude args: --session-id')
     await expect(screen(page)).not.toContainText('--add-dir')

@@ -527,7 +527,7 @@ mod wrappers {
             format!("{}:{}", shims.display(), w.bin())
         );
         assert!(!plan.plan.env.contains_key("ZDOTDIR"));
-        assert!(plan.plan.note.contains("codex, opencode"));
+        assert_eq!(plan.plan.note, "");
     }
 
     #[test]
@@ -543,8 +543,7 @@ mod wrappers {
             names(&w.data.join("shims")),
             ["claude", "codex", "opencode"]
         );
-        assert!(!plan.plan.note.contains("load Synapse"));
-        assert!(plan.plan.note.contains("claude, codex or opencode"));
+        assert_eq!(plan.plan.note, "");
     }
 
     fn zsh_available() -> bool {

@@ -1101,8 +1101,15 @@ div.activity-row {
   gap: 10px;
 }
 
+/* A warning about how Synapse is attached to the session, below the terminal where it is seen
+   without being the first thing read. */
 .terminal-note {
   margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--caution);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: var(--caution);
 }
 
 /* The rows and columns are counted from the size of this box less the padding of the terminal
