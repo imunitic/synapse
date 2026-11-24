@@ -92,13 +92,17 @@ package body Synapse.Pipeline.System_Process is
       Path    : constant String := Locate (Program);
       Input   : constant String :=
         Bytes.Temp_File (To_String (Request.Standard_Input));
-      Output  : constant String := Bytes.Temp_File;
+      Kept    : constant Boolean := Length (Request.Output_Path) > 0;
+      Output  : constant String :=
+        (if Kept then To_String (Request.Output_Path) else Bytes.Temp_File);
       Errors  : constant String := Bytes.Temp_File;
 
       procedure Clean is
       begin
          Remove (Input);
-         Remove (Output);
+         if not Kept then
+            Remove (Output);
+         end if;
          Remove (Errors);
       end Clean;
    begin
@@ -267,6 +271,8 @@ package body Synapse.Pipeline.System_Process is
       end;
    exception
       when Bytes.Too_Large =>
+         --  A transcript past the limit cannot be read back: do not keep it.
+         Remove (Output);
          Clean;
          return Not_Started (Program & " wrote too much output");
       when E : others =>

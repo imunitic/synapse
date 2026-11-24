@@ -1,6 +1,7 @@
 with Ada.Strings.Fixed;
 
 with Synapse.Core.JSON;
+with Synapse.Pipeline.Session_Support;
 
 package body Synapse.Pipeline.Recording_Runners is
 
@@ -14,8 +15,6 @@ package body Synapse.Pipeline.Recording_Runners is
    function Image (Item : Natural) return String is
      (Ada.Strings.Fixed.Trim (Natural'Image (Item), Ada.Strings.Left));
 
-   --  What names the snapshots of a session: the run, the visit and the
-   --  attempt, with only the characters a file name may have.
    function Label (Id : String; Request : Sessions.Session_Request)
       return String
    is
@@ -78,6 +77,26 @@ package body Synapse.Pipeline.Recording_Runners is
          else R.Trees.Snapshot (Directory, Name & "-before"));
    begin
       Stamped.Execution_Id := R.Id;
+      R.Recorder.Record_Event
+        ("session.started", To_String (Request.Step.Name),
+         JSON.Make_Object
+           ([Member
+               ("attempt",
+                JSON.Make_Integer (Long_Long_Integer (Request.Attempt))),
+            Member
+              ("visit",
+               JSON.Make_Integer (Long_Long_Integer (Request.Visit))),
+            Member
+              ("transcript",
+               JSON.Make_String
+                 (R.Recorder.Store.Transcript_Path
+                    (To_String (R.Id),
+                     Session_Support.Transcript_Name (Request)))),
+            Member
+              ("before",
+               (if Before.Found
+                then JSON.Make_String (To_String (Before.Value))
+                else JSON.Null_Value))]));
       declare
          Answer : constant Sessions.Session_Result :=
            R.Inner.Run_Session (Stamped);

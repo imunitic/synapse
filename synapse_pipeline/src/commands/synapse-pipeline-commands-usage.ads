@@ -294,7 +294,9 @@ package Synapse.Pipeline.Commands.Usage is
      & "only its" & LF
      & "path and the number of its lines, and says the content was not kept."
      & LF & LF
-     & "  --step <name>   only the patches of that step" & LF
+     & "  --step <name>   only the patches of that step, and what the" & LF
+     & "                  attempt of that step that is running has" & LF
+     & "                  changed so far" & LF
      & "  --format text   for a person (the default)" & LF
      & "  --format json   format synapse-pipeline-changes/v1: "
      & "`execution_id`, the" & LF

@@ -316,9 +316,13 @@ patches/
 `execution.json` has `format` `synapse-pipeline-execution/v1`, the execution's `id` and `pipeline`, the
 `directory` the steps worked in, when it `started` and `ended`, its `status` (`running`, `completed` or `failed`), its `current_step` and the run's
 `state`, and `attention` while an interactive run goes on. Each try of a step has a transcript of its own, named for the run's step count, the step and the try, and a
-`session.finished` event that says where it is. A transcript is what the harness printed, one JSON event per
+`session.started` event, recorded before the session runs, and a `session.finished` event that say where it is.
+A transcript is what the harness printed, one JSON event per
 line: Claude's session events ending with its `result`, Codex's `--json` events and OpenCode's `--format json`
-events. They hold the tool calls and file changes as well as the messages.
+events. They hold the tool calls and file changes as well as the messages. A process runner writes the
+transcript while the step runs, so the file grows; a runner that writes none leaves it missing until the
+session ends, or for good. `session.started` has the `attempt`, the `visit`, the `transcript` path and the
+`before` tree id, or null when no snapshot was made.
 
 A step's `patches/` entry is what its session changed in the working tree of the folder the run worked in,
 which is the folder `synapse-pipeline` was started in. The program takes a snapshot of that tree before the
@@ -334,7 +338,9 @@ A file that already existed is kept whole in its patch. The content of a new fil
 and a hunk with its number of lines that says `Content not kept`, since a generated or vendored file can be
 larger than everything else a run changed. `synapse-pipeline changes <execution-id> [--step <name>]
 [--format json|text]` prints the patches in the order the steps ran, each under a line with its step, visit and
-attempt, or as `synapse-pipeline-changes/v1` JSON with the `directory`.
+attempt, or as `synapse-pipeline-changes/v1` JSON with the `directory`. With `--step`, a try of that step
+that is still running is included last: the difference between its before snapshot and the working folder now.
+Without `--step` no live snapshot is taken.
 
 `description.json` is the `synapse-pipeline-description/v1` document that `show --format json` prints, as the
 run resolved it when it began: its steps and edges with the harness, permissions and timeout each step runs with,
@@ -395,7 +401,7 @@ a skill is described by its name. `origins` lists the system and the agent a ste
 with `kind`, `name` and `file`. An edge's `index` counts from 0 and is its position in `state.fired`.
 The configuration's environment values are not part of it.
 
-Events are `run.started`, `step.started`, `session.finished`, `step.finished`, `run.completed` and `run.failed`, each with
+Events are `run.started`, `step.started`, `session.started`, `session.finished`, `step.finished`, `run.completed` and `run.failed`, each with
 a sequence number, the step and a detail object; the last 200 are kept. Any other command is an error.
 A request over 4 KiB is refused and an answer over 1 MiB is replaced by an error. A client that
 connects and says nothing is dropped after two seconds. A client that misbehaves, or an error in

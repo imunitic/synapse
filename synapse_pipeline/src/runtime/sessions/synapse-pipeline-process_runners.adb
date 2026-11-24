@@ -72,6 +72,8 @@ package body Synapse.Pipeline.Process_Runners is
             Asked.Directory := Request.Settings.Working_Directory;
             Asked.Timeout_Seconds := Request.Timeout_Seconds;
             Support.Add_Settings (Asked.Environment, Request.Settings);
+            Asked.Output_Path := To_Unbounded_String
+              (Support.Begin_Transcript (R.Registry.all, Request));
 
             declare
                Ended : constant Session_Process.Process_Outcome :=

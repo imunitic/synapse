@@ -49,9 +49,9 @@ package Synapse.Pipeline.Inspection is
    type Event is record
       Sequence : Positive := 1;
 
-      --  `run.started`, `step.started`, `session.waiting`,
-      --  `session.resumed`, `session.finished`, `step.finished`,
-      --  `run.completed` or `run.failed`.
+      --  `run.started`, `step.started`, `session.started`,
+      --  `session.waiting`, `session.resumed`, `session.finished`,
+      --  `step.finished`, `run.completed` or `run.failed`.
       Kind     : Ada.Strings.Unbounded.Unbounded_String;
       Step     : Ada.Strings.Unbounded.Unbounded_String;
       Detail   : JSON.Value;

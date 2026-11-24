@@ -600,6 +600,12 @@ package body Acceptance.Agent_Pipeline_Tests is
             Assert_Contains
               (Out_Of (Events), """kind"":""session.finished""",
                "and hold each session");
+            Assert
+              (Ada.Strings.Fixed.Index
+                 (Out_Of (Events), """kind"":""session.started""") in 1 ..
+                 Ada.Strings.Fixed.Index
+                   (Out_Of (Events), """kind"":""session.finished""") - 1,
+               "which begins with a session.started before its finish");
          end;
          declare
             Dry  : constant Result :=

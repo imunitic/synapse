@@ -30,6 +30,18 @@ package Synapse.Pipeline.Session_Support is
       Transcript : Synapse.Core.Optional_Text.Option)
       return Sessions.Session_Result;
 
+   --  The file name the transcript of the session of Request is kept under:
+   --  `<visit>-<step>-<attempt>.jsonl`.
+   function Transcript_Name
+     (Request : Sessions.Session_Request) return String;
+
+   --  Creates the transcript of the session of Request empty, so a runner can
+   --  write into it while the session runs, and says where it is. Empty when
+   --  the request names no execution or the file could not be made.
+   function Begin_Transcript
+     (Registry : in out Registry_Store.Store'Class;
+      Request  : Sessions.Session_Request) return String;
+
    --  Keeps Output as the transcript of the session of Request, when there is
    --  an execution to keep it under, and says where it went.
    function Keep_Transcript

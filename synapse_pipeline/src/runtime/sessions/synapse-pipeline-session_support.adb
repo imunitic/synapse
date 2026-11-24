@@ -35,19 +35,35 @@ package body Synapse.Pipeline.Session_Support is
       return Result;
    end With_Transcript;
 
+   function Transcript_Name
+     (Request : Sessions.Session_Request) return String is
+     (Ada.Strings.Fixed.Trim
+        (Natural'Image (Request.Visit), Ada.Strings.Left) & "-"
+      & To_String (Request.Step.Name) & "-"
+      & Ada.Strings.Fixed.Trim
+          (Natural'Image (Request.Attempt), Ada.Strings.Left)
+      & ".jsonl");
+
+   function Begin_Transcript
+     (Registry : in out Registry_Store.Store'Class;
+      Request  : Sessions.Session_Request) return String
+   is
+      Id   : constant String := To_String (Request.Execution_Id);
+      Name : constant String := Transcript_Name (Request);
+   begin
+      if Id = "" or else not Registry.Write_Transcript (Id, Name, "") then
+         return "";
+      end if;
+      return Registry.Transcript_Path (Id, Name);
+   end Begin_Transcript;
+
    function Keep_Transcript
      (Registry : in out Registry_Store.Store'Class;
       Request  : Sessions.Session_Request;
       Output   : String) return Synapse.Core.Optional_Text.Option
    is
       Id   : constant String := To_String (Request.Execution_Id);
-      Name : constant String :=
-        Ada.Strings.Fixed.Trim
-          (Natural'Image (Request.Visit), Ada.Strings.Left) & "-"
-        & To_String (Request.Step.Name) & "-"
-        & Ada.Strings.Fixed.Trim
-            (Natural'Image (Request.Attempt), Ada.Strings.Left)
-        & ".jsonl";
+      Name : constant String := Transcript_Name (Request);
    begin
       if Id = ""
         or else not Registry.Write_Transcript (Id, Name, Output)

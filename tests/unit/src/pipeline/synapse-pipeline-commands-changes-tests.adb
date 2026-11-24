@@ -135,6 +135,147 @@ package body Synapse.Pipeline.Commands.Changes.Tests is
       end;
    end A_Program_Gets_The_Patches_As_Data;
 
+   --  The events of a run in which Develop began its second try, and ended
+   --  the first; Ended adds the end of the second.
+   procedure Start_Session
+     (F : in out Fixture; Ended : Boolean := False; Before : String := """x""")
+   is
+      Wrote : Boolean;
+   begin
+      Wrote :=
+        F.Registry.Append_Event
+          ("exec-1",
+           "{""sequence"":1,""kind"":""session.started"","
+           & """step"":""Develop"",""detail"":{""attempt"":1,""visit"":1,"
+           & """transcript"":""t"",""before"":""old""}}" & LF
+           & "{""sequence"":2,""kind"":""session.finished"","
+           & """step"":""Develop"",""detail"":{}}" & LF
+           & "{""sequence"":3,""kind"":""session.started"","
+           & """step"":""Develop"",""detail"":{""attempt"":2,""visit"":3,"
+           & """transcript"":""t"",""before"":" & Before & "}}" & LF
+           & (if Ended
+              then "{""sequence"":4,""kind"":""session.finished"","
+                   & """step"":""Develop"",""detail"":{}}" & LF
+              else ""));
+      Assert (Wrote, "events");
+      F.Trees.Snapshots.Append (To_Unbounded_String ("now"));
+      F.Trees.Patch := To_Unbounded_String ("live" & LF);
+      F.Trees.Patch_Known := True;
+   end Start_Session;
+
+   procedure The_Running_Attempt_Is_Included_With_Its_Step
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Start_Session (F, Before => """tree-1""");
+      Assert
+        (Run (Env (F), Args ("exec-1", "--step", "Develop")) = 0, "ok");
+      Assert
+        (F.Base.Console.Out_Text =
+         "== step Develop (visit 1, attempt 1)" & LF & "one" & LF
+         & "== step Develop (visit 10, attempt 1)" & LF & "ten" & LF
+         & "== step Develop (visit 3, attempt 2)" & LF & "live" & LF,
+         "the live difference after the recorded ones: "
+         & F.Base.Console.Out_Text);
+      Assert
+        (F.Trees.Directories (1) = "/work/widget"
+         and then F.Trees.Compared (1) = "tree-1..now",
+         "against its before snapshot, in its folder");
+      F.Base.Console.Clear;
+      F.Trees.Snapshots.Append (To_Unbounded_String ("now"));
+      Assert
+        (Run
+           (Env (F), Args ("exec-1", "--step", "Develop", "--format", "json"))
+         = 0,
+         "ok");
+      declare
+         Parsed : constant JSON.Parse_Result :=
+           JSON.Parse (F.Base.Console.Out_Text);
+         Steps  : constant JSON.Value :=
+           JSON.Member_Value (Parsed.Item, "steps");
+         Live   : constant JSON.Value := JSON.Element (Steps, 3);
+      begin
+         Assert (JSON.Length (Steps) = 3, "three entries");
+         Assert
+           (JSON.As_Integer (JSON.Member_Value (Live, "visit")) = 3
+            and then JSON.As_Integer (JSON.Member_Value (Live, "attempt")) = 2
+            and then JSON.As_String (JSON.Member_Value (Live, "patch"))
+                     = "live" & LF,
+            "its visit, attempt and patch");
+      end;
+   end The_Running_Attempt_Is_Included_With_Its_Step;
+
+   procedure No_Live_Entry_Without_A_Running_Attempt
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Start_Session (F);
+      Assert (Run (Env (F), Args ("exec-1")) = 0, "ok");
+      Assert
+        (not Has (F.Base.Console.Out_Text, "live")
+         and then F.Trees.Directories.Is_Empty,
+         "without --step nothing live is looked up");
+
+      declare
+         G : aliased Fixture;
+      begin
+         Set_Up (G);
+         Start_Session (G, Ended => True);
+         Assert
+           (Run (Env (G), Args ("exec-1", "--step", "Develop")) = 0, "ok");
+         Assert
+           (not Has (G.Base.Console.Out_Text, "live")
+            and then G.Trees.Directories.Is_Empty,
+            "a session that ended is not running");
+      end;
+
+      declare
+         G : aliased Fixture;
+      begin
+         Set_Up (G);
+         Start_Session (G);
+         G.Trees.Patch := Null_Unbounded_String;
+         Assert
+           (Run (Env (G), Args ("exec-1", "--step", "Develop")) = 0, "ok");
+         Assert
+           (not Has (G.Base.Console.Out_Text, "visit 3"),
+            "a folder that is unchanged has no entry");
+      end;
+
+      declare
+         G : aliased Fixture;
+      begin
+         Set_Up (G);
+         Start_Session (G, Before => "null");
+         Assert
+           (Run (Env (G), Args ("exec-1", "--step", "Develop")) = 0, "ok");
+         Assert
+           (not Has (G.Base.Console.Out_Text, "visit 3")
+            and then G.Trees.Directories.Is_Empty,
+            "no before snapshot, no entry");
+      end;
+
+      declare
+         G : aliased Fixture;
+      begin
+         G.Base.Vars.Set ("SYNAPSE_WORK_DIR", "/work");
+         Assert
+           (G.Registry.Create ("exec-1") = Registry_Store.Created, "made");
+         Start_Session (G);
+         Assert
+           (Run (Env (G), Args ("exec-1", "--step", "Develop")) = 0, "ok");
+         Assert
+           (G.Trees.Directories.Is_Empty,
+            "no summary, no folder, nothing asked of the trees");
+      end;
+   end No_Live_Entry_Without_A_Running_Attempt;
+
    procedure A_Run_With_No_Patch_Says_So (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       F : aliased Fixture;
@@ -213,6 +354,12 @@ package body Synapse.Pipeline.Commands.Changes.Tests is
          "The patches are printed in the order the steps ran");
       Register_Routine
         (T, One_Step_Can_Be_Asked_For'Access, "One step can be asked for");
+      Register_Routine
+        (T, The_Running_Attempt_Is_Included_With_Its_Step'Access,
+         "The running attempt is included with its step");
+      Register_Routine
+        (T, No_Live_Entry_Without_A_Running_Attempt'Access,
+         "No live entry without a running attempt");
       Register_Routine
         (T, A_Program_Gets_The_Patches_As_Data'Access,
          "A program gets the patches as data");
