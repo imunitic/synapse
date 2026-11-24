@@ -223,7 +223,7 @@ fn a_harness_that_has_synapse_installed_is_started_as_it_is_and_nothing_is_made(
     let plan = plan_session(Harness::Claude, &w.deps(&w.bin(), &[])).unwrap();
     assert_eq!((plan.command.as_str(), plan.loaded), ("claude", false));
     assert!(plan.args.is_empty() && plan.env.is_empty());
-    assert!(plan.note.contains("installed in Claude Code"));
+    assert_eq!(plan.note, "");
     assert!(!w.data.exists());
 }
 
@@ -527,7 +527,7 @@ mod wrappers {
             format!("{}:{}", shims.display(), w.bin())
         );
         assert!(!plan.plan.env.contains_key("ZDOTDIR"));
-        assert!(plan.plan.note.contains("codex, opencode"));
+        assert_eq!(plan.plan.note, "");
     }
 
     #[test]
@@ -543,8 +543,7 @@ mod wrappers {
             names(&w.data.join("shims")),
             ["claude", "codex", "opencode"]
         );
-        assert!(!plan.plan.note.contains("load Synapse"));
-        assert!(plan.plan.note.contains("claude, codex or opencode"));
+        assert_eq!(plan.plan.note, "");
     }
 
     fn zsh_available() -> bool {

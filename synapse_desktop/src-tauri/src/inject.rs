@@ -388,7 +388,7 @@ pub fn plan_session(harness: Harness, deps: &InjectDeps) -> std::io::Result<Sess
             args: vec![],
             env: BTreeMap::new(),
             loaded: false,
-            note: format!("Synapse is installed in {label} and is used as it is."),
+            note: String::new(),
         });
     }
     let Some(root) = find_content_root(&deps.environment, &deps.bundled_roots) else {
@@ -423,9 +423,7 @@ pub fn plan_session(harness: Harness, deps: &InjectDeps) -> std::io::Result<Sess
         args: made.args,
         env: made.env,
         loaded: true,
-        note: format!(
-            "Synapse is loaded for this session only and nothing is installed in {label}.{hooks}{trust}"
-        ),
+        note: format!("{hooks}{trust}").trim().to_string(),
     })
 }
 
@@ -601,15 +599,6 @@ pub fn shim_script(name: &str, plan: &SessionPlan, tracking: Option<Tracking>) -
     )
 }
 
-/// Names as prose: "a", "a or b", "a, b or c".
-fn or_list(names: &[String]) -> String {
-    match names.split_last() {
-        None => String::new(),
-        Some((last, [])) => last.clone(),
-        Some((last, rest)) => format!("{} or {last}", rest.join(", ")),
-    }
-}
-
 /// zsh reads its files from ZDOTDIR. These read the user's own, and then put the folder of the
 /// commands first on PATH again, whatever the user's files did to it.
 const ZSH_FILES: [&str; 4] = [".zshenv", ".zprofile", ".zshrc", ".zlogin"];
@@ -669,7 +658,7 @@ pub fn plan_shell(deps: &InjectDeps) -> std::io::Result<ShellPlan> {
         wrapped.push((plan.command.clone(), plan, Some(tracking)));
     }
     if wrapped.is_empty() {
-        return Ok(plain("Your login shell."));
+        return Ok(plain(""));
     }
 
     let shims = deps.data_dir.join("shims");
@@ -716,29 +705,13 @@ pub fn plan_shell(deps: &InjectDeps) -> std::io::Result<ShellPlan> {
         .filter(|(_, p, _)| p.loaded)
         .map(|(n, _, _)| n.clone())
         .collect();
-    let followed: Vec<String> = wrapped
-        .iter()
-        .filter(|(_, _, t)| t.is_some())
-        .map(|(n, _, _)| n.clone())
-        .collect();
-    let loads = if names.is_empty() {
-        String::new()
-    } else {
-        format!(
-            " {} started here load Synapse for that run only and nothing is installed.",
-            names.join(", ")
-        )
-    };
     Ok(ShellPlan {
         plan: SessionPlan {
             command: shell,
             args: strings(&["-l"]),
             env: vars,
             loaded: !names.is_empty(),
-            note: format!(
-                "Your login shell.{loads} The conversation of a {} started here shows in the Activity tab of the Changes sidebar.",
-                or_list(&followed)
-            ),
+            note: String::new(),
         },
         wrapped: names,
     })

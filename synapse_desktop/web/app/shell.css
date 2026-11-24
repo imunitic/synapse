@@ -1141,8 +1141,15 @@ div.activity-row {
   gap: 10px;
 }
 
+/* A warning about how Synapse is attached to the session, below the terminal where it is seen
+   without being the first thing read. */
 .terminal-note {
   margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--caution);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: var(--caution);
 }
 
 /* The rows and columns are counted from the size of this box less the padding of the terminal
@@ -1198,28 +1205,76 @@ div.activity-row {
 }
 
 .terminal-tabs {
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
+  gap: 2px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  /* More tabs than fit scroll sideways, by the wheel, and keep the order dragging works on. */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.terminal-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .terminal-tab {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--tabbar);
+  gap: 2px;
+  padding-right: 2px;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  cursor: grab;
+}
+
+.terminal-tab:hover {
+  color: var(--text);
 }
 
 .terminal-tab[data-selected='true'] {
-  background: var(--raised);
-  border-color: var(--border-strong);
+  color: var(--strong);
+  border-bottom-color: var(--accent);
 }
 
 .terminal-tab > button:first-child {
-  padding: 4px 10px;
-  color: var(--text);
+  padding: 8px 8px 8px 10px;
+  color: inherit;
+  font-weight: 500;
+  cursor: inherit;
+}
+
+.terminal-tab .icon-button {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  opacity: 0.55;
+}
+
+.terminal-tab:hover .icon-button,
+.terminal-tab[data-selected='true'] .icon-button {
+  opacity: 1;
+}
+
+.terminal-tab[data-dragging] {
+  opacity: 0.45;
+}
+
+/* Where a dragged tab would land: a line on the side of the tab it is dropped beside. */
+.terminal-tab[data-drop='before'] {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.terminal-tab[data-drop='after'] {
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+
+.terminal-tabs > .icon-button {
+  flex: none;
+  margin-left: 4px;
 }
 
 /* A terminal tab being named: as wide as a long name, in the place of its label. */

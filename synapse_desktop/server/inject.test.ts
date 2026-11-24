@@ -141,7 +141,7 @@ describe('a harness that has Synapse installed', () => {
     await put(join(deps.home, '.claude', 'settings.json'), '{"hooks":{"x":"synapse-hook start"}}')
     const plan = await planSession('Claude', deps)
     expect(plan).toMatchObject({ command: 'claude', args: [], env: {}, loaded: false })
-    expect(plan.note).toContain('installed in Claude Code')
+    expect(plan.note).toBe('')
     expect(await stat(deps.dataDir).catch(() => null)).toBeNull()
   })
 })
@@ -331,7 +331,7 @@ describe('wrapper commands', () => {
     expect(await readFile(join(shims, 'claude'), 'utf8')).not.toContain('--add-dir')
     expect(plan.env.PATH).toBe(`${shims}${delimiter}${deps.env.PATH}`)
     expect(plan.env.ZDOTDIR).toBeUndefined()
-    expect(plan.note).toContain('codex, opencode')
+    expect(plan.note).toBe('')
   })
 
   it('load nothing when every harness has Synapse installed, but still follow all three', async () => {
@@ -345,8 +345,7 @@ describe('wrapper commands', () => {
       'codex',
       'opencode',
     ])
-    expect(plan.note).not.toContain('load Synapse')
-    expect(plan.note).toContain('claude, codex or opencode')
+    expect(plan.note).toBe('')
   })
 
   it.skipIf(!zshAvailable)(

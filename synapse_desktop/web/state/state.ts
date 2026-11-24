@@ -244,6 +244,8 @@ export type Action =
   // A tab is put at `to`, its index in the list of tabs once it is taken out. The Home tab stays
   // first, and nothing goes before it.
   | { type: 'moveTab'; id: string; to: number }
+  // A shell tab is put at `to`, its index in the list of terminals once it is taken out.
+  | { type: 'moveTerminal'; id: string; to: number }
   | { type: 'closeTerminal'; id: string }
   // A definition was changed: the lists are read again.
   | { type: 'definitionsChanged' }
@@ -506,6 +508,16 @@ function step(state: ShellState, action: Action): ShellState {
       const tabs = state.tabs.filter((t) => t.id !== action.id)
       tabs.splice(to, 0, moved)
       return { ...state, tabs }
+    }
+
+    case 'moveTerminal': {
+      const from = state.terminals.findIndex((t) => t.id === action.id)
+      if (from === -1) return state
+      const to = Math.min(Math.max(action.to, 0), state.terminals.length - 1)
+      if (to === from) return state
+      const terminals = state.terminals.filter((t) => t.id !== action.id)
+      terminals.splice(to, 0, state.terminals[from]!)
+      return { ...state, terminals }
     }
 
     case 'selectTerminal':

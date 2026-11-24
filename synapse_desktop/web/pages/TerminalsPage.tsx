@@ -14,6 +14,7 @@ import { transport } from '../transport/index.ts'
 import { CloseIcon, PlusIcon } from '../components/icons.tsx'
 import { ensureBaseline, followBaseline } from '../state/change-baselines.ts'
 import { isLiveRun, terminalName, type TerminalSession } from '../state/state.ts'
+import { useTabDrag } from '../layout/use-tab-drag.ts'
 
 // The kinds of session that run a harness from the start.
 const HARNESS_KINDS: ReadonlySet<string> = new Set(['Claude', 'Codex', 'Opencode'])
@@ -223,8 +224,12 @@ function TerminalView({
           {waitingFor !== '' && <span> {waitingFor}</span>}
         </p>
       )}
-      {note !== null && <p className="muted small terminal-note">{note}</p>}
       <div ref={host} className="terminal-host" aria-label={`Terminal ${terminalName(session)}`} />
+      {note !== null && note !== '' && (
+        <p className="terminal-note" role="status">
+          {note}
+        </p>
+      )}
       {ended && (
         <p className="terminal-ended" role="status">
           <span>The session ended.</span>
@@ -289,7 +294,8 @@ function RenameBox({ name, onDone }: { name: string; onDone: (name: string | nul
 }
 
 // The terminals: a tab for each session, which goes on while another tab or page
-// shows. A tab is named by double-clicking it.
+// shows. A tab is named by double-clicking it, and put in another order by dragging it or with Alt
+// and the arrow keys.
 export function TerminalsPage({
   sessions,
   activeId,
@@ -299,6 +305,7 @@ export function TerminalsPage({
   onEnded,
   onClaimed,
   onRename,
+  onMove,
   onRun,
   onNew,
   waiting,
@@ -312,17 +319,32 @@ export function TerminalsPage({
   onEnded: (id: string) => void
   onClaimed: (id: string) => void
   onRename: (id: string, name: string) => void
+  onMove: (id: string, to: number) => void
   onRun: (id: string, executionId: string) => void
   onNew: () => void
 }) {
   const capabilities = useCapabilities()
   // The tab being named, if one is.
   const [naming, setNaming] = useState<string | null>(null)
+  const row = useRef<HTMLDivElement>(null)
+  const { dragging, press, markOf } = useTabDrag({
+    row,
+    tabSelector: ':scope > .terminal-tab',
+    ids: sessions.map((s) => s.id),
+    onMove,
+  })
   return (
     <div className="page full terminals-page" hidden={!visible}>
-      <div className="subtabs terminal-tabs" role="tablist" aria-label="Terminal tabs">
-        {sessions.map((session) => (
-          <span key={session.id} className="terminal-tab" data-selected={session.id === activeId}>
+      <div ref={row} className="terminal-tabs" role="tablist" aria-label="Terminal tabs">
+        {sessions.map((session, index) => (
+          <span
+            key={session.id}
+            className="terminal-tab"
+            data-selected={session.id === activeId}
+            data-dragging={dragging === session.id ? true : undefined}
+            data-drop={markOf(index)}
+            onPointerDown={(event) => press(event, session.id)}
+          >
             {naming === session.id ? (
               <RenameBox
                 name={terminalName(session)}
@@ -338,6 +360,13 @@ export function TerminalsPage({
                 title="Double-click to rename"
                 onClick={() => onSelect(session.id)}
                 onDoubleClick={() => setNaming(session.id)}
+                onKeyDown={(event) => {
+                  if (!event.altKey) return
+                  const step = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0
+                  if (step === 0) return
+                  event.preventDefault()
+                  onMove(session.id, index + step)
+                }}
               >
                 {terminalName(session)}
                 {session.executionId !== undefined && waiting.has(session.executionId) && (
