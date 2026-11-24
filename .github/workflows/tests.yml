@@ -231,6 +231,12 @@ jobs:
       - uses: actions/checkout@v5
       - name: Build private Node host image
         run: docker build -f synapse_desktop/Dockerfile.private-host -t synapse-private-host:ci .
+      - name: Build private gateway image
+        run: docker build -f synapse_desktop/Dockerfile.private-gateway -t synapse-private-gateway:ci .
+      - name: Verify gateway image contains built frontend
+        run: |
+          docker run --rm --network none --entrypoint node synapse-private-gateway:ci \
+            -e "require('node:fs').accessSync('dist/.vite/manifest.json'); require('node:fs').accessSync('dist/index.html')"
       - name: Verify native PTY module loads as unprivileged user
         run: |
           docker run --rm --network none --entrypoint node synapse-private-host:ci \
