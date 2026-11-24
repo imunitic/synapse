@@ -92,7 +92,7 @@ async function main(): Promise<void> {
   })
 }
 
-void main().catch((error: unknown) => {
-  console.error('private gateway startup failed:', error)
+void main().catch(() => {
+  console.error('private gateway startup failed; check configuration and frontend assets')
   process.exitCode = 1
 })
