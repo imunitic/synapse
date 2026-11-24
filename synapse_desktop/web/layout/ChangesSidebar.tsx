@@ -25,11 +25,11 @@ const TAB_NAMES: Record<ChangesTab, string> = {
 }
 
 const WIDTH_KEY = 'synapse-desktop.changes-width'
-const MIN_WIDTH = 300
-const MAX_WIDTH = 900
+export const MIN_WIDTH = 300
+export const MAX_WIDTH = 900
 const START_WIDTH = 460
 
-function readWidth(): number {
+export function readWidth(): number {
   try {
     const stored = Number(localStorage.getItem(WIDTH_KEY))
     if (stored >= MIN_WIDTH && stored <= MAX_WIDTH) return stored
@@ -39,7 +39,7 @@ function readWidth(): number {
   return START_WIDTH
 }
 
-function keepWidth(width: number): void {
+export function keepWidth(width: number): void {
   try {
     localStorage.setItem(WIDTH_KEY, String(width))
   } catch {

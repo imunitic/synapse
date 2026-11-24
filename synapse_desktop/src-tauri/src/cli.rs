@@ -37,6 +37,7 @@ fn allowed_subcommands(binary: CliBinary) -> &'static [&'static str] {
             "vault-search-text",
             "vault-links",
             "vault-backlinks",
+            "vault-doc-map",
             "work-dir",
             "callers",
             "index",

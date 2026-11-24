@@ -5,6 +5,7 @@ import { changeCount, diffLines, withContext } from '../domain/diff.ts'
 import { transport } from '../transport/index.ts'
 import { PencilIcon, RefreshIcon } from './icons.tsx'
 import { TERMINAL_LABELS } from '../state/state.ts'
+import { dismissNoteEdit, startNoteEdit, useNoteEdit } from '../state/note-edits.ts'
 
 // What a change left, to be read and undone: the lines it added and removed, the other
 // notes that moved, which it should not have, and a way to put the note back.
@@ -89,7 +90,8 @@ function Result({
 
 // Ask an agent to change this note, as the New note page asks one to write a note.
 // The pencil opens the box; when the agent has changed the note it is read again, and
-// what the change did is shown with a way to undo it.
+// what the change did is shown with a way to undo it. The run is the note's shared one
+// (`note-edits.ts`), so a run started by the review's "Send to agent" shows here too.
 export function EditNote({
   path,
   title,
@@ -109,36 +111,22 @@ export function EditNote({
   const { harness, model, chooseHarness, chooseModel } = useRunChoice()
   const [open, setOpen] = useState(false)
   const [prompt, setPrompt] = useState('')
-  const [working, setWorking] = useState(false)
-  const [failure, setFailure] = useState<string | null>(null)
-  const [edit, setEdit] = useState<NoteEdit | null>(null)
+  const { working, edit, failure } = useNoteEdit(path)
 
-  async function change() {
-    setWorking(true)
-    setFailure(null)
-    setEdit(null)
-    try {
-      const result = await transport.editNote({
-        path,
-        prompt,
-        harness,
-        ...(model === null ? {} : { model }),
-      })
-      setEdit(result)
+  // Nothing starts while a run on this note is in progress; the button is disabled then.
+  function change() {
+    startNoteEdit(path, { path, prompt, harness, ...(model === null ? {} : { model }) }, (ok) => {
+      if (!ok) return
       setPrompt('')
       setOpen(false)
       onChanged()
-    } catch (error) {
-      setFailure(String(error).replace(/^Error: /, ''))
-    } finally {
-      setWorking(false)
-    }
+    })
   }
 
   function cancel() {
     setOpen(false)
     setPrompt('')
-    setFailure(null)
+    if (failure !== null) dismissNoteEdit(path)
   }
 
   return (
@@ -165,6 +153,11 @@ export function EditNote({
           </button>
         </div>
       </div>
+      {working && !open && (
+        <p className="muted small" role="status">
+          An agent is changing it, this can take a few minutes.
+        </p>
+      )}
       {open && (
         <section className="card agent-card" aria-label="Change this note with an agent">
           <label className="field">
@@ -189,11 +182,7 @@ export function EditNote({
             it did, which you can undo. It is told to change only this note.
           </p>
           <div className="row">
-            <button
-              className="primary"
-              disabled={working || prompt.trim() === ''}
-              onClick={() => void change()}
-            >
+            <button className="primary" disabled={working || prompt.trim() === ''} onClick={change}>
               {working ? 'Changing…' : 'Change the note'}
             </button>
             <button className="secondary" disabled={working} onClick={cancel}>
