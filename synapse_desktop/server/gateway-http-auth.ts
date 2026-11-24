@@ -2,6 +2,7 @@
 // The operator MUST provide a secure, externally configured credentials verifier.
 // Do not mount these handlers on the existing localhost Node or Tauri hosts.
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
+import type { GatewaySession } from './gateway.ts'
 import { createLoginLimiter } from './gateway-login-limiter.ts'
 import { VERIFIER_BUSY } from './gateway-password-verifier.ts'
 import {
@@ -17,7 +18,7 @@ export interface GatewayHttpAuthOptions {
   readonly publicHost: string
   readonly publicOrigin: string
   readonly sessions: SessionStore
-  readonly onLogout?: (session: NonNullable<Awaited<ReturnType<SessionStore['authenticate']>>>) => void
+  readonly onLogout?: (session: GatewaySession) => void
   // Return a trusted, fixed user ID or null. Never trust the submitted username
   // as an authenticated identity without checking its credential.
   readonly verifyCredentials: (
