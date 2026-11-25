@@ -1,7 +1,8 @@
 // Where a terminal session's folder stood when the session started: the snapshot that its changes
 // are taken against, kept for the life of the tab so that a page that is loaded again still has it.
-// One snapshot is kept for each branch the session has been on: when the harness switches branches a
-// new one is taken, and switching back restores the one kept for that branch. The baseline of each
+// When the harness switches branches, a new snapshot is taken of the branch it switched to, and the
+// changes start over from it: the difference between two branches is not something the session did,
+// and a snapshot kept from an earlier visit would be of a branch that has moved on since. The baseline of each
 // other folder the session has worked in, such as a worktree it entered, is kept the same way.
 
 import type { Transport } from '../../shared/transport.ts'
@@ -19,15 +20,8 @@ export interface Baseline {
   head?: string | null
   // Whether the snapshot was taken when the session switched to that position, not when it began.
   switched?: boolean
-  // The snapshots of the other positions the session has been on.
-  kept?: Record<string, KeptSnapshot>
   // The baselines of the other folders the session has been in, by folder.
   others?: Record<string, Baseline>
-}
-
-export interface KeptSnapshot {
-  tree: string
-  switched: boolean
 }
 
 const KEY = 'synapse-desktop.change-baselines'
@@ -111,8 +105,8 @@ export async function followBaseline(
 const following = new Set<string>()
 
 // Follows where HEAD is now, as a diff answer says. A baseline kept before positions were takes it
-// as its own. When it is another position, the snapshot kept for that one becomes the baseline, or a
-// new one is taken now; the one left is kept under its own position. A folder that is not in a
+// as its own. When it is another position, a new snapshot is taken now and becomes the baseline,
+// whether or not the session has been on that position before. A folder that is not in a
 // repository, or a position of null, changes nothing.
 export async function followHead(
   transport: Pick<Transport, 'snapshotChanges'>,
@@ -128,16 +122,10 @@ export async function followHead(
   if (baseline.head === head || following.has(session)) return
   following.add(session)
   try {
-    let next: KeptSnapshot & { head: string }
-    const kept = baseline.kept?.[head]
-    if (kept !== undefined) {
-      next = { ...kept, head }
-    } else {
-      const taken = await transport.snapshotChanges(baseline.folder)
-      if (taken.tree === null) return
-      // HEAD may have moved again while the snapshot was taken; the tree is of where it is now.
-      next = { tree: taken.tree, switched: true, head: taken.head ?? head }
-    }
+    const taken = await transport.snapshotChanges(baseline.folder)
+    if (taken.tree === null) return
+    // HEAD may have moved again while the snapshot was taken; the tree is of where it is now.
+    const next = { tree: taken.tree, head: taken.head ?? head }
     // Let go when the session took another baseline meanwhile.
     const now = baselineOf(session)
     if (
@@ -147,16 +135,12 @@ export async function followHead(
     ) {
       return
     }
-    const others: Record<string, KeptSnapshot> = { ...baseline.kept }
-    others[baseline.head] = { tree: baseline.tree, switched: baseline.switched ?? false }
-    delete others[next.head]
     keepBaseline(session, {
       folder: baseline.folder,
       ...(baseline.source === undefined ? {} : { source: baseline.source }),
       tree: next.tree,
       head: next.head,
-      switched: next.switched,
-      kept: others,
+      switched: true,
     })
   } catch {
     // The sidebar goes on with the baseline it has, and is asked again at the next look.

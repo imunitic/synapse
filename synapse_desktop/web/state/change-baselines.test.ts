@@ -109,7 +109,7 @@ describe('a session that switches branches', () => {
     }
   }
 
-  it('takes a new snapshot for a branch it has not been on, and keeps the one it left', async () => {
+  it('takes a new snapshot when it switches to a branch', async () => {
     keepBaseline('s1', { folder: '/w', tree: TREE, head: 'main' })
     const asked: string[] = []
     await followHead(snapshots([OTHER], 'other', asked), 's1', 'other')
@@ -119,26 +119,16 @@ describe('a session that switches branches', () => {
       tree: OTHER,
       head: 'other',
       switched: true,
-      kept: { main: { tree: TREE, switched: false } },
     })
   })
 
-  it('switches back to the snapshot it kept, without taking one, and keeps both', async () => {
+  it('takes a new snapshot when it switches back, since the branch has moved on meanwhile', async () => {
     keepBaseline('s1', { folder: '/w', tree: TREE, head: 'main' })
     await followHead(snapshots([OTHER], 'other'), 's1', 'other')
     const asked: string[] = []
     await followHead(snapshots([THIRD], 'main', asked), 's1', 'main')
-    expect(asked).toEqual([])
-    expect(baselineOf('s1')).toEqual({
-      folder: '/w',
-      tree: TREE,
-      head: 'main',
-      switched: false,
-      kept: { other: { tree: OTHER, switched: true } },
-    })
-    await followHead(snapshots([THIRD], 'other', asked), 's1', 'other')
-    expect(asked).toEqual([])
-    expect(baselineOf('s1')).toMatchObject({ tree: OTHER, head: 'other', switched: true })
+    expect(asked).toEqual(['/w'])
+    expect(baselineOf('s1')).toEqual({ folder: '/w', tree: THIRD, head: 'main', switched: true })
   })
 
   it('changes nothing on the same branch, for a null position, or outside a repository', async () => {

@@ -55,15 +55,15 @@ export type ChangesState =
       base: ChangesBase | null
       // Where a new file's content is read from, for a session; a run has it in its patches.
       origin: (Baseline & { tree: string }) | null
-      // The branch, or commit, a session's snapshot is of, once the session has been on more than
-      // one; whether that snapshot was taken on the switch to it. None while there was only one.
+      // The branch, or commit, a session's snapshot is of, once the session has switched to it,
+      // which is when its snapshot was taken. None while the session is where it began.
       position: { head: string; switched: boolean } | null
     }
 
 function positionOf(baseline: Baseline): { head: string; switched: boolean } | null {
-  const others = Object.keys(baseline.kept ?? {})
-  if (others.length === 0 || baseline.head === undefined || baseline.head === null) return null
-  return { head: baseline.head, switched: baseline.switched ?? false }
+  if (baseline.switched !== true || baseline.head === undefined || baseline.head === null)
+    return null
+  return { head: baseline.head, switched: true }
 }
 
 // How many files the changes hold, for the icon.
