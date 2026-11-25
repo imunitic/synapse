@@ -128,6 +128,12 @@ export const TrashIcon = () => (
   </Icon>
 )
 
+export const PlayIcon = () => (
+  <Icon size={16}>
+    <path d="M8 5.5v13l10.5-6.5z" />
+  </Icon>
+)
+
 export const CloseIcon = () => (
   <Icon size={12}>
     <path d="M6 6l12 12M18 6L6 18" />

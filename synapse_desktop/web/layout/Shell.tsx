@@ -8,6 +8,7 @@ import { OutlineSidebar } from './OutlineSidebar.tsx'
 import { Rail } from './Rail.tsx'
 import { SidePanel } from './SidePanel.tsx'
 import { StatusBar } from './StatusBar.tsx'
+import { RunDialogHost } from './RunDialogHost.tsx'
 import { TerminalsPage } from '../pages/TerminalsPage.tsx'
 import { TerminalView } from '../components/TerminalView.tsx'
 import { storedName, storeName } from '../domain/terminal-names.ts'
@@ -118,6 +119,17 @@ export function Shell() {
   const notePath = active?.page.kind === 'note' ? active.page.path : null
   const noteComments = useNoteReview(notePath)
   const missingWorkDir = config.status === 'ready' && config.config.workDir === null
+  // An interactive run starts in a terminal of its own.
+  const startRun = (pipeline: string, input: unknown, folder: string) =>
+    dispatch({
+      type: 'openTerminal',
+      kind: 'Pipeline',
+      cwd: folder,
+      title: pipeline,
+      pipeline,
+      ...(input === undefined ? {} : { input }),
+      id: Math.random().toString(36).slice(2, 8),
+    })
 
   return (
     <div className="shell">
@@ -267,17 +279,7 @@ export function Shell() {
                     id: Math.random().toString(36).slice(2, 8),
                   })
                 }
-                onStartRun={(pipeline, input, folder) =>
-                  dispatch({
-                    type: 'openTerminal',
-                    kind: 'Pipeline',
-                    cwd: folder,
-                    title: pipeline,
-                    pipeline,
-                    ...(input === undefined ? {} : { input }),
-                    id: Math.random().toString(36).slice(2, 8),
-                  })
-                }
+                onStartRun={startRun}
                 onRunCommand={(command, title) =>
                   dispatch({
                     type: 'openTerminal',
@@ -349,6 +351,23 @@ export function Shell() {
           />
         )}
       </div>
+      {/* The run dialog opened from the definitions list, over whatever page shows. */}
+      {state.runDialog !== null && (
+        <RunDialogHost
+          key={state.runDialog}
+          pipeline={state.runDialog}
+          onClose={() => dispatch({ type: 'closeRunDialog' })}
+          onStarted={(id) => {
+            dispatch({ type: 'closeRunDialog' })
+            dispatch({ type: 'openPage', page: { kind: 'execution', id } })
+          }}
+          onStartInteractive={(input, folder) => {
+            const pipeline = state.runDialog
+            dispatch({ type: 'closeRunDialog' })
+            if (pipeline !== null) startRun(pipeline, input, folder)
+          }}
+        />
+      )}
       <StatusBar />
     </div>
   )

@@ -1,12 +1,12 @@
 import { expect, test } from './fixtures.ts'
-import { openSection, world } from './helpers.ts'
+import { openSection, sidePanel, world } from './helpers.ts'
 
 test('a run is started from a pipeline and followed to its end', async ({ page }) => {
   await page.goto('/')
   await openSection(page, 'Definitions')
   await page
     .getByLabel('Side panel')
-    .getByRole('button', { name: /Develop_Feature/ })
+    .getByRole('button', { name: 'Develop_Feature', exact: true })
     .click()
   await page.getByRole('button', { name: 'Run', exact: true }).click()
   // The box is ticked and disabled until the pipeline is checked, so wait for it to be free.
@@ -26,6 +26,37 @@ test('a run is started from a pipeline and followed to its end', async ({ page }
   await expect(trace).toContainText('Approved → the run completes')
   // A scripted run has no session, and says so.
   await expect(trace.getByText('no transcript').first()).toBeVisible()
+})
+
+test("a run is started from the definitions list without the pipeline's page", async ({ page }) => {
+  await page.goto('/')
+  await openSection(page, 'Definitions')
+  const row = sidePanel(page).locator('.list-entry', { hasText: 'Develop_Feature' })
+  // Play comes before the bin, so keyboard focus reaches it first.
+  const actions = row.locator('.list-action')
+  await expect(actions).toHaveCount(2)
+  await expect(actions.nth(0)).toHaveAccessibleName('Run Develop_Feature')
+  await expect(actions.nth(1)).toHaveAccessibleName('Delete this pipeline')
+  await row.getByRole('button', { name: 'Run Develop_Feature' }).click()
+
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('Run Develop_Feature')
+  // The pipeline's page did not open behind the dialog.
+  await expect(page.getByText('Pipeline', { exact: true })).toHaveCount(0)
+  await expect(dialog.getByLabel(/Run without a terminal/)).toBeEnabled()
+  await dialog.getByLabel(/Run without a terminal/).check()
+  await dialog.getByRole('button', { name: 'Start run' }).click()
+
+  await expect(page.getByText('Execution', { exact: true })).toBeVisible()
+})
+
+test('only pipelines have a run button in the list', async ({ page }) => {
+  await page.goto('/')
+  await openSection(page, 'Definitions')
+  await sidePanel(page).getByRole('button', { name: 'Agents' }).click()
+  const row = sidePanel(page).locator('.list-entry', { hasText: 'Reviewer' }).first()
+  await expect(row.getByRole('button', { name: 'Delete this agent' })).toBeVisible()
+  await expect(row.getByRole('button', { name: /^Run / })).toHaveCount(0)
 })
 
 test('what an agent did in a step is read from its transcript', async ({ page }) => {
@@ -59,7 +90,7 @@ test('an interactive run has its terminal on the page of the run', async ({ page
   await openSection(page, 'Definitions')
   await page
     .getByLabel('Side panel')
-    .getByRole('button', { name: /Fixture_Run/ })
+    .getByRole('button', { name: 'Fixture_Run', exact: true })
     .click()
   await page.getByRole('button', { name: 'Run', exact: true }).click()
   // The dialog starts an interactive run, without the box touched.

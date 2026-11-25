@@ -170,6 +170,8 @@ export interface ShellState {
   activeTerminal: string | null
   // How many sessions were opened, so that no two have the same title.
   terminalsOpened: number
+  // The pipeline whose run dialog is open over the page, by name; none when it is shut.
+  runDialog: string | null
 }
 
 export const initialState: ShellState = {
@@ -190,6 +192,7 @@ export const initialState: ShellState = {
   terminals: [],
   activeTerminal: null,
   terminalsOpened: 0,
+  runDialog: null,
 }
 
 // The state the app starts in: the home page open.
@@ -253,6 +256,9 @@ export type Action =
   | { type: 'definitionsChanged' }
   // A definition was made in the tab closeId: that tab gives way to its page.
   | { type: 'definitionCreated'; closeId: string; page: Page }
+  // The run dialog of a pipeline opens over the page that is showing, in place of any other.
+  | { type: 'openRunDialog'; pipeline: string }
+  | { type: 'closeRunDialog' }
 
 export function pageId(page: Page): string {
   switch (page.kind) {
@@ -596,6 +602,12 @@ function step(state: ShellState, action: Action): ShellState {
 
     case 'definitionsChanged':
       return { ...state, reloadToken: state.reloadToken + 1 }
+
+    case 'openRunDialog':
+      return { ...state, runDialog: action.pipeline }
+
+    case 'closeRunDialog':
+      return { ...state, runDialog: null }
 
     case 'definitionCreated': {
       const opened = reduce(reduce(state, { type: 'closeTab', id: action.closeId }), {
