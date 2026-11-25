@@ -228,6 +228,20 @@ describe('private Synapse WebSocket gateway', () => {
     }
   })
 
+  it('releases the connection slot when the upstream closes first', async () => {
+    for (let instance = 1; instance <= 5; instance++) {
+      const result = await connect(`sid=a; instance=${instance}`)
+      if (!('socket' in result)) throw new Error('connection slot was not released')
+      await result.next()
+      const upstream = upstreams[upstreams.length - 1]
+      const closed = new Promise<void>((resolve) => {
+        result.socket.once('close', resolve)
+      })
+      upstream.terminate()
+      await closed
+    }
+  })
+
   it('returns 502 for a refusing backend without exhausting the user connection slots', async () => {
     refuseBackendA = true
     for (let instance = 1; instance <= 5; instance++) {
