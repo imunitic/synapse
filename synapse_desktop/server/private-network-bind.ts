@@ -27,3 +27,15 @@ export function privateNetworkBind(env: Readonly<Record<string, string | undefin
   }
   return address
 }
+
+export function isPrivateBackendUrl(backend: URL): boolean {
+  return (
+    backend.protocol === 'http:' &&
+    (backend.hostname === '127.0.0.1' || isPrivateIpv4(backend.hostname)) &&
+    !backend.username &&
+    !backend.password &&
+    backend.pathname === '/' &&
+    !backend.search &&
+    !backend.hash
+  )
+}
