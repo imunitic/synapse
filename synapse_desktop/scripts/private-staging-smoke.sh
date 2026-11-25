@@ -80,3 +80,17 @@ for backend in backend_a backend_b; do
   done
 done
 echo 'Gateway ingress reachable from host loopback, not from backend containers.'
+
+# Exercise the maximum concurrent scrypt workload inside the constrained gateway.
+"${compose[@]}" exec -T gateway node --input-type=module <<'JS'
+import { readFile } from 'node:fs/promises'
+import { createPasswordVerifier } from './server/gateway-password-verifier.ts'
+const config = JSON.parse(await readFile('/run/secrets/gateway.json', 'utf8'))
+const verify = createPasswordVerifier(config.accounts)
+const results = await Promise.all([
+  verify('fixture-a', 'ci-fixture-password-a'),
+  verify('fixture-b', 'ci-fixture-password-b'),
+])
+if (results[0] !== 'a' || results[1] !== 'b') process.exitCode = 1
+JS
+echo 'Concurrent fixture password checks completed within the gateway container limit.'
