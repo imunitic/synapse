@@ -234,6 +234,7 @@ describe('private Synapse WebSocket gateway', () => {
       if (!('socket' in result)) throw new Error('connection slot was not released')
       await result.next()
       const upstream = upstreams[upstreams.length - 1]
+      if (!upstream) throw new Error('missing backend socket')
       const closed = new Promise<void>((resolve) => {
         result.socket.once('close', resolve)
       })
