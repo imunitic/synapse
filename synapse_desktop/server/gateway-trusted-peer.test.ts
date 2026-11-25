@@ -32,6 +32,14 @@ describe('trusted proxy rate limit peer resolution', () => {
     expect(key(request('::ffff:198.51.100.7', '203.0.113.45'))).toBe('198.51.100.7')
   })
 
+  it('groups IPv6 clients by subnet without trusting the whole proxy subnet', () => {
+    const key = createTrustedPeerKey(['2001:db8::1'])
+    expect(key(request('2001:0db8:0:0:0:0:0:1', '2001:db8:1:2::3'))).toBe('2001:db8:1:2::/64')
+    expect(key(request('2001:db8::1', '2001:db8:1:2::4'))).toBe('2001:db8:1:2::/64')
+    expect(key(request('2001:db8::2', '198.51.100.7'))).toBe('2001:db8:0:0::/64')
+    expect(key(request('2001:db8::1', '::ffff:c633:6407'))).toBe('198.51.100.7')
+  })
+
   it('rejects invalid trusted proxy configuration', () => {
     expect(() => createTrustedPeerKey(['not-an-ip'])).toThrow()
   })
