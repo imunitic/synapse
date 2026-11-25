@@ -167,7 +167,11 @@ export function createGatewayHttpAuthHandler(options: GatewayHttpAuthOptions) {
           const token = sessionTokenFromCookie(request.headers.cookie)
           const session = await options.sessions.authenticate(request)
           if (token !== null) options.sessions.revoke(token)
-          if (session !== null) options.onLogout?.(session)
+          try {
+            if (session !== null) options.onLogout?.(session)
+          } catch {
+            console.error('Synapse gateway: logout connection cleanup failed')
+          }
           respond(response, 200, { authenticated: false }, clearSessionCookie())
           return
         }
