@@ -164,7 +164,7 @@ describe('gateway session integration', () => {
           },
         ],
       ]),
-      assets: new Map(),
+      assets: new Map([['/', { content: 'fixture', contentType: 'text/html' }]]),
       recheckMs: 60_000,
     })
     const firstCookie = sessionCookie(first.token).split(';')[0]
