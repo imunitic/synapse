@@ -2,12 +2,12 @@
 // No passwords or account hashes are bundled with Synapse. The gateway entry
 // point must load records from a protected external configuration at startup.
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto'
-const COST = 16384
+const COST = 32768
 const BLOCK_SIZE = 8
-const PARALLEL = 1
+const PARALLEL = 3
 const KEY_BYTES = 32
 const MAX_MEMORY = 64 * 1024 * 1024
-const HASH_PATTERN = /^scrypt\$16384\$8\$1\$([0-9a-f]{32})\$([0-9a-f]{64})$/
+const HASH_PATTERN = /^scrypt\$32768\$8\$3\$([0-9a-f]{32})\$([0-9a-f]{64})$/
 
 export const VERIFIER_BUSY = Symbol('verifier_busy')
 
