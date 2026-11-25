@@ -17,4 +17,16 @@ describe('private gateway container binding', () => {
       }),
     ).toBe('172.29.103.2')
   })
+  it.each([undefined, '0.0.0.0', '8.8.8.8', '::'])(
+    'rejects an unsafe container ingress address: %s',
+    (address) => {
+      expect(() =>
+        privateGatewayBind({
+          SYNAPSE_PRIVATE_GATEWAY_CONTAINER_BIND: '1',
+          SYNAPSE_PRIVATE_GATEWAY_CONFIG: '/run/secrets/gateway.json',
+          SYNAPSE_PRIVATE_GATEWAY_BIND_ADDRESS: address,
+        }),
+      ).toThrow()
+    },
+  )
 })
