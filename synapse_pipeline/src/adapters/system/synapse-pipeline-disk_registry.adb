@@ -20,6 +20,7 @@ package body Synapse.Pipeline.Disk_Registry is
    Definitions  : constant String := "definitions";
    Transcripts  : constant String := "transcripts";
    Patches      : constant String := "patches";
+   Outputs      : constant String := "outputs";
 
    --  The most a summary or an event history is read back as.
    Largest_Read : constant := 16 * 1024 * 1024;
@@ -250,6 +251,26 @@ package body Synapse.Pipeline.Disk_Registry is
    end Write_Patch;
 
    overriding
+   function Write_Output
+     (R : in out Disk_Registry; Id, Name, Content : String) return Boolean
+   is
+      Dir : constant String := Directory_Of (R, Id);
+   begin
+      if not Is_Plain (Id) or else not Is_Plain (Name)
+        or else not Is_Directory (Dir)
+      then
+         return False;
+      end if;
+      if not Is_Directory (Dir & "/" & Outputs) then
+         Dirs.Create_Directory (Dir & "/" & Outputs);
+      end if;
+      return Write_Whole (Dir & "/" & Outputs & "/" & Name, Content);
+   exception
+      when others =>
+         return False;
+   end Write_Output;
+
+   overriding
    function Write_Description
      (R : in out Disk_Registry; Id, Content : String) return Boolean
    is
@@ -340,6 +361,18 @@ package body Synapse.Pipeline.Disk_Registry is
       end if;
       return Read_Text (Directory_Of (R, Id) & "/" & Patches & "/" & Name);
    end Read_Patch;
+
+   overriding
+   function Read_Output
+     (R : Disk_Registry; Id, Name : String)
+      return Registry_Store.Maybe_Content
+   is
+   begin
+      if not Is_Plain (Id) or else not Is_Plain (Name) then
+         return (Found => False);
+      end if;
+      return Read_Text (Directory_Of (R, Id) & "/" & Outputs & "/" & Name);
+   end Read_Output;
 
    overriding
    function Patch_Names

@@ -107,6 +107,21 @@ package body Synapse.Pipeline.Retrying_Registry is
    end Write_Patch;
 
    overriding
+   function Write_Output
+     (R : in out Retrying_Registry; Id, Name, Content : String) return Boolean
+   is
+      function Once return Boolean is
+        (R.Inner.Write_Output (Id, Name, Content));
+   begin
+      --  A name that is refused is refused every time, so it is not tried
+      --  again.
+      if not Registry_Store.Is_Plain_Name (Name) then
+         return False;
+      end if;
+      return Try (R, Id, "the output " & Name, Once'Access);
+   end Write_Output;
+
+   overriding
    function Write_Description
      (R : in out Retrying_Registry; Id, Content : String) return Boolean
    is
@@ -187,6 +202,15 @@ package body Synapse.Pipeline.Retrying_Registry is
    begin
       return R.Inner.Read_Patch (Id, Name);
    end Read_Patch;
+
+   overriding
+   function Read_Output
+     (R : Retrying_Registry; Id, Name : String)
+      return Registry_Store.Maybe_Content
+   is
+   begin
+      return R.Inner.Read_Output (Id, Name);
+   end Read_Output;
 
    overriding
    function Patch_Names

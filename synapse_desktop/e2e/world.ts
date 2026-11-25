@@ -101,7 +101,12 @@ const ANSWERS = {
     { outcome: 'Done', summary: 'tests pass', data: {}, delay_seconds: 0.3 },
   ],
   Review: [
-    { outcome: 'Changes_Requested', summary: 'one issue', data: {}, delay_seconds: 0.3 },
+    {
+      outcome: 'Changes_Requested',
+      summary: 'one issue',
+      data: { problems: [{ file: 'a.txt', location: '1', issue: 'one issue' }] },
+      delay_seconds: 0.3,
+    },
     { outcome: 'Approved', summary: 'looks good', data: {}, delay_seconds: 0.3 },
   ],
   Work: [{ outcome: 'Done', summary: 'worked', data: {}, delay_seconds: 0.1 }],

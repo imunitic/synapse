@@ -61,6 +61,10 @@ package Synapse.Pipeline.Retrying_Registry is
      (R : in out Retrying_Registry; Id, Name, Content : String) return Boolean;
 
    overriding
+   function Write_Output
+     (R : in out Retrying_Registry; Id, Name, Content : String) return Boolean;
+
+   overriding
    function Remove (R : in out Retrying_Registry; Id : String) return Boolean;
 
    overriding
@@ -85,6 +89,11 @@ package Synapse.Pipeline.Retrying_Registry is
 
    overriding
    function Read_Patch
+     (R : Retrying_Registry; Id, Name : String)
+      return Registry_Store.Maybe_Content;
+
+   overriding
+   function Read_Output
      (R : Retrying_Registry; Id, Name : String)
       return Registry_Store.Maybe_Content;
 

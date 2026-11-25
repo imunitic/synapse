@@ -6,15 +6,18 @@ import { layoutGraph } from '../domain/graph.ts'
 import type { LiveSession } from '../domain/live.ts'
 import { progressOf, visitsOf, type StepProgress, type Visit } from '../domain/progress.ts'
 import { describeRun } from '../domain/run-graph.ts'
+import { problemsOf, type VisitOutputRead } from '../domain/visit-outputs.ts'
 import { isLiveRun, type TerminalSession } from '../state/state.ts'
 import { transport } from '../transport/index.ts'
 import { ActivityBody, ActivityView } from '../components/ActivityView.tsx'
 import { SourceCard } from './DefinitionPage.tsx'
 import { GraphView } from '../components/GraphView.tsx'
+import { JsonTree } from '../components/JsonTree.tsx'
 import { measureGraphText } from '../components/measure-text.ts'
 import { TerminalView } from '../components/TerminalView.tsx'
 import { StatusBadge } from '../components/StatusBadge.tsx'
 import { useLoad } from '../state/useLoad.ts'
+import { useVisitOutputs } from '../state/useVisitOutputs.ts'
 import { useWatch } from '../state/useWatch.ts'
 
 // What no file shows, such as a run that died, is looked for now and then.
@@ -102,6 +105,115 @@ function TraceVisit({
           </div>
         ))}
     </div>
+  )
+}
+
+// What one visit reported: its summary, the problems it listed and its data. A visit that is going
+// on, or that failed, has no outcome and nothing is read for it.
+function OutcomeVisit({
+  visit,
+  status,
+  output,
+  open,
+  onToggle,
+}: {
+  visit: Visit
+  status: ExecutionRecord['summary']['status']
+  output: VisitOutputRead | undefined
+  open: boolean
+  onToggle: () => void
+}) {
+  const finished = visit.outcome !== null
+  const said = visitText(visit, status)
+  const problems = output?.status === 'recorded' ? problemsOf(output.output.data) : []
+  return (
+    <div>
+      <div className="trace-row mono">
+        <span className="muted">{visit.n}</span>
+        <span>{visit.step}</span>
+        <span className="muted">{said === 'going on' ? 'running' : said}</span>
+        {finished && (
+          <button className="link" aria-expanded={open} onClick={onToggle}>
+            {open ? 'Hide outcome' : 'Outcome'}
+          </button>
+        )}
+      </div>
+      {finished && open && (
+        <div className="trace-session">
+          {output === undefined ? (
+            <p className="muted small">Loading…</p>
+          ) : output.status === 'not-recorded' ? (
+            <p className="muted small">not recorded</p>
+          ) : (
+            <>
+              <p>{output.output.summary}</p>
+              {problems.length > 0 && (
+                <ul className="problems" aria-label="Problems">
+                  {problems.map((problem, i) => (
+                    <li key={i}>
+                      {problem.file !== null && <span className="mono">{problem.file}</span>}
+                      {problem.location !== null && (
+                        <span className="mono muted"> {problem.location}</span>
+                      )}
+                      {problem.issue !== null && (
+                        <span>
+                          {problem.file !== null || problem.location !== null ? ': ' : ''}
+                          {problem.issue}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <JsonTree value={output.output.data} />
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// What each visit of the run reported, in order. The newest finished visit is open; a row the
+// person opened or closed stays so while the page is shown.
+function Outcomes({
+  id,
+  visits,
+  sessions,
+  status,
+}: {
+  id: string
+  visits: Visit[]
+  sessions: RecordedSession[][]
+  status: ExecutionRecord['summary']['status']
+}) {
+  const { outputs, read } = useVisitOutputs(id, visits, sessions)
+  const [chosen, setChosen] = useState<ReadonlyMap<number, boolean>>(new Map())
+  useEffect(() => setChosen(new Map()), [id])
+  const newest = visits.findLast((v) => v.outcome !== null)?.n
+  return (
+    <section className="card" aria-label="Outcomes">
+      <h2 className="card-title">Outcomes</h2>
+      {visits.length === 0 && <p className="muted">No step has started.</p>}
+      <div className="trace">
+        {visits.map((visit) => {
+          const open = chosen.get(visit.n) ?? visit.n === newest
+          return (
+            <OutcomeVisit
+              key={visit.n}
+              visit={visit}
+              status={status}
+              output={outputs.get(visit.n)}
+              open={open}
+              onToggle={() => {
+                if (!open) read(visit)
+                setChosen((before) => new Map(before).set(visit.n, !open))
+              }}
+            />
+          )
+        })}
+      </div>
+    </section>
   )
 }
 
@@ -411,6 +523,7 @@ export function ExecutionPage({
           ))}
         </div>
       </section>
+      <Outcomes id={id} visits={visits} sessions={sessions} status={summary.status} />
       <section className="card" aria-label="Events">
         <h2 className="card-title">Events</h2>
         {events.length === 0 && <p className="muted">No events recorded.</p>}
