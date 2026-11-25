@@ -23,27 +23,34 @@ export function createLoginLimiter(options: LoginLimiterOptions) {
   }
 
   const peers = new Map<string, { start: number; count: number }>()
+  // Aggregate admissions remain bounded even when peer records are evicted.
+  const maxGlobalAttempts = 30
+  let globalStart = now()
+  let globalCount = 0
   return {
     allow(peer: string): boolean {
       const time = now()
+      if (time - globalStart >= windowMs) {
+        globalStart = time
+        globalCount = 0
+      }
+      if (globalCount >= maxGlobalAttempts) return false
       let entry = peers.get(peer)
       if (entry && time - entry.start >= windowMs) {
         peers.delete(peer)
         entry = undefined
       }
       if (!entry) {
-        // Retire old records first, but never evict active entries simply to
-        // admit new peer identities. Saturation fails closed.
         if (peers.size >= maxPeers) {
-          for (const [key, value] of peers) {
-            if (time - value.start >= windowMs) peers.delete(key)
-          }
-          if (peers.size >= maxPeers) return false
+          const oldest = peers.keys().next().value
+          if (oldest !== undefined) peers.delete(oldest)
         }
+        globalCount += 1
         peers.set(peer, { start: time, count: 1 })
         return true
       }
       if (entry.count >= maxAttempts) return false
+      globalCount += 1
       entry.count += 1
       return true
     },
