@@ -1,4 +1,5 @@
 import { createServer, type Server } from 'node:http'
+import { createConnection } from 'node:net'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { WebSocket, WebSocketServer } from 'ws'
 import { BUS_PATH, TOKEN_HEADER } from '../shared/constants.ts'
@@ -189,6 +190,41 @@ describe('private Synapse WebSocket gateway', () => {
         }),
       ).toThrow()
       expect(isolated.listenerCount('upgrade')).toBe(0)
+    }
+  })
+
+  it('handles a raw socket error during an upgrade without crashing the gateway', async () => {
+    const observed = new Promise<void>((resolve) => {
+      gateway.prependOnceListener('upgrade', (_req, socket) => {
+        queueMicrotask(() => {
+          socket.destroy(new Error('fixture connection reset'))
+          resolve()
+        })
+      })
+    })
+    const raw = createConnection(gatewayPort, '127.0.0.1')
+    raw.on('error', () => raw.destroy())
+    try {
+      raw.write(
+        [
+          `GET ${BUS_PATH} HTTP/1.1`,
+          `Host: 127.0.0.1:${gatewayPort}`,
+          `Origin: ${ORIGIN}`,
+          'Connection: Upgrade',
+          'Upgrade: websocket',
+          'Sec-WebSocket-Version: 13',
+          'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+          'Cookie: sid=a',
+          '',
+          '',
+        ].join('\\r\\n'),
+      )
+      await observed
+      const result = await connect('sid=b')
+      if (!('socket' in result)) throw new Error('gateway did not survive socket error')
+      expect(await result.next()).toEqual({ kind: 'hello', from: 'b' })
+    } finally {
+      raw.destroy()
     }
   })
 
