@@ -1,4 +1,4 @@
-// Opt-in, loopback-only private gateway process. No default accounts or secrets.
+// Opt-in private gateway, loopback by default. No default accounts or secrets.
 // An operator supplies an external JSON config and an already-built frontend.
 import { readFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
@@ -92,6 +92,11 @@ async function main(): Promise<void> {
     assets,
   })
   const bindAddress = privateGatewayBind(process.env)
+  server.once('error', () => {
+    console.error('private gateway listener failed; check bind address and port')
+    process.exitCode = 1
+    server.close()
+  })
   server.listen(config.port, bindAddress, () => {
     console.log(`private Synapse gateway listening on ${bindAddress}:${config.port}`)
   })
