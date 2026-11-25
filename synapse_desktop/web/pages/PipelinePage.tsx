@@ -16,6 +16,7 @@ import { useConfig } from '../state/config.tsx'
 import { RunDialog } from '../components/RunDialog.tsx'
 import { SourceCard } from './DefinitionPage.tsx'
 import { GraphView } from '../components/GraphView.tsx'
+import { measureGraphText } from '../components/measure-text.ts'
 import { PromptView } from '../components/PromptView.tsx'
 import type { Page } from '../state/state.ts'
 import { useLoad } from '../state/useLoad.ts'
@@ -238,7 +239,7 @@ export function PipelinePage({
   const description =
     state.status === 'ready' && state.data.described.ok ? state.data.described.description : null
   const graph = useMemo(
-    () => (description === null ? null : layoutGraph(description)),
+    () => (description === null ? null : layoutGraph(description, measureGraphText)),
     [description],
   )
   const selected = description?.steps.find((s) => s.name === chosen) ?? description?.steps[0]
