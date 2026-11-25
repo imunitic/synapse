@@ -217,7 +217,7 @@ describe('private Synapse WebSocket gateway', () => {
           'Cookie: sid=a',
           '',
           '',
-        ].join('\\r\\n'),
+        ].join('\r\n'),
       )
       await observed
       const result = await connect('sid=b')
