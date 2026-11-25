@@ -11,12 +11,15 @@ use synapse_desktop_host::agents::{AgentRunner, NoteSession};
 use synapse_desktop_host::cli::CliRunner;
 use synapse_desktop_host::dispatch::{Push, Stop};
 use synapse_desktop_host::families::Context;
-use synapse_desktop_host::messages::{CliResult, ModelCatalog};
+use synapse_desktop_host::messages::{CliResult, Harness, ModelCatalog};
 use synapse_desktop_host::models::ModelStore;
 use synapse_desktop_host::protocol::Topic;
 use synapse_desktop_host::runs::RunStarter;
 use synapse_desktop_host::status::{LoginPath, VersionOf};
 use synapse_desktop_host::topics::{subscriber, TopicTiming};
+use synapse_desktop_host::usage::{
+    Usage, UsageKind, UsageOptions, UsageReading, UsageState,
+};
 use tempfile::{tempdir, TempDir};
 
 type Seen = Arc<Mutex<Vec<(Value, Option<u64>)>>>;
@@ -64,6 +67,21 @@ fn world_in(dir: TempDir) -> World {
         note_runs: synapse_desktop_host::note_runs::NoteRuns::new(),
         runs: RunStarter::new("synapse-pipeline", Default::default()),
         bundled_roots: vec![],
+        // One provider that says Codex is not installed, so that a subscription to `usage` shows
+        // that it reached the usage.
+        usage: Usage::new(UsageOptions::new(vec![Arc::new(|| {
+            Box::pin(async {
+                UsageReading {
+                    harness: Harness::Codex,
+                    kind: UsageKind::Limit,
+                    windows: vec![],
+                    spend: None,
+                    observed_at: None,
+                    state: UsageState::NotInstalled,
+                    reason: Some("codex is not on PATH".into()),
+                }
+            })
+        })])),
         environment: environment(
             dir.path(),
             &[("XDG_CONFIG_HOME", &dir.path().join("xdg").to_string_lossy())],
@@ -327,4 +345,28 @@ async fn a_note_run_topic_gives_the_lines_the_run_published_from_the_cursor_on()
     );
     stop_all(stops);
     handle.finish();
+}
+
+#[tokio::test]
+async fn a_usage_subscription_reaches_the_usage_and_is_given_its_event() {
+    let w = world();
+    let mut stops = vec![];
+    let seen = subscribed(&w, "usage", None, &mut stops).await;
+    until(|| !seen.lock().unwrap().is_empty()).await;
+    assert_eq!(
+        seen.lock().unwrap()[0],
+        (
+            json!({ "readings": [{
+                "harness": "Codex",
+                "kind": "limit",
+                "windows": [],
+                "spend": null,
+                "observedAt": null,
+                "state": "not-installed",
+                "reason": "codex is not on PATH",
+            }] }),
+            None
+        )
+    );
+    stop_all(stops);
 }

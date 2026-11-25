@@ -16,6 +16,7 @@ import { createNoteRuns } from './note-runs.ts'
 import { createRunStarter } from './runs.ts'
 import { defaultPlan, sessionsRoot, spawnPty } from './terminal.ts'
 import { createSessions } from './terminal-sessions.ts'
+import { createUsage, systemProviders } from './usage.ts'
 
 const { web: WEB_PORT, server: SERVER_PORT } = ports(process.env)
 const environment = { env: process.env, home: homedir() }
@@ -30,6 +31,8 @@ const policy = {
 
 const models = createModelStore({ file: modelCacheFile(environment), env: process.env })
 
+const usage = createUsage({ providers: systemProviders(environment, configFile(environment)) })
+
 const context = {
   environment,
   models,
@@ -39,6 +42,7 @@ const context = {
   runs: createRunStarter('synapse-pipeline', process.env),
   noteRuns: createNoteRuns(),
   noteSession: createNoteSession((harness) => defaultPlan(environment)(harness)),
+  usage,
 }
 
 // Everything but the bus and the terminals is refused: the host has no HTTP interface.
@@ -54,6 +58,8 @@ const sessions = createSessions({
   plan: defaultPlan(environment),
   maxTerminals: 8,
   sessionsRoot: sessionsRoot(environment),
+  // A harness that just ended has likely changed its usage.
+  onExit: usage.nudge,
 })
 attachBus(server, { policy, context, sessions })
 server.listen(SERVER_PORT, '127.0.0.1', () => {

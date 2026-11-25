@@ -164,6 +164,8 @@ pub struct TerminalDeps {
     /// The environment of the user's login shell, read for each harness that is started, so that what
     /// the user's start-up files export reaches it.
     pub login_environment: LoginEnvironment,
+    /// Called when the program of a session exits.
+    pub on_exit: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl TerminalDeps {
@@ -188,6 +190,7 @@ impl TerminalDeps {
             watch,
             schedule: tokio_schedule(),
             login_environment,
+            on_exit: None,
         }
     }
 }
@@ -648,6 +651,9 @@ impl Sessions {
                             drop(state);
                             if unattended {
                                 sessions.expire_when_unattended(&session);
+                            }
+                            if let Some(on_exit) = &sessions.0.deps.on_exit {
+                                on_exit();
                             }
                         }
                     }

@@ -41,6 +41,7 @@ import type {
   Workspaces,
 } from '../../shared/transport.ts'
 import { terminalHostStreamSchema } from '../../shared/terminal.ts'
+import { usageEventSchema, type UsageEvent } from '../../shared/usage.ts'
 
 // How many commits the Git tab asks for at a time.
 const COMMIT_PAGE = 50
@@ -274,6 +275,14 @@ export class BusTransport implements Transport {
 
   watch(place: WatchPlace, onChange: () => void): Unsubscribe {
     return this.bus.subscribe(`files.${place}`, () => onChange())
+  }
+
+  // An event that does not parse is dropped: the page keeps the last one it could read.
+  watchUsage(onEvent: (event: UsageEvent) => void): Unsubscribe {
+    return this.bus.subscribe('usage', (data) => {
+      const parsed = usageEventSchema.safeParse(data)
+      if (parsed.success) onEvent(parsed.data)
+    })
   }
 
   async listTerminals(): Promise<TerminalInfo[]> {

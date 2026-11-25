@@ -156,6 +156,7 @@ export function createTopics(options: TopicOptions) {
   }
 
   return function subscribe(topic: Topic, after: Cursor | undefined, push: Push): () => void {
+    if (topic === 'usage') return context.usage?.subscribe(push) ?? (() => undefined)
     if (topic.startsWith('note-run.')) {
       return context.noteRuns.subscribe(topic.slice('note-run.'.length), after, push)
     }
