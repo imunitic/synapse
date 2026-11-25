@@ -2,6 +2,8 @@ import { createServer, type Server } from 'node:http'
 import { afterEach, describe, expect, it } from 'vitest'
 import { WebSocket, WebSocketServer } from 'ws'
 import { BUS_PATH, TOKEN_HEADER } from '../shared/constants.ts'
+import { attachPrivateGateway } from './gateway-private-entry.ts'
+import { hashGatewayPassword } from './gateway-password-verifier.ts'
 import { attachSessionGateway } from './gateway-session-adapter.ts'
 import { createGatewaySessions, sessionCookie } from './gateway-sessions.ts'
 
@@ -120,6 +122,71 @@ describe('gateway session integration', () => {
     await closed
     expect(await connect(gatewayPort, sessionCookie(issued.token).split(';')[0])).toBe(401)
   })
+  it('disconnects only the logged-out session before the periodic recheck', async () => {
+    const sessions = createGatewaySessions()
+    const first = sessions.issue('alice')
+    const second = sessions.issue('alice')
+    const backend = createServer()
+    const sockets = new WebSocketServer({ noServer: true })
+    backend.on('upgrade', (request, socket, head) => {
+      if (request.headers[TOKEN_HEADER] !== TOKEN) {
+        socket.destroy()
+        return
+      }
+      sockets.handleUpgrade(request, socket, head, (ws) => {
+        openSockets.push(ws)
+        ws.on('message', (data) => ws.send(String(data)))
+      })
+    })
+    const backendPort = await listen(backend)
+    const gateway = createServer()
+    const port = await listen(gateway)
+    const host = `127.0.0.1:${port}`
+    attachPrivateGateway(gateway, {
+      publicHost: host,
+      publicOrigin: ORIGIN,
+      sessions,
+      accounts: [
+        {
+          username: 'alice',
+          userId: 'alice',
+          passwordHash: await hashGatewayPassword('fixture-password-long'),
+        },
+      ],
+      hosts: new Map([
+        [
+          'alice',
+          {
+            userId: 'alice',
+            backend: `http://127.0.0.1:${backendPort}`,
+            backendToken: TOKEN,
+            backendOrigin: INTERNAL_ORIGIN,
+          },
+        ],
+      ]),
+      assets: new Map(),
+      recheckMs: 60_000,
+    })
+    const firstCookie = sessionCookie(first.token).split(';')[0]
+    const secondCookie = sessionCookie(second.token).split(';')[0]
+    const a = await connect(port, firstCookie)
+    const b = await connect(port, secondCookie)
+    if (typeof a === 'number' || typeof b === 'number') throw new Error('session refused')
+    const closed = new Promise<void>((resolve) => a.once('close', () => resolve()))
+    const response = await fetch(`http://${host}/auth/logout`, {
+      method: 'POST',
+      headers: { Origin: ORIGIN, Cookie: firstCookie ?? '' },
+    })
+    expect(response.status).toBe(200)
+    await closed
+    expect(await connect(port, firstCookie)).toBe(401)
+    const echoed = new Promise<string>((resolve) => {
+      b.once('message', (data) => resolve(String(data)))
+    })
+    b.send('still-connected')
+    expect(await echoed).toBe('still-connected')
+  })
+
   it('routes two authenticated users to separate private buses and denies cross-user cookies', async () => {
     const sessions = createGatewaySessions()
     const alice = sessions.issue('alice')
