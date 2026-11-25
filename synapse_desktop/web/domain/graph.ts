@@ -6,13 +6,18 @@
 import type { PipelineDescription } from './pipelines.ts'
 import { guardLabel } from './pipelines.ts'
 
-export const NODE_WIDTH = 150
+export const NODE_MIN_WIDTH = 150
 export const NODE_HEIGHT = 60
 const GAP = 56
 const MARGIN = 24
 const ARC_BASE = 24
 const ARC_STEP = 20
 const END = 'End'
+// The text is drawn 12 in from a box's left edge, so 12 on each side.
+const NODE_PADDING = 12
+
+// The width in pixels of a text as it is drawn: 'name' is a step's bold title, 'sub' the smaller line below it.
+export type MeasureText = (text: string, kind: 'name' | 'sub') => number
 
 export interface GraphNode {
   name: string
@@ -20,6 +25,7 @@ export interface GraphNode {
   isEnd: boolean
   x: number
   y: number
+  width: number
 }
 
 export interface GraphFlow {
@@ -47,10 +53,21 @@ export interface Graph {
   arcs: GraphArc[]
 }
 
-export function layoutGraph(description: PipelineDescription): Graph {
+export function layoutGraph(description: PipelineDescription, measure: MeasureText): Graph {
   const names = description.steps.map((s) => s.name)
+  // A box is as wide as its title or its harness, and never narrower than the minimum.
+  const widths = description.steps.map((step) =>
+    Math.max(
+      NODE_MIN_WIDTH,
+      Math.ceil(Math.max(measure(step.name, 'name'), measure(step.harness, 'sub'))) +
+        2 * NODE_PADDING,
+    ),
+  )
   const hasEnd = description.edges.some((e) => e.to === END)
-  if (hasEnd) names.push(END)
+  if (hasEnd) {
+    names.push(END)
+    widths.push(NODE_MIN_WIDTH)
+  }
   const indexOf = new Map(names.map((name, i) => [name, i]))
 
   const edges = description.edges.flatMap((edge) => {
@@ -62,19 +79,21 @@ export function layoutGraph(description: PipelineDescription): Graph {
 
   // Room above the row for the forward arcs and their labels.
   const top = MARGIN + (upper === 0 ? 0 : ARC_BASE + ARC_STEP * upper)
-  const nodeX = (i: number) => MARGIN + i * (NODE_WIDTH + GAP)
-  const centre = (i: number) => nodeX(i) + NODE_WIDTH / 2
+  const xs: number[] = [MARGIN]
+  for (const width of widths) xs.push(xs[xs.length - 1]! + width + GAP)
+  const centre = (i: number) => xs[i]! + widths[i]! / 2
   const bottom = top + NODE_HEIGHT
 
   const nodes = names.map((name, i) => ({
     name,
     isEnd: name === END && hasEnd && i === names.length - 1,
-    x: nodeX(i),
+    x: xs[i]!,
     y: top,
+    width: widths[i]!,
   }))
   const flows = names.slice(0, -1).map((_, i) => ({
-    x1: nodeX(i) + NODE_WIDTH,
-    x2: nodeX(i + 1),
+    x1: xs[i]! + widths[i]!,
+    x2: xs[i + 1]!,
     y: top + NODE_HEIGHT / 2,
   }))
 
@@ -154,7 +173,8 @@ export function layoutGraph(description: PipelineDescription): Graph {
 
   const lower = arcs.length - upper
   return {
-    width: MARGIN * 2 + names.length * NODE_WIDTH + (names.length - 1) * GAP,
+    width:
+      names.length === 0 ? 2 * MARGIN : xs[names.length - 1]! + widths[names.length - 1]! + MARGIN,
     height: bottom + (lower === 0 ? MARGIN : ARC_BASE + ARC_STEP * lower + MARGIN),
     nodes,
     flows,

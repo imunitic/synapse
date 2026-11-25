@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { DEVELOP_FEATURE_SHOW } from './fixtures.ts'
-import { layoutGraph, NODE_HEIGHT, NODE_WIDTH } from './graph.ts'
+import type { MeasureText } from './graph.ts'
+import { layoutGraph, NODE_HEIGHT, NODE_MIN_WIDTH } from './graph.ts'
 import type { PipelineDescription } from './pipelines.ts'
+
+// Eight pixels a character, whatever the kind of text.
+const measure: MeasureText = (text) => text.length * 8
 
 const develop = JSON.parse(DEVELOP_FEATURE_SHOW) as PipelineDescription
 
@@ -37,15 +41,15 @@ function pipeline(
 
 describe('layoutGraph', () => {
   it('puts the steps of a real pipeline in a row with an arrow between neighbours', () => {
-    const graph = layoutGraph(develop)
+    const graph = layoutGraph(develop, measure)
     expect(graph.nodes.map((n) => n.name)).toEqual(['Develop', 'Test', 'Review'])
     expect(graph.nodes.every((n) => n.y === graph.nodes[0]?.y)).toBe(true)
-    expect(graph.nodes[1]!.x).toBeGreaterThan(graph.nodes[0]!.x + NODE_WIDTH)
+    expect(graph.nodes[1]!.x).toBeGreaterThan(graph.nodes[0]!.x + graph.nodes[0]!.width)
     expect(graph.flows).toHaveLength(2)
   })
 
   it('draws a back edge below the row with its guard and bound as the label', () => {
-    const graph = layoutGraph(develop)
+    const graph = layoutGraph(develop, measure)
     const [arc] = graph.arcs
     expect(graph.arcs).toHaveLength(1)
     expect(arc).toMatchObject({ edgeIndex: 0, label: 'Changes_Requested · max 5' })
@@ -57,6 +61,7 @@ describe('layoutGraph', () => {
   it('draws a forward edge above the row and makes room for it', () => {
     const graph = layoutGraph(
       pipeline(['A', 'B', 'C'], [['A', 'C', { '==': [{ var: 'outcome' }, 'Skip'] }]]),
+      measure,
     )
     const [arc] = graph.arcs
     expect(arc?.tip.direction).toBe('down')
@@ -67,6 +72,7 @@ describe('layoutGraph', () => {
   it('adds an End marker after the last step when an edge leads to End', () => {
     const graph = layoutGraph(
       pipeline(['A', 'B'], [['A', 'End', { '==': [{ var: 'outcome' }, 'Done'] }]]),
+      measure,
     )
     expect(graph.nodes.map((n) => [n.name, n.isEnd])).toEqual([
       ['A', false],
@@ -77,7 +83,7 @@ describe('layoutGraph', () => {
   })
 
   it('does not add an End marker when no edge leads to End', () => {
-    expect(layoutGraph(develop).nodes.some((n) => n.isEnd)).toBe(false)
+    expect(layoutGraph(develop, measure).nodes.some((n) => n.isEnd)).toBe(false)
   })
 
   it('stacks arcs of the same direction at different heights', () => {
@@ -89,33 +95,92 @@ describe('layoutGraph', () => {
           ['C', 'B'],
         ],
       ),
+      measure,
     )
     expect(graph.arcs[0]!.labelY).not.toBe(graph.arcs[1]!.labelY)
   })
 
   it('skips an edge that names a step that does not exist', () => {
-    expect(layoutGraph(pipeline(['A'], [['A', 'Nowhere']])).arcs).toEqual([])
+    expect(layoutGraph(pipeline(['A'], [['A', 'Nowhere']]), measure).arcs).toEqual([])
   })
 
   it('has no extra height without arcs', () => {
-    const plain = layoutGraph(pipeline(['A', 'B'], []))
+    const plain = layoutGraph(pipeline(['A', 'B'], []), measure)
     expect(plain.height).toBe(24 + NODE_HEIGHT + 24)
+  })
+
+  describe('the width of a box', () => {
+    it('is the minimum for short names', () => {
+      const graph = layoutGraph(pipeline(['A', 'Build', 'Test'], []), measure)
+      expect(graph.nodes.map((n) => n.width)).toEqual([
+        NODE_MIN_WIDTH,
+        NODE_MIN_WIDTH,
+        NODE_MIN_WIDTH,
+      ])
+    })
+
+    it('fits a long name, and the next box starts one gap after it', () => {
+      const graph = layoutGraph(pipeline(['Performance_Review_And_Signoff', 'Ship'], []), measure)
+      const [long, next] = graph.nodes
+      // 30 characters at 8 each, and 12 on each side.
+      expect(long!.width).toBe(264)
+      expect(next!.x).toBe(long!.x + 264 + 56)
+    })
+
+    it('fits a long harness under a short name', () => {
+      const description = pipeline(['A', 'B'], [])
+      description.steps[0]!.harness = 'Performance_Review_And_Signoff'
+      const graph = layoutGraph(description, measure)
+      expect(graph.nodes[0]!.width).toBe(264)
+      expect(graph.nodes[1]!.x).toBe(graph.nodes[0]!.x + 264 + 56)
+    })
+
+    it('gives the End marker the minimum width', () => {
+      const graph = layoutGraph(
+        pipeline(['A'], [['A', 'End', { '==': [{ var: 'outcome' }, 'Done'] }]]),
+        () => 1000,
+      )
+      expect(graph.nodes[1]).toMatchObject({ isEnd: true, width: NODE_MIN_WIDTH })
+    })
+
+    it('runs every arrow from the right edge of one box to the left edge of the next', () => {
+      const graph = layoutGraph(
+        pipeline(['Plan', 'Performance_Review_And_Signoff', 'Ship'], []),
+        measure,
+      )
+      graph.flows.forEach((flow, i) => {
+        const left = graph.nodes[i]!
+        expect(flow.x1).toBe(left.x + left.width)
+        expect(flow.x2).toBe(graph.nodes[i + 1]!.x)
+      })
+    })
+
+    it('makes the diagram as wide as the right edge of the last box and the margin', () => {
+      const graph = layoutGraph(
+        pipeline(['Plan', 'Performance_Review_And_Signoff', 'Ship'], []),
+        measure,
+      )
+      const last = graph.nodes[graph.nodes.length - 1]!
+      expect(graph.width).toBe(last.x + last.width + 24)
+    })
   })
 
   describe('a pipeline with several loops', () => {
     const when = (outcome: string) => ({ '==': [{ var: 'outcome' }, outcome] })
-    const ship = layoutGraph(
-      pipeline(
-        ['Plan', 'Implement', 'Test', 'Review', 'Document', 'Release'],
+    // The same pipeline, with the second step under another name.
+    function shipNamed(implement: string): PipelineDescription {
+      return pipeline(
+        ['Plan', implement, 'Test', 'Review', 'Document', 'Release'],
         [
           ['Plan', 'End', when('Rejected')],
-          ['Test', 'Implement', when('Failing'), 3],
+          ['Test', implement, when('Failing'), 3],
           ['Test', 'Document', when('Skip_Review')],
-          ['Review', 'Implement', when('Changes_Requested'), 5],
+          ['Review', implement, when('Changes_Requested'), 5],
           ['Review', 'Plan', when('Redesign'), 2],
         ],
-      ),
-    )
+      )
+    }
+    const ship = layoutGraph(shipNamed('Implement'), measure)
     const arc = (label: string) => ship.arcs.find((a) => a.label.startsWith(label))!
     // The path of an arc is `M <x> <y> V <y> H <x> V <y>`.
     // The three straight pieces of an arc, from its path.
@@ -167,6 +232,25 @@ describe('layoutGraph', () => {
     it('draws every edge once', () => {
       expect(ship.arcs).toHaveLength(5)
       expect(new Set(ship.arcs.map((a) => a.edgeIndex)).size).toBe(5)
+    })
+
+    it('keeps the arcs apart and on their boxes when one box is wider', () => {
+      const description = shipNamed('Implement_The_Plan_Step_By_One')
+      const wide = layoutGraph(description, measure)
+      expect(wide.nodes[1]!.width).toBeGreaterThan(150)
+      expect(crossings(wide.arcs)).toEqual([])
+      const box = (name: string) => wide.nodes.find((n) => n.name === name)!
+      for (const a of wide.arcs) {
+        const edge = description.edges[a.edgeIndex]!
+        const [, x1, , , , , x2] = a.path.split(' ').map(Number)
+        for (const [name, x] of [
+          [edge.from, x1!],
+          [edge.to, x2!],
+        ] as const) {
+          expect(x).toBeGreaterThan(box(name).x)
+          expect(x).toBeLessThan(box(name).x + box(name).width)
+        }
+      }
     })
   })
 })

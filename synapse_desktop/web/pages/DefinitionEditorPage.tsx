@@ -21,6 +21,7 @@ import { AgentCard } from '../components/AgentCard.tsx'
 import { DslReference } from '../components/DslReference.tsx'
 import { CodeEditor } from '../components/CodeEditor.tsx'
 import { GraphView } from '../components/GraphView.tsx'
+import { measureGraphText } from '../components/measure-text.ts'
 import { DEFINITION_LABELS, type DefinitionKind, type Page } from '../state/state.ts'
 import { useLoad } from '../state/useLoad.ts'
 
@@ -179,7 +180,10 @@ export function DefinitionEditorPage({
     () => (current === null ? [] : marksFor(text, current.preview.problems)),
     [current, text],
   )
-  const graph = useMemo(() => (lastGood === null ? null : layoutGraph(lastGood)), [lastGood])
+  const graph = useMemo(
+    () => (lastGood === null ? null : layoutGraph(lastGood, measureGraphText)),
+    [lastGood],
+  )
   const canSave =
     name !== null &&
     !checking &&
