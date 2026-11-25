@@ -50,6 +50,15 @@ describe('bounded private login rate limiter', () => {
     expect(limiter.allow('new-peer')).toBe(true)
   })
 
+  it('does not charge the global budget for attempts blocked by a peer limit', () => {
+    const limiter = createLoginLimiter({ maxAttempts: 1, windowMs: 1000 })
+    expect(limiter.allow('blocked-peer')).toBe(true)
+    for (let index = 0; index < 30; index += 1) {
+      expect(limiter.allow('blocked-peer')).toBe(false)
+    }
+    expect(limiter.allow('other-peer')).toBe(true)
+  })
+
   it('refuses invalid limits', () => {
     expect(() => createLoginLimiter({ maxAttempts: 0, windowMs: 100 })).toThrow()
     expect(() => createLoginLimiter({ maxAttempts: 1, windowMs: 0 })).toThrow()
