@@ -13,7 +13,8 @@ describe('private gateway container binding', () => {
       privateGatewayBind({
         SYNAPSE_PRIVATE_GATEWAY_CONTAINER_BIND: '1',
         SYNAPSE_PRIVATE_GATEWAY_CONFIG: '/run/secrets/gateway.json',
+        SYNAPSE_PRIVATE_GATEWAY_BIND_ADDRESS: '172.29.103.2',
       }),
-    ).toBe('0.0.0.0')
+    ).toBe('172.29.103.2')
   })
 })
