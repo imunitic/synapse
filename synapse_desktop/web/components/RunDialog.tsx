@@ -21,6 +21,7 @@ import { PathInput } from './PathInput.tsx'
 export function RunDialog({
   pipeline,
   firstStep,
+  firstStepPending,
   onClose,
   onStarted,
   onStartInteractive,
@@ -29,6 +30,8 @@ export function RunDialog({
   pipeline: string
   // The step the input goes to, whose prompt can be looked at with the input in it.
   firstStep?: string
+  // The first step is still being read; the preview says so until it is known.
+  firstStepPending?: boolean
   onClose: () => void
   onStarted: (executionId: string) => void
   // An interactive run is started with this input, none when there is none, in this folder.
@@ -179,6 +182,12 @@ export function RunDialog({
               onChange={setFolder}
             />
           </>
+        )}
+        {firstStep === undefined && firstStepPending === true && (
+          <details className="prompt-view">
+            <summary>The prompt of the first step, with this input</summary>
+            <p className="muted">Building the prompt…</p>
+          </details>
         )}
         {firstStep !== undefined && (
           <PromptView

@@ -205,7 +205,7 @@ test('asks first for the page of a run that is going on, and says it goes on', a
     await openSection(page, 'Definitions')
     await page
       .getByLabel('Side panel')
-      .getByRole('button', { name: /Fixture_Run/ })
+      .getByRole('button', { name: 'Fixture_Run', exact: true })
       .click()
     await page.getByRole('button', { name: 'Run', exact: true }).click()
     // The box is ticked and disabled until the pipeline is checked, so wait for it to be free.

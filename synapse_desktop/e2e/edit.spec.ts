@@ -6,10 +6,7 @@ import { openSection, setEditorText, uniqueName, world } from './helpers.ts'
 async function openDefinition(page: import('@playwright/test').Page, name: string) {
   await page.goto('/')
   await openSection(page, 'Definitions')
-  await page
-    .getByLabel('Side panel')
-    .getByRole('button', { name: new RegExp(name) })
-    .click()
+  await page.getByLabel('Side panel').getByRole('button', { name, exact: true }).click()
   await expect(page.getByRole('heading', { name })).toBeVisible()
 }
 

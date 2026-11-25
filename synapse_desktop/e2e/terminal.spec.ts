@@ -413,7 +413,7 @@ test('an interactive run has no tab on the Terminals page, and brings no Termina
   await openSection(page, 'Definitions')
   await page
     .getByLabel('Side panel')
-    .getByRole('button', { name: /Fixture_Run/ })
+    .getByRole('button', { name: 'Fixture_Run', exact: true })
     .click()
   await page.getByRole('button', { name: 'Run', exact: true }).click()
   const dialog = page.getByRole('dialog')
