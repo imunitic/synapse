@@ -707,10 +707,12 @@
   gap: 12px;
 }
 
+/* Pinned to the bottom edge of the dialog, over its padding, so that nothing shows below it. */
 .dialog-actions {
   position: sticky;
-  bottom: 0;
-  padding-top: 12px;
+  bottom: -20px;
+  margin-bottom: -20px;
+  padding: 12px 0 20px;
   background: var(--card);
 }
 
