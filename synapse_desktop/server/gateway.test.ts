@@ -17,6 +17,7 @@ let bCount: number
 let aHeaders: Record<string, string | string[] | undefined>
 let bHeaders: Record<string, string | string[] | undefined>
 let revoked: Set<string>
+let refuseBackendA: boolean
 let clients: WebSocket[]
 let upstreams: WebSocket[]
 
@@ -37,6 +38,10 @@ function privateBackend(
   })
   const sockets = new WebSocketServer({ noServer: true })
   server.on('upgrade', (req, socket, head) => {
+    if (name === 'a' && refuseBackendA) {
+      socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n')
+      return
+    }
     if (
       req.url !== BUS_PATH ||
       req.headers[TOKEN_HEADER] !== token ||
@@ -107,6 +112,7 @@ beforeEach(async () => {
   aHeaders = {}
   bHeaders = {}
   revoked = new Set()
+  refuseBackendA = false
   backendA = privateBackend('a', TOKEN_A, (headers) => {
     aCount++
     aHeaders = headers
@@ -166,6 +172,35 @@ afterEach(async () => {
 })
 
 describe('private Synapse WebSocket gateway', () => {
+  it.each([
+    { heartbeatMs: 0 },
+    { flowOptions: { highWaterBytes: 1, lowWaterBytes: 2 } },
+  ])('rejects invalid connection options before installing the upgrade handler', (invalid) => {
+    const isolated = createServer()
+    expect(() =>
+      attachGateway(isolated, {
+        publicHost: '127.0.0.1:12345',
+        publicOrigin: ORIGIN,
+        hosts: new Map(),
+        authenticate: async () => null,
+        sessionValid: async () => false,
+        ...invalid,
+      }),
+    ).toThrow()
+    expect(isolated.listenerCount('upgrade')).toBe(0)
+  })
+
+  it('returns 502 for a refusing backend without exhausting the user connection slots', async () => {
+    refuseBackendA = true
+    for (let instance = 1; instance <= 5; instance++) {
+      expect(await connect(`sid=a; instance=${instance}`)).toEqual({ refused: 502 })
+    }
+    refuseBackendA = false
+    const result = await connect('sid=a; instance=6')
+    if (!('socket' in result)) throw new Error('backend recovery failed')
+    expect(await result.next()).toEqual({ kind: 'hello', from: 'a' })
+  })
+
   it('refuses a shared Node backend for separate authenticated accounts', () => {
     const shared = 'http://127.0.0.1:43210'
     const hosts = new Map<string, GatewayHost>([
