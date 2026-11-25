@@ -8,7 +8,7 @@ import { createGatewaySessions } from './gateway-sessions.ts'
 import { loadViteProtectedAssets } from './gateway-vite-assets.ts'
 import type { GatewayHost } from './gateway.ts'
 import type { PasswordAccount } from './gateway-password-verifier.ts'
-import { isPrivateIpv4 } from './private-network-bind.ts'
+import { isPrivateBackendUrl } from './private-network-bind.ts'
 import { privateGatewayBind } from './private-gateway-bind.ts'
 
 interface PrivateGatewayConfig {
@@ -61,11 +61,7 @@ function validateConfig(value: unknown): PrivateGatewayConfig {
   for (const host of config.hosts) {
     const backend = new URL(host.backend)
     if (
-      backend.protocol !== 'http:' ||
-      (backend.hostname !== '127.0.0.1' && !isPrivateIpv4(backend.hostname)) ||
-      backend.pathname !== '/' ||
-      backend.search ||
-      backend.hash ||
+      !isPrivateBackendUrl(backend) ||
       !host.backendToken ||
       !host.backendOrigin
     ) {
