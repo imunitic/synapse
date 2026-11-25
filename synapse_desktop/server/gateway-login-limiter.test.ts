@@ -37,6 +37,19 @@ describe('bounded private login rate limiter', () => {
     expect(limiter.allow('new-peer')).toBe(true)
   })
 
+  it('does not replenish the global budget at a fixed window boundary', () => {
+    let clock = 0
+    const limiter = createLoginLimiter({ maxAttempts: 2, windowMs: 1000, now: () => clock })
+    clock = 999
+    for (let index = 0; index < 30; index += 1) {
+      expect(limiter.allow(`peer-${index}`)).toBe(true)
+    }
+    clock = 1000
+    expect(limiter.allow('new-peer')).toBe(false)
+    clock = 1999
+    expect(limiter.allow('new-peer')).toBe(true)
+  })
+
   it('refuses invalid limits', () => {
     expect(() => createLoginLimiter({ maxAttempts: 0, windowMs: 100 })).toThrow()
     expect(() => createLoginLimiter({ maxAttempts: 1, windowMs: 0 })).toThrow()
