@@ -20,7 +20,7 @@ describe('bounded private login rate limiter', () => {
     expect(limiter.allow('peer-a')).toBe(true)
   })
 
-  it('bounds memory and refuses unknown peers until an old entry expires', () => {
+  it('bounds aggregate admissions even when rotating peers evict records', () => {
     let clock = 0
     const limiter = createLoginLimiter({
       maxAttempts: 2,
@@ -28,14 +28,13 @@ describe('bounded private login rate limiter', () => {
       maxPeers: 2,
       now: () => clock,
     })
-    expect(limiter.allow('peer-a')).toBe(true)
-    clock = 500
-    expect(limiter.allow('peer-b')).toBe(true)
-    expect(limiter.allow('peer-c')).toBe(false)
-    expect(limiter.allow('peer-a')).toBe(true)
+    for (let index = 0; index < 30; index += 1) {
+      expect(limiter.allow(`peer-${index}`)).toBe(true)
+    }
+    expect(limiter.allow('peer-0')).toBe(false)
+    expect(limiter.allow('new-peer')).toBe(false)
     clock = 1000
-    expect(limiter.allow('peer-c')).toBe(true)
-    expect(limiter.allow('peer-b')).toBe(true)
+    expect(limiter.allow('new-peer')).toBe(true)
   })
 
   it('refuses invalid limits', () => {
