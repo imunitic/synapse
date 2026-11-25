@@ -20,7 +20,8 @@ function rateLimitKey(address: string): string {
   const [left = '', right = ''] = ip.split('::')
   const prefix = left ? left.split(':') : []
   const suffix = right ? right.split(':') : []
-  const groups = [...prefix, ...Array<string>(8 - prefix.length - suffix.length).fill('0'), ...suffix]
+  const zeros = Array<string>(8 - prefix.length - suffix.length).fill('0')
+  const groups = [...prefix, ...zeros, ...suffix]
   return groups.slice(0, 4).join(':') + '::/64'
 }
 
