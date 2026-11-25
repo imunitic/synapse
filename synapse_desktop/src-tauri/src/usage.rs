@@ -319,7 +319,10 @@ fn settled(good: &mut Option<UsageReading>, reading: UsageReading) -> UsageReadi
         *good = Some(reading.clone());
         return reading;
     }
-    if matches!(reading.state, UsageState::NotSignedIn | UsageState::NotInstalled) {
+    if matches!(
+        reading.state,
+        UsageState::NotSignedIn | UsageState::NotInstalled
+    ) {
         *good = None;
     }
     match good {

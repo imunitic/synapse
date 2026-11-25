@@ -188,11 +188,14 @@ fn an_unknown_zone_or_unreadable_reset_gives_nothing() {
 
 type Answer = Box<dyn Fn() -> Result<RunOutput, String> + Send + Sync>;
 
+/// One run a fake kept: the program, its arguments, the folder and the time limit.
+type Call = (PathBuf, Vec<String>, PathBuf, Duration);
+
 /// The machine as a test has it: `claude` where it says, and a runner that keeps its calls.
 struct FakeMachine {
     program: Option<PathBuf>,
     answer: Answer,
-    calls: Mutex<Vec<(PathBuf, Vec<String>, PathBuf, Duration)>>,
+    calls: Mutex<Vec<Call>>,
 }
 
 impl FakeMachine {
@@ -619,7 +622,7 @@ struct FakeOpencode {
     program: Option<PathBuf>,
     version: String,
     stats: RunOutput,
-    calls: Mutex<Vec<(PathBuf, Vec<String>, PathBuf, Duration)>>,
+    calls: Mutex<Vec<Call>>,
 }
 
 impl FakeOpencode {
@@ -860,7 +863,10 @@ async fn usage_gives_a_subscriber_an_event_at_once_and_a_later_one_the_last_even
 async fn usage_reads_all_providers_in_parallel_in_their_order() {
     let (slow, _) = counted(vec![claude_ok(10.0)], Duration::from_millis(40));
     let (quick, _) = counted(
-        vec![claude_failed(UsageState::NotInstalled, "codex is not on PATH")],
+        vec![claude_failed(
+            UsageState::NotInstalled,
+            "codex is not on PATH",
+        )],
         Duration::ZERO,
     );
     let usage = Usage::new(options(vec![slow, quick], 10_000, 30_000));

@@ -17,9 +17,7 @@ use synapse_desktop_host::protocol::Topic;
 use synapse_desktop_host::runs::RunStarter;
 use synapse_desktop_host::status::{LoginPath, VersionOf};
 use synapse_desktop_host::topics::{subscriber, TopicTiming};
-use synapse_desktop_host::usage::{
-    Usage, UsageKind, UsageOptions, UsageReading, UsageState,
-};
+use synapse_desktop_host::usage::{Usage, UsageKind, UsageOptions, UsageReading, UsageState};
 use tempfile::{tempdir, TempDir};
 
 type Seen = Arc<Mutex<Vec<(Value, Option<u64>)>>>;

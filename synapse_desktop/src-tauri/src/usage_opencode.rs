@@ -10,7 +10,7 @@ use crate::usage::{Spend, SpendPeriod, UsageKind, UsageReading, UsageState};
 use crate::usage_claude::{Pending, RunOutput};
 use regex::Regex;
 use serde_json::Value;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use std::time::{Duration, SystemTime};
 
@@ -107,14 +107,19 @@ pub fn major_version(text: &str) -> Option<u64> {
 /// Stdout of one run, or the reading that says why there is none.
 async fn run(
     deps: &dyn OpencodeUsageDeps,
-    program: &PathBuf,
+    program: &Path,
     args: &[&str],
-    cwd: &PathBuf,
+    cwd: &Path,
     label: &str,
 ) -> Result<String, UsageReading> {
     let args = args.iter().map(|a| a.to_string()).collect();
     let output = deps
-        .run(program.clone(), args, cwd.clone(), OPENCODE_USAGE_TIMEOUT)
+        .run(
+            program.to_path_buf(),
+            args,
+            cwd.to_path_buf(),
+            OPENCODE_USAGE_TIMEOUT,
+        )
         .await
         .map_err(|error| failed(UsageState::Unavailable, &format!("{label}: {error}")))?;
     if output.code != 0 {
