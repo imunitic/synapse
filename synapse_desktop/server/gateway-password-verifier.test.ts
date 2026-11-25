@@ -43,7 +43,7 @@ describe('operator-provisioned gateway credentials', () => {
   it('uses random salts even when passwords match', async () => {
     const first = await hashGatewayPassword('fixture-long-password')
     const second = await hashGatewayPassword('fixture-long-password')
-    expect(first).toMatch(/^scrypt\$16384\$8\$1\$[0-9a-f]{32}\$[0-9a-f]{64}$/)
+    expect(first).toMatch(/^scrypt\$32768\$8\$3\$[0-9a-f]{32}\$[0-9a-f]{64}$/)
     expect(first).not.toBe(second)
     const verify = createPasswordVerifier([
       { username: 'alice', userId: 'user-alice', passwordHash: first },
@@ -77,7 +77,7 @@ describe('operator-provisioned gateway credentials', () => {
     ).toThrow()
     expect(() =>
       createPasswordVerifier([
-        { ...first, passwordHash: passwordHash.replace('16384', '1048576') },
+        { ...first, passwordHash: passwordHash.replace('32768', '1048576') },
       ]),
     ).toThrow()
     expect(() => createPasswordVerifier([{ ...first, username: '../alice' }])).toThrow()
