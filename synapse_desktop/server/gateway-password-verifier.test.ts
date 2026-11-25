@@ -80,6 +80,8 @@ describe('operator-provisioned gateway credentials', () => {
         { ...first, passwordHash: passwordHash.replace('32768', '1048576') },
       ]),
     ).toThrow()
+    const legacyHash = passwordHash.replace('32768$8$3', '16384$8$1')
+    expect(() => createPasswordVerifier([{ ...first, passwordHash: legacyHash }])).toThrow()
     expect(() => createPasswordVerifier([{ ...first, username: '../alice' }])).toThrow()
     await expect(hashGatewayPassword('short')).rejects.toThrow()
   })
