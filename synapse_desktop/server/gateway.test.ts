@@ -172,22 +172,24 @@ afterEach(async () => {
 })
 
 describe('private Synapse WebSocket gateway', () => {
-  it.each([
-    { heartbeatMs: 0 },
-    { flowOptions: { highWaterBytes: 1, lowWaterBytes: 2 } },
-  ])('rejects invalid connection options before installing the upgrade handler', (invalid) => {
-    const isolated = createServer()
-    expect(() =>
-      attachGateway(isolated, {
-        publicHost: '127.0.0.1:12345',
-        publicOrigin: ORIGIN,
-        hosts: new Map(),
-        authenticate: async () => null,
-        sessionValid: async () => false,
-        ...invalid,
-      }),
-    ).toThrow()
-    expect(isolated.listenerCount('upgrade')).toBe(0)
+  it('rejects invalid connection options before installing the upgrade handler', () => {
+    for (const invalid of [
+      { heartbeatMs: 0 },
+      { flowOptions: { highWaterBytes: 1, lowWaterBytes: 2 } },
+    ]) {
+      const isolated = createServer()
+      expect(() =>
+        attachGateway(isolated, {
+          publicHost: '127.0.0.1:12345',
+          publicOrigin: ORIGIN,
+          hosts: new Map(),
+          authenticate: async () => null,
+          sessionValid: async () => false,
+          ...invalid,
+        }),
+      ).toThrow()
+      expect(isolated.listenerCount('upgrade')).toBe(0)
+    }
   })
 
   it('returns 502 for a refusing backend without exhausting the user connection slots', async () => {
