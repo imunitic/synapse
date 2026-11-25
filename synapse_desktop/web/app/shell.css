@@ -707,6 +707,13 @@
   gap: 12px;
 }
 
+.dialog-actions {
+  position: sticky;
+  bottom: 0;
+  padding-top: 12px;
+  background: var(--card);
+}
+
 .dialog textarea {
   width: 100%;
   font-size: 0.8125rem;

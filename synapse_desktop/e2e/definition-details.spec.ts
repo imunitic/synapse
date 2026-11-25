@@ -84,8 +84,11 @@ test('the run dialog shows the first step prompt with the input that is typed', 
   await openDefinition(page, 'Pipelines', /Develop_Feature/)
   await page.getByRole('button', { name: 'Run', exact: true }).click()
   const dialog = page.getByRole('dialog')
-  // The prompt is open from the start, with what Synapse adds, so that the person sees what the
-  // agent will get.
+  // The settings of the run and the buttons come first, and the prompt is closed until it is asked
+  // for, so that the person does not scroll past it to start the run.
+  await expect(dialog.getByRole('button', { name: 'Start run' })).toBeVisible()
+  await expect(dialog.locator('.prompt-added-text')).toBeHidden()
+  await dialog.getByText('The prompt of the first step, with this input').click()
   await expect(dialog.locator('.prompt-added-text')).toContainText(
     'You are running as the step Develop',
   )
