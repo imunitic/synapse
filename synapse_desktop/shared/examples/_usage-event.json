@@ -1,0 +1,50 @@
+{
+  "readings": [
+    {
+      "harness": "Claude",
+      "kind": "limit",
+      "windows": [
+        {
+          "name": "Current session",
+          "percent": 29,
+          "resetsAt": "2026-11-25T18:09:00.000Z",
+          "decides": true
+        },
+        {
+          "name": "Current week (all models)",
+          "percent": 41.5,
+          "resetsAt": "2026-11-28T16:59:00.000Z",
+          "decides": true
+        },
+        {
+          "name": "Current week (Sonnet only)",
+          "percent": 3,
+          "resetsAt": null,
+          "decides": false
+        }
+      ],
+      "spend": null,
+      "observedAt": "2026-11-25T15:00:00.000Z",
+      "state": "ok",
+      "reason": null
+    },
+    {
+      "harness": "Codex",
+      "kind": "limit",
+      "windows": [],
+      "spend": null,
+      "observedAt": null,
+      "state": "unavailable",
+      "reason": "codex app-server did not answer within 20 seconds"
+    },
+    {
+      "harness": "Opencode",
+      "kind": "spend",
+      "windows": [],
+      "spend": { "amount": 1.42, "period": "today" },
+      "observedAt": "2026-11-25T15:00:00.000Z",
+      "state": "ok",
+      "reason": null
+    }
+  ]
+}

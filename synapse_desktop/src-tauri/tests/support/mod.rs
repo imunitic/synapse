@@ -38,6 +38,11 @@ pub fn envelope() -> Value {
     serde_json::from_str(&fs::read_to_string(dir().join("_envelope.json")).unwrap()).unwrap()
 }
 
+/// The example of an event on the `usage` topic, which the Node host's tests read too.
+pub fn usage_event() -> Value {
+    serde_json::from_str(&fs::read_to_string(dir().join("_usage-event.json")).unwrap()).unwrap()
+}
+
 /// Whether two values are the same JSON, as numbers are the same when they are the same value
 /// whether they were written as integers or not.
 pub fn same(a: &Value, b: &Value) -> bool {
@@ -195,6 +200,7 @@ impl Host {
             ),
             note_runs: synapse_desktop_host::note_runs::NoteRuns::new(),
             bundled_roots: vec![],
+            usage: synapse_desktop_host::usage::Usage::none(),
             environment,
         };
         let mut handlers = Handlers::new();

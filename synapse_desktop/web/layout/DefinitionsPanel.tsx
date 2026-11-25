@@ -3,7 +3,7 @@ import { definitionUse, type DefinitionUse } from '../domain/definition-use.ts'
 import { listSkills, loadDefinitions } from '../domain/definitions.ts'
 import { filterByName } from '../domain/filter.ts'
 import { transport } from '../transport/index.ts'
-import { PlusIcon, RefreshIcon, TrashIcon } from '../components/icons.tsx'
+import { PlayIcon, PlusIcon, RefreshIcon, TrashIcon } from '../components/icons.tsx'
 import {
   DEFINITION_KINDS,
   DEFINITION_LABELS,
@@ -96,6 +96,16 @@ function DefinitionRow({
         >
           <span className="list-name">{item.name}</span>
         </button>
+        {kind === 'pipeline' && (
+          <button
+            className="icon-button list-action list-run"
+            aria-label={`Run ${item.name}`}
+            title={`Run ${item.name}`}
+            onClick={() => dispatch({ type: 'openRunDialog', pipeline: item.name })}
+          >
+            <PlayIcon />
+          </button>
+        )}
         <button
           className="icon-button list-action"
           aria-label={`Delete this ${singular}`}

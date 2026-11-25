@@ -3,17 +3,17 @@ import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { openSection, sidePanel, world } from './helpers.ts'
 
-async function openDefinition(page: Page, kind: 'Pipelines' | 'Systems' | 'Agents', name: RegExp) {
+async function openDefinition(page: Page, kind: 'Pipelines' | 'Systems' | 'Agents', name: string) {
   await page.goto('/')
   await openSection(page, 'Definitions')
   await sidePanel(page).getByRole('button', { name: kind }).click()
-  await sidePanel(page).getByRole('button', { name }).click()
+  await sidePanel(page).getByRole('button', { name, exact: true }).click()
 }
 
 test('a system page lists its attributes as written and the pipeline step that uses it', async ({
   page,
 }) => {
-  await openDefinition(page, 'Systems', /Strict_Reviewer/)
+  await openDefinition(page, 'Systems', 'Strict_Reviewer')
   const attributes = page.getByLabel('Attributes')
   await expect(attributes).toContainText('Agent')
   await expect(attributes).toContainText('Reviewer')
@@ -29,7 +29,7 @@ test('a system page lists its attributes as written and the pipeline step that u
 })
 
 test('an agent page says which system uses it', async ({ page }) => {
-  await openDefinition(page, 'Agents', /Reviewer/)
+  await openDefinition(page, 'Agents', 'Reviewer')
   await expect(page.getByLabel('Attributes')).toContainText('You are a reviewer')
   const used = page.getByLabel('Used by')
   await expect(used.getByRole('button', { name: 'Strict_Reviewer' })).toBeVisible()
@@ -40,7 +40,7 @@ test('an agent that nothing uses says so', async ({ page }) => {
   const idle = join(world().definitions, 'Idle_Agent.synapse')
   writeFileSync(idle, 'Agent Idle_Agent [Prompt => "Wait."];\n')
   try {
-    await openDefinition(page, 'Agents', /Idle_Agent/)
+    await openDefinition(page, 'Agents', 'Idle_Agent')
     await expect(page.getByLabel('Used by')).toContainText('No pipeline or system uses this agent')
   } finally {
     rmSync(idle, { force: true })
@@ -50,7 +50,7 @@ test('an agent that nothing uses says so', async ({ page }) => {
 test('a step page shows what its author wrote, and what Synapse adds apart from it', async ({
   page,
 }) => {
-  await openDefinition(page, 'Pipelines', /Develop_Feature/)
+  await openDefinition(page, 'Pipelines', 'Develop_Feature')
   // The first step is selected: its role and assignment are the prompt, and nothing generated is
   // among them.
   await page.getByText('The prompt', { exact: true }).click()
@@ -81,11 +81,14 @@ test('a step page shows what its author wrote, and what Synapse adds apart from 
 test('the run dialog shows the first step prompt with the input that is typed', async ({
   page,
 }) => {
-  await openDefinition(page, 'Pipelines', /Develop_Feature/)
+  await openDefinition(page, 'Pipelines', 'Develop_Feature')
   await page.getByRole('button', { name: 'Run', exact: true }).click()
   const dialog = page.getByRole('dialog')
-  // The prompt is open from the start, with what Synapse adds, so that the person sees what the
-  // agent will get.
+  // The settings of the run and the buttons come first, and the prompt is closed until it is asked
+  // for, so that the person does not scroll past it to start the run.
+  await expect(dialog.getByRole('button', { name: 'Start run' })).toBeVisible()
+  await expect(dialog.locator('.prompt-added-text')).toBeHidden()
+  await dialog.getByText('The prompt of the first step, with this input').click()
   await expect(dialog.locator('.prompt-added-text')).toContainText(
     'You are running as the step Develop',
   )
@@ -108,7 +111,7 @@ test('the run dialog shows the first step prompt with the input that is typed', 
 test('the run dialog starts interactive by default, and keeps the choice of no terminal', async ({
   page,
 }) => {
-  await openDefinition(page, 'Pipelines', /Develop_Feature/)
+  await openDefinition(page, 'Pipelines', 'Develop_Feature')
   await page.getByRole('button', { name: 'Run', exact: true }).click()
   const dialog = page.getByRole('dialog')
   const autonomous = dialog.getByLabel(/Run without a terminal/)
@@ -141,7 +144,7 @@ test('a file that does not load is listed under the definitions, and the others 
     await page.goto('/')
     await openSection(page, 'Definitions')
     const panel = sidePanel(page)
-    await expect(panel.getByRole('button', { name: /Develop_Feature/ })).toBeVisible()
+    await expect(panel.getByRole('button', { name: 'Develop_Feature', exact: true })).toBeVisible()
     const problems = panel.getByLabel('Files that did not load')
     await expect(problems).toContainText('Broken_File.synapse')
     await expect(problems).toContainText('expected')
@@ -165,7 +168,7 @@ test('a step that declares outcomes shows them with their meanings, and its prom
 `,
   )
   try {
-    await openDefinition(page, 'Pipelines', /Judged_Pipeline/)
+    await openDefinition(page, 'Pipelines', 'Judged_Pipeline')
     const step = page.getByRole('region', { name: 'Step Judge' })
     await expect(step).toContainText('Approved')
     await expect(step).toContainText('Every requirement is met.')

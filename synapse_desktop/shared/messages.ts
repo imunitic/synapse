@@ -491,6 +491,7 @@ export const methodHomes = {
   readText: 'fs.read',
   readDir: 'fs.list',
   watch: 'subscribe',
+  watchUsage: 'subscribe',
   runRequest: 'run.ask',
   cli: 'cli',
   previewDraft: 'definition.preview',

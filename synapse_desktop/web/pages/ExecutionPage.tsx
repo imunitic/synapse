@@ -11,6 +11,7 @@ import { transport } from '../transport/index.ts'
 import { ActivityBody, ActivityView } from '../components/ActivityView.tsx'
 import { SourceCard } from './DefinitionPage.tsx'
 import { GraphView } from '../components/GraphView.tsx'
+import { measureGraphText } from '../components/measure-text.ts'
 import { TerminalView } from '../components/TerminalView.tsx'
 import { StatusBadge } from '../components/StatusBadge.tsx'
 import { useLoad } from '../state/useLoad.ts'
@@ -116,7 +117,10 @@ function RunGraph({ id, record }: { id: string; record: ExecutionRecord }) {
   )
   const { state } = useLoad(load)
   const drawn = state.status === 'ready' && state.data?.ok ? state.data : null
-  const graph = useMemo(() => (drawn === null ? null : layoutGraph(drawn.description)), [drawn])
+  const graph = useMemo(
+    () => (drawn === null ? null : layoutGraph(drawn.description, measureGraphText)),
+    [drawn],
+  )
   const progress = useMemo(
     () => (drawn === null ? null : progressOf(drawn.description, record.events, record.summary)),
     [drawn, record],

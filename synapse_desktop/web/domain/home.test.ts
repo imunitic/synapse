@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ExecutionSummary } from './executions.ts'
-import { recentRuns, runCounts, vaultCounts } from './home.ts'
+import { recentRuns, runCounts, sessionRows, vaultCounts } from './home.ts'
+import type { TerminalSession } from '../state/state.ts'
 
 const NOW = new Date('2026-11-08T12:00:00Z')
 
@@ -68,5 +69,34 @@ describe('vault counts', () => {
         { key: 'in_progress', title: 'I', items: [] },
       ]),
     ).toEqual({ discussing: 1, in_progress: 0 })
+  })
+})
+
+describe('the sessions of the running card', () => {
+  function session(id: string, kind: TerminalSession['kind'], more: Partial<TerminalSession> = {}) {
+    return { id, kind, title: `T ${id}`, cwd: '', ...more } as TerminalSession
+  }
+
+  it('lists a shell as a terminal to select', () => {
+    expect(sessionRows([session('a', 'Shell')], [])).toEqual([
+      { kind: 'terminal', id: 'a', label: 'T a' },
+    ])
+  })
+
+  it('opens the page of the run for a pipeline session with a run, not the terminals page', () => {
+    expect(sessionRows([session('p', 'Pipeline', { executionId: 'exec-1' })], [])).toEqual([
+      { kind: 'run', id: 'p', label: 'T p', page: { kind: 'execution', id: 'exec-1' } },
+    ])
+  })
+
+  it('opens the starting page for a pipeline session whose run has no id yet', () => {
+    expect(sessionRows([session('p', 'Pipeline')], [])).toEqual([
+      { kind: 'run', id: 'p', label: 'T p', page: { kind: 'run-starting', session: 'p' } },
+    ])
+  })
+
+  it('does not list a run twice when the card already lists it as running', () => {
+    const listed = run('exec-1', 'running', '2026-11-08T11:00:00Z')
+    expect(sessionRows([session('p', 'Pipeline', { executionId: 'exec-1' })], [listed])).toEqual([])
   })
 })

@@ -28,7 +28,7 @@ jobs:
       id-token: write
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment_retry.outputs.page_url || steps.deployment.outputs.page_url }}
 
     steps:
       - uses: actions/checkout@v5
@@ -46,9 +46,30 @@ jobs:
       - name: Build the docs site
         run: ./docs/generate-site.sh site
 
+      # The artifact is named for the attempt. A re-run of a failed run is the
+      # same run again, and the artifact its first attempt uploaded is still
+      # there, so a second artifact with the same name makes deploy-pages fail
+      # with "Multiple artifacts named github-pages".
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
+          name: github-pages-${{ github.run_attempt }}
 
+      # deploy-pages asks once for the run's artifacts, and now and then GitHub
+      # has not listed the one just uploaded yet ("Found 0 artifact(s)"). The
+      # deploy is tried a second time in the same attempt, after a short wait.
       - uses: actions/deploy-pages@v4
         id: deployment
+        continue-on-error: true
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
+
+      - name: Wait before deploying again
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 20
+
+      - uses: actions/deploy-pages@v4
+        id: deployment_retry
+        if: steps.deployment.outcome == 'failure'
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}

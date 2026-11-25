@@ -789,3 +789,39 @@ describe('the Changes sidebar', () => {
     expect(reduce(shown, { type: 'showChanges', visit: 2 }).changesFile).toBeNull()
   })
 })
+
+describe('the run dialog', () => {
+  const opened = run([{ type: 'openPage', page: settings }], startState)
+
+  it('is shut when the app starts', () => {
+    expect(startState.runDialog).toBeNull()
+  })
+
+  it('opens for a pipeline over the page that is showing, and leaves the tabs as they were', () => {
+    const state = reduce(opened, { type: 'openRunDialog', pipeline: 'Develop_Feature' })
+    expect(state.runDialog).toBe('Develop_Feature')
+    expect(state.tabs).toBe(opened.tabs)
+    expect(state.activeId).toBe(opened.activeId)
+    expect(state.section).toBe(opened.section)
+  })
+
+  it('opened for another pipeline takes the place of the one that was open', () => {
+    const state = run(
+      [
+        { type: 'openRunDialog', pipeline: 'Develop_Feature' },
+        { type: 'openRunDialog', pipeline: 'Fix_Bug' },
+      ],
+      opened,
+    )
+    expect(state.runDialog).toBe('Fix_Bug')
+  })
+
+  it('is shut again', () => {
+    const state = run(
+      [{ type: 'openRunDialog', pipeline: 'Develop_Feature' }, { type: 'closeRunDialog' }],
+      opened,
+    )
+    expect(state.runDialog).toBeNull()
+    expect(state.tabs).toBe(opened.tabs)
+  })
+})

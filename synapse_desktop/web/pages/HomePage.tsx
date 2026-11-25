@@ -17,7 +17,7 @@ import { listGraphs } from '../domain/graph-search.ts'
 import { recentlyUpdated, titleOf } from '../domain/notes.ts'
 import { recentlyOpened } from '../domain/recent.ts'
 import { listExecutions, type ExecutionSummary } from '../domain/executions.ts'
-import { recentRuns, runCounts, vaultCounts } from '../domain/home.ts'
+import { recentRuns, runCounts, sessionRows, vaultCounts } from '../domain/home.ts'
 import { describeVault } from '../domain/vaults.ts'
 import { transport } from '../transport/index.ts'
 import { useConfig } from '../state/config.tsx'
@@ -25,7 +25,7 @@ import { ItemRow } from '../components/AttentionRows.tsx'
 import { remember } from './graph/namespace.ts'
 import { RefreshIcon } from '../components/icons.tsx'
 import { SetupCheckCard } from '../components/SetupCheckCard.tsx'
-import { terminalName, type Page, type TerminalKind, type TerminalSession } from '../state/state.ts'
+import type { Page, TerminalKind, TerminalSession } from '../state/state.ts'
 import { StatusBadge } from '../components/StatusBadge.tsx'
 import { useLoad, type LoadState } from '../state/useLoad.ts'
 
@@ -320,7 +320,8 @@ function RunningNow({
   onSelectTerminal: (id: string) => void
 }) {
   const running = runs.status === 'ready' ? runs.data.filter((r) => r.status === 'running') : []
-  if (running.length === 0 && terminals.length === 0) return null
+  const rows = sessionRows(terminals, running)
+  if (running.length === 0 && rows.length === 0) return null
   return (
     <section className="card" aria-label="Running now">
       <h2 className="card-title">Running now</h2>
@@ -341,15 +342,15 @@ function RunningNow({
             </button>
           </li>
         ))}
-        {terminals.map((session) => (
-          <li key={session.id}>
+        {rows.map((row) => (
+          <li key={row.id}>
             <button
               className="attention-item attention-link"
-              onClick={() => onSelectTerminal(session.id)}
+              onClick={() => (row.kind === 'run' ? onOpen(row.page) : onSelectTerminal(row.id))}
             >
               <span className="attention-label">
-                {terminalName(session)}
-                <span className="muted small"> · terminal</span>
+                {row.label}
+                <span className="muted small"> · {row.kind === 'run' ? 'run' : 'terminal'}</span>
               </span>
             </button>
           </li>

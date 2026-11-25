@@ -1,6 +1,8 @@
 # Synapse Desktop
 
-A desktop client for `synapse-pipeline`, developed as a web app first and wrapped in Tauri 2 afterwards.
+The desktop app for all of Synapse: it installs Synapse into the harnesses, shows and edits the Vault, runs and inspects pipelines, reviews what they changed, and hosts the harness terminals. It is developed as a web app first and wrapped in Tauri 2 afterwards.
+
+How to use the app is on the docs site, starting at [docs/desktop/README.md](../docs/desktop/README.md). This README is for people building the app.
 
 ## Download
 
@@ -57,6 +59,8 @@ The page and the host talk by the same messages as in the served build, over Tau
 ## End-to-end tests
 
 `npm run e2e` runs the app in a browser (Playwright, Chromium) against the Node host, and `npm run e2e -- --host rust` against the Rust host (`src-tauri/`), which it builds first with `cargo`. It runs on a world made for the run: a temporary configuration directory with a few definitions, a `synapse.conf`, a finished run with a transcript and a folder that looks like a vault. Runs are scripted, so no agent is started and nothing costs anything. It needs the programs built in this checkout (`just build`) and the ports of `npm run dev` free, and `npx playwright install chromium` once. `just desktop-e2e` does all of it.
+
+`e2e/docs-screenshots.spec.ts` takes the screenshots of the docs site. A normal run takes them into a temporary folder, so it fails when a screen or control the docs show is gone. `just docs-screenshots` writes them to `docs/desktop/img/`. Run it before tagging each release, so the docs show the app as it ships.
 
 ## Layout
 

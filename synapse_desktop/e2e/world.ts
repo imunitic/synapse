@@ -240,84 +240,94 @@ ev_end() {
 
 // A harness that prints what it was started with, writes a session file in the
 // form of the real one, and then echoes each line that is typed, until the line
-// `quit`, which ends it with code 7.
-const STUB = [
-  '#!/bin/sh',
-  'name=$(basename "$0")',
-  STREAM_SH,
-  'STUB_STREAM=0',
-  'case "$*" in *stream-json*) STUB_STREAM=1 ;; esac',
-  'export STUB_STREAM',
-  // Asked for its version, as `synapse doctor` does, it says one and touches nothing.
-  '[ "$1" = "--version" ] && { echo "$name 0.0.0-stub"; exit 0; }',
-  // A listing of models is logged, for a test to see which programs the app ran to read them.
-  '{ [ "$name" = claude ] && [ "$1" = -p ] && [ "$2" = /model ]; } || { [ "$name" = codex ] && [ "$1" = debug ]; } || { [ "$name" = opencode ] && { [ "$1" = models ] || [ "$1" = auth ]; }; } && [ -n "$SYNAPSE_STUB_LIST_LOG" ] && echo "$name $*" >> "$SYNAPSE_STUB_LIST_LOG"',
-  // Asked for its models, as the app does to offer a choice of one: Claude Code answers its /model
-  // command, Codex renders its catalogue and OpenCode lists its models and its providers.
-  '[ "$name" = claude ] && [ "$1" = -p ] && [ "$2" = /model ] && { echo "Current model: Stub 1"; echo "Usage: /model <name>. Available: sonnet, opus, haiku, default, or a full model ID."; exit 0; }',
-  `[ "$name" = codex ] && [ "$1" = debug ] && [ "$2" = models ] && { echo '{"models":[{"slug":"gpt-stub-b","display_name":"Stub B","description":"The second.","visibility":"list","priority":2},{"slug":"gpt-stub-a","display_name":"Stub A","description":"The first.","visibility":"list","priority":1},{"slug":"gpt-stub-old","display_name":"Old","visibility":"hide","priority":3}]}'; exit 0; }`,
-  '[ "$name" = opencode ] && [ "$1" = models ] && { printf "%s\\n" opencode/glm-5.3-flash-free openrouter/z-ai/glm-5.3-flash openrouter/deepseek/deepseek-v4-flash anthropic/claude-sonnet-5; exit 0; }',
-  '[ "$name" = opencode ] && [ "$1" = auth ] && { echo "OpenRouter  API key  stored"; exit 0; }',
-  'echo "STUB $name args: $*"',
-  'echo "CODEX_HOME=${CODEX_HOME:-} OPENCODE_CONFIG_DIR=${OPENCODE_CONFIG_DIR:-} CONTENT_ROOT=${SYNAPSE_CONTENT_ROOT:-}"',
-  'echo "cwd: $(pwd)"',
-  // A headless run, as the app starts one to write a note: the prompt is on standard
-  // input, or the last argument for OpenCode; the note is made with the synapse
-  // program and its path is the last line.
-  'headless=""',
-  '[ "$name" = claude ] && [ "$1" = "-p" ] && headless=stdin',
-  '[ "$name" = codex ] && [ "$1" = exec ] && headless=stdin',
-  '[ "$name" = opencode ] && [ "$1" = run ] && headless=argument',
-  // The arguments of a background run are logged, for a test to see which model it was asked for.
-  '[ -n "$headless" ] && [ -n "$SYNAPSE_STUB_LOG" ] && echo "$name $*" >> "$SYNAPSE_STUB_LOG"',
-  'if [ -n "$headless" ]; then',
-  '  if [ "$headless" = stdin ]; then prompt=$(cat); else for a in "$@"; do prompt=$a; done; fi',
-  '  case "$prompt" in',
-  '    *FAILCASE*) ev_end "FAILED: the stub was asked to fail"; exit 0 ;;',
-  '    *LIVECASE*) exec "$(dirname "$0")/stub-live" ;;',
-  '    *"Change one note that already exists"*) exec "$(dirname "$0")/stub-edit" "$prompt" ;;',
-  '  esac',
-  '  ev_start; ev_slow "$prompt"',
-  `  printf '%s\\n' "# Stub note" "" "Written by $name" "$prompt" | synapse vault-write "research/Stub note.md"`,
-  '  ev_end "research/Stub note.md"; exit 0',
-  'fi',
-  'sid=""; prev=""',
-  'for a in "$@"; do [ "$prev" = "--session-id" ] && sid="$a"; prev="$a"; done',
-  'if [ "$name" = claude ] && [ -n "$sid" ]; then',
-  '  d="$HOME/.claude/projects/-stub"; mkdir -p "$d"; f="$d/$sid.jsonl"',
-  `  printf '%s\\n' '{"type":"permission-mode"}' >> "$f"`,
-  `  printf '%s\\n' '{"type":"user","message":{"role":"user","content":"Fix the bug in a.txt"}}' >> "$f"`,
-  `  printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"I will look at the folder."}]}}' >> "$f"`,
-  `  printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls -la"}}]}}' >> "$f"`,
-  `  printf '%s\\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"total 8 a.txt"}]}}' >> "$f"`,
-  // Started with `edit`, it also edits a.txt in the folder it was started in, as a conversation
-  // that changes a file does.
-  '  case "$*" in *edit*)',
-  `    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Edit","input":{"file_path":"%s/a.txt","old_string":"two","new_string":"TWO"}}]}}\\n' "$(pwd)" >> "$f"`,
-  `    printf '%s\\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"edited"}]}}' >> "$f" ;;`,
-  '  esac',
-  'fi',
-  // Resumed by its id, it carries on the session file of that id, in whichever project it is.
-  'rid=""; prev=""',
-  'for a in "$@"; do [ "$prev" = "--resume" ] && rid="$a"; prev="$a"; done',
-  'if [ "$name" = claude ] && [ -n "$rid" ] && [ -z "$sid" ]; then',
-  '  f=$(ls "$HOME"/.claude/projects/*/"$rid".jsonl 2>/dev/null | head -n 1)',
-  `  [ -n "$f" ] && printf '{"type":"user","cwd":"%s","message":{"role":"user","content":"Carry on"}}\\n' "$(pwd)" >> "$f"`,
-  'fi',
-  'if [ "$name" = codex ]; then',
-  '  d="${CODEX_HOME:-$HOME/.codex}/sessions/$(date +%Y/%m/%d)"; mkdir -p "$d"; f="$d/rollout-stub-$$.jsonl"',
-  `  printf '{"type":"session_meta","payload":{"cwd":"%s"}}\\n' "$(pwd)" > "$f"`,
-  `  printf '%s\\n' '{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Add a test"}]}}' >> "$f"`,
-  `  printf '%s\\n' '{"type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\\"command\\":[\\"bash\\",\\"-lc\\",\\"echo hello-codex\\"]}","call_id":"c1"}}' >> "$f"`,
-  `  printf '%s\\n' '{"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"hello-codex"}}' >> "$f"`,
-  `  printf '%s\\n' '{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Added it."}]}}' >> "$f"`,
-  'fi',
-  'while IFS= read -r line; do',
-  '  echo "typed: $line"',
-  '  [ "$line" = quit ] && exit 7',
-  'done',
-  '',
-].join('\n')
+// `quit`, which ends it with code 7. Asked for `claude -p /usage`, it prints `claudeUsage`, the
+// JSON of a real run.
+const stubScript = (claudeUsage: string): string =>
+  [
+    '#!/bin/sh',
+    'name=$(basename "$0")',
+    STREAM_SH,
+    'STUB_STREAM=0',
+    'case "$*" in *stream-json*) STUB_STREAM=1 ;; esac',
+    'export STUB_STREAM',
+    // Asked for its version, as `synapse doctor` does, it says one and touches nothing.
+    '[ "$1" = "--version" ] && { echo "$name 0.0.0-stub"; exit 0; }',
+    // Asked for its usage, as the status bar does, Claude Code prints the JSON of a real run.
+    `[ "$name" = claude ] && [ "$1" = -p ] && [ "$2" = /usage ] && { cat <<'USAGE_JSON'\n${claudeUsage}\nUSAGE_JSON\nexit 0; }`,
+    // Asked to serve its app-server, as the status bar does to read rate limits, Codex exits at
+    // once, so its reading is unavailable without the 20-second wait.
+    '[ "$name" = codex ] && [ "$1" = app-server ] && exit 1',
+    // A listing of models is logged, for a test to see which programs the app ran to read them.
+    '{ [ "$name" = claude ] && [ "$1" = -p ] && [ "$2" = /model ]; } || { [ "$name" = codex ] && [ "$1" = debug ]; } || { [ "$name" = opencode ] && { [ "$1" = models ] || [ "$1" = auth ]; }; } && [ -n "$SYNAPSE_STUB_LIST_LOG" ] && echo "$name $*" >> "$SYNAPSE_STUB_LIST_LOG"',
+    // Asked for its models, as the app does to offer a choice of one: Claude Code answers its /model
+    // command, Codex renders its catalogue and OpenCode lists its models and its providers.
+    '[ "$name" = claude ] && [ "$1" = -p ] && [ "$2" = /model ] && { echo "Current model: Stub 1"; echo "Usage: /model <name>. Available: sonnet, opus, haiku, default, or a full model ID."; exit 0; }',
+    `[ "$name" = codex ] && [ "$1" = debug ] && [ "$2" = models ] && { echo '{"models":[{"slug":"gpt-stub-b","display_name":"Stub B","description":"The second.","visibility":"list","priority":2},{"slug":"gpt-stub-a","display_name":"Stub A","description":"The first.","visibility":"list","priority":1},{"slug":"gpt-stub-old","display_name":"Old","visibility":"hide","priority":3}]}'; exit 0; }`,
+    '[ "$name" = opencode ] && [ "$1" = models ] && { printf "%s\\n" opencode/glm-5.3-flash-free openrouter/z-ai/glm-5.3-flash openrouter/deepseek/deepseek-v4-flash anthropic/claude-sonnet-5; exit 0; }',
+    '[ "$name" = opencode ] && [ "$1" = auth ] && { echo "OpenRouter  API key  stored"; exit 0; }',
+    'echo "STUB $name args: $*"',
+    'echo "CODEX_HOME=${CODEX_HOME:-} OPENCODE_CONFIG_DIR=${OPENCODE_CONFIG_DIR:-} CONTENT_ROOT=${SYNAPSE_CONTENT_ROOT:-}"',
+    'echo "cwd: $(pwd)"',
+    // A headless run, as the app starts one to write a note: the prompt is on standard
+    // input, or the last argument for OpenCode; the note is made with the synapse
+    // program and its path is the last line.
+    'headless=""',
+    '[ "$name" = claude ] && [ "$1" = "-p" ] && headless=stdin',
+    '[ "$name" = codex ] && [ "$1" = exec ] && headless=stdin',
+    '[ "$name" = opencode ] && [ "$1" = run ] && headless=argument',
+    // The arguments of a background run are logged, for a test to see which model it was asked for.
+    '[ -n "$headless" ] && [ -n "$SYNAPSE_STUB_LOG" ] && echo "$name $*" >> "$SYNAPSE_STUB_LOG"',
+    'if [ -n "$headless" ]; then',
+    '  if [ "$headless" = stdin ]; then prompt=$(cat); else for a in "$@"; do prompt=$a; done; fi',
+    '  case "$prompt" in',
+    '    *FAILCASE*) ev_end "FAILED: the stub was asked to fail"; exit 0 ;;',
+    '    *LIVECASE*) exec "$(dirname "$0")/stub-live" ;;',
+    '    *"Change one note that already exists"*) exec "$(dirname "$0")/stub-edit" "$prompt" ;;',
+    '  esac',
+    '  ev_start; ev_slow "$prompt"',
+    `  printf '%s\\n' "# Stub note" "" "Written by $name" "$prompt" | synapse vault-write "research/Stub note.md"`,
+    '  ev_end "research/Stub note.md"; exit 0',
+    'fi',
+    'sid=""; prev=""',
+    'for a in "$@"; do [ "$prev" = "--session-id" ] && sid="$a"; prev="$a"; done',
+    'if [ "$name" = claude ] && [ -n "$sid" ]; then',
+    '  d="$HOME/.claude/projects/-stub"; mkdir -p "$d"; f="$d/$sid.jsonl"',
+    `  printf '%s\\n' '{"type":"permission-mode"}' >> "$f"`,
+    `  printf '%s\\n' '{"type":"user","message":{"role":"user","content":"Fix the bug in a.txt"}}' >> "$f"`,
+    `  printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"I will look at the folder."}]}}' >> "$f"`,
+    `  printf '%s\\n' '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls -la"}}]}}' >> "$f"`,
+    `  printf '%s\\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"total 8 a.txt"}]}}' >> "$f"`,
+    // Started with `edit`, it also edits a.txt in the folder it was started in, as a conversation
+    // that changes a file does.
+    '  case "$*" in *edit*)',
+    `    printf '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Edit","input":{"file_path":"%s/a.txt","old_string":"two","new_string":"TWO"}}]}}\\n' "$(pwd)" >> "$f"`,
+    `    printf '%s\\n' '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"edited"}]}}' >> "$f" ;;`,
+    '  esac',
+    'fi',
+    // Resumed by its id, it carries on the session file of that id, in whichever project it is.
+    'rid=""; prev=""',
+    'for a in "$@"; do [ "$prev" = "--resume" ] && rid="$a"; prev="$a"; done',
+    'if [ "$name" = claude ] && [ -n "$rid" ] && [ -z "$sid" ]; then',
+    '  f=$(ls "$HOME"/.claude/projects/*/"$rid".jsonl 2>/dev/null | head -n 1)',
+    `  [ -n "$f" ] && printf '{"type":"user","cwd":"%s","message":{"role":"user","content":"Carry on"}}\\n' "$(pwd)" >> "$f"`,
+    'fi',
+    'if [ "$name" = codex ]; then',
+    '  d="${CODEX_HOME:-$HOME/.codex}/sessions/$(date +%Y/%m/%d)"; mkdir -p "$d"; f="$d/rollout-stub-$$.jsonl"',
+    `  printf '{"type":"session_meta","payload":{"cwd":"%s"}}\\n' "$(pwd)" > "$f"`,
+    `  printf '%s\\n' '{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Add a test"}]}}' >> "$f"`,
+    `  printf '%s\\n' '{"type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\\"command\\":[\\"bash\\",\\"-lc\\",\\"echo hello-codex\\"]}","call_id":"c1"}}' >> "$f"`,
+    `  printf '%s\\n' '{"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"hello-codex"}}' >> "$f"`,
+    `  printf '%s\\n' '{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Added it."}]}}' >> "$f"`,
+    'fi',
+    'while IFS= read -r line; do',
+    '  echo "typed: $line"',
+    '  [ "$line" = quit ] && exit 7',
+    'done',
+    '',
+  ].join('\n')
+
+// What `claude -p /usage --output-format json` printed in one real run.
+const CLAUDE_USAGE = join(import.meta.dirname, '..', 'shared', 'examples', '_usage-claude.json')
 
 // What the stub harness does when it is asked to change a note: it adds a line that holds
 // the description to the note named in the prompt, or changes nothing, or also moves the
@@ -395,8 +405,9 @@ export function buildWorld(root: string, binDirs: readonly string[]): World {
   mkdirSync(world.home, { recursive: true })
   mkdirSync(world.data, { recursive: true })
   mkdirSync(world.bin, { recursive: true })
+  const stub = stubScript(readFileSync(CLAUDE_USAGE, 'utf8').trim())
   for (const name of ['claude', 'codex', 'opencode']) {
-    writeFileSync(join(world.bin, name), STUB, { mode: 0o755, flag: 'w' })
+    writeFileSync(join(world.bin, name), stub, { mode: 0o755, flag: 'w' })
   }
   writeFileSync(join(world.bin, 'synapse-pipeline'), PIPELINE_WRAPPER, { mode: 0o755, flag: 'w' })
   writeFileSync(join(world.bin, 'stub-edit'), EDIT_STUB, { mode: 0o755, flag: 'w' })

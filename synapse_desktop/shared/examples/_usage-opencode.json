@@ -1,0 +1,60 @@
+{
+  "range": { "from": "2026-11-24T23:00:00.000Z", "to": "2026-11-25T16:00:00.000Z" },
+  "sessions": 3,
+  "subagents": 1,
+  "prompts": 14,
+  "steps": 52,
+  "tokens": {
+    "input": 182340,
+    "output": 21877,
+    "reasoning": 4120,
+    "cache": { "read": 640212, "write": 91233 }
+  },
+  "cost": 1.42,
+  "tools": {
+    "mode": "detail",
+    "totals": { "calls": 61, "succeeded": 58, "failed": 2, "unfinished": 1 },
+    "usage": [
+      {
+        "name": "read",
+        "calls": 27,
+        "succeeded": 27,
+        "failed": 0,
+        "unfinished": 0,
+        "durationP50": 12
+      },
+      {
+        "name": "bash",
+        "calls": 19,
+        "succeeded": 17,
+        "failed": 1,
+        "unfinished": 1,
+        "durationP50": 840
+      },
+      {
+        "name": "edit",
+        "calls": 15,
+        "succeeded": 14,
+        "failed": 1,
+        "unfinished": 0,
+        "durationP50": 25
+      }
+    ]
+  },
+  "activeDays": 1,
+  "streak": { "current": 1, "longest": 1 },
+  "activity": [{ "date": "2026-11-25", "steps": 52 }],
+  "models": [
+    {
+      "model": { "providerID": "anthropic", "id": "claude-sonnet-5-5" },
+      "steps": 52,
+      "tokens": {
+        "input": 182340,
+        "output": 21877,
+        "reasoning": 4120,
+        "cache": { "read": 640212, "write": 91233 }
+      },
+      "cost": 1.42
+    }
+  ]
+}

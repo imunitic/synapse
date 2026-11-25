@@ -122,6 +122,10 @@ jobs:
         if: always()
         run: ./docs/synapse/generate-diagrams.sh --check
 
+      - name: Desktop docs screenshots are in step
+        if: always()
+        run: ./docs/desktop/check-screenshots.sh
+
       - name: npm package includes every shipped schema document
         if: always()
         run: just npm-check

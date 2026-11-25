@@ -19,6 +19,7 @@ import { createSessions } from './terminal-sessions.ts'
 import { requireSupportedHostMode } from './host-mode.ts'
 import { privateBackendOrigin } from './private-backend-origin.ts'
 import { privateNetworkBind } from './private-network-bind.ts'
+import { createUsage, systemProviders } from './usage.ts'
 
 requireSupportedHostMode(process.env)
 
@@ -46,6 +47,8 @@ const policy = {
 
 const models = createModelStore({ file: modelCacheFile(environment), env: process.env })
 
+const usage = createUsage({ providers: systemProviders(environment, configFile(environment)) })
+
 const context = {
   environment,
   models,
@@ -55,6 +58,7 @@ const context = {
   runs: createRunStarter('synapse-pipeline', process.env),
   noteRuns: createNoteRuns(),
   noteSession: createNoteSession((harness) => defaultPlan(environment)(harness)),
+  usage,
 }
 
 // Everything but the bus and the terminals is refused: the host has no HTTP interface.
@@ -70,6 +74,8 @@ const sessions = createSessions({
   plan: defaultPlan(environment),
   maxTerminals: 8,
   sessionsRoot: sessionsRoot(environment),
+  // A harness that just ended has likely changed its usage.
+  onExit: usage.nudge,
 })
 attachBus(server, { policy, context, sessions })
 server.listen(SERVER_PORT, bindAddress, () => {

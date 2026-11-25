@@ -365,11 +365,144 @@
   flex: none;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 0 12px;
   background: var(--rail);
   border-top: 1px solid var(--border);
   font-size: 0.75rem;
   color: var(--muted);
+}
+
+/* Harness usage on the right of the status bar, and the panel it opens */
+:root {
+  --usage-green: #4ade80;
+  --usage-orange: #fb923c;
+  --usage-red: #f87171;
+  --usage-grey: #71717a;
+}
+
+:root[data-theme='light'] {
+  --usage-green: #16a34a;
+  --usage-orange: #ea580c;
+  --usage-red: #dc2626;
+  --usage-grey: #a1a1aa;
+}
+
+.statusbar-usage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.usage-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.usage-item:hover,
+.usage-item[aria-expanded='true'] {
+  background: var(--raised);
+  color: var(--text);
+}
+
+.usage-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.usage-dot-green {
+  background: var(--usage-green);
+}
+
+.usage-dot-orange {
+  background: var(--usage-orange);
+}
+
+.usage-dot-red {
+  background: var(--usage-red);
+}
+
+.usage-dot-grey {
+  background: var(--usage-grey);
+}
+
+.usage-panel {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 20;
+  width: 22rem;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 10px 12px;
+  background: var(--card);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  color: var(--text);
+  font-size: 0.8125rem;
+}
+
+.usage-harness + .usage-harness {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.usage-harness h3 {
+  display: flex;
+  justify-content: space-between;
+  margin: 0 0 6px;
+  font-size: 0.8125rem;
+}
+
+.usage-state,
+.usage-age,
+.usage-window-reset {
+  color: var(--muted);
+  font-weight: normal;
+}
+
+.usage-windows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.usage-windows li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 8px;
+}
+
+.usage-window-percent {
+  text-align: right;
+}
+
+.usage-window-reset {
+  grid-column: 1 / -1;
+  font-size: 0.75rem;
+}
+
+.usage-spend,
+.usage-age,
+.usage-reason {
+  margin: 4px 0 0;
+}
+
+.usage-reason {
+  color: var(--warn-text);
 }
 
 /* Lists in the side panel */
@@ -380,11 +513,11 @@
   padding: 0 8px 12px;
 }
 
-/* A definition's row: the item, and the bin beside it. */
+/* A definition's row: the item, and the bin beside it (a pipeline's also has its play button). */
 .list-row {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
 }
 
 .list-row .list-item {
@@ -402,7 +535,7 @@
   opacity: 1;
 }
 
-.list-row .list-action:hover {
+.list-row .list-action:not(.list-run):hover {
   color: var(--bad-text);
 }
 
@@ -707,6 +840,15 @@
   gap: 12px;
 }
 
+/* Pinned to the bottom edge of the dialog, over its padding, so that nothing shows below it. */
+.dialog-actions {
+  position: sticky;
+  bottom: -20px;
+  margin-bottom: -20px;
+  padding: 12px 0 20px;
+  background: var(--card);
+}
+
 .dialog textarea {
   width: 100%;
   font-size: 0.8125rem;
@@ -727,12 +869,12 @@
 }
 
 .graph-card {
-  padding: 20px 18px 8px 0;
+  padding: 20px 0 8px;
 }
 
-/* The diagram is at the left of its card, in line with the cards below. */
+/* Centred when it fits; when it is wider, the auto margins are zero, so it starts at the left and the card scrolls. */
 .graph-card .graph {
-  margin: 0;
+  margin: 0 auto;
 }
 
 /* Routes of a step */

@@ -1,7 +1,5 @@
 import type { KeyboardEvent } from 'react'
-import { NODE_HEIGHT, NODE_WIDTH, type Graph } from '../domain/graph.ts'
-
-const MIN_SCALE = 0.75
+import { NODE_HEIGHT, type Graph } from '../domain/graph.ts'
 
 // The steps and edges of a pipeline. A step can be chosen; `subtitles` gives
 // each step a second line.
@@ -37,9 +35,8 @@ export function GraphView({
     <svg
       className="graph"
       viewBox={`0 0 ${graph.width} ${graph.height}`}
-      // Its own size when there is room, smaller when there is not, and a
-      // scroll bar only below that.
-      style={{ width: '100%', minWidth: graph.width * MIN_SCALE, maxWidth: graph.width }}
+      width={graph.width}
+      height={graph.height}
       role="group"
       aria-label="Steps and edges"
     >
@@ -81,8 +78,8 @@ export function GraphView({
       {graph.nodes.map((node) =>
         node.isEnd ? (
           <g key={node.name} className="graph-end" data-state={states?.[node.name]}>
-            <rect x={node.x} y={node.y + 12} width={NODE_WIDTH} height={NODE_HEIGHT - 24} rx={18} />
-            <text x={node.x + NODE_WIDTH / 2} y={node.y + NODE_HEIGHT / 2 + 5} textAnchor="middle">
+            <rect x={node.x} y={node.y + 12} width={node.width} height={NODE_HEIGHT - 24} rx={18} />
+            <text x={node.x + node.width / 2} y={node.y + NODE_HEIGHT / 2 + 5} textAnchor="middle">
               End
             </text>
           </g>
@@ -98,7 +95,7 @@ export function GraphView({
             onClick={() => onSelect?.(node.name)}
             onKeyDown={(event) => onKey(event, node.name)}
           >
-            <rect x={node.x} y={node.y} width={NODE_WIDTH} height={NODE_HEIGHT} rx={8} />
+            <rect x={node.x} y={node.y} width={node.width} height={NODE_HEIGHT} rx={8} />
             <text className="graph-name" x={node.x + 12} y={node.y + 26}>
               {node.name}
             </text>

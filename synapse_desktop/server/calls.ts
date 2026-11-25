@@ -59,6 +59,7 @@ import { createModelStore, modelCacheFile, type ModelStore } from './model-store
 import { askRun, NotListening, socketPath } from './run-socket.ts'
 import type { NoteRunHandle, NoteRuns } from './note-runs.ts'
 import { NotStartedHere, RunNotStarted, type RunStarter } from './runs.ts'
+import type { Usage } from './usage.ts'
 
 const MAX_FILE_BYTES = 4 * 1024 * 1024
 
@@ -74,6 +75,8 @@ export interface Context {
   noteRuns: NoteRuns
   // The models of the harnesses, kept between runs. One is made when there is none.
   models?: ModelStore
+  // The usage of the harnesses, published on the `usage` topic. Without it the topic says nothing.
+  usage?: Usage
 }
 
 // The store of a context that was not given one, made once for it.
