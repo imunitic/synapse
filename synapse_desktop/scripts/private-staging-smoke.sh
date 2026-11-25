@@ -63,3 +63,20 @@ for pair in 'backend_a 172.29.102.2' 'backend_b 172.29.101.2'; do
   "${compose[@]}" exec -T "$backend" node -e "fetch('http://$address:5174', {signal: AbortSignal.timeout(3000)}).then(() => process.exit(1)).catch(() => process.exit(0))"
 done
 echo 'Gateway can reach both backends; cross-backend HTTP connections blocked.'
+
+# Verify the published listener works and neither backend can reach it directly.
+ready=0
+for attempt in $(seq 1 30); do
+  if curl -fsS -H 'Host: staging.example.test' http://127.0.0.1:5180/login >/dev/null; then
+    ready=1
+    break
+  fi
+  sleep 1
+done
+[[ "$ready" == 1 ]]
+for backend in backend_a backend_b; do
+  for address in 172.29.101.3 172.29.102.3 172.29.103.2; do
+    "${compose[@]}" exec -T "$backend" node -e "const s = require('node:net').connect(5180, '$address'); s.on('connect', () => process.exit(1)); s.on('error', () => process.exit(0)); s.setTimeout(3000, () => process.exit(0))"
+  done
+done
+echo 'Gateway ingress reachable from host loopback, not from backend containers.'
