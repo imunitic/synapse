@@ -5,9 +5,23 @@ import type { IncomingMessage } from 'node:http'
 import { isIP } from 'node:net'
 
 function canonicalIp(address: string): string {
-  // Node's dual-stack listeners report IPv4 peers in IPv6-mapped form.
-  const unwrapped = /^::ffff:/i.test(address) ? address.slice(7) : address
-  return isIP(unwrapped) === 4 ? unwrapped : address.toLowerCase()
+  if (isIP(address) === 4) return address
+  const normalized = new URL(`http://[${address.split('%')[0]}]/`).hostname.slice(1, -1)
+  const mapped = /^::ffff:([0-9a-f]+):([0-9a-f]+)$/.exec(normalized)
+  if (!mapped) return normalized
+  const high = Number.parseInt(mapped[1] ?? '', 16)
+  const low = Number.parseInt(mapped[2] ?? '', 16)
+  return [high >> 8, high & 255, low >> 8, low & 255].join('.')
+}
+
+function rateLimitKey(address: string): string {
+  const ip = canonicalIp(address)
+  if (isIP(ip) === 4) return ip
+  const [left = '', right = ''] = ip.split('::')
+  const prefix = left ? left.split(':') : []
+  const suffix = right ? right.split(':') : []
+  const groups = [...prefix, ...Array<string>(8 - prefix.length - suffix.length).fill('0'), ...suffix]
+  return groups.slice(0, 4).join(':') + '::/64'
 }
 
 export function createTrustedPeerKey(trustedProxyAddresses: readonly string[]) {
@@ -17,15 +31,15 @@ export function createTrustedPeerKey(trustedProxyAddresses: readonly string[]) {
   const trusted = new Set(trustedProxyAddresses.map(canonicalIp))
   return (request: IncomingMessage): string | null => {
     const peer = request.socket.remoteAddress
-    if (!peer) return null
+    if (!peer || isIP(peer) === 0) return null
     const normalizedPeer = canonicalIp(peer)
-    if (!trusted.has(normalizedPeer)) return normalizedPeer
+    if (!trusted.has(normalizedPeer)) return rateLimitKey(normalizedPeer)
     const forwarded = request.headers['x-forwarded-for']
     // Only a single canonical IP is accepted. The trusted proxy must strip
     // inbound forwarding headers and replace with its verified client IP.
     if (typeof forwarded !== 'string' || forwarded.includes(',') || isIP(forwarded) === 0) {
       return null
     }
-    return forwarded
+    return rateLimitKey(forwarded)
   }
 }
