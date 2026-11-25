@@ -7,12 +7,15 @@ services:
       dockerfile: synapse_desktop/Dockerfile.private-gateway
     environment:
       SYNAPSE_PRIVATE_GATEWAY_CONTAINER_BIND: '1'
+      SYNAPSE_PRIVATE_GATEWAY_BIND_ADDRESS: 172.29.103.2
       SYNAPSE_PRIVATE_GATEWAY_CONFIG: /run/secrets/gateway.json
     volumes:
       - ${SYNAPSE_GATEWAY_CONFIG:?required}:/run/secrets/gateway.json:ro
     ports:
       - '127.0.0.1:5180:5180'
     networks:
+      ingress:
+        ipv4_address: 172.29.103.2
       user_a:
         ipv4_address: 172.29.101.3
       user_b:
@@ -59,6 +62,10 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
 networks:
+  ingress:
+    ipam:
+      config:
+        - subnet: 172.29.103.0/24
   user_a:
     ipam:
       config:
