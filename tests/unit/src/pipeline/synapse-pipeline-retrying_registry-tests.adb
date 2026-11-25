@@ -77,6 +77,26 @@ package body Synapse.Pipeline.Retrying_Registry.Tests is
       Assert (Said_Count = 0, "and nothing is said");
    end A_Write_That_Fails_Briefly_Is_Tried_Again;
 
+   procedure An_Output_That_Fails_Once_Is_Written
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Inner : aliased Fake_Registry.Fake_Registry;
+      R     : Retrying_Registry (Inner'Access, Wait'Access, Say'Access);
+   begin
+      Reset;
+      Assert (R.Create ("a") = Registry_Store.Created, "made");
+      Inner.Fail (Fake_Registry.Output_Op, Times => 1);
+      Assert (R.Write_Output ("a", "1-S-1.json", "o"), "it gets through");
+      Assert
+        (Inner.Attempts (Fake_Registry.Output_Op) = 2,
+         "on the second attempt");
+      Assert
+        (R.Read_Output ("a", "1-S-1.json").Found,
+         "and is read back through the wrapper");
+      Assert (Said_Count = 0, "and nothing is said");
+   end An_Output_That_Fails_Once_Is_Written;
+
    procedure A_Write_That_Keeps_Failing_Is_Given_Up_With_One_Warning
      (T : in out Test_Cases_Class)
    is
@@ -169,6 +189,9 @@ package body Synapse.Pipeline.Retrying_Registry.Tests is
       Register_Routine
         (T, A_Write_That_Fails_Briefly_Is_Tried_Again'Access,
          "A write that fails briefly is tried again");
+      Register_Routine
+        (T, An_Output_That_Fails_Once_Is_Written'Access,
+         "An output that fails once is written");
       Register_Routine
         (T, A_Write_That_Keeps_Failing_Is_Given_Up_With_One_Warning'Access,
          "A write that keeps failing is given up with one warning");

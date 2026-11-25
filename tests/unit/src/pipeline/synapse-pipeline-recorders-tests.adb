@@ -208,6 +208,51 @@ package body Synapse.Pipeline.Recorders.Tests is
          "one that is has it");
    end A_Patch_Is_Kept_Only_For_A_Run_That_Is_Recorded;
 
+   procedure An_Output_Is_Kept_Only_For_A_Run_That_Is_Recorded
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context : aliased Contexts.Execution_Context;
+      Store   : aliased Fake_Registry.Fake_Registry;
+      Clock   : aliased Counting_Clock;
+      R       : Recorder (Context'Access, Store'Access, Clock'Access);
+      Result  : constant String := "{""outcome"":""Approved""}";
+   begin
+      Assert (Store.Create ("exec-1") = Registry_Store.Created, "made");
+      R.Start ("exec-1", False, JSON.Null_Value, Initial_State);
+      R.Record_Output ("1-Review-1.json", Result);
+      Assert
+        (not Store.Read_Output ("exec-1", "1-Review-1.json").Found,
+         "a run that is not recorded keeps no output");
+      R.Start ("exec-1", True, JSON.Null_Value, Initial_State);
+      R.Record_Output ("1-Review-1.json", Result);
+      declare
+         Kept : constant Registry_Store.Maybe_Content :=
+           Store.Read_Output ("exec-1", "1-Review-1.json");
+      begin
+         Assert (Kept.Found, "one that is has it");
+         Assert (To_String (Kept.Value) = Result, "as it was reported");
+      end;
+   end An_Output_Is_Kept_Only_For_A_Run_That_Is_Recorded;
+
+   procedure An_Output_The_Store_Refuses_Does_Not_Stop_The_Run
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context : aliased Contexts.Execution_Context;
+      Store   : aliased Fake_Registry.Fake_Registry;
+      Clock   : aliased Counting_Clock;
+      R       : Recorder (Context'Access, Store'Access, Clock'Access);
+   begin
+      Assert (Store.Create ("exec-1") = Registry_Store.Created, "made");
+      R.Start ("exec-1", True, JSON.Null_Value, Initial_State);
+      Store.Fail (Fake_Registry.Output_Op);
+      R.Record_Output ("1-Review-1.json", "{}");
+      Assert
+        (not Store.Read_Output ("exec-1", "1-Review-1.json").Found,
+         "a refused output is left out, and nothing is raised");
+   end An_Output_The_Store_Refuses_Does_Not_Stop_The_Run;
+
    function Has (Text, Part : String) return Boolean is
      (Ada.Strings.Fixed.Index (Text, Part) > 0);
 
@@ -492,6 +537,12 @@ package body Synapse.Pipeline.Recorders.Tests is
       Register_Routine
         (T, A_Patch_Is_Kept_Only_For_A_Run_That_Is_Recorded'Access,
          "A patch is kept only for a run that is recorded");
+      Register_Routine
+        (T, An_Output_Is_Kept_Only_For_A_Run_That_Is_Recorded'Access,
+         "An output is kept only for a run that is recorded");
+      Register_Routine
+        (T, An_Output_The_Store_Refuses_Does_Not_Stop_The_Run'Access,
+         "An output the store refuses does not stop the run");
       Register_Routine
         (T, A_Run_Is_Recorded_From_Its_Start'Access,
          "A run is recorded from its start");

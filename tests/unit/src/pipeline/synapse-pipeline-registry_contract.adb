@@ -149,6 +149,25 @@ package body Synapse.Pipeline.Registry_Contract is
          and then not S.Read_Patch (A, "../execution.json").Found,
          "a patch name that could leave the directory is refused");
       Assert
+        (not S.Read_Output (A, "1-Step-1.json").Found,
+         "a fresh execution has no output");
+      Assert
+        (S.Write_Output (A, "1-Step-1.json", "o1"), "an output is written");
+      Assert
+        (Text_Of (S.Read_Output (A, "1-Step-1.json")) = "o1",
+         "and read back whole");
+      Assert
+        (S.Write_Output (A, "1-Step-1.json", "o2"), "an output is replaced");
+      Assert
+        (Text_Of (S.Read_Output (A, "1-Step-1.json")) = "o2",
+         "the new output is all there is: "
+         & Text_Of (S.Read_Output (A, "1-Step-1.json")));
+      Assert
+        (not S.Write_Output (A, "../x.json", "x")
+         and then not S.Write_Output (A, "a/b.json", "x")
+         and then not S.Read_Output (A, "../execution.json").Found,
+         "an output name that could leave the directory is refused");
+      Assert
         (Refuses (S, A, "../x") and then Refuses (S, A, "/x")
          and then Refuses (S, A, "a//b") and then Refuses (S, A, ".hidden")
          and then Refuses (S, A, "a/../b") and then Refuses (S, A, "a\b")
@@ -164,6 +183,7 @@ package body Synapse.Pipeline.Registry_Contract is
          and then not S.Write_Transcript (B, "t", "x")
          and then not S.Write_Description (B, "x")
          and then not S.Write_Patch (B, "1-S-1.patch", "x")
+         and then not S.Write_Output (B, "1-S-1.json", "x")
          and then not S.Write_Definition (B, "synapse-pipeline/P", "x"),
          "nothing is written for an execution that was not made");
       Assert
@@ -171,6 +191,7 @@ package body Synapse.Pipeline.Registry_Contract is
          and then S.Transcript_Names (B).Is_Empty
          and then S.Patch_Names (B).Is_Empty
          and then not S.Read_Patch (B, "1-S-1.patch").Found
+         and then not S.Read_Output (B, "1-S-1.json").Found
          and then not S.Read_Description (B).Found
          and then not S.Read_Definition (B, "synapse-pipeline/P.synapse").Found,
          "and nothing is read for it");
@@ -181,6 +202,7 @@ package body Synapse.Pipeline.Registry_Contract is
       Assert
         (not S.Read_Description (A).Found
          and then not S.Read_Patch (A, "1-Step-1.patch").Found
+         and then not S.Read_Output (A, "1-Step-1.json").Found
          and then S.Patch_Names (A).Is_Empty
          and then not S.Read_Definition (A, "synapse-pipeline/P.synapse").Found,
          "of what it ran and changed as well");

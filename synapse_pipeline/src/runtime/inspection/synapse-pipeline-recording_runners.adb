@@ -76,6 +76,10 @@ package body Synapse.Pipeline.Recording_Runners is
         (if R.Trees = null then Working_Trees.Maybe_Text'(Found => False)
          else R.Trees.Snapshot (Directory, Name & "-before"));
    begin
+      --  After Engine.Execute_Step succeeds, this is the attempt the run
+      --  routed on: the engine's retry loop stops at the first attempt it
+      --  accepts, so no later session runs for that step.
+      R.Last_Attempt := Request.Attempt;
       Stamped.Execution_Id := R.Id;
       R.Recorder.Record_Event
         ("session.started", To_String (Request.Step.Name),

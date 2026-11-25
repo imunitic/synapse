@@ -91,6 +91,13 @@ package Synapse.Pipeline.Registry_Store is
      (S : in out Store; Id, Name, Content : String) return Boolean
    is abstract;
 
+   --  Keeps Content as the result called Name of the execution: what one
+   --  step visit reported, as the run read it when it chose the route.
+   --  Replaces one of that name. Name is a plain name. True when written.
+   function Write_Output
+     (S : in out Store; Id, Name, Content : String) return Boolean
+   is abstract;
+
    --  Removes the execution's directory and everything in it. True when it
    --  is gone, which includes when it was never there.
    function Remove (S : in out Store; Id : String) return Boolean is abstract;
@@ -121,6 +128,11 @@ package Synapse.Pipeline.Registry_Store is
    --  The patch called Name of the execution, or nothing when there is none or
    --  it cannot be read.
    function Read_Patch (S : Store; Id, Name : String) return Maybe_Content
+   is abstract;
+
+   --  The result called Name of the execution, or nothing when there is
+   --  none or it cannot be read.
+   function Read_Output (S : Store; Id, Name : String) return Maybe_Content
    is abstract;
 
    --  The names of the execution's patches, in alphabetical order.

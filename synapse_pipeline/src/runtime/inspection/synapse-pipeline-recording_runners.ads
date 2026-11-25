@@ -35,6 +35,11 @@ package Synapse.Pipeline.Recording_Runners is
 
       --  The most bytes of a new file a patch keeps.
       Largest : Natural := Patches.Default_Largest;
+
+      --  The attempt of the last session it ran, 0 before the first. After
+      --  a step runs to success it is the attempt the run routed on, since
+      --  the engine stops retrying at the first attempt it accepts.
+      Last_Attempt : Natural := 0;
    end record;
 
    --  What names the snapshots of a session of Request in the run Id: the run,

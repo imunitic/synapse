@@ -408,6 +408,28 @@ package body Synapse.Pipeline.Recording_Runners.Tests is
          "and the event says so: " & Events_Text (Context));
    end A_Session_That_Fails_Is_Recorded_Too;
 
+   procedure The_Last_Attempt_Is_Remembered (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Context  : aliased Contexts.Execution_Context;
+      Store    : aliased Fake_Registry.Fake_Registry;
+      Clock    : aliased Fixed_Clock;
+      Recorder : aliased Recorders.Recorder
+        (Context'Access, Store'Access, Clock'Access);
+      Inner    : aliased Stub_Runner;
+      R        : Recording_Runner (Inner'Access, Recorder'Access, null);
+   begin
+      Inner.Answer := Sessions.Success (Envelopes.Envelope'(others => <>));
+      R.Id := To_Unbounded_String ("exec-1");
+      Recorder.Start ("exec-1", False, JSON.Null_Value, Initial_State);
+      Assert (R.Last_Attempt = 0, "no attempt before the first session");
+      Assert (R.Run_Session (Request_For_A (1)).Succeeded, "the first ran");
+      Assert (R.Run_Session (Request_For_A (2)).Succeeded, "the retry ran");
+      Assert
+        (R.Last_Attempt = 2,
+         "the attempt of the last session is kept:"
+         & Natural'Image (R.Last_Attempt));
+   end The_Last_Attempt_Is_Remembered;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -446,6 +468,9 @@ package body Synapse.Pipeline.Recording_Runners.Tests is
       Register_Routine
         (T, A_Large_New_File_Is_Kept_As_Its_Path_And_Lines'Access,
          "A large new file is kept as its path and lines");
+      Register_Routine
+        (T, The_Last_Attempt_Is_Remembered'Access,
+         "The last attempt is remembered");
    end Register_Tests;
 
 end Synapse.Pipeline.Recording_Runners.Tests;

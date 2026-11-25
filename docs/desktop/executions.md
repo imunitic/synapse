@@ -19,6 +19,7 @@ The page shows, from the top:
 - Summary: when the run started and ended, the step it is on and how many steps it ran.
 - Definitions it ran: the pipeline and the files it used, as they were when the run began. Click one to read it. The files may have changed since.
 - Trace: each visit to a step, in order, with its outcome and the step that came next. "Activity" opens what the agent did in that visit: its messages and the commands it ran. "Changes" opens the files the visit changed in the Changes sidebar.
+- Outcomes: one row per visit, with its outcome and the step that came next. Open a row to read what the step reported: its summary, the problems a review listed, and its data as a tree that you can fold and copy. The newest visit's row is open. A run recorded by an older version of synapse-pipeline shows "not recorded".
 - Events: everything the run recorded, in order.
 
 The page reads the run again while it goes on, so it stays current.

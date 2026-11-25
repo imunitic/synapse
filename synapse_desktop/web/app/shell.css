@@ -966,6 +966,48 @@
   gap: 12px;
 }
 
+/* A JSON value whose objects and arrays fold */
+.json-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.8125rem;
+}
+
+.json-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.json-row {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.json-toggle {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.json-arrow {
+  display: inline-block;
+  width: 1em;
+}
+
+.json-children {
+  padding-left: 1.25em;
+}
+
+.json-key {
+  color: var(--muted);
+}
+
 .warn-line {
   margin: 0;
   color: var(--caution);

@@ -371,6 +371,97 @@ package body Synapse.Pipeline.Commands.Run.Tests is
       end;
    end A_Run_Is_Recorded_In_The_Registry;
 
+   --  The output the only recorded execution of F keeps as Name, empty when
+   --  it keeps none.
+   function Output_Of (F : Fixture; Name : String) return String is
+      Id   : constant String := To_String (F.Registry.Ids.First_Element);
+      Kept : constant Registry_Store.Maybe_Content :=
+        F.Registry.Read_Output (Id, Name);
+   begin
+      return (if Kept.Found then To_String (Kept.Value) else "");
+   end Output_Of;
+
+   function Outputs_Kept (F : Fixture) return Natural is
+     (Natural
+        (F.Registry.Held (To_String (F.Registry.Ids.First_Element))
+           .Outputs.Length));
+
+   procedure Each_Visit_Keeps_Its_Output (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up
+        (F,
+         "{""Develop"":[" & Done ("Done", "built") & "],""Review"":["
+         & Done ("Approved", "looks good") & "]}");
+      F.Files.Add_File
+        ("/defs/Two.synapse",
+         "Pipeline Two {"
+         & " Develop [Harness => Claude, Prompt => ""Implement.""];"
+         & " Review [Harness => Codex, Prompt => ""Review.""]; }");
+      F.Base.Vars.Set ("SYNAPSE_WORK_DIR", "/work");
+      Assert (Run (Env (F), Args ("Two")) = 0, "it completes");
+      Assert
+        (Output_Of (F, "1-Develop-1.json") = Done ("Done", "built"),
+         "the first visit keeps what it reported: "
+         & Output_Of (F, "1-Develop-1.json"));
+      Assert
+        (Output_Of (F, "2-Review-1.json") = Done ("Approved", "looks good"),
+         "and so does the second: " & Output_Of (F, "2-Review-1.json"));
+      Assert (Outputs_Kept (F) = 2, "and nothing else is kept");
+      declare
+         Events : constant String :=
+           To_String
+             (F.Registry.Read_Events
+                (To_String (F.Registry.Ids.First_Element)).Value);
+      begin
+         Assert
+           (Has
+              (Events, """detail"":{""outcome"":""Done"",""next"":""Review""}")
+            and then Has
+              (Events, """detail"":{""outcome"":""Approved"",""next"":""""}"),
+            "the step.finished events still hold only outcome and next: "
+            & Events);
+      end;
+   end Each_Visit_Keeps_Its_Output;
+
+   procedure Only_The_Accepted_Try_Keeps_Its_Output
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up
+        (F,
+         "{""Develop"":[" & Done ("Nope", "wrong word") & ","
+         & Done ("Done", "right word") & "]}");
+      F.Files.Add_File
+        ("/defs/Retry.synapse",
+         "Pipeline Retry {"
+         & " Develop [Harness => Claude, Prompt => ""Implement."","
+         & " Outcomes => {""Done"": ""It is done.""}, Retries => 1]; }");
+      F.Base.Vars.Set ("SYNAPSE_WORK_DIR", "/work");
+      Assert (Run (Env (F), Args ("Retry")) = 0, "the retry completes it");
+      Assert
+        (Output_Of (F, "1-Develop-2.json") = Done ("Done", "right word"),
+         "the try the run routed on is kept: "
+         & Output_Of (F, "1-Develop-2.json"));
+      Assert (Outputs_Kept (F) = 1, "and the refused try is not");
+   end Only_The_Accepted_Try_Keeps_Its_Output;
+
+   procedure A_Failed_Step_Keeps_No_Output (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up
+        (F,
+         "{""Develop"":[{""fail"":""quota_exhausted"","
+         & """message"":""limit reached""}]}");
+      F.Base.Vars.Set ("SYNAPSE_WORK_DIR", "/work");
+      Assert (Run (Env (F), Args ("Dev")) = 1, "it fails");
+      Assert (Outputs_Kept (F) = 0, "and keeps no output");
+   end A_Failed_Step_Keeps_No_Output;
+
    procedure A_Registry_That_Fails_Leaves_The_Run_As_It_Was
      (T : in out Test_Cases_Class)
    is
@@ -663,6 +754,15 @@ package body Synapse.Pipeline.Commands.Run.Tests is
       Register_Routine
         (T, A_Run_Is_Recorded_In_The_Registry'Access,
          "A run is recorded in the registry");
+      Register_Routine
+        (T, Each_Visit_Keeps_Its_Output'Access,
+         "Each visit keeps its output");
+      Register_Routine
+        (T, Only_The_Accepted_Try_Keeps_Its_Output'Access,
+         "Only the accepted try keeps its output");
+      Register_Routine
+        (T, A_Failed_Step_Keeps_No_Output'Access,
+         "A failed step keeps no output");
       Register_Routine
         (T, A_Registry_That_Fails_Leaves_The_Run_As_It_Was'Access,
          "A registry that fails leaves the run as it was");

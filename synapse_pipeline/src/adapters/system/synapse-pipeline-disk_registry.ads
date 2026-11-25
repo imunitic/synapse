@@ -45,6 +45,10 @@ package Synapse.Pipeline.Disk_Registry is
      (R : in out Disk_Registry; Id, Name, Content : String) return Boolean;
 
    overriding
+   function Write_Output
+     (R : in out Disk_Registry; Id, Name, Content : String) return Boolean;
+
+   overriding
    function Write_Description
      (R : in out Disk_Registry; Id, Content : String) return Boolean;
 
@@ -68,6 +72,11 @@ package Synapse.Pipeline.Disk_Registry is
 
    overriding
    function Read_Patch
+     (R : Disk_Registry; Id, Name : String)
+      return Registry_Store.Maybe_Content;
+
+   overriding
+   function Read_Output
      (R : Disk_Registry; Id, Name : String)
       return Registry_Store.Maybe_Content;
 
