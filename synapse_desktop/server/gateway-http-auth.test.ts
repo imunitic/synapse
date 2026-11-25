@@ -7,7 +7,7 @@ import { VERIFIER_BUSY } from './gateway-password-verifier.ts'
 const ORIGIN = 'https://synapse.example.test'
 const openServers: Server[] = []
 
-async function fixture(maxAttempts = 5) {
+async function fixture(maxAttempts = 5, onLogout?: () => void) {
   const server = createServer()
   openServers.push(server)
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -21,6 +21,7 @@ async function fixture(maxAttempts = 5) {
     publicOrigin: ORIGIN,
     sessions,
     maxAttempts,
+    onLogout,
     verifyCredentials: async (username, password) => {
       checks += 1
       return username === 'alice' && password === 'fixture-password' ? 'alice' : null
@@ -99,6 +100,26 @@ describe('private gateway HTTP authentication', () => {
     expect(logout.status).toBe(200)
     expect(logout.headers.get('set-cookie')).toContain('Max-Age=0')
     expect((await f.request('/auth/me', 'GET', undefined, cookie)).status).toBe(401)
+  })
+
+  it('clears the cookie after revocation even when connection cleanup throws', async () => {
+    const warning = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const cleanup = vi.fn(() => {
+        throw new Error('fixture-secret')
+      })
+      const f = await fixture(5, cleanup)
+      const issued = f.sessions.issue('alice')
+      const cookie = `synapse_session=${issued.token}`
+      const logout = await f.request('/auth/logout', 'POST', undefined, cookie)
+      expect(logout.status).toBe(200)
+      expect(logout.headers.get('set-cookie')).toContain('Max-Age=0')
+      expect(cleanup).toHaveBeenCalledOnce()
+      expect(warning).toHaveBeenCalledWith('Synapse gateway: logout connection cleanup failed')
+      expect((await f.request('/auth/me', 'GET', undefined, cookie)).status).toBe(401)
+    } finally {
+      warning.mockRestore()
+    }
   })
 
   it('refuses cross-origin requests and disallowed methods', async () => {
