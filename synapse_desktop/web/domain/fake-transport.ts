@@ -10,6 +10,7 @@ import type {
   RunAnswer,
   Transport,
 } from '../../shared/transport.ts'
+import type { UsageEvent } from '../../shared/usage.ts'
 
 export interface FakeWorld {
   files: Record<string, string>
@@ -18,13 +19,16 @@ export interface FakeWorld {
   listening?: string[]
   // What the CLI answers, for a test that runs it.
   cli?: (binary: CliBinary, args: readonly string[], options?: CliOptions) => CliResult
+  // The usage a watcher is given at once.
+  usage?: UsageEvent
 }
 
-// The fake, with what a test reads of it: the runs that were stopped, and a way to publish a line
-// to the watchers of a run.
+// The fake, with what a test reads of it: the runs that were stopped, and ways to publish a line
+// to the watchers of a run and a usage event to the watchers of usage.
 export interface FakeTransport extends Transport {
   stoppedRuns: string[]
   emitRunLine(run: string, line: string): void
+  publishUsage(event: UsageEvent): void
 }
 
 function unavailable(): never {
@@ -34,6 +38,8 @@ function unavailable(): never {
 export function fakeTransport(world: FakeWorld): FakeTransport {
   const stoppedRuns: string[] = []
   const watchers = new Map<string, Set<(line: string) => void>>()
+  const usageWatchers = new Set<(event: UsageEvent) => void>()
+  let usage = world.usage
   const paths = Object.keys(world.files)
 
   function readDir(dir: string): Promise<DirEntry[]> {
@@ -53,6 +59,15 @@ export function fakeTransport(world: FakeWorld): FakeTransport {
     stoppedRuns,
     emitRunLine(run, line) {
       for (const onLine of watchers.get(run) ?? []) onLine(line)
+    },
+    publishUsage(event) {
+      usage = event
+      for (const onEvent of usageWatchers) onEvent(event)
+    },
+    watchUsage(onEvent) {
+      usageWatchers.add(onEvent)
+      if (usage !== undefined) onEvent(usage)
+      return () => usageWatchers.delete(onEvent)
     },
     stopAgentRun(run) {
       stoppedRuns.push(run)

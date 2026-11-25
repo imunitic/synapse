@@ -28,6 +28,7 @@ use crate::registries::{
 };
 use crate::runs::{ask_run, socket_path, AskError, RunStarter};
 use crate::status::{diagnose, find_content_root, inspect_integrations, LoginPath, VersionOf};
+use crate::usage::Usage;
 use crate::vault::{inspect_vault, seed_vault};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -55,6 +56,8 @@ pub struct Context {
     /// The folders the app is bundled with, where its skills and harness files are when no program
     /// on the PATH says.
     pub bundled_roots: Vec<PathBuf>,
+    /// The usage of the harnesses, published on the `usage` topic.
+    pub usage: Usage,
 }
 
 impl Context {
@@ -68,6 +71,11 @@ impl Context {
                 model_cache_file(&environment),
                 ProgramRunner::system(),
                 environment.clone(),
+                login_path.clone(),
+            ),
+            usage: Usage::system(
+                environment.clone(),
+                config_file(&environment),
                 login_path.clone(),
             ),
             login_path,

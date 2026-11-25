@@ -5,6 +5,7 @@
 import type { CommitLog, FolderChanges, Snapshot } from './changes.ts'
 import type { NoteStatus } from './messages.ts'
 import type { TerminalInfo } from './terminal.ts'
+import type { UsageEvent } from './usage.ts'
 
 export type { TerminalInfo }
 
@@ -395,6 +396,8 @@ export interface Transport {
   // Tells when something under a place changed: where the runs keep their records, the definition
   // directories or the vault.
   watch(place: WatchPlace, onChange: () => void): Unsubscribe
+  // How much of each harness's limit is used: the last reading at once, then each new one.
+  watchUsage(onEvent: (event: UsageEvent) => void): Unsubscribe
 
   runRequest(executionId: string, request: RunRequest): Promise<RunAnswer>
 

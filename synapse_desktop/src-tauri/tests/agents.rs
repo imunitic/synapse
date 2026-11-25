@@ -991,6 +991,7 @@ impl Rig {
                 Default::default(),
             ),
             bundled_roots: vec![],
+            usage: synapse_desktop_host::usage::Usage::none(),
             environment: env,
         };
         let context = Arc::new(context);

@@ -32,11 +32,11 @@ impl Host {
             bundled_roots: context.bundled_roots.clone(),
             environment: environment.clone(),
         };
-        let sessions = Sessions::new(TerminalDeps::system(
-            environment,
-            context.config_file.clone(),
-            inject,
-        ));
+        let mut deps = TerminalDeps::system(environment, context.config_file.clone(), inject);
+        // A harness that just ended has likely changed its usage.
+        let usage = context.usage.clone();
+        deps.on_exit = Some(Arc::new(move || usage.nudge()));
+        let sessions = Sessions::new(deps);
         Host {
             context,
             sessions,

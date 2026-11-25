@@ -209,6 +209,7 @@ fn rig() -> Rig {
         watch,
         schedule,
         login_environment,
+        on_exit: None,
     });
     Rig {
         dir,

@@ -30,6 +30,26 @@ The app opens on its Home page. The rail on the left leads to every area: Home, 
 
 On a new machine Home says "No vault is chosen." The next step fixes that.
 
+### Usage in the status bar
+
+The status bar at the bottom shows the work directory on the left. On the right it shows how much of each harness's usage you have used, one item per harness, for example "Claude 29%".
+
+- Claude Code and Codex show a percentage of their limits. The figure is the highest of the limits that stop you: for Claude, the session limit and the weekly limit for all models.
+- OpenCode shows what it spent today, for example "$1.42".
+
+The dot before each figure has a colour:
+
+| Colour | Meaning |
+| ------ | ------- |
+| Green | 50% or less used |
+| Orange | 51% to 85% used |
+| Red | 86% or more used |
+| Grey | A spend, not a limit, a figure more than 3 hours old, or the last figure kept after a later read failed |
+
+Click an item to open the usage panel. It lists every harness: each limit with its percentage and when it resets, the spend, and how long ago the figures were read. For a harness with no item in the bar it says why, for example that it is not installed. Escape or a click outside closes the panel.
+
+A harness that has never been read, is not installed or is not signed in has no item in the bar. When a later read fails, the item stays with its last figure and turns grey. The app reads the figures every 5 minutes while the window is open, and again soon after a terminal session ends.
+
 ## Choose the vault
 
 The vault is the folder of Markdown notes that Synapse reads and writes. Click "Choose one" on Home, or open Settings and then Vault.

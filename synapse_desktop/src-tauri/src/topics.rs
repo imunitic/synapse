@@ -273,6 +273,11 @@ pub fn subscriber(
         let context = context.clone();
         Box::pin(async move {
             let name = topic.as_str().to_string();
+            if name == "usage" {
+                return context.usage.subscribe(Arc::new(move |event| {
+                    push(serde_json::to_value(event).unwrap_or(Value::Null), None)
+                }));
+            }
             if let Some(id) = name.strip_prefix("note-run.") {
                 return context.note_runs.subscribe(id, after, push);
             }

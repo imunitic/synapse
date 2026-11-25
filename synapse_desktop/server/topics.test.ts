@@ -181,3 +181,25 @@ describe('the topic of an agent run', () => {
     handle.finish()
   })
 })
+
+describe('the topic of usage', () => {
+  it('reaches the usage subscriber, and its stop ends the subscription', async () => {
+    const pushes: unknown[] = []
+    let stopped = 0
+    context.usage = {
+      subscribe(push) {
+        push({ readings: [] })
+        pushes.push(push)
+        return () => {
+          stopped += 1
+        }
+      },
+      nudge: () => undefined,
+    }
+    const seen = subscribed('usage')
+    expect(pushes).toHaveLength(1)
+    expect(seen).toEqual([{ data: { readings: [] }, cursor: undefined }])
+    for (const stop of stops.splice(0)) stop()
+    expect(stopped).toBe(1)
+  })
+})

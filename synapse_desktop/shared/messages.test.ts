@@ -49,7 +49,7 @@ describe('the messages', () => {
   })
 
   it('have a place for every method of the interface the pages used', () => {
-    expect(Object.keys(methodHomes)).toHaveLength(44)
+    expect(Object.keys(methodHomes)).toHaveLength(45)
     for (const [method, home] of Object.entries(methodHomes)) {
       expect(home === 'subscribe' || isMessageName(home), method).toBe(true)
     }

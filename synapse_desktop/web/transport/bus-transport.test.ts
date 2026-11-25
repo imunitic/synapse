@@ -157,6 +157,41 @@ describe('the Transport over a bus', () => {
     stop()
   })
 
+  it('watches usage on its topic and drops an event that does not parse', async () => {
+    const { client, host: end } = linkPair()
+    const topics: string[] = []
+    const event = {
+      readings: [
+        {
+          harness: 'Opencode',
+          kind: 'spend',
+          windows: [],
+          spend: { amount: 1.42, period: 'today' },
+          observedAt: '2026-11-25T10:00:00.000Z',
+          state: 'ok',
+          reason: null,
+        },
+      ],
+    }
+    serve(end, {
+      handlers: {},
+      capabilities: { host: 'fake', shell: true, installActions: false },
+      subscribe: (topic, _after, push) => {
+        topics.push(topic)
+        push({ readings: [{ harness: 'Opencode' }] }, 0)
+        push(event, 1)
+        return () => undefined
+      },
+    })
+    const transport = new BusTransport(new Bus(client))
+    const received: unknown[] = []
+    const stop = transport.watchUsage((e) => received.push(e))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(topics).toEqual(['usage'])
+    expect(received).toEqual([event])
+    stop()
+  })
+
   describe('a terminal', () => {
     const info = {
       session: 't1',

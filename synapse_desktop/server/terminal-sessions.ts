@@ -52,6 +52,8 @@ export interface SessionsDeps extends TerminalDeps {
   // Runs `action` after `ms` and returns what cancels it. The clock of the 12 hours, injected so
   // that the tests do not wait for it.
   schedule?: (action: () => void, ms: number) => () => void
+  // Called when the program of a session exits.
+  onExit?: () => void
 }
 
 interface Attached {
@@ -198,6 +200,7 @@ export function createSessions(deps: SessionsDeps): Sessions {
         session.watcher.stop()
         deliver(session, { type: 'exit', code: exitCode })
         if (session.sinks.size === 0) expireWhenUnattended(session)
+        deps.onExit?.()
       })
       session.watcher = (deps.watch ?? watchTranscripts)({
         dir: sessionsDir,

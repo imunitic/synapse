@@ -40,7 +40,8 @@ pub fn code_of_status(status: u16) -> ErrorCode {
     }
 }
 
-/// What a client subscribes to: the files of a place, or the events of a run.
+/// What a client subscribes to: the files of a place, the events of a run, or the usage of the
+/// harnesses.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
 #[serde(try_from = "String", into = "String")]
 pub struct Topic(String);
@@ -56,7 +57,10 @@ impl Topic {
         let valid = match (text.strip_prefix("run."), text.strip_prefix("note-run.")) {
             (Some(run), _) => id(run),
             (_, Some(run)) => id(run),
-            _ => matches!(text, "files.work" | "files.definitions" | "files.vault"),
+            _ => matches!(
+                text,
+                "usage" | "files.work" | "files.definitions" | "files.vault"
+            ),
         };
         valid.then(|| Topic(text.to_string()))
     }
