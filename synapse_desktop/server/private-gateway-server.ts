@@ -60,11 +60,7 @@ function validateConfig(value: unknown): PrivateGatewayConfig {
   }
   for (const host of config.hosts) {
     const backend = new URL(host.backend)
-    if (
-      !isPrivateBackendUrl(backend) ||
-      !host.backendToken ||
-      !host.backendOrigin
-    ) {
+    if (!isPrivateBackendUrl(backend) || !host.backendToken || !host.backendOrigin) {
       throw new Error('private host must use a loopback or RFC1918 IPv4 backend')
     }
   }
