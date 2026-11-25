@@ -21,6 +21,7 @@
 #                               a real command" check covers them
 #   changed synapse_desktop/    just desktop-check
 #   changed synapse_desktop/src-tauri/  just desktop-host-check
+#   changed a screen shown in docs/desktop/  just docs-screenshots
 #   about to push               just check
 #
 # Needs Alire (`alr`) on PATH; it fetches GNAT, gprbuild, AUnit and GNATprove
@@ -151,10 +152,11 @@ syntax:
     done
     echo "syntax ok: $n scripts"
 
-# Verify the generated cli.md and rendered diagrams match their sources.
+# Verify the generated cli.md and rendered diagrams match their sources, and that the desktop docs pages, screenshots and screenshot spec agree.
 docs-check:
     ./docs/synapse/generate-cli-reference.sh --check
     ./docs/synapse/generate-diagrams.sh --check
+    ./docs/desktop/check-screenshots.sh
 
 # Verify the npm package actually includes every shipped schema document, that every shipped skill's frontmatter is valid YAML, and the checks' own tests.
 npm-check:
@@ -198,6 +200,10 @@ desktop-host-check:
 # Run the desktop app's end-to-end tests in a browser, on the programs `just build` made, against the host `node` or `rust`.
 desktop-e2e host="node":
     cd synapse_desktop && npm ci && npx playwright install chromium && npm run e2e -- --host {{host}}
+
+# Take the docs screenshots into docs/desktop/img/, on the programs `just build` made.
+docs-screenshots:
+    cd synapse_desktop && npm ci && npx playwright install chromium && DOCS_SCREENSHOTS_DIR="$PWD/../docs/desktop/img" npm run e2e -- docs-screenshots.spec.ts
 
 # Show what changed against the pushed branch.
 diff:

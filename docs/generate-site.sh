@@ -1,9 +1,10 @@
 #!/bin/bash
-# Builds the GitHub Pages docs site: converts docs/synapse/*.md to HTML via
-# pandoc, rewriting the internal .md links pandoc itself never touches, and
-# wraps every page in the same left-sidebar nav (site.css positions it; this
-# script only emits the markup), rendered into its own subdirectory of the
-# output with its own sidebar, plus one top-level landing page.
+# Builds the GitHub Pages docs site: converts each project's pages
+# (docs/desktop/*.md and docs/synapse/*.md) to HTML via pandoc, rewriting the
+# internal .md links pandoc itself never touches, and wraps every page in the
+# same left-sidebar nav (site.css positions it; this script only emits the
+# markup). Each project is rendered into its own subdirectory of the output
+# with its own sidebar, plus one top-level landing page.
 #
 #   docs/generate-site.sh <output-dir>
 #
@@ -126,6 +127,23 @@ render_project synapse "Synapse" "$synapse_pages"
   echo '</ul></main></body></html>'
 } > "$out/synapse/diagrams/index.html"
 
+# --- Synapse Desktop -------------------------------------------------------
+# The screenshots are committed under docs/desktop/img/ by `just
+# docs-screenshots`; pages name them as img/<name>.png.
+mkdir -p "$out/desktop/img"
+cp "$here/desktop/img/"*.png "$out/desktop/img/"
+
+desktop_pages="$here/desktop/README.md|index.html|Home
+$here/desktop/getting-started.md|getting-started.html|Getting started
+$here/desktop/home.md|home.html|Home page
+$here/desktop/code-graph.md|code-graph.html|Code graph
+$here/desktop/terminals.md|terminals.html|Terminals
+$here/desktop/definitions.md|definitions.html|Definitions
+$here/desktop/executions.md|executions.html|Executions
+$here/desktop/vault.md|vault.html|Vault and notes
+$here/desktop/settings.md|settings.html|Settings"
+render_project desktop "Synapse Desktop" "$desktop_pages"
+
 # --- Top-level landing page --------------------------------------------------
 # README.md from the start through the end of "## New machine setup" -- stops
 # at the next ## heading, a pattern match rather than a hardcoded line number
@@ -138,7 +156,8 @@ awk '/^## Synapse Vault/{exit} {print}' "$root/README.md" > "$work/home.md"
   echo
   echo '## Documentation'
   echo
-  echo 'See the [full documentation](synapse/index.html): durable memory and the per-repo code graph.'
+  echo '- [Synapse Desktop](desktop/index.html): the app, for installing Synapse, the Vault, pipelines and terminals.'
+  echo '- [Synapse](synapse/index.html): durable memory, the per-repo code graph, pipelines and the CLI.'
 } >> "$work/home.md"
 
 # The landing page needs the same #sidebar/#content wrapper every other
@@ -149,6 +168,7 @@ awk '/^## Synapse Vault/{exit} {print}' "$root/README.md" > "$work/home.md"
 # wrapped text. Caught live: shipped without it once already.
 top_nav='<nav id="sidebar"><div class="sidebar-title">Synapse</div><ul>'
 top_nav="$top_nav<li><a href=\"index.html\">Home</a></li>"
+top_nav="$top_nav<li><a href=\"desktop/index.html\">Synapse Desktop</a></li>"
 top_nav="$top_nav<li><a href=\"synapse/index.html\">Synapse</a></li>"
 top_nav="$top_nav</ul></nav><div id=\"content\">"
 top_nav_file="$work/top-nav.html"
@@ -158,6 +178,8 @@ printf '</div>' > "$top_close_file"
 
 sed -E \
   -e 's/\]\(README\.md(#[a-zA-Z0-9_-]*)?\)/](index.html\1)/g' \
+  -e 's/\]\(docs\/desktop\/README\.md(#[a-zA-Z0-9_-]*)?\)/](desktop\/index.html\1)/g' \
+  -e 's/\]\(docs\/desktop\/([a-zA-Z0-9_-]+)\.md(#[a-zA-Z0-9_-]*)?\)/](desktop\/\1.html\2)/g' \
   -e 's/\]\(docs\/synapse\/([a-zA-Z0-9_-]+)\.md(#[a-zA-Z0-9_-]*)?\)/](synapse\/\1.html\2)/g' \
   -e 's/\]\(LICENSE\)/](https:\/\/github.com\/imunitic\/synapse\/blob\/main\/LICENSE)/g' \
   -e 's/\]\(#dependencies\)/](https:\/\/github.com\/imunitic\/synapse#dependencies)/g' \

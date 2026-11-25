@@ -2,10 +2,16 @@
 
 [![tests](https://github.com/imunitic/synapse/actions/workflows/tests.yml/badge.svg)](https://github.com/imunitic/synapse/actions/workflows/tests.yml)
 
-Memory for Claude Code, Codex CLI, and OpenCode: durable notes that outlive a session, and a
-per-repo code graph so a codebase does not get re-explored from scratch every time. Three
-components, independent enough that you can use one without the others:
+Memory for Claude Code, Codex CLI, and OpenCode: durable notes that outlive a session, a per-repo
+code graph so a codebase does not get re-explored from scratch every time, and a desktop app to work
+with both. Four components. The app is the way in for most people; the other three are independent
+enough that you can use one without the others:
 
+- **Synapse Desktop** — the desktop app for macOS, Linux and Windows. It installs Synapse into
+  Claude Code, Codex CLI and OpenCode, shows and edits the Vault, runs and inspects pipelines, and
+  hosts the harness terminals. The app itself runs without anything else installed; installing
+  Synapse into the harnesses needs Node and npm, and the harnesses themselves.
+  See the [Synapse Desktop docs](docs/desktop/README.md).
 - **Synapse Vault** — a folder of plain Markdown notes (frontmatter + wikilinks) holding research,
   decisions, project logs, design discussions. Cross-project by default. Synapse reads and writes it
   directly, with mandatory validation for notes that declare a shipped v1 schema and real
@@ -31,8 +37,14 @@ your call).
 
 ## New machine setup
 
-Synapse installs via npm — one package (`@imunitic/synapse`), one setup command, three harnesses
-(Claude Code, Codex CLI, OpenCode):
+The easiest start is the app. Download Synapse Desktop for your platform from the
+[GitHub Releases page](https://github.com/imunitic/synapse/releases), choose your vault on first
+launch, and install Synapse into your harnesses from Settings, Integrations. That install runs
+`npm install -g`, so it needs Node and npm, and the harnesses must already be installed.
+[Getting started](docs/desktop/getting-started.md) walks through each step and the prerequisites.
+
+To use the CLI alone, without the app, install it with npm instead — one package
+(`@imunitic/synapse`), one setup command, three harnesses (Claude Code, Codex CLI, OpenCode):
 
 ```sh
 npm install -g @imunitic/synapse
