@@ -13,7 +13,9 @@ import { transport } from '../transport/index.ts'
 import { PromptView } from './PromptView.tsx'
 import { PathInput } from './PathInput.tsx'
 
-// What a pipeline is to work on, as a sentence or as JSON, and the button that starts it. A native
+// What a pipeline is to work on, as a sentence or as JSON, and the button that starts it. The
+// settings of the run come before the prompt preview, which is closed until it is asked for, and the
+// buttons stay in view however long the dialog gets. A native
 // dialog gives the focus handling and the Escape key. A run can be started on the terminal of the
 // app, where a person can watch it and answer what its agents ask.
 export function RunDialog({
@@ -150,17 +152,6 @@ export function RunDialog({
             />
           </>
         )}
-        {firstStep !== undefined && (
-          <PromptView
-            pipeline={pipeline}
-            step={firstStep}
-            input={previewInput(mode, text, json)}
-            label="The prompt of the first step, with this input"
-            defaultOpen
-            interactive={wantsInteractive}
-            openAdded
-          />
-        )}
         <label className="check-row" htmlFor="run-autonomous">
           <input
             id="run-autonomous"
@@ -189,12 +180,22 @@ export function RunDialog({
             />
           </>
         )}
+        {firstStep !== undefined && (
+          <PromptView
+            pipeline={pipeline}
+            step={firstStep}
+            input={previewInput(mode, text, json)}
+            label="The prompt of the first step, with this input"
+            interactive={wantsInteractive}
+            openAdded
+          />
+        )}
         {error !== null && (
           <p className="error" role="alert">
             {error}
           </p>
         )}
-        <div className="row end">
+        <div className="row end dialog-actions">
           <button type="button" className="secondary" onClick={() => dialog.current?.close()}>
             Cancel
           </button>
