@@ -242,65 +242,68 @@ function DiffView({
       {diff !== null && !file.binary && !diff.notKept && diff.hunks.length === 0 && (
         <p className="muted small">No lines changed.</p>
       )}
-      {diff !== null &&
-        diff.hunks.map((hunk, index) => {
-          const room = Math.max(0, MOST_LINES - shown)
-          const lines = hunk.lines.slice(0, room)
-          shown += lines.length
-          cut += hunk.lines.length - lines.length
-          const here = choice !== null && choice.hunk === index
-          const chosen = here ? chosenLines(lines, choice) : []
-          const first = chosen[0]
-          const last = chosen.at(-1)
-          const start = first === undefined ? null : numberOf(first)
-          const end = last === undefined ? null : numberOf(last)
-          const box =
-            review !== null && first !== undefined && start !== null && end !== null ? (
-              <CommentBox
-                key={`${index}-${start}-${end}`}
-                label={`${chosen.length === 1 ? 'Line' : 'Lines'} ${start === end ? start : `${start}–${end}`}${sideOf(first) === 'old' ? ' (removed)' : ''} chosen`}
-                text={draft}
-                onText={setDraft}
-                onCancel={clear}
-                onSave={(text) => {
-                  review.onComment({
-                    path: file.path,
-                    commit: review.commit,
-                    side: sideOf(first),
-                    start,
-                    end,
-                    ...quoteOf(chosen),
-                    text,
-                  })
-                  clear()
-                }}
-              />
-            ) : null
-          return (
-            <div key={index} className="diff-hunk">
-              <div className="diff-header mono">{hunk.header}</div>
-              <Lines
-                lines={lines}
-                chosen={new Set(chosen)}
-                commented={commented}
-                onChoose={
-                  review === null
-                    ? null
-                    : (line, extend) => {
-                        if (extend && here) {
-                          setChoice({ ...choice, other: line })
-                        } else {
-                          setChoice({ hunk: index, anchor: line, other: line })
-                          setDraft('')
+      {diff !== null && diff.hunks.length > 0 && (
+        <div className="diff-hunks">
+          {diff.hunks.map((hunk, index) => {
+            const room = Math.max(0, MOST_LINES - shown)
+            const lines = hunk.lines.slice(0, room)
+            shown += lines.length
+            cut += hunk.lines.length - lines.length
+            const here = choice !== null && choice.hunk === index
+            const chosen = here ? chosenLines(lines, choice) : []
+            const first = chosen[0]
+            const last = chosen.at(-1)
+            const start = first === undefined ? null : numberOf(first)
+            const end = last === undefined ? null : numberOf(last)
+            const box =
+              review !== null && first !== undefined && start !== null && end !== null ? (
+                <CommentBox
+                  key={`${index}-${start}-${end}`}
+                  label={`${chosen.length === 1 ? 'Line' : 'Lines'} ${start === end ? start : `${start}–${end}`}${sideOf(first) === 'old' ? ' (removed)' : ''} chosen`}
+                  text={draft}
+                  onText={setDraft}
+                  onCancel={clear}
+                  onSave={(text) => {
+                    review.onComment({
+                      path: file.path,
+                      commit: review.commit,
+                      side: sideOf(first),
+                      start,
+                      end,
+                      ...quoteOf(chosen),
+                      text,
+                    })
+                    clear()
+                  }}
+                />
+              ) : null
+            return (
+              <div key={index} className="diff-hunk">
+                <div className="diff-header mono">{hunk.header}</div>
+                <Lines
+                  lines={lines}
+                  chosen={new Set(chosen)}
+                  commented={commented}
+                  onChoose={
+                    review === null
+                      ? null
+                      : (line, extend) => {
+                          if (extend && here) {
+                            setChoice({ ...choice, other: line })
+                          } else {
+                            setChoice({ hunk: index, anchor: line, other: line })
+                            setDraft('')
+                          }
                         }
-                      }
-                }
-                after={here && box !== null ? Math.max(choice.anchor, choice.other) : null}
-                box={box}
-              />
-            </div>
-          )
-        })}
+                  }
+                  after={here && box !== null ? Math.max(choice.anchor, choice.other) : null}
+                  box={box}
+                />
+              </div>
+            )
+          })}
+        </div>
+      )}
       {cut > 0 && <p className="muted small">{cut} more lines are not shown.</p>}
     </section>
   )
