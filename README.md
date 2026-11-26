@@ -192,7 +192,9 @@ plain-English summary, a quoted `crux`, typed links, and the exhaustive list of 
 just build                               # the three programs, into bin/
 just test                                # AUnit: format round-trips, parsing, every unit
 just prove                               # GNATprove on the SPARK units
+just test-one "Synapse.Core.Arith"       # AUnit: one test, one package or a family of packages, by name
 just acceptance                          # the CLI contract: real subprocesses, real git, and the shipped-text checks
+just acceptance-one "<name>"             # the acceptance suite, narrowed the same way
 just check                               # the full gate -- before pushing
 ```
 
@@ -202,6 +204,16 @@ catches things. Per commit, `just build && just test` covers a changed `.adb`/`.
 seconds; `just acceptance` is the honest answer whenever a change touches a command's output or is
 broad enough that you are unsure. A change to prose in `docs/` or this README has no test to fail and
 needs neither.
+
+**One test, or a few.** `just test-one` and `just acceptance-one` take a filter. It is matched from
+the start of a test's full name, `{test case name} : {routine name}`. So
+`"Synapse.Core.Arith : Saturates at the top"` runs one test, `"Synapse.Core.Arith"` runs that
+package's tests, and `"Synapse.Core.Note"` runs every package whose name starts with it. Acceptance
+test cases have names like `Acceptance: usage and exit codes`. `just test-one --list` (or
+`just acceptance-one --list`) prints every full name and runs nothing. Quote the filter, because
+routine names contain spaces. A filter that runs no test fails, so a typo cannot pass as green. With
+no argument, the runners read the filter from `SYNAPSE_TEST_FILTER`. A task note's checklist item
+names its Ada tests as such a filter, for `just test-one` (or `just acceptance-one`).
 
 Two traps in that. Shipped instructions under `packages/synapse/` **look** like documentation and are
 not: they install into the harnesses, and `Acceptance.Legacy_Commands_Tests` and `Acceptance.Lint_Tests` cover them — that is how a skill

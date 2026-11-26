@@ -5,7 +5,9 @@
 #   just              list the recipes
 #   just build        the three programs, into synapse_cli/bin/
 #   just test         the AUnit suite
+#   just test-one "Synapse.Core.Arith"  AUnit tests by the start of their full name
 #   just acceptance   the subprocess suite and text checks, against the built programs
+#   just acceptance-one "<name>"        acceptance tests, narrowed the same way
 #   just check        the full gate -- before PUSHING, not before every commit
 #   just fix          regenerate whatever `check` verifies
 #   just desktop      the desktop app in dev mode; code changes apply while it runs
@@ -14,6 +16,8 @@
 # WHAT TO RUN WHEN:
 #
 #   changed Ada code            just build && just test
+#   one test or one package     just test-one "Synapse.Core.Arith"
+#                               (just test-one --list for the names)
 #   changed a proved unit       just prove
 #   changed a command's output  just acceptance
 #   changed docs/ or README     nothing -- prose has no test to fail
@@ -109,6 +113,11 @@ build:
 test: ucd json-suite
     cd tests/unit && alr -n exec -- gprbuild -q -p -P fixtures/fixtures.gpr && alr -n build --validation && alr -n run --skip-build
 
+# One AUnit test, one package or a family of packages, by the start of the full name; --list prints the names.
+test-one filter: ucd json-suite
+    @if [ -z "{{ filter }}" ]; then echo 'test-one needs a filter, such as "Synapse.Core.Arith"; --list prints the names' >&2; exit 2; fi
+    cd tests/unit && alr -n exec -- gprbuild -q -p -P fixtures/fixtures.gpr && alr -n build --validation && ./bin/synapse_tests "{{ filter }}"
+
 # Build the release binaries.
 release:
     cd synapse_cli && alr -n build --profiles='*=release' -- -m
@@ -126,6 +135,12 @@ prove:
 acceptance: build
     cd tests/acceptance && alr -n build --validation -- -m
     ./tests/acceptance/bin/synapse_acceptance
+
+# One acceptance test, one test case or a family of test cases, by the start of the full name; --list prints the names.
+acceptance-one filter: build
+    @if [ -z "{{ filter }}" ]; then echo 'acceptance-one needs a filter, such as "Acceptance: usage and exit codes"; --list prints the names' >&2; exit 2; fi
+    cd tests/acceptance && alr -n build --validation -- -m
+    ./tests/acceptance/bin/synapse_acceptance "{{ filter }}"
 
 # Build the Linux release binaries in a container against a glibc 2.28 sysroot.
 linux-release:

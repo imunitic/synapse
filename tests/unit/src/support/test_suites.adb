@@ -1,5 +1,6 @@
 with Synapse.Adapters.Tree_Sitter.Tests;
 with Synapse.Core.Arith.Tests;
+with Test_Selection.Tests;
 with Synapse.Core.Regex_Lite.Tests;
 with Synapse.Adapters.Disk_Store.Tests;
 with Synapse.Adapters.Dir_Lock.Tests;
@@ -209,6 +210,7 @@ with Synapse.Core.Unicode.Tests;
 package body Test_Suites is
 
    Arith_Tests                    : aliased Synapse.Core.Arith.Tests.Test_Case;
+   Test_Selection_Tests : aliased Test_Selection.Tests.Test_Case;
    UTF8_Tests                     : aliased Synapse.Core.UTF8.Tests.Test_Case;
    Unicode_Tests : aliased Synapse.Core.Unicode.Tests.Test_Case;
    Tree_Sitter_Tests : aliased Synapse.Adapters.Tree_Sitter.Tests.Test_Case;
@@ -515,6 +517,7 @@ package body Test_Suites is
         new AUnit.Test_Suites.Test_Suite;
    begin
       Result.Add_Test (Arith_Tests'Access);
+      Result.Add_Test (Test_Selection_Tests'Access);
       Result.Add_Test (UTF8_Tests'Access);
       Result.Add_Test (Unicode_Tests'Access);
       Result.Add_Test (Tree_Sitter_Tests'Access);
