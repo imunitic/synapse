@@ -147,8 +147,6 @@ export interface ShellState {
   panelOpen: boolean
   // The Changes sidebar on the right, which is shut until it is opened.
   changesOpen: boolean
-  // The visit of a run that the Changes sidebar was asked to show, until another is.
-  changesVisit: number | null
   // The file, by the whole path an activity names it with, that the sidebar was asked to show.
   changesFile: string | null
   // What each terminal session's changes are against, where the person has chosen.
@@ -178,7 +176,6 @@ export const initialState: ShellState = {
   section: 'definitions',
   panelOpen: true,
   changesOpen: false,
-  changesVisit: null,
   changesFile: null,
   changesBases: {},
   changesTabs: {},
@@ -214,7 +211,7 @@ export type Action =
   | { type: 'setGitCommit'; session: string; commit: string | null }
   | { type: 'setActivityKinds'; session: string; kinds: ActionKind[] }
   | { type: 'setActivityFile'; session: string; file: string | null }
-  | { type: 'showChanges'; visit: number | null; path?: string }
+  | { type: 'showChanges'; path?: string }
   | { type: 'selectDefinitionKind'; kind: DefinitionKind }
   | { type: 'openPage'; page: Page }
   | { type: 'activateTab'; id: string }
@@ -401,7 +398,6 @@ function step(state: ShellState, action: Action): ShellState {
       return {
         ...state,
         changesOpen: true,
-        changesVisit: action.visit,
         changesFile: action.path ?? null,
       }
 

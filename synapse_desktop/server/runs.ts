@@ -5,7 +5,8 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { homedir } from 'node:os'
+import { isAbsolute, join } from 'node:path'
 import type { AppConfig } from '../shared/transport.ts'
 import { cliEnvironment } from './cli.ts'
 
@@ -15,6 +16,8 @@ const MAX_STDERR_BYTES = 8192
 
 export class NotStartedHere extends Error {}
 export class RunNotStarted extends Error {}
+// The folder the run was to work in is not an absolute path, or not a directory.
+export class FolderNotFound extends RunNotStarted {}
 
 // An id in the form the program draws its own, so that the app's runs and the
 // others look alike.
@@ -46,21 +49,37 @@ function killTree(child: ChildProcess): void {
 }
 
 export interface RunStarter {
-  start(pipeline: string, input: unknown, config: AppConfig): Promise<{ executionId: string }>
+  // A missing or blank folder is the user's home folder.
+  start(
+    pipeline: string,
+    input: unknown,
+    config: AppConfig,
+    folder?: string,
+  ): Promise<{ executionId: string }>
   stop(executionId: string): void
 }
 
-// `binary` is looked up on PATH unless it is a path.
-export function createRunStarter(binary: string, baseEnv: NodeJS.ProcessEnv): RunStarter {
+// `binary` is looked up on PATH unless it is a path. `home` is the folder a run
+// works in when it is given none.
+export function createRunStarter(
+  binary: string,
+  baseEnv: NodeJS.ProcessEnv,
+  home: string = homedir(),
+): RunStarter {
   const children = new Map<string, ChildProcess>()
 
   return {
-    async start(pipeline, input, config) {
+    async start(pipeline, input, config, folder) {
       if (config.workDir === null) throw new RunNotStarted('no work directory is set')
+      const cwd = folder === undefined || folder.trim() === '' ? home : folder
+      // A relative folder would resolve against this process's own folder.
+      if (!isAbsolute(cwd)) throw new FolderNotFound(`the folder ${cwd} is not an absolute path`)
+      if (!(await isDirectory(cwd))) throw new FolderNotFound(`the folder ${cwd} does not exist`)
       const id = drawId()
       const record = join(config.workDir, 'pipelines', id)
 
       const child = spawn(binary, ['run', pipeline, '--input', '-', '--id', id], {
+        cwd,
         env: cliEnvironment(baseEnv, config),
         stdio: ['pipe', 'ignore', 'pipe'],
         // Its own process group, so that stop can end the whole tree.

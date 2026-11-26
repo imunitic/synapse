@@ -41,7 +41,9 @@ import {
   commitLog,
   headPosition,
   headTree,
+  pinSnapshot,
   snapshotTree,
+  unpinSnapshot,
 } from './changes.ts'
 import { previewDraft } from './preview.ts'
 import { editNote, restoreNote, setNoteStatus } from './note-edit.ts'
@@ -58,7 +60,7 @@ import { histories, listSessions, listWorkspaces } from './history/history.ts'
 import { createModelStore, modelCacheFile, type ModelStore } from './model-store.ts'
 import { askRun, NotListening, socketPath } from './run-socket.ts'
 import type { NoteRunHandle, NoteRuns } from './note-runs.ts'
-import { NotStartedHere, RunNotStarted, type RunStarter } from './runs.ts'
+import { FolderNotFound, NotStartedHere, RunNotStarted, type RunStarter } from './runs.ts'
 import type { Usage } from './usage.ts'
 
 const MAX_FILE_BYTES = 4 * 1024 * 1024
@@ -444,9 +446,21 @@ const handlers: Handlers = {
     return { tree, head: tree === null ? null : await headPosition(folder) }
   },
 
-  async 'changes.diff'({ folder, before, path }) {
+  async 'changes.diff'({ folder, before, path, after }) {
     if (!isAbsolute(folder)) throw new HostError('bad_request', 'the folder must be absolute')
-    return changesSince(folder, before, path)
+    return changesSince(folder, before, path, after)
+  },
+
+  async 'changes.pin'({ folder, ref, tree }) {
+    if (!isAbsolute(folder)) throw new HostError('bad_request', 'the folder must be absolute')
+    await pinSnapshot(folder, ref, tree)
+    return null
+  },
+
+  async 'changes.unpin'({ folder, ref }) {
+    if (!isAbsolute(folder)) throw new HostError('bad_request', 'the folder must be absolute')
+    await unpinSnapshot(folder, ref)
+    return null
   },
 
   async 'changes.log'({ folder, limit, before }) {
@@ -459,11 +473,12 @@ const handlers: Handlers = {
     return commitChanges(folder, commit, path)
   },
 
-  async 'run.start'({ pipeline, input }, context) {
+  async 'run.start'({ pipeline, input, folder }, context) {
     const config = await loadConfig(context.configFile, context.environment)
     try {
-      return await context.runs.start(pipeline, input, config)
+      return await context.runs.start(pipeline, input, config, folder)
     } catch (error) {
+      if (error instanceof FolderNotFound) throw new HostError('bad_request', error.message)
       if (error instanceof RunNotStarted) {
         throw new HostError(config.workDir === null ? 'conflict' : 'unavailable', error.message)
       }

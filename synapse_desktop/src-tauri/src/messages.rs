@@ -98,6 +98,27 @@ pub struct ChangesDiffParams {
     pub before: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// With it, the changes are those between two snapshots, and none is taken of the working tree.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<String>,
+}
+
+/// A snapshot to pin under `refs/synapse/<ref>`, so that `git gc` keeps it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ChangesPinParams {
+    pub folder: String,
+    /// `runs/<execution-id>/start` or `runs/<execution-id>/end`.
+    #[serde(rename = "ref")]
+    pub reference: String,
+    pub tree: String,
+}
+
+/// The ref a snapshot was pinned as, to delete.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ChangesUnpinParams {
+    pub folder: String,
+    #[serde(rename = "ref")]
+    pub reference: String,
 }
 
 /// The commits of the branch a folder is on, `limit` at a time, after `before` when it is given.
@@ -627,6 +648,8 @@ pub struct RunStartParams {
     pub pipeline: String,
     #[serde(default)]
     pub input: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -1212,10 +1235,40 @@ impl Validate for ChangesDiffParams {
     fn check(&self) -> Result<(), String> {
         within("the folder", &self.folder, 1, 4096)?;
         named("snapshot", is_tree_id(&self.before), &self.before)?;
+        if let Some(after) = &self.after {
+            named("snapshot", is_tree_id(after), after)?;
+        }
         match &self.path {
             Some(path) => within("the path", path, 1, 4096),
             None => Ok(()),
         }
+    }
+}
+
+/// Where a run's snapshot is pinned, under `refs/synapse/`: `runs/<execution-id>/start` or
+/// `runs/<execution-id>/end`, the id 1 to 64 letters, digits, `_` and `-`.
+pub fn is_pin_ref(reference: &str) -> bool {
+    let Some(rest) = reference.strip_prefix("runs/") else {
+        return false;
+    };
+    let Some((id, end)) = rest.split_once('/') else {
+        return false;
+    };
+    session_ok(id) && (end == "start" || end == "end")
+}
+
+impl Validate for ChangesPinParams {
+    fn check(&self) -> Result<(), String> {
+        within("the folder", &self.folder, 1, 4096)?;
+        named("snapshot ref", is_pin_ref(&self.reference), &self.reference)?;
+        named("snapshot", is_tree_id(&self.tree), &self.tree)
+    }
+}
+
+impl Validate for ChangesUnpinParams {
+    fn check(&self) -> Result<(), String> {
+        within("the folder", &self.folder, 1, 4096)?;
+        named("snapshot ref", is_pin_ref(&self.reference), &self.reference)
     }
 }
 
@@ -1369,6 +1422,8 @@ messages! {
     "run.ask" => RunAskParams, RunAnswer;
     "changes.snapshot" => ChangesSnapshotParams, SnapshotAnswer;
     "changes.diff" => ChangesDiffParams, FolderChanges;
+    "changes.pin" => ChangesPinParams, ();
+    "changes.unpin" => ChangesUnpinParams, ();
     "changes.log" => ChangesLogParams, CommitLog;
     "changes.commit" => ChangesCommitParams, FolderChanges;
     "vault.inspect" => VaultPathParams, VaultInfo;

@@ -36,7 +36,7 @@ export function RunDialog({
   onStarted: (executionId: string) => void
   // An interactive run is started with this input, none when there is none, in this folder.
   onStartInteractive: (input: unknown, folder: string) => void
-  // Where an interactive run works unless it was told otherwise; empty is the home folder.
+  // Where a run works unless it was told otherwise; empty is the home folder.
   defaultFolder: string
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
@@ -68,7 +68,7 @@ export function RunDialog({
   }, [pipeline])
 
   const canBeInteractive = checked && problem === null
-  const wantsInteractive = canBeInteractive && !autonomous
+  const interactive = canBeInteractive && !autonomous
 
   async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -77,15 +77,15 @@ export function RunDialog({
       setError(input.error)
       return
     }
-    if (wantsInteractive) {
-      writeFolder(localStorage, pipeline, folder)
+    writeFolder(localStorage, pipeline, folder)
+    if (interactive) {
       onStartInteractive(input.value, folder.trim())
       return
     }
     setBusy(true)
     setError(null)
     try {
-      const { executionId } = await transport.startRun(pipeline, input.value ?? null)
+      const { executionId } = await transport.startRun(pipeline, input.value ?? null, folder.trim())
       onStarted(executionId)
     } catch (startError) {
       setError(`The run did not start: ${String(startError)}`)
@@ -169,20 +169,16 @@ export function RunDialog({
           <span>Run without a terminal: nothing will ask me anything</span>
         </label>
         {checked && problem !== null && <p className="muted small">{problem}</p>}
-        {wantsInteractive && (
-          <>
-            <label htmlFor="run-folder" className="muted">
-              Folder its agents work in (empty is your home folder)
-            </label>
-            <PathInput
-              id="run-folder"
-              className="mono"
-              value={folder}
-              placeholder="/path/to/a/project"
-              onChange={setFolder}
-            />
-          </>
-        )}
+        <label htmlFor="run-folder" className="muted">
+          Folder its agents work in (empty is your home folder)
+        </label>
+        <PathInput
+          id="run-folder"
+          className="mono"
+          value={folder}
+          placeholder="/path/to/a/project"
+          onChange={setFolder}
+        />
         {firstStep === undefined && firstStepPending === true && (
           <details className="prompt-view">
             <summary>The prompt of the first step, with this input</summary>
@@ -195,7 +191,7 @@ export function RunDialog({
             step={firstStep}
             input={previewInput(mode, text, json)}
             label="The prompt of the first step, with this input"
-            interactive={wantsInteractive}
+            interactive={interactive}
             openAdded
           />
         )}

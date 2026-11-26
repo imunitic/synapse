@@ -514,6 +514,91 @@ package body Synapse.Pipeline.Recorders.Tests is
          "and the summary and the run are as they would have been");
    end A_Registry_That_Cannot_Keep_What_The_Run_Ran_Does_Not_Stop_It;
 
+   function Snapshot (V : JSON.Value; Which : String) return String is
+     (Text (JSON.Member_Value (V, "snapshots"), Which));
+
+   procedure A_New_Run_Has_No_Snapshots (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      Context : aliased Contexts.Execution_Context;
+      Store   : aliased Fake_Registry.Fake_Registry;
+      Clock   : aliased Counting_Clock;
+      R       : Recorder (Context'Access, Store'Access, Clock'Access);
+   begin
+      Assert (Store.Create ("exec-1") = Registry_Store.Created, "made");
+      R.Start ("exec-1", True, JSON.Null_Value, Initial_State);
+      declare
+         S : constant JSON.Value := Summary_Of (Store, "exec-1");
+      begin
+         Assert (JSON.Has_Member (S, "snapshots"), "the summary has them");
+         Assert
+           (Snapshot (S, "start") = "<JSON_NULL>"
+            and then Snapshot (S, "end") = "<JSON_NULL>",
+            "both null: " & JSON.To_String (S));
+      end;
+   end A_New_Run_Has_No_Snapshots;
+
+   procedure The_Snapshots_Of_A_Run_Are_Kept_In_Its_Summary
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context : aliased Contexts.Execution_Context;
+      Store   : aliased Fake_Registry.Fake_Registry;
+      Clock   : aliased Counting_Clock;
+      R       : Recorder (Context'Access, Store'Access, Clock'Access);
+      Done    : States.State := Initial_State;
+   begin
+      Ticks := 0;
+      Assert (Store.Create ("exec-1") = Registry_Store.Created, "made");
+      R.Start ("exec-1", True, JSON.Null_Value, Initial_State);
+      R.Record_Snapshot ("start", "abc");
+      Assert
+        (Snapshot (Summary_Of (Store, "exec-1"), "start") = "abc"
+         and then Snapshot (Summary_Of (Store, "exec-1"), "end")
+                  = "<JSON_NULL>",
+         "the start is kept, and there is no end yet");
+      Assert
+        (Text (Summary_Of (Store, "exec-1"), "status") = "running",
+         "the summary is rewritten with the state it had");
+      Done.Status := States.Completed;
+      Done.Current_Step := Null_Unbounded_String;
+      R.Publish (Done);
+      R.Record_Snapshot ("end", "def");
+      declare
+         S : constant JSON.Value := Summary_Of (Store, "exec-1");
+      begin
+         Assert
+           (Snapshot (S, "start") = "abc" and then Snapshot (S, "end") = "def",
+            "both are kept: " & JSON.To_String (S));
+         Assert
+           (Text (S, "status") = "completed"
+            and then Text (S, "ended") = "2026-11-04T12:00:02+00:00",
+            "and the run is still the one that ended, when it ended");
+      end;
+      R.Publish (Done);
+      Assert
+        (Snapshot (Summary_Of (Store, "exec-1"), "start") = "abc"
+         and then Snapshot (Summary_Of (Store, "exec-1"), "end") = "def",
+         "a later state keeps them");
+   end The_Snapshots_Of_A_Run_Are_Kept_In_Its_Summary;
+
+   procedure A_Snapshot_Of_A_Run_That_Is_Not_Recorded_Writes_Nothing
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Context : aliased Contexts.Execution_Context;
+      Store   : aliased Fake_Registry.Fake_Registry;
+      Clock   : aliased Counting_Clock;
+      R       : Recorder (Context'Access, Store'Access, Clock'Access);
+   begin
+      R.Start ("exec-1", False, JSON.Null_Value, Initial_State);
+      R.Record_Snapshot ("start", "abc");
+      R.Record_Snapshot ("end", "def");
+      Assert
+        (Store.Held.Is_Empty
+         and then Store.Attempts (Fake_Registry.Replace_Op) = 0,
+         "nothing is written and nothing is tried");
+   end A_Snapshot_Of_A_Run_That_Is_Not_Recorded_Writes_Nothing;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -571,6 +656,15 @@ package body Synapse.Pipeline.Recorders.Tests is
         (T,
          A_Registry_That_Cannot_Keep_What_The_Run_Ran_Does_Not_Stop_It'Access,
          "A registry that cannot keep what the run ran does not stop it");
+      Register_Routine
+        (T, A_New_Run_Has_No_Snapshots'Access,
+         "A new run has no snapshots");
+      Register_Routine
+        (T, The_Snapshots_Of_A_Run_Are_Kept_In_Its_Summary'Access,
+         "The snapshots of a run are kept in its summary");
+      Register_Routine
+        (T, A_Snapshot_Of_A_Run_That_Is_Not_Recorded_Writes_Nothing'Access,
+         "A snapshot of a run that is not recorded writes nothing");
    end Register_Tests;
 
 end Synapse.Pipeline.Recorders.Tests;

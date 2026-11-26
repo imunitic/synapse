@@ -45,10 +45,11 @@ package body Synapse.Pipeline.Commands.Cleanup.Tests is
 
    --  Keeps the record of execution Id, in Status, last written Days days ago.
    procedure Keep
-     (F      : in out Fixture;
-      Id     : String;
-      Status : States.Run_Status;
-      Days   : Natural)
+     (F         : in out Fixture;
+      Id        : String;
+      Status    : States.Run_Status;
+      Days      : Natural;
+      Directory : String := "")
    is
       Item   : States.State :=
         States.Initial (Pipeline_Of ("Dev"), JSON.Null_Value);
@@ -62,7 +63,8 @@ package body Synapse.Pipeline.Commands.Cleanup.Tests is
           (Id,
            JSON.To_String
              (Recorders.Summary
-                (Id, "2026-01-01T00:00:00+00:00", "", Item)));
+                (Id, "2026-01-01T00:00:00+00:00", "", Item,
+                 Directory => Directory)));
       pragma Unreferenced (Wrote);
       F.Registry.Set_Last_Write
         (Id, Ada.Calendar."-" (Ada.Calendar.Clock, Days * Day));
@@ -195,6 +197,44 @@ package body Synapse.Pipeline.Commands.Cleanup.Tests is
          "it exits 1 and says which: " & F.Base.Console.Err_Text);
    end A_Removal_That_Fails_Is_Reported;
 
+   --  The refs unpinned so far, each followed by a space.
+   function Unpinned (F : Fixture) return String is
+      Text : Unbounded_String;
+   begin
+      for Ref of F.Trees.Unpinned loop
+         Append (Text, To_String (Ref) & " ");
+      end loop;
+      return To_String (Text);
+   end Unpinned;
+
+   procedure A_Removed_Run_Unpins_Its_Snapshots (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Keep (F, "exec-g", States.Completed, 40, Directory => "/repo");
+      Keep (F, "exec-h", States.Completed, 1, Directory => "/repo");
+      Assert (Run (Env (F), Args) = 0, "it succeeds");
+      Assert
+        (Unpinned (F) =
+         "refs/synapse/runs/exec-g/start refs/synapse/runs/exec-g/end ",
+         "the old run with a folder has both its refs deleted; the runs "
+         & "with no folder and the kept run have none: " & Unpinned (F));
+   end A_Removed_Run_Unpins_Its_Snapshots;
+
+   procedure A_Dry_Run_Unpins_Nothing (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Keep (F, "exec-g", States.Completed, 40, Directory => "/repo");
+      Assert (Run (Env (F), Args ("--dry-run")) = 0, "it succeeds");
+      Assert
+        (F.Trees.Unpinned.Is_Empty,
+         "a dry run deletes no ref: " & Unpinned (F));
+   end A_Dry_Run_Unpins_Nothing;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -225,6 +265,11 @@ package body Synapse.Pipeline.Commands.Cleanup.Tests is
       Register_Routine
         (T, A_Removal_That_Fails_Is_Reported'Access,
          "A removal that fails is reported");
+      Register_Routine
+        (T, A_Removed_Run_Unpins_Its_Snapshots'Access,
+         "A removed run unpins its snapshots");
+      Register_Routine
+        (T, A_Dry_Run_Unpins_Nothing'Access, "A dry run unpins nothing");
    end Register_Tests;
 
 end Synapse.Pipeline.Commands.Cleanup.Tests;

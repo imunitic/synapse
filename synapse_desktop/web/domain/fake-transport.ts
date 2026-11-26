@@ -101,6 +101,8 @@ export function fakeTransport(world: FakeWorld): FakeTransport {
     deleteDefinition: unavailable,
     snapshotChanges: unavailable,
     diffChanges: unavailable,
+    pinSnapshot: unavailable,
+    unpinSnapshot: unavailable,
     listCommits: unavailable,
     commitChanges: unavailable,
     generateDefinition: unavailable,

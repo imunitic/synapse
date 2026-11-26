@@ -93,12 +93,26 @@ export class BusTransport implements Transport {
     return this.bus.request('changes.snapshot', { folder, ...(of === undefined ? {} : { of }) })
   }
 
-  diffChanges(folder: string, before: string, path?: string): Promise<FolderChanges> {
+  diffChanges(
+    folder: string,
+    before: string,
+    path?: string,
+    after?: string,
+  ): Promise<FolderChanges> {
     return this.bus.request('changes.diff', {
       folder,
       before,
       ...(path === undefined ? {} : { path }),
+      ...(after === undefined ? {} : { after }),
     })
+  }
+
+  async pinSnapshot(folder: string, ref: string, tree: string): Promise<void> {
+    await this.bus.request('changes.pin', { folder, ref, tree })
+  }
+
+  async unpinSnapshot(folder: string, ref: string): Promise<void> {
+    await this.bus.request('changes.unpin', { folder, ref })
   }
   // A page of the Git tab: as many commits as it shows at a time.
   listCommits(folder: string, before?: string): Promise<CommitLog> {
@@ -265,8 +279,11 @@ export class BusTransport implements Transport {
     return this.bus.request('run.ask', { executionId, request })
   }
 
-  startRun(pipeline: string, input: unknown): Promise<{ executionId: string }> {
-    return this.bus.request('run.start', { pipeline, input })
+  startRun(pipeline: string, input: unknown, folder?: string): Promise<{ executionId: string }> {
+    return this.bus.request(
+      'run.start',
+      folder === undefined ? { pipeline, input } : { pipeline, input, folder },
+    )
   }
 
   async stopRun(executionId: string): Promise<void> {

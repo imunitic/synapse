@@ -5,8 +5,11 @@ import {
   followBaseline,
   followFolder,
   followHead,
+  followOtherHead,
+  hideFolder,
   keepBaseline,
   onBaselineChange,
+  showFolder,
 } from './change-baselines.ts'
 
 const TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
@@ -223,5 +226,112 @@ describe('the baseline of a session moved to a folder a person typed', () => {
     expect(await followFolder(refusing, 's1', '/gone')).toBe('the folder is not there')
     expect(await followFolder(at({}, asked), 's1', '/w/a')).toBeNull()
     expect(baselineOf('s1')).toEqual({ folder: '/w/a', tree: 'aaa' })
+  })
+})
+
+describe('the folders a session shows next to its current one', () => {
+  const OTHER = 'b'.repeat(40)
+  const THIRD = 'c'.repeat(40)
+
+  const at = (trees: Record<string, string | null>, asked: string[] = [], head = 'main') => ({
+    snapshotChanges: (folder: string) => {
+      asked.push(folder)
+      const tree = trees[folder] === undefined ? TREE : trees[folder]
+      return Promise.resolve({ tree, head })
+    },
+  })
+
+  it('takes one snapshot of a new folder, and keeps it in others and shown', async () => {
+    keepBaseline('s1', { folder: '/w/a', tree: 'aaa', head: 'main' })
+    const asked: string[] = []
+    expect(await showFolder(at({ '/w/b': OTHER }, asked), 's1', ' /w/b ')).toBeNull()
+    expect(asked).toEqual(['/w/b'])
+    expect(baselineOf('s1')).toEqual({
+      folder: '/w/a',
+      tree: 'aaa',
+      head: 'main',
+      others: { '/w/b': { folder: '/w/b', tree: OTHER, head: 'main' } },
+      shown: ['/w/b'],
+    })
+  })
+
+  it('takes none for a folder that has a baseline in others', async () => {
+    keepBaseline('s1', {
+      folder: '/w/a',
+      tree: 'aaa',
+      others: { '/w/b': { folder: '/w/b', tree: OTHER, head: 'dev' } },
+    })
+    const asked: string[] = []
+    expect(await showFolder(at({}, asked), 's1', '/w/b')).toBeNull()
+    expect(asked).toEqual([])
+    expect(baselineOf('s1')?.others?.['/w/b']).toEqual({ folder: '/w/b', tree: OTHER, head: 'dev' })
+    expect(baselineOf('s1')?.shown).toEqual(['/w/b'])
+  })
+
+  it('refuses the current folder, a shown one and one outside a repository, and says why', async () => {
+    keepBaseline('s1', { folder: '/w/a', tree: 'aaa', shown: ['/w/b'] })
+    const before = baselineOf('s1')
+    expect(await showFolder(at({}), 's1', '/w/a')).toMatch(/folder this session is in/)
+    expect(await showFolder(at({}), 's1', '/w/b')).toMatch(/shown already/)
+    expect(await showFolder(at({ '/plain': null }), 's1', '/plain')).toMatch(
+      /not in a git repository/,
+    )
+    expect(await showFolder(at({}), 's1', '  ')).toMatch(/Type the path/)
+    expect(baselineOf('s1')).toEqual(before)
+  })
+
+  it('stops showing a folder and keeps its baseline', async () => {
+    keepBaseline('s1', { folder: '/w/a', tree: 'aaa' })
+    await showFolder(at({}), 's1', '/w/b')
+    await showFolder(at({}), 's1', '/w/c')
+    hideFolder('s1', '/w/b')
+    expect(baselineOf('s1')?.shown).toEqual(['/w/c'])
+    expect(baselineOf('s1')?.others?.['/w/b']).toMatchObject({ tree: TREE })
+    hideFolder('s1', '/w/c')
+    expect(baselineOf('s1')?.shown).toBeUndefined()
+  })
+
+  it('keeps a snapshot for each position of a shown folder, and leaves the current one alone', async () => {
+    keepBaseline('s1', { folder: '/w/a', tree: 'aaa', head: 'main' })
+    await showFolder(at({ '/w/b': TREE }), 's1', '/w/b')
+    const asked: string[] = []
+    await followOtherHead(at({ '/w/b': OTHER }, asked, 'dev'), 's1', '/w/b', 'dev')
+    expect(baselineOf('s1')?.others?.['/w/b']).toEqual({
+      folder: '/w/b',
+      tree: OTHER,
+      head: 'dev',
+      switched: true,
+      kept: { main: { tree: TREE, switched: false } },
+    })
+    await followOtherHead(at({ '/w/b': THIRD }, asked), 's1', '/w/b', 'main')
+    expect(asked).toEqual(['/w/b'])
+    expect(baselineOf('s1')?.others?.['/w/b']).toMatchObject({ tree: TREE, head: 'main' })
+    expect(baselineOf('s1')).toMatchObject({ folder: '/w/a', tree: 'aaa', head: 'main' })
+    expect(baselineOf('s1')?.shown).toEqual(['/w/b'])
+  })
+
+  it('keeps the shown folders when the current folder changes branch', async () => {
+    keepBaseline('s1', { folder: '/w/a', tree: 'aaa', head: 'main' })
+    await showFolder(at({}), 's1', '/w/b')
+    await followHead(at({ '/w/a': OTHER }, [], 'dev'), 's1', 'dev')
+    expect(baselineOf('s1')).toMatchObject({ tree: OTHER, head: 'dev', shown: ['/w/b'] })
+    expect(baselineOf('s1')?.others?.['/w/b']).toMatchObject({ tree: TREE })
+  })
+
+  it('are kept through a fresh read of sessionStorage', async () => {
+    keepBaseline('s1', { folder: '/w/a', tree: 'aaa' })
+    await showFolder(at({}), 's1', '/w/b')
+    const stored = JSON.parse(sessionStorage.getItem('synapse-desktop.change-baselines') ?? '{}')
+    expect(stored.s1.shown).toEqual(['/w/b'])
+    expect(stored.s1.others['/w/b']).toMatchObject({ folder: '/w/b', tree: TREE })
+  })
+
+  it('drops the folder the session moves to, and keeps the rest', async () => {
+    keepBaseline('s1', { folder: '/w/a', tree: 'aaa' })
+    await showFolder(at({}), 's1', '/w/b')
+    await showFolder(at({}), 's1', '/w/c')
+    expect(await followFolder(at({}), 's1', '/w/b')).toBeNull()
+    expect(baselineOf('s1')).toMatchObject({ folder: '/w/b', shown: ['/w/c'] })
+    expect(baselineOf('s1')?.others?.['/w/a']).toEqual({ folder: '/w/a', tree: 'aaa' })
   })
 })

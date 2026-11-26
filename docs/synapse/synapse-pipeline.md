@@ -317,7 +317,8 @@ outputs/
 
 `execution.json` has `format` `synapse-pipeline-execution/v1`, the execution's `id` and `pipeline`, the
 `directory` the steps worked in, when it `started` and `ended`, its `status` (`running`, `completed` or `failed`), its `current_step` and the run's
-`state`, and `attention` while an interactive run goes on. Each try of a step has a transcript of its own, named for the run's step count, the step and the try, and a
+`state`, `attention` while an interactive run goes on, and `snapshots`: the `start` and `end` tree ids of the
+run, each null until it is pinned (see below). Each try of a step has a transcript of its own, named for the run's step count, the step and the try, and a
 `session.started` event, recorded before the session runs, and a `session.finished` event that say where it is.
 A transcript is what the harness printed, one JSON event per
 line: Claude's session events ending with its `result`, Codex's `--json` events and OpenCode's `--format json`
@@ -335,12 +336,21 @@ session did. A session that changed nothing, a folder that is not in a git repos
 not make leave no patch, and neither does a run that has no record. Taking a snapshot reads every file of the
 tree, twice for each session.
 
+The run also pins two of these trees in the folder it works in, so that what it changed as a whole can be
+shown later. The `before` tree of its first session is pinned as `refs/synapse/runs/<execution-id>/start`.
+When the run ends, completed or failed, it takes a snapshot of the working tree and pins it as
+`refs/synapse/runs/<execution-id>/end`. These refs are not branches or tags, so `git branch` and `git tag` do
+not list them, and a normal `git push` does not push them (`git push --mirror` would). They keep their trees
+through `git gc`. `cleanup` deletes them with the run's record. A run that is killed has no end.
+
 A file that already existed is kept whole in its patch. The content of a new file is kept only up to
 `SYNAPSE_PIPELINE_CHANGES_FILE_LIMIT` bytes (1 MB when it is not set); past it the patch has the file's header
 and a hunk with its number of lines that says `Content not kept`, since a generated or vendored file can be
 larger than everything else a run changed. `synapse-pipeline changes <execution-id> [--step <name>]
 [--format json|text]` prints the patches in the order the steps ran, each under a line with its step, visit and
-attempt, or as `synapse-pipeline-changes/v1` JSON with the `directory`. With `--step`, a try of that step
+attempt, or as `synapse-pipeline-changes/v1` JSON with the `directory`, the run's `status` and its `snapshots`
+(`start` and `end`, each a tree id or null; for a run recorded before snapshots were pinned, `start` is the
+`before` of its first session). With `--step`, a try of that step
 that is still running is included last: the difference between its before snapshot and the working folder now.
 Without `--step` no live snapshot is taken.
 

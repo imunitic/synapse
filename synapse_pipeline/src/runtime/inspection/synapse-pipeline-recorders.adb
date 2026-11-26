@@ -8,12 +8,18 @@ package body Synapse.Pipeline.Recorders is
    function Member (Key : String; Item : JSON.Value) return JSON.Member is
      (Key => To_Unbounded_String (Key), Item => Item);
 
+   --  A tree id, or null when there is none.
+   function Tree_JSON (Tree : String) return JSON.Value is
+     (if Tree = "" then JSON.Null_Value else JSON.Make_String (Tree));
+
    function Summary
      (Id, Started, Ended : String;
       Item               : States.State;
       Attention          : Inspection.Attention := (others => <>);
       Directory          : String := "";
-      Interactive        : Boolean := False)
+      Interactive        : Boolean := False;
+      Start_Tree         : String := "";
+      End_Tree           : String := "")
       return JSON.Value
    is
       use type Inspection.Attention_State;
@@ -46,6 +52,11 @@ package body Synapse.Pipeline.Recorders is
              else JSON.Null_Value)),
          Member ("state", States.To_JSON (Item)),
          Member ("interactive", JSON.Make_Boolean (Interactive)),
+         Member
+           ("snapshots",
+            JSON.Make_Object
+              ([Member ("start", Tree_JSON (Start_Tree)),
+                Member ("end", Tree_JSON (End_Tree))])),
          Member ("attention", Inspection.Attention_JSON (Attention))];
       Members : constant JSON.Member_Array := Head & Where & Tail;
    begin
@@ -54,12 +65,15 @@ package body Synapse.Pipeline.Recorders is
          then Members (Members'First .. Members'Last - 1) else Members);
    end Summary;
 
-   --  Writes the summary of the run in state Item.
+   --  Writes the summary of the run in state Item. The time a run ended is
+   --  taken once, so a summary written again after it keeps it.
    procedure Write_Summary
      (R : in out Recorder; Item : States.State)
    is
       Ended   : constant String :=
-        (if States.Is_Terminal (Item) then R.Clock.Timestamp else "");
+        (if not States.Is_Terminal (Item) then ""
+         elsif R.Ended /= Null_Unbounded_String then To_String (R.Ended)
+         else R.Clock.Timestamp);
       Written : constant Boolean :=
         R.Store.Replace_Summary
           (To_String (R.Id),
@@ -67,10 +81,11 @@ package body Synapse.Pipeline.Recorders is
              (Summary
                 (To_String (R.Id), To_String (R.Started), Ended, Item,
                  R.Context.Current.Attention, To_String (R.Directory),
-                 R.Interactive)));
+                 R.Interactive, To_String (R.Start_Tree),
+                 To_String (R.End_Tree))));
       pragma Unreferenced (Written);
    begin
-      null;
+      R.Ended := To_Unbounded_String (Ended);
    end Write_Summary;
 
    procedure Start
@@ -87,6 +102,10 @@ package body Synapse.Pipeline.Recorders is
       R.Directory := To_Unbounded_String (Directory);
       R.Registered := Registered;
       R.Started := To_Unbounded_String (R.Clock.Timestamp);
+      R.Ended := Null_Unbounded_String;
+      R.Start_Tree := Null_Unbounded_String;
+      R.End_Tree := Null_Unbounded_String;
+      R.Last := Initial;
       R.Context.Start (Id, Description, Initial);
       if R.Registered then
          Write_Summary (R, Initial);
@@ -141,11 +160,26 @@ package body Synapse.Pipeline.Recorders is
 
    procedure Publish (R : in out Recorder; Item : States.State) is
    begin
+      R.Last := Item;
       R.Context.Publish (Item);
       if R.Registered then
          Write_Summary (R, Item);
       end if;
    end Publish;
+
+   procedure Record_Snapshot (R : in out Recorder; Which, Tree : String) is
+   begin
+      if Which = "start" then
+         R.Start_Tree := To_Unbounded_String (Tree);
+      elsif Which = "end" then
+         R.End_Tree := To_Unbounded_String (Tree);
+      else
+         return;
+      end if;
+      if R.Registered then
+         Write_Summary (R, R.Last);
+      end if;
+   end Record_Snapshot;
 
    procedure Attend
      (R      : in out Recorder;

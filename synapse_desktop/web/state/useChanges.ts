@@ -1,41 +1,43 @@
-// What the thing being looked at has changed: a terminal session's working folder against the
-// snapshot taken when it started, or the patches a run kept in its record. Asked for again now and
-// then while the window is in use. Each answer says where HEAD is, and a session that has switched
-// branches is compared with the snapshot of the branch it is on (see change-baselines.ts).
+// What the thing being looked at has changed, one group for each repository it is shown in. A
+// terminal session: its working folder, and each folder shown next to it, against the snapshot taken
+// of it (see change-baselines.ts). A run: the folder it works in, from the snapshot pinned when it
+// started to the one pinned when it ended (or the working tree while it runs), and the same for each
+// repository added to it (see run-repositories.ts). Asked for again now and then while the window is
+// in use. Each answer of a session says where HEAD is, and a session that has switched branches is
+// compared with the snapshot of the branch it is on.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { changeSet, type ChangeSet, type ChangesBase } from '../domain/changes.ts'
-import {
-  changeLabel,
-  liveChange,
-  readRunChanges,
-  type RecordedChange,
-} from '../domain/run-changes.ts'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { baseName, changeSet, type ChangeSet, type ChangesBase } from '../domain/changes.ts'
+import { readRunChanges } from '../domain/run-changes.ts'
 import { transport } from '../transport/index.ts'
-import { baselineOf, followHead, onBaselineChange, type Baseline } from './change-baselines.ts'
+import {
+  baselineOf,
+  followHead,
+  followOtherHead,
+  onBaselineChange,
+  type Baseline,
+} from './change-baselines.ts'
+import {
+  endRunRepositories,
+  onRunRepositoriesChange,
+  runRepositoriesOf,
+} from './run-repositories.ts'
 
 // What is being looked at.
 export type ChangesSource =
   { kind: 'session'; session: string; base: ChangesBase } | { kind: 'run'; executionId: string }
 
-// The step of a run that is running, for the changes it has made so far. `calls` goes up when a tool
-// call that can change files has finished, which is when they are asked for again.
-export interface LiveChanges {
-  step: string
-  visit: number
-  attempt: number
-  calls: number
-}
-
-// The changes of one part of what is looked at: a session has one, a run one for each recorded
-// session of a step.
+// The changes of one repository of what is looked at.
 export interface ChangeGroup {
+  // The folder, which names the group.
   id: string
-  // Which step it is of, empty for a session.
-  label: string
-  // The visit of the run it is of, from 1; none for a session.
-  visit: number | null
+  // The folder's own name, for its heading.
+  name: string
+  folder: string
   set: ChangeSet
+  // What the changes are between, for reading a file's content: two snapshots, or a snapshot and
+  // the working tree now when after is null.
+  origin: { folder: string; before: string; after: string | null }
 }
 
 export type ChangesState =
@@ -53,12 +55,16 @@ export type ChangesState =
       groups: ChangeGroup[]
       // What a session's changes are against; none for a run.
       base: ChangesBase | null
-      // Where a new file's content is read from, for a session; a run has it in its patches.
-      origin: (Baseline & { tree: string }) | null
       // The branch, or commit, a session's snapshot is of, once the session has been on more than
       // one; whether that snapshot was taken on the switch to it. None while there was only one.
       position: { head: string; switched: boolean } | null
+      // A run that has ended is shown against the working tree now, because it has no end snapshot.
+      live: boolean
+      // A snapshot the run pinned is no longer in its repository.
+      gone: boolean
     }
+
+type ReadyState = Extract<ChangesState, { status: 'ready' }>
 
 function positionOf(baseline: Baseline): { head: string; switched: boolean } | null {
   const others = Object.keys(baseline.kept ?? {})
@@ -82,6 +88,15 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+// Whether a host said a snapshot is not in the repository.
+function isNotFound(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { code?: unknown }).code === 'not_found'
+  )
+}
+
 function keyOf(source: ChangesSource | null): string | null {
   if (source === null) return null
   return source.kind === 'session'
@@ -89,17 +104,106 @@ function keyOf(source: ChangesSource | null): string | null {
     : `run:${source.executionId}`
 }
 
+function groupOf(
+  folder: string,
+  set: ChangeSet,
+  before: string,
+  after: string | null,
+): ChangeGroup {
+  return { id: folder, name: baseName(folder), folder, set, origin: { folder, before, after } }
+}
+
+// One folder of a session against its baseline; null when the folder is not in a repository. The
+// position HEAD is at is passed to follow.
+async function sessionGroup(
+  folder: string,
+  baselineTree: string,
+  base: ChangesBase,
+  follow: (head: string | null) => void,
+): Promise<ChangeGroup | null> {
+  let before = baselineTree
+  if (base === 'commit') {
+    // The last commit is read each time, since the agent may commit.
+    const head = (await transport.snapshotChanges(folder, 'head')).tree
+    if (head === null) return null
+    before = head
+  }
+  const answer = await transport.diffChanges(folder, before)
+  if (!answer.repository) return null
+  follow(answer.head)
+  return groupOf(folder, changeSet(answer.patch, answer.added), before, null)
+}
+
+async function readSession(
+  what: Extract<ChangesSource, { kind: 'session' }>,
+  baseline: Baseline & { tree: string },
+  current: () => boolean,
+): Promise<ChangesState> {
+  // A branch switch changes the baseline, which asks for the changes again.
+  const own = await sessionGroup(baseline.folder, baseline.tree, what.base, (head) => {
+    if (current()) void followHead(transport, what.session, head)
+  })
+  if (own === null) return { status: 'no-repository' }
+  const groups = [own]
+  for (const folder of baseline.shown ?? []) {
+    const other = baseline.others?.[folder]
+    if (other === undefined || other.tree === null) continue
+    const group = await sessionGroup(folder, other.tree, what.base, (head) => {
+      if (current()) void followOtherHead(transport, what.session, folder, head)
+    })
+    if (group !== null) groups.push(group)
+  }
+  return {
+    status: 'ready',
+    kind: 'session',
+    base: what.base,
+    groups,
+    position: positionOf(baseline),
+    live: false,
+    gone: false,
+  }
+}
+
+async function readRun(executionId: string): Promise<ReadyState> {
+  const run = await readRunChanges(transport, executionId)
+  const running = run.status === 'running'
+  // An ended run pins the end of each repository added to it, once.
+  if (!running) await endRunRepositories(transport, executionId)
+  const wanted: { folder: string; start: string; end: string | null }[] = []
+  if (run.directory !== null && run.snapshots.start !== null)
+    wanted.push({ folder: run.directory, start: run.snapshots.start, end: run.snapshots.end })
+  for (const added of runRepositoriesOf(executionId))
+    if (!wanted.some((one) => one.folder === added.folder)) wanted.push(added)
+  const groups: ChangeGroup[] = []
+  let live = false
+  let gone = false
+  for (const { folder, start, end } of wanted) {
+    // A run that ended without an end snapshot is shown against the working tree now.
+    const after = running ? null : end
+    try {
+      const answer =
+        after === null
+          ? await transport.diffChanges(folder, start)
+          : await transport.diffChanges(folder, start, undefined, after)
+      if (!answer.repository) continue
+      if (!running && after === null) live = true
+      groups.push(groupOf(folder, changeSet(answer.patch, answer.added), start, after))
+    } catch (error) {
+      if (!isNotFound(error)) throw error
+      gone = true
+    }
+  }
+  return { status: 'ready', kind: 'run', base: null, groups, position: null, live, gone }
+}
+
+// `liveCalls` goes up when a tool call of the run that can change files has finished, which is when
+// the changes are asked for again while the sidebar is open.
 export function useChanges(
   source: ChangesSource | null,
   open: boolean,
-  live: LiveChanges | null = null,
+  liveCalls = 0,
 ): { state: ChangesState; refresh: () => void } {
-  const [recorded, setState] = useState<ChangesState>({ status: 'none' })
-  // What the recorded patches of the run are, to name the live one among them.
-  const [patches, setPatches] = useState<RecordedChange[]>([])
-  // The changes of the running step, asked for apart from the clock: each answer writes the folder
-  // into git objects. It is kept with the session it is of.
-  const [liveGroup, setLiveGroup] = useState<{ key: string; change: RecordedChange } | null>(null)
+  const [state, setState] = useState<ChangesState>({ status: 'none' })
   // Changes when the snapshot of a session is taken, and asks for the changes again at once.
   const [tick, setTick] = useState(0)
   const asking = useRef(false)
@@ -109,15 +213,6 @@ export function useChanges(
   // What is being looked at, so that the answer for another is let go.
   const latest = useRef<ChangesSource | null>(null)
   const key = keyOf(source)
-  const liveKey =
-    live === null || source === null || source.kind !== 'run'
-      ? null
-      : `${key}:${live.step}:${live.visit}:${live.attempt}`
-  const liveRef = useRef<{ key: string | null; live: LiveChanges | null }>({
-    key: null,
-    live: null,
-  })
-  liveRef.current = { key: liveKey, live }
 
   useEffect(() => onBaselineChange(() => setTick((n) => n + 1)), [])
 
@@ -147,61 +242,13 @@ export function useChanges(
     asking.current = true
     if (first) setState({ status: 'loading' })
     try {
-      if (what.kind === 'session' && baseline !== null && baseline.tree !== null) {
-        const { folder } = baseline
-        let tree = baseline.tree
-        if (what.base === 'commit') {
-          // The last commit is read each time, since the agent may commit.
-          const head = (await transport.snapshotChanges(folder, 'head')).tree
-          if (head === null) {
-            if (current()) setState({ status: 'no-repository' })
-            return
-          }
-          tree = head
-        }
-        const answer = await transport.diffChanges(folder, tree)
-        // A branch switch changes the baseline, which asks for the changes again.
-        if (answer.repository && current()) void followHead(transport, what.session, answer.head)
-        if (current()) {
-          setState(
-            answer.repository
-              ? {
-                  status: 'ready',
-                  kind: 'session',
-                  base: what.base,
-                  groups: [
-                    {
-                      id: 'session',
-                      label: '',
-                      visit: null,
-                      set: changeSet(answer.patch, answer.added),
-                    },
-                  ],
-                  origin: { folder, tree },
-                  position: positionOf(baseline),
-                }
-              : { status: 'no-repository' },
-          )
-        }
-      } else if (what.kind === 'run') {
-        const run = await readRunChanges(transport, what.executionId)
-        if (current()) {
-          setPatches(run.changes)
-          setState({
-            status: 'ready',
-            kind: 'run',
-            base: null,
-            groups: run.changes.map((change) => ({
-              id: `${change.visit}-${change.attempt}`,
-              label: changeLabel(change, run.changes),
-              visit: change.visit,
-              set: change.set,
-            })),
-            origin: null,
-            position: null,
-          })
-        }
-      }
+      const next =
+        what.kind === 'session' && baseline !== null && baseline.tree !== null
+          ? await readSession(what, { ...baseline, tree: baseline.tree }, current)
+          : what.kind === 'run'
+            ? await readRun(what.executionId)
+            : null
+      if (next !== null && current()) setState(next)
     } catch (error) {
       if (current()) setState({ status: 'failed', error: messageOf(error) })
     } finally {
@@ -213,38 +260,8 @@ export function useChanges(
     }
   }, [])
 
-  // The changes of the running step, with what it has made so far. A failed read keeps what was
-  // shown: the next one will say.
-  const askLive = useCallback(async () => {
-    const { key: asked, live: now } = liveRef.current
-    const what = latest.current
-    if (asked === null || now === null || what === null || what.kind !== 'run') return
-    try {
-      const run = await readRunChanges(transport, what.executionId, now.step)
-      if (liveRef.current.key !== asked) return
-      const change = liveChange(run, now)
-      setLiveGroup(change === null ? null : { key: asked, change })
-    } catch {
-      // Left as it was.
-    }
-  }, [])
-
-  // The running step is asked for once when the sidebar opens or the step starts, and after each
-  // tool call that can have changed files; never while it is shut, never on the clock.
-  const liveCalls = live?.calls ?? 0
-  useEffect(() => {
-    if (open && liveKey !== null) void askLive()
-  }, [open, liveKey, liveCalls, askLive])
-
-  // The step ended: its live changes go, and the patch it saved is read.
-  const wasLive = useRef(false)
-  useEffect(() => {
-    if (liveKey === null) {
-      setLiveGroup(null)
-      if (wasLive.current) void ask(latest.current, false)
-    }
-    wasLive.current = liveKey !== null
-  }, [liveKey, ask])
+  // A repository added to a run, or the end pinned in one, is read again; quietly, as the clock does.
+  useEffect(() => onRunRepositoriesChange(() => void ask(latest.current, false)), [ask])
 
   // Another thing, or a session's snapshot arriving, is looked at from the start.
   useEffect(() => {
@@ -254,10 +271,11 @@ export function useChanges(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, tick, ask])
 
-  // Opening the sidebar reads them again at once, not at the next turn of the clock.
+  // Opening the sidebar reads them again at once, not at the next turn of the clock, and so does
+  // each tool call of the run that can have changed files while it is open.
   useEffect(() => {
     if (open) void ask(latest.current, false)
-  }, [open, key, ask])
+  }, [open, key, liveCalls, ask])
 
   // Then again now and then, when the window is in use, and when it is come back to.
   useEffect(() => {
@@ -275,32 +293,7 @@ export function useChanges(
 
   const refresh = useCallback(() => {
     void ask(latest.current, false)
-    void askLive()
-  }, [ask, askLive])
+  }, [ask])
 
-  // The recorded groups of a run, and the live one while its step is still running.
-  const state = useMemo<ChangesState>(() => {
-    if (
-      recorded.status !== 'ready' ||
-      recorded.kind !== 'run' ||
-      liveGroup === null ||
-      liveGroup.key !== liveKey
-    )
-      return recorded
-    const id = `${liveGroup.change.visit}-${liveGroup.change.attempt}`
-    if (recorded.groups.some((g) => g.id === id)) return recorded
-    return {
-      ...recorded,
-      groups: [
-        ...recorded.groups,
-        {
-          id,
-          label: changeLabel(liveGroup.change, [...patches, liveGroup.change]),
-          visit: liveGroup.change.visit,
-          set: liveGroup.change.set,
-        },
-      ],
-    }
-  }, [recorded, liveGroup, liveKey, patches])
   return { state, refresh }
 }

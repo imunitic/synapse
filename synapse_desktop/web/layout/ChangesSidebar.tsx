@@ -2,7 +2,13 @@ import { useMemo, useRef, useState } from 'react'
 import type { PointerEvent } from 'react'
 import { RefreshIcon } from '../components/icons.tsx'
 import { FileChanges } from '../components/FileChanges.tsx'
-import { baseName, pathMatches, sinceLabel, type ChangesBase } from '../domain/changes.ts'
+import {
+  baseName,
+  groupTotals,
+  pathMatches,
+  sinceLabel,
+  type ChangesBase,
+} from '../domain/changes.ts'
 import { parseUnifiedDiff } from '../domain/unified-diff.ts'
 import type { ChangesTab } from '../state/state.ts'
 import type { CommitListState, CommitViewState } from '../state/useCommits.ts'
@@ -10,7 +16,7 @@ import type { ChangeGroup, ChangesState } from '../state/useChanges.ts'
 import { GitTab } from './GitTab.tsx'
 import { ActivityTab } from './ActivityTab.tsx'
 import type { ActionKind } from '../domain/activity.ts'
-import { FolderBar } from './FolderBar.tsx'
+import { FolderBar, type FolderBarProps } from './FolderBar.tsx'
 import { ReviewBar, useReview } from './ReviewBar.tsx'
 import type { DiffReview } from '../components/FileChanges.tsx'
 import type { ReviewComment } from '../domain/review.ts'
@@ -68,64 +74,100 @@ export interface SessionGit {
   onRefresh: () => void
 }
 
-// The changes of what is being looked at: a list of the files, and the diff of the one chosen. A
-// run has a part for each recorded step, which is chosen above the list. A file that is new is a row
-// that is opened to be read. A terminal session also has a Git tab with the commits of its branch.
+// How a file of a group that is new is read: its patch between the group's two snapshots, or from
+// its snapshot to the working tree now.
+function fileReader(origin: ChangeGroup['origin']): (path: string) => Promise<FileDiff | null> {
+  return (path) =>
+    (origin.after === null
+      ? transport.diffChanges(origin.folder, origin.before, path)
+      : transport.diffChanges(origin.folder, origin.before, path, origin.after)
+    ).then((answer) => parseUnifiedDiff(answer.patch)[0] ?? null)
+}
+
+// One repository's changes when several are shown: a heading with its folder's name and its totals,
+// which opens and shuts the list below it.
+function RepositoryGroup({
+  group,
+  focusFile,
+  review,
+}: {
+  group: ChangeGroup
+  focusFile: string | null
+  review: DiffReview | null
+}) {
+  const [open, setOpen] = useState(true)
+  const readFile = useMemo(() => fileReader(group.origin), [group.origin])
+  const totals = groupTotals(group.set)
+  return (
+    <section className="changes-repository" aria-label={group.name}>
+      <button
+        className="changes-folder"
+        aria-expanded={open}
+        title={group.folder}
+        onClick={() => setOpen((before) => !before)}
+      >
+        <span aria-hidden="true">{open ? '▾' : '▸'}</span> <strong>{group.name}</strong>{' '}
+        <span className="muted small">
+          {totals.files} {totals.files === 1 ? 'file' : 'files'}
+        </span>{' '}
+        <span className="changes-added">+{totals.added}</span>{' '}
+        <span className="changes-removed">−{totals.removed}</span>
+      </button>
+      {open && totals.files > 0 && (
+        <FileChanges
+          set={group.set}
+          focusFile={focusFile}
+          resetKey={`${group.id}|${focusFile ?? ''}`}
+          readFile={readFile}
+          review={review}
+        />
+      )}
+    </section>
+  )
+}
+
+// The changes of what is being looked at, one group for each repository: a list of the files, and
+// the diff of the one chosen. A file that is new is a row that is opened to be read. A terminal
+// session also has a Git tab with the commits of its branch.
 export function ChangesSidebar({
   state,
   onRefresh,
   live,
-  focusVisit,
   focusFile,
   onBase,
   git,
-  reviewSession,
+  comments: reviewSession,
+  folders,
   activity,
 }: {
   state: ChangesState
   onRefresh: () => void
   // A step of the run is running: its changes are asked for after each tool call, and on Refresh.
   live: boolean
-  // The visit of a run that was asked for, which is the one shown until another is chosen.
-  focusVisit: number | null
   // The file an activity asked for, by the whole path it names it with.
   focusFile: string | null
   // What a session's changes are to be against was chosen.
   onBase: (base: ChangesBase) => void
   // The Git tab of a terminal session; none on a run's page, which has its changes only.
   git: SessionGit | null
-  // The terminal session whose diffs can be commented on, for its review; none on a run's page.
-  reviewSession: string | null
+  // The terminal session whose diffs can be commented on and sent to its agent; none for a run.
+  comments: string | null
+  // The folder bar: the folder the changes are of and the repositories added to it.
+  folders: FolderBarProps | null
   // The Activity tab of a terminal session: the kinds of action it shows, and showing a file the
   // conversation changed; none on a run's page.
   activity: SessionActivity | null
 }) {
   const [width, setWidth] = useState(readWidth)
   const dragging = useRef(false)
-  const [chosen, setChosen] = useState<{ visit: number | null; id: string } | null>(null)
 
   const groups: ChangeGroup[] = state.status === 'ready' ? state.groups : []
-  // What was chosen counts only while the visit asked for is the one it was chosen under.
-  const kept = chosen !== null && chosen.visit === focusVisit ? chosen : null
-  const group: ChangeGroup | null =
-    groups.find((g) => g.id === kept?.id) ??
-    (focusVisit === null ? undefined : groups.find((g) => g.visit === focusVisit)) ??
-    groups[0] ??
-    null
-  const files = group?.set.files ?? []
-  const origin = state.status === 'ready' ? state.origin : null
-  const originFolder = origin?.folder ?? null
-  const originTree = origin?.tree ?? null
-  // A new file of a session is read from its folder; a run has every file's content in its patch.
+  const single = groups.length === 1 ? groups[0] : undefined
+  const files = groups.flatMap((g) => g.set.files)
+  const singleOrigin = single?.origin
   const readFile = useMemo(
-    () =>
-      originFolder === null || originTree === null
-        ? null
-        : (path: string) =>
-            transport
-              .diffChanges(originFolder, originTree, path)
-              .then((answer) => parseUnifiedDiff(answer.patch)[0] ?? null),
-    [originFolder, originTree],
+    () => (singleOrigin === undefined ? null : fileReader(singleOrigin)),
+    [singleOrigin],
   )
 
   const onGit = git !== null && git.tab === 'git'
@@ -133,13 +175,16 @@ export function ChangesSidebar({
   const comments = useReview(reviewSession)
   // The file of a comment chosen in the review bar, shown in the tab it was written in.
   const [shown, setShown] = useState<{ path: string; commit: string | null } | null>(null)
-  const reviewFor = (commit: string | null): DiffReview | null =>
+  // With several repositories shown, a comment in the Changes tab names its repository, and each
+  // group marks only the lines of its own comments.
+  const reviewFor = (commit: string | null, repository: string | null = null): DiffReview | null =>
     reviewSession === null
       ? null
       : {
           commit,
-          comments,
-          onComment: (comment) => addComment(reviewSession, comment),
+          comments: comments.filter((c) => (c.repository ?? null) === repository),
+          onComment: (comment) =>
+            addComment(reviewSession, repository === null ? comment : { ...comment, repository }),
         }
   const showComment = (comment: ReviewComment) => {
     setShown({ path: comment.path, commit: comment.commit })
@@ -211,7 +256,7 @@ export function ChangesSidebar({
           </button>
         )}
       </div>
-      {reviewSession !== null && !onActivity && <FolderBar session={reviewSession} />}
+      {folders !== null && !onActivity && <FolderBar {...folders} />}
       {onActivity && reviewSession !== null && (
         <ActivityTab
           session={reviewSession}
@@ -282,10 +327,20 @@ export function ChangesSidebar({
                 : `${sinceLabel(state.position).toLowerCase()}.`}
             </p>
           )}
-          {state.status === 'ready' && files.length === 0 && (
+          {state.status === 'ready' && state.gone && (
+            <p className="panel-empty" role="status">
+              The snapshots of this run are gone.
+            </p>
+          )}
+          {state.status === 'ready' && state.kind === 'run' && state.live && (
+            <p className="panel-empty" role="status">
+              Shown live: this run has no end snapshot.
+            </p>
+          )}
+          {state.status === 'ready' && files.length === 0 && !state.gone && (
             <p className="panel-empty">
               {state.kind === 'run'
-                ? 'No step of this run recorded a change.'
+                ? 'This run has changed nothing.'
                 : state.base === 'commit'
                   ? 'Everything is committed.'
                   : state.position === null
@@ -300,29 +355,26 @@ export function ChangesSidebar({
               </button>
             </div>
           )}
-          {state.status === 'ready' && groups.length > 1 && (
-            <div className="changes-steps" role="group" aria-label="Steps">
-              {groups.map((g) => (
-                <button
-                  key={g.id}
-                  className="changes-step"
-                  aria-pressed={g.id === group?.id}
-                  onClick={() => setChosen({ visit: focusVisit, id: g.id })}
-                >
-                  {g.label}
-                </button>
-              ))}
-            </div>
-          )}
-          {state.status === 'ready' && files.length > 0 && group !== null && (
+          {state.status === 'ready' && files.length > 0 && single !== undefined && (
             <FileChanges
-              set={group.set}
+              set={single.set}
               focusFile={changesFocus}
-              resetKey={`${group.id}|${focusVisit ?? ''}|${changesFocus ?? ''}`}
+              resetKey={`${single.id}|${changesFocus ?? ''}`}
               readFile={readFile}
-              review={state.kind === 'session' ? reviewFor(null) : null}
+              review={reviewFor(null)}
             />
           )}
+          {state.status === 'ready' &&
+            files.length > 0 &&
+            groups.length > 1 &&
+            groups.map((g) => (
+              <RepositoryGroup
+                key={g.id}
+                group={g}
+                focusFile={changesFocus}
+                review={reviewFor(null, g.name)}
+              />
+            ))}
         </>
       )}
       {reviewSession !== null && (

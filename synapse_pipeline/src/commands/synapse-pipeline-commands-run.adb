@@ -240,6 +240,8 @@ package body Synapse.Pipeline.Commands.Run is
       else
          Go (False, "");
       end if;
+      --  The run has ended, completed or failed: its end is pinned too.
+      Recording.Finish (To_String (Settings.Working_Directory));
       if Run.Status = States.Failed then
          Complain (Env, "error: " & Cause_Of (Run) & LF);
          return 1;

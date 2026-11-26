@@ -1,3 +1,7 @@
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { expect, test } from './fixtures.ts'
 import { openSection, sidePanel, world } from './helpers.ts'
 
@@ -11,7 +15,11 @@ test('a run is started from a pipeline and followed to its end', async ({ page }
   await page.getByRole('button', { name: 'Run', exact: true }).click()
   // The box is ticked and disabled until the pipeline is checked, so wait for it to be free.
   await expect(page.getByLabel(/Run without a terminal/)).toBeEnabled()
+  // The folder is asked for whether the run has a terminal or not.
+  const folder = page.getByLabel(/Folder its agents work in/)
+  await expect(folder).toBeVisible()
   await page.getByLabel(/Run without a terminal/).check()
+  await expect(folder).toBeVisible()
   await page.getByRole('button', { name: 'Start run' }).click()
 
   // The page of the execution, which goes through the loop once.
@@ -50,6 +58,45 @@ test('a run is started from a pipeline and followed to its end', async ({ page }
   // The data, as a tree: its first level is open, the entry below it folded.
   await expect(requested.locator('.json-tree')).toContainText('problems:')
   await expect(requested.locator('.json-tree')).toContainText('{ 3 }')
+})
+
+test('a run without a terminal works in the folder it was given', async ({ page }) => {
+  const dir = mkdtempSync(join(tmpdir(), 'sd-run-folder-'))
+  const git = (...args: string[]) =>
+    execFileSync('git', ['-c', 'user.name=A', '-c', 'user.email=a@example.com', ...args], {
+      cwd: dir,
+    })
+  try {
+    git('init', '-q')
+    writeFileSync(join(dir, 'a.txt'), 'one\n')
+    git('add', '-A')
+    git('commit', '-q', '-m', 'first')
+
+    await page.goto('/')
+    await openSection(page, 'Definitions')
+    await sidePanel(page).getByRole('button', { name: 'Develop_Feature', exact: true }).click()
+    await page.getByRole('button', { name: 'Run', exact: true }).click()
+    await expect(page.getByLabel(/Run without a terminal/)).toBeEnabled()
+    await page.getByLabel(/Run without a terminal/).check()
+    await page.getByLabel(/Folder its agents work in/).fill(dir)
+    await page.getByRole('button', { name: 'Start run' }).click()
+    await expect(
+      page.locator('.content').getByText('completed', { exact: true }).first(),
+    ).toBeVisible({ timeout: 30_000 })
+
+    // The record of the run says it worked in that folder. `info` does not print the folder;
+    // `changes` does, as the Changes sidebar reads it.
+    const id = await page.getByRole('heading', { level: 1 }).innerText()
+    const brief = JSON.parse(
+      execFileSync('synapse-pipeline', ['changes', id.trim(), '--format', 'json'], {
+        encoding: 'utf8',
+      }),
+    ) as { directory: string | null }
+    expect(brief.directory).not.toBeNull()
+    expect(realpathSync(brief.directory!)).toBe(realpathSync(dir))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test("a run is started from the definitions list without the pipeline's page", async ({ page }) => {
