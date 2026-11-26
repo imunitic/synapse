@@ -3,14 +3,12 @@ import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { openSection, sidePanel, world } from './helpers.ts'
 
-// Opens Develop_Feature's page and its Clone dialog.
+// Opens the Clone dialog of Develop_Feature from its row in the pipelines list.
 async function openClone(page: Page) {
   await page.goto('/')
   await openSection(page, 'Definitions')
   await sidePanel(page).getByRole('button', { name: 'Pipelines' }).click()
-  await sidePanel(page).getByRole('button', { name: 'Develop_Feature', exact: true }).click()
-  await expect(page.getByRole('heading', { level: 1, name: 'Develop_Feature' })).toBeVisible()
-  await page.getByRole('button', { name: 'Clone', exact: true }).click()
+  await sidePanel(page).getByRole('button', { name: 'Clone Develop_Feature', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Clone Develop_Feature' })
   await expect(dialog).toBeVisible()
   return dialog

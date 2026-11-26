@@ -160,7 +160,7 @@ test.describe('the label of a run in the Executions list', () => {
     try {
       await page.goto('/')
       await openSection(page, 'Executions')
-      const row = (id: string) => sidePanel(page).locator('.list-item').filter({ hasText: id })
+      const row = (id: string) => sidePanel(page).locator(`.list-row[data-execution="${id}"]`)
       await expect(row('exec-label-a')).toContainText('interactive')
       await expect(row('exec-label-b')).toContainText('autonomous')
       await expect(row('exec-label-c')).toBeVisible()

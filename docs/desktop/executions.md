@@ -6,7 +6,7 @@ An execution is one run of a pipeline. The Executions panel lists the runs, and 
 
 ## Find a run
 
-The panel lists the runs, the newest first. Each row has the run's label, whether the run was interactive or autonomous, its status, its id and the step it is on. A run that waits for your answer says "needs you". The list follows new runs by itself; the refresh button reads it again now. Click a run to open its page.
+The panel lists the runs, the newest first. Each row shows the run's name, or its pipeline when it has none, with its status beside it. The line under it has the pipeline (for a named run), when the run started, whether it was interactive or autonomous, and the step it is on. Hover over a row to see the run's id. A run that waits for your answer says "needs you". The list follows new runs by itself; the refresh button reads it again now. Click a run to open its page.
 
 A run's label is its name when it has one, with the pipeline and the start time under it. A run without a name is labelled with its pipeline and its start time, for example "Develop_Feature · 26 Nov 12:59".
 

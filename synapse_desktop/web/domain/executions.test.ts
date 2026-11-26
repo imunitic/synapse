@@ -12,6 +12,7 @@ import {
   readSummary,
   removeExecutions,
   runLabel,
+  runRow,
   setRunName,
   waitingFor,
 } from './executions.ts'
@@ -359,5 +360,41 @@ describe('planCleanup', () => {
       ['cleanup', '--older-than', '7d', '--dry-run', '--format', 'json'],
       ['cleanup', '--all', '--dry-run', '--format', 'json'],
     ])
+  })
+})
+
+describe('the row of a run in the sidebar', () => {
+  const start = formatStartTime('2026-11-06T23:42:44+01:00')
+  const run: ExecutionSummary = {
+    ...(parseExecution('exec-04b1adfc', COMPLETED) as ExecutionSummary),
+    interactive: true,
+    currentStep: 'Review',
+  }
+
+  it('is the pipeline, with the start time, the kind of run and the step under it', () => {
+    expect(runRow({ ...run, name: null })).toEqual({
+      title: 'Develop_Feature',
+      details: [start, 'interactive', 'Review'],
+    })
+  })
+
+  it('is the name of a named run, with the pipeline first under it', () => {
+    expect(runRow({ ...run, name: 'Fix login', interactive: false, currentStep: null })).toEqual({
+      title: 'Fix login',
+      details: ['Develop_Feature', start, 'autonomous'],
+    })
+  })
+
+  it('leaves out what is not known', () => {
+    expect(
+      runRow({
+        ...run,
+        name: null,
+        pipeline: null,
+        started: null,
+        interactive: null,
+        currentStep: null,
+      }),
+    ).toEqual({ title: 'unknown pipeline', details: [] })
   })
 })

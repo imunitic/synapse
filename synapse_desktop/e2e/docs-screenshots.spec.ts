@@ -181,9 +181,7 @@ async function openNote(page: Page, folder: string, title: string) {
 async function openFixtureRun(page: Page) {
   await page.goto('/')
   await openSection(page, 'Executions')
-  await sidePanel(page)
-    .getByRole('button', { name: /exec-fixture1/ })
-    .click()
+  await sidePanel(page).locator('.list-row[data-execution="exec-fixture1"] .list-item').click()
   await expect(page.getByRole('heading', { level: 1, name: 'exec-fixture1' })).toBeVisible()
 }
 
@@ -257,7 +255,9 @@ test('the run dialog', async ({ page }) => {
 test('the executions', async ({ page }) => {
   await page.goto('/')
   await openSection(page, 'Executions')
-  await expect(sidePanel(page).getByRole('button', { name: /exec-fixture1/ })).toBeVisible()
+  await expect(
+    sidePanel(page).locator('.list-row[data-execution="exec-fixture1"] .list-item'),
+  ).toBeVisible()
   await shot(page, 'executions')
 })
 

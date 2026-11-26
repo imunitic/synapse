@@ -569,6 +569,34 @@
   overflow-wrap: anywhere;
 }
 
+/* A row title kept to one line, cut with an ellipsis, beside its badge. */
+.list-name-one-line {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.list-line .badge {
+  flex: none;
+}
+
+.list-note-one-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-header-actions {
+  flex-wrap: nowrap;
+  gap: 2px;
+}
+
+.panel-header-actions .subtab {
+  white-space: nowrap;
+}
+
 .list-note {
   font-size: 0.75rem;
   color: var(--muted);

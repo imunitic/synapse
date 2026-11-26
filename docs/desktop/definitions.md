@@ -40,7 +40,7 @@ To make a new definition, click the plus at the top of the panel. It makes one o
 
 ## Clone a pipeline
 
-Click "Clone" on a pipeline's page to make a copy of it under a new name. The name starts as the pipeline's name with "_Copy" added; change it as you like. A name has letters, digits and underscores and starts with a letter. A name that another definition already has is refused, and so is a name that breaks the rule: the dialog says why, and "Clone" stays disabled. Only the pipeline's own name changes in the copy. The copy uses the same systems, agents and skills. When the copy is written, its page opens; click "Edit" there to change it.
+Click the copy button on a pipeline's row in the Pipelines list, between its run and delete buttons, to make a copy of it under a new name. The name starts as the pipeline's name with "_Copy" added; change it as you like. A name has letters, digits and underscores and starts with a letter. A name that another definition already has is refused, and so is a name that breaks the rule: the dialog says why, and "Clone" stays disabled. Only the pipeline's own name changes in the copy. The copy uses the same systems, agents and skills. When the copy is written, its page opens; click "Edit" there to change it.
 
 ## Delete a definition
 

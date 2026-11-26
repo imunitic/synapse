@@ -114,15 +114,16 @@ async function runToCompletion(page: Page): Promise<string> {
   return (await page.locator('h1.page-title').innerText()).trim()
 }
 
-// The sidebar row of a run without a name, which shows its id.
+// The sidebar row of a run, found by its execution id.
 function runRow(page: Page, id: string) {
-  return sidePanel(page).locator('.list-row', { hasText: id })
+  return sidePanel(page).locator(`.list-row[data-execution="${id}"]`)
 }
 
 test('an unnamed run is labelled with its pipeline and start time', async ({ page }) => {
   const id = await runToCompletion(page)
   const row = runRow(page, id)
-  await expect(row).toContainText(/Develop_Feature · \d{1,2} \w{3} \d{2}:\d{2}/)
+  await expect(row.locator('.list-name')).toHaveText('Develop_Feature')
+  await expect(row.locator('.list-note')).toContainText(/^\d{1,2} \w{3} \d{2}:\d{2}/)
 })
 
 test('a finished run is deleted from its row', async ({ page }) => {
@@ -162,7 +163,7 @@ test('a run is renamed from its page', async ({ page }) => {
 
   await expect(page.locator('h1.page-title')).toHaveText('Second try')
   await expect(page.locator('.page-head p.mono')).toHaveText(id)
-  await expect(runRow(page, 'Second try')).toBeVisible()
+  await expect(runRow(page, id).locator('.list-name')).toHaveText('Second try')
   const line = listAll()
     .split('\n')
     .find((one) => one.startsWith(id))
@@ -465,9 +466,10 @@ test("a run is started from the definitions list without the pipeline's page", a
   const row = sidePanel(page).locator('.list-entry', { hasText: 'Develop_Feature' })
   // Play comes before the bin, so keyboard focus reaches it first.
   const actions = row.locator('.list-action')
-  await expect(actions).toHaveCount(2)
+  await expect(actions).toHaveCount(3)
   await expect(actions.nth(0)).toHaveAccessibleName('Run Develop_Feature')
-  await expect(actions.nth(1)).toHaveAccessibleName('Delete this pipeline')
+  await expect(actions.nth(1)).toHaveAccessibleName('Clone Develop_Feature')
+  await expect(actions.nth(2)).toHaveAccessibleName('Delete this pipeline')
   await row.getByRole('button', { name: 'Run Develop_Feature' }).click()
 
   const dialog = page.getByRole('dialog')
@@ -493,10 +495,7 @@ test('only pipelines have a run button in the list', async ({ page }) => {
 test('what an agent did in a step is read from its transcript', async ({ page }) => {
   await page.goto('/')
   await openSection(page, 'Executions')
-  await page
-    .getByLabel('Side panel')
-    .getByRole('button', { name: /exec-fixture1/ })
-    .click()
+  await runRow(page, 'exec-fixture1').locator('.list-item').click()
   await page.getByRole('button', { name: 'Activity' }).click()
 
   const activity = page.getByLabel('Trace')

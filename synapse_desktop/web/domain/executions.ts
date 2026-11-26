@@ -204,6 +204,20 @@ export function runLabel(run: ExecutionSummary): { title: string; note: string |
   return run.name === null ? { title: where, note: null } : { title: run.name, note: where }
 }
 
+// A run's row in the Executions sidebar: a title kept to one line, the name or else the pipeline,
+// and the details under it, in this order: the pipeline when the title is a name, the start time,
+// whether it runs in a terminal, and the step it is on.
+export function runRow(run: ExecutionSummary): { title: string; details: string[] } {
+  const pipeline = run.pipeline ?? 'unknown pipeline'
+  const details = [
+    run.name === null ? null : pipeline,
+    run.started === null ? null : formatStartTime(run.started),
+    run.interactive === null ? null : run.interactive ? 'interactive' : 'autonomous',
+    run.currentStep,
+  ].filter((detail): detail is string => detail !== null)
+  return { title: run.name ?? pipeline, details }
+}
+
 // Names a run, or clears its name when the trimmed name is empty. Throws with what the engine
 // said when it refuses.
 export async function setRunName(transport: Transport, id: string, name: string): Promise<void> {

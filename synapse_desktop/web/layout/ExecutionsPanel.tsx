@@ -5,6 +5,7 @@ import {
   listExecutions,
   removeExecutions,
   runLabel,
+  runRow,
   waitingFor,
   type CleanupResult,
   type ExecutionSummary,
@@ -109,7 +110,7 @@ export function ExecutionsPanel({
     <>
       <div className="panel-header">
         <h2 className="panel-title">Executions</h2>
-        <div className="row">
+        <div className="row panel-header-actions">
           {!selecting && (
             <>
               <button className="subtab" onClick={() => setSelected(new Set())}>
@@ -196,14 +197,13 @@ export function ExecutionsPanel({
       {load.status === 'ready' && (
         <div className="list">
           {load.data.map((run) => {
-            const label = runLabel(run)
-            const step = run.currentStep !== null ? ` · ${run.currentStep}` : ''
+            const row = runRow(run)
             return (
-              <div key={run.id} className="list-row">
+              <div key={run.id} className="list-row" data-execution={run.id}>
                 {selected !== null && (
                   <input
                     type="checkbox"
-                    aria-label={`Select ${label.title}`}
+                    aria-label={`Select ${row.title}`}
                     disabled={run.status === 'running'}
                     checked={selected.has(run.id)}
                     onChange={() => toggle(run.id)}
@@ -211,6 +211,7 @@ export function ExecutionsPanel({
                 )}
                 <button
                   className="list-item"
+                  title={run.id}
                   aria-current={state.activeId === `execution:${run.id}` ? 'true' : undefined}
                   onClick={() => {
                     if (selected === null)
@@ -219,12 +220,7 @@ export function ExecutionsPanel({
                   }}
                 >
                   <span className="list-line">
-                    <span className="list-name">{label.title}</span>
-                    {run.interactive !== null && (
-                      <span className="muted small">
-                        {run.interactive ? 'interactive' : 'autonomous'}
-                      </span>
-                    )}
+                    <span className="list-name list-name-one-line">{row.title}</span>
                     {waitingFor(run) !== null ? (
                       <span className="badge" data-status="waiting">
                         needs you
@@ -233,16 +229,8 @@ export function ExecutionsPanel({
                       <StatusBadge status={run.status} />
                     )}
                   </span>
-                  {label.note !== null ? (
-                    <span className="list-note">
-                      {label.note}
-                      {step}
-                    </span>
-                  ) : (
-                    <span className="list-note mono">
-                      {run.id}
-                      {step}
-                    </span>
+                  {row.details.length > 0 && (
+                    <span className="list-note list-note-one-line">{row.details.join(' · ')}</span>
                   )}
                 </button>
                 {selected === null && run.status !== 'running' && (
