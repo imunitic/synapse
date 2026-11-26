@@ -17,7 +17,10 @@ export function privateGatewayBind(env: Readonly<Record<string, string | undefin
 
 export function requireIngressProxy(bindAddress: string, proxies?: readonly string[]): void {
   if (bindAddress === '127.0.0.1') return
-  if (!proxies?.length || proxies.some((address) => typeof address !== 'string' || !isIP(address))) {
+  if (
+    !proxies?.length ||
+    proxies.some((address) => typeof address !== 'string' || !isIP(address))
+  ) {
     throw new Error('private ingress requires explicit trusted proxy IP addresses')
   }
 }
