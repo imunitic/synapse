@@ -153,7 +153,7 @@ describe('reading claude /usage', () => {
     expect(calls).toEqual([
       [
         '/bin/claude',
-        ['-p', '/usage', '--output-format', 'json'],
+        ['-p', '/usage', '--output-format', 'json', '--no-session-persistence'],
         { cwd: '/work', timeoutMs: 30_000 },
       ],
     ])

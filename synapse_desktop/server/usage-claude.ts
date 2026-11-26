@@ -13,8 +13,16 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 // The windows that count toward the bar item's colour and figure.
 const DECIDING = new Set(['Current session', 'Current week (all models)'])
 
-// The arguments Claude is run with, and how long a read may take; one takes about 4 seconds.
-export const CLAUDE_USAGE_ARGS = ['-p', '/usage', '--output-format', 'json']
+// The arguments Claude is run with, and how long a read may take; one takes about 4 seconds. The
+// session is not saved: a read every few minutes would otherwise leave a session in Claude's list
+// each time.
+export const CLAUDE_USAGE_ARGS = [
+  '-p',
+  '/usage',
+  '--output-format',
+  'json',
+  '--no-session-persistence',
+]
 export const CLAUDE_USAGE_TIMEOUT_MS = 30_000
 
 export interface ClaudeUsageDeps {

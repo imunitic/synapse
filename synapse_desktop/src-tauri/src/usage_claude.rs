@@ -31,8 +31,16 @@ const MONTHS: [&str; 12] = [
 /// The windows that count toward the bar item's colour and figure.
 const DECIDING: [&str; 2] = ["Current session", "Current week (all models)"];
 
-/// The arguments Claude is run with, and how long a read may take; one takes about 4 seconds.
-pub const CLAUDE_USAGE_ARGS: [&str; 4] = ["-p", "/usage", "--output-format", "json"];
+/// The arguments Claude is run with, and how long a read may take; one takes about 4 seconds. The
+/// session is not saved: a read every few minutes would otherwise leave a session in Claude's list
+/// each time.
+pub const CLAUDE_USAGE_ARGS: [&str; 5] = [
+    "-p",
+    "/usage",
+    "--output-format",
+    "json",
+    "--no-session-persistence",
+];
 pub const CLAUDE_USAGE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// What a program that ran printed, and its exit code.

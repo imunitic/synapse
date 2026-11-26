@@ -278,7 +278,8 @@ async fn reading_claude_runs_it_in_the_work_dir_and_reads_what_it_prints() {
                 "-p".to_string(),
                 "/usage".into(),
                 "--output-format".into(),
-                "json".into()
+                "json".into(),
+                "--no-session-persistence".into()
             ],
             PathBuf::from("/work"),
             Duration::from_secs(30),
