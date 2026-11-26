@@ -267,11 +267,14 @@ describe('private Synapse WebSocket gateway', () => {
 
   it('times out a stalled backend handshake and releases the connection slot', async () => {
     stallBackendA = true
-    expect(await connect('sid=a; instance=stalled')).toEqual({ refused: 502 })
+    expect(await connect('sid=a; instance=1')).toEqual({ refused: 502 })
     stallBackendA = false
-    const result = await connect('sid=a; instance=recovered')
-    if (!('socket' in result)) throw new Error('connection slot was not released after timeout')
-    expect(await result.next()).toEqual({ kind: 'hello', from: 'a' })
+    for (let instance = 2; instance <= 5; instance++) {
+      const result = await connect(`sid=a; instance=${instance}`)
+      if (!('socket' in result)) throw new Error('connection slot was not released after timeout')
+      expect(await result.next()).toEqual({ kind: 'hello', from: 'a' })
+    }
+    expect(await connect('sid=a; instance=6')).toEqual({ refused: 429, retryAfter: '5' })
   }, 10000)
 
   it('refuses a shared Node backend for separate authenticated accounts', () => {
