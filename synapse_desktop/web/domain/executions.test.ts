@@ -1,12 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import { fakeTransport } from './fake-transport.ts'
+import type { CliBinary, CliResult } from '../../shared/transport.ts'
 import {
+  type ExecutionSummary,
+  keptReasonText,
   listExecutions,
   parseEvents,
   parseExecution,
+  planCleanup,
   readExecution,
+  readSummary,
+  removeExecutions,
+  runLabel,
+  runRow,
+  setRunName,
   waitingFor,
 } from './executions.ts'
+import { formatStartTime } from './format.ts'
 
 // Records written by a real run (the scripted runner).
 const COMPLETED =
@@ -33,6 +43,7 @@ describe('parseExecution', () => {
   it('reads a completed record', () => {
     expect(parseExecution('exec-04b1adfc', COMPLETED)).toEqual({
       id: 'exec-04b1adfc',
+      name: null,
       pipeline: 'Develop_Feature',
       status: 'completed',
       started: '2026-11-06T23:42:44+01:00',
@@ -209,5 +220,181 @@ describe('readExecution', () => {
       files: { '/w/pipelines/exec-04b1adfc/execution.json': COMPLETED },
     })
     expect((await readExecution(transport, 'exec-04b1adfc')).events).toEqual([])
+  })
+})
+
+describe('run names', () => {
+  it('reads the name from the record and trims it', async () => {
+    const transport = fakeTransport({
+      paths,
+      files: {
+        '/w/pipelines/exec-04b1adfc/execution.json': COMPLETED,
+        '/w/pipelines/exec-04b1adfc/name': '  Fix login \n',
+      },
+    })
+    expect((await readSummary(transport, 'exec-04b1adfc')).name).toBe('Fix login')
+  })
+
+  it('gives no name when the name file is missing or empty', async () => {
+    const transport = fakeTransport({
+      paths,
+      files: {
+        '/w/pipelines/exec-04b1adfc/execution.json': COMPLETED,
+        '/w/pipelines/exec-07baedc0/execution.json': FAILED,
+        '/w/pipelines/exec-07baedc0/name': '   ',
+      },
+    })
+    expect((await readSummary(transport, 'exec-04b1adfc')).name).toBeNull()
+    expect((await readSummary(transport, 'exec-07baedc0')).name).toBeNull()
+  })
+
+  it('labels a named run with its name, and the pipeline and start under it', () => {
+    const run = parseExecution('exec-04b1adfc', COMPLETED) as ExecutionSummary
+    const start = formatStartTime('2026-11-06T23:42:44+01:00')
+    expect(runLabel({ ...run, name: 'Fix login' })).toEqual({
+      title: 'Fix login',
+      note: `Develop_Feature · ${start}`,
+    })
+  })
+
+  it('labels an unnamed run with the pipeline and start, and no note', () => {
+    const run = parseExecution('exec-04b1adfc', COMPLETED) as ExecutionSummary
+    const start = formatStartTime('2026-11-06T23:42:44+01:00')
+    expect(runLabel(run)).toEqual({ title: `Develop_Feature · ${start}`, note: null })
+    expect(runLabel({ ...run, pipeline: null }).title).toBe(`unknown pipeline · ${start}`)
+  })
+})
+
+// A transport whose CLI records each call and answers with `answer`.
+function cliTransport(answer: (args: readonly string[]) => CliResult) {
+  const calls: (readonly string[])[] = []
+  const transport = fakeTransport({
+    paths,
+    files: {},
+    cli: (_binary: CliBinary, args) => {
+      calls.push(args)
+      return answer(args)
+    },
+  })
+  return { transport, calls }
+}
+
+function cleanupAnswer(removed: string[], kept: { id: string; reason: string }[] = []): CliResult {
+  const document = { format: 'synapse-pipeline-cleanup/v1', dry_run: false, removed, kept }
+  return { code: kept.length > 0 ? 1 : 0, stdout: JSON.stringify(document), stderr: '' }
+}
+
+describe('setRunName', () => {
+  it('names a run', async () => {
+    const { transport, calls } = cliTransport(() => ({ code: 0, stdout: '', stderr: '' }))
+    await setRunName(transport, 'exec-a', '  Second try ')
+    expect(calls).toEqual([['name', 'exec-a', 'Second try']])
+  })
+
+  it('clears the name when the name is empty', async () => {
+    const { transport, calls } = cliTransport(() => ({ code: 0, stdout: '', stderr: '' }))
+    await setRunName(transport, 'exec-a', '   ')
+    expect(calls).toEqual([['name', 'exec-a']])
+  })
+
+  it('throws with what the engine said when it refuses', async () => {
+    const { transport } = cliTransport(() => ({
+      code: 1,
+      stdout: '',
+      stderr: 'error: no execution exec-a\n',
+    }))
+    await expect(setRunName(transport, 'exec-a', 'x')).rejects.toThrow('error: no execution exec-a')
+  })
+})
+
+describe('removeExecutions', () => {
+  it('sends 65 ids in three batches and merges what they answer', async () => {
+    const ids = Array.from({ length: 65 }, (_, i) => `exec-${i}`)
+    const { transport, calls } = cliTransport((args) => {
+      const batch = args.slice(3)
+      return batch.includes('exec-64')
+        ? cleanupAnswer(
+            batch.filter((id) => id !== 'exec-64'),
+            [{ id: 'exec-64', reason: 'running' }],
+          )
+        : cleanupAnswer([...batch])
+    })
+    const result = await removeExecutions(transport, ids)
+    expect(calls.map((c) => c.length - 3)).toEqual([30, 30, 5])
+    expect(calls.every((c) => c.slice(0, 3).join(' ') === 'cleanup --format json')).toBe(true)
+    expect(result.removed).toEqual(ids.slice(0, 64))
+    expect(result.kept).toEqual([{ id: 'exec-64', reason: 'running' }])
+  })
+
+  it('throws with the stderr text when the answer is not JSON', async () => {
+    const { transport } = cliTransport(() => ({
+      code: 2,
+      stdout: 'usage: ...',
+      stderr: 'error: unknown option',
+    }))
+    await expect(removeExecutions(transport, ['exec-a'])).rejects.toThrow('error: unknown option')
+  })
+})
+
+describe('keptReasonText', () => {
+  it('says each reason the engine gives in words', () => {
+    expect(keptReasonText('running')).toBe('running')
+    expect(keptReasonText('not_found')).toBe('not found')
+    expect(keptReasonText('cannot_remove')).toBe('cannot be removed')
+  })
+
+  it('shows a reason it does not know as the engine wrote it', () => {
+    expect(keptReasonText('too_recent')).toBe('too_recent')
+  })
+})
+
+describe('planCleanup', () => {
+  it('asks for a dry run of the age cleanup, and of the cleanup of every finished run', async () => {
+    const { transport, calls } = cliTransport(() => cleanupAnswer(['exec-old']))
+    expect(await planCleanup(transport, { kind: 'olderThan', days: 7 })).toEqual({
+      removed: ['exec-old'],
+      kept: [],
+    })
+    await planCleanup(transport, { kind: 'all' })
+    expect(calls).toEqual([
+      ['cleanup', '--older-than', '7d', '--dry-run', '--format', 'json'],
+      ['cleanup', '--all', '--dry-run', '--format', 'json'],
+    ])
+  })
+})
+
+describe('the row of a run in the sidebar', () => {
+  const start = formatStartTime('2026-11-06T23:42:44+01:00')
+  const run: ExecutionSummary = {
+    ...(parseExecution('exec-04b1adfc', COMPLETED) as ExecutionSummary),
+    interactive: true,
+    currentStep: 'Review',
+  }
+
+  it('is the pipeline, with the start time, the kind of run and the step under it', () => {
+    expect(runRow({ ...run, name: null })).toEqual({
+      title: 'Develop_Feature',
+      details: [start, 'interactive', 'Review'],
+    })
+  })
+
+  it('is the name of a named run, with the pipeline first under it', () => {
+    expect(runRow({ ...run, name: 'Fix login', interactive: false, currentStep: null })).toEqual({
+      title: 'Fix login',
+      details: ['Develop_Feature', start, 'autonomous'],
+    })
+  })
+
+  it('leaves out what is not known', () => {
+    expect(
+      runRow({
+        ...run,
+        name: null,
+        pipeline: null,
+        started: null,
+        interactive: null,
+        currentStep: null,
+      }),
+    ).toEqual({ title: 'unknown pipeline', details: [] })
   })
 })

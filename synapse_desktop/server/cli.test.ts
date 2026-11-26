@@ -10,6 +10,11 @@ describe('refuseCli', () => {
     }
   })
 
+  it('synapse-pipeline name is allowed', () => {
+    expect(refuseCli('synapse-pipeline', ['name', 'synapse-001', 'Fix login'])).toBeNull()
+    expect(refuseCli('synapse-pipeline', ['name', 'synapse-001'])).toBeNull()
+  })
+
   it('refuses run, which is started through startRun', () => {
     expect(refuseCli('synapse-pipeline', ['run', 'p'])).toMatch(/not allowed/)
   })

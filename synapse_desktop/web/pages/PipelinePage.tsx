@@ -220,8 +220,8 @@ export function PipelinePage({
   path: string
   onOpen: (page: Page) => void
   onEdit: () => void
-  // An interactive run of this pipeline is started in the terminals, with this input.
-  onStartInteractive: (input: unknown, folder: string) => void
+  // An interactive run of this pipeline is started in the terminals, with this input and name.
+  onStartInteractive: (input: unknown, folder: string, runName?: string) => void
 }) {
   const load = useCallback(async () => {
     const [described, skills] = await Promise.all([
@@ -276,9 +276,9 @@ export function PipelinePage({
             setRunning(false)
             onOpen({ kind: 'execution', id })
           }}
-          onStartInteractive={(input, folder) => {
+          onStartInteractive={(input, folder, runName) => {
             setRunning(false)
-            onStartInteractive(input, folder)
+            onStartInteractive(input, folder, runName)
           }}
           defaultFolder={config.status === 'ready' ? (config.config.terminalFolder ?? '') : ''}
         />

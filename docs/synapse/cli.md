@@ -592,14 +592,17 @@ usage: synapse-pipeline <subcommand> [args]
          every pipeline, system and agent there is, and what is wrong with a file
   next <pipeline> [--input <file>|-] | --state <file>|- --result <file>|-
          the state a run starts in, or the state after a step's result
-  run <pipeline> [--input <file>|-] [--id <execution-id>] [--interactive]
+  run <pipeline> [--input <file>|-] [--id <execution-id>] [--name <text>] [--interactive]
          run a pipeline to its end
   list [--all]   the pipelines running now, or all that were run
   info <execution-id> [--format json|text] [--query <rule>] | --events
          what a pipeline says about itself, running or not
+  name <execution-id> [<text>]
+         name a run, or remove its name when no text is given
   changes <execution-id> [--step <name>] [--format json|text]
          what the steps of a run changed in the folder they worked in
-  cleanup [--older-than <duration>] [--dry-run] [--all]
+  cleanup [--older-than <duration>] [--dry-run] [--all] [--format json|text]
+  cleanup [--dry-run] [--format json|text] <execution-id>...
          remove the records of executions that are over
   configure <claude|codex|opencode>
          install the skills of this program for a harness
@@ -717,7 +720,7 @@ Environment:
 ### synapse-pipeline run
 
 ```
-usage: synapse-pipeline run <pipeline> [--input <file>|-] [--id <execution-id>] [--interactive]
+usage: synapse-pipeline run <pipeline> [--input <file>|-] [--id <execution-id>] [--name <text>] [--interactive]
 
 Runs the pipeline from its first step, one agent session per step, and prints
 the last step's result as JSON on standard output. One line per step goes to
@@ -729,6 +732,8 @@ standard error as it finishes. The exit code is 0 when the run completes and
   --id <id>        the id of the execution, 1 to 64 letters, digits, '_' and
                    '-', instead of one drawn; it needs a work directory, and
                    an id that is taken is an error
+  --name <text>    a name for the run, one line of 1 to 120 characters, shown
+                   by 'list' and 'info'; it needs a work directory to be kept
   --interactive    run each step's harness on this terminal, where a person can
                    watch it and answer it; the step ends when the agent gives
                    its result. Every step's harness must be able to ('check
@@ -763,7 +768,8 @@ Environment:
 usage: synapse-pipeline list [--all]
 
 Lists the runs in progress that were started with the same work directory, one
-line each: its execution id, pipeline, status and current step. A run that has
+line each: its execution id, name, pipeline, status and current step. The name
+is empty for a run that has none. A run that has
 ended, or that died without cleaning up, is not listed. Nothing is printed when
 there is none.
 
@@ -783,9 +789,11 @@ usage: synapse-pipeline info <execution-id> [--format json|text] [--query <rule>
 
 Asks a run in progress about itself, or reads the record of one that is over.
 Without --query it prints the run in brief:
-execution id, pipeline, status, current step, steps run and the failure if there
-is one. With --query it prints the answer to a JsonLogic rule that the run
-evaluates over its brief, its state under 'state' and its events under 'events'.
+execution id, name, pipeline, status, current step, steps run and the failure
+if there is one. The name line is left out for a run that has none, and
+--format json does not carry it. With --query it prints the answer to a
+JsonLogic rule that the run evaluates over its brief, its state under 'state'
+and its events under 'events'.
 Nothing can be started, stopped or changed this way.
 
   --format text   for a person (the default); a string answer is printed bare
@@ -793,6 +801,22 @@ Nothing can be started, stopped or changed this way.
   --query <rule>  a JsonLogic rule, such as '{"var": "current_step"}'; needs a run that is listening
   --events        the events recorded for the execution, one JSON object a line,
                   from its record; for a run in progress or one that is over
+
+Environment:
+  SYNAPSE_WORK_DIR  the work directory the run was recorded under (default
+                    ~/.cache/synapse/work)
+```
+
+### synapse-pipeline name
+
+```
+usage: synapse-pipeline name <execution-id> [<text>]
+
+Names an execution, so that 'list' and 'info' show which run it is. The name is
+one line of 1 to 120 characters, not only spaces; it replaces the name the run
+had. With no text the name is removed. The run may be going on or over: the
+name is kept in its record, and the run itself is not asked. Nothing is printed
+when it succeeds; an execution the work directory does not hold is an error.
 
 Environment:
   SYNAPSE_WORK_DIR  the work directory the run was recorded under (default
@@ -831,18 +855,27 @@ Environment:
 ### synapse-pipeline cleanup
 
 ```
-usage: synapse-pipeline cleanup [--older-than <duration>] [--dry-run] [--all]
+usage: synapse-pipeline cleanup [--older-than <duration>] [--dry-run] [--all] [--format json|text]
+       synapse-pipeline cleanup [--dry-run] [--format json|text] <execution-id>...
 
 Removes the records of executions that are over: each one's directory, with its
 summary, events and transcripts. An execution that is running, because its socket
 answers, is never removed. One that does not answer is removed once its last
 write is older than the age given, 30 days when none is.
 
+Given execution ids, it removes those, whatever their age or status. One that
+is running, or is not recorded, is kept and named on stderr, and the exit code
+is 1.
+
   --older-than <duration>  the age to keep, a number and d, h, m or s, such as 90d
   --dry-run                say what would be removed and remove nothing
   --all                    also remove the executions that completed or failed,
                            whatever their age; one that was interrupted is still
                            kept until it is old enough
+  --format json|text       text (the default) prints a line per execution; json
+                           prints one synapse-pipeline-cleanup/v1 document instead,
+                           with the executions removed and the ones kept and why
+                           (running, too_recent, not_found, cannot_remove)
 
 Environment:
   SYNAPSE_WORK_DIR  the work directory the runs were recorded under (default

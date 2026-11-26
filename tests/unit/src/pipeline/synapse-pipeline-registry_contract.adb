@@ -178,8 +178,26 @@ package body Synapse.Pipeline.Registry_Contract is
         (not S.Read_Definition (A, "../execution.json").Found,
          "and cannot be read either");
 
+      --  A name is written, read back and replaced.
+      Assert (not S.Read_Name (A).Found, "a fresh execution has no name");
+      Assert (S.Replace_Name (A, "Fix login"), "a name is written");
+      Assert
+        (Text_Of (S.Read_Name (A)) = "Fix login",
+         "and read back: " & Text_Of (S.Read_Name (A)));
+      Assert (S.Replace_Name (A, "Second try"), "a name is replaced");
+      Assert
+        (Text_Of (S.Read_Name (A)) = "Second try",
+         "the new name is all there is: " & Text_Of (S.Read_Name (A)));
+
+      --  An empty name removes the name file.
+      Assert (S.Replace_Name (A, ""), "an empty name is written");
+      Assert (not S.Read_Name (A).Found, "and leaves no name");
+      Assert (S.Replace_Name (A, ""), "removing a name that is gone works");
+      Assert (S.Replace_Name (A, "Kept"), "a name is written again");
+
       Assert
         (not S.Replace_Summary (B, "x") and then not S.Append_Event (B, "x")
+         and then not S.Replace_Name (B, "x")
          and then not S.Write_Transcript (B, "t", "x")
          and then not S.Write_Description (B, "x")
          and then not S.Write_Patch (B, "1-S-1.patch", "x")
@@ -193,6 +211,7 @@ package body Synapse.Pipeline.Registry_Contract is
          and then not S.Read_Patch (B, "1-S-1.patch").Found
          and then not S.Read_Output (B, "1-S-1.json").Found
          and then not S.Read_Description (B).Found
+         and then not S.Read_Name (B).Found
          and then not S.Read_Definition (B, "synapse-pipeline/P.synapse").Found,
          "and nothing is read for it");
 
@@ -206,6 +225,8 @@ package body Synapse.Pipeline.Registry_Contract is
          and then S.Patch_Names (A).Is_Empty
          and then not S.Read_Definition (A, "synapse-pipeline/P.synapse").Found,
          "of what it ran and changed as well");
+      Assert
+        (not S.Read_Name (A).Found, "a removed execution has no name");
       Assert (S.Remove (A), "removing it again is not a failure");
       Assert
         (S.Create (A) = Registry_Store.Created,

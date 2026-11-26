@@ -819,3 +819,33 @@ describe('the run dialog', () => {
     expect(state.tabs).toBe(opened.tabs)
   })
 })
+
+describe('removed executions', () => {
+  const opened = run(
+    [
+      { type: 'openPage', page: { kind: 'execution', id: 'r1' } },
+      { type: 'openPage', page: { kind: 'execution', id: 'r2' } },
+      { type: 'openPage', page: { kind: 'execution', id: 'r3' } },
+      { type: 'activateTab', id: 'execution:r3' },
+    ],
+    startState,
+  )
+
+  it('closes the tabs of the removed runs and leaves another run alone', () => {
+    const next = reduce(opened, { type: 'executionsRemoved', ids: ['r1', 'r2'] })
+    expect(next.tabs.map((t) => t.id)).toEqual(['home', 'execution:r3'])
+    expect(next.activeId).toBe('execution:r3')
+  })
+
+  it('moves the active tab as closing it would', () => {
+    const onR2 = reduce(opened, { type: 'activateTab', id: 'execution:r2' })
+    const next = reduce(onR2, { type: 'executionsRemoved', ids: ['r2'] })
+    expect(next.tabs.map((t) => t.id)).toEqual(['home', 'execution:r1', 'execution:r3'])
+    expect(next.activeId).toBe(reduce(onR2, { type: 'closeTab', id: 'execution:r2' }).activeId)
+    expect(next.activeId).toBe('execution:r3')
+  })
+
+  it('changes nothing for ids with no open tab', () => {
+    expect(reduce(opened, { type: 'executionsRemoved', ids: ['gone', 'other'] })).toEqual(opened)
+  })
+})

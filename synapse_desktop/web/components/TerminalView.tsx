@@ -128,6 +128,7 @@ export function TerminalView({
             ...(session.resume === undefined ? {} : { resume: session.resume }),
             ...(session.pipeline === undefined ? {} : { pipeline: session.pipeline }),
             ...(session.input === undefined ? {} : { input: session.input }),
+            ...(session.runName === undefined ? {} : { runName: session.runName }),
             cols: terminal.cols,
             rows: terminal.rows,
           },

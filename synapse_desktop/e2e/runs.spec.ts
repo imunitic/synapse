@@ -1,7 +1,17 @@
-import { execFileSync } from 'node:child_process'
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures.ts'
 import { openSection, sidePanel, world } from './helpers.ts'
 
@@ -60,6 +70,357 @@ test('a run is started from a pipeline and followed to its end', async ({ page }
   await expect(requested.locator('.json-tree')).toContainText('{ 3 }')
 })
 
+test('a run started with a name shows the name', async ({ page }) => {
+  await page.goto('/')
+  await openSection(page, 'Definitions')
+  await sidePanel(page).getByRole('button', { name: 'Develop_Feature', exact: true }).click()
+  await page.getByRole('button', { name: 'Run', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByLabel(/Run without a terminal/)).toBeEnabled()
+  await dialog.getByLabel(/Run without a terminal/).check()
+  await dialog.getByLabel('Name (optional)').fill('  Fix login  ')
+  await dialog.getByRole('button', { name: 'Start run' }).click()
+
+  // The page's title is the name, and the id is under it.
+  await expect(page.locator('h1.page-title')).toHaveText('Fix login')
+  const id = (await page.locator('.page-head p.mono').innerText()).trim()
+
+  // The engine recorded the name of the run the dialog started, trimmed.
+  const info = spawnSync('synapse-pipeline', ['info', id], {
+    encoding: 'utf8',
+    env: { ...process.env, XDG_CONFIG_HOME: world().xdg, SYNAPSE_WORK_DIR: world().work },
+  })
+  expect(info.stderr).toBe('')
+  expect(info.stdout).toMatch(/^name {7}Fix login$/m)
+
+  // The run's row in the sidebar is labelled with its name.
+  await expect(sidePanel(page).locator('.list-row', { hasText: 'Fix login' }).first()).toBeVisible()
+})
+
+// Starts a run of Develop_Feature without a terminal and waits for it to complete; returns its id.
+async function runToCompletion(page: Page): Promise<string> {
+  await page.goto('/')
+  await openSection(page, 'Definitions')
+  await sidePanel(page).getByRole('button', { name: 'Develop_Feature', exact: true }).click()
+  await page.getByRole('button', { name: 'Run', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByLabel(/Run without a terminal/)).toBeEnabled()
+  await dialog.getByLabel(/Run without a terminal/).check()
+  await dialog.getByRole('button', { name: 'Start run' }).click()
+  await expect(page.getByText('Execution', { exact: true })).toBeVisible()
+  await expect(
+    page.locator('.content').getByText('completed', { exact: true }).first(),
+  ).toBeVisible({ timeout: 30_000 })
+  return (await page.locator('h1.page-title').innerText()).trim()
+}
+
+// The sidebar row of a run, found by its execution id.
+function runRow(page: Page, id: string) {
+  return sidePanel(page).locator(`.list-row[data-execution="${id}"]`)
+}
+
+test('an unnamed run is labelled with its pipeline and start time', async ({ page }) => {
+  const id = await runToCompletion(page)
+  const row = runRow(page, id)
+  await expect(row.locator('.list-name')).toHaveText('Develop_Feature')
+  await expect(row.locator('.list-note')).toContainText(/^\d{1,2} \w{3} \d{2}:\d{2}/)
+})
+
+test('a finished run is deleted from its row', async ({ page }) => {
+  const id = await runToCompletion(page)
+  const tab = await page.locator('.tabbar .tab[data-selected="true"] [role="tab"]').innerText()
+  const row = runRow(page, id)
+  let asked = ''
+  page.once('dialog', (d) => {
+    asked = d.message()
+    void d.accept()
+  })
+  await row.getByRole('button', { name: 'Delete this run' }).click()
+
+  await expect(row).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: tab, exact: true })).toHaveCount(0)
+  expect(asked).toContain('Delete the record of this run?')
+  expect(existsSync(join(world().work, 'pipelines', id))).toBe(false)
+})
+
+// What `synapse-pipeline list --all` prints in this test's world.
+function listAll(): string {
+  const list = spawnSync('synapse-pipeline', ['list', '--all'], {
+    encoding: 'utf8',
+    env: { ...process.env, XDG_CONFIG_HOME: world().xdg, SYNAPSE_WORK_DIR: world().work },
+  })
+  expect(list.stderr).toBe('')
+  return list.stdout
+}
+
+test('a run is renamed from its page', async ({ page }) => {
+  const id = await runToCompletion(page)
+  await page.getByRole('button', { name: 'Rename this run' }).click()
+  const field = page.getByLabel('Name of this run')
+  await expect(field).toHaveValue('')
+  await field.fill('Second try')
+  await field.press('Enter')
+
+  await expect(page.locator('h1.page-title')).toHaveText('Second try')
+  await expect(page.locator('.page-head p.mono')).toHaveText(id)
+  await expect(runRow(page, id).locator('.list-name')).toHaveText('Second try')
+  const line = listAll()
+    .split('\n')
+    .find((one) => one.startsWith(id))
+  expect(line).toMatch(new RegExp(`^${id}\\s+Second try\\s+Develop_Feature`))
+})
+
+test('Escape cancels a rename', async ({ page }) => {
+  const id = await runToCompletion(page)
+  await page.getByRole('button', { name: 'Rename this run' }).click()
+  const field = page.getByLabel('Name of this run')
+  await field.fill('Not kept')
+  await field.press('Escape')
+
+  await expect(field).toHaveCount(0)
+  await expect(page.locator('h1.page-title')).toHaveText(id)
+  expect(existsSync(join(world().work, 'pipelines', id, 'name'))).toBe(false)
+})
+
+test('a finished run is deleted from its page', async ({ page }) => {
+  const id = await runToCompletion(page)
+  const tab = await page.locator('.tabbar .tab[data-selected="true"] [role="tab"]').innerText()
+  let asked = ''
+  page.once('dialog', (d) => {
+    asked = d.message()
+    void d.accept()
+  })
+  await page.locator('.head-actions').getByRole('button', { name: 'Delete', exact: true }).click()
+
+  await expect(page.getByRole('tab', { name: tab, exact: true })).toHaveCount(0)
+  await expect(runRow(page, id)).toHaveCount(0)
+  expect(asked).toContain('Delete the record of this run?')
+  expect(existsSync(join(world().work, 'pipelines', id))).toBe(false)
+})
+
+test("a running run's row has no delete button", async ({ page }) => {
+  await page.goto('/')
+  await openSection(page, 'Definitions')
+  await sidePanel(page).getByRole('button', { name: 'Fixture_Run', exact: true }).click()
+  await page.getByRole('button', { name: 'Run', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel(/Folder its agents work in/).fill(world().root)
+  await dialog.getByRole('button', { name: 'Start run' }).click()
+  await expect(page.getByText('Execution', { exact: true })).toBeVisible({ timeout: 30_000 })
+  const id = (await page.locator('h1.page-title').innerText()).trim()
+
+  const row = runRow(page, id)
+  await expect(row.getByText('running', { exact: true })).toBeVisible({ timeout: 30_000 })
+  await expect(row.getByRole('button', { name: 'Delete this run' })).toHaveCount(0)
+  // A finished run's row beside it has one.
+  await expect(
+    runRow(page, 'exec-fixture1').getByRole('button', { name: 'Delete this run' }),
+  ).toHaveCount(1)
+
+  page.once('dialog', (d) => void d.accept())
+  await page.getByRole('button', { name: 'Stop run' }).click()
+  await expect(page.getByRole('region', { name: 'Terminal', exact: true })).toHaveCount(0)
+})
+
+test('several runs are deleted in selection mode', async ({ page }) => {
+  const first = await runToCompletion(page)
+  const second = await runToCompletion(page)
+  const selectedTab = page.locator('.tabbar .tab[data-selected="true"] [role="tab"]')
+  const secondTab = await selectedTab.innerText()
+  // Both runs' pages are open.
+  await runRow(page, first).locator('.list-item').click()
+  await expect(page.locator('h1.page-title')).toHaveText(first)
+  const firstTab = await selectedTab.innerText()
+  const panel = sidePanel(page)
+  await panel.getByRole('button', { name: 'Select', exact: true }).click()
+  await runRow(page, first).getByRole('checkbox').check()
+  // Clicking a row ticks it rather than opening its page.
+  await runRow(page, second).locator('.list-item').click()
+  await expect(runRow(page, second).getByRole('checkbox')).toBeChecked()
+  await expect(panel.getByText('2 selected')).toBeVisible()
+  await expect(panel.getByRole('button', { name: 'Delete this run' })).toHaveCount(0)
+  let asked = ''
+  page.once('dialog', (d) => {
+    asked = d.message()
+    void d.accept()
+  })
+  await panel.getByRole('button', { name: 'Delete 2' }).click()
+
+  await expect(runRow(page, first)).toHaveCount(0)
+  await expect(runRow(page, second)).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: firstTab, exact: true })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: secondTab, exact: true })).toHaveCount(0)
+  expect(asked).toContain('Delete the records of 2 runs?')
+  expect(existsSync(join(world().work, 'pipelines', first))).toBe(false)
+  expect(existsSync(join(world().work, 'pipelines', second))).toBe(false)
+  // Selection mode is left.
+  await expect(panel.getByRole('checkbox')).toHaveCount(0)
+})
+
+test('Select all leaves out a running run', async ({ page }) => {
+  await page.goto('/')
+  await openSection(page, 'Definitions')
+  await sidePanel(page).getByRole('button', { name: 'Fixture_Run', exact: true }).click()
+  await page.getByRole('button', { name: 'Run', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel(/Folder its agents work in/).fill(world().root)
+  await dialog.getByRole('button', { name: 'Start run' }).click()
+  await expect(page.getByText('Execution', { exact: true })).toBeVisible({ timeout: 30_000 })
+  const id = (await page.locator('h1.page-title').innerText()).trim()
+  const running = runRow(page, id)
+  await expect(running.getByText('running', { exact: true })).toBeVisible({ timeout: 30_000 })
+
+  const panel = sidePanel(page)
+  await panel.getByRole('button', { name: 'Select', exact: true }).click()
+  await panel.getByRole('button', { name: 'Select all' }).click()
+  await expect(running.getByRole('checkbox')).toBeDisabled()
+  await expect(running.getByRole('checkbox')).not.toBeChecked()
+  await expect(runRow(page, 'exec-fixture1').getByRole('checkbox')).toBeChecked()
+  const finished = await panel.getByRole('checkbox', { checked: true }).count()
+  expect(finished).toBeGreaterThan(0)
+  await expect(panel.getByText(`${finished} selected`)).toBeVisible()
+  // Pressed again with every one ticked, it clears the selection.
+  await panel.getByRole('button', { name: 'Select all' }).click()
+  await expect(panel.getByText('0 selected')).toBeVisible()
+  await expect(panel.getByRole('button', { name: 'Delete 0' })).toBeDisabled()
+  await panel.getByRole('button', { name: 'Cancel' }).click()
+
+  page.once('dialog', (d) => void d.accept())
+  await page.getByRole('button', { name: 'Stop run' }).click()
+  await expect(page.getByRole('region', { name: 'Terminal', exact: true })).toHaveCount(0)
+})
+
+test('Escape leaves selection mode and deletes nothing', async ({ page }) => {
+  const id = await runToCompletion(page)
+  const panel = sidePanel(page)
+  await panel.getByRole('button', { name: 'Select', exact: true }).click()
+  await runRow(page, id).getByRole('checkbox').check()
+  await expect(panel.getByText('1 selected')).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await expect(panel.getByRole('checkbox')).toHaveCount(0)
+  await expect(panel.getByRole('button', { name: 'Select', exact: true })).toBeVisible()
+  await expect(runRow(page, id)).toHaveCount(1)
+  expect(existsSync(join(world().work, 'pipelines', id))).toBe(true)
+})
+
+// The world's finished fixture run, which later tests read, is put back as it was after a test that
+// removes every run: its record and the refs that pin its snapshots.
+function keepFixtureRun(): () => void {
+  const id = 'exec-fixture1'
+  const record = join(world().work, 'pipelines', id)
+  const saved = mkdtempSync(join(tmpdir(), 'sd-fixture-run-'))
+  cpSync(record, saved, { recursive: true, preserveTimestamps: true })
+  const refs = execFileSync(
+    'git',
+    ['for-each-ref', '--format=%(refname) %(objectname)', `refs/synapse/runs/${id}/`],
+    { cwd: world().project, encoding: 'utf8' },
+  )
+    .split('\n')
+    .filter((line) => line !== '')
+  return () => {
+    rmSync(record, { recursive: true, force: true })
+    cpSync(saved, record, { recursive: true, preserveTimestamps: true })
+    for (const line of refs) {
+      const [name, object] = line.split(' ')
+      if (name === undefined || object === undefined) continue
+      execFileSync('git', ['update-ref', name, object], { cwd: world().project })
+    }
+    rmSync(saved, { recursive: true, force: true })
+  }
+}
+
+// Removes every run that is not running, as the engine does when asked to.
+function removeEveryRun(): void {
+  const cleanup = spawnSync('synapse-pipeline', ['cleanup', '--older-than', '0s'], {
+    encoding: 'utf8',
+    env: { ...process.env, XDG_CONFIG_HOME: world().xdg, SYNAPSE_WORK_DIR: world().work },
+  })
+  expect(cleanup.status, cleanup.stderr).toBe(0)
+}
+
+// The Clean up dialog, opened from the panel.
+async function openCleanup(page: Page) {
+  await sidePanel(page).getByRole('button', { name: 'Clean up', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Clean up runs' })
+  await expect(dialog).toBeVisible()
+  return dialog
+}
+
+test('clean up previews and removes every finished run', async ({ page }) => {
+  const restore = keepFixtureRun()
+  try {
+    removeEveryRun()
+    const first = await runToCompletion(page)
+    const second = await runToCompletion(page)
+    const dialog = await openCleanup(page)
+    await dialog.getByRole('radio', { name: 'Every finished run' }).check()
+    await expect(dialog).toContainText('An interrupted run is kept until it is 30 days old.')
+    await expect(dialog.getByText('2 runs will be removed')).toBeVisible()
+    await dialog.getByRole('button', { name: 'Remove', exact: true }).click()
+
+    await expect(dialog).toHaveCount(0)
+    // Closing the runs' tabs shows the pipeline's page, and the panel with it.
+    await openSection(page, 'Executions')
+    await expect(sidePanel(page).getByText(/No executions found/)).toBeVisible()
+    expect(existsSync(join(world().work, 'pipelines', first))).toBe(false)
+    expect(existsSync(join(world().work, 'pipelines', second))).toBe(false)
+  } finally {
+    restore()
+  }
+})
+
+test('clean up with nothing old enough disables Remove', async ({ page }) => {
+  const id = await runToCompletion(page)
+  const dialog = await openCleanup(page)
+  await dialog.getByRole('button', { name: '30 days', exact: true }).click()
+  await expect(dialog.getByRole('radio', { name: /Older than/ })).toBeChecked()
+  await expect(dialog.getByText('Nothing to remove.')).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Remove', exact: true })).toBeDisabled()
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(existsSync(join(world().work, 'pipelines', id))).toBe(true)
+})
+
+test('a preset fills the days and is remembered', async ({ page }) => {
+  // A finished run last written ten days ago.
+  const id = 'exec-cleanup-old'
+  const dir = join(world().work, 'pipelines', id)
+  mkdirSync(dir, { recursive: true })
+  const summary = join(dir, 'execution.json')
+  const then = new Date(Date.now() - 10 * 24 * 3600 * 1000)
+  writeFileSync(
+    summary,
+    JSON.stringify({
+      format: 'synapse-pipeline-execution/v1',
+      id,
+      pipeline: 'Develop_Feature',
+      started: then.toISOString(),
+      ended: then.toISOString(),
+      status: 'completed',
+      current_step: null,
+      state: { steps_run: 2 },
+    }),
+  )
+  utimesSync(summary, then, then)
+  try {
+    await page.goto('/')
+    await openSection(page, 'Executions')
+    let dialog = await openCleanup(page)
+    await dialog.getByRole('button', { name: '7 days', exact: true }).click()
+    await expect(dialog.getByLabel('Days')).toHaveValue('7')
+    await expect(dialog.getByText(/runs? will be removed/)).toBeVisible()
+    await dialog.getByRole('button', { name: 'Remove', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    expect(existsSync(dir)).toBe(false)
+
+    dialog = await openCleanup(page)
+    await expect(dialog.getByLabel('Days')).toHaveValue('7')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('a run without a terminal works in the folder it was given', async ({ page }) => {
   const dir = mkdtempSync(join(tmpdir(), 'sd-run-folder-'))
   const git = (...args: string[]) =>
@@ -105,9 +466,10 @@ test("a run is started from the definitions list without the pipeline's page", a
   const row = sidePanel(page).locator('.list-entry', { hasText: 'Develop_Feature' })
   // Play comes before the bin, so keyboard focus reaches it first.
   const actions = row.locator('.list-action')
-  await expect(actions).toHaveCount(2)
+  await expect(actions).toHaveCount(3)
   await expect(actions.nth(0)).toHaveAccessibleName('Run Develop_Feature')
-  await expect(actions.nth(1)).toHaveAccessibleName('Delete this pipeline')
+  await expect(actions.nth(1)).toHaveAccessibleName('Clone Develop_Feature')
+  await expect(actions.nth(2)).toHaveAccessibleName('Delete this pipeline')
   await row.getByRole('button', { name: 'Run Develop_Feature' }).click()
 
   const dialog = page.getByRole('dialog')
@@ -133,10 +495,7 @@ test('only pipelines have a run button in the list', async ({ page }) => {
 test('what an agent did in a step is read from its transcript', async ({ page }) => {
   await page.goto('/')
   await openSection(page, 'Executions')
-  await page
-    .getByLabel('Side panel')
-    .getByRole('button', { name: /exec-fixture1/ })
-    .click()
+  await runRow(page, 'exec-fixture1').locator('.list-item').click()
   await page.getByRole('button', { name: 'Activity' }).click()
 
   const activity = page.getByLabel('Trace')

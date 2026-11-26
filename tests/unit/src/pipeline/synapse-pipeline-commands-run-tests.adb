@@ -618,7 +618,7 @@ package body Synapse.Pipeline.Commands.Run.Tests is
       Assert
         (F.Base.Console.Err_Text =
          "usage: synapse-pipeline run <pipeline> [--input <file>|-] "
-         & "[--id <execution-id>] [--interactive]" & LF,
+         & "[--id <execution-id>] [--name <text>] [--interactive]" & LF,
          "says how");
       Assert (Run (Env (F), Args ("A", "B")) = 2, "two pipelines");
       Assert (Run (Env (F), Args ("Dev", "--input")) = 2, "--input alone");
@@ -741,6 +741,77 @@ package body Synapse.Pipeline.Commands.Run.Tests is
          "64 characters are allowed");
    end An_Id_That_Is_Not_Plain_Is_A_Usage_Error;
 
+   procedure A_Run_Given_A_Name_Records_It (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F, Round_Once);
+      F.Base.Vars.Set ("SYNAPSE_WORK_DIR", "/work");
+      Assert
+        (Run
+           (Env (F),
+            Args ("Dev", "--id", "nightly-1", "--name", "Fix login")) = 0,
+         "it completes");
+      Assert
+        (F.Registry.Read_Name ("nightly-1").Found
+         and then To_String (F.Registry.Read_Name ("nightly-1").Value)
+                  = "Fix login",
+         "the name is kept for the run's id");
+      Assert
+        (not Has (F.Base.Console.Err_Text, "warning: cannot record the name"),
+         "with no warning: " & F.Base.Console.Err_Text);
+   end A_Run_Given_A_Name_Records_It;
+
+   procedure A_Run_Without_A_Name_Records_None (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F, Round_Once);
+      F.Base.Vars.Set ("SYNAPSE_WORK_DIR", "/work");
+      Assert (Run (Env (F), Args ("Dev")) = 0, "it completes");
+      Assert
+        (Natural (F.Registry.Held.Length) = 1
+         and then not F.Registry.Read_Name
+                        (To_String (F.Registry.Ids.First_Element)).Found,
+         "and has no name");
+   end A_Run_Without_A_Name_Records_None;
+
+   procedure A_Name_That_Is_Too_Long_Is_A_Usage_Error
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F, Round_Once);
+      F.Base.Vars.Set ("SYNAPSE_WORK_DIR", "/work");
+      Assert
+        (Run (Env (F), Args ("Dev", "--name", [1 .. 121 => 'a'])) = 2,
+         "121 characters are a usage error");
+      Assert
+        (Has (F.Base.Console.Err_Text, "error: --name must be one line")
+         and then F.Base.Console.Out_Text = ""
+         and then F.Registry.Held.Is_Empty,
+         "it says what a name may be, and nothing ran or was recorded: "
+         & F.Base.Console.Err_Text);
+   end A_Name_That_Is_Too_Long_Is_A_Usage_Error;
+
+   procedure A_Name_Given_Twice_Is_A_Usage_Error (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F, Round_Once);
+      F.Base.Vars.Set ("SYNAPSE_WORK_DIR", "/work");
+      Assert
+        (Run (Env (F), Args ("Dev", "--name", "a", "--name", "b")) = 2,
+         "--name twice");
+      Assert (Run (Env (F), Args ("Dev", "--name")) = 2, "--name alone");
+      Assert
+        (F.Registry.Held.Is_Empty and then F.Base.Console.Out_Text = "",
+         "nothing ran");
+   end A_Name_Given_Twice_Is_A_Usage_Error;
+
    procedure A_Gate_Can_End_The_Run_Early (T : in out Test_Cases_Class) is
       pragma Unreferenced (T);
       F : aliased Fixture;
@@ -851,6 +922,18 @@ package body Synapse.Pipeline.Commands.Run.Tests is
       Register_Routine
         (T, An_Id_That_Is_Not_Plain_Is_A_Usage_Error'Access,
          "An id that is not plain is a usage error");
+      Register_Routine
+        (T, A_Run_Given_A_Name_Records_It'Access,
+         "A run given a name records it");
+      Register_Routine
+        (T, A_Run_Without_A_Name_Records_None'Access,
+         "A run without a name records none");
+      Register_Routine
+        (T, A_Name_That_Is_Too_Long_Is_A_Usage_Error'Access,
+         "A name that is too long is a usage error and nothing runs");
+      Register_Routine
+        (T, A_Name_Given_Twice_Is_A_Usage_Error'Access,
+         "--name given twice is a usage error");
       Register_Routine
         (T, A_Completed_Run_Keeps_Its_Start_And_End'Access,
          "A completed run keeps its start and end");

@@ -475,8 +475,14 @@ export interface Transport {
   // Ends a session and the program in it.
   closeTerminal(session: string): Promise<void>
 
-  // The run's agents work in folder; an empty or missing folder is the user's home folder.
-  startRun(pipeline: string, input: unknown, folder?: string): Promise<{ executionId: string }>
+  // The run's agents work in folder; an empty or missing folder is the user's home folder. A run
+  // given a name is started with it.
+  startRun(
+    pipeline: string,
+    input: unknown,
+    folder?: string,
+    runName?: string,
+  ): Promise<{ executionId: string }>
   // Only for runs this app started.
   stopRun(executionId: string): Promise<void>
 

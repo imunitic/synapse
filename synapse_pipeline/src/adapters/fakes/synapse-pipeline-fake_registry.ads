@@ -12,7 +12,7 @@ package Synapse.Pipeline.Fake_Registry is
 
    type Operation is
      (Create_Op, Replace_Op, Append_Op, Transcript_Op, Description_Op,
-      Definition_Op, Patch_Op, Output_Op, Remove_Op);
+      Definition_Op, Patch_Op, Output_Op, Name_Op, Remove_Op);
 
    package Contents is new Ada.Containers.Indefinite_Ordered_Maps
      (String, String);
@@ -22,6 +22,8 @@ package Synapse.Pipeline.Fake_Registry is
       Has_Summary : Boolean := False;
       Events      : Ada.Strings.Unbounded.Unbounded_String;
       Has_Events  : Boolean := False;
+      Name        : Ada.Strings.Unbounded.Unbounded_String;
+      Has_Name    : Boolean := False;
       Transcripts : Contents.Map;
       Description     : Ada.Strings.Unbounded.Unbounded_String;
       Has_Description : Boolean := False;
@@ -93,6 +95,10 @@ package Synapse.Pipeline.Fake_Registry is
      (F : in out Fake_Registry; Id, Name, Content : String) return Boolean;
 
    overriding
+   function Replace_Name
+     (F : in out Fake_Registry; Id, Content : String) return Boolean;
+
+   overriding
    function Remove (F : in out Fake_Registry; Id : String) return Boolean;
 
    overriding
@@ -100,6 +106,10 @@ package Synapse.Pipeline.Fake_Registry is
 
    overriding
    function Read_Summary
+     (F : Fake_Registry; Id : String) return Registry_Store.Maybe_Content;
+
+   overriding
+   function Read_Name
      (F : Fake_Registry; Id : String) return Registry_Store.Maybe_Content;
 
    overriding

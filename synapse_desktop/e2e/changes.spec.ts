@@ -276,9 +276,7 @@ test("a run's changes are everything it changed in its folder, and a repository 
 
     await page.goto('/')
     await openSection(page, 'Executions')
-    await sidePanel(page)
-      .getByRole('button', { name: /exec-fixture1/ })
-      .click()
+    await sidePanel(page).locator('.list-row[data-execution="exec-fixture1"] .list-item').click()
     await expect(page.getByRole('heading', { level: 1, name: 'exec-fixture1' })).toBeVisible()
     await expect(sidebar(page)).toHaveCount(0)
 
@@ -338,9 +336,7 @@ test('a file an activity says was changed opens its diff in the sidebar, and a f
 }) => {
   await page.goto('/')
   await openSection(page, 'Executions')
-  await sidePanel(page)
-    .getByRole('button', { name: /exec-fixture1/ })
-    .click()
+  await sidePanel(page).locator('.list-row[data-execution="exec-fixture1"] .list-item').click()
   await page.getByRole('button', { name: 'Activity' }).click()
   await expect(sidebar(page)).toHaveCount(0)
 

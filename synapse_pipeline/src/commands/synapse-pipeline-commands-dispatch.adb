@@ -9,6 +9,7 @@ with Synapse.Pipeline.Commands.Configure;
 with Synapse.Pipeline.Commands.Definitions;
 with Synapse.Pipeline.Commands.Info;
 with Synapse.Pipeline.Commands.List;
+with Synapse.Pipeline.Commands.Name;
 with Synapse.Pipeline.Commands.Next;
 with Synapse.Pipeline.Commands.Run;
 with Synapse.Pipeline.Commands.Show;
@@ -24,6 +25,7 @@ package body Synapse.Pipeline.Commands.Dispatch is
       elsif Name = "next" then Usage.Next_Help
       elsif Name = "list" then Usage.List_Help
       elsif Name = "info" then Usage.Info_Help
+      elsif Name = "name" then Usage.Name_Help
       elsif Name = "changes" then Usage.Changes_Help
       elsif Name = "cleanup" then Usage.Cleanup_Help
       elsif Name = "configure" then Usage.Configure_Help
@@ -39,7 +41,7 @@ package body Synapse.Pipeline.Commands.Dispatch is
          Name : constant String := To_String (Args.First_Element);
       begin
          if Name in "check" | "show" | "next" | "list" | "info" | "run"
-           | "cleanup" | "configure" | "definitions" | "changes"
+           | "cleanup" | "configure" | "definitions" | "changes" | "name"
          then
             declare
                Rest : Lists.Vector := Args;
@@ -60,6 +62,8 @@ package body Synapse.Pipeline.Commands.Dispatch is
                        then Synapse.Pipeline.Commands.List.Run (Env, Rest)
                        elsif Name = "info"
                        then Synapse.Pipeline.Commands.Info.Run (Env, Rest)
+                       elsif Name = "name"
+                       then Synapse.Pipeline.Commands.Name.Run (Env, Rest)
                        elsif Name = "changes"
                        then Synapse.Pipeline.Commands.Changes.Run (Env, Rest)
                        elsif Name = "cleanup"

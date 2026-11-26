@@ -650,6 +650,9 @@ pub struct RunStartParams {
     pub input: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
+    /// The run's name; the engine checks it.
+    #[serde(default, rename = "runName", skip_serializing_if = "Option::is_none")]
+    pub run_name: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -916,6 +919,9 @@ pub struct TerminalStartParams {
     pub input: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resume: Option<String>,
+    /// The name of a pipeline run; the engine checks it.
+    #[serde(default, rename = "runName", skip_serializing_if = "Option::is_none")]
+    pub run_name: Option<String>,
     pub cols: u16,
     pub rows: u16,
 }
@@ -1132,7 +1138,18 @@ impl Validate for RunStartParams {
                 .pipeline
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '_');
-        named("pipeline name", ok, &self.pipeline)
+        named("pipeline name", ok, &self.pipeline)?;
+        run_name_ok(self.run_name.as_deref())
+    }
+}
+
+/// A run's name is 1 to 480 bytes with no NUL; the engine checks the rest.
+fn run_name_ok(name: Option<&str>) -> Result<(), String> {
+    match name {
+        Some(name) if name.is_empty() || name.len() > 480 || name.contains('\0') => {
+            Err("the run name is 1 to 480 bytes with no NUL".into())
+        }
+        _ => Ok(()),
     }
 }
 
@@ -1314,6 +1331,7 @@ impl Validate for TerminalStartParams {
                     .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
             named("session to resume", ok, resume)?;
         }
+        run_name_ok(self.run_name.as_deref())?;
         size_ok(self.cols, self.rows)
     }
 }

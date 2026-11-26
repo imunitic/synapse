@@ -2,7 +2,8 @@
 // while it goes.
 
 import { z } from 'zod'
-import type { Transport } from '../../shared/transport.ts'
+import type { CliResult, Transport } from '../../shared/transport.ts'
+import { formatStartTime } from './format.ts'
 
 // `execution.json`, as the pipeline writes it. The state is the run's own
 // document; only what the lists show is named here.
@@ -50,6 +51,8 @@ export type ExecutionStatus = 'running' | 'completed' | 'failed' | 'interrupted'
 
 export interface ExecutionSummary {
   id: string
+  // The name a person gave the run, from the record's `name` file; null when it has none.
+  name: string | null
   pipeline: string | null
   status: ExecutionStatus
   started: string | null
@@ -76,6 +79,7 @@ export interface Attention {
 function incomplete(id: string): ExecutionSummary {
   return {
     id,
+    name: null,
     pipeline: null,
     status: 'incomplete',
     started: null,
@@ -104,6 +108,7 @@ export function parseExecution(id: string, text: string): ExecutionSummary | nul
   const { data } = parsed
   return {
     id,
+    name: null,
     pipeline: data.pipeline,
     status: data.status,
     started: data.started,
@@ -168,11 +173,169 @@ export async function summarize(
   recordsDir: string,
   id: string,
 ): Promise<ExecutionSummary> {
-  const text = await transport.readText(`${recordsDir}/${id}/execution.json`).catch(() => null)
-  const summary = text === null ? null : parseExecution(id, text)
-  if (summary === null) return incomplete(id)
+  const [text, name] = await Promise.all([
+    transport.readText(`${recordsDir}/${id}/execution.json`).catch(() => null),
+    readName(transport, recordsDir, id),
+  ])
+  const parsed = text === null ? null : parseExecution(id, text)
+  const summary = parsed === null ? incomplete(id) : { ...parsed, name }
   if (summary.status !== 'running') return summary
   return { ...summary, status: (await isListening(transport, id)) ? 'running' : 'interrupted' }
+}
+
+// The run's name from its `name` file: a run with no file, or an empty one, has none.
+async function readName(
+  transport: Transport,
+  recordsDir: string,
+  id: string,
+): Promise<string | null> {
+  const text = await transport.readText(`${recordsDir}/${id}/name`).catch(() => null)
+  const name = text?.trim() ?? ''
+  return name === '' ? null : name
+}
+
+// The two lines a run is shown with in the sidebar. A named run shows its name, with the pipeline
+// and start time under it; an unnamed one shows the pipeline and start time, and no second line
+// of its own (its row keeps the id and step line).
+export function runLabel(run: ExecutionSummary): { title: string; note: string | null } {
+  const pipeline = run.pipeline ?? 'unknown pipeline'
+  const started = run.started === null ? '' : formatStartTime(run.started)
+  const where = started === '' ? pipeline : `${pipeline} · ${started}`
+  return run.name === null ? { title: where, note: null } : { title: run.name, note: where }
+}
+
+// A run's row in the Executions sidebar: a title kept to one line, the name or else the pipeline,
+// and the details under it, in this order: the pipeline when the title is a name, the start time,
+// whether it runs in a terminal, and the step it is on.
+export function runRow(run: ExecutionSummary): { title: string; details: string[] } {
+  const pipeline = run.pipeline ?? 'unknown pipeline'
+  const details = [
+    run.name === null ? null : pipeline,
+    run.started === null ? null : formatStartTime(run.started),
+    run.interactive === null ? null : run.interactive ? 'interactive' : 'autonomous',
+    run.currentStep,
+  ].filter((detail): detail is string => detail !== null)
+  return { title: run.name ?? pipeline, details }
+}
+
+// Names a run, or clears its name when the trimmed name is empty. Throws with what the engine
+// said when it refuses.
+export async function setRunName(transport: Transport, id: string, name: string): Promise<void> {
+  const trimmed = name.trim()
+  const result = await transport.cli('synapse-pipeline', [
+    'name',
+    id,
+    ...(trimmed === '' ? [] : [trimmed]),
+  ])
+  if (result.code !== 0) {
+    throw new Error((result.stderr || result.stdout).trim() || `${id} could not be named`)
+  }
+}
+
+// What `cleanup --format json` answers: the runs removed (or that would be, in a dry run), and
+// the ones kept with the reason.
+const cleanupSchema = z.object({
+  format: z.literal('synapse-pipeline-cleanup/v1'),
+  dry_run: z.boolean(),
+  removed: z.array(z.string()),
+  kept: z.array(z.object({ id: z.string(), reason: z.string() })),
+})
+
+export interface CleanupResult {
+  removed: string[]
+  kept: { id: string; reason: string }[]
+}
+
+// What the app asks before it deletes one run, from its row or from its page.
+export const DELETE_ONE_CONFIRM =
+  'Delete the record of this run? Its transcripts, patches and outcomes are removed. The changes it made in the repository stay.'
+
+const KEPT_REASONS: Record<string, string> = {
+  running: 'running',
+  not_found: 'not found',
+  cannot_remove: 'cannot be removed',
+}
+
+// Why the engine kept a run it was asked to remove, in words. A reason this app does not know is
+// shown as the engine wrote it.
+export function keptReasonText(reason: string): string {
+  return KEPT_REASONS[reason] ?? reason
+}
+
+export type CleanupChoice = { kind: 'olderThan'; days: number } | { kind: 'all' }
+
+// Both hosts take at most 32 arguments in a `cli` call: `cleanup`, `--format`, `json` and 29
+// more, so the ids go 30 at a time to stay clear of it.
+const CLEANUP_BATCH = 30
+
+// The cleanup document in the answer. Cleanup exits 1 when it kept a run it was asked to remove,
+// and still answers the document, so the code does not decide; an answer that is not the
+// document is an error with what the engine said.
+function readCleanup(result: CliResult): CleanupResult {
+  let json: unknown
+  try {
+    json = JSON.parse(result.stdout)
+  } catch {
+    throw new Error(result.stderr.trim() || 'cleanup did not answer JSON')
+  }
+  const parsed = cleanupSchema.safeParse(json)
+  if (!parsed.success) {
+    throw new Error(result.stderr.trim() || 'cleanup answered a format this app does not know')
+  }
+  return { removed: parsed.data.removed, kept: parsed.data.kept }
+}
+
+// Removes the records of the given runs. A running run, or one that is not there, is kept and
+// reported in `kept`.
+export async function removeExecutions(
+  transport: Transport,
+  ids: string[],
+): Promise<CleanupResult> {
+  const merged: CleanupResult = { removed: [], kept: [] }
+  for (let at = 0; at < ids.length; at += CLEANUP_BATCH) {
+    const batch = ids.slice(at, at + CLEANUP_BATCH)
+    const result = readCleanup(
+      await transport.cli('synapse-pipeline', ['cleanup', '--format', 'json', ...batch]),
+    )
+    merged.removed.push(...result.removed)
+    merged.kept.push(...result.kept)
+  }
+  return merged
+}
+
+function cleanupArgs(choice: CleanupChoice): string[] {
+  return choice.kind === 'all' ? ['--all'] : ['--older-than', `${choice.days}d`]
+}
+
+// What a cleanup would remove, without removing anything.
+export async function planCleanup(
+  transport: Transport,
+  choice: CleanupChoice,
+): Promise<CleanupResult> {
+  return readCleanup(
+    await transport.cli('synapse-pipeline', [
+      'cleanup',
+      ...cleanupArgs(choice),
+      '--dry-run',
+      '--format',
+      'json',
+    ]),
+  )
+}
+
+// Removes the records of the finished runs the choice takes in.
+export async function runCleanup(
+  transport: Transport,
+  choice: CleanupChoice,
+): Promise<CleanupResult> {
+  return readCleanup(
+    await transport.cli('synapse-pipeline', [
+      'cleanup',
+      ...cleanupArgs(choice),
+      '--format',
+      'json',
+    ]),
+  )
 }
 
 // One run's summary, from its record, with the status it really has.

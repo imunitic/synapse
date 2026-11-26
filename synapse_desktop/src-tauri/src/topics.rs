@@ -157,6 +157,12 @@ fn files(place: String, push: Push, context: Arc<Context>, timing: TopicTiming) 
                     let made =
                         notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
                             if let Ok(event) = event {
+                                // Reading a file is not a change. On Linux every open and
+                                // close is an Access event, so a client that reads what it is
+                                // told of would be told again, without end.
+                                if matches!(event.kind, notify::EventKind::Access(_)) {
+                                    return;
+                                }
                                 if event.paths.iter().any(|p| !ignored(p, &roots))
                                     || event.paths.is_empty()
                                 {

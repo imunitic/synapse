@@ -283,6 +283,12 @@ describe('an interactive run of a pipeline', () => {
     expect(JSON.parse(await readFile(file, 'utf8'))).toEqual({ task: 'add a flag' })
   })
 
+  it('an interactive run given a name is started with --name', async () => {
+    const info = await begin(connect(), run({ pipeline: 'Dev', runName: 'Fix login' }))
+    const args = spawned[0]?.args ?? []
+    expect(args.slice(4, 8)).toEqual(['--id', info.executionId, '--name', 'Fix login'])
+  })
+
   it('is refused without a pipeline, with a task, and for any other kind', async () => {
     for (const [fields, message] of [
       [run({}), 'an interactive run needs a pipeline'],

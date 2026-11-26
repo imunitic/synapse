@@ -17,6 +17,7 @@ with Synapse.Pipeline.Process_Runners;
 with Synapse.Pipeline.Recorders;
 with Synapse.Pipeline.Recording_Observers;
 with Synapse.Pipeline.Recording_Runners;
+with Synapse.Pipeline.Registry_Store;
 with Synapse.Pipeline.Resolved;
 with Synapse.Pipeline.Scripted_Runners;
 with Synapse.Pipeline.Search_Paths;
@@ -250,7 +251,9 @@ package body Synapse.Pipeline.Commands.Run is
       return 0;
    end Run_Claimed;
 
-   --  Takes the id of the run, and runs it, or says why it cannot.
+   --  Takes the id of the run, keeps the name it was given, if any, and runs
+   --  it, or says why it cannot. A name that cannot be kept is only a
+   --  warning: the run goes on without one.
    function Run_To_The_End
      (Env      : Environment;
       Pipeline : Resolved.Pipeline;
@@ -258,6 +261,7 @@ package body Synapse.Pipeline.Commands.Run is
       Input    : JSON.Value;
       Copies   : Definition_Copies.Copy_Vectors.Vector;
       Wanted   : String;
+      Run_Name : String;
       Runner   : in out Session_Runner.Runner'Class;
       Attended : access Interactive_Runners.Interactive_Runner := null)
       return Exit_Code
@@ -267,6 +271,17 @@ package body Synapse.Pipeline.Commands.Run is
       if Length (Taken.Refusal) > 0 then
          Complain (Env, "error: " & To_String (Taken.Refusal) & LF);
          return 1;
+      end if;
+      if Run_Name /= ""
+        and then not
+          (Taken.Claimed.Registered
+           and then Env.Registry.Replace_Name
+                      (To_String (Taken.Claimed.Id), Run_Name))
+      then
+         Complain
+           (Env,
+            "warning: cannot record the name of "
+            & To_String (Taken.Claimed.Id) & LF);
       end if;
       return Run_Claimed
         (Env, Pipeline, Settings, Input, Copies, Taken.Claimed, Runner,
@@ -279,6 +294,8 @@ package body Synapse.Pipeline.Commands.Run is
       Has_Input  : Boolean := False;
       Wanted_Id  : Unbounded_String;
       Has_Id     : Boolean := False;
+      Run_Name   : Unbounded_String;
+      Has_Name   : Boolean := False;
       Interactive : Boolean := False;
       I          : Positive := Args.First_Index;
    begin
@@ -305,6 +322,13 @@ package body Synapse.Pipeline.Commands.Run is
                Has_Id := True;
                I := I + 1;
                Wanted_Id := Args (I);
+            elsif Arg = "--name" then
+               if Has_Name or else I = Args.Last_Index then
+                  return Usage_Error (Env, Usage);
+               end if;
+               Has_Name := True;
+               I := I + 1;
+               Run_Name := Args (I);
             elsif Arg'Length >= 2 and then Arg (Arg'First .. Arg'First + 1) =
                   "--"
             then
@@ -324,6 +348,16 @@ package body Synapse.Pipeline.Commands.Run is
          Complain
            (Env,
             "error: --id must be 1 to 64 letters, digits, '_' or '-'" & LF);
+         return Usage_Error (Env, Usage);
+      end if;
+      if Has_Name
+        and then not Registry_Store.Is_Run_Name (To_String (Run_Name))
+      then
+         Complain
+           (Env,
+            "error: --name must be one line of 1 to "
+            & Image (Registry_Store.Longest_Run_Name)
+            & " characters, not only spaces" & LF);
          return Usage_Error (Env, Usage);
       end if;
 
@@ -401,7 +435,8 @@ package body Synapse.Pipeline.Commands.Run is
                           Interactive_Runners.Home_Of (Env.Vars.all);
                         return Run_To_The_End
                           (Env, Pipeline, Settings, Input, Copies,
-                           To_String (Wanted_Id), Runner,
+                           To_String (Wanted_Id), To_String (Run_Name),
+                           Runner,
                            Runner'Unchecked_Access);
                      end;
                   end if;
@@ -413,7 +448,8 @@ package body Synapse.Pipeline.Commands.Run is
                         Runner.Skill_Roots := Roots;
                         return Run_To_The_End
                           (Env, Pipeline, Settings, Input, Copies,
-                             To_String (Wanted_Id), Runner);
+                             To_String (Wanted_Id), To_String (Run_Name),
+                             Runner);
                      end;
                   end if;
                   declare
@@ -439,7 +475,8 @@ package body Synapse.Pipeline.Commands.Run is
                      begin
                         return Run_To_The_End
                           (Env, Pipeline, Settings, Input, Copies,
-                             To_String (Wanted_Id), Runner);
+                             To_String (Wanted_Id), To_String (Run_Name),
+                             Runner);
                      end;
                   end;
                end;

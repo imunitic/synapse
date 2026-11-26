@@ -70,9 +70,9 @@ package body Synapse.Pipeline.Commands.Clients.Tests is
       Assert (List.Run (Env (F), Args) = 0, "it succeeds");
       Assert
         (F.Base.Console.Out_Text =
-         "EXECUTION  PIPELINE  STATUS   STEP" & LF
-         & "exec-1     Dev       running  B" & LF
-         & "exec-2     Release   running  B" & LF,
+         "EXECUTION  NAME  PIPELINE  STATUS   STEP" & LF
+         & "exec-1           Dev       running  B" & LF
+         & "exec-2           Release   running  B" & LF,
          "each run, in order, with its step: " & F.Base.Console.Out_Text);
    end A_Live_Run_Is_Listed;
 
@@ -178,13 +178,13 @@ package body Synapse.Pipeline.Commands.Clients.Tests is
       Assert (List.Run (Env (F), Args ("--all")) = 0, "it succeeds");
       Assert
         (F.Base.Console.Out_Text =
-         "EXECUTION  PIPELINE  STATUS       STEP" & LF
-         & "exec-0     Dev       completed    " & LF
-         & "exec-1     Dev       running      B" & LF
-         & "exec-2     Release   running      B" & LF
-         & "exec-3     Dev       failed       " & LF
-         & "exec-4     Dev       interrupted  B" & LF
-         & "exec-5               incomplete   " & LF,
+         "EXECUTION  NAME  PIPELINE  STATUS       STEP" & LF
+         & "exec-0           Dev       completed    " & LF
+         & "exec-1           Dev       running      B" & LF
+         & "exec-2           Release   running      B" & LF
+         & "exec-3           Dev       failed       " & LF
+         & "exec-4           Dev       interrupted  B" & LF
+         & "exec-5                     incomplete   " & LF,
          "live and recorded, each with the status it has: "
          & F.Base.Console.Out_Text);
    end List_All_Adds_What_Is_Recorded;
@@ -398,6 +398,81 @@ package body Synapse.Pipeline.Commands.Clients.Tests is
          "a query that is not JSON is an error, not a usage error");
    end The_Arguments_Are_Checked;
 
+   procedure List_Shows_A_Runs_Name (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Listen (F);
+      Keep (F, "exec-1", States.Running);
+      Keep (F, "exec-0", States.Completed);
+      Assert (F.Registry.Replace_Name ("exec-1", "Fix login"), "named");
+      Assert (F.Registry.Replace_Name ("exec-0", "Old"), "named too");
+      Assert (List.Run (Env (F), Args) = 0, "list succeeds");
+      Assert
+        (F.Base.Console.Out_Text =
+         "EXECUTION  NAME       PIPELINE  STATUS   STEP" & LF
+         & "exec-1     Fix login  Dev       running  B" & LF
+         & "exec-2                Release   running  B" & LF,
+         "a live run with its name, one without an empty name: "
+         & F.Base.Console.Out_Text);
+      F.Base.Console.Clear;
+      Assert (List.Run (Env (F), Args ("--all")) = 0, "list --all succeeds");
+      Assert
+        (Has (F.Base.Console.Out_Text,
+              "exec-0     Old        Dev       completed"),
+         "a recorded run with its name: " & F.Base.Console.Out_Text);
+   end List_Shows_A_Runs_Name;
+
+   procedure Info_Prints_The_Name_Of_A_Named_Run
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Listen (F);
+      Keep (F, "exec-1", States.Running);
+      Keep (F, "exec-0", States.Completed);
+      Assert (F.Registry.Replace_Name ("exec-1", "Fix login"), "named");
+      Assert (F.Registry.Replace_Name ("exec-0", "Old"), "named too");
+      Assert (Info.Run (Env (F), Args ("exec-1")) = 0, "it succeeds");
+      Assert
+        (Has (F.Base.Console.Out_Text,
+              "execution  exec-1" & LF & "name       Fix login" & LF
+              & "pipeline   Dev"),
+         "a running run, right after its id: " & F.Base.Console.Out_Text);
+      F.Base.Console.Clear;
+      Assert (Info.Run (Env (F), Args ("exec-0")) = 0, "it succeeds");
+      Assert
+        (Has (F.Base.Console.Out_Text,
+              "execution  exec-0" & LF & "name       Old" & LF),
+         "a recorded run: " & F.Base.Console.Out_Text);
+      F.Base.Console.Clear;
+      Assert
+        (Info.Run (Env (F), Args ("exec-1", "--format", "json")) = 0
+         and then not Has (F.Base.Console.Out_Text, "Fix login"),
+         "the JSON is unchanged: " & F.Base.Console.Out_Text);
+   end Info_Prints_The_Name_Of_A_Named_Run;
+
+   procedure Info_Prints_No_Name_Line_For_A_Run_Without_One
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Listen (F);
+      Keep (F, "exec-0", States.Completed);
+      Assert (Info.Run (Env (F), Args ("exec-1")) = 0, "it succeeds");
+      Assert
+        (not Has (F.Base.Console.Out_Text, "name ")
+         and then Has (F.Base.Console.Out_Text, "execution  exec-1"),
+         "a running run: " & F.Base.Console.Out_Text);
+      F.Base.Console.Clear;
+      Assert (Info.Run (Env (F), Args ("exec-0")) = 0, "it succeeds");
+      Assert
+        (not Has (F.Base.Console.Out_Text, "name "),
+         "a recorded run: " & F.Base.Console.Out_Text);
+   end Info_Prints_No_Name_Line_For_A_Run_Without_One;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -449,6 +524,14 @@ package body Synapse.Pipeline.Commands.Clients.Tests is
       Register_Routine
         (T, Events_Are_Read_From_The_Record'Access,
          "Events are read from the record");
+      Register_Routine
+        (T, List_Shows_A_Runs_Name'Access, "list shows a run's name");
+      Register_Routine
+        (T, Info_Prints_The_Name_Of_A_Named_Run'Access,
+         "info prints the name of a named run");
+      Register_Routine
+        (T, Info_Prints_No_Name_Line_For_A_Run_Without_One'Access,
+         "info prints no name line for a run without one");
    end Register_Tests;
 
 end Synapse.Pipeline.Commands.Clients.Tests;

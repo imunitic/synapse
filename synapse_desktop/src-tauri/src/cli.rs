@@ -26,6 +26,7 @@ fn allowed_subcommands(binary: CliBinary) -> &'static [&'static str] {
             "info",
             "changes",
             "cleanup",
+            "name",
         ],
         CliBinary::Synapse => &[
             "config",

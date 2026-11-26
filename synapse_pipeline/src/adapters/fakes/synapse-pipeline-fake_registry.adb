@@ -218,6 +218,25 @@ package body Synapse.Pipeline.Fake_Registry is
    end Write_Definition;
 
    overriding
+   function Replace_Name
+     (F : in out Fake_Registry; Id, Content : String) return Boolean
+   is
+      Found : Boolean;
+
+      procedure Change (Item : in out Execution) is
+      begin
+         Item.Name := To_Unbounded_String (Content);
+         Item.Has_Name := Content'Length > 0;
+      end Change;
+   begin
+      if not Attempt (F, Name_Op) then
+         return False;
+      end if;
+      Update (F, Id, Change'Access, Found);
+      return Found;
+   end Replace_Name;
+
+   overriding
    function Remove (F : in out Fake_Registry; Id : String) return Boolean is
    begin
       if not Attempt (F, Remove_Op) then
@@ -251,6 +270,21 @@ package body Synapse.Pipeline.Fake_Registry is
       end if;
       return Registry_Store.Maybe_Content'(Found => False);
    end Read_Summary;
+
+   overriding
+   function Read_Name
+     (F : Fake_Registry; Id : String) return Registry_Store.Maybe_Content
+   is
+      Place : constant Executions.Cursor := F.Held.Find (Id);
+   begin
+      if Executions.Has_Element (Place)
+        and then Executions.Element (Place).Has_Name
+      then
+         return Registry_Store.Maybe_Content'
+           (Found => True, Value => Executions.Element (Place).Name);
+      end if;
+      return Registry_Store.Maybe_Content'(Found => False);
+   end Read_Name;
 
    overriding
    function Read_Events

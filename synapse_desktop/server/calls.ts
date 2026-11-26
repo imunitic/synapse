@@ -473,10 +473,10 @@ const handlers: Handlers = {
     return commitChanges(folder, commit, path)
   },
 
-  async 'run.start'({ pipeline, input, folder }, context) {
+  async 'run.start'({ pipeline, input, folder, runName }, context) {
     const config = await loadConfig(context.configFile, context.environment)
     try {
-      return await context.runs.start(pipeline, input, config, folder)
+      return await context.runs.start(pipeline, input, config, folder, runName)
     } catch (error) {
       if (error instanceof FolderNotFound) throw new HostError('bad_request', error.message)
       if (error instanceof RunNotStarted) {

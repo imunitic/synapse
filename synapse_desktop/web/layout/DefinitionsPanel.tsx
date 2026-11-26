@@ -3,7 +3,8 @@ import { definitionUse, type DefinitionUse } from '../domain/definition-use.ts'
 import { listSkills, loadDefinitions } from '../domain/definitions.ts'
 import { filterByName } from '../domain/filter.ts'
 import { transport } from '../transport/index.ts'
-import { PlayIcon, PlusIcon, RefreshIcon, TrashIcon } from '../components/icons.tsx'
+import { CloneDialog } from '../components/CloneDialog.tsx'
+import { CopyIcon, PlayIcon, PlusIcon, RefreshIcon, TrashIcon } from '../components/icons.tsx'
 import {
   DEFINITION_KINDS,
   DEFINITION_LABELS,
@@ -58,6 +59,7 @@ function DefinitionRow({
   dispatch: Dispatch<Action>
 }) {
   const [removal, setRemoval] = useState<Removal | null>(null)
+  const [cloning, setCloning] = useState(false)
   const singular = DEFINITION_LABELS[kind].singular
   const page = { kind: 'definition', definition: kind, name: item.name, path: item.path } as const
 
@@ -106,6 +108,16 @@ function DefinitionRow({
             <PlayIcon />
           </button>
         )}
+        {kind === 'pipeline' && (
+          <button
+            className="icon-button list-action list-run"
+            aria-label={`Clone ${item.name}`}
+            title={`Clone ${item.name}`}
+            onClick={() => setCloning(true)}
+          >
+            <CopyIcon />
+          </button>
+        )}
         <button
           className="icon-button list-action"
           aria-label={`Delete this ${singular}`}
@@ -116,6 +128,21 @@ function DefinitionRow({
           <TrashIcon />
         </button>
       </div>
+      {cloning && (
+        <CloneDialog
+          name={item.name}
+          path={item.path}
+          onClose={() => setCloning(false)}
+          onCloned={(copy, written) => {
+            setCloning(false)
+            dispatch({ type: 'definitionsChanged' })
+            dispatch({
+              type: 'openPage',
+              page: { kind: 'definition', definition: 'pipeline', name: copy, path: written },
+            })
+          }}
+        />
+      )}
       {removal?.step === 'blocked' && (
         <div className="confirm" role="alert">
           <p>

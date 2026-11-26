@@ -122,6 +122,7 @@ with Synapse.Pipeline.Engine.Tests;
 with Synapse.Pipeline.Commands.Check.Tests;
 with Synapse.Pipeline.Commands.Changes.Tests;
 with Synapse.Pipeline.Commands.Cleanup.Tests;
+with Synapse.Pipeline.Commands.Name.Tests;
 with Synapse.Pipeline.Commands.Configure.Tests;
 with Synapse.Pipeline.Commands.Definitions.Tests;
 with Synapse.Pipeline.Outcomes.Tests;
@@ -397,6 +398,8 @@ package body Test_Suites is
      aliased Synapse.Pipeline.Commands.Changes.Tests.Test_Case;
    Pipeline_Cleanup_Tests :
      aliased Synapse.Pipeline.Commands.Cleanup.Tests.Test_Case;
+   Pipeline_Name_Tests :
+     aliased Synapse.Pipeline.Commands.Name.Tests.Test_Case;
    Pipeline_Configure_Tests :
      aliased Synapse.Pipeline.Commands.Configure.Tests.Test_Case;
    Pipeline_Outcomes_Tests :
@@ -574,6 +577,7 @@ package body Test_Suites is
       Result.Add_Test (Pipeline_Check_Tests'Access);
       Result.Add_Test (Pipeline_Changes_Tests'Access);
       Result.Add_Test (Pipeline_Cleanup_Tests'Access);
+      Result.Add_Test (Pipeline_Name_Tests'Access);
       Result.Add_Test (Pipeline_Configure_Tests'Access);
       Result.Add_Test (Pipeline_Outcomes_Tests'Access);
       Result.Add_Test (Pipeline_Prompts_Tests'Access);

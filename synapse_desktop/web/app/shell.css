@@ -513,7 +513,8 @@
   padding: 0 8px 12px;
 }
 
-/* A definition's row: the item, and the bin beside it (a pipeline's also has its play button). */
+/* A definition's or a finished run's row: the item, and the bin beside it (a pipeline's also has
+   its play button). */
 .list-row {
   display: flex;
   align-items: center;
@@ -566,6 +567,34 @@
 .list-name {
   font-weight: 500;
   overflow-wrap: anywhere;
+}
+
+/* A row title kept to one line, cut with an ellipsis, beside its badge. */
+.list-name-one-line {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.list-line .badge {
+  flex: none;
+}
+
+.list-note-one-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-header-actions {
+  flex-wrap: nowrap;
+  gap: 2px;
+}
+
+.panel-header-actions .subtab {
+  white-space: nowrap;
 }
 
 .list-note {

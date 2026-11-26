@@ -758,7 +758,13 @@ pub fn last_families(handlers: &mut Handlers, context: Arc<Context>) {
                 .map_err(|error| HostError::bad_request(error.0))?;
             match c
                 .runs
-                .start(&params.pipeline, &params.input, &config, folder)
+                .start(
+                    &params.pipeline,
+                    &params.input,
+                    &config,
+                    folder,
+                    params.run_name.as_deref(),
+                )
                 .await
             {
                 Ok(execution_id) => Ok(ExecutionId { execution_id }),

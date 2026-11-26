@@ -63,6 +63,12 @@ fn the_read_only_and_housekeeping_subcommands_of_synapse_pipeline_are_allowed() 
 }
 
 #[test]
+fn synapse_pipeline_name_is_allowed() {
+    allowed(SynapsePipeline, &["name", "synapse-001", "Fix login"]);
+    allowed(SynapsePipeline, &["name", "synapse-001"]);
+}
+
+#[test]
 fn of_synapse_only_config_status_and_the_read_only_commands_of_the_vault_are_allowed() {
     refuses(Synapse, &["write-node"], "not allowed");
     refuses(Synapse, &["vault-delete", "a.md"], "not allowed");

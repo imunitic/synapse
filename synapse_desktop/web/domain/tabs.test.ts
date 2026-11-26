@@ -78,6 +78,7 @@ function run(id: string, status: ExecutionSummary['status']): ExecutionSummary {
     fired: [],
     attention: null,
     interactive: null,
+    name: null,
   }
 }
 

@@ -169,7 +169,7 @@ export function Shell() {
   const noteComments = useNoteReview(notePath)
   const missingWorkDir = config.status === 'ready' && config.config.workDir === null
   // An interactive run starts in a terminal of its own.
-  const startRun = (pipeline: string, input: unknown, folder: string) =>
+  const startRun = (pipeline: string, input: unknown, folder: string, runName?: string) =>
     dispatch({
       type: 'openTerminal',
       kind: 'Pipeline',
@@ -177,6 +177,7 @@ export function Shell() {
       title: pipeline,
       pipeline,
       ...(input === undefined ? {} : { input }),
+      ...(runName === undefined ? {} : { runName }),
       id: Math.random().toString(36).slice(2, 8),
     })
 
@@ -290,6 +291,7 @@ export function Shell() {
                 onTerminalRun={(session, executionId) =>
                   dispatch({ type: 'terminalRun', id: session, executionId })
                 }
+                onExecutionsRemoved={(ids) => dispatch({ type: 'executionsRemoved', ids })}
                 onDismissRun={(session) => {
                   clearReview(session)
                   dispatch({ type: 'closeTerminal', id: session })
@@ -410,10 +412,10 @@ export function Shell() {
             dispatch({ type: 'closeRunDialog' })
             dispatch({ type: 'openPage', page: { kind: 'execution', id } })
           }}
-          onStartInteractive={(input, folder) => {
+          onStartInteractive={(input, folder, runName) => {
             const pipeline = state.runDialog
             dispatch({ type: 'closeRunDialog' })
-            if (pipeline !== null) startRun(pipeline, input, folder)
+            if (pipeline !== null) startRun(pipeline, input, folder, runName)
           }}
         />
       )}

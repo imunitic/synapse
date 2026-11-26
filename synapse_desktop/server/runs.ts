@@ -55,6 +55,7 @@ export interface RunStarter {
     input: unknown,
     config: AppConfig,
     folder?: string,
+    runName?: string,
   ): Promise<{ executionId: string }>
   stop(executionId: string): void
 }
@@ -69,7 +70,7 @@ export function createRunStarter(
   const children = new Map<string, ChildProcess>()
 
   return {
-    async start(pipeline, input, config, folder) {
+    async start(pipeline, input, config, folder, runName) {
       if (config.workDir === null) throw new RunNotStarted('no work directory is set')
       const cwd = folder === undefined || folder.trim() === '' ? home : folder
       // A relative folder would resolve against this process's own folder.
@@ -78,7 +79,9 @@ export function createRunStarter(
       const id = drawId()
       const record = join(config.workDir, 'pipelines', id)
 
-      const child = spawn(binary, ['run', pipeline, '--input', '-', '--id', id], {
+      const args = ['run', pipeline, '--input', '-', '--id', id]
+      if (runName !== undefined) args.push('--name', runName)
+      const child = spawn(binary, args, {
         cwd,
         env: cliEnvironment(baseEnv, config),
         stdio: ['pipe', 'ignore', 'pipe'],

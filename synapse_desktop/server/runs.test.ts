@@ -11,6 +11,7 @@ import { createRunStarter, FolderNotFound, NotStartedHere, RunNotStarted } from 
 // and waits. A Unix shell script, so not on Windows.
 const STUB = `#!/bin/sh
 input=$(cat)
+all="$*"
 pipeline="$2"
 id=""
 while [ $# -gt 0 ]; do
@@ -24,6 +25,7 @@ if [ -d "$dir" ]; then
 fi
 mkdir -p "$dir"
 echo "$pipeline $input" > "$dir/started-with"
+echo "$all" > "$dir/args"
 pwd -P > "$dir/pwd"
 echo $$ > "$dir/pid"
 sleep 30 &
@@ -187,6 +189,22 @@ describe.skipIf(process.platform === 'win32')('createRunStarter', () => {
       await expect(started).rejects.toThrow(`the folder ${folder} is not an absolute path`)
     }
     expect(await readdir(join(work, 'pipelines'))).toEqual([])
+  })
+
+  it('a run given a name is started with --name', async () => {
+    const starter = createRunStarter(await script('stub', STUB), process.env)
+    const { executionId } = await starter.start('P', {}, config(), undefined, 'Fix login')
+    const args = await readWhenWritten(join(work, 'pipelines', executionId, 'args'))
+    expect(args.trim()).toBe(`run P --input - --id ${executionId} --name Fix login`)
+    starter.stop(executionId)
+  })
+
+  it('a run without a name has no --name', async () => {
+    const starter = createRunStarter(await script('stub', STUB), process.env)
+    const { executionId } = await starter.start('P', {}, config())
+    const args = await readWhenWritten(join(work, 'pipelines', executionId, 'args'))
+    expect(args.trim()).toBe(`run P --input - --id ${executionId}`)
+    starter.stop(executionId)
   })
 
   it('reports a binary that cannot be run', async () => {

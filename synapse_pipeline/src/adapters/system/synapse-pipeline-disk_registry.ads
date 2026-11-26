@@ -8,6 +8,7 @@ with Synapse.Pipeline.Registry_Store;
 --
 --    execution.json     the summary, replaced whole
 --    events.jsonl       the events, one a line, added to
+--    name               the run's name, when it has one, replaced whole
 --    transcripts/       one file a step attempt
 --
 --  Each operation makes one attempt.
@@ -57,6 +58,10 @@ package Synapse.Pipeline.Disk_Registry is
      (R : in out Disk_Registry; Id, Path, Content : String) return Boolean;
 
    overriding
+   function Replace_Name
+     (R : in out Disk_Registry; Id, Content : String) return Boolean;
+
+   overriding
    function Remove (R : in out Disk_Registry; Id : String) return Boolean;
 
    overriding
@@ -64,6 +69,10 @@ package Synapse.Pipeline.Disk_Registry is
 
    overriding
    function Read_Summary
+     (R : Disk_Registry; Id : String) return Registry_Store.Maybe_Content;
+
+   overriding
+   function Read_Name
      (R : Disk_Registry; Id : String) return Registry_Store.Maybe_Content;
 
    overriding

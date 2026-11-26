@@ -145,6 +145,7 @@ mod unix {
     const STUB: &str = r#"#!/bin/sh
 input=$(cat)
 pipeline="$2"
+args="$*"
 id=""
 while [ $# -gt 0 ]; do
   if [ "$1" = "--id" ]; then id="$2"; fi
@@ -157,6 +158,7 @@ if [ -d "$dir" ]; then
 fi
 mkdir -p "$dir"
 echo "$pipeline $input" > "$dir/started-with"
+echo "$args" > "$dir/args"
 pwd -P > "$dir/folder"
 echo $$ > "$dir/pid"
 sleep 30 &
@@ -222,7 +224,13 @@ wait
             std::env::vars().collect(),
         );
         let id = starter
-            .start("P", &json!({ "task": "x" }), &config(Some(&work)), None)
+            .start(
+                "P",
+                &json!({ "task": "x" }),
+                &config(Some(&work)),
+                None,
+                None,
+            )
             .await
             .unwrap();
         assert!(
@@ -238,6 +246,39 @@ wait
     }
 
     #[tokio::test]
+    async fn a_run_given_a_name_is_started_with_name_and_one_without_has_none() {
+        let (dir, work) = setup();
+        let starter = RunStarter::new(
+            &script(dir.path(), "stub", STUB),
+            std::env::vars().collect(),
+        );
+        let named = starter
+            .start(
+                "P",
+                &json!({}),
+                &config(Some(&work)),
+                None,
+                Some("Fix login"),
+            )
+            .await
+            .unwrap();
+        let unnamed = starter
+            .start("P", &json!({}), &config(Some(&work)), None, None)
+            .await
+            .unwrap();
+        let args = |id: &str| work.join("pipelines").join(id).join("args");
+        let named_args = read_when_written(&args(&named)).await;
+        assert!(
+            named_args.trim_end().ends_with("--name Fix login"),
+            "{named_args}"
+        );
+        let unnamed_args = read_when_written(&args(&unnamed)).await;
+        assert!(!unnamed_args.contains("--name"), "{unnamed_args}");
+        starter.stop(&named).unwrap();
+        starter.stop(&unnamed).unwrap();
+    }
+
+    #[tokio::test]
     async fn stopping_a_run_stops_what_it_started() {
         let (dir, work) = setup();
         let starter = RunStarter::new(
@@ -245,7 +286,7 @@ wait
             std::env::vars().collect(),
         );
         let id = starter
-            .start("P", &json!({}), &config(Some(&work)), None)
+            .start("P", &json!({}), &config(Some(&work)), None, None)
             .await
             .unwrap();
         let (pid, child) = pids_of(&work, &id).await;
@@ -274,8 +315,8 @@ wait
         let cfg = config(Some(&work));
         let input = json!({ "task": "same" });
         let (first, second) = tokio::join!(
-            starter.start("P", &input, &cfg, None),
-            starter.start("P", &input, &cfg, None)
+            starter.start("P", &input, &cfg, None, None),
+            starter.start("P", &input, &cfg, None, None)
         );
         let (first, second) = (first.unwrap(), second.unwrap());
         assert_ne!(first, second);
@@ -311,7 +352,7 @@ wait
             std::env::vars().collect(),
         );
         let error = starter
-            .start("P", &json!({}), &config(Some(&work)), None)
+            .start("P", &json!({}), &config(Some(&work)), None, None)
             .await
             .unwrap_err();
         assert!(
@@ -329,7 +370,9 @@ wait
             std::env::vars().collect(),
         );
         assert_eq!(
-            starter.start("P", &json!({}), &config(None), None).await,
+            starter
+                .start("P", &json!({}), &config(None), None, None)
+                .await,
             Err(RunNotStarted("no work directory is set".into()))
         );
         let missing = RunStarter::new(
@@ -337,7 +380,7 @@ wait
             std::env::vars().collect(),
         );
         let error = missing
-            .start("P", &json!({}), &config(Some(&work)), None)
+            .start("P", &json!({}), &config(Some(&work)), None, None)
             .await
             .unwrap_err();
         assert!(error.0.contains("could not be run"));
@@ -365,6 +408,7 @@ wait
                 &json!({}),
                 &config(Some(&work)),
                 Some(&folder.to_string_lossy()),
+                None,
             )
             .await
             .unwrap();
@@ -383,7 +427,7 @@ wait
         let starter = RunStarter::new(&script(dir.path(), "stub", STUB), env);
         for folder in [None, Some("  ")] {
             let id = starter
-                .start("P", &json!({}), &config(Some(&work)), folder)
+                .start("P", &json!({}), &config(Some(&work)), folder, None)
                 .await
                 .unwrap();
             let ran = read_when_written(&work.join("pipelines").join(&id).join("folder")).await;
@@ -402,7 +446,7 @@ wait
         for folder in ["project", "."] {
             assert_eq!(
                 starter
-                    .start("P", &json!({}), &config(Some(&work)), Some(folder))
+                    .start("P", &json!({}), &config(Some(&work)), Some(folder), None)
                     .await,
                 Err(RunNotStarted(format!(
                     "the folder {folder} is not an absolute path"
@@ -425,7 +469,7 @@ wait
         );
         assert_eq!(
             starter
-                .start("P", &json!({}), &config(Some(&work)), Some(&missing))
+                .start("P", &json!({}), &config(Some(&work)), Some(&missing), None)
                 .await,
             Err(RunNotStarted(format!(
                 "the folder {missing} does not exist"

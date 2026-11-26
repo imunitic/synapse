@@ -160,6 +160,26 @@ async fn a_record_that_appears_under_the_work_directory_is_told_once_for_a_burst
 }
 
 #[tokio::test]
+async fn reading_a_record_is_not_told_as_a_change() {
+    let w = world();
+    let record = w.dir.path().join("work/pipelines/exec-1");
+    std::fs::create_dir(&record).unwrap();
+    std::fs::write(record.join("execution.json"), "{}").unwrap();
+    let mut stops = vec![];
+    let seen = subscribed(&w, "files.work", None, &mut stops).await;
+    settle(&seen).await;
+    for _ in 0..3 {
+        std::fs::read_to_string(record.join("execution.json")).unwrap();
+        std::fs::read_dir(w.dir.path().join("work/pipelines"))
+            .unwrap()
+            .for_each(drop);
+    }
+    sleep(300).await;
+    assert!(seen.lock().unwrap().is_empty());
+    stop_all(stops);
+}
+
+#[tokio::test]
 async fn a_note_changed_in_the_vault_is_told_and_nothing_of_the_git_folder() {
     let w = world();
     std::fs::create_dir_all(w.dir.path().join("vault/.git")).unwrap();

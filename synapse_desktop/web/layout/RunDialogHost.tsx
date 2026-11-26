@@ -17,7 +17,7 @@ export function RunDialogHost({
   pipeline: string
   onClose: () => void
   onStarted: (executionId: string) => void
-  onStartInteractive: (input: unknown, folder: string) => void
+  onStartInteractive: (input: unknown, folder: string, runName?: string) => void
 }) {
   const load = useCallback(() => describePipeline(transport, pipeline), [pipeline])
   const { state } = useLoad(load)

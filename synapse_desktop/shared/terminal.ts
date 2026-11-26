@@ -38,6 +38,8 @@ export const terminalStartSchema = z.object({
     .max(128)
     .optional(),
   input: z.unknown().optional(),
+  // The run's name, only for a pipeline run; the engine checks it (`run --name`).
+  runName: z.string().min(1).max(480).optional(),
   // The id of a session of that harness to continue, as the harness lists it.
   resume: z
     .string()

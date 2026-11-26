@@ -35,6 +35,35 @@ package body Synapse.Pipeline.Fake_Registry.Tests is
       Assert (F.Create ("b") = Registry_Store.Created, "until it is mended");
    end An_Operation_Can_Be_Made_To_Fail;
 
+   procedure A_Run_Name_Is_One_Short_Line (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      E_Acute : constant String :=
+        Character'Val (16#C3#) & Character'Val (16#A9#);
+      Accented_120 : String (1 .. 240);
+      Plain_121    : constant String (1 .. 121) := [others => 'a'];
+   begin
+      for I in 0 .. 119 loop
+         Accented_120 (2 * I + 1 .. 2 * I + 2) := E_Acute;
+      end loop;
+      Assert (Registry_Store.Is_Run_Name ("Fix login"), "Fix login is a name");
+      Assert
+        (Registry_Store.Is_Run_Name (Accented_120),
+         "120 accented letters are a name, counted as characters");
+      Assert (not Registry_Store.Is_Run_Name (""), "empty is not");
+      Assert (not Registry_Store.Is_Run_Name ("   "), "nor only spaces");
+      Assert
+        (not Registry_Store.Is_Run_Name (Plain_121), "nor 121 characters");
+      Assert
+        (not Registry_Store.Is_Run_Name ("a" & Character'Val (10) & "b"),
+         "nor a line feed");
+      Assert
+        (not Registry_Store.Is_Run_Name ("a" & Character'Val (9) & "b"),
+         "nor a tab");
+      Assert
+        (not Registry_Store.Is_Run_Name ("a" & Character'Val (16#7F#)),
+         "nor a delete character");
+   end A_Run_Name_Is_One_Short_Line;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -51,6 +80,9 @@ package body Synapse.Pipeline.Fake_Registry.Tests is
       Register_Routine
         (T, An_Operation_Can_Be_Made_To_Fail'Access,
          "An operation can be made to fail");
+      Register_Routine
+        (T, A_Run_Name_Is_One_Short_Line'Access,
+         "A run name is one short line");
    end Register_Tests;
 
 end Synapse.Pipeline.Fake_Registry.Tests;

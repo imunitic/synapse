@@ -176,6 +176,16 @@ describe('the folder of a run', () => {
   })
 })
 
+describe('the name of a run', () => {
+  const params = { pipeline: 'Develop', input: null }
+
+  it('run.start accepts a runName', () => {
+    const start = messages['run.start'].params
+    expect(start.safeParse({ ...params, runName: 'Fix login' }).success).toBe(true)
+    expect(start.safeParse({ ...params, runName: '' }).success).toBe(false)
+  })
+})
+
 describe('the ref a snapshot is pinned as', () => {
   const tree = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 
