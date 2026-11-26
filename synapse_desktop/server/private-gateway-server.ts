@@ -72,7 +72,13 @@ async function main(): Promise<void> {
   if (!path) throw new Error('SYNAPSE_PRIVATE_GATEWAY_CONFIG is required')
   const config = validateConfig(JSON.parse(await readFile(resolve(path), 'utf8')) as unknown)
   const bindAddress = privateGatewayBind(process.env)
-  requireIngressProxy(bindAddress, config.trustedProxyAddresses)
+  try {
+    requireIngressProxy(bindAddress, config.trustedProxyAddresses)
+  } catch {
+    console.error('private gateway requires valid trusted proxy IPs for dedicated ingress')
+    process.exitCode = 1
+    return
+  }
   const assets = await loadViteProtectedAssets(resolve(config.buildDirectory))
   const sessions = createGatewaySessions()
   const server = createServer()
