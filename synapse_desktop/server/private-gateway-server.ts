@@ -58,8 +58,15 @@ function validateConfig(value: unknown): PrivateGatewayConfig {
   ) {
     throw new Error('gateway account and private host IDs must match exactly')
   }
+  const backendTokens = new Set<string>()
+  const backendEndpoints = new Set<string>()
   for (const host of config.hosts) {
     const backend = new URL(host.backend)
+    if (backendTokens.has(host.backendToken) || backendEndpoints.has(backend.href)) {
+      throw new Error('private hosts require distinct backend endpoints and tokens')
+    }
+    backendTokens.add(host.backendToken)
+    backendEndpoints.add(backend.href)
     if (!isPrivateBackendUrl(backend) || !host.backendToken || !host.backendOrigin) {
       throw new Error('private host must use a loopback or RFC1918 IPv4 backend')
     }
