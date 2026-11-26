@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Snapshot } from '../../shared/changes.ts'
 import { fakeTransport } from '../domain/fake-transport.ts'
+import { memoryStorage } from './memory-storage.ts'
 import {
   addRunRepository,
   endRunRepositories,
@@ -16,20 +17,6 @@ const WORK = '2222222222222222222222222222222222222222'
 const KEY = 'synapse-desktop.run-repositories'
 const RUN_DIR = '/work/run'
 const RECORDS = '/work/.synapse/executions'
-
-function memoryStorage(): Storage {
-  const items = new Map<string, string>()
-  return {
-    get length() {
-      return items.size
-    },
-    clear: () => items.clear(),
-    getItem: (key) => items.get(key) ?? null,
-    key: (index) => [...items.keys()][index] ?? null,
-    removeItem: (key) => items.delete(key),
-    setItem: (key, value) => items.set(key, value),
-  }
-}
 
 const NOT_ROOT = 'the folder is not the root of a git repository'
 

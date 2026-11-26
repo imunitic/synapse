@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   baselineOf,
   ensureBaseline,
@@ -11,12 +11,18 @@ import {
   onBaselineChange,
   showFolder,
 } from './change-baselines.ts'
+import { memoryStorage } from './memory-storage.ts'
 
 const TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 
 beforeEach(() => {
+  vi.stubGlobal('sessionStorage', memoryStorage())
   keepBaseline('s1', null)
   keepBaseline('s2', null)
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
 })
 
 describe('a session baseline', () => {
