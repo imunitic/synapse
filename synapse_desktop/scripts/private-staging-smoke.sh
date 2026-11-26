@@ -37,6 +37,7 @@ console.log(JSON.stringify({
   publicHost: 'staging.example.test',
   publicOrigin: 'https://staging.example.test',
   buildDirectory: '/opt/synapse/dist',
+  trustedProxyAddresses: ['172.29.103.1'],
   accounts,
   hosts,
 }))
