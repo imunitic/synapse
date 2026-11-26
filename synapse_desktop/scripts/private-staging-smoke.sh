@@ -113,7 +113,19 @@ cookie=$(curl -fsS -D - -o /dev/null \
   -H 'X-Forwarded-For: 198.51.100.7' \
   --data '{"username":"fixture-a","password":"ci-fixture-password-a"}' \
   http://127.0.0.1:5180/auth/session |
-  awk 'tolower($1) == "set-cookie:" { sub(/;.*/, "", $2); print $2; exit }')
+  awk '
+    tolower($1) == "set-cookie:" {
+      line = tolower($0)
+      if (line !~ /;[[:space:]]*secure([;[:space:]]|$)/ ||
+          line !~ /;[[:space:]]*httponly([;[:space:]]|$)/ ||
+          line !~ /;[[:space:]]*samesite=(strict|lax)([;[:space:]]|$)/ ||
+          line !~ /;[[:space:]]*path=\/([;[:space:]]|$)/ ||
+          line ~ /;[[:space:]]*domain=/) exit 1
+      sub(/;.*/, "", $2)
+      print $2
+      exit
+    }
+  ')
 [[ -n "$cookie" ]]
 session_status() {
   curl -sS -o /dev/null -w '%{http_code}' \
