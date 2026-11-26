@@ -77,6 +77,17 @@ package body Synapse.Pipeline.Commands.Dispatch.Tests is
       Says ("cleanup", "--help", Usage.Cleanup_Help);
    end Every_Subcommand_Has_Its_Own_Help;
 
+   procedure Name_Help_Prints_Its_Help (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Assert (Run (Env (F), Args ("name", "--help")) = 0, "it succeeds");
+      Assert
+        (F.Base.Console.Out_Text = Usage.Name_Help
+         and then F.Base.Console.Err_Text = "",
+         "the help of name, to standard output: " & F.Base.Console.Out_Text);
+   end Name_Help_Prints_Its_Help;
+
    procedure A_Usage_Error_Prints_Only_The_Synopsis
      (T : in out Test_Cases_Class)
    is
@@ -149,6 +160,8 @@ package body Synapse.Pipeline.Commands.Dispatch.Tests is
       Register_Routine
         (T, Every_Subcommand_Has_Its_Own_Help'Access,
          "Every subcommand has its own help");
+      Register_Routine
+        (T, Name_Help_Prints_Its_Help'Access, "name --help prints its help");
       Register_Routine
         (T, A_Usage_Error_Prints_Only_The_Synopsis'Access,
          "A usage error prints only the synopsis");

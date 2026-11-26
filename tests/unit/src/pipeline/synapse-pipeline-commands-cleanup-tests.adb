@@ -180,7 +180,7 @@ package body Synapse.Pipeline.Commands.Cleanup.Tests is
          and then Run (Env (F), Args ("--older-than")) = 2
          and then Run (Env (F), Args ("--old")) = 2
          and then Run (Env (F), Args ("--dry-run", "--dry-run")) = 2
-         and then Run (Env (F), Args ("exec-a")) = 2,
+         and then Run (Env (F), Args ("exec/a")) = 2,
          "what cleanup does not know is refused");
       Assert (Natural (F.Registry.Ids.Length) = 6, "and nothing is removed");
    end A_Bad_Argument_Is_A_Usage_Error;
@@ -235,6 +235,210 @@ package body Synapse.Pipeline.Commands.Cleanup.Tests is
          "a dry run deletes no ref: " & Unpinned (F));
    end A_Dry_Run_Unpins_Nothing;
 
+   --  Makes the execution Id answer on its socket, as a running one does.
+   procedure Answer (F : in out Fixture; Id : String) is
+      Seen : Inspection.Snapshot;
+   begin
+      Seen.Execution_Id := To_Unbounded_String (Id);
+      Seen.Run := States.Initial (Pipeline_Of ("Dev"), JSON.Null_Value);
+      F.Inspector.Runs.Include (Id, Seen);
+   end Answer;
+
+   procedure A_Given_Execution_Is_Removed_Whatever_Its_Age
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Assert
+        (Run (Env (F), Args ("exec-d", "exec-b", "exec-f", "exec-b")) = 0,
+         "it succeeds: " & F.Base.Console.Err_Text);
+      Assert
+        (F.Base.Console.Out_Text =
+         "removed exec-d" & LF & "removed exec-b" & LF & "removed exec-f" & LF,
+         "the given ones go, in the order given and once each, recent, "
+         & "interrupted or with no summary: " & F.Base.Console.Out_Text);
+      Assert
+        (Left (F) = "exec-a exec-c exec-e ",
+         "the ones not given stay, however old: " & Left (F));
+   end A_Given_Execution_Is_Removed_Whatever_Its_Age;
+
+   procedure A_Given_Running_Execution_Is_Kept
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Answer (F, "exec-b");
+      Assert
+        (Run (Env (F), Args ("exec-a", "exec-b", "exec-e")) = 1,
+         "it exits 1");
+      Assert
+        (F.Base.Console.Err_Text =
+         "error: exec-b is running, not removed" & LF,
+         "it says which was kept: " & F.Base.Console.Err_Text);
+      Assert
+        (Left (F) = "exec-b exec-c exec-d exec-f ",
+         "the running one stays and the others go: " & Left (F));
+   end A_Given_Running_Execution_Is_Kept;
+
+   procedure An_Unknown_Execution_Is_Reported (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Assert (Run (Env (F), Args ("exec-x", "exec-a")) = 1, "it exits 1");
+      Assert
+        (F.Base.Console.Err_Text = "error: no execution exec-x" & LF,
+         "it names the unknown one: " & F.Base.Console.Err_Text);
+      Assert
+        (F.Base.Console.Out_Text = "removed exec-a" & LF,
+         "and removes the other: " & F.Base.Console.Out_Text);
+      Assert
+        (Left (F) = "exec-b exec-c exec-d exec-e exec-f ", Left (F));
+   end An_Unknown_Execution_Is_Reported;
+
+   procedure A_Given_Executions_Snapshots_Are_Unpinned
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Keep (F, "exec-h", States.Completed, 1, Directory => "/repo");
+      Assert (Run (Env (F), Args ("exec-h")) = 0, "it succeeds");
+      Assert
+        (Unpinned (F) =
+         "refs/synapse/runs/exec-h/start refs/synapse/runs/exec-h/end ",
+         "both refs of the given run are deleted: " & Unpinned (F));
+      Assert (not Has (Left (F), "exec-h"), "and the run is gone");
+   end A_Given_Executions_Snapshots_Are_Unpinned;
+
+   procedure A_Dry_Run_With_Ids_Removes_Nothing
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Keep (F, "exec-h", States.Completed, 1, Directory => "/repo");
+      Assert
+        (Run (Env (F), Args ("--dry-run", "exec-b", "exec-h")) = 0,
+         "it succeeds");
+      Assert
+        (F.Base.Console.Out_Text =
+         "would remove exec-b" & LF & "would remove exec-h" & LF,
+         "it says what it would do: " & F.Base.Console.Out_Text);
+      Assert
+        (Natural (F.Registry.Ids.Length) = 7
+         and then F.Trees.Unpinned.Is_Empty,
+         "and removes and unpins nothing: " & Left (F));
+   end A_Dry_Run_With_Ids_Removes_Nothing;
+
+   procedure Ids_With_All_Are_A_Usage_Error (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Assert
+        (Run (Env (F), Args ("exec-a", "--all")) = 2
+         and then Run (Env (F), Args ("--all", "exec-a")) = 2
+         and then Run (Env (F), Args ("--older-than", "1d", "exec-a")) = 2
+         and then Run (Env (F), Args ("exec-a", "../exec-b")) = 2,
+         "ids with --all or --older-than, and an id that is not a plain "
+         & "name, are refused");
+      Assert (Natural (F.Registry.Ids.Length) = 6, "and nothing is removed");
+   end Ids_With_All_Are_A_Usage_Error;
+
+   procedure JSON_Lists_What_Was_Removed_And_Kept
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Answer (F, "exec-c");
+      Assert (Run (Env (F), Args ("--format", "json")) = 0, "it succeeds");
+      Assert
+        (F.Base.Console.Out_Text =
+         "{""format"":""synapse-pipeline-cleanup/v1"",""dry_run"":false,"
+         & """removed"":[""exec-a"",""exec-e""],""kept"":["
+         & "{""id"":""exec-b"",""reason"":""too_recent""},"
+         & "{""id"":""exec-c"",""reason"":""running""},"
+         & "{""id"":""exec-d"",""reason"":""too_recent""},"
+         & "{""id"":""exec-f"",""reason"":""too_recent""}]}" & LF,
+         "one document: the old ones removed, the running one kept, and the "
+         & "recent ones and the one with no summary to date it by kept as "
+         & "too recent: "
+         & F.Base.Console.Out_Text);
+      Assert
+        (Left (F) = "exec-b exec-c exec-d exec-f ",
+         "and what it lists as removed is gone: " & Left (F));
+   end JSON_Lists_What_Was_Removed_And_Kept;
+
+   procedure A_JSON_Dry_Run_Removes_Nothing (T : in out Test_Cases_Class) is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Assert
+        (Run (Env (F), Args ("--dry-run", "--format", "json", "--all")) = 0,
+         "it succeeds");
+      Assert
+        (F.Base.Console.Out_Text =
+         "{""format"":""synapse-pipeline-cleanup/v1"",""dry_run"":true,"
+         & """removed"":[""exec-a"",""exec-b"",""exec-c"",""exec-e""],"
+         & """kept"":[{""id"":""exec-d"",""reason"":""too_recent""},"
+         & "{""id"":""exec-f"",""reason"":""too_recent""}]}" & LF,
+         "it lists what would be removed: " & F.Base.Console.Out_Text);
+      Assert (Natural (F.Registry.Ids.Length) = 6, "and removes none of it");
+   end A_JSON_Dry_Run_Removes_Nothing;
+
+   procedure JSON_With_Ids_Reports_A_Running_One
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Answer (F, "exec-b");
+      Assert
+        (Run (Env (F), Args ("exec-a", "exec-b", "exec-x", "--format", "json"))
+         = 1,
+         "it exits 1, as in text");
+      Assert
+        (F.Base.Console.Out_Text =
+         "{""format"":""synapse-pipeline-cleanup/v1"",""dry_run"":false,"
+         & """removed"":[""exec-a""],""kept"":["
+         & "{""id"":""exec-b"",""reason"":""running""},"
+         & "{""id"":""exec-x"",""reason"":""not_found""}]}" & LF,
+         "the running and the unknown one are kept and why: "
+         & F.Base.Console.Out_Text);
+      Assert
+        (F.Base.Console.Err_Text = "",
+         "and nothing is printed per execution: " & F.Base.Console.Err_Text);
+      Assert
+        (Left (F) = "exec-b exec-c exec-d exec-e exec-f ", Left (F));
+   end JSON_With_Ids_Reports_A_Running_One;
+
+   procedure An_Unknown_Format_Is_A_Usage_Error
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      F : aliased Fixture;
+   begin
+      Set_Up (F);
+      Assert
+        (Run (Env (F), Args ("--format", "yaml")) = 2
+         and then Run (Env (F), Args ("--format")) = 2
+         and then Run (Env (F), Args ("--format", "json", "--format", "json"))
+                  = 2,
+         "an unknown format, a missing one and a second one are refused");
+      Assert (Natural (F.Registry.Ids.Length) = 6, "and nothing is removed");
+   end An_Unknown_Format_Is_A_Usage_Error;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -270,6 +474,36 @@ package body Synapse.Pipeline.Commands.Cleanup.Tests is
          "A removed run unpins its snapshots");
       Register_Routine
         (T, A_Dry_Run_Unpins_Nothing'Access, "A dry run unpins nothing");
+      Register_Routine
+        (T, A_Given_Execution_Is_Removed_Whatever_Its_Age'Access,
+         "A given execution is removed whatever its age");
+      Register_Routine
+        (T, A_Given_Running_Execution_Is_Kept'Access,
+         "A given running execution is kept and the others are removed");
+      Register_Routine
+        (T, An_Unknown_Execution_Is_Reported'Access,
+         "An unknown execution is reported and the others are removed");
+      Register_Routine
+        (T, A_Given_Executions_Snapshots_Are_Unpinned'Access,
+         "A given execution's snapshots are unpinned");
+      Register_Routine
+        (T, A_Dry_Run_With_Ids_Removes_Nothing'Access,
+         "A dry run with ids removes nothing");
+      Register_Routine
+        (T, Ids_With_All_Are_A_Usage_Error'Access,
+         "Ids with --all are a usage error");
+      Register_Routine
+        (T, JSON_Lists_What_Was_Removed_And_Kept'Access,
+         "json lists what was removed and what was kept and why");
+      Register_Routine
+        (T, A_JSON_Dry_Run_Removes_Nothing'Access,
+         "a json dry run lists what would be removed and removes nothing");
+      Register_Routine
+        (T, JSON_With_Ids_Reports_A_Running_One'Access,
+         "json with ids reports a running one as kept");
+      Register_Routine
+        (T, An_Unknown_Format_Is_A_Usage_Error'Access,
+         "an unknown format is a usage error");
    end Register_Tests;
 
 end Synapse.Pipeline.Commands.Cleanup.Tests;

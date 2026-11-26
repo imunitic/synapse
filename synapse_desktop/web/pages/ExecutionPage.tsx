@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { listRecordedDefinitions } from '../domain/definitions.ts'
 import { sessionsByVisit, type Activity, type RecordedSession } from '../domain/activity.ts'
-import { readExecution, waitingFor, type ExecutionRecord } from '../domain/executions.ts'
+import {
+  DELETE_ONE_CONFIRM,
+  keptReasonText,
+  readExecution,
+  removeExecutions,
+  setRunName,
+  waitingFor,
+  type ExecutionRecord,
+} from '../domain/executions.ts'
 import { layoutGraph } from '../domain/graph.ts'
 import type { LiveSession } from '../domain/live.ts'
 import { progressOf, visitsOf, type StepProgress, type Visit } from '../domain/progress.ts'
@@ -22,6 +30,60 @@ import { useWatch } from '../state/useWatch.ts'
 
 // What no file shows, such as a run that died, is looked for now and then.
 const REFRESH_MS = 10_000
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+// The run's title: its name, or its id when it has none. A click turns it into a field that names
+// the run on Enter; Escape or leaving the field keeps the name as it was.
+function RunTitle({
+  id,
+  name,
+  onRename,
+}: {
+  id: string
+  name: string | null
+  onRename: (name: string) => void
+}) {
+  const [draft, setDraft] = useState<string | null>(null)
+  if (draft !== null) {
+    return (
+      <input
+        className="page-title"
+        aria-label="Name of this run"
+        maxLength={120}
+        autoFocus
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            setDraft(null)
+            onRename(draft)
+          } else if (event.key === 'Escape') {
+            setDraft(null)
+          }
+        }}
+        onBlur={() => setDraft(null)}
+      />
+    )
+  }
+  return (
+    <>
+      {/* The heading is named by what it shows: without this its name would be its button's. */}
+      <h1 className={name === null ? 'page-title mono' : 'page-title'} aria-label={name ?? id}>
+        <button
+          aria-label="Rename this run"
+          title="Rename this run"
+          onClick={() => setDraft(name ?? '')}
+        >
+          {name ?? id}
+        </button>
+      </h1>
+      {name !== null && <p className="muted mono small">{id}</p>}
+    </>
+  )
+}
 
 function formatTime(iso: string | null): string {
   if (iso === null) return '—'
@@ -366,6 +428,7 @@ export function ExecutionPage({
   onTerminalClaimed,
   onTerminalRun,
   onShowChanges,
+  onExecutionsRemoved,
 }: {
   id: string
   // The sessions of the terminals, one of which may be an interactive run of this execution.
@@ -382,12 +445,15 @@ export function ExecutionPage({
   onTerminalRun: (session: string, executionId: string) => void
   // The Changes sidebar is opened on the run's changes, at a file when one is named.
   onShowChanges: (path?: string) => void
+  // Runs whose records were deleted; their pages, this one among them, are closed.
+  onExecutionsRemoved: (ids: string[]) => void
 }) {
   const terminal = terminals.find((t) => t.kind === 'Pipeline' && t.executionId === id)
   const load = useCallback(() => readExecution(transport, id), [id])
   const { state, reload } = useLoad(load, REFRESH_MS)
   useWatch('work', reload)
-  const [stopError, setStopError] = useState<string | null>(null)
+  // What went wrong when the run was stopped, renamed or deleted.
+  const [actionError, setActionError] = useState<string | null>(null)
   // Whether the person opened or closed the card of the terminal; until then it is open while the
   // run goes on.
   const [terminalOpen, setTerminalOpen] = useState<boolean | null>(null)
@@ -395,10 +461,36 @@ export function ExecutionPage({
   async function stop() {
     try {
       await transport.stopRun(id)
-      setStopError(null)
+      setActionError(null)
       reload()
     } catch (error) {
-      setStopError(String(error))
+      setActionError(`Could not stop the run: ${String(error)}`)
+    }
+  }
+
+  async function rename(name: string) {
+    try {
+      await setRunName(transport, id, name)
+      setActionError(null)
+      reload()
+    } catch (error) {
+      setActionError(`Could not rename the run: ${messageOf(error)}`)
+    }
+  }
+
+  async function remove() {
+    try {
+      const result = await removeExecutions(transport, [id])
+      if (result.removed.length > 0) {
+        onExecutionsRemoved(result.removed)
+        return
+      }
+      const kept = result.kept[0]
+      setActionError(
+        `Could not delete the run: ${kept === undefined ? 'kept' : keptReasonText(kept.reason)}`,
+      )
+    } catch (error) {
+      setActionError(`Could not delete the run: ${messageOf(error)}`)
     }
   }
 
@@ -418,7 +510,7 @@ export function ExecutionPage({
       <div className="page-head">
         <div>
           <p className="eyebrow">Execution</p>
-          <h1 className="page-title mono">{summary.id}</h1>
+          <RunTitle id={summary.id} name={summary.name} onRename={(name) => void rename(name)} />
         </div>
         {terminal !== undefined && terminalLive && (
           <div className="head-actions">
@@ -445,10 +537,22 @@ export function ExecutionPage({
             <span className="muted small">Only for runs started from this app.</span>
           </div>
         )}
+        {summary.status !== 'running' && !terminalLive && (
+          <div className="head-actions">
+            <button
+              className="danger"
+              onClick={() => {
+                if (window.confirm(DELETE_ONE_CONFIRM)) void remove()
+              }}
+            >
+              Delete
+            </button>
+          </div>
+        )}
       </div>
-      {stopError !== null && (
+      {actionError !== null && (
         <p className="error" role="alert">
-          Could not stop the run: {stopError}
+          {actionError}
         </p>
       )}
       {/* A run with its terminal open says it there, in the view of the terminal. */}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatDuration, timeAgo } from './format.ts'
+import { formatDuration, formatStartTime, timeAgo } from './format.ts'
 
 describe('formatDuration', () => {
   it('writes hours, minutes and seconds, leaving out what is zero', () => {
@@ -35,5 +35,17 @@ describe('timeAgo', () => {
 
   it('does not say a time in the future is before now', () => {
     expect(timeAgo('2026-11-09T12:00:00Z', now)).toBe('just now')
+  })
+})
+
+describe('formatStartTime', () => {
+  it('writes the day, month and time in local time', () => {
+    // A time with no zone is read as local time, so the test holds in any zone.
+    expect(formatStartTime('2026-11-26T12:59:00')).toBe('26 Nov 12:59')
+    expect(formatStartTime('2026-01-05T08:03:00')).toBe('5 Jan 08:03')
+  })
+
+  it('gives nothing for what is not a time', () => {
+    expect(formatStartTime('yesterday')).toBe('')
   })
 })

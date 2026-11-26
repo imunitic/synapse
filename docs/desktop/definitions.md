@@ -38,6 +38,10 @@ The app checks the text as you type. Problems are listed under the editor, with 
 
 To make a new definition, click the plus at the top of the panel. It makes one of the kind of the tab you are on. "Build with an agent" writes a first version from your description.
 
+## Clone a pipeline
+
+Click "Clone" on a pipeline's page to make a copy of it under a new name. The name starts as the pipeline's name with "_Copy" added; change it as you like. A name has letters, digits and underscores and starts with a letter. A name that another definition already has is refused, and so is a name that breaks the rule: the dialog says why, and "Clone" stays disabled. Only the pipeline's own name changes in the copy. The copy uses the same systems, agents and skills. When the copy is written, its page opens; click "Edit" there to change it.
+
 ## Delete a definition
 
 Click the bin next to a name. A definition that another one uses cannot be deleted: the app says which pipelines or systems use it, and you delete those first. Otherwise it asks once, and "Yes, delete" removes the file. A skill's whole folder is removed. It cannot be undone.
@@ -50,9 +54,10 @@ Click the play button next to a pipeline in the list, or "Run" on its page. "Run
 
 1. Say what the pipeline should work on. On the Text tab, type it as a sentence. On the JSON tab, give JSON, which is handed to the first step as it is.
 2. Choose how it runs. By default a run is interactive: it runs in a terminal of the app, where you watch the agents and answer what they ask. Tick "Run without a terminal: nothing will ask me anything" for a run that goes on by itself. A pipeline that cannot run interactively says why, and the box stays ticked. The app remembers the choice for each pipeline.
-3. Give the folder its agents work in, for either kind of run. Leave it empty for your home folder.
-4. To see what the first step will get, open "The prompt of the first step, with this input". It follows what you type.
-5. Click "Start run".
+3. Give the run a name, if you like, in "Name (optional)". The name labels the run in the Executions panel.
+4. Give the folder its agents work in, for either kind of run. Leave it empty for your home folder.
+5. To see what the first step will get, open "The prompt of the first step, with this input". It follows what you type.
+6. Click "Start run".
 
 The run's page opens. See [Executions](executions.md) for following it.
 

@@ -194,6 +194,7 @@ export async function prepare(
     if (config.workDir === null) throw new HostError('conflict', 'no work directory is set')
     executionId = drawRunId()
     args = [...args, 'run', message.pipeline, '--interactive', '--id', executionId]
+    if (message.runName !== undefined) args = [...args, '--name', message.runName]
     // The terminal is the harness's, so the input goes in a file of this connection's own.
     if (message.input !== undefined) {
       const file = join(sessionsDir, 'input.json')

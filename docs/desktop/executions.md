@@ -6,7 +6,15 @@ An execution is one run of a pipeline. The Executions panel lists the runs, and 
 
 ## Find a run
 
-The panel lists the runs, the newest first. Each row has the pipeline's name, whether the run was interactive or autonomous, its status, its id and the step it is on. A run that waits for your answer says "needs you". The list follows new runs by itself; the refresh button reads it again now. Click a run to open its page.
+The panel lists the runs, the newest first. Each row has the run's label, whether the run was interactive or autonomous, its status, its id and the step it is on. A run that waits for your answer says "needs you". The list follows new runs by itself; the refresh button reads it again now. Click a run to open its page.
+
+A run's label is its name when it has one, with the pipeline and the start time under it. A run without a name is labelled with its pipeline and its start time, for example "Develop_Feature · 26 Nov 12:59".
+
+## Name a run
+
+Give a run a name in the run dialog, in "Name (optional)", when you start it; see [Definitions](definitions.md#run-a-pipeline). The name is at most 120 characters. Leave it empty for a run without a name.
+
+To name a run later, or to change its name, click the title of its page. The title becomes a field: type the name and press Enter. Escape, or clicking elsewhere, leaves the name as it was. An empty name removes it. The page shows the name as its title, with the run's id under it.
 
 ## Read a run's page
 
@@ -37,6 +45,16 @@ When an agent in an interactive step gets stuck, for example on a command it was
 ## Stop a run
 
 "Stop run" at the top of the page ends a run that goes on. For an interactive run the app asks first, and its terminal closes with it. A run without a terminal can be stopped only if it was started from this app.
+
+## Delete runs
+
+Deleting a run removes its record: its transcripts, patches and outcomes. The changes it made in the repository stay. A running run cannot be deleted. The app asks before it deletes anything, and it cannot be undone. When a run cannot be deleted, the app names it and says why: in a line above the list when you deleted from the list, and in the error line at the top of the page when you deleted from the run's page.
+
+- One run: point at its row and click the bin, "Delete this run". Or click "Delete" at the top of its page, which closes the page.
+- Several runs: click "Select" at the top of the panel. Each row gets a box to tick; clicking a row ticks it. A running run cannot be ticked. "Select all" ticks every run that is not running, and clears them all when all are ticked. "Delete N" deletes the ticked runs. "Cancel", or Escape, leaves without deleting.
+- Old runs: click "Clean up" at the top of the panel. Choose "Older than" and a number of days, typed or set with "1 day", "7 days" or "30 days". Or choose "Every finished run"; an interrupted run is kept until it is 30 days old. The dialog lists the runs that will be removed, or says "Nothing to remove.". "Remove" removes them. The app remembers the number of days for the next time.
+
+Tabs of deleted runs close.
 
 ## Review what a run changed
 

@@ -29,7 +29,7 @@ function DefinitionView({
   page: Extract<Page, { kind: 'definition' }>
   onOpen: (page: Page) => void
   onChanged: () => void
-  onStartRun: (pipeline: string, input: unknown, folder: string) => void
+  onStartRun: (pipeline: string, input: unknown, folder: string, runName?: string) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [version, setVersion] = useState(0)
@@ -66,7 +66,7 @@ function DefinitionView({
       path={page.path}
       onOpen={onOpen}
       onEdit={edit}
-      onStartInteractive={(input, folder) => onStartRun(page.name, input, folder)}
+      onStartInteractive={(input, folder, runName) => onStartRun(page.name, input, folder, runName)}
     />
   ) : (
     <DefinitionPage
@@ -102,6 +102,7 @@ export function PageView({
   onTerminalEnded,
   onTerminalClaimed,
   onTerminalRun,
+  onExecutionsRemoved,
 }: {
   page: Page
   onOpen: (page: Page) => void
@@ -118,7 +119,7 @@ export function PageView({
   // A shell tab is opened, and runs the command; its tab is called the title.
   onRunCommand: (command: string, title: string) => void
   // An interactive run of a pipeline is started in the terminals, with this input.
-  onStartRun: (pipeline: string, input: unknown, folder: string) => void
+  onStartRun: (pipeline: string, input: unknown, folder: string, runName?: string) => void
   // A run that did not start is let go: its session and its page.
   onDismissRun: (session: string) => void
   // What the agent of each interactive run that waits for a person said, by execution.
@@ -131,6 +132,8 @@ export function PageView({
   onTerminalEnded: (session: string) => void
   onTerminalClaimed: (session: string) => void
   onTerminalRun: (session: string, executionId: string) => void
+  // Runs whose records were deleted from their page; their pages are closed.
+  onExecutionsRemoved: (ids: string[]) => void
   // A definition was made; this is its page.
   onCreated: (page: Page) => void
   // A definition was changed.
@@ -187,6 +190,7 @@ export function PageView({
           onTerminalClaimed={onTerminalClaimed}
           onTerminalRun={onTerminalRun}
           onShowChanges={onShowChanges}
+          onExecutionsRemoved={onExecutionsRemoved}
         />
       )
     case 'run-starting':

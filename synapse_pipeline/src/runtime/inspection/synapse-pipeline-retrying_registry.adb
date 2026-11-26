@@ -147,6 +147,15 @@ package body Synapse.Pipeline.Retrying_Registry is
    end Write_Definition;
 
    overriding
+   function Replace_Name
+     (R : in out Retrying_Registry; Id, Content : String) return Boolean
+   is
+      function Once return Boolean is (R.Inner.Replace_Name (Id, Content));
+   begin
+      return Try (R, Id, "its name", Once'Access);
+   end Replace_Name;
+
+   overriding
    function Remove (R : in out Retrying_Registry; Id : String) return Boolean
    is
       function Once return Boolean is (R.Inner.Remove (Id));
@@ -168,6 +177,14 @@ package body Synapse.Pipeline.Retrying_Registry is
    begin
       return R.Inner.Read_Summary (Id);
    end Read_Summary;
+
+   overriding
+   function Read_Name
+     (R : Retrying_Registry; Id : String) return Registry_Store.Maybe_Content
+   is
+   begin
+      return R.Inner.Read_Name (Id);
+   end Read_Name;
 
    overriding
    function Read_Events

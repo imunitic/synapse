@@ -26,11 +26,16 @@ package body Synapse.Pipeline.Commands.Info is
    function Member (Key : String; Item : JSON.Value) return JSON.Member is
      (Key => To_Unbounded_String (Key), Item => Item);
 
-   --  The run in brief for a person.
-   function Describe (Brief : JSON.Value) return String is
+   --  The run in brief for a person, with its name when Name holds one.
+   function Describe
+     (Brief : JSON.Value; Name : Registry_Store.Maybe_Content) return String
+   is
       Result : Unbounded_String;
    begin
       Append (Result, "execution  " & Text_Of (Brief, "execution_id") & LF);
+      if Name.Found then
+         Append (Result, "name       " & To_String (Name.Value) & LF);
+      end if;
       Append (Result, "pipeline   " & Text_Of (Brief, "pipeline") & LF);
       Append (Result, "status     " & Text_Of (Brief, "status") & LF);
       Append (Result, "step       " & Text_Of (Brief, "current_step") & LF);
@@ -194,7 +199,9 @@ package body Synapse.Pipeline.Commands.Info is
                     (Env,
                      (if To_String (Format) = "json"
                       then JSON.To_String (Brief) & LF
-                      else Describe (Brief)));
+                      else
+                        Describe
+                          (Brief, Env.Registry.Read_Name (To_String (Id)))));
                   return 0;
                end;
             end if;
@@ -212,7 +219,10 @@ package body Synapse.Pipeline.Commands.Info is
                    then JSON.As_String (Result) else JSON.To_String (Result))
                   & LF);
             else
-               Say (Env, Describe (Result));
+               Env.Registry.Open (To_String (Work));
+               Say
+                 (Env,
+                  Describe (Result, Env.Registry.Read_Name (To_String (Id))));
             end if;
             return 0;
          end;

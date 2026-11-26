@@ -396,6 +396,8 @@ export const messages = {
       pipeline: z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/),
       input: z.unknown(),
       folder: z.string().optional(),
+      // The run's name; the engine checks it (`run --name`).
+      runName: z.string().min(1).max(480).optional(),
     }),
     result: z.object({ executionId: z.string() }),
   },

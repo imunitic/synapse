@@ -497,6 +497,25 @@ async fn a_run_starts_the_pipeline_with_an_id_of_its_own_which_the_page_is_told(
 }
 
 #[tokio::test]
+async fn an_interactive_run_given_a_name_is_started_with_name_and_one_without_has_none() {
+    let rig = rig();
+    let client = connect(&rig, "local");
+    rig.begin(
+        &client,
+        json!({ "kind": "Pipeline", "pipeline": "Dev", "runName": "Fix login" }),
+    )
+    .await
+    .unwrap();
+    let args = rig.args(0);
+    let at = args.iter().position(|a| a == "--name").unwrap();
+    assert_eq!(args[at + 1], "Fix login");
+    rig.begin(&client, json!({ "kind": "Pipeline", "pipeline": "Dev" }))
+        .await
+        .unwrap();
+    assert!(!rig.args(1).contains(&"--name".to_string()));
+}
+
+#[tokio::test]
 async fn a_run_gets_its_input_in_a_file() {
     let rig = rig();
     rig.begin(

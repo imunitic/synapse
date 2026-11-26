@@ -513,7 +513,8 @@
   padding: 0 8px 12px;
 }
 
-/* A definition's row: the item, and the bin beside it (a pipeline's also has its play button). */
+/* A definition's or a finished run's row: the item, and the bin beside it (a pipeline's also has
+   its play button). */
 .list-row {
   display: flex;
   align-items: center;

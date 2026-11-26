@@ -34,8 +34,9 @@ export function RunDialog({
   firstStepPending?: boolean
   onClose: () => void
   onStarted: (executionId: string) => void
-  // An interactive run is started with this input, none when there is none, in this folder.
-  onStartInteractive: (input: unknown, folder: string) => void
+  // An interactive run is started with this input, none when there is none, in this folder, with
+  // this name when it was given one.
+  onStartInteractive: (input: unknown, folder: string, runName?: string) => void
   // Where a run works unless it was told otherwise; empty is the home folder.
   defaultFolder: string
 }) {
@@ -47,6 +48,8 @@ export function RunDialog({
   const [busy, setBusy] = useState(false)
   const [autonomous, setAutonomous] = useState(() => readAutonomous(localStorage, pipeline))
   const [folder, setFolder] = useState(() => readFolder(localStorage, pipeline, defaultFolder))
+  // The run's name, empty each time the dialog opens: a name belongs to one run.
+  const [name, setName] = useState('')
   // Why the pipeline cannot be run interactively, once that is known.
   const [problem, setProblem] = useState<string | null>(null)
   const [checked, setChecked] = useState(false)
@@ -78,14 +81,20 @@ export function RunDialog({
       return
     }
     writeFolder(localStorage, pipeline, folder)
+    const runName = name.trim() === '' ? undefined : name.trim()
     if (interactive) {
-      onStartInteractive(input.value, folder.trim())
+      onStartInteractive(input.value, folder.trim(), runName)
       return
     }
     setBusy(true)
     setError(null)
     try {
-      const { executionId } = await transport.startRun(pipeline, input.value ?? null, folder.trim())
+      const { executionId } = await transport.startRun(
+        pipeline,
+        input.value ?? null,
+        folder.trim(),
+        runName,
+      )
       onStarted(executionId)
     } catch (startError) {
       setError(`The run did not start: ${String(startError)}`)
@@ -169,6 +178,17 @@ export function RunDialog({
           <span>Run without a terminal: nothing will ask me anything</span>
         </label>
         {checked && problem !== null && <p className="muted small">{problem}</p>}
+        <label htmlFor="run-name" className="muted">
+          Name (optional)
+        </label>
+        <input
+          id="run-name"
+          type="text"
+          maxLength={120}
+          value={name}
+          placeholder="For example: Fix login"
+          onChange={(event) => setName(event.target.value)}
+        />
         <label htmlFor="run-folder" className="muted">
           Folder its agents work in (empty is your home folder)
         </label>

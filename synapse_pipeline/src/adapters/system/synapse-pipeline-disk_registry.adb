@@ -1,6 +1,8 @@
 with Ada.Directories;
 with Ada.Streams.Stream_IO;
 
+with GNAT.OS_Lib;
+
 with Synapse.Pipeline.File_Replacement;
 with Synapse.Pipeline.Private_Access;
 
@@ -16,6 +18,7 @@ package body Synapse.Pipeline.Disk_Registry is
 
    Summary_Name : constant String := "execution.json";
    Events_Name  : constant String := "events.jsonl";
+   Name_Name    : constant String := "name";
    Description_Name : constant String := "description.json";
    Definitions  : constant String := "definitions";
    Transcripts  : constant String := "transcripts";
@@ -309,6 +312,66 @@ package body Synapse.Pipeline.Disk_Registry is
    end Write_Definition;
 
    overriding
+   function Replace_Name
+     (R : in out Disk_Registry; Id, Content : String) return Boolean
+   is
+      Dir  : constant String := Directory_Of (R, Id);
+      Path : constant String := Dir & "/" & Name_Name;
+   begin
+      if not Is_Plain (Id) or else not Is_Directory (Dir) then
+         return False;
+      elsif Content'Length > 0 then
+         return Write_Whole (Path, Content);
+      end if;
+      if Dirs.Exists (Path) then
+         Dirs.Delete_File (Path);
+      end if;
+      return not Dirs.Exists (Path);
+   exception
+      when others =>
+         return False;
+   end Replace_Name;
+
+   --  Deletes Path and, when it is a directory, everything in it. Unlike
+   --  Ada.Directories.Delete_Tree it deletes a file of any kind: the socket
+   --  of a run whose program was killed is left behind in its directory. A
+   --  symbolic link is deleted, not followed.
+   procedure Delete_All (Path : String) is
+      Done : Boolean;
+   begin
+      if GNAT.OS_Lib.Is_Symbolic_Link (Path)
+        or else not GNAT.OS_Lib.Is_Directory (Path)
+      then
+         GNAT.OS_Lib.Delete_File (Path, Done);
+         return;
+      end if;
+      declare
+         Search : Dirs.Search_Type;
+         Item   : Dirs.Directory_Entry_Type;
+         Names  : Synapse.Core.Text_Lists.Vector;
+      begin
+         --  Every name first, then the deleting, so the search never sees a
+         --  directory that changes under it.
+         Dirs.Start_Search (Search, Path, "");
+         while Dirs.More_Entries (Search) loop
+            Dirs.Get_Next_Entry (Search, Item);
+            declare
+               Name : constant String := Dirs.Simple_Name (Item);
+            begin
+               if Name /= "." and then Name /= ".." then
+                  Names.Append (To_Unbounded_String (Name));
+               end if;
+            end;
+         end loop;
+         Dirs.End_Search (Search);
+         for Name of Names loop
+            Delete_All (Path & "/" & To_String (Name));
+         end loop;
+      end;
+      Dirs.Delete_Directory (Path);
+   end Delete_All;
+
+   overriding
    function Remove (R : in out Disk_Registry; Id : String) return Boolean is
       Dir : constant String := Directory_Of (R, Id);
    begin
@@ -316,7 +379,7 @@ package body Synapse.Pipeline.Disk_Registry is
          return False;
       end if;
       if Dirs.Exists (Dir) then
-         Dirs.Delete_Tree (Dir);
+         Delete_All (Dir);
       end if;
       return not Dirs.Exists (Dir);
    exception
@@ -339,6 +402,16 @@ package body Synapse.Pipeline.Disk_Registry is
       end if;
       return Read_Text (Directory_Of (R, Id) & "/" & Summary_Name);
    end Read_Summary;
+
+   overriding
+   function Read_Name
+     (R : Disk_Registry; Id : String) return Registry_Store.Maybe_Content is
+   begin
+      if not Is_Plain (Id) then
+         return (Found => False);
+      end if;
+      return Read_Text (Directory_Of (R, Id) & "/" & Name_Name);
+   end Read_Name;
 
    overriding
    function Read_Events

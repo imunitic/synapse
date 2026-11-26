@@ -119,6 +119,7 @@ function run(
     fired: [],
     attention: null,
     interactive: null,
+    name: null,
     ...extra,
   }
 }

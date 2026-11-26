@@ -111,6 +111,7 @@ impl RunStarter {
         input: &Value,
         config: &AppConfig,
         folder: Option<&str>,
+        run_name: Option<&str>,
     ) -> Result<String, RunNotStarted> {
         let work_dir = config
             .work_dir
@@ -123,6 +124,7 @@ impl RunStarter {
         let mut command = tokio::process::Command::new(&self.binary);
         command
             .args(["run", pipeline, "--input", "-", "--id", &id])
+            .args(run_name.map(|name| ["--name", name]).into_iter().flatten())
             .current_dir(&folder)
             .env_clear()
             .envs(cli_environment(&self.base_env, config))

@@ -136,6 +136,17 @@ fn the_registries_the_vault_folders_and_the_terminals_have_their_limits() {
 }
 
 #[test]
+fn a_run_name_is_1_to_480_bytes_with_no_nul() {
+    for message in ["run.start", "terminal.start"] {
+        allowed(message, "runName", json!("Fix login"));
+        allowed(message, "runName", json!("x".repeat(480)));
+        refused(message, "runName", json!(""));
+        refused(message, "runName", json!("x".repeat(481)));
+        refused(message, "runName", json!("a\u{0}b"));
+    }
+}
+
+#[test]
 fn a_snapshot_must_be_a_tree_id_so_that_it_can_never_be_taken_for_an_option() {
     let tree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
     let diff = |before: &str| json!({ "folder": "/work/widget", "before": before });

@@ -21,4 +21,24 @@ package body Synapse.Pipeline.Registry_Store is
       return Is_Plain_Name (Path (Start .. Path'Last));
    end Is_Plain_Path;
 
+   function Is_Run_Name (Name : String) return Boolean is
+      Characters : Natural := 0;
+      Not_Space  : Boolean := False;
+   begin
+      for C of Name loop
+         if Character'Pos (C) < 16#20# or else Character'Pos (C) = 16#7F#
+         then
+            return False;
+         end if;
+         --  A continuation byte of UTF-8 is part of the character before it.
+         if Character'Pos (C) not in 16#80# .. 16#BF# then
+            Characters := Characters + 1;
+         end if;
+         if C /= ' ' then
+            Not_Space := True;
+         end if;
+      end loop;
+      return Characters in 1 .. Longest_Run_Name and then Not_Space;
+   end Is_Run_Name;
+
 end Synapse.Pipeline.Registry_Store;

@@ -91,9 +91,10 @@ export interface TerminalSession {
   command?: string
   // The id of a session of the harness that it continues.
   resume?: string
-  // The pipeline an interactive run is of, and the input it was started with.
+  // The pipeline an interactive run is of, the input it was started with, and its name.
   pipeline?: string
   input?: unknown
+  runName?: string
   // The id of the run it started, once the server has said.
   executionId?: string
   // Set when its program has ended, which leaves the tab for the person to read and close.
@@ -216,6 +217,8 @@ export type Action =
   | { type: 'openPage'; page: Page }
   | { type: 'activateTab'; id: string }
   | { type: 'closeTab'; id: string }
+  // The records of these runs were deleted: the tabs of their execution pages close.
+  | { type: 'executionsRemoved'; ids: string[] }
   // A session is added to the terminals page, which shows with it selected.
   | {
       type: 'openTerminal'
@@ -228,9 +231,10 @@ export type Action =
       title?: string
       // A session of the harness that it continues.
       resume?: string
-      // An interactive run of this pipeline, given this input.
+      // An interactive run of this pipeline, given this input and this name.
       pipeline?: string
       input?: unknown
+      runName?: string
     }
   // Sessions the host held when the page began, which are attached to.
   | { type: 'adoptTerminals'; sessions: TerminalInfo[] }
@@ -434,6 +438,7 @@ function step(state: ShellState, action: Action): ShellState {
         ...(action.resume === undefined ? {} : { resume: action.resume }),
         ...(action.pipeline === undefined ? {} : { pipeline: action.pipeline }),
         ...(action.input === undefined ? {} : { input: action.input }),
+        ...(action.runName === undefined ? {} : { runName: action.runName }),
       }
       // A run is shown on its own page, until it is named, and not among the terminals.
       if (action.kind === 'Pipeline') {
@@ -612,6 +617,13 @@ function step(state: ShellState, action: Action): ShellState {
       })
       return { ...opened, reloadToken: state.reloadToken + 1 }
     }
+
+    case 'executionsRemoved':
+      // Each tab closes as closeTab closes it, so the active tab moves the same way.
+      return action.ids.reduce(
+        (next, id) => reduce(next, { type: 'closeTab', id: `execution:${id}` }),
+        state,
+      )
 
     case 'closeTab': {
       // A run that is starting has no other place: closing its page lets go of its session. The

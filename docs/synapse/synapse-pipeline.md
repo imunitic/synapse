@@ -64,7 +64,7 @@ echo '{"task": "add a --verbose flag"}' | synapse-pipeline run Develop_Feature -
 `run` prints one line per step to standard error as it finishes, and the last step's result as JSON to
 standard output. `--id <execution-id>` gives the run its id, of 1 to 64 letters, digits, `_` and `-`, instead of
 one drawn, so a caller knows it before the run begins: `info <execution-id>` and the record's directory are
-named by it. It needs a work directory, which there is unless there is no home directory either, and an id that is taken is an error, not replaced by another:
+named by it. It needs a work directory, which there is unless there is no home directory either, and an id that is taken is an error, not replaced by another. `--name <text>` gives the run a name for people, shown by `list` and `info`: one line of 1 to 120 characters, not only spaces. A name that does not fit is a usage error, and nothing runs. A name that cannot be written is reported with one warning line, and the run goes on:
 
 ```
 step Develop: Done -> Review
@@ -223,11 +223,12 @@ started, stopped or changed this way.
 
 ```sh
 $ synapse-pipeline list
-EXECUTION      PIPELINE         STATUS   STEP
-exec-13a7d7cb  Develop_Feature  running  Review
+EXECUTION      NAME       PIPELINE         STATUS   STEP
+exec-13a7d7cb  Fix login  Develop_Feature  running  Review
 
 $ synapse-pipeline info exec-13a7d7cb
 execution  exec-13a7d7cb
+name       Fix login
 pipeline   Develop_Feature
 status     running
 step       Review
@@ -246,7 +247,9 @@ prints nothing on standard output. Each step reports the `outcomes` it declares.
 before. `definitions` lists every definition with its file and the files that did not load.
 
 `list` shows the runs that are going. A run that has ended, or that died without cleaning up, is not
-shown. `info --format json` gives the answer as JSON, and `--query` takes a
+shown. The NAME column holds the run's name, and is empty for a run that has none. `info` prints a `name`
+line after the `execution` line when the run has a name, and none when it has not; the JSON form does not
+carry the name. `info --format json` gives the answer as JSON, and `--query` takes a
 [JsonLogic](https://jsonlogic.com) rule that the run evaluates over its brief (the members `info`
 shows), its state under `state` and its events under `events`. A `var` path goes through objects only,
 not into a list.
@@ -300,6 +303,7 @@ which only the user can enter and which stays after the run has ended:
 ```
 execution.sock      only while the run is going, and only when its path is short enough
 execution.json      the summary, replaced as the run goes on
+name                the run's name, only when it has one
 events.jsonl        one event a line, as the socket gives them
 description.json    the pipeline the run began with, as the socket answers `pipeline`
 definitions/        the definition files the run was made from, laid out as a configuration directory
@@ -314,6 +318,12 @@ patches/
 outputs/
   1-Develop-1.json    the result that step visit reported, as the run read it when it chose the route
 ```
+
+`name` holds the run's name as it was given, with no line break after it. `run --name` writes it when the run
+begins, and `name <execution-id> <text>` replaces it at any time, whether the run is going on or over; it does not
+ask the run. `name <execution-id>` with no text removes the file. The file is replaced whole, so a reader sees the
+old name or the new one. The name is kept apart from `execution.json` because the run rewrites that file as it
+goes, and a rename there could be lost. A run that was never named has no `name` file.
 
 `execution.json` has `format` `synapse-pipeline-execution/v1`, the execution's `id` and `pipeline`, the
 `directory` the steps worked in, when it `started` and `ended`, its `status` (`running`, `completed` or `failed`), its `current_step` and the run's
@@ -381,6 +391,24 @@ record kept.
   ago; `--older-than 90d` (a number and `d`, `h`, `m` or `s`) changes the age, `--dry-run` says what would
   go, and `--all` also removes every execution that completed or failed, whatever its age. An execution that
   answers on its socket is never removed, and one with no summary to date it by is kept.
+- `cleanup <execution-id>...` removes the records of the executions given, whatever their age or status, and
+  works with `--dry-run`. Ids cannot be given together with `--older-than` or `--all`. An id that is running
+  or not recorded, or whose record cannot be removed, is kept and named on standard error, and the exit code
+  is then 1. The others are still removed.
+- `cleanup --format json` prints nothing for each execution and instead one document at the end, for a
+  program to read. It works with every form of `cleanup`, and the exit code is the same as with
+  `--format text`, the default:
+
+  ```json
+  {"format":"synapse-pipeline-cleanup/v1","dry_run":false,
+   "removed":["exec-13a7d7cb"],
+   "kept":[{"id":"exec-5c0e91aa","reason":"running"},{"id":"exec-77b2f004","reason":"too_recent"}]}
+  ```
+
+  `removed` holds the ids that were removed, or that would be with `--dry-run`. `kept` holds the executions
+  that were not removed, each with its reason: `running` when its socket answers, `too_recent` when it is not
+  old enough for the age given, `not_found` for a given id that is not recorded, and `cannot_remove` when its
+  record could not be removed.
 
 The record is best effort. A write that fails is tried again up to five times with a short pause, and then
 given up with one warning line for the execution; the run goes on, and its outcome and exit code are the

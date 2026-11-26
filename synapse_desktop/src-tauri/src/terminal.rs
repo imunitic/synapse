@@ -386,6 +386,9 @@ async fn prepare(
             "--id".into(),
             id.clone(),
         ]);
+        if let Some(name) = &params.run_name {
+            args.extend(["--name".into(), name.clone()]);
+        }
         // The terminal is the harness's, so the input goes in a file of this session's own.
         if let Some(input) = &params.input {
             let file = sessions_dir.join("input.json");

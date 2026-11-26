@@ -34,3 +34,14 @@ export function timeAgo(iso: string, now: Date): string {
   }
   return 'just now'
 }
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+// When a run started, in local time, as a person reads it in a list: `26 Nov 12:59`. Nothing for
+// what is not a time.
+export function formatStartTime(iso: string): string {
+  const time = new Date(iso)
+  if (Number.isNaN(time.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${time.getDate()} ${MONTHS[time.getMonth()]} ${pad(time.getHours())}:${pad(time.getMinutes())}`
+}

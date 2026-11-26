@@ -279,11 +279,18 @@ export class BusTransport implements Transport {
     return this.bus.request('run.ask', { executionId, request })
   }
 
-  startRun(pipeline: string, input: unknown, folder?: string): Promise<{ executionId: string }> {
-    return this.bus.request(
-      'run.start',
-      folder === undefined ? { pipeline, input } : { pipeline, input, folder },
-    )
+  startRun(
+    pipeline: string,
+    input: unknown,
+    folder?: string,
+    runName?: string,
+  ): Promise<{ executionId: string }> {
+    return this.bus.request('run.start', {
+      pipeline,
+      input,
+      ...(folder === undefined ? {} : { folder }),
+      ...(runName === undefined ? {} : { runName }),
+    })
   }
 
   async stopRun(executionId: string): Promise<void> {

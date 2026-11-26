@@ -13,6 +13,7 @@ import {
 } from '../domain/pipelines.ts'
 import { transport } from '../transport/index.ts'
 import { useConfig } from '../state/config.tsx'
+import { CloneDialog } from '../components/CloneDialog.tsx'
 import { RunDialog } from '../components/RunDialog.tsx'
 import { SourceCard } from './DefinitionPage.tsx'
 import { GraphView } from '../components/GraphView.tsx'
@@ -220,8 +221,8 @@ export function PipelinePage({
   path: string
   onOpen: (page: Page) => void
   onEdit: () => void
-  // An interactive run of this pipeline is started in the terminals, with this input.
-  onStartInteractive: (input: unknown, folder: string) => void
+  // An interactive run of this pipeline is started in the terminals, with this input and name.
+  onStartInteractive: (input: unknown, folder: string, runName?: string) => void
 }) {
   const load = useCallback(async () => {
     const [described, skills] = await Promise.all([
@@ -233,6 +234,7 @@ export function PipelinePage({
   const { state } = useLoad(load)
   const [chosen, setChosen] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
+  const [cloning, setCloning] = useState(false)
   const { state: config } = useConfig()
   const hasWorkDir = config.status === 'ready' && config.config.workDir !== null
 
@@ -258,6 +260,9 @@ export function PipelinePage({
           <button className="secondary" onClick={onEdit}>
             Edit
           </button>
+          <button className="secondary" onClick={() => setCloning(true)}>
+            Clone
+          </button>
           <button
             className="primary"
             disabled={description === null || !hasWorkDir}
@@ -267,6 +272,17 @@ export function PipelinePage({
           </button>
         </div>
       </div>
+      {cloning && (
+        <CloneDialog
+          name={name}
+          path={path}
+          onClose={() => setCloning(false)}
+          onCloned={(copy, written) => {
+            setCloning(false)
+            onOpen({ kind: 'definition', definition: 'pipeline', name: copy, path: written })
+          }}
+        />
+      )}
       {running && (
         <RunDialog
           pipeline={name}
@@ -276,9 +292,9 @@ export function PipelinePage({
             setRunning(false)
             onOpen({ kind: 'execution', id })
           }}
-          onStartInteractive={(input, folder) => {
+          onStartInteractive={(input, folder, runName) => {
             setRunning(false)
-            onStartInteractive(input, folder)
+            onStartInteractive(input, folder, runName)
           }}
           defaultFolder={config.status === 'ready' ? (config.config.terminalFolder ?? '') : ''}
         />

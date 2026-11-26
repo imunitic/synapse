@@ -39,6 +39,14 @@ package Synapse.Pipeline.Registry_Store is
    --  or a colon, so that it cannot leave the directory it is given in.
    function Is_Plain_Path (Path : String) return Boolean;
 
+   --  The most characters a run name may hold.
+   Longest_Run_Name : constant := 120;
+
+   --  Whether Name can be the name of a run: one line of 1 to 120
+   --  characters, not only spaces, with no control character. Name is UTF-8
+   --  and its characters are counted as code points.
+   function Is_Run_Name (Name : String) return Boolean;
+
    type Store is limited interface;
 
    --  Tells the store where the program keeps its work. It is told before it
@@ -98,6 +106,13 @@ package Synapse.Pipeline.Registry_Store is
      (S : in out Store; Id, Name, Content : String) return Boolean
    is abstract;
 
+   --  Replaces the execution's name with Content, whole: a reader sees the
+   --  old name or the new one and never part of one. An empty Content
+   --  removes the name, and a name that is already gone counts as removed.
+   --  True when it was written or removed.
+   function Replace_Name
+     (S : in out Store; Id, Content : String) return Boolean is abstract;
+
    --  Removes the execution's directory and everything in it. True when it
    --  is gone, which includes when it was never there.
    function Remove (S : in out Store; Id : String) return Boolean is abstract;
@@ -108,6 +123,11 @@ package Synapse.Pipeline.Registry_Store is
    --  The execution's summary, or nothing when there is none or it cannot be
    --  read.
    function Read_Summary (S : Store; Id : String) return Maybe_Content
+   is abstract;
+
+   --  The execution's name, or nothing when it has none or it cannot be
+   --  read.
+   function Read_Name (S : Store; Id : String) return Maybe_Content
    is abstract;
 
    --  The execution's event history, each event ended by a line break, or

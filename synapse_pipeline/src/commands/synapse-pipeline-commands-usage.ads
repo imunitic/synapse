@@ -24,16 +24,20 @@ package Synapse.Pipeline.Commands.Usage is
      & "         the state a run starts in, or the state after a step's "
      & "result" & LF
      & "  run <pipeline> [--input <file>|-] [--id <execution-id>] "
-     & "[--interactive]" & LF
+     & "[--name <text>] [--interactive]" & LF
      & "         run a pipeline to its end" & LF
      & "  list [--all]   the pipelines running now, or all that were run" & LF
      & "  info <execution-id> [--format json|text] [--query <rule>] | "
      & "--events" & LF
      & "         what a pipeline says about itself, running or not" & LF
+     & "  name <execution-id> [<text>]" & LF
+     & "         name a run, or remove its name when no text is given" & LF
      & "  changes <execution-id> [--step <name>] [--format json|text]" & LF
      & "         what the steps of a run changed in the folder they worked in"
      & LF
-     & "  cleanup [--older-than <duration>] [--dry-run] [--all]" & LF
+     & "  cleanup [--older-than <duration>] [--dry-run] [--all] "
+     & "[--format json|text]" & LF
+     & "  cleanup [--dry-run] [--format json|text] <execution-id>..." & LF
      & "         remove the records of executions that are over" & LF
      & "  configure <claude|codex|opencode>" & LF
      & "         install the skills of this program for a harness" & LF & LF
@@ -153,7 +157,7 @@ package Synapse.Pipeline.Commands.Usage is
 
    Run_Help : constant String :=
      "usage: synapse-pipeline run <pipeline> [--input <file>|-] "
-     & "[--id <execution-id>] [--interactive]" & LF & LF
+     & "[--id <execution-id>] [--name <text>] [--interactive]" & LF & LF
      & "Runs the pipeline from its first step, one agent session per step, "
      & "and prints" & LF
      & "the last step's result as JSON on standard output. One line per step "
@@ -169,6 +173,10 @@ package Synapse.Pipeline.Commands.Usage is
      & "                   '-', instead of one drawn; it needs a work "
      & "directory, and" & LF
      & "                   an id that is taken is an error" & LF
+     & "  --name <text>    a name for the run, one line of 1 to 120 "
+     & "characters, shown" & LF
+     & "                   by 'list' and 'info'; it needs a work directory "
+     & "to be kept" & LF
      & "  --interactive    run each step's harness on this terminal, where a "
      & "person can" & LF
      & "                   watch it and answer it; the step ends when the "
@@ -233,8 +241,9 @@ package Synapse.Pipeline.Commands.Usage is
      "usage: synapse-pipeline list [--all]" & LF & LF
      & "Lists the runs in progress that were started with the same work "
      & "directory, one" & LF
-     & "line each: its execution id, pipeline, status and current step. A "
-     & "run that has" & LF
+     & "line each: its execution id, name, pipeline, status and current step. "
+     & "The name" & LF
+     & "is empty for a run that has none. A run that has" & LF
      & "ended, or that died without cleaning up, is not listed. Nothing is "
      & "printed when" & LF
      & "there is none." & LF & LF
@@ -256,12 +265,15 @@ package Synapse.Pipeline.Commands.Usage is
      & "is over." & LF
      & "Without --query it prints the "
      & "run in brief:" & LF
-     & "execution id, pipeline, status, current step, steps run and the "
-     & "failure if there" & LF
-     & "is one. With --query it prints the answer to a JsonLogic rule that "
-     & "the run" & LF
-     & "evaluates over its brief, its state under 'state' and its events "
-     & "under 'events'." & LF
+     & "execution id, name, pipeline, status, current step, steps run and "
+     & "the failure" & LF
+     & "if there is one. The name line is left out for a run that has none, "
+     & "and" & LF
+     & "--format json does not carry it. With --query it prints the answer "
+     & "to a" & LF
+     & "JsonLogic rule that the run evaluates over its brief, its state "
+     & "under 'state'" & LF
+     & "and its events under 'events'." & LF
      & "Nothing can be started, stopped or changed this way." & LF & LF
      & "  --format text   for a person (the default); a string answer is "
      & "printed bare" & LF
@@ -272,6 +284,23 @@ package Synapse.Pipeline.Commands.Usage is
      & "object a line," & LF
      & "                  from its record; for a run in progress or one that "
      & "is over" & LF & LF
+     & "Environment:" & LF
+     & "  SYNAPSE_WORK_DIR  the work directory the run was recorded under "
+     & "(default" & LF
+     & "                    ~/.cache/synapse/work)" & LF;
+
+   Name_Help : constant String :=
+     "usage: synapse-pipeline name <execution-id> [<text>]" & LF & LF
+     & "Names an execution, so that 'list' and 'info' show which run it is. "
+     & "The name is" & LF
+     & "one line of 1 to 120 characters, not only spaces; it replaces the "
+     & "name the run" & LF
+     & "had. With no text the name is removed. The run may be going on or "
+     & "over: the" & LF
+     & "name is kept in its record, and the run itself is not asked. Nothing "
+     & "is printed" & LF
+     & "when it succeeds; an execution the work directory does not hold is "
+     & "an error." & LF & LF
      & "Environment:" & LF
      & "  SYNAPSE_WORK_DIR  the work directory the run was recorded under "
      & "(default" & LF
@@ -315,7 +344,10 @@ package Synapse.Pipeline.Commands.Usage is
 
    Cleanup_Help : constant String :=
      "usage: synapse-pipeline cleanup [--older-than <duration>] [--dry-run] "
-     & "[--all]" & LF & LF
+     & "[--all] [--format json|text]" & LF
+     & "       synapse-pipeline cleanup [--dry-run] [--format json|text] "
+     & "<execution-id>..." & LF
+     & LF
      & "Removes the records of executions that are over: each one's "
      & "directory, with its" & LF
      & "summary, events and transcripts. An execution that is running, "
@@ -323,6 +355,11 @@ package Synapse.Pipeline.Commands.Usage is
      & "answers, is never removed. One that does not answer is removed once "
      & "its last" & LF
      & "write is older than the age given, 30 days when none is." & LF & LF
+     & "Given execution ids, it removes those, whatever their age or "
+     & "status. One that" & LF
+     & "is running, or is not recorded, is kept and named on stderr, and "
+     & "the exit code" & LF
+     & "is 1." & LF & LF
      & "  --older-than <duration>  the age to keep, a number and d, h, m or "
      & "s, such as 90d" & LF
      & "  --dry-run                say what would be removed and remove "
@@ -331,7 +368,15 @@ package Synapse.Pipeline.Commands.Usage is
      & "or failed," & LF
      & "                           whatever their age; one that was "
      & "interrupted is still" & LF
-     & "                           kept until it is old enough" & LF & LF
+     & "                           kept until it is old enough" & LF
+     & "  --format json|text       text (the default) prints a line per "
+     & "execution; json" & LF
+     & "                           prints one synapse-pipeline-cleanup/v1 "
+     & "document instead," & LF
+     & "                           with the executions removed and the ones "
+     & "kept and why" & LF
+     & "                           (running, too_recent, not_found, "
+     & "cannot_remove)" & LF & LF
      & "Environment:" & LF
      & "  SYNAPSE_WORK_DIR  the work directory the runs were recorded under "
      & "(default" & LF
