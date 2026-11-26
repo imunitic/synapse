@@ -27,6 +27,48 @@ afterEach(async () => {
 })
 
 describe('private gateway executable', () => {
+  it('rejects dedicated ingress without a trusted proxy before loading assets', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'synapse-gateway-ingress-'))
+    directories.push(root)
+    const configPath = join(root, 'gateway.json')
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        port: 5180,
+        publicHost: 'staging.example.test',
+        publicOrigin: 'https://staging.example.test',
+        buildDirectory: root,
+        accounts: [],
+        hosts: [],
+      }),
+    )
+    const child = spawn(process.execPath, ['server/private-gateway-server.ts'], {
+      cwd: join(import.meta.dirname, '..'),
+      env: {
+        ...process.env,
+        SYNAPSE_PRIVATE_GATEWAY_CONFIG: configPath,
+        SYNAPSE_PRIVATE_GATEWAY_CONTAINER_BIND: '1',
+        SYNAPSE_PRIVATE_GATEWAY_BIND_ADDRESS: '172.29.103.2',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    children.push(child)
+    let output = ''
+    child.stdout?.on('data', (chunk: Buffer) => {
+      output += chunk.toString()
+    })
+    child.stderr?.on('data', (chunk: Buffer) => {
+      output += chunk.toString()
+    })
+    const code = await new Promise<number | null>((resolve, reject) => {
+      child.once('error', reject)
+      child.once('close', resolve)
+    })
+    expect(code).toBe(1)
+    expect(output).toContain('private gateway startup failed')
+    expect(output).not.toContain('listening')
+  })
+
   it('serves protected assets only after authenticating with fixture credentials', async () => {
     const root = await mkdtemp(join(tmpdir(), 'synapse-gateway-process-'))
     directories.push(root)
