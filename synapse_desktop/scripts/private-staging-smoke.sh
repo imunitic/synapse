@@ -45,6 +45,21 @@ JS
 chmod 644 "$config"
 "${compose[@]}" config --quiet
 "${compose[@]}" up -d --build
+# Verify effective users and distinct writable homes in the running containers.
+for service in gateway backend_a backend_b; do
+  [[ "$("${compose[@]}" exec -T "$service" id -u)" != 0 ]]
+done
+for backend in backend_a backend_b; do
+  "${compose[@]}" exec -T "$backend" sh -ec 'test ! -e /home/node/.synapse-ci-isolation'
+done
+"${compose[@]}" exec -T backend_a sh -ec 'printf a > /home/node/.synapse-ci-isolation'
+"${compose[@]}" exec -T backend_b sh -ec 'test ! -e /home/node/.synapse-ci-isolation; printf b > /home/node/.synapse-ci-isolation'
+[[ "$("${compose[@]}" exec -T backend_a cat /home/node/.synapse-ci-isolation)" == a ]]
+[[ "$("${compose[@]}" exec -T backend_b cat /home/node/.synapse-ci-isolation)" == b ]]
+for backend in backend_a backend_b; do
+  "${compose[@]}" exec -T "$backend" rm /home/node/.synapse-ci-isolation
+done
+echo 'Containers run non-root; backend home writes remain isolated.'
 for backend in backend_a backend_b; do
   address=172.29.101.2
   if [[ "$backend" == backend_b ]]; then address=172.29.102.2; fi
