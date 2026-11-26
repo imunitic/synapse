@@ -134,6 +134,15 @@ session_status() {
     -H "Cookie: $cookie" "$@"
 }
 [[ "$(session_status http://127.0.0.1:5180/auth/me)" == 200 ]]
+for origin in '' 'https://attacker.example.test'; do
+  [[ "$(curl -sS -o /dev/null -w '%{http_code}' \
+    -X POST -H 'Host: staging.example.test' -H "Origin: $origin" \
+    -H "Cookie: $cookie" http://127.0.0.1:5180/auth/logout)" == 403 ]]
+  [[ "$(session_status http://127.0.0.1:5180/auth/me)" == 200 ]]
+done
+[[ "$(curl -sS -o /dev/null -w '%{http_code}' \
+  -H 'Host: attacker.example.test' -H "Cookie: $cookie" \
+  http://127.0.0.1:5180/auth/me)" == 403 ]]
 [[ "$(session_status -X POST http://127.0.0.1:5180/auth/logout)" == 200 ]]
 [[ "$(session_status http://127.0.0.1:5180/auth/me)" == 401 ]]
 unset cookie
