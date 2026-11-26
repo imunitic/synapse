@@ -88,6 +88,32 @@ test('the Changes sidebar is shut until it is opened, and shows what changed in 
   }
 })
 
+test("a long line's colour reaches its end, and every row is as wide as the longest", async ({
+  page,
+}) => {
+  const dir = repository()
+  try {
+    await startShellIn(page, dir)
+    writeFileSync(join(dir, 'a.txt'), `one\n${'x'.repeat(400)}\nshort\nthree\n`)
+    await toggle(page).click()
+    const diff = sidebar(page).getByRole('region', { name: 'Changes in a.txt' })
+    const added = diff.locator('.diff-row[data-kind="add"]')
+    await expect(added).toHaveCount(2)
+    const widths = await added.evaluateAll((rows) =>
+      rows.map((row) => ({
+        row: row.getBoundingClientRect().width,
+        text: row.querySelector('.diff-text')!.scrollWidth,
+      })),
+    )
+    const [long, short] = widths
+    // The long line fits inside its own coloured row, and the short row is as wide as the long one.
+    expect(long!.row).toBeGreaterThanOrEqual(long!.text)
+    expect(short!.row).toBe(long!.row)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('the sidebar says so when nothing has changed, and reads again when asked', async ({
   page,
 }) => {

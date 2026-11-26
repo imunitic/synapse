@@ -3110,6 +3110,13 @@ button.activity-file:hover {
   white-space: pre;
 }
 
+/* As wide as the widest line, so that a line's colour reaches its end when the diff is scrolled
+   sideways, and every row is as wide as the longest. */
+.diff-hunks {
+  width: max-content;
+  min-width: 100%;
+}
+
 .diff-row {
   display: flex;
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
@@ -3173,7 +3180,11 @@ button.activity-file:hover {
   box-shadow: inset 3px 0 0 var(--accent-text);
 }
 
+/* Kept in view while the lines around it are scrolled sideways. */
 .diff-comment {
+  position: sticky;
+  left: 0;
+  max-width: 36rem;
   display: flex;
   flex-direction: column;
   gap: 6px;
