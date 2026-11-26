@@ -54,6 +54,41 @@ fn ignored(path: &Path, roots: &[PathBuf]) -> bool {
     })
 }
 
+// TEMPORARY: what the process holds when a watcher cannot be made, once.
+fn report_descriptors() {
+    static DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if DONE.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let mut total = 0;
+    let mut kinds: std::collections::BTreeMap<String, usize> = Default::default();
+    if let Ok(entries) = std::fs::read_dir("/proc/self/fd") {
+        for entry in entries.flatten() {
+            total += 1;
+            let target = std::fs::read_link(entry.path())
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let kind = if target.starts_with('/') {
+                "file".to_string()
+            } else {
+                target.split(':').take(2).collect::<Vec<_>>().join(":")
+            };
+            *kinds.entry(kind).or_default() += 1;
+        }
+    }
+    let instances =
+        std::fs::read_to_string("/proc/sys/fs/inotify/max_user_instances").unwrap_or_default();
+    let limits = std::fs::read_to_string("/proc/self/limits").unwrap_or_default();
+    let open = limits
+        .lines()
+        .find(|l| l.starts_with("Max open files"))
+        .unwrap_or("");
+    eprintln!(
+        "SYNAPSE-WATCH fds total={total} kinds={kinds:?} max_user_instances={} {open}",
+        instances.trim()
+    );
+}
+
 async fn place_dirs(place: &str, context: &Context) -> Vec<String> {
     let Ok(config) = crate::config::load_config(&context.config_file, &context.environment) else {
         return vec![];
@@ -189,7 +224,10 @@ fn files(place: String, push: Push, context: Arc<Context>, timing: TopicTiming) 
                                 }
                             }
                         }
-                        Err(error) => eprintln!("SYNAPSE-WATCH watcher failed {dir} {error:?}"),
+                        Err(error) => {
+                            eprintln!("SYNAPSE-WATCH watcher failed {dir} {error:?}");
+                            report_descriptors();
+                        }
                     }
                 }
                 {
