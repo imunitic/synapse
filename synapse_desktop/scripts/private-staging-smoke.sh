@@ -61,7 +61,14 @@ done
 # A successful TCP connection to the other user's backend is a failure.
 for pair in 'backend_a 172.29.102.2' 'backend_b 172.29.101.2'; do
   read -r backend address <<< "$pair"
-  "${compose[@]}" exec -T "$backend" node -e "fetch('http://$address:5174', {signal: AbortSignal.timeout(3000)}).then(() => process.exit(1)).catch(() => process.exit(0))"
+  "${compose[@]}" exec -T "$backend" node -e "
+    const socket = require('node:net').connect(5174, '$address')
+    socket.once('connect', () => process.exit(1))
+    socket.once('error', (error) =>
+      process.exit(['ECONNREFUSED', 'EHOSTUNREACH', 'ENETUNREACH', 'ETIMEDOUT'].includes(error.code) ? 0 : 1),
+    )
+    socket.setTimeout(3000, () => { socket.destroy(); process.exit(0) })
+  "
 done
 echo 'Gateway can reach both backends; cross-backend HTTP connections blocked.'
 
