@@ -93,9 +93,9 @@ The development branch adds `server/gateway-sessions.ts` with tests. It is a bou
 - Accept the token from a single strictly validated `synapse_session` cookie; reject absent, malformed and duplicated session cookies.
 - Produce `Secure`, `HttpOnly`, `SameSite=Strict`, root-scoped cookie attributes; provide a matching cookie-clearing value.
 - Enforce a configurable fixed expiry (default eight hours), bounded active sessions (default 32), per-user cap (default eight), per-session revocation and per-user revocation. When a user reaches their cap, the oldest _same-user_ session is evicted, and the WebSocket revalidation callback sees it as revoked.
-- The gateway already revalidates active WebSockets periodically; its session callbacks are intentionally **not wired** to any public login listener yet.
+- The gateway revalidates active WebSockets periodically. The opt-in private gateway entrypoint now wires session issuance and revocation to the HTTP authentication handlers; this does not provision a public listener or HTTPS termination.
 
-**Not a production authentication system:** there is no verified login identity provider, brute-force protection, durable session persistence, key rotation, HTTPS gateway entry point, or container deployment. Restarting the gateway clears all sessions. A later hardened service must arrange secure login and session issuance, request authentication on _all_ HTTP and WebSocket paths, and logout/revocation across running sockets.
+**Not a production authentication system:** the private gateway has operator-provisioned password verification, bounded login throttling, authenticated HTTP/WebSocket routing, and live-socket logout. Durable session persistence, HTTPS termination, and verified runtime container isolation remain deployment concerns. Restarting the gateway clears all sessions.
 
 ## Detached HTTP authentication handlers (2026-11-20)
 
@@ -103,7 +103,7 @@ The feature branch includes `server/gateway-http-auth.ts` and integration tests 
 
 - Login uses a caller-supplied asynchronous `verifyCredentials(username, password)` function; only a verified, server-assigned user ID can acquire a session. No default credentials or passwords are included.
 - Login returns a secure opaque session cookie and never exposes the raw token in a JSON response.
-- Logout revokes the presented token and issues a clearing cookie. Session status returns only authenticated true/false, not credential or container details.
+- Logout revokes the presented token and issues a clearing cookie. In the composed private gateway, logout also disconnects live WebSockets for that session. Session status returns only authenticated true/false, not credential or container details.
 - Requests require exact Host; state-changing POST requires exact Origin. GET `/auth/me` accepts an absent Origin, as normal same-origin browser GET does, while rejecting a mismatched supplied Origin.
 - Login accepts JSON media types with a charset parameter, limits request bytes, and enforces a 10-second total request-body read deadline (slow clients are disconnected).
 - Login uses a bounded in-memory per-peer limiter. `gateway-trusted-peer.ts` accepts forwarded client addresses only from configured trusted TCP proxies, and rejects ambiguous or malformed forwarded addresses. Operators must configure the reverse proxy to strip untrusted forwarding headers. All login attempts, including successful ones, remain counted to bound expensive authentication work.
