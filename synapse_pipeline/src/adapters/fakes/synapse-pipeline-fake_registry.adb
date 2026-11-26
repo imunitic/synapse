@@ -159,6 +159,25 @@ package body Synapse.Pipeline.Fake_Registry is
    end Write_Patch;
 
    overriding
+   function Write_Output
+     (F : in out Fake_Registry; Id, Name, Content : String) return Boolean
+   is
+      Found : Boolean;
+
+      procedure Change (Item : in out Execution) is
+      begin
+         Item.Outputs.Include (Name, Content);
+      end Change;
+   begin
+      if not Registry_Store.Is_Plain_Name (Name)
+        or else not Attempt (F, Output_Op) then
+         return False;
+      end if;
+      Update (F, Id, Change'Access, Found);
+      return Found;
+   end Write_Output;
+
+   overriding
    function Write_Description
      (F : in out Fake_Registry; Id, Content : String) return Boolean
    is
@@ -307,6 +326,28 @@ package body Synapse.Pipeline.Fake_Registry is
       end if;
       return Registry_Store.Maybe_Content'(Found => False);
    end Read_Patch;
+
+   overriding
+   function Read_Output
+     (F : Fake_Registry; Id, Name : String) return Registry_Store.Maybe_Content
+   is
+      Place : constant Executions.Cursor := F.Held.Find (Id);
+   begin
+      if Executions.Has_Element (Place)
+        and then Registry_Store.Is_Plain_Name (Name) then
+         declare
+            Item : constant Execution := Executions.Element (Place);
+            Held : constant Contents.Cursor := Item.Outputs.Find (Name);
+         begin
+            if Contents.Has_Element (Held) then
+               return Registry_Store.Maybe_Content'
+                 (Found => True,
+                  Value => To_Unbounded_String (Contents.Element (Held)));
+            end if;
+         end;
+      end if;
+      return Registry_Store.Maybe_Content'(Found => False);
+   end Read_Output;
 
    overriding
    function Patch_Names

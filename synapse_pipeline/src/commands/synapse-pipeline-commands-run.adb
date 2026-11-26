@@ -1,3 +1,4 @@
+with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
 
 with Synapse.Core.JSON;
@@ -55,6 +56,10 @@ package body Synapse.Pipeline.Commands.Run is
 
    function Member (Key : String; Item : JSON.Value) return JSON.Member is
      (Key => To_Unbounded_String (Key), Item => Item);
+
+   --  N as text, without the leading space, as file names in a record use it.
+   function Image (N : Natural) return String is
+     (Ada.Strings.Fixed.Trim (Natural'Image (N), Ada.Strings.Left));
 
    --  The id the run takes, made a directory of the registry when the work
    --  directory is known and there is a free id to be had. Wanted is the id
@@ -160,7 +165,10 @@ package body Synapse.Pipeline.Commands.Run is
                    JSON.Make_String (To_String (Pipeline.Name)))]));
          while not States.Is_Terminal (Run) loop
             declare
-               Step : constant String := To_String (Run.Current_Step);
+               Step  : constant String := To_String (Run.Current_Step);
+               --  The visit's number, as Sessions.Request_For gives it to
+               --  the step's sessions.
+               Visit : constant Positive := Run.Steps_Run + 1;
             begin
                Recorder.Record_Event ("step.started", Step, JSON.Null_Value);
                Run := Engine.Execute_Step (Pipeline, Run, Settings, Recording);
@@ -187,6 +195,12 @@ package body Synapse.Pipeline.Commands.Run is
                            ("next",
                             JSON.Make_String
                               (To_String (Run.Current_Step)))]));
+                  --  The result the run routed on, kept for whoever looks
+                  --  at the visit later.
+                  Recorder.Record_Output
+                    (Image (Visit) & "-" & Step & "-"
+                     & Image (Recording.Last_Attempt) & ".json",
+                     JSON.To_String (Run.Previous_Output));
                   Complain
                     (Env,
                      "step " & Step & ": " & Outcome_Of (Run) & " -> "

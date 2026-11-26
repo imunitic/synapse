@@ -64,6 +64,10 @@ package Synapse.Pipeline.Recorders is
    --  when it is not.
    procedure Record_Patch (R : in out Recorder; Name, Content : String);
 
+   --  Keeps Content, the result a step visit reported, as the output called
+   --  Name. Written when the run is recorded and left out when it is not.
+   procedure Record_Output (R : in out Recorder; Name, Content : String);
+
    --  The run has a new state.
    procedure Publish (R : in out Recorder; Item : States.State);
 

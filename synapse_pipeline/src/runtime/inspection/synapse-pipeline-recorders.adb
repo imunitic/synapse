@@ -126,6 +126,19 @@ package body Synapse.Pipeline.Recorders is
       end if;
    end Record_Patch;
 
+   procedure Record_Output (R : in out Recorder; Name, Content : String) is
+   begin
+      if R.Registered then
+         declare
+            Written : constant Boolean :=
+              R.Store.Write_Output (To_String (R.Id), Name, Content);
+            pragma Unreferenced (Written);
+         begin
+            null;
+         end;
+      end if;
+   end Record_Output;
+
    procedure Publish (R : in out Recorder; Item : States.State) is
    begin
       R.Context.Publish (Item);

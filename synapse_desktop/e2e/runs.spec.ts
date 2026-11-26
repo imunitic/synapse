@@ -26,6 +26,30 @@ test('a run is started from a pipeline and followed to its end', async ({ page }
   await expect(trace).toContainText('Approved → the run completes')
   // A scripted run has no session, and says so.
   await expect(trace.getByText('no transcript').first()).toBeVisible()
+
+  // What each visit reported: the newest is open, the others open on a click.
+  const outcomes = page.getByLabel('Outcomes')
+  const rows = outcomes.locator('.trace > div')
+  await expect(rows).toHaveCount(6)
+  const approved = rows.nth(5)
+  await expect(approved).toContainText('Approved → the run completes')
+  await expect(approved.getByRole('button', { name: 'Hide outcome' })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  )
+  await expect(approved).toContainText('looks good')
+  await expect(approved.getByRole('button', { name: 'Copy JSON' })).toBeVisible()
+
+  const requested = rows.nth(2)
+  await expect(requested).toContainText('Changes_Requested → Develop')
+  await expect(requested.getByLabel('Problems')).toHaveCount(0)
+  await requested.getByRole('button', { name: 'Outcome', exact: true }).click()
+  const problems = requested.getByLabel('Problems')
+  await expect(problems).toContainText('a.txt')
+  await expect(problems).toContainText('one issue')
+  // The data, as a tree: its first level is open, the entry below it folded.
+  await expect(requested.locator('.json-tree')).toContainText('problems:')
+  await expect(requested.locator('.json-tree')).toContainText('{ 3 }')
 })
 
 test("a run is started from the definitions list without the pipeline's page", async ({ page }) => {

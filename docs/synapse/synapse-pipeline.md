@@ -311,6 +311,8 @@ transcripts/
   2-Review-1.jsonl
 patches/
   1-Develop-1.patch   what that attempt changed in the folder it worked in, as `git diff` prints it
+outputs/
+  1-Develop-1.json    the result that step visit reported, as the run read it when it chose the route
 ```
 
 `execution.json` has `format` `synapse-pipeline-execution/v1`, the execution's `id` and `pipeline`, the
@@ -341,6 +343,11 @@ larger than everything else a run changed. `synapse-pipeline changes <execution-
 attempt, or as `synapse-pipeline-changes/v1` JSON with the `directory`. With `--step`, a try of that step
 that is still running is included last: the difference between its before snapshot and the working folder now.
 Without `--step` no live snapshot is taken.
+
+A step's `outputs/` entry is the result of a step visit the run routed on, as the runtime read it: its
+`outcome`, `summary` and `data`. It is named for the run's step count, the step and the try that was accepted,
+so a try whose answer was refused and retried leaves no output of its own. A visit that failed leaves none, and
+a run recorded before outputs were kept has no `outputs/` folder.
 
 `description.json` is the `synapse-pipeline-description/v1` document that `show --format json` prints, as the
 run resolved it when it began: its steps and edges with the harness, permissions and timeout each step runs with,
