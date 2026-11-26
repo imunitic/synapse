@@ -1,5 +1,6 @@
 import { createServer, type Server } from 'node:http'
 import { createConnection } from 'node:net'
+import type { Duplex } from 'node:stream'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { WebSocket, WebSocketServer } from 'ws'
 import { BUS_PATH, TOKEN_HEADER } from '../shared/constants.ts'
@@ -20,6 +21,7 @@ let bHeaders: Record<string, string | string[] | undefined>
 let revoked: Set<string>
 let refuseBackendA: boolean
 let stallBackendA: boolean
+let stalledSockets: Set<Duplex>
 let clients: WebSocket[]
 let upstreams: WebSocket[]
 
@@ -40,7 +42,11 @@ function privateBackend(
   })
   const sockets = new WebSocketServer({ noServer: true })
   server.on('upgrade', (req, socket, head) => {
-    if (name === 'a' && stallBackendA) return
+    if (name === 'a' && stallBackendA) {
+      stalledSockets.add(socket)
+      socket.once('close', () => stalledSockets.delete(socket))
+      return
+    }
     if (name === 'a' && refuseBackendA) {
       socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n')
       return
@@ -117,6 +123,7 @@ beforeEach(async () => {
   revoked = new Set()
   refuseBackendA = false
   stallBackendA = false
+  stalledSockets = new Set()
   backendA = privateBackend('a', TOKEN_A, (headers) => {
     aCount++
     aHeaders = headers
@@ -167,6 +174,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  for (const socket of stalledSockets) socket.destroy()
   for (const socket of [...clients, ...upstreams]) socket.terminate()
   await Promise.all(
     [gateway, backendA, backendB].map(
