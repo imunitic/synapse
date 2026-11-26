@@ -65,7 +65,9 @@ describe('private gateway executable', () => {
       child.once('close', resolve)
     })
     expect(code).toBe(1)
-    expect(output).toContain('private gateway requires valid trusted proxy IPs for dedicated ingress')
+    expect(output).toContain(
+      'private gateway requires valid trusted proxy IPs for dedicated ingress',
+    )
     expect(output).not.toContain('listening')
   })
 
