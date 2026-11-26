@@ -741,13 +741,11 @@ describe('the Changes sidebar', () => {
     expect(reduce(open, { type: 'toggleChanges' }).changesOpen).toBe(false)
   })
 
-  it('is opened, at a visit of a run, by asking to see the changes of that visit', () => {
-    const shown = reduce(startState, { type: 'showChanges', visit: 3 })
-    expect(shown).toMatchObject({ changesOpen: true, changesVisit: 3 })
-    expect(reduce(shown, { type: 'toggleChanges' })).toMatchObject({
-      changesOpen: false,
-      changesVisit: 3,
-    })
+  it('is opened on the whole of what is looked at by asking to see the changes', () => {
+    const shown = reduce(startState, { type: 'showChanges' })
+    expect(shown).toMatchObject({ changesOpen: true, changesFile: null })
+    expect(shown).not.toHaveProperty('changesVisit')
+    expect(reduce(shown, { type: 'toggleChanges' }).changesOpen).toBe(false)
   })
 
   it('remembers what a session was compared with, for that session only', () => {
@@ -779,14 +777,10 @@ describe('the Changes sidebar', () => {
     expect(closed.activityKinds).toEqual({})
   })
 
-  it('is opened at a file when an activity names it, with no visit for a session', () => {
-    const shown = reduce(startState, { type: 'showChanges', visit: null, path: '/w/src/a.txt' })
-    expect(shown).toMatchObject({
-      changesOpen: true,
-      changesVisit: null,
-      changesFile: '/w/src/a.txt',
-    })
-    expect(reduce(shown, { type: 'showChanges', visit: 2 }).changesFile).toBeNull()
+  it('is opened at a file when an activity names it, and asking for all of them lets it go', () => {
+    const shown = reduce(startState, { type: 'showChanges', path: '/w/src/a.txt' })
+    expect(shown).toMatchObject({ changesOpen: true, changesFile: '/w/src/a.txt' })
+    expect(reduce(shown, { type: 'showChanges' }).changesFile).toBeNull()
   })
 })
 

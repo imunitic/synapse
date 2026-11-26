@@ -1,9 +1,9 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { defaultConfig } from '../shared/calls.ts'
-import { createRunStarter, NotStartedHere, RunNotStarted } from './runs.ts'
+import { createRunStarter, FolderNotFound, NotStartedHere, RunNotStarted } from './runs.ts'
 
 // A stand-in for the synapse-pipeline of an npm install: a shim that runs the
 // real thing as its child. It does what `run --id` does: makes the record
@@ -24,6 +24,7 @@ if [ -d "$dir" ]; then
 fi
 mkdir -p "$dir"
 echo "$pipeline $input" > "$dir/started-with"
+pwd -P > "$dir/pwd"
 echo $$ > "$dir/pid"
 sleep 30 &
 echo $! > "$dir/child.pid"
@@ -145,6 +146,47 @@ describe.skipIf(process.platform === 'win32')('createRunStarter', () => {
   it('refuses to start without a work directory', async () => {
     const starter = createRunStarter(await script('stub', STUB), process.env)
     await expect(starter.start('P', {}, defaultConfig)).rejects.toBeInstanceOf(RunNotStarted)
+  })
+
+  it('runs in the folder it is given', async () => {
+    const folder = join(dir, 'repo')
+    await mkdir(folder)
+    const starter = createRunStarter(await script('stub', STUB), process.env, join(dir, 'home'))
+    const { executionId } = await starter.start('P', {}, config(), folder)
+    const ran = await readWhenWritten(join(work, 'pipelines', executionId, 'pwd'))
+    expect(ran.trim()).toBe(await realpath(folder))
+    starter.stop(executionId)
+  })
+
+  it('runs in the home folder when it is given no folder or a blank one', async () => {
+    const home = join(dir, 'home')
+    await mkdir(home)
+    const starter = createRunStarter(await script('stub', STUB), process.env, home)
+    for (const folder of [undefined, '  ']) {
+      const { executionId } = await starter.start('P', {}, config(), folder)
+      const ran = await readWhenWritten(join(work, 'pipelines', executionId, 'pwd'))
+      expect(ran.trim()).toBe(await realpath(home))
+      starter.stop(executionId)
+    }
+  })
+
+  it('refuses a folder that does not exist, naming it, and leaves no record', async () => {
+    const missing = join(dir, 'missing-folder')
+    const starter = createRunStarter(await script('stub', STUB), process.env, dir)
+    const started = starter.start('P', {}, config(), missing)
+    await expect(started).rejects.toBeInstanceOf(FolderNotFound)
+    await expect(started).rejects.toThrow(`the folder ${missing} does not exist`)
+    expect(await readdir(join(work, 'pipelines'))).toEqual([])
+  })
+
+  it('refuses a relative folder, naming it, and leaves no record', async () => {
+    const starter = createRunStarter(await script('stub', STUB), process.env, dir)
+    for (const folder of ['project', '.']) {
+      const started = starter.start('P', {}, config(), folder)
+      await expect(started).rejects.toBeInstanceOf(FolderNotFound)
+      await expect(started).rejects.toThrow(`the folder ${folder} is not an absolute path`)
+    }
+    expect(await readdir(join(work, 'pipelines'))).toEqual([])
   })
 
   it('reports a binary that cannot be run', async () => {

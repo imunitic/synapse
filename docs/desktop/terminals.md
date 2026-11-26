@@ -30,7 +30,7 @@ Each session has a tab. Click a tab to show it; the others go on. Double-click a
 
 Open the Changes sidebar with the icon at the top right. For a harness session it has three tabs:
 
-- Changes: what changed in the session's folder.
+- Changes: what changed in the session's folder. The bar at the top shows the folder; click + and type another repository to show its changes next to it, as a second group. The cross next to it hides it again.
 - Git: the commits of the session.
 - Activity: the conversation of the harness, in full: your prompts, its messages and the commands it ran. Click a kind of action, such as Commands, to show only those. "Expand all" opens the output of every command.
 

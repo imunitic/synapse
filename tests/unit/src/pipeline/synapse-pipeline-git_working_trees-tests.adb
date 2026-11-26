@@ -1,10 +1,14 @@
+with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
+with Ada.Text_IO;
 
 with AUnit.Assertions;
 
 with Synapse.Core.Text_Lists;
 with Synapse.Pipeline.Fake_Process;
 with Synapse.Pipeline.Session_Process;
+with Synapse.Pipeline.System_Process;
+with Synapse.Test_Scratch;
 
 package body Synapse.Pipeline.Git_Working_Trees.Tests is
 
@@ -183,6 +187,189 @@ package body Synapse.Pipeline.Git_Working_Trees.Tests is
          "a diff that failed is not an empty one");
    end Changes_That_Git_Cannot_Give_Are_None;
 
+   --  A repository in Scratch with one commit and a file changed since, and
+   --  the snapshot of its working tree, made by git.
+   function Snapshot_Of_A_Changed_Repository
+     (Scratch : Synapse.Test_Scratch.Scratch;
+      Trees   : in out Git_Working_Trees) return String
+   is
+      Dir  : constant String := Synapse.Test_Scratch.Path (Scratch);
+
+      procedure Write (Name, Text : String) is
+         File : Ada.Text_IO.File_Type;
+      begin
+         Ada.Text_IO.Create (File, Ada.Text_IO.Out_File, Dir & "/" & Name);
+         Ada.Text_IO.Put_Line (File, Text);
+         Ada.Text_IO.Close (File);
+      end Write;
+   begin
+      Synapse.Test_Scratch.Init_Repo (Dir);
+      Write ("a.txt", "one");
+      Synapse.Test_Scratch.Git (Dir, "add", "-A");
+      Synapse.Test_Scratch.Git (Dir, "commit", "-q", "-m", "first");
+      Write ("a.txt", "two");
+      declare
+         Snapshot : constant Working_Trees.Maybe_Text :=
+           Trees.Snapshot (Dir, "pin-test");
+      begin
+         Assert (Snapshot.Found, "the working tree has a snapshot");
+         return To_String (Snapshot.Value);
+      end;
+   end Snapshot_Of_A_Changed_Repository;
+
+   function Contains (Text, Part : String) return Boolean is
+     (Ada.Strings.Fixed.Index (Text, Part) > 0);
+
+   procedure A_Pinned_Snapshot_Is_What_The_Ref_Names_And_Outlives_Gc
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Scratch : constant Synapse.Test_Scratch.Scratch :=
+        Synapse.Test_Scratch.Make;
+      Process : aliased System_Process.System_Process;
+      Trees   : Git_Working_Trees (Process'Access);
+      Dir     : constant String := Synapse.Test_Scratch.Path (Scratch);
+      Ref     : constant String := Working_Trees.Run_Ref ("exec-1", "start");
+   begin
+      declare
+         Tree : constant String :=
+           Snapshot_Of_A_Changed_Repository (Scratch, Trees);
+      begin
+         Assert (Trees.Pin (Dir, Ref, Tree), "the snapshot is pinned");
+         Assert
+           (Synapse.Test_Scratch.Git (Dir, "rev-parse", Ref) = Tree,
+            "the ref names the tree of the snapshot");
+         Synapse.Test_Scratch.Git (Dir, "gc", "-q", "--prune=now");
+         Assert
+           (Synapse.Test_Scratch.Git (Dir, "cat-file", "-t", Tree) = "tree",
+            "the tree is still there after git gc");
+         Assert
+           (not Contains
+                  (Synapse.Test_Scratch.Git (Dir, "branch", "--list", "--all"),
+                   "synapse")
+            and then not Contains
+                           (Synapse.Test_Scratch.Git (Dir, "tag"), "synapse"),
+            "the ref is not a branch and not a tag");
+         Trees.Unpin (Dir, Ref);
+         Assert
+           (Synapse.Test_Scratch.Git
+              (Dir, "for-each-ref", "refs/synapse/") = "",
+            "unpinning removes the ref");
+      end;
+      Synapse.Test_Scratch.Remove (Scratch);
+   exception
+      when others =>
+         Synapse.Test_Scratch.Remove (Scratch);
+         raise;
+   end A_Pinned_Snapshot_Is_What_The_Ref_Names_And_Outlives_Gc;
+
+   procedure A_Folder_That_Is_Not_In_A_Repository_Pins_Nothing
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Scratch : constant Synapse.Test_Scratch.Scratch :=
+        Synapse.Test_Scratch.Make_Outside_Git;
+      Process : aliased System_Process.System_Process;
+      Trees   : Git_Working_Trees (Process'Access);
+      Dir     : constant String := Synapse.Test_Scratch.Path (Scratch);
+   begin
+      Assert
+        (not Trees.Pin
+               (Dir, Working_Trees.Run_Ref ("exec-1", "start"),
+                "4b825dc642cb6eb9a060e54bf8d69288fbee4904"),
+         "there is nothing to pin in a folder that is not in a repository");
+      Trees.Unpin (Dir, Working_Trees.Run_Ref ("exec-1", "start"));
+      Synapse.Test_Scratch.Remove (Scratch);
+   exception
+      when others =>
+         Synapse.Test_Scratch.Remove (Scratch);
+         raise;
+   end A_Folder_That_Is_Not_In_A_Repository_Pins_Nothing;
+
+   procedure Unpinning_A_Ref_That_Is_Not_There_Is_Not_An_Error
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Scratch : constant Synapse.Test_Scratch.Scratch :=
+        Synapse.Test_Scratch.Make;
+      Process : aliased System_Process.System_Process;
+      Trees   : Git_Working_Trees (Process'Access);
+      Dir     : constant String := Synapse.Test_Scratch.Path (Scratch);
+   begin
+      Synapse.Test_Scratch.Init_Repo (Dir);
+      Trees.Unpin (Dir, Working_Trees.Run_Ref ("exec-1", "end"));
+      Trees.Unpin (Dir, Working_Trees.Run_Ref ("exec-1", "end"));
+      Synapse.Test_Scratch.Remove (Scratch);
+   exception
+      when others =>
+         Synapse.Test_Scratch.Remove (Scratch);
+         raise;
+   end Unpinning_A_Ref_That_Is_Not_There_Is_Not_An_Error;
+
+   procedure A_Run_Ref_Is_Under_Refs_Synapse_Runs (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (Working_Trees.Run_Ref ("exec-1", "start")
+         = "refs/synapse/runs/exec-1/start",
+         "a run's start is pinned under refs/synapse/runs/<id>/start");
+   end A_Run_Ref_Is_Under_Refs_Synapse_Runs;
+
+   --  A repository whose own .gitignore ignores every dotfile, as fw-core's
+   --  does, while it tracks some of them: a snapshot made from an empty index
+   --  would leave them out, and every one would show as added.
+   procedure A_Tracked_File_An_Ignore_Rule_Matches_Stays_In_The_Snapshot
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      Scratch : constant Synapse.Test_Scratch.Scratch :=
+        Synapse.Test_Scratch.Make;
+      Process : aliased System_Process.System_Process;
+      Trees   : Git_Working_Trees (Process'Access);
+      Dir     : constant String := Synapse.Test_Scratch.Path (Scratch);
+
+      procedure Write (Name, Text : String) is
+         File : Ada.Text_IO.File_Type;
+      begin
+         Ada.Text_IO.Create (File, Ada.Text_IO.Out_File, Dir & "/" & Name);
+         Ada.Text_IO.Put_Line (File, Text);
+         Ada.Text_IO.Close (File);
+      end Write;
+   begin
+      Synapse.Test_Scratch.Init_Repo (Dir);
+      Write (".gitignore", ".*");
+      Write (".tracked", "kept");
+      Write ("a.txt", "one");
+      Synapse.Test_Scratch.Git (Dir, "add", "-A");
+      Synapse.Test_Scratch.Git (Dir, "add", "-f", ".gitignore", ".tracked");
+      Synapse.Test_Scratch.Git (Dir, "commit", "-q", "-m", "first");
+      Write (".untracked", "not kept");
+      declare
+         Snapshot : constant Working_Trees.Maybe_Text :=
+           Trees.Snapshot (Dir, "ignored-test");
+      begin
+         Assert (Snapshot.Found, "the working tree has a snapshot");
+         Assert
+           (Synapse.Test_Scratch.Git
+              (Dir, "diff", "--name-only", "HEAD", To_String (Snapshot.Value))
+            = "",
+            "the snapshot of an unchanged working tree is the last commit's "
+            & "tree, tracked dotfiles included");
+         Assert
+           (not Contains
+              (Synapse.Test_Scratch.Git
+                 (Dir, "ls-tree", "--name-only", To_String (Snapshot.Value)),
+               ".untracked"),
+            "an ignored file that is not tracked stays out");
+      end;
+      Synapse.Test_Scratch.Remove (Scratch);
+   exception
+      when others =>
+         Synapse.Test_Scratch.Remove (Scratch);
+         raise;
+   end A_Tracked_File_An_Ignore_Rule_Matches_Stays_In_The_Snapshot;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -212,6 +399,22 @@ package body Synapse.Pipeline.Git_Working_Trees.Tests is
       Register_Routine
         (T, Changes_That_Git_Cannot_Give_Are_None'Access,
          "Changes that git cannot give are none");
+      Register_Routine
+        (T,
+         A_Tracked_File_An_Ignore_Rule_Matches_Stays_In_The_Snapshot'Access,
+         "A tracked file an ignore rule matches stays in the snapshot");
+      Register_Routine
+        (T, A_Pinned_Snapshot_Is_What_The_Ref_Names_And_Outlives_Gc'Access,
+         "A pinned snapshot is what the ref names and outlives git gc");
+      Register_Routine
+        (T, A_Folder_That_Is_Not_In_A_Repository_Pins_Nothing'Access,
+         "A folder that is not in a repository pins nothing");
+      Register_Routine
+        (T, Unpinning_A_Ref_That_Is_Not_There_Is_Not_An_Error'Access,
+         "Unpinning a ref that is not there is not an error");
+      Register_Routine
+        (T, A_Run_Ref_Is_Under_Refs_Synapse_Runs'Access,
+         "A run ref is under refs/synapse/runs");
    end Register_Tests;
 
 end Synapse.Pipeline.Git_Working_Trees.Tests;

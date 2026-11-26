@@ -1,8 +1,9 @@
-import { useEffect, useReducer, useRef } from 'react'
+import { useEffect, useReducer, useRef, useState } from 'react'
 import { useConfig } from '../state/config.tsx'
 import { transport } from '../transport/index.ts'
 import { PageView } from './PageView.tsx'
 import { ChangesSidebar } from './ChangesSidebar.tsx'
+import type { FolderBarProps } from './FolderBar.tsx'
 import { ChangesToggle } from './ChangesToggle.tsx'
 import { OutlineSidebar } from './OutlineSidebar.tsx'
 import { Rail } from './Rail.tsx'
@@ -13,7 +14,21 @@ import { TerminalsPage } from '../pages/TerminalsPage.tsx'
 import { TerminalView } from '../components/TerminalView.tsx'
 import { storedName, storeName } from '../domain/terminal-names.ts'
 import { defaultBase } from '../domain/changes.ts'
-import { keepBaseline } from '../state/change-baselines.ts'
+import {
+  baselineOf,
+  followFolder,
+  hideFolder,
+  keepBaseline,
+  onBaselineChange,
+  showFolder,
+} from '../state/change-baselines.ts'
+import {
+  addRunRepository,
+  onRunRepositoriesChange,
+  removeRunRepository,
+  runRepositoriesOf,
+} from '../state/run-repositories.ts'
+import { readRunChanges } from '../domain/run-changes.ts'
 import { isLiveRun, reduce, startState } from '../state/state.ts'
 import { fileCount, useChanges, type ChangesSource } from '../state/useChanges.ts'
 import { useCommits } from '../state/useCommits.ts'
@@ -97,21 +112,55 @@ export function Shell() {
         : null
   // The running session of the run whose page shows, followed through its transcript.
   const liveRun = useLiveRun(active?.page.kind === 'execution' ? active.page.id : null)
-  const changes = useChanges(
-    changesSource,
-    state.changesOpen,
-    liveRun.live === null
-      ? null
-      : {
-          step: liveRun.live.step,
-          visit: liveRun.live.visit,
-          attempt: liveRun.live.attempt,
-          calls: liveRun.calls,
-        },
-  )
+  const changes = useChanges(changesSource, state.changesOpen, liveRun.calls)
   // A terminal session also has the Git tab: the commits of the branch its harness is on.
   const gitSession =
     active?.page.kind === 'terminals' && activeSession !== undefined ? activeSession.id : null
+  // The folder bar is drawn again when a session's folders or a run's repositories change.
+  const [, setFoldersTick] = useState(0)
+  useEffect(() => onBaselineChange(() => setFoldersTick((n) => n + 1)), [])
+  useEffect(() => onRunRepositoriesChange(() => setFoldersTick((n) => n + 1)), [])
+  // The folder the run whose page shows works in, for its folder bar.
+  const runId = active?.page.kind === 'execution' ? active.page.id : null
+  const [runFolder, setRunFolder] = useState<{ id: string; folder: string | null } | null>(null)
+  useEffect(() => {
+    if (runId === null) return
+    let current = true
+    readRunChanges(transport, runId)
+      .then((run) => {
+        if (current) setRunFolder({ id: runId, folder: run.directory })
+      })
+      .catch(() => undefined)
+    return () => {
+      current = false
+    }
+  }, [runId])
+  const baseline = gitSession === null ? null : baselineOf(gitSession)
+  const runDirectory = runFolder !== null && runFolder.id === runId ? runFolder.folder : null
+  // A session's folder can be moved and others shown next to it; a run's folder stays, and other
+  // repositories can be added to it.
+  const folders: FolderBarProps | null =
+    gitSession !== null && baseline !== null
+      ? {
+          folder: baseline.folder,
+          head: baseline.head ?? null,
+          known: Object.keys(baseline.others ?? {}),
+          added: baseline.shown ?? [],
+          onChange: (typed) => followFolder(transport, gitSession, typed),
+          onAdd: (typed) => showFolder(transport, gitSession, typed),
+          onRemove: (folder) => hideFolder(gitSession, folder),
+        }
+      : runId !== null && runDirectory !== null
+        ? {
+            folder: runDirectory,
+            head: null,
+            known: [],
+            added: runRepositoriesOf(runId).map((one) => one.folder),
+            onChange: null,
+            onAdd: (typed) => addRunRepository(transport, runId, runDirectory, typed),
+            onRemove: (folder) => void removeRunRepository(transport, runId, folder),
+          }
+        : null
   const changesTab = gitSession === null ? 'changes' : (state.changesTabs[gitSession] ?? 'changes')
   const gitCommit = gitSession === null ? null : (state.gitCommits[gitSession] ?? null)
   const commits = useCommits(gitSession, state.changesOpen && changesTab === 'git', gitCommit)
@@ -250,8 +299,8 @@ export function Shell() {
                   dispatch({ type: 'openPage', page: { kind: 'terminals' } })
                   dispatch({ type: 'selectTerminal', id })
                 }}
-                onShowChanges={(visit, path) =>
-                  dispatch({ type: 'showChanges', visit, ...(path === undefined ? {} : { path }) })
+                onShowChanges={(path) =>
+                  dispatch({ type: 'showChanges', ...(path === undefined ? {} : { path }) })
                 }
                 onStartTask={(kind, cwd, task) =>
                   dispatch({
@@ -305,13 +354,13 @@ export function Shell() {
             state={changes.state}
             onRefresh={changes.refresh}
             live={liveRun.live !== null}
-            focusVisit={state.changesVisit}
             focusFile={state.changesFile}
             onBase={(base) =>
               activeSession !== undefined &&
               dispatch({ type: 'setChangesBase', session: activeSession.id, base })
             }
-            reviewSession={gitSession}
+            comments={gitSession}
+            folders={folders}
             activity={
               gitSession === null
                 ? null
@@ -328,7 +377,7 @@ export function Shell() {
                     onShowChange: (path) => {
                       dispatch({ type: 'setChangesBase', session: gitSession, base: 'start' })
                       dispatch({ type: 'setChangesTab', session: gitSession, tab: 'changes' })
-                      dispatch({ type: 'showChanges', visit: null, path })
+                      dispatch({ type: 'showChanges', path })
                     },
                   }
             }

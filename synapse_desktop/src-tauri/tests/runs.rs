@@ -157,6 +157,7 @@ if [ -d "$dir" ]; then
 fi
 mkdir -p "$dir"
 echo "$pipeline $input" > "$dir/started-with"
+pwd -P > "$dir/folder"
 echo $$ > "$dir/pid"
 sleep 30 &
 echo $! > "$dir/child.pid"
@@ -221,7 +222,7 @@ wait
             std::env::vars().collect(),
         );
         let id = starter
-            .start("P", &json!({ "task": "x" }), &config(Some(&work)))
+            .start("P", &json!({ "task": "x" }), &config(Some(&work)), None)
             .await
             .unwrap();
         assert!(
@@ -244,7 +245,7 @@ wait
             std::env::vars().collect(),
         );
         let id = starter
-            .start("P", &json!({}), &config(Some(&work)))
+            .start("P", &json!({}), &config(Some(&work)), None)
             .await
             .unwrap();
         let (pid, child) = pids_of(&work, &id).await;
@@ -273,8 +274,8 @@ wait
         let cfg = config(Some(&work));
         let input = json!({ "task": "same" });
         let (first, second) = tokio::join!(
-            starter.start("P", &input, &cfg),
-            starter.start("P", &input, &cfg)
+            starter.start("P", &input, &cfg, None),
+            starter.start("P", &input, &cfg, None)
         );
         let (first, second) = (first.unwrap(), second.unwrap());
         assert_ne!(first, second);
@@ -310,7 +311,7 @@ wait
             std::env::vars().collect(),
         );
         let error = starter
-            .start("P", &json!({}), &config(Some(&work)))
+            .start("P", &json!({}), &config(Some(&work)), None)
             .await
             .unwrap_err();
         assert!(
@@ -328,7 +329,7 @@ wait
             std::env::vars().collect(),
         );
         assert_eq!(
-            starter.start("P", &json!({}), &config(None)).await,
+            starter.start("P", &json!({}), &config(None), None).await,
             Err(RunNotStarted("no work directory is set".into()))
         );
         let missing = RunStarter::new(
@@ -336,10 +337,104 @@ wait
             std::env::vars().collect(),
         );
         let error = missing
-            .start("P", &json!({}), &config(Some(&work)))
+            .start("P", &json!({}), &config(Some(&work)), None)
             .await
             .unwrap_err();
         assert!(error.0.contains("could not be run"));
+    }
+
+    fn real(path: &Path) -> String {
+        std::fs::canonicalize(path)
+            .unwrap()
+            .to_string_lossy()
+            .to_string()
+    }
+
+    #[tokio::test]
+    async fn a_run_works_in_the_folder_it_is_given() {
+        let (dir, work) = setup();
+        let folder = dir.path().join("repo");
+        std::fs::create_dir(&folder).unwrap();
+        let starter = RunStarter::new(
+            &script(dir.path(), "stub", STUB),
+            std::env::vars().collect(),
+        );
+        let id = starter
+            .start(
+                "P",
+                &json!({}),
+                &config(Some(&work)),
+                Some(&folder.to_string_lossy()),
+            )
+            .await
+            .unwrap();
+        let ran = read_when_written(&work.join("pipelines").join(&id).join("folder")).await;
+        assert_eq!(ran.trim(), real(&folder));
+        starter.stop(&id).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_run_given_no_folder_or_a_blank_one_works_in_the_home_folder() {
+        let (dir, work) = setup();
+        let home = dir.path().join("home");
+        std::fs::create_dir(&home).unwrap();
+        let mut env: BTreeMap<String, String> = std::env::vars().collect();
+        env.insert("HOME".into(), home.to_string_lossy().to_string());
+        let starter = RunStarter::new(&script(dir.path(), "stub", STUB), env);
+        for folder in [None, Some("  ")] {
+            let id = starter
+                .start("P", &json!({}), &config(Some(&work)), folder)
+                .await
+                .unwrap();
+            let ran = read_when_written(&work.join("pipelines").join(&id).join("folder")).await;
+            assert_eq!(ran.trim(), real(&home), "{folder:?}");
+            starter.stop(&id).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn a_relative_folder_is_refused_with_its_name_and_leaves_no_record() {
+        let (dir, work) = setup();
+        let starter = RunStarter::new(
+            &script(dir.path(), "stub", STUB),
+            std::env::vars().collect(),
+        );
+        for folder in ["project", "."] {
+            assert_eq!(
+                starter
+                    .start("P", &json!({}), &config(Some(&work)), Some(folder))
+                    .await,
+                Err(RunNotStarted(format!(
+                    "the folder {folder} is not an absolute path"
+                )))
+            );
+        }
+        assert_eq!(
+            std::fs::read_dir(work.join("pipelines")).unwrap().count(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn a_folder_that_does_not_exist_is_refused_with_its_name_and_leaves_no_record() {
+        let (dir, work) = setup();
+        let missing = dir.path().join("missing").to_string_lossy().to_string();
+        let starter = RunStarter::new(
+            &script(dir.path(), "stub", STUB),
+            std::env::vars().collect(),
+        );
+        assert_eq!(
+            starter
+                .start("P", &json!({}), &config(Some(&work)), Some(&missing))
+                .await,
+            Err(RunNotStarted(format!(
+                "the folder {missing} does not exist"
+            )))
+        );
+        assert_eq!(
+            std::fs::read_dir(work.join("pipelines")).unwrap().count(),
+            0
+        );
     }
 
     // The socket ----------------------------------------------------------------------------
@@ -464,11 +559,42 @@ async fn through_the_host_a_run_that_cannot_start_is_unavailable_and_one_not_sta
         &dir.path().join("config.json"),
     )
     .await;
-    // There is no synapse-pipeline here to start.
+    // A folder that is not there is the caller's mistake.
+    let missing = dir.path().join("missing").to_string_lossy().to_string();
+    let refused = host
+        .ask(
+            "run.start",
+            json!({ "pipeline": "Develop", "input": {}, "folder": missing }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        refused,
+        (
+            ErrorCode::BadRequest,
+            format!("the folder {missing} does not exist")
+        )
+    );
+    // Nor is a relative folder, which would resolve against the app's own folder.
+    let relative = host
+        .ask(
+            "run.start",
+            json!({ "pipeline": "Develop", "input": {}, "folder": "project" }),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        relative,
+        (
+            ErrorCode::BadRequest,
+            "the folder project is not an absolute path".to_string()
+        )
+    );
+    // There is no synapse-pipeline here to start, in a folder that is there.
     let start = host
         .ask(
             "run.start",
-            json!({ "pipeline": "Develop", "input": { "task": "x" } }),
+            json!({ "pipeline": "Develop", "input": { "task": "x" }, "folder": dir.path() }),
         )
         .await
         .unwrap_err();

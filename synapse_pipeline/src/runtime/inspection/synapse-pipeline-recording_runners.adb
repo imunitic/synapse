@@ -63,6 +63,21 @@ package body Synapse.Pipeline.Recording_Runners is
       end;
    end Keep_Changes;
 
+   --  Pins Tree as the run's snapshot Which and records it, when the pin is
+   --  written; Pinned says whether it is.
+   procedure Pin_And_Record
+     (R      : in out Recording_Runner;
+      Directory, Which, Tree : String;
+      Pinned : out Boolean) is
+   begin
+      Pinned :=
+        R.Trees.Pin
+          (Directory, Working_Trees.Run_Ref (To_String (R.Id), Which), Tree);
+      if Pinned then
+         R.Recorder.Record_Snapshot (Which, Tree);
+      end if;
+   end Pin_And_Record;
+
    overriding
    function Run_Session
      (R       : in out Recording_Runner;
@@ -81,6 +96,15 @@ package body Synapse.Pipeline.Recording_Runners is
       --  accepts, so no later session runs for that step.
       R.Last_Attempt := Request.Attempt;
       Stamped.Execution_Id := R.Id;
+      if Before.Found and then not R.Start_Pinned then
+         declare
+            Pinned : Boolean;
+         begin
+            Pin_And_Record
+              (R, Directory, "start", To_String (Before.Value), Pinned);
+            R.Start_Pinned := Pinned;
+         end;
+      end if;
       R.Recorder.Record_Event
         ("session.started", To_String (Request.Step.Name),
          JSON.Make_Object
@@ -121,5 +145,22 @@ package body Synapse.Pipeline.Recording_Runners is
          return Answer;
       end;
    end Run_Session;
+
+   procedure Finish (R : in out Recording_Runner; Directory : String) is
+   begin
+      if R.Trees = null or else not R.Start_Pinned then
+         return;
+      end if;
+      declare
+         After  : constant Working_Trees.Maybe_Text :=
+           R.Trees.Snapshot (Directory, To_String (R.Id) & "-end");
+         Ignored : Boolean;
+      begin
+         if After.Found then
+            Pin_And_Record
+              (R, Directory, "end", To_String (After.Value), Ignored);
+         end if;
+      end;
+   end Finish;
 
 end Synapse.Pipeline.Recording_Runners;

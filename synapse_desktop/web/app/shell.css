@@ -3447,9 +3447,40 @@ button.activity-file:hover {
   color: var(--bad-text);
 }
 
+/* The folder and the + share a line; the form and the added repositories take a line each. */
 .folder-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 0.25rem;
   padding: 0.25rem 0.75rem;
   border-bottom: 1px solid var(--border);
+}
+
+.folder-bar > .folder-current {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.folder-bar > form,
+.folder-added {
+  flex: 1 0 100%;
+}
+
+.folder-added {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.folder-added .folder-current {
+  align-items: center;
+  cursor: default;
+}
+
+span.folder-current {
+  cursor: default;
 }
 
 .folder-current {

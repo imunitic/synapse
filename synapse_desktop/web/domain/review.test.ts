@@ -52,6 +52,11 @@ describe('placeOf', () => {
     expect(placeOf(comment({ start: 12, end: 12 }))).toBe('src/foo.ts:12')
     expect(placeOf(comment({ side: 'old', start: 3, end: 5 }))).toBe('src/foo.ts:3-5 (removed)')
   })
+
+  it('puts the repository in front of the path when it is named', () => {
+    expect(placeOf(comment({ repository: 'api' }))).toBe('api/src/foo.ts:42-48')
+    expect(placeOf(comment({ repository: null }))).toBe('src/foo.ts:42-48')
+  })
 })
 
 describe('composeReview', () => {
@@ -86,6 +91,17 @@ describe('composeReview', () => {
         '   And where.',
       ].join('\n'),
     )
+  })
+
+  it('names the repository of a comment that has one, and not of one without', () => {
+    const text = composeReview([
+      comment({ repository: 'api', start: 1, end: 1 }),
+      comment({ id: 'c2', repository: 'web', commit: 'abc1234def5678', start: 2, end: 2 }),
+      comment({ id: 'c3', start: 3, end: 3 }),
+    ])
+    expect(text).toContain('1. api/src/foo.ts:1\n')
+    expect(text).toContain('2. In commit abc1234, web/src/foo.ts:2\n')
+    expect(text).toContain('3. src/foo.ts:3\n')
   })
 
   it('says how many lines past the quoted ones a comment is on', () => {

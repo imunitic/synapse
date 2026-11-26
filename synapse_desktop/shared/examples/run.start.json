@@ -4,7 +4,8 @@
     "pipeline": "Develop",
     "input": {
       "task": "x"
-    }
+    },
+    "folder": "/home/me/project"
   },
   "result": {
     "executionId": "exec-0a1b2c3d"

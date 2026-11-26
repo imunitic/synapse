@@ -75,22 +75,55 @@ impl RunStarter {
         }
     }
 
+    /// The folder a run given `folder` works in: a missing or blank one is the home folder of the
+    /// starter's environment (`HOME`, or `USERPROFILE` on Windows); one that is not absolute is
+    /// refused, so that it never resolves against the app's own folder; one that is not a directory
+    /// is refused.
+    pub fn folder(&self, folder: Option<&str>) -> Result<PathBuf, RunNotStarted> {
+        let folder = match folder.filter(|given| !given.trim().is_empty()) {
+            Some(given) if !Path::new(given).is_absolute() => {
+                return Err(RunNotStarted(format!(
+                    "the folder {given} is not an absolute path"
+                )))
+            }
+            Some(given) => PathBuf::from(given),
+            None => self
+                .base_env
+                .get("HOME")
+                .or_else(|| self.base_env.get("USERPROFILE"))
+                .map(PathBuf::from)
+                .unwrap_or_default(),
+        };
+        if folder.is_dir() {
+            Ok(folder)
+        } else {
+            Err(RunNotStarted(format!(
+                "the folder {} does not exist",
+                folder.display()
+            )))
+        }
+    }
+
+    /// Starts a run that works in `folder`, as `folder` resolves it.
     pub async fn start(
         &self,
         pipeline: &str,
         input: &Value,
         config: &AppConfig,
+        folder: Option<&str>,
     ) -> Result<String, RunNotStarted> {
         let work_dir = config
             .work_dir
             .as_ref()
             .ok_or_else(|| RunNotStarted("no work directory is set".into()))?;
+        let folder = self.folder(folder)?;
         let id = draw_id();
         let record = Path::new(work_dir).join("pipelines").join(&id);
 
         let mut command = tokio::process::Command::new(&self.binary);
         command
             .args(["run", pipeline, "--input", "-", "--id", &id])
+            .current_dir(&folder)
             .env_clear()
             .envs(cli_environment(&self.base_env, config))
             .stdin(std::process::Stdio::piped())

@@ -165,3 +165,45 @@ describe('the run id of an agent run', () => {
     expect(messages['agent.stop'].params.safeParse({ run: 'a/b' }).success).toBe(false)
   })
 })
+
+describe('the folder of a run', () => {
+  const params = { pipeline: 'Develop', input: null }
+
+  it('may be given, or left out', () => {
+    const start = messages['run.start'].params
+    expect(start.safeParse({ ...params, folder: '/repo' }).success).toBe(true)
+    expect(start.safeParse(params).success).toBe(true)
+  })
+})
+
+describe('the ref a snapshot is pinned as', () => {
+  const tree = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+
+  it('is the start or the end of a run', () => {
+    const pin = messages['changes.pin'].params
+    expect(pin.safeParse({ folder: '/w', ref: 'runs/exec-1/start', tree }).success).toBe(true)
+    expect(pin.safeParse({ folder: '/w', ref: 'runs/exec-1/end', tree }).success).toBe(true)
+  })
+
+  it('is refused anywhere else', () => {
+    for (const ref of ['heads/main', 'runs/x/other', 'runs/../start', 'runs//start']) {
+      expect(
+        messages['changes.pin'].params.safeParse({ folder: '/w', ref, tree }).success,
+        ref,
+      ).toBe(false)
+      expect(messages['changes.unpin'].params.safeParse({ folder: '/w', ref }).success, ref).toBe(
+        false,
+      )
+    }
+  })
+})
+
+describe('a diff between two snapshots', () => {
+  it('takes an after tree, or none', () => {
+    const diff = messages['changes.diff'].params
+    const before = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+    expect(diff.safeParse({ folder: '/w', before }).success).toBe(true)
+    expect(diff.safeParse({ folder: '/w', before, after: before }).success).toBe(true)
+    expect(diff.safeParse({ folder: '/w', before, after: 'HEAD' }).success).toBe(false)
+  })
+})

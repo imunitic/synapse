@@ -371,6 +371,71 @@ package body Synapse.Pipeline.Commands.Run.Tests is
       end;
    end A_Run_Is_Recorded_In_The_Registry;
 
+   --  Runs Two, a pipeline of Develop then Review, in /repo, with Review
+   --  answering Review_Answer and the working trees handing out t1 .. t5.
+   --  Says whether the summary has start t1 and end t5 and both are pinned.
+   function Two_Steps_Leave_Their_Snapshots
+     (Review_Answer : String; Code : Integer) return Boolean
+   is
+      F : aliased Fixture;
+   begin
+      Set_Up
+        (F,
+         "{""Develop"":[" & Done ("Done", "built") & "],""Review"":["
+         & Review_Answer & "]}");
+      F.Files.Add_File
+        ("/defs/Two.synapse",
+         "Pipeline Two {"
+         & " Develop [Harness => Claude, Prompt => ""Implement.""];"
+         & " Review [Harness => Codex, Prompt => ""Review.""]; }");
+      F.Base.Vars.Set ("SYNAPSE_WORK_DIR", "/work");
+      for I in 1 .. 5 loop
+         F.Trees.Snapshots.Append
+           (To_Unbounded_String
+              ("t" & Ada.Strings.Fixed.Trim (I'Image, Ada.Strings.Both)));
+      end loop;
+      Assert (Run (Env (F), Args ("Two")) = Code, "it ends as it should");
+      declare
+         Id      : constant String := To_String (F.Registry.Ids.First_Element);
+         Summary : constant String :=
+           To_String (F.Registry.Read_Summary (Id).Value);
+         Pinned  : Unbounded_String;
+      begin
+         for Item of F.Trees.Pinned loop
+            Append (Pinned, Item & "|");
+         end loop;
+         Assert
+           (To_String (Pinned)
+            = "refs/synapse/runs/" & Id & "/start=t1|"
+              & "refs/synapse/runs/" & Id & "/end=t5|",
+            "the first before and the snapshot at the end are pinned: "
+            & To_String (Pinned));
+         return
+           Has (Summary, """snapshots"":{""start"":""t1"",""end"":""t5""}");
+      end;
+   end Two_Steps_Leave_Their_Snapshots;
+
+   procedure A_Completed_Run_Keeps_Its_Start_And_End
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (Two_Steps_Leave_Their_Snapshots (Done ("Approved", "ok"), 0),
+         "the summary has both snapshots");
+   end A_Completed_Run_Keeps_Its_Start_And_End;
+
+   procedure A_Failed_Run_Keeps_Its_Start_And_End
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+   begin
+      Assert
+        (Two_Steps_Leave_Their_Snapshots
+           ("{""fail"":""quota_exhausted"",""message"":""limit""}", 1),
+         "a run that fails at its second step has both too");
+   end A_Failed_Run_Keeps_Its_Start_And_End;
+
    --  The output the only recorded execution of F keeps as Name, empty when
    --  it keeps none.
    function Output_Of (F : Fixture; Name : String) return String is
@@ -786,6 +851,12 @@ package body Synapse.Pipeline.Commands.Run.Tests is
       Register_Routine
         (T, An_Id_That_Is_Not_Plain_Is_A_Usage_Error'Access,
          "An id that is not plain is a usage error");
+      Register_Routine
+        (T, A_Completed_Run_Keeps_Its_Start_And_End'Access,
+         "A completed run keeps its start and end");
+      Register_Routine
+        (T, A_Failed_Run_Keeps_Its_Start_And_End'Access,
+         "A failed run keeps its start and end");
    end Register_Tests;
 
 end Synapse.Pipeline.Commands.Run.Tests;

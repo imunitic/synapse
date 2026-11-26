@@ -33,6 +33,9 @@ const path = z.string().min(1).max(4096)
 const draftText = z.string().max(200_000)
 const nullResult = z.null()
 
+// Where a run's snapshot is pinned, under `refs/synapse/`: its start or its end.
+export const pinRefSchema = z.string().regex(/^runs\/[A-Za-z0-9_-]{1,64}\/(start|end)$/)
+
 // What a task note's `status` may be.
 export const noteStatusSchema = z.enum(['TODO', 'IN-PROGRESS', 'REVIEW', 'DONE', 'CANCELED'])
 export type NoteStatus = z.infer<typeof noteStatusSchema>
@@ -392,6 +395,7 @@ export const messages = {
     params: z.object({
       pipeline: z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/),
       input: z.unknown(),
+      folder: z.string().optional(),
     }),
     result: z.object({ executionId: z.string() }),
   },
@@ -449,9 +453,26 @@ export const messages = {
     params: z.object({ folder: path, of: z.enum(['head']).optional() }),
     result: snapshotSchema,
   },
+  // With `after`, the changes are those between two snapshots, and none is taken of the working tree.
   'changes.diff': {
-    params: z.object({ folder: path, before: treeIdSchema, path: path.optional() }),
+    params: z.object({
+      folder: path,
+      before: treeIdSchema,
+      path: path.optional(),
+      after: treeIdSchema.optional(),
+    }),
     result: folderChangesSchema,
+  },
+  // Pins a snapshot under `refs/synapse/<ref>`, so that it is kept through `git gc`, and deletes
+  // that ref; deleting a ref that is not there is not an error. These are the only writes to a
+  // repository, and the ref is never a branch or a tag.
+  'changes.pin': {
+    params: z.object({ folder: path, ref: pinRefSchema, tree: treeIdSchema }),
+    result: nullResult,
+  },
+  'changes.unpin': {
+    params: z.object({ folder: path, ref: pinRefSchema }),
+    result: nullResult,
   },
   // The commits of the branch a folder is on, newest first along the first parent, `limit` at a
   // time; `before` is the last one already listed, and the answer starts after it. Read-only.

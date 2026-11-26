@@ -5,6 +5,7 @@ with Synapse.Core.JSON;
 with Synapse.Pipeline.Commands.Clients;
 with Synapse.Pipeline.Commands.Usage;
 with Synapse.Pipeline.Registry_Store;
+with Synapse.Pipeline.Working_Trees;
 
 package body Synapse.Pipeline.Commands.Cleanup is
 
@@ -56,6 +57,38 @@ package body Synapse.Pipeline.Commands.Cleanup is
         and then JSON.Kind_Of (JSON.Member_Value (Item, Key)) =
                  JSON.JSON_String
       then JSON.As_String (JSON.Member_Value (Item, Key)) else "");
+
+   --  The folder the run Id worked in, by its summary; empty when the
+   --  summary has none.
+   function Directory_Of (Env : Environment; Id : String) return String is
+      Held : constant Registry_Store.Maybe_Content :=
+        Env.Registry.Read_Summary (Id);
+   begin
+      if not Held.Found then
+         return "";
+      end if;
+      declare
+         Parsed : constant JSON.Parse_Result :=
+           JSON.Parse (To_String (Held.Value));
+      begin
+         return
+           (if Parsed.Ok
+              and then JSON.Kind_Of (Parsed.Item) = JSON.JSON_Object
+            then Text_Of (Parsed.Item, "directory") else "");
+      end;
+   end Directory_Of;
+
+   --  Deletes the refs that pin the snapshots of the run Id in the folder it
+   --  worked in. A ref that is not there is left as it is, and nothing here
+   --  stops the removal of the run.
+   procedure Unpin_Snapshots (Env : Environment; Id : String) is
+      Directory : constant String := Directory_Of (Env, Id);
+   begin
+      if Directory /= "" then
+         Env.Trees.Unpin (Directory, Working_Trees.Run_Ref (Id, "start"));
+         Env.Trees.Unpin (Directory, Working_Trees.Run_Ref (Id, "end"));
+      end if;
+   end Unpin_Snapshots;
 
    function Run (Env : Environment; Args : Lists.Vector) return Exit_Code is
       Age     : Duration := Default_Age;
@@ -135,11 +168,15 @@ package body Synapse.Pipeline.Commands.Cleanup is
                   if Remove then
                      if Dry then
                         Say (Env, "would remove " & Name & LF);
-                     elsif Env.Registry.Remove (Name) then
-                        Say (Env, "removed " & Name & LF);
                      else
-                        Complain (Env, "error: cannot remove " & Name & LF);
-                        Failed := True;
+                        Unpin_Snapshots (Env, Name);
+                        if Env.Registry.Remove (Name) then
+                           Say (Env, "removed " & Name & LF);
+                        else
+                           Complain
+                             (Env, "error: cannot remove " & Name & LF);
+                           Failed := True;
+                        end if;
                      end if;
                   end if;
                end;

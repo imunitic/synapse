@@ -67,7 +67,7 @@ function TraceVisit({
   status: ExecutionRecord['summary']['status']
   sessions: RecordedSession[]
   onShowChanges: () => void
-  // A file the activity changed is shown in the sidebar, at this visit.
+  // A file the activity changed is shown in the sidebar, among the run's changes.
   onShowChange: (path: string) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -380,8 +380,8 @@ export function ExecutionPage({
   onTerminalEnded: (session: string) => void
   onTerminalClaimed: (session: string) => void
   onTerminalRun: (session: string, executionId: string) => void
-  // The Changes sidebar is opened at a visit of this run.
-  onShowChanges: (visit: number, path?: string) => void
+  // The Changes sidebar is opened on the run's changes, at a file when one is named.
+  onShowChanges: (path?: string) => void
 }) {
   const terminal = terminals.find((t) => t.kind === 'Pipeline' && t.executionId === id)
   const load = useCallback(() => readExecution(transport, id), [id])
@@ -517,8 +517,8 @@ export function ExecutionPage({
               visit={visit}
               status={summary.status}
               sessions={sessions[visit.n - 1] ?? []}
-              onShowChanges={() => onShowChanges(visit.n)}
-              onShowChange={(path) => onShowChanges(visit.n, path)}
+              onShowChanges={() => onShowChanges()}
+              onShowChange={(path) => onShowChanges(path)}
             />
           ))}
         </div>

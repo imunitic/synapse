@@ -6,11 +6,25 @@ import type { Action, ShellState } from '../state/state.ts'
 import { StatusBadge } from '../components/StatusBadge.tsx'
 import { useLoad } from '../state/useLoad.ts'
 import { useWatch } from '../state/useWatch.ts'
+import { forgetGoneRuns } from '../state/run-repositories.ts'
 
 // What no file shows, such as a run that died, is looked for now and then.
 const REFRESH_MS = 30_000
 
-const loadExecutions = () => listExecutions(transport)
+// The pins of the repositories added to a run whose record is gone are deleted with it. With no
+// work directory nothing is listed, and nothing is taken for gone; nor when the work directory
+// changed while the list was read.
+async function loadExecutions() {
+  const { recordsDir } = await transport.getPaths()
+  const listed = await listExecutions(transport)
+  const after = await transport.getPaths()
+  void forgetGoneRuns(
+    transport,
+    after.recordsDir === recordsDir ? recordsDir : null,
+    listed.map((one) => one.id),
+  )
+  return listed
+}
 
 export function ExecutionsPanel({
   state,

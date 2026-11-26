@@ -95,9 +95,9 @@ package body Synapse.Pipeline.Commands.Changes is
    function Image (Item : Natural) return String is
      (Ada.Strings.Fixed.Trim (Natural'Image (Item), Ada.Strings.Left));
 
-   --  The folder the run's steps worked in, which its summary says when it
-   --  was told.
-   function Directory_Of (Summary : Registry_Store.Maybe_Content)
+   --  The run's summary as an object, null when there is none or it is not
+   --  one.
+   function Summary_Object (Summary : Registry_Store.Maybe_Content)
       return JSON.Value
    is
    begin
@@ -108,17 +108,109 @@ package body Synapse.Pipeline.Commands.Changes is
          Parsed : constant JSON.Parse_Result :=
            JSON.Parse (To_String (Summary.Value));
       begin
-         if Parsed.Ok
-           and then JSON.Kind_Of (Parsed.Item) = JSON.JSON_Object
-           and then JSON.Has_Member (Parsed.Item, "directory")
-           and then JSON.Kind_Of (JSON.Member_Value (Parsed.Item, "directory"))
-                    = JSON.JSON_String
+         if Parsed.Ok and then JSON.Kind_Of (Parsed.Item) = JSON.JSON_Object
          then
-            return JSON.Member_Value (Parsed.Item, "directory");
+            return Parsed.Item;
          end if;
          return JSON.Null_Value;
       end;
-   end Directory_Of;
+   end Summary_Object;
+
+   --  The string member Key of Item, null when Item is not an object or has
+   --  no such string.
+   function String_Member (Item : JSON.Value; Key : String) return JSON.Value
+   is (if JSON.Kind_Of (Item) = JSON.JSON_Object
+         and then JSON.Has_Member (Item, Key)
+         and then JSON.Kind_Of (JSON.Member_Value (Item, Key))
+                  = JSON.JSON_String
+       then JSON.Member_Value (Item, Key)
+       else JSON.Null_Value);
+
+   --  The folder the run's steps worked in, which its summary says when it
+   --  was told.
+   function Directory_Of (Summary : Registry_Store.Maybe_Content)
+      return JSON.Value
+   is (String_Member (Summary_Object (Summary), "directory"));
+
+   --  The before snapshot of the first session of the run that has one, by
+   --  its events; null when none has.
+   function First_Before (Events : String) return JSON.Value is
+      First : Positive := Events'First;
+
+      function Before_Of (Line : String) return JSON.Value is
+         Parsed : constant JSON.Parse_Result := JSON.Parse (Line);
+      begin
+         if Parsed.Ok
+           and then JSON.Kind_Of (String_Member (Parsed.Item, "kind"))
+                    = JSON.JSON_String
+           and then JSON.As_String (String_Member (Parsed.Item, "kind"))
+                    = "session.started"
+           and then JSON.Has_Member (Parsed.Item, "detail")
+         then
+            return
+              String_Member (JSON.Member_Value (Parsed.Item, "detail"),
+                             "before");
+         end if;
+         return JSON.Null_Value;
+      end Before_Of;
+   begin
+      for I in Events'First .. Events'Last + 1 loop
+         if I > Events'Last or else Events (I) = LF then
+            if I > First then
+               declare
+                  Before : constant JSON.Value :=
+                    Before_Of (Events (First .. I - 1));
+               begin
+                  if JSON.Kind_Of (Before) = JSON.JSON_String then
+                     return Before;
+                  end if;
+               end;
+            end if;
+            First := I + 1;
+         end if;
+      end loop;
+      return JSON.Null_Value;
+   end First_Before;
+
+   --  The trees of the run's folder it pinned at its start and its end. A
+   --  record from before runs pinned them has no `snapshots`: its start is
+   --  then the before snapshot of its first session, and its end is null.
+   function Snapshots_Of (Env : Environment; Id : String) return JSON.Value is
+      Summary   : constant JSON.Value :=
+        Summary_Object (Env.Registry.Read_Summary (Id));
+      Snapshots : constant JSON.Value :=
+        (if JSON.Kind_Of (Summary) = JSON.JSON_Object
+           and then JSON.Has_Member (Summary, "snapshots")
+         then JSON.Member_Value (Summary, "snapshots")
+         else JSON.Null_Value);
+      Start     : JSON.Value := String_Member (Snapshots, "start");
+   begin
+      if JSON.Kind_Of (Start) /= JSON.JSON_String then
+         declare
+            Events : constant Registry_Store.Maybe_Content :=
+              Env.Registry.Read_Events (Id);
+         begin
+            if Events.Found then
+               Start := First_Before (To_String (Events.Value));
+            end if;
+         end;
+      end if;
+      return
+        JSON.Make_Object
+          ([Member ("start", Start),
+            Member ("end", String_Member (Snapshots, "end"))]);
+   end Snapshots_Of;
+
+   --  The status the run's summary says, `incomplete` when there is none.
+   function Status_Of (Env : Environment; Id : String) return JSON.Value is
+      Status : constant JSON.Value :=
+        String_Member
+          (Summary_Object (Env.Registry.Read_Summary (Id)), "status");
+   begin
+      return
+        (if JSON.Kind_Of (Status) = JSON.JSON_String then Status
+         else JSON.Make_String ("incomplete"));
+   end Status_Of;
 
    --  The session of a step that has begun and not ended, by the events of
    --  the run: the last `session.started` of the step with no
@@ -412,6 +504,9 @@ package body Synapse.Pipeline.Commands.Changes is
                            ("directory",
                             Directory_Of
                               (Env.Registry.Read_Summary (To_String (Id)))),
+                         Member ("status", Status_Of (Env, To_String (Id))),
+                         Member
+                           ("snapshots", Snapshots_Of (Env, To_String (Id))),
                          Member ("steps", JSON.Make_Array (Steps))]))
                   & LF);
             end;

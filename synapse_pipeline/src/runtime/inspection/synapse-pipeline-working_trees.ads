@@ -27,4 +27,20 @@ package Synapse.Pipeline.Working_Trees is
       return Maybe_Text
    is abstract;
 
+   --  The ref that pins the snapshot Which ("start" or "end") of the run Id.
+   function Run_Ref (Id, Which : String) return String is
+     ("refs/synapse/runs/" & Id & "/" & Which);
+
+   --  Points Ref, a ref outside refs/heads and refs/tags, at the tree object
+   --  Tree in the repository of Directory, so that git gc keeps it. Nothing
+   --  else in the repository changes. True when it is written.
+   function Pin
+     (T : in out Working_Tree; Directory, Ref, Tree : String) return Boolean
+   is abstract;
+
+   --  Deletes Ref in the repository of Directory; a ref that is not there,
+   --  or a folder that is not in a repository, is left as it is.
+   procedure Unpin (T : in out Working_Tree; Directory, Ref : String)
+   is abstract;
+
 end Synapse.Pipeline.Working_Trees;

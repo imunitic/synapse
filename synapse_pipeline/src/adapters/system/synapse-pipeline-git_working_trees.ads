@@ -24,4 +24,14 @@ package Synapse.Pipeline.Git_Working_Trees is
      (T : in out Git_Working_Trees; Directory, Before, After : String)
       return Working_Trees.Maybe_Text;
 
+   --  `git update-ref Ref Tree`.
+   overriding
+   function Pin
+     (T : in out Git_Working_Trees; Directory, Ref, Tree : String)
+      return Boolean;
+
+   --  `git update-ref -d Ref`, whatever it answers.
+   overriding
+   procedure Unpin (T : in out Git_Working_Trees; Directory, Ref : String);
+
 end Synapse.Pipeline.Git_Working_Trees;

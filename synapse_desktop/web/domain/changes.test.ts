@@ -6,6 +6,7 @@ import {
   defaultBase,
   folderOf,
   groupByFolder,
+  groupTotals,
   pathMatches,
 } from './changes.ts'
 
@@ -125,5 +126,19 @@ describe('sinceLabel', () => {
 
   it('shortens a commit, for a detached HEAD', () => {
     expect(sinceLabel({ head: 'a'.repeat(40), switched: true })).toBe('Since switching to aaaaaaa')
+  })
+})
+
+describe('groupTotals', () => {
+  it('counts the files and sums their lines, a binary file as a file with no lines', () => {
+    const set = changeSet(PATCH, [
+      { path: 'src/new/b.txt', lines: 4 },
+      { path: 'src/new/c.png', lines: null },
+    ])
+    expect(groupTotals(set)).toEqual({ files: 4, added: 5, removed: 0 })
+  })
+
+  it('is all nought for no changes', () => {
+    expect(groupTotals(changeSet('', []))).toEqual({ files: 0, added: 0, removed: 0 })
   })
 })

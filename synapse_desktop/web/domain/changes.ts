@@ -77,6 +77,16 @@ export function groupByFolder(files: readonly ChangedFile[]): FolderGroup[] {
     .sort((a, b) => a.folder.localeCompare(b.folder))
 }
 
+// How many files a set of changes has, and its lines added and removed; a binary file is a file
+// with no lines.
+export function groupTotals(set: ChangeSet): { files: number; added: number; removed: number } {
+  return {
+    files: set.files.length,
+    added: set.files.reduce((sum, f) => sum + (f.added ?? 0), 0),
+    removed: set.files.reduce((sum, f) => sum + (f.removed ?? 0), 0),
+  }
+}
+
 // The name of a path without its folder.
 export function baseName(path: string): string {
   return path.slice(path.lastIndexOf('/') + 1)

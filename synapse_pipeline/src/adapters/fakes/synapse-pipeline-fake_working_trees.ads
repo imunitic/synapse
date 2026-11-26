@@ -25,6 +25,12 @@ package Synapse.Pipeline.Fake_Working_Trees is
 
       --  What comparisons were asked for, each as `before..after`.
       Compared    : Synapse.Core.Text_Lists.Vector;
+
+      --  What was pinned, each as `ref=tree`, and what was unpinned, each
+      --  ref. A pin fails, and is not recorded, when Pin_Fails.
+      Pinned      : Synapse.Core.Text_Lists.Vector;
+      Unpinned    : Synapse.Core.Text_Lists.Vector;
+      Pin_Fails   : Boolean := False;
    end record;
 
    overriding
@@ -36,5 +42,13 @@ package Synapse.Pipeline.Fake_Working_Trees is
    function Changes
      (T : in out Fake_Working_Trees; Directory, Before, After : String)
       return Working_Trees.Maybe_Text;
+
+   overriding
+   function Pin
+     (T : in out Fake_Working_Trees; Directory, Ref, Tree : String)
+      return Boolean;
+
+   overriding
+   procedure Unpin (T : in out Fake_Working_Trees; Directory, Ref : String);
 
 end Synapse.Pipeline.Fake_Working_Trees;

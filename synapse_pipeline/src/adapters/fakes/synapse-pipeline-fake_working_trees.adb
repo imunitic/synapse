@@ -32,4 +32,25 @@ package body Synapse.Pipeline.Fake_Working_Trees is
       return Working_Trees.Maybe_Text'(Found => True, Value => T.Patch);
    end Changes;
 
+   overriding
+   function Pin
+     (T : in out Fake_Working_Trees; Directory, Ref, Tree : String)
+      return Boolean
+   is
+      pragma Unreferenced (Directory);
+   begin
+      if T.Pin_Fails then
+         return False;
+      end if;
+      T.Pinned.Append (To_Unbounded_String (Ref & "=" & Tree));
+      return True;
+   end Pin;
+
+   overriding
+   procedure Unpin (T : in out Fake_Working_Trees; Directory, Ref : String) is
+      pragma Unreferenced (Directory);
+   begin
+      T.Unpinned.Append (To_Unbounded_String (Ref));
+   end Unpin;
+
 end Synapse.Pipeline.Fake_Working_Trees;

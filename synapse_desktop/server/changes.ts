@@ -146,24 +146,82 @@ export async function headPosition(folder: string): Promise<string | null> {
 
 const DIFF = ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--find-renames']
 
-// What changed in the folder's working tree since the snapshot `before`. Without a path: the patch
-// of the files that already existed, and the new files by path and number of lines. With a path:
-// that file's patch, a new file's whole content included.
+// What changed in the folder's working tree since the snapshot `before`, or, with `after`, from
+// the snapshot `before` to the snapshot `after`, without reading the working tree. Without a path:
+// the patch of the files that already existed, and the new files by path and number of lines. With
+// a path: that file's patch, a new file's whole content included.
 export async function changesSince(
   folder: string,
   before: string,
   path?: string,
+  after?: string,
 ): Promise<FolderChanges> {
   if (path?.includes('\0')) throw new HostError('bad_request', 'the path holds a NUL')
-  const after = await snapshotTree(folder)
-  if (after === null) return { repository: false, patch: '', added: [], head: null }
+  let to: string
+  if (after === undefined) {
+    const now = await snapshotTree(folder)
+    if (now === null) return { repository: false, patch: '', added: [], head: null }
+    to = now
+  } else {
+    if (!(await inRepository(folder))) {
+      return { repository: false, patch: '', added: [], head: null }
+    }
+    await checkSnapshot(folder, after)
+    to = after
+  }
   const head = await headPosition(folder)
-  if (after === before) return { repository: true, patch: '', added: [], head }
-  const known = await git(folder, ['cat-file', '-e', `${before}^{tree}`])
+  if (to === before) return { repository: true, patch: '', added: [], head }
+  await checkSnapshot(folder, before)
+  return { repository: true, ...(await diffTrees(folder, before, to, path)), head }
+}
+
+// Refused as not found when the tree is not in the folder's repository, as after a `git gc` that
+// removed a snapshot nothing kept.
+async function checkSnapshot(folder: string, tree: string): Promise<void> {
+  const known = await git(folder, ['cat-file', '-e', `${tree}^{tree}`])
   if (known.code !== 0) {
     throw new HostError('not_found', 'the snapshot is not in this repository any more')
   }
-  return { repository: true, ...(await diffTrees(folder, before, after, path)), head }
+}
+
+// Where a run's snapshot is pinned, under `refs/synapse/`; checked again here, so that nothing else
+// is ever written.
+const PIN_REF = /^runs\/[A-Za-z0-9_-]{1,64}\/(start|end)$/
+
+function pinnedRef(ref: string): string {
+  if (!PIN_REF.test(ref)) throw new HostError('bad_request', `'${ref}' is not a snapshot ref`)
+  return `refs/synapse/${ref}`
+}
+
+// Pins the snapshot `tree` as `refs/synapse/<ref>`, which keeps it through `git gc`. A ref outside
+// `refs/heads/` and `refs/tags/` is not a branch or a tag, and a normal push does not send it. The
+// folder must be the root of its repository: two folders of one repository would pin the same ref.
+export async function pinSnapshot(folder: string, ref: string, tree: string): Promise<void> {
+  const name = pinnedRef(ref)
+  if (!(await inRepository(folder))) {
+    throw new HostError('bad_request', 'the folder is not in a git repository')
+  }
+  const prefix = await git(folder, ['rev-parse', '--show-prefix'])
+  if (prefix.code !== 0 || prefix.stdout.trim() !== '') {
+    throw new HostError('bad_request', 'the folder is not the root of a git repository')
+  }
+  await checkSnapshot(folder, tree)
+  const pinned = await git(folder, ['update-ref', name, tree])
+  if (pinned.code !== 0) {
+    throw new HostError('unavailable', `git update-ref failed: ${pinned.stderr.trim()}`)
+  }
+}
+
+// Deletes the ref a snapshot was pinned as; a ref that is not there is not an error.
+export async function unpinSnapshot(folder: string, ref: string): Promise<void> {
+  const name = pinnedRef(ref)
+  if (!(await inRepository(folder))) return
+  const there = await git(folder, ['rev-parse', '--verify', '--quiet', name])
+  if (there.code !== 0) return
+  const unpinned = await git(folder, ['update-ref', '-d', name])
+  if (unpinned.code !== 0) {
+    throw new HostError('unavailable', `git update-ref -d failed: ${unpinned.stderr.trim()}`)
+  }
 }
 
 // What changed from the tree `before` to the tree `after`. Without a path: the patch of the files

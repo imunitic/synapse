@@ -23,6 +23,9 @@ export interface Baseline {
   kept?: Record<string, KeptSnapshot>
   // The baselines of the other folders the session has been in, by folder.
   others?: Record<string, Baseline>
+  // The other folders shown next to the current one, in the order they were added; each has its
+  // baseline in others.
+  shown?: string[]
 }
 
 export interface KeptSnapshot {
@@ -107,62 +110,97 @@ export async function followBaseline(
   }
 }
 
-// The sessions whose snapshot for a new position is being taken, so that one is taken at a time.
+// The baselines whose snapshot for a new position is being taken, so that one is taken at a time.
 const following = new Set<string>()
 
-// Follows where HEAD is now, as a diff answer says. A baseline kept before positions were takes it
-// as its own. When it is another position, the snapshot kept for that one becomes the baseline, or a
-// new one is taken now; the one left is kept under its own position. A folder that is not in a
-// repository, or a position of null, changes nothing.
+type Position = Partial<Pick<Baseline, 'tree' | 'head' | 'switched' | 'kept'>>
+
+// Where a baseline goes when HEAD is at the position given: null when it stays as it is. A baseline
+// kept before positions were takes the position as its own. For another position, the snapshot kept
+// for it is used, or a new one is taken now; the one left is kept under its own position.
+async function positionAt(
+  transport: Pick<Transport, 'snapshotChanges'>,
+  baseline: Baseline,
+  head: string | null,
+): Promise<Position | null> {
+  if (baseline.tree === null || head === null) return null
+  if (baseline.head === undefined || baseline.head === null) return { head }
+  if (baseline.head === head) return null
+  let next: KeptSnapshot & { head: string }
+  const kept = baseline.kept?.[head]
+  if (kept !== undefined) {
+    next = { ...kept, head }
+  } else {
+    const taken = await transport.snapshotChanges(baseline.folder)
+    if (taken.tree === null) return null
+    // HEAD may have moved again while the snapshot was taken; the tree is of where it is now.
+    next = { tree: taken.tree, switched: true, head: taken.head ?? head }
+  }
+  const others: Record<string, KeptSnapshot> = { ...baseline.kept }
+  others[baseline.head] = { tree: baseline.tree, switched: baseline.switched ?? false }
+  delete others[next.head]
+  return { tree: next.tree, head: next.head, switched: next.switched, kept: others }
+}
+
+// Moves a baseline to the position given, one at a time for each key; place keeps the position
+// unless the baseline changed meanwhile. Git that cannot be asked changes nothing.
+async function follow(
+  key: string,
+  transport: Pick<Transport, 'snapshotChanges'>,
+  baseline: Baseline,
+  head: string | null,
+  place: (position: Position) => void,
+): Promise<void> {
+  if (following.has(key)) return
+  following.add(key)
+  try {
+    const position = await positionAt(transport, baseline, head)
+    if (position !== null) place(position)
+  } catch {
+    // The sidebar goes on with the baseline it has, and is asked again at the next look.
+  } finally {
+    following.delete(key)
+  }
+}
+
+function samePosition(now: Baseline | undefined, then: Baseline): now is Baseline {
+  return now?.folder === then.folder && now.source === then.source && now.head === then.head
+}
+
+// Follows where HEAD is now in the session's current folder, as a diff answer says. A folder that is
+// not in a repository, or a position of null, changes nothing.
 export async function followHead(
   transport: Pick<Transport, 'snapshotChanges'>,
   session: string,
   head: string | null,
 ): Promise<void> {
   const baseline = baselineOf(session)
-  if (baseline === null || baseline.tree === null || head === null) return
-  if (baseline.head === undefined || baseline.head === null) {
-    keepBaseline(session, { ...baseline, head })
-    return
-  }
-  if (baseline.head === head || following.has(session)) return
-  following.add(session)
-  try {
-    let next: KeptSnapshot & { head: string }
-    const kept = baseline.kept?.[head]
-    if (kept !== undefined) {
-      next = { ...kept, head }
-    } else {
-      const taken = await transport.snapshotChanges(baseline.folder)
-      if (taken.tree === null) return
-      // HEAD may have moved again while the snapshot was taken; the tree is of where it is now.
-      next = { tree: taken.tree, switched: true, head: taken.head ?? head }
-    }
+  if (baseline === null) return
+  await follow(session, transport, baseline, head, (position) => {
     // Let go when the session took another baseline meanwhile.
+    const now = baselineOf(session) ?? undefined
+    if (samePosition(now, baseline)) keepBaseline(session, { ...now, ...position })
+  })
+}
+
+// Does for a folder shown next to the current one what followHead does for the current one.
+export async function followOtherHead(
+  transport: Pick<Transport, 'snapshotChanges'>,
+  session: string,
+  folder: string,
+  head: string | null,
+): Promise<void> {
+  const baseline = baselineOf(session)?.others?.[folder]
+  if (baseline === undefined) return
+  await follow(`${session}\n${folder}`, transport, baseline, head, (position) => {
     const now = baselineOf(session)
-    if (
-      now?.folder !== baseline.folder ||
-      now.source !== baseline.source ||
-      now.head !== baseline.head
-    ) {
-      return
-    }
-    const others: Record<string, KeptSnapshot> = { ...baseline.kept }
-    others[baseline.head] = { tree: baseline.tree, switched: baseline.switched ?? false }
-    delete others[next.head]
+    const other = now?.others?.[folder]
+    if (now === null || !samePosition(other, baseline)) return
     keepBaseline(session, {
-      folder: baseline.folder,
-      ...(baseline.source === undefined ? {} : { source: baseline.source }),
-      tree: next.tree,
-      head: next.head,
-      switched: next.switched,
-      kept: others,
+      ...now,
+      others: { ...now.others, [folder]: { ...other, ...position } },
     })
-  } catch {
-    // The sidebar goes on with the baseline it has, and is asked again at the next look.
-  } finally {
-    following.delete(session)
-  }
+  })
 }
 
 // The sessions whose baseline for a new folder is being taken, so that one is taken at a time.
@@ -197,15 +235,68 @@ export async function followFolder(
     // Let go when the session took another baseline meanwhile.
     const now = baselineOf(session)
     if (now?.folder !== start.folder) return 'The session changed folder meanwhile.'
-    const { others, ...left } = now
+    const { others, shown, ...left } = now
     const rest: Record<string, Baseline> = { ...others }
     delete rest[folder]
     rest[left.folder] = left
-    keepBaseline(session, { ...next, others: rest })
+    const stillShown = (shown ?? []).filter((one) => one !== folder)
+    keepBaseline(session, {
+      ...next,
+      others: rest,
+      ...(stillShown.length === 0 ? {} : { shown: stillShown }),
+    })
     return null
   } catch (error) {
     return messageOf(error)
   } finally {
     moving.delete(session)
   }
+}
+
+// Shows another folder next to the session's current one. Its baseline is the one kept in others
+// when the session has been there, or a snapshot taken now. Null when it is shown, and otherwise why
+// it is not.
+export async function showFolder(
+  transport: Pick<Transport, 'snapshotChanges'>,
+  session: string,
+  typed: string,
+): Promise<string | null> {
+  const folder = typed.trim()
+  if (folder === '') return 'Type the path of a folder.'
+  const start = baselineOf(session)
+  if (start === null) return 'The starting point of this session is not taken yet.'
+  if (start.folder === folder) return 'That is the folder this session is in.'
+  if (start.shown?.includes(folder) === true) return 'That folder is shown already.'
+  if (moving.has(session)) return 'The folder is being changed.'
+  moving.add(session)
+  try {
+    let baseline: Baseline | undefined = start.others?.[folder]
+    if (baseline === undefined) {
+      const { tree, head } = await transport.snapshotChanges(folder)
+      baseline = { folder, tree, head }
+    }
+    if (baseline.tree === null) return 'That folder is not in a git repository.'
+    // Let go when the session took another baseline meanwhile.
+    const now = baselineOf(session)
+    if (now?.folder !== start.folder) return 'The session changed folder meanwhile.'
+    keepBaseline(session, {
+      ...now,
+      others: { ...now.others, [folder]: now.others?.[folder] ?? baseline },
+      shown: [...(now.shown ?? []), folder],
+    })
+    return null
+  } catch (error) {
+    return messageOf(error)
+  } finally {
+    moving.delete(session)
+  }
+}
+
+// Stops showing a folder next to the session's current one; its baseline stays in others.
+export function hideFolder(session: string, folder: string): void {
+  const now = baselineOf(session)
+  if (now?.shown?.includes(folder) !== true) return
+  const { shown, ...rest } = now
+  const stillShown = shown.filter((one) => one !== folder)
+  keepBaseline(session, stillShown.length === 0 ? rest : { ...rest, shown: stillShown })
 }

@@ -4,7 +4,8 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 use synapse_desktop_host::changes::{
-    changes_since, commit_changes, commit_log, head_position, head_tree, snapshot_tree,
+    changes_between, changes_since, commit_changes, commit_log, head_position, head_tree,
+    pin_snapshot, snapshot_tree, unpin_snapshot,
 };
 use synapse_desktop_host::messages::AddedFile;
 use synapse_desktop_host::protocol::ErrorCode;
@@ -526,4 +527,117 @@ async fn the_first_commit_is_compared_with_nothing_and_a_rename_is_one_file() {
     let renamed = commit_changes(dir.path(), &head, None).await.unwrap();
     assert!(renamed.patch.contains("rename from gone.txt"));
     assert!(renamed.patch.contains("rename to kept.txt"));
+}
+
+#[tokio::test]
+async fn a_diff_between_two_snapshots_holds_what_changed_from_one_to_the_other_whatever_the_working_tree_is_now(
+) {
+    let dir = repository();
+    let before = snapshot_tree(dir.path()).await.unwrap().unwrap();
+    put(dir.path(), "a.txt", "one\nTWO\nthree\n");
+    put(dir.path(), "new.txt", "x\ny\n");
+    let after = snapshot_tree(dir.path()).await.unwrap().unwrap();
+    put(dir.path(), "a.txt", "changed again\n");
+    put(dir.path(), "later.txt", "later\n");
+    let changes = changes_between(dir.path(), &before, &after, None)
+        .await
+        .unwrap();
+    assert!(changes.repository);
+    assert!(changes.patch.contains("+TWO"), "{}", changes.patch);
+    assert!(!changes.patch.contains("changed again"));
+    assert_eq!(
+        changes.added,
+        vec![AddedFile {
+            path: "new.txt".into(),
+            lines: Some(2)
+        }]
+    );
+    let one = changes_between(dir.path(), &before, &after, Some("new.txt"))
+        .await
+        .unwrap();
+    assert!(one.patch.contains("+x"));
+    assert_ne!(snapshot_tree(dir.path()).await.unwrap().unwrap(), after);
+}
+
+#[tokio::test]
+async fn an_after_snapshot_that_is_not_there_is_not_found() {
+    let dir = repository();
+    let before = snapshot_tree(dir.path()).await.unwrap().unwrap();
+    let error = changes_between(dir.path(), &before, &"b".repeat(40), None)
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::NotFound);
+}
+
+const REF: &str = "runs/exec-1/start";
+
+#[tokio::test]
+async fn a_pinned_snapshot_survives_gc_under_refs_synapse_and_is_not_a_branch_or_a_tag() {
+    let dir = repository();
+    put(dir.path(), "pinned.txt", "only in the snapshot\n");
+    let tree = snapshot_tree(dir.path()).await.unwrap().unwrap();
+    fs::remove_file(dir.path().join("pinned.txt")).unwrap();
+    pin_snapshot(dir.path(), REF, &tree).await.unwrap();
+    assert_eq!(
+        git(dir.path(), &["rev-parse", &format!("refs/synapse/{REF}")]).trim(),
+        tree
+    );
+    git(dir.path(), &["gc", "-q", "--prune=now"]);
+    git(dir.path(), &["cat-file", "-e", &tree]);
+    let branch = git(dir.path(), &["symbolic-ref", "--short", "HEAD"]);
+    assert_eq!(
+        git(dir.path(), &["branch", "--list"]).trim(),
+        format!("* {}", branch.trim())
+    );
+    assert_eq!(git(dir.path(), &["tag"]).trim(), "");
+}
+
+#[tokio::test]
+async fn unpinning_removes_the_ref_and_unpinning_twice_is_not_an_error() {
+    let dir = repository();
+    let tree = snapshot_tree(dir.path()).await.unwrap().unwrap();
+    pin_snapshot(dir.path(), REF, &tree).await.unwrap();
+    unpin_snapshot(dir.path(), REF).await.unwrap();
+    assert_eq!(
+        git(dir.path(), &["for-each-ref", "refs/synapse/"]).trim(),
+        ""
+    );
+    unpin_snapshot(dir.path(), REF).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_ref_that_is_not_a_run_snapshot_and_a_tree_that_is_not_there_are_refused() {
+    let dir = repository();
+    let tree = snapshot_tree(dir.path()).await.unwrap().unwrap();
+    let branch = pin_snapshot(dir.path(), "heads/main", &tree)
+        .await
+        .unwrap_err();
+    assert_eq!(branch.code, ErrorCode::BadRequest);
+    let climb = unpin_snapshot(dir.path(), "runs/../start")
+        .await
+        .unwrap_err();
+    assert_eq!(climb.code, ErrorCode::BadRequest);
+    let missing = pin_snapshot(dir.path(), REF, &"c".repeat(40))
+        .await
+        .unwrap_err();
+    assert_eq!(missing.code, ErrorCode::NotFound);
+}
+
+#[tokio::test]
+async fn a_folder_inside_a_repository_that_is_not_its_root_is_refused_and_nothing_is_pinned() {
+    let dir = repository();
+    put(dir.path(), "sub/file.txt", "in a folder\n");
+    let tree = snapshot_tree(dir.path()).await.unwrap().unwrap();
+    let inside = pin_snapshot(&dir.path().join("sub"), REF, &tree)
+        .await
+        .unwrap_err();
+    assert_eq!(inside.code, ErrorCode::BadRequest);
+    assert_eq!(
+        inside.message,
+        "the folder is not the root of a git repository"
+    );
+    assert_eq!(
+        git(dir.path(), &["for-each-ref", "refs/synapse/"]).trim(),
+        ""
+    );
 }
