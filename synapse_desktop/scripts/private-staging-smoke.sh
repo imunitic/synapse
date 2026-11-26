@@ -48,6 +48,15 @@ chmod 644 "$config"
 # Verify effective users and distinct writable homes in the running containers.
 for service in gateway backend_a backend_b; do
   [[ "$("${compose[@]}" exec -T "$service" id -u)" != 0 ]]
+  "${compose[@]}" exec -T "$service" node -e '
+    const status = require("node:fs").readFileSync("/proc/self/status", "utf8")
+    const field = (name) => status.match(new RegExp("^" + name + ":\\\\s*(\\\\S+)", "m"))?.[1]
+    if (field("NoNewPrivs") !== "1" ||
+        !["CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"].every((name) => /^0+$/.test(field(name) ?? ""))) {
+      console.error("container privilege restrictions are not effective")
+      process.exit(1)
+    }
+  '
 done
 for backend in backend_a backend_b; do
   "${compose[@]}" exec -T "$backend" sh -ec 'test ! -e /home/node/.synapse-ci-isolation'
