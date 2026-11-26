@@ -11,6 +11,14 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Provide the first usable agent harness and Synapse's CLI integration.
+# Configure and authenticate separately in each user's persistent home.
+RUN npm install -g @openai/codex @imunitic/synapse \
+    && npm cache clean --force \
+    && command -v codex \
+    && command -v synapse-setup \
+    && command -v synapse
+
 WORKDIR /opt/synapse
 COPY synapse_desktop/package.json synapse_desktop/package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
