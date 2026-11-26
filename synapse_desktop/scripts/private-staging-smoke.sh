@@ -87,6 +87,23 @@ for attempt in $(seq 1 30); do
   sleep 1
 done
 [[ "$ready" == 1 ]]
+# The loopback-published connection must arrive from the configured trusted peer.
+# Missing or ambiguous forwarded identities must fail closed; a single fixture
+# identity must permit the real composed login path.
+login_status() {
+  curl -sS -o /dev/null -w '%{http_code}' \
+    -H 'Host: staging.example.test' \
+    -H 'Origin: https://staging.example.test' \
+    -H 'Content-Type: application/json' \
+    "$@" \
+    --data '{"username":"fixture-a","password":"ci-fixture-password-a"}' \
+    http://127.0.0.1:5180/auth/session
+}
+[[ "$(login_status)" == 503 ]]
+[[ "$(login_status -H 'X-Forwarded-For: 198.51.100.7, 203.0.113.8')" == 503 ]]
+[[ "$(login_status -H 'X-Forwarded-For: 198.51.100.7')" == 200 ]]
+echo 'Composed login accepts only a single forwarded identity from the fixture proxy peer.'
+
 for backend in backend_a backend_b; do
   for address in 172.29.101.3 172.29.102.3 172.29.103.2; do
     assert_tcp_blocked "$backend" "$address" 5180
