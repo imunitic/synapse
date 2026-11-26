@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { privateGatewayBind } from './private-gateway-bind.ts'
+import { privateGatewayBind, requireIngressProxy } from './private-gateway-bind.ts'
 
 describe('private gateway container binding', () => {
   it('defaults to loopback', () => {
@@ -29,4 +29,17 @@ describe('private gateway container binding', () => {
       ).toThrow()
     },
   )
+})
+
+describe('dedicated ingress proxy configuration', () => {
+  it('preserves direct loopback mode', () => {
+    expect(() => requireIngressProxy('127.0.0.1')).not.toThrow()
+  })
+
+  it('requires explicit valid proxy addresses for dedicated ingress', () => {
+    expect(() => requireIngressProxy('172.29.103.2')).toThrow()
+    expect(() => requireIngressProxy('172.29.103.2', [])).toThrow()
+    expect(() => requireIngressProxy('172.29.103.2', ['invalid'])).toThrow()
+    expect(() => requireIngressProxy('172.29.103.2', ['172.29.103.3'])).not.toThrow()
+  })
 })
