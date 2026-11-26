@@ -58,19 +58,24 @@ for backend in backend_a backend_b; do
   done
   [[ "$ready" == 1 ]]
 done
-# A successful TCP connection to the other user's backend is a failure.
-for pair in 'backend_a 172.29.102.2' 'backend_b 172.29.101.2'; do
-  read -r backend address <<< "$pair"
-  "${compose[@]}" exec -T "$backend" node -e "
-    const socket = require('node:net').connect(5174, '$address')
-    socket.once('connect', () => process.exit(1))
-    socket.once('error', (error) =>
-      process.exit(['ECONNREFUSED', 'EHOSTUNREACH', 'ENETUNREACH', 'ETIMEDOUT'].includes(error.code) ? 0 : 1),
+# Fail on any successful TCP connection or unexpected probe error.
+assert_tcp_blocked() {
+  local backend=$1 address=$2 port=$3
+  "${compose[@]}" exec -T "$backend" node -e '
+    const socket = require("node:net").connect(Number(process.argv[2]), process.argv[1])
+    socket.once("connect", () => process.exit(1))
+    socket.once("error", (error) =>
+      process.exit(["ECONNREFUSED", "EHOSTUNREACH", "ENETUNREACH", "ETIMEDOUT"].includes(error.code) ? 0 : 1),
     )
     socket.setTimeout(3000, () => { socket.destroy(); process.exit(0) })
-  "
+  ' "$address" "$port"
+}
+
+for pair in 'backend_a 172.29.102.2' 'backend_b 172.29.101.2'; do
+  read -r backend address <<< "$pair"
+  assert_tcp_blocked "$backend" "$address" 5174
 done
-echo 'Gateway can reach both backends; cross-backend HTTP connections blocked.'
+echo 'Gateway can reach both backends; cross-backend TCP connections blocked.'
 
 # Verify the published listener works and neither backend can reach it directly.
 ready=0
@@ -84,7 +89,7 @@ done
 [[ "$ready" == 1 ]]
 for backend in backend_a backend_b; do
   for address in 172.29.101.3 172.29.102.3 172.29.103.2; do
-    "${compose[@]}" exec -T "$backend" node -e "const s = require('node:net').connect(5180, '$address'); s.on('connect', () => process.exit(1)); s.on('error', () => process.exit(0)); s.setTimeout(3000, () => process.exit(0))"
+    assert_tcp_blocked "$backend" "$address" 5180
   done
 done
 echo 'Gateway ingress reachable from host loopback, not from backend containers.'
