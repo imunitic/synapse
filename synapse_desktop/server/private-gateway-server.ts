@@ -9,7 +9,7 @@ import { loadViteProtectedAssets } from './gateway-vite-assets.ts'
 import type { GatewayHost } from './gateway.ts'
 import type { PasswordAccount } from './gateway-password-verifier.ts'
 import { isPrivateBackendUrl } from './private-network-bind.ts'
-import { privateGatewayBind } from './private-gateway-bind.ts'
+import { privateGatewayBind, requireIngressProxy } from './private-gateway-bind.ts'
 
 interface PrivateGatewayConfig {
   readonly port: number
@@ -71,6 +71,8 @@ async function main(): Promise<void> {
   const path = process.env.SYNAPSE_PRIVATE_GATEWAY_CONFIG
   if (!path) throw new Error('SYNAPSE_PRIVATE_GATEWAY_CONFIG is required')
   const config = validateConfig(JSON.parse(await readFile(resolve(path), 'utf8')) as unknown)
+  const bindAddress = privateGatewayBind(process.env)
+  requireIngressProxy(bindAddress, config.trustedProxyAddresses)
   const assets = await loadViteProtectedAssets(resolve(config.buildDirectory))
   const sessions = createGatewaySessions()
   const server = createServer()
@@ -83,7 +85,6 @@ async function main(): Promise<void> {
     hosts: new Map(config.hosts.map((host) => [host.userId, host])),
     assets,
   })
-  const bindAddress = privateGatewayBind(process.env)
   server.once('error', () => {
     console.error('private gateway listener failed; check bind address and port')
     process.exitCode = 1
