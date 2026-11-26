@@ -4,6 +4,13 @@
 # Do not publish ports or set SYNAPSE_DESKTOP_HOST_MODE=remote.
 FROM node:24-bookworm-slim
 
+# The remote host must be able to clone repositories and run the Git-backed
+# task/diff workflow. Agent CLIs and their authentication are provisioned
+# separately; never include user credentials in this image.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /opt/synapse
 COPY synapse_desktop/package.json synapse_desktop/package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
