@@ -54,41 +54,6 @@ fn ignored(path: &Path, roots: &[PathBuf]) -> bool {
     })
 }
 
-// TEMPORARY: what the process holds when a watcher cannot be made, once.
-fn report_descriptors() {
-    static DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    if DONE.swap(true, Ordering::SeqCst) {
-        return;
-    }
-    let mut total = 0;
-    let mut kinds: std::collections::BTreeMap<String, usize> = Default::default();
-    if let Ok(entries) = std::fs::read_dir("/proc/self/fd") {
-        for entry in entries.flatten() {
-            total += 1;
-            let target = std::fs::read_link(entry.path())
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            let kind = if target.starts_with('/') {
-                "file".to_string()
-            } else {
-                target.split(':').take(2).collect::<Vec<_>>().join(":")
-            };
-            *kinds.entry(kind).or_default() += 1;
-        }
-    }
-    let instances =
-        std::fs::read_to_string("/proc/sys/fs/inotify/max_user_instances").unwrap_or_default();
-    let limits = std::fs::read_to_string("/proc/self/limits").unwrap_or_default();
-    let open = limits
-        .lines()
-        .find(|l| l.starts_with("Max open files"))
-        .unwrap_or("");
-    eprintln!(
-        "SYNAPSE-WATCH fds total={total} kinds={kinds:?} max_user_instances={} {open}",
-        instances.trim()
-    );
-}
-
 async fn place_dirs(place: &str, context: &Context) -> Vec<String> {
     let Ok(config) = crate::config::load_config(&context.config_file, &context.environment) else {
         return vec![];
@@ -142,7 +107,6 @@ fn files(place: String, push: Push, context: Arc<Context>, timing: TopicTiming) 
     // The changes are gathered for a moment, then the client is told once.
     {
         let (stopped, changed, push) = (stopped.clone(), changed.clone(), push.clone());
-        let told = place.clone();
         tokio::spawn(async move {
             loop {
                 changed.notified().await;
@@ -154,7 +118,6 @@ fn files(place: String, push: Push, context: Arc<Context>, timing: TopicTiming) 
                 if stopped.load(Ordering::SeqCst) {
                     return;
                 }
-                eprintln!("SYNAPSE-WATCH push {told}");
                 push(json!({}), None);
             }
         });
@@ -193,10 +156,6 @@ fn files(place: String, push: Push, context: Arc<Context>, timing: TopicTiming) 
                     let (changed, roots) = (changed.clone(), roots.clone());
                     let made =
                         notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-                            // TEMPORARY: diagnosing the Linux watcher in CI.
-                            if let Err(error) = &event {
-                                eprintln!("SYNAPSE-WATCH error {error:?}");
-                            }
                             if let Ok(event) = event {
                                 // Reading a file is not a change. On Linux every open and
                                 // close is an Access event, so a client that reads what it is
@@ -204,7 +163,6 @@ fn files(place: String, push: Push, context: Arc<Context>, timing: TopicTiming) 
                                 if matches!(event.kind, notify::EventKind::Access(_)) {
                                     return;
                                 }
-                                eprintln!("SYNAPSE-WATCH event {:?} {:?}", event.kind, event.paths);
                                 if event.paths.iter().any(|p| !ignored(p, &roots))
                                     || event.paths.is_empty()
                                 {
@@ -212,21 +170,12 @@ fn files(place: String, push: Push, context: Arc<Context>, timing: TopicTiming) 
                                 }
                             }
                         });
-                    match made {
-                        Ok(mut watcher) => {
-                            match watcher.watch(Path::new(dir), RecursiveMode::Recursive) {
-                                Ok(()) => {
-                                    eprintln!("SYNAPSE-WATCH watching {dir}");
-                                    watchers.push(watcher);
-                                }
-                                Err(error) => {
-                                    eprintln!("SYNAPSE-WATCH watch failed {dir} {error:?}")
-                                }
-                            }
-                        }
-                        Err(error) => {
-                            eprintln!("SYNAPSE-WATCH watcher failed {dir} {error:?}");
-                            report_descriptors();
+                    if let Ok(mut watcher) = made {
+                        if watcher
+                            .watch(Path::new(dir), RecursiveMode::Recursive)
+                            .is_ok()
+                        {
+                            watchers.push(watcher);
                         }
                     }
                 }

@@ -218,8 +218,11 @@ pub fn serve(link: HostLink, options: ServeOptions) -> Connection {
     tokio::spawn(async move {
         // The stoppers of what the subscriptions started, by topic.
         let stoppers: Arc<Mutex<HashMap<Topic, Stop>>> = Arc::new(Mutex::new(HashMap::new()));
-        // A topic that was unsubscribed before its subscription had started is stopped as it starts.
-        let cancelled: Arc<Mutex<HashSet<Topic>>> = Arc::new(Mutex::new(HashSet::new()));
+        // Which start of a topic is the current one. A start that is no longer current when it has
+        // started, because its topic was unsubscribed meanwhile, perhaps and subscribed again, or
+        // the connection closed, is stopped at once.
+        let current: Arc<Mutex<HashMap<Topic, u64>>> = Arc::new(Mutex::new(HashMap::new()));
+        let mut starts: u64 = 0;
 
         while let Some(message) = incoming.recv().await {
             match message {
@@ -241,7 +244,9 @@ pub fn serve(link: HostLink, options: ServeOptions) -> Connection {
                     if known {
                         continue;
                     }
-                    cancelled.lock().unwrap().remove(&topic);
+                    starts += 1;
+                    let start = starts;
+                    current.lock().unwrap().insert(topic.clone(), start);
                     if let Some(subscribe) = &options.subscribe {
                         let push: Push = {
                             let out = inner.out.clone();
@@ -256,26 +261,33 @@ pub fn serve(link: HostLink, options: ServeOptions) -> Connection {
                         };
                         let starting = subscribe(topic.clone(), after, push);
                         let stoppers = stoppers.clone();
-                        let cancelled = cancelled.clone();
+                        let current = current.clone();
                         let topic = topic.clone();
                         tokio::spawn(async move {
                             let stop = starting.await;
-                            if cancelled.lock().unwrap().remove(&topic) {
+                            let replaced = {
+                                let current = current.lock().unwrap();
+                                if current.get(&topic) == Some(&start) {
+                                    stoppers.lock().unwrap().insert(topic, stop)
+                                } else {
+                                    Some(stop)
+                                }
+                            };
+                            if let Some(stop) = replaced {
                                 stop();
-                            } else {
-                                stoppers.lock().unwrap().insert(topic, stop);
                             }
                         });
                     }
                 }
                 ClientMessage::Unsubscribe { topic } => {
                     inner.subscribed.lock().unwrap().remove(&topic);
-                    let stop = stoppers.lock().unwrap().remove(&topic);
-                    match stop {
-                        Some(stop) => stop(),
-                        None => {
-                            cancelled.lock().unwrap().insert(topic);
-                        }
+                    // A start still under way sees it is no longer current and stops itself.
+                    let stop = {
+                        current.lock().unwrap().remove(&topic);
+                        stoppers.lock().unwrap().remove(&topic)
+                    };
+                    if let Some(stop) = stop {
+                        stop();
                     }
                 }
                 ClientMessage::Stream { session, data } => {
@@ -287,13 +299,11 @@ pub fn serve(link: HostLink, options: ServeOptions) -> Connection {
         }
         // The connection closed: what its subscriptions started ends with it, and one that is still
         // starting is ended as soon as it has.
-        let stops: Vec<(Topic, Stop)> = stoppers.lock().unwrap().drain().collect();
-        let started: HashSet<Topic> = stops.iter().map(|(topic, _)| topic.clone()).collect();
-        for topic in inner.subscribed.lock().unwrap().drain() {
-            if !started.contains(&topic) {
-                cancelled.lock().unwrap().insert(topic);
-            }
-        }
+        inner.subscribed.lock().unwrap().clear();
+        let stops: Vec<(Topic, Stop)> = {
+            current.lock().unwrap().clear();
+            stoppers.lock().unwrap().drain().collect()
+        };
         for (_, stop) in stops {
             stop();
         }

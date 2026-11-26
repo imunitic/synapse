@@ -360,6 +360,82 @@ async fn starts_a_subscription_for_the_first_subscribe_to_a_topic_and_ends_it_wi
     assert_eq!(ended.load(Ordering::SeqCst), 1);
 }
 
+/// A subscriber that takes a moment to start, so that messages can arrive while it starts.
+fn slow_counting(started: Arc<AtomicUsize>, ended: Arc<AtomicUsize>) -> ServeOptions {
+    let mut options = ServeOptions::new(files(), capabilities());
+    options.subscribe = Some(Arc::new(move |_topic, _after, _push| {
+        started.fetch_add(1, Ordering::SeqCst);
+        let ended = ended.clone();
+        Box::pin(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            let stop: Box<dyn FnOnce() + Send> = Box::new(move || {
+                ended.fetch_add(1, Ordering::SeqCst);
+            });
+            stop
+        })
+    }));
+    options
+}
+
+#[tokio::test]
+async fn a_subscription_ended_while_it_starts_and_taken_again_leaves_only_the_new_one() {
+    let started = Arc::new(AtomicUsize::new(0));
+    let ended = Arc::new(AtomicUsize::new(0));
+    let (mut client, host) = link_pair();
+    serve(host, slow_counting(started.clone(), ended.clone()));
+    next(&mut client).await;
+    let work = topic("files.work");
+    // What a component that is mounted twice sends: subscribe, unsubscribe, subscribe.
+    for message in [
+        ClientMessage::Subscribe {
+            topic: work.clone(),
+            after: None,
+        },
+        ClientMessage::Unsubscribe {
+            topic: work.clone(),
+        },
+        ClientMessage::Subscribe {
+            topic: work.clone(),
+            after: None,
+        },
+    ] {
+        client.outgoing.send(message).unwrap();
+    }
+    settle().await;
+    assert_eq!(started.load(Ordering::SeqCst), 2);
+    assert_eq!(ended.load(Ordering::SeqCst), 1, "the first one is ended");
+    client
+        .outgoing
+        .send(ClientMessage::Unsubscribe { topic: work })
+        .unwrap();
+    settle().await;
+    assert_eq!(
+        ended.load(Ordering::SeqCst),
+        2,
+        "and the second with its unsubscribe"
+    );
+}
+
+#[tokio::test]
+async fn a_subscription_still_starting_when_the_connection_closes_is_ended() {
+    let started = Arc::new(AtomicUsize::new(0));
+    let ended = Arc::new(AtomicUsize::new(0));
+    let (mut client, host) = link_pair();
+    serve(host, slow_counting(started.clone(), ended.clone()));
+    next(&mut client).await;
+    client
+        .outgoing
+        .send(ClientMessage::Subscribe {
+            topic: topic("files.work"),
+            after: None,
+        })
+        .unwrap();
+    drop(client);
+    settle().await;
+    assert_eq!(started.load(Ordering::SeqCst), 1);
+    assert_eq!(ended.load(Ordering::SeqCst), 1);
+}
+
 #[tokio::test]
 async fn ends_what_it_started_when_the_connection_closes() {
     let started = Arc::new(Mutex::new(Vec::new()));
