@@ -104,6 +104,30 @@ login_status() {
 [[ "$(login_status -H 'X-Forwarded-For: 198.51.100.7')" == 200 ]]
 echo 'Composed login accepts only a single forwarded identity from the fixture proxy peer.'
 
+# Capture only the fixture cookie in memory; replay it after logout to verify
+# server-side revocation rather than merely browser-side cookie clearing.
+cookie=$(curl -fsS -D - -o /dev/null \
+  -H 'Host: staging.example.test' \
+  -H 'Origin: https://staging.example.test' \
+  -H 'Content-Type: application/json' \
+  -H 'X-Forwarded-For: 198.51.100.7' \
+  --data '{"username":"fixture-a","password":"ci-fixture-password-a"}' \
+  http://127.0.0.1:5180/auth/session |
+  awk 'tolower($1) == "set-cookie:" { sub(/;.*/, "", $2); print $2; exit }')
+[[ -n "$cookie" ]]
+session_status() {
+  curl -sS -o /dev/null -w '%{http_code}' \
+    -H 'Host: staging.example.test' \
+    -H 'Origin: https://staging.example.test' \
+    -H "Cookie: $cookie" "$@"
+}
+[[ "$(session_status http://127.0.0.1:5180/auth/me)" == 200 ]]
+[[ "$(session_status -X POST http://127.0.0.1:5180/auth/logout)" == 200 ]]
+[[ "$(session_status http://127.0.0.1:5180/auth/me)" == 401 ]]
+unset cookie
+echo 'Composed session authenticates and rejects the revoked cookie after logout.'
+
+
 for backend in backend_a backend_b; do
   for address in 172.29.101.3 172.29.102.3 172.29.103.2; do
     assert_tcp_blocked "$backend" "$address" 5180
