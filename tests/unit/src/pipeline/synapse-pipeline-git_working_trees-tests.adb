@@ -2,6 +2,8 @@ with Ada.Strings.Fixed;
 with Ada.Strings.Unbounded;
 with Ada.Text_IO;
 
+with GNAT.OS_Lib;
+
 with AUnit.Assertions;
 
 with Synapse.Core.Text_Lists;
@@ -370,6 +372,59 @@ package body Synapse.Pipeline.Git_Working_Trees.Tests is
          raise;
    end A_Tracked_File_An_Ignore_Rule_Matches_Stays_In_The_Snapshot;
 
+   --  A file changed in the second it was staged, to the same size, looks
+   --  unchanged to git by its stat, and git hashes it again only because the
+   --  index is no older than the entry. A copy of the index written later
+   --  would hide that and keep the staged content.
+   procedure A_File_Changed_In_The_Second_It_Was_Staged_Is_In_The_Snapshot
+     (T : in out Test_Cases_Class)
+   is
+      pragma Unreferenced (T);
+      use GNAT.OS_Lib;
+      Scratch : constant Synapse.Test_Scratch.Scratch :=
+        Synapse.Test_Scratch.Make;
+      Process : aliased System_Process.System_Process;
+      Trees   : Git_Working_Trees (Process'Access);
+      Dir     : constant String := Synapse.Test_Scratch.Path (Scratch);
+
+      procedure Write (Name, Text : String) is
+         File : Ada.Text_IO.File_Type;
+      begin
+         Ada.Text_IO.Create (File, Ada.Text_IO.Out_File, Dir & "/" & Name);
+         Ada.Text_IO.Put_Line (File, Text);
+         Ada.Text_IO.Close (File);
+      end Write;
+   begin
+      Synapse.Test_Scratch.Init_Repo (Dir);
+      Write ("a.txt", "let x = 7");
+      Synapse.Test_Scratch.Git (Dir, "add", "-A");
+      Synapse.Test_Scratch.Git (Dir, "commit", "-q", "-m", "first");
+      declare
+         Staged : constant OS_Time := File_Time_Stamp (Dir & "/a.txt");
+      begin
+         Write ("a.txt", "let x = 1");
+         Set_File_Last_Modify_Time_Stamp (Dir & "/a.txt", Staged);
+         Set_File_Last_Modify_Time_Stamp (Dir & "/.git/index", Staged);
+      end;
+      delay 1.1;
+      declare
+         Snapshot : constant Working_Trees.Maybe_Text :=
+           Trees.Snapshot (Dir, "racy-test");
+      begin
+         Assert (Snapshot.Found, "the working tree has a snapshot");
+         Assert
+           (Synapse.Test_Scratch.Git
+              (Dir, "show", To_String (Snapshot.Value) & ":a.txt")
+            = "let x = 1",
+            "the snapshot has what the file holds now, not what was staged");
+      end;
+      Synapse.Test_Scratch.Remove (Scratch);
+   exception
+      when others =>
+         Synapse.Test_Scratch.Remove (Scratch);
+         raise;
+   end A_File_Changed_In_The_Second_It_Was_Staged_Is_In_The_Snapshot;
+
    overriding
    function Name (T : Test_Case) return AUnit.Message_String is
       pragma Unreferenced (T);
@@ -399,6 +454,10 @@ package body Synapse.Pipeline.Git_Working_Trees.Tests is
       Register_Routine
         (T, Changes_That_Git_Cannot_Give_Are_None'Access,
          "Changes that git cannot give are none");
+      Register_Routine
+        (T,
+         A_File_Changed_In_The_Second_It_Was_Staged_Is_In_The_Snapshot'Access,
+         "A file changed in the second it was staged is in the snapshot");
       Register_Routine
         (T,
          A_Tracked_File_An_Ignore_Rule_Matches_Stays_In_The_Snapshot'Access,

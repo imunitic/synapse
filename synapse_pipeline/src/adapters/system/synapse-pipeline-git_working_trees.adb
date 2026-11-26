@@ -4,6 +4,8 @@ with Ada.Strings.Fixed;
 with Ada.Strings.Maps;
 with Ada.Strings.Unbounded;
 
+with GNAT.OS_Lib;
+
 with Synapse.Core.Text_Lists;
 
 package body Synapse.Pipeline.Git_Working_Trees is
@@ -121,13 +123,18 @@ package body Synapse.Pipeline.Git_Working_Trees is
    --  Starts the temporary index at Index as a copy of the repository's own
    --  index in Git_Dir, so that a tracked file an ignore rule matches stays
    --  in the snapshot, and git hashes again only the files whose stat
-   --  changed. Without an index of its own it starts empty.
+   --  changed. Without an index of its own it starts empty. The copy keeps
+   --  the time the index was last written: git hashes again an entry no
+   --  older than its index, since a file changed in the second it was staged
+   --  looks unchanged, and a copy written now would hide that.
    procedure Seed (Git_Dir, Index : String) is
       Own : constant String := Git_Dir & "/index";
    begin
       Forget (Index);
       if Git_Dir /= "" and then Ada.Directories.Exists (Own) then
          Ada.Directories.Copy_File (Own, Index);
+         GNAT.OS_Lib.Set_File_Last_Modify_Time_Stamp
+           (Index, GNAT.OS_Lib.File_Time_Stamp (Own));
       end if;
    exception
       when others =>
